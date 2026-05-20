@@ -10,7 +10,7 @@ export class UploadsService {
    * CSV 광고 업로드 처리.
    * @deprecated 본문은 Plan B2b 에서 stub 으로 대체됨.
    *
-   * 3-layer schema (ADR-0013) 전환 이후 listingId 기반 매칭 로직이 필요하며,
+   * 3-layer product schema 전환 이후 listingId 기반 매칭 로직이 필요하며,
    * 샘플 CSV 포맷 재검토가 선행되어야 함. Plan B3 에서 재구현 예정.
    * 현재는 HTTP 501 Not Implemented 반환 — UI 는 보존 (라우트 + DTO + 호출 경로 유지).
    */

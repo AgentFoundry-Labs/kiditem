@@ -31,7 +31,7 @@ export const MasterImageItemSchema = z.object({
 });
 export type MasterImageItem = z.infer<typeof MasterImageItemSchema>;
 
-// ===== Image endpoint envelopes (ADR-0020 successor, W1) =====
+// ===== Image endpoint envelopes =====
 export const GetMasterImagesResponseSchema = z.object({
   images: z.array(MasterImageItemSchema),
 });
@@ -60,7 +60,7 @@ export const MasterSchema = z.object({
   organizationId: z.string().uuid(),
   code: z.string(),
   legacyCode: z.string().nullable(),
-  // Source barcode/EAN (ADR-0022). Non-unique — search may return multiple
+  // Source barcode/EAN. Non-unique — search may return multiple
   // masters. Distinct from `ProductOptionSchema.barcode` which is the true
   // option/scanner barcode and remains unique per organization.
   barcode: z.string().nullable(),

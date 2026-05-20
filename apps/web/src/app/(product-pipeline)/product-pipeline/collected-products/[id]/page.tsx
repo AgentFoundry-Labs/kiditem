@@ -5,7 +5,7 @@ import {
   COLLECTED_PRODUCTS_ROOT,
   collectedProductDetailHref,
 } from '../../_shared/lib/product-pipeline-routes';
-import { ProductWorkspaceScreen } from './components/ProductWorkspaceScreen';
+import { ProductWorkspaceScreen } from '../../_shared/components/workspace/ProductWorkspaceScreen';
 
 export default function ProductDetailPage() {
   const params = useParams();

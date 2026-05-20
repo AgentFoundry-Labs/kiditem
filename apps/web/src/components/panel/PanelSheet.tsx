@@ -40,7 +40,7 @@ export function PanelSheet() {
   );
 
   useEffect(() => {
-    if (!isOpen || connectionStatus === 'connected') return;
+    if (!isOpen) return;
     const now = Date.now();
     if (recoveryInFlightRef.current || now - recoveryLastRunRef.current < 30_000) {
       return;
@@ -118,6 +118,9 @@ export function PanelSheet() {
               </button>
             </div>
           </div>
+          <Dialog.Description className="sr-only">
+            진행 중인 작업과 최근 알림을 확인하고 정리합니다.
+          </Dialog.Description>
 
           {connectionStatus !== 'connected' && (
             <div className="px-4 py-1.5 text-xs text-amber-700 bg-amber-50 border-b border-amber-100">

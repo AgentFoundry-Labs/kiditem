@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PickingService } from '../picking.service';
-import type { PickingRepositoryPort } from '../../port/out/picking.repository.port';
-import type { ConfirmedOrdersPort } from '../../port/out/confirmed-orders.port';
+import type { PickingRepositoryPort } from '../../port/out/repository/picking.repository.port';
+import type { ConfirmedOrdersPort } from '../../port/out/cross-domain/confirmed-orders.port';
 
 function makeRepository() {
   return {

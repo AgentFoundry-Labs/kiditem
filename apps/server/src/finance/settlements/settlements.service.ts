@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, Optional } from '@nestjs/common';
+import { Injectable, BadRequestException, Optional, Inject } from '@nestjs/common';
 import type {
   SettlementReconcileDetail,
   SettlementReconcileResponse,
@@ -6,7 +6,10 @@ import type {
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildPerListingMetrics } from '../../common/per-listing-profit';
 import { kstMonthStart } from '../../common/kst';
-import { OperationAlertService } from '../../automation/application/service/operation-alert.service';
+import {
+  FINANCE_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../application/port/out/cross-domain/operation-alert.port';
 import { CreateSettlementDto, UpdateSettlementDto } from './dto';
 
 const FINANCE_ALERT_HREF = '/sales-analysis';
@@ -20,7 +23,8 @@ export class SettlementsService {
   constructor(
     private readonly prisma: PrismaService,
     @Optional()
-    private readonly operationAlerts?: OperationAlertService,
+    @Inject(FINANCE_OPERATION_ALERT_PORT)
+    private readonly operationAlerts?: OperationAlertPort,
   ) {}
 
   private resolveWindow(period: string) {

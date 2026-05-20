@@ -10,7 +10,7 @@ import {
   ACTION_BOARD_REPOSITORY_PORT,
   type ActionBoardPerListingMetrics,
   type ActionBoardRepositoryPort,
-} from '../port/out/action-board.repository.port';
+} from '../port/out/repository/action-board.repository.port';
 import type { JsonValue } from '../port/persistence-records';
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;

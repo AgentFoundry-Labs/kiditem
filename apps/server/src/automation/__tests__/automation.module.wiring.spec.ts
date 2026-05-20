@@ -42,12 +42,13 @@ import { WorkflowRunnerService } from '../application/service/workflow-runner.se
 
 // port tokens
 import { OPERATION_ALERT_PORT } from '../application/port/in/operation-alert.port';
-import { ACTION_BOARD_REPOSITORY_PORT } from '../application/port/out/action-board.repository.port';
-import { ALERTS_REPOSITORY_PORT } from '../application/port/out/alerts.repository.port';
-import { MARKETPLACE_CATALOG_REPOSITORY_PORT } from '../application/port/out/marketplace-catalog.repository.port';
-import { MARKETPLACE_INSTALL_STORE_PORT } from '../application/port/out/marketplace-install-store.port';
-import { OPERATION_ALERT_REPOSITORY_PORT } from '../application/port/out/operation-alert.repository.port';
-import { WORKFLOW_ORCHESTRATION_REPOSITORY_PORT } from '../application/port/out/workflow-orchestration.repository.port';
+import { WORKFLOW_RUN_CANCELLATION_PORT } from '../application/port/in/workflow-run-cancellation.port';
+import { ACTION_BOARD_REPOSITORY_PORT } from '../application/port/out/repository/action-board.repository.port';
+import { ALERTS_REPOSITORY_PORT } from '../application/port/out/repository/alerts.repository.port';
+import { MARKETPLACE_CATALOG_REPOSITORY_PORT } from '../application/port/out/repository/marketplace-catalog.repository.port';
+import { MARKETPLACE_INSTALL_STORE_PORT } from '../application/port/out/repository/marketplace-install-store.port';
+import { OPERATION_ALERT_REPOSITORY_PORT } from '../application/port/out/repository/operation-alert.repository.port';
+import { WORKFLOW_ORCHESTRATION_REPOSITORY_PORT } from '../application/port/out/repository/workflow-orchestration.repository.port';
 
 const IMPORTS_KEY = 'imports';
 const CONTROLLERS_KEY = 'controllers';
@@ -66,6 +67,7 @@ const EXPECTED_OUT_PORT_BINDINGS = [
 
 const EXPECTED_IN_PORT_BINDINGS = [
   [OPERATION_ALERT_PORT, OperationAlertService],
+  [WORKFLOW_RUN_CANCELLATION_PORT, WorkflowRunnerService],
 ] as const;
 
 // Architecture-guard companion to automation.architecture.spec.ts. Freezes
@@ -152,10 +154,12 @@ describe('AutomationModule capability wiring', () => {
     }
   });
 
-  it('exports OPERATION_ALERT_PORT for cross-domain consumers', () => {
+  it('exports owner-side ports for cross-domain consumers', () => {
     const exported: unknown[] =
       Reflect.getMetadata(EXPORTS_KEY, AutomationModule) ?? [];
     expect(exported).toContain(OPERATION_ALERT_PORT);
+    expect(exported).toContain(WORKFLOW_RUN_CANCELLATION_PORT);
+    expect(exported).not.toContain(OperationAlertService);
   });
 
   it('keeps the public /api route prefixes', () => {

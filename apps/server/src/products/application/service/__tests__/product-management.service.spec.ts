@@ -5,21 +5,19 @@ import { ProductManagementGradeService } from '../product-management-grade.servi
 import { ProductManagementService } from '../product-management.service';
 import type { ManagementFacts, ProductManagementGradeInfo } from '../product-management.read-model';
 
-function createService(prisma: any): ProductManagementService {
-  const facts = new ProductManagementFactsService(prisma);
-  const grades = new ProductManagementGradeService(prisma, facts);
+function createService(management: any): ProductManagementService {
+  const facts = new ProductManagementFactsService(management);
+  const grades = new ProductManagementGradeService(management, facts);
   const enrichment = new ProductManagementEnrichmentService(facts);
-  return new ProductManagementService(prisma, facts, grades, enrichment);
+  return new ProductManagementService(management, facts, grades, enrichment);
 }
 
 describe('ProductManagementService.pipelineStats', () => {
   it('separates catalog total from channel-linked products', async () => {
-    const prisma = {
-      masterProduct: {
-        findMany: vi.fn().mockResolvedValue([{ id: 'master-linked' }, { id: 'master-inventory-only' }]),
-      },
+    const management = {
+      findPipelineMasterIds: vi.fn().mockResolvedValue(['master-linked', 'master-inventory-only']),
     };
-    const service = createService(prisma);
+    const service = createService(management);
     const grades = new Map<string, ProductManagementGradeInfo>([
       ['master-linked', { grade: 'A', score: 80, rank: 1, prevRank: null, strategy: 'keep' }],
       ['master-inventory-only', { grade: 'B', score: 50, rank: 2, prevRank: null, strategy: 'watch' }],
@@ -53,16 +51,14 @@ describe('ProductManagementService.pipelineStats', () => {
   });
 
   it('counts profit risk only for channel-linked products with live profit data', async () => {
-    const prisma = {
-      masterProduct: {
-        findMany: vi.fn().mockResolvedValue([
-          { id: 'master-linked-low' },
-          { id: 'master-linked-no-profit' },
-          { id: 'master-inventory-only-low' },
-        ]),
-      },
+    const management = {
+      findPipelineMasterIds: vi.fn().mockResolvedValue([
+        'master-linked-low',
+        'master-linked-no-profit',
+        'master-inventory-only-low',
+      ]),
     };
-    const service = createService(prisma);
+    const service = createService(management);
     const grades = new Map<string, ProductManagementGradeInfo>([
       ['master-linked-low', { grade: 'B', score: 60, rank: 1, prevRank: null, strategy: 'watch' }],
       ['master-linked-no-profit', { grade: 'C', score: 20, rank: 2, prevRank: null, strategy: 'fix' }],
@@ -99,18 +95,17 @@ describe('ProductManagementService.pipelineStats', () => {
   });
 
   it('does not treat missing profit data as low-margin when filtering', async () => {
-    const prisma = {
-      masterProduct: {
-        findMany: vi.fn()
-          .mockResolvedValueOnce([
-            { id: 'master-linked-low' },
-            { id: 'master-linked-no-profit' },
-            { id: 'master-inventory-only-low' },
-          ])
-          .mockResolvedValueOnce([{ id: 'master-linked-low' }]),
-      },
+    const management = {
+      findAllMasterIds: vi.fn().mockResolvedValue([
+        'master-linked-low',
+        'master-linked-no-profit',
+        'master-inventory-only-low',
+      ]),
+      findPipelineMasterIds: vi.fn((input: { matchingIds: string[] | null }) =>
+        Promise.resolve(input.matchingIds ?? []),
+      ),
     };
-    const service = createService(prisma);
+    const service = createService(management);
     const facts: ManagementFacts = {
       stockByMaster: new Map(),
       inventoryByMaster: new Map(),

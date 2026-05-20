@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OrdersService } from '../orders.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { OrderListResponseSchema, OrderActionResponseSchema, OrderStatsResponseSchema } from '@kiditem/shared/order';
-import type { CoupangProviderPort } from '../../../channels/application/port/out/coupang-provider.port';
+import type { CoupangProviderPort } from '../../../channels/application/port/out/provider/coupang-provider.port';
 
 function makePrisma() {
   return {

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   MarketplaceInstallStorePort,
   WorkflowCatalogInstallSource,
-} from '../../port/out/marketplace-install-store.port';
+} from '../../port/out/repository/marketplace-install-store.port';
 import { MarketplaceInstallService } from '../marketplace-install.service';
 
 function makeStore(): MarketplaceInstallStorePort {

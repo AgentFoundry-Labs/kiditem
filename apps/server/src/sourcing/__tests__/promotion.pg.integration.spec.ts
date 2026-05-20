@@ -9,12 +9,12 @@
  *   - Reject happy-path and state-transition guards (already-promoted,
  *     promote-after-reject).
  *
- * Wiring strategy: instantiate the real `SourcingPromotionService` and its
- * dependency chain (`MasterPromotionService`, `MasterCodeService`,
- * `OptionsService`, `BundleStockService`) directly against the test Prisma
- * client. The agent gateway is replaced with a stub that records calls but
- * never throws — Phase 4's AI trigger has its own integration coverage and
- * is fire-and-forget here.
+ * Wiring strategy: instantiate the real `SourcingPromotionService`, its local
+ * products adapter, and `ProductsModule` against the test Prisma client so the
+ * test exercises the same owner-side products port boundary as production. The
+ * agent gateway is replaced with a stub that records calls but never throws —
+ * Phase 4's AI trigger has its own integration coverage and is fire-and-forget
+ * here.
  */
 import {
   afterAll,
@@ -28,16 +28,25 @@ import type { PrismaClient } from '@prisma/client';
 import {
   BadRequestException,
   ConflictException,
+  Global,
+  Module,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { Test, type TestingModule } from '@nestjs/testing';
+import { PrismaModule } from '../../prisma/prisma.module';
+import { PrismaService } from '../../prisma/prisma.service';
+import { StorageService } from '../../common/storage/storage.service';
+import { ProductsModule } from '../../products/products.module';
 import { SourcingPromotionService } from '../application/service/sourcing-promotion.service';
-import { MasterPromotionService } from '../../products/application/service/master-promotion.service';
-import { MasterCodeService } from '../../products/adapter/out/prisma/master-code.service';
-import { OptionsService } from '../../products/application/service/options.service';
-import { BundleStockService } from '../../products/application/service/bundle-stock.service';
 import { SourcingProductsCatalogAdapter } from '../adapter/out/products/products-catalog.adapter';
-import type { SourcingAgentGatewayPort } from '../application/port/out/sourcing-agent.gateway.port';
+import { SourcingCandidateRepositoryAdapter } from '../adapter/out/repository/sourcing-candidate.repository.adapter';
+import {
+  SOURCING_AGENT_GATEWAY_PORT,
+  type SourcingAgentGatewayPort,
+} from '../application/port/out/runtime/sourcing-agent.gateway.port';
+import { SOURCING_PRODUCTS_CATALOG_PORT } from '../application/port/out/cross-domain/products-catalog.port';
+import { SOURCING_CANDIDATE_REPOSITORY_PORT } from '../application/port/out/repository/sourcing-candidate.repository.port';
 import {
   makeTestPrisma,
   resetDb,
@@ -59,8 +68,23 @@ function makeGatewayStub(): GatewayStub {
     notifyPromoted: async (req) => {
       notifyCalls.push(req);
     },
+    startProductGeneration: async (req) => ({
+      candidateId: req.candidateId,
+      parentOperationKey: `sourcing:candidate:${req.candidateId}`,
+      detailGenerationId: null,
+      thumbnailGenerationId: null,
+      contentWorkspaceId: null,
+      href: `/sourcing/candidates/${req.candidateId}`,
+    }),
   };
 }
+
+@Global()
+@Module({
+  providers: [{ provide: StorageService, useValue: {} as unknown as StorageService }],
+  exports: [StorageService],
+})
+class StubStorageModule {}
 
 interface CandidateSeed {
   sourceUrl?: string;
@@ -180,23 +204,44 @@ async function seedDetailPageArtifact(
 
 describe('SourcingPromotionService (PG integration)', () => {
   let prisma: PrismaClient;
+  let moduleRef: TestingModule | undefined;
   let service: SourcingPromotionService;
   let gateway: GatewayStub;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const codeSvc = new MasterCodeService(prisma as any);
-    const bundleStockSvc = new BundleStockService(prisma as any);
-    const optionsSvc = new OptionsService(prisma as any, bundleStockSvc);
-    const promotionSvc = new MasterPromotionService(prisma as any, codeSvc, optionsSvc);
-    const adapter = new SourcingProductsCatalogAdapter(promotionSvc);
     gateway = makeGatewayStub();
-    service = new SourcingPromotionService(prisma as any, adapter, gateway);
+    moduleRef = await Test.createTestingModule({
+      imports: [PrismaModule, StubStorageModule, ProductsModule],
+      providers: [
+        SourcingPromotionService,
+        SourcingProductsCatalogAdapter,
+        SourcingCandidateRepositoryAdapter,
+        {
+          provide: SOURCING_PRODUCTS_CATALOG_PORT,
+          useExisting: SourcingProductsCatalogAdapter,
+        },
+        {
+          provide: SOURCING_CANDIDATE_REPOSITORY_PORT,
+          useExisting: SourcingCandidateRepositoryAdapter,
+        },
+        {
+          provide: SOURCING_AGENT_GATEWAY_PORT,
+          useValue: gateway,
+        },
+      ],
+    })
+      .overrideProvider(PrismaService)
+      .useValue(prisma)
+      .compile();
+
+    service = moduleRef.get(SourcingPromotionService);
   });
 
   afterAll(async () => {
-    await prisma.$disconnect();
+    await moduleRef?.close();
+    await prisma?.$disconnect();
   });
 
   beforeEach(async () => {
@@ -361,6 +406,57 @@ describe('SourcingPromotionService (PG integration)', () => {
       targetMasterId: result.masterId,
       currentRevisionId: detail.revisionId,
     });
+  });
+
+  it('promotion creates the current product preparation with selected registration assets', async () => {
+    const { id: candidateId, organizationId } = await seedCandidate(prisma);
+    const generation = await prisma.thumbnailGeneration.create({
+      data: {
+        organizationId,
+        masterId: null,
+        sourceCandidateId: candidateId,
+        originalUrl: 'https://example.com/0.jpg',
+        method: 'generate',
+        status: 'succeeded',
+        phase: 'ready',
+      },
+    });
+    const thumbnailCandidate = await prisma.thumbnailGenerationCandidate.create({
+      data: {
+        organizationId,
+        generationId: generation.id,
+        url: 'http://storage.local/kiditem/thumbnail-generations/generated.png',
+        storageKey: 'thumbnail-generations/generated.png',
+        filename: 'generated.png',
+        sortOrder: 0,
+      },
+    });
+    const detail = await seedDetailPageArtifact(prisma, { candidateId, organizationId });
+
+    const result = await service.promote(candidateId, organizationId, {
+      options: [{ optionName: 'Red' }],
+      selectedThumbnailGenerationCandidateId: thumbnailCandidate.id,
+      selectedDetailPageGenerationId: detail.contentGenerationId,
+    });
+
+    const preparation = await prisma.productPreparation.findFirst({
+      where: { organizationId, sourceCandidateId: candidateId, isDeleted: false },
+    });
+    expect(preparation).toMatchObject({
+      organizationId,
+      sourceCandidateId: candidateId,
+      masterId: result.masterId,
+      displayName: 'Toy Candidate',
+      status: 'product_registered',
+      isCurrentForMaster: true,
+      selectedThumbnailUrl: thumbnailCandidate.url,
+      selectedThumbnailGenerationId: generation.id,
+      selectedThumbnailGenerationCandidateId: thumbnailCandidate.id,
+      selectedDetailPageGenerationId: detail.contentGenerationId,
+      selectedDetailPageArtifactId: detail.artifactId,
+      selectedDetailPageRevisionId: detail.revisionId,
+    });
+    expect(preparation!.appliedToMasterAt).toBeInstanceOf(Date);
   });
 
   it('promotion accepts a selected detail-page generation linked to the candidate through its artifact', async () => {

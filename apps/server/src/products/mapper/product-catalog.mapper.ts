@@ -16,7 +16,7 @@ import type {
   CatalogCountsRow,
   CatalogMasterRow,
   CatalogOptionRow,
-} from '../adapter/out/prisma/product-catalog.query';
+} from '../application/port/out/repository/product-catalog.repository.port';
 
 export function range(values: Array<number | null | undefined>): MoneyRange | null {
   const nums = values.filter((v): v is number => typeof v === 'number');

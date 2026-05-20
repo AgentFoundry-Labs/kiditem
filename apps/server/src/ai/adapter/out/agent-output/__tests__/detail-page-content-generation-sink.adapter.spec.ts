@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DetailPageContentGenerationSinkAdapter } from '../detail-page-content-generation-sink.adapter';
-import type { OperationAlertService } from '../../../../../automation/application/service/operation-alert.service';
+import type { OperationAlertPort } from '../../../../application/port/out/cross-domain/operation-alert.port';
 import type { DetailPageGeneratedImagesService } from '../../../../application/service/detail-page-generated-images.service';
 import type { ContentAssetService } from '../../../../application/service/content-asset.service';
+import type { ProductGenerationAlertService } from '../../../../application/service/product-generation-alert.service';
 
 const ORG = '11111111-1111-1111-1111-111111111111';
 const OTHER_ORG = '22222222-2222-2222-2222-222222222222';
@@ -42,7 +43,7 @@ function makeRow(overrides: Record<string, unknown> = {}) {
     },
     generatedTitle: '키즈 텀블러',
     sourceCandidateId: CANDIDATE_ID,
-    registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+    contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
     detailPageArtifactId: null,
     triggeredByUserId: 'user-1',
     status: 'PROCESSING',
@@ -64,17 +65,17 @@ function makePrismaStub(row: ReturnType<typeof makeRow> | null) {
     detailPageArtifact: {
       create: vi.fn().mockResolvedValue({ id: ARTIFACT_ID }),
     },
-    registrationWorkspace: {
+    contentWorkspace: {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
   };
 }
 
-function makeAlertsStub(): OperationAlertService {
+function makeAlertsStub(): OperationAlertPort {
   return {
     succeed: vi.fn().mockResolvedValue(null),
     fail: vi.fn().mockResolvedValue(null),
-  } as unknown as OperationAlertService;
+  } as unknown as OperationAlertPort;
 }
 
 function makeImagesStub(): DetailPageGeneratedImagesService {
@@ -89,6 +90,12 @@ function makeContentAssetsStub(): ContentAssetService {
   return {
     recordDetailPageGeneratedAssets: vi.fn().mockResolvedValue(undefined),
   } as unknown as ContentAssetService;
+}
+
+function makeProductGenerationAlertsStub(): ProductGenerationAlertService {
+  return {
+    markChildFinished: vi.fn().mockResolvedValue({}),
+  } as unknown as ProductGenerationAlertService;
 }
 
 const VALID_OUTPUT = {
@@ -126,9 +133,10 @@ const VALID_OUTPUT = {
 
 describe('DetailPageContentGenerationSinkAdapter', () => {
   let prisma: ReturnType<typeof makePrismaStub>;
-  let alerts: OperationAlertService;
+  let alerts: OperationAlertPort;
   let images: DetailPageGeneratedImagesService;
   let contentAssets: ContentAssetService;
+  let productGenerationAlerts: ProductGenerationAlertService;
   let sink: DetailPageContentGenerationSinkAdapter;
 
   beforeEach(() => {
@@ -136,11 +144,13 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
     alerts = makeAlertsStub();
     images = makeImagesStub();
     contentAssets = makeContentAssetsStub();
+    productGenerationAlerts = makeProductGenerationAlertsStub();
     sink = new DetailPageContentGenerationSinkAdapter(
       prisma as never,
       alerts,
       images,
       contentAssets,
+      productGenerationAlerts,
     );
   });
 
@@ -168,7 +178,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
       expect(prisma.detailPageArtifact.create).toHaveBeenCalledWith({
         data: {
           organizationId: ORG,
-          registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+          contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
           sourceCandidateId: CANDIDATE_ID,
           targetMasterId: null,
           sourceContentGenerationId: CG_ID,
@@ -183,7 +193,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         },
         select: { id: true },
       });
-      expect(prisma.registrationWorkspace.updateMany).toHaveBeenCalledWith({
+      expect(prisma.contentWorkspace.updateMany).toHaveBeenCalledWith({
         where: {
           id: REGISTRATION_WORKSPACE_ID,
           organizationId: ORG,
@@ -219,6 +229,85 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
       );
     });
 
+    it('updates the product generation parent alert on detail success', async () => {
+      prisma = makePrismaStub(makeRow({
+        generationInput: {
+          ...STORED_RAW_INPUT,
+          productGeneration: {
+            mode: 'parent',
+            productGenerationBatchId: 'batch-1',
+            parentOperationKey: 'product-generation:batch-1',
+            childKind: 'detail_page',
+          },
+        },
+      }));
+      sink = new DetailPageContentGenerationSinkAdapter(
+        prisma as never,
+        alerts,
+        images,
+        contentAssets,
+        productGenerationAlerts,
+      );
+
+      await sink.applySuccess({
+        organizationId: ORG,
+        requestId: REQUEST,
+        runId: RUN,
+        sourceResourceId: CG_ID,
+        output: VALID_OUTPUT,
+      });
+
+      expect(productGenerationAlerts.markChildFinished).toHaveBeenCalledWith({
+        organizationId: ORG,
+        parentOperationKey: 'product-generation:batch-1',
+        childKind: 'detail_page',
+        status: 'succeeded',
+        childId: CG_ID,
+      });
+      expect(alerts.succeed).not.toHaveBeenCalledWith(
+        ORG,
+        `detail-page:${CG_ID}`,
+        expect.anything(),
+      );
+    });
+
+    it('does not apply detail-page success when parent product operation is cancelled', async () => {
+      prisma = makePrismaStub(makeRow({
+        generationInput: {
+          ...STORED_RAW_INPUT,
+          productGeneration: {
+            mode: 'parent',
+            productGenerationBatchId: 'batch-1',
+            parentOperationKey: 'product-generation:batch-1',
+            childKind: 'detail_page',
+          },
+        },
+      }));
+      alerts = {
+        ...makeAlertsStub(),
+        findByOperationKey: vi.fn().mockResolvedValue({ status: 'cancelled' }),
+      } as unknown as OperationAlertPort;
+      sink = new DetailPageContentGenerationSinkAdapter(
+        prisma as never,
+        alerts,
+        images,
+        contentAssets,
+        productGenerationAlerts,
+      );
+
+      await sink.applySuccess({
+        organizationId: ORG,
+        requestId: REQUEST,
+        runId: RUN,
+        sourceResourceId: CG_ID,
+        output: VALID_OUTPUT,
+      });
+
+      expect(prisma.contentGeneration.updateMany).not.toHaveBeenCalled();
+      expect(productGenerationAlerts.markChildFinished).not.toHaveBeenCalled();
+      expect(alerts.succeed).not.toHaveBeenCalled();
+    });
+
     it('reuses an existing detail page artifact on replay-compatible success', async () => {
       prisma = makePrismaStub(makeRow({ detailPageArtifactId: ARTIFACT_ID }));
       sink = new DetailPageContentGenerationSinkAdapter(
@@ -226,6 +315,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         alerts,
         images,
         contentAssets,
+        productGenerationAlerts,
       );
 
       await sink.applySuccess({
@@ -259,6 +349,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         alerts,
         images,
         contentAssets,
+        productGenerationAlerts,
       );
 
       await sink.applySuccess({
@@ -305,6 +396,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         alerts,
         images,
         contentAssets,
+        productGenerationAlerts,
       );
       await sink.applySuccess({
         organizationId: ORG,
@@ -325,6 +417,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         alerts,
         images,
         contentAssets,
+        productGenerationAlerts,
       );
       await sink.applySuccess({
         organizationId: ORG,
@@ -389,6 +482,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         alerts,
         images,
         contentAssets,
+        productGenerationAlerts,
       );
       await sink.applyFailure({
         organizationId: ORG,
@@ -409,6 +503,7 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         alerts,
         images,
         contentAssets,
+        productGenerationAlerts,
       );
       await sink.applyFailure({
         organizationId: ORG,

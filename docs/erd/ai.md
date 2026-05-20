@@ -14,12 +14,13 @@
 | ContentGenerationAssetUsage | `content_generation_asset_usages` | Current image assets used by a generated content row. Asset location stays on ContentAsset; this table is the replace-on-save usage set. |
 | ContentGenerationGroup | `content_generation_groups` | Same-input generation group. Product-less groups are standalone generated-content workspaces; product-bound groups remain candidate lineage inside a Master workspace. |
 | ContentGenerationSource | `content_generation_sources` | Generation-level provenance. The source of a generated work unit can be a sourcing candidate, input asset, or another generation. |
+| ContentWorkspace | `content_workspaces` | Product content workspace. Detail-page and thumbnail generations for the same owner/title accumulate here as versioned content history before or after MasterProduct creation. |
 | DetailPageArtifact | `detail_page_artifacts` | Candidate-centered editable detail-page artifact. One artifact owns the user-visible draft line; revisions keep generated/manual HTML history. |
 | DetailPageRevision | `detail_page_revisions` | Append-only detail-page HTML revision. Editor saves create rows; DetailPageArtifact.currentRevisionId selects the active version. |
-| RegistrationWorkspace | `registration_workspaces` | Registration pipeline workspace. Detail-page generations for the same owner/title accumulate here as selectable history before or after MasterProduct creation. |
+| ProductPreparation | `product_preparations` | Product pipeline preparation state. Stores operator-confirmed registration inputs and selected generated assets before marketplace listing. |
 | Thumbnail | `thumbnails` | CTR 기반 썸네일 트래킹 (ThumbnailAnalysis 와 별도 시스템). |
 | ThumbnailAnalysis | `thumbnail_analyses` | 5차원 scores(heroShot·composition·branding·mobile·differentiation) + complianceGrade(PASS/WARN/FAIL) + imageSpec(사전검수). 스펙 FAIL 시 AI 호출 생략. |
-| ThumbnailGeneration | `thumbnail_generations` | 상태: pending→generating→ready/failed→applied/skipped. method=edit 만 사용 (generate Imagen 방식 삭제됨). |
+| ThumbnailGeneration | `thumbnail_generations` | 상태: status=pending/running/succeeded/failed/cancelled, phase=ready/applied. method=generate/creative/auto. |
 | ThumbnailGenerationCandidate | `thumbnail_generation_candidates` | 썸네일 생성 후보 이미지. 바이너리는 object storage 에 저장하고 DB 는 URL/key 메타데이터만 보관한다. |
 | ThumbnailGenerationEvent | `thumbnail_generation_events` | ThumbnailGeneration 의 status/phase/attempt/error 전이 audit ledger. row 누적, 덮어쓰기 X. |
 | ThumbnailGenerationInputImage | `thumbnail_generation_input_images` | 썸네일 편집/생성 입력 이미지. base64 원문 대신 object storage 참조와 역할 메타데이터만 저장한다. |
@@ -57,7 +58,7 @@ erDiagram
     String id PK
     String organizationId FK
     String generationGroupId FK
-    String registrationWorkspaceId FK
+    String contentWorkspaceId FK
     String sourceCandidateId FK
     String detailPageArtifactId FK
     String contentType
@@ -113,10 +114,27 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  ContentWorkspace {
+    String id PK
+    String organizationId FK
+    String ownerType
+    String sourceCandidateId FK
+    String targetMasterId FK
+    String displayName
+    String normalizedTitle
+    String status
+    String currentDetailPageArtifactId FK
+    String currentDetailPageRevisionId FK
+    String createdByUserId FK
+    Boolean isDeleted
+    DateTime deletedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   DetailPageArtifact {
     String id PK
     String organizationId FK
-    String registrationWorkspaceId FK
+    String contentWorkspaceId FK
     String sourceCandidateId FK
     String targetMasterId FK
     String sourceContentGenerationId FK
@@ -142,17 +160,23 @@ erDiagram
     String createdByUserId FK
     DateTime createdAt
   }
-  RegistrationWorkspace {
+  ProductPreparation {
     String id PK
     String organizationId FK
-    String ownerType
     String sourceCandidateId FK
-    String targetMasterId FK
+    String masterId FK
+    String contentWorkspaceId FK
     String displayName
-    String normalizedTitle
     String status
-    String currentDetailPageArtifactId FK
-    String currentDetailPageRevisionId FK
+    Boolean isCurrentForMaster
+    DateTime appliedToMasterAt
+    String selectedThumbnailUrl
+    String selectedThumbnailGenerationId FK
+    String selectedThumbnailGenerationCandidateId FK
+    String selectedDetailPageArtifactId FK
+    String selectedDetailPageRevisionId FK
+    String selectedDetailPageGenerationId FK
+    Json registrationInput
     String createdByUserId FK
     Boolean isDeleted
     DateTime deletedAt
@@ -199,7 +223,7 @@ erDiagram
     String organizationId FK
     String masterId FK
     String sourceCandidateId FK
-    String registrationWorkspaceId FK
+    String contentWorkspaceId FK
     String originalUrl
     String selectedUrl
     String status
@@ -325,21 +349,27 @@ erDiagram
   ContentGeneration o|--o{ ContentGenerationSource : "sourceContentGeneration"
   ContentGeneration o|--o{ DetailPageArtifact : "sourceContentGeneration"
   ContentGeneration o|--o{ DetailPageRevision : "contentGeneration"
+  ContentGeneration o|--o{ ProductPreparation : "selectedDetailPageGeneration"
   ContentGenerationGroup ||--o{ ContentAsset : "generationGroup"
   ContentGenerationGroup ||--o{ ContentGeneration : "generationGroup"
+  ContentWorkspace o|--o{ ContentGeneration : "contentWorkspace"
+  ContentWorkspace o|--o{ DetailPageArtifact : "contentWorkspace"
+  ContentWorkspace o|--o{ ProductPreparation : "contentWorkspace"
+  ContentWorkspace o|--o{ ThumbnailGeneration : "contentWorkspace"
   DetailPageArtifact o|--o{ ContentGeneration : "detailPageArtifact"
+  DetailPageArtifact o|--o{ ContentWorkspace : "currentDetailPageArtifact"
   DetailPageArtifact ||--o{ DetailPageRevision : "artifact"
-  DetailPageArtifact o|--o{ RegistrationWorkspace : "currentDetailPageArtifact"
+  DetailPageArtifact o|--o{ ProductPreparation : "selectedDetailPageArtifact"
+  DetailPageRevision o|--o{ ContentWorkspace : "currentDetailPageRevision"
   DetailPageRevision o|--o{ DetailPageArtifact : "currentRevision"
-  DetailPageRevision o|--o{ RegistrationWorkspace : "currentDetailPageRevision"
-  RegistrationWorkspace o|--o{ ContentGeneration : "registrationWorkspace"
-  RegistrationWorkspace o|--o{ DetailPageArtifact : "registrationWorkspace"
-  RegistrationWorkspace o|--o{ ThumbnailGeneration : "registrationWorkspace"
+  DetailPageRevision o|--o{ ProductPreparation : "selectedDetailPageRevision"
+  ThumbnailGeneration o|--o{ ProductPreparation : "selectedThumbnailGeneration"
   ThumbnailGeneration ||--o{ ThumbnailGenerationCandidate : "generation"
   ThumbnailGeneration ||--o{ ThumbnailGenerationEvent : "generation"
   ThumbnailGeneration ||--o{ ThumbnailGenerationInputImage : "generation"
   ThumbnailGeneration ||--o{ ThumbnailRegistrationAttempt : "generation"
   ThumbnailGeneration ||--o{ ThumbnailTracking : "generation"
+  ThumbnailGenerationCandidate o|--o{ ProductPreparation : "selectedThumbnailGenerationCandidate"
   ThumbnailGenerationCandidate o|--o{ ThumbnailGenerationInputImage : "sourceThumbnailCandidate"
   ThumbnailTracking ||--o{ ThumbnailTrackingDailySnapshot : "tracking"
 ```
@@ -358,16 +388,20 @@ erDiagram
 | ContentGenerationGroup | targetMaster | references external | Core | MasterProduct |
 | ContentGenerationSource | organization | references external | Core | Organization |
 | ContentGenerationSource | sourceCandidate | references external | Sourcing | SourcingCandidate |
+| ContentWorkspace | createdByUser | references external | Core | User |
+| ContentWorkspace | organization | references external | Core | Organization |
+| ContentWorkspace | sourceCandidate | references external | Sourcing | SourcingCandidate |
+| ContentWorkspace | targetMaster | references external | Core | MasterProduct |
 | DetailPageArtifact | createdByUser | references external | Core | User |
 | DetailPageArtifact | organization | references external | Core | Organization |
 | DetailPageArtifact | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | DetailPageArtifact | targetMaster | references external | Core | MasterProduct |
 | DetailPageRevision | createdByUser | references external | Core | User |
 | DetailPageRevision | organization | references external | Core | Organization |
-| RegistrationWorkspace | createdByUser | references external | Core | User |
-| RegistrationWorkspace | organization | references external | Core | Organization |
-| RegistrationWorkspace | sourceCandidate | references external | Sourcing | SourcingCandidate |
-| RegistrationWorkspace | targetMaster | references external | Core | MasterProduct |
+| ProductPreparation | createdByUser | references external | Core | User |
+| ProductPreparation | master | references external | Core | MasterProduct |
+| ProductPreparation | organization | references external | Core | Organization |
+| ProductPreparation | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | Thumbnail | listing | references external | Core | ChannelListing |
 | Thumbnail | organization | references external | Core | Organization |
 | ThumbnailAnalysis | master | references external | Core | MasterProduct |

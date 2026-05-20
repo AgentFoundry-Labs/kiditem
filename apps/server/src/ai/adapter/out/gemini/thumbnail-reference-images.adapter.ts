@@ -1,10 +1,12 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
+import {
+  type ThumbnailPromptPart,
+  type ThumbnailReferenceImagesPort,
+} from '../../../application/port/out/provider/thumbnail-reference-images.port';
 
-type InlinePart = { inlineData: { data: string; mimeType: string } };
-type TextPart = { text: string };
-type Part = InlinePart | TextPart;
+type InlinePart = Extract<ThumbnailPromptPart, { inlineData: unknown }>;
 
 const ALLOWED_EXT_TO_MIME: Record<string, string> = {
   '.png': 'image/png',
@@ -29,7 +31,9 @@ const ALLOWED_EXT_TO_MIME: Record<string, string> = {
  * works, callers just receive an empty parts array.
  */
 @Injectable()
-export class ThumbnailReferenceImagesService implements OnModuleInit {
+export class ThumbnailReferenceImagesService
+  implements OnModuleInit, ThumbnailReferenceImagesPort
+{
   private readonly logger = new Logger(ThumbnailReferenceImagesService.name);
   private readonly parts: InlinePart[] = [];
 
@@ -37,12 +41,12 @@ export class ThumbnailReferenceImagesService implements OnModuleInit {
     this.warm();
   }
 
-  generationParts(header: string): Part[] {
+  generationParts(header: string): ThumbnailPromptPart[] {
     if (this.parts.length === 0) return [];
     return [{ text: header }, ...this.parts];
   }
 
-  complianceParts(header: string): Part[] {
+  complianceParts(header: string): ThumbnailPromptPart[] {
     if (this.parts.length === 0) return [];
     return [{ text: header }, ...this.parts];
   }

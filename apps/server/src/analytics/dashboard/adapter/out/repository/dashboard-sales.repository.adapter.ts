@@ -4,7 +4,7 @@ import type { TopProduct, DailyRevenueItem } from '@kiditem/shared/dashboard';
 import type {
   DashboardSalesRepositoryPort,
   TodayKpiRow,
-} from '../../../application/port/out/dashboard-sales.repository.port';
+} from '../../../application/port/out/repository/dashboard-sales.repository.port';
 
 interface TopProductRawRow {
   id: string;
@@ -22,7 +22,7 @@ interface TopProductRawRow {
  *
  * Tenant predicate: every read binds `${organizationId}::uuid` against the
  * appropriate tenant column (orders, channel listings, master products).
- * 2-hop joins assert the predicate on each tenant-owned table per ADR-0018.
+ * 2-hop joins assert the predicate on each tenant-owned table.
  */
 @Injectable()
 export class DashboardSalesRepositoryAdapter
@@ -57,7 +57,7 @@ export class DashboardSalesRepositoryAdapter
   /**
    * Top-N (10) product revenue ranking for the calendar month. Joins
    * orders → line items → channel listing options → channel listings →
-   * master products. Each tenant-owned join guards `organization_id` (ADR-0018).
+   * master products. Each tenant-owned join guards `organization_id`.
    *
    * Returns the raw shape; the application service applies the documented
    * 30%-margin approximation for `netProfit`/`profitRate`.

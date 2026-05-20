@@ -1,42 +1,50 @@
-# Scripts Instructions
+# scripts — Durable Repo Automation
 
-`scripts/README.md` is the human catalogue. This file is the agent-facing
-contract for Codex, Claude, and other repo agents editing `scripts/`.
+`scripts/` owns durable repo automation. Human-facing inventory lives in
+`scripts/README.md`; this file is the agent-facing contract for editing scripts.
 
-## Edit Contract
+## Folder Map
 
-- Every top-level script must have a durable owner and an entrypoint:
-  `package.json`, a runbook under `docs/runbooks/`, or a CI/test gate.
-- Do not commit one-off backfills, session scratch scripts, temporary SQL, or
-  local debugging helpers. Keep those outside git unless they become a durable
-  runbook-backed command.
-- When adding, renaming, or deleting a script, update all of these in the same
-  PR:
-  - `scripts/README.md`
-  - `scripts/check-script-inventory.mjs`
-  - package/runbook/CI references that invoke it
-  - script tests under `scripts/__tests__/` when behavior is non-trivial
-- Do not store secrets, real tokens, or local account identifiers in scripts,
-  fixtures, comments, or expected output.
-- Prefer small deterministic helpers that can run without the database. If a
-  script mutates a database or external account, it needs a runbook with
+```text
+scripts/
+├── __tests__/                    # script behavior tests
+├── check-script-inventory.mjs    # script ownership guard
+├── data-migrations/              # release-scoped data migrations
+└── README.md                     # human script catalogue
+```
+
+## Owned Surfaces
+
+- Package scripts and CI/runbook-backed repo automation
+- Data migrations under `scripts/data-migrations/v<VERSION>/`
+- Script inventory checks
+
+## Script Rules
+
+- Every top-level script needs a durable owner and entrypoint: `package.json`,
+  a runbook under `docs/runbooks/`, or a CI/test gate.
+- Do not commit one-off backfills, scratch scripts, temporary SQL, or local
+  debugging helpers.
+- Adding, renaming, or deleting a script also updates:
+  `scripts/README.md`, `scripts/check-script-inventory.mjs`, invoking
+  package/runbook/CI references, and non-trivial script tests.
+- Do not store secrets, real tokens, local account identifiers, or copied
+  marketplace data in scripts, fixtures, comments, or expected output.
+- Prefer deterministic helpers that run without the database.
+- Database or external-account mutation scripts need a runbook with
   prerequisites, confirmation flags, verification, and rollback/blocker notes.
 
 ## Verification
 
-For script-only changes run:
+For script-only changes:
 
 ```bash
 npm run check:scripts-inventory
 npm run test:scripts
 ```
 
-For PRs that also touch repo conventions or boundaries run:
+For convention/boundary changes:
 
 ```bash
 npm run check:conventions
 ```
-
-`scripts/check-script-inventory.mjs` is the guard against script sprawl. If it
-fails, either remove the unowned script or promote it into the inventory with a
-real entrypoint and test/runbook coverage.

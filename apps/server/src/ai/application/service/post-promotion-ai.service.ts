@@ -1,7 +1,8 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
-import { PrismaService } from '../../../prisma/prisma.service';
-import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
+import {
+  AI_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../port/out/cross-domain/operation-alert.port';
 import {
   AGENT_RUNNER_PORT,
   type AgentRunnerPort,
@@ -23,7 +24,20 @@ import {
 } from './detail-page-stored.helpers';
 import { ThumbnailEditorAiService } from './thumbnail-editor-ai.service';
 import { ContentAssetService } from './content-asset.service';
-import type { PostPromotionAiTriggerPort } from '../port/in/post-promotion-ai-trigger.port';
+import {
+  buildThumbnailGenerateAgentInput,
+  buildThumbnailGenerationInputMeta,
+} from './thumbnail-generation-requests';
+import type { PostPromotionAiTriggerPort } from '../port/in/generation/post-promotion-ai-trigger.port';
+import {
+  POST_PROMOTION_GENERATION_REPOSITORY_PORT,
+  type PostPromotionGenerationRepositoryPort,
+  type PostPromotionMasterContext,
+} from '../port/out/repository/post-promotion-generation.repository.port';
+import {
+  PRODUCT_WORKSPACE_GROUP_REPOSITORY_PORT,
+  type ProductWorkspaceGroupRepositoryPort,
+} from '../port/out/repository/product-workspace-group.repository.port';
 
 /**
  * AI-domain-owned defaults for post-promotion fire-and-forget generation.
@@ -46,10 +60,14 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
   private readonly logger = new Logger(PostPromotionAiService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(POST_PROMOTION_GENERATION_REPOSITORY_PORT)
+    private readonly repository: PostPromotionGenerationRepositoryPort,
+    @Inject(PRODUCT_WORKSPACE_GROUP_REPOSITORY_PORT)
+    private readonly productWorkspaceGroups: ProductWorkspaceGroupRepositoryPort,
     @Inject(AGENT_RUNNER_PORT)
     private readonly agentRunner: AgentRunnerPort,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(AI_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
     private readonly editorAi: ThumbnailEditorAiService,
     private readonly contentAssets: ContentAssetService,
   ) {}
@@ -69,16 +87,7 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
    * thumbnail attempt and vice versa.
    */
   async fireForMaster(masterId: string, organizationId: string): Promise<void> {
-    const master = await this.prisma.masterProduct.findFirst({
-      where: { id: masterId, organizationId, isDeleted: false },
-      select: {
-        id: true,
-        name: true,
-        category: true,
-        description: true,
-        imageUrl: true,
-      },
-    });
+    const master = await this.repository.findMasterContext({ masterId, organizationId });
     if (!master) {
       this.logger.error(
         `post-promotion fire-for-master skipped: master not found (organization=${organizationId}, master=${masterId})`,
@@ -86,21 +95,12 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
       return;
     }
 
-    const masterImages = await this.prisma.masterProductImage.findMany({
-      where: { masterId, organizationId, isDeleted: false },
-      orderBy: { sortOrder: 'asc' },
-      select: { url: true },
-    });
-    const imageUrls = masterImages
-      .map((row) => row.url)
-      .filter((url): url is string => typeof url === 'string' && url.length > 0);
-
-    await this.fireDetailPage({ master, organizationId, imageUrls });
-    await this.fireThumbnail({ master, organizationId, imageUrls });
+    await this.fireDetailPage({ master, organizationId, imageUrls: master.imageUrls });
+    await this.fireThumbnail({ master, organizationId, imageUrls: master.imageUrls });
   }
 
   private async fireDetailPage(input: {
-    master: { id: string; name: string; category: string | null; description: string };
+    master: PostPromotionMasterContext;
     organizationId: string;
     imageUrls: string[];
   }): Promise<void> {
@@ -119,27 +119,24 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
 
     let contentGenerationId: string | null = null;
     try {
-      const group = await this.ensureProductWorkspaceGroup({
+      const group = await this.productWorkspaceGroups.ensureProductWorkspaceGroup({
         organizationId,
         productId: master.id,
         title: master.name,
+        triggeredByUserId: null,
+        source: 'post_promotion',
       });
-      const row = await this.prisma.contentGeneration.create({
-        data: {
-          organizationId,
-          contentType: 'detail_page',
-          generationGroupId: group.id,
-          triggeredByUserId: null,
-          generationInput: rawInput as unknown as Prisma.InputJsonValue,
-          generationResult: {
-            templateId: DEFAULT_TEMPLATE_ID,
-            result: {},
-            imageUrls,
-            processedImages: {},
-          },
-          generatedTitle: master.name.slice(0, 80),
-          status: 'PROCESSING',
+      const row = await this.repository.createDetailPageGeneration({
+        organizationId,
+        generationGroupId: group.id,
+        rawInput,
+        generationResult: {
+          templateId: DEFAULT_TEMPLATE_ID,
+          result: {},
+          imageUrls,
+          processedImages: {},
         },
+        generatedTitle: master.name.slice(0, 80),
       });
       contentGenerationId = row.id;
       await this.contentAssets.recordDetailPageInputAssets({
@@ -227,7 +224,7 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
   }
 
   private async fireThumbnail(input: {
-    master: { id: string; name: string; category: string | null; imageUrl: string | null };
+    master: PostPromotionMasterContext;
     organizationId: string;
     imageUrls: string[];
   }): Promise<void> {
@@ -257,34 +254,28 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
         },
       );
 
-      const inputMeta = {
+      const inputMeta = buildThumbnailGenerationInputMeta({
         mode: THUMBNAIL_MODE,
-        editCase: 'single' as const,
+        editCase: 'single',
         method: THUMBNAIL_METHOD,
-        trigger: 'post_promotion' as const,
-        inputCount: 1,
-        inputRoles: [inputImage.role],
-        inputLabels: [inputImage.label],
-      };
-
-      const generation = await this.prisma.thumbnailGeneration.create({
-        data: {
-          organizationId,
-          masterId: master.id,
-          originalUrl,
-          method: THUMBNAIL_METHOD,
-          status: 'pending',
-          phase: null,
-          inputMeta,
-          triggeredByUserId: null,
-        },
+        trigger: 'post_promotion',
+        productName: master.name,
+        inputs: [inputImage],
       });
-      generationId = generation.id;
+      const agentPayload = buildThumbnailGenerateAgentInput({
+        mode: THUMBNAIL_MODE,
+        editCase: 'single',
+        productName: master.name,
+        category: master.category,
+        inputs: [inputImage],
+      });
 
-      await this.prisma.thumbnailGenerationInputImage.create({
-        data: {
-          organizationId,
-          generationId: generation.id,
+      const generation = await this.repository.createThumbnailGeneration({
+        organizationId,
+        masterId: master.id,
+        originalUrl,
+        inputMeta,
+        inputImage: {
           url: inputImage.url,
           storageKey: inputImage.storageKey,
           role: inputImage.role,
@@ -295,6 +286,7 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
           fileSize: inputImage.fileSize,
         },
       });
+      generationId = generation.id;
 
       await this.operationAlerts.start({
         organizationId,
@@ -322,25 +314,7 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
           sourceResourceType: 'thumbnail_generation',
           sourceResourceId: generation.id,
           reason: `post_promotion thumbnail_generate for master ${master.id}`,
-          payload: {
-            mode: THUMBNAIL_MODE,
-            editCase: 'single',
-            productName: master.name,
-            category: master.category,
-            inputs: [
-              {
-                data: inputImage.data,
-                mimeType: inputImage.mimeType,
-                label: inputImage.label,
-                url: inputImage.url,
-                storageKey: inputImage.storageKey,
-                role: inputImage.role,
-                sortOrder: inputImage.sortOrder,
-                source: inputImage.source,
-                fileSize: inputImage.fileSize,
-              },
-            ],
-          },
+          payload: agentPayload,
         },
       );
 
@@ -375,47 +349,6 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
     }
   }
 
-  private async ensureProductWorkspaceGroup(input: {
-    organizationId: string;
-    productId: string;
-    title: string;
-  }): Promise<{ id: string; targetMasterId: string | null }> {
-    const existing = await this.prisma.contentGenerationGroup.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        groupType: 'product_workspace',
-        targetMasterId: input.productId,
-      },
-      select: { id: true, targetMasterId: true },
-    });
-    if (existing) return existing;
-
-    try {
-      return await this.prisma.contentGenerationGroup.create({
-        data: {
-          organizationId: input.organizationId,
-          groupType: 'product_workspace',
-          targetMasterId: input.productId,
-          title: input.title.slice(0, 80),
-          createdByUserId: null,
-          metadata: { source: 'post_promotion' },
-        },
-        select: { id: true, targetMasterId: true },
-      });
-    } catch (error) {
-      const raced = await this.prisma.contentGenerationGroup.findFirst({
-        where: {
-          organizationId: input.organizationId,
-          groupType: 'product_workspace',
-          targetMasterId: input.productId,
-        },
-        select: { id: true, targetMasterId: true },
-      });
-      if (raced) return raced;
-      throw error;
-    }
-  }
-
   private async markDetailPageFailed(input: {
     organizationId: string;
     contentGenerationId: string;
@@ -424,10 +357,7 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
   }): Promise<void> {
     const { organizationId, contentGenerationId, errorMessage, agentReason } = input;
     try {
-      await this.prisma.contentGeneration.updateMany({
-        where: { id: contentGenerationId, organizationId },
-        data: { status: 'FAILED', errorMessage },
-      });
+      await this.repository.markDetailPageFailed({ organizationId, contentGenerationId, errorMessage });
     } catch (err) {
       this.logger.warn(
         `post-promotion detail_page_generate FAILED row update failed (contentGeneration=${contentGenerationId}): ${
@@ -464,10 +394,7 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
   }): Promise<void> {
     const { organizationId, generationId, errorMessage, agentReason } = input;
     try {
-      await this.prisma.thumbnailGeneration.updateMany({
-        where: { id: generationId, organizationId },
-        data: { status: 'failed', phase: null, errorMessage },
-      });
+      await this.repository.markThumbnailFailed({ organizationId, generationId, errorMessage });
     } catch (err) {
       this.logger.warn(
         `post-promotion thumbnail_generate failed row update failed (generation=${generationId}): ${

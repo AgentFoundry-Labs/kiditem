@@ -6,12 +6,12 @@
 // `apps/server/src/automation/application/port/{in,out}/`.
 
 import { vi } from 'vitest';
-import type { ActionBoardRepositoryPort } from '../../application/port/out/action-board.repository.port';
-import type { AlertsRepositoryPort } from '../../application/port/out/alerts.repository.port';
-import type { MarketplaceCatalogRepositoryPort } from '../../application/port/out/marketplace-catalog.repository.port';
-import type { MarketplaceInstallStorePort } from '../../application/port/out/marketplace-install-store.port';
-import type { OperationAlertRepositoryPort } from '../../application/port/out/operation-alert.repository.port';
-import type { WorkflowOrchestrationRepositoryPort } from '../../application/port/out/workflow-orchestration.repository.port';
+import type { ActionBoardRepositoryPort } from '../../application/port/out/repository/action-board.repository.port';
+import type { AlertsRepositoryPort } from '../../application/port/out/repository/alerts.repository.port';
+import type { MarketplaceCatalogRepositoryPort } from '../../application/port/out/repository/marketplace-catalog.repository.port';
+import type { MarketplaceInstallStorePort } from '../../application/port/out/repository/marketplace-install-store.port';
+import type { OperationAlertRepositoryPort } from '../../application/port/out/repository/operation-alert.repository.port';
+import type { WorkflowOrchestrationRepositoryPort } from '../../application/port/out/repository/workflow-orchestration.repository.port';
 import type { OperationAlertPort } from '../../application/port/in/operation-alert.port';
 
 export type MockActionBoardRepo = {
@@ -118,10 +118,12 @@ export type MockOperationAlertPort = {
 export function buildMockOperationAlertPort(): MockOperationAlertPort {
   return {
     start: vi.fn(),
+    findByOperationKey: vi.fn(),
     progress: vi.fn(),
     succeed: vi.fn(),
     fail: vi.fn(),
     cancel: vi.fn(),
+    closeBySource: vi.fn(),
     closeStaleOperations: vi.fn(),
   };
 }

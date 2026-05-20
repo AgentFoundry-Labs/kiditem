@@ -1,35 +1,42 @@
-import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
-import { MasterPromotionService } from '../../../../products/application/service/master-promotion.service';
+import { Inject, Injectable } from '@nestjs/common';
+import {
+  PRODUCT_MASTER_PROMOTION_PORT,
+  type ProductMasterPromotionPort,
+} from '../../../../products/application/port/in/master-promotion.port';
+import type { ProductsRepositoryTransaction } from '../../../../products/application/port/out/transaction/products-transaction.port';
 import type {
   PromoteCandidateInput,
   PromoteCandidateResult,
   SourcingProductsCatalogPort,
-} from '../../../application/port/out/products-catalog.port';
+} from '../../../application/port/out/cross-domain/products-catalog.port';
+import type { SourcingRepositoryTransaction } from '../../../application/port/out/transaction/repository-transaction';
 
 /**
  * Concrete adapter for `SOURCING_PRODUCTS_CATALOG_PORT`.
  *
- * This is the only sourcing-side file that imports a products-domain service,
- * per sourcing/AGENTS.md "Boundary Rules" and apps/server/AGENTS.md
- * "Reconstruction Rules" (application services depend on ports; concrete
- * adapters bridge ports to other-domain services).
+ * This is the only sourcing-side file that imports the products owner-side
+ * promotion port token, per sourcing/AGENTS.md "Boundary Rules" and
+ * apps/server/AGENTS.md "Reconstruction Rules" (application services depend on
+ * local ports; concrete adapters bridge to other-domain owner ports).
  *
- * `MasterPromotionService.create` owns the products-side invariants:
- * `MasterCodeService.generate(tx)` for the family code, master row write with
+ * The products owner-side master promotion port owns the products invariants:
+ * the products master-code port for the family code, master row write with
  * `lifecycleState='active'`, image gallery createMany, and per-option
  * `OptionsService.create` so SKU issuance + tenant guards run inside the same
  * transaction.
  */
 @Injectable()
 export class SourcingProductsCatalogAdapter implements SourcingProductsCatalogPort {
-  constructor(private readonly promotion: MasterPromotionService) {}
+  constructor(
+    @Inject(PRODUCT_MASTER_PROMOTION_PORT)
+    private readonly promotion: ProductMasterPromotionPort,
+  ) {}
 
   async promoteCandidate(
-    tx: Prisma.TransactionClient,
+    tx: SourcingRepositoryTransaction,
     organizationId: string,
     input: PromoteCandidateInput,
   ): Promise<PromoteCandidateResult> {
-    return this.promotion.create(tx, organizationId, input);
+    return this.promotion.create(tx as ProductsRepositoryTransaction, organizationId, input);
   }
 }

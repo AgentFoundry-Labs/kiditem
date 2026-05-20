@@ -4,12 +4,16 @@ import { useState } from 'react';
 import Link from 'next/link';
 import {
   Info, AlertTriangle, AlertCircle, XCircle, Bell,
-  Loader2, CheckCircle2, Ban, ExternalLink, X,
+  Loader2, CheckCircle2, Ban, ExternalLink, X, Square,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { cancelOperation } from '@/lib/operation-cancellation';
+import { isApiError } from '@/lib/api-error';
 import { cn, timeAgo } from '@/lib/utils';
+import { toast } from 'sonner';
 import { PromoteToTaskModal } from './PromoteToTaskModal';
 import { usePanelStore } from './lib/panel-store';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import type { PanelAlertItem } from '@kiditem/shared/panel';
 
 function severityIcon(severity: string) {
@@ -54,12 +58,17 @@ function operationStatusBadge(status: string): { label: string; className: strin
 export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
   const { Icon, colorClass } = severityIcon(item.severity);
   const [modalOpen, setModalOpen] = useState(false);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const setPanelOpen = usePanelStore((s) => s.setOpen);
   const dismissItem = usePanelStore((s) => s.dismissItem);
+  const upsertItem = usePanelStore((s) => s.upsertItem);
 
   const isOperation = item.alertKind === 'operation';
   const badge = isOperation ? operationStatusBadge(item.status) : null;
   const href = item.href;
+  const isActiveOperation =
+    isOperation && (item.status === 'running' || item.status === 'pending');
   const showProgress =
     isOperation &&
     (item.status === 'running' || item.status === 'pending') &&
@@ -68,7 +77,8 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
   // operations. Surfacing it on a still-running operation would create an
   // orphaned task whose context (success/fail/cancel) is not yet known.
   const canPromote =
-    item.actionTaskId == null && (!isOperation || item.status !== 'running');
+    item.actionTaskId == null && !isActiveOperation;
+  const canCancel = isActiveOperation && Boolean(item.operationKey);
   const canDismiss =
     !isOperation || (item.status !== 'running' && item.status !== 'pending');
 
@@ -79,6 +89,41 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
       dismissItem(item.id);
     } catch (err) {
       console.warn('[panel] dismiss alert failed', err);
+    }
+  };
+
+  const requestCancel = async (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (!item.operationKey || isCancelling) return;
+    setCancelConfirmOpen(true);
+  };
+
+  const confirmCancel = async () => {
+    if (!item.operationKey || isCancelling) return;
+    const previous = item;
+    setIsCancelling(true);
+    upsertItem({
+      ...item,
+      status: 'cancelled',
+      message: '중단 요청됨',
+      finishedAt: new Date().toISOString(),
+    });
+    try {
+      const result = await cancelOperation({
+        targetType: 'operation_key',
+        operationKey: item.operationKey,
+        reason: '사용자 요청',
+      });
+      if (result.status !== 'cancelled') {
+        upsertItem(previous);
+        toast.error(result.message || '이 작업은 중단할 수 없습니다.');
+      }
+    } catch (error) {
+      upsertItem(previous);
+      toast.error(isApiError(error) ? error.detail : '작업 중단 요청에 실패했습니다.');
+    } finally {
+      setIsCancelling(false);
+      setCancelConfirmOpen(false);
     }
   };
 
@@ -157,6 +202,26 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
               )}
             </div>
             <div className="flex items-center gap-1 shrink-0">
+              {canCancel && (
+                <button
+                  type="button"
+                  onClick={requestCancel}
+                  disabled={isCancelling}
+                  aria-label="작업 중단"
+                  title="작업 중단"
+                  className={cn(
+                    'opacity-0 group-hover:opacity-100 focus:opacity-100 transition',
+                    'p-1 rounded border border-gray-300 text-slate-400 hover:bg-gray-50 hover:text-red-600',
+                    isCancelling && 'opacity-100 cursor-wait',
+                  )}
+                >
+                  {isCancelling ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Square className="w-3 h-3" />
+                  )}
+                </button>
+              )}
               {canPromote ? (
                 <button
                   type="button"
@@ -199,6 +264,17 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
           onClose={() => setModalOpen(false)}
         />
       )}
+      <ConfirmDialog
+        open={cancelConfirmOpen}
+        onOpenChange={setCancelConfirmOpen}
+        title="작업을 중단할까요?"
+        description="이미 완료된 결과는 유지하고, 아직 진행 중인 실행만 중단합니다."
+        confirmText="중단"
+        cancelText="계속 실행"
+        tone="danger"
+        isLoading={isCancelling}
+        onConfirm={confirmCancel}
+      />
     </>
   );
 }

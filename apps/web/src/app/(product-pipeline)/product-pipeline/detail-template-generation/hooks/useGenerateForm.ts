@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import type {
   DetailImageCount,
   DetailPageAgeGroup,
   DetailPageTemplateId,
+  ThumbnailGenerationItem,
 } from '@kiditem/shared/ai';
 import { API_BASE } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
@@ -17,7 +19,7 @@ import {
   detailPageEditorHref,
   registeredProductDetailHref,
 } from '../../_shared/lib/product-pipeline-routes';
-import { registrationWorkspacesApi } from '../../_shared/lib/registration-workspaces-api';
+import { contentWorkspacesApi } from '../../_shared/lib/content-workspaces-api';
 import { moveSafetyLabelImagesToEnd } from '../lib/detail-page-image-order';
 import {
   buildAgeGroupInstruction,
@@ -40,6 +42,7 @@ import type {
 } from '../lib/detail-page-generation-options';
 import { getGenerateSourceReferences } from '../lib/detail-page-source-references';
 import {
+  type KidsPlayfulGenerateBody,
   type KidsPlayfulGenerationItem,
   useKidsPlayfulGenerate,
   useKidsPlayfulOne,
@@ -70,9 +73,13 @@ export interface GenerationDialogState {
   startedAt: string;
   productName: string;
   templateId: GenerateTemplateId;
+  operationKey?: string | null;
   generationId?: string;
+  detailGenerationId?: string | null;
+  thumbnailGenerationId?: string | null;
   editorUrl?: string;
   errorMessage?: string | null;
+  description?: string;
 }
 
 export interface DuplicateWorkspaceState {
@@ -97,6 +104,7 @@ export function getGenerateFormValidation(input: {
 
 interface DetailPagePrefillResult {
   category: string;
+  keyword: string;
   target: string;
   features: string[];
   options: string[];
@@ -105,20 +113,75 @@ interface DetailPagePrefillResult {
   estimatedSeconds: number;
 }
 
-export function useGenerateForm() {
-  const searchParams = useSearchParams();
+type GenerateOwnerBindingMode = 'allow-url' | 'sandbox-only';
+
+interface UseGenerateFormOptions {
+  successDescription?: string;
+  ownerBindingMode?: GenerateOwnerBindingMode;
+}
+
+export interface OpenGenerationDialogInput {
+  productName: string;
+  templateId: GenerateTemplateId;
+  operationKey?: string | null;
+  detailGenerationId: string | null;
+  thumbnailGenerationId: string | null;
+  editorUrl: string;
+}
+
+interface GenerateSubmitOptions {
+  sourceReferences?: NonNullable<KidsPlayfulGenerateBody['sourceReferences']>;
+}
+
+export function resolveGenerateOwnerInputs(
+  searchParams: URLSearchParams,
+  ownerBindingMode: GenerateOwnerBindingMode,
+) {
+  if (ownerBindingMode === 'sandbox-only') {
+    return {
+      productId: null,
+      initialTitle: '',
+      initialContentWorkspaceId: null,
+      sourceReferences: [] as NonNullable<KidsPlayfulGenerateBody['sourceReferences']>,
+      primarySourceCandidateId: null,
+    };
+  }
+
   const productId = searchParams.get('productId');
   const initialTitle = searchParams.get('title') ?? '';
-  const initialRegistrationWorkspaceId = searchParams.get('registrationWorkspaceId');
+  const initialContentWorkspaceId = searchParams.get('contentWorkspaceId');
   const sourceReferences = getGenerateSourceReferences(searchParams, productId);
   const primarySourceCandidateId =
     sourceReferences.find((reference) => reference.sourceType === 'sourcing_candidate')
       ?.sourceCandidateId ?? null;
+
+  return {
+    productId,
+    initialTitle,
+    initialContentWorkspaceId,
+    sourceReferences,
+    primarySourceCandidateId,
+  };
+}
+
+export function useGenerateForm(options: UseGenerateFormOptions = {}) {
+  const searchParams = useSearchParams();
+  const {
+    productId,
+    initialTitle,
+    initialContentWorkspaceId,
+    sourceReferences,
+    primarySourceCandidateId,
+  } = resolveGenerateOwnerInputs(
+    new URLSearchParams(searchParams.toString()),
+    options.ownerBindingMode ?? 'allow-url',
+  );
   const { images: savedImages, loading: imagesLoading } = useProductImages(productId);
   const detailPageMutation = useKidsPlayfulGenerate();
 
   const [rawTitle, setRawTitle] = useState(initialTitle);
   const [rawCategory, setRawCategory] = useState('');
+  const [keyword, setKeyword] = useState('');
   const [target, setTarget] = useState('');
   const [ageGroup, setAgeGroup] = useState<DetailPageAgeGroup>('age-8-plus');
   const [detailImageCount, setDetailImageCount] = useState<DetailImageCount>('2');
@@ -139,14 +202,26 @@ export function useGenerateForm() {
   const [generationDialog, setGenerationDialog] = useState<GenerationDialogState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [duplicateWorkspace, setDuplicateWorkspace] = useState<DuplicateWorkspaceState>({
-    status: initialRegistrationWorkspaceId && initialTitle ? 'loaded' : 'idle',
-    checkedTitle: initialRegistrationWorkspaceId && initialTitle ? initialTitle : null,
-    workspaceId: initialRegistrationWorkspaceId,
-    workspaceTitle: initialRegistrationWorkspaceId && initialTitle ? initialTitle : null,
+    status: initialContentWorkspaceId && initialTitle ? 'loaded' : 'idle',
+    checkedTitle: initialContentWorkspaceId && initialTitle ? initialTitle : null,
+    workspaceId: initialContentWorkspaceId,
+    workspaceTitle: initialContentWorkspaceId && initialTitle ? initialTitle : null,
   });
   const generationStatusQuery = useKidsPlayfulOne(
     generationDialog?.generationId ?? null,
   );
+  const thumbnailStatusQuery = useQuery({
+    queryKey: ['thumbnail-generation', generationDialog?.thumbnailGenerationId ?? 'noop'],
+    queryFn: () =>
+      apiClient.get<ThumbnailGenerationItem>(
+        `/api/thumbnail-analysis/generations/${generationDialog?.thumbnailGenerationId}`,
+      ),
+    enabled: Boolean(generationDialog?.open && generationDialog.thumbnailGenerationId),
+    refetchInterval: (query) => {
+      const item = query.state.data;
+      return item?.status === 'pending' || item?.status === 'running' ? 2500 : false;
+    },
+  });
 
   useEffect(() => {
     if (savedImages.length === 0) return;
@@ -171,6 +246,7 @@ export function useGenerateForm() {
 
     setGenerationDialog((prev) => {
       if (!prev?.open || prev.generationId !== item.id) return prev;
+      if (prev.thumbnailGenerationId) return prev;
       const editorUrl = buildGenerationEditorUrl(item, primarySourceCandidateId);
       if (
         prev.phase === phase &&
@@ -188,6 +264,21 @@ export function useGenerateForm() {
       };
     });
   }, [generationStatusQuery.data, primarySourceCandidateId]);
+
+  useEffect(() => {
+    setGenerationDialog((prev) => {
+      if (!prev?.open) return prev;
+      const nextPhase = resolveProductGenerationDialogPhase({
+        currentPhase: prev.phase,
+        detailGenerationId: prev.detailGenerationId ?? prev.generationId ?? null,
+        detail: generationStatusQuery.data,
+        thumbnailGenerationId: prev.thumbnailGenerationId ?? null,
+        thumbnail: thumbnailStatusQuery.data,
+      });
+      if (!nextPhase || prev.phase === nextPhase) return prev;
+      return { ...prev, phase: nextPhase };
+    });
+  }, [generationStatusQuery.data, thumbnailStatusQuery.data]);
 
   const requestPrefill = async (title: string, orderedImages: string[]) =>
     apiClient.post<DetailPagePrefillResult>('/api/ai/detail-page/prefill', {
@@ -213,7 +304,7 @@ export function useGenerateForm() {
     });
     setError(null);
     try {
-      const result = await registrationWorkspacesApi.checkDuplicate(title);
+      const result = await contentWorkspacesApi.checkDuplicate(title);
       if (!result.exists || !result.workspace) {
         setDuplicateWorkspace({
           status: 'none',
@@ -247,7 +338,7 @@ export function useGenerateForm() {
     if (!workspaceId) return;
     if (!window.confirm('기존 최신 이력을 불러와 현재 입력값을 채울까요?')) return;
     try {
-      const workspace = await registrationWorkspacesApi.get(workspaceId);
+      const workspace = await contentWorkspacesApi.get(workspaceId);
       const latest = workspace.history[0]?.generationInput;
       const input = latest && typeof latest === 'object'
         ? latest as Record<string, unknown>
@@ -301,7 +392,13 @@ export function useGenerateForm() {
       setRawCategory(data.category);
       setTarget(data.target);
       setRawDescription(data.description);
-      toast.success('AI가 카테고리와 핵심 정보를 채웠어요');
+      const aiKeyword = data.keyword?.trim();
+      if (aiKeyword) {
+        setKeyword(aiKeyword);
+        toast.success(`AI 채움: 카테고리 "${data.category}" / 키워드 "${aiKeyword}"`);
+      } else {
+        toast.success('AI가 카테고리와 핵심 정보를 채웠어요');
+      }
     } catch (err) {
       setError(isApiError(err) ? err.detail : 'AI 내용 채우기에 실패했습니다.');
     } finally {
@@ -309,7 +406,10 @@ export function useGenerateForm() {
     }
   };
 
-  const handleSubmit = async (selectedTemplateId: GenerateTemplateId) => {
+  const handleSubmit = async (
+    selectedTemplateId: GenerateTemplateId,
+    submitOptions: GenerateSubmitOptions = {},
+  ) => {
     const title = rawTitle.trim();
     const orderedImages = moveSafetyLabelImagesToEnd(images);
     if (!isValidProductTitle(title)) {
@@ -360,6 +460,9 @@ export function useGenerateForm() {
           setRawCategory((prev) => prev || prefill.category);
           setTarget((prev) => prev || prefill.target);
           setRawDescription((prev) => prev || prefill.description);
+          if (prefill.keyword) {
+            setKeyword((prev) => prev || prefill.keyword);
+          }
         } catch (prefillErr) {
           console.warn('[generate] auto-prefill failed, using defaults', prefillErr);
           toast.warning('AI 자동 채움에 실패해 기본값으로 진행합니다.', {
@@ -416,9 +519,9 @@ export function useGenerateForm() {
         imageUrls: generationImages,
         heroImageMode: 'llm-pick',
         productId: productId ?? undefined,
-        registrationWorkspaceId: getLoadedRegistrationWorkspaceId(duplicateWorkspace, title) ?? undefined,
+        contentWorkspaceId: getLoadedContentWorkspaceId(duplicateWorkspace, title) ?? undefined,
         templateId: apiTemplateId,
-        sourceReferences,
+        sourceReferences: mergeSourceReferences(sourceReferences, submitOptions.sourceReferences ?? []),
         ageGroup,
         detailImageCount,
         usageSectionMode,
@@ -447,7 +550,7 @@ export function useGenerateForm() {
             },
       );
       toast.success('상세페이지 생성을 시작했습니다.', {
-        description: '완료되면 알림에서 에디터로 이동할 수 있습니다.',
+        description: options.successDescription ?? '완료되면 알림에서 에디터로 이동할 수 있습니다.',
       });
     } catch (err) {
       setError(isApiError(err) ? err.detail : '상세페이지 생성 중 오류가 발생했습니다.');
@@ -462,11 +565,44 @@ export function useGenerateForm() {
     setGenerationDialog(null);
   };
 
+  const markGenerationDialogCancelled = (message = '사용자 요청으로 생성이 중단되었습니다.') => {
+    setGenerationDialog((prev) =>
+      prev
+        ? {
+            ...prev,
+            phase: 'cancelled',
+            errorMessage: message,
+          }
+        : prev,
+    );
+  };
+
+  const openGenerationDialog = (input: OpenGenerationDialogInput) => {
+    const startedAt = new Date().toISOString();
+    setGenerationStartedAt(startedAt);
+    setGenerationDialog({
+      open: true,
+      phase: 'started',
+      startedAt,
+      productName: input.productName,
+      templateId: input.templateId,
+      operationKey: input.operationKey ?? null,
+      detailGenerationId: input.detailGenerationId,
+      thumbnailGenerationId: input.thumbnailGenerationId,
+      generationId: input.detailGenerationId ?? undefined,
+      editorUrl: input.editorUrl,
+      errorMessage: null,
+      description: '상품 작업공간을 만들고 상세페이지와 썸네일 생성을 시작했습니다.',
+    });
+  };
+
   return {
     rawTitle,
     setRawTitle,
     rawCategory,
     setRawCategory,
+    keyword,
+    setKeyword,
     target,
     setTarget,
     ageGroup,
@@ -504,6 +640,8 @@ export function useGenerateForm() {
     generationStartedAt,
     generationDialog,
     closeGenerationDialog,
+    markGenerationDialogCancelled,
+    openGenerationDialog,
     handlePrefill,
     duplicateWorkspace,
     handleDuplicateCheck,
@@ -513,7 +651,7 @@ export function useGenerateForm() {
 }
 
 function generationStatusToDialogPhase(
-  status: KidsPlayfulGenerationItem['imageProcessingStatus'],
+  status: KidsPlayfulGenerationItem['imageProcessingStatus'] | undefined,
 ): GenerationDialogPhase | null {
   if (status === 'pending' || status === 'processing') return 'started';
   if (status === 'completed') return 'completed';
@@ -522,16 +660,49 @@ function generationStatusToDialogPhase(
   return null;
 }
 
+function thumbnailStatusToDialogPhase(
+  status: ThumbnailGenerationItem['status'] | undefined,
+): GenerationDialogPhase | null {
+  if (status === 'pending' || status === 'running') return 'started';
+  if (status === 'succeeded') return 'completed';
+  if (status === 'failed') return 'failed';
+  if (status === 'cancelled') return 'cancelled';
+  return null;
+}
+
+function resolveProductGenerationDialogPhase(input: {
+  currentPhase: GenerationDialogPhase;
+  detailGenerationId: string | null;
+  detail?: KidsPlayfulGenerationItem;
+  thumbnailGenerationId: string | null;
+  thumbnail?: ThumbnailGenerationItem;
+}): GenerationDialogPhase | null {
+  if (input.currentPhase === 'cancelled') return null;
+
+  const detailPhase = input.detailGenerationId
+    ? generationStatusToDialogPhase(input.detail?.imageProcessingStatus)
+    : 'completed';
+  const thumbnailPhase = input.thumbnailGenerationId
+    ? thumbnailStatusToDialogPhase(input.thumbnail?.status)
+    : 'completed';
+
+  if (detailPhase === 'failed' || thumbnailPhase === 'failed') return 'failed';
+  if (detailPhase === 'cancelled' || thumbnailPhase === 'cancelled') return 'cancelled';
+  if (detailPhase === 'completed' && thumbnailPhase === 'completed') return 'completed';
+  if (detailPhase === 'started' || thumbnailPhase === 'started') return 'started';
+  return null;
+}
+
 function buildGenerationEditorUrl(
   item: KidsPlayfulGenerationItem,
   sourceCandidateId?: string | null,
 ): string | undefined {
   const candidateId = item.sourceCandidateId ?? sourceCandidateId ?? null;
-  const registrationWorkspaceId = item.registrationWorkspaceId ?? null;
+  const contentWorkspaceId = item.contentWorkspaceId ?? null;
   const returnTo = candidateId
     ? collectedProductDetailHref(candidateId)
-    : registrationWorkspaceId
-      ? registeredProductDetailHref(registrationWorkspaceId)
+    : contentWorkspaceId
+      ? registeredProductDetailHref(contentWorkspaceId)
       : null;
   if (candidateId) {
     return detailPageEditorHref({ candidateId, generationId: item.id, returnTo });
@@ -539,18 +710,39 @@ function buildGenerationEditorUrl(
   return detailPageEditorHref({ generationId: item.id, returnTo });
 }
 
-export function getLoadedRegistrationWorkspaceId(
+function mergeSourceReferences(
+  base: NonNullable<KidsPlayfulGenerateBody['sourceReferences']>,
+  extra: NonNullable<KidsPlayfulGenerateBody['sourceReferences']>,
+): NonNullable<KidsPlayfulGenerateBody['sourceReferences']> {
+  const seen = new Set<string>();
+  const merged: NonNullable<KidsPlayfulGenerateBody['sourceReferences']> = [];
+  for (const ref of [...base, ...extra]) {
+    const key = [
+      ref.sourceType,
+      ref.sourceCandidateId ?? '',
+      ref.contentAssetId ?? '',
+      ref.sourceContentGenerationId ?? '',
+      ref.label ?? '',
+    ].join(':');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(ref);
+  }
+  return merged;
+}
+
+export function getLoadedContentWorkspaceId(
   duplicateWorkspace: DuplicateWorkspaceState,
   title: string,
 ): string | null {
   if (duplicateWorkspace.status !== 'loaded' || !duplicateWorkspace.workspaceId) return null;
   if (!duplicateWorkspace.checkedTitle) return null;
-  return normalizeRegistrationTitle(duplicateWorkspace.checkedTitle) === normalizeRegistrationTitle(title)
+  return normalizeContentTitle(duplicateWorkspace.checkedTitle) === normalizeContentTitle(title)
     ? duplicateWorkspace.workspaceId
     : null;
 }
 
-function normalizeRegistrationTitle(value: string): string {
+function normalizeContentTitle(value: string): string {
   return value
     .normalize('NFKC')
     .toLocaleLowerCase()

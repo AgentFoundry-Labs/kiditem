@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DetailPageAgentOutputBridge } from '../detail-page-agent-output.bridge';
 import { DETAIL_PAGE_GENERATE_AGENT_TYPE } from '../../../domain/agent-output';
 import type { AgentRunFinalizedEvent } from '../../../../agent-os/application/event/agent-run-events';
-import type { DetailPageAgentOutputSinkPort } from '../../port/out/detail-page-agent-output-sink.port';
+import type { DetailPageAgentOutputSinkPort } from '../../port/out/sink/detail-page-agent-output-sink.port';
 
 const ORG = '11111111-1111-1111-1111-111111111111';
 const REQUEST = '22222222-2222-2222-2222-222222222222';
@@ -59,6 +59,7 @@ function makeEvent(
     sourceResourceType: null,
     sourceResourceId: null,
     requestedByUserId: null,
+    requestStatus: overrides.status === 'failed' ? 'failed' : 'succeeded',
     status: 'succeeded',
     output: VALID_BOLD_VERTICAL_OUTPUT,
     ...overrides,

@@ -34,8 +34,8 @@ import { AlertsService } from '../../../../application/service/alerts.service';
 import { ActionBoardService } from '../../../../application/service/action-board.service';
 import { AlertsRepositoryAdapter } from '../../repository/alerts.repository.adapter';
 import { ActionBoardRepositoryAdapter } from '../../repository/action-board.repository.adapter';
-import { ALERTS_REPOSITORY_PORT } from '../../../../application/port/out/alerts.repository.port';
-import { ACTION_BOARD_REPOSITORY_PORT } from '../../../../application/port/out/action-board.repository.port';
+import { ALERTS_REPOSITORY_PORT } from '../../../../application/port/out/repository/alerts.repository.port';
+import { ACTION_BOARD_REPOSITORY_PORT } from '../../../../application/port/out/repository/action-board.repository.port';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 
 // ── Constants ──────────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@ import { PANEL_EVENTS } from '../../adapter/out/panel-event/panel-events';
 import {
   WORKFLOW_ORCHESTRATION_REPOSITORY_PORT,
   type WorkflowOrchestrationRepositoryPort,
-} from '../port/out/workflow-orchestration.repository.port';
+} from '../port/out/repository/workflow-orchestration.repository.port';
 import type { JsonValue } from '../port/persistence-records';
 
 interface CreateWorkflowInput {

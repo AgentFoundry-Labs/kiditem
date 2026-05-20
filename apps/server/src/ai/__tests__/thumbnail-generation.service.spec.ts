@@ -1,7 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
 import { ThumbnailGenerationJobService } from '../application/service/thumbnail-generation-job.service';
+import { ThumbnailGenerationLifecycleService } from '../application/service/thumbnail-generation-lifecycle.service';
 import { ThumbnailGenerationService } from '../application/service/thumbnail-generation.service';
 import type { ThumbnailEditorInputImage } from '../domain/model/thumbnail-editor';
+import type { ProductGenerationAlertService } from '../application/service/product-generation-alert.service';
 
 const ORGANIZATION_ID = 'organization-1';
 const PRODUCT_ID = '7d000000-0000-4000-8000-000000000001';
@@ -60,10 +63,26 @@ function makeOperationAlertsStub() {
   };
 }
 
+function makeProductGenerationAlertsStub(): ProductGenerationAlertService {
+  return {
+    start: vi.fn().mockResolvedValue({}),
+    recordChildStarted: vi.fn().mockResolvedValue({ status: 'started', alert: {} }),
+    canStartChild: vi.fn().mockResolvedValue(true),
+    markChildFinished: vi.fn().mockResolvedValue({}),
+  } as unknown as ProductGenerationAlertService;
+}
+
 function makeAgentRunnerStub() {
   return {
     runByType: vi.fn(async () => ({ ok: true, requestId: REQUEST_ID })),
     executeRequest: vi.fn(async () => ({ executed: true, requestId: REQUEST_ID })),
+    cancelRequest: vi.fn(async () => ({
+      ok: true,
+      cancelledRequests: 1,
+      cancelledRuns: 0,
+      skippedRequests: 0,
+      skippedRuns: 0,
+    })),
   };
 }
 
@@ -77,23 +96,29 @@ function makeService(input: {
   trackingService?: unknown;
   operationAlerts?: unknown;
   agentRunner?: unknown;
+  productGenerationAlerts?: ProductGenerationAlertService;
 }) {
   const operationAlerts = input.operationAlerts ?? makeOperationAlertsStub();
   const editorAi = input.editorAi ?? {
     resolveInputImage: vi.fn(),
     generateEdit: vi.fn(),
   };
+  const ledger = new ThumbnailGenerationLedgerRepositoryAdapter(input.prisma as never);
+  const lifecycle = new ThumbnailGenerationLifecycleService(ledger, null);
   const jobService = new ThumbnailGenerationJobService(
-    input.prisma as never,
+    ledger,
     editorAi as never,
     operationAlerts as never,
     (input.agentRunner ?? makeAgentRunnerStub()) as never,
+    input.productGenerationAlerts ?? makeProductGenerationAlertsStub(),
+    lifecycle,
   );
   return new ThumbnailGenerationService(
-    input.prisma as never,
+    ledger,
     (input.trackingService ?? { create: vi.fn() }) as never,
     operationAlerts as never,
     jobService,
+    lifecycle,
   );
 }
 
@@ -398,6 +423,305 @@ describe('ThumbnailGenerationService normalized persistence', () => {
     );
   });
 
+  it('suppresses child thumbnail operation alert when linked to product generation parent', async () => {
+    const agentRunner = makeAgentRunnerStub();
+    const operationAlerts = makeOperationAlertsStub();
+    const productGenerationAlerts = makeProductGenerationAlertsStub();
+    const prisma = {
+      $transaction: vi.fn((callback: (tx: unknown) => unknown) => callback(prisma)),
+      sourcingCandidate: {
+        findFirst: vi.fn(async () => ({
+          id: SOURCE_CANDIDATE_ID,
+          name: 'Candidate toy',
+          category: 'Toys',
+          images: [],
+        })),
+      },
+      thumbnailGeneration: {
+        create: vi.fn(async (args: { data: Record<string, unknown> }) => ({
+          id: GENERATION_ID,
+          ...args.data,
+        })),
+        findFirst: vi.fn(async () => ({
+          id: GENERATION_ID,
+          organizationId: ORGANIZATION_ID,
+          status: 'pending',
+          phase: null,
+        })),
+      },
+      thumbnailGenerationInputImage: {
+        createMany: vi.fn(async () => ({ count: 1 })),
+      },
+    };
+    const service = makeService({
+      prisma,
+      agentRunner,
+      operationAlerts,
+      productGenerationAlerts,
+    });
+
+    await service.enqueueCandidateGeneration({
+      organizationId: ORGANIZATION_ID,
+      sourceCandidateId: SOURCE_CANDIDATE_ID,
+      productName: 'Candidate toy',
+      triggeredByUserId: null,
+      inputs: [makeInputImage({ source: 'sourcing_candidate' })],
+      inputMeta: { mode: 'edit', inputCount: 1 },
+      method: 'generate',
+      originalUrl: 'http://storage.local/kiditem/thumbnail-inputs/x.jpg',
+      agentPayload: { mode: 'edit', inputs: [] },
+      operationAlert: {
+        mode: 'parent',
+        batchId: 'batch-1',
+        parentOperationKey: 'product-generation:batch-1',
+        childKind: 'thumbnail',
+      },
+    });
+
+    expect(operationAlerts.start).not.toHaveBeenCalledWith(
+      expect.objectContaining({ operationKey: `thumbnail-edit:${GENERATION_ID}` }),
+    );
+    expect(productGenerationAlerts.recordChildStarted).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      parentOperationKey: 'product-generation:batch-1',
+      childKind: 'thumbnail',
+      childId: GENERATION_ID,
+    });
+    expect(prisma.thumbnailGeneration.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        inputMeta: expect.objectContaining({
+          mode: 'edit',
+          inputCount: 1,
+          productGeneration: {
+            mode: 'parent',
+            productGenerationBatchId: 'batch-1',
+            parentOperationKey: 'product-generation:batch-1',
+            childKind: 'thumbnail',
+          },
+        }),
+      }),
+    }));
+  });
+
+  it('cancels parent-mode thumbnail child without Agent OS enqueue when parent is already terminal', async () => {
+    const agentRunner = makeAgentRunnerStub();
+    const operationAlerts = makeOperationAlertsStub();
+    const productGenerationAlerts = makeProductGenerationAlertsStub();
+    productGenerationAlerts.recordChildStarted = vi.fn().mockResolvedValue({
+      status: 'parent_terminal',
+      alert: { status: 'cancelled' },
+    });
+    const prisma = {
+      $transaction: vi.fn((callback: (tx: unknown) => unknown) => callback(prisma)),
+      sourcingCandidate: {
+        findFirst: vi.fn(async () => ({
+          id: SOURCE_CANDIDATE_ID,
+          name: 'Candidate toy',
+          category: 'Toys',
+          images: [],
+        })),
+      },
+      thumbnailGeneration: {
+        create: vi.fn(async (args: { data: Record<string, unknown> }) => ({
+          id: GENERATION_ID,
+          ...args.data,
+        })),
+        findFirst: vi.fn(async () => ({
+          id: GENERATION_ID,
+          organizationId: ORGANIZATION_ID,
+          status: 'pending',
+          phase: null,
+        })),
+        updateMany: vi.fn(async () => ({ count: 1 })),
+      },
+      thumbnailGenerationInputImage: {
+        createMany: vi.fn(async () => ({ count: 1 })),
+      },
+    };
+    const service = makeService({
+      prisma,
+      agentRunner,
+      operationAlerts,
+      productGenerationAlerts,
+    });
+
+    const result = await service.enqueueCandidateGeneration({
+      organizationId: ORGANIZATION_ID,
+      sourceCandidateId: SOURCE_CANDIDATE_ID,
+      productName: 'Candidate toy',
+      triggeredByUserId: null,
+      inputs: [makeInputImage({ source: 'sourcing_candidate' })],
+      inputMeta: { mode: 'edit', inputCount: 1 },
+      method: 'generate',
+      originalUrl: 'http://storage.local/kiditem/thumbnail-inputs/x.jpg',
+      agentPayload: { mode: 'edit', inputs: [] },
+      operationAlert: {
+        mode: 'parent',
+        batchId: 'batch-1',
+        parentOperationKey: 'product-generation:batch-1',
+        childKind: 'thumbnail',
+      },
+    });
+
+    expect(result).toEqual({ generationId: GENERATION_ID, status: 'cancelled' });
+    expect(prisma.thumbnailGeneration.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: GENERATION_ID,
+        organizationId: ORGANIZATION_ID,
+        isDeleted: false,
+        status: { in: ['pending', 'running'] },
+      },
+      data: { status: 'cancelled', phase: null },
+    });
+    expect(agentRunner.runByType).not.toHaveBeenCalled();
+  });
+
+  it('cancels the thumbnail Agent OS request when parent is cancelled after child registration', async () => {
+    const agentRunner = makeAgentRunnerStub();
+    const operationAlerts = makeOperationAlertsStub();
+    const productGenerationAlerts = makeProductGenerationAlertsStub();
+    productGenerationAlerts.canStartChild = vi.fn().mockResolvedValue(false);
+    const prisma = {
+      $transaction: vi.fn((callback: (tx: unknown) => unknown) => callback(prisma)),
+      sourcingCandidate: {
+        findFirst: vi.fn(async () => ({
+          id: SOURCE_CANDIDATE_ID,
+          name: 'Candidate toy',
+          category: 'Toys',
+          images: [],
+        })),
+      },
+      thumbnailGeneration: {
+        create: vi.fn(async (args: { data: Record<string, unknown> }) => ({
+          id: GENERATION_ID,
+          ...args.data,
+        })),
+        findFirst: vi.fn(async () => ({
+          id: GENERATION_ID,
+          organizationId: ORGANIZATION_ID,
+          status: 'pending',
+          phase: null,
+        })),
+        updateMany: vi.fn(async () => ({ count: 1 })),
+      },
+      thumbnailGenerationInputImage: {
+        createMany: vi.fn(async () => ({ count: 1 })),
+      },
+      thumbnailGenerationEvent: {
+        create: vi.fn(async () => ({})),
+      },
+    };
+    const service = makeService({
+      prisma,
+      agentRunner,
+      operationAlerts,
+      productGenerationAlerts,
+    });
+
+    const result = await service.enqueueCandidateGeneration({
+      organizationId: ORGANIZATION_ID,
+      sourceCandidateId: SOURCE_CANDIDATE_ID,
+      productName: 'Candidate toy',
+      triggeredByUserId: null,
+      inputs: [makeInputImage({ source: 'sourcing_candidate' })],
+      inputMeta: { mode: 'edit', inputCount: 1 },
+      method: 'generate',
+      originalUrl: 'http://storage.local/kiditem/thumbnail-inputs/x.jpg',
+      agentPayload: { mode: 'edit', inputs: [] },
+      operationAlert: {
+        mode: 'parent',
+        batchId: 'batch-1',
+        parentOperationKey: 'product-generation:batch-1',
+        childKind: 'thumbnail',
+      },
+    });
+
+    expect(result).toEqual({ generationId: GENERATION_ID, status: 'cancelled' });
+    expect(agentRunner.runByType).toHaveBeenCalled();
+    expect(agentRunner.cancelRequest).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      requestId: REQUEST_ID,
+      reason: 'Parent product generation was cancelled before thumbnail request execution.',
+      actorUserId: null,
+    });
+    expect(agentRunner.executeRequest).not.toHaveBeenCalled();
+  });
+
+  it('routes parent-mode thumbnail enqueue failures to the product generation parent alert', async () => {
+    const agentRunner = makeAgentRunnerStub();
+    agentRunner.runByType = vi.fn(async () => ({ ok: false, reason: 'queue down' }));
+    const operationAlerts = makeOperationAlertsStub();
+    const productGenerationAlerts = makeProductGenerationAlertsStub();
+    const prisma = {
+      $transaction: vi.fn((callback: (tx: unknown) => unknown) => callback(prisma)),
+      sourcingCandidate: {
+        findFirst: vi.fn(async () => ({
+          id: SOURCE_CANDIDATE_ID,
+          name: 'Candidate toy',
+          category: 'Toys',
+          images: [],
+        })),
+      },
+      thumbnailGeneration: {
+        create: vi.fn(async (args: { data: Record<string, unknown> }) => ({
+          id: GENERATION_ID,
+          ...args.data,
+        })),
+        findFirst: vi.fn(async () => ({
+          id: GENERATION_ID,
+          organizationId: ORGANIZATION_ID,
+          status: 'pending',
+          phase: null,
+          attemptCount: 0,
+        })),
+        updateMany: vi.fn(async () => ({ count: 1 })),
+      },
+      thumbnailGenerationInputImage: {
+        createMany: vi.fn(async () => ({ count: 1 })),
+      },
+    };
+    const service = makeService({
+      prisma,
+      agentRunner,
+      operationAlerts,
+      productGenerationAlerts,
+    });
+
+    await expect(
+      service.enqueueCandidateGeneration({
+        organizationId: ORGANIZATION_ID,
+        sourceCandidateId: SOURCE_CANDIDATE_ID,
+        productName: 'Candidate toy',
+        triggeredByUserId: null,
+        inputs: [makeInputImage({ source: 'sourcing_candidate' })],
+        inputMeta: { mode: 'edit', inputCount: 1 },
+        method: 'generate',
+        originalUrl: 'http://storage.local/kiditem/thumbnail-inputs/x.jpg',
+        agentPayload: { mode: 'edit', inputs: [] },
+        operationAlert: {
+          mode: 'parent',
+          batchId: 'batch-1',
+          parentOperationKey: 'product-generation:batch-1',
+          childKind: 'thumbnail',
+        },
+      }),
+    ).rejects.toThrow('Agent OS enqueue failed: queue down');
+
+    expect(productGenerationAlerts.markChildFinished).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      parentOperationKey: 'product-generation:batch-1',
+      childKind: 'thumbnail',
+      status: 'failed',
+      childId: GENERATION_ID,
+      errorMessage: 'Agent OS enqueue failed: queue down',
+    });
+    expect(operationAlerts.fail).not.toHaveBeenCalledWith(
+      ORGANIZATION_ID,
+      `thumbnail-edit:${GENERATION_ID}`,
+      expect.anything(),
+    );
+  });
+
   it('enqueueStandaloneGeneration creates a pending generation without master or sourcing candidate linkage', async () => {
     const agentRunner = makeAgentRunnerStub();
     const operationAlerts = makeOperationAlertsStub();
@@ -470,7 +794,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
 
     const result = await service.enqueueStandaloneGeneration({
       organizationId: ORGANIZATION_ID,
-      registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+      contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
       productName: 'Registered workspace toy',
       triggeredByUserId: null,
       inputs: [makeInputImage({ source: 'upload' })],
@@ -486,16 +810,16 @@ describe('ThumbnailGenerationService normalized persistence', () => {
         organizationId: ORGANIZATION_ID,
         masterId: null,
         sourceCandidateId: null,
-        registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+        contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
       }),
     }));
     expect(operationAlerts.start).toHaveBeenCalledWith(
       expect.objectContaining({
-        targetType: 'registration_workspace',
+        targetType: 'content_workspace',
         targetId: REGISTRATION_WORKSPACE_ID,
         href: `/product-pipeline/registered-products/${REGISTRATION_WORKSPACE_ID}`,
         metadata: expect.objectContaining({
-          registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+          contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
           standalone: false,
         }),
       }),

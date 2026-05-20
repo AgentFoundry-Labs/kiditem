@@ -14,7 +14,7 @@ import type {
   ExistingAdActionDedupRow,
   HydratedAdAction,
   LatestTargetRow,
-} from '../../../application/port/out/ad-action.repository.port';
+} from '../../../application/port/out/repository/ad-action.repository.port';
 import { AdListingRepositoryAdapter } from './ad-listing.repository.adapter';
 
 @Injectable()

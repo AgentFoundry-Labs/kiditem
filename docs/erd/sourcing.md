@@ -74,7 +74,8 @@ erDiagram
 | SourcingCandidate | rejectedByUser | references external | Core | User |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ContentGeneration |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ContentGenerationSource |
+| SourcingCandidate | sourceCandidate | referenced by external | AI | ContentWorkspace |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | DetailPageArtifact |
-| SourcingCandidate | sourceCandidate | referenced by external | AI | RegistrationWorkspace |
+| SourcingCandidate | sourceCandidate | referenced by external | AI | ProductPreparation |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ThumbnailGeneration |
 | SourcingCandidate | triggeredByUser | references external | Core | User |

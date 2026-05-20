@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThumbnailGenerationService } from '../thumbnail-generation.service';
-import type { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
+import { ThumbnailGenerationLifecycleService } from '../thumbnail-generation-lifecycle.service';
+import type { OperationAlertPort } from '../../port/out/cross-domain/operation-alert.port';
+import type { ProductGenerationAlertService } from '../product-generation-alert.service';
+import type { ThumbnailGenerationLedgerRepositoryPort } from '../../port/out/repository/thumbnail-generation-ledger.repository.port';
 
 const ORGANIZATION_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '99999999-9999-9999-9999-999999999999';
@@ -8,42 +11,8 @@ const MASTER_ID = '22222222-2222-4222-8222-222222222222';
 const GENERATION_ID = '33333333-3333-4333-8333-333333333333';
 
 const mocks = vi.hoisted(() => ({
-  findJobMastersByIds: vi.fn(),
-  findActiveJobForProduct: vi.fn(),
-  createPendingEditJob: vi.fn(),
   toThumbnailGenerationItem: vi.fn(),
   resolveMasterThumbnailImage: vi.fn(),
-}));
-
-vi.mock('../../../adapter/out/prisma/thumbnail-generation.query', () => ({
-  findActiveJobForProduct: mocks.findActiveJobForProduct,
-  findAutoBatchCandidates: vi.fn(),
-  findGenerationMaster: vi.fn(),
-  findGenerationMasters: vi.fn(),
-  findGenerationOrThrow: vi.fn(),
-  findGenerationRows: vi.fn(),
-  findGenerationWithCandidatesOrThrow: vi.fn(),
-  findGenerationWithInputImages: vi.fn(),
-  findJobMaster: vi.fn(),
-  findJobMastersByIds: mocks.findJobMastersByIds,
-  findProductForEditor: vi.fn(),
-  findRecentAutoJob: vi.fn(),
-  findThumbnailAnalysisGrade: vi.fn(),
-}));
-
-vi.mock('../../../adapter/out/prisma/thumbnail-generation.persistence', () => ({
-  applyGenerationToMaster: vi.fn(),
-  createPendingEditJob: mocks.createPendingEditJob,
-  deleteGeneration: vi.fn(),
-  lockGenerationForProcessing: vi.fn(),
-  markGenerationCancelled: vi.fn(),
-  markGenerationFailed: vi.fn(),
-  persistPendingInputImages: vi.fn(),
-  removeCandidate: vi.fn(),
-  replaceGenerationResult: vi.fn(),
-  resetGenerationForReEdit: vi.fn(),
-  saveEditorResult: vi.fn(),
-  setSelectedCandidate: vi.fn(),
 }));
 
 vi.mock('../../../domain/thumbnail-master-image', () => ({
@@ -54,14 +23,14 @@ vi.mock('../../../mapper/thumbnail-generation.mapper', () => ({
   toThumbnailGenerationItem: mocks.toThumbnailGenerationItem,
 }));
 
-function makeOperationAlertsStub(): OperationAlertService {
+function makeOperationAlertsStub(): OperationAlertPort {
   return {
     start: vi.fn().mockResolvedValue({}),
     succeed: vi.fn().mockResolvedValue({}),
     fail: vi.fn().mockResolvedValue({}),
     progress: vi.fn().mockResolvedValue({}),
     cancel: vi.fn().mockResolvedValue({}),
-  } as unknown as OperationAlertService;
+  } as unknown as OperationAlertPort;
 }
 
 function makeGenerationJobsStub() {
@@ -69,19 +38,71 @@ function makeGenerationJobsStub() {
     enqueueEditorGeneration: vi.fn(),
     scheduleEditJob: vi.fn(),
     processEditJob: vi.fn(),
+    cancelAgentRequestForGeneration: vi.fn(),
   };
 }
 
-function makeService(operationAlerts = makeOperationAlertsStub()) {
-  const generationJobs = makeGenerationJobsStub();
+function makeProductGenerationAlertsStub(): ProductGenerationAlertService {
   return {
+    markChildFinished: vi.fn().mockResolvedValue({}),
+  } as unknown as ProductGenerationAlertService;
+}
+
+function makeLedgerStub(): ThumbnailGenerationLedgerRepositoryPort {
+  return {
+    findJobMastersByIds: vi.fn().mockResolvedValue(new Map([
+      [
+        MASTER_ID,
+        {
+          id: MASTER_ID,
+          name: '검증용 상품',
+          thumbnailAnalyses: [],
+        },
+      ],
+    ])),
+    findActiveJobForProduct: vi.fn().mockResolvedValue(null),
+    openPendingEditorJob: vi.fn().mockResolvedValue({
+      id: GENERATION_ID,
+      masterId: MASTER_ID,
+      status: 'pending',
+    }),
+    markGenerationCancelled: vi.fn().mockResolvedValue({
+      fromStatus: 'running',
+      fromPhase: 'processing',
+    }),
+    findGenerationProjectionStatus: vi.fn().mockResolvedValue({
+      id: GENERATION_ID,
+      status: 'running',
+      phase: 'processing',
+      inputMeta: null,
+      errorMessage: null,
+    }),
+  } as unknown as ThumbnailGenerationLedgerRepositoryPort;
+}
+
+function makeService(
+  operationAlerts = makeOperationAlertsStub(),
+  ledger: ThumbnailGenerationLedgerRepositoryPort = makeLedgerStub(),
+  generationEvents: unknown = null,
+  productGenerationAlerts: ProductGenerationAlertService = makeProductGenerationAlertsStub(),
+) {
+  const generationJobs = makeGenerationJobsStub();
+  const lifecycle = new ThumbnailGenerationLifecycleService(
+    ledger,
+    generationEvents as never,
+  );
+  return {
+    ledger,
     generationJobs,
     operationAlerts,
+    productGenerationAlerts,
     service: new ThumbnailGenerationService(
-      {} as never,
+      ledger,
       {} as never,
       operationAlerts,
       generationJobs as never,
+      lifecycle,
+      productGenerationAlerts,
     ),
   };
 }
@@ -92,23 +113,7 @@ describe('ThumbnailGenerationService operation alerts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setImmediateSpy = vi.spyOn(globalThis, 'setImmediate').mockImplementation(() => 0 as never);
-    mocks.findJobMastersByIds.mockResolvedValue(new Map([
-      [
-        MASTER_ID,
-        {
-          id: MASTER_ID,
-          name: '검증용 상품',
-          thumbnailAnalyses: [],
-        },
-      ],
-    ]));
-    mocks.findActiveJobForProduct.mockResolvedValue(null);
     mocks.resolveMasterThumbnailImage.mockReturnValue('https://cdn.example.com/source.jpg');
-    mocks.createPendingEditJob.mockResolvedValue({
-      id: GENERATION_ID,
-      masterId: MASTER_ID,
-      status: 'pending',
-    });
     mocks.toThumbnailGenerationItem.mockReturnValue({
       id: GENERATION_ID,
       productId: MASTER_ID,
@@ -120,7 +125,7 @@ describe('ThumbnailGenerationService operation alerts', () => {
   });
 
   it('links thumbnail edit alerts to the thumbnail workspace with generation context', async () => {
-    const { service, operationAlerts } = makeService();
+    const { service, operationAlerts, ledger } = makeService();
 
     await service.createEditJobs(
       [MASTER_ID],
@@ -130,8 +135,7 @@ describe('ThumbnailGenerationService operation alerts', () => {
       USER_ID,
     );
 
-    expect(mocks.createPendingEditJob).toHaveBeenCalledWith(
-      expect.anything(),
+    expect(ledger.openPendingEditorJob).toHaveBeenCalledWith(
       expect.objectContaining({ triggeredByUserId: USER_ID }),
     );
     expect(operationAlerts.start).toHaveBeenCalledWith(
@@ -144,5 +148,91 @@ describe('ThumbnailGenerationService operation alerts', () => {
         href: `/product-pipeline/thumbnail-generation?generationId=${GENERATION_ID}`,
       }),
     );
+  });
+
+  it('records cancellation audit in the thumbnail generation event payload', async () => {
+    const ledger = makeLedgerStub();
+    const operationAlerts = makeOperationAlertsStub();
+    const generationEvents = { append: vi.fn() };
+    const { service, generationJobs } = makeService(
+      operationAlerts,
+      ledger,
+      generationEvents,
+    );
+
+    const result = await service.cancelForOperation({
+      organizationId: ORGANIZATION_ID,
+      generationId: GENERATION_ID,
+      actorUserId: USER_ID,
+      reason: '사용자 요청',
+    });
+
+    expect(result.status).toBe('cancelled');
+    expect(generationEvents.append).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'status_change',
+        payload: expect.objectContaining({
+          operationCancellation: expect.objectContaining({
+            requestedByUserId: USER_ID,
+            reason: '사용자 요청',
+            result: 'cancelled',
+            target: {
+              targetType: 'thumbnail_generation',
+              generationId: GENERATION_ID,
+            },
+            affected: expect.objectContaining({
+              thumbnailGenerationIds: [GENERATION_ID],
+            }),
+          }),
+        }),
+      }),
+    );
+    expect(generationJobs.cancelAgentRequestForGeneration).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      generationId: GENERATION_ID,
+      reason: '사용자 요청',
+      actorUserId: USER_ID,
+    });
+  });
+
+  it('marks the parent product-generation child finished when directly cancelling a child thumbnail generation', async () => {
+    const ledger = makeLedgerStub();
+    vi.mocked(ledger.findGenerationProjectionStatus).mockResolvedValueOnce({
+      id: GENERATION_ID,
+      status: 'running',
+      phase: 'processing',
+      errorMessage: null,
+      inputMeta: {
+        productGeneration: {
+          mode: 'parent',
+          productGenerationBatchId: 'batch-1',
+          parentOperationKey: 'product-generation:batch-1',
+          childKind: 'thumbnail',
+        },
+      },
+    });
+    const productGenerationAlerts = makeProductGenerationAlertsStub();
+    const { service } = makeService(
+      makeOperationAlertsStub(),
+      ledger,
+      { append: vi.fn() },
+      productGenerationAlerts,
+    );
+
+    await service.cancelForOperation({
+      organizationId: ORGANIZATION_ID,
+      generationId: GENERATION_ID,
+      actorUserId: USER_ID,
+      reason: '사용자 요청',
+    });
+
+    expect(productGenerationAlerts.markChildFinished).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      parentOperationKey: 'product-generation:batch-1',
+      childKind: 'thumbnail',
+      status: 'failed',
+      childId: GENERATION_ID,
+      errorMessage: '사용자 요청',
+    });
   });
 });

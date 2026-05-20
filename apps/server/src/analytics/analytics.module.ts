@@ -28,7 +28,7 @@ import { SupplierStatsModule } from './supplier-stats/supplier-stats.module';
  *     `$queryRaw` surfaces.
  *   - Tenant predicates: every read binds `organizationId` from
  *     `@CurrentOrganization()`. Raw SQL paths bind `${organizationId}::uuid` per
- *     ADR-0018; ORM paths use `where: { organizationId, ... }`.
+ *     tenant-scope rule; ORM paths use `where: { organizationId, ... }`.
  *   - Public routes are preserved: `/api/dashboard/*`,
  *     `/api/statistics`, `/api/traffic/*`, `/api/supplier-stats`.
  */

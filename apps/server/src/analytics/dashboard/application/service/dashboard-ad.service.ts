@@ -16,27 +16,27 @@ import {
   PROFIT_CALCULATION_REPOSITORY_PORT,
   type ProfitCalculationRepositoryPort,
   type RangeProfitMetrics,
-} from '../port/out/profit-calculation.repository.port';
+} from '../port/out/repository/profit-calculation.repository.port';
 import {
   AD_AGGREGATION_REPOSITORY_PORT,
   type AdAggregationRepositoryPort,
   type RangeAdMetrics,
-} from '../port/out/ad-aggregation.repository.port';
+} from '../port/out/repository/ad-aggregation.repository.port';
 import {
   WING_AD_SUMMARY_REPOSITORY_PORT,
   type WingAdSummaryRepositoryPort,
   type WingAdSummaryResult,
-} from '../port/out/wing-ad-summary.repository.port';
+} from '../port/out/repository/wing-ad-summary.repository.port';
 import {
   DASHBOARD_AD_REPOSITORY_PORT,
   type DashboardAdRepositoryPort,
-} from '../port/out/dashboard-ad.repository.port';
+} from '../port/out/repository/dashboard-ad.repository.port';
 import {
   WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT,
   type WingTrafficAggregationRepositoryPort,
   type CoupangAdsMetrics,
   type WingTrafficMetrics,
-} from '../port/out/wing-traffic-aggregation.repository.port';
+} from '../port/out/repository/wing-traffic-aggregation.repository.port';
 import { buildEffectivePeriod } from '../../domain/util/effective-period';
 import { pct1, pct2 } from '../../domain/util/percent';
 import { kstDayStart } from '../../../../common/kst';

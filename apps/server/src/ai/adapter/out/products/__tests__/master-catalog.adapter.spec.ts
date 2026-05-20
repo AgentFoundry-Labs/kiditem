@@ -23,8 +23,12 @@ describe('MasterCatalogAdapter', () => {
     const prisma = {
       channelListing: {
         findFirst: vi.fn().mockResolvedValue(null),
+        findMany: vi.fn().mockResolvedValue([]),
         create: vi.fn(),
         updateMany: vi.fn(),
+      },
+      channelAccount: {
+        findFirst: vi.fn().mockResolvedValue(null),
       },
       productOption: {
         findFirst: vi.fn().mockResolvedValue(null),
@@ -50,8 +54,9 @@ describe('MasterCatalogAdapter', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('connects an unmatched Coupang listing to an existing option by legacyCode', async () => {
+  it('connects an unmatched Coupang listing to the active account when legacyCode matches', async () => {
     const { adapter, prisma } = buildAdapter();
+    prisma.channelAccount.findFirst.mockResolvedValueOnce({ id: 'account-1' });
     prisma.productOption.findFirst.mockResolvedValueOnce({
       masterId: '00000000-0000-0000-0000-00000000a111',
       master: {
@@ -87,6 +92,7 @@ describe('MasterCatalogAdapter', () => {
           organizationId: '00000000-0000-0000-0000-0000000c0001',
           masterId: '00000000-0000-0000-0000-00000000a111',
           channel: 'coupang',
+          channelAccountId: 'account-1',
           externalId: 'WING-123',
           channelName: 'Matched Coupang item',
           status: 'active',
@@ -97,6 +103,100 @@ describe('MasterCatalogAdapter', () => {
       masterId: '00000000-0000-0000-0000-00000000a111',
       hasImage: false,
     });
+  });
+
+  it('does not create accountless Coupang listings from legacyCode matches', async () => {
+    const { adapter, prisma } = buildAdapter();
+    prisma.productOption.findFirst.mockResolvedValueOnce({
+      masterId: '00000000-0000-0000-0000-00000000a111',
+      master: {
+        imageUrl: null,
+        thumbnailUrl: null,
+        images: [],
+      },
+    });
+
+    const handle = await adapter.findCoupangMaster({
+      organizationId: '00000000-0000-0000-0000-0000000c0001',
+      inventoryId: 'WING-123',
+      legacyCode: 'LEG-123',
+      name: 'Matched Coupang item',
+    });
+
+    expect(prisma.channelListing.create).not.toHaveBeenCalled();
+    expect(handle).toEqual({
+      masterId: '00000000-0000-0000-0000-00000000a111',
+      hasImage: false,
+    });
+  });
+
+  it('does not pick an ambiguous listing when no active account identity is known', async () => {
+    const { adapter, prisma } = buildAdapter();
+    prisma.channelListing.findMany.mockResolvedValueOnce([
+      {
+        externalId: 'WING-123',
+        channelAccountId: 'account-1',
+        masterId: '00000000-0000-0000-0000-00000000a111',
+        master: {
+          imageUrl: null,
+          thumbnailUrl: null,
+          images: [],
+        },
+      },
+      {
+        externalId: 'WING-123',
+        channelAccountId: 'account-2',
+        masterId: '00000000-0000-0000-0000-00000000a222',
+        master: {
+          imageUrl: null,
+          thumbnailUrl: null,
+          images: [],
+        },
+      },
+    ]);
+
+    const handle = await adapter.findCoupangMaster({
+      organizationId: '00000000-0000-0000-0000-0000000c0001',
+      inventoryId: 'WING-123',
+      name: 'Ambiguous Coupang item',
+    });
+
+    expect(handle).toBeNull();
+    expect(prisma.channelListing.updateMany).not.toHaveBeenCalled();
+    expect(prisma.channelListing.create).not.toHaveBeenCalled();
+  });
+
+  it('omits ambiguous listing image states when no active account identity is known', async () => {
+    const { adapter, prisma } = buildAdapter();
+    prisma.channelListing.findMany.mockResolvedValueOnce([
+      {
+        id: 'listing-1',
+        externalId: 'WING-123',
+        channelAccountId: 'account-1',
+        master: {
+          imageUrl: 'https://example.com/one.jpg',
+          thumbnailUrl: null,
+          images: [],
+        },
+      },
+      {
+        id: 'listing-2',
+        externalId: 'WING-123',
+        channelAccountId: 'account-2',
+        master: {
+          imageUrl: null,
+          thumbnailUrl: null,
+          images: [],
+        },
+      },
+    ]);
+
+    const states = await adapter.findCoupangListingImageStates({
+      organizationId: '00000000-0000-0000-0000-0000000c0001',
+      inventoryIds: ['WING-123'],
+    });
+
+    expect(states).toEqual([]);
   });
 
   it('attaches an external Coupang CDN URL as a MasterProductImage row + master.imageUrl cache', async () => {

@@ -6,7 +6,7 @@ import type {
   StockTransferBareRow,
   StockTransferRow,
   TransfersRepositoryPort,
-} from '../../../application/port/out/transfers.repository.port';
+} from '../../../application/port/out/repository/transfers.repository.port';
 
 const TRANSFER_INCLUDE = {
   option: true,

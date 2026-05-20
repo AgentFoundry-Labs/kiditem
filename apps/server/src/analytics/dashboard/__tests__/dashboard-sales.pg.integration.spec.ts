@@ -8,10 +8,10 @@ import { WingTrafficAggregationRepositoryAdapter } from '../adapter/out/reposito
 import { ProfitCalculationRepositoryAdapter } from '../adapter/out/repository/profit-calculation.repository.adapter';
 import { WingAdSummaryRepositoryAdapter } from '../adapter/out/repository/wing-ad-summary.repository.adapter';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/profit-calculation.repository.port';
-import { WING_AD_SUMMARY_REPOSITORY_PORT } from '../application/port/out/wing-ad-summary.repository.port';
-import { DASHBOARD_SALES_REPOSITORY_PORT } from '../application/port/out/dashboard-sales.repository.port';
-import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/wing-traffic-aggregation.repository.port';
+import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/repository/profit-calculation.repository.port';
+import { WING_AD_SUMMARY_REPOSITORY_PORT } from '../application/port/out/repository/wing-ad-summary.repository.port';
+import { DASHBOARD_SALES_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-sales.repository.port';
+import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/wing-traffic-aggregation.repository.port';
 import {
   makeTestPrisma,
   resetDb,

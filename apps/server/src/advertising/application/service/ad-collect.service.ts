@@ -3,7 +3,7 @@ import type { AdCollectStatus } from '@kiditem/shared/advertising';
 import {
   CHANNEL_SCRAPE_REPOSITORY_PORT,
   type ChannelScrapeRepositoryPort,
-} from '../port/out/channel-scrape.repository.port';
+} from '../port/out/repository/channel-scrape.repository.port';
 
 @Injectable()
 export class AdCollectService {

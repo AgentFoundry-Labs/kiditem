@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import {
   COUPANG_PROVIDER_PORT,
   type CoupangProviderPort,
-} from '../../channels/application/port/out/coupang-provider.port';
+} from '../../channels/application/port/out/provider/coupang-provider.port';
 
 type OrderReturnWithLineItems = OrderReturn & {
   lineItems: OrderReturnLineItem[];

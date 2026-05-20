@@ -13,7 +13,7 @@ const EMPTY_PRODUCT_IMAGES: MasterImageItem[] = [];
 /**
  * Product image management for a single MasterProduct (`masterId`).
  *
- * W1 rewrite (ADR-0020 successor):
+ * Image API rewrite:
  * - Fetches via `GET /api/products/masters/:id/images` (not the master detail
  *   route's embedded `.images` field).
  * - Uploads to `POST /api/products/masters/:id/images` and expects the

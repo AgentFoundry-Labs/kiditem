@@ -1,10 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BundleComponentsService } from '../bundle-components.service';
 
-function makeTransactionPrisma(tx: any) {
-  return {
-    $transaction: vi.fn((cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx)),
-  };
+function makeTransactions(tx: any) {
+  return { run: vi.fn((cb: (txArg: typeof tx) => Promise<unknown>) => cb(tx)) };
 }
 
 describe('BundleComponentsService tenant boundary internals', () => {
@@ -17,29 +15,23 @@ describe('BundleComponentsService tenant boundary internals', () => {
       qty: 2,
     };
     const updated = { ...row, qty: 5 };
-    const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([]),
-      bundleComponent: {
-        findFirst: vi.fn()
-          .mockResolvedValueOnce(row)
-          .mockResolvedValueOnce(updated),
-        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
-        update: vi.fn().mockResolvedValue(updated),
-      },
+    const tx = { tx: true };
+    const bundles = {
+      findBundleComponentForTenant: vi.fn()
+        .mockResolvedValueOnce(row)
+        .mockResolvedValueOnce(updated),
+      lockBundleOptionRow: vi.fn().mockResolvedValue(undefined),
+      updateBundleComponentQty: vi.fn().mockResolvedValue(1),
     };
     const bundleStock = { recompute: vi.fn().mockResolvedValue(undefined) };
-    const svc = new BundleComponentsService(makeTransactionPrisma(tx) as any, bundleStock as any);
+    const svc = new BundleComponentsService(bundles as any, makeTransactions(tx) as any, bundleStock as any);
 
     await svc.update('organization-1', 'bc-1', { qty: 5 });
 
-    expect(tx.$queryRaw).toHaveBeenCalled();
-    expect(tx.bundleComponent.updateMany).toHaveBeenCalledWith({
-      where: { id: 'bc-1', organizationId: 'organization-1' },
-      data: { qty: 5 },
-    });
-    expect(tx.bundleComponent.update).not.toHaveBeenCalled();
-    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
-      tx.bundleComponent.updateMany.mock.invocationCallOrder[0],
+    expect(bundles.lockBundleOptionRow).toHaveBeenCalledWith(tx, 'bundle-1', 'organization-1');
+    expect(bundles.updateBundleComponentQty).toHaveBeenCalledWith(tx, 'bc-1', 'organization-1', 5);
+    expect(bundles.lockBundleOptionRow.mock.invocationCallOrder[0]).toBeLessThan(
+      bundles.updateBundleComponentQty.mock.invocationCallOrder[0],
     );
     expect(bundleStock.recompute).toHaveBeenCalledWith('organization-1', 'bundle-1', tx);
   });
@@ -52,26 +44,21 @@ describe('BundleComponentsService tenant boundary internals', () => {
       componentOptionId: 'component-1',
       qty: 2,
     };
-    const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([]),
-      bundleComponent: {
-        findFirst: vi.fn().mockResolvedValue(row),
-        deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
-        delete: vi.fn().mockResolvedValue(row),
-      },
+    const tx = { tx: true };
+    const bundles = {
+      findBundleComponentForTenant: vi.fn().mockResolvedValue(row),
+      lockBundleOptionRow: vi.fn().mockResolvedValue(undefined),
+      deleteBundleComponentScoped: vi.fn().mockResolvedValue(1),
     };
     const bundleStock = { recompute: vi.fn().mockResolvedValue(undefined) };
-    const svc = new BundleComponentsService(makeTransactionPrisma(tx) as any, bundleStock as any);
+    const svc = new BundleComponentsService(bundles as any, makeTransactions(tx) as any, bundleStock as any);
 
     await svc.delete('organization-1', 'bc-1');
 
-    expect(tx.$queryRaw).toHaveBeenCalled();
-    expect(tx.bundleComponent.deleteMany).toHaveBeenCalledWith({
-      where: { id: 'bc-1', organizationId: 'organization-1' },
-    });
-    expect(tx.bundleComponent.delete).not.toHaveBeenCalled();
-    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
-      tx.bundleComponent.deleteMany.mock.invocationCallOrder[0],
+    expect(bundles.lockBundleOptionRow).toHaveBeenCalledWith(tx, 'bundle-1', 'organization-1');
+    expect(bundles.deleteBundleComponentScoped).toHaveBeenCalledWith(tx, 'bc-1', 'organization-1');
+    expect(bundles.lockBundleOptionRow.mock.invocationCallOrder[0]).toBeLessThan(
+      bundles.deleteBundleComponentScoped.mock.invocationCallOrder[0],
     );
     expect(bundleStock.recompute).toHaveBeenCalledWith('organization-1', 'bundle-1', tx);
   });

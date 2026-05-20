@@ -7,7 +7,7 @@ import type {
   CoupangAdsMetrics,
   WingDailyTrendRow,
   CoupangAdsDailyRow,
-} from '../../../application/port/out/wing-traffic-aggregation.repository.port';
+} from '../../../application/port/out/repository/wing-traffic-aggregation.repository.port';
 
 /**
  * Drive replay aggregations — Wing daily traffic + Coupang ads daily KPIs.

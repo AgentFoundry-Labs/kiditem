@@ -5,7 +5,7 @@ import {
   type FindAuthorizationEventsQuery,
   type FindCostEventsQuery,
   type RecordCostEventInput,
-} from '../../../application/port/out/agent-os-repository.port';
+} from '../../../application/port/out/repository/agent-os-repository.port';
 import { type AgentAuthorizationDecision } from '../../../domain/agent-os.types';
 import { clampLimit } from './agent-os.repository.mapper';
 

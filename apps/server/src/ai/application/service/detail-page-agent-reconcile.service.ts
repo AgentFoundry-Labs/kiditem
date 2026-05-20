@@ -1,5 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { AgentObservabilityService } from '../../../agent-os/application/service/agent-observability.service';
 import {
   DETAIL_PAGE_GENERATE_AGENT_TYPE,
@@ -8,7 +7,15 @@ import {
 import {
   DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT,
   type DetailPageAgentOutputSinkPort,
-} from '../port/out/detail-page-agent-output-sink.port';
+} from '../port/out/sink/detail-page-agent-output-sink.port';
+import {
+  DETAIL_PAGE_RECONCILE_REPOSITORY_PORT,
+  type DetailPageReconcileRepositoryPort,
+} from '../port/out/repository/detail-page-reconcile.repository.port';
+import {
+  AgentFinalizedOutputProjectionService,
+  type AgentFinalizedOutputProjectionResult,
+} from './agent-finalized-output-projection.service';
 
 export interface DetailPageReconcileSummary {
   scanned: number;
@@ -57,7 +64,8 @@ export class DetailPageAgentReconcileService {
   private readonly logger = new Logger(DetailPageAgentReconcileService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(DETAIL_PAGE_RECONCILE_REPOSITORY_PORT)
+    private readonly repository: DetailPageReconcileRepositoryPort,
     /**
      * Cross-domain reads via the observability surface that AgentOsModule
      * already exports — keeps AGENT_OS_REPOSITORY_PORT private to agent-os
@@ -67,6 +75,9 @@ export class DetailPageAgentReconcileService {
     private readonly observability: AgentObservabilityService,
     @Inject(DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT)
     private readonly sink: DetailPageAgentOutputSinkPort,
+    @Optional()
+    @Inject(AgentFinalizedOutputProjectionService)
+    private readonly finalizedOutputProjection: AgentFinalizedOutputProjectionService = new AgentFinalizedOutputProjectionService(),
   ) {}
 
   async reconcile(
@@ -87,24 +98,10 @@ export class DetailPageAgentReconcileService {
       skipped: 0,
     };
 
-    // Cross-domain read: AgentRunRequest rows live in agent-os, but the
-    // recovery contract documented in agent-os/AGENTS.md authorizes the AI
-    // domain to query terminal rows for its own agentType. We use Prisma
-    // here because the agent-os repository port does not expose a
-    // "terminal requests by source" query, and adding one purely for AI
-    // would couple agent-os to AI's recovery cadence. The query is
-    // organization-scoped + agentType-scoped, so it never touches other
-    // domains' rows.
-    const requests = await this.prisma.agentRunRequest.findMany({
-      where: {
-        organizationId,
-        sourceResourceType: 'content_generation',
-        source: 'ai.detail_page_generate',
-        status: { in: ['succeeded', 'failed'] },
-        finishedAt: { gte: since },
-      },
-      orderBy: { finishedAt: 'desc' },
-      take: limit,
+    const requests = await this.repository.listTerminalRequests({
+      organizationId,
+      since,
+      limit,
     });
 
     for (const req of requests) {
@@ -114,9 +111,9 @@ export class DetailPageAgentReconcileService {
         summary.skipped += 1;
         continue;
       }
-      const cg = await this.prisma.contentGeneration.findFirst({
-        where: { id: sourceResourceId, organizationId },
-        select: { id: true, status: true },
+      const cg = await this.repository.findContentGenerationStatus({
+        organizationId,
+        contentGenerationId: sourceResourceId,
       });
       if (!cg) {
         summary.skipped += 1;
@@ -130,16 +127,24 @@ export class DetailPageAgentReconcileService {
       }
 
       if (req.status === 'failed') {
-        await this.sink.applyFailure({
-          organizationId,
-          requestId: req.id,
-          runId: undefined,
-          sourceResourceId,
-          errorCode: req.lastErrorCode ?? 'agent_run_failed',
-          errorMessage:
-            req.lastErrorMessage ?? 'Agent run failed without a recorded message.',
-        });
-        summary.appliedFailure += 1;
+        countProjectionResult(
+          summary,
+          await this.finalizedOutputProjection.project({
+            agentLabel: 'detail_page_generate reconcile',
+            schema: DetailPageGenerateAgentOutputSchema,
+            sink: this.sink,
+            finalized: {
+              organizationId,
+              requestId: req.id,
+              runId: undefined,
+              sourceResourceId,
+              status: 'failed',
+              errorCode: req.lastErrorCode ?? 'agent_run_failed',
+              errorMessage:
+                req.lastErrorMessage ?? 'Agent run failed without a recorded message.',
+            },
+          }),
+        );
         continue;
       }
 
@@ -154,36 +159,22 @@ export class DetailPageAgentReconcileService {
         requestId: req.id,
         status: ['succeeded'],
       });
-      const output = ourRun?.output ?? null;
-      const parsed = DetailPageGenerateAgentOutputSchema.safeParse(output);
-      if (!parsed.success) {
-        const issue = parsed.error.issues[0];
-        const message = issue
-          ? `${issue.path.join('.') || '<root>'}: ${issue.message}`
-          : 'Agent output failed schema validation during reconcile.';
-        this.logger.warn(
-          `detail_page_generate reconcile: invalid output for request=${req.id}; routing to applyFailure. ${message}`,
-        );
-        await this.sink.applyFailure({
-          organizationId,
-          requestId: req.id,
-          runId: ourRun?.id,
-          sourceResourceId,
-          errorCode: 'agent_output_invalid',
-          errorMessage: message,
-        });
-        summary.appliedFailure += 1;
-        continue;
-      }
-
-      await this.sink.applySuccess({
-        organizationId,
-        requestId: req.id,
-        runId: ourRun?.id,
-        sourceResourceId,
-        output: parsed.data,
-      });
-      summary.appliedSuccess += 1;
+      countProjectionResult(
+        summary,
+        await this.finalizedOutputProjection.project({
+          agentLabel: 'detail_page_generate reconcile',
+          schema: DetailPageGenerateAgentOutputSchema,
+          sink: this.sink,
+          finalized: {
+            organizationId,
+            requestId: req.id,
+            runId: ourRun?.id,
+            sourceResourceId,
+            status: 'succeeded',
+            output: ourRun?.output ?? null,
+          },
+        }),
+      );
     }
 
     if (summary.scanned > 0) {
@@ -194,4 +185,13 @@ export class DetailPageAgentReconcileService {
     }
     return summary;
   }
+}
+
+function countProjectionResult(
+  summary: DetailPageReconcileSummary,
+  result: AgentFinalizedOutputProjectionResult,
+): void {
+  if (result.status === 'success_applied') summary.appliedSuccess += 1;
+  else if (result.status === 'failure_applied') summary.appliedFailure += 1;
+  else summary.skipped += 1;
 }

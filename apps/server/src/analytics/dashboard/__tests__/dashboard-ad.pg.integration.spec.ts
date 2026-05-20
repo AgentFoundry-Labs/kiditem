@@ -9,11 +9,11 @@ import { ProfitCalculationRepositoryAdapter } from '../adapter/out/repository/pr
 import { AdAggregationRepositoryAdapter } from '../adapter/out/repository/ad-aggregation.repository.adapter';
 import { WingAdSummaryRepositoryAdapter } from '../adapter/out/repository/wing-ad-summary.repository.adapter';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/profit-calculation.repository.port';
-import { AD_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/ad-aggregation.repository.port';
-import { WING_AD_SUMMARY_REPOSITORY_PORT } from '../application/port/out/wing-ad-summary.repository.port';
-import { DASHBOARD_AD_REPOSITORY_PORT } from '../application/port/out/dashboard-ad.repository.port';
-import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/wing-traffic-aggregation.repository.port';
+import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/repository/profit-calculation.repository.port';
+import { AD_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/ad-aggregation.repository.port';
+import { WING_AD_SUMMARY_REPOSITORY_PORT } from '../application/port/out/repository/wing-ad-summary.repository.port';
+import { DASHBOARD_AD_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-ad.repository.port';
+import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/wing-traffic-aggregation.repository.port';
 import {
   makeTestPrisma,
   resetDb,

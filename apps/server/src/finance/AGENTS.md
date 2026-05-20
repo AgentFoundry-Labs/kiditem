@@ -1,97 +1,76 @@
-# finance — P&L, Sales Analysis, And Finance Capabilities
+# finance — P&L, Costs, Payments, Settlements
 
-Finance owns live financial aggregation plus manual ledger, processing costs,
-supplier payments, sales plans, and settlement reconciliation. `Settlement`
-still lives in the Orders Prisma namespace and `SupplierPayment` in Supply; the
-backend owner module is finance.
+`src/finance/` owns live financial aggregation plus manual ledger, processing
+costs, supplier payments, sales plans, and settlement reconciliation.
+`Settlement` still lives in the Orders Prisma namespace and `SupplierPayment`
+in Supply, but the backend capability owner is finance.
 
-Finance keeps flat controllers/services while it is live aggregation plus CRUD
-over finance-owned capabilities. Do not add provider calls, raw SQL reporting,
-cross-domain mutations, or long transaction invariants into the flat services;
-those changes require a scoped reconstruction plan.
-
-## Layout
+## Folder Map
 
 ```text
 finance/
-  controllers/          profit-loss, sales-analysis
-  services/             profit-loss, sales-analysis
-  dto/
-  manual-ledger/
-  processing-costs/
-  supplier-payments/
-  sales-plans/
-  settlements/
-  finance.module.ts
+├── controllers/              # profit-loss, sales-analysis
+├── services/                 # profit-loss, sales-analysis
+├── dto/
+├── manual-ledger/
+├── processing-costs/
+├── supplier-payments/
+├── sales-plans/
+├── settlements/
+├── adapter/out/automation/   # operation-alert adapter
+├── application/port/out/     # finance-local operation-alert port
+└── finance.module.ts
 ```
 
-## Routes
+## Owned Surfaces
 
-| Route | Responsibility |
-|---|---|
-| `GET /api/profit-loss` | company-level P&L by month |
-| `GET /api/sales-analysis` | channel revenue/cost/profit breakdown |
-| `/api/manual-ledger` | manual transaction records |
-| `/api/processing-costs` | processing cost CRUD and monthly aggregate |
-| `/api/supplier-payments` | supplier payment CRUD |
-| `/api/sales-plans` | sales plan CRUD and `syncActuals` |
-| `/api/settlements` | settlement CRUD and monthly reconcile |
+- Company P&L: `GET /api/profit-loss`
+- Sales analysis: `GET /api/sales-analysis`
+- Manual ledger: `/api/manual-ledger/*`
+- Processing costs: `/api/processing-costs/*`
+- Supplier payments: `/api/supplier-payments/*`
+- Sales plans: `/api/sales-plans/*`
+- Settlements: `/api/settlements/*`
 
-## Live Aggregation Contract
+## Main Data Models
 
-Finance read paths do not use `ProfitLoss` as the source of truth. The table may
-remain for legacy/cache reuse, but new readers/writers require a scoped plan.
+- Live P&L reads aggregate orders, line items, returns, listing/options, and ad
+  spend.
+- `ManualLedger`, processing cost rows, sales plans, settlements, and supplier
+  payments back finance-owned operational views.
+- `ProfitLoss` may remain as legacy/cache data, but is not the live read source
+  of truth.
 
-`profit-loss.service.ts` aggregates from:
+## Aggregation Rules
 
-- `Order.shippingPrice`
-- `OrderLineItem.quantity/totalPrice`
-- `ChannelListingOption -> ChannelListing -> MasterProduct`
-- `OrderReturnLineItem`
-- `ChannelListingDailySnapshot.adSpend`
-
-`sales-analysis.service.ts` uses the same live order/return/ad-spend sources and
-groups by `ChannelListing.channel`.
-
-Rules:
-
-- Period input is `YYYY-MM` only. No date range API.
-- Default period is the current month.
+- Period input is `YYYY-MM`; default is the current month.
 - Monetary values are integer KRW.
-- Shipping is allocated by line-item revenue share; denominator zero drops
-  shipping for that order.
-- Return/orphan semantics stay aligned with channel dashboard:
-  matched returns count in return rate; orphan returns are side metrics.
-- Profit/return rates are derived from raw values, not persisted rates.
+- Shipping is allocated by line-item revenue share.
+- Return/orphan semantics stay aligned with channel dashboard.
+- Profit and return rates derive from raw values, not persisted rates.
+- `common/option-pricing-resolver.ts`, `common/kst`, and
+  `common/per-listing-profit` are shared finance helpers.
 
-## Shared Helpers
+## Cross-Domain Ports
 
-- `common/option-pricing-resolver.ts` for option pricing.
-- `common/kst` for KST month windows.
-- `common/per-listing-profit` for sales-plan actuals and settlement reconcile.
+- Finance operation alerts go through `FINANCE_OPERATION_ALERT_PORT`.
+- Supplier-payment capability lives here even though supplier identity is owned
+  by supply.
+- Settlement reconciliation reads order-owned settlement tables through finance
+  services.
 
-## Hard Bans
+## Boundary Rules
 
-- `prisma.profitLoss.*` in live read paths.
-- `ProductOption.shippingCost` as live shipping source.
-- Date-range query support without changing DTOs, services, tests, and this
-  contract.
-- `$queryRaw` string concatenation.
-- Cross-organization reads/writes.
+- Do not use `prisma.profitLoss.*` in live read paths.
+- Do not use `ProductOption.shippingCost` as live shipping source.
+- Do not add date-range support without updating DTOs, services, tests, and
+  this contract.
+- Raw SQL uses Prisma tagged templates only.
+- All reads/writes remain organization-scoped.
+- Do not inject automation's `OperationAlertService` directly.
 
-## Change Map
+## Transitional Exceptions
 
-| Change | Also update |
-|---|---|
-| new metric | service aggregation + response type + tests |
-| pricing logic | option-pricing resolver + finance callers |
-| date range support | DTO + period parser + scoped plan |
-| new channel | schema/seed implications + sales-analysis grouping |
-
-## Verification
-
-```bash
-npm exec --workspace=apps/server -- vitest run src/finance
-npm run build --workspace=apps/server
-npm run dev:server
-```
+- Finance stays flat while it is live aggregation plus CRUD. Provider calls,
+  raw SQL reporting, cross-domain mutations, or long transaction invariants
+  require a scoped reconstruction plan.

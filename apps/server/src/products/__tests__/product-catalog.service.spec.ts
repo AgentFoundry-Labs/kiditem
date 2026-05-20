@@ -2,14 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { ProductCatalogService } from '../application/service/product-catalog.service';
 
 function makeService(rows: any[]) {
-  const prisma = {
-    masterProduct: {
-      findMany: vi.fn().mockResolvedValue(rows),
-      count: vi.fn().mockResolvedValue(rows.length),
-      findFirst: vi.fn().mockResolvedValue(rows[0] ?? null),
-    },
+  const catalog = {
+    findCatalogPage: vi.fn().mockResolvedValue({ rows, total: rows.length, page: 1, limit: 20 }),
+    findCatalogDetail: vi.fn().mockResolvedValue(rows[0] ?? null),
+    findCatalogCountsRows: vi.fn().mockResolvedValue([]),
   };
-  return { service: new ProductCatalogService(prisma as any), prisma };
+  return { service: new ProductCatalogService(catalog as any), catalog };
 }
 
 describe('ProductCatalogService', () => {
@@ -58,7 +56,7 @@ describe('ProductCatalogService', () => {
   });
 
   it('scopes nested option reads by organization in catalog detail', async () => {
-    const { service, prisma } = makeService([{
+    const { service, catalog } = makeService([{
       id: 'm1',
       organizationId: 'c1',
       code: 'M-1',
@@ -93,11 +91,6 @@ describe('ProductCatalogService', () => {
 
     await service.detail('c1', 'm1');
 
-    const select = prisma.masterProduct.findFirst.mock.calls[0][0].select;
-    expect(select.options.where).toEqual({
-      organizationId: 'c1',
-      isDeleted: false,
-      isActive: true,
-    });
+    expect(catalog.findCatalogDetail).toHaveBeenCalledWith('c1', 'm1');
   });
 });

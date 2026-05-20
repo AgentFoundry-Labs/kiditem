@@ -13,6 +13,7 @@ import { usePanelStream } from '@/components/panel/hooks/usePanelStream';
 import ReadinessModal from '@/components/ReadinessModal';
 import GlobalConfirmDialog from '@/components/GlobalConfirmDialog';
 import GenerationCompletionWatcher from '@/components/GenerationCompletionWatcher';
+import QuickActionFab from '@/components/QuickActionFab';
 import { useAuthSession } from '@/components/providers/AuthProvider';
 
 const CopilotChat = dynamic(() => import('./CopilotChat'), { ssr: false });
@@ -75,6 +76,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {showAutoReadinessModal && <ReadinessModal autoOpenWhen="collectionIssue" />}
       <GlobalConfirmDialog />
       <GenerationCompletionWatcher />
+      {isEditorRoute ? null : <QuickActionFab />}
     </div>
   );
 

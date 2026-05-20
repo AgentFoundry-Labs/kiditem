@@ -24,9 +24,9 @@ export const PanelRunItemSchema = PanelItemBaseSchema.extend({
   etaSeconds: z.number().optional(),
   deepLink: z.string(),
   errorMessage: z.string().optional(),
-  // image source가 surface하는 sub-state (z.enum 조이지 않음 — ADR-0011 Rule 3)
+  // image source가 surface하는 sub-state (z.enum 조이지 않음)
   phase: z.string().nullable().optional(),
-  // agent source가 surface하는 실패 유형 (z.enum 조이지 않음 — ADR-0011 Rule 3)
+  // agent source가 surface하는 실패 유형 (z.enum 조이지 않음)
   failureType: z.string().nullable().optional(),
 });
 
@@ -41,7 +41,7 @@ export const PanelAlertItemSchema = z.object({
   alertKind: AlertKindSchema,
   status: AlertStatusSchema,
   severity: z.string(), // flat string — Alert.severity 분포는 future-proof
-  type: z.string(), // flat string — 'internal:rules' 같은 namespacing 미스코프 (future ADR)
+  type: z.string(), // flat string — 'internal:rules' 같은 namespacing 미스코프 허용
   title: z.string(),
   message: z.string().nullable(),
   targetType: z.string().nullable(),

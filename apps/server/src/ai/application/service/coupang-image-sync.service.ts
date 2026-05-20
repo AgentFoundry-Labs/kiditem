@@ -8,21 +8,24 @@ import {
   NotFoundException,
   type OnModuleInit,
 } from '@nestjs/common';
-import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
+import {
+  AI_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../port/out/cross-domain/operation-alert.port';
 import {
   COUPANG_INVENTORY_SCRAPE_PORT,
   type CoupangInventoryRow,
   type CoupangInventoryRowSource,
   type CoupangInventoryScrapePort,
-} from '../port/out/coupang-inventory-scrape.port';
+} from '../port/out/provider/coupang-inventory-scrape.port';
 import {
   MASTER_CATALOG_PORT,
   type MasterCatalogPort,
-} from '../port/out/master-catalog.port';
+} from '../port/out/cross-domain/master-catalog.port';
 import {
   COUPANG_IMAGE_RECONCILIATION_PORT,
   type CoupangImageReconciliationPort,
-} from '../port/out/coupang-image-reconciliation.port';
+} from '../port/out/cross-domain/coupang-image-reconciliation.port';
 import { assertPublicHttpUrl } from '../../../common/security/public-url';
 import type { CoupangImageSyncCapabilities } from '@kiditem/shared/ai';
 
@@ -82,7 +85,8 @@ export class CoupangImageSyncService implements OnModuleInit {
     private readonly catalog: MasterCatalogPort,
     @Inject(COUPANG_IMAGE_RECONCILIATION_PORT)
     private readonly reconciliation: CoupangImageReconciliationPort,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(AI_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
   ) {}
 
   async onModuleInit(): Promise<void> {

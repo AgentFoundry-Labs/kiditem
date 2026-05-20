@@ -8,8 +8,8 @@ import { AgentOsRuntimeError } from '../../../../agent-os/domain/agent-os.errors
 import type {
   AgentRuntimeExecutionContext,
   AgentRuntimeResult,
-} from '../../../../agent-os/application/port/out/agent-runtime.port';
-import type { AgentTypeRuntimeHandler } from '../../../../agent-os/application/port/out/agent-runtime-handler.port';
+} from '../../../../agent-os/application/port/out/runtime/agent-runtime.port';
+import type { AgentTypeRuntimeHandler } from '../../../../agent-os/application/port/out/runtime/agent-runtime-handler.port';
 import { AgentRuntimeHandlerRegistry } from '../../../../agent-os/application/service/agent-runtime-handler-registry.service';
 import {
   DETAIL_PAGE_GENERATE_AGENT_TYPE,
@@ -30,7 +30,7 @@ import {
 import {
   TEXT_COMPLETION_PORT,
   type TextCompletionPort,
-} from '../../../application/port/out/text-completion.port';
+} from '../../../application/port/out/provider/text-completion.port';
 import { DetailPageResultRefinerService } from '../../../application/service/detail-page-result-refiner.service';
 import { DetailPageGeneratedImagesService } from '../../../application/service/detail-page-generated-images.service';
 import type { DetailPageRawInput } from '../../../application/service/detail-page-ai.types';

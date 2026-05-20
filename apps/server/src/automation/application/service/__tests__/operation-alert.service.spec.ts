@@ -127,7 +127,10 @@ describe('OperationAlertService.start', () => {
 
     expect(prisma.alert.create).not.toHaveBeenCalled();
     expect(prisma.alert.updateMany).toHaveBeenCalledWith({
-      where: { id: ALERT_ID, organizationId: ORGANIZATION_ID },
+      where: {
+        id: ALERT_ID,
+        organizationId: ORGANIZATION_ID,
+      },
       data: expect.objectContaining({
         status: 'running',
         // Honours existing read-state — do not flip back to unread on retry.
@@ -195,7 +198,11 @@ describe('OperationAlertService.succeed / fail / progress / cancel', () => {
     });
 
     expect(prisma.alert.updateMany).toHaveBeenCalledWith({
-      where: { id: ALERT_ID, organizationId: ORGANIZATION_ID },
+      where: {
+        id: ALERT_ID,
+        organizationId: ORGANIZATION_ID,
+        status: { in: ['pending', 'running'] },
+      },
       data: expect.objectContaining({
         status: 'succeeded',
         progress: 1,
@@ -225,7 +232,11 @@ describe('OperationAlertService.succeed / fail / progress / cancel', () => {
     });
 
     expect(prisma.alert.updateMany).toHaveBeenCalledWith({
-      where: { id: ALERT_ID, organizationId: ORGANIZATION_ID },
+      where: {
+        id: ALERT_ID,
+        organizationId: ORGANIZATION_ID,
+        status: { in: ['pending', 'running'] },
+      },
       data: expect.objectContaining({
         status: 'failed',
         severity: 'error',
@@ -249,7 +260,11 @@ describe('OperationAlertService.succeed / fail / progress / cancel', () => {
     await service.progress(ORGANIZATION_ID, OPERATION_KEY, { progress: 0.5 });
 
     expect(prisma.alert.updateMany).toHaveBeenCalledWith({
-      where: { id: ALERT_ID, organizationId: ORGANIZATION_ID },
+      where: {
+        id: ALERT_ID,
+        organizationId: ORGANIZATION_ID,
+        status: { in: ['pending', 'running'] },
+      },
       data: expect.objectContaining({
         status: 'running',
         progress: 0.5,
@@ -269,7 +284,11 @@ describe('OperationAlertService.succeed / fail / progress / cancel', () => {
     await service.cancel(ORGANIZATION_ID, OPERATION_KEY);
 
     expect(prisma.alert.updateMany).toHaveBeenCalledWith({
-      where: { id: ALERT_ID, organizationId: ORGANIZATION_ID },
+      where: {
+        id: ALERT_ID,
+        organizationId: ORGANIZATION_ID,
+        status: { in: ['pending', 'running'] },
+      },
       data: expect.objectContaining({
         status: 'cancelled',
         finishedAt: expect.any(Date),
@@ -284,6 +303,39 @@ describe('OperationAlertService.succeed / fail / progress / cancel', () => {
     const result = await service.succeed(ORGANIZATION_ID, OPERATION_KEY);
 
     expect(result).toBeNull();
+    expect(prisma.alert.updateMany).not.toHaveBeenCalled();
+    expect(eventEmitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('does not reopen a cancelled operation when a late success arrives', async () => {
+    const { service, prisma, eventEmitter } = makeService();
+    const cancelled = existingAlert({
+      status: 'cancelled',
+      progress: 0.5,
+      finishedAt: new Date('2026-05-07T01:00:00Z'),
+      metadata: { cancel: { reason: 'user_cancelled' } },
+    });
+    prisma.alert.findFirst.mockResolvedValueOnce(cancelled);
+
+    const result = await service.succeed(ORGANIZATION_ID, OPERATION_KEY, {
+      metadata: { agentRunId: 'late-run' },
+    });
+
+    expect(result?.status).toBe('cancelled');
+    expect(prisma.alert.updateMany).not.toHaveBeenCalled();
+    expect(eventEmitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('does not reopen a succeeded operation when a late progress arrives', async () => {
+    const { service, prisma, eventEmitter } = makeService();
+    const succeeded = existingAlert({ status: 'succeeded', progress: 1 });
+    prisma.alert.findFirst.mockResolvedValueOnce(succeeded);
+
+    const result = await service.progress(ORGANIZATION_ID, OPERATION_KEY, {
+      progress: 0.8,
+    });
+
+    expect(result?.status).toBe('succeeded');
     expect(prisma.alert.updateMany).not.toHaveBeenCalled();
     expect(eventEmitter.emit).not.toHaveBeenCalled();
   });

@@ -36,19 +36,19 @@ import { buildAdTargetKey } from '../../domain/util/ad-target-key';
 import {
   AD_ACCOUNT_KPI_REPOSITORY_PORT,
   type AdAccountKpiRepositoryPort,
-} from '../port/out/ad-account-kpi.repository.port';
+} from '../port/out/repository/ad-account-kpi.repository.port';
 import {
   CHANNEL_LISTING_DAILY_REPOSITORY_PORT,
   type ChannelListingDailyRepositoryPort,
-} from '../port/out/channel-listing-daily.repository.port';
+} from '../port/out/repository/channel-listing-daily.repository.port';
 import {
   CHANNEL_SCRAPE_REPOSITORY_PORT,
   type ChannelScrapeRepositoryPort,
-} from '../port/out/channel-scrape.repository.port';
+} from '../port/out/repository/channel-scrape.repository.port';
 import {
   CHANNEL_TARGET_DAILY_REPOSITORY_PORT,
   type ChannelTargetDailyRepositoryPort,
-} from '../port/out/channel-target-daily.repository.port';
+} from '../port/out/repository/channel-target-daily.repository.port';
 import {
   addListingAdMetrics,
   flushListingAdMetrics,

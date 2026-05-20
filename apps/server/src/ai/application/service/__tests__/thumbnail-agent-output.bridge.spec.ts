@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThumbnailAgentOutputBridge } from '../thumbnail-agent-output.bridge';
 import { THUMBNAIL_GENERATE_AGENT_TYPE } from '../../../domain/agent-output';
 import type { AgentRunFinalizedEvent } from '../../../../agent-os/application/event/agent-run-events';
-import type { ThumbnailAgentOutputSinkPort } from '../../port/out/thumbnail-agent-output-sink.port';
+import type { ThumbnailAgentOutputSinkPort } from '../../port/out/sink/thumbnail-agent-output-sink.port';
 
 const ORG = '11111111-1111-1111-1111-111111111111';
 const REQUEST = '22222222-2222-2222-2222-222222222222';
@@ -40,6 +40,7 @@ function makeEvent(
     sourceResourceType: null,
     sourceResourceId: null,
     requestedByUserId: null,
+    requestStatus: overrides.status === 'failed' ? 'failed' : 'succeeded',
     status: 'succeeded',
     output: VALID_OUTPUT,
     ...overrides,

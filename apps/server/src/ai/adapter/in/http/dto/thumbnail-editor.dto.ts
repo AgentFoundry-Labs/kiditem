@@ -25,7 +25,7 @@ export class ThumbnailEditorDto {
 
   @IsOptional()
   @IsString()
-  registrationWorkspaceId?: string;
+  contentWorkspaceId?: string;
 
   @IsOptional()
   @IsString()

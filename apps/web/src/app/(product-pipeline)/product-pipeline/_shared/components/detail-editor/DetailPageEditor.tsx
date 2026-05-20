@@ -48,6 +48,7 @@ import { toast } from 'sonner';
 import { API_BASE } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
 import { getImageDownloadFetchInit } from '@/lib/browser-download';
+import { cancelOperation } from '@/lib/operation-cancellation';
 import { cn } from '@/lib/utils';
 import { useStore } from '@/store/useStore';
 import 'grapesjs/dist/css/grapes.min.css';
@@ -3391,6 +3392,7 @@ function RightPanel({
   const [colorImagesExist, setColorImagesExist] = useState(false);
   const [colorGuideLoading, setColorGuideLoading] = useState(false);
   const [postColorGuideOpen, setPostColorGuideOpen] = useState(false);
+  const aiFillCancelRequestedRef = useRef(false);
 
   const applyProgressImages = useCallback((imgs: Record<string, unknown>) => {
     if (!editor) return;
@@ -3444,6 +3446,7 @@ function RightPanel({
     if (aiFillLoading) return;
     isBusy.current = true;
     setAiFillLoading(true);
+    aiFillCancelRequestedRef.current = false;
     onGeneratingChange?.(true);
     setAiFillStep('요청 전송 중...');
     try {
@@ -3463,6 +3466,9 @@ function RightPanel({
       const maxAttempts = 120;
       for (let i = 0; i < maxAttempts; i++) {
         await new Promise(r => setTimeout(r, 2000));
+        if (aiFillCancelRequestedRef.current) {
+          throw new Error('AI_FILL_CANCELLED');
+        }
 
         let request: any;
         try {
@@ -3512,7 +3518,9 @@ function RightPanel({
       }
       throw new Error('시간 초과');
     } catch (err) {
-      toast.error('AI 생성에 실패했습니다.');
+      if (!(err instanceof Error && err.message === 'AI_FILL_CANCELLED')) {
+        toast.error('AI 생성에 실패했습니다.');
+      }
     } finally {
       isBusy.current = false;
       setAiFillLoading(false);
@@ -3524,17 +3532,23 @@ function RightPanel({
 
   const handleAiFillCancel = useCallback(async () => {
     if (!aiFillTaskId) return;
-    // Agent OS does not currently expose a per-run cancel endpoint; the
-    // run will exit on its own once it observes a cancellation signal or
-    // finishes. We keep this action available so the UI feedback (closing
-    // the busy indicator) still triggers reliably.
     try {
-      // No-op for the moment; eventual `/api/agent-os/runs/:id/cancel` once
-      // the runner adapter supports it.
+      aiFillCancelRequestedRef.current = true;
+      await cancelOperation({
+        targetType: 'agent_run_request',
+        requestId: aiFillTaskId,
+        reason: '사용자 요청',
+      });
+      toast.success('AI 작업 중단 요청 완료');
+      isBusy.current = false;
+      setAiFillLoading(false);
+      onGeneratingChange?.(false);
+      setAiFillStep('');
+      setAiFillTaskId(null);
     } catch (err) {
       toast.error('AI 작업 취소에 실패했습니다.');
     }
-  }, [aiFillTaskId]);
+  }, [aiFillTaskId, isBusy, onGeneratingChange]);
 
   const handleColorGuideGenerate = useCallback(async () => {
     if (!productId || colorImageUrls.length < 2) return;

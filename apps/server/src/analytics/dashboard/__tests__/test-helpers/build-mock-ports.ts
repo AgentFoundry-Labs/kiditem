@@ -7,14 +7,14 @@
 // `apps/server/src/analytics/dashboard/application/port/out/`.
 
 import { vi } from 'vitest';
-import type { ProfitCalculationRepositoryPort } from '../../application/port/out/profit-calculation.repository.port';
-import type { AdAggregationRepositoryPort } from '../../application/port/out/ad-aggregation.repository.port';
-import type { WingAdSummaryRepositoryPort } from '../../application/port/out/wing-ad-summary.repository.port';
-import type { DashboardSalesRepositoryPort } from '../../application/port/out/dashboard-sales.repository.port';
-import type { DashboardAdRepositoryPort } from '../../application/port/out/dashboard-ad.repository.port';
-import type { DashboardTrendRepositoryPort } from '../../application/port/out/dashboard-trend.repository.port';
-import type { WingTrafficAggregationRepositoryPort } from '../../application/port/out/wing-traffic-aggregation.repository.port';
-import type { DashboardInventoryRepositoryPort } from '../../application/port/out/dashboard-inventory.repository.port';
+import type { ProfitCalculationRepositoryPort } from '../../application/port/out/repository/profit-calculation.repository.port';
+import type { AdAggregationRepositoryPort } from '../../application/port/out/repository/ad-aggregation.repository.port';
+import type { WingAdSummaryRepositoryPort } from '../../application/port/out/repository/wing-ad-summary.repository.port';
+import type { DashboardSalesRepositoryPort } from '../../application/port/out/repository/dashboard-sales.repository.port';
+import type { DashboardAdRepositoryPort } from '../../application/port/out/repository/dashboard-ad.repository.port';
+import type { DashboardTrendRepositoryPort } from '../../application/port/out/repository/dashboard-trend.repository.port';
+import type { WingTrafficAggregationRepositoryPort } from '../../application/port/out/repository/wing-traffic-aggregation.repository.port';
+import type { DashboardInventoryRepositoryPort } from '../../application/port/out/repository/dashboard-inventory.repository.port';
 
 export type MockProfitCalculationRepo = {
   [K in keyof ProfitCalculationRepositoryPort]: ReturnType<typeof vi.fn>;

@@ -5,7 +5,7 @@ import { kstMonthStart } from '../../common/kst';
 import { buildPerListingMetrics } from '../../common/per-listing-profit';
 
 /**
- * Plan D.1 T5 (v2) — ADR-0016 live aggregation.
+ * Live aggregation.
  * Plan F1 T1 — per-listing core extracted to common/per-listing-profit.ts so dashboard
  * can share the math. This service adds returnCount + maps PerListingMetrics → PLData.
  */

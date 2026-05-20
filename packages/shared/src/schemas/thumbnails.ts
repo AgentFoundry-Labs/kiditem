@@ -202,7 +202,7 @@ export const EditAnalysisResultSchema = z.object({
   grade: z.string(),
 });
 
-// ─── ADR-0011 Phase 3: Canonical status + phase ─────────────────────────
+// ─── Canonical status + phase ─────────────────────────
 export const THUMBNAIL_PHASES = ['ready', 'applied'] as const;
 export type ThumbnailPhase = (typeof THUMBNAIL_PHASES)[number];
 
@@ -213,7 +213,7 @@ export const ThumbnailGenerationItemSchema = z.object({
   id: z.string(),
   productId: z.string().nullable(),
   sourceCandidateId: z.string().nullable().optional(),
-  registrationWorkspaceId: z.string().nullable().optional(),
+  contentWorkspaceId: z.string().nullable().optional(),
   originalUrl: z.string().nullable(),
   candidates: z.array(z.object({
     id: z.string().uuid().optional(),

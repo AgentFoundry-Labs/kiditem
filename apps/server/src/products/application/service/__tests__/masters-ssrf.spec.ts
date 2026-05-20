@@ -3,19 +3,17 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { MastersService } from '../masters.service';
 
 function makeService(row: { imageUrl?: string | null; thumbnailUrl?: string | null; images?: unknown } | null) {
-  const prisma = {
-    masterProduct: {
-      findFirst: vi.fn().mockResolvedValue(row),
-    },
+  const masters = {
+    findById: vi.fn().mockResolvedValue(row),
   };
   const codeSvc = {} as any;
+  const transactions = {} as any;
   const storage = {} as any;
-  return new MastersService(prisma as any, codeSvc, storage);
+  return new MastersService(masters as any, codeSvc, transactions, storage);
 }
 
 describe('MastersService.originalImageBase64 — SSRF defense', () => {
   beforeEach(() => {
-    // fetch must not be invoked for blocked URLs
     globalThis.fetch = vi.fn().mockRejectedValue(new Error('fetch must not be called on blocked host'));
   });
 

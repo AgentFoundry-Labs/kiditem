@@ -1,11 +1,10 @@
 // apps/server/src/products/__tests__/options.service.pg.integration.spec.ts
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
-import { MasterCodeService } from '../adapter/out/prisma/master-code.service';
 import { MastersService } from '../application/service/masters.service';
 import { BundleStockService } from '../application/service/bundle-stock.service';
 import { OptionsService } from '../application/service/options.service';
-import { StorageService } from '../../common/storage/storage.service';
+import { createProductsTestServices } from './products-test-services';
 import {
   makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
@@ -16,17 +15,13 @@ describe('OptionsService integration', () => {
   let bundleStockSvc: BundleStockService;
   let svc: OptionsService;
 
-  // No upload paths exercised in this spec; a typed null stub keeps the
-  // MastersService constructor signature satisfied without booting MinIO/S3.
-  const storageStub = null as unknown as StorageService;
-
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const codeSvc = new MasterCodeService(prisma as any);
-    mastersSvc = new MastersService(prisma as any, codeSvc, storageStub);
-    bundleStockSvc = new BundleStockService(prisma as any);
-    svc = new OptionsService(prisma as any, bundleStockSvc);
+    const services = createProductsTestServices(prisma);
+    mastersSvc = services.mastersSvc;
+    bundleStockSvc = services.bundleStockSvc;
+    svc = services.optionsSvc;
   });
 
   beforeEach(async () => {

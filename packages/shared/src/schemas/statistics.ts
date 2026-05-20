@@ -6,7 +6,7 @@ import { zIsoDate } from './common.js';
  *
  * Backend `StatisticsService` 의 7 메서드 (overview / products / categories / grades /
  * pareto / repurchase / delivery) return literal 에 `satisfies <Xxx>` 바인딩.
- * ProfitLoss.listing.master 기반 listingId-primary shape (ADR-0013 3-layer + ADR-0015 Order).
+ * ProfitLoss.listing.master 기반 listingId-primary shape (3-layer product schema + channel-agnostic Order).
  */
 
 // ───── Overview ─────

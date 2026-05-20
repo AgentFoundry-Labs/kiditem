@@ -1,15 +1,18 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { Test } from '@nestjs/testing';
+import { Global, Module } from '@nestjs/common';
+import { Test, type TestingModule } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
 import { InventoryService } from '../application/service/inventory.service';
 import { InventoryQueryRepositoryAdapter } from '../adapter/out/repository/inventory-query.repository.adapter';
 import { InventoryRepositoryAdapter } from '../adapter/out/repository/inventory.repository.adapter';
 import { BundleStockAdapter } from '../adapter/out/products/bundle-stock.adapter';
-import { BundleStockService } from '../../products/application/service/bundle-stock.service';
+import { ProductsModule } from '../../products/products.module';
+import { PrismaModule } from '../../prisma/prisma.module';
 import { PrismaService } from '../../prisma/prisma.service';
-import { INVENTORY_QUERY_REPOSITORY_PORT } from '../application/port/out/inventory-query.repository.port';
-import { INVENTORY_REPOSITORY_PORT } from '../application/port/out/inventory.repository.port';
-import { BUNDLE_STOCK_PORT } from '../application/port/out/bundle-stock.port';
+import { StorageService } from '../../common/storage/storage.service';
+import { INVENTORY_QUERY_REPOSITORY_PORT } from '../application/port/out/repository/inventory-query.repository.port';
+import { INVENTORY_REPOSITORY_PORT } from '../application/port/out/repository/inventory.repository.port';
+import { BUNDLE_STOCK_PORT } from '../application/port/out/cross-domain/bundle-stock.port';
 import {
   makeTestPrisma,
   resetDb,
@@ -18,8 +21,16 @@ import {
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 
+@Global()
+@Module({
+  providers: [{ provide: StorageService, useValue: {} as unknown as StorageService }],
+  exports: [StorageService],
+})
+class StubStorageModule {}
+
 describe('Inventory flow (PG integration)', () => {
   let prisma: PrismaClient;
+  let moduleRef: TestingModule | undefined;
   let inventory: InventoryService;
   let masterId: string;
 
@@ -58,23 +69,28 @@ describe('Inventory flow (PG integration)', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
 
-    const m = await Test.createTestingModule({
+    moduleRef = await Test.createTestingModule({
+      imports: [PrismaModule, StubStorageModule, ProductsModule],
       providers: [
         InventoryService,
         InventoryQueryRepositoryAdapter,
         InventoryRepositoryAdapter,
         BundleStockAdapter,
-        BundleStockService,
         { provide: INVENTORY_QUERY_REPOSITORY_PORT, useExisting: InventoryQueryRepositoryAdapter },
         { provide: INVENTORY_REPOSITORY_PORT, useExisting: InventoryRepositoryAdapter },
         { provide: BUNDLE_STOCK_PORT, useExisting: BundleStockAdapter },
-        { provide: PrismaService, useValue: prisma },
       ],
-    }).compile();
-    inventory = m.get(InventoryService);
+    })
+      .overrideProvider(PrismaService)
+      .useValue(prisma)
+      .compile();
+    inventory = moduleRef.get(InventoryService);
   });
 
-  afterAll(async () => { await prisma.$disconnect(); });
+  afterAll(async () => {
+    await moduleRef?.close();
+    await prisma?.$disconnect();
+  });
 
   beforeEach(async () => {
     await resetDb(prisma);

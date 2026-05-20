@@ -1,33 +1,16 @@
-import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Inject, Injectable } from '@nestjs/common';
 import type {
   ThumbnailAnalysisListResponse,
   ThumbnailAnalysisSummary,
 } from '@kiditem/shared/ai';
-import { PrismaService } from '../../../prisma/prisma.service';
-import { thumbnailMasterImageSelect } from '../../adapter/out/prisma/master-image-select.preset';
 import {
-  type AnalysisRow,
-  type MasterRow,
   buildAnalysisListResponse,
   buildAnalysisSummary,
-} from '../../adapter/out/prisma/thumbnail-analysis.query';
-
-const THUMBNAIL_ANALYSIS_CHANNEL = 'coupang';
-
-function thumbnailAnalysisMasterWhere(organizationId: string): Prisma.MasterProductWhereInput {
-  return {
-    organizationId,
-    isDeleted: false,
-    listings: {
-      some: {
-        organizationId,
-        channel: THUMBNAIL_ANALYSIS_CHANNEL,
-        isDeleted: false,
-      },
-    },
-  };
-}
+} from '../../mapper/thumbnail-analysis.mapper';
+import {
+  THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
+  type ThumbnailAnalysisRepositoryPort,
+} from '../port/out/repository/thumbnail-analysis.repository.port';
 
 /**
  * Read-only reader for ThumbnailAnalysis list / summary surfaces. Scoped to
@@ -36,51 +19,22 @@ function thumbnailAnalysisMasterWhere(organizationId: string): Prisma.MasterProd
  */
 @Injectable()
 export class ThumbnailAnalysisQueryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(THUMBNAIL_ANALYSIS_REPOSITORY_PORT)
+    private readonly repository: ThumbnailAnalysisRepositoryPort,
+  ) {}
 
   async findAllWithAnalysis(organizationId: string): Promise<ThumbnailAnalysisListResponse> {
     const [masters, analyses] = await Promise.all([
-      this.prisma.masterProduct.findMany({
-        where: thumbnailAnalysisMasterWhere(organizationId),
-        select: {
-          id: true,
-          name: true,
-          imageUrl: true,
-          thumbnailUrl: true,
-          images: thumbnailMasterImageSelect(organizationId),
-          createdAt: true,
-        },
-        orderBy: { createdAt: 'desc' },
-      }),
-      this.prisma.thumbnailAnalysis.findMany({
-        where: { organizationId },
-        orderBy: { updatedAt: 'desc' },
-      }),
+      this.repository.findAllAnalysisMasters(organizationId),
+      this.repository.findAnalysesForOrganization(organizationId),
     ]);
 
-    return buildAnalysisListResponse(
-      masters as MasterRow[],
-      analyses as AnalysisRow[],
-    );
+    return buildAnalysisListResponse(masters, analyses);
   }
 
   async getSummary(organizationId: string): Promise<ThumbnailAnalysisSummary> {
-    const masters = await this.prisma.masterProduct.findMany({
-      where: thumbnailAnalysisMasterWhere(organizationId),
-      select: { id: true },
-    });
-    const analyses = masters.length
-      ? await this.prisma.thumbnailAnalysis.findMany({
-          where: { organizationId, masterId: { in: masters.map((m) => m.id) } },
-          select: {
-            grade: true,
-            complianceGrade: true,
-            qualityAnalyzedAt: true,
-            complianceAnalyzedAt: true,
-          },
-        })
-      : [];
-
-    return buildAnalysisSummary(masters.length, analyses);
+    const summaryRows = await this.repository.getAnalysisSummaryRows(organizationId);
+    return buildAnalysisSummary(summaryRows.masterCount, summaryRows.rows);
   }
 }

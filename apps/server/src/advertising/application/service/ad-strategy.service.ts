@@ -26,19 +26,19 @@ import {
   AD_STRATEGY_CONTEXT_REPOSITORY_PORT,
   type AdStrategyContextRepositoryPort,
   type AllTimeAdAggregateRow,
-} from '../port/out/ad-strategy-context.repository.port';
+} from '../port/out/repository/ad-strategy-context.repository.port';
 import {
   AD_ACCOUNT_KPI_REPOSITORY_PORT,
   type AdAccountKpiRepositoryPort,
-} from '../port/out/ad-account-kpi.repository.port';
+} from '../port/out/repository/ad-account-kpi.repository.port';
 import {
   AD_LISTING_REPOSITORY_PORT,
   type AdListingRepositoryPort,
-} from '../port/out/ad-listing.repository.port';
+} from '../port/out/repository/ad-listing.repository.port';
 import {
   AD_ACTION_REPOSITORY_PORT,
   type AdActionRepositoryPort,
-} from '../port/out/ad-action.repository.port';
+} from '../port/out/repository/ad-action.repository.port';
 import {
   toAdRulesData,
   toRecommendationCards,

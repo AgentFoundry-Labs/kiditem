@@ -782,6 +782,145 @@ describe('WorkflowRunnerService', () => {
     });
   });
 
+  describe('cancellation', () => {
+    it('marks a running workflow run cancelled and cancels linked Agent OS requests', async () => {
+      const eventEmitter = { emit: vi.fn() };
+      const agentRunner = {
+        cancelByWorkflowRun: vi.fn().mockResolvedValue({
+          cancelledRequests: 2,
+          cancelledRuns: 1,
+        }),
+      };
+      const runnerWithAgentRunner = new WorkflowRunnerService(
+        prisma as any,
+        eventEmitter as any,
+        agentRunner as any,
+      );
+      prisma.workflowRun.findFirst.mockResolvedValueOnce(
+        makeRun({
+          status: 'running',
+          contextData: { source: 'manual-qa' },
+          steps: [
+            {
+              nodeId: 'n1',
+              nodeType: 'agent_task.create',
+              nodeLabel: 'AI 작업',
+              status: 'running',
+              startedAt: '2026-05-17T00:00:00.000Z',
+              completedAt: null,
+              outputData: null,
+              error: null,
+            },
+          ],
+        }),
+      );
+      prisma.workflowRun.updateMany.mockResolvedValue({ count: 1 });
+
+      const result = await runnerWithAgentRunner.cancelRun({
+        runId: 'run-1',
+        organizationId: 'organization-1',
+        actorUserId: 'user-1',
+        reason: '사용자 요청',
+      });
+
+      expect(result.status).toBe('cancelled');
+      expect(prisma.workflowRun.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'run-1',
+          organizationId: 'organization-1',
+          status: { in: ['pending', 'running'] },
+        },
+        data: expect.objectContaining({
+          status: 'cancelled',
+          completedAt: expect.any(Date),
+          error: '사용자 요청으로 워크플로우가 중단되었습니다.',
+          contextData: {
+            source: 'manual-qa',
+            operationCancellation: expect.objectContaining({
+              requestedByUserId: 'user-1',
+              reason: '사용자 요청',
+              result: 'cancelled',
+              target: { targetType: 'workflow_run', runId: 'run-1' },
+              affected: expect.objectContaining({
+                workflowRunIds: ['run-1'],
+              }),
+            }),
+          },
+        }),
+      });
+      expect(agentRunner.cancelByWorkflowRun).toHaveBeenCalledWith({
+        organizationId: 'organization-1',
+        workflowRunId: 'run-1',
+        reason: '사용자 요청',
+        actorUserId: 'user-1',
+      });
+    });
+
+    it('returns already_terminal when cancellation loses the terminal update race', async () => {
+      const eventEmitter = { emit: vi.fn() };
+      const agentRunner = {
+        cancelByWorkflowRun: vi.fn().mockResolvedValue({
+          cancelledRequests: 1,
+          cancelledRuns: 1,
+        }),
+      };
+      const runnerWithAgentRunner = new WorkflowRunnerService(
+        prisma as any,
+        eventEmitter as any,
+        agentRunner as any,
+      );
+      prisma.workflowRun.findFirst.mockResolvedValueOnce(
+        makeRun({
+          status: 'running',
+          contextData: { source: 'manual-qa' },
+          steps: [],
+        }),
+      );
+      prisma.workflowRun.updateMany.mockResolvedValue({ count: 0 });
+
+      const result = await runnerWithAgentRunner.cancelRun({
+        runId: 'run-1',
+        organizationId: 'organization-1',
+        actorUserId: 'user-1',
+        reason: '사용자 요청',
+      });
+
+      expect(result.status).toBe('already_terminal');
+      expect(agentRunner.cancelByWorkflowRun).not.toHaveBeenCalled();
+    });
+
+    it('does not move a cancelled run back to running when cancellation wins the start race', async () => {
+      prisma.workflowTemplate.findFirst.mockResolvedValue(makeTemplate({
+        nodesJson: [
+          {
+            id: 'start',
+            data: { nodeType: 'trigger.manual', label: 'Start', config: {} },
+            position: { x: 0, y: 0 },
+          },
+        ],
+        edgesJson: [],
+      }));
+      prisma.workflowRun.findFirst.mockResolvedValueOnce(makeRun({ status: 'pending' }));
+      prisma.workflowRun.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      await runner.runWorkflow('run-1', 'tmpl-1', 'organization-1');
+
+      expect(prisma.workflowRun.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'run-1',
+          organizationId: 'organization-1',
+          status: { in: ['pending', 'running'] },
+        },
+        data: { status: 'running', startedAt: expect.any(Date) },
+      });
+      expect(prisma.workflowRun.updateMany).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: 'succeeded' }),
+        }),
+      );
+    });
+  });
+
   describe('runBatch', () => {
     it('runs multiple workflows sequentially', async () => {
       const calls: string[] = [];

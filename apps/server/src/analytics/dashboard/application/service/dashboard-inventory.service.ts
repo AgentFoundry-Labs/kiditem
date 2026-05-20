@@ -15,7 +15,7 @@ import {
   DASHBOARD_INVENTORY_REPOSITORY_PORT,
   type DashboardInventoryRepositoryPort,
   type GradeChangeRow,
-} from '../port/out/dashboard-inventory.repository.port';
+} from '../port/out/repository/dashboard-inventory.repository.port';
 
 @Injectable()
 export class DashboardInventoryService {
@@ -77,7 +77,7 @@ export class DashboardInventoryService {
       ).length;
 
       // warnings — F1 live aggregation via PerListingMetrics
-      // (ADR-0016 — no profitLoss table reads; helper provides identical shape)
+      // No profitLoss table reads; helper provides identical shape.
 
       // minusProducts: netProfit < 0
       const minusProducts = perListingMetrics.filter((m) => m.netProfit < 0).length;

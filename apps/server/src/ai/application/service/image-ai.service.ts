@@ -9,7 +9,10 @@ import {
   type AgentRunnerPort,
   type AgentRunnerResult,
 } from '../../../agent-os/application/port/in/agent-runner.port';
-import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
+import {
+  AI_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../port/out/cross-domain/operation-alert.port';
 import { kickEnqueuedAgentRequest } from './agent-inline-execution';
 
 /**
@@ -41,7 +44,8 @@ export class ImageAiService {
   constructor(
     @Inject(AGENT_RUNNER_PORT)
     private readonly agentRunner: AgentRunnerPort,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(AI_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
   ) {}
 
   async createEditTask(

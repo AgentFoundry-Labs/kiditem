@@ -31,6 +31,10 @@ interface Rgba {
 
 const DEFAULT_THRESHOLD = 26;
 const DEFAULT_ALPHA_THRESHOLD = 10;
+const DEFAULT_UPLOAD_MAX_BYTES = 4.5 * 1024 * 1024;
+const DEFAULT_UPLOAD_MAX_DIMENSION = 1800;
+const UPLOAD_MAX_DIMENSION_STEPS = [1800, 1400, 1100, 900, 700];
+const JPEG_QUALITY_STEPS = [0.9, 0.82, 0.74, 0.66];
 
 export function findImageContentBounds({
   data,
@@ -81,6 +85,46 @@ export async function cropImageWhitespaceFile(file: File): Promise<File> {
 
   return new File([result.blob], makeCroppedFilename(file.name), {
     type: result.blob.type || 'image/png',
+    lastModified: file.lastModified,
+  });
+}
+
+export async function prepareImageUploadFile(file: File): Promise<File> {
+  const cropped = await cropImageWhitespaceFile(file);
+  if (cropped.size <= DEFAULT_UPLOAD_MAX_BYTES) return cropped;
+
+  const source = await loadCanvasImageSource(cropped);
+  let bestBlob: Blob | null = null;
+  for (const maxDimension of UPLOAD_MAX_DIMENSION_STEPS) {
+    const scale = Math.min(1, maxDimension / Math.max(source.width, source.height));
+    const width = Math.max(1, Math.round(source.width * scale));
+    const height = Math.max(1, Math.round(source.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) continue;
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, width, height);
+    context.drawImage(source, 0, 0, width, height);
+
+    for (const quality of JPEG_QUALITY_STEPS) {
+      const blob = await canvasToBlob(canvas, 'image/jpeg', quality);
+      if (!bestBlob || blob.size < bestBlob.size) bestBlob = blob;
+      if (blob.size <= DEFAULT_UPLOAD_MAX_BYTES) {
+        closeImageSource(source);
+        return new File([blob], makeCompressedFilename(file.name), {
+          type: 'image/jpeg',
+          lastModified: file.lastModified,
+        });
+      }
+    }
+  }
+  closeImageSource(source);
+
+  if (!bestBlob || bestBlob.size >= cropped.size) return cropped;
+  return new File([bestBlob], makeCompressedFilename(file.name), {
+    type: 'image/jpeg',
     lastModified: file.lastModified,
   });
 }
@@ -238,7 +282,11 @@ function closeImageSource(source: ImageBitmap | HTMLImageElement): void {
   if ('close' in source && typeof source.close === 'function') source.close();
 }
 
-function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  type = 'image/png',
+  quality?: number,
+): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
       if (!blob) {
@@ -246,7 +294,7 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
         return;
       }
       resolve(blob);
-    }, 'image/png');
+    }, type, quality);
   });
 }
 
@@ -256,4 +304,12 @@ function makeCroppedFilename(filename: string): string {
   return /\.[a-z0-9]{2,5}$/i.test(safeName)
     ? safeName.replace(/\.[a-z0-9]{2,5}$/i, '-cropped.png')
     : `${safeName}-cropped.png`;
+}
+
+function makeCompressedFilename(filename: string): string {
+  const safeName = filename.trim().replace(/[\\/:*?"<>|]+/g, '-');
+  if (!safeName) return 'detail-page-image-upload.jpg';
+  return /\.[a-z0-9]{2,5}$/i.test(safeName)
+    ? safeName.replace(/\.[a-z0-9]{2,5}$/i, '-upload.jpg')
+    : `${safeName}-upload.jpg`;
 }

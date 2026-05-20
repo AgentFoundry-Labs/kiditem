@@ -3,7 +3,7 @@ import { buildDashboardContext, type DashboardContext } from '../../domain/conte
 import {
   WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT,
   type WingTrafficAggregationRepositoryPort,
-} from '../port/out/wing-traffic-aggregation.repository.port';
+} from '../port/out/repository/wing-traffic-aggregation.repository.port';
 
 @Injectable()
 export class DashboardContextService {

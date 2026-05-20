@@ -1,0 +1,92 @@
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+import MobilePreview from './MobilePreview';
+
+const previewProps = {
+  name: '테스트 자석 다트',
+  mainImage: 'https://cdn.example.com/product.jpg',
+  salePrice: 17000,
+  originalPrice: 20000,
+  discountRate: 15,
+  rating: 4.7,
+  reviewCount: 123,
+};
+
+describe('MobilePreview', () => {
+  it('keeps the existing Coupang preview modes', () => {
+    render(<MobilePreview {...previewProps} />);
+
+    expect(screen.getByRole('button', { name: /상세/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /검색/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /목록/ })).toBeInTheDocument();
+    expect(screen.getByText('테스트 자석 다트')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /검색/ }));
+    expect(screen.getByText('약 1,234개 상품')).toBeInTheDocument();
+  });
+
+  it('can render selected detail html inside the mobile PDP context', () => {
+    render(
+      <MobilePreview
+        {...previewProps}
+        detailHtml="<html><body><section>상세페이지 버전 본문</section></body></html>"
+      />,
+    );
+
+    expect(screen.getByTitle('mobile-registration-detail-preview')).toBeInTheDocument();
+    expect(screen.getByTitle('mobile-registration-detail-preview')).toHaveAttribute(
+      'srcdoc',
+      expect.stringContaining('상세페이지 버전 본문'),
+    );
+  });
+
+  it('cycles product preview images from the PDP controls', () => {
+    render(
+      <MobilePreview
+        {...previewProps}
+        previewImages={[
+          'https://cdn.example.com/product.jpg',
+          'https://cdn.example.com/detail-1.jpg',
+          'https://cdn.example.com/detail-2.jpg',
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('1 / 3')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '다음 썸네일 이미지' }));
+    expect(screen.getByText('2 / 3')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '이전 썸네일 이미지' }));
+    expect(screen.getByText('1 / 3')).toBeInTheDocument();
+  });
+
+  it('keeps selected detail html in the long preview flow instead of clipping it', () => {
+    render(
+      <MobilePreview
+        {...previewProps}
+        detailHtml="<html><body><section>스크롤 상세페이지 본문</section></body></html>"
+      />,
+    );
+
+    expect(screen.getByTestId('mobile-preview-page')).not.toHaveClass('h-[640px]');
+    expect(screen.getByTestId('mobile-preview-root')).toHaveClass('h-full');
+    expect(screen.getByTestId('mobile-preview-root')).toHaveClass('max-h-[calc(100vh-2.5rem)]');
+    expect(screen.getByTestId('mobile-preview-page')).toHaveClass('overflow-hidden');
+    expect(screen.getByTestId('mobile-preview-scroll-content')).toHaveClass('overflow-y-auto');
+    expect(screen.getByTestId('mobile-preview-scroll-content')).toHaveClass('[scrollbar-width:none]');
+    expect(screen.getByTestId('mobile-preview-fixed-actions')).toHaveClass('shrink-0');
+    expect(screen.getByTestId('mobile-preview-detail-scroll-region')).toBeInTheDocument();
+    expect(screen.getByTitle('mobile-registration-detail-preview')).toHaveClass(
+      'pointer-events-none',
+    );
+    expect(screen.getByTitle('mobile-registration-detail-preview').closest('button')).toBeNull();
+    expect(screen.getByRole('button', { name: '상세페이지 크게 보기' })).toBeInTheDocument();
+    expect(screen.getByTitle('mobile-registration-detail-preview')).toHaveAttribute(
+      'sandbox',
+      'allow-scripts',
+    );
+    expect(screen.getByTitle('mobile-registration-detail-preview')).toHaveAttribute(
+      'srcdoc',
+      expect.stringContaining('kiditem:detail-preview-metrics'),
+    );
+  });
+});

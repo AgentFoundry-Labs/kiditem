@@ -1,7 +1,5 @@
 // apps/server/src/products/application/service/options.service.ts
-import { Injectable } from '@nestjs/common';
-import { Prisma, ProductOption } from '@prisma/client';
-import { PrismaService } from '../../../prisma/prisma.service';
+import { Inject, Injectable } from '@nestjs/common';
 import { BundleStockService } from './bundle-stock.service';
 import { CreateOptionDto } from '../../dto/create-option.dto';
 import { UpdateOptionDto } from '../../dto/update-option.dto';
@@ -13,23 +11,16 @@ import {
   stripProductOptionSystemFields,
 } from '../../domain/policy/product-option-mutation-rules';
 import {
-  applyOptionPatch,
-  assertNoBundleComponents,
-  assertNotUsedAsComponent,
-  createOptionWithSku,
-  findBundleIdsUsingComponent,
-  findCurrentOption,
-  incrementMasterOptionCounter,
-  restoreOptionRow,
-  softDeleteOptionRow,
-} from '../../adapter/out/prisma/product-option.persistence';
-import {
-  findOptionByBarcode,
-  findOptionById,
-  findOptionBySku,
-  listOptions,
+  PRODUCT_OPTION_REPOSITORY_PORT,
   type OptionsListPage,
-} from '../../adapter/out/prisma/product-option.query';
+  type ProductOptionRepositoryPort,
+  type ProductOptionRow,
+} from '../port/out/repository/product-option.repository.port';
+import {
+  PRODUCTS_TRANSACTION_PORT,
+  type ProductsRepositoryTransaction,
+  type ProductsTransactionPort,
+} from '../port/out/transaction/products-transaction.port';
 
 /**
  * Application orchestration for `ProductOption` lifecycle.
@@ -40,8 +31,8 @@ import {
  *     tenant-scoped `findFirst` reread → `productOption.create`. The race
  *     guard + TOCTOU + counter increment all live in
  *     `incrementMasterOptionCounter` so they cannot drift apart.
- *   - `availableStock` is materialized only by `BundleStockService.recompute`
- *     (ADR-0014). Update payloads strip `availableStock` via the system-
+ *   - `availableStock` is materialized only by `BundleStockService.recompute`.
+ *     Update payloads strip `availableStock` via the system-
  *     fields rule; create writes `availableStock: null` unconditionally.
  *   - `update` always routes through `productOption.updateMany` so a bare-id
  *     write never touches `product_options`. Bundle-flip relation guards run
@@ -53,103 +44,106 @@ import {
  *     tenant rows never enter the SQL path.
  *
  * Compose-able: every mutating method accepts an optional outer
- * `Prisma.TransactionClient` so Plan B2 sourcing/supplier-sync flows can
- * wrap CRUD + adjacent writes in one transaction. Caller must pass
- * `{ timeout: >= 15000 }` on the outer `$transaction` so cold-cache writes
- * and recompute fan-out have headroom beyond Prisma's 5 s default.
+ * repository transaction so Plan B2 sourcing/supplier-sync flows can wrap
+ * CRUD + adjacent writes in one transaction. Caller must pass
+ * `{ timeout: >= 15000 }` on the outer transaction so cold-cache writes and
+ * recompute fan-out have headroom.
  */
 @Injectable()
 export class OptionsService {
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PRODUCT_OPTION_REPOSITORY_PORT)
+    private readonly options: ProductOptionRepositoryPort,
+    @Inject(PRODUCTS_TRANSACTION_PORT)
+    private readonly transactions: ProductsTransactionPort,
     private readonly bundleStock: BundleStockService,
   ) {}
 
   async create(
     organizationId: string,
     dto: CreateOptionDto,
-    outerTx?: Prisma.TransactionClient,
-  ): Promise<ProductOption> {
-    const exec = async (tx: Prisma.TransactionClient) => {
-      const master = await incrementMasterOptionCounter(tx, organizationId, dto.masterId);
+    outerTx?: ProductsRepositoryTransaction,
+  ): Promise<ProductOptionRow> {
+    const exec = async (tx: ProductsRepositoryTransaction) => {
+      const master = await this.options.incrementMasterOptionCounter(tx, organizationId, dto.masterId);
       const sku = buildOptionSku(master.code, master.optionCounter);
       const stripped = stripProductOptionSystemFields(dto);
-      return createOptionWithSku(tx, organizationId, dto.masterId, sku, stripped);
+      return this.options.createOptionWithSku(tx, organizationId, dto.masterId, sku, stripped);
     };
     return outerTx
       ? exec(outerTx)
-      : this.prisma.$transaction(exec, { timeout: 15000 });
+      : this.transactions.run(exec, { timeout: 15000 });
   }
 
   async list(organizationId: string, q: ListOptionsQuery): Promise<OptionsListPage> {
-    return listOptions(this.prisma, organizationId, q);
+    return this.options.list(organizationId, q);
   }
 
   async findById(
     organizationId: string,
     id: string,
     opts: { includeDeleted?: boolean },
-  ): Promise<ProductOption> {
-    return findOptionById(this.prisma, organizationId, id, opts);
+  ): Promise<ProductOptionRow> {
+    return this.options.findById(organizationId, id, opts);
   }
 
-  async findBySku(organizationId: string, sku: string): Promise<ProductOption> {
-    return findOptionBySku(this.prisma, organizationId, sku);
+  async findBySku(organizationId: string, sku: string): Promise<ProductOptionRow> {
+    return this.options.findBySku(organizationId, sku);
   }
 
-  async findByBarcode(organizationId: string, barcode: string): Promise<ProductOption> {
-    return findOptionByBarcode(this.prisma, organizationId, barcode);
+  async findByBarcode(organizationId: string, barcode: string): Promise<ProductOptionRow> {
+    return this.options.findByBarcode(organizationId, barcode);
   }
 
   async update(
     organizationId: string,
     id: string,
     dto: UpdateOptionDto,
-    outerTx?: Prisma.TransactionClient,
-  ): Promise<ProductOption> {
-    const exec = async (tx: Prisma.TransactionClient) => {
-      const current = await findCurrentOption(tx, organizationId, id);
+    outerTx?: ProductsRepositoryTransaction,
+  ): Promise<ProductOptionRow> {
+    const exec = async (tx: ProductsRepositoryTransaction) => {
+      const current = await this.options.findCurrentOption(tx, organizationId, id);
       const flip = classifyBundleFlip(current.isBundle, dto.isBundle);
       if (flip === 'enable-to-disable') {
-        await assertNoBundleComponents(tx, organizationId, id);
+        await this.options.assertNoBundleComponents(tx, organizationId, id);
       } else if (flip === 'disable-to-enable') {
-        await assertNotUsedAsComponent(tx, organizationId, id);
+        await this.options.assertNotUsedAsComponent(tx, organizationId, id);
       }
 
       const stripped = stripProductOptionSystemFields(dto);
       const data = applyTemporaryReasonClearing(
-        { ...stripped } as Prisma.ProductOptionUncheckedUpdateInput,
+        { ...stripped } as Record<string, unknown>,
         dto,
       );
-      return applyOptionPatch(tx, organizationId, id, data);
+      return this.options.applyOptionPatch(tx, organizationId, id, data);
     };
     return outerTx
       ? exec(outerTx)
-      : this.prisma.$transaction(exec, { timeout: 15000 });
+      : this.transactions.run(exec, { timeout: 15000 });
   }
 
   async softDelete(
     organizationId: string,
     id: string,
-    outerTx?: Prisma.TransactionClient,
+    outerTx?: ProductsRepositoryTransaction,
   ): Promise<void> {
-    const exec = async (tx: Prisma.TransactionClient) => {
-      await softDeleteOptionRow(tx, organizationId, id);
-      const bundleIds = await findBundleIdsUsingComponent(tx, organizationId, id);
+    const exec = async (tx: ProductsRepositoryTransaction) => {
+      await this.options.softDeleteOptionRow(tx, organizationId, id);
+      const bundleIds = await this.options.findBundleIdsUsingComponent(tx, organizationId, id);
       for (const bundleId of bundleIds) {
         await this.bundleStock.recompute(organizationId, bundleId, tx);
       }
     };
     await (outerTx
       ? exec(outerTx)
-      : this.prisma.$transaction(exec, { timeout: 15000 }));
+      : this.transactions.run(exec, { timeout: 15000 }));
   }
 
   async restore(
     organizationId: string,
     id: string,
-    outerTx?: Prisma.TransactionClient,
+    outerTx?: ProductsRepositoryTransaction,
   ): Promise<void> {
-    await restoreOptionRow(outerTx ?? this.prisma, organizationId, id);
+    await this.options.restoreOptionRow(organizationId, id, outerTx);
   }
 }

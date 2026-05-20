@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import type {
-  GenerateDetailPageBodyDto,
-  PrefillDetailPageBodyDto,
-} from '../../adapter/in/http/dto';
+  GenerateDetailPageInput,
+  PrefillDetailPageInput,
+} from './detail-page-requests';
 import type { MulterFile } from '../../../common/types';
 import type {
   DetailPageGenerationDto,
@@ -10,7 +10,7 @@ import type {
 } from './detail-page-ai.types';
 import { DetailPageGenerationService } from './detail-page-generation.service';
 import { DetailPagePrefillService } from './detail-page-prefill.service';
-import { DetailPageQueryService } from './detail-page-query.service';
+import { DetailPageQueryService, type DetailPageListQuery } from './detail-page-query.service';
 
 @Injectable()
 export class DetailPageAiService {
@@ -28,7 +28,7 @@ export class DetailPageAiService {
   }
 
   generate(
-    dto: GenerateDetailPageBodyDto,
+    dto: GenerateDetailPageInput,
     organizationId: string,
     triggeredByUserId: string | null,
   ): Promise<DetailPageGenerationDto> {
@@ -36,7 +36,7 @@ export class DetailPageAiService {
   }
 
   prefill(
-    dto: PrefillDetailPageBodyDto,
+    dto: PrefillDetailPageInput,
     organizationId: string,
   ): Promise<DetailPagePrefillDto> {
     return this.prefillService.prefill(dto, organizationId);
@@ -44,10 +44,9 @@ export class DetailPageAiService {
 
   list(
     organizationId: string,
-    productId?: string,
-    templateId?: string,
+    query?: DetailPageListQuery,
   ): Promise<DetailPageGenerationDto[]> {
-    return this.query.list(organizationId, productId, templateId);
+    return this.query.list(organizationId, query);
   }
 
   getById(id: string, organizationId: string): Promise<DetailPageGenerationDto> {
@@ -67,6 +66,22 @@ export class DetailPageAiService {
     organizationId: string,
   ): Promise<{ html: string | null; savedAt: string | null }> {
     return this.query.getEditedHtml(id, organizationId);
+  }
+
+  duplicateVersion(
+    id: string,
+    organizationId: string,
+    triggeredByUserId: string | null,
+  ): Promise<DetailPageGenerationDto> {
+    return this.query.duplicateVersion(id, organizationId, triggeredByUserId);
+  }
+
+  renameVersion(
+    id: string,
+    organizationId: string,
+    title: string,
+  ): Promise<{ ok: true }> {
+    return this.query.renameVersion(id, organizationId, title);
   }
 
   cancel(id: string, organizationId: string): Promise<DetailPageGenerationDto> {

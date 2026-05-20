@@ -10,7 +10,15 @@ import * as fs from 'node:fs';
 import {
   WING_AUTOMATION_PORT,
   type WingAutomationPort,
-} from '../port/out/wing-automation.port';
+} from '../port/out/runtime/wing-automation.port';
+import {
+  IMAGE_FETCH_PORT,
+  type ImageFetchPort,
+} from '../port/out/provider/image-fetch.port';
+import {
+  THUMBNAIL_WING_REPOSITORY_PORT,
+  type ThumbnailWingRepositoryPort,
+} from '../port/out/repository/thumbnail-wing.repository.port';
 import { MAX_FETCH_BYTES, parseDataImageUrl } from '../../domain/thumbnail-image-source';
 import {
   pickRegistrationImageUrl,
@@ -20,16 +28,16 @@ import {
   type WingRegistrationResult,
   type WingVerificationResult,
 } from '../../mapper/thumbnail-wing.mapper';
-import { ThumbnailWingPersistence } from '../../adapter/out/prisma/thumbnail-wing.persistence';
-import { ThumbnailImageFetcherService } from '../../adapter/out/image-fetch/thumbnail-image-fetcher.adapter';
 
 @Injectable()
 export class ThumbnailWingService {
   private readonly logger = new Logger(ThumbnailWingService.name);
 
   constructor(
-    private readonly persistence: ThumbnailWingPersistence,
-    private readonly imageFetcher: ThumbnailImageFetcherService,
+    @Inject(THUMBNAIL_WING_REPOSITORY_PORT)
+    private readonly repository: ThumbnailWingRepositoryPort,
+    @Inject(IMAGE_FETCH_PORT)
+    private readonly imageFetcher: ImageFetchPort,
     @Inject(WING_AUTOMATION_PORT)
     private readonly automationRunner: WingAutomationPort,
   ) {}
@@ -40,7 +48,7 @@ export class ThumbnailWingService {
   ): Promise<WingRegistrationPrepareResult> {
     const target = await this.resolveRegistrationTarget(generationId, organizationId);
     const image = await this.loadImagePayload(target.selectedUrl, generationId);
-    const attempt = await this.persistence.createRegistrationAttempt(generationId, organizationId);
+    const attempt = await this.repository.createRegistrationAttempt(generationId, organizationId);
 
     return {
       attemptId: attempt.id,
@@ -57,7 +65,7 @@ export class ThumbnailWingService {
   ): Promise<WingRegistrationResult> {
     const screenshotPath = command.success ? command.screenshotUrl ?? null : null;
     const errorMessage = command.success ? null : command.error ?? 'Wing upload failed';
-    await this.persistence.updateRegistrationAttemptOrThrow(
+    await this.repository.updateRegistrationAttemptOrThrow(
       command.attemptId,
       organizationId,
       {
@@ -81,7 +89,7 @@ export class ThumbnailWingService {
     this.assertLocalServerAutomationAllowed();
     const target = await this.resolveRegistrationTarget(generationId, organizationId);
 
-    const attempt = await this.persistence.createRegistrationAttempt(generationId, organizationId);
+    const attempt = await this.repository.createRegistrationAttempt(generationId, organizationId);
 
     try {
       const imagePath = await this.materializeImage(target.selectedUrl, generationId);
@@ -93,7 +101,7 @@ export class ThumbnailWingService {
         imagePath,
         screenshotPath,
       });
-      await this.persistence.updateRegistrationAttemptOrThrow(attempt.id, organizationId, {
+      await this.repository.updateRegistrationAttemptOrThrow(attempt.id, organizationId, {
         status: automation.success ? 'uploaded' : 'failed',
         errorMessage: automation.success ? null : automation.error ?? 'Unknown error',
         screenshotUrl: automation.success ? screenshotPath : null,
@@ -103,7 +111,7 @@ export class ThumbnailWingService {
       return toRegistrationResult(automation, screenshotPath);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      await this.persistence.updateRegistrationAttemptOrThrow(attempt.id, organizationId, {
+      await this.repository.updateRegistrationAttemptOrThrow(attempt.id, organizationId, {
         status: 'failed',
         errorMessage: message,
         finishedAt: new Date(),
@@ -134,18 +142,18 @@ export class ThumbnailWingService {
   }
 
   async clearRegistrationError(id: string, organizationId: string): Promise<{ ok: true }> {
-    await this.persistence.ensureGenerationExists(id, organizationId);
-    await this.persistence.deleteFailedRegistrationAttempts(id, organizationId);
+    await this.repository.ensureGenerationExists(id, organizationId);
+    await this.repository.deleteFailedRegistrationAttempts(id, organizationId);
     return { ok: true };
   }
 
   async verifyRegistration(id: string, organizationId: string): Promise<WingVerificationResult> {
-    const gen = await this.persistence.findGenerationWithLatestAttempt(id, organizationId);
+    const gen = await this.repository.findGenerationWithLatestAttempt(id, organizationId);
     if (!gen) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
 
     const latest = gen.registrationAttempts[0] ?? null;
     if (latest) {
-      await this.persistence.updateRegistrationAttemptOrThrow(latest.id, organizationId, {
+      await this.repository.updateRegistrationAttemptOrThrow(latest.id, organizationId, {
         finishedAt: new Date(),
       });
     }
@@ -167,7 +175,7 @@ export class ThumbnailWingService {
     generationId: string,
     organizationId: string,
   ): Promise<{ productName: string; selectedUrl: string }> {
-    const gen = await this.persistence.findGenerationWithCandidates(generationId, organizationId);
+    const gen = await this.repository.findGenerationWithCandidates(generationId, organizationId);
     if (!gen) throw new NotFoundException(`ThumbnailGeneration ${generationId} not found`);
 
     const selectedUrl = pickRegistrationImageUrl(gen);
@@ -178,7 +186,7 @@ export class ThumbnailWingService {
       throw new BadRequestException('소싱 후보 썸네일은 상품 승격 후 등록할 수 있습니다');
     }
 
-    const master = await this.persistence.findRegistrableMaster(gen.masterId, organizationId);
+    const master = await this.repository.findRegistrableMaster(gen.masterId, organizationId);
     if (!master) throw new NotFoundException(`MasterProduct ${gen.masterId} not found`);
 
     const productName = pickWingProductName(master);

@@ -1,4 +1,3 @@
-import { Prisma } from '@prisma/client';
 import type {
   EditAnalysisResult,
   ThumbnailGenerationItem,
@@ -47,13 +46,13 @@ export type GenerationRow = {
   score: number;
   masterId: string | null;
   sourceCandidateId?: string | null;
-  registrationWorkspaceId?: string | null;
+  contentWorkspaceId?: string | null;
   method: string;
   originalUrl: string | null;
   selectedUrl: string | null;
   prompt: string | null;
-  editAnalysis: Prisma.JsonValue;
-  inputMeta: Prisma.JsonValue;
+  editAnalysis: unknown;
+  inputMeta: unknown;
   errorMessage: string | null;
   attemptCount: number;
   triggeredByUserId: string | null;
@@ -98,7 +97,7 @@ export function toThumbnailGenerationItem(
     score: row.score,
     productId: row.masterId,
     sourceCandidateId: row.sourceCandidateId ?? null,
-    registrationWorkspaceId: row.registrationWorkspaceId ?? null,
+    contentWorkspaceId: row.contentWorkspaceId ?? null,
     method: row.method,
     originalUrl: row.originalUrl,
     selectedUrl: row.selectedUrl,

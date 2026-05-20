@@ -180,7 +180,7 @@ export function ProductRowCard({ product: p, gradeMap, gradeChange, periodDays =
   return (
     <div
       className={cn(
-        'relative overflow-hidden rounded-xl border px-4 py-4 shadow-sm transition hover:border-[var(--border-strong)] hover:shadow-md',
+        'relative overflow-hidden rounded-2xl border px-6 py-5 shadow-sm transition hover:border-[var(--border-strong)] hover:shadow-md',
         rowTone,
         isChild && 'ml-6 border-l-4 border-l-[var(--primary)]',
       )}
@@ -188,12 +188,13 @@ export function ProductRowCard({ product: p, gradeMap, gradeChange, periodDays =
       {leftBar && !isChild && (
         <span className={cn('absolute left-0 top-0 h-full w-1', leftBar)} aria-hidden />
       )}
-      <div className="grid grid-cols-[minmax(400px,1.45fr)_92px_1.1fr_1fr_1fr_118px] items-center gap-4">
+
+      <div className="grid grid-cols-[minmax(420px,1.45fr)_repeat(8,minmax(76px,.42fr))_72px] items-center gap-4">
         <div className="flex min-w-0 items-center gap-5">
           <div className="w-14 shrink-0 text-center">
             {rank > 0 ? (
               <>
-                <p className="text-lg font-black tabular-nums text-[var(--text-tertiary)]">#{rank}</p>
+                <p className="text-xl font-black tabular-nums text-[var(--text-tertiary)]">#{rank}</p>
                 {change === null && <p className="text-[10px] font-semibold text-[var(--text-muted)]">NEW</p>}
                 {change !== null && change > 0 && <p className="text-[10px] font-bold text-emerald-600">▲{change}</p>}
                 {change !== null && change < 0 && <p className="text-[10px] font-bold text-rose-600">▼{Math.abs(change)}</p>}
@@ -207,7 +208,7 @@ export function ProductRowCard({ product: p, gradeMap, gradeChange, periodDays =
           <div
             className={cn(
               'relative shrink-0 overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)]',
-              isChild ? 'h-16 w-16' : 'h-20 w-20',
+              isChild ? 'h-16 w-16' : 'h-[88px] w-[88px]',
             )}
           >
             {p.thumbnailUrl || p.imageUrl ? (
@@ -270,7 +271,7 @@ export function ProductRowCard({ product: p, gradeMap, gradeChange, periodDays =
             </div>
             <a
               href={`/product-hub/${p.id}`}
-              className="mt-2 block truncate text-[15px] font-extrabold text-[var(--text-primary)] hover:text-[var(--primary)]"
+              className="mt-2 block truncate text-[17px] font-extrabold text-[var(--text-primary)] hover:text-[var(--primary)]"
             >
               {p.name}
             </a>
@@ -286,63 +287,65 @@ export function ProductRowCard({ product: p, gradeMap, gradeChange, periodDays =
         </div>
 
         <div className="text-right">
-          <p className={cn('text-2xl font-black tabular-nums', isOutOfStock ? 'text-rose-600' : isLowStock ? 'text-amber-600' : 'text-[var(--text-primary)]')}>
+          <p className={cn('text-[22px] font-black leading-none tabular-nums', isOutOfStock ? 'text-rose-600' : isLowStock ? 'text-amber-600' : 'text-[var(--text-primary)]')}>
             {formatNumber(stock)}
           </p>
-          <p className="text-[11px] font-medium text-[var(--text-muted)]">현재재고</p>
-        </div>
-
-        <div className="grid grid-cols-3 gap-2 text-right">
-          <div>
-            <p className="text-lg font-black tabular-nums text-[var(--text-primary)]"><MetricValue value={visitors} /></p>
-            <p className="text-[10px] text-[var(--text-muted)]">방문</p>
-          </div>
-          <div>
-            <p className="text-lg font-black tabular-nums text-[var(--text-primary)]"><MetricValue value={views} /></p>
-            <p className="text-[10px] text-[var(--text-muted)]">조회</p>
-          </div>
-          <div>
-            <p className="text-lg font-black tabular-nums text-[var(--text-primary)]"><MetricValue value={cartAdds} /></p>
-            <p className="text-[10px] text-[var(--text-muted)]">장바구니</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 text-right">
-          <div>
-            <p className="text-xl font-black tabular-nums text-[var(--text-primary)]"><MetricValue value={orders} /></p>
-            <p className="text-[10px] text-[var(--text-muted)]">주문</p>
-          </div>
-          <div>
-            <p className="text-xl font-black tabular-nums text-[var(--text-primary)]"><MetricValue value={salesQty} /></p>
-            <p className="text-[10px] text-[var(--text-muted)]">판매량</p>
-          </div>
+          <p className="mt-2 text-[11px] font-medium text-[var(--text-muted)]">재고</p>
         </div>
 
         <div className="text-right">
-          <p className="text-xl font-black tabular-nums text-[var(--text-primary)]">{formatKRW(revenue)}</p>
-          <p className={cn('text-[11px] font-semibold', getProfitColor(p.profitRate))}>
+          <p className="text-[22px] font-black leading-none tabular-nums text-[var(--text-primary)]"><MetricValue value={visitors} /></p>
+          <p className="mt-2 text-[11px] text-[var(--text-muted)]">방문</p>
+        </div>
+
+        <div className="text-right">
+          <p className="text-[22px] font-black leading-none tabular-nums text-[var(--text-primary)]"><MetricValue value={views} /></p>
+          <p className="mt-2 text-[11px] text-[var(--text-muted)]">조회</p>
+        </div>
+
+        <div className="text-right">
+          <p className="text-[22px] font-black leading-none tabular-nums text-[var(--text-primary)]"><MetricValue value={cartAdds} /></p>
+          <p className="mt-2 text-[11px] text-[var(--text-muted)]">장바구니</p>
+        </div>
+
+        <div className="text-right">
+          <p className="text-[22px] font-black leading-none tabular-nums text-[var(--text-primary)]"><MetricValue value={orders} /></p>
+          <p className="mt-2 text-[11px] text-[var(--text-muted)]">주문</p>
+        </div>
+
+        <div className="text-right">
+          <p className="text-[22px] font-black leading-none tabular-nums text-[var(--text-primary)]"><MetricValue value={salesQty} /></p>
+          <p className="mt-2 text-[11px] text-[var(--text-muted)]">판매</p>
+        </div>
+
+        <div className="text-right">
+          <p className="truncate text-[22px] font-black leading-none tabular-nums text-[var(--text-primary)]">{formatKRW(revenue)}</p>
+          <p className={cn('mt-2 text-[11px] font-semibold', getProfitColor(p.profitRate))}>
             이익률 {formatPercent(p.profitRate)}
           </p>
         </div>
 
         <div className="text-right">
           <p className={cn(
-            'text-lg font-black tabular-nums',
+            'text-[22px] font-black leading-none tabular-nums',
             p.adRate > 15 ? 'text-rose-600' : p.adRate > 0 ? 'text-[var(--text-primary)]' : 'text-[var(--text-quaternary)] opacity-50',
           )}>
             {p.adRate > 0 ? formatPercent(p.adRate) : '—'}
           </p>
-          <p className="text-[10px] text-[var(--text-muted)]">광고비율</p>
+          <p className="mt-2 text-[11px] text-[var(--text-muted)]">광고비율</p>
+        </div>
+
+        <div className="flex justify-end">
           <a
             href={`/product-hub/${p.id}`}
-            className="mt-2 inline-flex items-center gap-1 rounded-lg bg-[var(--surface-sunken)] px-2.5 py-1 text-[11px] font-bold text-[var(--text-secondary)] hover:bg-[var(--primary-soft)] hover:text-[var(--primary)]"
+            className="inline-flex h-10 items-center gap-1 rounded-xl bg-[var(--surface-sunken)] px-3 text-[12px] font-bold text-[var(--text-secondary)] hover:bg-[var(--primary-soft)] hover:text-[var(--primary)]"
           >
             상세 <ArrowUpRight size={12} />
           </a>
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)] px-3 py-2">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)] px-3 py-2">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-semibold text-[var(--text-tertiary)]">
           <span className={cn('rounded px-2 py-1 font-bold', stockPlan.statusTone)}>
             {stockPlan.statusLabel}

@@ -8,7 +8,9 @@ import {
   type CoupangProviderPort,
   type SellerProductListResponse,
   type SellerProductDetailResponse,
-} from '../application/port/out/coupang-provider.port';
+} from '../application/port/out/provider/coupang-provider.port';
+import { ChannelSyncRepositoryAdapter } from '../adapter/out/repository/channel-sync.repository.adapter';
+import { CHANNEL_SYNC_REPOSITORY_PORT } from '../application/port/out/repository/channel-sync.repository.port';
 import { ChannelAccountService } from '../application/service/channel-account.service';
 import {
   makeTestPrisma,
@@ -91,7 +93,9 @@ describe('Product sync (PG integration, Wave C1)', () => {
     const m = await Test.createTestingModule({
       providers: [
         ChannelSyncService,
+        ChannelSyncRepositoryAdapter,
         { provide: PrismaService, useValue: prisma },
+        { provide: CHANNEL_SYNC_REPOSITORY_PORT, useExisting: ChannelSyncRepositoryAdapter },
         {
           provide: ChannelAccountService,
           useValue: {

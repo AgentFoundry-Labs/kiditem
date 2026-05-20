@@ -7,22 +7,30 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
-import { PrismaService } from '../../../prisma/prisma.service';
 import {
   SOURCING_AGENT_GATEWAY_PORT,
   type SourcingAgentGatewayPort,
-} from '../port/out/sourcing-agent.gateway.port';
+} from '../port/out/runtime/sourcing-agent.gateway.port';
 import {
   SOURCING_PRODUCTS_CATALOG_PORT,
   type PromoteCandidateInput,
   type SourcingProductsCatalogPort,
-} from '../port/out/products-catalog.port';
-import type { PromoteCandidateBodyDto } from '../../adapter/in/http/dto/promote-candidate.dto';
-import type { RejectCandidateBodyDto } from '../../adapter/in/http/dto/reject-candidate.dto';
+} from '../port/out/cross-domain/products-catalog.port';
+import type { SourcingRepositoryTransaction } from '../port/out/transaction/repository-transaction';
+import {
+  SOURCING_CANDIDATE_REPOSITORY_PORT,
+  type SourcingCandidateRepositoryPort,
+} from '../port/out/repository/sourcing-candidate.repository.port';
+import type {
+  PromoteCandidateCommand,
+  RejectCandidateCommand,
+} from '../port/in/sourcing.commands';
 
 interface SelectedThumbnailImage {
   url: string;
+  generationId: string | null;
+  generationCandidateId: string | null;
+  contentWorkspaceId: string | null;
   storageKey: string | null;
   source: string;
   role: string;
@@ -37,8 +45,8 @@ interface SelectedThumbnailImage {
  * Sourcing-domain use-cases for the candidate state machine:
  *   - promote(candidateId, organizationId, body, ...) — creates a master via
  *     `SOURCING_PRODUCTS_CATALOG_PORT.promoteCandidate` inside a single
- *     `$transaction` that also holds the candidate row lock and flips its
- *     status to `promoted` + sets `promotedMasterId`.
+ *     repository-owned transaction that also holds the candidate row lock and
+ *     flips its status to `promoted` + sets `promotedMasterId`.
  *   - reject(candidateId, organizationId, body, userId) — status='rejected'
  *     with `rejectedReason`, `rejectedAt`, `rejectedByUserId` (D3 — row
  *     preserved).
@@ -70,7 +78,8 @@ export class SourcingPromotionService {
   private readonly logger = new Logger(SourcingPromotionService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(SOURCING_CANDIDATE_REPOSITORY_PORT)
+    private readonly candidates: SourcingCandidateRepositoryPort,
     @Inject(SOURCING_PRODUCTS_CATALOG_PORT)
     private readonly productsCatalog: SourcingProductsCatalogPort,
     @Inject(SOURCING_AGENT_GATEWAY_PORT)
@@ -80,7 +89,7 @@ export class SourcingPromotionService {
   async promote(
     candidateId: string,
     organizationId: string,
-    body: PromoteCandidateBodyDto,
+    body: PromoteCandidateCommand,
   ): Promise<{
     masterId: string;
     masterCode: string;
@@ -88,12 +97,12 @@ export class SourcingPromotionService {
     selectedDetailPageArtifactId: string | null;
     selectedDetailPageRevisionId: string | null;
   }> {
-    const result = await this.prisma.$transaction(
+    const result = await this.candidates.runInTransaction(
       async (tx) => {
         // 1. tenant-scoped pre-check — null is 404, non-sourced is 422.
-        const pre = await tx.sourcingCandidate.findFirst({
-          where: { id: candidateId, organizationId, isDeleted: false },
-          select: { id: true, status: true },
+        const pre = await this.candidates.findCandidateState(tx, {
+          id: candidateId,
+          organizationId,
         });
         if (!pre) throw new NotFoundException('Sourcing candidate not found');
         if (pre.status !== 'sourced') {
@@ -106,20 +115,13 @@ export class SourcingPromotionService {
         //    Re-read inside the lock to catch a concurrent promoter that
         //    already won the race; a stale read here would let us write a
         //    second master for the same candidate.
-        await tx.$queryRaw`
-          SELECT id FROM sourcing_candidates
-          WHERE id = ${candidateId}::uuid
-            AND organization_id = ${organizationId}::uuid
-          FOR UPDATE
-        `;
-        const locked = await tx.sourcingCandidate.findFirst({
-          where: { id: candidateId, organizationId, isDeleted: false },
-          include: {
-            images: {
-              where: { isDeleted: false },
-              orderBy: { sortOrder: 'asc' },
-            },
-          },
+        await this.candidates.lockCandidate(tx, {
+          id: candidateId,
+          organizationId,
+        });
+        const locked = await this.candidates.findLockedPromotionCandidate(tx, {
+          id: candidateId,
+          organizationId,
         });
         if (!locked) throw new NotFoundException('Sourcing candidate not found');
         if (locked.status !== 'sourced' || locked.promotedMasterId !== null) {
@@ -128,20 +130,44 @@ export class SourcingPromotionService {
           );
         }
 
+        const existingPreparation = await this.candidates.findPromotionPreparationSelection(tx, {
+          organizationId,
+          candidateId,
+        });
+        const preparedInput = this.jsonRecord(existingPreparation?.registrationInput);
+        const preparedName = this.stringValue(preparedInput.name ?? preparedInput.productName) ?? locked.name;
+        const preparedDescription =
+          this.stringValue(preparedInput.description) ?? locked.description;
+        const preparedCategory =
+          this.stringValue(preparedInput.category) ?? locked.category;
+        const preparedTags = this.stringArray(preparedInput.tags);
+
         const selectedThumbnail = await this.resolveSelectedThumbnail(tx, {
           organizationId,
           candidateId,
-          selectedThumbnailUrl: body.selectedThumbnailUrl,
-          selectedThumbnailGenerationCandidateId: body.selectedThumbnailGenerationCandidateId,
+          selectedThumbnailUrl: body.selectedThumbnailUrl ?? existingPreparation?.selectedThumbnailUrl ?? undefined,
+          selectedThumbnailGenerationCandidateId:
+            body.selectedThumbnailGenerationCandidateId ??
+            existingPreparation?.selectedThumbnailGenerationCandidateId ??
+            undefined,
         });
         const selectedThumbnailUrl = selectedThumbnail?.url ?? null;
 
         const selectedDetailPage = await this.resolveSelectedDetailPage(tx, {
           organizationId,
           candidateId,
-          contentGenerationId: body.selectedDetailPageGenerationId,
-          artifactId: body.selectedDetailPageArtifactId,
-          revisionId: body.selectedDetailPageRevisionId,
+          contentGenerationId:
+            body.selectedDetailPageGenerationId ??
+            existingPreparation?.selectedDetailPageGenerationId ??
+            undefined,
+          artifactId:
+            body.selectedDetailPageArtifactId ??
+            existingPreparation?.selectedDetailPageArtifactId ??
+            undefined,
+          revisionId:
+            body.selectedDetailPageRevisionId ??
+            existingPreparation?.selectedDetailPageRevisionId ??
+            undefined,
         });
         const promotionImages = this.buildPromotionImages(
           locked.images,
@@ -151,11 +177,11 @@ export class SourcingPromotionService {
         // 3. delegate master creation to products domain via the outgoing port.
         const promotionInput: PromoteCandidateInput = {
           candidateSnapshot: {
-            name: locked.name,
-            description: locked.description,
-            category: locked.category,
+            name: preparedName,
+            description: preparedDescription,
+            category: preparedCategory,
             brand: null,
-            tags: this.parseTags(locked.tags),
+            tags: preparedTags.length > 0 ? preparedTags : this.parseTags(locked.tags),
             thumbnailUrl: selectedThumbnailUrl ?? locked.thumbnailUrl,
             imageUrl: selectedThumbnailUrl ?? locked.imageUrl,
             sourceImages: promotionImages,
@@ -172,16 +198,18 @@ export class SourcingPromotionService {
           promotionInput,
         );
 
-        // 4. flip candidate status — bare-id update is permitted here because
-        //    the row was locked + tenant-scoped at step 2; an out-of-tenant id
-        //    cannot reach this line.
-        await tx.sourcingCandidate.update({
-          where: { id: candidateId },
-          data: {
-            status: 'promoted',
-            promotedMasterId: promotion.masterId,
-          },
+        // 4. flip candidate status with the same tenant predicate used for
+        //    the row lock, so the repository port remains safe if reused.
+        const promoted = await this.candidates.markCandidatePromoted(tx, {
+          id: candidateId,
+          organizationId,
+          masterId: promotion.masterId,
         });
+        if (promoted.count === 0) {
+          throw new ConflictException(
+            'Sourcing candidate state changed concurrently',
+          );
+        }
 
         if (selectedDetailPage) {
           await this.attachSelectedDetailPageArtifact(tx, {
@@ -191,6 +219,24 @@ export class SourcingPromotionService {
             revisionId: selectedDetailPage.revisionId,
           });
         }
+
+        await this.upsertProductPreparation(tx, {
+          organizationId,
+          candidateId,
+          masterId: promotion.masterId,
+          displayName: preparedName,
+          existingRegistrationInput: preparedInput,
+          lockedCandidate: {
+            name: preparedName,
+            description: preparedDescription,
+            category: preparedCategory,
+            thumbnailUrl: locked.thumbnailUrl,
+            imageUrl: locked.imageUrl,
+          },
+          selectedThumbnail,
+          selectedDetailPage,
+          options: body.options,
+        });
 
         return {
           ...promotion,
@@ -229,13 +275,13 @@ export class SourcingPromotionService {
   async reject(
     candidateId: string,
     organizationId: string,
-    body: RejectCandidateBodyDto,
+    body: RejectCandidateCommand,
     userId: string | null,
   ): Promise<{ status: 'rejected' }> {
-    return this.prisma.$transaction(async (tx) => {
-      const candidate = await tx.sourcingCandidate.findFirst({
-        where: { id: candidateId, organizationId, isDeleted: false },
-        select: { id: true, status: true },
+    return this.candidates.runInTransaction(async (tx) => {
+      const candidate = await this.candidates.findCandidateState(tx, {
+        id: candidateId,
+        organizationId,
       });
       if (!candidate) throw new NotFoundException('Sourcing candidate not found');
       if (candidate.status !== 'sourced') {
@@ -244,14 +290,12 @@ export class SourcingPromotionService {
         );
       }
       // tenant-scoped predicate keeps the bare-id write off the SQL path.
-      const { count } = await tx.sourcingCandidate.updateMany({
-        where: { id: candidateId, organizationId, isDeleted: false, status: 'sourced' },
-        data: {
-          status: 'rejected',
-          rejectedAt: new Date(),
-          rejectedReason: body.reason ?? null,
-          rejectedByUserId: userId,
-        },
+      const { count } = await this.candidates.rejectCandidate(tx, {
+        id: candidateId,
+        organizationId,
+        reason: body.reason ?? null,
+        rejectedByUserId: userId,
+        rejectedAt: new Date(),
       });
       if (count === 0) {
         // status flipped between pre-check and write — treat as race.
@@ -273,6 +317,26 @@ export class SourcingPromotionService {
     return raw.filter((t): t is string => typeof t === 'string');
   }
 
+  private toJson(value: unknown): Record<string, unknown> {
+    return this.jsonRecord(JSON.parse(JSON.stringify(value)));
+  }
+
+  private jsonRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
+  }
+
+  private stringValue(value: unknown): string | null {
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+  }
+
+  private stringArray(value: unknown): string[] {
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      : [];
+  }
+
   private normalizeSelectedThumbnailUrl(value: string | undefined): string | null {
     const selected = value?.trim();
     if (!selected) return null;
@@ -281,7 +345,7 @@ export class SourcingPromotionService {
   }
 
   private async resolveSelectedThumbnail(
-    tx: Prisma.TransactionClient,
+    tx: SourcingRepositoryTransaction,
     input: {
       organizationId: string;
       candidateId: string;
@@ -295,6 +359,9 @@ export class SourcingPromotionService {
       return selectedUrl
         ? {
             url: selectedUrl,
+            generationId: null,
+            generationCandidateId: null,
+            contentWorkspaceId: null,
             storageKey: null,
             source: 'sourcing-registration-selection',
             role: 'product',
@@ -303,23 +370,10 @@ export class SourcingPromotionService {
         : null;
     }
 
-    const generated = await tx.thumbnailGenerationCandidate.findFirst({
-      where: {
-        id: generationCandidateId,
-        organizationId: input.organizationId,
-        generation: {
-          organizationId: input.organizationId,
-          sourceCandidateId: input.candidateId,
-        },
-      },
-      select: {
-        url: true,
-        storageKey: true,
-        mimeType: true,
-        width: true,
-        height: true,
-        fileSize: true,
-      },
+    const generated = await this.candidates.findSelectedThumbnailGeneration(tx, {
+      organizationId: input.organizationId,
+      candidateId: input.candidateId,
+      generationCandidateId,
     });
     if (!generated) {
       throw new BadRequestException(
@@ -333,6 +387,9 @@ export class SourcingPromotionService {
     }
     return {
       url: generated.url,
+      generationId: generated.generationId,
+      generationCandidateId: generated.id,
+      contentWorkspaceId: generated.contentWorkspaceId,
       storageKey: generated.storageKey,
       source: 'thumbnail_generation',
       role: 'product',
@@ -400,7 +457,7 @@ export class SourcingPromotionService {
   }
 
   private async resolveSelectedDetailPage(
-    tx: Prisma.TransactionClient,
+    tx: SourcingRepositoryTransaction,
     input: {
       organizationId: string;
       candidateId: string;
@@ -408,7 +465,12 @@ export class SourcingPromotionService {
       artifactId?: string;
       revisionId?: string;
     },
-  ): Promise<{ artifactId: string; revisionId: string | null } | null> {
+  ): Promise<{
+    artifactId: string;
+    revisionId: string | null;
+    contentGenerationId: string | null;
+    contentWorkspaceId: string | null;
+  } | null> {
     const artifactId = input.artifactId?.trim() || null;
     const contentGenerationId = input.contentGenerationId?.trim() || null;
     const revisionId = input.revisionId?.trim() || null;
@@ -436,110 +498,94 @@ export class SourcingPromotionService {
         });
 
     if (revisionId) {
-      const revision = await tx.detailPageRevision.findFirst({
-        where: {
-          id: revisionId,
-          organizationId: input.organizationId,
-          artifactId: selected.artifactId,
-        },
-        select: { id: true },
+      const revision = await this.candidates.findDetailPageRevision(tx, {
+        organizationId: input.organizationId,
+        artifactId: selected.artifactId,
+        revisionId,
       });
       if (!revision) {
         throw new BadRequestException(
           'selectedDetailPageRevisionId must belong to the selected detail-page artifact',
         );
       }
-      return { artifactId: selected.artifactId, revisionId: revision.id };
+      return { ...selected, revisionId: revision.id };
     }
 
     return selected;
   }
 
   private async resolveSelectedDetailPageGeneration(
-    tx: Prisma.TransactionClient,
+    tx: SourcingRepositoryTransaction,
     input: {
       organizationId: string;
       candidateId: string;
       contentGenerationId: string;
     },
-  ): Promise<{ artifactId: string; revisionId: string | null }> {
-    const generation = await tx.contentGeneration.findFirst({
-      where: {
-        id: input.contentGenerationId,
-        organizationId: input.organizationId,
-        contentType: 'detail_page',
-        OR: [
-          { sourceCandidateId: input.candidateId },
-          { sources: { some: { sourceCandidateId: input.candidateId } } },
-          { detailPageArtifact: { is: { sourceCandidateId: input.candidateId } } },
-        ],
-      },
-      select: {
-        detailPageArtifactId: true,
-        detailPageArtifact: {
-          select: {
-            currentRevisionId: true,
-          },
-        },
-      },
+  ): Promise<{
+    artifactId: string;
+    revisionId: string | null;
+    contentGenerationId: string;
+    contentWorkspaceId: string | null;
+  }> {
+    const generation = await this.candidates.findSelectedDetailPageGeneration(tx, {
+      organizationId: input.organizationId,
+      candidateId: input.candidateId,
+      contentGenerationId: input.contentGenerationId,
     });
-    if (!generation?.detailPageArtifactId) {
+    if (!generation) {
       throw new BadRequestException(
         'selectedDetailPageGenerationId must belong to this sourcing candidate and have a detail-page artifact',
       );
     }
 
     return {
-      artifactId: generation.detailPageArtifactId,
-      revisionId: generation.detailPageArtifact?.currentRevisionId ?? null,
+      artifactId: generation.artifactId,
+      revisionId: generation.revisionId,
+      contentGenerationId: input.contentGenerationId,
+      contentWorkspaceId: generation.contentWorkspaceId,
     };
   }
 
   private async resolveSelectedDetailPageArtifact(
-    tx: Prisma.TransactionClient,
+    tx: SourcingRepositoryTransaction,
     input: {
       organizationId: string;
       candidateId: string;
       artifactId: string;
       contentGenerationId: string | null;
     },
-  ): Promise<{ artifactId: string; revisionId: string | null }> {
-    const artifact = await tx.detailPageArtifact.findFirst({
-      where: {
-        id: input.artifactId,
-        organizationId: input.organizationId,
-        OR: [
-          { sourceCandidateId: input.candidateId },
-          { sourceContentGeneration: { is: { sourceCandidateId: input.candidateId } } },
-          {
-            sourceContentGeneration: {
-              is: { sources: { some: { sourceCandidateId: input.candidateId } } },
-            },
-          },
-        ],
-      },
-      select: {
-        id: true,
-        sourceContentGenerationId: true,
-        currentRevisionId: true,
-      },
+  ): Promise<{
+    artifactId: string;
+    revisionId: string | null;
+    contentGenerationId: string | null;
+    contentWorkspaceId: string | null;
+  }> {
+    const artifact = await this.candidates.findSelectedDetailPageArtifact(tx, {
+      organizationId: input.organizationId,
+      candidateId: input.candidateId,
+      artifactId: input.artifactId,
     });
     if (!artifact) {
       throw new BadRequestException(
         'selectedDetailPageArtifactId must belong to this sourcing candidate',
       );
     }
-    if (input.contentGenerationId && artifact.sourceContentGenerationId !== input.contentGenerationId) {
+    if (input.contentGenerationId && artifact.contentGenerationId !== input.contentGenerationId) {
       throw new BadRequestException(
         'selectedDetailPageArtifactId does not match selectedDetailPageGenerationId',
       );
     }
 
-    return { artifactId: artifact.id, revisionId: artifact.currentRevisionId ?? null };
+    return {
+      artifactId: artifact.artifactId,
+      revisionId: artifact.revisionId,
+      contentGenerationId: input.contentGenerationId ?? artifact.contentGenerationId,
+      contentWorkspaceId: artifact.contentWorkspaceId,
+    };
   }
 
   private async attachSelectedDetailPageArtifact(
-    tx: Prisma.TransactionClient,
+    tx: SourcingRepositoryTransaction,
     input: {
       organizationId: string;
       artifactId: string;
@@ -547,15 +593,77 @@ export class SourcingPromotionService {
       revisionId: string | null;
     },
   ): Promise<void> {
-    const updated = await tx.detailPageArtifact.updateMany({
-      where: { id: input.artifactId, organizationId: input.organizationId },
-      data: {
-        targetMasterId: input.targetMasterId,
-        ...(input.revisionId ? { currentRevisionId: input.revisionId } : {}),
-      },
+    const updated = await this.candidates.attachSelectedDetailPageArtifact(tx, {
+      organizationId: input.organizationId,
+      artifactId: input.artifactId,
+      targetMasterId: input.targetMasterId,
+      revisionId: input.revisionId,
     });
     if (updated.count === 0) {
       throw new BadRequestException('selected detail-page artifact could not be attached');
     }
+  }
+
+  private async upsertProductPreparation(
+    tx: SourcingRepositoryTransaction,
+    input: {
+      organizationId: string;
+      candidateId: string;
+      masterId: string;
+      displayName: string;
+      existingRegistrationInput?: Record<string, unknown>;
+      lockedCandidate: {
+        name: string;
+        description: string;
+        category: string | null;
+        thumbnailUrl: string | null;
+        imageUrl: string | null;
+      };
+      selectedThumbnail: SelectedThumbnailImage | null;
+      selectedDetailPage: {
+        artifactId: string;
+        revisionId: string | null;
+        contentGenerationId: string | null;
+        contentWorkspaceId: string | null;
+      } | null;
+      options: PromoteCandidateCommand['options'];
+    },
+  ): Promise<void> {
+    const contentWorkspaceId =
+      input.selectedDetailPage?.contentWorkspaceId ??
+      input.selectedThumbnail?.contentWorkspaceId ??
+      null;
+    const registrationInput = this.toJson({
+      ...(input.existingRegistrationInput ?? {}),
+      sourceCandidateId: input.candidateId,
+      name: input.lockedCandidate.name,
+      productName: input.lockedCandidate.name,
+      description: input.lockedCandidate.description,
+      category: input.lockedCandidate.category,
+      thumbnailUrl: input.lockedCandidate.thumbnailUrl,
+      imageUrl: input.lockedCandidate.imageUrl,
+      options: input.options,
+      selectedThumbnailUrl: input.selectedThumbnail?.url ?? null,
+      selectedThumbnailGenerationId: input.selectedThumbnail?.generationId ?? null,
+      selectedThumbnailGenerationCandidateId: input.selectedThumbnail?.generationCandidateId ?? null,
+      selectedDetailPageArtifactId: input.selectedDetailPage?.artifactId ?? null,
+      selectedDetailPageRevisionId: input.selectedDetailPage?.revisionId ?? null,
+      selectedDetailPageGenerationId: input.selectedDetailPage?.contentGenerationId ?? null,
+    });
+    await this.candidates.upsertPromotedProductPreparation(tx, {
+      organizationId: input.organizationId,
+      candidateId: input.candidateId,
+      masterId: input.masterId,
+      contentWorkspaceId,
+      displayName: input.displayName,
+      appliedToMasterAt: new Date(),
+      selectedThumbnailUrl: input.selectedThumbnail?.url ?? null,
+      selectedThumbnailGenerationId: input.selectedThumbnail?.generationId ?? null,
+      selectedThumbnailGenerationCandidateId: input.selectedThumbnail?.generationCandidateId ?? null,
+      selectedDetailPageArtifactId: input.selectedDetailPage?.artifactId ?? null,
+      selectedDetailPageRevisionId: input.selectedDetailPage?.revisionId ?? null,
+      selectedDetailPageGenerationId: input.selectedDetailPage?.contentGenerationId ?? null,
+      registrationInput,
+    });
   }
 }

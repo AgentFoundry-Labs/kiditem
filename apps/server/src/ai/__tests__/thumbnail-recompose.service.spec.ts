@@ -6,16 +6,14 @@ const PRODUCT_ID = '7d000000-0000-4000-8000-000000000001';
 
 describe('ThumbnailRecomposeService', () => {
   it('passes product context into the classifier prompt', async () => {
-    const prisma = {
-      masterProduct: {
-        findFirst: vi.fn(async () => ({
-          name: '크리스마스 LED 무드등 3개 세트',
-          category: '조명/무드등',
-          imageUrl: 'https://example.com/light.jpg',
-          thumbnailUrl: null,
-          images: [],
-        })),
-      },
+    const repository = {
+      findRecomposeMaster: vi.fn(async () => ({
+        name: '크리스마스 LED 무드등 3개 세트',
+        category: '조명/무드등',
+        imageUrl: 'https://example.com/light.jpg',
+        thumbnailUrl: null,
+        images: [],
+      })),
     };
     const vision = {
       classifyImageJson: vi.fn(async () =>
@@ -26,11 +24,12 @@ describe('ThumbnailRecomposeService', () => {
         }),
       ),
     };
-    const service = new ThumbnailRecomposeService(prisma as never, vision as never);
+    const service = new ThumbnailRecomposeService(repository as never, vision as never);
 
     const result = await service.classify(PRODUCT_ID, ORGANIZATION_ID);
 
     expect(result.kind).toBe('lighting-lifestyle');
+    expect(repository.findRecomposeMaster).toHaveBeenCalledWith(PRODUCT_ID, ORGANIZATION_ID);
     expect(vision.classifyImageJson).toHaveBeenCalledTimes(1);
     const [imageUrl, prompt] = vision.classifyImageJson.mock.calls[0];
     expect(imageUrl).toBe('https://example.com/light.jpg');

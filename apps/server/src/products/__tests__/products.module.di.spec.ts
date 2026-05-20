@@ -9,6 +9,8 @@ import { Global, Module } from '@nestjs/common';
 import { PATH_METADATA } from '@nestjs/common/constants';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ProductsModule } from '../products.module';
+import { PRODUCT_BUNDLE_STOCK_PORT } from '../application/port/in/bundle-stock.port';
+import { PRODUCT_MASTER_PROMOTION_PORT } from '../application/port/in/master-promotion.port';
 import { MastersController } from '../adapter/in/http/masters.controller';
 import { MasterImagesController } from '../adapter/in/http/master-images.controller';
 import { OptionsController } from '../adapter/in/http/options.controller';
@@ -16,8 +18,9 @@ import { BundleComponentsController } from '../adapter/in/http/bundle-components
 import { MastersService } from '../application/service/masters.service';
 import { OptionsService } from '../application/service/options.service';
 import { BundleComponentsService } from '../application/service/bundle-components.service';
-import { MasterCodeService } from '../adapter/out/prisma/master-code.service';
+import { MasterCodeRepositoryAdapter } from '../adapter/out/repository/master-code.repository.adapter';
 import { BundleStockService } from '../application/service/bundle-stock.service';
+import { MasterPromotionService } from '../application/service/master-promotion.service';
 import { CategoriesController } from '../categories/categories.controller';
 import { CategoriesService } from '../categories/categories.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -65,11 +68,17 @@ describe('ProductsModule DI', () => {
 
   it('resolves all five services', () => {
     expect(moduleRef.get(MastersService)).toBeDefined();
+    expect(moduleRef.get(MasterPromotionService)).toBeDefined();
     expect(moduleRef.get(OptionsService)).toBeDefined();
     expect(moduleRef.get(BundleComponentsService)).toBeDefined();
-    expect(moduleRef.get(MasterCodeService)).toBeDefined();
+    expect(moduleRef.get(MasterCodeRepositoryAdapter)).toBeDefined();
     expect(moduleRef.get(BundleStockService)).toBeDefined();
     expect(moduleRef.get(CategoriesService)).toBeDefined();
+  });
+
+  it('exports products owner-side incoming ports for cross-owner consumers', () => {
+    expect(moduleRef.get(PRODUCT_MASTER_PROMOTION_PORT)).toBeInstanceOf(MasterPromotionService);
+    expect(moduleRef.get(PRODUCT_BUNDLE_STOCK_PORT)).toBeInstanceOf(BundleStockService);
   });
 
   it('keeps categories on the legacy /categories route segment', () => {

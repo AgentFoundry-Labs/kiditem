@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ChannelDashboardService } from '../channel-dashboard.service';
+import { ChannelDashboardRepositoryAdapter as ChannelDashboardService } from '../../../adapter/out/repository/channel-dashboard.repository.adapter';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 
 /**
@@ -172,9 +172,9 @@ describe('ChannelDashboardService', () => {
   });
 
   // -------------------------------------------------------------------------
-  // #4 getReturnSummary — ADR-0017 semantic (INNER JOIN + 2-hop IDOR + orphan)
+  // #4 getReturnSummary — returnRate semantic (INNER JOIN + 2-hop IDOR + orphan)
   // -------------------------------------------------------------------------
-  describe('getReturnSummary — ADR-0017 semantic', () => {
+  describe('getReturnSummary — INNER JOIN semantics', () => {
     function mockPrismaForReturn(overrides: {
       orderCount?: number;
       innerJoinReturnCount?: number;

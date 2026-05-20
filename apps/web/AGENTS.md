@@ -1,133 +1,56 @@
 # apps/web — Next.js Frontend
 
-Frontend only. No API routes or route handlers. All data flows through the
-NestJS API via `apiClient`.
+`apps/web/` is the Next.js frontend. It owns UI routes, client-side state,
+React Query data access, and browser-only integrations. It does not own backend
+API routes or database access.
 
-Local dev usually sets `NEXT_PUBLIC_API_URL=http://localhost:4000`.
-Staging/production should leave it empty so browser calls stay same-origin
-(`/api/*`) through the edge proxy.
+## Folder Map
 
-## Chat Transport Exception
-
-CopilotKit browser runtime calls same-origin `/api/chat/copilot`. `next.config`
-rewrites that path to Nest for local/dev. This is transport only; do not add
-`app/api/.../route.ts`. Other domains use `apiClient` and the backend API.
-
-## Run
-
-```bash
-npm run dev
-npm run build
-npx vitest run
+```text
+apps/web/
+├── src/
+│   ├── app/                 # route groups and pages
+│   ├── components/          # shared components used by 2+ domains
+│   ├── hooks/               # shared hooks used by 2+ domains
+│   ├── lib/                 # apiClient, query keys, utils
+│   └── styles/
+└── next.config.*            # rewrites, build config
 ```
 
-## Scope Instructions
-
-- Read the route-scoped `AGENTS.md` before editing a route that has one.
-- Shared frontend rules live here. Do not append history; replace or compact
-  nearby rules when adding durable guidance.
-
-## API And State
-
-- Use `apiClient.get/post/patch/delete`; use `apiClient.fetchRaw()` for blobs.
-- Do not use raw `fetch` for backend API calls.
-- Direct `API_BASE` usage is allowed only for non-fetch URL resolution.
-- Frontend code must not import Prisma, `pg`, server DB adapters, or direct DB
-  clients.
-- Never send `organizationId` in query/body. Tenant scope is resolved by the
-  backend session.
-- Server state uses React Query. Prefer domain hooks; otherwise use inline
-  `useQuery`/`useMutation` with `queryKeys`.
-- Polling uses `refetchInterval`, not `setInterval`.
-- Mutations invalidate the relevant query key.
-- Zustand is only for client UI state such as sidebar/panel preferences or SSE
-  queues, not request/response server state.
-- 401 `auth_required` 자동 refresh + signOut 흐름은 `lib/supabase/refresh.ts`
-  (`refreshOrFail` / `triggerSignOut`) + `components/providers/AuthProvider.tsx`
-  (`onAuthStateChange` 단일 소유) 가 단독 책임. 다른 곳에서
-  `supabase.auth.signOut()` 직접 호출, `window.location.assign('/login')`,
-  또는 401 응답에 대한 별도 redirect/toast 추가 금지.
-
-## Types And Errors
-
-- Prefer focused shared subpaths such as `@kiditem/shared/inventory`.
-- Do not expand the root `@kiditem/shared` barrel for new domains.
-- Keep single-page props/types local unless 2+ components share them.
-- Branch API errors with `isApiError(err)`.
-- Use `sonner` toasts for user-facing errors/success. No `alert()` except
-  browser prompt/confirm flows.
-
-## Styling
-
-- Tailwind + `cn()` from `@/lib/utils`.
-- No conditional template-literal class strings; use `cn('base', condition &&
-  'class')`.
-- Prefer semantic CSS variables for edited UI:
-  `--surface`, `--surface-sunken`, `--surface-raised`, `--text-*`,
-  `--border*`, `--primary`, `--primary-soft`.
-- Hard-coded `bg-white` / `text-slate-*` is legacy; convert when editing.
-- Use `useChartTheme()` for charts and `<ThemedToaster />` for toasts.
-- Lucide React is the icon library.
-- Formatting goes through helpers in `@/lib/utils`; do not call `Intl.*` or
-  `toLocaleString()` directly in UI code.
-
-## Route Structure
+Route shape:
 
 ```text
 app/(group-name)/{domain}/
-  page.tsx
-  components/
-  hooks/
-  lib/
+├── page.tsx
+├── components/
+├── hooks/
+└── lib/
 ```
 
-Shared directories (`src/components`, `src/hooks`, `src/lib`) are only for code
-used by 2+ domains. Route-group private shared code can live in
-`app/(group)/_shared/`.
+Route-group private shared code can live in `app/(group)/_shared/`. Global
+`src/components`, `src/hooks`, and `src/lib` are only for code used by 2+
+domains.
 
-Route-local `components/`, `hooks/`, and `lib/` may be grouped by workflow
-stage or route family when a page already has visible complexity. Keep those
-names local to the route until 2+ routes need the same interface; do not create
-global abstractions just to tidy a single workflow.
+## Route Groups
 
-The current frontend directory map and route/shared structure contracts live in
-[`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md#frontend-directory-architecture).
-When a PR adds a route group, moves a route, or changes shared ownership,
-update that map in the same PR.
-
-Route groups do not affect URLs:
+Route groups do not affect URLs.
 
 | Group | Routes |
 |---|---|
-| `(advertising)` | ad-ops |
-| `(analytics)` | dashboard |
-| `(automation)` | agents, workflows, marketplace, action-board |
-| `(catalog)` | products, product-hub |
-| `(sourcing-ai)` | sourcing-ai |
-| `(product-pipeline)` | product-pipeline/collected-products, product-pipeline/registered-products, product-pipeline/detail-template-generation, product-pipeline/thumbnail-ai, product-pipeline/thumbnail-generation, product-pipeline/thumbnail-generation/edit |
-| `(supply)` | suppliers, purchase-orders |
-| `(inventory)` | inventory, inventory-hub, stock-ops, warehouses, unshipped-items, outbound |
-| `(orders)` | orders, order-hub, order-status-hub, returns, reviews, return-scan, cs-management |
-| `(finance)` | finance-hub, profit-loss, sales-analysis, supplier-hub, reports |
+| `(advertising)` | `ad-ops` |
+| `(analytics)` | `dashboard` |
+| `(automation)` | `agents`, `workflows`, `marketplace`, `action-board` |
+| `(catalog)` | `products`, `product-hub` |
+| `(sourcing-ai)` | `sourcing-ai` |
+| `(product-pipeline)` | collected/registered products, product generation, detail generation, thumbnail AI/generation |
+| `(supply)` | `suppliers`, `purchase-orders` |
+| `(inventory)` | inventory, hubs, stock ops, warehouses, unshipped, outbound |
+| `(orders)` | orders, returns, reviews, return scan, CS |
+| `(finance)` | finance hub, P&L, sales analysis, suppliers, reports |
 
-## Large Components
+## Scoped Guides
 
-- Do not add substantial behavior to 700+ line components.
-- Changes to 500+ line components require explicit reconstruction
-  classification in review.
-- Split by pure helpers, presentational components, hooks, and orchestration
-  while keeping API behavior stable.
-
-## SSE
-
-- Default to polling.
-- Panel is the SSE exception. Use `PanelSseClient` only; it sends cookies with
-  `credentials: 'include'`.
-- New SSE domains require a scoped plan and instruction update.
-
-## Domain Guides
-
-Read these before editing the matching route:
+Read the route guide before editing:
 
 | Path | Focus |
 |---|---|
@@ -135,13 +58,65 @@ Read these before editing the matching route:
 | [`src/app/(catalog)/product-hub/matching/AGENTS.md`](<src/app/(catalog)/product-hub/matching/AGENTS.md>) | product matching |
 | [`src/app/(product-pipeline)/product-pipeline/collected-products/AGENTS.md`](<src/app/(product-pipeline)/product-pipeline/collected-products/AGENTS.md>) | collected product workspace |
 | [`src/app/(product-pipeline)/product-pipeline/thumbnail-generation/AGENTS.md`](<src/app/(product-pipeline)/product-pipeline/thumbnail-generation/AGENTS.md>) | thumbnail generation workflow |
-| [`src/app/(product-pipeline)/product-pipeline/thumbnail-ai/AGENTS.md`](<src/app/(product-pipeline)/product-pipeline/thumbnail-ai/AGENTS.md>) | thumbnails polling/batch UI |
+| [`src/app/(product-pipeline)/product-pipeline/thumbnail-ai/AGENTS.md`](<src/app/(product-pipeline)/product-pipeline/thumbnail-ai/AGENTS.md>) | thumbnail polling/batch UI |
 | [`src/app/(orders)/return-scan/AGENTS.md`](<src/app/(orders)/return-scan/AGENTS.md>) | local-only scan flow |
+
+## API + State Rules
+
+- All backend data flows through NestJS APIs via `apiClient`.
+- Use `apiClient.get/post/patch/delete`; use `apiClient.fetchRaw()` for blobs.
+- Do not use raw `fetch` for backend API calls.
+- Direct `API_BASE` usage is allowed only for non-fetch URL resolution.
+- Do not import Prisma, `pg`, server DB adapters, Supabase DB clients, or
+  direct DB clients.
+- Never send `organizationId` in query/body; backend session scope owns it.
+- Server state uses React Query. Prefer domain hooks and `queryKeys`.
+- Polling uses `refetchInterval`, not `setInterval`.
+- Mutations invalidate relevant query keys.
+- Zustand is only for client UI state, not request/response server state.
+
+## Types, Errors, Styling
+
+- Prefer focused shared subpaths such as `@kiditem/shared/inventory`.
+- Keep single-page props/types local unless 2+ components share them.
+- Branch API errors with `isApiError(err)`.
+- Use `sonner` toasts for user-facing success/error. Avoid `alert()` except
+  browser prompt/confirm flows.
+- Tailwind classes compose with `cn()` from `@/lib/utils`.
+- Prefer semantic CSS variables for edited UI:
+  `--surface`, `--surface-sunken`, `--surface-raised`, `--text-*`,
+  `--border*`, `--primary`, `--primary-soft`.
+- Lucide React is the icon library.
+- Formatting goes through helpers in `@/lib/utils`; avoid direct `Intl.*` or
+  `toLocaleString()` in UI code.
+
+## Auth + Chat Transport
+
+- 401 refresh/sign-out flow is owned by `lib/supabase/refresh.ts` and
+  `components/providers/AuthProvider.tsx`. Do not add direct
+  `supabase.auth.signOut()`, `window.location.assign('/login')`, or separate
+  401 redirect/toast handling.
+- CopilotKit browser runtime calls same-origin `/api/chat/copilot`.
+  `next.config` rewrites it to Nest for local/dev. Do not add
+  `app/api/.../route.ts`.
+
+## Boundary Rules
+
+- Do not add substantial behavior to 700+ line components.
+- Changes to 500+ line components require explicit reconstruction
+  classification in review.
+- Split by pure helpers, presentational components, hooks, and orchestration
+  while keeping API behavior stable.
+- Default to polling. Panel is the SSE exception and uses `PanelSseClient`
+  with `credentials: 'include'`.
+- New SSE domains require a scoped plan and instruction update.
+- Update [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) when a PR adds a
+  route group, moves a route, or changes shared ownership.
 
 ## Local Exceptions
 
-- `app/agent-os/` is a fullscreen visualization surface and intentionally uses a
-  hard-coded dark/cyan style outside the normal semantic token guidance.
+- `app/agent-os/` is a fullscreen visualization surface with intentionally
+  hard-coded dark/cyan styling.
 - `components/panel/` owns the live slide-out panel and SSE store.
 - `app/(inventory)/inventory/lib/barcode-print.ts` may use browser print APIs.
 - `app/settings/` may contain operational uploads, printer settings, and health

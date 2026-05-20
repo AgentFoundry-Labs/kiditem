@@ -3,11 +3,11 @@ import {
   Inject,
   Injectable,
   Logger,
-  Optional,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../../prisma/prisma.service';
-import { OperationAlertService } from '../../../automation/application/service/operation-alert.service';
+import {
+  AI_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../port/out/cross-domain/operation-alert.port';
 import { ThumbnailEditorAiService } from './thumbnail-editor-ai.service';
 import type {
   ThumbnailEditorCandidate,
@@ -25,20 +25,12 @@ import {
   toEditAnalysis,
   toInputRole,
   variantInstruction,
+  type ThumbnailJsonValue,
 } from '../../domain/thumbnail-generation-inputs';
 import {
-  findGenerationWithInputImages,
-  findJobMaster,
-} from '../../adapter/out/prisma/thumbnail-generation.query';
-import {
-  createPendingCandidateJob,
-  createPendingEditJob,
-  createPendingStandaloneJob,
-  lockGenerationForProcessing,
-  markGenerationFailed,
-  persistPendingInputImages,
-  replaceGenerationResult,
-} from '../../adapter/out/prisma/thumbnail-generation.persistence';
+  THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
+  type ThumbnailGenerationLedgerRepositoryPort,
+} from '../port/out/repository/thumbnail-generation-ledger.repository.port';
 import {
   AGENT_RUNNER_PORT,
   type AgentRunnerPort,
@@ -47,21 +39,30 @@ import {
   AI_AGENT_SOURCE_TYPES,
   THUMBNAIL_GENERATE_AGENT_TYPE,
 } from '../../domain/agent-output';
-import {
-  THUMBNAIL_GENERATION_EVENT_PORT,
-  type AppendThumbnailGenerationEventInput,
-  type ThumbnailGenerationEventPort,
-} from '../port/out/thumbnail-generation-event.port';
 import { kickEnqueuedAgentRequest as kickInlineAgentRequest } from './agent-inline-execution';
+import {
+  type GenerationAlertLink,
+  STANDALONE_GENERATION_ALERT,
+  isParentProductGenerationAlertLink,
+  productGenerationMetadata,
+} from './product-generation-alert-link';
+import { ProductGenerationAlertService } from './product-generation-alert.service';
+import { ThumbnailGenerationLifecycleService } from './thumbnail-generation-lifecycle.service';
+
+function jsonObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
 
 export interface ThumbnailEditorGenerationEnqueueInput {
   organizationId: string;
   productId: string;
   productName: string;
-  registrationWorkspaceId?: string | null;
+  contentWorkspaceId?: string | null;
   triggeredByUserId: string | null;
   inputs: ThumbnailEditorInputImage[];
-  inputMeta: Prisma.InputJsonValue;
+  inputMeta: unknown;
   method: 'generate' | 'creative';
   originalUrl: string;
   agentPayload: Record<string, unknown>;
@@ -71,63 +72,73 @@ export interface ThumbnailCandidateGenerationEnqueueInput {
   organizationId: string;
   sourceCandidateId: string;
   productName: string | null;
-  registrationWorkspaceId?: string | null;
+  contentWorkspaceId?: string | null;
   triggeredByUserId: string | null;
   inputs: ThumbnailEditorInputImage[];
-  inputMeta: Prisma.InputJsonValue;
+  inputMeta: unknown;
   method: 'generate' | 'creative';
   originalUrl: string;
   agentPayload: Record<string, unknown>;
+  operationAlert?: GenerationAlertLink;
 }
 
 export interface ThumbnailStandaloneGenerationEnqueueInput {
   organizationId: string;
   productName: string | null;
-  registrationWorkspaceId?: string | null;
+  contentWorkspaceId?: string | null;
   triggeredByUserId: string | null;
   inputs: ThumbnailEditorInputImage[];
-  inputMeta: Prisma.InputJsonValue;
+  inputMeta: unknown;
   method: 'generate' | 'creative';
   originalUrl: string;
   agentPayload: Record<string, unknown>;
 }
+
+type ThumbnailGenerationEnqueueResult = {
+  generationId: string;
+  status: 'pending' | 'cancelled';
+};
+
+const THUMBNAIL_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE =
+  'Parent product generation was cancelled before thumbnail request execution.';
 
 @Injectable()
 export class ThumbnailGenerationJobService {
   private readonly logger = new Logger(ThumbnailGenerationJobService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT)
+    private readonly ledger: ThumbnailGenerationLedgerRepositoryPort,
     private readonly editorAiService: ThumbnailEditorAiService,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(AI_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
     @Inject(AGENT_RUNNER_PORT)
     private readonly agentRunner: AgentRunnerPort,
-    @Optional()
-    @Inject(THUMBNAIL_GENERATION_EVENT_PORT)
-    private readonly generationEvents: ThumbnailGenerationEventPort | null = null,
+    private readonly productGenerationAlerts: ProductGenerationAlertService,
+    private readonly lifecycle: ThumbnailGenerationLifecycleService,
   ) {}
 
   async enqueueEditorGeneration(
     input: ThumbnailEditorGenerationEnqueueInput,
-  ): Promise<{ generationId: string; status: 'pending' }> {
-    const generation = await createPendingEditJob(this.prisma, {
+  ): Promise<ThumbnailGenerationEnqueueResult> {
+    const generation = await this.ledger.openPendingEditorJob({
       organizationId: input.organizationId,
       masterId: input.productId,
       originalUrl: input.originalUrl,
       method: input.method,
       inputMeta: input.inputMeta,
       editAnalysis: null,
-      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+      contentWorkspaceId: input.contentWorkspaceId ?? null,
       triggeredByUserId: input.triggeredByUserId,
     });
 
-    await persistPendingInputImages(this.prisma, {
+    await this.ledger.persistPendingInputImages({
       generationId: generation.id,
       organizationId: input.organizationId,
       inputImages: input.inputs,
     });
 
-    await this.emitStatusChange({
+    await this.lifecycle.recordStatusChange({
       organizationId: input.organizationId,
       generationId: generation.id,
       fromStatus: null,
@@ -138,13 +149,13 @@ export class ThumbnailGenerationJobService {
       payload: {
         method: input.method,
         productId: input.productId,
-        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+        contentWorkspaceId: input.contentWorkspaceId ?? null,
         inputCount: input.inputs.length,
       },
     });
 
     const alertTarget = this.alertTarget({
-      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+      contentWorkspaceId: input.contentWorkspaceId ?? null,
       fallbackTargetType: 'master',
       fallbackTargetId: input.productId,
       fallbackHref: this.thumbnailGenerationHref(generation.id),
@@ -163,7 +174,7 @@ export class ThumbnailGenerationJobService {
       metadata: {
         method: input.method,
         inputCount: input.inputs.length,
-        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+        contentWorkspaceId: input.contentWorkspaceId ?? null,
       },
     });
 
@@ -184,18 +195,24 @@ export class ThumbnailGenerationJobService {
       const errorMessage = enqueueResult.reason
         ? `Agent OS enqueue failed: ${enqueueResult.reason}`
         : 'Agent OS enqueue failed.';
-      const lock = await lockGenerationForProcessing(
-        this.prisma,
-        generation.id,
-        input.organizationId,
-      );
+      const lock = await this.lifecycle.startAttempt({
+        generationId: generation.id,
+        organizationId: input.organizationId,
+        payload: {
+          errorCode: 'agent_enqueue_failed',
+          agentReason: enqueueResult.reason ?? null,
+        },
+      });
       if (lock) {
-        await markGenerationFailed(
-          this.prisma,
-          generation.id,
-          input.organizationId,
+        await this.lifecycle.failRunningGeneration({
+          generationId: generation.id,
+          organizationId: input.organizationId,
           errorMessage,
-        );
+          payload: {
+            errorCode: 'agent_enqueue_failed',
+            agentReason: enqueueResult.reason ?? null,
+          },
+        });
       }
       await this.operationAlerts.fail(
         input.organizationId,
@@ -221,46 +238,45 @@ export class ThumbnailGenerationJobService {
 
   async enqueueCandidateGeneration(
     input: ThumbnailCandidateGenerationEnqueueInput,
-  ): Promise<{ generationId: string; status: 'pending' }> {
-    const candidate = await this.prisma.sourcingCandidate.findFirst({
-      where: {
-        id: input.sourceCandidateId,
-        organizationId: input.organizationId,
-        isDeleted: false,
-      },
-      select: {
-        id: true,
-        name: true,
-        category: true,
-        images: {
-          where: { isDeleted: false },
-          select: { id: true, url: true, storageKey: true },
-        },
-      },
-    });
+  ): Promise<ThumbnailGenerationEnqueueResult> {
+    const candidate = await this.ledger.findSourceCandidateForJob(
+      input.sourceCandidateId,
+      input.organizationId,
+    );
     if (!candidate) {
       throw new BadRequestException('sourceCandidateId 에 해당하는 소싱 후보를 찾을 수 없습니다');
     }
 
-    const generation = await createPendingCandidateJob(this.prisma, {
+    const operationAlert = input.operationAlert ?? STANDALONE_GENERATION_ALERT;
+    const inputMeta = isParentProductGenerationAlertLink(operationAlert)
+      ? {
+          ...jsonObject(input.inputMeta),
+          productGeneration: {
+            mode: 'parent',
+            ...productGenerationMetadata(operationAlert),
+          },
+        }
+      : input.inputMeta;
+
+    const generation = await this.ledger.openPendingCandidateJob({
       organizationId: input.organizationId,
       sourceCandidateId: input.sourceCandidateId,
       originalUrl: input.originalUrl,
       method: input.method,
-      inputMeta: input.inputMeta,
-      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+      inputMeta,
+      contentWorkspaceId: input.contentWorkspaceId ?? null,
       triggeredByUserId: input.triggeredByUserId,
     });
 
     const inputImages = this.attachCandidateImageRefs(input.inputs, candidate.images);
 
-    await persistPendingInputImages(this.prisma, {
+    await this.ledger.persistPendingInputImages({
       generationId: generation.id,
       organizationId: input.organizationId,
       inputImages,
     });
 
-    await this.emitStatusChange({
+    await this.lifecycle.recordStatusChange({
       organizationId: input.organizationId,
       generationId: generation.id,
       fromStatus: null,
@@ -271,35 +287,58 @@ export class ThumbnailGenerationJobService {
       payload: {
         method: input.method,
         sourceCandidateId: input.sourceCandidateId,
-        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+        contentWorkspaceId: input.contentWorkspaceId ?? null,
         inputCount: inputImages.length,
       },
     });
 
-    const alertTarget = this.alertTarget({
-      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
-      fallbackTargetType: 'sourcing_candidate',
-      fallbackTargetId: input.sourceCandidateId,
-      fallbackHref: `/product-pipeline/collected-products/${encodeURIComponent(input.sourceCandidateId)}`,
-    });
-    await this.operationAlerts.start({
-      organizationId: input.organizationId,
-      operationKey: this.editJobOperationKey(generation.id),
-      type: 'thumbnail_edit_job',
-      title: `소싱 썸네일 ${input.method === 'creative' ? 'AI 연출' : '편집'}: ${(input.productName ?? candidate.name).slice(0, 40)}`,
-      sourceType: 'thumbnail_generation',
-      sourceId: generation.id,
-      actorUserId: input.triggeredByUserId,
-      targetType: alertTarget.targetType,
-      targetId: alertTarget.targetId,
-      href: alertTarget.href,
-      metadata: {
-        method: input.method,
-        sourceCandidateId: input.sourceCandidateId,
-        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
-        inputCount: inputImages.length,
-      },
-    });
+    if (isParentProductGenerationAlertLink(operationAlert)) {
+      const childStart = await this.productGenerationAlerts.recordChildStarted({
+        organizationId: input.organizationId,
+        parentOperationKey: operationAlert.parentOperationKey,
+        childKind: 'thumbnail',
+        childId: generation.id,
+      });
+      if (childStart.status !== 'started') {
+        await this.lifecycle.markCancelled({
+          organizationId: input.organizationId,
+          generationId: generation.id,
+          actorUserId: input.triggeredByUserId,
+          payload: {
+            reason:
+              childStart.alert?.status === 'cancelled'
+                ? 'Parent product generation was cancelled before thumbnail child enqueue.'
+                : 'Parent product generation is not accepting thumbnail child jobs.',
+          },
+        });
+        return { generationId: generation.id, status: 'cancelled' };
+      }
+    } else {
+      const alertTarget = this.alertTarget({
+        contentWorkspaceId: input.contentWorkspaceId ?? null,
+        fallbackTargetType: 'sourcing_candidate',
+        fallbackTargetId: input.sourceCandidateId,
+        fallbackHref: `/product-pipeline/collected-products/${encodeURIComponent(input.sourceCandidateId)}`,
+      });
+      await this.operationAlerts.start({
+        organizationId: input.organizationId,
+        operationKey: this.editJobOperationKey(generation.id),
+        type: 'thumbnail_edit_job',
+        title: `소싱 썸네일 ${input.method === 'creative' ? 'AI 연출' : '편집'}: ${(input.productName ?? candidate.name ?? '소싱 후보').slice(0, 40)}`,
+        sourceType: 'thumbnail_generation',
+        sourceId: generation.id,
+        actorUserId: input.triggeredByUserId,
+        targetType: alertTarget.targetType,
+        targetId: alertTarget.targetId,
+        href: alertTarget.href,
+        metadata: {
+          method: input.method,
+          sourceCandidateId: input.sourceCandidateId,
+          contentWorkspaceId: input.contentWorkspaceId ?? null,
+          inputCount: inputImages.length,
+        },
+      });
+    }
 
     const enqueueResult = await this.agentRunner.runByType(
       THUMBNAIL_GENERATE_AGENT_TYPE,
@@ -318,31 +357,76 @@ export class ThumbnailGenerationJobService {
       const errorMessage = enqueueResult.reason
         ? `Agent OS enqueue failed: ${enqueueResult.reason}`
         : 'Agent OS enqueue failed.';
-      const lock = await lockGenerationForProcessing(
-        this.prisma,
-        generation.id,
-        input.organizationId,
-      );
+      const lock = await this.lifecycle.startAttempt({
+        generationId: generation.id,
+        organizationId: input.organizationId,
+        actorUserId: input.triggeredByUserId,
+        payload: {
+          errorCode: 'agent_enqueue_failed',
+          agentReason: enqueueResult.reason ?? null,
+        },
+      });
       if (lock) {
-        await markGenerationFailed(
-          this.prisma,
-          generation.id,
-          input.organizationId,
+        await this.lifecycle.failRunningGeneration({
+          generationId: generation.id,
+          organizationId: input.organizationId,
           errorMessage,
-        );
-      }
-      await this.operationAlerts.fail(
-        input.organizationId,
-        this.editJobOperationKey(generation.id),
-        {
-          message: errorMessage,
-          metadata: {
+          actorUserId: input.triggeredByUserId,
+          payload: {
             errorCode: 'agent_enqueue_failed',
             agentReason: enqueueResult.reason ?? null,
           },
-        },
-      );
+        });
+      }
+      if (isParentProductGenerationAlertLink(operationAlert)) {
+        await this.productGenerationAlerts.markChildFinished({
+          organizationId: input.organizationId,
+          parentOperationKey: operationAlert.parentOperationKey,
+          childKind: 'thumbnail',
+          status: 'failed',
+          childId: generation.id,
+          errorMessage,
+        });
+      } else {
+        await this.operationAlerts.fail(
+          input.organizationId,
+          this.editJobOperationKey(generation.id),
+          {
+            message: errorMessage,
+            metadata: {
+              errorCode: 'agent_enqueue_failed',
+              agentReason: enqueueResult.reason ?? null,
+            },
+          },
+        );
+      }
       throw new BadRequestException(errorMessage);
+    }
+
+    if (
+      isParentProductGenerationAlertLink(operationAlert) &&
+      enqueueResult.requestId &&
+      await this.shouldCancelParentThumbnailRequestAfterEnqueue({
+        organizationId: input.organizationId,
+        parentOperationKey: operationAlert.parentOperationKey,
+        generationId: generation.id,
+      })
+    ) {
+      await this.agentRunner.cancelRequest?.({
+        organizationId: input.organizationId,
+        requestId: enqueueResult.requestId,
+        reason: THUMBNAIL_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE,
+        actorUserId: input.triggeredByUserId,
+      });
+      await this.lifecycle.markCancelled({
+        organizationId: input.organizationId,
+        generationId: generation.id,
+        actorUserId: input.triggeredByUserId,
+        payload: {
+          reason: THUMBNAIL_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE,
+        },
+      });
+      return { generationId: generation.id, status: 'cancelled' };
     }
 
     this.kickEnqueuedAgentRequest({
@@ -353,25 +437,47 @@ export class ThumbnailGenerationJobService {
     return { generationId: generation.id, status: 'pending' };
   }
 
+  private async shouldCancelParentThumbnailRequestAfterEnqueue(input: {
+    organizationId: string;
+    parentOperationKey: string;
+    generationId: string;
+  }): Promise<boolean> {
+    const [parentAcceptsChildren, generation] = await Promise.all([
+      this.productGenerationAlerts.canStartChild({
+        organizationId: input.organizationId,
+        parentOperationKey: input.parentOperationKey,
+      }),
+      this.ledger.findGenerationProjectionStatus({
+        generationId: input.generationId,
+        organizationId: input.organizationId,
+      }),
+    ]);
+    return (
+      !parentAcceptsChildren ||
+      !generation ||
+      !['pending', 'running'].includes(generation.status)
+    );
+  }
+
   async enqueueStandaloneGeneration(
     input: ThumbnailStandaloneGenerationEnqueueInput,
-  ): Promise<{ generationId: string; status: 'pending' }> {
-    const generation = await createPendingStandaloneJob(this.prisma, {
+  ): Promise<ThumbnailGenerationEnqueueResult> {
+    const generation = await this.ledger.openPendingStandaloneJob({
       organizationId: input.organizationId,
       originalUrl: input.originalUrl,
       method: input.method,
       inputMeta: input.inputMeta,
-      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+      contentWorkspaceId: input.contentWorkspaceId ?? null,
       triggeredByUserId: input.triggeredByUserId,
     });
 
-    await persistPendingInputImages(this.prisma, {
+    await this.ledger.persistPendingInputImages({
       generationId: generation.id,
       organizationId: input.organizationId,
       inputImages: input.inputs,
     });
 
-    await this.emitStatusChange({
+    await this.lifecycle.recordStatusChange({
       organizationId: input.organizationId,
       generationId: generation.id,
       fromStatus: null,
@@ -382,13 +488,13 @@ export class ThumbnailGenerationJobService {
       payload: {
         method: input.method,
         inputCount: input.inputs.length,
-        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
-        standalone: !input.registrationWorkspaceId,
+        contentWorkspaceId: input.contentWorkspaceId ?? null,
+        standalone: !input.contentWorkspaceId,
       },
     });
 
     const alertTarget = this.alertTarget({
-      registrationWorkspaceId: input.registrationWorkspaceId ?? null,
+      contentWorkspaceId: input.contentWorkspaceId ?? null,
       fallbackTargetType: 'thumbnail_generation',
       fallbackTargetId: generation.id,
       fallbackHref: this.thumbnailGenerationHref(generation.id),
@@ -407,8 +513,8 @@ export class ThumbnailGenerationJobService {
       metadata: {
         method: input.method,
         inputCount: input.inputs.length,
-        registrationWorkspaceId: input.registrationWorkspaceId ?? null,
-        standalone: !input.registrationWorkspaceId,
+        contentWorkspaceId: input.contentWorkspaceId ?? null,
+        standalone: !input.contentWorkspaceId,
       },
     });
 
@@ -429,18 +535,26 @@ export class ThumbnailGenerationJobService {
       const errorMessage = enqueueResult.reason
         ? `Agent OS enqueue failed: ${enqueueResult.reason}`
         : 'Agent OS enqueue failed.';
-      const lock = await lockGenerationForProcessing(
-        this.prisma,
-        generation.id,
-        input.organizationId,
-      );
+      const lock = await this.lifecycle.startAttempt({
+        generationId: generation.id,
+        organizationId: input.organizationId,
+        actorUserId: input.triggeredByUserId,
+        payload: {
+          errorCode: 'agent_enqueue_failed',
+          agentReason: enqueueResult.reason ?? null,
+        },
+      });
       if (lock) {
-        await markGenerationFailed(
-          this.prisma,
-          generation.id,
-          input.organizationId,
+        await this.lifecycle.failRunningGeneration({
+          generationId: generation.id,
+          organizationId: input.organizationId,
           errorMessage,
-        );
+          actorUserId: input.triggeredByUserId,
+          payload: {
+            errorCode: 'agent_enqueue_failed',
+            agentReason: enqueueResult.reason ?? null,
+          },
+        });
       }
       await this.operationAlerts.fail(
         input.organizationId,
@@ -481,43 +595,42 @@ export class ThumbnailGenerationJobService {
     });
   }
 
+  async cancelAgentRequestForGeneration(input: {
+    organizationId: string;
+    generationId: string;
+    reason: string;
+    actorUserId?: string | null;
+  }): Promise<void> {
+    await this.agentRunner.cancelBySource?.({
+      organizationId: input.organizationId,
+      sourceType: AI_AGENT_SOURCE_TYPES.THUMBNAIL_GENERATE,
+      sourceResourceType: 'thumbnail_generation',
+      sourceResourceId: input.generationId,
+      reason: input.reason,
+      actorUserId: input.actorUserId,
+    });
+  }
+
   async processEditJob(
     id: string,
     organizationId: string,
     purpose: 'compliance' | 'quality',
     variantKey: 'auto' | 'with-box' | 'no-box' | null,
   ): Promise<void> {
-    const locked = await lockGenerationForProcessing(this.prisma, id, organizationId);
+    const locked = await this.lifecycle.startAttempt({
+      generationId: id,
+      organizationId,
+      payload: { purpose, variantKey: variantKey ?? 'auto' },
+    });
     if (!locked) return;
-    await this.emitStatusChange({
-      organizationId,
-      generationId: id,
-      fromStatus: locked.fromStatus,
-      toStatus: 'running',
-      fromPhase: locked.fromPhase,
-      toPhase: null,
-      attemptNumber: locked.attemptNumber,
-      payload: { purpose, variantKey: variantKey ?? 'auto' },
-    });
-    await this.appendGenerationEvent({
-      organizationId,
-      generationId: id,
-      eventType: 'attempt_started',
-      fromStatus: locked.fromStatus,
-      toStatus: 'running',
-      fromPhase: locked.fromPhase,
-      toPhase: null,
-      attemptNumber: locked.attemptNumber,
-      payload: { purpose, variantKey: variantKey ?? 'auto' },
-    });
 
     try {
-      const existing = await findGenerationWithInputImages(this.prisma, id, organizationId);
+      const existing = await this.ledger.findGenerationWithInputImages(id, organizationId);
       if (!existing) return;
       if (!existing.masterId) {
         throw new BadRequestException('소싱 후보 썸네일은 후보 생성 작업 경로에서만 실행할 수 있습니다');
       }
-      const master = await findJobMaster(this.prisma, existing.masterId, organizationId);
+      const master = await this.ledger.findJobMaster(existing.masterId, organizationId);
       if (!master) {
         throw new BadRequestException('상품 정보를 찾을 수 없습니다');
       }
@@ -545,7 +658,7 @@ export class ThumbnailGenerationJobService {
         inputImages.push(
           await this.editorAiService.resolveInputImage(row.url as string, organizationId, {
             label: row.label ?? 'Product photo',
-            role: toInputRole(row.role),
+            role: toInputRole(row.role ?? 'product'),
             sortOrder: row.sortOrder,
             source: row.source ?? 're-edit',
           }),
@@ -554,8 +667,8 @@ export class ThumbnailGenerationJobService {
       const editCase = inferEditCaseFromInputs(inputImages);
       const analysis: ThumbnailAnalysisContext | null = master.thumbnailAnalyses[0] ?? null;
       const recomposeKind =
-        findRecomposeKindIn(existing.inputMeta) ??
-        findRecomposeKindIn(existing.editAnalysis) ??
+        findRecomposeKindIn(existing.inputMeta as ThumbnailJsonValue | null | undefined) ??
+        findRecomposeKindIn(existing.editAnalysis as ThumbnailJsonValue | null | undefined) ??
         extractRecomposeKind(analysis?.recompose ?? null);
       const editSuggestions = extractEditSuggestions(analysis?.complianceScores ?? null);
       const promptOverride = getRecomposePromptOverride(
@@ -582,57 +695,32 @@ export class ThumbnailGenerationJobService {
         },
       );
 
-      const inputMeta: Prisma.InputJsonValue = {
+      const inputMeta = {
         mode: 'edit',
         purpose,
         editCase,
         variantKey: variantKey ?? 'auto',
         automated: existing.method === 'auto',
         inputCount: inputImages.length,
-        recompose: (analysis?.recompose ?? null) as Prisma.InputJsonValue,
+        recompose: analysis?.recompose ?? null,
         analysisContext: toAnalysisContextJson(analysis, editSuggestions),
       };
-      const completed = await replaceGenerationResult(this.prisma, {
+      const completionPayload = {
+        candidateCount: candidates.length,
+        inputCount: inputImages.length,
+        editCase,
+        variantKey: variantKey ?? 'auto',
+      };
+      const completed = await this.lifecycle.completeLegacyEdit({
         generationId: id,
         organizationId,
         candidates,
         inputImages,
         inputMeta,
         editAnalysis: toEditAnalysis(analysis),
+        payload: completionPayload,
       });
       if (completed) {
-        await this.emitStatusChange({
-          organizationId,
-          generationId: id,
-          fromStatus: completed.fromStatus,
-          toStatus: 'succeeded',
-          fromPhase: completed.fromPhase,
-          toPhase: 'ready',
-          attemptNumber: completed.attemptNumber,
-          payload: {
-            candidateCount: candidates.length,
-            inputCount: inputImages.length,
-            editCase,
-            variantKey: variantKey ?? 'auto',
-          },
-        });
-        await this.appendGenerationEvent({
-          organizationId,
-          generationId: id,
-          eventType: 'attempt_finished',
-          fromStatus: completed.fromStatus,
-          toStatus: 'succeeded',
-          fromPhase: completed.fromPhase,
-          toPhase: 'ready',
-          attemptNumber: completed.attemptNumber,
-          payload: {
-            candidateCount: candidates.length,
-            inputCount: inputImages.length,
-            editCase,
-            variantKey: variantKey ?? 'auto',
-          },
-        });
-
         await this.operationAlerts.succeed(
           organizationId,
           this.editJobOperationKey(id),
@@ -642,32 +730,12 @@ export class ThumbnailGenerationJobService {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`편집 처리 실패 (${id}): ${message}`);
-      const failed = await markGenerationFailed(this.prisma, id, organizationId, message);
-      if (failed) {
-        await this.emitStatusChange({
-          organizationId,
-          generationId: id,
-          fromStatus: failed.fromStatus,
-          toStatus: 'failed',
-          fromPhase: failed.fromPhase,
-          toPhase: null,
-          attemptNumber: failed.attemptNumber,
-          errorMessage: message,
-          payload: { purpose, variantKey: variantKey ?? 'auto' },
-        });
-        await this.appendGenerationEvent({
-          organizationId,
-          generationId: id,
-          eventType: 'error',
-          fromStatus: failed.fromStatus,
-          toStatus: 'failed',
-          fromPhase: failed.fromPhase,
-          toPhase: null,
-          attemptNumber: failed.attemptNumber,
-          errorMessage: message,
-          payload: { purpose, variantKey: variantKey ?? 'auto' },
-        });
-      }
+      await this.lifecycle.failRunningGeneration({
+        generationId: id,
+        organizationId,
+        errorMessage: message,
+        payload: { purpose, variantKey: variantKey ?? 'auto' },
+      });
       await this.operationAlerts.fail(
         organizationId,
         this.editJobOperationKey(id),
@@ -708,21 +776,21 @@ export class ThumbnailGenerationJobService {
     return `/product-pipeline/thumbnail-generation/edit?generationId=${encodeURIComponent(generationId)}`;
   }
 
-  private registrationWorkspaceHref(registrationWorkspaceId: string): string {
-    return `/product-pipeline/registered-products/${encodeURIComponent(registrationWorkspaceId)}`;
+  private contentWorkspaceHref(contentWorkspaceId: string): string {
+    return `/product-pipeline/registered-products/${encodeURIComponent(contentWorkspaceId)}`;
   }
 
   private alertTarget(input: {
-    registrationWorkspaceId: string | null;
+    contentWorkspaceId: string | null;
     fallbackTargetType: string;
     fallbackTargetId: string;
     fallbackHref: string;
   }): { targetType: string; targetId: string; href: string } {
-    if (input.registrationWorkspaceId) {
+    if (input.contentWorkspaceId) {
       return {
-        targetType: 'registration_workspace',
-        targetId: input.registrationWorkspaceId,
-        href: this.registrationWorkspaceHref(input.registrationWorkspaceId),
+        targetType: 'content_workspace',
+        targetId: input.contentWorkspaceId,
+        href: this.contentWorkspaceHref(input.contentWorkspaceId),
       };
     }
     return {
@@ -748,43 +816,4 @@ export class ThumbnailGenerationJobService {
     });
   }
 
-  private async emitStatusChange(
-    input: Omit<AppendThumbnailGenerationEventInput, 'eventType'> & {
-      eventType?: AppendThumbnailGenerationEventInput['eventType'];
-      fromPhase?: string | null;
-      toPhase?: string | null;
-    },
-  ): Promise<void> {
-    await this.appendGenerationEvent({
-      ...input,
-      eventType: input.eventType ?? 'status_change',
-    });
-    if (input.fromPhase !== input.toPhase) {
-      await this.appendGenerationEvent({
-        organizationId: input.organizationId,
-        generationId: input.generationId,
-        eventType: 'phase_change',
-        fromStatus: input.fromStatus,
-        toStatus: input.toStatus,
-        fromPhase: input.fromPhase,
-        toPhase: input.toPhase,
-        attemptNumber: input.attemptNumber,
-        actorUserId: input.actorUserId,
-        payload: input.payload,
-      });
-    }
-  }
-
-  private async appendGenerationEvent(input: AppendThumbnailGenerationEventInput): Promise<void> {
-    if (!this.generationEvents) return;
-    try {
-      await this.generationEvents.append(input);
-    } catch (err) {
-      this.logger.warn(
-        `ThumbnailGenerationEvent 기록 실패 (generationId=${input.generationId}, type=${input.eventType}): ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-    }
-  }
 }

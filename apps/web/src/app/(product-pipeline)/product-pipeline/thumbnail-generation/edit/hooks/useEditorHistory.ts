@@ -3,24 +3,31 @@
 import { useEffect, useMemo } from 'react';
 import { useGenerationList } from '../../../_shared/hooks/useThumbnailGenerations';
 import { resolveImageUrl } from '@/lib/resolve-url';
+import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import type { EditorMode, HistoryCandidate } from '../lib/edit-page-types';
 
 interface Args {
   productId: string | null;
   sourceCandidateId?: string | null;
-  registrationWorkspaceId?: string | null;
+  contentWorkspaceId?: string | null;
   mode: EditorMode;
   result: Array<{ url: string; filename: string }>;
   generationId: string | null;
+  observedGeneration?: ThumbnailGenerationItem | null;
   selectedCandidateUrl: string | null;
   setSelectedCandidateUrl: (url: string | null) => void;
 }
 
 export function useEditorHistory({
-  productId, sourceCandidateId, registrationWorkspaceId, mode, result, generationId,
-  selectedCandidateUrl, setSelectedCandidateUrl,
+  productId, sourceCandidateId, contentWorkspaceId, mode, result, generationId,
+  observedGeneration, selectedCandidateUrl, setSelectedCandidateUrl,
 }: Args) {
-  const { data: allGenerations = [] } = useGenerationList();
+  const hasOwnerScope = Boolean(productId || sourceCandidateId || contentWorkspaceId);
+  const { data: allGenerations = [] } = useGenerationList(
+    hasOwnerScope
+      ? { productId, sourceCandidateId, contentWorkspaceId, limit: 24 }
+      : { scope: 'direct-upload', limit: 24 },
+  );
 
   const historyCandidates = useMemo<HistoryCandidate[]>(() => {
     const list: HistoryCandidate[] = [];
@@ -33,14 +40,24 @@ export function useEditorHistory({
     };
     const currentMethod = mode === 'creative' ? 'creative' : 'generate';
     const nowIso = new Date().toISOString();
+    if (observedGeneration?.candidates?.length) {
+      for (const c of observedGeneration.candidates) {
+        push({
+          ...c,
+          method: observedGeneration.method,
+          createdAt: observedGeneration.createdAt,
+          generationId: observedGeneration.id,
+        });
+      }
+    }
     for (const c of result) {
       push({ ...c, method: currentMethod, createdAt: nowIso, generationId });
     }
-    if (productId || sourceCandidateId || registrationWorkspaceId) {
+    if (hasOwnerScope) {
       const workspaceGens = allGenerations
         .filter((g) =>
-          registrationWorkspaceId
-            ? g.registrationWorkspaceId === registrationWorkspaceId
+          contentWorkspaceId
+            ? g.contentWorkspaceId === contentWorkspaceId
             : productId
               ? g.productId === productId
               : g.sourceCandidateId === sourceCandidateId)
@@ -50,15 +67,31 @@ export function useEditorHistory({
           push({ ...c, method: gen.method, createdAt: gen.createdAt, generationId: gen.id });
         }
       }
+    } else {
+      for (const gen of allGenerations) {
+        for (const c of gen.candidates ?? []) {
+          push({ ...c, method: gen.method, createdAt: gen.createdAt, generationId: gen.id });
+        }
+      }
     }
     return list;
-  }, [allGenerations, productId, sourceCandidateId, registrationWorkspaceId, result, mode, generationId]);
+  }, [
+    allGenerations,
+    hasOwnerScope,
+    productId,
+    sourceCandidateId,
+    contentWorkspaceId,
+    result,
+    mode,
+    generationId,
+    observedGeneration,
+  ]);
 
   const recommendedCandidateUrl = useMemo(() => {
-    if (!productId && !sourceCandidateId && !registrationWorkspaceId) return null;
+    if (!productId && !sourceCandidateId && !contentWorkspaceId) return null;
     const scored = allGenerations.filter(
-      (g) => (registrationWorkspaceId
-        ? g.registrationWorkspaceId === registrationWorkspaceId
+      (g) => (contentWorkspaceId
+        ? g.contentWorkspaceId === contentWorkspaceId
         : productId
           ? g.productId === productId
           : g.sourceCandidateId === sourceCandidateId) &&
@@ -70,7 +103,7 @@ export function useEditorHistory({
     const pick = best.selectedUrl ?? best.candidates?.[0]?.url ?? null;
     if (!pick) return null;
     return resolveImageUrl(pick) ?? pick;
-  }, [allGenerations, productId, sourceCandidateId, registrationWorkspaceId]);
+  }, [allGenerations, productId, sourceCandidateId, contentWorkspaceId]);
 
   useEffect(() => {
     if (historyCandidates.length === 0) {

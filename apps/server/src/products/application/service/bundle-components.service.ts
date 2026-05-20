@@ -5,9 +5,8 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Inject,
 } from '@nestjs/common';
-import { BundleComponent, Prisma } from '@prisma/client';
-import { PrismaService } from '../../../prisma/prisma.service';
 import { BundleStockService } from './bundle-stock.service';
 import { CreateBundleComponentDto } from '../../dto/create-bundle-component.dto';
 import { UpdateBundleComponentDto } from '../../dto/update-bundle-component.dto';
@@ -20,13 +19,15 @@ import {
   ensureNotSelfReference,
 } from '../../domain/policy/bundle-component-rules';
 import {
-  createBundleComponent,
-  deleteBundleComponentScoped,
-  findBundleComponentForTenant,
-  lockBundleOptionRow,
-  updateBundleComponentQty,
-} from '../../adapter/out/prisma/bundle-component.persistence';
-import { listBundleComponentsForTenant } from '../../adapter/out/prisma/bundle-component.query';
+  PRODUCT_BUNDLE_REPOSITORY_PORT,
+  type BundleComponentRow,
+  type ProductBundleRepositoryPort,
+} from '../port/out/repository/product-bundle.repository.port';
+import {
+  PRODUCTS_TRANSACTION_PORT,
+  type ProductsRepositoryTransaction,
+  type ProductsTransactionPort,
+} from '../port/out/transaction/products-transaction.port';
 
 function mapBundleComponentRuleError(error: unknown): never {
   if (!(error instanceof BundleComponentRuleError)) throw error;
@@ -84,34 +85,34 @@ function ensureBundleAndComponentInvariantsForHttp(
 @Injectable()
 export class BundleComponentsService {
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(PRODUCT_BUNDLE_REPOSITORY_PORT)
+    private readonly bundles: ProductBundleRepositoryPort,
+    @Inject(PRODUCTS_TRANSACTION_PORT)
+    private readonly transactions: ProductsTransactionPort,
     private readonly bundleStock: BundleStockService,
   ) {}
 
   async create(
     organizationId: string,
     dto: CreateBundleComponentDto,
-    outerTx?: Prisma.TransactionClient,
-  ): Promise<BundleComponent> {
+    outerTx?: ProductsRepositoryTransaction,
+  ): Promise<BundleComponentRow> {
     ensureNotSelfReferenceForHttp(dto.bundleOptionId, dto.componentOptionId);
 
-    const db = outerTx ?? this.prisma;
-    const [bundleOpt, compOpt] = await Promise.all([
-      db.productOption.findFirst({
-        where: { id: dto.bundleOptionId, organizationId, isDeleted: false },
-      }),
-      db.productOption.findFirst({
-        where: { id: dto.componentOptionId, organizationId, isDeleted: false },
-      }),
-    ]);
+    const { bundleOpt, compOpt } = await this.bundles.findBundleRuleOptions({
+      organizationId,
+      bundleOptionId: dto.bundleOptionId,
+      componentOptionId: dto.componentOptionId,
+      tx: outerTx,
+    });
     ensureBundleAndComponentInvariantsForHttp(bundleOpt, compOpt, organizationId);
 
     const exec = async (
-      tx: Prisma.TransactionClient,
-    ): Promise<BundleComponent> => {
-      await lockBundleOptionRow(tx, dto.bundleOptionId, organizationId);
+      tx: ProductsRepositoryTransaction,
+    ): Promise<BundleComponentRow> => {
+      await this.bundles.lockBundleOptionRow(tx, dto.bundleOptionId, organizationId);
       try {
-        const bc = await createBundleComponent(tx, {
+        const bc = await this.bundles.createBundleComponent(tx, {
           bundleOptionId: dto.bundleOptionId,
           componentOptionId: dto.componentOptionId,
           qty: dto.qty,
@@ -127,34 +128,34 @@ export class BundleComponentsService {
     };
     return outerTx
       ? exec(outerTx)
-      : this.prisma.$transaction(exec, { timeout: 15000 });
+      : this.transactions.run(exec, { timeout: 15000 });
   }
 
   async list(
     organizationId: string,
     q: ListBundleComponentsQuery,
-  ): Promise<BundleComponent[]> {
-    return listBundleComponentsForTenant(this.prisma, organizationId, q);
+  ): Promise<BundleComponentRow[]> {
+    return this.bundles.listBundleComponentsForTenant(organizationId, q);
   }
 
   async update(
     organizationId: string,
     id: string,
     dto: UpdateBundleComponentDto,
-    outerTx?: Prisma.TransactionClient,
-  ): Promise<BundleComponent> {
+    outerTx?: ProductsRepositoryTransaction,
+  ): Promise<BundleComponentRow> {
     const exec = async (
-      tx: Prisma.TransactionClient,
-    ): Promise<BundleComponent> => {
-      const row = await findBundleComponentForTenant(tx, id, organizationId);
+      tx: ProductsRepositoryTransaction,
+    ): Promise<BundleComponentRow> => {
+      const row = await this.bundles.findBundleComponentForTenant(tx, id, organizationId);
       if (!row) throw new NotFoundException('bundle-component not found');
-      await lockBundleOptionRow(tx, row.bundleOptionId, organizationId);
+      await this.bundles.lockBundleOptionRow(tx, row.bundleOptionId, organizationId);
       try {
-        const count = await updateBundleComponentQty(tx, id, organizationId, dto.qty);
+        const count = await this.bundles.updateBundleComponentQty(tx, id, organizationId, dto.qty);
         if (count === 0) {
           throw new NotFoundException('bundle-component not found');
         }
-        const updated = await findBundleComponentForTenant(tx, id, organizationId);
+        const updated = await this.bundles.findBundleComponentForTenant(tx, id, organizationId);
         if (!updated) {
           throw new NotFoundException('bundle-component not found');
         }
@@ -166,20 +167,20 @@ export class BundleComponentsService {
     };
     return outerTx
       ? exec(outerTx)
-      : this.prisma.$transaction(exec, { timeout: 15000 });
+      : this.transactions.run(exec, { timeout: 15000 });
   }
 
   async delete(
     organizationId: string,
     id: string,
-    outerTx?: Prisma.TransactionClient,
+    outerTx?: ProductsRepositoryTransaction,
   ): Promise<void> {
-    const exec = async (tx: Prisma.TransactionClient): Promise<void> => {
-      const row = await findBundleComponentForTenant(tx, id, organizationId);
+    const exec = async (tx: ProductsRepositoryTransaction): Promise<void> => {
+      const row = await this.bundles.findBundleComponentForTenant(tx, id, organizationId);
       if (!row) throw new NotFoundException('bundle-component not found');
-      await lockBundleOptionRow(tx, row.bundleOptionId, organizationId);
+      await this.bundles.lockBundleOptionRow(tx, row.bundleOptionId, organizationId);
       try {
-        const count = await deleteBundleComponentScoped(tx, id, organizationId);
+        const count = await this.bundles.deleteBundleComponentScoped(tx, id, organizationId);
         if (count === 0) {
           throw new NotFoundException('bundle-component not found');
         }
@@ -190,6 +191,6 @@ export class BundleComponentsService {
     };
     await (outerTx
       ? exec(outerTx)
-      : this.prisma.$transaction(exec, { timeout: 15000 }));
+      : this.transactions.run(exec, { timeout: 15000 }));
   }
 }

@@ -80,7 +80,7 @@ model ActionTask {
   where          String?
   href           String?
   priority       String   @default("medium")
-  // status vocab: pending|active|done — business-task lifecycle, NOT ADR-0011 canonical
+  // status vocab: pending|active|done — business-task lifecycle, not workflow-run canonical status
   status         String   @default("pending")
   role           String?
   apiCall        Json?    @map("api_call")

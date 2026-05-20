@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AdCampaignsService } from '../ad-campaigns.service';
-import type { AdCampaignRepositoryPort } from '../../port/out/ad-campaign.repository.port';
-import type { AdListingRepositoryPort } from '../../port/out/ad-listing.repository.port';
-import type { AdAccountKpiRepositoryPort } from '../../port/out/ad-account-kpi.repository.port';
+import type { AdCampaignRepositoryPort } from '../../port/out/repository/ad-campaign.repository.port';
+import type { AdListingRepositoryPort } from '../../port/out/repository/ad-listing.repository.port';
+import type { AdAccountKpiRepositoryPort } from '../../port/out/repository/ad-account-kpi.repository.port';
 import {
   buildMockAdCampaignRepo,
   buildMockAdListingRepo,

@@ -3,7 +3,7 @@ import { CurrentOrganization } from '../../../../auth/decorators/current-organiz
 import {
   INVENTORY_PORT,
   type InventoryPort,
-} from '../../../application/port/in/inventory.port';
+} from '../../../application/port/in/stock/inventory.port';
 import {
   ListTransactionsQueryDto,
   TransactionSummaryQueryDto,

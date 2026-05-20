@@ -20,6 +20,8 @@ export interface SourcedProduct {
   thumbnail_url: string | null;
   imageUrl?: string | null;
   images?: Array<{ id?: string; url: string; sortOrder?: number | null; isPrimary?: boolean | null }>;
+  productPreparation?: ProductPreparationSelection | null;
+  thumbnailPreviewUrls?: string[];
   promotedMasterId: string | null;
   rejectedAt?: string | null;
   rejectedReason?: string | null;
@@ -38,54 +40,10 @@ interface ProductListResponse {
 }
 
 export type SourcingSort = 'newest' | 'oldest' | 'name_asc';
-export type ProductContentTab = 'candidate' | 'product';
-
-export interface ProductContentWorkspace {
-  id: string;
-  workspaceType: 'product' | 'unlinked_group';
-  title: string;
-  subtitle: string | null;
-  thumbnailUrl: string | null;
-  productId: string | null;
-  product: { id: string; code: string; name: string } | null;
-  generationGroupId: string | null;
-  href: string;
-  generationCount: number;
-  detailPageCount: number;
-  imageCount: number;
-  latestGenerationId: string | null;
-  latestStatus: string | null;
-  latestUpdatedAt: string;
-}
-
-interface ProductContentWorkspaceListResponse {
-  items: ProductContentWorkspace[];
-  total: number;
-  page: number;
-  limit: number;
-}
 
 interface ThumbnailGenerationListResponse {
   items: ThumbnailGenerationItem[];
   total: number;
-}
-
-export interface ProductLinkedContentWorkspace {
-  id: string;
-  productId: string;
-  title: string;
-  subtitle: string | null;
-  thumbnailUrl: string | null;
-  productCode: string | null;
-  detailPageCount: number;
-  imageCount: number;
-  thumbnailGenerationCount: number;
-  contentGenerationCount: number;
-  latestDetailGenerationId: string | null;
-  latestThumbnailGenerationId: string | null;
-  thumbnailGenerationIds: string[];
-  latestStatus: string | null;
-  latestUpdatedAt: string;
 }
 
 export interface ProductDetailResponse {
@@ -107,8 +65,74 @@ export interface ProductDetailResponse {
   processed_data: Record<string, unknown> | null;
   image_urls: string[];
   images: Array<{ id?: string; url: string; sortOrder?: number | null; isPrimary?: boolean | null }>;
+  basicInfo: ProductBasics;
+  productPreparation: ProductPreparationSelection | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProductBasics {
+  name: string;
+  category: string;
+  description: string;
+  target: string;
+  ageGroup: string;
+  tags: string[];
+  keywords: string[];
+  optionNames: string[];
+  kcCertificationStatus: string;
+  kcCertificationNumber: string;
+  productSize: string;
+  colorVariantStatus: string;
+  colorVariantNames: string;
+  boxSetStatus: string;
+  boxSetQuantity: string;
+  originalPrice: number;
+  salePrice: number;
+  discountRate: number;
+  thumbnailUrls: string[];
+  thumbnailPreviewUrls?: string[];
+  selectedThumbnailUrl: string | null;
+  selectedThumbnailGenerationCandidateId: string | null;
+  selectedDetailPageGenerationId: string | null;
+  selectedDetailPageArtifactId: string | null;
+  selectedDetailPageRevisionId: string | null;
+}
+
+export type UpdateProductBasicsInput = Partial<Pick<
+  ProductBasics,
+  | 'name'
+  | 'category'
+  | 'description'
+  | 'target'
+  | 'ageGroup'
+  | 'tags'
+  | 'keywords'
+  | 'optionNames'
+  | 'kcCertificationStatus'
+  | 'kcCertificationNumber'
+  | 'productSize'
+  | 'colorVariantStatus'
+  | 'colorVariantNames'
+  | 'boxSetStatus'
+  | 'boxSetQuantity'
+  | 'salePrice'
+  | 'originalPrice'
+  | 'discountRate'
+  | 'thumbnailUrls'
+>>;
+
+export interface ProductPreparationSelection {
+  id: string;
+  sourceCandidateId: string | null;
+  masterId: string | null;
+  contentWorkspaceId: string | null;
+  status: string;
+  selectedThumbnailUrl: string | null;
+  selectedThumbnailGenerationCandidateId: string | null;
+  selectedDetailPageGenerationId: string | null;
+  selectedDetailPageArtifactId: string | null;
+  selectedDetailPageRevisionId: string | null;
 }
 
 interface StatusResponse {
@@ -209,6 +233,99 @@ function rawDataWithImageFallback(
   };
 }
 
+function normalizeProductPreparation(value: unknown): ProductPreparationSelection | null {
+  if (!value || typeof value !== 'object') return null;
+  const prep = value as Record<string, unknown>;
+  const id = typeof prep.id === 'string' ? prep.id : null;
+  if (!id) return null;
+  return {
+    id,
+    sourceCandidateId: typeof prep.sourceCandidateId === 'string' ? prep.sourceCandidateId : null,
+    masterId: typeof prep.masterId === 'string' ? prep.masterId : null,
+    contentWorkspaceId: typeof prep.contentWorkspaceId === 'string' ? prep.contentWorkspaceId : null,
+    status: typeof prep.status === 'string' ? prep.status : '',
+    selectedThumbnailUrl: normalizeImageUrl(prep.selectedThumbnailUrl),
+    selectedThumbnailGenerationCandidateId: typeof prep.selectedThumbnailGenerationCandidateId === 'string'
+      ? prep.selectedThumbnailGenerationCandidateId
+      : null,
+    selectedDetailPageGenerationId: typeof prep.selectedDetailPageGenerationId === 'string'
+      ? prep.selectedDetailPageGenerationId
+      : null,
+    selectedDetailPageArtifactId: typeof prep.selectedDetailPageArtifactId === 'string'
+      ? prep.selectedDetailPageArtifactId
+      : null,
+    selectedDetailPageRevisionId: typeof prep.selectedDetailPageRevisionId === 'string'
+      ? prep.selectedDetailPageRevisionId
+      : null,
+  };
+}
+
+function normalizeProductBasics(
+  value: unknown,
+  fallback: {
+    name: string;
+    category: string;
+    description?: string | null;
+    tags?: string[];
+    salePrice?: number | null;
+    thumbnailUrls: string[];
+    preparation: ProductPreparationSelection | null;
+  },
+): ProductBasics {
+  const basics = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  const tags = Array.isArray(basics.tags)
+    ? basics.tags.filter((tag): tag is string => typeof tag === 'string' && tag.trim() !== '')
+    : fallback.tags ?? [];
+  const keywords = Array.isArray(basics.keywords)
+    ? basics.keywords.filter((keyword): keyword is string => typeof keyword === 'string' && keyword.trim() !== '')
+    : [];
+  const optionNames = Array.isArray(basics.optionNames)
+    ? basics.optionNames.filter((option): option is string => typeof option === 'string' && option.trim() !== '')
+    : [];
+  const explicitThumbnailUrls = collectImageUrls(basics.thumbnailPreviewUrls);
+  const thumbnailUrls = collectImageUrls(basics.thumbnailUrls, fallback.thumbnailUrls);
+  const numberOrZero = (item: unknown) => typeof item === 'number' && Number.isFinite(item) ? item : 0;
+  return {
+    name: typeof basics.name === 'string' && basics.name.trim() ? basics.name.trim() : fallback.name,
+    category: typeof basics.category === 'string' && basics.category.trim() ? basics.category.trim() : fallback.category,
+    description: typeof basics.description === 'string' ? basics.description : fallback.description ?? '',
+    target: typeof basics.target === 'string' ? basics.target : '',
+    ageGroup: typeof basics.ageGroup === 'string' ? basics.ageGroup : '',
+    tags,
+    keywords,
+    optionNames,
+    kcCertificationStatus: typeof basics.kcCertificationStatus === 'string' ? basics.kcCertificationStatus : '',
+    kcCertificationNumber: typeof basics.kcCertificationNumber === 'string' ? basics.kcCertificationNumber : '',
+    productSize: typeof basics.productSize === 'string' ? basics.productSize : '',
+    colorVariantStatus: typeof basics.colorVariantStatus === 'string' ? basics.colorVariantStatus : '',
+    colorVariantNames: typeof basics.colorVariantNames === 'string' ? basics.colorVariantNames : '',
+    boxSetStatus: typeof basics.boxSetStatus === 'string' ? basics.boxSetStatus : '',
+    boxSetQuantity: typeof basics.boxSetQuantity === 'string' ? basics.boxSetQuantity : '',
+    originalPrice: numberOrZero(basics.originalPrice),
+    salePrice: numberOrZero(basics.salePrice) || fallback.salePrice || 0,
+    discountRate: numberOrZero(basics.discountRate),
+    thumbnailUrls,
+    thumbnailPreviewUrls: explicitThumbnailUrls,
+    selectedThumbnailUrl: normalizeImageUrl(basics.selectedThumbnailUrl) ?? fallback.preparation?.selectedThumbnailUrl ?? null,
+    selectedThumbnailGenerationCandidateId:
+      typeof basics.selectedThumbnailGenerationCandidateId === 'string'
+        ? basics.selectedThumbnailGenerationCandidateId
+        : fallback.preparation?.selectedThumbnailGenerationCandidateId ?? null,
+    selectedDetailPageGenerationId:
+      typeof basics.selectedDetailPageGenerationId === 'string'
+        ? basics.selectedDetailPageGenerationId
+        : fallback.preparation?.selectedDetailPageGenerationId ?? null,
+    selectedDetailPageArtifactId:
+      typeof basics.selectedDetailPageArtifactId === 'string'
+        ? basics.selectedDetailPageArtifactId
+        : fallback.preparation?.selectedDetailPageArtifactId ?? null,
+    selectedDetailPageRevisionId:
+      typeof basics.selectedDetailPageRevisionId === 'string'
+        ? basics.selectedDetailPageRevisionId
+        : fallback.preparation?.selectedDetailPageRevisionId ?? null,
+  };
+}
+
 function imageUrlFingerprint(url: string): string {
   try {
     return decodeURIComponent(url).toLowerCase().replace(/[?#].*$/, '');
@@ -236,6 +353,9 @@ export function selectBestThumbnailImage(
   imageUrls: string[],
   explicitUrl?: string | null,
 ): string | null {
+  const explicit = normalizeImageUrl(explicitUrl);
+  if (explicit) return explicit;
+
   const raw = rawData ?? {};
   const candidates = collectImageUrls(
     raw.representativeImageUrl,
@@ -293,7 +413,18 @@ export const productsApi = {
         p.imageUrl,
         p.thumbnailUrl,
       );
-      const thumbnailUrl = selectBestThumbnailImage(rawData, images, p.thumbnailUrl || p.imageUrl || null);
+      const productPreparation = normalizeProductPreparation(p.productPreparation);
+      const preparationRecord = p.productPreparation && typeof p.productPreparation === 'object'
+        ? p.productPreparation as Record<string, unknown>
+        : {};
+      const registrationInput = preparationRecord.registrationInput &&
+        typeof preparationRecord.registrationInput === 'object' &&
+        !Array.isArray(preparationRecord.registrationInput)
+        ? preparationRecord.registrationInput as Record<string, unknown>
+        : {};
+      const thumbnailPreviewUrls = collectImageUrls(registrationInput.thumbnailUrls);
+      const thumbnailUrl = productPreparation?.selectedThumbnailUrl ??
+        selectBestThumbnailImage(rawData, images, p.thumbnailUrl || p.imageUrl || null);
       const sourcePlatform = p.sourcePlatform || (rawData.source_platform as string) || '';
       return {
         id: p.id,
@@ -308,6 +439,8 @@ export const productsApi = {
         thumbnail_url: thumbnailUrl,
         imageUrl: p.imageUrl ?? null,
         images: Array.isArray(p.images) ? p.images : [],
+        productPreparation,
+        thumbnailPreviewUrls,
         promotedMasterId: p.promotedMasterId ?? null,
         rejectedAt: p.rejectedAt ?? null,
         rejectedReason: p.rejectedReason ?? null,
@@ -338,6 +471,16 @@ export const productsApi = {
     const thumbnailUrl = selectBestThumbnailImage(hydratedRawData, images, p.thumbnailUrl || p.imageUrl || null);
     const sourcePlatform = p.sourcePlatform || (rawData.source_platform as string) || '';
     const promotedMasterId = p.promotedMasterId ?? null;
+    const productPreparation = normalizeProductPreparation(p.productPreparation);
+    const basicInfo = normalizeProductBasics(p.basicInfo, {
+      name: p.name || rawData.title || '',
+      category: p.category || '',
+      description: p.description || '',
+      tags: Array.isArray(p.tags) ? p.tags.filter((tag: unknown): tag is string => typeof tag === 'string') : [],
+      salePrice: p.sellPrice || null,
+      thumbnailUrls: images,
+      preparation: productPreparation,
+    });
     return {
       id: p.id,
       name: p.name || rawData.title || '',
@@ -357,6 +500,8 @@ export const productsApi = {
       processed_data: p.processedData || p.processed_data || null,
       image_urls: images,
       images: Array.isArray(p.images) ? p.images : [],
+      basicInfo,
+      productPreparation,
       created_at: p.createdAt || '',
       updated_at: p.updatedAt || '',
     };
@@ -410,28 +555,6 @@ export const sourcingApi = {
   },
 };
 
-export const contentArchiveApi = {
-  async listProductWorkspaces(params?: {
-    page?: number;
-    limit?: number;
-    contentType?: 'detail_page' | 'image';
-  }): Promise<ProductContentWorkspaceListResponse> {
-    const qs = new URLSearchParams({
-      page: String(params?.page ?? 1),
-      limit: String(params?.limit ?? 100),
-      linkState: 'linked',
-    });
-    if (params?.contentType) qs.set('contentType', params.contentType);
-    return apiClient.get<ProductContentWorkspaceListResponse>(`/api/ai/content-archive/workspaces?${qs}`);
-  },
-
-  async deleteProductWorkspace(productId: string): Promise<{ ok: true; deletedGenerations: number; deletedAssets: number }> {
-    return apiClient.delete<{ ok: true; deletedGenerations: number; deletedAssets: number }>(
-      `/api/ai/content-archive/products/${encodeURIComponent(productId)}`,
-    );
-  },
-};
-
 export const productThumbnailGenerationApi = {
   async list(params?: { limit?: number }): Promise<ThumbnailGenerationListResponse> {
     const qs = new URLSearchParams({ limit: String(params?.limit ?? 100) });
@@ -465,9 +588,51 @@ export interface RejectCandidateResponse {
   ok: true;
 }
 
+export interface QuickProcessCandidateResponse {
+  ok: true;
+  candidateId: string;
+  href: string;
+  parentOperationKey: string;
+  detailGenerationId: string | null;
+  thumbnailGenerationId: string | null;
+  contentWorkspaceId: string | null;
+}
+
+export type QuickProcessTask = 'all' | 'detail' | 'thumbnail';
+
 export const candidatesApi = {
   promote: (id: string, body: PromoteCandidateInput) =>
     apiClient.post<PromoteCandidateResponse>(`/api/sourcing/candidates/${id}/promote`, body),
+  quickProcess: (id: string, task: QuickProcessTask = 'all') =>
+    apiClient.post<QuickProcessCandidateResponse>(`/api/sourcing/candidates/${id}/quick-process`, { task }),
+  updateBasicInfo: (id: string, body: UpdateProductBasicsInput) =>
+    apiClient.patch<ProductPreparationSelection>(
+      `/api/sourcing/candidates/${encodeURIComponent(id)}/preparation/basic-info`,
+      body,
+    ),
+  selectThumbnail: (
+    id: string,
+    body: {
+      selectedThumbnailUrl: string;
+      selectedThumbnailGenerationCandidateId?: string | null;
+    },
+  ) =>
+    apiClient.patch<ProductPreparationSelection>(
+      `/api/sourcing/candidates/${encodeURIComponent(id)}/preparation/thumbnail`,
+      body,
+    ),
+  selectDetailPage: (
+    id: string,
+    body: {
+      selectedDetailPageGenerationId: string;
+      selectedDetailPageArtifactId?: string | null;
+      selectedDetailPageRevisionId?: string | null;
+    },
+  ) =>
+    apiClient.patch<ProductPreparationSelection>(
+      `/api/sourcing/candidates/${encodeURIComponent(id)}/preparation/detail-page`,
+      body,
+    ),
   reject: (id: string, reason?: string) =>
     apiClient.post<RejectCandidateResponse>(`/api/sourcing/candidates/${id}/reject`, { reason }),
   delete: (id: string) =>

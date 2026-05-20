@@ -10,7 +10,7 @@ import type {
   ChannelOptionDailyRepositoryPort,
   ListingOptionDailyState,
   ListingOptionDailyUpsertInput,
-} from '../../../application/port/out/channel-option-daily.repository.port';
+} from '../../../application/port/out/repository/channel-option-daily.repository.port';
 import {
   buildNamespacedMetaForCreate,
   mergeNamespacedMetaJson,

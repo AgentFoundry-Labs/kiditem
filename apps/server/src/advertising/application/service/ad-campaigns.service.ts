@@ -15,15 +15,15 @@ import { periodToDays, type AdPeriod } from '../../domain/ad-metrics';
 import {
   AD_CAMPAIGN_REPOSITORY_PORT,
   type AdCampaignRepositoryPort,
-} from '../port/out/ad-campaign.repository.port';
+} from '../port/out/repository/ad-campaign.repository.port';
 import {
   AD_LISTING_REPOSITORY_PORT,
   type AdListingRepositoryPort,
-} from '../port/out/ad-listing.repository.port';
+} from '../port/out/repository/ad-listing.repository.port';
 import {
   AD_ACCOUNT_KPI_REPOSITORY_PORT,
   type AdAccountKpiRepositoryPort,
-} from '../port/out/ad-account-kpi.repository.port';
+} from '../port/out/repository/ad-account-kpi.repository.port';
 
 @Injectable()
 export class AdCampaignsService {

@@ -17,20 +17,20 @@ import {
   type ListInventoryInput,
   type ListTransactionsInput,
   type TransactionSummaryInput,
-} from '../port/in/inventory.port';
+} from '../port/in/stock/inventory.port';
 import {
   INVENTORY_QUERY_REPOSITORY_PORT,
   type InventoryQueryRepositoryPort,
-} from '../port/out/inventory-query.repository.port';
+} from '../port/out/repository/inventory-query.repository.port';
 import {
   INVENTORY_REPOSITORY_PORT,
   type InventoryMetadataUpdateData,
   type InventoryRepositoryPort,
-} from '../port/out/inventory.repository.port';
+} from '../port/out/repository/inventory.repository.port';
 import {
   BUNDLE_STOCK_PORT,
   type BundleStockPort,
-} from '../port/out/bundle-stock.port';
+} from '../port/out/cross-domain/bundle-stock.port';
 import {
   assertSufficientStock,
   computeStoredQuantity,
@@ -48,7 +48,7 @@ import { toTransactionListItem } from '../../mapper/stock-transaction.mapper';
 
 // `INVENTORY_PORT` re-export so adapter modules can import the token from a
 // service-adjacent path without reaching into `application/port/in/**` directly.
-export { INVENTORY_PORT } from '../port/in/inventory.port';
+export { INVENTORY_PORT } from '../port/in/stock/inventory.port';
 
 @Injectable()
 export class InventoryService implements InventoryPort {

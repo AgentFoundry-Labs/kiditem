@@ -1,17 +1,20 @@
-// apps/server/src/products/mapper/master-product.mapper.ts
-//
-// Prisma row → shared contract shape for MasterProduct + nested image rows.
-// Pure module — depends on `@kiditem/shared/product` types only.
-import type { MasterProduct, MasterProductImage } from '@prisma/client';
 import type { MasterImageItem } from '@kiditem/shared/product';
-import type { MasterWithImageRows } from '../adapter/out/prisma/master-product.query';
+import type {
+  MasterProductImageRow,
+  MasterWithImageRows,
+} from '../application/port/out/repository/master-product.repository.port';
+
+type MasterWithSharedImages = Omit<MasterWithImageRows, 'tags' | 'images'> & {
+  tags: string[];
+  images: MasterImageItem[];
+};
 
 export function normalizeMasterTags(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((tag): tag is string => typeof tag === 'string');
 }
 
-export function toMasterImageItem(row: MasterProductImage): MasterImageItem {
+export function toMasterImageItem(row: MasterProductImageRow): MasterImageItem {
   return {
     id: row.id,
     url: row.url,
@@ -29,15 +32,13 @@ export function toMasterImageItem(row: MasterProductImage): MasterImageItem {
 }
 
 /**
- * Read-model row → the `MasterProduct & { images: MasterImageItem[] }` shape
- * the controller boundary serializes via `toSerializable` and parses via
- * `MasterSchema`. Cast through `unknown` is required because the Prisma
- * `MasterProduct` type does not include the nested `images` field.
+ * Read-model row -> the shared-contract shape the controller boundary
+ * serializes via `toSerializable` and parses via `MasterSchema`.
  */
-export function withImageRows(row: MasterWithImageRows): MasterProduct {
+export function withImageRows(row: MasterWithImageRows): MasterWithSharedImages {
   return {
     ...row,
     tags: normalizeMasterTags(row.tags),
     images: row.images.map(toMasterImageItem),
-  } as unknown as MasterProduct;
+  };
 }

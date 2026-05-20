@@ -7,7 +7,7 @@ import type {
 } from '@kiditem/shared/inventory';
 import { toSerializable } from '../../products/util/serialize';
 import { deriveInventoryStatus } from '../domain/policy/inventory-status';
-import type { InventoryRow, InventoryWithOption } from '../application/port/out/inventory-query.repository.port';
+import type { InventoryRow, InventoryWithOption } from '../application/port/out/repository/inventory-query.repository.port';
 
 function toInventoryGrade(value: string | null): InventoryListItem['abcGrade'] {
   return value === 'A' || value === 'B' || value === 'C' ? value : null;

@@ -1,28 +1,29 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type {
   ProductCatalogCounts,
   ProductCatalogDetail,
   ProductCatalogListResponse,
 } from '@kiditem/shared/product';
-import { PrismaService } from '../../../prisma/prisma.service';
-import {
-  findCatalogCountsRows,
-  findCatalogDetail,
-  findCatalogPage,
-} from '../../adapter/out/prisma/product-catalog.query';
 import {
   mapCatalogCounts,
   mapCatalogDetail,
   mapCatalogListItem,
 } from '../../mapper/product-catalog.mapper';
 import { ListProductCatalogQuery } from '../../dto/list-product-catalog.query';
+import {
+  PRODUCT_CATALOG_REPOSITORY_PORT,
+  type ProductCatalogRepositoryPort,
+} from '../port/out/repository/product-catalog.repository.port';
 
 @Injectable()
 export class ProductCatalogService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PRODUCT_CATALOG_REPOSITORY_PORT)
+    private readonly catalog: ProductCatalogRepositoryPort,
+  ) {}
 
   async list(organizationId: string, q: ListProductCatalogQuery): Promise<ProductCatalogListResponse> {
-    const { rows, total, page, limit } = await findCatalogPage(this.prisma, organizationId, q);
+    const { rows, total, page, limit } = await this.catalog.findCatalogPage(organizationId, q);
     return {
       items: rows.map(mapCatalogListItem),
       total,
@@ -32,7 +33,7 @@ export class ProductCatalogService {
   }
 
   async detail(organizationId: string, id: string): Promise<ProductCatalogDetail> {
-    const row = await findCatalogDetail(this.prisma, organizationId, id);
+    const row = await this.catalog.findCatalogDetail(organizationId, id);
     if (!row) throw new NotFoundException('master not found');
     return mapCatalogDetail(row);
   }
@@ -41,7 +42,7 @@ export class ProductCatalogService {
     organizationId: string,
     q: Pick<ListProductCatalogQuery, 'lifecycleState'> = {},
   ): Promise<ProductCatalogCounts> {
-    const rows = await findCatalogCountsRows(this.prisma, organizationId, q);
+    const rows = await this.catalog.findCatalogCountsRows(organizationId, q);
     return mapCatalogCounts(rows);
   }
 }

@@ -7,6 +7,7 @@ import type {
   DetailPageTemplateId,
 } from '@kiditem/shared/ai';
 import { apiClient } from '@/lib/api-client';
+import { cancelOperation } from '@/lib/operation-cancellation';
 import { API_BASE } from '@/lib/api';
 import type {
   DetailPageGenerationRaw,
@@ -31,7 +32,7 @@ export interface KidsPlayfulGenerateBody {
   kcCertificationNumber?: string;
   /** sourcing MasterProduct.id — generate 페이지 직접 생성 시 omit */
   productId?: string;
-  registrationWorkspaceId?: string;
+  contentWorkspaceId?: string;
   templateId?: DetailPageTemplateId;
   generationMode?: 'draft' | 'image' | 'full';
   sourceReferences?: Array<{
@@ -48,7 +49,7 @@ export interface KidsPlayfulGenerationItem {
   id: string;
   productId: string | null;
   sourceCandidateId?: string | null;
-  registrationWorkspaceId?: string | null;
+  contentWorkspaceId?: string | null;
   templateId: string;
   productName: string;
   rawInput: unknown;
@@ -63,10 +64,41 @@ export interface KidsPlayfulGenerationItem {
 }
 
 const QK = {
-  list: (productId?: string | null) =>
-    productId ? (['kp-generations', { productId }] as const) : (['kp-generations'] as const),
+  list: (scope?: DetailGenerationListScope) =>
+    scope?.contentWorkspaceId
+      ? (['kp-generations', { contentWorkspaceId: scope.contentWorkspaceId }] as const)
+      : scope?.sourceCandidateId
+        ? (['kp-generations', { sourceCandidateId: scope.sourceCandidateId }] as const)
+        : scope?.productId
+          ? (['kp-generations', { productId: scope.productId }] as const)
+          : (['kp-generations'] as const),
   one: (id: string) => ['kp-generations', 'one', id] as const,
 };
+
+export interface DetailGenerationListScope {
+  productId?: string | null;
+  sourceCandidateId?: string | null;
+  contentWorkspaceId?: string | null;
+}
+
+function firstSourcingCandidateId(
+  refs?: KidsPlayfulGenerateBody['sourceReferences'],
+): string | null {
+  return refs?.find((ref) => ref.sourceType === 'sourcing_candidate')?.sourceCandidateId ?? null;
+}
+
+function buildDetailPageListUrl(input: {
+  templateId: DetailPageTemplateId;
+  productId?: string | null;
+  sourceCandidateId?: string | null;
+  contentWorkspaceId?: string | null;
+}): string {
+  const params = new URLSearchParams({ templateId: input.templateId });
+  if (input.contentWorkspaceId) params.set('contentWorkspaceId', input.contentWorkspaceId);
+  else if (input.sourceCandidateId) params.set('sourceCandidateId', input.sourceCandidateId);
+  else if (input.productId) params.set('productId', input.productId);
+  return `/api/ai/detail-page?${params.toString()}`;
+}
 
 /**
  * POST /api/ai/detail-page/generate
@@ -84,9 +116,19 @@ export function useKidsPlayfulGenerate() {
     onMutate: async (vars) => {
       const tplId = vars.templateId ?? 'kids-playful';
       const isBoldVertical = tplId === 'bold-vertical';
+      const sourceCandidateId = firstSourcingCandidateId(vars.sourceReferences);
+      const scope = {
+        productId: vars.productId ?? null,
+        sourceCandidateId,
+        contentWorkspaceId: vars.contentWorkspaceId ?? null,
+      };
       const listKey = isBoldVertical
-        ? (['bold-generations', { productId: vars.productId ?? null }] as const)
-        : QK.list(vars.productId);
+        ? (scope.contentWorkspaceId
+            ? (['bold-generations', { contentWorkspaceId: scope.contentWorkspaceId }] as const)
+            : scope.sourceCandidateId
+              ? (['bold-generations', { sourceCandidateId: scope.sourceCandidateId }] as const)
+              : (['bold-generations', { productId: scope.productId ?? null }] as const))
+        : QK.list(scope);
       const allKey = isBoldVertical
         ? (['bold-generations', { productId: null }] as const)
         : (['kp-generations'] as const);
@@ -101,7 +143,8 @@ export function useKidsPlayfulGenerate() {
       const placeholder: KidsPlayfulGenerationItem = {
         id: optimisticId,
         productId: vars.productId ?? null,
-        registrationWorkspaceId: vars.registrationWorkspaceId ?? null,
+        sourceCandidateId,
+        contentWorkspaceId: vars.contentWorkspaceId ?? null,
         templateId: tplId,
         productName: vars.rawTitle,
         rawInput: vars,
@@ -173,16 +216,22 @@ export function useKidsPlayfulOne(id?: string | null) {
  */
 export function useKidsPlayfulGenerationList(
   productId?: string | null,
-  options: { enabled?: boolean } = {},
+  options: { enabled?: boolean; sourceCandidateId?: string | null; contentWorkspaceId?: string | null } = {},
 ) {
+  const scope = {
+    productId,
+    sourceCandidateId: options.sourceCandidateId ?? null,
+    contentWorkspaceId: options.contentWorkspaceId ?? null,
+  };
   return useQuery({
-    queryKey: QK.list(productId),
+    queryKey: QK.list(scope),
     enabled: options.enabled ?? true,
     queryFn: () =>
       apiClient.get<KidsPlayfulGenerationItem[]>(
-        productId
-          ? `/api/ai/detail-page?templateId=kids-playful&productId=${encodeURIComponent(productId)}`
-          : '/api/ai/detail-page?templateId=kids-playful',
+        buildDetailPageListUrl({
+          templateId: 'kids-playful',
+          ...scope,
+        }),
       ),
     refetchInterval: (query) => {
       const data = query.state.data as KidsPlayfulGenerationItem[] | undefined;
@@ -206,16 +255,26 @@ export function useKidsPlayfulGenerationList(
  */
 export function useBoldVerticalGenerationList(
   productId?: string | null,
-  options: { enabled?: boolean } = {},
+  options: { enabled?: boolean; sourceCandidateId?: string | null; contentWorkspaceId?: string | null } = {},
 ) {
+  const scope = {
+    productId,
+    sourceCandidateId: options.sourceCandidateId ?? null,
+    contentWorkspaceId: options.contentWorkspaceId ?? null,
+  };
   return useQuery({
-    queryKey: ['bold-generations', { productId: productId ?? null }] as const,
+    queryKey: scope.contentWorkspaceId
+      ? (['bold-generations', { contentWorkspaceId: scope.contentWorkspaceId }] as const)
+      : scope.sourceCandidateId
+        ? (['bold-generations', { sourceCandidateId: scope.sourceCandidateId }] as const)
+        : (['bold-generations', { productId: scope.productId ?? null }] as const),
     enabled: options.enabled ?? true,
     queryFn: () =>
       apiClient.get<KidsPlayfulGenerationItem[]>(
-        productId
-          ? `/api/ai/detail-page?templateId=bold-vertical&productId=${encodeURIComponent(productId)}`
-          : '/api/ai/detail-page?templateId=bold-vertical',
+        buildDetailPageListUrl({
+          templateId: 'bold-vertical',
+          ...scope,
+        }),
       ),
     refetchInterval: (query) => {
       const data = query.state.data as KidsPlayfulGenerationItem[] | undefined;
@@ -246,12 +305,16 @@ export function useKidsPlayfulGenerationDelete() {
   });
 }
 
-/** POST /api/ai/detail-page/:id/cancel — 진행 중 생성 중단. */
+/** 진행 중 상세페이지 생성 중단. */
 export function useKidsPlayfulGenerationCancel() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiClient.post<KidsPlayfulGenerationItem>(`/api/ai/detail-page/${id}/cancel`),
+      cancelOperation({
+        targetType: 'content_generation',
+        generationId: id,
+        reason: '사용자 요청',
+      }),
     onMutate: async (id) => {
       await Promise.all([
         qc.cancelQueries({ queryKey: ['kp-generations'] }),
@@ -298,7 +361,7 @@ export function rowToRendererData(item: KidsPlayfulGenerationItem): KidsPlayfulD
  */
 export function useKidsPlayfulInProgress(
   productId?: string | null,
-  options: { enabled?: boolean } = {},
+  options: { enabled?: boolean; sourceCandidateId?: string | null; contentWorkspaceId?: string | null } = {},
 ) {
   const all = useAllGenerationsInProgress(productId, options);
   return all[0] ?? null;
@@ -313,7 +376,7 @@ export function useKidsPlayfulInProgress(
  */
 export function useAllGenerationsInProgress(
   productId?: string | null,
-  options: { enabled?: boolean } = {},
+  options: { enabled?: boolean; sourceCandidateId?: string | null; contentWorkspaceId?: string | null } = {},
 ): KidsPlayfulGenerationItem[] {
   const { data: kpData = [] } = useKidsPlayfulGenerationList(productId, options);
   const { data: boldData = [] } = useBoldVerticalGenerationList(productId, options);

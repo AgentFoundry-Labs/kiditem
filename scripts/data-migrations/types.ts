@@ -9,5 +9,6 @@ export type DataMigration = {
   id: string;
   releaseVersion: string;
   name: string;
+  phase?: 'pre-schema' | 'post-schema';
   run(tx: Prisma.TransactionClient): Promise<MigrationResult>;
 };

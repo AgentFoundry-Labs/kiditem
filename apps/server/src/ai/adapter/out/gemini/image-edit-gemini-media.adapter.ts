@@ -20,15 +20,15 @@ import {
   type ImageEditMediaCommand,
   type ImageEditMediaPort,
   type ImageEditMediaResult,
-} from '../../../application/port/out/image-edit-media.port';
+} from '../../../application/port/out/provider/image-edit-media.port';
 import {
   IMAGE_FETCH_PORT,
   type ImageFetchPort,
-} from '../../../application/port/out/image-fetch.port';
+} from '../../../application/port/out/provider/image-fetch.port';
 import {
   IMAGE_STORAGE_PORT,
   type ImageStoragePort,
-} from '../../../application/port/out/image-storage.port';
+} from '../../../application/port/out/storage/image-storage.port';
 import { requireGeminiApiKey } from './thumbnail-gemini-config';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports

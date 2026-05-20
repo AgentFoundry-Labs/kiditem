@@ -1,12 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
+  Inject,
   Injectable,
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { GoogleGenAI, Modality } from '@google/genai';
-import { StorageService } from '../../../common/storage/storage.service';
 import {
   COMPLIANCE_SUGGESTIONS_HEADER,
   CREATIVE_PROMPT,
@@ -25,11 +24,22 @@ import {
 } from '../../domain/prompts/thumbnail-prompt-scenarios';
 import { buildLayoutBlock } from '../../domain/prompts/thumbnail-layout-presets';
 import {
-  ThumbnailImageFetcherService,
-  MAX_FETCH_BYTES,
-} from '../../adapter/out/image-fetch/thumbnail-image-fetcher.adapter';
-import { ThumbnailReferenceImagesService } from '../../adapter/out/gemini/thumbnail-reference-images.adapter';
-import { requireGeminiImageModel } from '../../adapter/out/gemini/thumbnail-gemini-config';
+  IMAGE_FETCH_PORT,
+  type ImageFetchPort,
+} from '../port/out/provider/image-fetch.port';
+import {
+  IMAGE_STORAGE_PORT,
+  type ImageStoragePort,
+} from '../port/out/storage/image-storage.port';
+import {
+  THUMBNAIL_IMAGE_GENERATION_PORT,
+  type ThumbnailImageGenerationPort,
+} from '../port/out/provider/thumbnail-image-generation.port';
+import {
+  THUMBNAIL_REFERENCE_IMAGES_PORT,
+  type ThumbnailReferenceImagesPort,
+} from '../port/out/provider/thumbnail-reference-images.port';
+import { MAX_FETCH_BYTES } from '../../domain/thumbnail-image-source';
 import type {
   ThumbnailEditorCandidate,
   ThumbnailEditorEditCase,
@@ -41,7 +51,7 @@ type ThumbnailEditorPurpose = 'compliance' | 'quality';
 type ThumbnailEditorMode = 'edit' | 'creative';
 type ThumbnailEditorLayout = 'auto' | 'fan' | 'arch' | 'grid' | 'stack' | 'radial';
 
-interface FetchedImage {
+interface DecodedImage {
   buffer: Buffer;
   mimeType: string;
 }
@@ -54,6 +64,7 @@ interface ResolveInputOptions {
 }
 
 interface GenerateEditOptions {
+  model?: string;
   purpose: ThumbnailEditorPurpose;
   editCase: ThumbnailEditorEditCase;
   composition?: string;
@@ -79,6 +90,7 @@ interface GenerateEditOptions {
 }
 
 interface GenerateCreativeOptions {
+  model?: string;
   sceneType?: string;
   styleType?: string;
   productDescription?: string;
@@ -96,12 +108,16 @@ interface GenerateCreativeOptions {
 @Injectable()
 export class ThumbnailEditorAiService {
   private readonly logger = new Logger(ThumbnailEditorAiService.name);
-  private client: GoogleGenAI | null = null;
 
   constructor(
-    private readonly storage: StorageService,
-    private readonly imageFetcher: ThumbnailImageFetcherService,
-    private readonly references: ThumbnailReferenceImagesService,
+    @Inject(IMAGE_STORAGE_PORT)
+    private readonly storage: ImageStoragePort,
+    @Inject(IMAGE_FETCH_PORT)
+    private readonly imageFetcher: ImageFetchPort,
+    @Inject(THUMBNAIL_REFERENCE_IMAGES_PORT)
+    private readonly references: ThumbnailReferenceImagesPort,
+    @Inject(THUMBNAIL_IMAGE_GENERATION_PORT)
+    private readonly imageGeneration: ThumbnailImageGenerationPort,
   ) {}
 
   async resolveInputImage(
@@ -179,6 +195,7 @@ export class ThumbnailEditorAiService {
       this.buildEditPrompt(inputs, options),
       'edit',
       includeReferences,
+      options.model,
     );
   }
 
@@ -193,6 +210,7 @@ export class ThumbnailEditorAiService {
       this.buildCreativePrompt(inputs, options),
       'creative',
       false,
+      options.model,
     );
   }
 
@@ -202,6 +220,7 @@ export class ThumbnailEditorAiService {
     prompt: string,
     method: ThumbnailEditorMode,
     includeReferences: boolean,
+    model: string | undefined,
   ): Promise<ThumbnailEditorCandidate[]> {
     if (inputs.length === 0) throw new BadRequestException('상품 사진이 필요합니다');
 
@@ -213,30 +232,20 @@ export class ThumbnailEditorAiService {
       ? this.references.generationParts(GENERATE_REFERENCE_HEADER)
       : [];
 
-    const response = await this.getClient().models.generateContent({
-      model: requireGeminiImageModel(),
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            ...referenceParts,
-            ...inputs.flatMap((img) => [
-              { text: `[${img.label}]` },
-              { inlineData: { data: img.data, mimeType: img.mimeType } },
-            ]),
-            { text: prompt },
-          ],
-        },
+    const parts = await this.imageGeneration.generateImageParts({
+      model,
+      parts: [
+        ...referenceParts,
+        ...inputs.flatMap((img) => [
+          { text: `[${img.label}]` },
+          { inlineData: { data: img.data, mimeType: img.mimeType } },
+        ]),
+        { text: prompt },
       ],
-      config: {
-        responseModalities: [Modality.TEXT, Modality.IMAGE],
-        imageConfig: { aspectRatio: '1:1', imageSize: '2K' },
-      },
     });
-
-    const parts = response.candidates?.[0]?.content?.parts ?? [];
     const candidates: ThumbnailEditorCandidate[] = [];
     for (const part of parts) {
+      if (!('inlineData' in part)) continue;
       const inlineData = part.inlineData;
       if (!inlineData?.data) continue;
       const mimeType = inlineData.mimeType ?? 'image/png';
@@ -254,18 +263,13 @@ export class ThumbnailEditorAiService {
     }
 
     if (candidates.length === 0) {
-      const text = parts.find((part) => part.text)?.text?.slice(0, 300);
+      const text = parts.find((part): part is { text: string } => 'text' in part)
+        ?.text
+        .slice(0, 300);
       this.logger.warn(`Gemini image response had no inline image. text=${text ?? '(empty)'}`);
       throw new ServiceUnavailableException('thumbnail_ai_returned_no_image');
     }
     return candidates;
-  }
-
-  private getClient(): GoogleGenAI {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new ServiceUnavailableException('thumbnail_ai_not_configured');
-    if (!this.client) this.client = new GoogleGenAI({ apiKey });
-    return this.client;
   }
 
   private buildEditPrompt(inputs: ThumbnailEditorInputImage[], options: GenerateEditOptions): string {
@@ -351,7 +355,7 @@ export class ThumbnailEditorAiService {
     return labels ? `Input images:\n${labels}` : '';
   }
 
-  private parseDataUrl(input: string): FetchedImage | null {
+  private parseDataUrl(input: string): DecodedImage | null {
     const match = /^data:([^;]+);base64,(.+)$/s.exec(input);
     if (!match) return null;
     const mimeType = match[1].toLowerCase();

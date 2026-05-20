@@ -26,7 +26,7 @@ export const imagePanelMapper: PanelRunMapper<ImageAdapterInput> = {
   mapToItem(input, _organizationId) {
     const { generation, product } = input;
 
-    // ADR-0011 Rule 4: NO mapping table — pass-through only.
+    // No mapping table — pass-through only.
     // Drift guard: unknown status throws to catch writer regressions.
     if (!VALID_STATUS.has(generation.status as PanelRunItemType['status'])) {
       throw new Error(
@@ -41,7 +41,7 @@ export const imagePanelMapper: PanelRunMapper<ImageAdapterInput> = {
       source: 'image',
       sourceId: generation.id,
       status: generation.status as PanelRunItemType['status'],
-      // ADR-0011 Rule 2: sub-state column — phase pass-through (no enum constraint, Rule 3)
+      // Sub-state column — phase pass-through with no enum constraint.
       phase: generation.phase ?? null,
       failureType: null, // image source doesn't use failureType
       title: product.title,

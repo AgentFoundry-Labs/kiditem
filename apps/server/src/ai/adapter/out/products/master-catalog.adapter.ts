@@ -7,7 +7,7 @@ import type {
   CoupangListingImageState,
   CoupangListingHandle,
   MasterCatalogPort,
-} from '../../../application/port/out/master-catalog.port';
+} from '../../../application/port/out/cross-domain/master-catalog.port';
 
 /**
  * `MASTER_CATALOG_PORT` 의 concrete adapter.
@@ -28,6 +28,7 @@ export class MasterCatalogAdapter implements MasterCatalogPort {
   }): Promise<CoupangListingImageState[]> {
     const { organizationId, inventoryIds } = input;
     if (inventoryIds.length === 0) return [];
+    const channelAccountId = await this.findPrimaryCoupangAccountId(organizationId);
 
     const listings = await this.prisma.channelListing.findMany({
       where: {
@@ -35,8 +36,18 @@ export class MasterCatalogAdapter implements MasterCatalogPort {
         channel: 'coupang',
         externalId: { in: inventoryIds },
         isDeleted: false,
+        ...(channelAccountId
+          ? {
+              OR: [
+                { channelAccountId },
+                { channelAccountId: null },
+              ],
+            }
+          : {}),
       },
       select: {
+        id: true,
+        channelAccountId: true,
         externalId: true,
         master: {
           select: {
@@ -52,7 +63,7 @@ export class MasterCatalogAdapter implements MasterCatalogPort {
       },
     });
 
-    return listings.map((listing) => ({
+    return preferAccountListings(listings, channelAccountId).map((listing) => ({
       inventoryId: listing.externalId,
       hasImage: hasDisplayImage(listing.master),
     }));
@@ -60,16 +71,27 @@ export class MasterCatalogAdapter implements MasterCatalogPort {
 
   async findCoupangMaster(input: FindCoupangMasterInput): Promise<CoupangListingHandle | null> {
     const { organizationId, inventoryId, legacyCode, name } = input;
+    const channelAccountId = await this.findPrimaryCoupangAccountId(organizationId);
 
-    const listing = await this.prisma.channelListing.findFirst({
+    const listings = await this.prisma.channelListing.findMany({
       where: {
         organizationId,
         channel: 'coupang',
         externalId: inventoryId,
         isDeleted: false,
+        ...(channelAccountId
+          ? {
+              OR: [
+                { channelAccountId },
+                { channelAccountId: null },
+              ],
+            }
+          : {}),
       },
       select: {
         id: true,
+        externalId: true,
+        channelAccountId: true,
         masterId: true,
         master: {
           select: {
@@ -83,7 +105,10 @@ export class MasterCatalogAdapter implements MasterCatalogPort {
           },
         },
       },
+      orderBy: [{ channelAccountId: 'asc' }, { updatedAt: 'desc' }],
+      take: channelAccountId ? 3 : 2,
     });
+    const listing = preferAccountListings(listings, channelAccountId)[0] ?? null;
 
     if (listing) {
       // Wing 화면에서 상품명이 바뀌었을 수 있으니 channelName 만 리프레시.
@@ -126,12 +151,15 @@ export class MasterCatalogAdapter implements MasterCatalogPort {
 
     if (!option) return null;
 
-    await this.createCoupangListingFromLegacyMatch({
-      organizationId,
-      masterId: option.masterId,
-      inventoryId,
-      name,
-    });
+    if (channelAccountId) {
+      await this.createCoupangListingFromLegacyMatch({
+        organizationId,
+        masterId: option.masterId,
+        inventoryId,
+        name,
+        channelAccountId,
+      });
+    }
 
     return {
       masterId: option.masterId,
@@ -144,14 +172,16 @@ export class MasterCatalogAdapter implements MasterCatalogPort {
     masterId: string;
     inventoryId: string;
     name: string;
+    channelAccountId: string;
   }): Promise<void> {
-    const { organizationId, masterId, inventoryId, name } = input;
+    const { organizationId, masterId, inventoryId, name, channelAccountId } = input;
     try {
       await this.prisma.channelListing.create({
         data: {
           organizationId,
           masterId,
           channel: 'coupang',
+          channelAccountId,
           externalId: inventoryId,
           channelName: name || null,
           status: 'active',
@@ -160,10 +190,30 @@ export class MasterCatalogAdapter implements MasterCatalogPort {
     } catch (error: unknown) {
       if (!isUniqueConstraintError(error)) throw error;
       await this.prisma.channelListing.updateMany({
-        where: { organizationId, channel: 'coupang', externalId: inventoryId, isDeleted: false },
+        where: {
+          organizationId,
+          channel: 'coupang',
+          channelAccountId,
+          externalId: inventoryId,
+          isDeleted: false,
+        },
         data: { channelName: name || undefined },
       });
     }
+  }
+
+  private async findPrimaryCoupangAccountId(organizationId: string): Promise<string | null> {
+    const account = await this.prisma.channelAccount.findFirst({
+      where: {
+        organizationId,
+        channel: 'coupang',
+        isPrimary: true,
+        status: 'active',
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true },
+    });
+    return account?.id ?? null;
   }
 
   async attachPrimaryImage(input: AttachPrimaryImageInput): Promise<boolean> {
@@ -217,6 +267,32 @@ export class MasterCatalogAdapter implements MasterCatalogPort {
 
 function isUniqueConstraintError(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && (error as { code?: unknown }).code === 'P2002');
+}
+
+function preferAccountListings<T extends { externalId: string; channelAccountId: string | null }>(
+  listings: T[],
+  channelAccountId: string | null,
+): T[] {
+  if (!channelAccountId) {
+    const byExternalId = new Map<string, T[]>();
+    for (const listing of listings) {
+      byExternalId.set(listing.externalId, [
+        ...(byExternalId.get(listing.externalId) ?? []),
+        listing,
+      ]);
+    }
+    return [...byExternalId.values()]
+      .filter((group) => group.length === 1)
+      .map((group) => group[0]);
+  }
+  const byExternalId = new Map<string, T>();
+  for (const listing of listings) {
+    const current = byExternalId.get(listing.externalId);
+    if (!current || listing.channelAccountId === channelAccountId) {
+      byExternalId.set(listing.externalId, listing);
+    }
+  }
+  return [...byExternalId.values()];
 }
 
 function hasDisplayImage(master: {

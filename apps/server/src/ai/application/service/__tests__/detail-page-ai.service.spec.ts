@@ -1,14 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DetailPageAiService } from '../detail-page-ai.service';
-import { ContentAssetService } from '../content-asset.service';
 import { DetailPageGenerationService } from '../detail-page-generation.service';
 import { DetailPagePrefillService } from '../detail-page-prefill.service';
 import { DetailPageQueryService } from '../detail-page-query.service';
 import { DetailPageResultRefinerService } from '../detail-page-result-refiner.service';
 import { BoldVerticalRefinerService } from '../bold-vertical-refiner.service';
 import { KidsPlayfulRefinerService } from '../kids-playful-refiner.service';
-import type { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
+import type { OperationAlertPort } from '../../port/out/cross-domain/operation-alert.port';
 import type { AgentRunnerPort } from '../../../../agent-os/application/port/in/agent-runner.port';
+import type { ProductGenerationAlertService } from '../product-generation-alert.service';
+import type { DetailPageGenerationRepositoryPort } from '../../port/out/repository/detail-page-generation.repository.port';
+import type { DetailPageQueryRepositoryPort } from '../../port/out/repository/detail-page-query.repository.port';
 
 const ORGANIZATION_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '99999999-9999-9999-9999-999999999999';
@@ -20,14 +22,23 @@ const CANDIDATE_ID = '66666666-6666-4666-8666-666666666666';
 const REGISTRATION_WORKSPACE_ID = '77777777-7777-4777-8777-777777777777';
 const LOADED_REGISTRATION_WORKSPACE_ID = '77777777-7777-4777-8777-888888888888';
 
-function makeOperationAlertsStub(): OperationAlertService {
+function makeOperationAlertsStub(): OperationAlertPort {
   return {
     start: vi.fn().mockResolvedValue({}),
     succeed: vi.fn().mockResolvedValue({}),
     fail: vi.fn().mockResolvedValue({}),
     progress: vi.fn().mockResolvedValue({}),
     cancel: vi.fn().mockResolvedValue({}),
-  } as unknown as OperationAlertService;
+  } as unknown as OperationAlertPort;
+}
+
+function makeProductGenerationAlertsStub(): ProductGenerationAlertService {
+  return {
+    start: vi.fn().mockResolvedValue({}),
+    recordChildStarted: vi.fn().mockResolvedValue({ status: 'started', alert: {} }),
+    canStartChild: vi.fn().mockResolvedValue(true),
+    markChildFinished: vi.fn().mockResolvedValue({}),
+  } as unknown as ProductGenerationAlertService;
 }
 
 function makeAgentRunnerStub(
@@ -45,6 +56,13 @@ function makeAgentRunnerStub(
       executed: true,
       requestId: result.requestId,
       runId: 'agent-run',
+    }),
+    cancelRequest: vi.fn().mockResolvedValue({
+      ok: true,
+      cancelledRequests: 1,
+      cancelledRuns: 0,
+      skippedRequests: 0,
+      skippedRuns: 0,
     }),
     cancelBySource: vi.fn().mockResolvedValue({
       ok: true,
@@ -65,21 +83,233 @@ function makeResultRefiner(heroImageService?: unknown): DetailPageResultRefinerS
   );
 }
 
+function makeQueryRepository(prisma: ReturnType<typeof makePrisma>): DetailPageQueryRepositoryPort {
+  return {
+    list: vi.fn().mockImplementation(async () => prisma.contentGeneration.findMany()),
+    findById: vi.fn().mockImplementation(async ({ id, organizationId }) =>
+      prisma.contentGeneration.findFirst({
+        where: { id, organizationId, isDeleted: false },
+        include: { generationGroup: { select: { targetMasterId: true } } },
+      }),
+    ),
+    existsActive: vi.fn().mockResolvedValue(true),
+    markDeleted: vi.fn().mockResolvedValue(undefined),
+    renameVersion: vi.fn().mockResolvedValue(true),
+    findDuplicateSource: vi.fn().mockResolvedValue(null),
+    duplicateVersion: vi.fn(),
+    saveEditedHtmlRevision: vi.fn(),
+    getEditedHtml: vi.fn().mockResolvedValue(null),
+  } as unknown as DetailPageQueryRepositoryPort;
+}
+
+function makeGenerationRepository(prisma: ReturnType<typeof makePrisma>): DetailPageGenerationRepositoryPort {
+  return {
+    findActiveContentWorkspace: vi.fn().mockImplementation(async ({ organizationId, contentWorkspaceId }) =>
+      prisma.contentWorkspace?.findFirst({
+        where: {
+          id: contentWorkspaceId,
+          organizationId,
+          status: 'active',
+          isDeleted: false,
+        },
+        select: {
+          id: true,
+          sourceCandidateId: true,
+          targetMasterId: true,
+          displayName: true,
+          normalizedTitle: true,
+        },
+      }) ?? null,
+    ),
+    ensureRerunGenerationGroup: vi.fn(),
+    openProcessingGenerationLedger: vi.fn().mockImplementation(async (input) => {
+      const targetMaster = input.productId
+        ? await prisma.masterProduct.findFirst({
+          where: { id: input.productId, organizationId: input.organizationId, isDeleted: false },
+          select: { id: true, name: true },
+        })
+        : null;
+      if (input.productId && !targetMaster) return { status: 'product_not_found' };
+      const generationGroupId = targetMaster
+        ? (await prisma.contentGenerationGroup.findFirst({
+          where: {
+            organizationId: input.organizationId,
+            groupType: 'product_workspace',
+            targetMasterId: targetMaster.id,
+          },
+          select: { id: true },
+        }))?.id ?? (await prisma.contentGenerationGroup.create({
+          data: {
+            organizationId: input.organizationId,
+            groupType: 'product_workspace',
+            targetMasterId: targetMaster.id,
+            title: targetMaster.name.slice(0, 80),
+            createdByUserId: input.triggeredByUserId,
+            metadata: { source: 'detail_page_generation' },
+          },
+          select: { id: true },
+        })).id
+        : (await prisma.contentGenerationGroup.create({
+          data: {
+            organizationId: input.organizationId,
+            groupType: 'input_variation',
+            title: input.rawTitle.slice(0, 80),
+            createdByUserId: input.triggeredByUserId,
+            metadata: {
+              source: 'detail_page_generation',
+              templateId: input.templateId,
+            },
+          },
+          select: { id: true },
+        })).id;
+      const row = await prisma.contentGeneration.create({
+        data: {
+          organizationId: input.organizationId,
+          contentType: 'detail_page',
+          generationGroupId,
+          contentWorkspaceId: input.contentWorkspaceId,
+          sourceCandidateId: input.sourceCandidateId,
+          triggeredByUserId: input.triggeredByUserId,
+          templateId: input.templateId,
+          generationInput: input.rawInput,
+          generationResult: {
+            templateId: input.templateId,
+            result: {},
+            imageUrls: input.imageUrls,
+            processedImages: {},
+          },
+          generatedTitle: input.rawTitle.slice(0, 80),
+          status: 'PROCESSING',
+        },
+        include: {
+          generationGroup: {
+            select: { targetMasterId: true },
+          },
+        },
+      });
+      const sourceRows = input.sourceReferences.map((ref, index) => ({
+        organizationId: input.organizationId,
+        contentGenerationId: row.id,
+        sourceType: ref.sourceType,
+        sourceCandidateId: ref.sourceCandidateId ?? null,
+        sourceContentGenerationId: ref.sourceContentGenerationId ?? null,
+        contentAssetId: ref.contentAssetId ?? null,
+        label: ref.label ?? null,
+        sortOrder: index,
+        metadata: {},
+      }));
+      if (sourceRows.length > 0) {
+        await prisma.contentGenerationSource.createMany({
+          skipDuplicates: true,
+          data: sourceRows,
+        });
+      }
+      return { status: 'created', row };
+    }),
+    markGenerationRejectedByParent: vi.fn().mockImplementation((input) =>
+      prisma.contentGeneration.updateMany({
+        where: { id: input.generationId, organizationId: input.organizationId },
+        data: {
+          status: input.status,
+          errorMessage: input.errorMessage,
+        },
+      }),
+    ),
+    markGenerationFailed: vi.fn().mockImplementation((input) =>
+      prisma.contentGeneration.updateMany({
+        where: { id: input.generationId, organizationId: input.organizationId },
+        data: { status: 'FAILED', errorMessage: input.errorMessage },
+      }),
+    ),
+    findGenerationStatus: vi.fn().mockImplementation(({ organizationId, generationId }) =>
+      prisma.contentGeneration.findFirst({
+        where: { id: generationId, organizationId },
+        select: { status: true },
+      }),
+    ),
+    markGenerationCancelledIfProcessing: vi.fn().mockImplementation((input) =>
+      prisma.contentGeneration.updateMany({
+        where: {
+          id: input.generationId,
+          organizationId: input.organizationId,
+          status: { in: input.processingStatuses },
+        },
+        data: {
+          status: 'CANCELLED',
+          errorMessage: input.errorMessage,
+        },
+      }).then((updated: { count: number }) => updated.count),
+    ),
+    findRerunBase: vi.fn(),
+    findImageOnlyBaseCandidates: vi.fn().mockImplementation((input) =>
+      prisma.contentGeneration.findMany({
+        where: {
+          organizationId: input.organizationId,
+          contentType: 'detail_page',
+          templateId: input.templateId,
+          status: { in: ['READY', 'completed'] },
+          ...(input.productId
+            ? { generationGroup: { targetMasterId: input.productId } }
+            : input.contentWorkspaceId
+              ? { contentWorkspaceId: input.contentWorkspaceId }
+              : {
+                  OR: [
+                    { sourceCandidateId: input.sourceCandidateId },
+                    { sources: { some: { sourceCandidateId: input.sourceCandidateId } } },
+                    { detailPageArtifact: { is: { sourceCandidateId: input.sourceCandidateId } } },
+                  ],
+                }),
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: {
+          id: true,
+          generationInput: true,
+          generationResult: true,
+          templateId: true,
+          generatedTitle: true,
+        },
+      }),
+    ),
+    findSourceCandidate: vi.fn().mockImplementation(({ organizationId, sourceCandidateId }) =>
+      prisma.sourcingCandidate.findFirst({
+        where: { id: sourceCandidateId, organizationId, isDeleted: false },
+        select: { id: true, name: true, promotedMasterId: true },
+      }),
+    ),
+    findSourceContentGeneration: vi.fn(),
+    findSourceContentAsset: vi.fn(),
+    findCancellableGeneration: vi.fn().mockImplementation(({ organizationId, generationId }) =>
+      prisma.contentGeneration.findFirst({
+        where: { id: generationId, organizationId },
+        select: { id: true, status: true, generationInput: true, generationResult: true },
+      }),
+    ),
+    cancelProcessingGeneration: vi.fn().mockImplementation((input) =>
+      prisma.contentGeneration.updateMany({
+        where: {
+          id: input.generationId,
+          organizationId: input.organizationId,
+          status: { in: input.processingStatuses },
+        },
+        data: {
+          status: 'CANCELLED',
+          errorMessage: input.reason,
+          generationResult: input.generationResult,
+        },
+      }).then((updated: { count: number }) => updated.count),
+    ),
+  } as unknown as DetailPageGenerationRepositoryPort;
+}
+
 function makeService(
   prisma: unknown,
   textCompletion: unknown,
   imageStorage: unknown,
-  operationAlerts: OperationAlertService,
+  operationAlerts: OperationAlertPort,
   heroImageService?: unknown,
   agentRunner: AgentRunnerPort = makeAgentRunnerStub(),
-  generatedCandidates: { create: ReturnType<typeof vi.fn> } = {
-    create: vi.fn(async () => ({
-      id: 'generated-candidate-id',
-      name: 'Generated candidate',
-      category: null,
-    })),
-  },
-  registrationWorkspaces: { ensureForGeneration: ReturnType<typeof vi.fn> } = {
+  contentWorkspaces: { ensureForGeneration: ReturnType<typeof vi.fn> } = {
     ensureForGeneration: vi.fn(async () => ({
       id: REGISTRATION_WORKSPACE_ID,
       displayName: 'Generated candidate',
@@ -88,25 +318,57 @@ function makeService(
   },
 ): DetailPageAiService {
   const resultRefiner = makeResultRefiner(heroImageService);
-  const contentAssets = new ContentAssetService(prisma as never);
+  const typedPrisma = prisma as ReturnType<typeof makePrisma>;
   const query = new DetailPageQueryService(
-    prisma as never,
+    makeQueryRepository(typedPrisma),
     resultRefiner,
     imageStorage as never,
-    contentAssets,
   );
   const generation = new DetailPageGenerationService(
-    prisma as never,
+    makeGenerationRepository(typedPrisma),
     imageStorage as never,
     operationAlerts,
     query,
     agentRunner,
-    contentAssets,
-    generatedCandidates as never,
-    registrationWorkspaces as never,
+    contentWorkspaces as never,
+    makeProductGenerationAlertsStub(),
   );
   const prefill = new DetailPagePrefillService(textCompletion as never);
   return new DetailPageAiService(generation, prefill, query);
+}
+
+function makeGenerationService(input: {
+  prisma: ReturnType<typeof makePrisma>;
+  textCompletion?: unknown;
+  imageStorage?: unknown;
+  operationAlerts?: OperationAlertPort;
+  heroImageService?: unknown;
+  agentRunner?: AgentRunnerPort;
+  contentWorkspaces?: { ensureForGeneration: ReturnType<typeof vi.fn> };
+  productGenerationAlerts?: ProductGenerationAlertService;
+}) {
+  const resultRefiner = makeResultRefiner(input.heroImageService);
+  const imageStorage = input.imageStorage ?? { save: vi.fn() };
+  const query = new DetailPageQueryService(
+    makeQueryRepository(input.prisma),
+    resultRefiner,
+    imageStorage as never,
+  );
+  return new DetailPageGenerationService(
+    makeGenerationRepository(input.prisma),
+    imageStorage as never,
+    input.operationAlerts ?? makeOperationAlertsStub(),
+    query,
+    input.agentRunner ?? makeAgentRunnerStub(),
+    input.contentWorkspaces ?? {
+      ensureForGeneration: vi.fn(async () => ({
+        id: REGISTRATION_WORKSPACE_ID,
+        displayName: 'Generated candidate',
+        normalizedTitle: 'generated candidate',
+      })),
+    } as never,
+    input.productGenerationAlerts ?? makeProductGenerationAlertsStub(),
+  );
 }
 
 function boldVerticalResult() {
@@ -168,6 +430,9 @@ function makePrisma() {
     },
     contentGenerationSource: {
       createMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
+    contentWorkspace: {
+      findFirst: vi.fn().mockResolvedValue(null),
     },
     contentGenerationAssetUsage: {
       deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
@@ -334,7 +599,7 @@ describe('DetailPageAiService', () => {
         operationKey: `detail-page:${GENERATION_ID}`,
         sourceType: 'content_generation',
         sourceId: GENERATION_ID,
-        targetType: 'registration_workspace',
+        targetType: 'content_workspace',
         targetId: REGISTRATION_WORKSPACE_ID,
         href: `/product-pipeline/detail-pages/${GENERATION_ID}/editor?returnTo=%2Fproduct-pipeline%2Fregistered-products%2F${REGISTRATION_WORKSPACE_ID}`,
       }),
@@ -343,6 +608,210 @@ describe('DetailPageAiService', () => {
     expect(result.id).toBe(GENERATION_ID);
     expect(result.imageProcessingStatus).toBe('processing');
     expect(result.productId).toBe(MASTER_ID);
+  });
+
+  it('suppresses child detail operation alert when linked to product generation parent', async () => {
+    const prisma = makePrisma();
+    const operationAlerts = makeOperationAlertsStub();
+    const productGenerationAlerts = makeProductGenerationAlertsStub();
+    const agentRunner = makeAgentRunnerStub();
+    const service = makeGenerationService({
+      prisma,
+      operationAlerts,
+      productGenerationAlerts,
+      agentRunner,
+    });
+
+    await service.generate(
+      {
+        productId: MASTER_ID,
+        templateId: 'bold-vertical',
+        rawTitle: '휴대용목걸이비눗방울',
+        rawCategory: '완구',
+        rawDescription: '아이들이 가지고 놀기 좋은 장난감',
+        rawOptions: '혼합 색상 / 사이즈 85*60mm',
+        imageUrls: ['https://example.com/detail-1.jpg'],
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+      {
+        operationAlert: {
+          mode: 'parent',
+          batchId: 'batch-1',
+          parentOperationKey: 'product-generation:batch-1',
+          childKind: 'detail_page',
+        },
+      },
+    );
+
+    expect(operationAlerts.start).not.toHaveBeenCalledWith(
+      expect.objectContaining({ operationKey: `detail-page:${GENERATION_ID}` }),
+    );
+    expect(productGenerationAlerts.recordChildStarted).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      parentOperationKey: 'product-generation:batch-1',
+      childKind: 'detail_page',
+      childId: GENERATION_ID,
+    });
+    expect(prisma.contentGeneration.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        generationInput: expect.objectContaining({
+          productGeneration: {
+            mode: 'parent',
+            productGenerationBatchId: 'batch-1',
+            parentOperationKey: 'product-generation:batch-1',
+            childKind: 'detail_page',
+          },
+        }),
+      }),
+    }));
+  });
+
+  it('closes parent-mode detail child without Agent OS enqueue when parent is already terminal', async () => {
+    const prisma = makePrisma();
+    const operationAlerts = makeOperationAlertsStub();
+    const productGenerationAlerts = makeProductGenerationAlertsStub();
+    productGenerationAlerts.recordChildStarted = vi.fn().mockResolvedValue({
+      status: 'parent_terminal',
+      alert: { status: 'cancelled' },
+    });
+    const agentRunner = makeAgentRunnerStub();
+    const service = makeGenerationService({
+      prisma,
+      operationAlerts,
+      productGenerationAlerts,
+      agentRunner,
+    });
+
+    await service.generate(
+      {
+        productId: MASTER_ID,
+        templateId: 'bold-vertical',
+        rawTitle: '휴대용목걸이비눗방울',
+        rawCategory: '완구',
+        rawDescription: '아이들이 가지고 놀기 좋은 장난감',
+        rawOptions: '혼합 색상 / 사이즈 85*60mm',
+        imageUrls: ['https://example.com/detail-1.jpg'],
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+      {
+        operationAlert: {
+          mode: 'parent',
+          batchId: 'batch-1',
+          parentOperationKey: 'product-generation:batch-1',
+          childKind: 'detail_page',
+        },
+      },
+    );
+
+    expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith({
+      where: { id: GENERATION_ID, organizationId: ORGANIZATION_ID },
+      data: expect.objectContaining({
+        status: 'CANCELLED',
+        errorMessage: expect.stringContaining('cancelled'),
+      }),
+    });
+    expect(agentRunner.runByType).not.toHaveBeenCalled();
+  });
+
+  it('cancels the detail Agent OS request when parent is cancelled after child registration', async () => {
+    const prisma = makePrisma();
+    const operationAlerts = makeOperationAlertsStub();
+    const productGenerationAlerts = makeProductGenerationAlertsStub();
+    productGenerationAlerts.canStartChild = vi.fn().mockResolvedValue(false);
+    const agentRunner = makeAgentRunnerStub();
+    const service = makeGenerationService({
+      prisma,
+      operationAlerts,
+      productGenerationAlerts,
+      agentRunner,
+    });
+
+    await service.generate(
+      {
+        productId: MASTER_ID,
+        templateId: 'bold-vertical',
+        rawTitle: '휴대용목걸이비눗방울',
+        rawCategory: '완구',
+        rawDescription: '아이들이 가지고 놀기 좋은 장난감',
+        rawOptions: '혼합 색상 / 사이즈 85*60mm',
+        imageUrls: ['https://example.com/detail-1.jpg'],
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+      {
+        operationAlert: {
+          mode: 'parent',
+          batchId: 'batch-1',
+          parentOperationKey: 'product-generation:batch-1',
+          childKind: 'detail_page',
+        },
+      },
+    );
+
+    expect(agentRunner.runByType).toHaveBeenCalled();
+    expect(agentRunner.cancelRequest).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      requestId: REQUEST_ID,
+      reason: 'Parent product generation was cancelled before detail request execution.',
+      actorUserId: USER_ID,
+    });
+    expect(agentRunner.executeRequest).not.toHaveBeenCalled();
+  });
+
+  it('routes parent-mode detail enqueue failures to the product generation parent alert', async () => {
+    const prisma = makePrisma();
+    const operationAlerts = makeOperationAlertsStub();
+    const productGenerationAlerts = makeProductGenerationAlertsStub();
+    const agentRunner = makeAgentRunnerStub({
+      ok: false,
+      reason: 'queue down',
+    } as never);
+    const service = makeGenerationService({
+      prisma,
+      operationAlerts,
+      productGenerationAlerts,
+      agentRunner,
+    });
+
+    await expect(
+      service.generate(
+        {
+          productId: MASTER_ID,
+          templateId: 'bold-vertical',
+          rawTitle: '휴대용목걸이비눗방울',
+          rawCategory: '완구',
+          rawDescription: '아이들이 가지고 놀기 좋은 장난감',
+          rawOptions: '혼합 색상 / 사이즈 85*60mm',
+          imageUrls: ['https://example.com/detail-1.jpg'],
+        },
+        ORGANIZATION_ID,
+        USER_ID,
+        {
+          operationAlert: {
+            mode: 'parent',
+            batchId: 'batch-1',
+            parentOperationKey: 'product-generation:batch-1',
+            childKind: 'detail_page',
+          },
+        },
+      ),
+    ).rejects.toThrow('Agent OS enqueue failed: queue down');
+
+    expect(productGenerationAlerts.markChildFinished).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      parentOperationKey: 'product-generation:batch-1',
+      childKind: 'detail_page',
+      status: 'failed',
+      childId: GENERATION_ID,
+      errorMessage: 'Agent OS enqueue failed: queue down',
+    });
+    expect(operationAlerts.fail).not.toHaveBeenCalledWith(
+      ORGANIZATION_ID,
+      `detail-page:${GENERATION_ID}`,
+      expect.anything(),
+    );
   });
 
   it('drains retryable detail-page executor failures so local preview reaches the terminal sink path', async () => {
@@ -470,19 +939,12 @@ describe('DetailPageAiService', () => {
     );
   });
 
-  it('uses registration workspace history as the base for direct image-only runs without product or candidate', async () => {
+  it('uses content workspace history as the base for direct image-only runs without product or candidate', async () => {
     const prisma = makePrisma();
     const textCompletion = { complete: vi.fn() };
     const imageStorage = { save: vi.fn() };
     const operationAlerts = makeOperationAlertsStub();
-    const generatedCandidates = {
-      create: vi.fn(async () => ({
-        id: 'generated-candidate-id',
-        name: 'Generated candidate',
-        category: null,
-      })),
-    };
-    const registrationWorkspaces = {
+    const contentWorkspaces = {
       ensureForGeneration: vi.fn(async () => ({
         id: REGISTRATION_WORKSPACE_ID,
         displayName: '키즈 텀블러',
@@ -491,7 +953,7 @@ describe('DetailPageAiService', () => {
     };
     const draftBase = makeGenerationRow({
       id: '88888888-8888-4888-8888-888888888888',
-      registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+      contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
       sourceCandidateId: null,
       generationInput: {
         rawTitle: '키즈 텀블러',
@@ -514,8 +976,7 @@ describe('DetailPageAiService', () => {
       operationAlerts,
       undefined,
       makeAgentRunnerStub(),
-      generatedCandidates,
-      registrationWorkspaces,
+      contentWorkspaces,
     );
 
     await service.generate(
@@ -532,19 +993,25 @@ describe('DetailPageAiService', () => {
       USER_ID,
     );
 
-    expect(generatedCandidates.create).not.toHaveBeenCalled();
+    expect(contentWorkspaces.ensureForGeneration).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      triggeredByUserId: USER_ID,
+      rawTitle: '키즈 텀블러',
+      sourceCandidateId: null,
+      targetMasterId: null,
+    });
     expect(prisma.contentGeneration.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           organizationId: ORGANIZATION_ID,
-          registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+          contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
         }),
       }),
     );
     expect(prisma.contentGeneration.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+          contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
           sourceCandidateId: null,
           generationInput: expect.objectContaining({
             generationMode: 'image',
@@ -622,7 +1089,9 @@ describe('DetailPageAiService', () => {
     });
     expect(operationAlerts.start).toHaveBeenCalledWith(
       expect.objectContaining({
-        href: `/product-pipeline/detail-pages/${GENERATION_ID}/editor?returnTo=%2Fproduct-pipeline%2Fregistered-products%2F${REGISTRATION_WORKSPACE_ID}`,
+        targetType: 'sourcing_candidate',
+        targetId: CANDIDATE_ID,
+        href: `/product-pipeline/detail-pages/${GENERATION_ID}/editor?sourceCandidateId=${CANDIDATE_ID}&returnTo=%2Fproduct-pipeline%2Fcollected-products%2F${CANDIDATE_ID}`,
         metadata: expect.objectContaining({
           sourceCandidateId: CANDIDATE_ID,
         }),
@@ -695,6 +1164,21 @@ describe('DetailPageAiService', () => {
       data: {
         status: 'CANCELLED',
         errorMessage: '사용자 요청으로 생성이 중단되었습니다.',
+        generationResult: expect.objectContaining({
+          templateId: 'bold-vertical',
+          operationCancellation: expect.objectContaining({
+            requestedByUserId: null,
+            reason: '사용자 요청으로 생성이 중단되었습니다.',
+            result: 'cancelled',
+            target: {
+              targetType: 'content_generation',
+              generationId: GENERATION_ID,
+            },
+            affected: expect.objectContaining({
+              contentGenerationIds: [GENERATION_ID],
+            }),
+          }),
+        }),
       },
     });
     expect(agentRunner.cancelBySource).toHaveBeenCalledWith({
@@ -703,16 +1187,55 @@ describe('DetailPageAiService', () => {
       sourceResourceType: 'content_generation',
       sourceResourceId: GENERATION_ID,
       reason: '사용자 요청으로 생성이 중단되었습니다.',
+      actorUserId: null,
     });
     expect(operationAlerts.cancel).toHaveBeenCalledWith(
       ORGANIZATION_ID,
       `detail-page:${GENERATION_ID}`,
       expect.objectContaining({
         message: '사용자 요청으로 생성이 중단되었습니다.',
-        metadata: { errorCode: 'user_cancelled' },
+        metadata: expect.objectContaining({ errorCode: 'user_cancelled' }),
       }),
     );
     expect(result.imageProcessingStatus).toBe('cancelled');
+  });
+
+  it('marks the parent product-generation child finished when directly cancelling a child detail generation', async () => {
+    const prisma = makePrisma();
+    prisma.contentGeneration.findFirst.mockResolvedValueOnce(makeGenerationRow({
+      status: 'PROCESSING',
+      generationInput: {
+        rawTitle: '원본 상품명',
+        imageUrls: ['https://example.com/image.jpg'],
+        productGeneration: {
+          mode: 'parent',
+          productGenerationBatchId: 'batch-1',
+          parentOperationKey: 'product-generation:batch-1',
+          childKind: 'detail_page',
+        },
+      },
+    }));
+    const productGenerationAlerts = makeProductGenerationAlertsStub();
+    const service = makeGenerationService({
+      prisma,
+      productGenerationAlerts,
+    });
+
+    await service.cancelForOperation({
+      organizationId: ORGANIZATION_ID,
+      generationId: GENERATION_ID,
+      actorUserId: USER_ID,
+      reason: '사용자 요청',
+    });
+
+    expect(productGenerationAlerts.markChildFinished).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      parentOperationKey: 'product-generation:batch-1',
+      childKind: 'detail_page',
+      status: 'failed',
+      childId: GENERATION_ID,
+      errorMessage: '사용자 요청',
+    });
   });
 
   it('uses inferred package images only in the package section for bold vertical', async () => {
@@ -969,7 +1492,7 @@ describe('DetailPageAiService', () => {
         operationKey: `detail-page:${GENERATION_ID}`,
         sourceType: 'content_generation',
         sourceId: GENERATION_ID,
-        targetType: 'registration_workspace',
+        targetType: 'content_workspace',
         targetId: REGISTRATION_WORKSPACE_ID,
         href: `/product-pipeline/detail-pages/${GENERATION_ID}/editor?returnTo=%2Fproduct-pipeline%2Fregistered-products%2F${REGISTRATION_WORKSPACE_ID}`,
       }),
@@ -989,17 +1512,10 @@ describe('DetailPageAiService', () => {
     expect(operationAlerts.succeed).not.toHaveBeenCalled();
   });
 
-  it('product-less generate creates a registration workspace without creating a sourcing candidate inbox card', async () => {
+  it('product-less generate creates a direct content workspace without a collected candidate', async () => {
     const prisma = makePrisma();
     const operationAlerts = makeOperationAlertsStub();
-    const generatedCandidates = {
-      create: vi.fn(async () => ({
-        id: 'generated-candidate-id',
-        name: 'Generated candidate',
-        category: null,
-      })),
-    };
-    const registrationWorkspaces = {
+    const contentWorkspaces = {
       ensureForGeneration: vi.fn(async () => ({
         id: REGISTRATION_WORKSPACE_ID,
         displayName: '키즈 텀블러',
@@ -1010,7 +1526,7 @@ describe('DetailPageAiService', () => {
     prisma.contentGeneration.create.mockResolvedValueOnce({
       ...makeGenerationRow({
         generationGroupId: GENERATION_GROUP_ID,
-        registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+        contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
         templateId: 'kids-playful',
         generationInput: {
           rawTitle: '  키즈   텀블러  ',
@@ -1036,7 +1552,7 @@ describe('DetailPageAiService', () => {
     });
     prisma.contentGeneration.findFirst.mockResolvedValue(makeGenerationRow({
       generationGroupId: GENERATION_GROUP_ID,
-      registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+      contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
       templateId: 'kids-playful',
       generationInput: {
         rawTitle: '  키즈   텀블러  ',
@@ -1069,8 +1585,7 @@ describe('DetailPageAiService', () => {
       operationAlerts,
       undefined,
       agentRunner,
-      generatedCandidates,
-      registrationWorkspaces,
+      contentWorkspaces,
     );
 
     const result = await service.generate(
@@ -1088,8 +1603,8 @@ describe('DetailPageAiService', () => {
     );
 
     expect(prisma.masterProduct.findFirst).not.toHaveBeenCalled();
-    expect(generatedCandidates.create).not.toHaveBeenCalled();
-    expect(registrationWorkspaces.ensureForGeneration).toHaveBeenCalledWith({
+    expect(prisma.sourcingCandidate.findFirst).not.toHaveBeenCalled();
+    expect(contentWorkspaces.ensureForGeneration).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       triggeredByUserId: USER_ID,
       rawTitle: '  키즈   텀블러  ',
@@ -1101,7 +1616,7 @@ describe('DetailPageAiService', () => {
         organizationId: ORGANIZATION_ID,
         contentType: 'detail_page',
         generationGroupId: GENERATION_GROUP_ID,
-        registrationWorkspaceId: REGISTRATION_WORKSPACE_ID,
+        contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
         sourceCandidateId: null,
         triggeredByUserId: USER_ID,
         status: 'PROCESSING',
@@ -1126,7 +1641,7 @@ describe('DetailPageAiService', () => {
         organizationId: ORGANIZATION_ID,
         sourceResourceType: 'content_generation',
         sourceResourceId: GENERATION_ID,
-        reason: `detail_page_generate for registration workspace ${REGISTRATION_WORKSPACE_ID}`,
+        reason: `detail_page_generate for content workspace ${REGISTRATION_WORKSPACE_ID}`,
       }),
     );
     expect(operationAlerts.start).toHaveBeenCalledWith(
@@ -1135,7 +1650,7 @@ describe('DetailPageAiService', () => {
         operationKey: `detail-page:${GENERATION_ID}`,
         sourceType: 'content_generation',
         sourceId: GENERATION_ID,
-        targetType: 'registration_workspace',
+        targetType: 'content_workspace',
         targetId: REGISTRATION_WORKSPACE_ID,
         href: `/product-pipeline/detail-pages/${GENERATION_ID}/editor?returnTo=%2Fproduct-pipeline%2Fregistered-products%2F${REGISTRATION_WORKSPACE_ID}`,
       }),
@@ -1145,9 +1660,9 @@ describe('DetailPageAiService', () => {
     expect(result.imageProcessingStatus).toBe('processing');
   });
 
-  it('appends direct generation to the loaded registration workspace instead of creating a new one', async () => {
+  it('appends direct generation to the loaded content workspace instead of creating a new one', async () => {
     const prisma = makePrisma();
-    prisma.registrationWorkspace = {
+    prisma.contentWorkspace = {
       findFirst: vi.fn().mockResolvedValue({
         id: LOADED_REGISTRATION_WORKSPACE_ID,
         ownerType: 'sourcing_candidate',
@@ -1159,7 +1674,7 @@ describe('DetailPageAiService', () => {
     };
     prisma.contentGeneration.create.mockResolvedValueOnce({
       ...makeGenerationRow({
-        registrationWorkspaceId: LOADED_REGISTRATION_WORKSPACE_ID,
+        contentWorkspaceId: LOADED_REGISTRATION_WORKSPACE_ID,
         sourceCandidateId: CANDIDATE_ID,
         generationGroup: {
           id: GENERATION_GROUP_ID,
@@ -1168,7 +1683,7 @@ describe('DetailPageAiService', () => {
       }),
     });
     prisma.contentGeneration.findFirst.mockResolvedValue(makeGenerationRow({
-      registrationWorkspaceId: LOADED_REGISTRATION_WORKSPACE_ID,
+      contentWorkspaceId: LOADED_REGISTRATION_WORKSPACE_ID,
       sourceCandidateId: CANDIDATE_ID,
       generationGroup: {
         id: GENERATION_GROUP_ID,
@@ -1178,7 +1693,7 @@ describe('DetailPageAiService', () => {
     const textCompletion = { complete: vi.fn() };
     const imageStorage = { save: vi.fn() };
     const operationAlerts = makeOperationAlertsStub();
-    const registrationWorkspaces = {
+    const contentWorkspaces = {
       ensureForGeneration: vi.fn(async () => ({
         id: REGISTRATION_WORKSPACE_ID,
         displayName: 'New direct workspace',
@@ -1192,8 +1707,7 @@ describe('DetailPageAiService', () => {
       operationAlerts,
       undefined,
       makeAgentRunnerStub(),
-      undefined,
-      registrationWorkspaces,
+      contentWorkspaces,
     );
 
     await service.generate(
@@ -1205,16 +1719,16 @@ describe('DetailPageAiService', () => {
         imageUrls: ['https://example.com/loaded.jpg'],
         heroImageMode: 'first',
         templateId: 'kids-playful',
-        registrationWorkspaceId: LOADED_REGISTRATION_WORKSPACE_ID,
+        contentWorkspaceId: LOADED_REGISTRATION_WORKSPACE_ID,
       },
       ORGANIZATION_ID,
       USER_ID,
     );
 
-    expect(registrationWorkspaces.ensureForGeneration).not.toHaveBeenCalled();
+    expect(contentWorkspaces.ensureForGeneration).not.toHaveBeenCalled();
     expect(prisma.contentGeneration.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        registrationWorkspaceId: LOADED_REGISTRATION_WORKSPACE_ID,
+        contentWorkspaceId: LOADED_REGISTRATION_WORKSPACE_ID,
         sourceCandidateId: CANDIDATE_ID,
       }),
       include: expect.objectContaining({
@@ -1223,8 +1737,9 @@ describe('DetailPageAiService', () => {
     });
     expect(operationAlerts.start).toHaveBeenCalledWith(
       expect.objectContaining({
-        targetType: 'registration_workspace',
+        targetType: 'content_workspace',
         targetId: LOADED_REGISTRATION_WORKSPACE_ID,
+        href: `/product-pipeline/detail-pages/${GENERATION_ID}/editor?returnTo=%2Fproduct-pipeline%2Fregistered-products%2F${LOADED_REGISTRATION_WORKSPACE_ID}`,
       }),
     );
   });
@@ -1234,7 +1749,8 @@ describe('DetailPageAiService', () => {
     const textCompletion = {
       complete: vi.fn().mockResolvedValue({
         text: JSON.stringify({
-          category: '생활용품/리빙',
+          category: '생활용품/리빙 > 휴대용 비눗방울 > 목걸이형',
+          keyword: '아이 목걸이 비눗방울',
           target: '부모 구매자',
           features: [
             '목에 걸고 다니기 쉬운 휴대형 비눗방울',
@@ -1271,9 +1787,47 @@ describe('DetailPageAiService', () => {
         temperature: 0.45,
       }),
     );
-    expect(result.category).toBe('생활용품/리빙');
+    expect(result.category).toBe('생활용품/리빙 > 휴대용 비눗방울 > 목걸이형');
+    expect(result.keyword).toBe('아이 목걸이 비눗방울');
     expect(result.target).toBe('부모 구매자');
     expect(result.description).toContain('1. 목에 걸고 다니기 쉬운 휴대형 비눗방울');
     expect(result.options).toEqual(['노란색', '빨간색', '초록색']);
+  });
+
+  it('normalizes prefill target arrays from the model into a string', async () => {
+    const prisma = makePrisma();
+    const textCompletion = {
+      complete: vi.fn().mockResolvedValue({
+        text: JSON.stringify({
+          category: '완구/취미 > 만들기/창의놀이 > 놀이세트',
+          keyword: '키즈 놀이세트',
+          target: ['부모 구매자', '선물 구매자'],
+          features: [
+            '아이들이 쉽게 사용할 수 있는 놀이 상품',
+            '실내외 활동에 모두 어울리는 구성',
+            '선물용으로 설명하기 쉬운 패키지',
+          ],
+          options: [],
+          extraNotes: '',
+        }),
+      }),
+    };
+    const service = makeService(
+      prisma,
+      textCompletion,
+      { save: vi.fn() },
+      makeOperationAlertsStub(),
+    );
+
+    const result = await service.prefill(
+      {
+        rawTitle: '키즈 놀이 세트',
+        imageUrls: [],
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+    );
+
+    expect(result.target).toBe('부모 구매자, 선물 구매자');
   });
 });

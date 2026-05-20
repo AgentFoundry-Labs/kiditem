@@ -4,8 +4,9 @@ import {
   type CreateRunRequestRecordInput,
   type FailClaimedRequestInput,
   type FindRequestsQuery,
+  type MarkRequestStatusIfCurrentInput,
   type MarkRequestStatusInput,
-} from '../../../application/port/out/agent-os-repository.port';
+} from '../../../application/port/out/repository/agent-os-repository.port';
 import { AgentOsBoundaryError } from '../../../domain/agent-os.errors';
 import { type AgentRunRequestRecord } from '../../../domain/agent-os.types';
 import {
@@ -223,7 +224,25 @@ export class AgentOsRequestRepository {
     });
   }
 
-  async markRequestStatus(input: MarkRequestStatusInput) {
+  async markRequestStatus(input: MarkRequestStatusInput): Promise<AgentRunRequestRecord> {
+    const result = await this.updateRequestStatus(input);
+    if (!result) {
+      throw new AgentOsBoundaryError(
+        'agent_run_request_not_found',
+        `AgentRunRequest ${input.requestId} not found in organization ${input.organizationId}.`,
+      );
+    }
+    return result;
+  }
+
+  async markRequestStatusIfCurrent(input: MarkRequestStatusIfCurrentInput) {
+    return this.updateRequestStatus(input, input.currentStatuses);
+  }
+
+  private async updateRequestStatus(
+    input: MarkRequestStatusInput,
+    currentStatuses?: string[],
+  ) {
     const isTerminal =
       input.status === 'failed' ||
       input.status === 'succeeded' ||
@@ -239,18 +258,33 @@ export class AgentOsRequestRepository {
       where: {
         id: input.requestId,
         organizationId: input.organizationId,
+        ...(currentStatuses && currentStatuses.length > 0
+          ? { status: { in: currentStatuses } }
+          : {}),
       },
       data: {
         status: input.status,
         coalescedIntoRequestId: input.coalescedIntoRequestId ?? undefined,
         lastErrorCode: input.errorCode ?? undefined,
         lastErrorMessage: input.errorMessage ?? undefined,
+        payload: input.payload
+          ? (input.payload as Prisma.InputJsonValue)
+          : undefined,
         finishedAt: isTerminal ? new Date() : isRequeue ? null : undefined,
         claimedAt: isRequeue ? null : undefined,
         claimedBy: isRequeue ? null : undefined,
       },
     });
     if (updated.count === 0) {
+      if (currentStatuses) {
+        const existing = await this.prisma.agentRunRequest.findFirst({
+          where: {
+            id: input.requestId,
+            organizationId: input.organizationId,
+          },
+        });
+        if (existing) return null;
+      }
       throw new AgentOsBoundaryError(
         'agent_run_request_not_found',
         `AgentRunRequest ${input.requestId} not found in organization ${input.organizationId}.`,

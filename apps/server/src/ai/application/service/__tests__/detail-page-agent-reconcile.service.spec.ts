@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DetailPageAgentReconcileService } from '../detail-page-agent-reconcile.service';
-import type { DetailPageAgentOutputSinkPort } from '../../port/out/detail-page-agent-output-sink.port';
+import type { DetailPageAgentOutputSinkPort } from '../../port/out/sink/detail-page-agent-output-sink.port';
 import type { AgentObservabilityService } from '../../../../agent-os/application/service/agent-observability.service';
 import type { AgentRunRecord } from '../../../../agent-os/domain/agent-os.types';
 
@@ -80,21 +80,17 @@ const VALID_OUTPUT = {
   imageUrls: ['https://example.com/0.jpg'],
 };
 
-function makePrismaStub(input: {
+function makeRepositoryStub(input: {
   requests: Array<ReturnType<typeof makeRow>>;
   cgStatus: 'PROCESSING' | 'READY' | 'FAILED' | null;
 }) {
   return {
-    agentRunRequest: {
-      findMany: vi.fn().mockResolvedValue(input.requests),
-    },
-    contentGeneration: {
-      findFirst: vi.fn().mockImplementation(async () =>
-        input.cgStatus === null
-          ? null
-          : { id: 'cg-1', status: input.cgStatus },
-      ),
-    },
+    listTerminalRequests: vi.fn().mockResolvedValue(input.requests),
+    findContentGenerationStatus: vi.fn().mockImplementation(async () =>
+      input.cgStatus === null
+        ? null
+        : { id: 'cg-1', status: input.cgStatus },
+    ),
   };
 }
 
@@ -138,10 +134,10 @@ describe('DetailPageAgentReconcileService', () => {
   });
 
   it('throws when organizationId is missing', async () => {
-    const prisma = makePrismaStub({ requests: [], cgStatus: null });
+    const repository = makeRepositoryStub({ requests: [], cgStatus: null });
     const observability = makeObservabilityStub([]);
     const svc = new DetailPageAgentReconcileService(
-      prisma as never,
+      repository as never,
       observability,
       sink,
     );
@@ -149,13 +145,13 @@ describe('DetailPageAgentReconcileService', () => {
   });
 
   it('replays succeeded request when ContentGeneration is still PROCESSING', async () => {
-    const prisma = makePrismaStub({
+    const repository = makeRepositoryStub({
       requests: [makeRow()],
       cgStatus: 'PROCESSING',
     });
     const observability = makeObservabilityStub([makeRun()]);
     const svc = new DetailPageAgentReconcileService(
-      prisma as never,
+      repository as never,
       observability,
       sink,
     );
@@ -179,13 +175,13 @@ describe('DetailPageAgentReconcileService', () => {
   });
 
   it('skips terminal ContentGeneration rows (READY/FAILED) — bridge already applied', async () => {
-    const prisma = makePrismaStub({
+    const repository = makeRepositoryStub({
       requests: [makeRow()],
       cgStatus: 'READY',
     });
     const observability = makeObservabilityStub([makeRun()]);
     const svc = new DetailPageAgentReconcileService(
-      prisma as never,
+      repository as never,
       observability,
       sink,
     );
@@ -201,7 +197,7 @@ describe('DetailPageAgentReconcileService', () => {
   });
 
   it('routes failed request through applyFailure with the persisted error fields', async () => {
-    const prisma = makePrismaStub({
+    const repository = makeRepositoryStub({
       requests: [
         makeRow({
           status: 'failed',
@@ -213,7 +209,7 @@ describe('DetailPageAgentReconcileService', () => {
     });
     const observability = makeObservabilityStub([]);
     const svc = new DetailPageAgentReconcileService(
-      prisma as never,
+      repository as never,
       observability,
       sink,
     );
@@ -229,7 +225,7 @@ describe('DetailPageAgentReconcileService', () => {
   });
 
   it('routes invalid succeeded output to applyFailure with agent_output_invalid', async () => {
-    const prisma = makePrismaStub({
+    const repository = makeRepositoryStub({
       requests: [makeRow()],
       cgStatus: 'PROCESSING',
     });
@@ -237,7 +233,7 @@ describe('DetailPageAgentReconcileService', () => {
       makeRun({ output: { totally: 'wrong shape' } as Record<string, unknown> }),
     ]);
     const svc = new DetailPageAgentReconcileService(
-      prisma as never,
+      repository as never,
       observability,
       sink,
     );
@@ -258,7 +254,7 @@ describe('DetailPageAgentReconcileService', () => {
   it('replays the request-specific run even when a newer succeeded run exists on the same instance', async () => {
     const stuckRequestId = 'req-stuck';
     const newerRequestId = 'req-newer';
-    const prisma = makePrismaStub({
+    const repository = makeRepositoryStub({
       requests: [makeRow({ id: stuckRequestId })],
       cgStatus: 'PROCESSING',
     });
@@ -277,7 +273,7 @@ describe('DetailPageAgentReconcileService', () => {
     });
     const observability = makeObservabilityStub([newerRun, stuckRun]);
     const svc = new DetailPageAgentReconcileService(
-      prisma as never,
+      repository as never,
       observability,
       sink,
     );

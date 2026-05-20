@@ -8,7 +8,7 @@ import { z } from 'zod';
  *   NOT `channelName` (listing display title).
  * - channelType: derived server-side from channel ('marketplace' | 'direct' | 'other')
  *   — ChannelListing 에는 channelType 필드 없음, 서비스 상수 맵에서 생성.
- * - returnRate: ADR-0017 semantic — distinct orders returned / orders in period,
+ * - returnRate: distinct orders returned / orders in period,
  *   INNER JOIN via Order.orderedAt. Bounded [0, 1].
  * - orphanReturnCount: Orphan (OrderReturn.orderId NULL) requestedAt ∈ period 은
  *   channel 매핑 불가이므로 channel row 에는 표시 안 하고 totals 에만 노출.
@@ -23,8 +23,8 @@ export const ChannelAnalysisSchema = z.object({
   totalRevenue: z.number().int().nonnegative(),
   totalCost: z.number().int().nonnegative(),      // cogs + commission + shipping + ad + other
   totalProfit: z.number().int(),                  // may be negative
-  returnCount: z.number().int().nonnegative(),    // distinct orders returned (ADR-0017 INNER JOIN)
-  returnRate: z.number().min(0).max(1),           // ADR-0017 hard contract
+  returnCount: z.number().int().nonnegative(),    // distinct orders returned via INNER JOIN
+  returnRate: z.number().min(0).max(1),           // bounded returnRate contract
   avgOrderValue: z.number().nonnegative(),
 });
 export type ChannelAnalysis = z.infer<typeof ChannelAnalysisSchema>;
@@ -40,7 +40,7 @@ export const SalesAnalysisDataSchema = z.object({
     totalProfit: z.number().int(),
     totalOrders: z.number().int().nonnegative(),  // global distinct Order count (not channels sum)
     totalCost: z.number().int().nonnegative(),
-    orphanReturnCount: z.number().int().nonnegative(),  // NEW (ADR-0017) — orphans channel 매핑 불가
+    orphanReturnCount: z.number().int().nonnegative(),  // orphans channel 매핑 불가
   }),
 });
 export type SalesAnalysisData = z.infer<typeof SalesAnalysisDataSchema>;

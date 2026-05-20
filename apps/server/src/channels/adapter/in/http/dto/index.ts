@@ -10,3 +10,5 @@ export {
   CoupangReconciliationIgnoreDto,
 } from './reconciliation-action.dto';
 export { UpdateCoupangAccountSettingsDto } from './coupang-account-settings.dto';
+export { ChannelListingQueryDto } from './channel-listing-query.dto';
+export { MarketplaceRegistrationDto } from './marketplace-registration.dto';

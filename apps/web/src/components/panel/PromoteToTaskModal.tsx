@@ -51,7 +51,7 @@ export function PromoteToTaskModal({ alert, open, onClose }: PromoteToTaskModalP
 
   const promoteMutation = useMutation({
     mutationFn: async (dto: PromoteDto) =>
-      apiClient.post(`/alerts/${alert.id}/promote`, dto),
+      apiClient.post(`/api/alerts/${encodeURIComponent(alert.id)}/promote`, dto),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.actionTasks.all });
       toast.success('할 일 목록에 추가했습니다');
@@ -67,8 +67,8 @@ export function PromoteToTaskModal({ alert, open, onClose }: PromoteToTaskModalP
     },
   });
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function submitPromotion() {
+    if (promoteMutation.isPending) return;
     const dto: PromoteDto = {};
     if (priority !== defaultPriority) dto.priorityOverride = priority;
     if (role.trim()) dto.roleOverride = role.trim();
@@ -76,13 +76,18 @@ export function PromoteToTaskModal({ alert, open, onClose }: PromoteToTaskModalP
     promoteMutation.mutate(dto);
   }
 
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    submitPromotion();
+  }
+
   return (
     <Dialog.Root open={open} onOpenChange={(v) => !v && onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/30 z-50" />
+        <Dialog.Overlay className="fixed inset-0 bg-black/30 z-[120]" />
         <Dialog.Content
           className={cn(
-            'fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50',
+            'fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[130]',
             'w-full max-w-md bg-white rounded-lg border border-gray-200 shadow-lg',
             'p-6 focus:outline-none',
           )}
@@ -100,6 +105,9 @@ export function PromoteToTaskModal({ alert, open, onClose }: PromoteToTaskModalP
               <X className="w-4 h-4" />
             </button>
           </div>
+          <Dialog.Description className="sr-only">
+            알림을 작업 보드에서 추적할 수 있는 할 일로 전환합니다.
+          </Dialog.Description>
 
           <div className="mb-4 text-xs text-gray-500 truncate">
             {alert.title}
@@ -163,7 +171,8 @@ export function PromoteToTaskModal({ alert, open, onClose }: PromoteToTaskModalP
                 취소
               </button>
               <button
-                type="submit"
+                type="button"
+                onClick={submitPromotion}
                 disabled={promoteMutation.isPending}
                 className="px-4 py-2 text-sm font-medium text-white bg-violet-600 hover:bg-violet-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
               >

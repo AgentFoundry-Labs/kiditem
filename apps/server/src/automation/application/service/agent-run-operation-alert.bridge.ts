@@ -62,6 +62,7 @@ export class AgentRunOperationAlertBridge {
 
   @OnEvent(AGENT_RUN_EVENTS.FINALIZED)
   async onAgentRunFinalized(event: AgentRunFinalizedEvent): Promise<void> {
+    if (event.requestStatus === 'cancelled') return;
     try {
       const metadata = event.runId === undefined ? {} : { runId: event.runId };
       const closed = await this.operationAlerts.closeBySource(

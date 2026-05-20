@@ -6,7 +6,9 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   COUPANG_PROVIDER_PORT,
   type CoupangProviderPort,
-} from '../../port/out/coupang-provider.port';
+} from '../../port/out/provider/coupang-provider.port';
+import { CHANNEL_SYNC_REPOSITORY_PORT } from '../../port/out/repository/channel-sync.repository.port';
+import { ChannelSyncRepositoryAdapter } from '../../../adapter/out/repository/channel-sync.repository.adapter';
 import { ChannelAccountService } from '../channel-account.service';
 
 function makeCoupangPortStub(): CoupangProviderPort {
@@ -54,6 +56,7 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
       providers: [
         ChannelSyncService,
         { provide: PrismaService, useValue: prisma },
+        { provide: CHANNEL_SYNC_REPOSITORY_PORT, useValue: new ChannelSyncRepositoryAdapter(prisma as never) },
         { provide: ChannelAccountService, useValue: makeChannelAccountStub() },
         { provide: COUPANG_PROVIDER_PORT, useValue: coupangPortStub },
       ],
@@ -227,6 +230,7 @@ describe('ChannelSyncService.syncSingleReturn (Plan A.5)', () => {
       providers: [
         ChannelSyncService,
         { provide: PrismaService, useValue: prisma },
+        { provide: CHANNEL_SYNC_REPOSITORY_PORT, useValue: new ChannelSyncRepositoryAdapter(prisma as never) },
         { provide: ChannelAccountService, useValue: makeChannelAccountStub() },
         { provide: COUPANG_PROVIDER_PORT, useValue: coupangPortStub },
       ],
@@ -350,6 +354,7 @@ describe('ChannelSyncService.syncOrders (KST adapter boundary)', () => {
       providers: [
         ChannelSyncService,
         { provide: PrismaService, useValue: prisma },
+        { provide: CHANNEL_SYNC_REPOSITORY_PORT, useValue: new ChannelSyncRepositoryAdapter(prisma as never) },
         { provide: ChannelAccountService, useValue: makeChannelAccountStub() },
         { provide: COUPANG_PROVIDER_PORT, useValue: coupangPortStub },
       ],

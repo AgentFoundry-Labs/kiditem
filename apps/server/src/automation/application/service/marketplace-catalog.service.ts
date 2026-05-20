@@ -7,7 +7,7 @@ import {
 import {
   MARKETPLACE_CATALOG_REPOSITORY_PORT,
   type MarketplaceCatalogRepositoryPort,
-} from '../port/out/marketplace-catalog.repository.port';
+} from '../port/out/repository/marketplace-catalog.repository.port';
 import type { MarketplaceRecord } from '../port/persistence-records';
 
 function toCatalogItem(item: MarketplaceRecord, installed: boolean): MarketplaceCatalogItem {

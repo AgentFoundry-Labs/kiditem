@@ -1,43 +1,36 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
-import { PrismaService } from '../../../../prisma/prisma.service';
-import { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
-import type { ThumbnailAgentOutputSinkPort } from '../../../application/port/out/thumbnail-agent-output-sink.port';
+import type { ThumbnailAgentOutputSinkPort } from '../../../application/port/out/sink/thumbnail-agent-output-sink.port';
+import {
+  AI_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../../../application/port/out/cross-domain/operation-alert.port';
 import type { ThumbnailGenerateAgentOutput } from '../../../domain/agent-output';
 import type { ThumbnailEditorCandidate } from '../../../domain/model/thumbnail-editor';
 import {
-  applyAgentSuccessResult,
-  lockGenerationForProcessing,
-  markGenerationFailed,
-} from '../prisma/thumbnail-generation.persistence';
-import {
-  THUMBNAIL_GENERATION_EVENT_PORT,
-  type ThumbnailGenerationEventPort,
-} from '../../../application/port/out/thumbnail-generation-event.port';
+  THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
+  type ThumbnailGenerationLedgerRepositoryPort,
+} from '../../../application/port/out/repository/thumbnail-generation-ledger.repository.port';
+import { ProductGenerationAlertService } from '../../../application/service/product-generation-alert.service';
+import { ThumbnailGenerationLifecycleService } from '../../../application/service/thumbnail-generation-lifecycle.service';
 
 /**
  * Real `ThumbnailAgentOutputSinkPort` adapter — applies a validated
  * `thumbnail_generate` runtime result back onto the originating
  * `ThumbnailGeneration` row.
  *
- * Boundary contract — the sink owns Prisma writes for thumbnail
- * generation rows after enqueue. Runtime handler
- * (`ThumbnailGenerateRuntimeHandler`) and bridge
- * (`ThumbnailAgentOutputBridge`) never call Prisma. The lock + replace
- * cycle (`lockGenerationForProcessing` → `replaceGenerationResult` /
- * `markGenerationFailed`) mirrors the legacy auto-edit cohort path so
- * panel projection (PR #214) stays consistent: the same
- * `(sourceType='thumbnail_generation', sourceId=<id>)` operation alert
- * the producer opened gets closed here.
+ * Boundary contract — the sink owns validated output projection and alert
+ * closure after enqueue, while `ThumbnailGenerationLedgerRepositoryPort` owns
+ * the tenant-scoped row lock/write transaction. Runtime handler
+ * (`ThumbnailGenerateRuntimeHandler`) and bridge (`ThumbnailAgentOutputBridge`)
+ * never call Prisma.
  *
- * Organization scope — every Prisma write goes through helpers that
- * bind `organizationId` on `WHERE`. The sink never trusts
- * `sourceResourceId` alone; the IDOR boundary is the `organizationId`
- * the executor stamped from the claimed `AgentRunRequest`.
+ * Organization scope — every ledger call includes `organizationId`. The sink
+ * never trusts `sourceResourceId` alone; the IDOR boundary is the
+ * `organizationId` the executor stamped from the claimed `AgentRunRequest`.
  *
- * Idempotency — `lockGenerationForProcessing` returns null if the row
- * is already terminal (`succeeded`/`failed`/`cancelled`), so
- * reconcile/replay can rerun the sink safely without double-applying.
+ * Idempotency — `claimForAgentProjection` returns null if the row is already
+ * terminal (`succeeded`/`failed`/`cancelled`), so reconcile/replay can rerun the
+ * sink safely without double-applying.
  */
 @Injectable()
 export class ThumbnailGenerationSinkAdapter
@@ -46,11 +39,13 @@ export class ThumbnailGenerationSinkAdapter
   private readonly logger = new Logger(ThumbnailGenerationSinkAdapter.name);
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT)
+    private readonly ledger: ThumbnailGenerationLedgerRepositoryPort,
+    @Inject(AI_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
+    private readonly lifecycle: ThumbnailGenerationLifecycleService,
     @Optional()
-    @Inject(THUMBNAIL_GENERATION_EVENT_PORT)
-    private readonly generationEvents: ThumbnailGenerationEventPort | null = null,
+    private readonly productGenerationAlerts?: ProductGenerationAlertService,
   ) {}
 
   static readonly OPERATION_KEY_PREFIX = 'thumbnail-edit:';
@@ -71,15 +66,19 @@ export class ThumbnailGenerationSinkAdapter
       return;
     }
 
-    const lock = await lockGenerationForProcessing(
-      this.prisma,
-      input.sourceResourceId,
-      input.organizationId,
-    );
-    if (!lock) {
-      // Already terminal or cross-tenant — idempotent no-op.
+    const parentLink = await this.readParentLink({
+      organizationId: input.organizationId,
+      generationId: input.sourceResourceId,
+    });
+    if (
+      parentLink &&
+      await this.isParentOperationCancelled({
+        organizationId: input.organizationId,
+        parentOperationKey: parentLink.parentOperationKey,
+      })
+    ) {
       this.logger.debug(
-        `thumbnail_generate success: row ${input.sourceResourceId} not lockable (already terminal or cross-tenant); skipping.`,
+        `thumbnail_generate ${input.sourceResourceId}: parent operation ${parentLink.parentOperationKey} cancelled; no-op.`,
       );
       return;
     }
@@ -98,7 +97,7 @@ export class ThumbnailGenerationSinkAdapter
     // wrote at enqueue time — only candidates / status / phase / inputMeta
     // are owned by the async sink path. `replaceGenerationResult` (used by
     // the legacy auto-batch) would delete inputs.
-    const applied = await applyAgentSuccessResult(this.prisma, {
+    const applied = await this.lifecycle.projectAgentSuccess({
       generationId: input.sourceResourceId,
       organizationId: input.organizationId,
       candidates,
@@ -106,42 +105,41 @@ export class ThumbnailGenerationSinkAdapter
         agentRequestId: input.requestId,
         agentRunId: input.runId ?? null,
       },
-    });
-    if (!applied) {
-      this.logger.warn(
-        `thumbnail_generate success: applyAgentSuccessResult returned null for ${input.sourceResourceId}; the row was likely cancelled mid-flight.`,
-      );
-      return;
-    }
-
-    await this.appendStatusEvent({
-      organizationId: input.organizationId,
-      generationId: input.sourceResourceId,
-      eventType: 'status_change',
-      fromStatus: 'running',
-      toStatus: 'succeeded',
-      fromPhase: applied.fromPhase,
-      toPhase: 'ready',
-      attemptNumber: applied.attemptNumber,
       payload: {
         agentRequestId: input.requestId,
         agentRunId: input.runId ?? null,
         candidateCount: candidates.length,
       },
     });
+    if (!applied) {
+      this.logger.debug(
+        `thumbnail_generate success: row ${input.sourceResourceId} not lockable or no longer projectable; skipping.`,
+      );
+      return;
+    }
 
-    await this.operationAlerts.succeed(
-      input.organizationId,
-      operationKey(input.sourceResourceId),
-      {
-        href: ThumbnailGenerationSinkAdapter.RESULT_HREF(input.sourceResourceId),
-        metadata: {
-          candidateCount: candidates.length,
-          agentRequestId: input.requestId,
-          agentRunId: input.runId ?? null,
+    if (parentLink && this.productGenerationAlerts) {
+      await this.productGenerationAlerts.markChildFinished({
+        organizationId: input.organizationId,
+        parentOperationKey: parentLink.parentOperationKey,
+        childKind: 'thumbnail',
+        status: 'succeeded',
+        childId: input.sourceResourceId,
+      });
+    } else {
+      await this.operationAlerts.succeed(
+        input.organizationId,
+        operationKey(input.sourceResourceId),
+        {
+          href: ThumbnailGenerationSinkAdapter.RESULT_HREF(input.sourceResourceId),
+          metadata: {
+            candidateCount: candidates.length,
+            agentRequestId: input.requestId,
+            agentRunId: input.runId ?? null,
+          },
         },
-      },
-    );
+      );
+    }
 
     this.logger.log(
       `thumbnail_generate applied success → ThumbnailGeneration ${input.sourceResourceId} succeeded (request=${input.requestId}).`,
@@ -163,40 +161,26 @@ export class ThumbnailGenerationSinkAdapter
       return;
     }
 
-    const lock = await lockGenerationForProcessing(
-      this.prisma,
-      input.sourceResourceId,
-      input.organizationId,
-    );
-    if (!lock) {
-      this.logger.debug(
-        `thumbnail_generate failure: row ${input.sourceResourceId} not lockable; skipping.`,
-      );
-      return;
-    }
-
-    const failed = await markGenerationFailed(
-      this.prisma,
-      input.sourceResourceId,
-      input.organizationId,
-      input.errorMessage,
-    );
-    if (!failed) {
-      this.logger.warn(
-        `thumbnail_generate failure: markGenerationFailed returned null for ${input.sourceResourceId}.`,
-      );
-      return;
-    }
-
-    await this.appendStatusEvent({
+    const parentLink = await this.readParentLink({
       organizationId: input.organizationId,
       generationId: input.sourceResourceId,
-      eventType: 'status_change',
-      fromStatus: 'running',
-      toStatus: 'failed',
-      fromPhase: failed.fromPhase,
-      toPhase: null,
-      attemptNumber: failed.attemptNumber,
+    });
+    if (
+      parentLink &&
+      await this.isParentOperationCancelled({
+        organizationId: input.organizationId,
+        parentOperationKey: parentLink.parentOperationKey,
+      })
+    ) {
+      this.logger.debug(
+        `thumbnail_generate ${input.sourceResourceId}: parent operation ${parentLink.parentOperationKey} cancelled; no-op.`,
+      );
+      return;
+    }
+
+    const failed = await this.lifecycle.projectAgentFailure({
+      generationId: input.sourceResourceId,
+      organizationId: input.organizationId,
       errorMessage: input.errorMessage,
       payload: {
         errorCode: input.errorCode,
@@ -204,52 +188,64 @@ export class ThumbnailGenerationSinkAdapter
         agentRunId: input.runId ?? null,
       },
     });
+    if (!failed) {
+      this.logger.debug(
+        `thumbnail_generate failure: row ${input.sourceResourceId} not lockable or no longer projectable; skipping.`,
+      );
+      return;
+    }
 
-    await this.operationAlerts.fail(
-      input.organizationId,
-      operationKey(input.sourceResourceId),
-      {
-        href: ThumbnailGenerationSinkAdapter.RESULT_HREF(input.sourceResourceId),
-        message: input.errorMessage,
-        metadata: {
-          errorCode: input.errorCode,
-          agentRequestId: input.requestId,
-          agentRunId: input.runId ?? null,
+    if (parentLink && this.productGenerationAlerts) {
+      await this.productGenerationAlerts.markChildFinished({
+        organizationId: input.organizationId,
+        parentOperationKey: parentLink.parentOperationKey,
+        childKind: 'thumbnail',
+        status: 'failed',
+        childId: input.sourceResourceId,
+        errorMessage: input.errorMessage,
+      });
+    } else {
+      await this.operationAlerts.fail(
+        input.organizationId,
+        operationKey(input.sourceResourceId),
+        {
+          href: ThumbnailGenerationSinkAdapter.RESULT_HREF(input.sourceResourceId),
+          message: input.errorMessage,
+          metadata: {
+            errorCode: input.errorCode,
+            agentRequestId: input.requestId,
+            agentRunId: input.runId ?? null,
+          },
         },
-      },
-    );
+      );
+    }
 
     this.logger.log(
       `thumbnail_generate applied failure → ThumbnailGeneration ${input.sourceResourceId} failed (code=${input.errorCode} request=${input.requestId}).`,
     );
   }
 
-  private async appendStatusEvent(input: {
+  private async readParentLink(input: {
     organizationId: string;
     generationId: string;
-    eventType: 'status_change' | 'phase_change';
-    fromStatus: string | null;
-    toStatus: string;
-    fromPhase: string | null;
-    toPhase: string | null;
-    attemptNumber: number;
-    errorMessage?: string | null;
-    payload?: Record<string, unknown>;
-  }): Promise<void> {
-    if (!this.generationEvents) return;
-    try {
-      await this.generationEvents.append({
-        ...input,
-        payload: input.payload as Prisma.InputJsonValue | undefined,
-      });
-    } catch (err) {
-      this.logger.warn(
-        `thumbnail_generate event append failed (generationId=${input.generationId}): ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-    }
+  }) {
+    return this.ledger.readParentAlertLink(input);
   }
+
+  private async isParentOperationCancelled(input: {
+    organizationId: string;
+    parentOperationKey: string;
+  }): Promise<boolean> {
+    if (typeof this.operationAlerts.findByOperationKey !== 'function') {
+      return false;
+    }
+    const alert = await this.operationAlerts.findByOperationKey(
+      input.organizationId,
+      input.parentOperationKey,
+    );
+    return alert?.status === 'cancelled';
+  }
+
 }
 
 function operationKey(generationId: string): string {

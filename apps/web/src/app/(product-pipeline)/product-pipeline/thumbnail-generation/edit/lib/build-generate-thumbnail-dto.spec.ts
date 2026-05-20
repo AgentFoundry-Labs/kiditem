@@ -40,7 +40,7 @@ describe('buildGenerateThumbnailDto', () => {
 
   it('accepts ThumbnailSubject as the identity Interface', () => {
     const subject: ThumbnailSubject = {
-      kind: 'registration-workspace',
+      kind: 'content-workspace',
       workspaceId: 'workspace-1',
       targetMasterId: null,
       sourceCandidateId: 'candidate-123',
@@ -75,7 +75,7 @@ describe('buildGenerateThumbnailDto', () => {
       layout: 'auto',
     })).toMatchObject({
       sourceCandidateId: 'candidate-123',
-      registrationWorkspaceId: 'workspace-1',
+      contentWorkspaceId: 'workspace-1',
       productId: undefined,
     });
   });

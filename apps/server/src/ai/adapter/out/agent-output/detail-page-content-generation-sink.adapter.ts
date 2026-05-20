@@ -1,8 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
-import type { DetailPageAgentOutputSinkPort } from '../../../application/port/out/detail-page-agent-output-sink.port';
+import type { DetailPageAgentOutputSinkPort } from '../../../application/port/out/sink/detail-page-agent-output-sink.port';
+import {
+  AI_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../../../application/port/out/cross-domain/operation-alert.port';
 import type { DetailPageGenerateAgentOutput } from '../../../domain/agent-output';
 import { DetailPageGeneratedImagesService } from '../../../application/service/detail-page-generated-images.service';
 import {
@@ -11,6 +14,8 @@ import {
   toDetailPageStoredJson,
 } from '../../../application/service/detail-page-stored.helpers';
 import { ContentAssetService } from '../../../application/service/content-asset.service';
+import { ProductGenerationAlertService } from '../../../application/service/product-generation-alert.service';
+import { readProductGenerationAlertLink } from '../../../application/service/product-generation-alert-link';
 
 const TERMINAL_CONTENT_GENERATION_STATUSES = new Set([
   'READY',
@@ -21,8 +26,8 @@ const TERMINAL_CONTENT_GENERATION_STATUSES = new Set([
   'cancelled',
 ]);
 
-interface RegistrationWorkspaceWriter {
-  registrationWorkspace: {
+interface ContentWorkspaceWriter {
+  contentWorkspace: {
     updateMany(args: unknown): Promise<{ count: number }>;
   };
 }
@@ -59,9 +64,11 @@ export class DetailPageContentGenerationSinkAdapter
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(AI_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
     private readonly _generatedImages: DetailPageGeneratedImagesService,
     private readonly contentAssets: ContentAssetService,
+    private readonly productGenerationAlerts: ProductGenerationAlertService,
   ) {}
 
   async applySuccess(input: {
@@ -96,6 +103,20 @@ export class DetailPageContentGenerationSinkAdapter
       // Idempotent: the bridge re-fired or the reconcile job already applied.
       this.logger.debug(
         `detail_page_generate success: ContentGeneration ${row.id} already terminal (${row.status}); no-op.`,
+      );
+      return;
+    }
+
+    const parentLink = readProductGenerationAlertLink(row.generationInput);
+    if (
+      parentLink &&
+      await this.isParentOperationCancelled({
+        organizationId: input.organizationId,
+        parentOperationKey: parentLink.parentOperationKey,
+      })
+    ) {
+      this.logger.debug(
+        `detail_page_generate ${row.id}: parent operation ${parentLink.parentOperationKey} cancelled; no-op.`,
       );
       return;
     }
@@ -156,18 +177,28 @@ export class DetailPageContentGenerationSinkAdapter
       return;
     }
 
-    await this.operationAlerts.succeed(
-      input.organizationId,
-      detailPageOperationKey(row.id),
-      {
-        metadata: {
-          generatedTitle: productName,
-          heroImageCount: Object.keys(processedImages).length,
-          agentRequestId: input.requestId,
-          agentRunId: input.runId ?? null,
+    if (parentLink) {
+      await this.productGenerationAlerts.markChildFinished({
+        organizationId: input.organizationId,
+        parentOperationKey: parentLink.parentOperationKey,
+        childKind: 'detail_page',
+        status: 'succeeded',
+        childId: row.id,
+      });
+    } else {
+      await this.operationAlerts.succeed(
+        input.organizationId,
+        detailPageOperationKey(row.id),
+        {
+          metadata: {
+            generatedTitle: productName,
+            heroImageCount: Object.keys(processedImages).length,
+            agentRequestId: input.requestId,
+            agentRunId: input.runId ?? null,
+          },
         },
-      },
-    );
+      );
+    }
 
     this.logger.log(
       `detail_page_generate applied success → ContentGeneration ${row.id} READY (request=${input.requestId}).`,
@@ -184,13 +215,13 @@ export class DetailPageContentGenerationSinkAdapter
     runId: string | undefined;
   }): Promise<string> {
     if (input.row.detailPageArtifactId) return input.row.detailPageArtifactId;
-    const registrationWorkspaceId =
-      (input.row as { registrationWorkspaceId?: string | null }).registrationWorkspaceId ?? null;
+    const contentWorkspaceId =
+      (input.row as { contentWorkspaceId?: string | null }).contentWorkspaceId ?? null;
 
     const artifact = await this.prisma.detailPageArtifact.create({
       data: {
         organizationId: input.organizationId,
-        registrationWorkspaceId,
+        contentWorkspaceId,
         sourceCandidateId: input.row.sourceCandidateId,
         targetMasterId: input.row.generationGroup.targetMasterId,
         sourceContentGenerationId: input.row.id,
@@ -205,10 +236,10 @@ export class DetailPageContentGenerationSinkAdapter
       },
       select: { id: true },
     });
-    if (registrationWorkspaceId) {
-      await (this.prisma as unknown as RegistrationWorkspaceWriter).registrationWorkspace.updateMany({
+    if (contentWorkspaceId) {
+      await (this.prisma as unknown as ContentWorkspaceWriter).contentWorkspace.updateMany({
         where: {
-          id: registrationWorkspaceId,
+          id: contentWorkspaceId,
           organizationId: input.organizationId,
           isDeleted: false,
         },
@@ -238,7 +269,7 @@ export class DetailPageContentGenerationSinkAdapter
 
     const row = await this.prisma.contentGeneration.findFirst({
       where: { id: input.sourceResourceId, organizationId: input.organizationId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, generationInput: true },
     });
     if (!row) {
       this.logger.warn(
@@ -249,6 +280,20 @@ export class DetailPageContentGenerationSinkAdapter
     if (TERMINAL_CONTENT_GENERATION_STATUSES.has(row.status)) {
       this.logger.debug(
         `detail_page_generate failure: ContentGeneration ${row.id} already terminal (${row.status}); no-op.`,
+      );
+      return;
+    }
+
+    const parentLink = readProductGenerationAlertLink(row.generationInput);
+    if (
+      parentLink &&
+      await this.isParentOperationCancelled({
+        organizationId: input.organizationId,
+        parentOperationKey: parentLink.parentOperationKey,
+      })
+    ) {
+      this.logger.debug(
+        `detail_page_generate ${row.id}: parent operation ${parentLink.parentOperationKey} cancelled; no-op.`,
       );
       return;
     }
@@ -271,22 +316,47 @@ export class DetailPageContentGenerationSinkAdapter
       return;
     }
 
-    await this.operationAlerts.fail(
-      input.organizationId,
-      detailPageOperationKey(row.id),
-      {
-        message: input.errorMessage,
-        metadata: {
-          errorCode: input.errorCode,
-          agentRequestId: input.requestId,
-          agentRunId: input.runId ?? null,
+    if (parentLink) {
+      await this.productGenerationAlerts.markChildFinished({
+        organizationId: input.organizationId,
+        parentOperationKey: parentLink.parentOperationKey,
+        childKind: 'detail_page',
+        status: 'failed',
+        childId: row.id,
+        errorMessage: input.errorMessage,
+      });
+    } else {
+      await this.operationAlerts.fail(
+        input.organizationId,
+        detailPageOperationKey(row.id),
+        {
+          message: input.errorMessage,
+          metadata: {
+            errorCode: input.errorCode,
+            agentRequestId: input.requestId,
+            agentRunId: input.runId ?? null,
+          },
         },
-      },
-    );
+      );
+    }
 
     this.logger.log(
       `detail_page_generate applied failure → ContentGeneration ${row.id} FAILED (code=${input.errorCode} request=${input.requestId}).`,
     );
+  }
+
+  private async isParentOperationCancelled(input: {
+    organizationId: string;
+    parentOperationKey: string;
+  }): Promise<boolean> {
+    if (typeof this.operationAlerts.findByOperationKey !== 'function') {
+      return false;
+    }
+    const alert = await this.operationAlerts.findByOperationKey(
+      input.organizationId,
+      input.parentOperationKey,
+    );
+    return alert?.status === 'cancelled';
   }
 
 }

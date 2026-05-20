@@ -10,7 +10,7 @@ interface ProductPipelineHeaderProps {
 
 export function ProductPipelineHeader({
   title = '수집 상품',
-  subtitle = '1688 수집 상품 · 후보 콘텐츠 관리',
+  subtitle = '1688/상품 등록 후보 · 콘텐츠 관리',
   searchPlaceholder = '상품명 · 상품코드 · 메모 검색',
 }: ProductPipelineHeaderProps) {
   return (

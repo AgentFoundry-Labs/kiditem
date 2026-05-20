@@ -1,5 +1,21 @@
-import { describe, expect, it } from 'vitest';
-import { findImageContentBounds } from './image-whitespace-crop';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { findImageContentBounds, prepareImageUploadFile } from './image-whitespace-crop';
+
+const originalCreateElement = document.createElement.bind(document);
+const originalCreateImageBitmap = window.createImageBitmap;
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  if (originalCreateImageBitmap) {
+    Object.defineProperty(window, 'createImageBitmap', {
+      configurable: true,
+      writable: true,
+      value: originalCreateImageBitmap,
+    });
+  } else {
+    Reflect.deleteProperty(window, 'createImageBitmap');
+  }
+});
 
 function makeWhiteImage(width: number, height: number) {
   const data = new Uint8ClampedArray(width * height * 4);
@@ -65,3 +81,64 @@ describe('findImageContentBounds', () => {
     });
   });
 });
+
+describe('prepareImageUploadFile', () => {
+  it('keeps small uploads in their source format instead of flattening to JPEG', async () => {
+    const width = 10;
+    const height = 10;
+    const data = makeWhiteImage(width, height);
+    paintRect(data, width, { x: 0, y: 0, width, height });
+    mockBrowserImageProcessing(data, width, height);
+
+    const file = new File(['png-bytes'], 'toy.png', {
+      type: 'image/png',
+      lastModified: 123,
+    });
+
+    const prepared = await prepareImageUploadFile(file);
+
+    expect(prepared).toBe(file);
+    expect(prepared.name).toBe('toy.png');
+    expect(prepared.type).toBe('image/png');
+  });
+});
+
+function mockBrowserImageProcessing(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+) {
+  Object.defineProperty(window, 'createImageBitmap', {
+    configurable: true,
+    writable: true,
+    value: vi.fn(async () => ({
+      width,
+      height,
+      close: vi.fn(),
+    }) as unknown as ImageBitmap),
+  });
+
+  vi.spyOn(document, 'createElement').mockImplementation(((
+    tagName: string,
+    options?: ElementCreationOptions,
+  ) => {
+    if (tagName !== 'canvas') return originalCreateElement(tagName, options);
+
+    const context = {
+      fillStyle: '',
+      fillRect: vi.fn(),
+      drawImage: vi.fn(),
+      getImageData: vi.fn(() => ({ data, width, height }) as ImageData),
+      putImageData: vi.fn(),
+    } as unknown as CanvasRenderingContext2D;
+
+    return {
+      width,
+      height,
+      getContext: vi.fn(() => context),
+      toBlob: vi.fn((callback: BlobCallback, type?: string) => {
+        callback(new Blob(['encoded'], { type: type || 'image/png' }));
+      }),
+    } as unknown as HTMLCanvasElement;
+  }) as typeof document.createElement);
+}

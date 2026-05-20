@@ -7,14 +7,23 @@ import {
 import {
   POST_PROMOTION_AI_TRIGGER_PORT,
   type PostPromotionAiTriggerPort,
-} from '../../../../ai/application/port/in/post-promotion-ai-trigger.port';
-import { OperationAlertService } from '../../../../automation/application/service/operation-alert.service';
+} from '../../../../ai/application/port/in/generation/post-promotion-ai-trigger.port';
+import {
+  PRODUCT_GENERATION_AI_TRIGGER_PORT,
+  type ProductGenerationAiTriggerPort,
+} from '../../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
+import {
+  SOURCING_OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+} from '../../../application/port/out/cross-domain/operation-alert.port';
 import type {
   SourcingAgentGatewayPort,
   SourcingNotifyPromotedRequest,
   SourcingScrapeRequest,
   SourcingScrapeResult,
-} from '../../../application/port/out/sourcing-agent.gateway.port';
+  SourcingStartProductGenerationRequest,
+  SourcingStartProductGenerationResult,
+} from '../../../application/port/out/runtime/sourcing-agent.gateway.port';
 
 @Injectable()
 export class SourcingAgentGatewayAdapter implements SourcingAgentGatewayPort {
@@ -25,7 +34,10 @@ export class SourcingAgentGatewayAdapter implements SourcingAgentGatewayPort {
     private readonly agentRunner: AgentRunnerPort,
     @Inject(POST_PROMOTION_AI_TRIGGER_PORT)
     private readonly postPromotionAi: PostPromotionAiTriggerPort,
-    private readonly operationAlerts: OperationAlertService,
+    @Inject(PRODUCT_GENERATION_AI_TRIGGER_PORT)
+    private readonly productGenerationAi: ProductGenerationAiTriggerPort,
+    @Inject(SOURCING_OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
   ) {}
 
   async scrapeUrl(request: SourcingScrapeRequest): Promise<SourcingScrapeResult> {
@@ -69,6 +81,12 @@ export class SourcingAgentGatewayAdapter implements SourcingAgentGatewayPort {
         metadata: { error: errorMessage },
       });
     }
+  }
+
+  startProductGeneration(
+    request: SourcingStartProductGenerationRequest,
+  ): Promise<SourcingStartProductGenerationResult> {
+    return this.productGenerationAi.startForCandidate(request);
   }
 
   private requireTaskId(result: AgentRunnerResult, sourceType: string): string {

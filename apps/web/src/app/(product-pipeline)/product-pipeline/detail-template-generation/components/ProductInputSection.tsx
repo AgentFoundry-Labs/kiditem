@@ -24,7 +24,7 @@ import {
 import { apiClient } from '@/lib/api-client';
 import { cn, formatTime } from '@/lib/utils';
 import { moveSafetyLabelImagesToEnd } from '../lib/detail-page-image-order';
-import { cropImageWhitespaceFile } from '../lib/image-whitespace-crop';
+import { prepareImageUploadFile } from '../lib/image-whitespace-crop';
 import type {
   BoxSetStatus,
   ColorVariantStatus,
@@ -181,8 +181,8 @@ export default function ProductInputSection({
     try {
       const results = await Promise.allSettled(
         selectedFiles.map(async (file) => {
-          const uploadFile = await cropImageWhitespaceFile(file).catch((err) => {
-            console.warn('[generate] upload image whitespace crop failed, using original', err);
+          const uploadFile = await prepareImageUploadFile(file).catch((err) => {
+            console.warn('[generate] upload image preparation failed, using original', err);
             return file;
           });
           const formData = new FormData();
@@ -715,6 +715,8 @@ interface SelectFieldProps {
 }
 
 function SelectField({ value, onChange, options }: SelectFieldProps) {
+  const hasCurrentOption = value === '' || options.some((option) => option.value === value);
+
   return (
     <div className="relative">
       <select
@@ -722,6 +724,9 @@ function SelectField({ value, onChange, options }: SelectFieldProps) {
         onChange={(e) => onChange(e.target.value)}
         className="h-11 w-full appearance-none rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] px-3 pr-9 text-sm font-medium text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--primary)]"
       >
+        {!hasCurrentOption && (
+          <option value={value}>{value}</option>
+        )}
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}

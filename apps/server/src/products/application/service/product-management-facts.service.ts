@@ -1,7 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import type { ProductManagementListItem } from '@kiditem/shared/product';
-import { PrismaService } from '../../../prisma/prisma.service';
-import { buildPerListingMetrics } from '../../../common/per-listing-profit';
+import {
+  PRODUCT_MANAGEMENT_REPOSITORY_PORT,
+  type ProductManagementRepositoryPort,
+} from '../port/out/repository/product-management.repository.port';
 import {
   EMPTY_METRICS,
   daysAgo,
@@ -18,7 +20,10 @@ import {
 
 @Injectable()
 export class ProductManagementFactsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PRODUCT_MANAGEMENT_REPOSITORY_PORT)
+    private readonly management: ProductManagementRepositoryPort,
+  ) {}
 
   async managementFacts(
     organizationId: string,
@@ -65,42 +70,15 @@ export class ProductManagementFactsService {
   }
 
   async allMasterIds(organizationId: string): Promise<string[]> {
-    const rows = await this.prisma.masterProduct.findMany({
-      where: {
-        organizationId,
-        isDeleted: false,
-        OR: [
-          { options: { some: { organizationId, isDeleted: false } } },
-          { listings: { some: { organizationId, isDeleted: false } } },
-        ],
-      },
-      select: { id: true },
-    });
-    return rows.map((row) => row.id);
+    return this.management.findAllMasterIds(organizationId);
   }
 
   async channelLinkedMasterIds(organizationId: string, masterIds: string[]): Promise<Set<string>> {
-    if (masterIds.length === 0) return new Set();
-    const rows = await this.prisma.channelListing.findMany({
-      where: { organizationId, masterId: { in: masterIds }, isDeleted: false },
-      select: { masterId: true },
-    });
-    return new Set(rows.map((row) => row.masterId));
+    return new Set(await this.management.findChannelLinkedMasterIds(organizationId, masterIds));
   }
 
   async stockByMaster(organizationId: string, masterIds?: string[]): Promise<Map<string, number>> {
-    const rows = await this.prisma.productOption.findMany({
-      where: {
-        organizationId,
-        isDeleted: false,
-        ...(masterIds ? { masterId: { in: masterIds } } : {}),
-      },
-      select: {
-        masterId: true,
-        availableStock: true,
-        inventory: { select: { currentStock: true } },
-      },
-    });
+    const rows = await this.management.findStockOptionRows(organizationId, masterIds);
     const map = new Map<string, number>();
     for (const row of rows) {
       map.set(row.masterId, (map.get(row.masterId) ?? 0) + (row.availableStock ?? row.inventory?.currentStock ?? 0));
@@ -132,27 +110,7 @@ export class ProductManagementFactsService {
     organizationId: string,
     masterIds: string[],
   ): Promise<ManagementFacts['inventoryByMaster']> {
-    const rows = await this.prisma.productOption.findMany({
-      where: { organizationId, masterId: { in: masterIds }, isDeleted: false },
-      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-      select: {
-        id: true,
-        masterId: true,
-        availableStock: true,
-        inventory: {
-          select: {
-            id: true,
-            currentStock: true,
-            reservedStock: true,
-            safetyStock: true,
-            reorderPoint: true,
-            reorderQuantity: true,
-            leadTimeDays: true,
-            dailySalesAvg: true,
-          },
-        },
-      },
-    });
+    const rows = await this.management.findInventoryOptionRows(organizationId, masterIds);
 
     const map: ManagementFacts['inventoryByMaster'] = new Map();
     for (const row of rows) {
@@ -203,14 +161,7 @@ export class ProductManagementFactsService {
     organizationId: string,
     masterIds?: string[],
   ): Promise<Map<string, ProductManagementListItem['status']>> {
-    const rows = await this.prisma.channelListing.findMany({
-      where: {
-        organizationId,
-        isDeleted: false,
-        ...(masterIds ? { masterId: { in: masterIds } } : {}),
-      },
-      select: { masterId: true, status: true, exposureStatus: true },
-    });
+    const rows = await this.management.findStatusListingRows(organizationId, masterIds);
     const map = new Map<string, ProductManagementListItem['status']>();
     for (const row of rows) {
       const current = map.get(row.masterId);
@@ -225,19 +176,7 @@ export class ProductManagementFactsService {
   }
 
   async optionByMaster(organizationId: string, masterIds: string[]): Promise<ManagementFacts['optionByMaster']> {
-    const rows = await this.prisma.productOption.findMany({
-      where: { organizationId, masterId: { in: masterIds }, isDeleted: false },
-      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-      select: {
-        id: true,
-        masterId: true,
-        sku: true,
-        costPrice: true,
-        sellPrice: true,
-        commissionRate: true,
-        shippingCost: true,
-      },
-    });
+    const rows = await this.management.findManagementOptionRows(organizationId, masterIds);
     const map: ManagementFacts['optionByMaster'] = new Map();
     for (const row of rows) {
       if (map.has(row.masterId)) continue;
@@ -259,17 +198,7 @@ export class ProductManagementFactsService {
   }
 
   async listingByMaster(organizationId: string, masterIds: string[]): Promise<ManagementFacts['listingByMaster']> {
-    const rows = await this.prisma.channelListing.findMany({
-      where: { organizationId, masterId: { in: masterIds }, isDeleted: false },
-      orderBy: [{ createdAt: 'asc' }],
-      select: {
-        id: true,
-        masterId: true,
-        externalId: true,
-        channelName: true,
-        channelPrice: true,
-      },
-    });
+    const rows = await this.management.findManagementListingRows(organizationId, masterIds);
     const map: ManagementFacts['listingByMaster'] = new Map();
     for (const row of rows) {
       if (map.has(row.masterId)) continue;
@@ -284,41 +213,7 @@ export class ProductManagementFactsService {
     gte: Date,
     lt?: Date,
   ): Promise<Map<string, MetricSums>> {
-    if (listingIds.length === 0) return new Map();
-    const rows = await this.prisma.channelListingDailySnapshot.groupBy({
-      by: ['listingId'],
-      where: {
-        organizationId,
-        listingId: { in: listingIds },
-        businessDate: { gte, ...(lt ? { lt } : {}) },
-      },
-      _sum: {
-        trafficVisitors: true,
-        trafficViews: true,
-        trafficCartAdds: true,
-        trafficOrders: true,
-        trafficSalesQty: true,
-        trafficRevenue: true,
-        adSpend: true,
-        adImpressions: true,
-        adClicks: true,
-      },
-    });
-    const map = new Map<string, MetricSums>();
-    for (const row of rows) {
-      map.set(row.listingId, {
-        visitors: row._sum.trafficVisitors ?? 0,
-        views: row._sum.trafficViews ?? 0,
-        cartAdds: row._sum.trafficCartAdds ?? 0,
-        orders: row._sum.trafficOrders ?? 0,
-        salesQty: row._sum.trafficSalesQty ?? 0,
-        revenue: row._sum.trafficRevenue ?? 0,
-        adSpend: row._sum.adSpend ?? 0,
-        adImpressions: row._sum.adImpressions ?? 0,
-        adClicks: row._sum.adClicks ?? 0,
-      });
-    }
-    return map;
+    return this.management.groupMetricsByListing(organizationId, listingIds, gte, lt);
   }
 
   metricsByMaster(
@@ -338,15 +233,12 @@ export class ProductManagementFactsService {
   /**
    * Master 별 손익 (revenue / netProfit / profitRate / orderCount) — 최근 `period` 일.
    *
-   * PR #193 review #4 (yhc125, 2차) — `prisma.profitLoss.*` 직접 read 는
+   * PR #193 review #4 (yhc125, 2차) — legacy `profitLoss.*` direct reads are
    * `apps/server/src/finance/AGENTS.md` Plan D.1 가 명시적으로 금지한다
    * (`ProfitLoss` 는 writer 없는 legacy/future cache → 항상 stale).
    *
-   * 대신 `apps/server/src/common/per-listing-profit.ts` 의
-   * `buildPerListingMetrics(prisma, organizationId, from, to)` 를 호출한다.
-   * 이 helper 는 finance 의 `profit-loss.service.ts:findAll` 에서 추출된
-   * shared live aggregator 이고, advertising/dashboard 도 같은 helper 를
-   * 통해 listing 별 손익을 계산한다 (Plan F1 T1, ADR-0016/I7/I8 준수).
+   * 대신 repository adapter delegates to the shared live aggregator in
+   * `apps/server/src/common/per-listing-profit.ts`.
    *
    * 여기서는 listing 별 결과를 master 별로 합산:
    *   - revenue / netProfit / orderCount = sum across listings of same master
@@ -364,7 +256,7 @@ export class ProductManagementFactsService {
   ): Promise<Map<string, { revenue: number; netProfit: number; profitRate: number; orderCount: number }>> {
     const from = daysAgo(period);
     const to = new Date();
-    const liveMetrics = await buildPerListingMetrics(this.prisma, organizationId, from, to);
+    const liveMetrics = await this.management.buildPerListingProfitMetrics(organizationId, from, to);
 
     const out = new Map<string, { revenue: number; netProfit: number; profitRate: number; orderCount: number }>();
     const filterSet = masterIds ? new Set(masterIds) : null;
@@ -394,11 +286,7 @@ export class ProductManagementFactsService {
     const listingEntries = [...listingByMaster.entries()];
     const listingIds = listingEntries.map(([, listing]) => listing.id);
     if (listingIds.length === 0) return new Map();
-    const rows = await this.prisma.channelListingDailySnapshot.findMany({
-      where: { organizationId, listingId: { in: listingIds } },
-      orderBy: [{ listingId: 'asc' }, { businessDate: 'desc' }],
-      select: { listingId: true, reviewCount: true },
-    });
+    const rows = await this.management.findReviewSnapshotRows(organizationId, listingIds);
     const masterByListing = new Map(listingEntries.map(([masterId, listing]) => [listing.id, masterId]));
     const map = new Map<string, number>();
     for (const row of rows) {
@@ -413,47 +301,15 @@ export class ProductManagementFactsService {
     organizationId: string,
     masterIds?: string[],
   ): Promise<{ masterIds: Set<string> }> {
-    const targetLatest = await this.prisma.channelAdTargetDailySnapshot.findFirst({
-      where: { organizationId, targetType: 'product' },
-      orderBy: { businessDate: 'desc' },
-      select: { businessDate: true },
-    });
-    const listingLatest = await this.prisma.channelListingDailySnapshot.findFirst({
-      where: {
-        organizationId,
-        OR: [
-          { adSpend: { gt: 0 } },
-          { adRevenue: { gt: 0 } },
-          { adClicks: { gt: 0 } },
-          { adImpressions: { gt: 0 } },
-        ],
-      },
-      orderBy: { businessDate: 'desc' },
-      select: { businessDate: true },
-    });
+    const [targetLatest, listingLatest] = await Promise.all([
+      this.management.findLatestTargetAdBusinessDate(organizationId),
+      this.management.findLatestListingAdBusinessDate(organizationId),
+    ]);
 
     const listingIds = new Set<string>();
     const optionIds = new Set<string>();
     if (targetLatest) {
-      const rows = await this.prisma.channelAdTargetDailySnapshot.findMany({
-        where: {
-          organizationId,
-          targetType: 'product',
-          businessDate: targetLatest.businessDate,
-        },
-        select: {
-          listingId: true,
-          optionId: true,
-          onOff: true,
-          status: true,
-          spend: true,
-          adSpend: true,
-          revenue: true,
-          adRevenue: true,
-          clicks: true,
-          impressions: true,
-        },
-      });
+      const rows = await this.management.findActiveAdTargetRows(organizationId, targetLatest);
       for (const row of rows) {
         if (!isActiveAdTarget(row)) continue;
         if (row.listingId) listingIds.add(row.listingId);
@@ -461,46 +317,18 @@ export class ProductManagementFactsService {
       }
     }
     if (listingLatest) {
-      const rows = await this.prisma.channelListingDailySnapshot.findMany({
-        where: {
-          organizationId,
-          businessDate: listingLatest.businessDate,
-          OR: [
-            { adSpend: { gt: 0 } },
-            { adRevenue: { gt: 0 } },
-            { adClicks: { gt: 0 } },
-            { adImpressions: { gt: 0 } },
-          ],
-        },
-        select: { listingId: true },
-      });
-      rows.forEach((row) => listingIds.add(row.listingId));
+      const ids = await this.management.findListingAdListingIds(organizationId, listingLatest);
+      ids.forEach((id) => listingIds.add(id));
     }
 
     const masterSet = new Set<string>();
     if (listingIds.size > 0) {
-      const listings = await this.prisma.channelListing.findMany({
-        where: {
-          organizationId,
-          id: { in: [...listingIds] },
-          isDeleted: false,
-          ...(masterIds ? { masterId: { in: masterIds } } : {}),
-        },
-        select: { masterId: true },
-      });
-      listings.forEach((listing) => masterSet.add(listing.masterId));
+      const ids = await this.management.findMasterIdsForListings(organizationId, [...listingIds], masterIds);
+      ids.forEach((id) => masterSet.add(id));
     }
     if (optionIds.size > 0) {
-      const options = await this.prisma.productOption.findMany({
-        where: {
-          organizationId,
-          id: { in: [...optionIds] },
-          isDeleted: false,
-          ...(masterIds ? { masterId: { in: masterIds } } : {}),
-        },
-        select: { masterId: true },
-      });
-      options.forEach((option) => masterSet.add(option.masterId));
+      const ids = await this.management.findMasterIdsForOptions(organizationId, [...optionIds], masterIds);
+      ids.forEach((id) => masterSet.add(id));
     }
     return { masterIds: masterSet };
   }

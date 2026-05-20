@@ -1,28 +1,24 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type {
   ImageSpec,
   RecomposeVariantClassification,
   ThumbnailAnalysisResult,
 } from '@kiditem/shared/ai';
-import { PrismaService } from '../../../prisma/prisma.service';
-import type { AnalysisScope } from '../../adapter/in/http/dto/thumbnail-analyze.dto';
+import type { AnalysisScope } from './thumbnail-analysis-requests';
 import { resolveMasterThumbnailImage } from '../../domain/thumbnail-master-image';
-import { thumbnailMasterImageSelect } from '../../adapter/out/prisma/master-image-select.preset';
 import {
   ThumbnailVisionAiService,
   type ThumbnailAiItem,
 } from './thumbnail-vision-ai.service';
 import { ThumbnailRecomposeService } from './thumbnail-recompose.service';
-import type {
-  AnalysisRow,
-  MasterRow,
-} from '../../adapter/out/prisma/thumbnail-analysis.query';
-import { toAnalysisResult } from '../../mapper/thumbnail-analysis.mapper';
 import {
-  upsertThumbnailAnalysis,
+  THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
   type ThumbnailAnalysisComplianceFacet,
+  type ThumbnailAnalysisMasterRow,
   type ThumbnailAnalysisQualityFacet,
-} from '../../adapter/out/prisma/thumbnail-analysis.persistence';
+  type ThumbnailAnalysisRepositoryPort,
+} from '../port/out/repository/thumbnail-analysis.repository.port';
+import { toAnalysisResult } from '../../mapper/thumbnail-analysis.mapper';
 import { ThumbnailAnalysisAnalyzerService } from './thumbnail-analysis-analyzer.service';
 
 /**
@@ -48,7 +44,8 @@ export class ThumbnailAnalysisBatchService {
   private readonly batchAborts = new Map<string, AbortController>();
 
   constructor(
-    private readonly prisma: PrismaService,
+    @Inject(THUMBNAIL_ANALYSIS_REPOSITORY_PORT)
+    private readonly repository: ThumbnailAnalysisRepositoryPort,
     private readonly vision: ThumbnailVisionAiService,
     private readonly recomposeService: ThumbnailRecomposeService,
     private readonly analyzer: ThumbnailAnalysisAnalyzerService,
@@ -73,18 +70,7 @@ export class ThumbnailAnalysisBatchService {
     const results: ThumbnailAnalysisResult[] = [];
 
     try {
-      const masters = await this.prisma.masterProduct.findMany({
-        where: { id: { in: productIds }, organizationId, isDeleted: false },
-        select: {
-          id: true,
-          name: true,
-          imageUrl: true,
-          thumbnailUrl: true,
-          category: true,
-          images: thumbnailMasterImageSelect(organizationId),
-          createdAt: true,
-        },
-      });
+      const masters = await this.repository.findMastersForBatch(productIds, organizationId);
       const masterMap = new Map(masters.map((m) => [m.id, m]));
 
       // 표시 가능한 이미지가 있는 product 만 vision batch 대상.
@@ -230,7 +216,7 @@ export class ThumbnailAnalysisBatchService {
    * shape 의 row 반환.
    */
   private async persistChunkResult(input: {
-    master: MasterRow & { name: string; category: string | null; createdAt: Date };
+    master: ThumbnailAnalysisMasterRow & { name: string; category: string | null; createdAt: Date };
     imageUrl: string;
     scope: AnalysisScope;
     qualityResult: ThumbnailAnalysisQualityFacet | undefined;
@@ -262,7 +248,7 @@ export class ThumbnailAnalysisBatchService {
       }
     }
 
-    const upserted = await upsertThumbnailAnalysis(this.prisma, {
+    const upserted = await this.repository.upsertAnalysis({
       masterId: master.id,
       organizationId,
       imageUrl,
@@ -271,7 +257,7 @@ export class ThumbnailAnalysisBatchService {
       imageSpec,
       recompose,
     });
-    return toAnalysisResult(upserted as AnalysisRow, master);
+    return toAnalysisResult(upserted, master);
   }
 
   private isAbortError(err: unknown): boolean {

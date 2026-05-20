@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { ProductManagementListItem } from '@kiditem/shared/product';
-import { MASTER_WITH_IMAGES, type MasterWithImageRows } from '../../adapter/out/prisma/master-product.query';
+import type { MasterWithImageRows } from '../port/out/repository/master-product.repository.port';
 import { withImageRows } from '../../mapper/master-product.mapper';
 import { ProductManagementFactsService } from './product-management-facts.service';
 import {
@@ -9,7 +9,7 @@ import {
   type ProductManagementGradeInfo,
 } from './product-management.read-model';
 
-export { MASTER_WITH_IMAGES, type MasterWithImageRows };
+export type { MasterWithImageRows };
 
 @Injectable()
 export class ProductManagementEnrichmentService {

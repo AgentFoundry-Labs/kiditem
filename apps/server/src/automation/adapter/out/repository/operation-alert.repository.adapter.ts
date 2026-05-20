@@ -12,7 +12,13 @@ import type {
   OperationAlertRepositoryPort,
   OperationAlertTransitionPatch,
   OperationAlertUpsertData,
-} from '../../../application/port/out/operation-alert.repository.port';
+} from '../../../application/port/out/repository/operation-alert.repository.port';
+
+const TERMINAL_OPERATION_STATUSES = new Set([
+  'succeeded',
+  'failed',
+  'cancelled',
+]);
 
 @Injectable()
 export class OperationAlertRepositoryAdapter
@@ -117,6 +123,7 @@ export class OperationAlertRepositoryAdapter
       where: { organizationId, operationKey, kind: 'operation' },
     });
     if (!existing) return null;
+    if (TERMINAL_OPERATION_STATUSES.has(existing.status)) return existing;
 
     const mergedMetadata =
       patch.metadata !== undefined
@@ -143,7 +150,11 @@ export class OperationAlertRepositoryAdapter
     };
 
     await this.prisma.alert.updateMany({
-      where: { id: existing.id, organizationId },
+      where: {
+        id: existing.id,
+        organizationId,
+        status: { in: ['pending', 'running'] },
+      },
       data: updateData,
     });
     return this.prisma.alert.findFirst({
@@ -176,10 +187,16 @@ export class OperationAlertRepositoryAdapter
   ): Promise<Alert[]> {
     const staleAlerts = await this.prisma.alert.findMany({
       where: {
+        ...(criteria.organizationId
+          ? { organizationId: criteria.organizationId }
+          : {}),
         kind: 'operation',
         status: { in: ['pending', 'running'] },
+        ...(criteria.type ? { type: criteria.type } : {}),
         sourceType: criteria.sourceType,
-        operationKey: { startsWith: criteria.operationKeyPrefix },
+        ...(criteria.operationKeyPrefix !== undefined
+          ? { operationKey: { startsWith: criteria.operationKeyPrefix } }
+          : {}),
         updatedAt: { lt: criteria.staleBefore },
       },
       orderBy: { updatedAt: 'asc' },

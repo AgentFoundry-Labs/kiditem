@@ -102,7 +102,7 @@ describe('PromoteToTaskModal', () => {
 
     await waitFor(() => {
       expect(apiClient.post).toHaveBeenCalledWith(
-        '/alerts/00000000-0000-0000-0000-000000000001/promote',
+        '/api/alerts/00000000-0000-0000-0000-000000000001/promote',
         {}, // priority unchanged → no override in DTO
       );
     });
@@ -123,7 +123,7 @@ describe('PromoteToTaskModal', () => {
 
     await waitFor(() => {
       expect(apiClient.post).toHaveBeenCalledWith(
-        '/alerts/00000000-0000-0000-0000-000000000001/promote',
+        '/api/alerts/00000000-0000-0000-0000-000000000001/promote',
         expect.objectContaining({ priorityOverride: 'medium' }),
       );
     });
@@ -144,7 +144,7 @@ describe('PromoteToTaskModal', () => {
 
     await waitFor(() => {
       expect(apiClient.post).toHaveBeenCalledWith(
-        '/alerts/00000000-0000-0000-0000-000000000001/promote',
+        '/api/alerts/00000000-0000-0000-0000-000000000001/promote',
         expect.objectContaining({ roleOverride: 'inventory', note: '재고 확인 필요' }),
       );
     });

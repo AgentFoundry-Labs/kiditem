@@ -28,6 +28,12 @@ export interface DetailPageRawInput {
   kcCertificationStatus?: KcCertificationStatus;
   kcCertificationNumber?: string;
   sourceReferences?: DetailPageSourceReference[];
+  productGeneration?: {
+    mode: 'parent';
+    productGenerationBatchId: string;
+    parentOperationKey: string;
+    childKind: 'detail_page' | 'thumbnail';
+  };
 }
 
 export interface DetailPageSourceReference {
@@ -47,6 +53,7 @@ export type DetailPageParsedGeneration = DetailPageGeneration | BoldVerticalGene
 
 export interface DetailPagePrefillDto {
   category: string;
+  keyword: string;
   target: string;
   features: string[];
   options: string[];
@@ -59,7 +66,7 @@ export interface DetailPageGenerationDto {
   id: string;
   productId: string | null;
   sourceCandidateId: string | null;
-  registrationWorkspaceId: string | null;
+  contentWorkspaceId: string | null;
   templateId: DetailPageTemplateId;
   productName: string;
   rawInput: DetailPageRawInput;

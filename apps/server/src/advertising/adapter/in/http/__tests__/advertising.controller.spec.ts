@@ -296,7 +296,7 @@ describe('AdvertisingController — POST /actions sub-action dispatch', () => {
   });
 });
 
-describe('AdvertisingController — organizationId 격리 (ADR-0006)', () => {
+describe('AdvertisingController — organizationId 격리', () => {
   it('서로 다른 organizationId 는 각각 전파 (cross-tenant 흘림 없음)', () => {
     const { ctrl, svcs } = makeOverviewController();
     ctrl.getHub('organization-a');

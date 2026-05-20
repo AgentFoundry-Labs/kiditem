@@ -1,32 +1,33 @@
 // apps/server/src/products/application/service/masters.service.ts
 import { randomUUID } from 'node:crypto';
 import {
-  BadRequestException, Injectable, NotFoundException,
+  BadRequestException, Inject, Injectable, NotFoundException,
 } from '@nestjs/common';
-import { MasterProduct, Prisma } from '@prisma/client';
-import { PrismaService } from '../../../prisma/prisma.service';
 import { StorageService } from '../../../common/storage/storage.service';
 import type { MulterFile } from '../../../common/types';
 import type { MasterImageItem } from '@kiditem/shared/product';
-import { MasterCodeService } from '../../adapter/out/prisma/master-code.service';
 import { CreateMasterDto } from '../../dto/create-master.dto';
 import { UpdateMasterDto } from '../../dto/update-master.dto';
 import { ListMastersQuery } from '../../dto/list-masters.query';
 import { mapPrismaError } from '../../util/prisma-error';
 import { normalizeMasterImages } from '../../domain/service/product-image-normalizer';
 import {
-  MASTER_WITH_IMAGES,
-  type MasterWithImageRows,
-  findMasterById,
-  findMasterByCode,
-  findMasterByLegacy,
-  findMasterImageRows,
-  findMasterListPage,
-} from '../../adapter/out/prisma/master-product.query';
+  MASTER_CODE_PORT,
+  type MasterCodePort,
+} from '../port/out/repository/master-code.port';
+import {
+  MASTER_PRODUCT_REPOSITORY_PORT,
+  type MasterProductRepositoryPort,
+  type ProductBoundContentCardRow,
+} from '../port/out/repository/master-product.repository.port';
+import {
+  PRODUCTS_TRANSACTION_PORT,
+  type ProductsRepositoryTransaction,
+  type ProductsTransactionPort,
+} from '../port/out/transaction/products-transaction.port';
 import { toMasterImageItem, withImageRows } from '../../mapper/master-product.mapper';
 import {
   normalizeImagesForWrite,
-  primaryImageIndex,
   representativeImageUrl,
 } from '../../domain/service/master-image-normalizer';
 import {
@@ -79,8 +80,12 @@ function assertPublicHttpUrlForHttp(url: string): void {
 @Injectable()
 export class MastersService {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly codeSvc: MasterCodeService,
+    @Inject(MASTER_PRODUCT_REPOSITORY_PORT)
+    private readonly masters: MasterProductRepositoryPort,
+    @Inject(MASTER_CODE_PORT)
+    private readonly codeSvc: MasterCodePort,
+    @Inject(PRODUCTS_TRANSACTION_PORT)
+    private readonly transactions: ProductsTransactionPort,
     private readonly storage: StorageService,
   ) {}
 
@@ -92,39 +97,36 @@ export class MastersService {
   async create(
     organizationId: string,
     dto: CreateMasterDto,
-    outerTx?: Prisma.TransactionClient,
-  ): Promise<MasterProduct> {
+    outerTx?: ProductsRepositoryTransaction,
+  ) {
     const stripped = this.strip(dto);
     try {
       const normalizedImages = normalizeImagesForWrite(
         dto.images ?? (dto.imageUrl ? [{ url: dto.imageUrl, role: 'product', label: null, sortOrder: 0 }] : []),
       );
-      const createInTx = async (tx: Prisma.TransactionClient) => {
+      const createInTx = async (tx: ProductsRepositoryTransaction) => {
         const code = await this.codeSvc.generate(tx);
-        const row = await tx.masterProduct.create({
+        const row = await this.masters.create({
+          organizationId,
+          tx,
+          images: normalizedImages,
           data: {
             ...stripped,
             organizationId,
             code,
             imageUrl: representativeImageUrl(normalizedImages),
             healthUpdatedAt: dto.healthScore !== undefined ? new Date() : null,
-          } as Prisma.MasterProductUncheckedCreateInput,
+          },
         });
-        await this.createImageRowsTx(tx, organizationId, row.id, normalizedImages);
-        const created = await tx.masterProduct.findFirst({
-          where: { id: row.id, organizationId },
-          include: MASTER_WITH_IMAGES,
-        }) as MasterWithImageRows | null;
-        if (!created) throw new NotFoundException('master not found');
-        return created;
+        return row;
       };
-      const row = outerTx ? await createInTx(outerTx) : await this.prisma.$transaction(createInTx);
+      const row = outerTx ? await createInTx(outerTx) : await this.transactions.run(createInTx);
       return withImageRows(row);
     } catch (e) { mapPrismaError(e, 'master create'); }
   }
 
   async list(organizationId: string, q: ListMastersQuery) {
-    const { items, nextCursor } = await findMasterListPage(this.prisma, organizationId, q);
+    const { items, nextCursor } = await this.masters.list(organizationId, q);
     return { items: items.map(withImageRows), nextCursor };
   }
 
@@ -132,20 +134,20 @@ export class MastersService {
     organizationId: string,
     id: string,
     opts: { includeDeleted?: boolean },
-  ): Promise<MasterProduct> {
-    const row = await findMasterById(this.prisma, organizationId, id, opts);
+  ) {
+    const row = await this.masters.findById(organizationId, id, opts);
     if (!row) throw new NotFoundException('master not found');
     return withImageRows(row);
   }
 
-  async findByCode(organizationId: string, code: string): Promise<MasterProduct> {
-    const row = await findMasterByCode(this.prisma, organizationId, code);
+  async findByCode(organizationId: string, code: string) {
+    const row = await this.masters.findByCode(organizationId, code);
     if (!row) throw new NotFoundException('master not found');
     return withImageRows(row);
   }
 
-  async findByLegacy(organizationId: string, legacyCode: string): Promise<MasterProduct> {
-    const row = await findMasterByLegacy(this.prisma, organizationId, legacyCode);
+  async findByLegacy(organizationId: string, legacyCode: string) {
+    const row = await this.masters.findByLegacy(organizationId, legacyCode);
     if (!row) throw new NotFoundException('master not found');
     return withImageRows(row);
   }
@@ -158,35 +160,26 @@ export class MastersService {
     organizationId: string,
     id: string,
     dto: UpdateMasterDto,
-    outerTx?: Prisma.TransactionClient,
-  ): Promise<MasterProduct> {
+    outerTx?: ProductsRepositoryTransaction,
+  ) {
     const stripped = this.strip(dto);
-    const data = { ...stripped } as Prisma.MasterProductUncheckedUpdateInput;
+    const data: Record<string, unknown> = { ...stripped };
     if (dto.healthScore !== undefined) data.healthUpdatedAt = new Date();
     if (dto.isTemporary === false) data.temporaryReason = null;
     try {
-      const updateInTx = async (tx: Prisma.TransactionClient) => {
-        const { count } = await tx.masterProduct.updateMany({
-          where: { id, organizationId, isDeleted: false },
+      const updateInTx = async (tx: ProductsRepositoryTransaction) => {
+        const images = dto.images !== undefined || dto.imageUrl !== undefined
+          ? dto.images ?? (dto.imageUrl ? [{ url: dto.imageUrl, role: 'product', label: null, sortOrder: 0 }] : [])
+          : undefined;
+        return this.masters.update({
+          organizationId,
+          id,
           data,
+          images,
+          tx,
         });
-        if (count === 0) throw new NotFoundException('master not found or deleted');
-        if (dto.images !== undefined || dto.imageUrl !== undefined) {
-          await this.replaceImagesTx(
-            tx,
-            organizationId,
-            id,
-            dto.images ?? (dto.imageUrl ? [{ url: dto.imageUrl, role: 'product', label: null, sortOrder: 0 }] : []),
-          );
-        }
-        const updated = await tx.masterProduct.findFirst({
-          where: { id, organizationId, isDeleted: false },
-          include: MASTER_WITH_IMAGES,
-        }) as MasterWithImageRows | null;
-        if (!updated) throw new NotFoundException('master not found or deleted');
-        return updated;
       };
-      const row = outerTx ? await updateInTx(outerTx) : await this.prisma.$transaction(updateInTx);
+      const row = outerTx ? await updateInTx(outerTx) : await this.transactions.run(updateInTx);
       return withImageRows(row);
     } catch (e) { mapPrismaError(e, 'master update'); }
   }
@@ -200,7 +193,7 @@ export class MastersService {
     organizationId: string,
     id: string,
   ): Promise<MasterImageItem[]> {
-    const rows = await findMasterImageRows(this.prisma, organizationId, id);
+    const rows = await this.masters.findImageRows(organizationId, id);
     if (rows.length === 0) await this.findById(organizationId, id, {});
     return rows.map(toMasterImageItem);
   }
@@ -209,21 +202,8 @@ export class MastersService {
     organizationId: string,
     id: string,
     images: unknown,
-  ): Promise<MasterProduct> {
-    const row = await this.prisma.$transaction(async (tx) => {
-      const { count } = await tx.masterProduct.updateMany({
-        where: { id, organizationId, isDeleted: false },
-        data: { imageUrl: representativeImageUrl(normalizeImagesForWrite(images)) },
-      });
-      if (count === 0) throw new NotFoundException('master not found or deleted');
-      await this.replaceImagesTx(tx, organizationId, id, images);
-      const updated = await tx.masterProduct.findFirst({
-        where: { id, organizationId, isDeleted: false },
-        include: MASTER_WITH_IMAGES,
-      }) as MasterWithImageRows | null;
-      if (!updated) throw new NotFoundException('master not found or deleted');
-      return updated;
-    });
+  ) {
+    const row = await this.masters.updateImages({ organizationId, id, images });
     return withImageRows(row);
   }
 
@@ -255,32 +235,13 @@ export class MastersService {
     await this.findById(organizationId, id, {});
     const key = `product-images/${id}/${randomUUID()}.${ext}`;
     const url = await this.storage.save(key, file.buffer, file.mimetype);
-    const row = await this.prisma.$transaction(async (tx) => {
-      const existingCount = await tx.masterProductImage.count({
-        where: { organizationId, masterId: id, isDeleted: false },
-      });
-      const image = await tx.masterProductImage.create({
-        data: {
-          organizationId,
-          masterId: id,
-          url,
-          storageKey: key,
-          role: 'product',
-          label: null,
-          sortOrder: existingCount,
-          source: 'upload',
-          mimeType: file.mimetype,
-          fileSize: file.size,
-          isPrimary: existingCount === 0,
-        },
-      });
-      if (existingCount === 0) {
-        await tx.masterProduct.updateMany({
-          where: { id, organizationId, isDeleted: false },
-          data: { imageUrl: url },
-        });
-      }
-      return image;
+    const row = await this.masters.createUploadedImage({
+      organizationId,
+      masterId: id,
+      url,
+      storageKey: key,
+      mimeType: file.mimetype,
+      fileSize: file.size,
     });
     return toMasterImageItem(row);
   }
@@ -307,10 +268,7 @@ export class MastersService {
     organizationId: string,
     id: string,
   ): Promise<{ template: string | null; data: Record<string, unknown> }> {
-    const row = await this.prisma.masterProduct.findFirst({
-      where: { id, organizationId, isDeleted: false },
-      select: { processedData: true, draftContent: true },
-    });
+    const row = await this.masters.findPreviewData(organizationId, id);
     if (!row) throw new NotFoundException('master not found');
     const data = (row.processedData ?? row.draftContent) as Record<string, unknown> | null;
     if (!data || typeof data !== 'object') return { template: null, data: {} };
@@ -322,10 +280,7 @@ export class MastersService {
     id: string,
     html: string,
   ): Promise<{ ok: true }> {
-    const row = await this.prisma.masterProduct.findFirst({
-      where: { id, organizationId, isDeleted: false },
-      select: { draftContent: true },
-    });
+    const row = await this.masters.findDraftContent(organizationId, id);
     if (!row) throw new NotFoundException('master not found');
     const existing = (row.draftContent ?? {}) as Record<string, unknown>;
     const next = {
@@ -333,10 +288,7 @@ export class MastersService {
       editedHtml: html,
       editedHtmlSavedAt: new Date().toISOString(),
     };
-    const { count } = await this.prisma.masterProduct.updateMany({
-      where: { id, organizationId, isDeleted: false },
-      data: { draftContent: next as Prisma.InputJsonValue },
-    });
+    const count = await this.masters.saveDraftContent(organizationId, id, next);
     if (count === 0) throw new NotFoundException('master not found');
     return { ok: true };
   }
@@ -345,10 +297,7 @@ export class MastersService {
     organizationId: string,
     id: string,
   ): Promise<{ html: string | null; savedAt: string | null }> {
-    const row = await this.prisma.masterProduct.findFirst({
-      where: { id, organizationId, isDeleted: false },
-      select: { draftContent: true },
-    });
+    const row = await this.masters.findDraftContent(organizationId, id);
     if (!row) throw new NotFoundException('master not found');
     const draftContent = (row.draftContent ?? {}) as Record<string, unknown>;
     return {
@@ -375,62 +324,14 @@ export class MastersService {
       100,
       Math.max(1, Number.isFinite(query.limit) && query.limit ? Math.floor(query.limit) : 20),
     );
-    const where: Prisma.ContentGenerationWhereInput = {
+    const { total, rows } = await this.masters.listProductContentCards({
       organizationId,
-      contentType: 'detail_page',
-      templateId: { in: [...AI_DETAIL_TEMPLATE_IDS] },
-      generationGroup: {
-        targetMasterId: query.productId ?? { not: null },
-        targetMaster: { isDeleted: false },
-      },
-    };
-
-    const [total, rows] = await Promise.all([
-      this.prisma.contentGeneration.count({ where }),
-      this.prisma.contentGeneration.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-        select: {
-          id: true,
-          generatedTitle: true,
-          status: true,
-          generationInput: true,
-          generationResult: true,
-          errorMessage: true,
-          editedHtmlSavedAt: true,
-          createdAt: true,
-          updatedAt: true,
-          generationGroup: {
-            select: {
-              targetMaster: {
-                select: {
-                  id: true,
-                  code: true,
-                  name: true,
-                  thumbnailUrl: true,
-                  imageUrl: true,
-                  isTemporary: true,
-                  images: {
-                    where: { isDeleted: false },
-                    orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }],
-                    select: { url: true },
-                  },
-                },
-              },
-            },
-          },
-        },
-      }),
-    ]);
-    type ProductContentRow = (typeof rows)[number];
-    type ProductBoundContentRow = ProductContentRow & {
-      generationGroup: ProductContentRow['generationGroup'] & {
-        targetMaster: NonNullable<ProductContentRow['generationGroup']['targetMaster']>;
-      };
-    };
-    const productRows = rows.filter((row): row is ProductBoundContentRow => (
+      productId: query.productId,
+      page,
+      limit,
+      templateIds: AI_DETAIL_TEMPLATE_IDS,
+    });
+    const productRows = rows.filter((row): row is ProductBoundContentCardRow => (
       row.generationGroup.targetMaster !== null
     ));
 
@@ -455,22 +356,10 @@ export class MastersService {
     createdAt: Date;
   }>> {
     await this.findById(organizationId, id, {});
-    const rows = await this.prisma.contentGeneration.findMany({
-      where: {
-        organizationId,
-        generationGroup: { targetMasterId: id },
-        NOT: { contentType: 'detail_page' },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-      select: {
-        id: true,
-        generatedTitle: true,
-        status: true,
-        generationResult: true,
-        errorMessage: true,
-        createdAt: true,
-      },
+    const rows = await this.masters.findGenerationHistoryRows({
+      organizationId,
+      masterId: id,
+      limit,
     });
 
     return rows
@@ -489,12 +378,10 @@ export class MastersService {
     masterId: string,
     generationId: string,
   ): Promise<{ ok: true }> {
-    const { count } = await this.prisma.contentGeneration.deleteMany({
-      where: {
-        id: generationId,
-        organizationId,
-        generationGroup: { targetMasterId: masterId },
-      },
+    const count = await this.masters.deleteGenerationHistory({
+      organizationId,
+      masterId,
+      generationId,
     });
     if (count === 0) throw new NotFoundException('generation history row not found');
     return { ok: true };
@@ -659,48 +546,6 @@ export class MastersService {
     return typeof value === 'number' && Number.isInteger(value) ? value : null;
   }
 
-  private async createImageRowsTx(
-    tx: Prisma.TransactionClient,
-    organizationId: string,
-    masterId: string,
-    images: MasterImageItem[],
-  ): Promise<void> {
-    if (images.length === 0) return;
-    const primary = primaryImageIndex(images);
-    await tx.masterProductImage.createMany({
-      data: images.map((img, index) => ({
-        organizationId,
-        masterId,
-        url: img.url,
-        storageKey: img.storageKey ?? null,
-        role: img.role,
-        label: img.label,
-        sortOrder: img.sortOrder,
-        source: img.source ?? 'api',
-        mimeType: img.mimeType ?? null,
-        width: img.width ?? null,
-        height: img.height ?? null,
-        fileSize: img.fileSize ?? null,
-        isPrimary: index === primary,
-      })),
-    });
-  }
-
-  private async replaceImagesTx(
-    tx: Prisma.TransactionClient,
-    organizationId: string,
-    masterId: string,
-    images: unknown,
-  ): Promise<void> {
-    const normalized = normalizeImagesForWrite(images);
-    await tx.masterProduct.updateMany({
-      where: { id: masterId, organizationId, isDeleted: false },
-      data: { imageUrl: representativeImageUrl(normalized) },
-    });
-    await tx.masterProductImage.deleteMany({ where: { organizationId, masterId } });
-    await this.createImageRowsTx(tx, organizationId, masterId, normalized);
-  }
-
   /**
    * @param outerTx - Optional outer transaction (Plan B2 compose). Caller must pass
    *                  `{ timeout: >= 15000 }` on the outer `$transaction`.
@@ -708,13 +553,9 @@ export class MastersService {
   async softDelete(
     organizationId: string,
     id: string,
-    outerTx?: Prisma.TransactionClient,
+    outerTx?: ProductsRepositoryTransaction,
   ): Promise<void> {
-    const db = outerTx ?? this.prisma;
-    const { count } = await db.masterProduct.updateMany({
-      where: { id, organizationId, isDeleted: false },
-      data: { isDeleted: true, deletedAt: new Date() },
-    });
+    const count = await this.masters.softDelete(organizationId, id, outerTx);
     if (count === 0) throw new NotFoundException('master not found');
   }
 
@@ -730,25 +571,19 @@ export class MastersService {
   async restore(
     organizationId: string,
     id: string,
-    outerTx?: Prisma.TransactionClient,
+    outerTx?: ProductsRepositoryTransaction,
   ): Promise<void> {
-    const db = outerTx ?? this.prisma;
     try {
-      const { count } = await db.masterProduct.updateMany({
-        where: { id, organizationId, isDeleted: true },
-        data: { isDeleted: false, deletedAt: null },
-      });
+      const count = await this.masters.restore(organizationId, id, outerTx);
       if (count === 0) throw new NotFoundException('master not found or not deleted');
     } catch (e) { mapPrismaError(e, 'master restore'); }
   }
 
   /**
-   * Remove SYSTEM_FIELDS from a DTO before forwarding to Prisma. The return
-   * type preserves the caller's input type minus the stripped keys so call
-   * sites don't need a loose `Record<string, unknown>` intermediate cast
-   * (apps/server/AGENTS.md forbids that pattern). The remaining cast to
-   * `Prisma.MasterProductUnchecked{Create,Update}Input` at the call site is
-   * inherent to the DTO↔Prisma-input shape gap and unavoidable.
+   * Remove SYSTEM_FIELDS from a DTO before forwarding to the repository.
+   * The return type preserves the caller's input type minus the stripped keys
+   * so call sites don't need a loose `Record<string, unknown>` intermediate
+   * cast (apps/server/AGENTS.md forbids that pattern).
    */
   private strip<T extends Partial<CreateMasterDto> | Partial<UpdateMasterDto>>(
     dto: T,

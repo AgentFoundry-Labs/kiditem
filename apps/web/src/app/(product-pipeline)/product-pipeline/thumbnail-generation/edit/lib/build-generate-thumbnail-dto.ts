@@ -50,12 +50,12 @@ export function buildGenerateThumbnailDto({
   const resolvedCase: EditUseCase | null = mode === 'creative' ? null : pickCaseFromSlots(slots);
   const identity = subject
     ? thumbnailSubjectToDtoIdentity(subject)
-    : { productId, sourceCandidateId: sourceCandidateId ?? null, registrationWorkspaceId: null };
+    : { productId, sourceCandidateId: sourceCandidateId ?? null, contentWorkspaceId: null };
 
   return slotsToDto(slots, resolvedCase, {
     productId: identity.productId,
     sourceCandidateId: identity.sourceCandidateId,
-    registrationWorkspaceId: identity.registrationWorkspaceId,
+    contentWorkspaceId: identity.contentWorkspaceId,
     supplementaryLabel,
     pieceCount,
     purpose: mode === 'creative' ? 'quality' : 'compliance',

@@ -1,7 +1,7 @@
 /**
  * PanelSseClient — SSE wrapper for /api/panel/stream.
  *
- * ADR-0010: fetch-event-source is authorized for Panel domain only.
+ * Panel SSE exception: fetch-event-source is authorized for Panel domain only.
  * Raw fetch() is otherwise prohibited in apps/web (see apps/web/AGENTS.md).
  *
  * Auth: connect 시점에 Supabase 세션의 access token 을 `Authorization: Bearer` 헤더로 첨부.

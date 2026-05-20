@@ -6,7 +6,7 @@ import {
   type AgentLogStorePort,
   type PutLogInput,
   type PutLogResult,
-} from '../../../application/port/out/agent-log-store.port';
+} from '../../../application/port/out/storage/agent-log-store.port';
 
 const LOG_BASE = resolve(process.cwd(), '.agent-os/logs');
 

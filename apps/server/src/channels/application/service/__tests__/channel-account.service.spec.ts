@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ChannelAccountService } from '../channel-account.service';
+import { ChannelAccountRepositoryAdapter } from '../../../adapter/out/repository/channel-account.repository.adapter';
 
 const ORGANIZATION_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const KEY = Buffer.alloc(32, 7).toString('base64');
@@ -33,7 +33,7 @@ describe('ChannelAccountService — Coupang account settings', () => {
   it('stores Coupang credentials encrypted and never exposes the secret in settings', async () => {
     const prisma = makePrisma();
     const tx = makeTx();
-    const service = new ChannelAccountService(prisma as never);
+    const service = new ChannelAccountRepositoryAdapter(prisma as never);
     let stored: Record<string, unknown> | null = null;
 
     prisma.$transaction.mockImplementation(async (cb: (txArg: typeof tx) => Promise<void>) =>
@@ -87,7 +87,7 @@ describe('ChannelAccountService — Coupang account settings', () => {
   it('preserves the existing Secret Key when an update leaves it blank', async () => {
     const prisma = makePrisma();
     const tx = makeTx();
-    const service = new ChannelAccountService(prisma as never);
+    const service = new ChannelAccountRepositoryAdapter(prisma as never);
     let stored: Record<string, unknown> | null = null;
 
     prisma.$transaction.mockImplementation(async (cb: (txArg: typeof tx) => Promise<void>) =>
@@ -137,7 +137,7 @@ describe('ChannelAccountService — Coupang account settings', () => {
   it('requires a Secret Key on first setup', async () => {
     const prisma = makePrisma();
     const tx = makeTx();
-    const service = new ChannelAccountService(prisma as never);
+    const service = new ChannelAccountRepositoryAdapter(prisma as never);
 
     prisma.$transaction.mockImplementation(async (cb: (txArg: typeof tx) => Promise<void>) =>
       cb(tx),

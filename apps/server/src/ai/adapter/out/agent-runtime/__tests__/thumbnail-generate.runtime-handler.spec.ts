@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ThumbnailGenerateRuntimeHandler } from '../thumbnail-generate.runtime-handler';
 import { AgentRuntimeHandlerRegistry } from '../../../../../agent-os/application/service/agent-runtime-handler-registry.service';
 import { AgentOsRuntimeError } from '../../../../../agent-os/domain/agent-os.errors';
-import type { AgentRuntimeExecutionContext } from '../../../../../agent-os/application/port/out/agent-runtime.port';
+import type { AgentRuntimeExecutionContext } from '../../../../../agent-os/application/port/out/runtime/agent-runtime.port';
 import type { ThumbnailEditorAiService } from '../../../../application/service/thumbnail-editor-ai.service';
 
 const VALID_INPUT_IMAGE = {
@@ -79,6 +79,11 @@ describe('ThumbnailGenerateRuntimeHandler', () => {
     const result = await handler.execute(makeCtx());
 
     expect(editorAi.generateEdit).toHaveBeenCalledTimes(1);
+    expect(editorAi.generateEdit).toHaveBeenCalledWith(
+      expect.any(Array),
+      'org-1',
+      expect.objectContaining({ model: 'gemini-image-test' }),
+    );
     expect(editorAi.generateCreative).not.toHaveBeenCalled();
     expect(result.provider).toBe('gemini-image');
     expect(result.output).toMatchObject({
@@ -113,6 +118,11 @@ describe('ThumbnailGenerateRuntimeHandler', () => {
     );
 
     expect(editorAi.generateCreative).toHaveBeenCalledTimes(1);
+    expect(editorAi.generateCreative).toHaveBeenCalledWith(
+      expect.any(Array),
+      'org-1',
+      expect.objectContaining({ model: 'gemini-image-test' }),
+    );
     expect(editorAi.generateEdit).not.toHaveBeenCalled();
   });
 

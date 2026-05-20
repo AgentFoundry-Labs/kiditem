@@ -53,8 +53,10 @@ export interface OperationLifecyclePatch {
 }
 
 export interface CloseStaleOperationAlertsInput {
+  organizationId?: string;
+  type?: string;
   sourceType: string;
-  operationKeyPrefix: string;
+  operationKeyPrefix?: string;
   staleBefore: Date;
   status: 'failed' | 'cancelled';
   message: string;
@@ -66,6 +68,12 @@ export interface CloseStaleOperationAlertsInput {
 export interface OperationAlertPort {
   /** Open or re-emit an operation-alert lifecycle row. */
   start(input: StartOperationAlertInput): Promise<AlertRecord>;
+
+  /** Read an operation by its idempotency key. */
+  findByOperationKey(
+    organizationId: string,
+    operationKey: string,
+  ): Promise<AlertRecord | null>;
 
   /** Patch a running operation. No-op when the row is missing. */
   progress(
@@ -92,6 +100,18 @@ export interface OperationAlertPort {
   cancel(
     organizationId: string,
     operationKey: string,
+    patch?: OperationLifecyclePatch,
+  ): Promise<AlertRecord | null>;
+
+  /**
+   * Close the latest operation linked to a source tuple when the producer knows
+   * the upstream source identity but not the operation key.
+   */
+  closeBySource(
+    organizationId: string,
+    sourceType: string,
+    sourceId: string,
+    status: 'succeeded' | 'failed' | 'cancelled',
     patch?: OperationLifecyclePatch,
   ): Promise<AlertRecord | null>;
 

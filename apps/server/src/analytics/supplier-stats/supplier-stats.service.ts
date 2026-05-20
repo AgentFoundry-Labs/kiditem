@@ -12,11 +12,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 /**
  * Plan B2c.orders T7 — optionId-based aggregation.
  *
- * 3-layer schema (ADR-0013):
+ * 3-layer product schema:
  *   Supplier → SupplierProduct(optionId)              — SKU 단위 공급가
  *   Supplier → MasterSupplierProduct(masterId)        — Master 단위 주공급처 정책 (supplyPrice 없음)
  *
- * 주문 집계 경로 (ADR-0015 channel-agnostic Order):
+ * 주문 집계 경로 (channel-agnostic Order):
  *   OrderLineItem.optionId → groupBy (chunked, CHUNK=1000)
  *   where order.status ∉ {cancelled, returned}
  *
@@ -338,7 +338,7 @@ export class SupplierStatsService {
   /**
    * OrderLineItem.optionId → groupBy 집계 (chunked for >1000 ids, Postgres IN 성능 안정화).
    *
-   * organizationId 는 상위 Order 로 scope (ADR-0015 Order-level organization). status filter 로 cancelled/returned 제외.
+   * organizationId 는 상위 Order 로 scope. status filter 로 cancelled/returned 제외.
    */
   private async aggregateOrdersByOptionIds(
     organizationId: string,

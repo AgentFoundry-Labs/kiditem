@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
 import { AdSyncService, type ListingMap } from '../ad-sync.service';
-import type { AdListingRepositoryPort } from '../../port/out/ad-listing.repository.port';
-import type { ScrapeTargetRepositoryPort } from '../../port/out/scrape-target.repository.port';
-import type { ChannelScrapeRepositoryPort } from '../../port/out/channel-scrape.repository.port';
+import type { AdListingRepositoryPort } from '../../port/out/repository/ad-listing.repository.port';
+import type { ScrapeTargetRepositoryPort } from '../../port/out/repository/scrape-target.repository.port';
+import type { ChannelScrapeRepositoryPort } from '../../port/out/repository/channel-scrape.repository.port';
 import type { AdCampaignIngestHandler } from '../ad-campaign-ingest.handler';
 import type { RawScrapeIngestHandler } from '../raw-scrape-ingest.handler';
 import type { TrafficIngestHandler } from '../traffic-ingest.handler';

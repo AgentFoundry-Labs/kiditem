@@ -27,7 +27,7 @@ import path from 'node:path';
 //     adapters directly; application services own orchestration.
 //   - `application/service/**` does not import other owner-domain services
 //     directly; cross-owner reach must go through an
-//     `adapter/out/{owner}/` port + adapter pair.
+//     `application/port/out/cross-domain/**` port + adapter bridge.
 //   - `domain/**` is free of NestJS, Prisma, PrismaService, HTTP DTO
 //     classes, and incoming-adapter modules, and does not depend on
 //     application contracts.
@@ -188,7 +188,7 @@ describe('automation architecture contract', () => {
     );
     expect(
       hits,
-      `application services must reach other owner domains through adapter/out/{owner}/* ports:\n${hits.join('\n')}`,
+      `application services must reach other owner domains through application/port/out/cross-domain/* ports:\n${hits.join('\n')}`,
     ).toEqual([]);
   });
 

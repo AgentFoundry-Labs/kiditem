@@ -1,17 +1,21 @@
-import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
-import { BundleStockService } from '../../../../products/application/service/bundle-stock.service';
-import type { BundleStockPort } from '../../../application/port/out/bundle-stock.port';
-import type { RepositoryTransaction } from '../../../application/port/out/repository-transaction';
+import { Inject, Injectable } from '@nestjs/common';
+import {
+  PRODUCT_BUNDLE_STOCK_PORT,
+  type ProductBundleStockPort,
+} from '../../../../products/application/port/in/bundle-stock.port';
+import type { ProductsRepositoryTransaction } from '../../../../products/application/port/out/transaction/products-transaction.port';
+import type { BundleStockPort } from '../../../application/port/out/cross-domain/bundle-stock.port';
+import type { RepositoryTransaction } from '../../../application/port/out/transaction/repository-transaction';
 
 // Cross-owner-domain bridge to products. Inventory's stock-mutation flow calls
-// BundleStockService.recomputeForComponent only through this adapter, which
-// keeps the products dependency invisible to application/service/** code
-// (ADR-0014 single-writer invariant + the architecture contract's
-// "no concrete adapter/out/** import in application services" rule).
+// products' owner-side bundle-stock port only through this adapter, which keeps
+// the products dependency invisible to application/service/** code.
 @Injectable()
 export class BundleStockAdapter implements BundleStockPort {
-  constructor(private readonly bundleStock: BundleStockService) {}
+  constructor(
+    @Inject(PRODUCT_BUNDLE_STOCK_PORT)
+    private readonly bundleStock: ProductBundleStockPort,
+  ) {}
 
   recomputeForComponent(
     organizationId: string,
@@ -21,7 +25,7 @@ export class BundleStockAdapter implements BundleStockPort {
     return this.bundleStock.recomputeForComponent(
       organizationId,
       componentOptionId,
-      tx as Prisma.TransactionClient,
+      tx as ProductsRepositoryTransaction,
     );
   }
 }

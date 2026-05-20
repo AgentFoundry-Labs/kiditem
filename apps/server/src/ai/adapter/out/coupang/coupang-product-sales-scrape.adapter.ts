@@ -7,7 +7,7 @@ import type {
   CoupangProductSalesRow,
   CoupangProductSalesScrapePort,
   CoupangProductSalesScrapeResult,
-} from '../../../application/port/out/coupang-product-sales-scrape.port';
+} from '../../../application/port/out/provider/coupang-product-sales-scrape.port';
 import { spawnPlaywriter } from '../wing/playwriter-cli';
 
 const PLAYWRITER_RUN_TIMEOUT_MS = 90_000;

@@ -12,8 +12,8 @@
 //   campaign/raw-scrape handlers.
 
 import type { AdTargetType } from './util/ad-target-key';
-import type { ListingDailyState } from '../application/port/out/channel-listing-daily.repository.port';
-import type { ListingOptionDailyState } from '../application/port/out/channel-option-daily.repository.port';
+import type { ListingDailyState } from '../application/port/out/repository/channel-listing-daily.repository.port';
+import type { ListingOptionDailyState } from '../application/port/out/repository/channel-option-daily.repository.port';
 
 export type ScrapeRowPair = {
   rawRow: Record<string, any>;

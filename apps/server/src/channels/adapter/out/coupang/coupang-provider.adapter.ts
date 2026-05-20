@@ -1,11 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import type {
   CoupangProviderPort,
   SellerProductListResponse,
   SellerProductDetailResponse,
   OrderSheetResponse,
-} from '../../../application/port/out/coupang-provider.port';
-import { ChannelAccountService } from '../../../application/service/channel-account.service';
+} from '../../../application/port/out/provider/coupang-provider.port';
+import {
+  COUPANG_CREDENTIALS_PORT,
+  type CoupangCredentialsPort,
+} from '../../../application/port/out/repository/channel-account.repository.port';
 import { getSellerProducts, getSellerProduct } from './products';
 import {
   getOrderSheets,
@@ -23,7 +26,10 @@ import {
  */
 @Injectable()
 export class CoupangProviderAdapter implements CoupangProviderPort {
-  constructor(private readonly channelAccounts: ChannelAccountService) {}
+  constructor(
+    @Inject(COUPANG_CREDENTIALS_PORT)
+    private readonly credentials: CoupangCredentialsPort,
+  ) {}
 
   getDeliveryCompanies() {
     return DELIVERY_COMPANIES;
@@ -34,7 +40,7 @@ export class CoupangProviderAdapter implements CoupangProviderPort {
     maxPerPage?: number;
     status?: string;
   }): Promise<SellerProductListResponse> {
-    const credentials = await this.channelAccounts.resolveCoupangCredentials(organizationId);
+    const credentials = await this.credentials.resolveCoupangCredentials(organizationId);
     return getSellerProducts(credentials, params) as Promise<SellerProductListResponse>;
   }
 
@@ -42,7 +48,7 @@ export class CoupangProviderAdapter implements CoupangProviderPort {
     organizationId: string,
     sellerProductId: string,
   ): Promise<SellerProductDetailResponse> {
-    const credentials = await this.channelAccounts.resolveCoupangCredentials(organizationId);
+    const credentials = await this.credentials.resolveCoupangCredentials(organizationId);
     return getSellerProduct(credentials, sellerProductId) as Promise<SellerProductDetailResponse>;
   }
 
@@ -53,7 +59,7 @@ export class CoupangProviderAdapter implements CoupangProviderPort {
     maxPerPage?: number;
     nextToken?: string;
   }): Promise<OrderSheetResponse> {
-    const credentials = await this.channelAccounts.resolveCoupangCredentials(organizationId);
+    const credentials = await this.credentials.resolveCoupangCredentials(organizationId);
     return getOrderSheets(credentials, params) as Promise<OrderSheetResponse>;
   }
 
@@ -61,7 +67,7 @@ export class CoupangProviderAdapter implements CoupangProviderPort {
     organizationId: string,
     shipmentBoxIds: number[],
   ): Promise<unknown> {
-    const credentials = await this.channelAccounts.resolveCoupangCredentials(organizationId);
+    const credentials = await this.credentials.resolveCoupangCredentials(organizationId);
     return confirmOrderSheets(credentials, shipmentBoxIds);
   }
 
@@ -73,12 +79,12 @@ export class CoupangProviderAdapter implements CoupangProviderPort {
       invoiceNumber: string;
     },
   ): Promise<unknown> {
-    const credentials = await this.channelAccounts.resolveCoupangCredentials(organizationId);
+    const credentials = await this.credentials.resolveCoupangCredentials(organizationId);
     return uploadInvoice(credentials, shipmentBoxId, params);
   }
 
   async approveReturn(organizationId: string, receiptId: number): Promise<unknown> {
-    const credentials = await this.channelAccounts.resolveCoupangCredentials(organizationId);
+    const credentials = await this.credentials.resolveCoupangCredentials(organizationId);
     return approveReturn(credentials, receiptId);
   }
 }

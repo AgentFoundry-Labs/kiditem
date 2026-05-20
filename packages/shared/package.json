@@ -170,6 +170,11 @@
       "import": "./dist/auth.js",
       "require": "./dist/auth.cjs"
     },
+    "./operation-cancellation": {
+      "types": "./dist/operation-cancellation.d.ts",
+      "import": "./dist/operation-cancellation.js",
+      "require": "./dist/operation-cancellation.cjs"
+    },
     "./internal/*": null
   },
   "types": "./dist/index.d.ts",
@@ -207,7 +212,8 @@
       "feature-gate": ["dist/feature-gate.d.ts"],
       "inspection": ["dist/inspection.d.ts"],
       "readiness": ["dist/readiness.d.ts"],
-      "auth": ["dist/auth.d.ts"]
+      "auth": ["dist/auth.d.ts"],
+      "operation-cancellation": ["dist/operation-cancellation.d.ts"]
     }
   },
   "main": "./dist/index.cjs",

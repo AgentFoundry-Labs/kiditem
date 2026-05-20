@@ -5,7 +5,7 @@ import { DashboardInventoryService } from '../application/service/dashboard-inve
 import { buildDashboardContext } from '../domain/context';
 import { DashboardInventoryRepositoryAdapter } from '../adapter/out/repository/dashboard-inventory.repository.adapter';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from '../application/port/out/dashboard-inventory.repository.port';
+import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-inventory.repository.port';
 import {
   makeTestPrisma,
   resetDb,

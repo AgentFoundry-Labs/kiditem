@@ -15,7 +15,7 @@ describe('ThumbnailSubject identity', () => {
     expect(thumbnailSubjectToDtoIdentity(subject)).toEqual({
       productId: null,
       sourceCandidateId: 'candidate-1',
-      registrationWorkspaceId: null,
+      contentWorkspaceId: null,
     });
   });
 
@@ -28,7 +28,7 @@ describe('ThumbnailSubject identity', () => {
     expect(thumbnailSubjectToDtoIdentity(subject)).toEqual({
       productId: 'product-1',
       sourceCandidateId: null,
-      registrationWorkspaceId: null,
+      contentWorkspaceId: null,
     });
   });
 
@@ -39,25 +39,25 @@ describe('ThumbnailSubject identity', () => {
     expect(thumbnailSubjectToDtoIdentity(subject)).toEqual({
       productId: null,
       sourceCandidateId: null,
-      registrationWorkspaceId: null,
+      contentWorkspaceId: null,
     });
   });
 
-  it('preserves registration workspace identity for registered-product thumbnail work', () => {
+  it('preserves content workspace identity for registered-product thumbnail work', () => {
     const subject: ThumbnailSubject = {
-      kind: 'registration-workspace',
+      kind: 'content-workspace',
       workspaceId: 'workspace-1',
       targetMasterId: null,
       sourceCandidateId: null,
     };
 
     expect(thumbnailSubjectQueryParams(subject)).toEqual({
-      registrationWorkspaceId: 'workspace-1',
+      contentWorkspaceId: 'workspace-1',
     });
     expect(thumbnailSubjectToDtoIdentity(subject)).toEqual({
       productId: null,
       sourceCandidateId: null,
-      registrationWorkspaceId: 'workspace-1',
+      contentWorkspaceId: 'workspace-1',
     });
   });
 });

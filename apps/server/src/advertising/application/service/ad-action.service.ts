@@ -3,7 +3,7 @@ import {
   AD_ACTION_REPOSITORY_PORT,
   type AdActionQuery,
   type AdActionRepositoryPort,
-} from '../port/out/ad-action.repository.port';
+} from '../port/out/repository/ad-action.repository.port';
 import {
   createActionCandidate,
   type ActionCandidate,

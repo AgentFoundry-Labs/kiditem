@@ -5,13 +5,13 @@ import {
   type ListUnshippedInput,
   type UnshippedListResponse,
   type UnshippedPort,
-} from '../port/in/unshipped.port';
+} from '../port/in/fulfillment/unshipped.port';
 import {
   INVENTORY_QUERY_REPOSITORY_PORT,
   type InventoryQueryRepositoryPort,
-} from '../port/out/inventory-query.repository.port';
+} from '../port/out/repository/inventory-query.repository.port';
 
-export { UNSHIPPED_PORT } from '../port/in/unshipped.port';
+export { UNSHIPPED_PORT } from '../port/in/fulfillment/unshipped.port';
 
 @Injectable()
 export class UnshippedService implements UnshippedPort {
