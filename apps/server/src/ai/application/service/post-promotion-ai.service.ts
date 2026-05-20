@@ -3,16 +3,7 @@ import {
   AI_OPERATION_ALERT_PORT,
   type OperationAlertPort,
 } from '../port/out/cross-domain/operation-alert.port';
-import {
-  AGENT_RUNNER_PORT,
-  type AgentRunnerPort,
-  type AgentRunnerResult,
-} from '../../../agent-os/application/port/in/agent-runner.port';
-import {
-  AI_AGENT_SOURCE_TYPES,
-  DETAIL_PAGE_GENERATE_AGENT_TYPE,
-  THUMBNAIL_GENERATE_AGENT_TYPE,
-} from '../../domain/agent-output';
+import { AI_JOB_SOURCE_TYPES } from '../../domain/direct-generation';
 import type {
   ThumbnailEditorInputImage,
   ThumbnailInputRole,
@@ -25,7 +16,7 @@ import {
 import { ThumbnailEditorAiService } from './thumbnail-editor-ai.service';
 import { ContentAssetService } from './content-asset.service';
 import {
-  buildThumbnailGenerateAgentInput,
+  buildThumbnailGenerateDirectInput,
   buildThumbnailGenerationInputMeta,
 } from './thumbnail-generation-requests';
 import type { PostPromotionAiTriggerPort } from '../port/in/generation/post-promotion-ai-trigger.port';
@@ -38,6 +29,8 @@ import {
   PRODUCT_WORKSPACE_GROUP_REPOSITORY_PORT,
   type ProductWorkspaceGroupRepositoryPort,
 } from '../port/out/repository/product-workspace-group.repository.port';
+import { DetailPageDirectGenerationJobService } from './detail-page-direct-generation-job.service';
+import { ThumbnailDirectGenerationJobService } from './thumbnail-direct-generation-job.service';
 
 /**
  * AI-domain-owned defaults for post-promotion fire-and-forget generation.
@@ -64,22 +57,21 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
     private readonly repository: PostPromotionGenerationRepositoryPort,
     @Inject(PRODUCT_WORKSPACE_GROUP_REPOSITORY_PORT)
     private readonly productWorkspaceGroups: ProductWorkspaceGroupRepositoryPort,
-    @Inject(AGENT_RUNNER_PORT)
-    private readonly agentRunner: AgentRunnerPort,
     @Inject(AI_OPERATION_ALERT_PORT)
     private readonly operationAlerts: OperationAlertPort,
     private readonly editorAi: ThumbnailEditorAiService,
     private readonly contentAssets: ContentAssetService,
+    private readonly detailPageJobs: DetailPageDirectGenerationJobService,
+    private readonly thumbnailJobs: ThumbnailDirectGenerationJobService,
   ) {}
 
   /**
    * Fire detail-page + thumbnail generation for a freshly promoted master.
    *
    * Mirrors `DetailPageGenerationService.enqueueProductBoundGeneration`
-   * and `ThumbnailGenerationJobService.enqueueEditorGeneration` so the
-   * Agent OS bridge + sink path treats post-promotion runs identically
-   * to user-initiated ones (the gen row is the sink's writable target;
-   * `sourceResourceId` must point at the gen row, never the master id).
+   * and `ThumbnailGenerationJobService.enqueueEditorGeneration` so the direct
+   * job + sink path treats post-promotion runs identically to user-initiated
+   * ones.
    *
    * Fire-and-forget contract: each path is independently try/catch'd,
    * any failure marks its own gen row FAILED + alert.fail + logs, then
@@ -151,7 +143,7 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
         operationKey: detailPageOperationKey(row.id),
         type: 'detail_page_generation',
         title: `상세페이지 자동 생성: ${master.name.slice(0, 40)}`,
-        sourceType: AI_AGENT_SOURCE_TYPES.POST_PROMOTION_DETAIL_PAGE,
+        sourceType: AI_JOB_SOURCE_TYPES.POST_PROMOTION_DETAIL_PAGE,
         sourceId: row.id,
         actorUserId: null,
         targetType: 'master',
@@ -168,44 +160,23 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
         },
       });
 
-      const enqueueResult: AgentRunnerResult = await this.agentRunner.runByType(
-        DETAIL_PAGE_GENERATE_AGENT_TYPE,
-        {
-          organizationId,
-          sourceType: AI_AGENT_SOURCE_TYPES.POST_PROMOTION_DETAIL_PAGE,
-          sourceResourceType: 'content_generation',
-          sourceResourceId: row.id,
-          reason: `post_promotion detail_page_generate for master ${master.id}`,
-          payload: {
-            templateId: DEFAULT_TEMPLATE_ID,
-            raw: {
-              rawTitle: rawInput.rawTitle,
-              rawCategory: rawInput.rawCategory,
-              rawDescription: rawInput.rawDescription,
-              rawOptions: rawInput.rawOptions,
-              imageUrls: rawInput.imageUrls,
-              ageGroup: rawInput.ageGroup,
-              detailImageCount: rawInput.detailImageCount,
-            },
-            heroImageMode: DEFAULT_HERO_IMAGE_MODE,
+      this.detailPageJobs.schedule({
+        organizationId,
+        generationId: row.id,
+        payload: {
+          templateId: DEFAULT_TEMPLATE_ID,
+          raw: {
+            rawTitle: rawInput.rawTitle,
+            rawCategory: rawInput.rawCategory,
+            rawDescription: rawInput.rawDescription,
+            rawOptions: rawInput.rawOptions,
+            imageUrls: rawInput.imageUrls,
+            ageGroup: rawInput.ageGroup,
+            detailImageCount: rawInput.detailImageCount,
           },
+          heroImageMode: DEFAULT_HERO_IMAGE_MODE,
         },
-      );
-
-      if (!enqueueResult.ok) {
-        const errorMessage = enqueueResult.reason
-          ? `Agent OS enqueue failed: ${enqueueResult.reason}`
-          : 'Agent OS enqueue failed.';
-        await this.markDetailPageFailed({
-          organizationId,
-          contentGenerationId: row.id,
-          errorMessage,
-          agentReason: enqueueResult.reason ?? null,
-        });
-        this.logger.error(
-          `post-promotion detail_page_generate enqueue rejected (organization=${organizationId}, master=${master.id}, contentGeneration=${row.id}): ${errorMessage}`,
-        );
-      }
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(
@@ -262,7 +233,7 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
         productName: master.name,
         inputs: [inputImage],
       });
-      const agentPayload = buildThumbnailGenerateAgentInput({
+      const directPayload = buildThumbnailGenerateDirectInput({
         mode: THUMBNAIL_MODE,
         editCase: 'single',
         productName: master.name,
@@ -293,7 +264,7 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
         operationKey: this.thumbnailOperationKey(generation.id),
         type: 'thumbnail_edit_job',
         title: `썸네일 자동 생성: ${master.name.slice(0, 40)}`,
-        sourceType: AI_AGENT_SOURCE_TYPES.POST_PROMOTION_THUMBNAIL,
+        sourceType: AI_JOB_SOURCE_TYPES.POST_PROMOTION_THUMBNAIL,
         sourceId: generation.id,
         actorUserId: null,
         targetType: 'master',
@@ -306,32 +277,11 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
         },
       });
 
-      const enqueueResult: AgentRunnerResult = await this.agentRunner.runByType(
-        THUMBNAIL_GENERATE_AGENT_TYPE,
-        {
-          organizationId,
-          sourceType: AI_AGENT_SOURCE_TYPES.POST_PROMOTION_THUMBNAIL,
-          sourceResourceType: 'thumbnail_generation',
-          sourceResourceId: generation.id,
-          reason: `post_promotion thumbnail_generate for master ${master.id}`,
-          payload: agentPayload,
-        },
-      );
-
-      if (!enqueueResult.ok) {
-        const errorMessage = enqueueResult.reason
-          ? `Agent OS enqueue failed: ${enqueueResult.reason}`
-          : 'Agent OS enqueue failed.';
-        await this.markThumbnailFailed({
-          organizationId,
-          generationId: generation.id,
-          errorMessage,
-          agentReason: enqueueResult.reason ?? null,
-        });
-        this.logger.error(
-          `post-promotion thumbnail_generate enqueue rejected (organization=${organizationId}, master=${master.id}, generation=${generation.id}): ${errorMessage}`,
-        );
-      }
+      this.thumbnailJobs.schedule({
+        organizationId,
+        generationId: generation.id,
+        payload: directPayload,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(
@@ -372,7 +322,7 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
         {
           message: errorMessage,
           metadata: {
-            errorCode: 'agent_enqueue_failed',
+            errorCode: 'direct_ai_schedule_failed',
             agentReason,
           },
         },
@@ -409,7 +359,7 @@ export class PostPromotionAiService implements PostPromotionAiTriggerPort {
         {
           message: errorMessage,
           metadata: {
-            errorCode: 'agent_enqueue_failed',
+            errorCode: 'direct_ai_schedule_failed',
             agentReason,
           },
         },

@@ -12,6 +12,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import {
   listAgentDefinitions,
   resolveDefinitionDefaultModel,
+  resolveDefinitionModelPlan,
 } from './domain/agent-definition.registry';
 import type { AgentDefinitionRecord } from './domain/agent-os.types';
 
@@ -46,6 +47,15 @@ function resolveDefaultModel(definition: AgentDefinitionRecord): string {
       `Missing default model: ${hint} (no silent fallback).`,
     );
   }
+  const modelPlan = resolveDefinitionModelPlan(definition, value);
+  if (!modelPlan.modelPlan) {
+    const missing = modelPlan.missingEnv
+      ? `${modelPlan.missingEnv} (${modelPlan.missingRole} model)`
+      : 'model plan';
+    throw new Error(
+      `Missing default model plan for ${definition.type}: set ${missing} in .env (no AI_* fallback for Agent OS).`,
+    );
+  }
   return value;
 }
 
@@ -59,6 +69,13 @@ async function ensureInstance(
     select: { id: true },
   });
   if (existing) {
+    await prisma.agentInstance.update({
+      where: { id: existing.id },
+      data: {
+        name: definition.name,
+        adapterType: definition.defaultAdapterType,
+      },
+    });
     // Ensure runtime state row exists (1:1 with instance).
     await prisma.agentRuntimeState.upsert({
       where: { agentInstanceId: existing.id },

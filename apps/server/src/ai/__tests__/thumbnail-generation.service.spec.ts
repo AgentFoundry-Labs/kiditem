@@ -86,6 +86,13 @@ function makeAgentRunnerStub() {
   };
 }
 
+function makeDirectThumbnailJobsStub() {
+  return {
+    schedule: vi.fn(),
+    process: vi.fn(),
+  };
+}
+
 async function flushInlineExecutor() {
   await new Promise((resolve) => setImmediate(resolve));
 }
@@ -96,6 +103,7 @@ function makeService(input: {
   trackingService?: unknown;
   operationAlerts?: unknown;
   agentRunner?: unknown;
+  directGenerationJobs?: ReturnType<typeof makeDirectThumbnailJobsStub>;
   productGenerationAlerts?: ProductGenerationAlertService;
 }) {
   const operationAlerts = input.operationAlerts ?? makeOperationAlertsStub();
@@ -109,7 +117,7 @@ function makeService(input: {
     ledger,
     editorAi as never,
     operationAlerts as never,
-    (input.agentRunner ?? makeAgentRunnerStub()) as never,
+    (input.directGenerationJobs ?? makeDirectThumbnailJobsStub()) as never,
     input.productGenerationAlerts ?? makeProductGenerationAlertsStub(),
     lifecycle,
   );
@@ -280,8 +288,9 @@ describe('ThumbnailGenerationService normalized persistence', () => {
     expect(prisma.thumbnailGeneration.create).not.toHaveBeenCalled();
   });
 
-  it('enqueueEditorGeneration kicks the queued thumbnail request through the executor path', async () => {
+  it('enqueueEditorGeneration schedules direct thumbnail AI generation', async () => {
     const agentRunner = makeAgentRunnerStub();
+    const directGenerationJobs = makeDirectThumbnailJobsStub();
     const operationAlerts = makeOperationAlertsStub();
     const prisma = {
       thumbnailGeneration: {
@@ -294,7 +303,12 @@ describe('ThumbnailGenerationService normalized persistence', () => {
         createMany: vi.fn(async () => ({ count: 1 })),
       },
     };
-    const service = makeService({ prisma, agentRunner, operationAlerts });
+    const service = makeService({
+      prisma,
+      agentRunner,
+      directGenerationJobs,
+      operationAlerts,
+    });
 
     const result = await service.enqueueEditorGeneration({
       organizationId: ORGANIZATION_ID,
@@ -305,27 +319,24 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       inputMeta: { mode: 'edit', inputCount: 1 },
       method: 'generate',
       originalUrl: 'http://storage.local/kiditem/thumbnail-inputs/x.jpg',
-      agentPayload: { mode: 'edit', inputs: [] },
+      directPayload: { mode: 'edit', inputs: [] },
     });
 
     expect(result).toEqual({ generationId: GENERATION_ID, status: 'pending' });
-    expect(agentRunner.runByType).toHaveBeenCalledWith(
-      expect.any(String),
+    expect(agentRunner.runByType).not.toHaveBeenCalled();
+    expect(agentRunner.executeRequest).not.toHaveBeenCalled();
+    expect(directGenerationJobs.schedule).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: ORGANIZATION_ID,
-        sourceResourceType: 'thumbnail_generation',
-        sourceResourceId: GENERATION_ID,
+        generationId: GENERATION_ID,
+        payload: { mode: 'edit', inputs: [] },
       }),
     );
-    expect(agentRunner.executeRequest).toHaveBeenCalledWith({
-      organizationId: ORGANIZATION_ID,
-      requestId: REQUEST_ID,
-      workerId: 'thumbnail-generate-inline',
-    });
   });
 
   it('enqueueCandidateGeneration creates a pending generation scoped to the sourcing candidate', async () => {
     const agentRunner = makeAgentRunnerStub();
+    const directGenerationJobs = makeDirectThumbnailJobsStub();
     const operationAlerts = makeOperationAlertsStub();
     const prisma = {
       sourcingCandidate: {
@@ -352,7 +363,12 @@ describe('ThumbnailGenerationService normalized persistence', () => {
         createMany: vi.fn(async () => ({ count: 1 })),
       },
     };
-    const service = makeService({ prisma, agentRunner, operationAlerts });
+    const service = makeService({
+      prisma,
+      agentRunner,
+      directGenerationJobs,
+      operationAlerts,
+    });
 
     const result = await service.enqueueCandidateGeneration({
       organizationId: ORGANIZATION_ID,
@@ -363,7 +379,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       inputMeta: { mode: 'edit', inputCount: 1 },
       method: 'generate',
       originalUrl: 'http://storage.local/kiditem/thumbnail-inputs/x.jpg',
-      agentPayload: { mode: 'edit', inputs: [] },
+      directPayload: { mode: 'edit', inputs: [] },
     });
 
     expect(result).toEqual({ generationId: GENERATION_ID, status: 'pending' });
@@ -399,19 +415,15 @@ describe('ThumbnailGenerationService normalized persistence', () => {
         }),
       ],
     });
-    expect(agentRunner.runByType).toHaveBeenCalledWith(
-      expect.any(String),
+    expect(agentRunner.runByType).not.toHaveBeenCalled();
+    expect(agentRunner.executeRequest).not.toHaveBeenCalled();
+    expect(directGenerationJobs.schedule).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: ORGANIZATION_ID,
-        sourceResourceType: 'thumbnail_generation',
-        sourceResourceId: GENERATION_ID,
+        generationId: GENERATION_ID,
+        payload: { mode: 'edit', inputs: [] },
       }),
     );
-    expect(agentRunner.executeRequest).toHaveBeenCalledWith({
-      organizationId: ORGANIZATION_ID,
-      requestId: REQUEST_ID,
-      workerId: 'thumbnail-generate-inline',
-    });
     expect(operationAlerts.start).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: ORGANIZATION_ID,
@@ -469,7 +481,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       inputMeta: { mode: 'edit', inputCount: 1 },
       method: 'generate',
       originalUrl: 'http://storage.local/kiditem/thumbnail-inputs/x.jpg',
-      agentPayload: { mode: 'edit', inputs: [] },
+      directPayload: { mode: 'edit', inputs: [] },
       operationAlert: {
         mode: 'parent',
         batchId: 'batch-1',
@@ -554,7 +566,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       inputMeta: { mode: 'edit', inputCount: 1 },
       method: 'generate',
       originalUrl: 'http://storage.local/kiditem/thumbnail-inputs/x.jpg',
-      agentPayload: { mode: 'edit', inputs: [] },
+      directPayload: { mode: 'edit', inputs: [] },
       operationAlert: {
         mode: 'parent',
         batchId: 'batch-1',
@@ -576,7 +588,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
     expect(agentRunner.runByType).not.toHaveBeenCalled();
   });
 
-  it('cancels the thumbnail Agent OS request when parent is cancelled after child registration', async () => {
+  it('cancels the direct thumbnail child when parent is cancelled after child registration', async () => {
     const agentRunner = makeAgentRunnerStub();
     const operationAlerts = makeOperationAlertsStub();
     const productGenerationAlerts = makeProductGenerationAlertsStub();
@@ -627,7 +639,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       inputMeta: { mode: 'edit', inputCount: 1 },
       method: 'generate',
       originalUrl: 'http://storage.local/kiditem/thumbnail-inputs/x.jpg',
-      agentPayload: { mode: 'edit', inputs: [] },
+      directPayload: { mode: 'edit', inputs: [] },
       operationAlert: {
         mode: 'parent',
         batchId: 'batch-1',
@@ -637,17 +649,12 @@ describe('ThumbnailGenerationService normalized persistence', () => {
     });
 
     expect(result).toEqual({ generationId: GENERATION_ID, status: 'cancelled' });
-    expect(agentRunner.runByType).toHaveBeenCalled();
-    expect(agentRunner.cancelRequest).toHaveBeenCalledWith({
-      organizationId: ORGANIZATION_ID,
-      requestId: REQUEST_ID,
-      reason: 'Parent product generation was cancelled before thumbnail request execution.',
-      actorUserId: null,
-    });
+    expect(agentRunner.runByType).not.toHaveBeenCalled();
+    expect(agentRunner.cancelRequest).not.toHaveBeenCalled();
     expect(agentRunner.executeRequest).not.toHaveBeenCalled();
   });
 
-  it('routes parent-mode thumbnail enqueue failures to the product generation parent alert', async () => {
+  it('does not route parent-mode thumbnail work through Agent OS enqueue', async () => {
     const agentRunner = makeAgentRunnerStub();
     agentRunner.runByType = vi.fn(async () => ({ ok: false, reason: 'queue down' }));
     const operationAlerts = makeOperationAlertsStub();
@@ -687,34 +694,31 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       productGenerationAlerts,
     });
 
-    await expect(
-      service.enqueueCandidateGeneration({
-        organizationId: ORGANIZATION_ID,
-        sourceCandidateId: SOURCE_CANDIDATE_ID,
-        productName: 'Candidate toy',
-        triggeredByUserId: null,
-        inputs: [makeInputImage({ source: 'sourcing_candidate' })],
-        inputMeta: { mode: 'edit', inputCount: 1 },
-        method: 'generate',
-        originalUrl: 'http://storage.local/kiditem/thumbnail-inputs/x.jpg',
-        agentPayload: { mode: 'edit', inputs: [] },
-        operationAlert: {
-          mode: 'parent',
-          batchId: 'batch-1',
-          parentOperationKey: 'product-generation:batch-1',
-          childKind: 'thumbnail',
-        },
-      }),
-    ).rejects.toThrow('Agent OS enqueue failed: queue down');
-
-    expect(productGenerationAlerts.markChildFinished).toHaveBeenCalledWith({
+    await service.enqueueCandidateGeneration({
       organizationId: ORGANIZATION_ID,
-      parentOperationKey: 'product-generation:batch-1',
-      childKind: 'thumbnail',
-      status: 'failed',
-      childId: GENERATION_ID,
-      errorMessage: 'Agent OS enqueue failed: queue down',
+      sourceCandidateId: SOURCE_CANDIDATE_ID,
+      productName: 'Candidate toy',
+      triggeredByUserId: null,
+      inputs: [makeInputImage({ source: 'sourcing_candidate' })],
+      inputMeta: { mode: 'edit', inputCount: 1 },
+      method: 'generate',
+      originalUrl: 'http://storage.local/kiditem/thumbnail-inputs/x.jpg',
+      directPayload: { mode: 'edit', inputs: [] },
+      operationAlert: {
+        mode: 'parent',
+        batchId: 'batch-1',
+        parentOperationKey: 'product-generation:batch-1',
+        childKind: 'thumbnail',
+      },
     });
+
+    expect(agentRunner.runByType).not.toHaveBeenCalled();
+    expect(productGenerationAlerts.markChildFinished).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentOperationKey: 'product-generation:batch-1',
+        status: 'failed',
+      }),
+    );
     expect(operationAlerts.fail).not.toHaveBeenCalledWith(
       ORGANIZATION_ID,
       `thumbnail-edit:${GENERATION_ID}`,
@@ -724,6 +728,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
 
   it('enqueueStandaloneGeneration creates a pending generation without master or sourcing candidate linkage', async () => {
     const agentRunner = makeAgentRunnerStub();
+    const directGenerationJobs = makeDirectThumbnailJobsStub();
     const operationAlerts = makeOperationAlertsStub();
     const prisma = {
       thumbnailGeneration: {
@@ -736,7 +741,12 @@ describe('ThumbnailGenerationService normalized persistence', () => {
         createMany: vi.fn(async () => ({ count: 1 })),
       },
     };
-    const service = makeService({ prisma, agentRunner, operationAlerts });
+    const service = makeService({
+      prisma,
+      agentRunner,
+      directGenerationJobs,
+      operationAlerts,
+    });
 
     const result = await service.enqueueStandaloneGeneration({
       organizationId: ORGANIZATION_ID,
@@ -746,7 +756,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       inputMeta: { mode: 'edit', inputCount: 1 },
       method: 'generate',
       originalUrl: 'http://storage.local/kiditem/thumbnail-inputs/x.jpg',
-      agentPayload: { mode: 'edit', inputs: [] },
+      directPayload: { mode: 'edit', inputs: [] },
     });
 
     expect(result).toEqual({ generationId: GENERATION_ID, status: 'pending' });
@@ -769,11 +779,15 @@ describe('ThumbnailGenerationService normalized persistence', () => {
         metadata: expect.objectContaining({ standalone: true }),
       }),
     );
-    expect(agentRunner.executeRequest).toHaveBeenCalledWith({
-      organizationId: ORGANIZATION_ID,
-      requestId: REQUEST_ID,
-      workerId: 'thumbnail-generate-inline',
-    });
+    expect(agentRunner.runByType).not.toHaveBeenCalled();
+    expect(agentRunner.executeRequest).not.toHaveBeenCalled();
+    expect(directGenerationJobs.schedule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        generationId: GENERATION_ID,
+        payload: { mode: 'edit', inputs: [] },
+      }),
+    );
   });
 
   it('enqueueStandaloneGeneration can scope ownerless registered workspace work without creating an inbox card', async () => {
@@ -801,7 +815,7 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       inputMeta: { mode: 'edit', inputCount: 1 },
       method: 'generate',
       originalUrl: 'http://storage.local/kiditem/thumbnail-inputs/x.jpg',
-      agentPayload: { mode: 'edit', inputs: [] },
+      directPayload: { mode: 'edit', inputs: [] },
     });
 
     expect(result).toEqual({ generationId: GENERATION_ID, status: 'pending' });
@@ -826,13 +840,9 @@ describe('ThumbnailGenerationService normalized persistence', () => {
     );
   });
 
-  it('drains retryable thumbnail executor failures so a local preview does not leave the job pending forever', async () => {
+  it('schedules direct thumbnail execution without inline Agent OS retries', async () => {
     const agentRunner = makeAgentRunnerStub();
-    agentRunner.executeRequest = vi.fn(async () => ({
-      executed: true,
-      requestId: REQUEST_ID,
-      errorCode: 'runtime_error',
-    }));
+    const directGenerationJobs = makeDirectThumbnailJobsStub();
     const operationAlerts = makeOperationAlertsStub();
     const prisma = {
       sourcingCandidate: {
@@ -853,7 +863,12 @@ describe('ThumbnailGenerationService normalized persistence', () => {
         createMany: vi.fn(async () => ({ count: 1 })),
       },
     };
-    const service = makeService({ prisma, agentRunner, operationAlerts });
+    const service = makeService({
+      prisma,
+      agentRunner,
+      directGenerationJobs,
+      operationAlerts,
+    });
 
     await service.enqueueCandidateGeneration({
       organizationId: ORGANIZATION_ID,
@@ -864,16 +879,12 @@ describe('ThumbnailGenerationService normalized persistence', () => {
       inputMeta: { mode: 'edit', inputCount: 1 },
       method: 'generate',
       originalUrl: 'http://storage.local/kiditem/thumbnail-inputs/x.jpg',
-      agentPayload: { mode: 'edit', inputs: [] },
+      directPayload: { mode: 'edit', inputs: [] },
     });
     await flushInlineExecutor();
 
-    expect(agentRunner.executeRequest).toHaveBeenCalledTimes(3);
-    expect(agentRunner.executeRequest).toHaveBeenNthCalledWith(3, {
-      organizationId: ORGANIZATION_ID,
-      requestId: REQUEST_ID,
-      workerId: 'thumbnail-generate-inline',
-    });
+    expect(agentRunner.executeRequest).not.toHaveBeenCalled();
+    expect(directGenerationJobs.schedule).toHaveBeenCalledTimes(1);
   });
 
   it('findAll renders product data from a scoped master lookup instead of relation include data', async () => {

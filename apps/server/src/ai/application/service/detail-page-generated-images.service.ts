@@ -30,6 +30,10 @@ const MAX_BOLD_VERTICAL_DETAIL_IMAGES = GENERATED_DETAIL_IMAGE_KEYS.length;
 const MAX_KIDS_PLAYFUL_USAGE_IMAGES = 1;
 const MAX_KIDS_PLAYFUL_DETAIL_IMAGES = 1;
 
+interface DetailPageGeneratedImageModelPlan {
+  image?: string;
+}
+
 @Injectable()
 export class DetailPageGeneratedImagesService {
   private readonly logger = new Logger(DetailPageGeneratedImagesService.name);
@@ -46,6 +50,7 @@ export class DetailPageGeneratedImagesService {
     rawInput: DetailPageRawInput;
     productName: string;
     excludedImageIndices?: number[];
+    modelPlan?: DetailPageGeneratedImageModelPlan;
   }): Promise<Record<string, string>> {
     if (!this.heroImageService) return {};
     const processedImages: Record<string, string> = {};
@@ -67,6 +72,7 @@ export class DetailPageGeneratedImagesService {
       headline: input.productName,
       subhead: pickHeroSubhead(input.parsed, input.templateId),
       imageUrls: heroBannerSourceImageUrls,
+      model: input.modelPlan?.image,
     });
 
     await this.generateInto(
@@ -97,6 +103,7 @@ export class DetailPageGeneratedImagesService {
             heroProductSourceImageUrls,
           ]),
           fallbackImageUrls: heroProductSourceImageUrls,
+          model: input.modelPlan?.image,
         },
       );
 
@@ -118,6 +125,7 @@ export class DetailPageGeneratedImagesService {
           ),
           heightLabel: bold.size?.heightLabel ?? '',
           widthLabel: bold.size?.widthLabel ?? '',
+          model: input.modelPlan?.image,
         }),
       );
 
@@ -142,6 +150,7 @@ export class DetailPageGeneratedImagesService {
       ageGroup?: DetailPageRawInput['ageGroup'];
       preferredImageUrls: string[];
       fallbackImageUrls: string[];
+      model?: string;
     },
   ): Promise<void> {
     if (!this.heroImageService) return;
@@ -161,6 +170,7 @@ export class DetailPageGeneratedImagesService {
           options: input.options,
           ageGroup: input.ageGroup,
           imageUrls,
+          model: input.model,
         });
         if (url) {
           processedImages[GENERATED_HERO_PRODUCT_IMAGE_KEY] = url;
@@ -182,6 +192,7 @@ export class DetailPageGeneratedImagesService {
       parsed: DetailPageParsedGeneration;
       rawInput: DetailPageRawInput;
       excludedImageIndices?: number[];
+      modelPlan?: DetailPageGeneratedImageModelPlan;
     },
     processedImages: Record<string, string>,
   ): Promise<void> {
@@ -211,6 +222,7 @@ export class DetailPageGeneratedImagesService {
           sourcePolicy.normalImageUrls,
         ]),
         fallbackImageUrls: sourcePolicy.normalImageUrls,
+        model: input.modelPlan?.image,
       });
     }
 
@@ -250,6 +262,7 @@ export class DetailPageGeneratedImagesService {
             ),
             usageStep,
             variant: index + 1,
+            model: input.modelPlan?.image,
           }),
         );
       }
@@ -275,6 +288,7 @@ export class DetailPageGeneratedImagesService {
               sourcePolicy,
             ),
             variant: index + 1,
+            model: input.modelPlan?.image,
           }),
         );
       }
@@ -292,6 +306,7 @@ export class DetailPageGeneratedImagesService {
       ageGroup?: DetailPageRawInput['ageGroup'];
       preferredImageUrls: string[];
       fallbackImageUrls: string[];
+      model?: string;
     },
   ): Promise<void> {
     if (!this.heroImageService) return;
@@ -311,6 +326,7 @@ export class DetailPageGeneratedImagesService {
           options: input.options,
           ageGroup: input.ageGroup,
           imageUrls,
+          model: input.model,
         });
         if (url) {
           processedImages[GENERATED_COLOR_GUIDE_IMAGE_KEY] = url;
@@ -332,6 +348,7 @@ export class DetailPageGeneratedImagesService {
       parsed: DetailPageParsedGeneration;
       rawInput: DetailPageRawInput;
       excludedImageIndices?: number[];
+      modelPlan?: DetailPageGeneratedImageModelPlan;
     },
     processedImages: Record<string, string>,
   ): Promise<void> {
@@ -364,6 +381,7 @@ export class DetailPageGeneratedImagesService {
             imageUrls: sourceImages,
             usageStep: scenario.caption,
             variant: index + 1,
+            model: input.modelPlan?.image,
           });
           if (url) processedImages[key] = url;
         } catch {
@@ -393,6 +411,7 @@ export class DetailPageGeneratedImagesService {
           ageGroup: input.rawInput.ageGroup,
           imageUrls: sourceImages,
           variant: index + 1,
+          model: input.modelPlan?.image,
         });
         if (url) processedImages[key] = url;
       } catch {

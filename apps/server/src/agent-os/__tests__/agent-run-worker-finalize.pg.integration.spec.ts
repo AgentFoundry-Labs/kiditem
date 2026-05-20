@@ -112,18 +112,17 @@ beforeEach(async () => {
 });
 
 describe('AgentRunWorker → AgentRunExecutor → finalize (real Postgres)', () => {
-  it('drains a queued detail_page_generate request and emits FINALIZED with routing metadata', async () => {
+  it('drains a queued rules_evaluation request and emits FINALIZED with routing metadata', async () => {
     await seedInstance({
-      type: 'detail_page_generate',
-      name: 'Detail Page Generate',
+      type: 'rules_evaluation',
+      name: 'Rules Evaluation',
     });
 
     const sampleOutput = {
-      templateId: 'bold-vertical',
-      result: { hook: { text: 'sample' } },
-      imageUrls: [],
+      ok: true,
+      sample: 'rules',
     };
-    runtime.outputs.set('detail_page_generate', {
+    runtime.outputs.set('rules_evaluation', {
       output: sampleOutput,
       provider: 'test-deterministic',
     });
@@ -133,12 +132,12 @@ describe('AgentRunWorker → AgentRunExecutor → finalize (real Postgres)', () 
       finalized.push(event);
     });
 
-    const enqueue = await coordinator.runByType('detail_page_generate', {
+    const enqueue = await coordinator.runByType('rules_evaluation', {
       organizationId: TEST_ORGANIZATION_ID,
-      sourceType: 'ai.detail_page_generate',
-      sourceResourceType: 'content_generation',
-      sourceId: 'cg-integration-1',
-      payload: { templateId: 'bold-vertical' },
+      sourceType: 'rules',
+      sourceResourceType: 'rule_set',
+      sourceId: 'rules-integration-1',
+      payload: { sample: true },
     });
     expect(enqueue.ok).toBe(true);
     const requestId = enqueue.requestId;
@@ -147,7 +146,7 @@ describe('AgentRunWorker → AgentRunExecutor → finalize (real Postgres)', () 
     await worker.tick();
 
     expect(runtime.observed).toHaveLength(1);
-    expect(runtime.observed[0].agentType).toBe('detail_page_generate');
+    expect(runtime.observed[0].agentType).toBe('rules_evaluation');
 
     expect(finalized).toHaveLength(1);
     expect(finalized[0]).toMatchObject({
@@ -155,10 +154,10 @@ describe('AgentRunWorker → AgentRunExecutor → finalize (real Postgres)', () 
       requestId,
       status: 'succeeded',
       output: sampleOutput,
-      agentType: 'detail_page_generate',
-      source: 'ai.detail_page_generate',
-      sourceResourceType: 'content_generation',
-      sourceResourceId: 'cg-integration-1',
+      agentType: 'rules_evaluation',
+      source: 'rules',
+      sourceResourceType: 'rule_set',
+      sourceResourceId: 'rules-integration-1',
     });
 
     const persistedRequest = await prisma!.agentRunRequest.findUniqueOrThrow({
@@ -176,8 +175,8 @@ describe('AgentRunWorker → AgentRunExecutor → finalize (real Postgres)', () 
 
   it('emits FINALIZED with runtime_not_configured AND routing metadata on terminal failure', async () => {
     await seedInstance({
-      type: 'thumbnail_generate',
-      name: 'Thumbnail Generate',
+      type: 'rules_suggest',
+      name: 'Rules Suggest',
     });
 
     const finalized: AgentRunFinalizedEvent[] = [];
@@ -185,12 +184,12 @@ describe('AgentRunWorker → AgentRunExecutor → finalize (real Postgres)', () 
       finalized.push(event);
     });
 
-    const enqueue = await coordinator.runByType('thumbnail_generate', {
+    const enqueue = await coordinator.runByType('rules_suggest', {
       organizationId: TEST_ORGANIZATION_ID,
-      sourceType: 'ai.thumbnail_generate',
-      sourceResourceType: 'thumbnail_generation',
-      sourceId: 'tg-integration-1',
-      payload: { mode: 'creative' },
+      sourceType: 'rules.suggest',
+      sourceResourceType: 'rule_set',
+      sourceId: 'rules-suggest-integration-1',
+      payload: { prompt: 'test' },
     });
     expect(enqueue.ok).toBe(true);
     // Coordinator does not expose maxAttempts override, so we patch the row
@@ -207,10 +206,10 @@ describe('AgentRunWorker → AgentRunExecutor → finalize (real Postgres)', () 
     expect(failedEvent).toBeDefined();
     expect(failedEvent).toMatchObject({
       errorCode: 'runtime_not_configured',
-      agentType: 'thumbnail_generate',
-      source: 'ai.thumbnail_generate',
-      sourceResourceType: 'thumbnail_generation',
-      sourceResourceId: 'tg-integration-1',
+      agentType: 'rules_suggest',
+      source: 'rules.suggest',
+      sourceResourceType: 'rule_set',
+      sourceResourceId: 'rules-suggest-integration-1',
     });
     // Failure path has no in-band output — bridges must rely on the metadata
     // above, not on `output.__envelope`.

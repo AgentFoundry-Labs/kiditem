@@ -31,6 +31,7 @@ export class KidsPlayfulRefinerService {
   async prepareKidsPlayfulImageContext(input: {
     templateId: DetailPageTemplateId;
     rawInput: Pick<DetailPageRawInput, 'rawDescription' | 'rawOptions' | 'imageUrls'>;
+    visionModel?: string;
   }): Promise<KidsPlayfulImageContext> {
     if (input.templateId !== 'kids-playful') {
       return {
@@ -39,7 +40,10 @@ export class KidsPlayfulRefinerService {
       };
     }
 
-    const packageImageIndices = await this.inferKidsPackageImageIndices(input.rawInput);
+    const packageImageIndices = await this.inferKidsPackageImageIndices(
+      input.rawInput,
+      input.visionModel,
+    );
     return {
       packageImageIndices,
       safetyLabelImageIndices: findSafetyLabelImageUrlIndices(input.rawInput.imageUrls),
@@ -162,7 +166,7 @@ export class KidsPlayfulRefinerService {
     rawDescription?: string;
     rawOptions?: string;
     imageUrls: string[];
-  }): Promise<Set<number>> {
+  }, visionModel?: string): Promise<Set<number>> {
     const result = new Set<number>();
     if (packagePreference(rawInput) === 'none') return result;
     if (!this.heroImageService || rawInput.imageUrls.length === 0) return result;
@@ -171,6 +175,7 @@ export class KidsPlayfulRefinerService {
     try {
       const indices = await this.heroImageService.inferPackageImagePositions({
         imageUrls: rawInput.imageUrls,
+        model: visionModel,
       });
       for (const index of indices) {
         if (!Number.isInteger(index) || index < 0 || index >= rawInput.imageUrls.length) continue;

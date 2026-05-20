@@ -26,6 +26,8 @@ Current runbooks:
 - [Staging DB Baseline](staging-db-baseline.md) — export, verify, and restore
   pinned staging DB baseline artifacts from a private Supabase Storage
   S3-compatible bucket.
+- [Storage Cache-Control](storage-cache-control.md) — inspect and backfill
+  Supabase Storage cache headers for staging public image assets.
 - [Staging Seed Data](staging-seed-data.md) — historical first-rollout notes and
   non-destructive seed import guidance. Staging DB reset/restore now belongs to
   the DB baseline runbook.

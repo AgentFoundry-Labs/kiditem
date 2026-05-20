@@ -1,10 +1,16 @@
 'use client';
 
 import { useEffect } from 'react';
+import type { PanelItem } from '@kiditem/shared/panel';
+import { apiClient } from '@/lib/api-client';
 import { PanelSseClient } from '../lib/panel-sse-client';
 import { usePanelStore } from '../lib/panel-store';
 
+const PANEL_FALLBACK_POLL_MS = 5000;
+
 export function usePanelStream() {
+  const connectionStatus = usePanelStore((s) => s.connectionStatus);
+
   useEffect(() => {
     usePanelStore.getState().setConnectionStatus('connecting');
 
@@ -23,4 +29,39 @@ export function usePanelStream() {
     client.connect();
     return () => client.disconnect();
   }, []);
+
+  useEffect(() => {
+    if (connectionStatus === 'connected' || connectionStatus === 'connecting') {
+      return;
+    }
+
+    let stopped = false;
+    let inFlight = false;
+
+    const pollSnapshot = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const items = await apiClient.get<PanelItem[]>('/api/panel/snapshot');
+        if (stopped) return;
+        usePanelStore.getState().handleSnapshot(items, true);
+        if (usePanelStore.getState().connectionStatus !== 'connected') {
+          usePanelStore.getState().setConnectionStatus('polling_fallback');
+        }
+      } catch {
+        if (!stopped && usePanelStore.getState().connectionStatus !== 'connected') {
+          usePanelStore.getState().setConnectionStatus('disconnected');
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void pollSnapshot();
+    const timer = window.setInterval(pollSnapshot, PANEL_FALLBACK_POLL_MS);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [connectionStatus]);
 }

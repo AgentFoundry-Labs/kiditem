@@ -1,12 +1,9 @@
 import { BadRequestException, Body, Controller, Post } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
-import { Roles } from '../../../../auth/decorators/roles.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
 import { ThumbnailEditorDto } from './dto/thumbnail-editor.dto';
-import { ReconcileThumbnailBodyDto } from './dto/thumbnail-reconcile.dto';
 import { ThumbnailEditorAiService } from '../../../application/service/thumbnail-editor-ai.service';
-import { ThumbnailAgentReconcileService } from '../../../application/service/thumbnail-agent-reconcile.service';
 import type {
   ThumbnailEditorInputImage,
   ThumbnailInputRole,
@@ -17,7 +14,7 @@ import {
   classifyThumbnailGenerationSubject,
 } from '../../../domain/thumbnail-generation-subject';
 import {
-  buildThumbnailGenerateAgentInput,
+  buildThumbnailGenerateDirectInput,
   buildThumbnailGenerationInputMeta,
   inferThumbnailEditCase,
 } from '../../../application/service/thumbnail-generation-requests';
@@ -33,7 +30,6 @@ export class ThumbnailEditorController {
   constructor(
     private readonly editorAi: ThumbnailEditorAiService,
     private readonly generationService: ThumbnailGenerationService,
-    private readonly reconcile: ThumbnailAgentReconcileService,
   ) {}
 
   /**
@@ -42,10 +38,10 @@ export class ThumbnailEditorController {
    * - **Product-bound (`productId` set, default for the editor UI)**:
    *   creates a `pending` `ThumbnailGeneration` row, opens an
    *   `(operationKey='thumbnail-edit:<id>', sourceType='thumbnail_generation')`
-   *   operation alert, and enqueues a `thumbnail_generate` Agent OS
-   *   request. Returns `{ generationId, status: 'pending' }` immediately.
+   *   operation alert, and schedules direct thumbnail AI execution. Returns
+   *   `{ generationId, status: 'pending' }` immediately.
    *   Frontend polls the generation row to surface candidates when the
-   *   bridge + sink finalize.
+   *   direct job sink finalizes.
    *
    * - **Standalone upload (`productId` + `sourceCandidateId` absent)**:
    *   creates only a `ThumbnailGeneration` row. It must not create sourcing
@@ -94,7 +90,7 @@ export class ThumbnailEditorController {
       productName: body.productName ?? null,
       inputs,
     });
-    const agentPayload = buildThumbnailGenerateAgentInput({
+    const directPayload = buildThumbnailGenerateDirectInput({
       mode,
       editCase,
       purpose: body.purpose,
@@ -113,8 +109,8 @@ export class ThumbnailEditorController {
     });
 
     if (product) {
-      // Async path — Agent OS owns the LLM call from here. Producer side
-      // creates the row + alert + enqueue and returns immediately.
+      // Async path — producer side creates the row + alert + direct AI job and
+      // returns immediately.
       const enqueueResult = await this.generationService.enqueueEditorGeneration({
         organizationId,
         productId: product.id,
@@ -125,7 +121,7 @@ export class ThumbnailEditorController {
         method: mode === 'creative' ? 'creative' : 'generate',
         originalUrl: product.imageUrl ?? inputs[0]?.url ?? '',
         contentWorkspaceId: subject.contentWorkspaceId,
-        agentPayload,
+        directPayload,
       });
       return {
         candidates: [],
@@ -145,7 +141,7 @@ export class ThumbnailEditorController {
         method: mode === 'creative' ? 'creative' : 'generate',
         originalUrl: inputs[0]?.url ?? '',
         contentWorkspaceId: subject.contentWorkspaceId,
-        agentPayload,
+        directPayload,
       });
       return {
         candidates: [],
@@ -163,7 +159,7 @@ export class ThumbnailEditorController {
       method: mode === 'creative' ? 'creative' : 'generate',
       originalUrl: inputs[0]?.url ?? '',
       contentWorkspaceId: subject.contentWorkspaceId,
-      agentPayload,
+      directPayload,
     });
     return {
       candidates: [],
@@ -222,29 +218,6 @@ export class ThumbnailEditorController {
     await add(body.productImage, 'Product photo', 'product');
     await add(body.packagingImage, body.supplementaryLabel ?? 'Product packaging', 'box');
     return inputs;
-  }
-
-  /**
-   * Admin-triggered reconcile for the thumbnail editor Agent OS
-   * pipeline. Replays terminal `AgentRunRequest` rows whose originating
-   * `ThumbnailGeneration` is still `pending`/`running` — recovery path
-   * for missed bus events. See agent-os/AGENTS.md "Recovery contract".
-   *
-   * Idempotent (`lockGenerationForProcessing` returns null on terminal
-   * rows so the sink no-ops), so this can be invoked freely. Restricted
-   * to owner/admin to avoid accidental load amplification.
-   */
-  @Post('reconcile-stuck')
-  @Roles('owner', 'admin')
-  reconcileStuck(
-    @Body() body: ReconcileThumbnailBodyDto,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.reconcile.reconcile(organizationId, {
-      sinceMinutes: body.sinceMinutes,
-      stalePendingMinutes: body.stalePendingMinutes,
-      limit: body.limit,
-    });
   }
 
 }

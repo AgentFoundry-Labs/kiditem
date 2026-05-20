@@ -1,11 +1,10 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
-import { AgentOsModule } from '../../agent-os/agent-os.module';
 import { AutomationModule } from '../../automation/automation.module';
 import { ChannelsModule } from '../../channels/channels.module';
 import { AiModule } from '../ai.module';
-import { DetailPageContentGenerationSinkAdapter } from '../adapter/out/agent-output/detail-page-content-generation-sink.adapter';
-import { ThumbnailGenerationSinkAdapter } from '../adapter/out/agent-output/thumbnail-generation-sink.adapter';
+import { DetailPageContentGenerationSinkAdapter } from '../adapter/out/direct-output/detail-page-content-generation-sink.adapter';
+import { ThumbnailGenerationSinkAdapter } from '../adapter/out/direct-output/thumbnail-generation-sink.adapter';
 import { AiOperationAlertAdapter } from '../adapter/out/automation/operation-alert.adapter';
 import { GeminiThumbnailVisionAdapter } from '../adapter/out/gemini/gemini-thumbnail-vision.adapter';
 import { ThumbnailImageGenerationAdapter } from '../adapter/out/gemini/thumbnail-image-generation.adapter';
@@ -16,7 +15,6 @@ import { ContentWorkspaceAttachmentRepositoryAdapter } from '../adapter/out/repo
 import { ContentWorkspaceLifecycleRepositoryAdapter } from '../adapter/out/repository/content-workspace-lifecycle.repository.adapter';
 import { DetailPageGenerationRepositoryAdapter } from '../adapter/out/repository/detail-page-generation.repository.adapter';
 import { DetailPageQueryRepositoryAdapter } from '../adapter/out/repository/detail-page-query.repository.adapter';
-import { DetailPageReconcileRepositoryAdapter } from '../adapter/out/repository/detail-page-reconcile.repository.adapter';
 import { PostPromotionGenerationRepositoryAdapter } from '../adapter/out/repository/post-promotion-generation.repository.adapter';
 import { ProductGenerationChildLedgerRepositoryAdapter } from '../adapter/out/repository/product-generation-child-ledger.repository.adapter';
 import { ProductGenerationContextRepositoryAdapter } from '../adapter/out/repository/product-generation-context.repository.adapter';
@@ -49,7 +47,6 @@ import {
   CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
   DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
   DETAIL_PAGE_QUERY_REPOSITORY_PORT,
-  DETAIL_PAGE_RECONCILE_REPOSITORY_PORT,
   POST_PROMOTION_GENERATION_REPOSITORY_PORT,
   PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT,
   PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
@@ -61,8 +58,8 @@ import {
   THUMBNAIL_WING_REPOSITORY_PORT,
 } from '../application/port/out/repository';
 import {
-  DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT,
-  THUMBNAIL_AGENT_OUTPUT_SINK_PORT,
+  DETAIL_PAGE_DIRECT_OUTPUT_SINK_PORT,
+  THUMBNAIL_DIRECT_OUTPUT_SINK_PORT,
 } from '../application/port/out/sink';
 
 const IMPORTS_KEY = 'imports';
@@ -86,15 +83,15 @@ describe('AiModule hexagonal wiring contract', () => {
   it('imports owner modules only at the Nest module boundary', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, AiModule) ?? [];
 
-    expect(imports).toEqual([ChannelsModule, AgentOsModule, AutomationModule]);
+    expect(imports).toEqual([ChannelsModule, AutomationModule]);
   });
 
   it('binds AI-domain ports that keep PR 2A application services off Prisma', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, AiModule) ?? [];
 
     [
-      [DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT, DetailPageContentGenerationSinkAdapter],
-      [THUMBNAIL_AGENT_OUTPUT_SINK_PORT, ThumbnailGenerationSinkAdapter],
+      [DETAIL_PAGE_DIRECT_OUTPUT_SINK_PORT, DetailPageContentGenerationSinkAdapter],
+      [THUMBNAIL_DIRECT_OUTPUT_SINK_PORT, ThumbnailGenerationSinkAdapter],
       [AI_OPERATION_ALERT_PORT, AiOperationAlertAdapter],
       [CONTENT_ARCHIVE_REPOSITORY_PORT, ContentArchiveRepositoryAdapter],
       [CONTENT_ASSET_LIBRARY_REPOSITORY_PORT, ContentAssetLibraryRepositoryAdapter],
@@ -102,7 +99,6 @@ describe('AiModule hexagonal wiring contract', () => {
       [CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT, ContentWorkspaceLifecycleRepositoryAdapter],
       [DETAIL_PAGE_GENERATION_REPOSITORY_PORT, DetailPageGenerationRepositoryAdapter],
       [DETAIL_PAGE_QUERY_REPOSITORY_PORT, DetailPageQueryRepositoryAdapter],
-      [DETAIL_PAGE_RECONCILE_REPOSITORY_PORT, DetailPageReconcileRepositoryAdapter],
       [POST_PROMOTION_GENERATION_REPOSITORY_PORT, PostPromotionGenerationRepositoryAdapter],
       [PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT, ProductGenerationChildLedgerRepositoryAdapter],
       [PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT, ProductGenerationContextRepositoryAdapter],

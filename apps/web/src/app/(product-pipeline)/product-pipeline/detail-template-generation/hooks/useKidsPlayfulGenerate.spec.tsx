@@ -51,6 +51,7 @@ describe('useKidsPlayfulGenerationCancel', () => {
         agentRunIds: [],
         contentGenerationIds: ['generation-1'],
         thumbnailGenerationIds: [],
+        directAiJobIds: [],
       },
       preserved: {
         contentGenerationIds: [],

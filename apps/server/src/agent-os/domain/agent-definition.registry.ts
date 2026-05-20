@@ -1,16 +1,23 @@
 import type {
   AgentDefinitionRecord,
   AgentDefinitionToolPolicyRecord,
+  AgentModelPlan,
+  AgentModelPlanRole,
 } from './agent-os.types';
 
 const PROMPT_BASE = 'agent-config/prompts/agents';
 
 type AgentDefinitionSeed = Omit<
   AgentDefinitionRecord,
-  'id' | 'catalogStatus' | 'marketplaceId' | 'defaultToolPolicies'
+  | 'id'
+  | 'catalogStatus'
+  | 'marketplaceId'
+  | 'defaultAuxiliaryModelEnvs'
+  | 'defaultToolPolicies'
 > & {
   catalogStatus?: string;
   marketplaceId?: string | null;
+  defaultAuxiliaryModelEnvs?: AgentDefinitionRecord['defaultAuxiliaryModelEnvs'];
   defaultToolPolicies?: AgentDefinitionToolPolicyRecord[];
 };
 
@@ -82,56 +89,6 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     runtimeKind: 'tool_wrapper',
   },
   {
-    type: 'image_edit',
-    name: 'Image Edit',
-    description: '이미지 편집 tool-wrapper.',
-    promptPath: `${PROMPT_BASE}/manager.md`,
-    defaultAdapterType: 'gemini_image',
-    defaultModelEnv: 'AGENT_IMAGE_EDIT_MODEL',
-    defaultRuntimeConfig: {},
-    defaultCapabilities: {},
-    runtimeKind: 'tool_wrapper',
-  },
-  {
-    type: 'thumbnail_auto_edit',
-    name: 'Thumbnail Auto Edit',
-    description: 'A 등급 cohort 자동 재편집 operation wrapper.',
-    promptPath: `${PROMPT_BASE}/thumbnail-analyst.md`,
-    defaultAdapterType: 'python_http',
-    defaultModelEnv: 'AGENT_THUMBNAIL_AUTO_EDIT_MODEL',
-    defaultRuntimeConfig: {},
-    defaultCapabilities: {},
-    runtimeKind: 'tool_wrapper',
-  },
-  {
-    type: 'detail_page_generate',
-    name: 'Detail Page Generate',
-    description:
-      '상세페이지 1-call 생성 tool-wrapper. 출력은 ai 도메인 detail-page-generate output schema 가 검증한다.',
-    promptPath: `${PROMPT_BASE}/detail-page-generate.md`,
-    defaultAdapterType: 'claude_local',
-    defaultModelEnv: 'AGENT_DETAIL_PAGE_GENERATE_MODEL',
-    defaultRuntimeConfig: {
-      outputContract: 'ai.detail_page_generate.v1',
-    },
-    defaultCapabilities: {},
-    runtimeKind: 'tool_wrapper',
-  },
-  {
-    type: 'thumbnail_generate',
-    name: 'Thumbnail Generate',
-    description:
-      '썸네일 에디터/배치 1-call 생성 tool-wrapper. 출력은 ai 도메인 thumbnail-generate output schema 가 검증한다.',
-    promptPath: `${PROMPT_BASE}/thumbnail-generate.md`,
-    defaultAdapterType: 'claude_local',
-    defaultModelEnv: 'AGENT_THUMBNAIL_GENERATE_MODEL',
-    defaultRuntimeConfig: {
-      outputContract: 'ai.thumbnail_generate.v1',
-    },
-    defaultCapabilities: {},
-    runtimeKind: 'tool_wrapper',
-  },
-  {
     type: 'chat',
     name: 'Chatbot',
     description: 'Operator chatbot — read-only backend-provided context.',
@@ -160,9 +117,40 @@ export function resolveDefinitionDefaultModel(
 ): string | null {
   const specific = process.env[definition.defaultModelEnv];
   if (specific && specific.length > 0) return specific;
+  if (definition.defaultModelEnv.startsWith('AI_')) return null;
   if (definition.defaultAdapterType === 'gemini_image') return null;
   const shared = process.env.AGENT_DEFAULT_MODEL;
   return shared && shared.length > 0 ? shared : null;
+}
+
+export interface AgentModelPlanResolution {
+  modelPlan: AgentModelPlan | null;
+  missingRole?: Exclude<AgentModelPlanRole, 'primary'>;
+  missingEnv?: string;
+}
+
+export function resolveDefinitionModelPlan(
+  definition: Pick<AgentDefinitionRecord, 'defaultAuxiliaryModelEnvs'>,
+  primaryModel: string,
+): AgentModelPlanResolution {
+  const primary = primaryModel.trim();
+  if (!primary) return { modelPlan: null };
+
+  const modelPlan: AgentModelPlan = { primary };
+  for (const role of ['image', 'vision', 'verify'] as const) {
+    const envName = definition.defaultAuxiliaryModelEnvs[role];
+    if (!envName) continue;
+    const value = process.env[envName]?.trim();
+    if (!value) {
+      return {
+        modelPlan: null,
+        missingRole: role,
+        missingEnv: envName,
+      };
+    }
+    modelPlan[role] = value;
+  }
+  return { modelPlan };
 }
 
 function toRecord(definition: AgentDefinitionSeed): AgentDefinitionRecord {
@@ -171,6 +159,7 @@ function toRecord(definition: AgentDefinitionSeed): AgentDefinitionRecord {
     id: definition.type,
     catalogStatus: definition.catalogStatus ?? 'active',
     marketplaceId: definition.marketplaceId ?? null,
+    defaultAuxiliaryModelEnvs: definition.defaultAuxiliaryModelEnvs ?? {},
     defaultToolPolicies: definition.defaultToolPolicies ?? [],
   };
 }

@@ -1,8 +1,9 @@
 # ai — Media AI + Agent Delegation
 
 `src/ai/` owns AI-generated media and detail-page content for the product
-pipeline. It contains HTTP entrypoints, AI provider adapters, Agent OS runtime
-handlers, output bridges/sinks, and generated-content read/write services.
+pipeline. It contains HTTP entrypoints, AI provider adapters, direct job
+schedulers/executors, output projection sinks, and generated-content read/write
+services.
 
 ## Folder Map
 
@@ -11,8 +12,7 @@ ai/
 ├── ai.module.ts
 ├── adapter/in/http/          # controllers and HTTP DTOs
 ├── adapter/out/
-│   ├── agent-output/         # Agent OS finalized-output sinks
-│   ├── agent-runtime/        # Agent OS runtime handlers
+│   ├── direct-output/        # direct generation output projection sinks
 │   ├── automation/           # operation-alert adapter
 │   ├── channels/             # channel image/listing lookup adapters
 │   ├── coupang/              # Coupang/Wing integration adapters
@@ -31,7 +31,7 @@ ai/
 │   │   ├── provider/         # Gemini/Coupang/fetch provider ports
 │   │   ├── repository/       # AI-owned Prisma repository ports
 │   │   ├── runtime/          # browser/automation runtime ports
-│   │   ├── sink/             # Agent OS finalized-output sink ports
+│   │   ├── sink/             # direct generation output sink ports
 │   │   └── storage/          # image/media storage ports
 │   └── service/              # use-case orchestration
 ├── domain/                   # pure schemas, prompts, policy helpers
@@ -40,7 +40,7 @@ ai/
 
 ## Owned Surfaces
 
-- Image edit: `POST /api/image-ai/edit`
+- Image edit: `POST /api/image-ai/edit`, `GET /api/image-ai/tasks/:taskId`
 - Text transform: `POST /api/text-ai/transform`
 - Detail-page generation and editor APIs: `/api/ai/detail-page/*`
 - Generated content archive: `/api/ai/content-archive/*`
@@ -64,27 +64,30 @@ ai/
   generation.
 - `ThumbnailGeneration` is the thumbnail generation ledger.
 
-## Agent OS Flow
+## Direct AI Generation Flow
 
-Detail-page and thumbnail generation are asynchronous:
+Detail-page, thumbnail, and image-edit generation are asynchronous direct AI
+jobs. They are not Agent OS runs unless a future autonomous Agent owns
+orchestration and calls them as a child tool/action.
 
 ```text
 HTTP/service request
-  -> create ContentGeneration or ThumbnailGeneration ledger
-  -> AGENT_RUNNER_PORT.runByType(...)
-  -> runtime handler performs provider/media work
-  -> bridge handles agent.run.finalized
+  -> create domain ledger or operation-alert task
+  -> direct generation job scheduler
+  -> direct executor performs provider/media work
   -> sink validates and projects output into domain rows
 ```
 
-Runtime handlers return validated output and do not update AI domain tables.
-Bridges filter finalized Agent OS events by `agentType`. Sinks own the
-`ContentGeneration` / `ThumbnailGeneration` terminal projection, generated
-asset usage, `DetailPageArtifact` creation, and alert closure.
+Direct executors return validated output and do not update AI domain tables.
+Sinks own the `ContentGeneration` / `ThumbnailGeneration` terminal projection,
+generated asset usage, `DetailPageArtifact` creation, and alert closure. Image
+edit has no content ledger, so its direct job writes result/error metadata to
+the operation alert that backs `/api/image-ai/tasks/:taskId`.
 
-Sinks are idempotent: replaying a terminal row is a no-op. Reconcile services
-reuse the same schema + sink path for Agent OS runs that completed while the
-hot-path listener was unavailable.
+Historical Agent OS rows for `detail_page_generate`, `thumbnail_generate`, and
+`image_edit` are retired by the v0.1.2 data migration. New producer code must
+not enqueue those types, and the Agent OS executor resolves only real Agent
+definitions.
 
 ## Detail-Page Notes
 
@@ -110,9 +113,12 @@ hot-path listener was unavailable.
   `application/port/in/{generation,workspace}/`.
 - AI uses `AI_OPERATION_ALERT_PORT` from
   `application/port/out/cross-domain/` for operation-alert lifecycle writes.
-- AI generation services delegate Agent OS work through `AGENT_RUNNER_PORT`.
+- Image edit, detail page, and thumbnail generation schedule direct AI jobs
+  through their owner application services.
 - Provider/media/fetch/storage behavior belongs behind the relevant
   `application/port/out/{provider,storage}/` contract.
+- Direct detail page, thumbnail, and image-edit generation use `AI_*`.
+  Agent OS uses `AGENT_*` only for real Agent definitions.
 
 ## Boundary Rules
 
@@ -120,15 +126,15 @@ hot-path listener was unavailable.
   HTTP dependencies.
 - Reconstructed application services depend on ports, not concrete
   `adapter/out/**` implementations.
-- Image edit, thumbnail generation, and detail-page generation must delegate
-  through Agent OS; controllers do not call image providers directly.
+- Image edit, thumbnail, and detail-page generation must go through direct AI
+  job services; controllers do not call image providers directly.
 - Gemini/model selection is explicit. Missing model/env is an error, not a
   fallback.
 - Detail-page media prompt and image-selection wording lives in
   `domain/detail-page-media-prompts.ts`.
 - When generation controls change, check shared tuple/type, HTTP DTO, web
-  payload, Agent OS input/output schema, stored raw-input normalizer, sink, and
-  reconcile behavior together.
+  payload, direct generation input/output schema, stored raw-input normalizer,
+  sink, and recovery behavior together.
 
 ## Transitional Exceptions
 

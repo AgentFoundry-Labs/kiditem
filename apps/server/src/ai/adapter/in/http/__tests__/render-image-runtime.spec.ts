@@ -6,6 +6,7 @@ describe('render-image staging runtime', () => {
   it('builds the staging API image with Chromium enabled for Puppeteer render-image', () => {
     const root = findRepoRoot();
     const workflow = readFileSync(join(root, '.github/workflows/staging-deploy.yml'), 'utf8');
+    const baseWorkflow = readFileSync(join(root, '.github/workflows/api-base-image.yml'), 'utf8');
     const dockerfile = readFileSync(join(root, 'apps/server/Dockerfile'), 'utf8');
     const deployScript = readFileSync(join(root, 'deploy/staging/remote-deploy.sh'), 'utf8');
     const localDeployScript = readFileSync(join(root, 'bin/deploy-staging.sh'), 'utf8');
@@ -14,7 +15,21 @@ describe('render-image staging runtime', () => {
     expect(dockerfile).toContain('test -x "$PUPPETEER_EXECUTABLE_PATH"');
     expect(dockerfile).toContain('"$PUPPETEER_EXECUTABLE_PATH" --version');
     expect(workflow).toContain('API_RUNTIME_BASE_IMAGE');
-    expect(workflow).toContain('node22-chromium');
+    expect(workflow).toMatch(
+      /^  API_RUNTIME_BASE_IMAGE: ghcr\.io\/agentfoundry-labs\/kiditem-api-base:node22-chromium-b6503cb2512e$/m,
+    );
+    expect(workflow).not.toMatch(
+      /^  API_RUNTIME_BASE_IMAGE: ghcr\.io\/agentfoundry-labs\/kiditem-api-base:node22-chromium$/m,
+    );
+    expect(dockerfile).toMatch(
+      /^ARG API_RUNTIME_BASE_IMAGE=ghcr\.io\/agentfoundry-labs\/kiditem-api-base:node22-chromium-b6503cb2512e$/m,
+    );
+    expect(dockerfile).not.toMatch(
+      /^ARG API_RUNTIME_BASE_IMAGE=ghcr\.io\/agentfoundry-labs\/kiditem-api-base:node22-chromium$/m,
+    );
+    expect(baseWorkflow).toContain('${API_BASE_IMAGE}:node22-chromium-${short_sha}');
+    expect(baseWorkflow).not.toContain('${API_BASE_IMAGE}:node22-chromium"');
+    expect(baseWorkflow).not.toContain('${API_BASE_IMAGE}:node22-chromium-${month}');
     expect(localDeployScript).toContain('INSTALL_CHROMIUM="${INSTALL_CHROMIUM:-true}"');
     expect(deployScript).toContain('verify_render_image_runtime');
     expect(deployScript).toContain('puppeteer.launch');

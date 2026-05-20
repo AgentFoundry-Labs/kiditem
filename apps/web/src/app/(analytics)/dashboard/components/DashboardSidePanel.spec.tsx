@@ -17,6 +17,7 @@ const mockCancelOperation = vi.hoisted(() =>
       agentRunIds: [],
       contentGenerationIds: [],
       thumbnailGenerationIds: [],
+      directAiJobIds: [],
     },
     preserved: {
       contentGenerationIds: [],

@@ -1,49 +1,42 @@
 import { describe, expect, it, vi } from 'vitest';
-import { InternalServerErrorException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import { ImageAiService } from '../application/service/image-ai.service';
-import type {
-  AgentRunnerInput,
-  AgentRunnerPort,
-  AgentRunnerResult,
-} from '../../agent-os/application/port/in/agent-runner.port';
+import type { ImageEditDirectGenerationJobService } from '../application/service/image-edit-direct-generation-job.service';
 
 const ORGANIZATION_ID = 'organization-1';
 const USER_ID = 'user-7';
 
-function makeOperationAlerts() {
+function makeJobs() {
   return {
-    start: vi.fn().mockResolvedValue({}),
+    schedule: vi.fn().mockResolvedValue({ taskId: 'image-job-1' }),
+    getStatus: vi.fn().mockResolvedValue({
+      taskId: 'image-job-1',
+      status: 'succeeded',
+      output: { image_url: 'https://cdn.example.com/out.png' },
+      errorCode: null,
+      errorMessage: null,
+    }),
+    cancel: vi.fn().mockResolvedValue({
+      status: 'cancelled',
+      jobId: 'image-job-1',
+      operationKey: 'image-edit:image-job-1',
+      preserved: false,
+    }),
+  } as unknown as ImageEditDirectGenerationJobService & {
+    schedule: ReturnType<typeof vi.fn>;
+    getStatus: ReturnType<typeof vi.fn>;
+    cancel: ReturnType<typeof vi.fn>;
   };
 }
 
-function makeService(runnerResult: AgentRunnerResult) {
-  const runner = {
-    runByType: vi.fn(
-      async (_type: string, _input: AgentRunnerInput): Promise<AgentRunnerResult> => runnerResult,
-    ),
-    executeRequest: vi.fn().mockResolvedValue({
-      executed: true,
-      requestId: runnerResult.requestId,
-      runId: runnerResult.runId,
-    }),
-  } satisfies AgentRunnerPort;
-  const operationAlerts = makeOperationAlerts();
-  const service = new ImageAiService(
-    runner as never,
-    operationAlerts as never,
-  );
-  return { service, runner, operationAlerts };
+function makeService(jobs = makeJobs()) {
+  const service = new ImageAiService(jobs);
+  return { service, jobs };
 }
 
 describe('ImageAiService', () => {
-  it('returns AgentRunRequest id as taskId so clients can poll requests', async () => {
-    const { service, runner } = makeService({
-      ok: true,
-      requestId: 'request-1',
-      runId: 'run-1',
-      agentType: 'image_edit',
-      status: 'pending',
-    });
+  it('returns a direct image AI job id as taskId', async () => {
+    const { service, jobs } = makeService();
 
     const result = await service.createEditTask(
       { image_url: 'https://example.com/a.png', preset: 'enhance' },
@@ -51,48 +44,50 @@ describe('ImageAiService', () => {
       USER_ID,
     );
 
-    expect(runner.runByType).toHaveBeenCalledWith(
-      'image_edit',
-      expect.objectContaining({
-        organizationId: ORGANIZATION_ID,
-        sourceType: 'ai.image_edit',
-        payload: {
-          image_url: 'https://example.com/a.png',
-          preset: 'enhance',
-          user_prompt: '',
-        },
-      }),
-    );
-    expect(result).toEqual({ taskId: 'request-1' });
+    expect(jobs.schedule).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      triggeredByUserId: USER_ID,
+      payload: {
+        image_url: 'https://example.com/a.png',
+        preset: 'enhance',
+        user_prompt: '',
+      },
+    });
+    expect(result).toEqual({ taskId: 'image-job-1' });
   });
 
-  it('forwards triggeredByUserId to AGENT_RUNNER_PORT.requestedByUserId so the FINALIZED bridge can resolve the actor', async () => {
-    const { service, runner } = makeService({
-      ok: true,
-      requestId: 'request-actor',
-      agentType: 'image_edit',
-      status: 'pending',
-    });
+  it('forwards color guide image_urls through the direct job payload', async () => {
+    const { service, jobs } = makeService();
 
     await service.createEditTask(
-      { image_url: 'https://example.com/a.png', preset: 'enhance' },
+      {
+        image_urls: [
+          'https://cdn.example.com/red.png',
+          'https://cdn.example.com/blue.png',
+        ],
+        preset: 'color_guide',
+        productId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+      },
       ORGANIZATION_ID,
       USER_ID,
     );
 
-    expect(runner.runByType).toHaveBeenCalledWith(
-      'image_edit',
-      expect.objectContaining({ requestedByUserId: USER_ID }),
+    expect(jobs.schedule).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          image_urls: [
+            'https://cdn.example.com/red.png',
+            'https://cdn.example.com/blue.png',
+          ],
+          preset: 'color_guide',
+          productId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        }),
+      }),
     );
   });
 
-  it('omits requestedByUserId when no actor is known (system/cron path)', async () => {
-    const { service, runner } = makeService({
-      ok: true,
-      requestId: 'request-system',
-      agentType: 'image_edit',
-      status: 'pending',
-    });
+  it('omits triggeredByUserId when no actor is known', async () => {
+    const { service, jobs } = makeService();
 
     await service.createEditTask(
       { image_url: 'https://example.com/a.png', preset: 'enhance' },
@@ -100,107 +95,13 @@ describe('ImageAiService', () => {
       null,
     );
 
-    const callInput = runner.runByType.mock.calls[0]![1];
-    expect(callInput).not.toHaveProperty('requestedByUserId');
-  });
-
-  it('opens a producer-owned operation alert keyed by agent_run_request:<requestId> on successful enqueue', async () => {
-    const { service, operationAlerts } = makeService({
-      ok: true,
-      requestId: 'request-9',
-      agentType: 'image_edit',
-      status: 'pending',
-    });
-
-    await service.createEditTask(
-      { image_url: 'https://example.com/a.png', preset: 'remove_background', user_prompt: 'crisp' },
-      ORGANIZATION_ID,
-      USER_ID,
-    );
-
-    expect(operationAlerts.start).toHaveBeenCalledWith(
-      expect.objectContaining({
-        organizationId: ORGANIZATION_ID,
-        operationKey: 'image-edit:request-9',
-        type: 'image_edit',
-        sourceType: 'agent_run_request',
-        sourceId: 'request-9',
-        actorUserId: USER_ID,
-        href: '/product-pipeline/registered-products?contentType=image',
-        metadata: expect.objectContaining({
-          agentType: 'image_edit',
-          preset: 'remove_background',
-        }),
-      }),
+    expect(jobs.schedule).toHaveBeenCalledWith(
+      expect.objectContaining({ triggeredByUserId: null }),
     );
   });
 
-  it('kicks the queued image edit request immediately so the editor does not depend on a background worker tick', async () => {
-    const { service, runner } = makeService({
-      ok: true,
-      requestId: 'request-inline',
-      agentType: 'image_edit',
-      status: 'pending',
-    });
-
-    await service.createEditTask(
-      { image_url: 'https://example.com/a.png', preset: 'enhance' },
-      ORGANIZATION_ID,
-      USER_ID,
-    );
-
-    expect(runner.executeRequest).toHaveBeenCalledWith({
-      organizationId: ORGANIZATION_ID,
-      requestId: 'request-inline',
-      workerId: 'image-edit-inline',
-    });
-  });
-
-  it('does NOT open an operation alert when the runner produced no requestId', async () => {
-    // Runner returned only a runId — alert key contract requires requestId
-    // because the FINALIZED bridge keys closeBySource on AgentRunRequest.id.
-    const { service, runner, operationAlerts } = makeService({
-      ok: true,
-      runId: 'run-only',
-      agentType: 'image_edit',
-      status: 'running',
-    });
-
-    const result = await service.createEditTask(
-      { image_url: 'https://example.com/a.png', preset: 'enhance' },
-      ORGANIZATION_ID,
-      USER_ID,
-    );
-
-    expect(result).toEqual({ taskId: 'run-only' });
-    expect(operationAlerts.start).not.toHaveBeenCalled();
-    expect(runner.executeRequest).not.toHaveBeenCalled();
-  });
-
-  it('throws instead of inventing an id when Agent OS cannot queue the request', async () => {
-    const { service, operationAlerts } = makeService({
-      ok: false,
-      agentType: 'image_edit',
-      reason: 'agent_instance_not_found',
-    });
-
-    await expect(
-      service.createEditTask(
-        { image_url: 'https://example.com/a.png', preset: 'enhance' },
-        ORGANIZATION_ID,
-        USER_ID,
-      ),
-    ).rejects.toThrow(InternalServerErrorException);
-    expect(operationAlerts.start).not.toHaveBeenCalled();
-  });
-
-  it('threads editor context without creating an image ContentGeneration ledger', async () => {
-    const { service, runner, operationAlerts } = makeService({
-      ok: true,
-      requestId: 'request-context',
-      agentType: 'image_edit',
-      status: 'pending',
-    });
+  it('threads editor context without creating an Agent OS run', async () => {
+    const { service, jobs } = makeService();
 
     await service.createEditTask(
       {
@@ -214,21 +115,62 @@ describe('ImageAiService', () => {
       USER_ID,
     );
 
-    const callInput = runner.runByType.mock.calls[0]![1];
-    expect(callInput).toEqual(expect.objectContaining({ sourceType: 'ai.image_edit' }));
-    expect(callInput).not.toHaveProperty('sourceResourceType');
-    expect(callInput).not.toHaveProperty('sourceResourceId');
-    expect(callInput.payload).toEqual(expect.objectContaining({
-      productId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
-      contentGenerationId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-    }));
-    expect(operationAlerts.start).toHaveBeenCalledWith(
+    expect(jobs.schedule).toHaveBeenCalledWith(
       expect.objectContaining({
-        href: '/product-pipeline/detail-pages/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/editor',
-        metadata: expect.objectContaining({
+        payload: expect.objectContaining({
+          productId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
           contentGenerationId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
         }),
       }),
     );
+  });
+
+  it('returns direct image AI task status for polling clients', async () => {
+    const { service, jobs } = makeService();
+
+    const status = await service.getEditTask(ORGANIZATION_ID, 'image-job-1');
+
+    expect(jobs.getStatus).toHaveBeenCalledWith(ORGANIZATION_ID, 'image-job-1');
+    expect(status).toEqual({
+      taskId: 'image-job-1',
+      status: 'succeeded',
+      output: { image_url: 'https://cdn.example.com/out.png' },
+      errorCode: null,
+      errorMessage: null,
+    });
+  });
+
+  it('throws 404 when the direct image AI task is unknown', async () => {
+    const jobs = makeJobs();
+    jobs.getStatus.mockResolvedValueOnce(null);
+    const { service } = makeService(jobs);
+
+    await expect(
+      service.getEditTask(ORGANIZATION_ID, 'missing-job'),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('cancels direct image AI tasks without creating an Agent OS cancellation', async () => {
+    const { service, jobs } = makeService();
+
+    const result = await service.cancelEditTask(
+      ORGANIZATION_ID,
+      'image-job-1',
+      USER_ID,
+      '사용자 요청',
+    );
+
+    expect(jobs.cancel).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      taskId: 'image-job-1',
+      actorUserId: USER_ID,
+      reason: '사용자 요청',
+    });
+    expect(result).toEqual({
+      status: 'cancelled',
+      jobId: 'image-job-1',
+      operationKey: 'image-edit:image-job-1',
+      preserved: false,
+    });
   });
 });

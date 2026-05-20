@@ -28,6 +28,7 @@ interface GenerateHeroBannerInput {
   category: string;
   description: string;
   options: string;
+  model?: string;
   templateId: 'kids-playful' | 'bold-vertical';
   ageGroup?: DetailPageAgeGroup;
   headline: string;
@@ -41,6 +42,7 @@ interface GenerateSizeGuideImageInput {
   category: string;
   description: string;
   options: string;
+  model?: string;
   ageGroup?: DetailPageAgeGroup;
   imageUrls: string[];
   heightLabel?: string;
@@ -60,12 +62,14 @@ interface InferColorSubtitleInput {
   category: string;
   description: string;
   options: string;
+  model?: string;
   imageUrls: string[];
 }
 
 interface InferColorImageSelectionInput extends InferColorSubtitleInput {}
 
 interface InferPackageImagePositionsInput {
+  model?: string;
   imageUrls: string[];
 }
 
@@ -101,6 +105,7 @@ export class DetailPageHeroImageService {
     const generated = await this.media.generateImage({
       images,
       prompt: buildHeroBannerPrompt(input),
+      model: input.model,
       aspectRatio: '16:9',
       imageSize: '2K',
       noImageErrorCode: 'detail_page_hero_image_returned_no_image',
@@ -120,6 +125,7 @@ export class DetailPageHeroImageService {
     const generated = await this.media.generateImage({
       images,
       prompt: buildColorGuidePrompt(input),
+      model: input.model,
       aspectRatio: '4:3',
       imageSize: '2K',
       noImageErrorCode: 'detail_page_color_image_returned_no_image',
@@ -139,6 +145,7 @@ export class DetailPageHeroImageService {
     const generated = await this.media.generateImage({
       images,
       prompt: buildHeroProductImagePrompt(input),
+      model: input.model,
       aspectRatio: '4:3',
       imageSize: '2K',
       noImageErrorCode: 'detail_page_hero_product_image_returned_no_image',
@@ -158,6 +165,7 @@ export class DetailPageHeroImageService {
     const text = await this.media.completeVisionJson({
       images,
       prompt: buildColorSubtitlePrompt(input),
+      model: input.model,
     });
     if (!text) {
       throw new ServiceUnavailableException('detail_page_color_subtitle_returned_no_text');
@@ -178,6 +186,7 @@ export class DetailPageHeroImageService {
     const text = await this.media.completeVisionJson({
       images,
       prompt: buildColorImageSelectionPrompt(input),
+      model: input.model,
     });
     if (!text) return [];
 
@@ -199,6 +208,7 @@ export class DetailPageHeroImageService {
     const text = await this.media.completeVisionJson({
       images,
       prompt: buildPackageImagePositionsPrompt(),
+      model: input.model,
     });
     if (!text) return [];
 
@@ -219,6 +229,7 @@ export class DetailPageHeroImageService {
     const generated = await this.media.generateImage({
       images,
       prompt: buildDetailCutPrompt(input),
+      model: input.model,
       aspectRatio: '4:3',
       imageSize: '2K',
       noImageErrorCode: 'detail_page_detail_image_returned_no_image',
@@ -238,6 +249,7 @@ export class DetailPageHeroImageService {
     const generated = await this.media.generateImage({
       images,
       prompt: buildUsageGuidePrompt(input),
+      model: input.model,
       aspectRatio: '4:3',
       imageSize: '2K',
       noImageErrorCode: 'detail_page_usage_image_returned_no_image',
@@ -257,6 +269,7 @@ export class DetailPageHeroImageService {
     const generated = await this.media.generateImage({
       images,
       prompt: buildSizeGuidePrompt(input),
+      model: input.model,
       aspectRatio: '1:1',
       imageSize: '2K',
       noImageErrorCode: 'detail_page_size_image_returned_no_image',

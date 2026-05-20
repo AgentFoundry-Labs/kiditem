@@ -9,7 +9,6 @@ import { describe, expect, it } from 'vitest';
 import { AiModule } from '../../../../ai.module';
 import { DetailPageEditorController } from '../detail-page-editor.controller';
 import { DetailPageGenerationController } from '../detail-page-generation.controller';
-import { DetailPageReconcileController } from '../detail-page-reconcile.controller';
 
 describe('detail-page route-family controllers', () => {
   it('registers the split controllers in AiModule', () => {
@@ -17,7 +16,6 @@ describe('detail-page route-family controllers', () => {
 
     expect(controllers).toContain(DetailPageGenerationController);
     expect(controllers).toContain(DetailPageEditorController);
-    expect(controllers).toContain(DetailPageReconcileController);
   });
 
   it('preserves the existing route URLs by route family', () => {
@@ -61,11 +59,6 @@ describe('detail-page route-family controllers', () => {
       path: ':id',
     });
 
-    expect(controllerPath(DetailPageReconcileController)).toBe('ai/detail-page');
-    expect(route(DetailPageReconcileController, 'reconcileStuck')).toEqual({
-      method: RequestMethod.POST,
-      path: 'reconcile-stuck',
-    });
   });
 
 });

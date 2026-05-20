@@ -9,6 +9,13 @@ export interface AiGenerationCancellationTargetResult {
   preserved: boolean;
 }
 
+export interface AiDirectJobCancellationTargetResult {
+  status: 'cancelled' | 'already_terminal' | 'not_found';
+  jobId: string;
+  operationKey: string | null;
+  preserved: boolean;
+}
+
 export interface AiGenerationCancellationPort {
   cancelContentGeneration(input: {
     organizationId: string;
@@ -25,4 +32,11 @@ export interface AiGenerationCancellationPort {
     reason: string;
     notifyProductGenerationParent?: boolean;
   }): Promise<AiGenerationCancellationTargetResult>;
+
+  cancelImageEditJob(input: {
+    organizationId: string;
+    jobId: string;
+    actorUserId: string | null;
+    reason: string;
+  }): Promise<AiDirectJobCancellationTargetResult>;
 }

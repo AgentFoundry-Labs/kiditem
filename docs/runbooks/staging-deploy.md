@@ -45,7 +45,10 @@ External services:
 - GitHub Environment `staging` exists with the variables and secrets listed in
   "GitHub Environment Setup".
 
-Do not store secrets in git. Runtime secret files live only on the staging host.
+Do not store secrets in git. GitHub Environment `staging` is the source of
+truth for staging runtime secrets and variables. Each deploy renders
+`.env.staging.api` and `.env.staging.web` from GitHub, uploads them to EC2 with
+`600` permissions, and then restarts the stack.
 
 ## Expected Directory Shape
 
@@ -53,8 +56,6 @@ Do not store secrets in git. Runtime secret files live only on the staging host.
 /repo/.secrets/staging/
   kiditem-staging-keypair.pem
   deploy.env
-  .env.staging.api
-  .env.staging.web
 
 /opt/kiditem/
   VERSION
@@ -93,51 +94,28 @@ ssh -i ~/.ssh/<key>.pem ubuntu@<ec2-host> 'SWAP_SIZE=2G bash /tmp/setup-staging-
 Log out and SSH back in after the script finishes so Docker group membership
 applies.
 
-Create the local project secret files. They stay inside the project directory
-for convenience, but `.secrets/` is ignored by git and Docker:
+Create the local SSH helper files. They stay inside the project directory for
+convenience, but `.secrets/` is ignored by git and Docker. The normal GitHub
+Actions deploy path does not read local `.env.staging.*` files; it renders
+runtime env files from GitHub Environment `staging`.
 
 ```bash
 mkdir -p .secrets/staging
 chmod 700 .secrets .secrets/staging
-
-cat > .secrets/staging/.env.staging.web <<'EOF'
-NEXT_PUBLIC_API_URL=
-NEXT_PUBLIC_SUPABASE_URL=<current-dev-supabase-url>
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<current-dev-supabase-publishable-key>
-EOF
-
-cat > .secrets/staging/.env.staging.api <<'EOF'
-NODE_ENV=production
-PORT=4000
-DATABASE_URL=<supabase-session-pooler-url>
-SUPABASE_URL=<current-dev-supabase-url>
-CORS_ORIGINS=http://<ec2-public-ip>
-S3_REGION=ap-northeast-2
-S3_BUCKET=kiditem-staging-assets
-S3_ENDPOINT=https://<project-ref>.storage.supabase.co/storage/v1/s3
-S3_PUBLIC_URL=https://<project-ref>.supabase.co/storage/v1/object/public/kiditem-staging-assets
-S3_ACCESS_KEY=<supabase-storage-s3-access-key-id>
-S3_SECRET_KEY=<supabase-storage-s3-secret-access-key>
-GEMINI_API_KEY=<gemini-api-key>
-AI_TEXT_MODEL=gemini-2.5-flash
-AGENT_RUNTIME_WORKER_ENABLED=1
-AGENT_DEFAULT_MODEL=gemini-2.5-flash
-AGENT_THUMBNAIL_GENERATE_MODEL=gemini-3.1-flash-image-preview
-EOF
 
 cat > .secrets/staging/deploy.env <<'EOF'
 STAGING_HOST=<ec2-public-ip>
 STAGING_USER=ubuntu
 STAGING_SSH_KEY=/absolute/path/to/repo/.secrets/staging/kiditem-staging-keypair.pem
 STAGING_REMOTE_DIR=/opt/kiditem
-STAGING_ENV_DIR=/absolute/path/to/repo/.secrets/staging
 EOF
 
-chmod 600 .secrets/staging/.env.staging.api .secrets/staging/.env.staging.web .secrets/staging/deploy.env
+chmod 600 .secrets/staging/deploy.env
 ```
 
-The deploy script uploads `.env.staging.api` and `.env.staging.web` to
-`/opt/kiditem` on EC2 with `600` permissions.
+For the break-glass local `bin/deploy-staging.sh` path only, create local
+`.env.staging.api` and `.env.staging.web` files or pass
+`STAGING_API_ENV_FILE` / `STAGING_WEB_ENV_FILE` explicitly.
 
 For the initial staging rollout using project `gheoobctiarluauprvro`, the
 Supabase Storage values are:
@@ -184,14 +162,26 @@ STAGING_REMOTE_DIR=/opt/kiditem
 STAGING_URL=http://<ec2-public-ip>
 NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<staging-supabase-publishable-key>
+STAGING_SUPABASE_URL=https://<project-ref>.supabase.co
+STAGING_CORS_ORIGINS=http://<ec2-public-ip>
+STAGING_S3_REGION=ap-northeast-2
+STAGING_S3_BUCKET=kiditem-staging-assets
+STAGING_S3_ENDPOINT=https://<project-ref>.storage.supabase.co/storage/v1/s3
+STAGING_S3_PUBLIC_URL=https://<project-ref>.supabase.co/storage/v1/object/public/kiditem-staging-assets
+STAGING_AI_TEXT_MODEL=gemini-2.5-flash
+STAGING_AI_IMAGE_MODEL=gemini-3.1-flash-image-preview
+STAGING_AI_IMAGE_ANALYSIS_MODEL=gemini-3.1-flash-lite-preview
+STAGING_AI_IMAGE_ANALYSIS_VERIFY_MODEL=gemini-3.1-flash-lite-preview
+STAGING_AGENT_RUNTIME_WORKER_ENABLED=1
+STAGING_AGENT_DEFAULT_MODEL=gemini-2.5-flash
 STAGING_DB_BASELINE_BUCKET=kiditem-staging-db-baselines
 STAGING_DB_BASELINE_S3_ENDPOINT=https://<project-ref>.storage.supabase.co/storage/v1/s3
 STAGING_DB_BASELINE_S3_REGION=ap-northeast-2
 STAGING_DB_BASELINE_PREFIX=staging-db-baselines
 ```
 
-When DNS and TLS are ready, change only `STAGING_URL` and the API
-`CORS_ORIGINS` value in `/opt/kiditem/.env.staging.api`.
+When DNS and TLS are ready, change `STAGING_URL` and `STAGING_CORS_ORIGINS` in
+GitHub Environment `staging`.
 
 Environment secrets:
 
@@ -199,6 +189,11 @@ Environment secrets:
 STAGING_SSH_KEY=<private key whose public key is authorized for the EC2 user>
 STAGING_SSH_KNOWN_HOSTS=<ssh-keyscan output for STAGING_HOST>
 STAGING_DATABASE_URL=<staging-supabase-session-pooler-url>
+STAGING_DIRECT_URL=<optional direct database URL, if this environment uses one>
+STAGING_S3_ACCESS_KEY=<app-asset-s3-access-key-id>
+STAGING_S3_SECRET_KEY=<app-asset-s3-secret-access-key>
+STAGING_CHANNEL_CREDENTIALS_ENCRYPTION_KEY=<32-byte-base64-or-hex-key>
+STAGING_GEMINI_API_KEY=<gemini-api-key>
 STAGING_DB_BASELINE_S3_ACCESS_KEY=<private-db-baseline-s3-access-key-id>
 STAGING_DB_BASELINE_S3_SECRET_KEY=<private-db-baseline-s3-secret-access-key>
 ```
@@ -220,6 +215,18 @@ gh variable set STAGING_REMOTE_DIR --env staging --body "/opt/kiditem"
 gh variable set STAGING_URL --env staging --body "http://<ec2-public-ip>"
 gh variable set NEXT_PUBLIC_SUPABASE_URL --env staging --body "https://<project-ref>.supabase.co"
 gh variable set NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY --env staging --body "<publishable-key>"
+gh variable set STAGING_SUPABASE_URL --env staging --body "https://<project-ref>.supabase.co"
+gh variable set STAGING_CORS_ORIGINS --env staging --body "http://<ec2-public-ip>"
+gh variable set STAGING_S3_REGION --env staging --body "ap-northeast-2"
+gh variable set STAGING_S3_BUCKET --env staging --body "kiditem-staging-assets"
+gh variable set STAGING_S3_ENDPOINT --env staging --body "https://<project-ref>.storage.supabase.co/storage/v1/s3"
+gh variable set STAGING_S3_PUBLIC_URL --env staging --body "https://<project-ref>.supabase.co/storage/v1/object/public/kiditem-staging-assets"
+gh variable set STAGING_AI_TEXT_MODEL --env staging --body "gemini-2.5-flash"
+gh variable set STAGING_AI_IMAGE_MODEL --env staging --body "gemini-3.1-flash-image-preview"
+gh variable set STAGING_AI_IMAGE_ANALYSIS_MODEL --env staging --body "gemini-3.1-flash-lite-preview"
+gh variable set STAGING_AI_IMAGE_ANALYSIS_VERIFY_MODEL --env staging --body "gemini-3.1-flash-lite-preview"
+gh variable set STAGING_AGENT_RUNTIME_WORKER_ENABLED --env staging --body "1"
+gh variable set STAGING_AGENT_DEFAULT_MODEL --env staging --body "gemini-2.5-flash"
 gh variable set STAGING_DB_BASELINE_BUCKET --env staging --body "kiditem-staging-db-baselines"
 gh variable set STAGING_DB_BASELINE_S3_ENDPOINT --env staging --body "https://<project-ref>.storage.supabase.co/storage/v1/s3"
 gh variable set STAGING_DB_BASELINE_S3_REGION --env staging --body "ap-northeast-2"
@@ -228,6 +235,11 @@ gh variable set STAGING_DB_BASELINE_PREFIX --env staging --body "staging-db-base
 gh secret set STAGING_SSH_KEY --env staging < .secrets/staging/kiditem-staging-keypair.pem
 ssh-keyscan -H <ec2-public-ip-or-dns> | gh secret set STAGING_SSH_KNOWN_HOSTS --env staging
 printf '%s' '<staging-supabase-session-pooler-url>' | gh secret set STAGING_DATABASE_URL --env staging
+printf '%s' '<optional-direct-database-url>' | gh secret set STAGING_DIRECT_URL --env staging
+printf '%s' '<app-asset-s3-access-key-id>' | gh secret set STAGING_S3_ACCESS_KEY --env staging
+printf '%s' '<app-asset-s3-secret-access-key>' | gh secret set STAGING_S3_SECRET_KEY --env staging
+printf '%s' '<32-byte-base64-or-hex-key>' | gh secret set STAGING_CHANNEL_CREDENTIALS_ENCRYPTION_KEY --env staging
+printf '%s' '<gemini-api-key>' | gh secret set STAGING_GEMINI_API_KEY --env staging
 printf '%s' '<private-db-baseline-s3-access-key-id>' | gh secret set STAGING_DB_BASELINE_S3_ACCESS_KEY --env staging
 printf '%s' '<private-db-baseline-s3-secret-access-key>' | gh secret set STAGING_DB_BASELINE_S3_SECRET_KEY --env staging
 ```
@@ -304,17 +316,17 @@ the digest image refs produced by the build job and records those refs in:
 /opt/kiditem/deployments/history/
 ```
 
-Each deploy syncs only non-secret runtime assets to EC2:
+Each deploy renders and syncs the current GitHub-managed runtime environment
+files plus non-secret runtime assets to EC2:
 
 ```text
 docker-compose.staging.yml
 VERSION
+.env.staging.api
+.env.staging.web
 deploy/staging/nginx.conf
 deploy/staging/remote-deploy.sh
 ```
-
-The workflow never overwrites `/opt/kiditem/.env.staging.api` or
-`/opt/kiditem/.env.staging.web`.
 
 Before the EC2 image swap, the deploy job first runs pre-schema data migrations
 that must change existing database shape before Prisma sees the new schema:
@@ -356,24 +368,25 @@ For the detail-page content route migration, the deprecated
 `master_products` sourcing columns stay in the schema until the ledger confirms
 the sourcing backfill landed on every shared environment.
 
-Async Agent OS jobs are enabled on staging because product-bound detail page
-and thumbnail generation enqueue `AgentRunRequest` rows. Before every deploy,
+Agent OS remains enabled on staging only for registered Agent definitions.
+Product-bound detail page, thumbnail, and image-edit generation are direct AI
+jobs and do not enqueue `AgentRunRequest` rows. Before every deploy,
 `remote-deploy.sh` validates `/opt/kiditem/.env.staging.api`, runs the
 idempotent Agent OS seed from the new API image, and only then restarts the
-compose stack. These values must be present in the API env file:
+compose stack. These Agent OS values must be present in the API env file:
 
 ```text
 AGENT_RUNTIME_WORKER_ENABLED=1
 AGENT_DEFAULT_MODEL=gemini-2.5-flash
-AGENT_THUMBNAIL_GENERATE_MODEL=gemini-3.1-flash-image-preview
 ```
 
 `AGENT_DEFAULT_MODEL` may be replaced by a complete set of per-agent
 `AGENT_<TYPE>_MODEL` values, but the shared value is the normal staging
-configuration. `AGENT_THUMBNAIL_GENERATE_MODEL` is always explicit because
-thumbnail generation must use an image-capable model. The deploy will fail
-before touching the running containers if the worker is disabled, a required
-model env is missing, or `AGENT_RUNTIME_ALLOW_NOOP` is enabled.
+configuration. Detail page, thumbnail, and image-edit generation are direct AI
+jobs and use `AI_TEXT_MODEL`, `AI_IMAGE_MODEL`, and `AI_IMAGE_ANALYSIS_MODEL`, not
+`AGENT_*` model variables. The deploy will fail before touching the running
+containers if the worker is disabled, a required model env is missing, or
+`AGENT_RUNTIME_ALLOW_NOOP` is enabled.
 
 ## Host Nginx For IP-Only Smoke Test
 

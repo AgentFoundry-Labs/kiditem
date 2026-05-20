@@ -36,6 +36,7 @@ describe('data migration registry', () => {
       'v0.1.1:006_backfill_registration_workspaces',
       'v0.1.2:001_backfill_channel_listing_accounts',
       'v0.1.2:002_rename_registration_workspaces_to_content_workspaces',
+      'v0.1.2:003_retire_fixed_ai_agent_os_requests',
     ]);
   });
 

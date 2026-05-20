@@ -24,7 +24,7 @@ import {
   findThumbnailAnalysisGrade,
 } from './thumbnail-generation-ledger.query';
 import {
-  applyAgentSuccessResult,
+  applyDirectSuccessResult,
   applyGenerationToMaster,
   clearReadySelections,
   createPendingCandidateJob,
@@ -222,23 +222,23 @@ export class ThumbnailGenerationLedgerRepositoryAdapter
     return markGenerationFailed(this.prisma, id, organizationId, message);
   }
 
-  claimForAgentProjection(
-    input: Parameters<ThumbnailGenerationLedgerRepositoryPort['claimForAgentProjection']>[0],
+  claimForDirectProjection(
+    input: Parameters<ThumbnailGenerationLedgerRepositoryPort['claimForDirectProjection']>[0],
   ) {
     return lockGenerationForProcessing(this.prisma, input.generationId, input.organizationId);
   }
 
-  projectAgentSuccess(
-    input: Parameters<ThumbnailGenerationLedgerRepositoryPort['projectAgentSuccess']>[0],
+  projectDirectSuccess(
+    input: Parameters<ThumbnailGenerationLedgerRepositoryPort['projectDirectSuccess']>[0],
   ) {
-    return applyAgentSuccessResult(this.prisma, {
+    return applyDirectSuccessResult(this.prisma, {
       ...input,
       inputMeta: input.inputMeta as Prisma.InputJsonValue,
     });
   }
 
-  projectAgentFailure(
-    input: Parameters<ThumbnailGenerationLedgerRepositoryPort['projectAgentFailure']>[0],
+  projectDirectFailure(
+    input: Parameters<ThumbnailGenerationLedgerRepositoryPort['projectDirectFailure']>[0],
   ) {
     return markGenerationFailed(
       this.prisma,
@@ -246,29 +246,6 @@ export class ThumbnailGenerationLedgerRepositoryAdapter
       input.organizationId,
       input.errorMessage,
     );
-  }
-
-  async findTerminalAgentRequests(
-    input: Parameters<ThumbnailGenerationLedgerRepositoryPort['findTerminalAgentRequests']>[0],
-  ) {
-    return this.prisma.agentRunRequest.findMany({
-      where: {
-        organizationId: input.organizationId,
-        sourceResourceType: 'thumbnail_generation',
-        source: 'ai.thumbnail_generate',
-        status: { in: ['succeeded', 'failed'] },
-        finishedAt: { gte: input.since },
-      },
-      select: {
-        id: true,
-        status: true,
-        sourceResourceId: true,
-        lastErrorCode: true,
-        lastErrorMessage: true,
-      },
-      orderBy: { finishedAt: 'desc' },
-      take: input.limit,
-    });
   }
 
   async findGenerationProjectionStatus(

@@ -55,12 +55,12 @@ function requestParts(generateContent: ReturnType<typeof vi.fn>) {
 }
 
 describe('ImageEditGeminiMediaAdapter', () => {
-  it('edits one image with the Agent OS model and stores the generated image', async () => {
+  it('edits one image with the direct AI model and stores the generated image', async () => {
     const { adapter, generateContent, imageFetcher, storage } = makeAdapter();
 
     const result = await adapter.editImage({
       organizationId: 'org-1',
-      model: 'gemini-image-from-agent-os',
+      model: 'gemini-image-direct',
       preset: 'remove_background',
       imageUrl: 'https://source.example.com/product.jpg',
       userPrompt: 'crisp edges',
@@ -68,7 +68,7 @@ describe('ImageEditGeminiMediaAdapter', () => {
 
     expect(imageFetcher.fetchImage).toHaveBeenCalledWith('https://source.example.com/product.jpg');
     expect(generateContent).toHaveBeenCalledWith(expect.objectContaining({
-      model: 'gemini-image-from-agent-os',
+      model: 'gemini-image-direct',
     }));
     const prompt = requestParts(generateContent).find((part) => part.text)?.text ?? '';
     expect(prompt).toContain('pure white (#FFFFFF) background');
@@ -91,7 +91,7 @@ describe('ImageEditGeminiMediaAdapter', () => {
 
     await adapter.editImage({
       organizationId: 'org-1',
-      model: 'gemini-image-from-agent-os',
+      model: 'gemini-image-direct',
       preset: 'color_guide',
       imageUrls: [
         'data:image/png;base64,aW1nMQ==',
@@ -115,7 +115,7 @@ describe('ImageEditGeminiMediaAdapter', () => {
     await expect(
       adapter.editImage({
         organizationId: 'org-1',
-        model: 'gemini-image-from-agent-os',
+        model: 'gemini-image-direct',
         preset: 'custom',
         imageUrl: 'data:image/png;base64,aW1n',
         userPrompt: 'make it brighter',

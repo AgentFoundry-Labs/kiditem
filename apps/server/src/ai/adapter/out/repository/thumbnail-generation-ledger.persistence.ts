@@ -550,8 +550,8 @@ export async function replaceGenerationResult(
 }
 
 /**
- * Async-pipeline variant of `replaceGenerationResult` for the
- * `thumbnail_generate` Agent OS sink path.
+ * Async-pipeline variant of `replaceGenerationResult` for direct thumbnail
+ * generation completion.
  *
  * Differences from `replaceGenerationResult`:
  *   - Does NOT delete or rewrite `ThumbnailGenerationInputImage` rows.
@@ -560,7 +560,7 @@ export async function replaceGenerationResult(
  *   - Same atomic lock-checking pattern (status='running' must be
  *     true at write time so a parallel cancel cannot be overridden).
  */
-export async function applyAgentSuccessResult(
+export async function applyDirectSuccessResult(
   prisma: PrismaService,
   args: {
     generationId: string;
@@ -618,8 +618,8 @@ export async function applyAgentSuccessResult(
 /**
  * Persist a producer-resolved input-image array onto a freshly created
  * pending generation row. Used by the editor enqueue path so the user
- * can see their inputs in the generation history while the Agent OS
- * runtime is still working on candidates.
+ * can see their inputs in the generation history while the direct job is still
+ * working on candidates.
  */
 export async function persistPendingInputImages(
   prisma: PrismaService,

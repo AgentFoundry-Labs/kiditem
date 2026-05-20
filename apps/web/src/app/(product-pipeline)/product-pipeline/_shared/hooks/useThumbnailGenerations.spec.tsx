@@ -42,6 +42,7 @@ describe('useCancelGeneration', () => {
         agentRunIds: [],
         contentGenerationIds: [],
         thumbnailGenerationIds: ['thumbnail-generation-1'],
+        directAiJobIds: [],
       },
       preserved: {
         contentGenerationIds: [],

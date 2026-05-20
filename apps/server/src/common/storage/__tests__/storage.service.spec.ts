@@ -102,6 +102,7 @@ describe('StorageService', () => {
       expect(cmd.Key).toBe('images/a.png');
       expect(cmd.Body).toBe(buffer);
       expect(cmd.ContentType).toBe('image/png');
+      expect(cmd.CacheControl).toBe('public, max-age=31536000, immutable');
       expect(url).toBe('http://localhost:9000/kiditem/images/a.png');
     });
   });

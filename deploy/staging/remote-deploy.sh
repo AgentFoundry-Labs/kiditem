@@ -61,21 +61,22 @@ validate_agent_os_runtime_env() {
       ;;
   esac
 
-  if [[ -z "${AGENT_DEFAULT_MODEL:-}" && -z "${AGENT_DETAIL_PAGE_GENERATE_MODEL:-}" ]]; then
-    fail "missing required API env: set AGENT_DEFAULT_MODEL or AGENT_DETAIL_PAGE_GENERATE_MODEL in $API_ENV_FILE"
+  if [[ -z "${AGENT_DEFAULT_MODEL:-}" ]]; then
+    fail "missing required API env: set AGENT_DEFAULT_MODEL in $API_ENV_FILE"
   fi
 
-  if [[ -z "${AGENT_THUMBNAIL_GENERATE_MODEL:-}" ]]; then
-    fail "missing required API env: set AGENT_THUMBNAIL_GENERATE_MODEL in $API_ENV_FILE for thumbnail image generation"
+  if [[ -z "${AI_TEXT_MODEL:-}" ]]; then
+    fail "missing required API env: set AI_TEXT_MODEL in $API_ENV_FILE for direct detail page generation"
   fi
 
-  if [[ -z "${AGENT_IMAGE_EDIT_MODEL:-}" ]]; then
-    fail "missing required API env: set AGENT_IMAGE_EDIT_MODEL in $API_ENV_FILE for image edit generation"
+  if [[ -z "${AI_IMAGE_MODEL:-}" ]]; then
+    fail "missing required API env: set AI_IMAGE_MODEL in $API_ENV_FILE for direct detail page/thumbnail/image-edit generation"
   fi
 
-  if [[ -z "${AGENT_THUMBNAIL_AUTO_EDIT_MODEL:-}" ]]; then
-    fail "missing required API env: set AGENT_THUMBNAIL_AUTO_EDIT_MODEL in $API_ENV_FILE for thumbnail auto-edit generation"
+  if [[ -z "${AI_IMAGE_ANALYSIS_MODEL:-}" ]]; then
+    fail "missing required API env: set AI_IMAGE_ANALYSIS_MODEL in $API_ENV_FILE for direct detail page vision inference"
   fi
+
 }
 
 compose() (
@@ -298,6 +299,9 @@ deploy() {
     pull_staging_images || pull_status=$?
 
     if [[ "$pull_status" == "75" ]]; then
+      if [[ "${ALLOW_STAGING_DOWNTIME_FOR_SPACE:-}" != "1" ]]; then
+        fail "Refusing to stop the running staging stack after image pull ran out of disk. Free disk or grow the EC2 volume, then retry. Set ALLOW_STAGING_DOWNTIME_FOR_SPACE=1 only for an explicitly approved downtime deploy."
+      fi
       echo "Image pull ran out of disk after unused-resource cleanup; retrying after stopping the staging stack"
       stop_staging_stack_for_space
       reclaim_docker_space

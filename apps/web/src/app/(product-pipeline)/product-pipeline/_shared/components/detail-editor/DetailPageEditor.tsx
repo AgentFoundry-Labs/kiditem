@@ -66,6 +66,11 @@ import EditorPagePanel from './EditorPagePanel';
 import EditorToolRail, { type EditorToolId } from './EditorToolRail';
 import { ImagePickerModal } from './ImagePickerModal';
 import { ImageSelectionPanel } from './ImageSelectionPanel';
+import {
+  buildDirectDetailGenerationBody,
+  isDirectDetailGenerationFailed,
+  isDirectDetailGenerationPending,
+} from './lib/direct-detail-generation';
 import { extractEditedImageUrl } from './lib/image-edit-result';
 import {
   buildTemplateSectionBlockHtml,
@@ -78,8 +83,12 @@ interface DetailPageEditorProps {
   productName: string;
   productId?: string;
   contentGenerationId?: string;
+  contentWorkspaceId?: string | null;
+  generationRawInput?: unknown;
+  generationTemplateId?: string | null;
   rawImages?: string[];
   processedImages?: string[];
+  onGeneratedVersionReady?: (generationId: string) => void;
   onSave: (html: string) => Promise<DetailPageEditorSaveResult | void> | DetailPageEditorSaveResult | void;
   onClose: () => void;
 }
@@ -1056,10 +1065,6 @@ function normalizeDetailImageSpacing(editor: Editor | ReturnType<typeof useEdito
     });
   }
   editor.refresh?.();
-}
-
-function buildStackedImageHtml(url: string, alt: string): string {
-  return `<img src="${url}" alt="${alt}" class="w-full h-auto rounded-[var(--theme-radius)] shadow-md" style="display:block;margin:0 auto 24px;" />`;
 }
 
 function isSafetyLabelImageContext(component: any): boolean {
@@ -3355,7 +3360,11 @@ function RightPanel({
   onImageClose,
   productId,
   contentGenerationId,
-  onAiFillComplete,
+  contentWorkspaceId,
+  generationRawInput,
+  generationTemplateId,
+  productName,
+  onGeneratedVersionReady,
   onGeneratingChange,
   rawImages = [],
   processedImages = [],
@@ -3371,7 +3380,11 @@ function RightPanel({
   onImageClose: () => void;
   productId?: string;
   contentGenerationId?: string;
-  onAiFillComplete?: () => void;
+  contentWorkspaceId?: string | null;
+  generationRawInput?: unknown;
+  generationTemplateId?: string | null;
+  productName: string;
+  onGeneratedVersionReady?: (generationId: string) => void;
   onGeneratingChange?: (v: boolean, component?: any, imageUrl?: string) => void;
   rawImages?: string[];
   processedImages?: string[];
@@ -3394,55 +3407,7 @@ function RightPanel({
   const [postColorGuideOpen, setPostColorGuideOpen] = useState(false);
   const aiFillCancelRequestedRef = useRef(false);
 
-  const applyProgressImages = useCallback((imgs: Record<string, unknown>) => {
-    if (!editor) return;
-    const wrapper = editor.getWrapper();
-    if (!wrapper) return;
-
-    const resolve = (url: string) => url.startsWith('/processed/') ? `${API_BASE}${url}` : url;
-
-    const setImg = (field: string, url: string) => {
-      const comps = wrapper.find(`[data-field="${field}"]`);
-      if (comps.length > 0 && url) comps[0].setAttributes({ src: resolve(url) });
-    };
-    const getFieldText = (field: string) => {
-      const comp = wrapper.find(`[data-field="${field}"]`)[0];
-      return (comp?.getEl() as HTMLElement | undefined)?.textContent?.trim() ?? '';
-    };
-
-    const fillContainer = (name: string, urls: string[], alt: string) => {
-      const sections = wrapper.find(`[data-section="${name}"]`);
-      if (sections.length === 0 || urls.length === 0) return;
-      sections[0].removeClass('hidden');
-      const containers = wrapper.find(`[data-container="${name}"]`);
-      if (containers.length === 0) return;
-      if (name === 'sizeImages') {
-        containers[0].components(buildSizeGuideFrameHtml({
-          src: resolve(urls[0]),
-          alt,
-          heightLabel: getFieldText('sizeHeightLabel'),
-          widthLabel: getFieldText('sizeWidthLabel'),
-        }));
-        return;
-      }
-      containers[0].components(
-        urls.map((u) => buildStackedImageHtml(resolve(u), alt)).join('')
-      );
-      normalizeDetailImageSpacing(editor);
-    };
-
-    if (typeof imgs.main_image === 'string') setImg('heroImage', imgs.main_image);
-    if (typeof imgs.banner === 'string') setImg('heroBanner', imgs.banner);
-    if (Array.isArray(imgs.size_images)) fillContainer('sizeImages', imgs.size_images, '사이즈 안내');
-    if (Array.isArray(imgs.detail_images)) fillContainer('detailImages', imgs.detail_images, '디테일 이미지');
-    if (Array.isArray(imgs.color_images)) {
-      fillContainer('colorImages', imgs.color_images, '색상 안내');
-      setColorImagesExist(true);
-    }
-  }, [editor]);
-
   const handleAiFill = useCallback(async () => {
-    if (!productId) return;
     if (aiFillLoading) return;
     isBusy.current = true;
     setAiFillLoading(true);
@@ -3450,19 +3415,31 @@ function RightPanel({
     onGeneratingChange?.(true);
     setAiFillStep('요청 전송 중...');
     try {
-      const { taskId } = await apiClient.post<{ taskId: string }>(`/api/products/${productId}/trigger-content-draft`, {
-        seed_hook_text: seedHookText.trim() || undefined,
-        seed_hook_title_sub: seedHookTitleSub.trim() || undefined,
-        seed_hero_image: seedHeroImage || undefined,
-        color_image_urls: colorGuideEnabled && colorImageUrls.length >= 2 ? colorImageUrls : undefined,
+      const body = buildDirectDetailGenerationBody({
+        generationRawInput,
+        productName,
+        productId,
+        contentWorkspaceId,
+        contentGenerationId,
+        templateId: generationTemplateId,
+        seedHookText,
+        seedHookTitleSub,
+        seedHeroImage,
+        colorGuideEnabled,
+        colorImageUrls,
       });
-      setAiFillTaskId(taskId);
-      setAiFillStep('카피 생성 중...');
+      const started = await apiClient.post<{ id: string }>('/api/ai/detail-page/generate', body);
+      setAiFillTaskId(started.id);
+      setAiFillStep('상세페이지 생성 중...');
+      if (aiFillCancelRequestedRef.current) {
+        await cancelOperation({
+          targetType: 'content_generation',
+          generationId: started.id,
+          reason: '사용자 요청',
+        });
+        throw new Error('AI_FILL_CANCELLED');
+      }
 
-      // Agent OS: trigger-content-draft returns AgentRunRequest.id as taskId.
-      // Poll the request, pivot to the run via latestRunId once executor claims.
-      let lastStep = '';
-      let latestRunId: string | null = null;
       const maxAttempts = 120;
       for (let i = 0; i < maxAttempts; i++) {
         await new Promise(r => setTimeout(r, 2000));
@@ -3470,49 +3447,21 @@ function RightPanel({
           throw new Error('AI_FILL_CANCELLED');
         }
 
-        let request: any;
+        let generation: {
+          id: string;
+          imageProcessingStatus?: string | null;
+          imageProcessingError?: string | null;
+        };
         try {
-          request = await apiClient.get(`/api/agent-os/requests/${taskId}`);
+          generation = await apiClient.get<typeof generation>(`/api/ai/detail-page/${started.id}`);
         } catch { continue; }
 
-        if (request.status === 'failed' || request.status === 'cancelled' || request.status === 'skipped') {
-          throw new Error(request.lastErrorMessage || request.lastErrorCode || 'AI 생성에 실패했습니다');
+        if (isDirectDetailGenerationFailed(generation.imageProcessingStatus)) {
+          throw new Error(generation.imageProcessingError || 'AI 생성에 실패했습니다');
         }
-
-        latestRunId = request.latestRunId ?? latestRunId;
-        if (!latestRunId) continue; // pre-claim: no run yet
-
-        // Read run for output progress + final state.
-        let run: any;
-        try {
-          run = await apiClient.get(`/api/agent-os/runs/${latestRunId}`);
-        } catch { continue; }
-
-        let output: Record<string, unknown> | null = null;
-        try {
-          output = typeof run.output === 'string' ? JSON.parse(run.output) : run.output;
-        } catch {
-          continue;
-        }
-        if (output?.step && output.step !== lastStep) {
-          lastStep = String(output.step);
-          if (output.step === 'content_ready') {
-            setAiFillStep('이미지 생성 중...');
-            onAiFillComplete?.();
-          } else if (output.step === 'image_progress') {
-            const imgs = (output.images || {}) as Record<string, unknown>;
-            const sizeImgs = Array.isArray(imgs.size_images) ? imgs.size_images : [];
-            const detailImgs = Array.isArray(imgs.detail_images) ? imgs.detail_images : [];
-            const colorImgs = Array.isArray(imgs.color_images) ? imgs.color_images : [];
-            const done = [imgs.main_image, imgs.banner, ...sizeImgs, ...detailImgs, ...colorImgs].filter(Boolean).length;
-            setAiFillStep(`이미지 생성 중... (${done}장 완료)`);
-            applyProgressImages(imgs as Record<string, unknown>);
-          }
-        }
-
-        if (run.status === 'succeeded' || request.status === 'succeeded') {
+        if (!isDirectDetailGenerationPending(generation.imageProcessingStatus)) {
           setHasGenerated(true);
-          onAiFillComplete?.();
+          onGeneratedVersionReady?.(generation.id);
           return;
         }
       }
@@ -3528,15 +3477,37 @@ function RightPanel({
       setAiFillStep('');
       setAiFillTaskId(null);
     }
-  }, [isBusy, productId, aiFillLoading, onAiFillComplete, seedHookText, seedHookTitleSub, seedHeroImage, colorGuideEnabled, colorImageUrls]);
+  }, [
+    aiFillLoading,
+    colorGuideEnabled,
+    colorImageUrls,
+    contentGenerationId,
+    contentWorkspaceId,
+    generationRawInput,
+    generationTemplateId,
+    isBusy,
+    onGeneratedVersionReady,
+    onGeneratingChange,
+    productId,
+    productName,
+    seedHeroImage,
+    seedHookText,
+    seedHookTitleSub,
+  ]);
 
   const handleAiFillCancel = useCallback(async () => {
-    if (!aiFillTaskId) return;
+    aiFillCancelRequestedRef.current = true;
+    if (!aiFillTaskId) {
+      isBusy.current = false;
+      setAiFillLoading(false);
+      onGeneratingChange?.(false);
+      setAiFillStep('');
+      return;
+    }
     try {
-      aiFillCancelRequestedRef.current = true;
       await cancelOperation({
-        targetType: 'agent_run_request',
-        requestId: aiFillTaskId,
+        targetType: 'content_generation',
+        generationId: aiFillTaskId,
         reason: '사용자 요청',
       });
       toast.success('AI 작업 중단 요청 완료');
@@ -3554,36 +3525,35 @@ function RightPanel({
     if (!productId || colorImageUrls.length < 2) return;
     setColorGuideLoading(true);
     try {
-      const data = await apiClient.post<{ ok: boolean; runId?: string; requestId?: string }>('/api/agent-os/runs', {
-        agentType: 'image_edit',
-        sourceType: 'sourcing',
-        sourceId: productId,
-        payload: { preset: 'color_guide', image_urls: colorImageUrls, productId },
+      const data = await apiClient.post<{ taskId: string }>('/api/image-ai/edit', {
+        preset: 'color_guide',
+        image_urls: colorImageUrls,
+        productId,
       });
-      // Agent OS: POST returns requestId synchronously; runId materializes
-      // when the executor claims the request.
-      const requestId = data.requestId;
-      if (!requestId) throw new Error('이미지 작업을 시작하지 못했습니다.');
+      const taskId = data.taskId;
+      if (!taskId) throw new Error('이미지 작업을 시작하지 못했습니다.');
 
-      let latestRunId: string | null = null;
       for (let i = 0; i < 120; i++) {
         await new Promise(r => setTimeout(r, 2000));
 
-        let request: any;
+        let task: {
+          status: string;
+          output?: unknown;
+          errorCode?: string | null;
+          errorMessage?: string | null;
+        };
         try {
-          request = await apiClient.get(`/api/agent-os/requests/${requestId}`);
+          task = await apiClient.get<typeof task>(`/api/image-ai/tasks/${taskId}`);
         } catch { continue; }
 
-        if (request.status === 'failed' || request.status === 'cancelled' || request.status === 'skipped') {
-          throw new Error(request.lastErrorMessage || request.lastErrorCode || '색상 안내 생성 실패');
+        if (task.status === 'failed' || task.status === 'cancelled' || task.status === 'skipped') {
+          throw new Error(task.errorMessage || task.errorCode || '색상 안내 생성 실패');
         }
 
-        latestRunId = request.latestRunId ?? latestRunId;
-        if (request.status !== 'succeeded' || !latestRunId) continue;
+        if (task.status !== 'succeeded') continue;
 
-        const run = await apiClient.get<{ output?: unknown }>(`/api/agent-os/runs/${latestRunId}`);
         {
-          const imageUrl = extractEditedImageUrl(run.output ?? null);
+          const imageUrl = extractEditedImageUrl(task.output ?? null);
           if (!imageUrl) throw new Error('색상 안내 이미지 URL을 찾지 못했습니다.');
 
           const wrapper = editor.getWrapper();
@@ -3673,7 +3643,7 @@ function RightPanel({
             <Loader2 size={32} className="animate-spin text-emerald-500" />
             <div className="text-center">
               <p className="text-sm font-semibold text-slate-700">{aiFillStep}</p>
-              <p className="text-[10px] text-slate-400 mt-1">생성이 완료되면 캔버스에 자동 반영됩니다</p>
+              <p className="text-[10px] text-slate-400 mt-1">생성이 완료되면 새 버전으로 이동합니다</p>
             </div>
             <button
               type="button"
@@ -3954,8 +3924,12 @@ export default function DetailPageEditor({
   productName,
   productId,
   contentGenerationId,
+  contentWorkspaceId,
+  generationRawInput,
+  generationTemplateId,
   rawImages = [],
   processedImages = [],
+  onGeneratedVersionReady,
   onSave,
   onClose,
 }: DetailPageEditorProps) {
@@ -3991,88 +3965,6 @@ export default function DetailPageEditor({
       document.head.removeChild(style);
     };
   }, []);
-
-  const handleAiFillComplete = useCallback(async () => {
-    if (!editorRef || !productId) return;
-    try {
-      const preview = await apiClient.get<{ data: any }>(`/api/products/${productId}/preview`);
-      const d = preview.data;
-      if (!d) return;
-
-      const wrapper = editorRef.getWrapper();
-      if (!wrapper) return;
-
-      const resolveUrl = (url: string) =>
-        url.startsWith('/processed/') ? `${API_BASE}${url}` : url;
-
-      const setText = (field: string, value: string) => {
-        const comps = wrapper.find(`[data-field="${field}"]`);
-        if (comps.length > 0 && value) comps[0].components(value);
-      };
-
-      const setImg = (field: string, url: string) => {
-        const comps = wrapper.find(`[data-field="${field}"]`);
-        if (comps.length > 0 && url) comps[0].setAttributes({ src: resolveUrl(url) });
-      };
-
-      setText('hookText', d.hook_text ?? d.hookText ?? '');
-      setText('hookTitleSub', d.hook_title_sub ?? d.hookTitleSub ?? '');
-      setText('sectionName', d.section_name ?? d.sectionName ?? '');
-      setText('sectionTitle', d.section_title ?? d.sectionTitle ?? '');
-      setText('detailText', d.detail_text ?? d.detailText ?? '');
-
-      const desc = d.description ?? [];
-      if (desc.length > 0) {
-        setText('description', desc.join('\n'));
-      }
-
-      const subtitle = d.section_subtitle ?? d.sectionSubtitle ?? [];
-      if (subtitle.length > 0) {
-        setText('sectionSubtitle', subtitle.join('\n'));
-      }
-
-      const images = d.images ?? [];
-      if (images[0]) setImg('heroImage', images[0]);
-
-      const banner = d.hero_banner ?? d.heroBanner ?? '';
-      if (banner) setImg('heroBanner', banner);
-
-      const fillSection = (sectionName: string, urls: string[], alt: string) => {
-        const sections = wrapper.find(`[data-section="${sectionName}"]`);
-        if (sections.length === 0 || urls.length === 0) return;
-        const section = sections[0];
-        section.removeClass('hidden');
-        const containers = wrapper.find(`[data-container="${sectionName}"]`);
-        if (containers.length === 0) return;
-        if (sectionName === 'sizeImages') {
-          containers[0].components(buildSizeGuideFrameHtml({
-            src: resolveUrl(urls[0]),
-            alt,
-            heightLabel: d.size_height_label ?? d.sizeHeightLabel ?? '',
-            widthLabel: d.size_width_label ?? d.sizeWidthLabel ?? '',
-          }));
-          return;
-        }
-        containers[0].components(
-          urls.map((url) => buildStackedImageHtml(resolveUrl(url), alt)).join('')
-        );
-        normalizeDetailImageSpacing(editorRef);
-      };
-
-      const sizeImgs = d.size_images ?? d.sizeImages ?? [];
-      fillSection('sizeImages', sizeImgs, '사이즈 안내');
-      setText('sizeHeightLabel', d.size_height_label ?? d.sizeHeightLabel ?? '');
-      setText('sizeWidthLabel', d.size_width_label ?? d.sizeWidthLabel ?? '');
-
-      const detailImgs = d.detail_images ?? d.detailImages ?? [];
-      fillSection('detailImages', detailImgs, '디테일 이미지');
-
-      const colorImgs = d.color_images ?? d.colorImages ?? [];
-      fillSection('colorImages', colorImgs, '색상 안내');
-    } catch (err) {
-      toast.error('캔버스 필드 업데이트에 실패했습니다.');
-    }
-  }, [editorRef, productId]);
 
   const handleEditorInit = useCallback(
     (editor: Editor) => {
@@ -4426,7 +4318,11 @@ export default function DetailPageEditor({
                 }}
                 productId={productId}
                 contentGenerationId={contentGenerationId}
-                onAiFillComplete={handleAiFillComplete}
+                contentWorkspaceId={contentWorkspaceId}
+                generationRawInput={generationRawInput}
+                generationTemplateId={generationTemplateId}
+                productName={productName}
+                onGeneratedVersionReady={onGeneratedVersionReady}
                 onGeneratingChange={handleImageGeneratingChange}
                 rawImages={panelRawImages}
                 processedImages={processedImages}

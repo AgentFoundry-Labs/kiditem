@@ -7,6 +7,8 @@ import {
   HeadBucketCommand,
 } from '@aws-sdk/client-s3';
 
+const IMMUTABLE_ASSET_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+
 /**
  * S3-호환 객체 스토리지 (로컬: MinIO, 운영: S3/R2)
  *
@@ -71,6 +73,7 @@ export class StorageService implements OnModuleInit {
         Key: key,
         Body: buffer,
         ContentType: mimeType,
+        CacheControl: IMMUTABLE_ASSET_CACHE_CONTROL,
       }),
     );
     return this.getUrl(key);

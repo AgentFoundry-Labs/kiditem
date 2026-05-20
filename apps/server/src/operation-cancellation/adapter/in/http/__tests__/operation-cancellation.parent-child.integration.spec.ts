@@ -186,6 +186,12 @@ function makeAiCancellationPort(): AiGenerationCancellationPort {
       operationKey: `thumbnail-edit:${input.generationId}`,
       preserved: false,
     })),
+    cancelImageEditJob: vi.fn(async (input) => ({
+      status: 'cancelled',
+      jobId: input.jobId,
+      operationKey: `image-edit:${input.jobId}`,
+      preserved: false,
+    })),
   };
 }
 
@@ -305,6 +311,7 @@ describe('operation cancellation parent/child integration', () => {
         agentRunIds: [],
         contentGenerationIds: ['cg-1'],
         thumbnailGenerationIds: ['tg-1'],
+        directAiJobIds: [],
       },
       preserved: {
         contentGenerationIds: [],

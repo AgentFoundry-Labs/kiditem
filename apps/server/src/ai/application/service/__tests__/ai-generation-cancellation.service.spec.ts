@@ -20,12 +20,22 @@ function makeService() {
       preserved: false,
     }),
   };
+  const imageAi = {
+    cancelEditTask: vi.fn().mockResolvedValue({
+      status: 'cancelled',
+      jobId: 'image-job-1',
+      operationKey: 'image-edit:image-job-1',
+      preserved: false,
+    }),
+  };
   return {
     detailPages,
     thumbnails,
+    imageAi,
     service: new AiGenerationCancellationService(
       detailPages as never,
       thumbnails as never,
+      imageAi as never,
     ),
   };
 }
@@ -67,5 +77,25 @@ describe('AiGenerationCancellationService', () => {
       reason: '사용자 요청',
     });
     expect(result.status).toBe('cancelled');
+  });
+
+  it('cancels direct image edit jobs through the image AI owner service', async () => {
+    const { service, imageAi } = makeService();
+
+    const result = await service.cancelImageEditJob({
+      organizationId: ORG,
+      jobId: 'image-job-1',
+      actorUserId: 'user-1',
+      reason: '사용자 요청',
+    });
+
+    expect(imageAi.cancelEditTask).toHaveBeenCalledWith(
+      ORG,
+      'image-job-1',
+      'user-1',
+      '사용자 요청',
+    );
+    expect(result.status).toBe('cancelled');
+    expect(result.jobId).toBe('image-job-1');
   });
 });

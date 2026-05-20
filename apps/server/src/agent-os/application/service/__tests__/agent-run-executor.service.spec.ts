@@ -213,51 +213,70 @@ describe('AgentRunExecutor', () => {
     );
   });
 
-  it('does not fall back to AGENT_DEFAULT_MODEL for gemini image runtimes', async () => {
-    vi.stubEnv('AGENT_IMAGE_EDIT_MODEL', '');
-    const { executor, repository, eventEmitter } = makeExecutor({
-      instance: makeInstance({
-        type: 'image_edit',
-        adapterType: 'gemini_image',
-      }),
-      claimed: makeClaimedRequest({
-        agentType: 'image_edit',
-        adapterType: 'gemini_image',
-        source: 'ai.image_edit',
-      }),
-    });
+  it.each([
+    {
+      type: 'image_edit',
+      adapterType: 'gemini_image',
+      source: 'ai.image_edit',
+    },
+    {
+      type: 'detail_page_generate',
+      adapterType: 'gemini_text',
+      source: 'ai.detail_page_generate',
+    },
+    {
+      type: 'thumbnail_generate',
+      adapterType: 'gemini_image',
+      source: 'ai.thumbnail_generate',
+    },
+  ] as const)(
+    'fails removed fixed AI job $type before runtime execution',
+    async ({ type, adapterType, source }) => {
+      const { executor, runtime, repository, eventEmitter } = makeExecutor({
+        instance: makeInstance({
+          type,
+          adapterType,
+        }),
+        claimed: makeClaimedRequest({
+          agentType: type,
+          adapterType,
+          source,
+        }),
+      });
 
-    const result = await executor.executeNext('worker-1', ORGANIZATION_ID);
+      const result = await executor.executeNext('worker-1', ORGANIZATION_ID);
 
-    expect(result).toMatchObject({
-      executed: false,
-      requestId: REQUEST_ID,
-      errorCode: 'model_required',
-    });
-    expect(repository.createRunForRequest).not.toHaveBeenCalled();
-    expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
-      AGENT_RUN_EVENTS.FINALIZED,
-      expect.objectContaining({
-        organizationId: ORGANIZATION_ID,
+      expect(result).toMatchObject({
+        executed: false,
         requestId: REQUEST_ID,
-        agentType: 'image_edit',
-        source: 'ai.image_edit',
-        status: 'failed',
-        errorCode: 'model_required',
-      }),
-    );
-  });
+        errorCode: 'agent_definition_missing',
+      });
+      expect(repository.createRunForRequest).not.toHaveBeenCalled();
+      expect(runtime.execute).not.toHaveBeenCalled();
+      expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
+        AGENT_RUN_EVENTS.FINALIZED,
+        expect.objectContaining({
+          organizationId: ORGANIZATION_ID,
+          requestId: REQUEST_ID,
+          agentType: type,
+          source,
+          status: 'failed',
+          errorCode: 'agent_definition_missing',
+        }),
+      );
+    },
+  );
 
   it('emits a succeeded FINALIZED event with the runtime output on success', async () => {
     const { executor, eventEmitter, repository } = makeExecutor({
       claimed: makeClaimedRequest({
-        agentType: 'detail_page_generate',
-        source: 'ai.detail_page_generate',
-        sourceResourceType: 'content_generation',
-        sourceResourceId: 'cg-42',
+        agentType: 'rules_evaluation',
+        source: 'rules.evaluation',
+        sourceResourceType: 'rule_set',
+        sourceResourceId: 'rules-42',
         requestedByUserId: 'user-77',
       }),
-      runtimeResult: { output: { ok: true, sample: 'detail-page' } },
+      runtimeResult: { output: { ok: true, sample: 'rules' } },
     });
 
     const result = await executor.executeNext('worker-1', ORGANIZATION_ID);
@@ -269,11 +288,11 @@ describe('AgentRunExecutor', () => {
       AGENT_RUN_EVENTS.FINALIZED,
       expect.objectContaining({
         status: 'succeeded',
-        output: { ok: true, sample: 'detail-page' },
-        agentType: 'detail_page_generate',
-        source: 'ai.detail_page_generate',
-        sourceResourceType: 'content_generation',
-        sourceResourceId: 'cg-42',
+        output: { ok: true, sample: 'rules' },
+        agentType: 'rules_evaluation',
+        source: 'rules.evaluation',
+        sourceResourceType: 'rule_set',
+        sourceResourceId: 'rules-42',
         requestedByUserId: 'user-77',
       }),
     );
@@ -281,13 +300,14 @@ describe('AgentRunExecutor', () => {
 
   it('finalizes the run with runtime_not_configured when adapter throws', async () => {
     const { executor, repository, eventEmitter } = makeExecutor({
+      instance: makeInstance({ type: 'rules_suggest' }),
       claimed: makeClaimedRequest({
         attempts: 1,
         maxAttempts: 1,
-        agentType: 'thumbnail_generate',
-        source: 'ai.thumbnail_generate',
-        sourceResourceType: 'thumbnail_generation',
-        sourceResourceId: 'tg-77',
+        agentType: 'rules_suggest',
+        source: 'rules.suggest',
+        sourceResourceType: 'rule_set',
+        sourceResourceId: 'rules-77',
       }),
       runtimeError: new AgentOsRuntimeError(
         'runtime_not_configured',
@@ -313,10 +333,10 @@ describe('AgentRunExecutor', () => {
       expect.objectContaining({
         status: 'failed',
         errorCode: 'runtime_not_configured',
-        agentType: 'thumbnail_generate',
-        source: 'ai.thumbnail_generate',
-        sourceResourceType: 'thumbnail_generation',
-        sourceResourceId: 'tg-77',
+        agentType: 'rules_suggest',
+        source: 'rules.suggest',
+        sourceResourceType: 'rule_set',
+        sourceResourceId: 'rules-77',
         requestedByUserId: null,
       }),
     );
@@ -412,10 +432,10 @@ describe('AgentRunExecutor', () => {
     let sinkApplied = false;
     const { executor, eventEmitter } = makeExecutor({
       claimed: makeClaimedRequest({
-        agentType: 'detail_page_generate',
-        source: 'ai.detail_page_generate',
-        sourceResourceType: 'content_generation',
-        sourceResourceId: 'cg-inline',
+        agentType: 'rules_evaluation',
+        source: 'rules.evaluation',
+        sourceResourceType: 'rule_set',
+        sourceResourceId: 'rules-inline',
       }),
     });
     eventEmitter.emitAsync.mockImplementationOnce(async () => {
@@ -425,7 +445,7 @@ describe('AgentRunExecutor', () => {
     });
 
     const result = await executor.executeRequest(
-      'detail-page-inline',
+      'agent-os-inline',
       ORGANIZATION_ID,
       REQUEST_ID,
     );

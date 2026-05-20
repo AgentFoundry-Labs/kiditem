@@ -35,7 +35,6 @@ export function AutoEditSection() {
         );
       }
       queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.agents.all });
     },
     onError: (err: unknown) => {
       const message = isApiError(err)
@@ -77,7 +76,7 @@ export function AutoEditSection() {
             </h2>
             <p className="mt-0.5 text-sm text-slate-600 leading-snug">
               매출 상위 상품 중 7일 내 재편집 이력이 없는 것들만 선별해서 한 번에 AI 생성.
-              <span className="text-slate-500"> 진행 상황은 에이전트 탭에서 확인.</span>
+              <span className="text-slate-500"> 진행 상황은 작업 알림에서 확인.</span>
             </p>
           </div>
         </div>

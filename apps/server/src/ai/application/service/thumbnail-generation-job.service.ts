@@ -32,15 +32,6 @@ import {
   type ThumbnailGenerationLedgerRepositoryPort,
 } from '../port/out/repository/thumbnail-generation-ledger.repository.port';
 import {
-  AGENT_RUNNER_PORT,
-  type AgentRunnerPort,
-} from '../../../agent-os/application/port/in/agent-runner.port';
-import {
-  AI_AGENT_SOURCE_TYPES,
-  THUMBNAIL_GENERATE_AGENT_TYPE,
-} from '../../domain/agent-output';
-import { kickEnqueuedAgentRequest as kickInlineAgentRequest } from './agent-inline-execution';
-import {
   type GenerationAlertLink,
   STANDALONE_GENERATION_ALERT,
   isParentProductGenerationAlertLink,
@@ -48,6 +39,7 @@ import {
 } from './product-generation-alert-link';
 import { ProductGenerationAlertService } from './product-generation-alert.service';
 import { ThumbnailGenerationLifecycleService } from './thumbnail-generation-lifecycle.service';
+import { ThumbnailDirectGenerationJobService } from './thumbnail-direct-generation-job.service';
 
 function jsonObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -65,7 +57,7 @@ export interface ThumbnailEditorGenerationEnqueueInput {
   inputMeta: unknown;
   method: 'generate' | 'creative';
   originalUrl: string;
-  agentPayload: Record<string, unknown>;
+  directPayload: Record<string, unknown>;
 }
 
 export interface ThumbnailCandidateGenerationEnqueueInput {
@@ -78,7 +70,7 @@ export interface ThumbnailCandidateGenerationEnqueueInput {
   inputMeta: unknown;
   method: 'generate' | 'creative';
   originalUrl: string;
-  agentPayload: Record<string, unknown>;
+  directPayload: Record<string, unknown>;
   operationAlert?: GenerationAlertLink;
 }
 
@@ -91,7 +83,7 @@ export interface ThumbnailStandaloneGenerationEnqueueInput {
   inputMeta: unknown;
   method: 'generate' | 'creative';
   originalUrl: string;
-  agentPayload: Record<string, unknown>;
+  directPayload: Record<string, unknown>;
 }
 
 type ThumbnailGenerationEnqueueResult = {
@@ -112,8 +104,7 @@ export class ThumbnailGenerationJobService {
     private readonly editorAiService: ThumbnailEditorAiService,
     @Inject(AI_OPERATION_ALERT_PORT)
     private readonly operationAlerts: OperationAlertPort,
-    @Inject(AGENT_RUNNER_PORT)
-    private readonly agentRunner: AgentRunnerPort,
+    private readonly directGenerationJobs: ThumbnailDirectGenerationJobService,
     private readonly productGenerationAlerts: ProductGenerationAlertService,
     private readonly lifecycle: ThumbnailGenerationLifecycleService,
   ) {}
@@ -178,59 +169,10 @@ export class ThumbnailGenerationJobService {
       },
     });
 
-    const enqueueResult = await this.agentRunner.runByType(
-      THUMBNAIL_GENERATE_AGENT_TYPE,
-      {
-        organizationId: input.organizationId,
-        requestedByUserId: input.triggeredByUserId ?? undefined,
-        sourceType: AI_AGENT_SOURCE_TYPES.THUMBNAIL_GENERATE,
-        sourceResourceType: 'thumbnail_generation',
-        sourceResourceId: generation.id,
-        reason: `thumbnail_generate for product ${input.productId}`,
-        payload: input.agentPayload,
-      },
-    );
-
-    if (!enqueueResult.ok) {
-      const errorMessage = enqueueResult.reason
-        ? `Agent OS enqueue failed: ${enqueueResult.reason}`
-        : 'Agent OS enqueue failed.';
-      const lock = await this.lifecycle.startAttempt({
-        generationId: generation.id,
-        organizationId: input.organizationId,
-        payload: {
-          errorCode: 'agent_enqueue_failed',
-          agentReason: enqueueResult.reason ?? null,
-        },
-      });
-      if (lock) {
-        await this.lifecycle.failRunningGeneration({
-          generationId: generation.id,
-          organizationId: input.organizationId,
-          errorMessage,
-          payload: {
-            errorCode: 'agent_enqueue_failed',
-            agentReason: enqueueResult.reason ?? null,
-          },
-        });
-      }
-      await this.operationAlerts.fail(
-        input.organizationId,
-        this.editJobOperationKey(generation.id),
-        {
-          message: errorMessage,
-          metadata: {
-            errorCode: 'agent_enqueue_failed',
-            agentReason: enqueueResult.reason ?? null,
-          },
-        },
-      );
-      throw new BadRequestException(errorMessage);
-    }
-
-    this.kickEnqueuedAgentRequest({
+    this.directGenerationJobs.schedule({
       organizationId: input.organizationId,
-      requestId: enqueueResult.requestId,
+      generationId: generation.id,
+      payload: input.directPayload,
     });
 
     return { generationId: generation.id, status: 'pending' };
@@ -340,84 +282,14 @@ export class ThumbnailGenerationJobService {
       });
     }
 
-    const enqueueResult = await this.agentRunner.runByType(
-      THUMBNAIL_GENERATE_AGENT_TYPE,
-      {
-        organizationId: input.organizationId,
-        requestedByUserId: input.triggeredByUserId ?? undefined,
-        sourceType: AI_AGENT_SOURCE_TYPES.THUMBNAIL_GENERATE,
-        sourceResourceType: 'thumbnail_generation',
-        sourceResourceId: generation.id,
-        reason: `thumbnail_generate for sourcing candidate ${input.sourceCandidateId}`,
-        payload: input.agentPayload,
-      },
-    );
-
-    if (!enqueueResult.ok) {
-      const errorMessage = enqueueResult.reason
-        ? `Agent OS enqueue failed: ${enqueueResult.reason}`
-        : 'Agent OS enqueue failed.';
-      const lock = await this.lifecycle.startAttempt({
-        generationId: generation.id,
-        organizationId: input.organizationId,
-        actorUserId: input.triggeredByUserId,
-        payload: {
-          errorCode: 'agent_enqueue_failed',
-          agentReason: enqueueResult.reason ?? null,
-        },
-      });
-      if (lock) {
-        await this.lifecycle.failRunningGeneration({
-          generationId: generation.id,
-          organizationId: input.organizationId,
-          errorMessage,
-          actorUserId: input.triggeredByUserId,
-          payload: {
-            errorCode: 'agent_enqueue_failed',
-            agentReason: enqueueResult.reason ?? null,
-          },
-        });
-      }
-      if (isParentProductGenerationAlertLink(operationAlert)) {
-        await this.productGenerationAlerts.markChildFinished({
-          organizationId: input.organizationId,
-          parentOperationKey: operationAlert.parentOperationKey,
-          childKind: 'thumbnail',
-          status: 'failed',
-          childId: generation.id,
-          errorMessage,
-        });
-      } else {
-        await this.operationAlerts.fail(
-          input.organizationId,
-          this.editJobOperationKey(generation.id),
-          {
-            message: errorMessage,
-            metadata: {
-              errorCode: 'agent_enqueue_failed',
-              agentReason: enqueueResult.reason ?? null,
-            },
-          },
-        );
-      }
-      throw new BadRequestException(errorMessage);
-    }
-
     if (
       isParentProductGenerationAlertLink(operationAlert) &&
-      enqueueResult.requestId &&
-      await this.shouldCancelParentThumbnailRequestAfterEnqueue({
+      await this.shouldCancelParentThumbnailRequestBeforeExecution({
         organizationId: input.organizationId,
         parentOperationKey: operationAlert.parentOperationKey,
         generationId: generation.id,
       })
     ) {
-      await this.agentRunner.cancelRequest?.({
-        organizationId: input.organizationId,
-        requestId: enqueueResult.requestId,
-        reason: THUMBNAIL_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE,
-        actorUserId: input.triggeredByUserId,
-      });
       await this.lifecycle.markCancelled({
         organizationId: input.organizationId,
         generationId: generation.id,
@@ -429,15 +301,16 @@ export class ThumbnailGenerationJobService {
       return { generationId: generation.id, status: 'cancelled' };
     }
 
-    this.kickEnqueuedAgentRequest({
+    this.directGenerationJobs.schedule({
       organizationId: input.organizationId,
-      requestId: enqueueResult.requestId,
+      generationId: generation.id,
+      payload: input.directPayload,
     });
 
     return { generationId: generation.id, status: 'pending' };
   }
 
-  private async shouldCancelParentThumbnailRequestAfterEnqueue(input: {
+  private async shouldCancelParentThumbnailRequestBeforeExecution(input: {
     organizationId: string;
     parentOperationKey: string;
     generationId: string;
@@ -518,61 +391,10 @@ export class ThumbnailGenerationJobService {
       },
     });
 
-    const enqueueResult = await this.agentRunner.runByType(
-      THUMBNAIL_GENERATE_AGENT_TYPE,
-      {
-        organizationId: input.organizationId,
-        requestedByUserId: input.triggeredByUserId ?? undefined,
-        sourceType: AI_AGENT_SOURCE_TYPES.THUMBNAIL_GENERATE,
-        sourceResourceType: 'thumbnail_generation',
-        sourceResourceId: generation.id,
-        reason: 'thumbnail_generate for standalone editor upload',
-        payload: input.agentPayload,
-      },
-    );
-
-    if (!enqueueResult.ok) {
-      const errorMessage = enqueueResult.reason
-        ? `Agent OS enqueue failed: ${enqueueResult.reason}`
-        : 'Agent OS enqueue failed.';
-      const lock = await this.lifecycle.startAttempt({
-        generationId: generation.id,
-        organizationId: input.organizationId,
-        actorUserId: input.triggeredByUserId,
-        payload: {
-          errorCode: 'agent_enqueue_failed',
-          agentReason: enqueueResult.reason ?? null,
-        },
-      });
-      if (lock) {
-        await this.lifecycle.failRunningGeneration({
-          generationId: generation.id,
-          organizationId: input.organizationId,
-          errorMessage,
-          actorUserId: input.triggeredByUserId,
-          payload: {
-            errorCode: 'agent_enqueue_failed',
-            agentReason: enqueueResult.reason ?? null,
-          },
-        });
-      }
-      await this.operationAlerts.fail(
-        input.organizationId,
-        this.editJobOperationKey(generation.id),
-        {
-          message: errorMessage,
-          metadata: {
-            errorCode: 'agent_enqueue_failed',
-            agentReason: enqueueResult.reason ?? null,
-          },
-        },
-      );
-      throw new BadRequestException(errorMessage);
-    }
-
-    this.kickEnqueuedAgentRequest({
+    this.directGenerationJobs.schedule({
       organizationId: input.organizationId,
-      requestId: enqueueResult.requestId,
+      generationId: generation.id,
+      payload: input.directPayload,
     });
 
     return { generationId: generation.id, status: 'pending' };
@@ -601,14 +423,7 @@ export class ThumbnailGenerationJobService {
     reason: string;
     actorUserId?: string | null;
   }): Promise<void> {
-    await this.agentRunner.cancelBySource?.({
-      organizationId: input.organizationId,
-      sourceType: AI_AGENT_SOURCE_TYPES.THUMBNAIL_GENERATE,
-      sourceResourceType: 'thumbnail_generation',
-      sourceResourceId: input.generationId,
-      reason: input.reason,
-      actorUserId: input.actorUserId,
-    });
+    void input;
   }
 
   async processEditJob(
@@ -798,22 +613,6 @@ export class ThumbnailGenerationJobService {
       targetId: input.fallbackTargetId,
       href: input.fallbackHref,
     };
-  }
-
-  private kickEnqueuedAgentRequest(input: {
-    organizationId: string;
-    requestId?: string;
-  }): void {
-    if (!input.requestId || !this.agentRunner.executeRequest) return;
-
-    kickInlineAgentRequest({
-      agentRunner: this.agentRunner,
-      organizationId: input.organizationId,
-      requestId: input.requestId,
-      workerId: 'thumbnail-generate-inline',
-      logger: this.logger,
-      label: 'thumbnail_generate',
-    });
   }
 
 }

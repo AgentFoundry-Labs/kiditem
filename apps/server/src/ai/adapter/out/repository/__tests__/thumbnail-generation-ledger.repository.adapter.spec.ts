@@ -4,13 +4,13 @@ import { ThumbnailGenerationLedgerRepositoryAdapter } from '../thumbnail-generat
 const helperMocks = vi.hoisted(() => ({
   createPendingEditJob: vi.fn(),
   lockGenerationForProcessing: vi.fn(),
-  applyAgentSuccessResult: vi.fn(),
+  applyDirectSuccessResult: vi.fn(),
 }));
 
 vi.mock('../thumbnail-generation-ledger.persistence', () => ({
   createPendingEditJob: helperMocks.createPendingEditJob,
   lockGenerationForProcessing: helperMocks.lockGenerationForProcessing,
-  applyAgentSuccessResult: helperMocks.applyAgentSuccessResult,
+  applyDirectSuccessResult: helperMocks.applyDirectSuccessResult,
 }));
 
 describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
@@ -38,7 +38,7 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
     );
   });
 
-  it('claims and projects Agent OS output through use-case-level methods', async () => {
+  it('claims and projects direct output through use-case-level methods', async () => {
     const prisma = {};
     const repository = new ThumbnailGenerationLedgerRepositoryAdapter(prisma as never);
     helperMocks.lockGenerationForProcessing.mockResolvedValueOnce({
@@ -46,13 +46,13 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
       fromPhase: null,
       attemptNumber: 1,
     });
-    helperMocks.applyAgentSuccessResult.mockResolvedValueOnce({
+    helperMocks.applyDirectSuccessResult.mockResolvedValueOnce({
       fromStatus: 'running',
       fromPhase: null,
       attemptNumber: 1,
     });
 
-    await expect(repository.claimForAgentProjection({
+    await expect(repository.claimForDirectProjection({
       generationId: 'generation-1',
       organizationId: 'org-1',
     })).resolves.toEqual({
@@ -60,11 +60,11 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
       fromPhase: null,
       attemptNumber: 1,
     });
-    await expect(repository.projectAgentSuccess({
+    await expect(repository.projectDirectSuccess({
       generationId: 'generation-1',
       organizationId: 'org-1',
       candidates: [],
-      inputMeta: { agentRequestId: 'request-1' },
+      inputMeta: { aiJobId: 'request-1' },
     })).resolves.toEqual({
       fromStatus: 'running',
       fromPhase: null,
@@ -76,12 +76,12 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
       'generation-1',
       'org-1',
     );
-    expect(helperMocks.applyAgentSuccessResult).toHaveBeenCalledWith(
+    expect(helperMocks.applyDirectSuccessResult).toHaveBeenCalledWith(
       prisma,
       expect.objectContaining({
         generationId: 'generation-1',
         organizationId: 'org-1',
-        inputMeta: { agentRequestId: 'request-1' },
+        inputMeta: { aiJobId: 'request-1' },
       }),
     );
   });

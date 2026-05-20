@@ -104,6 +104,7 @@ describe('operation cancellation schemas', () => {
           agentRunIds: [],
           contentGenerationIds: [],
           thumbnailGenerationIds: [],
+          directAiJobIds: ['image-job-1'],
         },
         preserved: {
           contentGenerationIds: [],
@@ -122,6 +123,7 @@ describe('operation cancellation schemas', () => {
         agentRunIds: [],
         contentGenerationIds: [],
         thumbnailGenerationIds: [],
+        directAiJobIds: ['image-job-1'],
       },
       preserved: {
         contentGenerationIds: [],
@@ -141,6 +143,7 @@ describe('operation cancellation schemas', () => {
       agentRunIds: [],
       contentGenerationIds: [],
       thumbnailGenerationIds: [],
+      directAiJobIds: [],
     });
     expect(emptyCancelOperationPreserved()).toEqual({
       contentGenerationIds: [],

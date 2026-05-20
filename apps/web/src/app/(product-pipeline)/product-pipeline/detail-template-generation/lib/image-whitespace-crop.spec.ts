@@ -101,6 +101,26 @@ describe('prepareImageUploadFile', () => {
     expect(prepared.name).toBe('toy.png');
     expect(prepared.type).toBe('image/png');
   });
+
+  it('compresses medium uploads so storage egress does not keep serving oversized originals', async () => {
+    const width = 1200;
+    const height = 900;
+    const data = makeWhiteImage(width, height);
+    paintRect(data, width, { x: 0, y: 0, width, height });
+    mockBrowserImageProcessing(data, width, height);
+
+    const file = new File([new Uint8Array(2 * 1024 * 1024)], 'large.png', {
+      type: 'image/png',
+      lastModified: 456,
+    });
+
+    const prepared = await prepareImageUploadFile(file);
+
+    expect(prepared).not.toBe(file);
+    expect(prepared.name).toBe('large-upload.jpg');
+    expect(prepared.type).toBe('image/jpeg');
+    expect(prepared.size).toBeLessThan(file.size);
+  });
 });
 
 function mockBrowserImageProcessing(

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildThumbnailGenerateAgentInput,
+  buildThumbnailGenerateDirectInput,
   buildThumbnailGenerationInputMeta,
   inferThumbnailEditCase,
 } from '../thumbnail-generation-requests';
-import { ThumbnailGenerateAgentInputSchema } from '../../../domain/agent-output';
+import { ThumbnailGenerateDirectInputSchema } from '../../../domain/direct-generation';
 import type { ThumbnailEditorInputImage } from '../../../domain/model/thumbnail-editor';
 
 const INPUT: ThumbnailEditorInputImage = {
@@ -21,7 +21,7 @@ const INPUT: ThumbnailEditorInputImage = {
 
 describe('thumbnail generation request builders', () => {
   it('builds schema-valid edit agent input from canonical thumbnail request fields', () => {
-    const payload = buildThumbnailGenerateAgentInput({
+    const payload = buildThumbnailGenerateDirectInput({
       mode: 'edit',
       purpose: 'quality',
       editCase: 'compose',
@@ -36,7 +36,7 @@ describe('thumbnail generation request builders', () => {
       inputs: [INPUT, { ...INPUT, label: 'Package', role: 'box', sortOrder: 1 }],
     });
 
-    const parsed = ThumbnailGenerateAgentInputSchema.parse(payload);
+    const parsed = ThumbnailGenerateDirectInputSchema.parse(payload);
     expect(parsed).toMatchObject({
       mode: 'edit',
       editCase: 'compose',
@@ -66,7 +66,7 @@ describe('thumbnail generation request builders', () => {
   });
 
   it('builds schema-valid creative agent input with style-reference intent', () => {
-    const payload = buildThumbnailGenerateAgentInput({
+    const payload = buildThumbnailGenerateDirectInput({
       mode: 'creative',
       productName: 'Wooden Puzzle',
       productDescription: 'Warm wood toddler puzzle',
@@ -78,7 +78,7 @@ describe('thumbnail generation request builders', () => {
       inputs: [INPUT, { ...INPUT, label: 'Style reference', role: 'detail', sortOrder: 1 }],
     });
 
-    const parsed = ThumbnailGenerateAgentInputSchema.parse(payload);
+    const parsed = ThumbnailGenerateDirectInputSchema.parse(payload);
     expect(parsed.mode).toBe('creative');
     expect(parsed.editCase).toBeUndefined();
     expect(parsed.purpose).toBeUndefined();
