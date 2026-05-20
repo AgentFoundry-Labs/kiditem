@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
   SOURCING_CANDIDATE_REPOSITORY_PORT,
   type CandidateForPreparationRow,
@@ -25,6 +25,11 @@ export interface UpdateProductBasicsInput {
   originalPrice?: number;
   discountRate?: number;
   thumbnailUrls?: string[];
+  /**
+   * Client-observed ProductPreparation.updatedAt. Null means the screen opened
+   * before a preparation row existed; undefined keeps legacy callers unlocked.
+   */
+  basePreparationUpdatedAt?: string | null;
 }
 
 @Injectable()
@@ -63,6 +68,9 @@ export class ProductPreparationSelectionService {
       organizationId,
       sourceCandidateId: candidate.id,
     });
+    if (Object.prototype.hasOwnProperty.call(input, 'basePreparationUpdatedAt')) {
+      this.assertPreparationFresh(existing, input.basePreparationUpdatedAt ?? null);
+    }
     const registrationInput = this.mergeRegistrationInput(
       this.registrationInputFromCandidate(candidate),
       jsonRecord(existing?.registrationInput),
@@ -263,6 +271,29 @@ export class ProductPreparationSelectionService {
     setStringArray(next, 'thumbnailUrls', input.thumbnailUrls);
     return next;
   }
+
+  private assertPreparationFresh(
+    existing: { updatedAt: Date } | null,
+    basePreparationUpdatedAt: string | null,
+  ): void {
+    if (!basePreparationUpdatedAt) {
+      if (existing) throw stalePreparationConflict();
+      return;
+    }
+
+    const parsed = Date.parse(basePreparationUpdatedAt);
+    if (!Number.isFinite(parsed)) {
+      throw new BadRequestException('basePreparationUpdatedAt must be an ISO date string');
+    }
+
+    if (!existing || existing.updatedAt.getTime() !== parsed) {
+      throw stalePreparationConflict();
+    }
+  }
+}
+
+function stalePreparationConflict(): ConflictException {
+  return new ConflictException('상품 기본정보가 다른 탭에서 먼저 변경되었습니다. 새로고침 후 다시 저장해주세요.');
 }
 
 function stringOr(value: unknown): string | null {

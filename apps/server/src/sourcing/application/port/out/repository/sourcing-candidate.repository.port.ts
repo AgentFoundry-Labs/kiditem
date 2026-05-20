@@ -161,6 +161,7 @@ export interface CandidateForPreparationRow {
 export interface PreparationSelectionRow {
   id: string;
   registrationInput: JsonValue;
+  updatedAt: Date;
 }
 
 export interface PreparationThumbnailSelectionRow {

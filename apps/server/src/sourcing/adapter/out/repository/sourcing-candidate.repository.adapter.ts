@@ -663,10 +663,14 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
         sourceCandidateId: input.sourceCandidateId,
         isDeleted: false,
       },
-      select: { id: true, registrationInput: true },
+      select: { id: true, registrationInput: true, updatedAt: true },
     });
     return row
-      ? { id: row.id, registrationInput: row.registrationInput as PreparationSelectionRow['registrationInput'] }
+      ? {
+          id: row.id,
+          registrationInput: row.registrationInput as PreparationSelectionRow['registrationInput'],
+          updatedAt: row.updatedAt,
+        }
       : null;
   }
 

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProductTabContent from './ProductTabContent';
 import type { ProductEditState } from '../../lib/product-workspace-types';
@@ -214,7 +214,7 @@ describe('ProductTabContent', () => {
     expect(screen.getByLabelText('상품명')).toHaveValue('테스트 상품');
   });
 
-  it('saves basic information edits from the screen-level toolbar', () => {
+  it('saves basic information edits from the screen-level toolbar', async () => {
     const onCommitBasicInfo = vi.fn();
     const updateField = vi.fn();
 
@@ -233,13 +233,35 @@ describe('ProductTabContent', () => {
     fireEvent.change(screen.getByLabelText('검색 키워드'), { target: { value: '자석완구, 다트게임' } });
     fireEvent.click(screen.getByRole('button', { name: '저장' }));
 
-    expect(onCommitBasicInfo).toHaveBeenCalledWith(expect.objectContaining({
+    await waitFor(() => expect(onCommitBasicInfo).toHaveBeenCalledWith(expect.objectContaining({
       description: '수정 설명',
       salePrice: 13900,
       keywords: ['자석완구', '다트게임'],
-    }));
+    })));
     expect(updateField).toHaveBeenCalledWith('salePrice', 13900);
     expect(screen.queryByLabelText('상품 설명')).not.toBeInTheDocument();
+  });
+
+  it('keeps the basic editor open and avoids local field updates when save fails', async () => {
+    const onCommitBasicInfo = vi.fn().mockRejectedValue(new Error('stale save'));
+    const updateField = vi.fn();
+
+    render(
+      <ProductTabContent
+        {...baseProps}
+        basicInfo={basicInfo}
+        onCommitBasicInfo={onCommitBasicInfo}
+        updateField={updateField}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '수정' }));
+    fireEvent.change(screen.getByLabelText('상품 설명'), { target: { value: '오래된 탭 설명' } });
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+
+    await waitFor(() => expect(onCommitBasicInfo).toHaveBeenCalled());
+    expect(updateField).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('상품 설명')).toHaveValue('오래된 탭 설명');
   });
 
   it('passes thumbnail preview selection up from the thumbnail tab', () => {

@@ -120,7 +120,9 @@ export type UpdateProductBasicsInput = Partial<Pick<
   | 'originalPrice'
   | 'discountRate'
   | 'thumbnailUrls'
->>;
+>> & {
+  basePreparationUpdatedAt?: string | null;
+};
 
 export interface ProductPreparationSelection {
   id: string;
@@ -133,6 +135,7 @@ export interface ProductPreparationSelection {
   selectedDetailPageGenerationId: string | null;
   selectedDetailPageArtifactId: string | null;
   selectedDetailPageRevisionId: string | null;
+  updatedAt: string | null;
 }
 
 interface StatusResponse {
@@ -257,6 +260,7 @@ function normalizeProductPreparation(value: unknown): ProductPreparationSelectio
     selectedDetailPageRevisionId: typeof prep.selectedDetailPageRevisionId === 'string'
       ? prep.selectedDetailPageRevisionId
       : null,
+    updatedAt: typeof prep.updatedAt === 'string' ? prep.updatedAt : null,
   };
 }
 

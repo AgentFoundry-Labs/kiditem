@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { ConflictException } from '@nestjs/common';
 import { ProductPreparationSelectionService } from '../product-preparation-selection.service';
 
 const candidate = {
@@ -89,6 +90,24 @@ describe('ProductPreparationSelectionService', () => {
         }),
       }),
     });
+  });
+
+  it('rejects stale basic product saves from another open tab', async () => {
+    const repo = makeRepo({
+      findActivePreparation: vi.fn().mockResolvedValue({
+        id: 'prep-1',
+        registrationInput: { name: 'A탭 저장 상품명' },
+        updatedAt: new Date('2026-05-20T01:02:03.000Z'),
+      }),
+    });
+    const service = new ProductPreparationSelectionService(repo as never);
+
+    await expect(service.updateBasics('org-1', 'candidate-1', {
+      name: 'B탭 오래된 상품명',
+      basePreparationUpdatedAt: '2026-05-20T01:00:00.000Z',
+    })).rejects.toBeInstanceOf(ConflictException);
+
+    expect(repo.upsertPreparation).not.toHaveBeenCalled();
   });
 
   it('upserts a preparation thumbnail for the candidate organization', async () => {

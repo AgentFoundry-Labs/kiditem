@@ -56,6 +56,7 @@ vi.mock('./detail/ProductEditHeader', () => ({
 vi.mock('./ProductTabContent', () => ({
   default: ({
     onSaveThumbnailConfiguration,
+    onCommitBasicInfo,
     selectedRegistrationThumbnailUrl,
     savedDetailPageGenerationId,
     selectedDetailPageSummary,
@@ -67,6 +68,10 @@ vi.mock('./ProductTabContent', () => ({
         kind: 'source';
         generatedCandidateId: null;
       };
+    }) => void;
+    onCommitBasicInfo?: (input: {
+      name?: string;
+      salePrice?: number;
     }) => void;
     selectedRegistrationThumbnailUrl?: string | null;
     savedDetailPageGenerationId?: string | null;
@@ -93,6 +98,12 @@ vi.mock('./ProductTabContent', () => ({
         }
       >
         mock-save-thumbnail
+      </button>
+      <button
+        type="button"
+        onClick={() => onCommitBasicInfo?.({ name: '수정 상품명', salePrice: 13900 })}
+      >
+        mock-save-basic
       </button>
     </div>
   ),
@@ -205,6 +216,7 @@ describe('ProductWorkspaceScreen', () => {
           selectedDetailPageGenerationId: 'detail-generation-1',
           selectedDetailPageArtifactId: 'artifact-1',
           selectedDetailPageRevisionId: 'revision-1',
+          updatedAt: '2026-05-20T01:02:03.000Z',
         },
       } as ProductWorkspaceData['product'],
     };
@@ -225,6 +237,100 @@ describe('ProductWorkspaceScreen', () => {
     const tab = await screen.findByTestId('product-tab-content');
     expect(tab).toHaveAttribute('data-selected-thumbnail', 'https://cdn.example.com/generated-thumb.png');
     expect(tab).toHaveAttribute('data-selected-detail-generation', 'detail-generation-1');
+  });
+
+  it('sends the current preparation timestamp when saving basic information', async () => {
+    useProductDetailMock.mockReturnValue({
+      data: {
+        ...workspaceData,
+        product: {
+          ...workspaceData.product,
+          productPreparation: {
+            id: 'prep-1',
+            sourceCandidateId: 'candidate-1',
+            masterId: null,
+            contentWorkspaceId: null,
+            status: 'draft',
+            selectedThumbnailUrl: null,
+            selectedThumbnailGenerationCandidateId: null,
+            selectedDetailPageGenerationId: null,
+            selectedDetailPageArtifactId: null,
+            selectedDetailPageRevisionId: null,
+            updatedAt: '2026-05-20T01:02:03.000Z',
+          },
+        } as ProductWorkspaceData['product'],
+      },
+      error: null,
+      isLoading: false,
+    });
+    apiClientPatchMock.mockResolvedValue({ id: 'prep-1' });
+
+    renderWithQueryClient(
+      <ProductWorkspaceScreen
+        productId="candidate-1"
+        backHref="/product-pipeline/collected-products"
+        selfHref="/product-pipeline/collected-products/candidate-1"
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'mock-save-basic' }));
+
+    await waitFor(() => expect(apiClientPatchMock).toHaveBeenCalledWith(
+      '/api/sourcing/candidates/candidate-1/preparation/basic-info',
+      expect.objectContaining({
+        name: '수정 상품명',
+        salePrice: 13900,
+        basePreparationUpdatedAt: '2026-05-20T01:02:03.000Z',
+      }),
+    ));
+  });
+
+  it('uses the returned preparation timestamp for another immediate basic save', async () => {
+    useProductDetailMock.mockReturnValue({
+      data: {
+        ...workspaceData,
+        product: {
+          ...workspaceData.product,
+          productPreparation: {
+            id: 'prep-1',
+            sourceCandidateId: 'candidate-1',
+            masterId: null,
+            contentWorkspaceId: null,
+            status: 'draft',
+            selectedThumbnailUrl: null,
+            selectedThumbnailGenerationCandidateId: null,
+            selectedDetailPageGenerationId: null,
+            selectedDetailPageArtifactId: null,
+            selectedDetailPageRevisionId: null,
+            updatedAt: '2026-05-20T01:02:03.000Z',
+          },
+        } as ProductWorkspaceData['product'],
+      },
+      error: null,
+      isLoading: false,
+    });
+    apiClientPatchMock
+      .mockResolvedValueOnce({ id: 'prep-1', updatedAt: '2026-05-20T01:02:04.000Z' })
+      .mockResolvedValueOnce({ id: 'prep-1', updatedAt: '2026-05-20T01:02:05.000Z' });
+
+    renderWithQueryClient(
+      <ProductWorkspaceScreen
+        productId="candidate-1"
+        backHref="/product-pipeline/collected-products"
+        selfHref="/product-pipeline/collected-products/candidate-1"
+      />,
+    );
+
+    const saveButton = await screen.findByRole('button', { name: 'mock-save-basic' });
+    fireEvent.click(saveButton);
+    await waitFor(() => expect(apiClientPatchMock).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(saveButton);
+    await waitFor(() => expect(apiClientPatchMock).toHaveBeenCalledTimes(2));
+
+    expect(apiClientPatchMock.mock.calls[1][1]).toEqual(expect.objectContaining({
+      basePreparationUpdatedAt: '2026-05-20T01:02:04.000Z',
+    }));
   });
 
   it('passes the selected detail page version summary into the basic tab content', async () => {

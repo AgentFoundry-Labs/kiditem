@@ -1,4 +1,4 @@
-import { IsArray, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsArray, IsISO8601, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 export class UpdateProductBasicsDto {
   @IsOptional()
@@ -96,4 +96,8 @@ export class UpdateProductBasicsDto {
   @IsArray()
   @IsString({ each: true })
   thumbnailUrls?: string[];
+
+  @IsOptional()
+  @IsISO8601()
+  basePreparationUpdatedAt?: string | null;
 }

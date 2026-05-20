@@ -141,6 +141,11 @@ export function ProductWorkspaceScreen({
   const detailGenerationSourceCandidateId =
     detailGenerationContentWorkspaceId || promotedMasterId ? null : productId;
   const productPreparation = product?.productPreparation ?? null;
+  const [basicPreparationBaseUpdatedAt, setBasicPreparationBaseUpdatedAt] =
+    useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    setBasicPreparationBaseUpdatedAt(productPreparation?.updatedAt ?? null);
+  }, [productPreparation?.updatedAt]);
   const effectiveContentWorkspaceId =
     contentWorkspaceId ?? productPreparation?.contentWorkspaceId ?? null;
   const effectiveSavedDetailPageGenerationId =
@@ -241,9 +246,17 @@ export function ProductWorkspaceScreen({
     },
   });
 
-  const handleCommitBasicInfo = (input: UpdateProductBasicsInput) => {
+  const handleCommitBasicInfo = async (input: UpdateProductBasicsInput) => {
     if (!selectionCandidateId) return;
-    updateBasicInfoMutation.mutate(input);
+    const basePreparationUpdatedAt =
+      basicPreparationBaseUpdatedAt === undefined
+        ? productPreparation?.updatedAt ?? null
+        : basicPreparationBaseUpdatedAt;
+    const updated = await updateBasicInfoMutation.mutateAsync({
+      ...input,
+      basePreparationUpdatedAt,
+    });
+    setBasicPreparationBaseUpdatedAt(updated?.updatedAt ?? null);
   };
 
   const kcAutoFilledRef = useRef<string | null>(null);
