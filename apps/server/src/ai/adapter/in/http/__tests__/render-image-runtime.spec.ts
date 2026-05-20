@@ -30,6 +30,7 @@ describe('render-image staging runtime', () => {
     expect(baseWorkflow).toContain('${API_BASE_IMAGE}:node22-chromium-${short_sha}');
     expect(baseWorkflow).not.toContain('${API_BASE_IMAGE}:node22-chromium"');
     expect(baseWorkflow).not.toContain('${API_BASE_IMAGE}:node22-chromium-${month}');
+    expect(dockerfile).toMatch(/npm ci[\s\S]*--omit=dev[\s\S]*npm cache clean --force[\s\S]*rm -rf \/root\/\.npm/);
     expect(localDeployScript).toContain('INSTALL_CHROMIUM="${INSTALL_CHROMIUM:-true}"');
     expect(deployScript).toContain('verify_render_image_runtime');
     expect(deployScript).toContain('puppeteer.launch');

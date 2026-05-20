@@ -71,7 +71,9 @@ RUN npm ci \
       --fetch-retry-mintimeout=20000 \
       --fetch-retry-maxtimeout=120000 \
       --no-audit \
-      --no-fund
+      --no-fund \
+    && npm cache clean --force \
+    && rm -rf /root/.npm
 
 # npm workspaces can hoist runtime packages to /app/node_modules while leaving
 # peers/transitives under the server workspace. Fail the image build if the
