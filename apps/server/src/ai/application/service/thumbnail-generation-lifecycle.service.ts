@@ -95,7 +95,7 @@ export class ThumbnailGenerationLifecycleService {
     actorUserId?: string | null;
     payload?: unknown | null;
   }): Promise<ThumbnailGenerationAttemptChange | null> {
-    const locked = await this.ledger.claimForAgentProjection({
+    const locked = await this.ledger.claimForDirectProjection({
       generationId: input.generationId,
       organizationId: input.organizationId,
     });
@@ -220,7 +220,7 @@ export class ThumbnailGenerationLifecycleService {
     return failed;
   }
 
-  async projectAgentSuccess(input: {
+  async projectDirectSuccess(input: {
     organizationId: string;
     generationId: string;
     candidates: ThumbnailEditorCandidate[];
@@ -228,13 +228,13 @@ export class ThumbnailGenerationLifecycleService {
     actorUserId?: string | null;
     payload?: unknown | null;
   }): Promise<ThumbnailGenerationAttemptChange | null> {
-    const locked = await this.ledger.claimForAgentProjection({
+    const locked = await this.ledger.claimForDirectProjection({
       generationId: input.generationId,
       organizationId: input.organizationId,
     });
     if (!locked) return null;
 
-    const applied = await this.ledger.projectAgentSuccess({
+    const applied = await this.ledger.projectDirectSuccess({
       generationId: input.generationId,
       organizationId: input.organizationId,
       candidates: input.candidates,
@@ -268,20 +268,20 @@ export class ThumbnailGenerationLifecycleService {
     return applied;
   }
 
-  async projectAgentFailure(input: {
+  async projectDirectFailure(input: {
     organizationId: string;
     generationId: string;
     errorMessage: string;
     actorUserId?: string | null;
     payload?: unknown | null;
   }): Promise<ThumbnailGenerationAttemptChange | null> {
-    const locked = await this.ledger.claimForAgentProjection({
+    const locked = await this.ledger.claimForDirectProjection({
       generationId: input.generationId,
       organizationId: input.organizationId,
     });
     if (!locked) return null;
 
-    const failed = await this.ledger.projectAgentFailure({
+    const failed = await this.ledger.projectDirectFailure({
       generationId: input.generationId,
       organizationId: input.organizationId,
       errorMessage: input.errorMessage,

@@ -25,22 +25,16 @@ describe('AgentRunRequestsController', () => {
   it('starts an immediately-created run request so /api/agent-os/runs callers do not depend on the background worker', async () => {
     const { controller, runner } = makeController({
       ok: true,
-      agentType: 'image_edit',
+      agentType: 'rules_evaluation',
       requestId: 'request-1',
       status: 'pending',
     });
 
     const result = await controller.createRunRequest('org-1', USER, {
-      agentType: 'image_edit',
-      sourceType: 'product_content',
-      sourceId: 'product-1',
-      payload: {
-        preset: 'color_guide',
-        image_urls: [
-          'https://example.com/a.png',
-          'https://example.com/b.png',
-        ],
-      },
+      agentType: 'rules_evaluation',
+      sourceType: 'rules.evaluation',
+      sourceId: 'rules-1',
+      payload: { sample: true },
     });
 
     expect(result).toMatchObject({ requestId: 'request-1' });
@@ -54,16 +48,16 @@ describe('AgentRunRequestsController', () => {
   it('does not kick scheduled requests before their scheduled time', async () => {
     const { controller, runner } = makeController({
       ok: true,
-      agentType: 'image_edit',
+      agentType: 'rules_evaluation',
       requestId: 'request-scheduled',
       status: 'pending',
     });
 
     await controller.createRunRequest('org-1', USER, {
-      agentType: 'image_edit',
-      sourceType: 'product_content',
+      agentType: 'rules_evaluation',
+      sourceType: 'rules.evaluation',
       scheduledFor: '2026-06-01T00:00:00.000Z',
-      payload: { preset: 'enhance', image_url: 'https://example.com/a.png' },
+      payload: { sample: true },
     });
 
     expect(runner.executeRequest).not.toHaveBeenCalled();

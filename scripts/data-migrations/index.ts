@@ -10,6 +10,7 @@ import { rewriteProductContentRouteHrefs } from './v0.1.1/005_rewrite_product_co
 import { backfillRegistrationWorkspaces } from './v0.1.1/006_backfill_registration_workspaces';
 import { backfillChannelListingAccounts } from './v0.1.2/001_backfill_channel_listing_accounts';
 import { renameRegistrationWorkspacesToContentWorkspaces } from './v0.1.2/002_rename_registration_workspaces_to_content_workspaces';
+import { retireFixedAiAgentOsRequests } from './v0.1.2/003_retire_fixed_ai_agent_os_requests';
 import type { DataMigration } from './types';
 
 export {
@@ -34,6 +35,7 @@ export const dataMigrations: readonly DataMigration[] = [
   backfillRegistrationWorkspaces,
   backfillChannelListingAccounts,
   renameRegistrationWorkspacesToContentWorkspaces,
+  retireFixedAiAgentOsRequests,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(

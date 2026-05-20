@@ -6,6 +6,7 @@ export interface OperationCancellationAffectedAudit {
   agentRunIds: string[];
   contentGenerationIds: string[];
   thumbnailGenerationIds: string[];
+  directAiJobIds: string[];
 }
 
 export interface OperationCancellationPreservedAudit {
@@ -50,6 +51,7 @@ export function emptyOperationCancellationAffected(): OperationCancellationAffec
     agentRunIds: [],
     contentGenerationIds: [],
     thumbnailGenerationIds: [],
+    directAiJobIds: [],
   };
 }
 
@@ -69,6 +71,7 @@ export function operationCancellationAudit(
     agentRunIds: input.affected?.agentRunIds ?? [],
     contentGenerationIds: input.affected?.contentGenerationIds ?? [],
     thumbnailGenerationIds: input.affected?.thumbnailGenerationIds ?? [],
+    directAiJobIds: input.affected?.directAiJobIds ?? [],
   };
   const preserved: OperationCancellationPreservedAudit = {
     contentGenerationIds: input.preserved?.contentGenerationIds ?? [],

@@ -5,7 +5,7 @@ import { ThumbnailEditorAiService } from './thumbnail-editor-ai.service';
 import { ThumbnailGenerationJobService } from './thumbnail-generation-job.service';
 import { ProductGenerationAlertService } from './product-generation-alert.service';
 import {
-  buildThumbnailGenerateAgentInput,
+  buildThumbnailGenerateDirectInput,
   buildThumbnailGenerationInputMeta,
 } from './thumbnail-generation-requests';
 import {
@@ -165,7 +165,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
         productName,
         inputs: [resolved],
       });
-      const thumbnailAgentPayload = buildThumbnailGenerateAgentInput({
+      const thumbnailDirectPayload = buildThumbnailGenerateDirectInput({
         mode: 'edit',
         editCase: 'single',
         productName,
@@ -183,7 +183,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
         inputMeta: thumbnailInputMeta,
         method: 'generate',
         originalUrl,
-        agentPayload: thumbnailAgentPayload,
+        directPayload: thumbnailDirectPayload,
         operationAlert: thumbnailLink,
       });
       thumbnailGenerationId = thumbnail.generationId;

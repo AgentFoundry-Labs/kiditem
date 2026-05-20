@@ -1,25 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
-  HttpException,
-  HttpStatus,
   Inject,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
-  AGENT_RUNNER_PORT,
-  type AgentRunnerPort,
-} from '../../../agent-os/application/port/in/agent-runner.port';
-import {
   AI_OPERATION_ALERT_PORT,
   type OperationAlertPort,
 } from '../port/out/cross-domain/operation-alert.port';
-import {
-  AI_AGENT_SOURCE_TYPES,
-  DETAIL_PAGE_GENERATE_AGENT_TYPE,
-} from '../../domain/agent-output';
 import type { GenerateDetailPageInput } from './detail-page-requests';
 import {
   IMAGE_STORAGE_PORT,
@@ -50,7 +40,6 @@ import {
   detailPageOperationKey,
   toDetailPageStoredJson,
 } from './detail-page-stored.helpers';
-import { kickEnqueuedAgentRequest as kickInlineAgentRequest } from './agent-inline-execution';
 import {
   registeredWorkspaceEditorHref,
   ContentWorkspaceService,
@@ -71,6 +60,7 @@ import {
   DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
   type DetailPageGenerationRepositoryPort,
 } from '../port/out/repository/detail-page-generation.repository.port';
+import { DetailPageDirectGenerationJobService } from './detail-page-direct-generation-job.service';
 
 const DETAIL_PAGE_PROCESSING_STATUSES = [
   'PENDING',
@@ -104,8 +94,7 @@ export class DetailPageGenerationService {
     @Inject(AI_OPERATION_ALERT_PORT)
     private readonly operationAlerts: OperationAlertPort,
     private readonly query: DetailPageQueryService,
-    @Inject(AGENT_RUNNER_PORT)
-    private readonly agentRunner: AgentRunnerPort,
+    private readonly directGenerationJobs: DetailPageDirectGenerationJobService,
     private readonly contentWorkspaces: ContentWorkspaceService,
     private readonly productGenerationAlerts: ProductGenerationAlertService,
   ) {}
@@ -343,91 +332,14 @@ export class DetailPageGenerationService {
       });
     }
 
-    const enqueueResult = await this.agentRunner.runByType(
-      DETAIL_PAGE_GENERATE_AGENT_TYPE,
-      {
-        organizationId: input.organizationId,
-        requestedByUserId: input.triggeredByUserId ?? undefined,
-        sourceType: AI_AGENT_SOURCE_TYPES.DETAIL_PAGE_GENERATE,
-        sourceResourceType: 'content_generation',
-        sourceResourceId: row.id,
-        reason: input.productId
-          ? `detail_page_generate for product ${input.productId}`
-          : primarySourceCandidateId
-            ? `detail_page_generate for sourcing candidate ${primarySourceCandidateId}`
-            : `detail_page_generate for content workspace ${input.contentWorkspaceId}`,
-        payload: {
-          templateId: input.templateId,
-          raw: {
-            rawTitle: input.rawInput.rawTitle,
-            rawCategory: input.rawInput.rawCategory,
-            rawDescription: input.rawInput.rawDescription,
-            rawOptions: input.rawInput.rawOptions,
-            imageUrls: input.rawInput.imageUrls,
-            ageGroup: input.rawInput.ageGroup,
-            detailImageCount: input.rawInput.detailImageCount,
-            usageSectionMode: input.rawInput.usageSectionMode,
-            kcCertificationStatus: input.rawInput.kcCertificationStatus,
-            kcCertificationNumber: input.rawInput.kcCertificationNumber,
-          },
-          heroImageMode: input.heroImageMode,
-          generationMode: input.rawInput.generationMode ?? 'full',
-          ...(input.existingResult !== undefined
-            ? { existingResult: input.existingResult }
-            : {}),
-        },
-      },
-    );
-
-    if (!enqueueResult.ok) {
-      const errorMessage = enqueueResult.reason
-        ? `Agent OS enqueue failed: ${enqueueResult.reason}`
-        : 'Agent OS enqueue failed.';
-      await this.repository.markGenerationFailed({
-        organizationId: input.organizationId,
-        generationId: row.id,
-        errorMessage,
-      });
-      if (isParentProductGenerationAlertLink(input.operationAlert)) {
-        await this.productGenerationAlerts.markChildFinished({
-          organizationId: input.organizationId,
-          parentOperationKey: input.operationAlert.parentOperationKey,
-          childKind: 'detail_page',
-          status: 'failed',
-          childId: row.id,
-          errorMessage,
-        });
-      } else {
-        await this.operationAlerts.fail(
-          input.organizationId,
-          detailPageOperationKey(row.id),
-          {
-            message: errorMessage,
-            metadata: {
-              errorCode: 'agent_enqueue_failed',
-              agentReason: enqueueResult.reason ?? null,
-            },
-          },
-        );
-      }
-      throw new HttpException(errorMessage, HttpStatus.SERVICE_UNAVAILABLE);
-    }
-
     if (
       isParentProductGenerationAlertLink(input.operationAlert) &&
-      enqueueResult.requestId &&
-      await this.shouldCancelParentDetailRequestAfterEnqueue({
+      await this.shouldCancelParentDetailRequestBeforeExecution({
         organizationId: input.organizationId,
         parentOperationKey: input.operationAlert.parentOperationKey,
         generationId: row.id,
       })
     ) {
-      await this.agentRunner.cancelRequest?.({
-        organizationId: input.organizationId,
-        requestId: enqueueResult.requestId,
-        reason: DETAIL_PAGE_PARENT_CANCELLED_AFTER_ENQUEUE_MESSAGE,
-        actorUserId: input.triggeredByUserId,
-      });
       await this.repository.markGenerationCancelledIfProcessing({
         organizationId: input.organizationId,
         generationId: row.id,
@@ -437,15 +349,35 @@ export class DetailPageGenerationService {
       return this.query.getById(row.id, input.organizationId);
     }
 
-    this.kickEnqueuedAgentRequest({
+    this.directGenerationJobs.schedule({
       organizationId: input.organizationId,
-      requestId: enqueueResult.requestId,
+      generationId: row.id,
+      payload: {
+        templateId: input.templateId,
+        raw: {
+          rawTitle: input.rawInput.rawTitle,
+          rawCategory: input.rawInput.rawCategory,
+          rawDescription: input.rawInput.rawDescription,
+          rawOptions: input.rawInput.rawOptions,
+          imageUrls: input.rawInput.imageUrls,
+          ageGroup: input.rawInput.ageGroup,
+          detailImageCount: input.rawInput.detailImageCount,
+          usageSectionMode: input.rawInput.usageSectionMode,
+          kcCertificationStatus: input.rawInput.kcCertificationStatus,
+          kcCertificationNumber: input.rawInput.kcCertificationNumber,
+        },
+        heroImageMode: input.heroImageMode,
+        generationMode: input.rawInput.generationMode ?? 'full',
+        ...(input.existingResult !== undefined
+          ? { existingResult: input.existingResult }
+          : {}),
+      },
     });
 
     return this.query.getById(row.id, input.organizationId);
   }
 
-  private async shouldCancelParentDetailRequestAfterEnqueue(input: {
+  private async shouldCancelParentDetailRequestBeforeExecution(input: {
     organizationId: string;
     parentOperationKey: string;
     generationId: string;
@@ -649,22 +581,6 @@ export class DetailPageGenerationService {
     return out;
   }
 
-  private kickEnqueuedAgentRequest(input: {
-    organizationId: string;
-    requestId?: string;
-  }): void {
-    if (!input.requestId || !this.agentRunner.executeRequest) return;
-
-    kickInlineAgentRequest({
-      agentRunner: this.agentRunner,
-      organizationId: input.organizationId,
-      requestId: input.requestId,
-      workerId: 'detail-page-generate-inline',
-      logger: this.logger,
-      label: 'detail_page_generate',
-    });
-  }
-
   private storedGenerationMode(rawInput: unknown): 'draft' | 'image' | 'full' {
     if (!rawInput || typeof rawInput !== 'object') return 'full';
     const value = (rawInput as Record<string, unknown>).generationMode;
@@ -744,15 +660,6 @@ export class DetailPageGenerationService {
         preserved: false,
       };
     }
-
-    await this.agentRunner.cancelBySource?.({
-      organizationId: input.organizationId,
-      sourceType: AI_AGENT_SOURCE_TYPES.DETAIL_PAGE_GENERATE,
-      sourceResourceType: 'content_generation',
-      sourceResourceId: row.id,
-      reason: input.reason,
-      actorUserId: input.actorUserId,
-    });
 
     await this.operationAlerts.cancel(input.organizationId, detailPageOperationKey(row.id), {
       message: input.reason,

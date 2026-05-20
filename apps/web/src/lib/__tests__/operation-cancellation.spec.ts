@@ -45,6 +45,7 @@ describe('operation cancellation client', () => {
         agentRunIds: [],
         contentGenerationIds: [],
         thumbnailGenerationIds: [],
+        directAiJobIds: [],
       },
       preserved: {
         contentGenerationIds: [],
@@ -81,6 +82,7 @@ describe('operation cancellation client', () => {
         agentRunIds: [],
         contentGenerationIds: [],
         thumbnailGenerationIds: [],
+        directAiJobIds: [],
       },
       preserved: {
         contentGenerationIds: [],
@@ -115,6 +117,7 @@ describe('operation cancellation client', () => {
           agentRunIds: [],
           contentGenerationIds: [],
           thumbnailGenerationIds: [],
+          directAiJobIds: [],
         },
         preserved: {
           contentGenerationIds: ['generation-1'],

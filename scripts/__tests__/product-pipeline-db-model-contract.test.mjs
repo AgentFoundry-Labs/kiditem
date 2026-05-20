@@ -9,6 +9,21 @@ function readModelFile(path) {
   return readFileSync(join(repoRoot, path), 'utf8');
 }
 
+function extractEnvKeys(path) {
+  return readModelFile(path)
+    .split(/\r?\n/)
+    .map((line) => line.match(/^([A-Za-z_][A-Za-z0-9_]*)=/)?.[1])
+    .filter(Boolean);
+}
+
+function redactEnvValues(path) {
+  return readModelFile(path)
+    .trimEnd()
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^([A-Za-z_][A-Za-z0-9_]*)=.*/, '$1='))
+    .join('\n');
+}
+
 function extractModel(schema, modelName) {
   const match = schema.match(new RegExp(`model ${modelName} \\{[\\s\\S]*?\\n\\}`));
   assert.ok(match, `Expected model ${modelName} to exist`);
@@ -26,6 +41,96 @@ describe('product pipeline DB model contract', () => {
     assert.ok(postSchema !== -1, 'expected staging deploy to run post-schema migrations');
     assert.ok(preSchema < dbPush, 'pre-schema rename must run before Prisma db push');
     assert.ok(dbPush < postSchema, 'post-schema backfills must run after Prisma db push');
+  });
+
+  it('preflights ChannelListing duplicate safety before accepting staging data loss', () => {
+    const workflow = readModelFile('.github/workflows/staging-deploy.yml');
+    const preflight = workflow.indexOf('Check staging data-loss preflight');
+    const acceptDataLoss = workflow.indexOf('npx prisma db push --accept-data-loss');
+
+    assert.ok(preflight !== -1, 'expected staging deploy to preflight reviewed data-loss gates');
+    assert.ok(preflight < acceptDataLoss, 'data-loss preflight must run before --accept-data-loss');
+    assert.match(workflow, /channel_listings_org_account_external_id_key/);
+    assert.match(workflow, /GROUP BY organization_id,\s*channel_account_id,\s*external_id/);
+    assert.match(workflow, /HAVING count\(\*\) > 1/);
+  });
+
+  it('verifies the public staging URL after EC2 deploy', () => {
+    const workflow = readModelFile('.github/workflows/staging-deploy.yml');
+    const deployImages = workflow.indexOf('Deploy images on EC2');
+    const publicSmoke = workflow.indexOf('Verify public staging URL');
+
+    assert.ok(publicSmoke !== -1, 'expected staging deploy to verify the public URL');
+    assert.ok(deployImages < publicSmoke, 'public smoke must run after EC2 image deploy');
+    assert.match(workflow, /STAGING_URL:\s*\$\{\{ vars\.STAGING_URL \}\}/);
+    assert.match(workflow, /"\$STAGING_URL\/login"/);
+    assert.match(workflow, /"\$STAGING_URL\/api\/auth\/me"/);
+  });
+
+  it('tags successful staging deploys after public smoke and migration status', () => {
+    const workflow = readModelFile('.github/workflows/staging-deploy.yml');
+    const publicSmoke = workflow.indexOf('Verify public staging URL');
+    const migrationStatus = workflow.indexOf('Verify staging data migration status');
+    const deployTag = workflow.indexOf('Tag successful staging deploy');
+
+    assert.match(workflow, /deploy:[\s\S]*permissions:[\s\S]*contents: write/);
+    assert.ok(deployTag !== -1, 'expected staging deploy to create a Git tag after success');
+    assert.ok(publicSmoke < deployTag, 'staging tag must be created after public smoke passes');
+    assert.ok(migrationStatus < deployTag, 'staging tag must be created after migration status passes');
+    assert.match(workflow, /tag="staging-v\$\{APP_VERSION\}-\$\{deploy_date\}-\$\{short_sha\}"/);
+    assert.match(workflow, /git tag -a "\$tag" "\$GIT_SHA"/);
+    assert.match(workflow, /git push origin "refs\/tags\/\$tag"/);
+  });
+
+  it('renders staging runtime env files from GitHub environment before syncing EC2 assets', () => {
+    const workflow = readModelFile('.github/workflows/staging-deploy.yml');
+    const renderer = readModelFile('deploy/staging/render-runtime-env.sh');
+    const renderEnv = workflow.indexOf('Render staging runtime env files');
+    const syncAssets = workflow.indexOf('Sync staging compose assets');
+
+    assert.ok(renderEnv !== -1, 'expected staging deploy to render runtime env files from GitHub environment');
+    assert.ok(renderEnv < syncAssets, 'runtime env files must be rendered before EC2 asset sync');
+    assert.match(workflow, /GEMINI_API_KEY:\s*\$\{\{ secrets\.STAGING_GEMINI_API_KEY \}\}/);
+    assert.match(workflow, /CHANNEL_CREDENTIALS_ENCRYPTION_KEY:\s*\$\{\{ secrets\.STAGING_CHANNEL_CREDENTIALS_ENCRYPTION_KEY \}\}/);
+    assert.match(workflow, /S3_SECRET_KEY:\s*\$\{\{ secrets\.STAGING_S3_SECRET_KEY \}\}/);
+    assert.match(workflow, /AI_TEXT_MODEL:\s*\$\{\{ vars\.STAGING_AI_TEXT_MODEL \}\}/);
+    assert.match(workflow, /AI_IMAGE_MODEL:\s*\$\{\{ vars\.STAGING_AI_IMAGE_MODEL \}\}/);
+    assert.match(workflow, /AI_IMAGE_ANALYSIS_MODEL:\s*\$\{\{ vars\.STAGING_AI_IMAGE_ANALYSIS_MODEL \}\}/);
+    assert.match(workflow, /AGENT_DEFAULT_MODEL:\s*\$\{\{ vars\.STAGING_AGENT_DEFAULT_MODEL \}\}/);
+    assert.match(workflow, /tar -czf - .*\.env\.staging\.api .*\.env\.staging\.web/s);
+    assert.match(renderer, /required_api_env=\(/);
+    assert.match(renderer, /GEMINI_API_KEY/);
+    assert.match(renderer, /AI_IMAGE_MODEL/);
+    assert.match(renderer, /AI_IMAGE_ANALYSIS_MODEL/);
+    assert.doesNotMatch(renderer, /AGENT_DETAIL_PAGE_IMAGE_MODEL/);
+    assert.doesNotMatch(renderer, /AGENT_DETAIL_PAGE_VISION_MODEL/);
+    assert.doesNotMatch(renderer, /AGENT_THUMBNAIL_GENERATE_MODEL/);
+    assert.doesNotMatch(renderer, /AGENT_THUMBNAIL_AUTO_EDIT_MODEL/);
+    assert.doesNotMatch(renderer, /AGENT_IMAGE_EDIT_MODEL/);
+    assert.doesNotMatch(workflow, /STAGING_AGENT_THUMBNAIL_AUTO_EDIT_MODEL/);
+    assert.doesNotMatch(workflow, /STAGING_AGENT_DETAIL_PAGE_IMAGE_MODEL/);
+    assert.doesNotMatch(workflow, /STAGING_AGENT_THUMBNAIL_GENERATE_MODEL/);
+    assert.doesNotMatch(workflow, /STAGING_AGENT_IMAGE_EDIT_MODEL/);
+    assert.match(renderer, /NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY/);
+  });
+
+  it('keeps the local server API env example aligned with the staging API runtime env', () => {
+    const stagingApiKeys = extractEnvKeys('deploy/staging/env/api.env.example');
+    const serverExampleKeys = extractEnvKeys('apps/server/.env.example');
+
+    assert.deepEqual(serverExampleKeys, stagingApiKeys);
+    assert.equal(
+      redactEnvValues('apps/server/.env.example'),
+      redactEnvValues('deploy/staging/env/api.env.example'),
+    );
+  });
+
+  it('keeps the current staging stack up when image pull cleanup still runs out of disk', () => {
+    const remoteDeploy = readModelFile('deploy/staging/remote-deploy.sh');
+
+    assert.match(remoteDeploy, /ALLOW_STAGING_DOWNTIME_FOR_SPACE/);
+    assert.match(remoteDeploy, /Refusing to stop the running staging stack/);
+    assert.match(remoteDeploy, /Set ALLOW_STAGING_DOWNTIME_FOR_SPACE=1/);
   });
 
   it('uses ContentWorkspace as the active content/version workspace schema name', () => {

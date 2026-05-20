@@ -1,10 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ThumbnailAutoService } from '../application/service/thumbnail-auto.service';
-import type {
-  AgentRunnerInput,
-  AgentRunnerPort,
-  AgentRunnerResult,
-} from '../../agent-os/application/port/in/agent-runner.port';
 
 const ORGANIZATION_ID = 'organization-1';
 
@@ -16,80 +11,26 @@ const batchResult = {
   runs: [{ ok: true, productId: 'product-1', generationId: 'generation-1' }],
 };
 
-function makeService(runnerResult: AgentRunnerResult) {
-  const runner = {
-    runByType: vi.fn(
-      async (_type: string, _input: AgentRunnerInput): Promise<AgentRunnerResult> => runnerResult,
-    ),
-  } satisfies AgentRunnerPort;
+function makeService() {
   const generationService = {
     createAutoBatch: vi.fn(async () => batchResult),
   };
   const service = new ThumbnailAutoService(
     generationService as never,
-    runner as never,
   );
-  return { service, runner, generationService };
+  return { service, generationService };
 }
 
 describe('ThumbnailAutoService', () => {
-  it('delegates to Agent OS runByType, threads triggeredByUserId, and returns runner ids', async () => {
-    const { service, runner, generationService } = makeService({
-      ok: true,
-      runId: 'run-1',
-      requestId: 'request-1',
-      agentType: 'thumbnail_auto_edit',
-      status: 'running',
-    });
+  it('runs the auto batch directly without creating a synthetic Agent OS request', async () => {
+    const { service, generationService } = makeService();
 
     const result = await service.runBatch(ORGANIZATION_ID, 'user-1', 5);
 
-    expect(runner.runByType).toHaveBeenCalledWith(
-      'thumbnail_auto_edit',
-      expect.objectContaining({
-        organizationId: ORGANIZATION_ID,
-        sourceType: 'ai.thumbnail_auto_edit',
-        payload: expect.objectContaining({ limit: 5, triggeredByUserId: 'user-1' }),
-        requestedByUserId: 'user-1',
-      }),
-    );
     // Per-generation operation alerts now own completion tracking — runBatch
     // forwards the actor through createAutoBatch instead of opening a cohort
     // alert that would lie about completion (see PR #209 review).
     expect(generationService.createAutoBatch).toHaveBeenCalledWith(ORGANIZATION_ID, 5, 'user-1');
-    expect(result).toEqual({
-      ...batchResult,
-      requestId: 'request-1',
-      runId: 'run-1',
-      status: 'running',
-    });
-  });
-
-  it('falls back to requestId when the runner deferred execution', async () => {
-    const { service } = makeService({
-      ok: true,
-      requestId: 'request-only',
-      agentType: 'thumbnail_auto_edit',
-      status: 'requires_approval',
-    });
-
-    const result = await service.runBatch(ORGANIZATION_ID, null, 5);
-
-    expect(result.requestId).toBe('request-only');
-    expect(result.runId).toBeUndefined();
-    expect(result.status).toBe('requires_approval');
-  });
-
-  it('throws when the Agent OS runner produces neither runId nor requestId', async () => {
-    const { service, generationService } = makeService({
-      ok: false,
-      agentType: 'thumbnail_auto_edit',
-      reason: 'agent_instance_not_found',
-    });
-
-    await expect(service.runBatch(ORGANIZATION_ID, 'user-1', 5)).rejects.toThrow(
-      /agent_instance_not_found/,
-    );
-    expect(generationService.createAutoBatch).not.toHaveBeenCalled();
+    expect(result).toEqual(batchResult);
   });
 });

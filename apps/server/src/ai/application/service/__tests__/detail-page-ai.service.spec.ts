@@ -72,6 +72,13 @@ function makeAgentRunnerStub(
   };
 }
 
+function makeDirectDetailGenerationJobsStub() {
+  return {
+    schedule: vi.fn(),
+    process: vi.fn(),
+  };
+}
+
 async function flushInlineExecutor() {
   await new Promise((resolve) => setImmediate(resolve));
 }
@@ -316,6 +323,7 @@ function makeService(
       normalizedTitle: 'generated candidate',
     })),
   },
+  directGenerationJobs: ReturnType<typeof makeDirectDetailGenerationJobsStub> = makeDirectDetailGenerationJobsStub(),
 ): DetailPageAiService {
   const resultRefiner = makeResultRefiner(heroImageService);
   const typedPrisma = prisma as ReturnType<typeof makePrisma>;
@@ -329,7 +337,7 @@ function makeService(
     imageStorage as never,
     operationAlerts,
     query,
-    agentRunner,
+    directGenerationJobs as never,
     contentWorkspaces as never,
     makeProductGenerationAlertsStub(),
   );
@@ -344,6 +352,7 @@ function makeGenerationService(input: {
   operationAlerts?: OperationAlertPort;
   heroImageService?: unknown;
   agentRunner?: AgentRunnerPort;
+  directGenerationJobs?: ReturnType<typeof makeDirectDetailGenerationJobsStub>;
   contentWorkspaces?: { ensureForGeneration: ReturnType<typeof vi.fn> };
   productGenerationAlerts?: ProductGenerationAlertService;
 }) {
@@ -359,7 +368,7 @@ function makeGenerationService(input: {
     imageStorage as never,
     input.operationAlerts ?? makeOperationAlertsStub(),
     query,
-    input.agentRunner ?? makeAgentRunnerStub(),
+    (input.directGenerationJobs ?? makeDirectDetailGenerationJobsStub()) as never,
     input.contentWorkspaces ?? {
       ensureForGeneration: vi.fn(async () => ({
         id: REGISTRATION_WORKSPACE_ID,
@@ -500,7 +509,7 @@ describe('DetailPageAiService', () => {
     vi.restoreAllMocks();
   });
 
-  it('product-bound generate creates a PROCESSING row, opens the alert, and enqueues a detail_page_generate request', async () => {
+  it('product-bound generate creates a PROCESSING row, opens the alert, and schedules direct AI generation', async () => {
     const prisma = makePrisma();
     const textCompletion = { complete: vi.fn() };
     const imageStorage = { save: vi.fn() };
@@ -512,6 +521,7 @@ describe('DetailPageAiService', () => {
     };
     const operationAlerts = makeOperationAlertsStub();
     const agentRunner = makeAgentRunnerStub();
+    const directGenerationJobs = makeDirectDetailGenerationJobsStub();
     const service = makeService(
       prisma,
       textCompletion,
@@ -519,6 +529,8 @@ describe('DetailPageAiService', () => {
       operationAlerts,
       heroImageService,
       agentRunner,
+      undefined,
+      directGenerationJobs,
     );
 
     const result = await service.generate(
@@ -566,13 +578,12 @@ describe('DetailPageAiService', () => {
     // Sink owns READY/FAILED writes — service must not have updated either.
     expect(prisma.contentGeneration.updateMany).not.toHaveBeenCalled();
 
-    expect(agentRunner.runByType).toHaveBeenCalledWith(
-      'detail_page_generate',
+    expect(agentRunner.runByType).not.toHaveBeenCalled();
+    expect(agentRunner.executeRequest).not.toHaveBeenCalled();
+    expect(directGenerationJobs.schedule).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: ORGANIZATION_ID,
-        sourceType: 'ai.detail_page_generate',
-        sourceResourceType: 'content_generation',
-        sourceResourceId: GENERATION_ID,
+        generationId: GENERATION_ID,
         payload: expect.objectContaining({
           templateId: 'bold-vertical',
           heroImageMode: 'llm-pick',
@@ -587,11 +598,6 @@ describe('DetailPageAiService', () => {
         }),
       }),
     );
-    expect(agentRunner.executeRequest).toHaveBeenCalledWith({
-      organizationId: ORGANIZATION_ID,
-      requestId: REQUEST_ID,
-      workerId: 'detail-page-generate-inline',
-    });
 
     expect(operationAlerts.start).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -715,7 +721,7 @@ describe('DetailPageAiService', () => {
     expect(agentRunner.runByType).not.toHaveBeenCalled();
   });
 
-  it('cancels the detail Agent OS request when parent is cancelled after child registration', async () => {
+  it('cancels the direct detail child when parent is cancelled after child registration', async () => {
     const prisma = makePrisma();
     const operationAlerts = makeOperationAlertsStub();
     const productGenerationAlerts = makeProductGenerationAlertsStub();
@@ -750,17 +756,23 @@ describe('DetailPageAiService', () => {
       },
     );
 
-    expect(agentRunner.runByType).toHaveBeenCalled();
-    expect(agentRunner.cancelRequest).toHaveBeenCalledWith({
-      organizationId: ORGANIZATION_ID,
-      requestId: REQUEST_ID,
-      reason: 'Parent product generation was cancelled before detail request execution.',
-      actorUserId: USER_ID,
-    });
+    expect(agentRunner.runByType).not.toHaveBeenCalled();
+    expect(agentRunner.cancelRequest).not.toHaveBeenCalled();
     expect(agentRunner.executeRequest).not.toHaveBeenCalled();
+    expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: GENERATION_ID,
+        organizationId: ORGANIZATION_ID,
+        status: { in: ['PENDING', 'PROCESSING', 'generating', 'pending', 'processing'] },
+      },
+      data: {
+        status: 'CANCELLED',
+        errorMessage: 'Parent product generation was cancelled before detail request execution.',
+      },
+    });
   });
 
-  it('routes parent-mode detail enqueue failures to the product generation parent alert', async () => {
+  it('does not route parent-mode detail work through Agent OS enqueue', async () => {
     const prisma = makePrisma();
     const operationAlerts = makeOperationAlertsStub();
     const productGenerationAlerts = makeProductGenerationAlertsStub();
@@ -775,38 +787,35 @@ describe('DetailPageAiService', () => {
       agentRunner,
     });
 
-    await expect(
-      service.generate(
-        {
-          productId: MASTER_ID,
-          templateId: 'bold-vertical',
-          rawTitle: '휴대용목걸이비눗방울',
-          rawCategory: '완구',
-          rawDescription: '아이들이 가지고 놀기 좋은 장난감',
-          rawOptions: '혼합 색상 / 사이즈 85*60mm',
-          imageUrls: ['https://example.com/detail-1.jpg'],
+    await service.generate(
+      {
+        productId: MASTER_ID,
+        templateId: 'bold-vertical',
+        rawTitle: '휴대용목걸이비눗방울',
+        rawCategory: '완구',
+        rawDescription: '아이들이 가지고 놀기 좋은 장난감',
+        rawOptions: '혼합 색상 / 사이즈 85*60mm',
+        imageUrls: ['https://example.com/detail-1.jpg'],
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+      {
+        operationAlert: {
+          mode: 'parent',
+          batchId: 'batch-1',
+          parentOperationKey: 'product-generation:batch-1',
+          childKind: 'detail_page',
         },
-        ORGANIZATION_ID,
-        USER_ID,
-        {
-          operationAlert: {
-            mode: 'parent',
-            batchId: 'batch-1',
-            parentOperationKey: 'product-generation:batch-1',
-            childKind: 'detail_page',
-          },
-        },
-      ),
-    ).rejects.toThrow('Agent OS enqueue failed: queue down');
+      },
+    );
 
-    expect(productGenerationAlerts.markChildFinished).toHaveBeenCalledWith({
-      organizationId: ORGANIZATION_ID,
-      parentOperationKey: 'product-generation:batch-1',
-      childKind: 'detail_page',
-      status: 'failed',
-      childId: GENERATION_ID,
-      errorMessage: 'Agent OS enqueue failed: queue down',
-    });
+    expect(agentRunner.runByType).not.toHaveBeenCalled();
+    expect(productGenerationAlerts.markChildFinished).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentOperationKey: 'product-generation:batch-1',
+        status: 'failed',
+      }),
+    );
     expect(operationAlerts.fail).not.toHaveBeenCalledWith(
       ORGANIZATION_ID,
       `detail-page:${GENERATION_ID}`,
@@ -814,17 +823,13 @@ describe('DetailPageAiService', () => {
     );
   });
 
-  it('drains retryable detail-page executor failures so local preview reaches the terminal sink path', async () => {
+  it('schedules direct detail-page execution without inline Agent OS retries', async () => {
     const prisma = makePrisma();
     const textCompletion = { complete: vi.fn() };
     const imageStorage = { save: vi.fn() };
     const operationAlerts = makeOperationAlertsStub();
     const agentRunner = makeAgentRunnerStub();
-    agentRunner.executeRequest = vi.fn().mockResolvedValue({
-      executed: true,
-      requestId: REQUEST_ID,
-      errorCode: 'runtime_error',
-    });
+    const directGenerationJobs = makeDirectDetailGenerationJobsStub();
     const service = makeService(
       prisma,
       textCompletion,
@@ -832,6 +837,8 @@ describe('DetailPageAiService', () => {
       operationAlerts,
       undefined,
       agentRunner,
+      undefined,
+      directGenerationJobs,
     );
 
     await service.generate(
@@ -849,12 +856,8 @@ describe('DetailPageAiService', () => {
     );
     await flushInlineExecutor();
 
-    expect(agentRunner.executeRequest).toHaveBeenCalledTimes(3);
-    expect(agentRunner.executeRequest).toHaveBeenNthCalledWith(3, {
-      organizationId: ORGANIZATION_ID,
-      requestId: REQUEST_ID,
-      workerId: 'detail-page-generate-inline',
-    });
+    expect(agentRunner.executeRequest).not.toHaveBeenCalled();
+    expect(directGenerationJobs.schedule).toHaveBeenCalledTimes(1);
   });
 
   it('uses the newest non-image detail-page generation as the base for image-only runs', async () => {
@@ -1181,14 +1184,7 @@ describe('DetailPageAiService', () => {
         }),
       },
     });
-    expect(agentRunner.cancelBySource).toHaveBeenCalledWith({
-      organizationId: ORGANIZATION_ID,
-      sourceType: 'ai.detail_page_generate',
-      sourceResourceType: 'content_generation',
-      sourceResourceId: GENERATION_ID,
-      reason: '사용자 요청으로 생성이 중단되었습니다.',
-      actorUserId: null,
-    });
+    expect(agentRunner.cancelBySource).not.toHaveBeenCalled();
     expect(operationAlerts.cancel).toHaveBeenCalledWith(
       ORGANIZATION_ID,
       `detail-page:${GENERATION_ID}`,
@@ -1431,11 +1427,7 @@ describe('DetailPageAiService', () => {
     expect(parsed.packageLabel).toBe('1박스 12개입 구성');
   });
 
-  it('marks the row FAILED and closes the alert when AgentRunCoordinator rejects the enqueue', async () => {
-    // Producer-side enqueue failure (eg. agent_instance_not_found) — the AI
-    // service must not leave a stranded PROCESSING row and must close the
-    // operation alert it just opened. Runtime/LLM-level failures arrive via
-    // the bridge + sink and are covered separately by the sink spec.
+  it('creates the row and schedules direct AI even if Agent OS would reject enqueue', async () => {
     const prisma = makePrisma();
     const operationAlerts = makeOperationAlertsStub();
     const textCompletion = { complete: vi.fn() };
@@ -1448,6 +1440,7 @@ describe('DetailPageAiService', () => {
       reason: 'agent_instance_not_found',
       agentType: 'detail_page_generate',
     });
+    const directGenerationJobs = makeDirectDetailGenerationJobsStub();
     const service = makeService(
       prisma,
       textCompletion,
@@ -1455,24 +1448,24 @@ describe('DetailPageAiService', () => {
       operationAlerts,
       heroImageService,
       agentRunner,
+      undefined,
+      directGenerationJobs,
     );
 
-    await expect(
-      service.generate(
-        {
-          productId: MASTER_ID,
-          rawTitle: '키즈 텀블러 500ml',
-          rawCategory: '유아용품',
-          rawDescription: '아이가 사용하기 좋은 텀블러',
-          rawOptions: '핑크, 블루',
-          imageUrls: ['https://cdn.example.com/p1.png'],
-          heroImageMode: 'first',
-          templateId: 'kids-playful',
-        },
-        ORGANIZATION_ID,
-        USER_ID,
-      ),
-    ).rejects.toThrow(/Agent OS enqueue failed/);
+    await service.generate(
+      {
+        productId: MASTER_ID,
+        rawTitle: '키즈 텀블러 500ml',
+        rawCategory: '유아용품',
+        rawDescription: '아이가 사용하기 좋은 텀블러',
+        rawOptions: '핑크, 블루',
+        imageUrls: ['https://cdn.example.com/p1.png'],
+        heroImageMode: 'first',
+        templateId: 'kids-playful',
+      },
+      ORGANIZATION_ID,
+      USER_ID,
+    );
 
     expect(prisma.contentGeneration.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -1497,18 +1490,15 @@ describe('DetailPageAiService', () => {
         href: `/product-pipeline/detail-pages/${GENERATION_ID}/editor?returnTo=%2Fproduct-pipeline%2Fregistered-products%2F${REGISTRATION_WORKSPACE_ID}`,
       }),
     );
-    expect(prisma.contentGeneration.updateMany).toHaveBeenCalledWith({
-      where: { id: GENERATION_ID, organizationId: ORGANIZATION_ID },
-      data: expect.objectContaining({ status: 'FAILED' }),
-    });
+    expect(agentRunner.runByType).not.toHaveBeenCalled();
     expect(agentRunner.executeRequest).not.toHaveBeenCalled();
-    expect(operationAlerts.fail).toHaveBeenCalledWith(
-      ORGANIZATION_ID,
-      `detail-page:${GENERATION_ID}`,
+    expect(directGenerationJobs.schedule).toHaveBeenCalledWith(
       expect.objectContaining({
-        metadata: expect.objectContaining({ errorCode: 'agent_enqueue_failed' }),
+        organizationId: ORGANIZATION_ID,
+        generationId: GENERATION_ID,
       }),
     );
+    expect(operationAlerts.fail).not.toHaveBeenCalled();
     expect(operationAlerts.succeed).not.toHaveBeenCalled();
   });
 
@@ -1578,6 +1568,7 @@ describe('DetailPageAiService', () => {
     const textCompletion = { complete: vi.fn() };
     const imageStorage = { save: vi.fn() };
     const agentRunner = makeAgentRunnerStub();
+    const directGenerationJobs = makeDirectDetailGenerationJobsStub();
     const service = makeService(
       prisma,
       textCompletion,
@@ -1586,6 +1577,7 @@ describe('DetailPageAiService', () => {
       undefined,
       agentRunner,
       contentWorkspaces,
+      directGenerationJobs,
     );
 
     const result = await service.generate(
@@ -1635,13 +1627,14 @@ describe('DetailPageAiService', () => {
       select: { id: true },
     });
     expect(textCompletion.complete).not.toHaveBeenCalled();
-    expect(agentRunner.runByType).toHaveBeenCalledWith(
-      'detail_page_generate',
+    expect(agentRunner.runByType).not.toHaveBeenCalled();
+    expect(directGenerationJobs.schedule).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: ORGANIZATION_ID,
-        sourceResourceType: 'content_generation',
-        sourceResourceId: GENERATION_ID,
-        reason: `detail_page_generate for content workspace ${REGISTRATION_WORKSPACE_ID}`,
+        generationId: GENERATION_ID,
+        payload: expect.objectContaining({
+          templateId: 'kids-playful',
+        }),
       }),
     );
     expect(operationAlerts.start).toHaveBeenCalledWith(

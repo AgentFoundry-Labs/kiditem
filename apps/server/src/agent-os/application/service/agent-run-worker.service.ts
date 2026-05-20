@@ -5,6 +5,10 @@ import {
   type OnModuleInit,
 } from '@nestjs/common';
 import { AgentRunExecutor } from './agent-run-executor.service';
+import {
+  resolveAgentRuntimeWorkerEnabled,
+  resolveAgentRuntimeWorkerIntervalMs,
+} from './agent-runtime.config';
 
 /**
  * Internal worker that drains `AgentRunRequest` rows by calling
@@ -119,16 +123,10 @@ export class AgentRunWorker implements OnModuleInit, OnModuleDestroy {
    * reasoning.
    */
   static resolveEnabled(): boolean {
-    const raw = process.env.AGENT_RUNTIME_WORKER_ENABLED;
-    if (raw === undefined || raw === '') return false;
-    return raw === '1' || raw.toLowerCase() === 'true';
+    return resolveAgentRuntimeWorkerEnabled();
   }
 
   static resolveIntervalMs(): number {
-    const raw = process.env.AGENT_RUNTIME_WORKER_INTERVAL_MS;
-    if (raw === undefined || raw === '') return 2000;
-    const parsed = Number.parseInt(raw, 10);
-    if (Number.isNaN(parsed) || parsed < 0) return 2000;
-    return parsed;
+    return resolveAgentRuntimeWorkerIntervalMs();
   }
 }

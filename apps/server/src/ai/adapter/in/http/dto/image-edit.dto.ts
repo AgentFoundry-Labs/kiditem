@@ -1,8 +1,15 @@
-import { IsOptional, IsString, IsUUID, ValidateBy } from 'class-validator';
+import {
+  IsArray,
+  IsOptional,
+  IsString,
+  IsUUID,
+  ValidateBy,
+  type ValidationOptions,
+} from 'class-validator';
 
 const DATA_IMAGE_URL_RE = /^data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/;
 
-export function IsHttpOrDataImageUrl() {
+export function IsHttpOrDataImageUrl(validationOptions?: ValidationOptions) {
   return ValidateBy({
     name: 'isHttpOrDataImageUrl',
     validator: {
@@ -21,11 +28,16 @@ export function IsHttpOrDataImageUrl() {
         return 'image_url must be an http(s) URL or a base64 data:image URL';
       },
     },
-  });
+  }, validationOptions);
 }
 
 export class ImageEditBodyDto {
-  @IsString() @IsHttpOrDataImageUrl() image_url: string;
+  @IsString() @IsHttpOrDataImageUrl() @IsOptional() image_url?: string;
+  @IsArray()
+  @IsString({ each: true })
+  @IsHttpOrDataImageUrl({ each: true })
+  @IsOptional()
+  image_urls?: string[];
   @IsString() preset: string;
   @IsString() @IsOptional() user_prompt?: string;
   @IsUUID() @IsOptional() productId?: string;

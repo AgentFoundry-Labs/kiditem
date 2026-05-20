@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useMemo } from 'react';
+import { Suspense, useCallback, useMemo } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -126,6 +126,19 @@ export function ContentGenerationEditorSurface({
     }
   };
 
+  const handleGeneratedVersionReady = useCallback((nextGenerationId: string) => {
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.productContent.all }),
+      queryClient.invalidateQueries({ queryKey: ['kp-generations'] }),
+      queryClient.invalidateQueries({ queryKey: ['bold-generations'] }),
+    ]);
+    const params = new URLSearchParams();
+    if (candidateId) params.set('sourceCandidateId', candidateId);
+    if (closeHref) params.set('returnTo', closeHref);
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    router.replace(`/product-pipeline/detail-pages/${nextGenerationId}/editor${suffix}`);
+  }, [candidateId, closeHref, queryClient, router]);
+
   if (isEntryLoading || isEditedHtmlLoading || isEntryProcessing) {
     return <EditorLoadingScreen />;
   }
@@ -159,10 +172,14 @@ export function ContentGenerationEditorSurface({
             html={editorHtml}
             templateCss={templateCss}
             productName={entry.productName ?? ''}
-            productId={entry.productId ?? candidateId ?? undefined}
+            productId={entry.productId ?? undefined}
             contentGenerationId={generationId}
+            contentWorkspaceId={entry.contentWorkspaceId ?? null}
+            generationRawInput={entry.rawInput}
+            generationTemplateId={entry.templateId}
             rawImages={entry.imageUrls}
             processedImages={Object.values(entry.processedImages)}
+            onGeneratedVersionReady={handleGeneratedVersionReady}
             onSave={handleSave}
             onClose={handleClose}
           />

@@ -4,8 +4,8 @@ export const THUMBNAIL_IMAGE_GENERATION_PORT = Symbol('THUMBNAIL_IMAGE_GENERATIO
 
 export interface ThumbnailImageGenerationCommand {
   /**
-   * Agent OS handlers pass the selected run model here. Legacy non-Agent
-   * re-edit paths leave it empty and rely on the configured image model.
+   * Direct jobs pass the selected image model here. Legacy inline re-edit
+   * paths leave it empty and rely on the configured image model.
    */
   model?: string;
   parts: ThumbnailPromptPart[];

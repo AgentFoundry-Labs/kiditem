@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { StorageService } from '../common/storage/storage.service';
 import { ChannelsModule } from '../channels/channels.module';
-import { AgentOsModule } from '../agent-os/agent-os.module';
 import { AutomationModule } from '../automation/automation.module';
 
 // adapter/in/http
@@ -13,7 +12,6 @@ import { ContentGenerationRerunController } from './adapter/in/http/content-gene
 import { ContentWorkspaceAttachmentController } from './adapter/in/http/content-workspace-attachment.controller';
 import { DetailPageEditorController } from './adapter/in/http/detail-page-editor.controller';
 import { DetailPageGenerationController } from './adapter/in/http/detail-page-generation.controller';
-import { DetailPageReconcileController } from './adapter/in/http/detail-page-reconcile.controller';
 import { RenderImageController } from './adapter/in/http/render-image.controller';
 import { ContentWorkspaceController } from './adapter/in/http/content-workspace.controller';
 import { TextAiController } from './adapter/in/http/text-ai.controller';
@@ -27,12 +25,9 @@ import { ThumbnailTrackingController } from './adapter/in/http/thumbnail-trackin
 import { CoupangImageSyncController } from './adapter/in/http/coupang-image-sync.controller';
 
 // adapter/out
-import { DetailPageContentGenerationSinkAdapter } from './adapter/out/agent-output/detail-page-content-generation-sink.adapter';
-import { ThumbnailGenerationSinkAdapter } from './adapter/out/agent-output/thumbnail-generation-sink.adapter';
+import { DetailPageContentGenerationSinkAdapter } from './adapter/out/direct-output/detail-page-content-generation-sink.adapter';
+import { ThumbnailGenerationSinkAdapter } from './adapter/out/direct-output/thumbnail-generation-sink.adapter';
 import { AiOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
-import { DetailPageGenerateRuntimeHandler } from './adapter/out/agent-runtime/detail-page-generate.runtime-handler';
-import { ImageEditRuntimeHandler } from './adapter/out/agent-runtime/image-edit.runtime-handler';
-import { ThumbnailGenerateRuntimeHandler } from './adapter/out/agent-runtime/thumbnail-generate.runtime-handler';
 import { CoupangInventoryScrapeAdapter } from './adapter/out/coupang/coupang-inventory-scrape.adapter';
 import { CoupangProductSalesScrapeAdapter } from './adapter/out/coupang/coupang-product-sales-scrape.adapter';
 import { CoupangImageReconciliationAdapter } from './adapter/out/channels/coupang-image-reconciliation.adapter';
@@ -51,7 +46,6 @@ import { ContentWorkspaceAttachmentRepositoryAdapter } from './adapter/out/repos
 import { ContentWorkspaceLifecycleRepositoryAdapter } from './adapter/out/repository/content-workspace-lifecycle.repository.adapter';
 import { DetailPageGenerationRepositoryAdapter } from './adapter/out/repository/detail-page-generation.repository.adapter';
 import { DetailPageQueryRepositoryAdapter } from './adapter/out/repository/detail-page-query.repository.adapter';
-import { DetailPageReconcileRepositoryAdapter } from './adapter/out/repository/detail-page-reconcile.repository.adapter';
 import { PostPromotionGenerationRepositoryAdapter } from './adapter/out/repository/post-promotion-generation.repository.adapter';
 import { ProductWorkspaceGroupRepositoryAdapter } from './adapter/out/repository/product-workspace-group.repository.adapter';
 import { ProductGenerationContextRepositoryAdapter } from './adapter/out/repository/product-generation-context.repository.adapter';
@@ -64,12 +58,9 @@ import { ThumbnailWingRepositoryAdapter } from './adapter/out/repository/thumbna
 import { WingAutomationRunner } from './adapter/out/wing/wing-automation-runner';
 
 // application/service
-import { DetailPageAgentOutputBridge } from './application/service/detail-page-agent-output.bridge';
-import { DetailPageAgentReconcileService } from './application/service/detail-page-agent-reconcile.service';
-import { ThumbnailAgentOutputBridge } from './application/service/thumbnail-agent-output.bridge';
-import { ThumbnailAgentReconcileService } from './application/service/thumbnail-agent-reconcile.service';
-import { AgentFinalizedOutputProjectionService } from './application/service/agent-finalized-output-projection.service';
 import { ImageAiService } from './application/service/image-ai.service';
+import { ImageEditDirectGenerationExecutorService } from './application/service/image-edit-direct-generation-executor.service';
+import { ImageEditDirectGenerationJobService } from './application/service/image-edit-direct-generation-job.service';
 import { TextAiService } from './application/service/text-ai.service';
 import { ThumbnailAnalysisService } from './application/service/thumbnail-analysis.service';
 import { ThumbnailAnalysisAnalyzerService } from './application/service/thumbnail-analysis-analyzer.service';
@@ -79,6 +70,8 @@ import { ThumbnailAutoService } from './application/service/thumbnail-auto.servi
 import { CoupangImageSyncService } from './application/service/coupang-image-sync.service';
 import { DetailPageHeroImageService } from './application/service/detail-page-hero-image.service';
 import { DetailPageGeneratedImagesService } from './application/service/detail-page-generated-images.service';
+import { DetailPageDirectGenerationExecutorService } from './application/service/detail-page-direct-generation-executor.service';
+import { DetailPageDirectGenerationJobService } from './application/service/detail-page-direct-generation-job.service';
 import { ContentAssetService } from './application/service/content-asset.service';
 import { DetailPageAiService } from './application/service/detail-page-ai.service';
 import { DetailPageGenerationService } from './application/service/detail-page-generation.service';
@@ -93,6 +86,8 @@ import { ProductGenerationAlertService } from './application/service/product-gen
 import { BoldVerticalRefinerService } from './application/service/bold-vertical-refiner.service';
 import { KidsPlayfulRefinerService } from './application/service/kids-playful-refiner.service';
 import { ThumbnailComplianceVerifierService } from './application/service/thumbnail-compliance-verifier.service';
+import { ThumbnailDirectGenerationExecutorService } from './application/service/thumbnail-direct-generation-executor.service';
+import { ThumbnailDirectGenerationJobService } from './application/service/thumbnail-direct-generation-job.service';
 import { ThumbnailEditorAiService } from './application/service/thumbnail-editor-ai.service';
 import { ThumbnailGenerationJobService } from './application/service/thumbnail-generation-job.service';
 import { ThumbnailGenerationLifecycleService } from './application/service/thumbnail-generation-lifecycle.service';
@@ -141,7 +136,6 @@ import {
   CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
   DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
   DETAIL_PAGE_QUERY_REPOSITORY_PORT,
-  DETAIL_PAGE_RECONCILE_REPOSITORY_PORT,
   POST_PROMOTION_GENERATION_REPOSITORY_PORT,
   PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT,
   PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
@@ -154,13 +148,13 @@ import {
 } from './application/port/out/repository';
 import { WING_AUTOMATION_PORT } from './application/port/out/runtime';
 import {
-  DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT,
-  THUMBNAIL_AGENT_OUTPUT_SINK_PORT,
+  DETAIL_PAGE_DIRECT_OUTPUT_SINK_PORT,
+  THUMBNAIL_DIRECT_OUTPUT_SINK_PORT,
 } from './application/port/out/sink';
 import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
 
 @Module({
-  imports: [ChannelsModule, AgentOsModule, AutomationModule],
+  imports: [ChannelsModule, AutomationModule],
   controllers: [
     ContentArchiveController,
     ContentArchiveLinkageController,
@@ -170,7 +164,6 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     CoupangImageSyncController,
     DetailPageEditorController,
     DetailPageGenerationController,
-    DetailPageReconcileController,
     ImageAiController,
     ContentWorkspaceController,
     RenderImageController,
@@ -185,21 +178,23 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
   ],
   providers: [
     // application services
-    AgentFinalizedOutputProjectionService,
     ImageAiService,
+    ImageEditDirectGenerationExecutorService,
+    ImageEditDirectGenerationJobService,
     AiGenerationCancellationService,
     ImageAssetOperationService,
     CoupangImageSyncService,
     DetailPageAiService,
     DetailPageGenerationService,
     DetailPageRasterizationService,
-    DetailPageAgentReconcileService,
     ContentArchiveService,
     ContentAssetService,
     ContentGenerationRerunService,
     ContentWorkspaceAttachmentService,
     ContentWorkspaceService,
     SourcingWorkspaceArchiveService,
+    DetailPageDirectGenerationExecutorService,
+    DetailPageDirectGenerationJobService,
     DetailPageGeneratedImagesService,
     DetailPageHeroImageService,
     DetailPagePrefillService,
@@ -211,13 +206,14 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     ProductGenerationAiService,
     ProductGenerationAlertService,
     TextAiService,
-    ThumbnailAgentReconcileService,
     ThumbnailAnalysisService,
     ThumbnailAnalysisAnalyzerService,
     ThumbnailAnalysisBatchService,
     ThumbnailAnalysisQueryService,
     ThumbnailAutoService,
     ThumbnailComplianceVerifierService,
+    ThumbnailDirectGenerationExecutorService,
+    ThumbnailDirectGenerationJobService,
     ThumbnailEditorAiService,
     ThumbnailGenerationJobService,
     ThumbnailGenerationLifecycleService,
@@ -227,20 +223,10 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     ThumbnailVisionAiService,
     ThumbnailWingService,
 
-    // Agent OS bridges — listen for finalized events and route validated
-    // output through the sink ports defined below. Detail-page + thumbnail
-    // both write back to their owner row (`ContentGeneration` /
-    // `ThumbnailGeneration`).
-    DetailPageAgentOutputBridge,
-    ThumbnailAgentOutputBridge,
-
     // outgoing adapters
     DetailPageContentGenerationSinkAdapter,
     DetailPageGeminiMediaAdapter,
-    DetailPageGenerateRuntimeHandler,
-    ImageEditRuntimeHandler,
     ThumbnailGenerationSinkAdapter,
-    ThumbnailGenerateRuntimeHandler,
     CoupangImageReconciliationAdapter,
     CoupangInventoryScrapeAdapter,
     CoupangProductSalesScrapeAdapter,
@@ -255,7 +241,6 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     ContentWorkspaceLifecycleRepositoryAdapter,
     DetailPageGenerationRepositoryAdapter,
     DetailPageQueryRepositoryAdapter,
-    DetailPageReconcileRepositoryAdapter,
     PostPromotionGenerationRepositoryAdapter,
     ProductWorkspaceGroupRepositoryAdapter,
     ProductGenerationContextRepositoryAdapter,
@@ -277,19 +262,17 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     { provide: COUPANG_INVENTORY_SCRAPE_PORT, useExisting: CoupangInventoryScrapeAdapter },
     { provide: COUPANG_PRODUCT_SALES_SCRAPE_PORT, useExisting: CoupangProductSalesScrapeAdapter },
     {
-      // Real sink — applies validated detail_page_generate output to the
-      // originating ContentGeneration row (READY/FAILED + processedImages
-      // + operation alert close). Phase 2 follow-up replaces this binding
-      // for additional AI agent types as they ship.
-      provide: DETAIL_PAGE_AGENT_OUTPUT_SINK_PORT,
+      // Real sink — applies validated detail-page output to the originating
+      // ContentGeneration row (READY/FAILED + processedImages + operation
+      // alert close).
+      provide: DETAIL_PAGE_DIRECT_OUTPUT_SINK_PORT,
       useExisting: DetailPageContentGenerationSinkAdapter,
     },
     {
-      // Real sink — applies validated thumbnail_generate output to the
-      // originating ThumbnailGeneration row (succeeded/failed + candidates
-      // + status events + operation alert close). Mirrors the detail-page
-      // wiring shipped in PR #213.
-      provide: THUMBNAIL_AGENT_OUTPUT_SINK_PORT,
+      // Real sink — applies validated thumbnail output to the originating
+      // ThumbnailGeneration row (succeeded/failed + candidates + status
+      // events + operation alert close).
+      provide: THUMBNAIL_DIRECT_OUTPUT_SINK_PORT,
       useExisting: ThumbnailGenerationSinkAdapter,
     },
     { provide: IMAGE_FETCH_PORT, useExisting: ThumbnailImageFetcherService },
@@ -323,10 +306,6 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     {
       provide: DETAIL_PAGE_QUERY_REPOSITORY_PORT,
       useExisting: DetailPageQueryRepositoryAdapter,
-    },
-    {
-      provide: DETAIL_PAGE_RECONCILE_REPOSITORY_PORT,
-      useExisting: DetailPageReconcileRepositoryAdapter,
     },
     {
       provide: POST_PROMOTION_GENERATION_REPOSITORY_PORT,

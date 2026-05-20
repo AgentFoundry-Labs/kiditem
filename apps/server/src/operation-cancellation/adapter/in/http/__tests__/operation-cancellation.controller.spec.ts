@@ -18,6 +18,7 @@ function makeService() {
         agentRunIds: [],
         contentGenerationIds: ['cg-1'],
         thumbnailGenerationIds: ['tg-1'],
+        directAiJobIds: [],
       },
       preserved: {
         contentGenerationIds: [],

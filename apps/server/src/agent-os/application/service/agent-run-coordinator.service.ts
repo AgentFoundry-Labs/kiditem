@@ -20,6 +20,7 @@ import type { AgentRunRequestStatus } from '../../domain/agent-os.types';
 import { AgentOsCatalogError } from '../../domain/agent-os.errors';
 import { AgentRunExecutor } from './agent-run-executor.service';
 import { operationCancellationAudit } from '../../../common/operation-cancellation-audit';
+import { findAgentDefinitionByType } from '../../domain/agent-definition.registry';
 
 const CANCELLABLE_REQUEST_STATUSES: AgentRunRequestStatus[] = [
   'pending',
@@ -51,6 +52,13 @@ export class AgentRunCoordinator implements AgentRunnerPort {
     input: AgentRunnerInput,
   ): Promise<AgentRunnerResult> {
     this.assertOrganization(input.organizationId);
+    if (!findAgentDefinitionByType(type)) {
+      return {
+        ok: false,
+        agentType: type,
+        reason: 'agent_definition_not_found',
+      };
+    }
 
     const agentInstance = await this.repository.findActiveInstanceByType({
       organizationId: input.organizationId,

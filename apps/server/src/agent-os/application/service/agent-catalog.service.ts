@@ -17,6 +17,7 @@ import {
   findAgentDefinitionByType,
   listAgentDefinitions,
   resolveDefinitionDefaultModel,
+  resolveDefinitionModelPlan,
 } from '../../domain/agent-definition.registry';
 
 @Injectable()
@@ -31,8 +32,13 @@ export class AgentCatalogService {
     return listAgentDefinitions();
   }
 
-  listInstances(input: { organizationId: string }): Promise<AgentInstanceRecord[]> {
-    return this.repository.listInstances(input);
+  async listInstances(input: { organizationId: string }): Promise<AgentInstanceRecord[]> {
+    const instances = await this.repository.listInstances(input);
+    const registeredTypes = new Set(
+      listAgentDefinitions().map((definition) => definition.type),
+    );
+
+    return instances.filter((instance) => registeredTypes.has(instance.type));
   }
 
   async createInstance(input: {
@@ -65,6 +71,15 @@ export class AgentCatalogService {
       throw new AgentOsCatalogError(
         'instance_model_required',
         'Instance creation requires a resolvable model (override or definition default).',
+      );
+    }
+    const modelPlan = resolveDefinitionModelPlan(definition, effectiveModel);
+    if (!modelPlan.modelPlan) {
+      throw new AgentOsCatalogError(
+        'instance_model_required',
+        modelPlan.missingEnv
+          ? `Instance creation requires ${modelPlan.missingEnv} for ${modelPlan.missingRole} model.`
+          : 'Instance creation requires a resolvable model plan.',
       );
     }
 

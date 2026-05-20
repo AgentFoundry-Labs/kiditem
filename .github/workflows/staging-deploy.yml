@@ -29,7 +29,7 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   API_IMAGE_BASE: ghcr.io/agentfoundry-labs/kiditem-api
-  API_RUNTIME_BASE_IMAGE: ghcr.io/agentfoundry-labs/kiditem-api-base:node22-chromium
+  API_RUNTIME_BASE_IMAGE: ghcr.io/agentfoundry-labs/kiditem-api-base:node22-chromium-b6503cb2512e
   WEB_IMAGE_BASE: ghcr.io/agentfoundry-labs/kiditem-web
 
 jobs:
@@ -219,7 +219,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     permissions:
-      contents: read
+      contents: write
       packages: read
     steps:
       - name: Checkout repository
@@ -260,6 +260,55 @@ jobs:
           : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
           npm run data:migrate -- up --phase pre-schema
 
+      - name: Check staging data-loss preflight
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
+          echo "Checking channel_listings_org_account_external_id_key duplicate groups"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const { Client } = require('pg');
+
+          const client = new Client({ connectionString: process.env.DATABASE_URL });
+
+          (async () => {
+            await client.connect();
+            const result = await client.query(`
+              WITH duplicate_groups AS (
+                SELECT organization_id,
+                       channel_account_id,
+                       external_id,
+                       count(*)::int AS row_count
+                FROM channel_listings
+                WHERE is_deleted = false
+                  AND channel_account_id IS NOT NULL
+                GROUP BY organization_id,
+                         channel_account_id,
+                         external_id
+                HAVING count(*) > 1
+              )
+              SELECT count(*)::int AS duplicate_groups,
+                     COALESCE(sum(row_count - 1), 0)::int AS duplicate_rows
+              FROM duplicate_groups
+            `);
+            const row = result.rows[0] ?? { duplicate_groups: 0, duplicate_rows: 0 };
+            const duplicateGroups = Number(row.duplicate_groups);
+            const duplicateRows = Number(row.duplicate_rows);
+            if (duplicateGroups > 0 || duplicateRows > 0) {
+              throw new Error(
+                `channel_listings_org_account_external_id_key is unsafe: ${duplicateGroups} duplicate group(s), ${duplicateRows} extra row(s).`,
+              );
+            }
+            fs.appendFileSync(process.env.GITHUB_ENV, 'CHANNEL_LISTING_ACCOUNT_UNIQUE_PREFLIGHT=ok\n');
+            console.log('channel_listings_org_account_external_id_key preflight passed: no duplicate groups.');
+          })().finally(() => client.end()).catch((error) => {
+            console.error(error instanceof Error ? error.message : String(error));
+            process.exit(1);
+          });
+          NODE
+
       - name: Apply staging Prisma schema
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
@@ -279,11 +328,37 @@ jobs:
             process.exit(2);
           }
           NODE
-          if [ "${ACCEPT_DATA_LOSS}" = "true" ]; then
+          db_push_log="$(mktemp)"
+          if npx prisma db push 2>&1 | tee "$db_push_log"; then
+            rm -f "$db_push_log"
+          elif [ "${ACCEPT_DATA_LOSS}" = "true" ]; then
             echo "::warning::Running Prisma db push with --accept-data-loss for a reviewed staging contract cleanup."
             npx prisma db push --accept-data-loss
           else
-            npx prisma db push
+            if CHANNEL_LISTING_ACCOUNT_UNIQUE_PREFLIGHT="${CHANNEL_LISTING_ACCOUNT_UNIQUE_PREFLIGHT:-}" node - "$db_push_log" <<'NODE'
+          const fs = require('node:fs');
+          const logPath = process.argv[2];
+          const text = fs.readFileSync(logPath, 'utf8');
+          const bullet = String.fromCharCode(0x2022);
+          const warnings = text
+            .split('\n')
+            .map((line) => line.trim())
+            .filter((line) => line.startsWith(bullet));
+          const knownWarning = 'A unique constraint covering the columns `[organization_id,channel_account_id,external_id]` on the table `channel_listings` will be added.';
+          const safeKnownWarning =
+            process.env.CHANNEL_LISTING_ACCOUNT_UNIQUE_PREFLIGHT === 'ok'
+            && warnings.length === 1
+            && warnings[0].includes(knownWarning);
+          process.exit(safeKnownWarning ? 0 : 1);
+          NODE
+            then
+              echo "::warning::Auto-accepting reviewed staging unique constraint after duplicate preflight."
+              npx prisma db push --accept-data-loss
+            else
+              echo "::error::Prisma db push requires reviewed data-loss handling." >&2
+              exit 1
+            fi
+            rm -f "$db_push_log"
           fi
           npx prisma generate
 
@@ -296,6 +371,33 @@ jobs:
           set -euo pipefail
           : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
           npm run data:migrate -- up --phase post-schema
+
+      - name: Render staging runtime env files
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.STAGING_DIRECT_URL }}
+          SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
+          CORS_ORIGINS: ${{ vars.STAGING_CORS_ORIGINS || vars.STAGING_URL }}
+          S3_REGION: ${{ vars.STAGING_S3_REGION }}
+          S3_BUCKET: ${{ vars.STAGING_S3_BUCKET }}
+          S3_ENDPOINT: ${{ vars.STAGING_S3_ENDPOINT }}
+          S3_PUBLIC_URL: ${{ vars.STAGING_S3_PUBLIC_URL }}
+          S3_ACCESS_KEY: ${{ secrets.STAGING_S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.STAGING_S3_SECRET_KEY }}
+          CHANNEL_CREDENTIALS_ENCRYPTION_KEY: ${{ secrets.STAGING_CHANNEL_CREDENTIALS_ENCRYPTION_KEY }}
+          GEMINI_API_KEY: ${{ secrets.STAGING_GEMINI_API_KEY }}
+          AI_TEXT_MODEL: ${{ vars.STAGING_AI_TEXT_MODEL }}
+          AI_IMAGE_MODEL: ${{ vars.STAGING_AI_IMAGE_MODEL }}
+          AI_IMAGE_ANALYSIS_MODEL: ${{ vars.STAGING_AI_IMAGE_ANALYSIS_MODEL }}
+          AI_IMAGE_ANALYSIS_VERIFY_MODEL: ${{ vars.STAGING_AI_IMAGE_ANALYSIS_VERIFY_MODEL }}
+          AGENT_RUNTIME_WORKER_ENABLED: ${{ vars.STAGING_AGENT_RUNTIME_WORKER_ENABLED }}
+          AGENT_DEFAULT_MODEL: ${{ vars.STAGING_AGENT_DEFAULT_MODEL }}
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          set -euo pipefail
+          bash deploy/staging/render-runtime-env.sh
 
       - name: Prepare SSH
         env:
@@ -326,7 +428,7 @@ jobs:
           case "$STAGING_REMOTE_DIR" in (*[!A-Za-z0-9_./-]*) echo "Invalid STAGING_REMOTE_DIR" >&2; exit 2 ;; esac
           target="${STAGING_USER}@${STAGING_HOST}"
           remote_dir_q="$(printf '%q' "$STAGING_REMOTE_DIR")"
-          tar -czf - VERSION docker-compose.staging.yml deploy/staging/nginx.conf deploy/staging/remote-deploy.sh \
+          tar -czf - VERSION docker-compose.staging.yml .env.staging.api .env.staging.web deploy/staging/nginx.conf deploy/staging/remote-deploy.sh \
             | ssh -i ~/.ssh/kiditem-staging "$target" \
                 "mkdir -p ${remote_dir_q} && tar -xzf - -C ${remote_dir_q} && chmod +x ${remote_dir_q}/deploy/staging/remote-deploy.sh"
 
@@ -376,6 +478,29 @@ jobs:
           ./deploy/staging/remote-deploy.sh deploy
           REMOTE
 
+      - name: Verify public staging URL
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL }}
+        run: |
+          set -euo pipefail
+          : "${STAGING_URL:?Set staging variable STAGING_URL}"
+          STAGING_URL="${STAGING_URL%/}"
+
+          for _ in $(seq 1 12); do
+            login_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$STAGING_URL/login" || true)"
+            auth_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$STAGING_URL/api/auth/me" || true)"
+            if [[ "$login_code" == "200" && ( "$auth_code" == "401" || "$auth_code" == "403" ) ]]; then
+              echo "Public staging smoke checks passed: $STAGING_URL/login=200, $STAGING_URL/api/auth/me=$auth_code"
+              exit 0
+            fi
+            echo "Public staging not ready yet: /login=$login_code, /api/auth/me=$auth_code"
+            sleep 5
+          done
+
+          echo "::error::Public staging URL did not become healthy: $STAGING_URL" >&2
+          curl -sS -I --max-time 15 "$STAGING_URL/login" >&2 || true
+          exit 1
+
       - name: Verify staging data migration status
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
@@ -383,6 +508,53 @@ jobs:
           set -euo pipefail
           : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
           npm run data:migrate -- status
+
+      - name: Tag successful staging deploy
+        env:
+          APP_VERSION: ${{ needs.prepare.outputs.app_version }}
+          GIT_SHA: ${{ needs.prepare.outputs.git_sha }}
+          GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          STAGING_URL: ${{ vars.STAGING_URL }}
+        run: |
+          set -euo pipefail
+          : "${APP_VERSION:?Missing prepared app version}"
+          : "${GIT_SHA:?Missing prepared git SHA}"
+
+          deploy_date="$(date -u +%Y%m%d)"
+          short_sha="${GIT_SHA:0:8}"
+          tag="staging-v${APP_VERSION}-${deploy_date}-${short_sha}"
+          case "$tag" in
+            staging-v[0-9]*.[0-9]*.[0-9]*-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f])
+              ;;
+            *)
+              echo "::error::Refusing to create invalid staging tag: $tag" >&2
+              exit 2
+              ;;
+          esac
+
+          existing_refs="$(git ls-remote --tags origin "refs/tags/$tag" "refs/tags/$tag^{}")"
+          if [ -n "$existing_refs" ]; then
+            existing_commit="$(printf '%s\n' "$existing_refs" | awk '$2 ~ /\^\{\}$/ { print $1 }' | tail -n 1)"
+            if [ -z "$existing_commit" ]; then
+              existing_commit="$(printf '%s\n' "$existing_refs" | awk '{ print $1 }' | tail -n 1)"
+            fi
+            if [ "$existing_commit" = "$GIT_SHA" ]; then
+              echo "Staging deploy tag already exists at this commit: $tag"
+              exit 0
+            fi
+            echo "::error::Staging deploy tag already exists at a different object: $tag" >&2
+            printf '%s\n' "$existing_refs" >&2
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" "$GIT_SHA" \
+            -m "Staging deploy v${APP_VERSION}" \
+            -m "Run: ${GITHUB_RUN_URL}" \
+            -m "URL: ${STAGING_URL:-unset}"
+          git push origin "refs/tags/$tag"
+          echo "Created staging deploy tag: $tag"
 
   rollback:
     name: Roll back staging
@@ -395,6 +567,33 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Render staging runtime env files
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.STAGING_DIRECT_URL }}
+          SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
+          CORS_ORIGINS: ${{ vars.STAGING_CORS_ORIGINS || vars.STAGING_URL }}
+          S3_REGION: ${{ vars.STAGING_S3_REGION }}
+          S3_BUCKET: ${{ vars.STAGING_S3_BUCKET }}
+          S3_ENDPOINT: ${{ vars.STAGING_S3_ENDPOINT }}
+          S3_PUBLIC_URL: ${{ vars.STAGING_S3_PUBLIC_URL }}
+          S3_ACCESS_KEY: ${{ secrets.STAGING_S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.STAGING_S3_SECRET_KEY }}
+          CHANNEL_CREDENTIALS_ENCRYPTION_KEY: ${{ secrets.STAGING_CHANNEL_CREDENTIALS_ENCRYPTION_KEY }}
+          GEMINI_API_KEY: ${{ secrets.STAGING_GEMINI_API_KEY }}
+          AI_TEXT_MODEL: ${{ vars.STAGING_AI_TEXT_MODEL }}
+          AI_IMAGE_MODEL: ${{ vars.STAGING_AI_IMAGE_MODEL }}
+          AI_IMAGE_ANALYSIS_MODEL: ${{ vars.STAGING_AI_IMAGE_ANALYSIS_MODEL }}
+          AI_IMAGE_ANALYSIS_VERIFY_MODEL: ${{ vars.STAGING_AI_IMAGE_ANALYSIS_VERIFY_MODEL }}
+          AGENT_RUNTIME_WORKER_ENABLED: ${{ vars.STAGING_AGENT_RUNTIME_WORKER_ENABLED }}
+          AGENT_DEFAULT_MODEL: ${{ vars.STAGING_AGENT_DEFAULT_MODEL }}
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          set -euo pipefail
+          bash deploy/staging/render-runtime-env.sh
 
       - name: Prepare SSH
         env:
@@ -424,7 +623,7 @@ jobs:
           case "$STAGING_REMOTE_DIR" in (*[!A-Za-z0-9_./-]*) echo "Invalid STAGING_REMOTE_DIR" >&2; exit 2 ;; esac
           target="${STAGING_USER}@${STAGING_HOST}"
           remote_dir_q="$(printf '%q' "$STAGING_REMOTE_DIR")"
-          tar -czf - VERSION docker-compose.staging.yml deploy/staging/nginx.conf deploy/staging/remote-deploy.sh \
+          tar -czf - VERSION docker-compose.staging.yml .env.staging.api .env.staging.web deploy/staging/nginx.conf deploy/staging/remote-deploy.sh \
             | ssh -i ~/.ssh/kiditem-staging "$target" \
                 "mkdir -p ${remote_dir_q} && tar -xzf - -C ${remote_dir_q} && chmod +x ${remote_dir_q}/deploy/staging/remote-deploy.sh"
 

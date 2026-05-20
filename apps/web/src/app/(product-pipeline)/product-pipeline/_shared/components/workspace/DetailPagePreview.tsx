@@ -41,6 +41,10 @@ import {
   generatedDetailTemplateLabel,
 } from '../../lib/generated-detail-html';
 import {
+  DownloadOptionsModal,
+  type DetailPageDownloadOptions,
+} from '../detail-page/DownloadOptionsModal';
+import {
   DETAIL_PREVIEW_SCROLL_MESSAGE,
   SCRIPTED_PREVIEW_SANDBOX,
   buildDetailPreviewLayoutMetrics,
@@ -81,6 +85,13 @@ const INITIAL_PREVIEW_LAYOUT: DetailPreviewLayoutMetrics = {
   contentHeight: 2000,
   viewportTop: 0,
   viewportHeight: 0,
+};
+const DEFAULT_PREVIEW_DOWNLOAD_OPTIONS: DetailPageDownloadOptions = {
+  format: 'jpeg',
+  quality: 92,
+  viewportWidth: FULL_PREVIEW_WIDTH,
+  renderScale: 2,
+  outputWidth: 860,
 };
 
 function isCompletedDetailGenerationStatus(status: string): boolean {
@@ -154,6 +165,13 @@ export default function DetailPagePreview({
   const fullIframeRef = useRef<HTMLIFrameElement>(null);
   const minimapContainerRef = useRef<HTMLDivElement>(null);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadModalOpen, setDownloadModalOpen] = useState(false);
+  const [downloadOptions, setDownloadOptions] = useState<DetailPageDownloadOptions>(
+    DEFAULT_PREVIEW_DOWNLOAD_OPTIONS,
+  );
+  const [downloadContentHeight, setDownloadContentHeight] = useState(
+    INITIAL_PREVIEW_LAYOUT.contentHeight,
+  );
 
   const { data: agentHistory = [] } = useGenerationHistory(
     productId,
@@ -315,9 +333,15 @@ export default function DetailPagePreview({
     );
   };
 
-  // 이미지 다운로드 — 서버 Puppeteer 렌더러로 긴 JPEG 1장 저장.
+  const openDownloadOptions = useCallback(() => {
+    if (!effectivePreviewHtml || isDownloading) return;
+    setDownloadContentHeight(Math.max(1, Math.ceil(contentHeight || INITIAL_PREVIEW_LAYOUT.contentHeight)));
+    setDownloadModalOpen(true);
+  }, [contentHeight, effectivePreviewHtml, isDownloading]);
+
+  // 이미지 다운로드 — 서버 Puppeteer 렌더러로 긴 상세페이지 1장을 저장.
   // 클라이언트 html2canvas 는 긴 상세페이지에서 자주 멈춰서 서버 캡처 경로를 사용한다.
-  const handleDownloadJpeg = useCallback(async () => {
+  const handleDownloadImage = useCallback(async (options: DetailPageDownloadOptions) => {
     if (!effectivePreviewHtml) return;
     if (isDownloading) return;
     setIsDownloading(true);
@@ -326,17 +350,26 @@ export default function DetailPagePreview({
       const res = await apiClient.fetchRaw('/api/render-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ html: renderHtml, format: 'jpeg', quality: 92 }),
+        body: JSON.stringify({
+          html: renderHtml,
+          viewportWidth: options.viewportWidth,
+          outputWidth: options.outputWidth,
+          baseUrl: window.location.origin,
+          format: options.format,
+          quality: options.format === 'jpeg' ? options.quality : undefined,
+        }),
       });
       if (!res.ok) {
-        throw new Error(`JPEG 렌더링 실패: ${res.status}`);
+        throw new Error(`이미지 렌더링 실패: ${res.status}`);
       }
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       const blob = await res.blob();
-      downloadBlob(blob, `detail-page-${productId.slice(0, 8)}-${ts}.jpg`);
-      toast.success('JPEG 다운로드 완료');
+      const extension = options.format === 'jpeg' ? 'jpg' : 'png';
+      downloadBlob(blob, `detail-page-${productId.slice(0, 8)}-${ts}.${extension}`);
+      setDownloadModalOpen(false);
+      toast.success('이미지를 다운로드했어요.');
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'JPEG 다운로드 실패';
+      const msg = err instanceof Error ? err.message : '이미지 다운로드 실패';
       toast.error(msg);
     } finally {
       setIsDownloading(false);
@@ -379,12 +412,12 @@ export default function DetailPagePreview({
           )}
           <button
             type="button"
-            onClick={handleDownloadJpeg}
+            onClick={openDownloadOptions}
             disabled={isDownloading}
             className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 transition-colors disabled:opacity-60 disabled:cursor-wait"
           >
             {isDownloading ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-            {isDownloading ? 'JPEG 생성 중...' : 'JPEG 다운로드'}
+            {isDownloading ? '이미지 생성 중...' : '이미지 다운로드'}
           </button>
         </div>
       </div>
@@ -440,6 +473,15 @@ export default function DetailPagePreview({
           </div>
         </div>
       </div>
+      <DownloadOptionsModal
+        open={downloadModalOpen}
+        options={downloadOptions}
+        isDownloading={isDownloading}
+        contentHeight={downloadContentHeight}
+        onOptionsChange={setDownloadOptions}
+        onClose={() => setDownloadModalOpen(false)}
+        onDownload={handleDownloadImage}
+      />
     </div>
   );
 }

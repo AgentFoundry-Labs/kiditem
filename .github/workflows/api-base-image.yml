@@ -34,12 +34,9 @@ jobs:
         id: image_tags
         run: |
           set -euo pipefail
-          month="$(date -u +'%Y%m')"
           short_sha="${GITHUB_SHA::12}"
           {
             echo "tags<<EOF"
-            echo "${API_BASE_IMAGE}:node22-chromium"
-            echo "${API_BASE_IMAGE}:node22-chromium-${month}"
             echo "${API_BASE_IMAGE}:node22-chromium-${short_sha}"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"

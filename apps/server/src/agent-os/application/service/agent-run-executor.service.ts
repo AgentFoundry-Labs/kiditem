@@ -18,6 +18,7 @@ import type { AgentRunRequestRecord } from '../../domain/agent-os.types';
 import {
   findAgentDefinitionByType,
   resolveDefinitionDefaultModel,
+  resolveDefinitionModelPlan,
 } from '../../domain/agent-definition.registry';
 import {
   AGENT_RUN_EVENTS,
@@ -245,6 +246,25 @@ export class AgentRunExecutor {
       };
     }
 
+    const modelPlanResolution = resolveDefinitionModelPlan(definition, model);
+    if (!modelPlanResolution.modelPlan) {
+      const missingHint = modelPlanResolution.missingEnv
+        ? ` Missing ${modelPlanResolution.missingEnv} for ${modelPlanResolution.missingRole} model.`
+        : '';
+      await this.failBeforeRun({
+        organizationId: claimed.organizationId,
+        requestId: claimed.id,
+        routing,
+        errorCode: 'model_required',
+        errorMessage: `Agent execution requires an explicit model plan.${missingHint}`,
+      });
+      return {
+        executed: false,
+        requestId: claimed.id,
+        errorCode: 'model_required',
+      };
+    }
+
     const promptPath = instance.promptPathOverride ?? definition.promptPath;
 
     const run = await this.repository.createRunForRequest({
@@ -265,7 +285,12 @@ export class AgentRunExecutor {
       runId: run.id,
       agentInstanceId: instance.id,
       type: 'run.started',
-      data: { requestId: claimed.id, attempt: run.attempt, model },
+      data: {
+        requestId: claimed.id,
+        attempt: run.attempt,
+        model,
+        modelPlan: modelPlanResolution.modelPlan,
+      },
     });
 
     try {
@@ -279,6 +304,7 @@ export class AgentRunExecutor {
         taskKey: claimed.taskKey,
         adapterType: instance.adapterType,
         model,
+        modelPlan: modelPlanResolution.modelPlan,
         promptPath,
         input: claimed.payload,
         trustLevel: instance.trustLevel,

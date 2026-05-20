@@ -102,13 +102,13 @@ describe('ThumbnailEditorAiService reference prompt parity', () => {
     const { service, generateImageParts } = makeService();
 
     await service.generateEdit([makeInput()], ORGANIZATION_ID, {
-      model: 'gemini-image-from-agent-os',
+      model: 'gemini-image-direct',
       purpose: 'compliance',
       editCase: 'single',
     });
 
     expect(generateImageParts).toHaveBeenCalledWith(expect.objectContaining({
-      model: 'gemini-image-from-agent-os',
+      model: 'gemini-image-direct',
     }));
   });
 });

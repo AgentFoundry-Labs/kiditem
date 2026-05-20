@@ -1,3 +1,5 @@
+import type { AgentModelPlan } from '../../../../domain/agent-os.types';
+
 export const AGENT_RUNTIME_PORT = Symbol('AGENT_RUNTIME_PORT');
 
 export interface AgentRuntimeExecutionContext {
@@ -10,6 +12,7 @@ export interface AgentRuntimeExecutionContext {
   taskKey: string;
   adapterType: string;
   model: string;
+  modelPlan: AgentModelPlan;
   promptPath: string;
   input: Record<string, unknown>;
   trustLevel: number;

@@ -68,7 +68,6 @@ function makeController(opts: { withProduct?: boolean } = {}) {
     })),
     saveEditorResult: vi.fn(async () => 'generation-1'),
   };
-  const reconcile = { reconcile: vi.fn() };
   const generatedCandidates = {
     createFromThumbnailInputs: vi.fn(async () => ({
       id: GENERATED_CANDIDATE_ID,
@@ -79,12 +78,11 @@ function makeController(opts: { withProduct?: boolean } = {}) {
   const controller = new ThumbnailEditorController(
     editorAi as never,
     generationService as never,
-    reconcile as never,
   );
   return { controller, editorAi, generationService, generatedCandidates };
 }
 
-describe('ThumbnailEditorController product-bound (async Agent OS)', () => {
+describe('ThumbnailEditorController product-bound (async direct AI)', () => {
   it('returns pending status + generationId without calling editorAi directly', async () => {
     const { controller, editorAi, generationService } = makeController();
     const body = {
@@ -102,14 +100,14 @@ describe('ThumbnailEditorController product-bound (async Agent OS)', () => {
       generationId: 'generation-async-1',
       status: 'pending',
     });
-    // The runtime handler now owns the LLM call; controller must not
-    // touch editorAi when enqueueing the agent run.
+    // The direct job now owns the LLM call; controller must not touch editorAi
+    // when enqueueing asynchronous generation.
     expect(editorAi.generateEdit).not.toHaveBeenCalled();
     expect(editorAi.generateCreative).not.toHaveBeenCalled();
     expect(generationService.enqueueEditorGeneration).toHaveBeenCalledTimes(1);
   });
 
-  it('forwards resolved inputs (with role + label ordering preserved) into the agent payload', async () => {
+  it('forwards resolved inputs (with role + label ordering preserved) into the direct payload', async () => {
     const { controller, generationService } = makeController();
     const body = {
       productId: PRODUCT_ID,
@@ -122,24 +120,24 @@ describe('ThumbnailEditorController product-bound (async Agent OS)', () => {
     await controller.generate(body, ORGANIZATION_ID);
 
     const arg = generationService.enqueueEditorGeneration.mock.calls[0][0] as {
-      agentPayload: { inputs: ThumbnailEditorInputImage[] };
+      directPayload: { inputs: ThumbnailEditorInputImage[] };
       inputs: ThumbnailEditorInputImage[];
       method: string;
     };
     expect(arg.method).toBe('generate');
-    expect(arg.agentPayload.inputs.map((i) => i.label)).toEqual([
+    expect(arg.directPayload.inputs.map((i) => i.label)).toEqual([
       'Main product',
       'Color variant 1',
       'Color variant 2',
     ]);
-    expect(arg.agentPayload.inputs.map((i) => i.role)).toEqual([
+    expect(arg.directPayload.inputs.map((i) => i.role)).toEqual([
       'product',
       'color_variant',
       'color_variant',
     ]);
   });
 
-  it('passes productName + category from the resolved master into the agent payload', async () => {
+  it('passes productName + category from the resolved master into the direct payload', async () => {
     const { controller, generationService } = makeController();
     const body = {
       productId: PRODUCT_ID,
@@ -153,12 +151,12 @@ describe('ThumbnailEditorController product-bound (async Agent OS)', () => {
     await controller.generate(body, ORGANIZATION_ID);
 
     const arg = generationService.enqueueEditorGeneration.mock.calls[0][0] as {
-      agentPayload: { productName: string; category: string; mode: string; hasStyleReference: boolean };
+      directPayload: { productName: string; category: string; mode: string; hasStyleReference: boolean };
       method: string;
     };
-    expect(arg.agentPayload.productName).toBe('Sample product');
-    expect(arg.agentPayload.category).toBe('toys');
-    expect(arg.agentPayload.mode).toBe('creative');
+    expect(arg.directPayload.productName).toBe('Sample product');
+    expect(arg.directPayload.category).toBe('toys');
+    expect(arg.directPayload.mode).toBe('creative');
     expect(arg.method).toBe('creative');
   });
 });

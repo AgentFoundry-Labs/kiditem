@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type React from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import DetailPagePreview from './DetailPagePreview';
 
@@ -96,6 +96,10 @@ const mobilePreviewData = {
 };
 
 describe('DetailPagePreview', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it('shows an empty state when the workspace has history but no saved current detail page', () => {
     renderWithQueryClient(
       <DetailPagePreview
@@ -358,5 +362,27 @@ describe('DetailPagePreview', () => {
         expect.stringContaining('등록 미리보기 상세 본문'),
       );
     });
+  });
+
+  it('opens download options before rendering the preview image', () => {
+    renderWithQueryClient(
+      <DetailPagePreview
+        productId="candidate-1"
+        detailPreviewHtml="<html><body><p>다운로드 가능한 상세페이지</p></body></html>"
+        editedHtml={null}
+        templateCss=""
+        hasSavedDetailPage
+        initialAgentHistory={[]}
+        generationHistoryQueryEnabled={false}
+        detailEditorSourceCandidateId="candidate-1"
+        detailEditorReturnHref="/product-pipeline/collected-products/candidate-1"
+        mobilePreviewData={mobilePreviewData}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /이미지 다운로드|JPEG 다운로드/ }));
+
+    expect(screen.getByText('다운로드 옵션')).toBeInTheDocument();
+    expect(apiClient.fetchRaw).not.toHaveBeenCalled();
   });
 });

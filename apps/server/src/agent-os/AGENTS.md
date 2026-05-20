@@ -103,5 +103,7 @@ organization:
 npm run seed:agent-os
 ```
 
-The seed reads `AGENT_<TYPE>_MODEL` or `AGENT_DEFAULT_MODEL` and throws if no
-model is configured.
+The seed reads `AGENT_<TYPE>_MODEL` or `AGENT_DEFAULT_MODEL` for the primary
+model and any code-owned auxiliary `AGENT_*` model envs declared by the
+definition. It throws if any required Agent OS model is missing. Agent runtime
+model plans do not fall back to direct `AI_*` provider defaults.

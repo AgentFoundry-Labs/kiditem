@@ -42,7 +42,6 @@ function mapSourceToHref(source: string): string {
   if (source === 'advertising.ad_strategy.manual') return '/ad-ops';
   if (source === 'sourcing.scrape_url') return '/product-pipeline/collected-products';
   if (
-    source === 'ai.thumbnail_auto_edit' ||
     source === 'ai.thumbnail_generate' ||
     source === 'thumbnail_generate'
   ) {

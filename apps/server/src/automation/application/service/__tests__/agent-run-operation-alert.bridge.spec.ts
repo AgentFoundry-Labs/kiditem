@@ -145,7 +145,6 @@ describe('AgentRunOperationAlertBridge', () => {
     { source: 'ai.image_edit', href: '/product-pipeline/registered-products?contentType=image' },
     { source: 'advertising.ad_strategy.manual', href: '/ad-ops' },
     { source: 'sourcing.scrape_url', href: '/product-pipeline/collected-products' },
-    { source: 'ai.thumbnail_auto_edit', href: '/product-pipeline/thumbnail-generation' },
     { source: 'ai.thumbnail_generate', href: '/product-pipeline/thumbnail-generation' },
     { source: 'thumbnail_generate', href: '/product-pipeline/thumbnail-generation' },
     { source: 'rules.evaluation', href: '/dashboard' },
