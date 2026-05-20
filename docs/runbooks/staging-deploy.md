@@ -258,7 +258,8 @@ volumes. If a pull still fails with `no space left on device` after that
 cleanup, the script keeps the current staging stack up and stops before the
 image swap. Free disk, grow the EC2 root volume, or slim the API image before
 retrying. Only set `ALLOW_STAGING_DOWNTIME_FOR_SPACE=1` for an explicitly
-approved downtime deploy.
+approved downtime deploy. In GitHub Actions, use the
+`allow_downtime_for_space` workflow input for that staging-only retry.
 
 Workflow actions are pinned to commit SHA with the tag version left as a YAML
 comment. When upgrading an action, resolve the new tag SHA with

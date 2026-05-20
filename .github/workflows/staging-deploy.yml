@@ -21,6 +21,11 @@ on:
         required: false
         type: boolean
         default: false
+      allow_downtime_for_space:
+        description: Stop the current staging stack if image pull needs active-layer disk space.
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: staging
@@ -449,6 +454,7 @@ jobs:
           GIT_SHA: ${{ needs.prepare.outputs.git_sha }}
           APP_VERSION: ${{ needs.prepare.outputs.app_version }}
           GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ALLOW_STAGING_DOWNTIME_FOR_SPACE: ${{ inputs.allow_downtime_for_space && '1' || '0' }}
         run: |
           set -euo pipefail
           : "${STAGING_HOST:?Set staging variable STAGING_HOST}"
@@ -475,6 +481,7 @@ jobs:
           export GITHUB_RUN_ID=$(q "$GITHUB_RUN_ID")
           export GITHUB_RUN_ATTEMPT=$(q "$GITHUB_RUN_ATTEMPT")
           export GITHUB_RUN_URL=$(q "$GITHUB_RUN_URL")
+          export ALLOW_STAGING_DOWNTIME_FOR_SPACE=$(q "$ALLOW_STAGING_DOWNTIME_FOR_SPACE")
           ./deploy/staging/remote-deploy.sh deploy
           REMOTE
 

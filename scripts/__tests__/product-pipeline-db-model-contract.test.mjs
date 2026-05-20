@@ -126,8 +126,12 @@ describe('product pipeline DB model contract', () => {
   });
 
   it('keeps the current staging stack up when image pull cleanup still runs out of disk', () => {
+    const workflow = readModelFile('.github/workflows/staging-deploy.yml');
     const remoteDeploy = readModelFile('deploy/staging/remote-deploy.sh');
 
+    assert.match(workflow, /allow_downtime_for_space:/);
+    assert.match(workflow, /ALLOW_STAGING_DOWNTIME_FOR_SPACE:\s*\$\{\{ inputs\.allow_downtime_for_space && '1' \|\| '0' \}\}/);
+    assert.match(workflow, /export ALLOW_STAGING_DOWNTIME_FOR_SPACE=\$\(q "\$ALLOW_STAGING_DOWNTIME_FOR_SPACE"\)/);
     assert.match(remoteDeploy, /ALLOW_STAGING_DOWNTIME_FOR_SPACE/);
     assert.match(remoteDeploy, /Refusing to stop the running staging stack/);
     assert.match(remoteDeploy, /Set ALLOW_STAGING_DOWNTIME_FOR_SPACE=1/);
