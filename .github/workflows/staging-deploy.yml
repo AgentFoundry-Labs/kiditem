@@ -242,6 +242,9 @@ jobs:
             --no-audit \
             --no-fund
 
+      - name: Generate Prisma client for data migrations
+        run: npx prisma generate
+
       - name: Run pre-schema data migrations
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
