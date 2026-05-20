@@ -243,7 +243,12 @@ jobs:
             --no-fund
 
       - name: Generate Prisma client for data migrations
-        run: npx prisma generate
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
+          npx prisma generate
 
       - name: Run pre-schema data migrations
         env:
