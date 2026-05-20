@@ -19,6 +19,21 @@ export interface StartOperationAlertInput {
   metadata?: Record<string, unknown>;
 }
 
+export interface OperationLifecyclePatch {
+  message?: string | null;
+  href?: string | null;
+  progress?: number | null;
+  severity?: OperationAlertSeverity;
+  metadata?: Record<string, unknown>;
+}
+
 export interface OperationAlertPort {
   start(input: StartOperationAlertInput): Promise<unknown>;
+  closeBySource(
+    organizationId: string,
+    sourceType: string,
+    sourceId: string,
+    status: 'succeeded' | 'failed' | 'cancelled',
+    patch?: OperationLifecyclePatch,
+  ): Promise<unknown>;
 }

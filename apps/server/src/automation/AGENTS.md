@@ -50,13 +50,15 @@ POST /api/workflows/:id/run
   -> WorkflowOrchestrationService.triggerRun
   -> create WorkflowRun(pending)
   -> WorkflowRunnerService.runWorkflow(...)
-  -> execute slim-core DAG nodes
+  -> execute deterministic slim-core DAG nodes
   -> record steps + terminal status
   -> emit panel upsert
 ```
 
-AI work inside workflows delegates through `agent_task.create` and Agent OS.
-Workflow nodes do not call LLM/provider SDKs directly.
+Workflow nodes do not call LLM/provider SDKs and do not create Agent OS runs.
+If LLM judgment is required, the entrypoint starts in Agent OS; Agent OS may
+call automation through published incoming ports or registered workflow
+capabilities.
 
 ## Cross-Domain Ports
 
@@ -76,7 +78,10 @@ Workflow nodes do not call LLM/provider SDKs directly.
 - Panel code is a read-only SSE projection over owner-domain events; it must not
   mutate owner rows, infer fallback links, or perform provider/filesystem work.
 - Workflow runner executors are slim-core and allowlisted; no generic DB, HTTP,
-  LLM, transform, or action executor without a domain contract.
+  Agent, LLM, transform, or action executor without a domain contract.
+- `agent_task.create` is forbidden in automation. Keep
+  `automation-agent-os-boundary.spec.ts` red if any automation code imports
+  Agent OS runtime contracts.
 - Client/template JSON never supplies trusted `organizationId`,
   `_workflow_run_id`, or `_workflow_node_id`; the runner re-binds trusted scope.
 

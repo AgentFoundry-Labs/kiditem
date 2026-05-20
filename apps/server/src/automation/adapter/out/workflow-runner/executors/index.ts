@@ -1,16 +1,12 @@
 import { PrismaService } from '../../../../../prisma/prisma.service';
-import type { AgentRunnerPort } from '../../../../../agent-os/application/port/in/agent-runner.port';
 import { WorkflowContext } from '../../../../domain/service/workflow-context';
 
 /**
- * Executor-visible service handles. The slim-core surface only exposes
- * Agent OS delegation; new executors that need other infrastructure
- * (channels, finance, etc.) must be added explicitly here so the
- * dependency surface stays auditable.
+ * Executor-visible service handles. Automation's slim-core surface is
+ * deterministic; new executors that need infrastructure must be added
+ * explicitly here so the dependency surface stays auditable.
  */
-export interface ExecutorServices {
-  agentRunner?: AgentRunnerPort;
-}
+export interface ExecutorServices {}
 
 type NodeExecutorFn = (
   prisma: PrismaService,

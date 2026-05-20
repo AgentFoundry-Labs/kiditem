@@ -6,15 +6,14 @@
 //
 // Mirrors the slim server-side executor surface in
 // `apps/server/src/workflows/executors/builtin.ts`. The workflow engine is a
-// DAG runner + run/panel recorder + Agent delegation shell. AI/LLM work goes
-// through `agent_task.create` only — there is no generic `ai_process`,
+// deterministic DAG runner + run/panel recorder. LLM work starts in Agent OS;
+// automation does not create Agent OS runs. There is no generic `ai_process`,
 // `api_call`, `data_transform`, etc. anymore.
 export type NodeType =
   | 'trigger.manual'
   | 'trigger.schedule'
   | 'condition.evaluate'
-  | 'notification.alert'
-  | 'agent_task.create';
+  | 'notification.alert';
 
 type ModuleCategory =
   | 'order'       // 주문관리

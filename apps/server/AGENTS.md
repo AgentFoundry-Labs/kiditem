@@ -100,6 +100,10 @@ Read the nearest guide before editing:
 
 - Domain code is pure: no NestJS, Prisma, HTTP/provider SDKs, workflow runtime,
   AgentRegistry, filesystem, or panel/event infrastructure.
+- Domain capability manifests live under `domain/capability/` and use the
+  shared vocabulary in `src/common/capability-manifest.ts` to describe the
+  owner-exposed `resource`, `tool`, `workflow`, and `sink` surface. Manifests do
+  not execute work or bypass owner incoming ports.
 - Reconstructed application services depend on `application/port/out/*`
   contracts for DB, cross-domain, provider, Agent OS, workflow, filesystem,
   event, raw-SQL, transaction, and row-lock boundaries.

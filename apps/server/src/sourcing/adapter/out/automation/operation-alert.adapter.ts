@@ -4,6 +4,7 @@ import {
   type OperationAlertPort as AutomationOperationAlertPort,
 } from '../../../../automation/application/port/in/operation-alert.port';
 import type {
+  OperationLifecyclePatch,
   OperationAlertPort,
   StartOperationAlertInput,
 } from '../../../application/port/out/cross-domain/operation-alert.port';
@@ -17,5 +18,15 @@ export class SourcingOperationAlertAdapter implements OperationAlertPort {
 
   async start(input: StartOperationAlertInput): Promise<void> {
     await this.alerts.start(input);
+  }
+
+  async closeBySource(
+    organizationId: string,
+    sourceType: string,
+    sourceId: string,
+    status: 'succeeded' | 'failed' | 'cancelled',
+    patch: OperationLifecyclePatch = {},
+  ): Promise<unknown> {
+    return this.alerts.closeBySource(organizationId, sourceType, sourceId, status, patch);
   }
 }

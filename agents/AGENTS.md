@@ -1,8 +1,10 @@
 # agents — Python Sourcing Agent Server
 
-`agents/` owns the FastAPI Python runtime used for sourcing/scraping helper
-work. Image edit (`image_edit`) is not owned here; it runs in the NestJS AI
-domain through Agent OS runtime handlers.
+`agents/` owns optional FastAPI Python workers/tools for sourcing helper work
+such as matching, analysis, and ML-heavy pipelines. The default 1688 URL scrape
+runtime is owned by the NestJS sourcing domain through TS Playwright. Image edit
+(`image_edit`) is not owned here; it runs in the NestJS AI domain through Agent
+OS runtime handlers.
 
 ## Folder Map
 
@@ -19,7 +21,7 @@ agents/
 
 - FastAPI server on port 8001
 - `POST /run` with `{ agent_type, input, run_id }`
-- Python sourcing/scraping helper agents
+- Python sourcing helper agents for optional worker/tool paths
 
 ## Runtime Flow
 

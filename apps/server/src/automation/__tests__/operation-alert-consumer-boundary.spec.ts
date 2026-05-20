@@ -46,6 +46,7 @@ describe('operation alert consumer boundary', () => {
       'apps/server/src/finance/adapter/out/automation/',
       'apps/server/src/rules/adapter/out/automation/',
       'apps/server/src/sourcing/adapter/out/automation/',
+      'apps/server/src/agent-os/adapter/out/automation/',
       'apps/server/src/operation-cancellation/',
     ];
     const violators = hits.filter((line) => {
