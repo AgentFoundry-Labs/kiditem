@@ -10,6 +10,7 @@ import type {
 } from '../../../../agent-os/application/port/out/runtime/agent-runtime.port';
 import type { AgentTypeRuntimeHandler } from '../../../../agent-os/application/port/out/runtime/agent-runtime-handler.port';
 import { AgentRuntimeHandlerRegistry } from '../../../../agent-os/application/service/agent-runtime-handler-registry.service';
+import { detectSourcingScrapePlatform } from '../../../domain/sourcing-url';
 
 const DEFAULT_USER_DATA_DIR = '.kiditem/playwright/sourcing';
 const NAVIGATE_TIMEOUT_MS = 30_000;
@@ -204,7 +205,7 @@ export class SourcingPlaywrightRuntimeHandler implements AgentTypeRuntimeHandler
     if (!isRecord(extracted)) return null;
 
     const detailUrl = stringField(extracted._detail_url);
-    if (detailUrl && platform === '1688') {
+    if (detailUrl && platform === '1688' && detectSourcingPlatform(detailUrl) === '1688') {
       const description = await page.evaluate(DETAIL_DESCRIPTION_FETCH, detailUrl);
       if (isRecord(description)) {
         return { ...extracted, ...description };
@@ -216,9 +217,7 @@ export class SourcingPlaywrightRuntimeHandler implements AgentTypeRuntimeHandler
 }
 
 export function detectSourcingPlatform(url: string): '1688' | 'ALIBABA' | null {
-  if (url.includes('1688.com')) return '1688';
-  if (url.includes('alibaba.com')) return 'ALIBABA';
-  return null;
+  return detectSourcingScrapePlatform(url);
 }
 
 export function normalizeScrapedData(

@@ -110,6 +110,35 @@ describe('SourcingScrapeFinalizedBridge', () => {
     );
   });
 
+  it('does not write Alibaba USD extractor prices into costCny', async () => {
+    const repo = makeRepo();
+    const alerts = makeAlerts();
+    const bridge = new SourcingScrapeFinalizedBridge(repo as never, alerts as never);
+
+    await bridge.onAgentRunFinalized({
+      ...BASE_EVENT,
+      output: {
+        ok: true,
+        platform: 'ALIBABA',
+        source_url: 'https://www.alibaba.com/product-detail/item.html',
+        scraped_data: {
+          page_type: 'detail',
+          title: 'Alibaba toy',
+          source_url: 'https://www.alibaba.com/product-detail/item.html',
+          source_platform: 'ALIBABA',
+          price_min: 3.5,
+          currency: 'USD',
+          images: ['https://cdn.example.com/item.jpg'],
+        },
+      },
+    });
+
+    expect(repo.upsertSourced).toHaveBeenCalledWith(expect.objectContaining({
+      sourcePlatform: 'ALIBABA',
+      costCny: null,
+    }));
+  });
+
   it('fails the operation alert and does not create a candidate when runtime output has no scraped data', async () => {
     const repo = makeRepo();
     const alerts = makeAlerts();

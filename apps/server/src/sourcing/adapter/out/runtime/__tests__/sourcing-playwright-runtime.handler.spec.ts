@@ -145,6 +145,9 @@ describe('sourcing Playwright runtime helpers', () => {
     expect(detectSourcingPlatform('https://detail.1688.com/offer/1.html')).toBe('1688');
     expect(detectSourcingPlatform('https://www.alibaba.com/product-detail/item.html')).toBe('ALIBABA');
     expect(detectSourcingPlatform('https://example.com/item.html')).toBeNull();
+    expect(detectSourcingPlatform('https://not1688.com/offer/1.html')).toBeNull();
+    expect(detectSourcingPlatform('https://evil.example/item?q=alibaba.com')).toBeNull();
+    expect(detectSourcingPlatform('http://127.0.0.1:3000/?next=1688.com')).toBeNull();
   });
 
   it('normalizes extension extractor output for the finalized bridge', () => {

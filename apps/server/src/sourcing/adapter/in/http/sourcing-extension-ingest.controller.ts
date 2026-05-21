@@ -9,6 +9,7 @@ import {
   RegisterManualProductDto,
   ReceiveExtensionDataDto,
   ScrapeUrlBodyDto,
+  ScrapeUrlStatusQueryDto,
 } from './dto';
 
 @Controller('sourcing')
@@ -50,6 +51,14 @@ export class SourcingExtensionIngestController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.sourcingService.scrapeUrl(body.url.trim(), organizationId, user.id);
+  }
+
+  @Get('scrape-url/status')
+  scrapeUrlStatus(
+    @Query() query: ScrapeUrlStatusQueryDto,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.sourcingService.scrapeUrlStatus(query.url.trim(), organizationId);
   }
 
   @Get('extension/products')

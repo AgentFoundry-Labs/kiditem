@@ -19,6 +19,7 @@ import type {
   RegisterManualProductCommand,
 } from '../port/in/sourcing.commands';
 import type { ProductGenerationTask } from '../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
+import { detectSourcingScrapePlatform } from '../../domain/sourcing-url';
 import { buildProductBasics } from './product-basics.presenter';
 import { ProductPreparationSelectionService } from './product-preparation-selection.service';
 
@@ -372,6 +373,26 @@ export class SourcingService {
       candidateId: null,
       product_id: null,
       href: null,
+    };
+  }
+
+  async scrapeUrlStatus(url: string, organizationId: string) {
+    const existing = await this.candidates.findActiveBySourceUrl({
+      organizationId,
+      sourceUrl: url,
+    });
+    if (existing) {
+      return {
+        status: 'collected' as const,
+        candidateId: existing.id,
+        href: collectedCandidateHref(existing.id),
+      };
+    }
+    return {
+      status: 'available' as const,
+      candidateId: null,
+      href: null,
+      platform: detectSourcingScrapePlatform(url),
     };
   }
 

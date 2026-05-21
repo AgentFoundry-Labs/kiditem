@@ -136,7 +136,7 @@ export class SourcingScrapeFinalizedBridge {
       tags: Array.isArray(scraped.tags) ? scraped.tags.filter((tag): tag is string => typeof tag === 'string') : [],
       thumbnailUrl: images[0] ?? null,
       imageUrl: images[0] ?? null,
-      costCny: this.extractCostCny(scraped),
+      costCny: this.extractCostCny(scraped, platform),
       triggeredByUserId: event.requestedByUserId,
       images: images.map((url, index) => ({
         url,
@@ -194,7 +194,11 @@ export class SourcingScrapeFinalizedBridge {
     });
   }
 
-  private extractCostCny(data: Record<string, unknown>): number | null {
+  private extractCostCny(data: Record<string, unknown>, platform: string): number | null {
+    const currency = nonEmptyString(data.currency)?.toUpperCase();
+    if (currency && currency !== 'CNY') return null;
+    if (!currency && platform !== 'ALIBABA_1688') return null;
+
     for (const key of ['price', 'price_min']) {
       const value = data[key];
       if (value != null) {

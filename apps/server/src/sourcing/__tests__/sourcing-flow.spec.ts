@@ -391,6 +391,41 @@ describe('SourcingService — candidate ingest', () => {
     }));
   });
 
+  it('scrapeUrlStatus returns a collected state and link for duplicate sourceUrl', async () => {
+    repo.findActiveBySourceUrl.mockResolvedValueOnce({
+      id: 'candidate-1',
+      organizationId: 'org-1',
+      sourceUrl: 'https://1688.com/item/1',
+      sourcePlatform: 'ALIBABA_1688',
+      rawData: {},
+      name: '이미 수집된 상품',
+      description: '',
+      category: null,
+      tags: [],
+      thumbnailUrl: null,
+      imageUrl: null,
+      costCny: null,
+      status: 'sourced',
+      promotedMasterId: null,
+      rejectedReason: null,
+      rejectedAt: null,
+      rejectedByUserId: null,
+      triggeredByUserId: 'user-1',
+      isDeleted: false,
+      deletedAt: null,
+      createdAt: new Date('2026-05-17T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-17T00:00:00.000Z'),
+    });
+
+    const result = await service.scrapeUrlStatus('https://1688.com/item/1', 'org-1');
+
+    expect(result).toEqual({
+      status: 'collected',
+      candidateId: 'candidate-1',
+      href: '/product-pipeline/collected-products/candidate-1',
+    });
+  });
+
   it('getProduct findById null → NotFoundException', async () => {
     repo.findById.mockResolvedValueOnce(null);
     await expect(service.getProduct('cand-x', 'org-1')).rejects.toThrow('Sourcing candidate not found');
