@@ -40,6 +40,7 @@ import type { ReadinessCheck, ReadinessResponse } from '@kiditem/shared/readines
 import { useAdSync } from '@/app/(advertising)/ad-ops/hooks/useAdSync';
 
 const SESSION_DISMISSED_KEY = 'kiditem.readiness.dismissed';
+const TODAY_DISMISSED_KEY = 'kiditem.readiness.dismissedDate';
 
 type ExtensionMessageResponse = {
   success?: boolean;
@@ -104,6 +105,46 @@ function formatRelative(iso: string | null): string {
 function formatShortDate(ymd: string): string {
   const [, m, d] = ymd.split('-');
   return `${parseInt(m, 10)}/${parseInt(d, 10)}`;
+}
+
+function getLocalDateKey(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function isDismissedForToday(): boolean {
+  try {
+    return window.localStorage.getItem(TODAY_DISMISSED_KEY) === getLocalDateKey();
+  } catch {
+    return false;
+  }
+}
+
+function markDismissedForToday() {
+  try {
+    window.localStorage.setItem(TODAY_DISMISSED_KEY, getLocalDateKey());
+  } catch {
+    // Storage can be unavailable in private/browser-restricted contexts.
+  }
+  markDismissedForSession();
+}
+
+function isDismissedForSession(): boolean {
+  try {
+    return window.sessionStorage.getItem(SESSION_DISMISSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function markDismissedForSession() {
+  try {
+    window.sessionStorage.setItem(SESSION_DISMISSED_KEY, '1');
+  } catch {
+    // Storage can be unavailable in private/browser-restricted contexts.
+  }
 }
 
 function DateStrip({
@@ -402,15 +443,20 @@ export default function ReadinessModal({
     if (isControlled) return; // 외부 controlled 면 auto-open 비활성화
     if (!query.data) return;
     if (!shouldAutoOpen(query.data, autoOpenWhen)) return;
-    const dismissed = sessionStorage.getItem(SESSION_DISMISSED_KEY);
-    if (autoOpenWhen === 'anyIssue' && dismissed) return;
+    if (isDismissedForToday()) return;
+    if (isDismissedForSession()) return;
     setInternalOpen(true);
   }, [query.data, isControlled, autoOpenWhen]);
 
   const close = () => {
     if (!isControlled) {
-      sessionStorage.setItem(SESSION_DISMISSED_KEY, '1');
+      markDismissedForSession();
     }
+    setOpen(false);
+  };
+
+  const dismissToday = () => {
+    markDismissedForToday();
     setOpen(false);
   };
 
@@ -968,12 +1014,16 @@ export default function ReadinessModal({
 
         {/* Footer */}
         <div className="flex items-center justify-between gap-3 border-t border-[var(--border-subtle)] bg-[var(--surface)] px-6 py-4">
-          <button
-            onClick={close}
-            className="text-sm text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-secondary)]"
-          >
-            나중에
-          </button>
+          {!isControlled ? (
+            <button
+              onClick={dismissToday}
+              className="text-sm font-medium text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-secondary)]"
+            >
+              오늘 하루 보지 않기
+            </button>
+          ) : (
+            <span />
+          )}
           <div className="flex items-center gap-2">
             <button
               onClick={close}
