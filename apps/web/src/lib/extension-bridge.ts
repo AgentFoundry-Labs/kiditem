@@ -1,4 +1,5 @@
 export const KIDITEM_EXTENSION_ID_KEY = 'kiditem-ext-id';
+export const KIDITEM_SOURCING_EXTENSION_ID_KEY = 'kiditem-sourcing-ext-id';
 
 type ChromeRuntime = {
   runtime?: {
@@ -38,13 +39,26 @@ export function sendToExtension<TResponse = unknown>(
   });
 }
 
-export async function detectExtensionId(timeoutMs = 1200): Promise<string | null> {
+type ExtensionPingResponse = {
+  success?: boolean;
+  capabilities?: Record<string, unknown>;
+};
+
+type DetectExtensionOptions = {
+  storageKey: string;
+  requestType: string;
+  responseType: string;
+  timeoutMs: number;
+  accepts: (response: ExtensionPingResponse) => boolean;
+};
+
+async function detectExtensionIdWithHandshake(options: DetectExtensionOptions): Promise<string | null> {
   if (typeof window === 'undefined') return null;
 
   const tryPing = async (id: string): Promise<boolean> => {
     try {
-      const response = await sendToExtension<{ success?: boolean }>(id, { action: 'ping' });
-      return !!response?.success;
+      const response = await sendToExtension<ExtensionPingResponse>(id, { action: 'ping' });
+      return !!response?.success && options.accepts(response);
     } catch {
       return false;
     }
@@ -52,7 +66,7 @@ export async function detectExtensionId(timeoutMs = 1200): Promise<string | null
 
   let stored: string | null = null;
   try {
-    stored = window.localStorage.getItem(KIDITEM_EXTENSION_ID_KEY);
+    stored = window.localStorage.getItem(options.storageKey);
   } catch {
     stored = null;
   }
@@ -63,7 +77,7 @@ export async function detectExtensionId(timeoutMs = 1200): Promise<string | null
     const onMessage = (event: MessageEvent) => {
       const data = event.data as { type?: string; extensionId?: string } | null;
       if (event.source !== window || event.origin !== window.location.origin) return;
-      if (!data || data.type !== 'kiditem:ext-id' || !data.extensionId) return;
+      if (!data || data.type !== options.responseType || !data.extensionId) return;
       if (done) return;
       done = true;
       window.removeEventListener('message', onMessage);
@@ -72,7 +86,7 @@ export async function detectExtensionId(timeoutMs = 1200): Promise<string | null
 
     window.addEventListener('message', onMessage);
     try {
-      window.postMessage({ type: 'kiditem:request-ext-id' }, window.location.origin);
+      window.postMessage({ type: options.requestType }, window.location.origin);
     } catch {
       /* noop */
     }
@@ -81,16 +95,36 @@ export async function detectExtensionId(timeoutMs = 1200): Promise<string | null
       done = true;
       window.removeEventListener('message', onMessage);
       resolve(null);
-    }, timeoutMs);
+    }, options.timeoutMs);
   });
 
   if (fromHandshake && (await tryPing(fromHandshake))) {
     try {
-      window.localStorage.setItem(KIDITEM_EXTENSION_ID_KEY, fromHandshake);
+      window.localStorage.setItem(options.storageKey, fromHandshake);
     } catch {
       /* noop */
     }
     return fromHandshake;
   }
   return null;
+}
+
+export async function detectExtensionId(timeoutMs = 1200): Promise<string | null> {
+  return detectExtensionIdWithHandshake({
+    storageKey: KIDITEM_EXTENSION_ID_KEY,
+    requestType: 'kiditem:request-ext-id',
+    responseType: 'kiditem:ext-id',
+    timeoutMs,
+    accepts: () => true,
+  });
+}
+
+export async function detectSourcingExtensionId(timeoutMs = 1200): Promise<string | null> {
+  return detectExtensionIdWithHandshake({
+    storageKey: KIDITEM_SOURCING_EXTENSION_ID_KEY,
+    requestType: 'kiditem:request-sourcing-ext-id',
+    responseType: 'kiditem:sourcing-ext-id',
+    timeoutMs,
+    accepts: (response) => response.capabilities?.sourcingProductScraper === true,
+  });
 }

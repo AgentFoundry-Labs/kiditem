@@ -14,6 +14,7 @@ import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
 import type { JWTPayload, JWTVerifyGetKey } from 'jose';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SOURCING_EXTENSION_TOKEN_PREFIX } from '../sourcing-extension-token.service';
 
 @Injectable()
 export class SupabaseAuthMiddleware implements NestMiddleware {
@@ -37,8 +38,10 @@ export class SupabaseAuthMiddleware implements NestMiddleware {
   }
 
   async use(req: Request, _res: Response, next: NextFunction): Promise<void> {
+    if (req.authUser) return next();
     const token = extractBearerToken(req);
     if (!token) return next();
+    if (token.startsWith(SOURCING_EXTENSION_TOKEN_PREFIX)) return next();
 
     const jose = await this.ensureJose();
     if (!jose || !this.jwks) return next();

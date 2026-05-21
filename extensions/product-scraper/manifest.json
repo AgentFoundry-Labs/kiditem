@@ -8,12 +8,20 @@
     "scripting",
     "storage"
   ],
+  "externally_connectable": {
+    "matches": [
+      "http://localhost:3000/*",
+      "https://staging.merchon.org/*"
+    ]
+  },
   "host_permissions": [
     "https://www.alibaba.com/*",
     "https://korean.alibaba.com/*",
     "https://*.alibaba.com/*",
     "https://*.1688.com/*",
     "https://itemcdn.tmall.com/*",
+    "http://localhost:3000/*",
+    "https://staging.merchon.org/*",
     "http://localhost:4000/*",
     "http://127.0.0.1:4000/*"
   ],
@@ -53,6 +61,15 @@
       "js": ["extractors/1688-bridge.js"],
       "run_at": "document_idle",
       "world": "MAIN"
+    },
+    {
+      "matches": [
+        "http://localhost:3000/*",
+        "https://staging.merchon.org/*"
+      ],
+      "js": ["host-bridge.js"],
+      "run_at": "document_start",
+      "all_frames": false
     }
   ],
   "action": {
