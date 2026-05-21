@@ -656,8 +656,8 @@ describe('WorkflowRunnerService', () => {
             nodeType: 'test.tenant_injection',
             label: 'tenant',
             // Attacker-controlled config trying to coerce a side-effect
-            // executor (e.g. notification.alert / agent_task.create) into
-            // another tenant or forged workflow trace.
+        // executor (e.g. notification.alert) into another tenant or forged
+        // workflow trace.
             config: {
               organization_id: 'attacker-organization',
               _context: { spoofed: true },
@@ -686,68 +686,6 @@ describe('WorkflowRunnerService', () => {
       expect(capturedConfig._context).toEqual({ realRunCtx: 'yes' });
       expect(capturedConfig._workflow_run_id).toBe('run-tenant');
       expect(capturedConfig._workflow_node_id).toBe('n1');
-    });
-
-    it('agent_task.create delegates with runner-trusted organization and workflow metadata', async () => {
-      const agentRunner = {
-        runByType: vi.fn().mockResolvedValue({
-          ok: true,
-          requestId: 'req-1',
-          runId: 'run-agent-1',
-          agentType: 'rules_evaluation',
-          status: 'pending',
-        }),
-      };
-      const runnerWithAgentRunner = new WorkflowRunnerService(
-        prisma as any,
-        { emit: vi.fn() } as any,
-        agentRunner as any,
-      );
-
-      const nodesJson = [
-        {
-          id: 'agent-node',
-          data: {
-            nodeType: 'agent_task.create',
-            label: 'agent',
-            config: {
-              agent_type: 'rules_evaluation',
-              input: { prompt: 'check this' },
-              organization_id: 'attacker-organization',
-              _workflow_run_id: 'spoofed-run',
-              _workflow_node_id: 'spoofed-node',
-              source_data_id: '00000000-0000-0000-0000-000000000001',
-            },
-          },
-          position: { x: 0, y: 0 },
-        },
-      ];
-
-      const template = makeTemplate({
-        nodesJson,
-        edgesJson: [],
-        organizationId: 'organization-owned',
-      });
-      prisma.workflowTemplate.findFirst.mockResolvedValue(template);
-      setupRunTracking('run-agent', {}, 'organization-owned');
-
-      await runnerWithAgentRunner.runWorkflow('run-agent', 'tmpl-1', 'organization-owned');
-
-      expect(agentRunner.runByType).toHaveBeenCalledWith('rules_evaluation', {
-        organizationId: 'organization-owned',
-        sourceType: 'workflow',
-        sourceId: 'run-agent',
-        sourceWorkflowRunId: 'run-agent',
-        sourceWorkflowNodeId: 'agent-node',
-        sourceResourceType: 'data',
-        sourceResourceId: '00000000-0000-0000-0000-000000000001',
-        payload: {
-          prompt: 'check this',
-          _workflow_run_id: 'run-agent',
-          _workflow_node_id: 'agent-node',
-          source_data_id: '00000000-0000-0000-0000-000000000001',
-        },
-      });
     });
 
     it('executor called with resolved config (organization_id injected)', async () => {
@@ -783,18 +721,11 @@ describe('WorkflowRunnerService', () => {
   });
 
   describe('cancellation', () => {
-    it('marks a running workflow run cancelled and cancels linked Agent OS requests', async () => {
+    it('marks a running workflow run cancelled without reaching into Agent OS', async () => {
       const eventEmitter = { emit: vi.fn() };
-      const agentRunner = {
-        cancelByWorkflowRun: vi.fn().mockResolvedValue({
-          cancelledRequests: 2,
-          cancelledRuns: 1,
-        }),
-      };
-      const runnerWithAgentRunner = new WorkflowRunnerService(
+      const runnerWithoutAgentRunner = new WorkflowRunnerService(
         prisma as any,
         eventEmitter as any,
-        agentRunner as any,
       );
       prisma.workflowRun.findFirst.mockResolvedValueOnce(
         makeRun({
@@ -816,7 +747,7 @@ describe('WorkflowRunnerService', () => {
       );
       prisma.workflowRun.updateMany.mockResolvedValue({ count: 1 });
 
-      const result = await runnerWithAgentRunner.cancelRun({
+      const result = await runnerWithoutAgentRunner.cancelRun({
         runId: 'run-1',
         organizationId: 'organization-1',
         actorUserId: 'user-1',
@@ -824,6 +755,8 @@ describe('WorkflowRunnerService', () => {
       });
 
       expect(result.status).toBe('cancelled');
+      expect(result.cancelledAgentRunRequests).toBe(0);
+      expect(result.cancelledAgentRuns).toBe(0);
       expect(prisma.workflowRun.updateMany).toHaveBeenCalledWith({
         where: {
           id: 'run-1',
@@ -848,26 +781,13 @@ describe('WorkflowRunnerService', () => {
           },
         }),
       });
-      expect(agentRunner.cancelByWorkflowRun).toHaveBeenCalledWith({
-        organizationId: 'organization-1',
-        workflowRunId: 'run-1',
-        reason: '사용자 요청',
-        actorUserId: 'user-1',
-      });
     });
 
     it('returns already_terminal when cancellation loses the terminal update race', async () => {
       const eventEmitter = { emit: vi.fn() };
-      const agentRunner = {
-        cancelByWorkflowRun: vi.fn().mockResolvedValue({
-          cancelledRequests: 1,
-          cancelledRuns: 1,
-        }),
-      };
-      const runnerWithAgentRunner = new WorkflowRunnerService(
+      const runnerWithoutAgentRunner = new WorkflowRunnerService(
         prisma as any,
         eventEmitter as any,
-        agentRunner as any,
       );
       prisma.workflowRun.findFirst.mockResolvedValueOnce(
         makeRun({
@@ -878,7 +798,7 @@ describe('WorkflowRunnerService', () => {
       );
       prisma.workflowRun.updateMany.mockResolvedValue({ count: 0 });
 
-      const result = await runnerWithAgentRunner.cancelRun({
+      const result = await runnerWithoutAgentRunner.cancelRun({
         runId: 'run-1',
         organizationId: 'organization-1',
         actorUserId: 'user-1',
@@ -886,7 +806,6 @@ describe('WorkflowRunnerService', () => {
       });
 
       expect(result.status).toBe('already_terminal');
-      expect(agentRunner.cancelByWorkflowRun).not.toHaveBeenCalled();
     });
 
     it('does not move a cancelled run back to running when cancellation wins the start race', async () => {
@@ -1026,19 +945,19 @@ describe('getExecutor (executor registry)', () => {
     expect(getExecutor('trigger.schedule')).toBeDefined();
     expect(getExecutor('condition.evaluate')).toBeDefined();
     expect(getExecutor('notification.alert')).toBeDefined();
-    expect(getExecutor('agent_task.create')).toBeDefined();
   });
 
   it.each([
     // Removed generic executors — the workflow engine is not a generic
-    // DB / HTTP / transform / LLM engine. AI work goes through
-    // `agent_task.create` only.
+    // DB / HTTP / transform / LLM engine. LLM work starts in Agent OS, which
+    // may call deterministic workflows.
     'internal.db_query',
     'api_call',
     'action',
     'data_transform',
     'data.filter',
     'ai_process',
+    'agent_task.create',
     // Removed legacy aliases — surviving templates that still reference
     // these names must fail with "No executor for node type ..." so the
     // regression is visible in WorkflowRun.error.

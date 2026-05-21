@@ -184,6 +184,7 @@ export const queryKeys = {
     list: (params: Record<string, string>) => [...queryKeys.sourcing.all, 'list', params] as const,
     detail: (id: string) => [...queryKeys.sourcing.all, 'detail', id] as const,
     preview: (id: string) => [...queryKeys.sourcing.all, 'preview', id] as const,
+    scrapeUrlStatus: (url: string) => [...queryKeys.sourcing.all, 'scrape-url-status', url] as const,
   },
   productContent: {
     all: ['content-archive'] as const,

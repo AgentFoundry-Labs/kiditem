@@ -20,6 +20,8 @@ sourcing/
 ├── application/
 │   ├── port/out/           # local outbound ports + transaction handle
 │   └── service/            # use-case orchestration
+├── domain/
+│   └── capability/         # sourcing resource/tool/workflow/sink manifest
 └── __tests__/              # architecture and behavior specs
 ```
 
@@ -75,6 +77,35 @@ status changes, detail-page attachment, and preparation writes.
   `SOURCING_OPERATION_ALERT_PORT`.
 - Supply attach flows must use a supply-owned port such as
   `SUPPLY_ATTACH_PORT`; sourcing must not mutate supply models directly.
+
+## Scrape Runtime
+
+`/api/sourcing/scrape-url` enqueues a `sourcing` Agent OS request. The active
+runtime handler is `SourcingPlaywrightRuntimeHandler`: it opens Playwright
+Chromium with a persistent profile, injects the existing
+`extensions/product-scraper/extractors/*` scripts, and returns scraped JSON in
+the same shape as the extension/Python path used before.
+
+The operator prepares the Playwright profile with any required 1688 or Alibaba
+login session. The runtime does not write sourcing rows directly; candidate
+creation still happens through `SourcingScrapeFinalizedBridge` after Agent OS
+finalization.
+
+## Capability Surface
+
+Sourcing is the first domain adopting the shared capability manifest model. The
+initial manifest lives in `domain/capability/sourcing.capabilities.ts`:
+
+- `sourcing.duplicateCheck` (`resource`) reads existing candidates by URL.
+- `sourcing.scrapeProductUrl` (`tool`) runs the browser/runtime scraper and
+  returns a product snapshot without canonical DB writes.
+- `sourcing.ingestCandidate` (`sink`) validates and persists a candidate.
+- `sourcing.scrapeUrlWorkflow` (`workflow`) composes duplicate-check, scrape,
+  sink, alerting, and candidate-detail routing deterministically.
+
+Capability manifests describe the platform-facing surface only. Agent OS and
+automation must reach sourcing through incoming ports/capability dispatch, not
+by importing sourcing application services directly.
 
 ## Boundary Rules
 

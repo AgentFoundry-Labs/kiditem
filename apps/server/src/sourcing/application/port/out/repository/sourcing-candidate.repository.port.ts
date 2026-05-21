@@ -205,6 +205,12 @@ export interface SourcingCandidateRepositoryPort {
     options?: { timeout?: number },
   ): Promise<T>;
 
+  /** Duplicate-scrape preflight for active collected-product candidates. */
+  findActiveBySourceUrl(input: {
+    organizationId: string;
+    sourceUrl: string;
+  }): Promise<CandidateRow | null>;
+
   /** Idempotent upsert by (organizationId, sourceUrl) where status='sourced' AND is_deleted=false. */
   upsertSourced(input: UpsertCandidateInput): Promise<CandidateRow>;
 

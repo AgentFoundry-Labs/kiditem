@@ -35,7 +35,32 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
     );
   }
 
+  async findActiveBySourceUrl(input: {
+    organizationId: string;
+    sourceUrl: string;
+  }): Promise<CandidateRow | null> {
+    const row = await this.prisma.sourcingCandidate.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        sourceUrl: input.sourceUrl,
+        isDeleted: false,
+        status: { in: ['sourced', 'promoted'] },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+    return row ? toRow(row) : null;
+  }
+
   async upsertSourced(input: UpsertCandidateInput): Promise<CandidateRow> {
+    try {
+      return await this.upsertSourcedInTransaction(input);
+    } catch (err) {
+      if (!isUniqueConstraintError(err)) throw err;
+      return this.upsertSourcedInTransaction(input);
+    }
+  }
+
+  private async upsertSourcedInTransaction(input: UpsertCandidateInput): Promise<CandidateRow> {
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.sourcingCandidate.findFirst({
         where: {

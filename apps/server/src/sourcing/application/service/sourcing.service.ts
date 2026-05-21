@@ -19,6 +19,7 @@ import type {
   RegisterManualProductCommand,
 } from '../port/in/sourcing.commands';
 import type { ProductGenerationTask } from '../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
+import { detectSourcingScrapePlatform } from '../../domain/sourcing-url';
 import { buildProductBasics } from './product-basics.presenter';
 import { ProductPreparationSelectionService } from './product-preparation-selection.service';
 
@@ -46,6 +47,10 @@ const DESCRIPTION_IMAGE_FIELD_KEYS = [
 ] as const;
 
 type FlatExtensionData = ReceiveExtensionDataInput;
+
+function collectedCandidateHref(candidateId: string): string {
+  return `/product-pipeline/collected-products/${encodeURIComponent(candidateId)}`;
+}
 
 @Injectable()
 export class SourcingService {
@@ -330,6 +335,22 @@ export class SourcingService {
   }
 
   async scrapeUrl(url: string, organizationId: string, triggeredByUserId: string | null) {
+    const existing = await this.candidates.findActiveBySourceUrl({
+      organizationId,
+      sourceUrl: url,
+    });
+    if (existing) {
+      return {
+        ok: true,
+        skipped: true,
+        message: '이미 수집된 URL입니다. 기존 수집 상품으로 이동할 수 있습니다.',
+        taskId: null,
+        candidateId: existing.id,
+        product_id: existing.id,
+        href: collectedCandidateHref(existing.id),
+      };
+    }
+
     const result = await this.agentGateway.scrapeUrl({ organizationId, url, triggeredByUserId });
     if (result.requestId) {
       await this.operationAlerts.start({
@@ -344,7 +365,35 @@ export class SourcingService {
         metadata: { agentType: 'sourcing', url },
       });
     }
-    return { ok: true, message: '스크래핑 작업이 대기열에 등록되었습니다.', taskId: result.taskId };
+    return {
+      ok: true,
+      skipped: false,
+      message: '스크래핑 작업이 대기열에 등록되었습니다.',
+      taskId: result.taskId,
+      candidateId: null,
+      product_id: null,
+      href: null,
+    };
+  }
+
+  async scrapeUrlStatus(url: string, organizationId: string) {
+    const existing = await this.candidates.findActiveBySourceUrl({
+      organizationId,
+      sourceUrl: url,
+    });
+    if (existing) {
+      return {
+        status: 'collected' as const,
+        candidateId: existing.id,
+        href: collectedCandidateHref(existing.id),
+      };
+    }
+    return {
+      status: 'available' as const,
+      candidateId: null,
+      href: null,
+      platform: detectSourcingScrapePlatform(url),
+    };
   }
 
   async listProducts(

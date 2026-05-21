@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
-import { AgentOsModule } from '../agent-os/agent-os.module';
 
 // adapter/in/http
 import { ActionTaskController } from './adapter/in/http/action-task.controller';
@@ -30,7 +29,6 @@ import { PanelSseService } from './adapter/out/panel-event/panel-sse.service';
 
 // application/service
 import { ActionBoardService } from './application/service/action-board.service';
-import { AgentRunOperationAlertBridge } from './application/service/agent-run-operation-alert.bridge';
 import { AlertsService } from './application/service/alerts.service';
 import { MarketplaceCatalogService } from './application/service/marketplace-catalog.service';
 import { MarketplaceInstallService } from './application/service/marketplace-install.service';
@@ -39,6 +37,7 @@ import { WorkflowOrchestrationService } from './application/service/workflow-orc
 import { WorkflowRunnerService } from './application/service/workflow-runner.service';
 
 // application/port/in tokens (owner-side publish)
+import { DETERMINISTIC_WORKFLOW_EXECUTION_PORT } from './application/port/in/workflow-execution.port';
 import { OPERATION_ALERT_PORT } from './application/port/in/operation-alert.port';
 import { WORKFLOW_RUN_CANCELLATION_PORT } from './application/port/in/workflow-run-cancellation.port';
 
@@ -69,10 +68,9 @@ import { WORKFLOW_ORCHESTRATION_REPOSITORY_PORT } from './application/port/out/r
  * the follow-up PR will redesign the executor framework so the runner can
  * depend on a port like every other service.
  *
- * Agent execution (definition registry, instance, run request, run, runtime
- * adapter, observability) lives in the sibling `agent-os/` owner domain.
- * `AgentOsModule` is imported so workflow runner nodes
- * (`agent_task.create`) can inject `AGENT_RUNNER_PORT`.
+ * Automation is deterministic. If LLM judgment is required, the entrypoint
+ * starts in `agent-os/`; Agent OS may call automation through published
+ * incoming ports or registered workflow capabilities.
  */
 
 // `application/port/out/*` ports bound to their adapters via `useExisting`
@@ -89,11 +87,12 @@ const OUT_PORT_BINDINGS = [
 // `application/port/in/*` published for cross-owner-domain consumers.
 const IN_PORT_BINDINGS = [
   { provide: OPERATION_ALERT_PORT, useExisting: OperationAlertService },
+  { provide: DETERMINISTIC_WORKFLOW_EXECUTION_PORT, useExisting: WorkflowOrchestrationService },
   { provide: WORKFLOW_RUN_CANCELLATION_PORT, useExisting: WorkflowRunnerService },
 ];
 
 @Module({
-  imports: [PrismaModule, AgentOsModule],
+  imports: [PrismaModule],
   controllers: [
     MarketplaceWorkflowsController,
     MarketplaceAgentsController,
@@ -119,7 +118,6 @@ const IN_PORT_BINDINGS = [
     PanelSseService,
     // application/service
     ActionBoardService,
-    AgentRunOperationAlertBridge,
     AlertsService,
     OperationAlertService,
     MarketplaceCatalogService,
@@ -131,9 +129,9 @@ const IN_PORT_BINDINGS = [
     ...IN_PORT_BINDINGS,
   ],
   exports: [
-    AgentOsModule,
     // Owner-side incoming port for cross-domain consumers
     OPERATION_ALERT_PORT,
+    DETERMINISTIC_WORKFLOW_EXECUTION_PORT,
     WORKFLOW_RUN_CANCELLATION_PORT,
     // Legacy class exports — kept while non-reconstructed consumers
     // still inject these concretely. Operation alerts have moved to the

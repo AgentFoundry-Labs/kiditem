@@ -16,7 +16,8 @@ apps/server
   -> Coupang Wing / channel providers
   -> Gemini / image providers
   -> Claude CLI Agent OS runtime
-  -> Python sourcing/scraping agents
+  -> TS Playwright sourcing browser runtime
+  -> Python worker/tools for analysis-heavy sourcing helpers
 ```
 
 Frontend code never talks to the database directly. All app data flows through
@@ -151,6 +152,7 @@ apps/server/src/{owner}/
   adapter/out/{lane}/     DB/provider/runtime/storage/event adapters
   application/port/in/    incoming use-case ports, when other domains consume them
   application/port/out/   outgoing DB/cross-domain/provider/runtime contracts
+  domain/capability/      resource/tool/workflow/sink manifests, when platform-visible
   application/service/    orchestration, transactions, organization context
   domain/                 pure policy/model/service code
   mapper/                 row/DTO/domain/shared contract mapping
@@ -161,6 +163,27 @@ each DB, provider, runtime, storage, event, workflow, or cross-domain IO lane.
 Optional: `adapter/in/http/` when no HTTP entrypoint exists, `application/port/in/`
 when no other owner consumes the use case, `domain/` when no pure policy/model
 exists yet, and `mapper/` when mapping is trivial.
+
+Domain capability manifests use the shared vocabulary in
+`apps/server/src/common/capability-manifest.ts`. They describe owner-exposed
+`resource`, `tool`, `workflow`, and `sink` surfaces for Agent OS and
+automation, but they do not execute work. Canonical DB writes stay behind
+owner-domain sinks/incoming ports.
+
+Initial domain capability targets:
+
+| Owner | Resources | Tools | Workflows | Sinks |
+|---|---|---|---|---|
+| `sourcing` | Duplicate URL/candidate lookup, candidate read context. | Product URL scrape through browser/runtime, search result scrape. | Duplicate-check → scrape → candidate ingest → alert/detail routing. | Candidate ingest, candidate rejection, candidate promotion handoff. |
+| `ai` | Workspace/generation/detail-page read context. | OCR, image classification, image/text/detail generation, vision analysis. | Media generation jobs and post-promotion content generation. | Generation output projection, asset usage projection, workspace archive. |
+| `finance` | Margin, commission, cost, settlement, and plan lookups. | Margin/category profitability calculations, pandas-style research adapters when needed. | Reconciliation and profitability analysis runs. | Manual ledger entries, settlement/payment projections. |
+| `products` | Master product, option, bundle, preparation, and category reads. | Catalog normalization and compatibility helpers. | Candidate-to-master preparation flows when deterministic. | Master creation/update, option/bundle writes, preparation attachment. |
+| `channels` | Channel account/listing/order/status reads. | Marketplace provider calls, listing validation, Wing/Coupang browser runtime steps. | Product registration/listing sync/reconciliation flows. | Listing registration/update projection, channel order/status ingestion. |
+| `rules` | Rule set and evaluation context reads. | Rule evaluation/suggestion tools that may invoke Agent OS from rules entrypoints. | Scheduled policy sweeps when deterministic. | Rule/action recommendation projection. |
+| `advertising` | Ad account/campaign/daily fact reads. | Scrape ingest normalization, strategy metrics calculations. | Daily fact ingest and deterministic alert workflows. | Ad fact/action/strategy projections. |
+| `supply` | Supplier, supplier-product, and purchase-order reads. | Supplier matching, procurement calculation helpers. | Purchase-order preparation/approval flows. | Supplier attach, purchase-order creation/update. |
+| `inventory` | Stock, warehouse, transfer, audit, and picking reads. | Stock calculation and allocation helpers. | Transfer/audit/picking deterministic flows. | Stock transaction writes; inventory remains the single stock writer. |
+| `orders` | Order, return, CS, review, and return-transfer reads. | Return/CS classification helpers, channel-agnostic order calculations. | Return and CS operational workflows. | Order/return status projections through order-owned commands. |
 
 Flat owner capabilities use this shape:
 
@@ -399,9 +422,10 @@ live under `apps/server/src/agent-os/`; schema ownership is documented in
   `apps/server/src/automation/adapter/in/http/manager.controller.ts`.
 - Business domains depend on Agent OS ports such as `AgentRunnerPort`; they do
   not import runtime services or adapters directly.
-
-Workflow nodes must not call LLMs directly. AI work is delegated through
-`agent_task.create` into Agent OS.
+- Automation workflows are deterministic and must not create Agent OS runs. If
+  LLM judgment is required, the entrypoint starts in Agent OS; Agent OS may call
+  deterministic workflows through automation-owned incoming ports or registered
+  workflow capabilities.
 
 ## Verification Baseline
 

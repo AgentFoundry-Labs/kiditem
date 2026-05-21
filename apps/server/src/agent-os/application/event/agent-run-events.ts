@@ -4,10 +4,10 @@
  * `FINALIZED` fires when `AgentRunExecutor` writes a terminal request state
  * (`succeeded` / `failed`). Most finalized requests have an `AgentRun`, but
  * pre-run validation failures can terminate the request before a run row
- * exists. Listeners outside the agent-os owner domain (eg. the operation-alert
- * bridge in `automation/`, the AI domain detail-page/thumbnail bridges)
- * subscribe to close any per-domain ledger entries linked to the
- * `AgentRunRequest`.
+ * exists. Listeners outside the agent-os owner domain (eg. AI domain
+ * detail-page/thumbnail bridges) and Agent OS adapter bridges to owner
+ * incoming ports subscribe to close any per-domain ledger entries linked to
+ * the `AgentRunRequest`.
  *
  * The bus payload carries:
  *

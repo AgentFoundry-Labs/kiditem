@@ -2,7 +2,6 @@ import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
 import { AutomationModule } from '../automation.module';
 import { PrismaModule } from '../../prisma/prisma.module';
-import { AgentOsModule } from '../../agent-os/agent-os.module';
 
 // adapter/in/http
 import { ActionTaskController } from '../adapter/in/http/action-task.controller';
@@ -32,7 +31,6 @@ import { PanelSseService } from '../adapter/out/panel-event/panel-sse.service';
 
 // application/service
 import { ActionBoardService } from '../application/service/action-board.service';
-import { AgentRunOperationAlertBridge } from '../application/service/agent-run-operation-alert.bridge';
 import { AlertsService } from '../application/service/alerts.service';
 import { MarketplaceCatalogService } from '../application/service/marketplace-catalog.service';
 import { MarketplaceInstallService } from '../application/service/marketplace-install.service';
@@ -42,6 +40,7 @@ import { WorkflowRunnerService } from '../application/service/workflow-runner.se
 
 // port tokens
 import { OPERATION_ALERT_PORT } from '../application/port/in/operation-alert.port';
+import { DETERMINISTIC_WORKFLOW_EXECUTION_PORT } from '../application/port/in/workflow-execution.port';
 import { WORKFLOW_RUN_CANCELLATION_PORT } from '../application/port/in/workflow-run-cancellation.port';
 import { ACTION_BOARD_REPOSITORY_PORT } from '../application/port/out/repository/action-board.repository.port';
 import { ALERTS_REPOSITORY_PORT } from '../application/port/out/repository/alerts.repository.port';
@@ -67,6 +66,7 @@ const EXPECTED_OUT_PORT_BINDINGS = [
 
 const EXPECTED_IN_PORT_BINDINGS = [
   [OPERATION_ALERT_PORT, OperationAlertService],
+  [DETERMINISTIC_WORKFLOW_EXECUTION_PORT, WorkflowOrchestrationService],
   [WORKFLOW_RUN_CANCELLATION_PORT, WorkflowRunnerService],
 ] as const;
 
@@ -75,10 +75,9 @@ const EXPECTED_IN_PORT_BINDINGS = [
 // route prefix, or unbound port fails at vitest time before reaching
 // dev:server boot.
 describe('AutomationModule capability wiring', () => {
-  it('imports exactly Prisma + AgentOs', () => {
+  it('imports only Prisma; Agent OS must call automation, not the reverse', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, AutomationModule) ?? [];
-    expect(imports).toHaveLength(2);
-    expect(new Set(imports)).toEqual(new Set([PrismaModule, AgentOsModule]));
+    expect(imports).toEqual([PrismaModule]);
   });
 
   it('mounts every controller from adapter/in/http', () => {
@@ -122,7 +121,6 @@ describe('AutomationModule capability wiring', () => {
       Reflect.getMetadata(PROVIDERS_KEY, AutomationModule) ?? [];
     for (const cls of [
       ActionBoardService,
-      AgentRunOperationAlertBridge,
       AlertsService,
       OperationAlertService,
       MarketplaceCatalogService,
@@ -158,6 +156,7 @@ describe('AutomationModule capability wiring', () => {
     const exported: unknown[] =
       Reflect.getMetadata(EXPORTS_KEY, AutomationModule) ?? [];
     expect(exported).toContain(OPERATION_ALERT_PORT);
+    expect(exported).toContain(DETERMINISTIC_WORKFLOW_EXECUTION_PORT);
     expect(exported).toContain(WORKFLOW_RUN_CANCELLATION_PORT);
     expect(exported).not.toContain(OperationAlertService);
   });

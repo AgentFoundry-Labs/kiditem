@@ -7,7 +7,6 @@ import {
   Calendar,
   GitBranch,
   Bell,
-  Bot,
   Zap,
   CheckCircle,
   XCircle,
@@ -23,7 +22,6 @@ const nodeTypeIcons: Record<string, ComponentType<{ className?: string; style?: 
   'trigger.schedule': Calendar,
   'condition.evaluate': GitBranch,
   'notification.alert': Bell,
-  'agent_task.create': Bot,
 };
 
 const nodeTypeLabels: Record<string, string> = {
@@ -31,7 +29,6 @@ const nodeTypeLabels: Record<string, string> = {
   'trigger.schedule': 'SCHEDULE',
   'condition.evaluate': 'CONDITION',
   'notification.alert': 'ALERT',
-  'agent_task.create': 'AGENT',
 };
 
 const statusConfig = {

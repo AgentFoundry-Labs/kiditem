@@ -145,11 +145,28 @@ interface StatusResponse {
   error?: string;
 }
 
-interface ScrapeUrlResponse {
+export interface ScrapeUrlResponse {
   ok: boolean;
   message: string;
   product_id: string | null;
+  skipped?: boolean;
+  taskId?: string | null;
+  candidateId?: string | null;
+  href?: string | null;
 }
+
+export type ScrapeUrlStatusResponse =
+  | {
+      status: 'available';
+      candidateId: null;
+      href: null;
+      platform: '1688' | 'ALIBABA' | null;
+    }
+  | {
+      status: 'collected';
+      candidateId: string;
+      href: string;
+    };
 
 /** Coerces backend Decimal/string `costCny` into a plain number. */
 function coerceCostCny(value: unknown): number | null {
@@ -556,6 +573,10 @@ export const productsApi = {
 export const sourcingApi = {
   async scrapeUrl(url: string): Promise<ScrapeUrlResponse> {
     return apiClient.post<ScrapeUrlResponse>(`/api/sourcing/scrape-url`, { url });
+  },
+  async scrapeUrlStatus(url: string): Promise<ScrapeUrlStatusResponse> {
+    const qs = new URLSearchParams({ url });
+    return apiClient.get<ScrapeUrlStatusResponse>(`/api/sourcing/scrape-url/status?${qs}`);
   },
 };
 
