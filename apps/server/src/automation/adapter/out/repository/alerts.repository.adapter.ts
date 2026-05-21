@@ -14,6 +14,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type { AlertItem } from '@kiditem/shared/alerts';
 import type {
   AlertsRepositoryPort,
+  MarkAllAlertsReadResult,
   PromoteAlertCommand,
   PromoteAlertResult,
 } from '../../../application/port/out/repository/alerts.repository.port';
@@ -109,12 +110,27 @@ export class AlertsRepositoryAdapter implements AlertsRepositoryPort {
 
   async markAllAsRead(
     organizationId: string,
-  ): Promise<{ updated: number }> {
-    const result = await this.prisma.alert.updateMany({
+  ): Promise<MarkAllAlertsReadResult> {
+    const unreadAlerts = await this.prisma.alert.findMany({
       where: { organizationId, isRead: false },
-      data: { isRead: true, readAt: new Date() },
     });
-    return { updated: result.count };
+    if (unreadAlerts.length === 0) {
+      return { updated: 0, alerts: [] };
+    }
+    const readAt = new Date();
+    const alertIds = unreadAlerts.map((alert) => alert.id);
+    const result = await this.prisma.alert.updateMany({
+      where: { organizationId, id: { in: alertIds }, isRead: false },
+      data: { isRead: true, readAt },
+    });
+    return {
+      updated: result.count,
+      alerts: unreadAlerts.map((alert) => ({
+        ...alert,
+        isRead: true,
+        readAt,
+      })),
+    };
   }
 
   async promoteAlertToTask(

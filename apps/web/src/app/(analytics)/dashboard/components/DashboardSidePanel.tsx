@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import type { QueryClient } from '@tanstack/react-query';
 import {
@@ -11,6 +11,8 @@ import {
   Truck,
 } from 'lucide-react';
 import { type DashboardAlertItem } from '@kiditem/shared/dashboard';
+import type { PanelAlertItem } from '@kiditem/shared/panel';
+import { usePanelStore } from '@/components/panel/lib/panel-store';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { cancelOperation } from '@/lib/operation-cancellation';
@@ -50,6 +52,30 @@ function isActiveOperation(alert: DashboardAlertItem): boolean {
 function operationKeyOf(alert: DashboardAlertItem): string | null {
   const value = (alert as DashboardAlertItem & { operationKey?: string | null }).operationKey;
   return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+function isPanelAlertItem(item: unknown): item is PanelAlertItem {
+  return typeof item === 'object' && item !== null && (item as { kind?: unknown }).kind === 'alert';
+}
+
+function dashboardAlertFromPanelAlert(item: PanelAlertItem): DashboardAlertItem {
+  return {
+    id: item.id,
+    kind: item.alertKind,
+    status: item.status,
+    type: item.type,
+    severity: item.severity,
+    title: item.title,
+    message: item.message,
+    operationKey: item.operationKey,
+    sourceType: item.sourceType,
+    href: item.href,
+    progress: item.progress,
+    targetType: item.targetType,
+    targetId: item.targetId,
+    isRead: item.isRead,
+    createdAt: item.createdAt,
+  };
 }
 
 function DashboardAlertRow({
@@ -165,9 +191,31 @@ export function DashboardSidePanel({
   alerts: DashboardAlertItem[];
   queryClient: QueryClient;
 }) {
+  const panelById = usePanelStore((state) => state.byId);
+  const panelHasHydrated = usePanelStore((state) => state.hasHydrated);
+  const upsertPanelItem = usePanelStore((state) => state.upsertItem);
+  const panelAlertItems = useMemo(
+    () => Object.values(panelById).filter(isPanelAlertItem),
+    [panelById],
+  );
+  const panelAlerts = useMemo(
+    () => panelAlertItems.map(dashboardAlertFromPanelAlert),
+    [panelAlertItems],
+  );
+  const visibleAlerts = panelHasHydrated ? panelAlerts : alerts;
+  const unreadCount = visibleAlerts.filter((alert) => !alert.isRead).length;
+
   const markAllRead = async () => {
     try {
       await apiClient.patch('/api/alerts/read-all', {});
+      if (panelHasHydrated) {
+        const readAt = new Date().toISOString();
+        for (const item of panelAlertItems) {
+          if (!item.isRead) {
+            upsertPanelItem({ ...item, isRead: true, readAt });
+          }
+        }
+      }
       queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
     } catch {
       // Best-effort notification cleanup. The panel refreshes on the next poll.
@@ -180,23 +228,23 @@ export function DashboardSidePanel({
         <div className="flex items-center gap-1.5">
           <AlertTriangle size={14} className="text-slate-500" />
           <span className="text-sm font-semibold text-slate-900">알림</span>
-          {alerts.length > 0 && (
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-700">{alerts.length}</span>
+          {unreadCount > 0 && (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-700">{unreadCount}</span>
           )}
         </div>
-        {alerts.length > 0 && (
+        {unreadCount > 0 && (
           <button onClick={markAllRead} className="text-xs text-purple-600 font-semibold hover:underline">전체 읽음</button>
         )}
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0">
-        {alerts.map((alert) => (
+        {visibleAlerts.map((alert) => (
           <DashboardAlertRow key={alert.id} alert={alert} queryClient={queryClient} />
         ))}
-        {alerts.length === 0 && (
+        {visibleAlerts.length === 0 && (
           <div className="px-4 py-8 text-center">
             <ShieldCheck size={24} className="mx-auto mb-2 text-emerald-500" />
-            <div className="text-xs text-slate-400">모든 알림을 확인했습니다</div>
+            <div className="text-xs text-slate-400">표시할 알림이 없습니다</div>
           </div>
         )}
       </div>

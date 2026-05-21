@@ -64,12 +64,18 @@ export class AlertsService {
     return this.repository.findUnreadAlerts(organizationId, limit);
   }
 
-  markAsRead(id: string, organizationId: string): Promise<AlertRecord> {
-    return this.repository.markAsRead(id, organizationId);
+  async markAsRead(id: string, organizationId: string): Promise<AlertRecord> {
+    const alert = await this.repository.markAsRead(id, organizationId);
+    this.emitPanelUpsert(alert, organizationId, 'markAsRead');
+    return alert;
   }
 
-  markAllAsRead(organizationId: string): Promise<{ updated: number }> {
-    return this.repository.markAllAsRead(organizationId);
+  async markAllAsRead(organizationId: string): Promise<{ updated: number }> {
+    const result = await this.repository.markAllAsRead(organizationId);
+    for (const alert of result.alerts) {
+      this.emitPanelUpsert(alert, organizationId, 'markAllAsRead');
+    }
+    return { updated: result.updated };
   }
 
   /**
@@ -102,15 +108,7 @@ export class AlertsService {
     });
 
     // Emit AFTER $transaction commit — SSE subscribers observe consistent state
-    try {
-      const item = alertPanelMapper.mapToItem(result.updatedAlert);
-      this.eventEmitter.emit(PANEL_EVENTS.UPSERT, {
-        item,
-        organizationId,
-      });
-    } catch (err) {
-      this.logger.warn('Panel emit failed after promote', err);
-    }
+    this.emitPanelUpsert(result.updatedAlert, organizationId, 'promote');
 
     return result;
   }
@@ -130,6 +128,22 @@ export class AlertsService {
       });
     } catch (err) {
       this.logger.warn('Panel dismiss emit failed', err);
+    }
+  }
+
+  private emitPanelUpsert(
+    alert: AlertRecord,
+    organizationId: string,
+    context: string,
+  ) {
+    try {
+      const item = alertPanelMapper.mapToItem(alert);
+      this.eventEmitter.emit(PANEL_EVENTS.UPSERT, {
+        item,
+        organizationId,
+      });
+    } catch (err) {
+      this.logger.warn(`Panel emit failed after ${context}`, err);
     }
   }
 }

@@ -26,6 +26,11 @@ export interface PromoteAlertResult {
   updatedAlert: AlertRecord;
 }
 
+export interface MarkAllAlertsReadResult {
+  updated: number;
+  alerts: AlertRecord[];
+}
+
 export interface AlertsRepositoryPort {
   findUnreadAlerts(
     organizationId: string,
@@ -34,7 +39,7 @@ export interface AlertsRepositoryPort {
 
   markAsRead(id: string, organizationId: string): Promise<AlertRecord>;
 
-  markAllAsRead(organizationId: string): Promise<{ updated: number }>;
+  markAllAsRead(organizationId: string): Promise<MarkAllAlertsReadResult>;
 
   /**
    * Atomic promotion of an alert to an ActionTask with race guards:
