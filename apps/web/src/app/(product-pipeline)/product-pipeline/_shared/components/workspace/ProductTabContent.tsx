@@ -26,7 +26,7 @@ interface Props {
   editData: ProductEditState;
   basicInfo?: ProductBasics | null;
   updateField: <K extends keyof ProductEditState>(field: K, value: ProductEditState[K]) => void;
-  onCommitBasicInfo?: (input: UpdateProductBasicsInput) => void;
+  onCommitBasicInfo?: (input: UpdateProductBasicsInput) => Promise<void> | void;
   nameLength: number;
   productId: string;
   promotedMasterId: string | null;
@@ -134,6 +134,7 @@ export default function ProductTabContent({
   );
   const [basicDraft, setBasicDraft] = useState(initialBasicDraft);
   const [isBasicEditing, setIsBasicEditing] = useState(false);
+  const [isBasicSaving, setIsBasicSaving] = useState(false);
 
   useEffect(() => {
     if (!isBasicEditing) {
@@ -151,16 +152,23 @@ export default function ProductTabContent({
     setBasicDraft(initialBasicDraft);
     setIsBasicEditing(false);
   };
-  const saveBasicEditing = () => {
+  const saveBasicEditing = async () => {
     const input = productBasicsInputFromDraft(basicDraft);
-    updateField('name', input.name ?? '');
-    updateField('category', input.category ?? '');
-    updateField('tags', input.tags ?? []);
-    updateField('salePrice', input.salePrice ?? 0);
-    updateField('originalPrice', input.originalPrice ?? 0);
-    updateField('discountRate', input.discountRate ?? 0);
-    onCommitBasicInfo?.(input);
-    setIsBasicEditing(false);
+    setIsBasicSaving(true);
+    try {
+      await onCommitBasicInfo?.(input);
+      updateField('name', input.name ?? '');
+      updateField('category', input.category ?? '');
+      updateField('tags', input.tags ?? []);
+      updateField('salePrice', input.salePrice ?? 0);
+      updateField('originalPrice', input.originalPrice ?? 0);
+      updateField('discountRate', input.discountRate ?? 0);
+      setIsBasicEditing(false);
+    } catch {
+      // QueryClient/global error handling shows the API message; keep the draft open.
+    } finally {
+      setIsBasicSaving(false);
+    }
   };
 
   switch (activeTab) {
@@ -180,6 +188,7 @@ export default function ProductTabContent({
                 <button
                   type="button"
                   onClick={saveBasicEditing}
+                  disabled={isBasicSaving}
                   className="h-9 rounded-md bg-emerald-600 px-3 text-xs font-black text-white shadow-sm transition hover:bg-emerald-700"
                 >
                   저장

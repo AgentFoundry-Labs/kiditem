@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AutomationModule } from '../automation/automation.module';
 import { AgentCatalogController } from './adapter/in/http/agent-catalog.controller';
 import { AgentExecutorController } from './adapter/in/http/agent-executor.controller';
 import { AgentRunObservabilityController } from './adapter/in/http/agent-run-observability.controller';
@@ -6,6 +7,7 @@ import { AgentRunRequestsController } from './adapter/in/http/agent-run-requests
 import { AgentRunsQueryController } from './adapter/in/http/agent-runs-query.controller';
 import { AgentOsRepositoryAdapter } from './adapter/out/repository/agent-os.repository.adapter';
 import { FilesystemAgentLogStoreAdapter } from './adapter/out/log-store/filesystem-agent-log-store.adapter';
+import { AgentRunOperationAlertBridge } from './adapter/out/automation/agent-run-operation-alert.bridge';
 import { RoutingRuntimeAdapter } from './adapter/out/runtime/routing-runtime.adapter';
 import { AGENT_LOG_STORE_PORT } from './application/port/out/storage/agent-log-store.port';
 import { AGENT_OS_REPOSITORY_PORT } from './application/port/out/repository/agent-os-repository.port';
@@ -20,6 +22,7 @@ import { AgentRunWorker } from './application/service/agent-run-worker.service';
 import { AgentRuntimeHandlerRegistry } from './application/service/agent-runtime-handler-registry.service';
 
 @Module({
+  imports: [AutomationModule],
   controllers: [
     AgentCatalogController,
     AgentRunRequestsController,
@@ -36,6 +39,7 @@ import { AgentRuntimeHandlerRegistry } from './application/service/agent-runtime
     AgentRunWorker,
     AgentRuntimeHandlerRegistry,
     RoutingRuntimeAdapter,
+    AgentRunOperationAlertBridge,
     { provide: AGENT_RUNNER_PORT, useExisting: AgentRunCoordinator },
     { provide: AGENT_OS_REPOSITORY_PORT, useClass: AgentOsRepositoryAdapter },
     { provide: AGENT_RUNTIME_PORT, useExisting: RoutingRuntimeAdapter },

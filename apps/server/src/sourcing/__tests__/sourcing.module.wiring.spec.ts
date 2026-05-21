@@ -10,6 +10,7 @@ import { SourcingAiWorkspaceArchiveAdapter } from '../adapter/out/ai/workspace-a
 import { SourcingOperationAlertAdapter } from '../adapter/out/automation/operation-alert.adapter';
 import { SourcingProductsCatalogAdapter } from '../adapter/out/products/products-catalog.adapter';
 import { SourcingCandidateRepositoryAdapter } from '../adapter/out/repository/sourcing-candidate.repository.adapter';
+import { SourcingPlaywrightRuntimeHandler } from '../adapter/out/runtime/sourcing-playwright-runtime.handler';
 import { SOURCING_AGENT_GATEWAY_PORT } from '../application/port/out/runtime/sourcing-agent.gateway.port';
 import { SOURCING_AI_WORKSPACE_ARCHIVE_PORT } from '../application/port/out/cross-domain/ai-workspace-archive.port';
 import { SOURCING_OPERATION_ALERT_PORT } from '../application/port/out/cross-domain/operation-alert.port';
@@ -52,6 +53,12 @@ describe('SourcingModule canonical owner wiring', () => {
     expect(providers).toContain(SourcingOperationAlertAdapter);
     expect(providers).toContain(SourcingProductsCatalogAdapter);
     expect(providers).toContain(SourcingCandidateRepositoryAdapter);
+    expect(providers).toContain(SourcingPlaywrightRuntimeHandler);
+    expect(
+      providers.some((provider) =>
+        typeof provider === 'function' && provider.name === 'SourcingPythonRuntimeHandler',
+      ),
+    ).toBe(false);
     const gatewayBinding = providers.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
         typeof p === 'object' && p !== null && (p as any).provide === SOURCING_AGENT_GATEWAY_PORT,

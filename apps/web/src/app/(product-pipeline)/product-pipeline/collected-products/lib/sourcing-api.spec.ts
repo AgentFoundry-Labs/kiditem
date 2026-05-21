@@ -137,6 +137,7 @@ describe('sourcing candidate API', () => {
       selectedDetailPageGenerationId: 'detail-generation-1',
       selectedDetailPageArtifactId: 'artifact-1',
       selectedDetailPageRevisionId: 'revision-1',
+      updatedAt: '2026-05-17T01:00:00.000Z',
     });
   });
 });

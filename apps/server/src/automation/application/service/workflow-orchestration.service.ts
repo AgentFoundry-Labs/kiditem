@@ -8,6 +8,11 @@ import {
   type WorkflowOrchestrationRepositoryPort,
 } from '../port/out/repository/workflow-orchestration.repository.port';
 import type { JsonValue } from '../port/persistence-records';
+import type {
+  DeterministicWorkflowExecutionPort,
+  RunDeterministicWorkflowInput,
+  RunDeterministicWorkflowResult,
+} from '../port/in/workflow-execution.port';
 
 interface CreateWorkflowInput {
   name: string;
@@ -37,7 +42,7 @@ interface TriggerOptions {
 }
 
 @Injectable()
-export class WorkflowOrchestrationService {
+export class WorkflowOrchestrationService implements DeterministicWorkflowExecutionPort {
   private readonly logger = new Logger(WorkflowOrchestrationService.name);
 
   constructor(
@@ -105,6 +110,16 @@ export class WorkflowOrchestrationService {
     });
 
     return run;
+  }
+
+  run(
+    input: RunDeterministicWorkflowInput,
+  ): Promise<RunDeterministicWorkflowResult> {
+    return this.triggerRun(input.templateId, input.organizationId, {
+      triggeredBy: input.triggeredBy ?? 'capability',
+      triggeredByUserId: input.triggeredByUserId ?? undefined,
+      context: input.context,
+    });
   }
 
   async batchRun(templateIds: string[], organizationId: string, options: TriggerOptions = {}) {

@@ -56,8 +56,9 @@ Read the nearest scoped guide before editing:
 
 - Frontend code uses NestJS APIs; no Prisma, `pg`, Supabase client, or direct DB
   clients.
-- Workflows delegate LLM work through `agent_task.create`; they do not call LLMs
-  directly.
+- Automation workflows are deterministic and must not create Agent OS runs. If
+  LLM judgment is required, the entrypoint starts in Agent OS; Agent OS may call
+  deterministic workflow capabilities.
 - Missing model selection is an explicit error; do not use silent
   `model || default` fallback.
 - Prisma uses `String` plus DTO/Zod/domain validation instead of native

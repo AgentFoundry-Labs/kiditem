@@ -34,15 +34,15 @@ const sampleWorkflowCatalog = {
   ...sampleAgentCatalog,
   id: MARKETPLACE_WF_ID,
   type: 'workflow',
-  name: '광고 성과 분석',
-  description: '광고 전략 에이전트에게 분석 위임',
+  name: '광고 성과 알림',
+  description: '정해진 조건을 평가하고 알림을 남김',
   category: 'analytics',
   module: 'analytics',
   role: null,
   adapterType: null,
   nodesJson: [
     { id: '1', type: 'trigger.schedule', config: { cron: '0 9 * * *' } },
-    { id: '2', type: 'agent_task.create', config: { agent_type: 'ad_strategy' } },
+    { id: '2', type: 'condition.evaluate', config: { field: 'spend', operator: 'gte', value: 100000 } },
     { id: '3', type: 'notification.alert', config: { title: '분석 완료' } },
   ],
   edgesJson: [
@@ -132,7 +132,7 @@ describe('Marketplace Workflow CRUD — /api/marketplace/workflows', () => {
       const res = await api().get('/api/marketplace/workflows');
 
       expect(res.status).toBe(200);
-      expect(res.body[0].name).toBe('광고 성과 분석');
+      expect(res.body[0].name).toBe('광고 성과 알림');
       expect(res.body[0].installed).toBe(false);
 
       // installed 판정에 사용되는 workflowTemplate 조회가 organizationId 로 스코프되는지 확인 (multitenancy)

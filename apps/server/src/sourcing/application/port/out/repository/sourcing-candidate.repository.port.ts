@@ -161,6 +161,7 @@ export interface CandidateForPreparationRow {
 export interface PreparationSelectionRow {
   id: string;
   registrationInput: JsonValue;
+  updatedAt: Date;
 }
 
 export interface PreparationThumbnailSelectionRow {
@@ -203,6 +204,12 @@ export interface SourcingCandidateRepositoryPort {
     operation: (tx: SourcingRepositoryTransaction) => Promise<T>,
     options?: { timeout?: number },
   ): Promise<T>;
+
+  /** Duplicate-scrape preflight for active collected-product candidates. */
+  findActiveBySourceUrl(input: {
+    organizationId: string;
+    sourceUrl: string;
+  }): Promise<CandidateRow | null>;
 
   /** Idempotent upsert by (organizationId, sourceUrl) where status='sourced' AND is_deleted=false. */
   upsertSourced(input: UpsertCandidateInput): Promise<CandidateRow>;

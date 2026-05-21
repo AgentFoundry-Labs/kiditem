@@ -158,6 +158,9 @@ same-origin `/api/*` routing.
 | `PORT` | API runtime | Yes | NestJS | `4000` for the API container. |
 | `DATABASE_URL` | API runtime | Yes | Prisma adapter | Main application database URL. |
 | `SUPABASE_URL` | Auth | Yes | Supabase JWT/JWKS middleware | Must match the project issuing browser session cookies. |
+| `SOURCING_EXTENSION_TOKEN_SECRET` | Auth/Sourcing | Yes in production | Sourcing extension ingest token signer | Server-only HMAC secret for short-lived extension ingest tokens. Local dev falls back to an ephemeral boot secret. |
+| `SOURCING_EXTENSION_TOKEN_TTL_SECONDS` | Auth/Sourcing | Optional | Sourcing extension ingest token signer | Defaults to `1800` seconds. |
+| `SOURCING_EXTENSION_TOKEN_MAX_SECONDS` | Auth/Sourcing | Optional | Sourcing extension ingest token signer | Defaults to `86400` seconds, allowing long runs without indefinite credentials. |
 | `CORS_ORIGINS` | API runtime | Yes in production | Nest CORS | Comma-separated public origins. Same-origin `/api/*` still works through nginx. |
 | `API_SELF_URL` | API runtime | Optional | Action board service | Defaults to `http://localhost:4000`. Set if self-calls need the public or container URL. |
 
@@ -280,6 +283,8 @@ The deployed API blocks current Coupang Wing scraping paths when
 | `PLAYWRITER_BROWSER_PROFILE_DIR` | Custom Chrome profile needed | Coupang inventory scrape adapter | Local/operator use. |
 | `PLAYWRITER_DIRECT_PORT` | Custom Chrome CDP port needed | Coupang inventory scrape adapter | Defaults to `9222`. |
 | `PUPPETEER_EXECUTABLE_PATH` | Puppeteer render path uses a non-default browser | Render image controller | Docker server image sets `/usr/bin/chromium`; staging API builds install Chromium and smoke-check Puppeteer launch after deploy. |
+| `SOURCING_PLAYWRIGHT_USER_DATA_DIR` | Sourcing URL scrape needs a prepared browser login session | Sourcing Playwright runtime | Defaults to `.kiditem/playwright/sourcing`. Use a dedicated automation profile, not a personal default Chrome profile. |
+| `SOURCING_PLAYWRIGHT_HEADLESS` | Local sourcing scrape login/profile debugging | Sourcing Playwright runtime | Defaults to `true`; set `false` while preparing or debugging the 1688/Alibaba profile. |
 
 ## Python Agents Runtime
 
@@ -309,17 +314,41 @@ variables apply when running `agents/` as a separate runtime.
 Variables:
 
 ```text
-STAGING_HOST
-STAGING_USER
-STAGING_REMOTE_DIR
-STAGING_URL
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+STAGING_AGENT_DEFAULT_MODEL
+STAGING_AGENT_RUNTIME_WORKER_ENABLED
+STAGING_AI_IMAGE_ANALYSIS_MODEL
+STAGING_AI_IMAGE_ANALYSIS_VERIFY_MODEL
+STAGING_AI_IMAGE_MODEL
+STAGING_AI_TEXT_MODEL
+STAGING_CORS_ORIGINS
+STAGING_DB_BASELINE_BUCKET
+STAGING_DB_BASELINE_PREFIX
+STAGING_DB_BASELINE_S3_ENDPOINT
+STAGING_DB_BASELINE_S3_REGION
+STAGING_HOST
+STAGING_REMOTE_DIR
+STAGING_S3_BUCKET
+STAGING_S3_ENDPOINT
+STAGING_S3_PUBLIC_URL
+STAGING_S3_REGION
+STAGING_SUPABASE_URL
+STAGING_URL
+STAGING_USER
 ```
 
 Secrets:
 
 ```text
+STAGING_CHANNEL_CREDENTIALS_ENCRYPTION_KEY
+STAGING_DATABASE_URL
+STAGING_DB_BASELINE_S3_ACCESS_KEY
+STAGING_DB_BASELINE_S3_SECRET_KEY
+STAGING_DIRECT_URL
+STAGING_GEMINI_API_KEY
+STAGING_S3_ACCESS_KEY
+STAGING_S3_SECRET_KEY
 STAGING_SSH_KEY
 STAGING_SSH_KNOWN_HOSTS
 ```

@@ -1,10 +1,6 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../../prisma/prisma.service';
-import {
-  AGENT_RUNNER_PORT,
-  type AgentRunnerPort,
-} from '../../../agent-os/application/port/in/agent-runner.port';
 import {
   type CancelWorkflowRunInput,
   type CancelWorkflowRunResult,
@@ -69,26 +65,19 @@ function cancelRunningSteps(steps: unknown): unknown[] {
  * Do NOT call the runner from a controller, MQ consumer, or cron handler
  * without first re-verifying tenant scope of the run + template.
  *
- * Agent delegation contract: `agent_task.create` nodes are executed by
- * the slim-core builtin executor, which calls `AgentRunnerPort.runByType`
- * (provided by Agent OS). The runner injects the trusted `organizationId`
- * and the workflow trace into the call so template authors cannot forge a
- * foreign tenant or run id by editing template JSON.
+ * Automation is deterministic. Workflow nodes must not create Agent OS runs.
+ * If LLM judgment is required, the entrypoint starts in Agent OS and Agent OS
+ * may call an automation-owned deterministic workflow capability.
  */
 @Injectable()
 export class WorkflowRunnerService implements WorkflowRunCancellationPort {
   private readonly logger = new Logger(WorkflowRunnerService.name);
-  private readonly executorServices: ExecutorServices;
+  private readonly executorServices: ExecutorServices = {};
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
-    @Optional()
-    @Inject(AGENT_RUNNER_PORT)
-    private readonly agentRunner?: AgentRunnerPort,
-  ) {
-    this.executorServices = { agentRunner: this.agentRunner };
-  }
+  ) {}
 
   private async emitPanelUpsert(runId: string, organizationId: string): Promise<void> {
     try {
@@ -159,18 +148,11 @@ export class WorkflowRunnerService implements WorkflowRunCancellationPort {
       };
     }
 
-    const agentCancel = await this.agentRunner?.cancelByWorkflowRun?.({
-      organizationId: input.organizationId,
-      workflowRunId: input.runId,
-      reason,
-      actorUserId: input.actorUserId,
-    });
-
     return {
       status: 'cancelled',
       workflowRunId: input.runId,
-      cancelledAgentRunRequests: agentCancel?.cancelledRequests ?? 0,
-      cancelledAgentRuns: agentCancel?.cancelledRuns ?? 0,
+      cancelledAgentRunRequests: 0,
+      cancelledAgentRuns: 0,
     };
   }
 

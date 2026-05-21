@@ -2,6 +2,143 @@ import { describe, expect, it, vi } from 'vitest';
 import { SourcingCandidateRepositoryAdapter } from '../sourcing-candidate.repository.adapter';
 
 describe('SourcingCandidateRepositoryAdapter', () => {
+  it('retries sourced candidate create races by updating the concurrently created candidate', async () => {
+    const racedCandidate = {
+      id: 'candidate-1',
+      organizationId: 'org-1',
+      sourceUrl: 'https://1688.com/item/1',
+      sourcePlatform: 'ALIBABA_1688',
+      rawData: { old: true },
+      name: 'Updated toy',
+      description: 'updated',
+      category: null,
+      tags: [],
+      thumbnailUrl: 'https://cdn.example.com/item.jpg',
+      imageUrl: 'https://cdn.example.com/item.jpg',
+      costCny: 12.5,
+      status: 'sourced',
+      promotedMasterId: null,
+      rejectedReason: null,
+      rejectedAt: null,
+      rejectedByUserId: null,
+      triggeredByUserId: 'user-1',
+      isDeleted: false,
+      deletedAt: null,
+      createdAt: new Date('2026-05-17T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-17T00:01:00.000Z'),
+    };
+    const tx1 = {
+      sourcingCandidate: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockRejectedValue({
+          code: 'P2002',
+          meta: { target: ['organizationId', 'sourceUrl'] },
+        }),
+      },
+    };
+    const tx2 = {
+      sourcingCandidate: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'candidate-1', rawData: { old: true } }),
+        update: vi.fn().mockResolvedValue(racedCandidate),
+      },
+      candidateImage: {
+        count: vi.fn().mockResolvedValue(0),
+        createMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const prisma = {
+      $transaction: vi.fn()
+        .mockImplementationOnce(async (callback: (tx: typeof tx1) => Promise<unknown>) => callback(tx1))
+        .mockImplementationOnce(async (callback: (tx: typeof tx2) => Promise<unknown>) => callback(tx2)),
+    };
+    const repository = new SourcingCandidateRepositoryAdapter(prisma as never);
+
+    const row = await repository.upsertSourced({
+      organizationId: 'org-1',
+      sourceUrl: 'https://1688.com/item/1',
+      sourcePlatform: 'ALIBABA_1688',
+      rawData: { title: 'Updated toy' },
+      name: 'Updated toy',
+      description: 'updated',
+      category: null,
+      tags: [],
+      thumbnailUrl: 'https://cdn.example.com/item.jpg',
+      imageUrl: 'https://cdn.example.com/item.jpg',
+      costCny: 12.5,
+      triggeredByUserId: 'user-1',
+      images: [{
+        url: 'https://cdn.example.com/item.jpg',
+        role: 'product',
+        label: null,
+        sortOrder: 0,
+        source: 'sourcing-scrape-url',
+        isPrimary: true,
+      }],
+    });
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(tx2.sourcingCandidate.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'candidate-1' },
+      data: expect.objectContaining({
+        rawData: { old: true, title: 'Updated toy' },
+        name: 'Updated toy',
+      }),
+    }));
+    expect(row).toMatchObject({ id: 'candidate-1', sourceUrl: 'https://1688.com/item/1' });
+  });
+
+  it('findActiveBySourceUrl returns a non-deleted sourced or promoted candidate for duplicate-scrape preflight', async () => {
+    const row = {
+      id: 'candidate-1',
+      organizationId: 'org-1',
+      sourceUrl: 'https://1688.com/item/1',
+      sourcePlatform: 'ALIBABA_1688',
+      rawData: {},
+      name: 'Toy candidate',
+      description: '',
+      category: null,
+      tags: [],
+      thumbnailUrl: null,
+      imageUrl: null,
+      costCny: null,
+      status: 'promoted',
+      promotedMasterId: 'master-1',
+      rejectedReason: null,
+      rejectedAt: null,
+      rejectedByUserId: null,
+      triggeredByUserId: null,
+      isDeleted: false,
+      deletedAt: null,
+      createdAt: new Date('2026-05-17T00:00:00.000Z'),
+      updatedAt: new Date('2026-05-17T00:00:00.000Z'),
+    };
+    const prisma = {
+      sourcingCandidate: {
+        findFirst: vi.fn().mockResolvedValue(row),
+      },
+    };
+    const repository = new SourcingCandidateRepositoryAdapter(prisma as never);
+
+    const result = await repository.findActiveBySourceUrl({
+      organizationId: 'org-1',
+      sourceUrl: 'https://1688.com/item/1',
+    });
+
+    expect(prisma.sourcingCandidate.findFirst).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org-1',
+        sourceUrl: 'https://1688.com/item/1',
+        isDeleted: false,
+        status: { in: ['sourced', 'promoted'] },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+    expect(result).toMatchObject({
+      id: 'candidate-1',
+      status: 'promoted',
+    });
+  });
+
   it('retries preparation create races by updating the concurrently created active draft', async () => {
     const updatedPreparation = {
       id: 'prep-1',

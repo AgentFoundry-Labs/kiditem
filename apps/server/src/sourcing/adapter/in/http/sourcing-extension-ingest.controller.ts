@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req } from '@nestjs/common';
+import type { Request } from 'express';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
+import { SourcingExtensionTokenService } from '../../../../auth/sourcing-extension-token.service';
 import { SourcingService } from '../../../application/service/sourcing.service';
 import {
   CreateProductGenerationDto,
@@ -9,11 +11,31 @@ import {
   RegisterManualProductDto,
   ReceiveExtensionDataDto,
   ScrapeUrlBodyDto,
+  ScrapeUrlStatusQueryDto,
 } from './dto';
 
 @Controller('sourcing')
 export class SourcingExtensionIngestController {
-  constructor(private readonly sourcingService: SourcingService) {}
+  constructor(
+    private readonly sourcingService: SourcingService,
+    private readonly extensionTokens: SourcingExtensionTokenService,
+  ) {}
+
+  @Post('extension/session')
+  issueExtensionSession(@CurrentUser() user: AuthUser) {
+    return this.extensionTokens.issue(user);
+  }
+
+  @Post('extension/session/renew')
+  renewExtensionSession(
+    @CurrentUser() user: AuthUser,
+    @Req() req: Request,
+  ) {
+    const previous = req.sourcingExtensionToken;
+    return previous
+      ? this.extensionTokens.renew(user, previous)
+      : this.extensionTokens.issue(user);
+  }
 
   @Post('extension/product-data')
   async receiveExtensionData(
@@ -50,6 +72,14 @@ export class SourcingExtensionIngestController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.sourcingService.scrapeUrl(body.url.trim(), organizationId, user.id);
+  }
+
+  @Get('scrape-url/status')
+  scrapeUrlStatus(
+    @Query() query: ScrapeUrlStatusQueryDto,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.sourcingService.scrapeUrlStatus(query.url.trim(), organizationId);
   }
 
   @Get('extension/products')

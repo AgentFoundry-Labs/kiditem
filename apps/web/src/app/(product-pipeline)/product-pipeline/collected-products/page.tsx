@@ -237,6 +237,8 @@ export default function SourcingPage() {
             onSubmit={scrape.handleSubmit}
             onClose={scrape.resetInput}
             isPending={scrape.isPending}
+            isCheckingDuplicate={scrape.isCheckingDuplicate}
+            duplicate={scrape.duplicate}
             error={scrape.scrapeError}
             success={scrape.scrapeSuccess}
             inputRef={scrape.scrapeInputRef}

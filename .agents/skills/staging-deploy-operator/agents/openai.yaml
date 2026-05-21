@@ -1,0 +1,6 @@
+interface:
+  display_name: "Staging Deploy Operator"
+  short_description: "Run and recover KidItem staging deploys"
+  default_prompt: "Use $staging-deploy-operator to deploy KidItem staging and verify the result."
+policy:
+  allow_implicit_invocation: true

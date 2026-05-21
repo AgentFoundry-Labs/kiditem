@@ -174,6 +174,8 @@ STAGING_AI_IMAGE_ANALYSIS_MODEL=gemini-3.1-flash-lite-preview
 STAGING_AI_IMAGE_ANALYSIS_VERIFY_MODEL=gemini-3.1-flash-lite-preview
 STAGING_AGENT_RUNTIME_WORKER_ENABLED=1
 STAGING_AGENT_DEFAULT_MODEL=gemini-2.5-flash
+STAGING_SOURCING_EXTENSION_TOKEN_TTL_SECONDS=1800
+STAGING_SOURCING_EXTENSION_TOKEN_MAX_SECONDS=86400
 STAGING_DB_BASELINE_BUCKET=kiditem-staging-db-baselines
 STAGING_DB_BASELINE_S3_ENDPOINT=https://<project-ref>.storage.supabase.co/storage/v1/s3
 STAGING_DB_BASELINE_S3_REGION=ap-northeast-2
@@ -193,6 +195,7 @@ STAGING_DIRECT_URL=<optional direct database URL, if this environment uses one>
 STAGING_S3_ACCESS_KEY=<app-asset-s3-access-key-id>
 STAGING_S3_SECRET_KEY=<app-asset-s3-secret-access-key>
 STAGING_CHANNEL_CREDENTIALS_ENCRYPTION_KEY=<32-byte-base64-or-hex-key>
+STAGING_SOURCING_EXTENSION_TOKEN_SECRET=<random-secret>
 STAGING_GEMINI_API_KEY=<gemini-api-key>
 STAGING_DB_BASELINE_S3_ACCESS_KEY=<private-db-baseline-s3-access-key-id>
 STAGING_DB_BASELINE_S3_SECRET_KEY=<private-db-baseline-s3-secret-access-key>
@@ -227,6 +230,8 @@ gh variable set STAGING_AI_IMAGE_ANALYSIS_MODEL --env staging --body "gemini-3.1
 gh variable set STAGING_AI_IMAGE_ANALYSIS_VERIFY_MODEL --env staging --body "gemini-3.1-flash-lite-preview"
 gh variable set STAGING_AGENT_RUNTIME_WORKER_ENABLED --env staging --body "1"
 gh variable set STAGING_AGENT_DEFAULT_MODEL --env staging --body "gemini-2.5-flash"
+gh variable set STAGING_SOURCING_EXTENSION_TOKEN_TTL_SECONDS --env staging --body "1800"
+gh variable set STAGING_SOURCING_EXTENSION_TOKEN_MAX_SECONDS --env staging --body "86400"
 gh variable set STAGING_DB_BASELINE_BUCKET --env staging --body "kiditem-staging-db-baselines"
 gh variable set STAGING_DB_BASELINE_S3_ENDPOINT --env staging --body "https://<project-ref>.storage.supabase.co/storage/v1/s3"
 gh variable set STAGING_DB_BASELINE_S3_REGION --env staging --body "ap-northeast-2"
@@ -239,6 +244,7 @@ printf '%s' '<optional-direct-database-url>' | gh secret set STAGING_DIRECT_URL 
 printf '%s' '<app-asset-s3-access-key-id>' | gh secret set STAGING_S3_ACCESS_KEY --env staging
 printf '%s' '<app-asset-s3-secret-access-key>' | gh secret set STAGING_S3_SECRET_KEY --env staging
 printf '%s' '<32-byte-base64-or-hex-key>' | gh secret set STAGING_CHANNEL_CREDENTIALS_ENCRYPTION_KEY --env staging
+openssl rand -base64 48 | gh secret set STAGING_SOURCING_EXTENSION_TOKEN_SECRET --env staging
 printf '%s' '<gemini-api-key>' | gh secret set STAGING_GEMINI_API_KEY --env staging
 printf '%s' '<private-db-baseline-s3-access-key-id>' | gh secret set STAGING_DB_BASELINE_S3_ACCESS_KEY --env staging
 printf '%s' '<private-db-baseline-s3-secret-access-key>' | gh secret set STAGING_DB_BASELINE_S3_SECRET_KEY --env staging

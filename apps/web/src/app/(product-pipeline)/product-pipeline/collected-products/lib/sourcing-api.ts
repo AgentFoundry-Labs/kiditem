@@ -120,7 +120,9 @@ export type UpdateProductBasicsInput = Partial<Pick<
   | 'originalPrice'
   | 'discountRate'
   | 'thumbnailUrls'
->>;
+>> & {
+  basePreparationUpdatedAt?: string | null;
+};
 
 export interface ProductPreparationSelection {
   id: string;
@@ -133,6 +135,7 @@ export interface ProductPreparationSelection {
   selectedDetailPageGenerationId: string | null;
   selectedDetailPageArtifactId: string | null;
   selectedDetailPageRevisionId: string | null;
+  updatedAt: string | null;
 }
 
 interface StatusResponse {
@@ -142,11 +145,28 @@ interface StatusResponse {
   error?: string;
 }
 
-interface ScrapeUrlResponse {
+export interface ScrapeUrlResponse {
   ok: boolean;
   message: string;
   product_id: string | null;
+  skipped?: boolean;
+  taskId?: string | null;
+  candidateId?: string | null;
+  href?: string | null;
 }
+
+export type ScrapeUrlStatusResponse =
+  | {
+      status: 'available';
+      candidateId: null;
+      href: null;
+      platform: '1688' | 'ALIBABA' | null;
+    }
+  | {
+      status: 'collected';
+      candidateId: string;
+      href: string;
+    };
 
 /** Coerces backend Decimal/string `costCny` into a plain number. */
 function coerceCostCny(value: unknown): number | null {
@@ -257,6 +277,7 @@ function normalizeProductPreparation(value: unknown): ProductPreparationSelectio
     selectedDetailPageRevisionId: typeof prep.selectedDetailPageRevisionId === 'string'
       ? prep.selectedDetailPageRevisionId
       : null,
+    updatedAt: typeof prep.updatedAt === 'string' ? prep.updatedAt : null,
   };
 }
 
@@ -552,6 +573,10 @@ export const productsApi = {
 export const sourcingApi = {
   async scrapeUrl(url: string): Promise<ScrapeUrlResponse> {
     return apiClient.post<ScrapeUrlResponse>(`/api/sourcing/scrape-url`, { url });
+  },
+  async scrapeUrlStatus(url: string): Promise<ScrapeUrlStatusResponse> {
+    const qs = new URLSearchParams({ url });
+    return apiClient.get<ScrapeUrlStatusResponse>(`/api/sourcing/scrape-url/status?${qs}`);
   },
 };
 

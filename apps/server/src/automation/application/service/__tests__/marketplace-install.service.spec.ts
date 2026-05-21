@@ -24,7 +24,7 @@ function makeService() {
 
 const SLIM_CORE_NODES = [
   { id: 'n1', type: 'trigger.manual', config: {} },
-  { id: 'n2', type: 'agent_task.create', config: { agent_type: 'rules_evaluation' } },
+  { id: 'n2', type: 'notification.alert', config: { title: 'done' } },
 ];
 
 function workflowCatalog(
@@ -131,12 +131,12 @@ describe('MarketplaceInstallService', () => {
             { id: 'n1', type: 'trigger.manual', config: {} },
             {
               id: 'n2',
-              type: 'agent_task.create',
-              config: { agent_type: 'rules_evaluation' },
+              type: 'notification.alert',
+              config: { title: 'done' },
             },
           ],
           configurableParams: [
-            { key: 'agent_type', nodeId: 'n2' },
+            { key: 'title', nodeId: 'n2' },
             { key: 'orphan_param' },
           ],
         }),
@@ -144,7 +144,7 @@ describe('MarketplaceInstallService', () => {
       vi.mocked(store.createWorkflowInstallation).mockResolvedValue({ id: 'tpl-1' });
 
       await service.installWorkflow('m-1', 'organization-1', {
-        agent_type: 'custom_agent',
+        title: 'custom title',
         orphan_param: 'x',
       });
 
@@ -153,8 +153,8 @@ describe('MarketplaceInstallService', () => {
         { id: 'n1', type: 'trigger.manual', config: {} },
         {
           id: 'n2',
-          type: 'agent_task.create',
-          config: { agent_type: 'custom_agent' },
+          type: 'notification.alert',
+          config: { title: 'custom title' },
         },
       ]);
     });

@@ -51,6 +51,9 @@ business domain
 
 Agent OS does not update downstream business rows. Owner domains listen for
 finalized runs and apply side effects through their own idempotent sinks.
+Agent OS may call deterministic automation workflows through automation-owned
+incoming ports or registered workflow capabilities; automation must not call
+back into Agent OS.
 
 ## Status Machines
 
@@ -75,6 +78,8 @@ Never add `queued` to `AgentRun.status`; queue state belongs to
 ## Cross-Domain Ports
 
 - Business domains request work through `AGENT_RUNNER_PORT`.
+- Agent OS may consume automation-owned incoming ports from adapter/out lanes
+  when it needs operation alerts or deterministic workflow execution.
 - Runtime execution goes through `AGENT_RUNTIME_PORT`; default binding is
   `RoutingRuntimeAdapter`.
 - Owner domains register runtime handlers by `agentType`, usually during

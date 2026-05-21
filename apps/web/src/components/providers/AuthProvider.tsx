@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
+import { syncSourcingExtensionAuth } from '@/lib/sourcing-extension-auth';
 import { consumeSignOutReason } from '@/lib/supabase/refresh';
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 
@@ -45,11 +46,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     supabase.auth.getSession().then(({ data }) => {
-      if (!cancelled) setState({ session: data.session, isLoading: false });
+      if (!cancelled) {
+        setState({ session: data.session, isLoading: false });
+        void syncSourcingExtensionAuth(data.session);
+      }
     });
 
     function handle(event: AuthChangeEvent, next: Session | null) {
       setState({ session: next, isLoading: false });
+      void syncSourcingExtensionAuth(next);
 
       switch (event) {
         case 'SIGNED_OUT': {

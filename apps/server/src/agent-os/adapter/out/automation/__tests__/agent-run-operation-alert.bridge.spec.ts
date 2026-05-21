@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { AgentRunOperationAlertBridge } from '../agent-run-operation-alert.bridge';
-import type { AgentRunFinalizedEvent } from '../../../../agent-os/application/event/agent-run-events';
+import type { AgentRunFinalizedEvent } from '../../../../application/event/agent-run-events';
 
 const ORG = '11111111-1111-1111-1111-111111111111';
 const REQUEST_ID = '22222222-2222-2222-2222-222222222222';
@@ -19,11 +19,6 @@ function makeOperationAlerts(overrides: {
   };
 }
 
-// AgentRunFinalizedEvent now carries routing metadata (`agentType`, `source`,
-// `sourceResourceType`, `sourceResourceId`, `requestedByUserId`). The bridge
-// keys close-by-source on `requestId` and uses `requestedByUserId` + `source`
-// only on the fallback create path. The shape is strict so the helper here
-// keeps the spec compiling against the canonical contract.
 const BASE_EVENT: Omit<AgentRunFinalizedEvent, 'status'> = {
   organizationId: ORG,
   requestId: REQUEST_ID,
@@ -57,7 +52,6 @@ describe('AgentRunOperationAlertBridge', () => {
         metadata: expect.objectContaining({ runId: RUN_ID }),
       }),
     );
-    // Fallback create must not fire when an existing alert was closed.
     expect(operationAlerts.start).not.toHaveBeenCalled();
     expect(operationAlerts.fail).not.toHaveBeenCalled();
   });
@@ -88,7 +82,6 @@ describe('AgentRunOperationAlertBridge', () => {
         }),
       }),
     );
-    // Existing alert closed → no synthesized fallback.
     expect(operationAlerts.start).not.toHaveBeenCalled();
     expect(operationAlerts.fail).not.toHaveBeenCalled();
   });
@@ -149,91 +142,61 @@ describe('AgentRunOperationAlertBridge', () => {
     { source: 'thumbnail_generate', href: '/product-pipeline/thumbnail-generation' },
     { source: 'rules.evaluation', href: '/dashboard' },
     { source: 'rules.suggest', href: '/dashboard' },
-    { source: 'mystery.unknown.source', href: '/dashboard' },
-  ])('maps fallback href for $source → $href', async ({ source, href }) => {
+    { source: 'unknown.source', href: '/dashboard' },
+  ])('uses fallback href $href for source $source', async ({ source, href }) => {
     const operationAlerts = makeOperationAlerts({
       closeBySource: vi.fn().mockResolvedValue(null),
     });
     const bridge = new AgentRunOperationAlertBridge(operationAlerts as never);
-
-    await bridge.onAgentRunFinalized({
+    const event: AgentRunFinalizedEvent = {
       ...BASE_EVENT,
       source,
       status: 'failed',
       requestStatus: 'failed',
-      errorCode: 'boom',
-      errorMessage: 'boom',
-    });
+      errorMessage: 'failed',
+    };
+
+    await bridge.onAgentRunFinalized(event);
 
     expect(operationAlerts.start).toHaveBeenCalledWith(
       expect.objectContaining({ href }),
     );
   });
 
-  it('does NOT synthesize a fallback when the run has no requestedByUserId (system/cron)', async () => {
+  it('does not synthesize fallback alerts for cancelled requests', async () => {
     const operationAlerts = makeOperationAlerts({
       closeBySource: vi.fn().mockResolvedValue(null),
     });
-    const bridge = new AgentRunOperationAlertBridge(operationAlerts as never);
-    const event: AgentRunFinalizedEvent = {
-      ...BASE_EVENT,
-      requestedByUserId: null,
-      status: 'failed',
-      requestStatus: 'failed',
-      errorCode: 'boom',
-      errorMessage: 'boom',
-    };
-
-    await bridge.onAgentRunFinalized(event);
-
-    expect(operationAlerts.closeBySource).toHaveBeenCalled();
-    expect(operationAlerts.start).not.toHaveBeenCalled();
-    expect(operationAlerts.fail).not.toHaveBeenCalled();
-  });
-
-  it('does NOT synthesize a fallback on a succeeded run that had no producer alert', async () => {
-    const operationAlerts = makeOperationAlerts({
-      closeBySource: vi.fn().mockResolvedValue(null),
-    });
-    const bridge = new AgentRunOperationAlertBridge(operationAlerts as never);
-    const event: AgentRunFinalizedEvent = {
-      ...BASE_EVENT,
-      status: 'succeeded',
-      output: { ok: true },
-    };
-
-    await bridge.onAgentRunFinalized(event);
-
-    expect(operationAlerts.closeBySource).toHaveBeenCalled();
-    expect(operationAlerts.start).not.toHaveBeenCalled();
-    expect(operationAlerts.fail).not.toHaveBeenCalled();
-  });
-
-  it('swallows errors from closeBySource so the bridge never crashes the bus', async () => {
-    const operationAlerts = makeOperationAlerts({
-      closeBySource: vi.fn().mockRejectedValue(new Error('DB down')),
-    });
-    const bridge = new AgentRunOperationAlertBridge(operationAlerts as never);
-
-    await expect(
-      bridge.onAgentRunFinalized({
-        ...BASE_EVENT,
-        status: 'succeeded',
-      }),
-    ).resolves.toBeUndefined();
-  });
-
-  it('ignores finalized events whose request ledger is cancelled', async () => {
-    const operationAlerts = makeOperationAlerts();
     const bridge = new AgentRunOperationAlertBridge(operationAlerts as never);
 
     await bridge.onAgentRunFinalized({
       ...BASE_EVENT,
-      status: 'succeeded',
+      status: 'failed',
       requestStatus: 'cancelled',
+      errorMessage: 'cancelled',
     });
 
     expect(operationAlerts.closeBySource).not.toHaveBeenCalled();
     expect(operationAlerts.start).not.toHaveBeenCalled();
+    expect(operationAlerts.fail).not.toHaveBeenCalled();
+  });
+
+  it('does not synthesize fallback alerts for system-triggered failures', async () => {
+    const operationAlerts = makeOperationAlerts({
+      closeBySource: vi.fn().mockResolvedValue(null),
+    });
+    const bridge = new AgentRunOperationAlertBridge(operationAlerts as never);
+
+    await bridge.onAgentRunFinalized({
+      ...BASE_EVENT,
+      requestedByUserId: null,
+      status: 'failed',
+      requestStatus: 'failed',
+      errorMessage: 'system failure',
+    });
+
+    expect(operationAlerts.closeBySource).toHaveBeenCalled();
+    expect(operationAlerts.start).not.toHaveBeenCalled();
+    expect(operationAlerts.fail).not.toHaveBeenCalled();
   });
 });

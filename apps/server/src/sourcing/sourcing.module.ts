@@ -11,12 +11,14 @@ import { SourcingService } from './application/service/sourcing.service';
 import { SourcingPromotionService } from './application/service/sourcing-promotion.service';
 import { SourcingWorkspaceArchiveService } from './application/service/sourcing-workspace-archive.service';
 import { ProductPreparationSelectionService } from './application/service/product-preparation-selection.service';
+import { SourcingScrapeFinalizedBridge } from './application/service/sourcing-scrape-finalized.bridge';
 
 import { SourcingAgentGatewayAdapter } from './adapter/out/agent/sourcing-agent.gateway.adapter';
 import { SourcingAiWorkspaceArchiveAdapter } from './adapter/out/ai/workspace-archive.adapter';
 import { SourcingOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { SourcingProductsCatalogAdapter } from './adapter/out/products/products-catalog.adapter';
 import { SourcingCandidateRepositoryAdapter } from './adapter/out/repository/sourcing-candidate.repository.adapter';
+import { SourcingPlaywrightRuntimeHandler } from './adapter/out/runtime/sourcing-playwright-runtime.handler';
 import { SOURCING_AGENT_GATEWAY_PORT } from './application/port/out/runtime/sourcing-agent.gateway.port';
 import { SOURCING_AI_WORKSPACE_ARCHIVE_PORT } from './application/port/out/cross-domain/ai-workspace-archive.port';
 import { SOURCING_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
@@ -55,11 +57,13 @@ import { SOURCING_CANDIDATE_REPOSITORY_PORT } from './application/port/out/repos
     SourcingPromotionService,
     SourcingWorkspaceArchiveService,
     ProductPreparationSelectionService,
+    SourcingScrapeFinalizedBridge,
     SourcingAgentGatewayAdapter,
     SourcingAiWorkspaceArchiveAdapter,
     SourcingOperationAlertAdapter,
     SourcingProductsCatalogAdapter,
     SourcingCandidateRepositoryAdapter,
+    SourcingPlaywrightRuntimeHandler,
     {
       provide: SOURCING_AGENT_GATEWAY_PORT,
       useExisting: SourcingAgentGatewayAdapter,
