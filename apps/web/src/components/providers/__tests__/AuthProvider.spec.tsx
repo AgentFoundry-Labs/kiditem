@@ -10,6 +10,7 @@ const onAuthStateChangeMock = vi.hoisted(() => vi.fn());
 const unsubscribeMock = vi.hoisted(() => vi.fn());
 const replaceMock = vi.hoisted(() => vi.fn());
 const consumeSignOutReasonMock = vi.hoisted(() => vi.fn());
+const syncSourcingExtensionAuthMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/supabase/client', () => ({
   createSupabaseBrowserClient: () => ({
@@ -22,6 +23,10 @@ vi.mock('@/lib/supabase/client', () => ({
 
 vi.mock('@/lib/supabase/refresh', () => ({
   consumeSignOutReason: () => consumeSignOutReasonMock(),
+}));
+
+vi.mock('@/lib/sourcing-extension-auth', () => ({
+  syncSourcingExtensionAuth: (session: unknown) => syncSourcingExtensionAuthMock(session),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -53,6 +58,7 @@ describe('AuthProvider', () => {
     unsubscribeMock.mockReset();
     replaceMock.mockReset();
     consumeSignOutReasonMock.mockReset();
+    syncSourcingExtensionAuthMock.mockReset();
 
     getSessionMock.mockResolvedValue({ data: { session: null } });
     onAuthStateChangeMock.mockImplementation((handler: AuthChangeHandler) => {
@@ -83,6 +89,7 @@ describe('AuthProvider', () => {
       expect(observed?.isLoading).toBe(false);
     });
     expect(getSessionMock).toHaveBeenCalledTimes(1);
+    expect(syncSourcingExtensionAuthMock).toHaveBeenCalledWith(session);
   });
 
   it('AP2a: SIGNED_OUT + reason="session_expired" → queryClient.clear + replace(/login?reason=...)', async () => {
@@ -104,6 +111,7 @@ describe('AuthProvider', () => {
       lastHandler?.('SIGNED_OUT', null);
     });
 
+    expect(syncSourcingExtensionAuthMock).toHaveBeenCalledWith(null);
     expect(clearSpy).toHaveBeenCalled();
     expect(replaceMock).toHaveBeenCalledWith(
       `/login?reason=session_expired&next=${encodeURIComponent('/inventory?page=2')}`,
@@ -175,6 +183,7 @@ describe('AuthProvider', () => {
     await waitFor(() => {
       expect(observed?.session).toEqual(newSession);
     });
+    expect(syncSourcingExtensionAuthMock).toHaveBeenCalledWith(newSession);
     expect(replaceMock).not.toHaveBeenCalled();
     expect(clearSpy).not.toHaveBeenCalled();
   });

@@ -34,6 +34,9 @@ extensions/
   marketplace actions.
 - Page-world bridge scripts must never receive KidItem auth tokens or backend
   URLs with secrets.
+- Do not place committed `_`-prefixed files or directories such as `__tests__`
+  inside a loadable extension root. Chrome treats them as reserved system names
+  and rejects unpacked extension loading.
 - Backend calls go through NestJS HTTP APIs. Never add direct DB access or
   Supabase client logic.
 - Do not send client-provided `organizationId`; backend auth/session scope owns

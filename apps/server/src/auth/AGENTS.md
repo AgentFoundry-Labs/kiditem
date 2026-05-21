@@ -23,6 +23,8 @@ auth/
 - Current user/org decorators
 - Role metadata and guard behavior
 - `GET /api/auth/me`
+- Sourcing extension ingest tokens are short-lived, scoped credentials for
+  `/api/sourcing/extension/*`; they must not become general API bearer tokens.
 
 ## Main Data Models
 
@@ -60,6 +62,11 @@ Token priority:
 The middleware verifies JWKS issuer/audience with `jose`, maps `payload.sub` to
 local `users.id`, and selects one active membership ordered by
 `lastSelectedAt desc, joinedAt asc`.
+
+Sourcing extension tokens use the `kiditem_sourcing_ext_` prefix. They are
+verified only by `SourcingExtensionAuthMiddleware` on explicit sourcing
+extension routes before the global organization guard. Do not accept them on
+general API routes.
 
 ## Boundary Rules
 
