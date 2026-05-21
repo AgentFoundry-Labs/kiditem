@@ -17,13 +17,15 @@ export default function ReviewsPage() {
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
 
   const queryParams = { page: String(page), limit: String(PAGE_SIZE), filter: activeFilter };
-  const { data, isLoading: loading, isError, error, refetch } = useQuery({
+  const { data, isLoading: loading, isFetching, isError, error, refetch } = useQuery({
     queryKey: queryKeys.reviews.list(queryParams),
     queryFn: () => {
       const params = new URLSearchParams(queryParams);
       return apiClient.getParsed(`/api/reviews?${params}`, ReviewListResponseSchema);
     },
+    placeholderData: previousData => previousData,
   });
+  const isRefreshing = isFetching && !loading;
 
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
@@ -55,10 +57,10 @@ export default function ReviewsPage() {
         </h1>
         <button
           onClick={() => refetch()}
-          disabled={loading}
+          disabled={isFetching}
           className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50"
         >
-          <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
+          <RefreshCw className={cn('w-4 h-4', isFetching && 'animate-spin')} />
           새로고침
         </button>
       </div>
@@ -69,6 +71,14 @@ export default function ReviewsPage() {
         </div>
       )}
 
+      {isRefreshing && (
+        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm" aria-live="polite">
+          <RefreshCw size={14} className="animate-spin text-purple-600" />
+          리뷰 목록을 갱신 중입니다.
+        </div>
+      )}
+
+      <div className="space-y-6" aria-busy={isRefreshing}>
       <div className="grid grid-cols-4 gap-4">
         <div className="card">
           <div className="card-label">전체 상품 (listing)</div>
@@ -128,13 +138,14 @@ export default function ReviewsPage() {
 
       <ReviewTable
         items={items}
-        loading={loading}
+        loading={loading && !data}
         activeFilter={activeFilter}
         page={page}
         total={total}
         PAGE_SIZE={PAGE_SIZE}
         onPageChange={setPage}
       />
+      </div>
 
       <p className="text-xs text-slate-400 px-1">
         주문 수 컬럼은 R3 범위에서 산출하지 않으며, listing × order line item 조인이 추가될 때 별도 PR 로 채웁니다 (현재는 모든 row 가 0).

@@ -13,13 +13,13 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { cn, formatKRW } from '@/lib/utils';
+import { cn, formatDate, formatKRW } from '@/lib/utils';
 import { fetchSupplierPaymentReport } from '../lib/supplier-payments-api';
 import type { SupplierPaymentReportItem } from '../lib/supplier-payments-api';
 
 const TAB_CONFIG: Record<string, { label: string; color: string; icon: typeof Clock }> = {
   unpaid: { label: '미지급', color: 'text-red-600', icon: AlertTriangle },
-  partial: { label: '부분지급', color: 'text-yellow-600', icon: Clock },
+  partial: { label: '부분지급', color: 'text-amber-600', icon: Clock },
   paid: { label: '지급완료', color: 'text-green-600', icon: CheckCircle },
 };
 
@@ -151,10 +151,10 @@ export default function SupplierPayments() {
                       {remaining > 0 ? `${formatKRW(remaining)}원` : '-'}
                     </td>
                     <td className="text-xs text-slate-500 tabular-nums">
-                      {p.dueDate ? new Date(p.dueDate).toLocaleDateString('ko-KR') : '-'}
+                      {formatDate(p.dueDate)}
                     </td>
                     <td className="text-center">
-                      <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs', p.status === 'paid' ? 'bg-green-50 text-green-600' : p.status === 'partial' ? 'bg-yellow-50 text-yellow-600' : 'bg-red-50 text-red-600')}>
+                      <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs', p.status === 'paid' ? 'bg-green-50 text-green-600' : p.status === 'partial' ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-red-600')}>
                         <StatusIcon size={10} /> {cfg.label}
                       </span>
                     </td>

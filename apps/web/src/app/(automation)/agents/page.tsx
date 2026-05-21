@@ -3,16 +3,16 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, Clock, RefreshCw, XCircle } from 'lucide-react';
+import PageSkeleton from '@/components/ui/PageSkeleton';
+import { isApiError } from '@/lib/api-error';
+import { cn, formatDateTime } from '@/lib/utils';
+import { agentOsApi } from './lib/agent-os-api';
 import type {
   AgentInstanceSummary,
   AgentRunRequestStatus,
   AgentRunStatus,
   AgentRunSummary,
 } from '@kiditem/shared/agent-os';
-import PageSkeleton from '@/components/ui/PageSkeleton';
-import { isApiError } from '@/lib/api-error';
-import { cn, formatDateTime } from '@/lib/utils';
-import { agentOsApi } from './lib/agent-os-api';
 
 type View = 'runs' | 'requests';
 
@@ -84,6 +84,7 @@ export default function AgentOsOpsPage() {
         status: runStatusFilter ? [runStatusFilter] : undefined,
         limit: 100,
       }),
+    placeholderData: previousData => previousData,
     refetchInterval: (q) => (isRunningOrPending(q.state.data?.items ?? []) ? 15_000 : 60_000),
     enabled: view === 'runs',
   });
@@ -96,6 +97,7 @@ export default function AgentOsOpsPage() {
         status: requestStatusFilter ? [requestStatusFilter] : undefined,
         limit: 100,
       }),
+    placeholderData: previousData => previousData,
     refetchInterval: (q) => (isRunningOrPending(q.state.data?.items ?? []) ? 15_000 : 60_000),
     enabled: view === 'requests',
   });
@@ -107,6 +109,7 @@ export default function AgentOsOpsPage() {
   }, [instancesQuery.data]);
 
   const activeQuery = view === 'runs' ? runsQuery : requestsQuery;
+  const isRefreshing = activeQuery.isPlaceholderData;
 
   if (instancesQuery.isPending) return <PageSkeleton variant="table" />;
 
@@ -137,9 +140,10 @@ export default function AgentOsOpsPage() {
         <button
           type="button"
           onClick={() => activeQuery.refetch()}
+          disabled={activeQuery.isFetching}
           className="btn-secondary inline-flex items-center gap-1.5 text-xs"
         >
-          <RefreshCw size={13} /> 새로고침
+          <RefreshCw size={13} className={activeQuery.isFetching ? 'animate-spin' : ''} /> 새로고침
         </button>
       </header>
 
@@ -204,14 +208,29 @@ export default function AgentOsOpsPage() {
         )}
       </div>
 
+      {isRefreshing ? (
+        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-sm" aria-live="polite">
+          <RefreshCw size={13} className="animate-spin text-purple-600" />
+          조건에 맞춰 Agent OS 데이터를 갱신 중입니다.
+        </div>
+      ) : null}
+
       {view === 'runs' ? (
-        <RunsTable runs={runsQuery.data?.items ?? []} instancesById={instancesById} loading={runsQuery.isPending} />
+        <div aria-busy={isRefreshing}>
+          <RunsTable
+            runs={runsQuery.data?.items ?? []}
+            instancesById={instancesById}
+            loading={runsQuery.isPending && !runsQuery.data}
+          />
+        </div>
       ) : (
-        <RequestsTable
-          requests={requestsQuery.data?.items ?? []}
-          instancesById={instancesById}
-          loading={requestsQuery.isPending}
-        />
+        <div aria-busy={isRefreshing}>
+          <RequestsTable
+            requests={requestsQuery.data?.items ?? []}
+            instancesById={instancesById}
+            loading={requestsQuery.isPending && !requestsQuery.data}
+          />
+        </div>
       )}
     </div>
   );

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { BarChart3, RefreshCw } from 'lucide-react';
+import { BarChart3, Loader2, RefreshCw } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { formatKRW, formatNumber } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
@@ -29,16 +29,18 @@ export default function WingDailySales() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isFetching, isPlaceholderData, refetch } = useQuery({
     queryKey: ['traffic', 'monthly', year, month],
     queryFn: () =>
       apiClient.get<MonthlyData>(`/api/traffic/monthly?year=${year}&month=${month}`),
+    placeholderData: (previousData) => previousData,
     staleTime: 0,
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,
     refetchInterval: 15_000,
   });
 
+  const showLoading = isLoading && !data;
   const maxRevenue = Math.max(1, ...(data?.days.map((d) => d.revenue) ?? []));
 
   return (
@@ -46,7 +48,7 @@ export default function WingDailySales() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <BarChart3 size={20} className="text-blue-600" />
+          <BarChart3 size={20} className="text-purple-600" />
           <h1 className="page-title">Wing 일별 매출</h1>
         </div>
         <div className="flex items-center gap-2">
@@ -72,12 +74,19 @@ export default function WingDailySales() {
             onClick={() => refetch()}
             className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
           >
-            <RefreshCw size={14} /> 새로고침
+            <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} /> 새로고침
           </button>
         </div>
       </div>
 
-      {isLoading && <PageSkeleton variant="table" />}
+      {showLoading && <PageSkeleton variant="table" />}
+
+      {isPlaceholderData && (
+        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+          <Loader2 size={14} className="animate-spin text-purple-600" />
+          선택한 월의 매출 데이터를 계산하는 중입니다.
+        </div>
+      )}
 
       {data && (
         <>
@@ -132,7 +141,7 @@ export default function WingDailySales() {
                         <div className="text-slate-300">주문 {formatNumber(d.orders)}건 · 판매 {formatNumber(d.salesQty)}개</div>
                       </div>
                       <div
-                        className="w-full bg-blue-500 hover:bg-blue-400 rounded-t transition-colors cursor-default"
+                        className="w-full bg-purple-600 hover:bg-purple-500 rounded-t transition-colors cursor-default"
                         style={{ height: `${Math.max(heightPct, 1.5)}%` }}
                       />
                       {data.days.length <= 31 && (

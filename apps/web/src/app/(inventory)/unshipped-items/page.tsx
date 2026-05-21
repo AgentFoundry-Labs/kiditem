@@ -23,14 +23,16 @@ export interface UnshippedItem {
 export default function UnshippedItemsPage() {
   const [minDays, setMinDays] = useState(0);
 
-  const { data, isLoading: loading, error: queryError, refetch } = useQuery({
+  const { data, isLoading: loading, isFetching, error: queryError, refetch } = useQuery({
     queryKey: queryKeys.unshipped.list(minDays > 0 ? { minDays: String(minDays) } : undefined),
     queryFn: async () => {
       const params = new URLSearchParams();
       if (minDays > 0) params.set("minDays", String(minDays));
       return apiClient.get<{ items: UnshippedItem[] }>(`/api/unshipped?${params}`);
     },
+    placeholderData: previousData => previousData,
   });
+  const isRefreshing = isFetching && !loading;
 
   const items = data?.items ?? [];
   const error = queryError ? (isApiError(queryError) ? queryError.detail : "미배송 조회 실패") : null;
@@ -82,16 +84,26 @@ export default function UnshippedItemsPage() {
           </select>
           <button
             onClick={() => refetch()}
+            disabled={isFetching}
             className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
           >
-            <RefreshCw size={14} /> 새로고침
+            <RefreshCw size={14} className={isFetching ? "animate-spin" : undefined} /> 새로고침
           </button>
         </div>
       </div>
 
+      {isRefreshing && (
+        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm" aria-live="polite">
+          <RefreshCw size={14} className="animate-spin text-purple-600" />
+          미배송 목록을 갱신 중입니다.
+        </div>
+      )}
+
+      <div className="space-y-6" aria-busy={isRefreshing}>
       <UnshippedSummaryCards total={items.length} warning={warning.length} critical={critical.length} />
 
       <UnshippedItemsTable items={items} />
+      </div>
     </div>
   );
 }

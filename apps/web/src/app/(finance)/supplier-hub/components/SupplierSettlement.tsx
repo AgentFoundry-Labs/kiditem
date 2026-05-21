@@ -37,7 +37,7 @@ export default function SupplierSettlement() {
       <div className="grid grid-cols-3 gap-3">
         <div className="card">
           <div className="flex items-center gap-1.5 mb-1">
-            <ArrowDown size={12} className="text-blue-500" />
+            <ArrowDown size={12} className="text-purple-600" />
             <span className="card-label">총 청구금액</span>
           </div>
           <div className="card-value tabular-nums">{formatKRW(totalReceived)}원</div>
@@ -98,7 +98,7 @@ export default function SupplierSettlement() {
                           <CheckCircle size={10} /> 정산완료
                         </span>
                       ) : sm.totalPaid > 0 ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-50 text-yellow-600 rounded text-xs">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-600 rounded text-xs">
                           <AlertTriangle size={10} /> 부분정산
                         </span>
                       ) : sm.totalOrdered > 0 ? (

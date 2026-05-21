@@ -6,7 +6,7 @@ import { Download, Plus, Trash2, ExternalLink, Loader2, X } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
-import { cn } from '@/lib/utils';
+import { cn, formatDateTime } from '@/lib/utils';
 
 interface ScrapeTarget {
   id: string;
@@ -126,7 +126,7 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
     <>
       <button
         onClick={openModal}
-        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg text-sm font-bold hover:shadow-lg hover:shadow-blue-200 transition-all hover:scale-[1.02] active:scale-[0.98]"
+        className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-bold hover:bg-purple-700 transition-colors"
       >
         <Download size={15} />
         정보 수집
@@ -134,13 +134,13 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
 
       {open && (
         <div className="modal-overlay p-4" onClick={() => setOpen(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-xl shadow-sm w-full max-w-lg max-h-[85vh] overflow-hidden" onClick={e => e.stopPropagation()}>
             {/* 헤더 */}
-            <div className="flex items-center justify-between px-6 py-4 border-b bg-gradient-to-r from-blue-600 to-indigo-600">
+            <div className="flex items-center justify-between px-6 py-4 border-b bg-purple-600">
               <div className="flex items-center gap-2">
                 <Download size={18} className="text-white" />
                 <h2 className="text-lg font-bold text-white">정보 수집</h2>
-                <span className="text-[11px] text-blue-200">광고센터 데이터 자동 수집</span>
+                <span className="text-[11px] text-purple-100">광고센터 데이터 자동 수집</span>
               </div>
               <button onClick={() => setOpen(false)} className="text-white/70 hover:text-white p-1">
                 <X size={20} />
@@ -184,7 +184,7 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
                           <div className="text-[13px] font-semibold text-slate-800 truncate">{t.label}</div>
                           <div className="text-[11px] text-slate-400 truncate">{t.url}</div>
                           {t.lastScrapedAt && (
-                            <div className="text-[10px] text-emerald-500 mt-0.5">마지막: {new Date(t.lastScrapedAt).toLocaleString('ko-KR')}</div>
+                            <div className="text-[10px] text-emerald-500 mt-0.5">마지막: {formatDateTime(t.lastScrapedAt)}</div>
                           )}
                         </div>
                         <button onClick={() => removeUrl(t.id)} className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all shrink-0">
@@ -203,7 +203,9 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
                 <div className="text-xs font-bold text-slate-700">수집 결과</div>
                 {results.map((r, i) => (
                   <div key={i} className={cn('flex items-center gap-2 text-[12px]', r.success ? 'text-emerald-700' : 'text-red-600')}>
-                    <span>{r.success ? '\u2705' : '\u274c'}</span>
+                    <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-bold', r.success ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600')}>
+                      {r.success ? '성공' : '실패'}
+                    </span>
                     <span className="font-medium truncate">{r.label || r.url?.substring(0, 40)}</span>
                     {r.success && (r.count ?? 0) > 0 && <span className="text-slate-400 shrink-0">({r.count}건)</span>}
                     {!r.success && r.error && <span className="text-red-400 truncate">&mdash; {r.error}</span>}
@@ -230,7 +232,7 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
                 <button
                   onClick={startCollect}
                   disabled={targets.length === 0 || loading}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg text-sm font-bold hover:shadow-lg disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                  className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 text-white rounded-lg text-sm font-bold hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   {loading ? (
                     <><Loader2 size={15} className="animate-spin" /> 수집 중...</>

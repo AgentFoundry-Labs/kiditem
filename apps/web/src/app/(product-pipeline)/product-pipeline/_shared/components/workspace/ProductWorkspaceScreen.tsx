@@ -261,6 +261,22 @@ export function ProductWorkspaceScreen({
 
   const kcAutoFilledRef = useRef<string | null>(null);
   useEffect(() => {
+    setIsEditComplete(false);
+    setIsLocked(false);
+    setEditData(PLACEHOLDER_DATA);
+    setEditInitialized(false);
+    setSelectedKidsPlayfulId(null);
+    setSelectedBoldVerticalId(null);
+    setSelectedAgentId(null);
+    setSelectedRegistrationThumbnailUrl(null);
+    setThumbnailPreviewUrl(null);
+    setThumbnailPreviewImages([]);
+    setDetailWorkspacePreviewHtml(null);
+    setBasicPreparationBaseUpdatedAt(undefined);
+    kcAutoFilledRef.current = null;
+  }, [contentWorkspaceId, productId, thumbnailSourceCandidateId]);
+
+  useEffect(() => {
     if (!selectionCandidateId) return;
     const basicInfo = fetchedData?.product?.basicInfo;
     if (!basicInfo) return;
@@ -280,8 +296,7 @@ export function ProductWorkspaceScreen({
         },
       },
     );
-    // mutation 객체는 매 렌더 새 identity 라서 deps 에서 제외 — ref 가 중복 호출을 막는다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // mutation 객체는 매 렌더 새 identity 라서 ref 로 중복 호출을 막는다.
   }, [
     selectionCandidateId,
     fetchedData?.product?.basicInfo?.kcCertificationStatus,

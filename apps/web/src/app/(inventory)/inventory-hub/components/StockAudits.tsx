@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { cn } from '@/lib/utils';
 import {
   ClipboardCheck,
   Plus,
@@ -14,6 +13,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
+import { cn, formatDateTime } from '@/lib/utils';
 
 interface AuditItem {
   productId: string;
@@ -36,7 +36,7 @@ interface StockAudit {
 }
 
 const statusConfig: Record<string, { text: string; color: string }> = {
-  in_progress: { text: '진행중', color: 'bg-blue-100 text-blue-700' },
+  in_progress: { text: '진행중', color: 'bg-purple-100 text-purple-700' },
   completed: { text: '완료', color: 'bg-green-100 text-green-700' },
   cancelled: { text: '취소', color: 'bg-red-100 text-red-700' },
 };
@@ -128,7 +128,7 @@ export default function StockAudits() {
                 <div
                   key={audit.id}
                   onClick={() => handleSelect(audit)}
-                  className={cn('card cursor-pointer transition-all', selected?.id === audit.id ? 'ring-2 ring-blue-500' : 'hover:border-blue-300')}
+                  className={cn('card cursor-pointer transition-all', selected?.id === audit.id ? 'ring-2 ring-purple-500' : 'hover:border-purple-300')}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-mono text-sm font-semibold">
@@ -150,7 +150,7 @@ export default function StockAudits() {
                     )}
                   </div>
                   <div className="text-xs text-slate-400 mt-1">
-                    {new Date(audit.createdAt).toLocaleString('ko-KR')}
+                    {formatDateTime(audit.createdAt)}
                   </div>
                 </div>
               ))

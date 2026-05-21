@@ -4,7 +4,7 @@ const BORDER = '1px solid var(--border-subtle)';
 
 export const cardRaised: CSSProperties = {
   background: 'var(--card-bg)',
-  boxShadow: 'var(--shadow-md)',
+  boxShadow: 'var(--shadow-sm)',
   border: BORDER,
 };
 

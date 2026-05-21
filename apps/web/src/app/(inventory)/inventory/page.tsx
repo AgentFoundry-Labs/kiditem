@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { RefreshCw } from 'lucide-react';
 import { z } from 'zod';
 import { ChannelDashboardSummarySchema } from '@kiditem/shared/channel-dashboard';
 import { isApiError } from '@/lib/api-error';
@@ -45,11 +46,12 @@ export default function InventoryPage() {
     }
   };
 
-  const { data: inventoryData, isLoading: loading, error: inventoryError } = useInventoryList({
+  const { data: inventoryData, isLoading: loading, isFetching, error: inventoryError } = useInventoryList({
     page,
     limit: PAGE_SIZE,
     status: filter === 'all' ? undefined : filter,
   });
+  const isRefreshing = isFetching && !loading;
   const items = inventoryData?.items ?? [];
   const total = inventoryData?.total ?? 0;
   const summary = inventoryData?.summary ?? DEFAULT_SUMMARY;
@@ -149,6 +151,13 @@ export default function InventoryPage() {
         onExcel={handleExcel}
       />
       {error && <div className="text-center py-8 text-destructive">{error}</div>}
+      {isRefreshing && (
+        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm" aria-live="polite">
+          <RefreshCw size={14} className="animate-spin text-purple-600" />
+          재고 목록을 갱신 중입니다.
+        </div>
+      )}
+      <div className="space-y-6" aria-busy={isRefreshing}>
       <InventorySummaryCards summary={summary} />
       <InventoryFilterTabs
         filter={filter}
@@ -163,6 +172,7 @@ export default function InventoryPage() {
         onPageChange={setPage}
         onOpenOperation={openOperation}
       />
+      </div>
       <div className="bg-blue-50 dark:bg-blue-950 rounded-xl p-4 border border-blue-200 dark:border-blue-800 text-sm text-blue-800 dark:text-blue-200">
         다음 정기 재고 점검: <strong>2개월 주기</strong> | 적정재고 = 일평균판매량 x (리드타임 + 안전일수7일)
       </div>

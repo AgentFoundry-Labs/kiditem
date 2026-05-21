@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Store, Package, ChevronDown } from 'lucide-react';
+import { Store, Package, ChevronDown, Loader2 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { formatKRW } from '@/lib/utils';
 import { fetchSupplierProductSalesReport } from '../lib/supplier-stats-api';
@@ -20,10 +20,11 @@ export default function SupplierProductSales() {
 
   const [selectedId, setSelectedId] = useState<string>('');
 
-  const { data: productReport } = useQuery({
+  const { data: productReport, isLoading, isPlaceholderData } = useQuery({
     queryKey: ['supplier-stats', 'productSales', selectedId],
     queryFn: () => fetchSupplierProductSalesReport(selectedId),
     enabled: !!selectedId,
+    placeholderData: (previousData) => previousData,
   });
 
   const products = productReport?.items ?? [];
@@ -33,6 +34,7 @@ export default function SupplierProductSales() {
     totalQuantity: 0,
     totalRevenue: 0,
   };
+  const showInitialLoading = isLoading && !productReport;
 
   return (
     <div className="space-y-6">
@@ -60,20 +62,27 @@ export default function SupplierProductSales() {
         <div className="grid grid-cols-4 gap-4">
           <div className="card">
             <div className="flex items-center gap-2 text-xs text-slate-500 mb-1"><Package size={14} />상품 수</div>
-            <div className="card-value">{summary.productCount}개</div>
+            <div className="card-value">{showInitialLoading ? '-' : `${summary.productCount}개`}</div>
           </div>
           <div className="card">
             <div className="card-label mb-1">총 매출</div>
-            <div className="card-value text-purple-600">{formatKRW(summary.totalRevenue)}원</div>
+            <div className="card-value text-purple-600">{showInitialLoading ? '-' : `${formatKRW(summary.totalRevenue)}원`}</div>
           </div>
           <div className="card">
             <div className="card-label mb-1">총 판매수량</div>
-            <div className="card-value text-slate-800">{summary.totalQuantity}개</div>
+            <div className="card-value text-slate-800">{showInitialLoading ? '-' : `${summary.totalQuantity}개`}</div>
           </div>
           <div className="card">
             <div className="card-label mb-1">총 주문수</div>
-            <div className="card-value">{summary.totalOrders}건</div>
+            <div className="card-value">{showInitialLoading ? '-' : `${summary.totalOrders}건`}</div>
           </div>
+        </div>
+      )}
+
+      {isPlaceholderData && (
+        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+          <Loader2 size={14} className="animate-spin text-purple-600" />
+          선택한 매입처의 상품별 판매 데이터를 갱신하는 중입니다.
         </div>
       )}
 
@@ -85,6 +94,8 @@ export default function SupplierProductSales() {
         </div>
         {!selectedId ? (
           <div className="empty-state">매입처를 선택해주세요.</div>
+        ) : showInitialLoading ? (
+          <div className="empty-state">상품 판매 데이터를 불러오는 중...</div>
         ) : products.length === 0 ? (
           <div className="empty-state">해당 매입처의 상품 판매 데이터가 없습니다.</div>
         ) : (

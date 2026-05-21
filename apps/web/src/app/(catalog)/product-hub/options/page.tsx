@@ -61,10 +61,12 @@ export default function ProductHubOptionsPage() {
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey,
     queryFn: () => fetchProductOptionList(listParams),
+    placeholderData: (previousData) => previousData,
   });
 
   const items = data?.items ?? [];
   const showLoading = isLoading && !data;
+  const showRefreshing = isFetching && !showLoading;
 
   const invalidateList = () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.productOptions.all });
@@ -156,6 +158,13 @@ export default function ProductHubOptionsPage() {
           ? '불러오는 중...'
           : `${items.length}개 표시${data?.nextCursor ? ' (추가 페이지 있음 — 필터로 좁히세요)' : ''}`}
       </div>
+
+      {showRefreshing && (
+        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+          <RefreshCw size={14} className="animate-spin text-purple-600" />
+          옵션 목록을 최신 조건으로 갱신하는 중입니다.
+        </div>
+      )}
 
       {isError ? (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">

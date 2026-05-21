@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState, type ReactNode } from 'react';
-import { Package } from 'lucide-react';
+import { Package, RefreshCw } from 'lucide-react';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { roasColor } from '../lib/status-colors';
 import { cardRaised } from '../lib/card-styles';
@@ -16,8 +16,9 @@ interface Props {
 }
 
 export default function AdProductsContent({ period }: Props) {
-  const { products, isLoading } = useAdProducts(period, true);
+  const { products, isLoading, isFetching } = useAdProducts(period, true);
   const roasT = useAdsConfig();
+  const isRefreshing = isFetching && !isLoading;
 
   const [sortBy, setSortBy] = useState<SortKey>('revenue');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -73,6 +74,13 @@ export default function AdProductsContent({ period }: Props) {
 
   return (
     <div className="space-y-4">
+      {isRefreshing && (
+        <div className="flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold" style={{ background: 'var(--surface-raised)', borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }} aria-live="polite">
+          <RefreshCw size={14} className="animate-spin" style={{ color: 'var(--primary)' }} />
+          광고상품 데이터를 갱신 중입니다.
+        </div>
+      )}
+      <div className="space-y-4" aria-busy={isRefreshing}>
       {/* KPI */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {[
@@ -210,7 +218,6 @@ export default function AdProductsContent({ period }: Props) {
                         <Td>
                           <div className="flex items-center gap-2 max-w-[280px]">
                             {p.imageUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element
                               <img src={p.imageUrl} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0" />
                             ) : (
                               <div className="w-8 h-8 rounded flex-shrink-0" style={{ background: 'var(--surface-sunken)' }} />
@@ -279,6 +286,7 @@ export default function AdProductsContent({ period }: Props) {
             )}
           </>
         )}
+      </div>
       </div>
     </div>
   );

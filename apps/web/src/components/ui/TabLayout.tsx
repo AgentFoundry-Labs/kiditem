@@ -75,7 +75,7 @@ export default function TabLayout({
                   isActive ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700',
                 )}
               >
-                {Icon && <Icon size={15} className={cn(isActive && 'text-blue-500')} />}
+                {Icon && <Icon size={15} className={cn(isActive && 'text-purple-600')} />}
                 {tab.label}
               </button>
             );

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { ArrowUpDown, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
+import { ArrowUpDown, Loader2, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
@@ -70,11 +70,12 @@ export function StockMovementTab() {
     return { from: fromDate.toISOString(), to: now.toISOString() };
   }, [dateRange]);
 
-  const { data, isLoading, error: rawError } = useQuery({
+  const { data, isLoading, isFetching, isPlaceholderData, error: rawError } = useQuery({
     queryKey: queryKeys.inventory.transactions(transactionKeyParams({ from, to })),
     // Page through the entire window — server caps `limit` at 200, so a single
     // request would silently truncate periods with > 200 transactions.
     queryFn: () => fetchAllTransactionsInWindow({ from, to }),
+    placeholderData: (previousData) => previousData,
   });
 
   const error = rawError ? (isApiError(rawError) ? rawError.detail : '입출고 데이터를 불러오는데 실패했습니다.') : null;
@@ -109,7 +110,7 @@ export function StockMovementTab() {
       )}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <ArrowUpDown size={20} className="text-indigo-500" />
+          <ArrowUpDown size={20} className="text-purple-600" />
           <div>
             <p className="text-sm text-slate-500">{transactions.length}건 거래 내역</p>
           </div>
@@ -130,11 +131,18 @@ export function StockMovementTab() {
             onClick={() => queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200"
           >
-            <RefreshCw size={14} />
+            <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
             새로고침
           </button>
         </div>
       </div>
+
+      {isPlaceholderData && (
+        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+          <Loader2 size={14} className="animate-spin text-purple-600" />
+          선택한 기간의 입출고 내역을 계산하는 중입니다.
+        </div>
+      )}
 
       <div className="grid grid-cols-4 gap-3">
         <StockMovementSummaryCard icon={<TrendingUp size={14} className="text-green-500" />} label="입고 수량" value={formatNumber(summary.inQty)} color="text-green-700" />
@@ -155,7 +163,7 @@ export function StockMovementTab() {
         ))}
       </div>
 
-      <StockMovementTable grouped={grouped} loading={isLoading} groupBy={groupBy} />
+      <StockMovementTable grouped={grouped} loading={isLoading && !data} groupBy={groupBy} />
     </div>
   );
 }

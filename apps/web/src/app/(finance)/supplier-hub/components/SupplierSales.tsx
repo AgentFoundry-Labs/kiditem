@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Store, Package, DollarSign } from 'lucide-react';
+import { Store, Package, DollarSign, Loader2 } from 'lucide-react';
 import { cn, formatKRW } from '@/lib/utils';
 import {
   fetchSupplierProductSalesReport,
@@ -16,10 +16,11 @@ export default function SupplierSales() {
   });
 
   const [selectedSupplier, setSelectedSupplier] = useState<string | null>(null);
-  const { data: productReport } = useQuery({
+  const { data: productReport, isLoading: loadingProducts, isPlaceholderData } = useQuery({
     queryKey: ['supplier-stats', 'productSales', selectedSupplier],
     queryFn: () => fetchSupplierProductSalesReport(selectedSupplier!),
     enabled: selectedSupplier != null,
+    placeholderData: (previousData) => previousData,
   });
 
   const summary = salesReport?.summary ?? {
@@ -32,6 +33,7 @@ export default function SupplierSales() {
   const suppliers = salesReport?.items ?? [];
   const products = productReport?.items ?? [];
   const selectedName = suppliers.find((s) => s.supplierId === selectedSupplier)?.supplierName;
+  const showInitialProductLoading = loadingProducts && !productReport;
 
   return (
     <div className="space-y-6">
@@ -46,7 +48,7 @@ export default function SupplierSales() {
           <div className="card-value">{summary.supplierCount}개</div>
         </div>
         <div className="card">
-          <div className="flex items-center gap-2 card-label mb-1"><DollarSign size={14} className="text-blue-500" />총 매출</div>
+          <div className="flex items-center gap-2 card-label mb-1"><DollarSign size={14} className="text-purple-600" />총 매출</div>
           <div className="card-value text-purple-600">{formatKRW(summary.totalRevenue)}원</div>
         </div>
         <div className="card">
@@ -82,7 +84,7 @@ export default function SupplierSales() {
             </thead>
             <tbody >
               {suppliers.map((sup) => (
-                  <tr key={sup.supplierId} className={cn('hover:bg-slate-50 cursor-pointer', selectedSupplier === sup.supplierId && 'bg-blue-50')} onClick={() => setSelectedSupplier(sup.supplierId)}>
+                  <tr key={sup.supplierId} className={cn('hover:bg-slate-50 cursor-pointer', selectedSupplier === sup.supplierId && 'bg-purple-50')} onClick={() => setSelectedSupplier(sup.supplierId)}>
                   <td className="px-4 py-3 font-medium text-slate-900">{sup.supplierName}</td>
                   <td className="px-4 py-3 text-xs text-slate-500">-</td>
                   <td className="px-4 py-3 text-right tabular-nums">{sup.productCount}</td>
@@ -107,7 +109,15 @@ export default function SupplierSales() {
             <h3 className="text-sm font-semibold text-slate-900">{selectedName} - 상품별 판매현황</h3>
             <button onClick={() => setSelectedSupplier(null)} className="text-xs text-slate-400 hover:text-slate-600">닫기</button>
           </div>
-          {products.length === 0 ? (
+          {isPlaceholderData && (
+            <div className="flex items-center gap-2 border-b border-slate-100 bg-white px-4 py-2 text-xs text-slate-500">
+              <Loader2 size={14} className="animate-spin text-purple-600" />
+              상품별 판매 데이터를 갱신하는 중입니다.
+            </div>
+          )}
+          {showInitialProductLoading ? (
+            <div className="empty-state">상품별 판매 데이터를 불러오는 중...</div>
+          ) : products.length === 0 ? (
             <div className="empty-state">해당 매입처의 판매 데이터가 없습니다.</div>
           ) : (
             <table>

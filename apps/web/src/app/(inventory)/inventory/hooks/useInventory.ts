@@ -20,6 +20,7 @@ export function useInventoryList(params: InventoryListParams) {
   return useQuery({
     queryKey: queryKeys.inventory.list(inventoryListKeyParams(params)),
     queryFn: () => fetchInventoryList(params),
+    placeholderData: previousData => previousData,
   });
 }
 

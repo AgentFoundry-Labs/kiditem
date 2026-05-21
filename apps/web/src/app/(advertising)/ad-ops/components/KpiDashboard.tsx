@@ -104,7 +104,7 @@ export default function KpiDashboard({ totalKpi, wingAdData, period, roas, trend
     const avgDiff = kpi.avg !== null ? kpi.current - kpi.avg : null;
     const avgBetter = kpi.avg !== null ? (kpi.invertGoal ? kpi.current <= kpi.avg : kpi.current >= kpi.avg) : null;
     return (
-      <div key={kpi.label} className="rounded-2xl p-3.5 flex flex-col justify-between transition-all hover:shadow-lg" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-md)", border: "1px solid var(--border-subtle)" }}>
+      <div key={kpi.label} className="rounded-xl p-3.5 flex flex-col justify-between transition-colors hover:border-slate-300" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-subtle)" }}>
         <div>
           <div className="flex items-center gap-1.5 mb-1">
             <Icon size={14} style={{ color: kpi.accentColor }} />
@@ -143,28 +143,28 @@ export default function KpiDashboard({ totalKpi, wingAdData, period, roas, trend
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" style={{ alignItems: "stretch" }}>
       {/* ─── HERO 1: 전환 매출 (2-row) ─── */}
-      <div className="lg:row-span-2 rounded-2xl px-5 py-4 flex flex-col justify-between" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-md)", border: "1px solid var(--border-subtle)" }}>
+      <div className="lg:row-span-2 rounded-xl px-5 py-4 flex flex-col justify-between" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-subtle)" }}>
         <div>
           <div className="flex items-center gap-2 mb-2">
-            <TrendingUp size={18} style={{ color: "#2563eb" }} />
-            <span className="text-sm font-bold uppercase tracking-wider" style={{ color: "#2563eb" }}>광고 전환 매출</span>
+            <TrendingUp size={18} style={{ color: "var(--primary)" }} />
+            <span className="text-sm font-bold uppercase tracking-wider" style={{ color: "var(--primary)" }}>광고 전환 매출</span>
           </div>
           <div className="flex items-baseline gap-1.5 mb-1">
-            <span className="text-3xl font-extrabold tabular-nums tracking-tight" style={{ color: "#2563eb" }}>{formatKRW(adRevenue)}</span>
-            <span className="text-base font-semibold" style={{ color: "#2563eb", opacity: 0.6 }}>원</span>
+            <span className="text-3xl font-extrabold tabular-nums tracking-tight" style={{ color: "var(--primary)" }}>{formatKRW(adRevenue)}</span>
+            <span className="text-base font-semibold" style={{ color: "var(--primary)", opacity: 0.6 }}>원</span>
           </div>
           <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>{periodLabel} 누적 · {sourceLabel}</div>
-          <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(37,99,235,0.15)" }}>
+          <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(147,51,234,0.15)" }}>
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[11px]" style={{ color: "rgba(37,99,235,0.6)" }}>목표 {formatKRW(revenueGoal)}원</span>
-              <span className="text-[12px] font-bold tabular-nums" style={{ color: revenueAchieve >= 100 ? "#00c471" : "#2563eb" }}>{revenueAchieve}%</span>
+              <span className="text-[11px]" style={{ color: "rgba(147,51,234,0.6)" }}>목표 {formatKRW(revenueGoal)}원</span>
+              <span className="text-[12px] font-bold tabular-nums" style={{ color: revenueAchieve >= 100 ? "#00c471" : "var(--primary)" }}>{revenueAchieve}%</span>
             </div>
-            <div className="rounded-full overflow-hidden" style={{ height: 14, background: "rgba(37,99,235,0.08)" }}>
-              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${revenuePct}%`, background: "linear-gradient(90deg, rgba(37,99,235,0.4), #2563eb)" }} />
+            <div className="rounded-full overflow-hidden" style={{ height: 14, background: "rgba(147,51,234,0.08)" }}>
+              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${revenuePct}%`, background: "var(--primary)" }} />
             </div>
           </div>
         </div>
-        <div className="mt-3 pt-3 space-y-1.5" style={{ borderTop: "1px solid rgba(37,99,235,0.15)" }}>
+        <div className="mt-3 pt-3 space-y-1.5" style={{ borderTop: "1px solid rgba(147,51,234,0.15)" }}>
           <div className="flex justify-between text-[13px]">
             <span style={{ color: "var(--text-secondary)" }}>노출수</span>
             <span className="font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>{formatNumber(impressions)}</span>
@@ -181,7 +181,7 @@ export default function KpiDashboard({ totalKpi, wingAdData, period, roas, trend
       </div>
 
       {/* ─── HERO 2: 집행 광고비 (2-row) ─── */}
-      <div className="lg:row-span-2 rounded-2xl px-5 py-4 flex flex-col justify-between" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-md)", border: "1px solid var(--border-subtle)" }}>
+      <div className="lg:row-span-2 rounded-xl px-5 py-4 flex flex-col justify-between" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-sm)", border: "1px solid var(--border-subtle)" }}>
         <div>
           <div className="flex items-center gap-2 mb-2">
             <Megaphone size={18} style={{ color: "#059669" }} />
@@ -198,7 +198,7 @@ export default function KpiDashboard({ totalKpi, wingAdData, period, roas, trend
               <span className="text-[12px] font-bold tabular-nums" style={{ color: spendOver ? "#dc2626" : "#059669" }}>{spendOver ? "초과" : `${Math.round(spendPct)}%`}</span>
             </div>
             <div className="rounded-full overflow-hidden" style={{ height: 14, background: "rgba(5,150,105,0.08)" }}>
-              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${spendPct}%`, background: spendOver ? "linear-gradient(90deg, #fca5a5, #dc2626)" : "linear-gradient(90deg, rgba(5,150,105,0.4), #059669)" }} />
+              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${spendPct}%`, background: spendOver ? "#dc2626" : "#059669" }} />
             </div>
           </div>
         </div>

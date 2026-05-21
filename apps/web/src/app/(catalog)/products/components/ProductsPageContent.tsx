@@ -1,17 +1,19 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { BarChart3, Download, Package, Search, Upload } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertItemSchema, type AlertItem } from '@kiditem/shared/alerts';
 import { z } from 'zod';
+import PageSkeleton from '@/components/ui/PageSkeleton';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
-import PageSkeleton from '@/components/ui/PageSkeleton';
-import { AlertItemSchema, type AlertItem } from '@kiditem/shared/alerts';
-import type { ProductListItem as Product, PipelineCounts } from '../lib/product-types';
+import { useProductGradeChanges } from '../hooks/useProductGradeChanges';
+import { computeGradeMap, rankOf } from '../lib/abc-grading';
+import { downloadProductsExcel } from '../lib/products-export';
 import AddProductModal from './AddProductModal';
 import ExcelUploadModal from './ExcelUploadModal';
 import { ProductCategorySelector } from './category-selection/ProductCategorySelector';
@@ -19,9 +21,7 @@ import { ProductGroupRow } from './ProductGroupRow';
 import { ProductRowCard } from './ProductRowCard';
 import { ProductsColumnHeader } from './ProductsColumnHeader';
 import { ProductCommandCenter, type ProductSegment } from './ProductCommandCenter';
-import { computeGradeMap, rankOf } from '../lib/abc-grading';
-import { downloadProductsExcel } from '../lib/products-export';
-import { useProductGradeChanges } from '../hooks/useProductGradeChanges';
+import type { ProductListItem as Product, PipelineCounts } from '../lib/product-types';
 
 const DEFAULT_PIPELINE: PipelineCounts = {
   total: 0, channelLinkedProducts: 0, channelUnlinkedProducts: 0,
@@ -180,9 +180,10 @@ export default function ProductsPageContent() {
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const trafficRef = useRef<HTMLInputElement>(null);
+  const urlSearch = searchParams.get('search') ?? '';
 
-  const [search, setSearch] = useState(() => searchParams.get('search') ?? '');
-  const [submittedSearch, setSubmittedSearch] = useState(() => searchParams.get('search') ?? '');
+  const [search, setSearch] = useState(() => urlSearch);
+  const [submittedSearch, setSubmittedSearch] = useState(() => urlSearch);
   const [gradeFilter, setGradeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [adFilter, setAdFilter] = useState('all');
@@ -216,12 +217,19 @@ export default function ProductsPageContent() {
     ...(selectedCategoryGroup && { categoryGroup: selectedCategoryGroup }),
   }), [page, period, gradeFilter, statusFilter, adFilter, stockFilter, submittedSearch, selectedCategory, selectedCategoryGroup]);
 
-  const { data: productsData, isLoading, error: productsError } = useQuery({
+  useEffect(() => {
+    setSearch(urlSearch);
+    setSubmittedSearch(urlSearch);
+    setPage(1);
+  }, [urlSearch]);
+
+  const { data: productsData, isLoading, isPlaceholderData, error: productsError } = useQuery({
     queryKey: queryKeys.products.list(queryParams),
     queryFn: () => {
       const params = new URLSearchParams(queryParams);
       return apiClient.get<{ items: Product[]; total: number }>(`/api/products/masters?${params}`);
     },
+    placeholderData: previousData => previousData,
     refetchInterval: 30000,
     refetchIntervalInBackground: false,
   });
@@ -603,25 +611,20 @@ export default function ProductsPageContent() {
 
       <ProductsColumnHeader sortKey={sortKey} sortDir={sortDir} onToggleSort={toggleSort} />
 
-      <div className="relative">
-        {isLoading && allProducts.length > 0 && (
+      {isPlaceholderData && allProducts.length > 0 && (
+        <div
+          className="flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-semibold"
+          style={{ background: 'var(--card-bg)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}
+        >
           <div
-            className="absolute inset-0 z-10 flex items-start justify-center pt-20 rounded-xl"
-            style={{ background: 'rgba(255,255,255,0.6)', backdropFilter: 'blur(2px)' }}
-          >
-            <div
-              className="flex items-center gap-2 px-4 py-2 rounded-xl shadow-lg"
-              style={{ background: 'var(--card-bg)', border: '1px solid var(--border-subtle)' }}
-            >
-              <div
-                className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin"
-                style={{ borderColor: 'var(--primary)', borderTopColor: 'transparent' }}
-              />
-              <span className="text-[13px] font-semibold" style={{ color: 'var(--text-secondary)' }}>불러오는 중...</span>
-            </div>
-          </div>
-        )}
+            className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin"
+            style={{ borderColor: 'var(--primary)', borderTopColor: 'transparent' }}
+          />
+          상품 목록을 최신 조건으로 갱신하는 중입니다.
+        </div>
+      )}
 
+      <div>
         {displayProducts.length === 0 && !isLoading ? (
           <div
             className="rounded-xl p-12 text-center"
@@ -684,7 +687,7 @@ export default function ProductsPageContent() {
                     className={cn(
                       'w-8 h-8 text-xs rounded-md',
                       pg === page
-                        ? 'bg-gray-900 text-white font-semibold'
+                        ? 'bg-purple-600 text-white font-semibold'
                         : 'border border-gray-200 hover:bg-gray-50 text-gray-600',
                     )}
                   >
