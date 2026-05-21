@@ -294,12 +294,13 @@ deploy() {
     echo "Skipping image pull because SKIP_IMAGE_PULL=1"
   else
     local pull_status
+    local allow_downtime_for_space="${ALLOW_STAGING_DOWNTIME_FOR_SPACE:-1}"
     reclaim_docker_space
     pull_status=0
     pull_staging_images || pull_status=$?
 
     if [[ "$pull_status" == "75" ]]; then
-      if [[ "${ALLOW_STAGING_DOWNTIME_FOR_SPACE:-}" != "1" ]]; then
+      if [[ "$allow_downtime_for_space" != "1" ]]; then
         fail "Refusing to stop the running staging stack after image pull ran out of disk. Free disk or grow the EC2 volume, then retry. Set ALLOW_STAGING_DOWNTIME_FOR_SPACE=1 only for an explicitly approved downtime deploy."
       fi
       echo "Image pull ran out of disk after unused-resource cleanup; retrying after stopping the staging stack"

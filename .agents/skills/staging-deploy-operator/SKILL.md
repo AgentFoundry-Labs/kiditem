@@ -23,7 +23,7 @@ Do not use for production deploys.
 |---|---|---|
 | Failed deploy | Inspect failed job logs and run `operation=status` | Blindly `gh run rerun` |
 | Data-loss prompt | Use `accept_data_loss=true` only for reviewed staging schema cleanup | Treat image-pull failures as data-loss cases |
-| Disk full / ENOSPC | Keep current stack up unless staging downtime is explicitly approved | Stop the stack silently |
+| Disk full / ENOSPC | Default deploy retry stops the staging stack to free active image layers; verify status first if triaging a failure | Delete Docker volumes, DB data, or uploaded assets |
 | Duplicate-looking CI | Compare run id, event, head SHA, job conclusions, skipped jobs | Assume skipped jobs ran |
 | Main staging hotfix | Deploy `main`, then merge `origin/main` into `develop` | Leave develop behind |
 
@@ -34,8 +34,7 @@ From the repo root:
 ```bash
 rtk gh workflow run staging-deploy.yml --ref main \
   -f operation=deploy \
-  -f accept_data_loss=false \
-  -f allow_downtime_for_space=false
+  -f accept_data_loss=false
 ```
 
 Watch the run and inspect failure logs if needed:
@@ -52,7 +51,8 @@ Success requires all of these:
 - `Verify public staging URL` passed.
 - `Verify staging data migration status` passed.
 - `Tag successful staging deploy` created or confirmed a `staging-v<VERSION>-<YYYYMMDD>-<shortsha>` tag.
-- A follow-up `operation=status` shows the expected `gitSha`, healthy API/web/nginx containers, `/login -> 200`, and `/api/auth/me -> 401`.
+- The final `Query final EC2 status` step shows the expected `gitSha`, healthy
+  API/web/nginx containers, `/login -> 200`, and `/api/auth/me -> 401`.
 
 ## Failure Triage
 
@@ -73,11 +73,19 @@ rtk gh run view <status-run-id> --log
 
 ## Disk-Full Recovery
 
-Default behavior preserves the running stack. If the failed log says the remote script refused to stop after image pull ran out of disk, do this:
+Default deploy behavior may stop the running staging stack only after an image
+pull hits `no space left on device` or `ENOSPC`, then prune unused Docker
+resources and retry the pull. It must not delete Docker volumes, the database,
+or uploaded assets.
+
+If an older workflow run refused to stop after image pull ran out of disk, do
+this:
 
 1. Confirm this is staging and the failure is image-pull disk pressure, not DB/data loss.
 2. Check current status so the user knows whether the old stack is still serving.
-3. Use `allow_downtime_for_space=true` only when the user explicitly approves staging downtime, or when status proves the stack is already down/unhealthy.
+3. Dispatch a new deploy. The workflow default is
+   `allow_downtime_for_space=true`; pass it explicitly when replaying old
+   commands.
 
 ```bash
 rtk gh workflow run staging-deploy.yml --ref main \
@@ -101,6 +109,9 @@ Evidence rules:
 - A job with conclusion `skipped` and no steps did not run.
 - `operation=status` should only run `Show staging status`; build/deploy/rollback jobs appearing as skipped is normal.
 - `operation=deploy` should run prepare, build API, build web, and deploy once for one run id.
+- For `operation=deploy`, only the `Deploy to staging` job should declare the
+  `staging` environment. Build/preparation jobs must not use that environment,
+  otherwise GitHub creates extra deployment records for one deploy.
 - Compare `headSha` and manifest `github.runId` before claiming a second deploy changed staging.
 - Current smoke evidence is `/api/auth/me -> 401`; do not broaden it to `403` unless the workflow expectation changes.
 
