@@ -25,7 +25,7 @@ on:
         description: Stop the current staging stack if image pull needs active-layer disk space.
         required: false
         type: boolean
-        default: false
+        default: true
 
 concurrency:
   group: staging
@@ -42,7 +42,6 @@ jobs:
     name: Prepare staging image refs
     if: inputs.operation == 'deploy'
     runs-on: ubuntu-latest
-    environment: staging
     permissions:
       contents: read
     outputs:
@@ -60,8 +59,8 @@ jobs:
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
         run: |
           set -euo pipefail
-          : "${NEXT_PUBLIC_SUPABASE_URL:?Set staging variable NEXT_PUBLIC_SUPABASE_URL}"
-          : "${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:?Set staging variable NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}"
+          : "${NEXT_PUBLIC_SUPABASE_URL:?Set repository variable NEXT_PUBLIC_SUPABASE_URL}"
+          : "${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:?Set repository variable NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}"
 
       - name: Compute image references
         id: refs
@@ -155,7 +154,6 @@ jobs:
     if: inputs.operation == 'deploy'
     needs: prepare
     runs-on: ubuntu-latest
-    environment: staging
     permissions:
       contents: read
       packages: write
@@ -565,6 +563,20 @@ jobs:
             -m "URL: ${STAGING_URL:-unset}"
           git push origin "refs/tags/$tag"
           echo "Created staging deploy tag: $tag"
+
+      - name: Query final EC2 status
+        env:
+          STAGING_HOST: ${{ vars.STAGING_HOST }}
+          STAGING_USER: ${{ vars.STAGING_USER }}
+          STAGING_REMOTE_DIR: ${{ vars.STAGING_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          : "${STAGING_HOST:?Set staging variable STAGING_HOST}"
+          STAGING_USER="${STAGING_USER:-ubuntu}"
+          STAGING_REMOTE_DIR="${STAGING_REMOTE_DIR:-/opt/kiditem}"
+          q() { printf '%q' "$1"; }
+          ssh -i ~/.ssh/kiditem-staging "${STAGING_USER}@${STAGING_HOST}" \
+            "cd $(q "$STAGING_REMOTE_DIR") && ./deploy/staging/remote-deploy.sh status"
 
   rollback:
     name: Roll back staging

@@ -153,6 +153,14 @@ to the NestJS container.
 
 Create a GitHub Environment named `staging`.
 
+Repository variables used by staging build jobs that intentionally do not
+attach GitHub Environment `staging`:
+
+```text
+NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<staging-supabase-publishable-key>
+```
+
 Environment variables:
 
 ```text
@@ -160,8 +168,6 @@ STAGING_HOST=<ec2-public-ip-or-dns>
 STAGING_USER=ubuntu
 STAGING_REMOTE_DIR=/opt/kiditem
 STAGING_URL=http://<ec2-public-ip>
-NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<staging-supabase-publishable-key>
 STAGING_SUPABASE_URL=https://<project-ref>.supabase.co
 STAGING_CORS_ORIGINS=http://<ec2-public-ip>
 STAGING_S3_REGION=ap-northeast-2
@@ -216,8 +222,8 @@ gh variable set STAGING_HOST --env staging --body "<ec2-public-ip-or-dns>"
 gh variable set STAGING_USER --env staging --body "ubuntu"
 gh variable set STAGING_REMOTE_DIR --env staging --body "/opt/kiditem"
 gh variable set STAGING_URL --env staging --body "http://<ec2-public-ip>"
-gh variable set NEXT_PUBLIC_SUPABASE_URL --env staging --body "https://<project-ref>.supabase.co"
-gh variable set NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY --env staging --body "<publishable-key>"
+gh variable set NEXT_PUBLIC_SUPABASE_URL --body "https://<project-ref>.supabase.co"
+gh variable set NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY --body "<publishable-key>"
 gh variable set STAGING_SUPABASE_URL --env staging --body "https://<project-ref>.supabase.co"
 gh variable set STAGING_CORS_ORIGINS --env staging --body "http://<ec2-public-ip>"
 gh variable set STAGING_S3_REGION --env staging --body "ap-northeast-2"
@@ -261,11 +267,11 @@ The staging API image includes Chromium for server-side render-image jobs. The
 remote deploy script prunes stopped containers, unused images, and Docker
 builder cache before pulling new images. It intentionally does not prune Docker
 volumes. If a pull still fails with `no space left on device` after that
-cleanup, the script keeps the current staging stack up and stops before the
-image swap. Free disk, grow the EC2 root volume, or slim the API image before
-retrying. Only set `ALLOW_STAGING_DOWNTIME_FOR_SPACE=1` for an explicitly
-approved downtime deploy. In GitHub Actions, use the
-`allow_downtime_for_space` workflow input for that staging-only retry.
+cleanup, the default GitHub Actions deploy may stop the current staging stack to
+free active image layers, prune again, and retry. This can cause short staging
+downtime, but it must not delete Docker volumes, the database, or uploaded
+assets. Set `allow_downtime_for_space=false` only for a deploy that must
+preserve the currently running stack at all costs.
 
 Workflow actions are pinned to commit SHA with the tag version left as a YAML
 comment. When upgrading an action, resolve the new tag SHA with
@@ -301,6 +307,10 @@ deploy staging by itself. `main` is the normal staging deployment ref, but it
 does not deploy automatically; an operator triggers the workflow manually. Do
 not create a long-lived `staging` branch; staging is a GitHub Environment, not a
 separate source branch.
+
+Only the real deploy/rollback/status jobs declare GitHub Environment `staging`.
+Build and preparation jobs intentionally avoid it so GitHub creates a single
+staging deployment record for one `operation=deploy` run.
 
 The deployable app release is recorded in root [`VERSION`](../../VERSION).
 Package-local `version` fields are package metadata and are not the staging
