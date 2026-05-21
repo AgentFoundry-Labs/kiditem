@@ -8,12 +8,12 @@ import {
   Sparkles,
   User,
 } from 'lucide-react';
-import type { ActionTask } from '@kiditem/shared/action-task';
 import { cn } from '@/lib/utils';
-import type { ActionBoardWorkflowState } from '../hooks/useActionBoardWorkflow';
 import { severityBgColor } from '../lib/action-board-columns';
+import type { ActionTask } from '@kiditem/shared/action-task';
+import type { ActionBoardWorkflowState } from '../hooks/useActionBoardWorkflow';
 
-type ActionBoardKanbanProps = Pick<
+type ActionBoardKanbanBaseProps = Pick<
   ActionBoardWorkflowState,
   | 'tasks'
   | 'columns'
@@ -28,6 +28,10 @@ type ActionBoardKanbanProps = Pick<
   | 'unclaimMutation'
 >;
 
+type ActionBoardKanbanProps = ActionBoardKanbanBaseProps & {
+  isRefreshing?: boolean;
+};
+
 export function ActionBoardKanban({
   tasks,
   columns,
@@ -40,9 +44,16 @@ export function ActionBoardKanban({
   executeMutation,
   claimMutation,
   unclaimMutation,
+  isRefreshing = false,
 }: ActionBoardKanbanProps) {
   return (
-    <div className="flex-1 overflow-x-auto p-4">
+    <div className="relative flex-1 overflow-x-auto p-4" aria-busy={isRefreshing}>
+      {isRefreshing && (
+        <div className="absolute right-6 top-6 z-10 inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm">
+          <Loader2 size={13} className="animate-spin text-purple-600" />
+          목록 갱신 중
+        </div>
+      )}
       <div
         className={cn(
           'flex flex-col md:inline-grid md:grid-flow-col gap-0 divide-y md:divide-y-0 md:divide-x border rounded-xl overflow-hidden min-w-full',

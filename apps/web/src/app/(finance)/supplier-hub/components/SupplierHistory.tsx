@@ -2,9 +2,9 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { History, Package, Truck, CreditCard } from 'lucide-react';
+import { History, Loader2, Package, Truck, CreditCard } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
-import { cn, formatKRW } from '@/lib/utils';
+import { cn, formatDate, formatKRW } from '@/lib/utils';
 import { fetchSupplierHistoryReport } from '../lib/supplier-stats-api';
 
 interface Supplier {
@@ -13,8 +13,8 @@ interface Supplier {
 }
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
-  pending: { label: '대기', color: 'bg-yellow-100 text-yellow-700' },
-  ordered: { label: '발주완료', color: 'bg-blue-100 text-blue-700' },
+  pending: { label: '대기', color: 'bg-amber-100 text-amber-700' },
+  ordered: { label: '발주완료', color: 'bg-purple-100 text-purple-700' },
   shipped: { label: '배송중', color: 'bg-purple-100 text-purple-700' },
   inspecting: { label: '검수중', color: 'bg-orange-100 text-orange-700' },
   received: { label: '입고완료', color: 'bg-green-100 text-green-700' },
@@ -28,14 +28,16 @@ export default function SupplierHistory() {
 
   const [selectedId, setSelectedId] = useState('');
 
-  const { data: historyReport } = useQuery({
+  const { data: historyReport, isLoading, isPlaceholderData } = useQuery({
     queryKey: ['supplier-stats', 'history', selectedId],
     queryFn: () => fetchSupplierHistoryReport(selectedId),
     enabled: !!selectedId,
+    placeholderData: (previousData) => previousData,
   });
 
   const timeline = historyReport?.items ?? [];
   const summary = historyReport?.summary ?? null;
+  const showInitialLoading = isLoading && !historyReport;
 
   return (
     <div className="space-y-6">
@@ -81,9 +83,18 @@ export default function SupplierHistory() {
         </div>
       )}
 
+      {isPlaceholderData && (
+        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+          <Loader2 size={14} className="animate-spin text-purple-600" />
+          선택한 매입처의 거래 이력을 갱신하는 중입니다.
+        </div>
+      )}
+
       {/* Timeline */}
       {!selectedId ? (
         <div className="card p-12 text-center text-slate-400 text-sm">매입처를 선택하면 거래 이력이 표시됩니다.</div>
+      ) : showInitialLoading ? (
+        <div className="card p-12 text-center text-slate-400 text-sm">거래 이력을 불러오는 중...</div>
       ) : timeline.length === 0 ? (
         <div className="card p-12 text-center text-slate-400 text-sm">거래 이력이 없습니다.</div>
       ) : (
@@ -95,7 +106,7 @@ export default function SupplierHistory() {
           <div >
             {timeline.map((item, idx) => {
               const st = STATUS_MAP[item.status] || { label: item.status, color: 'bg-slate-100 text-slate-600' };
-              const dotColor = item.type === 'payment' ? 'bg-blue-500' : 'bg-yellow-500';
+              const dotColor = item.type === 'payment' ? 'bg-purple-600' : 'bg-amber-500';
               const Icon = item.type === 'payment' ? CreditCard : Package;
               return (
                 <div key={`${item.id}-${item.type}-${idx}`} className="px-4 py-3">
@@ -123,7 +134,7 @@ export default function SupplierHistory() {
                         </span>
                         <span className="text-slate-400">
                           <Truck size={10} className="inline mr-1" />
-                          {new Date(item.date).toLocaleDateString('ko-KR')}
+                          {formatDate(item.date)}
                         </span>
                       </div>
                     </div>

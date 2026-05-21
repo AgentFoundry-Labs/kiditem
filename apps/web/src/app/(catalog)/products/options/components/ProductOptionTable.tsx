@@ -78,7 +78,7 @@ export default function ProductOptionTable({
                     </td>
                     <td className="px-4 py-3 text-center text-xs">
                       {item.isBundle ? (
-                        <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">
+                        <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">
                           BUNDLE
                         </span>
                       ) : (

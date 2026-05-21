@@ -11,6 +11,7 @@ import {
   BookOpen,
   ArrowDownToLine,
   ArrowUpFromLine,
+  Loader2,
 } from 'lucide-react';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
@@ -50,10 +51,12 @@ export default function StockLedger() {
   // Page through every transaction in the period — server caps limit at 200,
   // so a single request would silently truncate ledger totals when a month has
   // more than 200 movements.
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isPlaceholderData } = useQuery({
     queryKey: queryKeys.inventory.transactions(transactionKeyParams({ from, to })),
     queryFn: () => fetchAllTransactionsInWindow({ from, to }),
+    placeholderData: (previousData) => previousData,
   });
+  const showInitialLoading = isLoading && !data;
 
   const { ledger, totals } = useMemo(() => {
     const txs: TransactionListItem[] = data ?? [];
@@ -107,6 +110,13 @@ export default function StockLedger() {
           <PeriodSelector value={period} onChange={setPeriod} />
         </div>
       </div>
+
+      {isPlaceholderData && (
+        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+          <Loader2 size={14} className="animate-spin text-purple-600" />
+          선택한 기간의 재고수불 데이터를 갱신하는 중입니다.
+        </div>
+      )}
 
       {/* 합계 KPI */}
       {totals && (
@@ -168,11 +178,11 @@ export default function StockLedger() {
                 <th className="text-right py-2 px-3 bg-green-50">입고</th>
                 <th className="text-right py-2 px-3 bg-red-50">출고</th>
                 <th className="text-right py-2 px-3 bg-purple-50">조정</th>
-                <th className="text-right py-2 px-3 bg-blue-50">기말재고</th>
+                <th className="text-right py-2 px-3 bg-purple-50">기말재고</th>
               </tr>
             </thead>
             <tbody>
-              {isLoading ? (
+              {showInitialLoading ? (
                 <tr>
                   <td colSpan={6} className="py-12 text-center text-slate-400">
                     로딩 중...
@@ -209,7 +219,7 @@ export default function StockLedger() {
                           : formatNumber(item.adjust)
                         : '-'}
                     </td>
-                    <td className="py-2 px-3 text-right bg-blue-50 font-bold text-blue-700">
+                    <td className="py-2 px-3 text-right bg-purple-50 font-bold text-purple-700">
                       {formatNumber(item.endStock)}
                     </td>
                   </tr>
@@ -233,7 +243,7 @@ export default function StockLedger() {
                     {totals.adjust >= 0 ? '+' : ''}
                     {formatNumber(totals.adjust)}
                   </td>
-                  <td className="py-2 px-3 text-right bg-blue-50 text-blue-700">
+                  <td className="py-2 px-3 text-right bg-purple-50 text-purple-700">
                     {formatNumber(totals.endStock)}
                   </td>
                 </tr>

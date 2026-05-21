@@ -1,6 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { toast } from 'sonner';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { apiClient } from '@/lib/api-client';
 import ActionBoardPage from '../page';
 import type { ActionTask } from '@kiditem/shared/action-task';
 
@@ -46,9 +48,6 @@ vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => ({ user: mockUser.value, isLoading: false, logout: vi.fn() }),
 }));
 
-import { apiClient } from '@/lib/api-client';
-import { toast } from 'sonner';
-
 const MY_USER_ID = 'user-mine-0001-0000-000000000001';
 const OTHER_USER_ID = 'user-other-0002-0000-000000000002';
 
@@ -84,11 +83,12 @@ function renderPage() {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(
+  const view = render(
     <QueryClientProvider client={qc}>
       <ActionBoardPage />
     </QueryClientProvider>,
   );
+  return { ...view, qc };
 }
 
 describe('ActionBoardPage', () => {
@@ -135,6 +135,36 @@ describe('ActionBoardPage', () => {
     await waitFor(() => screen.getByRole('tablist', { name: '담당자 필터' }));
     fireEvent.click(screen.getByRole('tab', { name: tabName }));
     expect(mockPush).toHaveBeenCalledWith(expectedUrl);
+  });
+
+  it('담당자 scope 전환 중에도 전체 페이지 skeleton으로 돌아가지 않는다', async () => {
+    let resolveScopedQuery: ((tasks: ActionTask[]) => void) | undefined;
+    mockSearchParamsGet = vi.fn().mockReturnValue(null);
+    vi.mocked(apiClient.get).mockImplementation((url: string) => {
+      if (url.includes('assignedTo=me')) {
+        return new Promise<ActionTask[]>((resolve) => {
+          resolveScopedQuery = resolve;
+        });
+      }
+      return Promise.resolve([makeTask({ id: 'task-all', label: '전체 업무' })]);
+    });
+
+    const view = renderPage();
+    expect(await screen.findByText('전체 업무')).toBeInTheDocument();
+
+    mockSearchParamsGet = vi.fn().mockReturnValue('me');
+    view.rerender(
+      <QueryClientProvider client={view.qc}>
+        <ActionBoardPage />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText('액션 보드')).toBeInTheDocument();
+    expect(screen.getByText('전체 업무')).toBeInTheDocument();
+    expect(await screen.findByText('목록 갱신 중')).toBeInTheDocument();
+
+    resolveScopedQuery?.([makeTask({ id: 'task-me', label: '내 업무' })]);
+    expect(await screen.findByText('내 업무')).toBeInTheDocument();
   });
 
   // ── 3. Card shows assigneeUser.name ───────────────────────────────────────

@@ -45,6 +45,7 @@ export default function AdOpsPage() {
     trends: trendsQuery,
     exposure: exposureQuery,
     isLoading,
+    isRefreshing,
   } = useAdOpsData(period, tab);
 
   const registerMutation = useRegisterCampaign();
@@ -136,12 +137,20 @@ export default function AdOpsPage() {
                 </button>
               ))}
             </div>
-            <button onClick={handleRefresh} className="p-2.5 rounded-lg transition-colors" style={{ color: "var(--text-tertiary)" }} title="새로고침">
-              <RefreshCw size={16} />
+            <button onClick={handleRefresh} disabled={isRefreshing} className="p-2.5 rounded-lg transition-colors disabled:opacity-50" style={{ color: "var(--text-tertiary)" }} title="새로고침">
+              <RefreshCw size={16} className={isRefreshing ? "animate-spin" : undefined} />
             </button>
           </div>
         </div>
 
+        {isRefreshing && (
+          <div className="flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold" style={{ background: "var(--surface-raised)", borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }} aria-live="polite">
+            <RefreshCw size={14} className="animate-spin" style={{ color: "var(--primary)" }} />
+            {period === "month" ? "이번달" : period === "14d" ? "14일" : "7일"} 광고 데이터를 갱신 중입니다.
+          </div>
+        )}
+
+        <div aria-busy={isRefreshing}>
         <KpiDashboard
           totalKpi={totalKpi}
           wingAdData={wingAdData}
@@ -150,6 +159,7 @@ export default function AdOpsPage() {
           trendsDaily={trendsDaily}
           accountSummary={accountSummary}
         />
+        </div>
 
         <div className="rounded-2xl px-3 py-3 flex items-center gap-1.5" style={{ background: "var(--primary)" }}>
           {TABS.map((t) => {
@@ -169,7 +179,7 @@ export default function AdOpsPage() {
           })}
         </div>
 
-        <div style={{ minHeight: 600 }}>
+        <div style={{ minHeight: 600 }} aria-busy={isRefreshing}>
           {tab === "status" && (
             <StatusContent
               rules={rules}

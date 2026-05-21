@@ -116,6 +116,7 @@ export default function MatchingPage() {
       : ignoreMutation.variables?.id && ignoreMutation.isPending
         ? ignoreMutation.variables.id
         : null;
+  const isItemsRefreshing = itemsQuery.isFetching && !itemsQuery.isLoading;
 
   const ignoreLabel = ignoreTarget
     ? ignoreTarget.itemType === 'kiditem_option'
@@ -180,6 +181,13 @@ export default function MatchingPage() {
           counts={counts}
         />
 
+        {isItemsRefreshing && (
+          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+            <Loader2 size={14} className="animate-spin text-purple-600" />
+            매칭 목록을 최신 조건으로 갱신하는 중입니다.
+          </div>
+        )}
+
         <ItemsTable
           items={tableItems}
           total={
@@ -189,7 +197,7 @@ export default function MatchingPage() {
           }
           page={page}
           limit={PAGE_LIMIT}
-          loading={itemsQuery.isLoading}
+          loading={itemsQuery.isLoading && !itemsQuery.data}
           emptyMessage={emptyMessageFor(statusFilter)}
           pendingActionId={pendingActionId}
           onPageChange={setPage}

@@ -138,12 +138,14 @@ export function useAdOpsData(period: string, tab: string) {
       apiClient
         .get<AdCampaignSnapshot[]>(`/api/ads/campaigns?period=${campPeriod}`)
         .then(toCampaignsResponse),
+    placeholderData: previousData => previousData,
   });
 
   const rules = useQuery({
     queryKey: queryKeys.ads.rules(period),
     queryFn: () =>
       apiClient.get<AdRulesData>(`/api/ads/strategy/rules?period=${period}`),
+    placeholderData: previousData => previousData,
   });
 
   const wingStatus = useQuery({
@@ -156,12 +158,14 @@ export function useAdOpsData(period: string, tab: string) {
     queryKey: queryKeys.ads.plan(period),
     queryFn: () =>
       apiClient.get<AdWeeklyPlan>(`/api/ads/strategy/plan?period=${period}`),
+    placeholderData: previousData => previousData,
   });
 
   const adsHub = useQuery({
-    queryKey: queryKeys.ads.list(),
+    queryKey: [...queryKeys.ads.list(), days] as const,
     queryFn: () =>
       apiClient.get<AdsHubData>(`/api/ads?days=${days}`),
+    placeholderData: previousData => previousData,
   });
 
   const dashboard = useQuery({
@@ -174,24 +178,28 @@ export function useAdOpsData(period: string, tab: string) {
     queryKey: queryKeys.ads.recommend(period),
     queryFn: () =>
       apiClient.get<RecommendResponse>(`/api/ads/strategy/recommend`),
+    placeholderData: previousData => previousData,
   });
 
   const trends = useQuery({
     queryKey: queryKeys.ads.trends(period),
     queryFn: () =>
       apiClient.get<AdTrendsData>(`/api/ads/campaigns/trends?period=${period}`),
+    placeholderData: previousData => previousData,
   });
 
   const benchmark = useQuery({
     queryKey: queryKeys.ads.benchmark(period),
     queryFn: () =>
       apiClient.get<AdBenchmarkData>(`/api/ads/benchmark?days=${days}`),
+    placeholderData: previousData => previousData,
   });
 
   const trafficSummary = useQuery({
     queryKey: ['traffic', 'summary', trafficDays] as const,
     queryFn: () =>
       apiClient.get<TrafficSummaryResponse>(`/api/traffic/summary?days=${trafficDays}`),
+    placeholderData: previousData => previousData,
   });
 
   const exposure = useQuery({
@@ -208,6 +216,16 @@ export function useAdOpsData(period: string, tab: string) {
     strategy.isLoading ||
     adsHub.isLoading ||
     dashboard.isLoading;
+  const isRefreshing =
+    !isLoading && (
+      campaigns.isFetching ||
+      rules.isFetching ||
+      strategy.isFetching ||
+      adsHub.isFetching ||
+      trends.isFetching ||
+      benchmark.isFetching ||
+      trafficSummary.isFetching
+    );
 
   return {
     campaigns,
@@ -222,6 +240,7 @@ export function useAdOpsData(period: string, tab: string) {
     exposure,
     trafficSummary,
     isLoading,
+    isRefreshing,
   };
 }
 
@@ -235,6 +254,7 @@ export function useAdProducts(period: string, enabled: boolean) {
     queryFn: () =>
       apiClient.get<AdProductSnapshot[]>(`/api/ads/products?period=${campPeriod}`),
     enabled,
+    placeholderData: previousData => previousData,
   });
 
   const products: AdProductRow[] = (productsQuery.data ?? []).map((snapshot) => ({
@@ -262,7 +282,11 @@ export function useAdProducts(period: string, enabled: boolean) {
     campaignName: snapshot.campaignName ?? '',
   }));
 
-  return { products, isLoading: productsQuery.isLoading };
+  return {
+    products,
+    isLoading: productsQuery.isLoading,
+    isFetching: productsQuery.isFetching,
+  };
 }
 
 export function useRegisterCampaign() {

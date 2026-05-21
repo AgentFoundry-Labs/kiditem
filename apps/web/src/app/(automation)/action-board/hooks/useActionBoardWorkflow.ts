@@ -8,14 +8,14 @@ import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { useAuth } from '@/hooks/useAuth';
-import type { ActionTask } from '@kiditem/shared/action-task';
-import { parseActionResult, type ActionResult } from '../lib/actions';
+import { parseActionResult } from '../lib/actions';
 import {
   getActionBoardColumns,
   getActionTaskColumnKey,
-  type Scope,
-  type ViewMode,
 } from '../lib/action-board-columns';
+import type { ActionTask } from '@kiditem/shared/action-task';
+import type { ActionResult } from '../lib/actions';
+import type { Scope, ViewMode } from '../lib/action-board-columns';
 
 export function useActionBoardWorkflow() {
   const queryClient = useQueryClient();
@@ -38,11 +38,12 @@ export function useActionBoardWorkflow() {
     router.push(qs ? `${pathname}?${qs}` : pathname);
   };
 
-  const { data: tasks = [], isLoading } = useQuery({
+  const { data: tasks = [], isLoading, isPlaceholderData } = useQuery({
     queryKey: queryKeys.actionTasks.list(scope),
     queryFn: () => apiClient.get<ActionTask[]>(
       scope === 'all' ? '/api/action-tasks' : `/api/action-tasks?assignedTo=${scope}`,
     ),
+    placeholderData: previousTasks => previousTasks,
     refetchInterval: 60_000,
   });
 
@@ -142,6 +143,7 @@ export function useActionBoardWorkflow() {
     currentUserId,
     tasks,
     isLoading,
+    isRefreshing: isPlaceholderData,
     refreshTasks,
     updateMutation,
     noteMutation,

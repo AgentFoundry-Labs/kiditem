@@ -56,6 +56,7 @@ export function useReconciliationItems(params: UseReconciliationItemsParams) {
       apiClient.get<ReconciliationItemListResponse>(
         `${BASE}/items?${new URLSearchParams(query).toString()}`,
       ),
+    placeholderData: (previousData) => previousData,
   });
 }
 

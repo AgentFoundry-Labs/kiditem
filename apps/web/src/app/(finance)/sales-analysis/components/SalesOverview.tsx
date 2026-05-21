@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { BarChart3, Info } from 'lucide-react';
+import { BarChart3, Info, RefreshCw } from 'lucide-react';
 import { SalesAnalysisDataSchema } from '@kiditem/shared/finance';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
@@ -39,10 +39,12 @@ export default function SalesOverview() {
   const [sortField, setSortField] = useState<SortField | null>('totalRevenue');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
-  const { data, isLoading, error: queryError } = useQuery({
+  const { data, isLoading, isFetching, error: queryError } = useQuery({
     queryKey: queryKeys.salesAnalysis.data(period),
     queryFn: () => apiClient.getParsed(`/api/sales-analysis?period=${period}`, SalesAnalysisDataSchema),
+    placeholderData: previousData => previousData,
   });
+  const isRefreshing = isFetching && !isLoading;
 
   const error = friendlyError(queryError);
 
@@ -74,7 +76,14 @@ export default function SalesOverview() {
         <PeriodSelector value={period} onChange={setPeriod} options={periodOptions} />
       </div>
 
-      {isLoading ? (
+      {isRefreshing && (
+        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm" aria-live="polite">
+          <RefreshCw size={14} className="animate-spin text-purple-600" />
+          매출 분석 데이터를 갱신 중입니다.
+        </div>
+      )}
+
+      {isLoading && !data ? (
         <PageSkeleton variant="table" />
       ) : error ? (
         <ErrorState message={error} />
@@ -92,7 +101,7 @@ export default function SalesOverview() {
           </div>
         </div>
       ) : (
-        <>
+        <div className="space-y-6" aria-busy={isRefreshing}>
           <div className="grid grid-cols-4 gap-4">
             <div className="card">
               <div className="card-label">총매출</div>
@@ -132,7 +141,7 @@ export default function SalesOverview() {
             sortDir={sortDir}
             onToggleSort={toggleSort}
           />
-        </>
+        </div>
       )}
     </div>
   );

@@ -61,9 +61,9 @@ export function ProductDrilldown({ campaignName, period }: Props) {
   const paged = products.slice(page * pageSize, (page + 1) * pageSize);
 
   return (
-    <div className="bg-white rounded-xl border border-blue-200 overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 bg-blue-50 border-b border-blue-200">
-        <h4 className="font-semibold text-blue-900 text-sm">
+    <div className="bg-white rounded-xl border border-purple-200 overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 bg-purple-50 border-b border-purple-200">
+        <h4 className="font-semibold text-purple-900 text-sm">
           {campaignName} - 상품 상세
         </h4>
         <div className="flex items-center gap-2 text-xs text-slate-500">

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { RefreshCw } from 'lucide-react';
 import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
 import { queryKeys } from '@/lib/query-keys';
@@ -18,14 +19,16 @@ export default function CSManagementPage() {
   const [filter, setFilter] = useState("all");
   const [showModal, setShowModal] = useState(false);
 
-  const { data: csData, isLoading: loading, error: queryError } = useQuery({
+  const { data: csData, isLoading: loading, isFetching, error: queryError } = useQuery({
     queryKey: queryKeys.cs.list({ csStatus: filter }),
     queryFn: async () => {
       const params = new URLSearchParams();
       if (filter !== "all") params.set("csStatus", filter);
       return apiClient.get<{ items: CSRecord[]; summary: CSSummary }>(`/api/cs?${params}`);
     },
+    placeholderData: previousData => previousData,
   });
+  const isRefreshing = isFetching && !loading;
 
   const records = csData?.items ?? [];
   const summary = csData?.summary ?? { total: 0, 접수: 0, 처리중: 0, 완료: 0 };
@@ -82,9 +85,17 @@ export default function CSManagementPage() {
         onRefresh={() => queryClient.invalidateQueries({ queryKey: queryKeys.cs.all })}
         onRegister={() => setShowModal(true)}
       />
+      {isRefreshing && (
+        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm" aria-live="polite">
+          <RefreshCw size={14} className="animate-spin text-purple-600" />
+          CS 목록을 갱신 중입니다.
+        </div>
+      )}
+      <div className="space-y-6" aria-busy={isRefreshing}>
       <CSSummaryCards summary={summary} />
       <CSFilterTabs statusTabs={statusTabs} filter={filter} onChange={setFilter} />
       <CSTable records={records} onRegisterClick={() => setShowModal(true)} />
+      </div>
       {showModal && (
         <CreateCSModal
           onClose={() => setShowModal(false)}
