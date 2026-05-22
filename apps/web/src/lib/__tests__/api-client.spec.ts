@@ -290,6 +290,28 @@ describe('apiClient — 401 interceptor', () => {
     expect(triggerSignOutMock).not.toHaveBeenCalled();
   });
 
+  it('AC4b: GET 401 auth_user_not_mirrored -> NO signOut, throw actionable ApiError', async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(401, {
+        statusCode: 401,
+        error: 'Unauthorized',
+        message: 'auth_user_not_mirrored',
+        timestamp: '2026-05-21T00:00:00Z',
+        path: '/api/auth/me',
+      }),
+    );
+
+    await expect(apiClient.get('/api/auth/me')).rejects.toMatchObject({
+      status: 401,
+      code: 'auth_user_not_mirrored',
+      detail: '로그인 계정이 KidItem 사용자로 연결되지 않았습니다. 관리자에게 사용자 동기화를 요청해주세요.',
+    });
+
+    expect(refreshOrFailMock).not.toHaveBeenCalled();
+    expect(triggerSignOutMock).not.toHaveBeenCalled();
+  });
+
   it('AC5: GET 401 unknown_message -> NO refresh, throw generic ApiError', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockResolvedValueOnce(

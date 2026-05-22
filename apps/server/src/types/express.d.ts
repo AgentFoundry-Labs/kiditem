@@ -5,6 +5,7 @@ declare module 'express-serve-static-core' {
   interface Request {
     authUser?: AuthUser;
     sourcingExtensionToken?: SourcingExtensionTokenClaims;
+    authFailureReason?: 'auth_user_not_mirrored';
   }
 }
 

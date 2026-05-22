@@ -221,7 +221,7 @@ describe('SupabaseAuthMiddleware', () => {
     expect(next).toHaveBeenCalledTimes(1);
   });
 
-  it('passes through when local users row does not exist (Supabase user not mirrored yet)', async () => {
+  it('records auth_user_not_mirrored when local users row does not exist', async () => {
     const jose = await import('jose');
     (jose.jwtVerify as any).mockResolvedValue({ payload: { sub: TEST_USER.id } });
 
@@ -233,6 +233,7 @@ describe('SupabaseAuthMiddleware', () => {
     await mw.use(req, {} as any, next);
 
     expect(req.authUser).toBeUndefined();
+    expect(req.authFailureReason).toBe('auth_user_not_mirrored');
     expect(next).toHaveBeenCalledTimes(1);
   });
 });

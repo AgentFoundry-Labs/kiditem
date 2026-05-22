@@ -74,6 +74,7 @@ export class SupabaseAuthMiddleware implements NestMiddleware {
       });
       if (!user) {
         this.logger.warn(`supabase user not mirrored locally: id=${userId}`);
+        req.authFailureReason = 'auth_user_not_mirrored';
         return next();
       }
       const membership = user.memberships[0] ?? null;

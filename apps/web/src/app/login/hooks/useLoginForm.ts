@@ -4,7 +4,10 @@ import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { sanitizeInternalRedirectPath } from '@/lib/auth-redirect';
+import { apiClient } from '@/lib/api-client';
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
+import { triggerSignOut } from '@/lib/supabase/refresh';
+import type { AuthUserPublic } from '@kiditem/shared/auth';
 
 const REMEMBERED_EMAIL_KEY = 'kiditem.login.rememberedEmail';
 
@@ -38,10 +41,16 @@ export function useLoginForm() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    let signedIn = false;
     try {
       const supabase = createSupabaseBrowserClient();
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
+      signedIn = true;
+      const user = await apiClient.get<AuthUserPublic>('/api/auth/me');
+      if (!user.organizationId) {
+        throw new Error('조직에 속해있지 않습니다. 관리자에게 문의해주세요.');
+      }
       if (remember) localStorage.setItem(REMEMBERED_EMAIL_KEY, email);
       else localStorage.removeItem(REMEMBERED_EMAIL_KEY);
       // 로그인 직후 ReadinessModal 자동 재표시 trigger — 세션마다 한 번 점검.
@@ -50,6 +59,9 @@ export function useLoginForm() {
       router.replace(next);
       router.refresh();
     } catch (err) {
+      if (signedIn) {
+        await triggerSignOut('manual').catch(() => undefined);
+      }
       const message = err instanceof Error ? err.message : '로그인 실패';
       toast.error(message);
     } finally {

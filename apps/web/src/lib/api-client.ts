@@ -167,6 +167,16 @@ async function requestWithRetry<T>(
         '조직에 속해있지 않습니다. 관리자에게 문의해주세요.',
       );
     }
+
+    if (message === 'auth_user_not_mirrored') {
+      // Supabase JWT 는 유효하지만 KidItem 로컬 사용자 레코드가 없음. 세션 만료가
+      // 아니므로 refresh/signOut 하지 않고 운영자가 조치할 수 있는 오류로 노출.
+      throw new ApiError(
+        401,
+        'auth_user_not_mirrored',
+        '로그인 계정이 KidItem 사용자로 연결되지 않았습니다. 관리자에게 사용자 동기화를 요청해주세요.',
+      );
+    }
     // 기타 401 (희귀) → 일반 ApiError flow 로 fall through
   }
 
