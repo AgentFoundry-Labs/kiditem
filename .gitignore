@@ -65,6 +65,9 @@ coverage/
 # Claude Code — user/session-local only. Repo rules live in AGENTS.md and docs/.
 .claude/
 
+# Codex local skill install target. Shared skill sources live under tools/codex/.
+.agents/
+
 # Tools
 .claude-flow/
 .swarm/
