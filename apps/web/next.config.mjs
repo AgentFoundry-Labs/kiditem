@@ -9,6 +9,7 @@ function stripTrailingSlash(value) {
 const backendBase = stripTrailingSlash(
   process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000',
 );
+const proxyAllApi = process.env.KIDITEM_PROXY_ALL_API === 'true';
 
 const nextConfig = {
   output: 'standalone',
@@ -45,6 +46,14 @@ const nextConfig = {
         source: '/api/chat/copilot/:path*',
         destination: `${backendBase}/api/chat/copilot/:path*`,
       },
+      ...(proxyAllApi
+        ? [
+            {
+              source: '/api/:path*',
+              destination: `${backendBase}/api/:path*`,
+            },
+          ]
+        : []),
     ];
   },
 };

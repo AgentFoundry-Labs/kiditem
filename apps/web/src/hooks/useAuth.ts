@@ -3,9 +3,12 @@
 import { useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
 import { useAuthSession } from '@/components/providers/AuthProvider';
 import { triggerSignOut } from '@/lib/supabase/refresh';
 import type { AuthUserPublic } from '@kiditem/shared/auth';
+
+export type AuthStatus = 'loading' | 'anonymous' | 'ready' | 'no_organization' | 'error';
 
 /**
  * 현재 로그인된 사용자 (`GET /api/auth/me` 결과) + 로그아웃 헬퍼.
@@ -33,9 +36,42 @@ export function useAuth() {
     queryClient.removeQueries({ queryKey: ['auth', 'me'] });
   }, [queryClient]);
 
+  const status = getAuthStatus({
+    sessionLoading,
+    hasSession: !!session,
+    user: query.data ?? null,
+    isQueryLoading: query.isLoading,
+    error: query.error,
+  });
+
   return {
     user: query.data ?? null,
-    isLoading: sessionLoading || (!!session && query.isLoading),
+    status,
+    error: query.error ?? null,
+    isLoading: status === 'loading',
     logout,
   };
+}
+
+function getAuthStatus(input: {
+  sessionLoading: boolean;
+  hasSession: boolean;
+  user: AuthUserPublic | null;
+  isQueryLoading: boolean;
+  error: unknown;
+}): AuthStatus {
+  if (input.sessionLoading) return 'loading';
+  if (!input.hasSession) return 'anonymous';
+  if (input.user) {
+    return input.user.organizationId ? 'ready' : 'no_organization';
+  }
+  if (input.isQueryLoading) return 'loading';
+  if (isApiError(input.error) && input.error.code === 'no_organization_context') {
+    return 'no_organization';
+  }
+  if (isApiError(input.error) && input.error.code === 'auth_required') {
+    return 'anonymous';
+  }
+  if (input.error) return 'error';
+  return 'loading';
 }
