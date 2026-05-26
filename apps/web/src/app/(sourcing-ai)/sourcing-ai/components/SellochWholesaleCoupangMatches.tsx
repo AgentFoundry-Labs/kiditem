@@ -33,7 +33,9 @@ const AUTO_IMAGE_SEARCH_LIMIT = 8;
 const IMAGE_SEARCH_RESULT_LIMIT = 8;
 
 type TodayRecommendationSnapshotPayload = Record<string, unknown> & {
-  rows?: TodayRecommendationRow[];
+  result?: {
+    rows?: TodayRecommendationRow[];
+  };
 };
 
 type ImageSearchState =
@@ -140,7 +142,7 @@ export function SellochWholesaleCoupangMatches() {
 
     void getTodaySourcingWorkspaceSnapshot<TodayRecommendationSnapshotPayload>('today_recommendations')
       .then(({ snapshot }) => {
-        const rows = snapshot?.payload?.rows;
+        const rows = snapshot?.payload?.result?.rows;
         if (active && Array.isArray(rows)) setSnapshotRows(rows);
       })
       .catch(() => {

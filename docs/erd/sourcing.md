@@ -11,6 +11,7 @@
 |---|---|---|
 | CandidateImage | `sourcing_candidate_images` | 소싱 후보의 이미지 갤러리. 승격 시 MasterProductImage로 clone. |
 | SourcingCandidate | `sourcing_candidates` | 외부 플랫폼에서 스크랩한 소싱 후보. MasterProduct와 분리된 sourcing inbox. |
+| SourcingWorkspaceSnapshot | `sourcing_workspace_snapshots` | 조직/KST 날짜/scope 단위의 소싱 AI 결과 캐시. 오늘의 추천/키워드 분석 결과를 최신 1개로 재사용한다. |
 
 ## Mermaid ER Diagram
 
@@ -60,6 +61,15 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SourcingWorkspaceSnapshot {
+    String id PK
+    String organizationId FK
+    String scope
+    DateTime businessDate
+    Json payload
+    DateTime createdAt
+    DateTime updatedAt
+  }
   SourcingCandidate ||--o{ CandidateImage : "candidate"
 ```
 
@@ -79,3 +89,4 @@ erDiagram
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ProductPreparation |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ThumbnailGeneration |
 | SourcingCandidate | triggeredByUser | references external | Core | User |
+| SourcingWorkspaceSnapshot | organization | references external | Core | Organization |

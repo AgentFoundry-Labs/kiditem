@@ -3,8 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
-  BookmarkPlus,
-  CheckCircle2,
   Loader2,
   PackageSearch,
   Radar,
@@ -39,23 +37,27 @@ import {
   type TodayRecommendationRow,
 } from '../lib/today-recommendations';
 import {
+  createManualSourcingWorkspaceSnapshotMeta,
   getTodaySourcingWorkspaceSnapshot,
   saveTodaySourcingWorkspaceSnapshot,
+  type SourcingWorkspaceSnapshotMeta,
 } from '../../lib/sourcing-workspace-snapshot-api';
 
-const SAVED_STORAGE_KEY = 'kiditem:sourcing-ai:today-recommendation:saved';
 const keywordLimitOptions = [10, 20, 50];
 const pageOptions = [1, 2];
 
 type TodayRecommendationsSnapshotPayload = {
   version: 1;
-  rows: TodayRecommendationRow[];
-  productSnapshots: ProductSnapshot[];
-  savedIds: string[];
-  keywordText: string;
-  keywordLimit: number;
-  maxPages: number;
-  updatedAt: string;
+  input: {
+    keywordText: string;
+    keywordLimit: number;
+    maxPages: number;
+  };
+  result: {
+    rows: TodayRecommendationRow[];
+    productSnapshots: ProductSnapshot[];
+  };
+  meta: SourcingWorkspaceSnapshotMeta;
 };
 
 export function TodayRecommendationsPage() {
@@ -67,7 +69,6 @@ export function TodayRecommendationsPage() {
   const [errors, setErrors] = useState<string[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0, keyword: '' });
-  const [savedIds, setSavedIds] = useState<Set<string>>(() => readSavedIds());
   const [editingKeywords, setEditingKeywords] = useState(false);
   const cancelRef = useRef(false);
 
@@ -99,22 +100,24 @@ export function TodayRecommendationsPage() {
   const persistTodaySnapshot = useCallback((
     nextRows: TodayRecommendationRow[],
     nextProductSnapshots: ProductSnapshot[] = readTodayRecommendationSnapshots(),
-    nextSavedIds: Set<string> = savedIds,
   ) => {
     const payload: TodayRecommendationsSnapshotPayload = {
       version: 1,
-      rows: nextRows.slice(0, 100),
-      productSnapshots: nextProductSnapshots.slice(0, 2000),
-      savedIds: [...nextSavedIds],
-      keywordText,
-      keywordLimit,
-      maxPages,
-      updatedAt: new Date().toISOString(),
+      input: {
+        keywordText,
+        keywordLimit,
+        maxPages,
+      },
+      result: {
+        rows: nextRows.slice(0, 100),
+        productSnapshots: nextProductSnapshots.slice(0, 2000),
+      },
+      meta: createManualSourcingWorkspaceSnapshotMeta(),
     };
     void saveTodaySourcingWorkspaceSnapshot('today_recommendations', payload).catch(() => {
       // Local storage remains the offline fallback when the API is unavailable.
     });
-  }, [keywordLimit, keywordText, maxPages, savedIds]);
+  }, [keywordLimit, keywordText, maxPages]);
 
   useEffect(() => {
     let active = true;
@@ -122,16 +125,13 @@ export function TodayRecommendationsPage() {
       .then(({ snapshot }) => {
         if (!active || !isTodayRecommendationsSnapshotPayload(snapshot?.payload)) return;
         const payload = snapshot.payload;
-        setKeywordText(payload.keywordText);
-        setKeywordLimit(payload.keywordLimit);
-        setMaxPages(payload.maxPages);
-        setRows(payload.rows);
-        writeTodayRecommendationRows(payload.rows);
-        writeTodayRecommendationSnapshots(payload.productSnapshots);
-        const nextSavedIds = new Set(payload.savedIds);
-        writeSavedIds(nextSavedIds);
-        setSavedIds(nextSavedIds);
-        setKeywordPoolNotice(`오늘 ${snapshot.businessDate} 저장된 추천 후보 ${formatNumber(payload.rows.length)}개를 불러왔습니다.`);
+        setKeywordText(payload.input.keywordText);
+        setKeywordLimit(payload.input.keywordLimit);
+        setMaxPages(payload.input.maxPages);
+        setRows(payload.result.rows);
+        writeTodayRecommendationRows(payload.result.rows);
+        writeTodayRecommendationSnapshots(payload.result.productSnapshots);
+        setKeywordPoolNotice(`오늘 ${snapshot.businessDate} 저장된 추천 후보 ${formatNumber(payload.result.rows.length)}개를 불러왔습니다.`);
       })
       .catch(() => {
         // Keep localStorage fallback and manual execution available.
@@ -202,15 +202,6 @@ export function TodayRecommendationsPage() {
   const cancelRun = () => {
     cancelRef.current = true;
     setIsRunning(false);
-  };
-
-  const saveCandidate = (row: TodayRecommendationRow) => {
-    const key = rowKey(row);
-    const next = new Set(savedIds);
-    next.add(key);
-    writeSavedIds(next);
-    setSavedIds(next);
-    persistTodaySnapshot(rows, readTodayRecommendationSnapshots(), next);
   };
 
   return (
@@ -342,11 +333,10 @@ export function TodayRecommendationsPage() {
         </section>
 
         <section className="space-y-4">
-            <section className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
+            <section className="grid gap-3 md:grid-cols-3">
               <MetricCard icon={PackageSearch} label="추천 후보" value={`${formatNumber(summary.totalCandidates)}개`} caption="중복 제거 후" />
               <MetricCard icon={TrendingUp} label="A급 후보" value={`${formatNumber(aRows.length)}개`} caption="오늘 소싱 테스트" />
               <MetricCard icon={Radar} label="강한 키워드" value={summary.strongestKeyword ?? '-'} caption="Wing 반응 기준" />
-              <MetricCard icon={CheckCircle2} label="보관" value={`${formatNumber(savedIds.size)}개`} caption="로컬 저장" />
             </section>
 
             <KeywordOpportunityPanel
@@ -365,7 +355,7 @@ export function TodayRecommendationsPage() {
               </div>
             )}
 
-            <RecommendationsTable rows={rows} savedIds={savedIds} onSave={saveCandidate} />
+            <RecommendationsTable rows={rows} />
         </section>
       </div>
     </main>
@@ -484,12 +474,8 @@ function ProgressBar({ current, total, label }: { current: number; total: number
 
 function RecommendationsTable({
   rows,
-  savedIds,
-  onSave,
 }: {
   rows: TodayRecommendationRow[];
-  savedIds: Set<string>;
-  onSave: (row: TodayRecommendationRow) => void;
 }) {
   return (
     <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-sm">
@@ -498,10 +484,10 @@ function RecommendationsTable({
         <p className="mt-1 text-xs font-semibold text-[var(--text-tertiary)]">A급은 오늘 바로 공급가 확인, B급은 보류 검토, 관찰은 스냅샷을 더 쌓는 후보입니다.</p>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1500px] border-collapse text-left text-sm">
+        <table className="w-full min-w-[1380px] border-collapse text-left text-sm">
           <thead className="bg-[var(--surface-sunken)] text-xs font-black text-[var(--text-tertiary)]">
             <tr>
-              {['등급', '상품', '검증 키워드', '점수', '저리뷰 판매력', '급상승 검증 신호', '가격', '리뷰', '3일 판매량', '전환율', '스냅샷 변화', '판단', ''].map((header) => (
+              {['등급', '상품', '검증 키워드', '점수', '저리뷰 판매력', '급상승 검증 신호', '가격', '리뷰', '3일 판매량', '전환율', '스냅샷 변화', '판단'].map((header) => (
                 <th key={header} className="whitespace-nowrap px-4 py-3">{header}</th>
               ))}
             </tr>
@@ -509,7 +495,7 @@ function RecommendationsTable({
           <tbody className="divide-y divide-[var(--border-subtle)]">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={13} className="px-4 py-16 text-center text-sm font-bold text-[var(--text-tertiary)]">
+                <td colSpan={12} className="px-4 py-16 text-center text-sm font-bold text-[var(--text-tertiary)]">
                   `키워드 검증 시작`을 누르면 Wing 데이터를 분석해서 추천 후보가 표시됩니다.
                 </td>
               </tr>
@@ -517,8 +503,6 @@ function RecommendationsTable({
               <RecommendationRow
                 key={rowKey(row)}
                 row={row}
-                saved={savedIds.has(rowKey(row))}
-                onSave={() => onSave(row)}
               />
             ))}
           </tbody>
@@ -528,7 +512,7 @@ function RecommendationsTable({
   );
 }
 
-function RecommendationRow({ row, saved, onSave }: { row: TodayRecommendationRow; saved: boolean; onSave: () => void }) {
+function RecommendationRow({ row }: { row: TodayRecommendationRow }) {
   const imageUrl = resolveCoupangCatalogImageUrl(row.imagePath);
 
   return (
@@ -567,17 +551,6 @@ function RecommendationRow({ row, saved, onSave }: { row: TodayRecommendationRow
           {row.risks.slice(0, 2).map((risk) => <p key={risk} className="text-xs font-bold text-amber-700">{risk}</p>)}
         </div>
       </td>
-      <td className="px-4 py-4">
-        <button
-          type="button"
-          onClick={onSave}
-          disabled={saved}
-          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 text-xs font-black text-[var(--text-secondary)] transition hover:bg-[var(--surface-sunken)] disabled:opacity-60"
-        >
-          <BookmarkPlus size={14} />
-          {saved ? '보관됨' : '보관'}
-        </button>
-      </td>
     </tr>
   );
 }
@@ -609,29 +582,18 @@ function deltaText(row: TodayRecommendationRow): string {
 function isTodayRecommendationsSnapshotPayload(value: unknown): value is TodayRecommendationsSnapshotPayload {
   if (!value || typeof value !== 'object') return false;
   const payload = value as Partial<TodayRecommendationsSnapshotPayload>;
+  const input = payload.input as Partial<TodayRecommendationsSnapshotPayload['input']> | undefined;
+  const result = payload.result as Partial<TodayRecommendationsSnapshotPayload['result']> | undefined;
+  const meta = payload.meta as Partial<SourcingWorkspaceSnapshotMeta> | undefined;
   return payload.version === 1 &&
-    Array.isArray(payload.rows) &&
-    Array.isArray(payload.productSnapshots) &&
-    Array.isArray(payload.savedIds) &&
-    typeof payload.keywordText === 'string' &&
-    typeof payload.keywordLimit === 'number' &&
-    typeof payload.maxPages === 'number';
-}
-
-function readSavedIds(): Set<string> {
-  if (typeof window === 'undefined') return new Set();
-  try {
-    const raw = window.localStorage.getItem(SAVED_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return new Set(Array.isArray(parsed) ? parsed : []);
-  } catch {
-    return new Set();
-  }
-}
-
-function writeSavedIds(ids: Set<string>) {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(SAVED_STORAGE_KEY, JSON.stringify([...ids]));
+    typeof input?.keywordText === 'string' &&
+    typeof input?.keywordLimit === 'number' &&
+    typeof input?.maxPages === 'number' &&
+    Array.isArray(result?.rows) &&
+    Array.isArray(result?.productSnapshots) &&
+    typeof meta?.generatedAt === 'string' &&
+    typeof meta?.generationSource === 'string' &&
+    typeof meta?.generatorVersion === 'string';
 }
 
 function rowKey(row: Pick<TodayRecommendationRow, 'productId' | 'itemId' | 'vendorItemId'>): string {

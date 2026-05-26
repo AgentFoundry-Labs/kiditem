@@ -100,7 +100,9 @@ function HomePage() {
 }
 
 type TodayRecommendationSnapshotPayload = {
-  rows?: TodayRecommendationRow[];
+  result?: {
+    rows?: TodayRecommendationRow[];
+  };
 };
 
 function TodayRecommendationImageRail() {
@@ -113,7 +115,7 @@ function TodayRecommendationImageRail() {
     getTodaySourcingWorkspaceSnapshot<TodayRecommendationSnapshotPayload>('today_recommendations')
       .then(({ snapshot }) => {
         if (!active) return;
-        const rows = snapshot?.payload?.rows;
+        const rows = snapshot?.payload?.result?.rows;
         if (Array.isArray(rows)) setSnapshotRows(rows);
       })
       .catch(() => {

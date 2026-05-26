@@ -44,8 +44,10 @@ import {
 } from '../lib/trend-keyword-agent';
 import { writeTrendKeywordAgentResult } from '../lib/trend-keyword-agent-storage';
 import {
+  createManualSourcingWorkspaceSnapshotMeta,
   getTodaySourcingWorkspaceSnapshot,
   saveTodaySourcingWorkspaceSnapshot,
+  type SourcingWorkspaceSnapshotMeta,
 } from '../../lib/sourcing-workspace-snapshot-api';
 
 interface CoupangPopularKeyword extends CoupangKeywordSuggestion {
@@ -54,36 +56,31 @@ interface CoupangPopularKeyword extends CoupangKeywordSuggestion {
 
 type KeywordAnalysisSnapshotPayload = {
   version: 1;
-  filters: {
-    timeUnit: NaverDatalabTimeUnit;
-    gender: 'all' | NaverDatalabGender;
-    age: string;
-    device: 'all' | NaverDatalabDevice;
-    selectedBoardKey: BoardFilterKey;
-    rankLimit: string;
-    focusMode: FocusMode;
+  input: {
+    filters: {
+      timeUnit: NaverDatalabTimeUnit;
+      gender: 'all' | NaverDatalabGender;
+      age: string;
+      device: 'all' | NaverDatalabDevice;
+      selectedBoardKey: BoardFilterKey;
+      rankLimit: string;
+      focusMode: FocusMode;
+    };
+    keywordQuery: string;
+    trendText: string;
   };
-  boards: NaverDatalabPopularKeywordBoard[];
-  keywordQuery: string;
-  trendText: string;
-  trendItems: NaverDatalabKeywordTrend[];
-  relatedSearchSeed: string | null;
-  searchAdRelatedItems: NaverRelatedKeyword[];
-  relatedSearchItems: NaverDatalabKeywordTrend[];
-  autocompleteItems: NaverAutocompleteKeyword[];
-  coupangKeywordItems: CoupangPopularKeyword[];
-  coupangProductNameTokens: CoupangProductNameToken[];
-  notices: {
-    notice: string | null;
-    trendNotice: string | null;
-    searchAdNotice: string | null;
-    relatedSearchNotice: string | null;
-    autocompleteNotice: string | null;
-    coupangKeywordNotice: string | null;
-    trendAgentNotice: string | null;
+  result: {
+    boards: NaverDatalabPopularKeywordBoard[];
+    trendItems: NaverDatalabKeywordTrend[];
+    relatedSearchSeed: string | null;
+    searchAdRelatedItems: NaverRelatedKeyword[];
+    relatedSearchItems: NaverDatalabKeywordTrend[];
+    autocompleteItems: NaverAutocompleteKeyword[];
+    coupangKeywordItems: CoupangPopularKeyword[];
+    coupangProductNameTokens: CoupangProductNameToken[];
+    trendAgentResult: TrendKeywordAgentResult | null;
   };
-  trendAgentResult: TrendKeywordAgentResult | null;
-  updatedAt: string;
+  meta: SourcingWorkspaceSnapshotMeta;
 };
 
 export function KeywordAnalysisPage() {
@@ -413,31 +410,25 @@ export function KeywordAnalysisPage() {
   };
 
   const applyKeywordAnalysisSnapshot = (payload: KeywordAnalysisSnapshotPayload) => {
-    setTimeUnit(payload.filters.timeUnit);
-    setGender(payload.filters.gender);
-    setAge(payload.filters.age);
-    setDevice(payload.filters.device);
-    setSelectedBoardKey(payload.filters.selectedBoardKey);
-    setRankLimit(payload.filters.rankLimit);
-    setFocusMode(payload.filters.focusMode);
-    setBoards(payload.boards);
-    setKeywordQuery(payload.keywordQuery);
-    setTrendText(payload.trendText);
-    setTrendItems(payload.trendItems);
-    setRelatedSearchSeed(payload.relatedSearchSeed);
-    setSearchAdRelatedItems(payload.searchAdRelatedItems);
-    setRelatedSearchItems(payload.relatedSearchItems);
-    setAutocompleteItems(payload.autocompleteItems);
-    setCoupangKeywordItems(payload.coupangKeywordItems);
-    setCoupangProductNameTokens(payload.coupangProductNameTokens);
-    setTrendNotice(payload.notices.trendNotice);
-    setSearchAdNotice(payload.notices.searchAdNotice);
-    setRelatedSearchNotice(payload.notices.relatedSearchNotice);
-    setAutocompleteNotice(payload.notices.autocompleteNotice);
-    setCoupangKeywordNotice(payload.notices.coupangKeywordNotice);
-    setTrendAgentNotice(payload.notices.trendAgentNotice);
-    setTrendAgentResult(payload.trendAgentResult);
-    if (payload.trendAgentResult) writeTrendKeywordAgentResult(payload.trendAgentResult);
+    setTimeUnit(payload.input.filters.timeUnit);
+    setGender(payload.input.filters.gender);
+    setAge(payload.input.filters.age);
+    setDevice(payload.input.filters.device);
+    setSelectedBoardKey(payload.input.filters.selectedBoardKey);
+    setRankLimit(payload.input.filters.rankLimit);
+    setFocusMode(payload.input.filters.focusMode);
+    setBoards(payload.result.boards);
+    setKeywordQuery(payload.input.keywordQuery);
+    setTrendText(payload.input.trendText);
+    setTrendItems(payload.result.trendItems);
+    setRelatedSearchSeed(payload.result.relatedSearchSeed);
+    setSearchAdRelatedItems(payload.result.searchAdRelatedItems);
+    setRelatedSearchItems(payload.result.relatedSearchItems);
+    setAutocompleteItems(payload.result.autocompleteItems);
+    setCoupangKeywordItems(payload.result.coupangKeywordItems);
+    setCoupangProductNameTokens(payload.result.coupangProductNameTokens);
+    setTrendAgentResult(payload.result.trendAgentResult);
+    if (payload.result.trendAgentResult) writeTrendKeywordAgentResult(payload.result.trendAgentResult);
   };
 
   useEffect(() => {
@@ -516,13 +507,6 @@ export function KeywordAnalysisPage() {
         autocompleteItems,
         coupangKeywordItems,
         coupangProductNameTokens,
-        notice,
-        trendNotice,
-        searchAdNotice,
-        relatedSearchNotice,
-        autocompleteNotice,
-        coupangKeywordNotice,
-        trendAgentNotice,
         trendAgentResult,
       });
       void saveTodaySourcingWorkspaceSnapshot('keyword_analysis', payload).catch(() => {
@@ -534,29 +518,22 @@ export function KeywordAnalysisPage() {
   }, [
     age,
     autocompleteItems,
-    autocompleteNotice,
     boards,
     coupangKeywordItems,
-    coupangKeywordNotice,
     coupangProductNameTokens,
     dailySnapshotHydrated,
     device,
     focusMode,
     gender,
     keywordQuery,
-    notice,
     rankLimit,
     relatedSearchItems,
-    relatedSearchNotice,
     relatedSearchSeed,
-    searchAdNotice,
     searchAdRelatedItems,
     selectedBoardKey,
     timeUnit,
-    trendAgentNotice,
     trendAgentResult,
     trendItems,
-    trendNotice,
     trendText,
   ]);
 
@@ -742,57 +719,53 @@ export function KeywordAnalysisPage() {
   );
 }
 
-function buildKeywordAnalysisSnapshotPayload(input: Omit<
-  KeywordAnalysisSnapshotPayload,
-  'version' | 'filters' | 'notices' | 'updatedAt'
-> & {
+function buildKeywordAnalysisSnapshotPayload(input: {
+  boards: NaverDatalabPopularKeywordBoard[];
   timeUnit: NaverDatalabTimeUnit;
   gender: 'all' | NaverDatalabGender;
   age: string;
   device: 'all' | NaverDatalabDevice;
+  keywordQuery: string;
   selectedBoardKey: BoardFilterKey;
   rankLimit: string;
   focusMode: FocusMode;
-  notice: string | null;
-  trendNotice: string | null;
-  searchAdNotice: string | null;
-  relatedSearchNotice: string | null;
-  autocompleteNotice: string | null;
-  coupangKeywordNotice: string | null;
-  trendAgentNotice: string | null;
+  trendText: string;
+  trendItems: NaverDatalabKeywordTrend[];
+  relatedSearchSeed: string | null;
+  searchAdRelatedItems: NaverRelatedKeyword[];
+  relatedSearchItems: NaverDatalabKeywordTrend[];
+  autocompleteItems: NaverAutocompleteKeyword[];
+  coupangKeywordItems: CoupangPopularKeyword[];
+  coupangProductNameTokens: CoupangProductNameToken[];
+  trendAgentResult: TrendKeywordAgentResult | null;
 }): KeywordAnalysisSnapshotPayload {
   return {
     version: 1,
-    filters: {
-      timeUnit: input.timeUnit,
-      gender: input.gender,
-      age: input.age,
-      device: input.device,
-      selectedBoardKey: input.selectedBoardKey,
-      rankLimit: input.rankLimit,
-      focusMode: input.focusMode,
+    input: {
+      filters: {
+        timeUnit: input.timeUnit,
+        gender: input.gender,
+        age: input.age,
+        device: input.device,
+        selectedBoardKey: input.selectedBoardKey,
+        rankLimit: input.rankLimit,
+        focusMode: input.focusMode,
+      },
+      keywordQuery: input.keywordQuery,
+      trendText: input.trendText,
     },
-    boards: input.boards,
-    keywordQuery: input.keywordQuery,
-    trendText: input.trendText,
-    trendItems: input.trendItems,
-    relatedSearchSeed: input.relatedSearchSeed,
-    searchAdRelatedItems: input.searchAdRelatedItems,
-    relatedSearchItems: input.relatedSearchItems,
-    autocompleteItems: input.autocompleteItems,
-    coupangKeywordItems: input.coupangKeywordItems,
-    coupangProductNameTokens: input.coupangProductNameTokens,
-    notices: {
-      notice: input.notice,
-      trendNotice: input.trendNotice,
-      searchAdNotice: input.searchAdNotice,
-      relatedSearchNotice: input.relatedSearchNotice,
-      autocompleteNotice: input.autocompleteNotice,
-      coupangKeywordNotice: input.coupangKeywordNotice,
-      trendAgentNotice: input.trendAgentNotice,
+    result: {
+      boards: input.boards,
+      trendItems: input.trendItems,
+      relatedSearchSeed: input.relatedSearchSeed,
+      searchAdRelatedItems: input.searchAdRelatedItems,
+      relatedSearchItems: input.relatedSearchItems,
+      autocompleteItems: input.autocompleteItems,
+      coupangKeywordItems: input.coupangKeywordItems,
+      coupangProductNameTokens: input.coupangProductNameTokens,
+      trendAgentResult: input.trendAgentResult,
     },
-    trendAgentResult: input.trendAgentResult,
-    updatedAt: new Date().toISOString(),
+    meta: createManualSourcingWorkspaceSnapshotMeta(),
   };
 }
 
@@ -821,11 +794,14 @@ function hasKeywordAnalysisSnapshotData(input: {
 function isKeywordAnalysisSnapshotPayload(value: unknown): value is KeywordAnalysisSnapshotPayload {
   if (!value || typeof value !== 'object') return false;
   const payload = value as Partial<KeywordAnalysisSnapshotPayload>;
-  const filters = payload.filters as Partial<KeywordAnalysisSnapshotPayload['filters']> | undefined;
-  const notices = payload.notices as Partial<KeywordAnalysisSnapshotPayload['notices']> | undefined;
+  const input = payload.input as Partial<KeywordAnalysisSnapshotPayload['input']> | undefined;
+  const result = payload.result as Partial<KeywordAnalysisSnapshotPayload['result']> | undefined;
+  const filters = input?.filters as Partial<KeywordAnalysisSnapshotPayload['input']['filters']> | undefined;
+  const meta = payload.meta as Partial<SourcingWorkspaceSnapshotMeta> | undefined;
   return payload.version === 1 &&
+    Boolean(input) &&
+    Boolean(result) &&
     Boolean(filters) &&
-    Boolean(notices) &&
     isTimeUnit(filters?.timeUnit) &&
     isGenderFilter(filters?.gender) &&
     typeof filters?.age === 'string' &&
@@ -833,15 +809,18 @@ function isKeywordAnalysisSnapshotPayload(value: unknown): value is KeywordAnaly
     typeof filters?.selectedBoardKey === 'string' &&
     typeof filters?.rankLimit === 'string' &&
     typeof filters?.focusMode === 'string' &&
-    Array.isArray(payload.boards) &&
-    typeof payload.keywordQuery === 'string' &&
-    typeof payload.trendText === 'string' &&
-    Array.isArray(payload.trendItems) &&
-    Array.isArray(payload.searchAdRelatedItems) &&
-    Array.isArray(payload.relatedSearchItems) &&
-    Array.isArray(payload.autocompleteItems) &&
-    Array.isArray(payload.coupangKeywordItems) &&
-    Array.isArray(payload.coupangProductNameTokens);
+    typeof input?.keywordQuery === 'string' &&
+    typeof input?.trendText === 'string' &&
+    Array.isArray(result?.boards) &&
+    Array.isArray(result?.trendItems) &&
+    Array.isArray(result?.searchAdRelatedItems) &&
+    Array.isArray(result?.relatedSearchItems) &&
+    Array.isArray(result?.autocompleteItems) &&
+    Array.isArray(result?.coupangKeywordItems) &&
+    Array.isArray(result?.coupangProductNameTokens) &&
+    typeof meta?.generatedAt === 'string' &&
+    typeof meta?.generationSource === 'string' &&
+    typeof meta?.generatorVersion === 'string';
 }
 
 function isTimeUnit(value: unknown): value is NaverDatalabTimeUnit {
