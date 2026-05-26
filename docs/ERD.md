@@ -32,7 +32,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Finance](erd/finance.md) | 5 |
 | [Inventory](erd/inventory.md) | 8 |
 | [Orders](erd/orders.md) | 9 |
-| [Sourcing](erd/sourcing.md) | 2 |
+| [Sourcing](erd/sourcing.md) | 3 |
 | [Supply](erd/supply.md) | 6 |
 | [System](erd/system.md) | 9 |
 
@@ -121,6 +121,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | UnshippedItem | Orders | `unshipped_items` | - |
 | CandidateImage | Sourcing | `sourcing_candidate_images` | 소싱 후보의 이미지 갤러리. 승격 시 MasterProductImage로 clone. |
 | SourcingCandidate | Sourcing | `sourcing_candidates` | 외부 플랫폼에서 스크랩한 소싱 후보. MasterProduct와 분리된 sourcing inbox. |
+| SourcingWorkspaceSnapshot | Sourcing | `sourcing_workspace_snapshots` | 조직/KST 날짜/scope 단위의 소싱 AI 결과 캐시. 오늘의 추천/키워드 분석 결과를 최신 1개로 재사용한다. |
 | MasterSupplierProduct | Supply | `master_supplier_products` | Master 단위 주공급처 정책. 여러 supplier 후보 중 isPrimary 가 기본. |
 | PurchaseOrder | Supply | `purchase_orders` | 발주 state machine (draft→pending→ordered→shipped→received). 입고 검수 필드 포함 (receivedQty, defectQty). 단위는 CNY(Decimal 12,2). |
 | PurchaseOrderItem | Supply | `purchase_order_items` | - |
@@ -1504,6 +1505,15 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SourcingWorkspaceSnapshot {
+    String id PK
+    String organizationId FK
+    String scope
+    DateTime businessDate
+    Json payload
+    DateTime createdAt
+    DateTime updatedAt
+  }
   StockAudit {
     String id PK
     String organizationId FK
@@ -1993,6 +2003,7 @@ erDiagram
   Organization ||--o{ Settlement : "organization"
   Organization ||--o{ Shipment : "organization"
   Organization ||--o{ SourcingCandidate : "organization"
+  Organization ||--o{ SourcingWorkspaceSnapshot : "organization"
   Organization ||--o{ StockAudit : "organization"
   Organization ||--o{ StockTransaction : "organization"
   Organization ||--o{ StockTransfer : "organization"
