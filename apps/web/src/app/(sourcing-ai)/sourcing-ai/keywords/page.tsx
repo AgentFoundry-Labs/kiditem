@@ -1,5 +1,5 @@
-import { SellochSourcingPage } from '../components/SellochSourcingPage';
+import { KeywordAnalysisPage } from './components/KeywordAnalysisPage';
 
 export default function SourcingKeywordsPage() {
-  return <SellochSourcingPage kind="keywords" />;
+  return <KeywordAnalysisPage />;
 }

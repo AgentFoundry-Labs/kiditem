@@ -5,7 +5,14 @@ const AUTH_TOKEN_KEY = "kiditem_auth_token";
 const AD_ACTION_URL = "https://advertising.coupang.com/dashboard?kiditemExecuteActions=1#kiditemExecuteActions=1";
 const WING_IMAGE_SYNC_URL =
   "https://wing.coupang.com/vendor-inventory/list?searchKeywordType=ALL&searchKeywords=&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&shippingFeeSearchType=ALL&displayCategoryCodes=&listingStartTime=null&listingEndTime=null&saleEndDateSearchType=ALL&bundledShippingSearchType=ALL&upBundling=ALL&displayDeletedProduct=false&shippingMethod=ALL&exposureStatus=ALL&locale=ko_KR&sortMethod=SORT_BY_REGISTRATION_DATE&countPerPage=50&page=1";
+const WING_CATALOG_FORM_URL = "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2";
+const WING_CATALOG_SEARCH_ENDPOINT = "/tenants/seller-web/pre-matching/search";
+const COUPANG_SEARCH_URL = "https://www.coupang.com/np/search";
+const COUPANG_AUTOCOMPLETE_ENDPOINT = "/np/search/autoComplete";
 const WING_IMAGE_SYNC_MAX_PAGES = 50;
+const WING_CATALOG_MAX_PAGES = 5;
+const WING_CATALOG_PAGE_DELAY_MS = 1200;
+const COUPANG_KEYWORD_SEARCH_DELAY_MS = 900;
 const WING_IMAGE_SYNC_TAB_KEY = "kiditem_image_sync_tab_id";
 const WING_IMAGE_SYNC_WINDOW_KEY = "kiditem_image_sync_window_id";
 const BATCH_SCRAPE_STATUS_KEY = "kiditem_batch_scrape";
@@ -211,6 +218,11 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       capabilities: {
         coupangImageRows: true,
         coupangImageRowSource: "extension",
+        wingCatalogSearch: true,
+        wingCatalogSearchSource: "wing-pre-matching",
+        coupangKeywordSuggestions: true,
+        coupangKeywordSuggestionSource: "coupang-search-page",
+        coupangProductNameTokens: true,
       },
     });
     return;
@@ -220,6 +232,20 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     scrapeCoupangImageRows(typeof msg.runId === "string" ? msg.runId : null)
       .then((result) => sendResponse(result))
       .catch((e) => sendResponse({ success: false, error: e?.message || "쿠팡 이미지 목록 수집 실패" }));
+    return true;
+  }
+
+  if (msg.action === "searchWingCatalogProducts") {
+    searchWingCatalogProducts(msg)
+      .then((result) => sendResponse(result))
+      .catch((e) => sendResponse({ success: false, error: e?.message || "Wing 카탈로그 검색 실패" }));
+    return true;
+  }
+
+  if (msg.action === "searchCoupangKeywordSuggestions") {
+    searchCoupangKeywordSuggestions(msg)
+      .then((result) => sendResponse(result))
+      .catch((e) => sendResponse({ success: false, error: e?.message || "쿠팡 인기 키워드 수집 실패" }));
     return true;
   }
 
@@ -320,6 +346,479 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 });
 
+async function searchWingCatalogProducts(message) {
+  const keyword = typeof message.keyword === "string" ? message.keyword.trim() : "";
+  if (!keyword) return { success: false, error: "검색 키워드를 입력하세요" };
+
+  const maxPages = clampNumber(message.maxPages, 1, WING_CATALOG_MAX_PAGES, 2);
+  const tab = await getOrCreateWingCatalogTab();
+  const tabId = tab?.id;
+  if (!tabId) return { success: false, error: "Wing 카탈로그 검색 탭을 열 수 없습니다" };
+
+  const loaded = await waitForTabComplete(tabId, {
+    expectedUrl: WING_CATALOG_FORM_URL,
+    timeoutMs: 60000,
+  }).catch((error) => ({ error: error?.message || "Wing 상품등록 화면 로딩 실패" }));
+  if (loaded?.error) return { success: false, error: loaded.error, tabId };
+  if (!isWingCatalogFormUrl(loaded?.url || "")) {
+    activateTab(tabId);
+    return {
+      success: false,
+      pendingLogin: true,
+      opened: true,
+      tabId,
+      error: "쿠팡 Wing 로그인 필요 — 열린 Wing 상품등록 탭에서 로그인 후 다시 실행하세요.",
+    };
+  }
+
+  const startedAt = Date.now();
+  const pages = [];
+  const rows = [];
+  const seen = new Set();
+  const warnings = [];
+  let searchPage = 0;
+  let stopReason = "max_pages_reached";
+
+  for (let index = 0; index < maxPages; index++) {
+    const payload = {
+      keyword,
+      excludedProductIds: [],
+      searchPage,
+      searchOrder: "DEFAULT",
+      sortType: "DEFAULT",
+    };
+    const response = await executeWingCatalogSearch(tabId, payload);
+
+    if (!response?.ok || response.contentType?.includes("application/json") !== true) {
+      const messageText =
+        response?.status === 429
+          ? "Wing 요청 제한에 걸렸습니다. 잠시 후 다시 시도하세요."
+          : "Wing이 JSON 대신 다른 응답을 반환했습니다.";
+      if (rows.length === 0) {
+        activateTab(tabId);
+        return {
+          success: false,
+          opened: true,
+          tabId,
+          pendingLogin: response?.status === 401 || response?.status === 403,
+          error: messageText,
+          status: response?.status,
+          contentType: response?.contentType,
+        };
+      }
+      warnings.push(`${searchPage}페이지: ${messageText}`);
+      stopReason = "non_json_response";
+      break;
+    }
+
+    const body = response.body || {};
+    const result = Array.isArray(body.result) ? body.result : [];
+    pages.push({
+      searchPage,
+      itemCount: result.length,
+      nextSearchPage: body.nextSearchPage ?? null,
+    });
+
+    for (const product of result) {
+      const normalized = normalizeWingCatalogProduct(product);
+      if (!normalized) continue;
+      const key = `${normalized.productId || ""}:${normalized.itemId || ""}:${normalized.vendorItemId || ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push(normalized);
+    }
+
+    if (result.length === 0) {
+      stopReason = "empty_page";
+      break;
+    }
+    if (body.nextSearchPage == null) {
+      stopReason = "no_next_search_page";
+      break;
+    }
+    if (body.nextSearchPage === searchPage) {
+      stopReason = "next_page_not_advancing";
+      break;
+    }
+    searchPage = body.nextSearchPage;
+    if (index < maxPages - 1) await sleep(WING_CATALOG_PAGE_DELAY_MS);
+  }
+
+  return {
+    success: true,
+    opened: true,
+    tabId,
+    keyword,
+    maxPages,
+    stopReason,
+    pages,
+    rows,
+    total: rows.length,
+    warnings,
+    endpoint: WING_CATALOG_SEARCH_ENDPOINT,
+    dateWindow: "last28d",
+    startedAt,
+    endedAt: Date.now(),
+  };
+}
+
+async function searchCoupangKeywordSuggestions(message) {
+  const keyword = typeof message.keyword === "string" ? message.keyword.trim() : "";
+  if (!keyword) return { success: false, error: "검색 키워드를 입력하세요" };
+
+  const maxResults = clampNumber(message.maxResults, 1, 50, 20);
+  const tab = await getOrCreateCoupangSearchTab(keyword);
+  const tabId = tab?.id;
+  if (!tabId) return { success: false, error: "쿠팡 검색 탭을 열 수 없습니다" };
+
+  const loaded = await waitForTabComplete(tabId, {
+    expectedUrl: buildCoupangSearchUrl(keyword),
+    timeoutMs: 60000,
+  }).catch((error) => ({ error: error?.message || "쿠팡 검색 화면 로딩 실패" }));
+  if (loaded?.error) return { success: false, error: loaded.error, tabId };
+  if (!isCoupangSearchUrl(loaded?.url || "")) {
+    activateTab(tabId);
+    return {
+      success: false,
+      opened: true,
+      tabId,
+      error: "쿠팡 검색 페이지를 열 수 없습니다.",
+    };
+  }
+
+  await sleep(COUPANG_KEYWORD_SEARCH_DELAY_MS);
+  const response = await executeCoupangKeywordSuggestionSearch(tabId, keyword, maxResults);
+  if (!response?.success) {
+    activateTab(tabId);
+    return {
+      success: false,
+      opened: true,
+      tabId,
+      error: response?.error || "쿠팡 인기 키워드 수집 실패",
+      status: response?.status,
+      contentType: response?.contentType,
+    };
+  }
+
+  return {
+    success: true,
+    opened: true,
+    tabId,
+    keyword,
+    source: response.source || "coupang-search-page",
+    items: Array.isArray(response.items) ? response.items : [],
+    productNameTokens: Array.isArray(response.productNameTokens) ? response.productNameTokens : [],
+    total: Array.isArray(response.items) ? response.items.length : 0,
+    warnings: response.warnings || [],
+    startedAt: Date.now(),
+    endedAt: Date.now(),
+  };
+}
+
+async function getOrCreateCoupangSearchTab(keyword) {
+  const url = buildCoupangSearchUrl(keyword);
+  const existing = await queryTabs({ url: `${COUPANG_SEARCH_URL}*` });
+  const activeTab = existing.find((tab) => tab?.id && tab.status === "complete") || existing.find((tab) => tab?.id);
+  if (activeTab?.id) {
+    return updateTabAndWait(activeTab.id, url, { active: false, timeoutMs: 60000 }).catch(() => activeTab);
+  }
+
+  const tab = await createTab({ url, active: false });
+  if (!tab?.id) return tab;
+  return waitForTabComplete(tab.id, { expectedUrl: url, timeoutMs: 60000 }).catch(() => tab);
+}
+
+async function executeCoupangKeywordSuggestionSearch(tabId, keyword, maxResults) {
+  const [result] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: async (requestKeyword, requestMaxResults, autocompleteEndpoint) => {
+      const warnings = [];
+      const candidates = [];
+      const productNames = [];
+
+      function addKeyword(value, source) {
+        if (typeof value !== "string") return;
+        const keyword = value.replace(/\s+/g, " ").trim();
+        if (!isUsableKeyword(keyword, requestKeyword)) return;
+        candidates.push({ keyword, source });
+      }
+
+      function isUsableKeyword(value, seed) {
+        if (value.length < 2 || value.length > 40) return false;
+        if (/https?:\/\//i.test(value)) return false;
+        if (/^[\d\s,.-]+$/.test(value)) return false;
+        if (/[₩원%]/.test(value)) return false;
+        if (["검색", "바로가기", "쿠팡", "로켓배송", "무료배송"].includes(value)) return false;
+        const compact = value.replace(/\s+/g, "").toLowerCase();
+        const compactSeed = String(seed || "").replace(/\s+/g, "").toLowerCase();
+        return compact.length > 1 && compact !== compactSeed;
+      }
+
+      function collectFromJson(value, source) {
+        if (typeof value === "string") {
+          addKeyword(value, source);
+          return;
+        }
+        if (Array.isArray(value)) {
+          for (const item of value) collectFromJson(item, source);
+          return;
+        }
+        if (!value || typeof value !== "object") return;
+        for (const [key, nested] of Object.entries(value)) {
+          if (/keyword|query|term|suggest|name|label|word/i.test(key) && typeof nested === "string") {
+            addKeyword(nested, source);
+            continue;
+          }
+          collectFromJson(nested, source);
+        }
+      }
+
+      function collectFromDom() {
+        const selectors = [
+          'a[href*="/np/search"]',
+          'a[href*="q="]',
+          '[class*="related"] a',
+          '[class*="suggest"] a',
+          '[class*="keyword"] a',
+        ];
+        for (const element of document.querySelectorAll(selectors.join(","))) {
+          addKeyword(element.textContent || "", "coupang-search-dom");
+          try {
+            const href = element.getAttribute("href") || "";
+            const parsed = new URL(href, location.origin);
+            addKeyword(parsed.searchParams.get("q") || parsed.searchParams.get("keyword") || "", "coupang-search-dom");
+          } catch {}
+        }
+      }
+
+      function collectProductNamesFromDom() {
+        const selectors = [
+          ".search-product-wrap .name",
+          ".search-product .name",
+          ".descriptions .name",
+          "a.search-product-link",
+          "li.search-product",
+          '[class*="search-product"] [class*="name"]',
+        ];
+        for (const element of document.querySelectorAll(selectors.join(","))) {
+          const text = (element.textContent || "").replace(/\s+/g, " ").trim();
+          if (text.length < 4 || text.length > 180) continue;
+          if (/장바구니|구매|광고|무료배송|로켓배송만 보기/.test(text)) continue;
+          productNames.push(text);
+        }
+      }
+
+      try {
+        const params = new URLSearchParams({ keyword: requestKeyword });
+        const response = await fetch(`${autocompleteEndpoint}?${params.toString()}`, {
+          method: "GET",
+          credentials: "include",
+          headers: {
+            Accept: "application/json, text/plain, */*",
+            "X-Requested-With": "XMLHttpRequest",
+          },
+        });
+        const contentType = response.headers.get("content-type") || "";
+        const text = await response.text();
+        if (!response.ok) {
+          warnings.push(`쿠팡 자동완성 호출 실패 (${response.status})`);
+        } else if (contentType.includes("application/json")) {
+          try {
+            collectFromJson(JSON.parse(text), "coupang-autocomplete");
+          } catch {
+            warnings.push("쿠팡 자동완성 JSON 파싱 실패");
+          }
+        } else {
+          collectFromJson(text, "coupang-autocomplete");
+        }
+      } catch (error) {
+        warnings.push(error?.message || "쿠팡 자동완성 호출 실패");
+      }
+
+      collectFromDom();
+      collectProductNamesFromDom();
+
+      const seen = new Set();
+      const items = [];
+      for (const candidate of candidates) {
+        const key = candidate.keyword.replace(/\s+/g, "").toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        items.push({
+          rank: items.length + 1,
+          keyword: candidate.keyword,
+          source: candidate.source,
+        });
+        if (items.length >= requestMaxResults) break;
+      }
+
+      const tokenCounts = new Map();
+      const stopWords = new Set([
+        "쿠팡",
+        "로켓",
+        "로켓배송",
+        "무료배송",
+        "무료",
+        "배송",
+        "정품",
+        "국내",
+        "당일",
+        "오늘",
+        "새상품",
+        "상품",
+        "구매",
+        "할인",
+        "특가",
+        "옵션",
+        "색상",
+        "랜덤",
+      ]);
+      for (const name of productNames) {
+        const tokens = name
+          .replace(/[()[\]{}"'`~!@#$%^&*_+=|\\:;,.<>/?·•]/g, " ")
+          .split(/\s+/)
+          .map((token) => token.trim())
+          .filter((token) => token.length >= 2 && token.length <= 20)
+          .filter((token) => !/^[\d개입묶음세트]+$/.test(token))
+          .filter((token) => !stopWords.has(token));
+        const uniqueTokens = new Set(tokens);
+        for (const token of uniqueTokens) {
+          tokenCounts.set(token, (tokenCounts.get(token) || 0) + 1);
+        }
+      }
+      const productNameTokens = Array.from(tokenCounts.entries())
+        .map(([keyword, count]) => ({ keyword, count }))
+        .sort((a, b) => b.count - a.count || a.keyword.localeCompare(b.keyword, "ko"))
+        .slice(0, requestMaxResults);
+
+      return {
+        success: true,
+        source: items.some((item) => item.source === "coupang-autocomplete")
+          ? "coupang-autocomplete"
+          : "coupang-search-dom",
+        items,
+        productNameTokens,
+        warnings,
+      };
+    },
+    args: [keyword, maxResults, COUPANG_AUTOCOMPLETE_ENDPOINT],
+  });
+  return result?.result || null;
+}
+
+async function getOrCreateWingCatalogTab() {
+  const existing = await queryTabs({ url: `${WING_CATALOG_FORM_URL}*` });
+  const activeTab = existing.find((tab) => tab?.id && tab.status === "complete") || existing.find((tab) => tab?.id);
+  if (activeTab?.id) return activeTab;
+
+  const wingTabs = await queryTabs({ url: "https://wing.coupang.com/*" });
+  const reusable = wingTabs.find((tab) => tab?.id && tab.url && tab.url.includes("/tenants/seller-web/vendor-inventory/formV2"));
+  if (reusable?.id) return reusable;
+
+  const syncWindow = await createWindow({
+    url: WING_CATALOG_FORM_URL,
+    focused: false,
+    type: "normal",
+  });
+  return getFirstWindowTab(syncWindow) || await getFirstTabInWindow(syncWindow.id);
+}
+
+async function executeWingCatalogSearch(tabId, payload) {
+  const [result] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: async (requestPayload, endpoint) => {
+      try {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestPayload),
+        });
+        const contentType = res.headers.get("content-type") || "";
+        const text = await res.text();
+        let body = null;
+        if (contentType.includes("application/json")) {
+          try {
+            body = JSON.parse(text);
+          } catch {
+            body = null;
+          }
+        }
+        return {
+          ok: res.ok,
+          status: res.status,
+          contentType,
+          body,
+          textPreview: body ? null : text.slice(0, 200),
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          status: 0,
+          contentType: "",
+          body: null,
+          error: error?.message || String(error),
+        };
+      }
+    },
+    args: [payload, WING_CATALOG_SEARCH_ENDPOINT],
+  });
+  return result?.result || null;
+}
+
+function normalizeWingCatalogProduct(product) {
+  if (!product || typeof product !== "object") return null;
+  const productId = product.productId == null ? null : String(product.productId);
+  if (!productId) return null;
+  const salePrice = toNullableNumber(product.salePrice);
+  const salesLast28d = toNullableNumber(product.salesLast28d);
+  const pvLast28Day = toNullableNumber(product.pvLast28Day);
+  return {
+    productId,
+    itemId: product.itemId == null ? null : String(product.itemId),
+    vendorItemId: product.vendorItemId == null ? null : String(product.vendorItemId),
+    productName: String(product.productName || ""),
+    itemName: product.itemName ? String(product.itemName) : null,
+    brandName: product.brandName ? String(product.brandName) : null,
+    manufacture: product.manufacture ? String(product.manufacture) : null,
+    categoryHierarchy: Array.isArray(product.displayCategoryInfo)
+      ? product.displayCategoryInfo[0]?.categoryHierarchy || null
+      : null,
+    imagePath: product.imagePath ? String(product.imagePath) : null,
+    salePrice,
+    rating: toNullableNumber(product.rating),
+    ratingCount: toNullableNumber(product.ratingCount),
+    pvLast28Day,
+    salesLast28d,
+    estimatedRevenue28d:
+      salePrice != null && salesLast28d != null ? Math.round(salePrice * salesLast28d) : null,
+    conversionRate28d:
+      pvLast28Day != null && pvLast28Day > 0 && salesLast28d != null ? salesLast28d / pvLast28Day : null,
+    deliveryInfo: product.deliveryInfo ? String(product.deliveryInfo) : null,
+  };
+}
+
+function toNullableNumber(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function clampNumber(value, min, max, fallback) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(numeric)));
+}
+
+function isWingCatalogFormUrl(url) {
+  if (typeof url !== "string") return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === "wing.coupang.com" && parsed.pathname.includes("/tenants/seller-web/vendor-inventory/formV2");
+  } catch {
+    return false;
+  }
+}
+
 async function registerWingThumbnail(message) {
   const productName = typeof message.productName === "string" ? message.productName.trim() : "";
   const image = message.image || {};
@@ -397,6 +896,20 @@ async function registerWingThumbnail(message) {
 
 function buildWingProductSearchUrl(productName) {
   return `https://wing.coupang.com/vendor-inventory/list?searchKeywordType=PRODUCT_NAME&searchKeywords=${encodeURIComponent(productName)}&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&locale=ko_KR&sortMethod=SORT_BY_ITEM_LEVEL_UNIT_SOLD&countPerPage=50&page=1`;
+}
+
+function buildCoupangSearchUrl(keyword) {
+  return `${COUPANG_SEARCH_URL}?component=&q=${encodeURIComponent(keyword)}&channel=user`;
+}
+
+function isCoupangSearchUrl(url) {
+  if (typeof url !== "string") return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === "www.coupang.com" && parsed.pathname.includes("/np/search");
+  } catch {
+    return false;
+  }
 }
 
 function openAndExecuteAdActions(url = AD_ACTION_URL) {

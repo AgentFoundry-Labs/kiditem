@@ -2,13 +2,11 @@ import Link from 'next/link';
 import {
   ArrowRight,
   ExternalLink,
-  Search,
   Sparkles,
   type LucideIcon,
 } from 'lucide-react';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import {
-  topSellingProducts,
   trendKeywords,
   type SourcingDecisionRow,
   type SourcingReport,
@@ -209,22 +207,6 @@ export function FilterBar() {
         ))}
       </div>
     </Panel>
-  );
-}
-
-export function TopProductRow({ product }: { product: (typeof topSellingProducts)[number] }) {
-  return (
-    <article className="flex gap-3 rounded-xl border border-[#edf2f7] bg-[#fbfdff] p-3">
-      <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-[#e2e8f0]">
-        <img src={product.imageUrl} alt="" className="h-full w-full object-cover" />
-        <span className="absolute left-0 top-0 flex h-6 w-6 items-center justify-center bg-[#3b82f6] text-xs font-black text-white">{product.rank}</span>
-      </div>
-      <div className="min-w-0">
-        <h3 className="line-clamp-2 text-sm font-black leading-5 text-[#111827]">{product.title}</h3>
-        <p className="mt-1 text-xs font-bold text-[#94a3b8]">{product.category}</p>
-        <p className="mt-2 text-xs font-black text-[#475569]">{formatKRW(product.priceKrw)}원 · 리뷰 {formatNumber(product.reviewCount)}</p>
-      </div>
-    </article>
   );
 }
 

@@ -222,6 +222,22 @@ text/detail/thumbnail/image-edit AI features are enabled.
 | `AI_IMAGE_ANALYSIS_VERIFY_MODEL` | Thumbnail compliance verify path | Thumbnail Gemini config | No silent fallback. |
 | `OPENAI_API_KEY` | Not currently used by deployed API/web code | Python agents or future providers | Staging may have it set, but current API code does not read it directly. |
 
+## Server Market Data Providers
+
+These variables are feature-specific and should be present only where sourcing
+keyword research is intentionally enabled.
+
+| Variable | Required when | Consumed by | Notes |
+|---|---|---|---|
+| `NAVER_DATALAB_CLIENT_ID` | Naver DataLab trend verification is enabled | Sourcing Naver DataLab adapter | Developer Center application client id. Server-side only. |
+| `NAVER_DATALAB_CLIENT_SECRET` | Naver DataLab trend verification is enabled | Sourcing Naver DataLab adapter | Developer Center application secret. Never expose to web or agents. |
+| `NAVER_DATALAB_BASE_URL` | Non-production DataLab endpoint override is needed | Sourcing Naver DataLab adapter | Optional. Defaults to `https://openapi.naver.com`. |
+| `NAVER_DATALAB_WEB_BASE_URL` | Non-production DataLab web endpoint override is needed | Sourcing DataLab popular keyword adapter | Optional. Defaults to `https://datalab.naver.com`. Used for Shopping Insight popular keyword boards. |
+| `NAVER_SEARCHAD_API_KEY` | Naver SearchAd keyword research is enabled | Sourcing Naver keyword adapter | Access license from Naver SearchAd API manager. Server-side only. |
+| `NAVER_SEARCHAD_SECRET_KEY` | Naver SearchAd keyword research is enabled | Sourcing Naver keyword adapter | HMAC signing secret. Never expose to web or agents. |
+| `NAVER_SEARCHAD_CUSTOMER_ID` | Naver SearchAd keyword research is enabled | Sourcing Naver keyword adapter | SearchAd advertiser customer id used in `X-Customer`. |
+| `NAVER_SEARCHAD_BASE_URL` | Non-production SearchAd endpoint override is needed | Sourcing Naver keyword adapter | Optional. Defaults to `https://api.searchad.naver.com`. |
+
 ## Agent OS And Claude CLI
 
 These variables are feature-specific. They should not be present in shared
@@ -302,8 +318,8 @@ variables apply when running `agents/` as a separate runtime.
 | `AI_TEXT_MODEL` | Text generation agents | Python content agents | No silent fallback. |
 | `AI_IMAGE_ANALYSIS_MODEL` | Vision analysis agents | Python content agents | No silent fallback. |
 | `DETAIL_PAGE_TEMPLATE` | Default template selection needed | Python config | Defaults to `bold_vertical`. |
-| `TMAPI_TOKEN` | 1688/TMAPI sourcing matcher enabled | Python sourcing matcher | Optional unless matcher is used. |
-| `TMAPI_BASE_URL` | Custom TMAPI endpoint needed | Python sourcing matcher | Defaults in code. |
+| `TMAPI_TOKEN` | 1688/TMAPI sourcing matcher or wholesale image search enabled | Python sourcing matcher, Nest sourcing image-search API | Optional unless matcher/search is used. |
+| `TMAPI_BASE_URL` | Custom TMAPI endpoint needed | Python sourcing matcher, Nest sourcing image-search API | Defaults in code. |
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | LLM tracing enabled | Python config/Langfuse | Both keys required to enable. |
 | `LANGFUSE_BASE_URL` | Custom Langfuse endpoint needed | Langfuse SDK | Defaults to Langfuse Cloud in examples. |
 | `LANGFUSE_HOST` | Migrating an old local agents env | Python config | Legacy alias mapped to `LANGFUSE_BASE_URL` when set and `LANGFUSE_BASE_URL` is empty. Prefer `LANGFUSE_BASE_URL`; it is intentionally omitted from new `.env.example` files. |
@@ -328,12 +344,16 @@ STAGING_DB_BASELINE_PREFIX
 STAGING_DB_BASELINE_S3_ENDPOINT
 STAGING_DB_BASELINE_S3_REGION
 STAGING_HOST
+STAGING_NAVER_DATALAB_BASE_URL
+STAGING_NAVER_DATALAB_WEB_BASE_URL
+STAGING_NAVER_SEARCHAD_BASE_URL
 STAGING_REMOTE_DIR
 STAGING_S3_BUCKET
 STAGING_S3_ENDPOINT
 STAGING_S3_PUBLIC_URL
 STAGING_S3_REGION
 STAGING_SUPABASE_URL
+STAGING_TMAPI_BASE_URL
 STAGING_URL
 STAGING_USER
 ```
@@ -347,10 +367,16 @@ STAGING_DB_BASELINE_S3_ACCESS_KEY
 STAGING_DB_BASELINE_S3_SECRET_KEY
 STAGING_DIRECT_URL
 STAGING_GEMINI_API_KEY
+STAGING_NAVER_DATALAB_CLIENT_ID
+STAGING_NAVER_DATALAB_CLIENT_SECRET
+STAGING_NAVER_SEARCHAD_API_KEY
+STAGING_NAVER_SEARCHAD_CUSTOMER_ID
+STAGING_NAVER_SEARCHAD_SECRET_KEY
 STAGING_S3_ACCESS_KEY
 STAGING_S3_SECRET_KEY
 STAGING_SSH_KEY
 STAGING_SSH_KNOWN_HOSTS
+STAGING_TMAPI_TOKEN
 ```
 
 The workflow uses the short-lived `GITHUB_TOKEN` for GHCR push/pull. Do not add
@@ -388,6 +414,8 @@ ssh -i "$STAGING_SSH_KEY" "$STAGING_USER@$STAGING_HOST" '
   docker exec kiditem-staging-api sh -lc '"'"'
     for k in OPENAI_API_KEY GEMINI_API_KEY AI_TEXT_MODEL AI_IMAGE_MODEL \
       AI_IMAGE_ANALYSIS_MODEL AI_IMAGE_ANALYSIS_VERIFY_MODEL \
+      NAVER_DATALAB_CLIENT_ID NAVER_DATALAB_CLIENT_SECRET NAVER_DATALAB_WEB_BASE_URL \
+      NAVER_SEARCHAD_API_KEY NAVER_SEARCHAD_SECRET_KEY NAVER_SEARCHAD_CUSTOMER_ID \
       CHANNEL_CREDENTIALS_ENCRYPTION_KEY \
       AGENT_RUNTIME_WORKER_ENABLED AGENT_DEFAULT_MODEL \
       ANTHROPIC_API_KEY \
