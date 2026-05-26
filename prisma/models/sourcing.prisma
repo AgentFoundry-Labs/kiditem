@@ -43,7 +43,7 @@ model SourcingCandidate {
   contentGenerationSources ContentGenerationSource[]
   contentGenerations       ContentGeneration[]       @relation("ContentGenerationPrimarySourcingCandidate")
   detailPageArtifacts      DetailPageArtifact[]      @relation("DetailPageArtifactSourcingCandidate")
-  contentWorkspaces   ContentWorkspace[]   @relation("ContentWorkspaceSourcingCandidate")
+  contentWorkspaces        ContentWorkspace[]        @relation("ContentWorkspaceSourcingCandidate")
   productPreparations      ProductPreparation[]
   thumbnailGenerations     ThumbnailGeneration[]     @relation("ThumbnailGenerationSourcingCandidate")
 
@@ -90,4 +90,24 @@ model CandidateImage {
   @@index([candidateId])
   @@index([organizationId, candidateId])
   @@map("sourcing_candidate_images")
+}
+
+/// @namespace Sourcing
+/// @describe 소싱 AI 화면의 KST 일별 작업 스냅샷. 오늘의 추천/키워드 분석 결과를 하루 동안 재사용한다.
+model SourcingWorkspaceSnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  scope          String
+  businessDate   DateTime @map("business_date") @db.Date
+  payload        Json     @default("{}") @map("payload") @db.JsonB
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, scope, businessDate])
+  @@index([organizationId, scope])
+  @@index([organizationId, businessDate])
+  @@map("sourcing_workspace_snapshots")
 }

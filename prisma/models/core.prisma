@@ -34,7 +34,7 @@ model Organization {
   contentGenerationSources     ContentGenerationSource[]
   contentAssets                ContentAsset[]
   contentGenerationAssetUsages ContentGenerationAssetUsage[]
-  contentWorkspaces       ContentWorkspace[]
+  contentWorkspaces            ContentWorkspace[]
   productPreparations          ProductPreparation[]
   detailPageArtifacts          DetailPageArtifact[]
   detailPageRevisions          DetailPageRevision[]
@@ -129,8 +129,9 @@ model Organization {
   gradeHistory GradeHistory[] // Task 8 Step 2 adds organizationId to GradeHistory
 
   // Sourcing (issue #192)
-  sourcingCandidates SourcingCandidate[]
-  candidateImages    CandidateImage[]
+  sourcingCandidates         SourcingCandidate[]
+  candidateImages            CandidateImage[]
+  sourcingWorkspaceSnapshots SourcingWorkspaceSnapshot[]
 
   @@map("organizations")
 }
@@ -160,7 +161,7 @@ model User {
   thumbnailGenerationEvents      ThumbnailGenerationEvent[] @relation("ThumbnailGenerationEventActor")
   triggeredContentGenerations    ContentGeneration[]        @relation("ContentGenerationTriggeredBy")
   createdContentAssets           ContentAsset[]             @relation("ContentAssetCreatedBy")
-  createdContentWorkspaces  ContentWorkspace[]    @relation("ContentWorkspaceCreatedBy")
+  createdContentWorkspaces       ContentWorkspace[]         @relation("ContentWorkspaceCreatedBy")
   createdProductPreparations     ProductPreparation[]       @relation("ProductPreparationCreatedBy")
   createdDetailPageArtifacts     DetailPageArtifact[]       @relation("DetailPageArtifactCreatedBy")
   createdDetailPageRevisions     DetailPageRevision[]       @relation("DetailPageRevisionCreatedBy")
@@ -333,7 +334,7 @@ model MasterProduct {
 
   contentGenerationGroups ContentGenerationGroup[]
   detailPageArtifacts     DetailPageArtifact[]     @relation("DetailPageArtifactTargetMaster")
-  contentWorkspaces  ContentWorkspace[]  @relation("ContentWorkspaceTargetMaster")
+  contentWorkspaces       ContentWorkspace[]       @relation("ContentWorkspaceTargetMaster")
   productPreparations     ProductPreparation[]
   thumbnailAnalyses       ThumbnailAnalysis[]
   thumbnailGenerations    ThumbnailGeneration[]

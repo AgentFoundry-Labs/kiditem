@@ -1,5 +1,5 @@
-import { SellochSourcingPage } from '../components/SellochSourcingPage';
+import { TodayRecommendationsPage } from './components/TodayRecommendationsPage';
 
 export default function SourcingRecommendationsPage() {
-  return <SellochSourcingPage kind="recommendations" />;
+  return <TodayRecommendationsPage />;
 }

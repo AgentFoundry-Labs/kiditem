@@ -85,23 +85,23 @@ export function RealtimeSourcingTerminal() {
           </span>
         </div>
         <div className="flex flex-wrap gap-2 text-[11px] font-black text-[#667085]">
-          <span className="rounded-full border border-white/90 bg-white/88 px-2.5 py-1 shadow-[0_8px_22px_rgba(96,115,160,0.10)] backdrop-blur-md">3일 반응 추적</span>
-          <span className="rounded-full border border-white/90 bg-white/88 px-2.5 py-1 shadow-[0_8px_22px_rgba(96,115,160,0.10)] backdrop-blur-md">
+          <span className="rounded-full border border-white/90 bg-white/88 px-2.5 py-1 backdrop-blur-md">3일 반응 추적</span>
+          <span className="rounded-full border border-white/90 bg-white/88 px-2.5 py-1 backdrop-blur-md">
             최근등록 + 검색량 우선
           </span>
-          <span className="rounded-full border border-white/90 bg-white/88 px-2.5 py-1 shadow-[0_8px_22px_rgba(96,115,160,0.10)] backdrop-blur-md">문구 카테고리</span>
+          <span className="rounded-full border border-white/90 bg-white/88 px-2.5 py-1 backdrop-blur-md">문구 카테고리</span>
         </div>
       </div>
 
       <div className="grid min-h-[300px] gap-5 p-5 lg:grid-cols-[1fr_420px]">
-        <div className="relative flex flex-col justify-between gap-5 rounded-2xl border border-white/90 bg-white/88 p-5 shadow-[0_20px_50px_rgba(92,108,150,0.14)] backdrop-blur-xl before:pointer-events-none before:absolute before:inset-x-4 before:top-0 before:h-px before:bg-white">
+        <div className="relative flex flex-col justify-between gap-5 rounded-2xl border border-white/90 bg-white/88 p-5 backdrop-blur-xl before:pointer-events-none before:absolute before:inset-x-4 before:top-0 before:h-px before:bg-white">
           <div className="grid gap-5 xl:grid-cols-[280px_1fr]">
-            <div className="relative flex min-h-[260px] flex-col items-center justify-center rounded-2xl border border-white/90 bg-white/90 p-5 shadow-[0_14px_34px_rgba(92,108,150,0.12)] backdrop-blur-md before:pointer-events-none before:absolute before:inset-x-4 before:top-0 before:h-px before:bg-white">
+            <div className="relative flex min-h-[260px] flex-col items-center justify-center rounded-2xl border border-white/90 bg-white/90 p-5 backdrop-blur-md before:pointer-events-none before:absolute before:inset-x-4 before:top-0 before:h-px before:bg-white">
               <div
                 className="grid h-44 w-44 place-items-center rounded-full"
                 style={{ background: `conic-gradient(#6d5dfc ${totalProgress}%, rgba(255,255,255,0.72) 0)` }}
               >
-                <div className="grid h-32 w-32 place-items-center rounded-full border border-white/90 bg-white/90 shadow-[0_12px_32px_rgba(92,108,150,0.12)] backdrop-blur-md">
+                <div className="grid h-32 w-32 place-items-center rounded-full border border-white/90 bg-white/90 backdrop-blur-md">
                   <div className="text-center">
                     <p className="text-4xl font-black text-[#111827]">{totalProgress}%</p>
                     <p className="text-[11px] font-black text-[#7a8494]">전체 수집률</p>
@@ -122,7 +122,7 @@ export function RealtimeSourcingTerminal() {
                 {collectionStages.map((stage) => (
                   <div
                     key={stage.label}
-                    className="relative rounded-xl border border-white/90 bg-white/90 px-3 py-2.5 shadow-[0_10px_24px_rgba(92,108,150,0.10)] backdrop-blur-md before:pointer-events-none before:absolute before:inset-x-3 before:top-0 before:h-px before:bg-white"
+                    className="relative rounded-xl border border-white/90 bg-white/90 px-3 py-2.5 backdrop-blur-md before:pointer-events-none before:absolute before:inset-x-3 before:top-0 before:h-px before:bg-white"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
@@ -143,7 +143,7 @@ export function RealtimeSourcingTerminal() {
             {collectorStats.map((stat) => (
               <div
                 key={stat.label}
-                className="relative rounded-2xl border border-white/90 bg-white/90 p-4 shadow-[0_14px_34px_rgba(92,108,150,0.12)] backdrop-blur-md before:pointer-events-none before:absolute before:inset-x-4 before:top-0 before:h-px before:bg-white"
+                className="relative rounded-2xl border border-white/90 bg-white/90 p-4 backdrop-blur-md before:pointer-events-none before:absolute before:inset-x-4 before:top-0 before:h-px before:bg-white"
               >
                 <p className="text-xs font-black text-[#7a8494]">{stat.label}</p>
                 <p className="mt-2 text-2xl font-black text-[#111827]">{stat.value}</p>
@@ -153,10 +153,10 @@ export function RealtimeSourcingTerminal() {
           </div>
         </div>
 
-        <aside className="relative rounded-2xl border border-white/90 bg-white/88 p-4 shadow-[0_20px_50px_rgba(92,108,150,0.14)] backdrop-blur-xl before:pointer-events-none before:absolute before:inset-x-4 before:top-0 before:h-px before:bg-white">
+        <aside className="relative rounded-2xl border border-white/90 bg-white/88 p-4 backdrop-blur-xl before:pointer-events-none before:absolute before:inset-x-4 before:top-0 before:h-px before:bg-white">
           <div className="mb-3 flex items-center justify-between">
             <p className="font-mono text-xs font-black text-[#475467]">REALTIME LOG</p>
-            <span className="rounded-full border border-white/90 bg-white/88 px-2 py-1 text-[10px] font-black text-[#667085] shadow-[0_8px_22px_rgba(96,115,160,0.10)] backdrop-blur-md">
+            <span className="rounded-full border border-white/90 bg-white/88 px-2 py-1 text-[10px] font-black text-[#667085] backdrop-blur-md">
               tail -f
             </span>
           </div>
@@ -164,7 +164,7 @@ export function RealtimeSourcingTerminal() {
             {terminalEvents.map((event) => (
               <div
                 key={`${event.time}-${event.source}`}
-                className="relative rounded-xl border border-white/90 bg-white/90 px-3 py-2 shadow-[0_10px_26px_rgba(92,108,150,0.10)] backdrop-blur-md before:pointer-events-none before:absolute before:inset-x-3 before:top-0 before:h-px before:bg-white"
+                className="relative rounded-xl border border-white/90 bg-white/90 px-3 py-2 backdrop-blur-md before:pointer-events-none before:absolute before:inset-x-3 before:top-0 before:h-px before:bg-white"
               >
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-[#98a2b3]">[{event.time}]</span>

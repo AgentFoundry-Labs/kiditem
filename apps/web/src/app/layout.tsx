@@ -26,6 +26,7 @@ export default function RootLayout({
       </head>
       <body
         className="antialiased"
+        suppressHydrationWarning
       >
         <QueryProvider>
           <AppLayout>{children}</AppLayout>
