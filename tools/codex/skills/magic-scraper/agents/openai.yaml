@@ -1,0 +1,6 @@
+interface:
+  display_name: "Magic Scraper"
+  short_description: "Author KidItem browser data extractors from local page evidence"
+  default_prompt: "Use $magic-scraper to investigate an authorized website or app screen with local Chrome CDP and turn the observed data into extractor code, fixtures, and tests."
+policy:
+  allow_implicit_invocation: true

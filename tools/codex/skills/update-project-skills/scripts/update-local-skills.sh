@@ -264,7 +264,7 @@ verify_prompt_scope() {
   log "== fresh Codex prompt scope =="
 
   local kiditem_hits
-  kiditem_hits="$(cd "$KIDITEM_ROOT" && "$CODEX_BIN" debug prompt-input probe 2>/dev/null | perl -pe 's/\\n/\n/g' | grep -E '^- (caveman|grill-me|improve-codebase-architecture|staging-deploy-operator|supabase|supabase-postgres-best-practices|vercel-react-best-practices|update-project-skills)' | head -20 || true)"
+  kiditem_hits="$(cd "$KIDITEM_ROOT" && "$CODEX_BIN" debug prompt-input probe 2>/dev/null | perl -pe 's/\\n/\n/g' | grep -E '^- (caveman|grill-me|improve-codebase-architecture|magic-scraper|staging-deploy-operator|supabase|supabase-postgres-best-practices|vercel-react-best-practices|update-project-skills)' | head -20 || true)"
 
   if [ -n "$kiditem_hits" ]; then
     log "KidItem sees project-local skills:"
