@@ -44,6 +44,37 @@ export const AgentApprovalStatusSchema = z.enum([
   'cancelled',
 ]);
 
+export const AgentConversationStatusSchema = z.enum(['active', 'archived']);
+
+export const AgentMessageRoleSchema = z.enum([
+  'user',
+  'assistant',
+  'system',
+  'tool',
+]);
+
+export const AgentToolInvocationStatusSchema = z.enum([
+  'requested',
+  'running',
+  'waiting_approval',
+  'succeeded',
+  'failed',
+  'cancelled',
+]);
+
+export const AgentArtifactStatusSchema = z.enum([
+  'active',
+  'superseded',
+  'deleted',
+]);
+
+export const AgentRunGraphNodeKindSchema = z.enum([
+  'agent_task',
+  'tool_invocation',
+  'artifact',
+  'approval',
+]);
+
 export const AgentDefinitionRuntimeKindSchema = z.enum([
   'agent',
   'coordinator',
@@ -177,6 +208,98 @@ export const AgentRunEventSummarySchema = z.object({
   createdAt: z.string(),
 });
 
+export const AgentConversationSummarySchema = z.object({
+  id: z.string(),
+  organizationId: z.string(),
+  title: z.string(),
+  status: AgentConversationStatusSchema,
+  createdByUserId: z.string().nullable(),
+  rootRequestId: z.string().nullable(),
+  lastMessageAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const AgentMessageSchema = z.object({
+  id: z.string(),
+  conversationId: z.string(),
+  role: AgentMessageRoleSchema,
+  content: z.string(),
+  agentInstanceId: z.string().nullable(),
+  requestId: z.string().nullable(),
+  runId: z.string().nullable(),
+  metadata: z.record(z.string(), z.unknown()),
+  createdAt: z.string(),
+});
+
+export const SendAgentMessageSchema = z.object({
+  content: z.string().trim().min(1).max(12000),
+});
+
+export const SelectSourcingRecommendationSchema = z.object({
+  artifactId: z.string().min(1),
+});
+
+export const AgentToolInvocationSummarySchema = z.object({
+  id: z.string(),
+  organizationId: z.string(),
+  agentInstanceId: z.string(),
+  requestId: z.string().nullable(),
+  runId: z.string().nullable(),
+  approvalRequestId: z.string().nullable(),
+  capabilityKey: z.string(),
+  status: AgentToolInvocationStatusSchema,
+  policyDecision: AgentAuthorizationDecisionSchema,
+  reasonCode: z.string().nullable(),
+  resourceType: z.string().nullable(),
+  resourceId: z.string().nullable(),
+  idempotencyKey: z.string().nullable(),
+  inputSummary: z.record(z.string(), z.unknown()),
+  outputSummary: z.record(z.string(), z.unknown()).nullable(),
+  errorCode: z.string().nullable(),
+  errorMessage: z.string().nullable(),
+  startedAt: z.string().nullable(),
+  completedAt: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+export const AgentArtifactSummarySchema = z.object({
+  id: z.string(),
+  conversationId: z.string().nullable(),
+  requestId: z.string().nullable(),
+  runId: z.string().nullable(),
+  toolInvocationId: z.string().nullable(),
+  artifactType: z.string(),
+  targetDomain: z.string(),
+  targetModel: z.string(),
+  targetId: z.string().nullable(),
+  title: z.string(),
+  href: z.string().nullable(),
+  summary: z.record(z.string(), z.unknown()),
+  status: AgentArtifactStatusSchema,
+  createdAt: z.string(),
+});
+
+export const AgentRunGraphNodeSchema = z.object({
+  id: z.string(),
+  parentId: z.string().nullable(),
+  kind: AgentRunGraphNodeKindSchema,
+  label: z.string(),
+  status: z.string(),
+  agentType: z.string().nullable(),
+  capabilityKey: z.string().nullable(),
+  startedAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+});
+
+export const AgentRunGraphSchema = z.object({
+  conversationId: z.string(),
+  rootRequestId: z.string().nullable(),
+  nodes: z.array(AgentRunGraphNodeSchema),
+  artifacts: z.array(AgentArtifactSummarySchema),
+  toolInvocations: z.array(AgentToolInvocationSummarySchema),
+});
+
 export const AgentCostEventSummarySchema = z.object({
   id: z.string(),
   organizationId: z.string(),
@@ -214,6 +337,11 @@ export type AgentRunStatus = z.infer<typeof AgentRunStatusSchema>;
 export type AgentToolPolicyEffect = z.infer<typeof AgentToolPolicyEffectSchema>;
 export type AgentAuthorizationDecision = z.infer<typeof AgentAuthorizationDecisionSchema>;
 export type AgentApprovalStatus = z.infer<typeof AgentApprovalStatusSchema>;
+export type AgentConversationStatus = z.infer<typeof AgentConversationStatusSchema>;
+export type AgentMessageRole = z.infer<typeof AgentMessageRoleSchema>;
+export type AgentToolInvocationStatus = z.infer<typeof AgentToolInvocationStatusSchema>;
+export type AgentArtifactStatus = z.infer<typeof AgentArtifactStatusSchema>;
+export type AgentRunGraphNodeKind = z.infer<typeof AgentRunGraphNodeKindSchema>;
 export type AgentDefinitionRuntimeKind = z.infer<typeof AgentDefinitionRuntimeKindSchema>;
 export type CreateAgentRunRequest = z.infer<typeof CreateAgentRunRequestSchema>;
 export type AgentRunnerResult = z.infer<typeof AgentRunnerResultSchema>;
@@ -222,5 +350,13 @@ export type AgentInstanceSummary = z.infer<typeof AgentInstanceSummarySchema>;
 export type AgentRunRequestSummary = z.infer<typeof AgentRunRequestSummarySchema>;
 export type AgentRunSummary = z.infer<typeof AgentRunSummarySchema>;
 export type AgentRunEventSummary = z.infer<typeof AgentRunEventSummarySchema>;
+export type AgentConversationSummary = z.infer<typeof AgentConversationSummarySchema>;
+export type AgentMessage = z.infer<typeof AgentMessageSchema>;
+export type SendAgentMessage = z.infer<typeof SendAgentMessageSchema>;
+export type SelectSourcingRecommendation = z.infer<typeof SelectSourcingRecommendationSchema>;
+export type AgentToolInvocationSummary = z.infer<typeof AgentToolInvocationSummarySchema>;
+export type AgentArtifactSummary = z.infer<typeof AgentArtifactSummarySchema>;
+export type AgentRunGraphNode = z.infer<typeof AgentRunGraphNodeSchema>;
+export type AgentRunGraph = z.infer<typeof AgentRunGraphSchema>;
 export type AgentCostEventSummary = z.infer<typeof AgentCostEventSummarySchema>;
 export type AgentAuthorizationEventSummary = z.infer<typeof AgentAuthorizationEventSummarySchema>;

@@ -42,6 +42,9 @@ model AgentInstance {
   approvalRequests     AgentApprovalRequest[]
   costEvents           AgentCostEvent[]
   agentUsers           User[]
+  conversationMessages AgentMessage[]
+  toolInvocations      AgentToolInvocation[]
+  artifacts            AgentArtifact[]
 
   @@unique([organizationId, type])
   @@index([organizationId])
@@ -128,6 +131,15 @@ model AgentRunRequest {
   requestedByUserId      String?   @map("requested_by_user_id") @db.Uuid
   requestedByActorType   String?   @map("requested_by_actor_type")
   requestedByActorId     String?   @map("requested_by_actor_id")
+  conversationId         String?   @map("conversation_id") @db.Uuid
+  initiatedByMessageId   String?   @map("initiated_by_message_id") @db.Uuid
+  parentRequestId        String?   @map("parent_request_id") @db.Uuid
+  delegatedByRunId       String?   @map("delegated_by_run_id") @db.Uuid
+  playbookKey            String?   @map("playbook_key")
+  planStepKey            String?   @map("plan_step_key")
+  displayName            String?   @map("display_name")
+  statusReason           String?   @map("status_reason")
+  dependencyKeys         Json      @default("[]") @map("dependency_keys") @db.JsonB
   payload                Json      @default("{}") @db.JsonB
   status                 String    @default("pending")
   scheduledFor           DateTime  @default(now()) @map("scheduled_for") @db.Timestamptz
@@ -149,7 +161,16 @@ model AgentRunRequest {
   requestedBy          User?                     @relation("AgentRunRequestRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
   coalescedIntoRequest AgentRunRequest?          @relation("AgentRunRequestCoalescing", fields: [coalescedIntoRequestId], references: [id], onDelete: SetNull)
   coalescedRequests    AgentRunRequest[]         @relation("AgentRunRequestCoalescing")
-  runs                 AgentRun[]
+  conversation         AgentConversation?        @relation("AgentConversationRequests", fields: [conversationId], references: [id], onDelete: SetNull)
+  initiatedByMessage   AgentMessage?             @relation("AgentRunRequestInitiatedByMessage", fields: [initiatedByMessageId], references: [id], onDelete: SetNull)
+  parentRequest        AgentRunRequest?          @relation("AgentRunRequestTaskTree", fields: [parentRequestId], references: [id], onDelete: SetNull)
+  childRequests        AgentRunRequest[]         @relation("AgentRunRequestTaskTree")
+  delegatedByRun       AgentRun?                 @relation("AgentRunDelegatedRequests", fields: [delegatedByRunId], references: [id], onDelete: SetNull)
+  rootForConversations AgentConversation[]       @relation("AgentConversationRootRequest")
+  runs                 AgentRun[]                @relation("AgentRunRequestRuns")
+  messages             AgentMessage[]            @relation("AgentRunRequestMessages")
+  toolInvocations      AgentToolInvocation[]
+  artifacts            AgentArtifact[]
   authorizationEvents  AgentAuthorizationEvent[]
   approvalRequests     AgentApprovalRequest[]
   costEvents           AgentCostEvent[]
@@ -163,6 +184,11 @@ model AgentRunRequest {
   @@index([coalescedIntoRequestId])
   @@index([taskSessionId])
   @@index([requestedByUserId])
+  @@index([conversationId])
+  @@index([parentRequestId])
+  @@index([delegatedByRunId])
+  @@index([initiatedByMessageId])
+  @@index([organizationId, conversationId, status])
   @@map("agent_run_requests")
 }
 
@@ -208,10 +234,14 @@ model AgentRun {
 
   organization        Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   agentInstance       AgentInstance             @relation(fields: [agentInstanceId], references: [id], onDelete: Cascade)
-  request             AgentRunRequest           @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  request             AgentRunRequest           @relation("AgentRunRequestRuns", fields: [requestId], references: [id], onDelete: Restrict)
   taskSession         AgentTaskSession          @relation(fields: [taskSessionId], references: [id], onDelete: Restrict)
   retryOfRun          AgentRun?                 @relation("AgentRunRetry", fields: [retryOfRunId], references: [id], onDelete: SetNull)
   retries             AgentRun[]                @relation("AgentRunRetry")
+  delegatedRequests   AgentRunRequest[]         @relation("AgentRunDelegatedRequests")
+  messages            AgentMessage[]
+  toolInvocations     AgentToolInvocation[]
+  artifacts           AgentArtifact[]
   events              AgentRunEvent[]
   costEvents          AgentCostEvent[]
   authorizationEvents AgentAuthorizationEvent[]
@@ -369,13 +399,14 @@ model AgentApprovalRequest {
   createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  agentInstance AgentInstance   @relation(fields: [agentInstanceId], references: [id], onDelete: Cascade)
-  request       AgentRunRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  run           AgentRun?       @relation(fields: [runId], references: [id], onDelete: SetNull)
-  requestedBy   User?           @relation("AgentApprovalRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
-  approver      User?           @relation("AgentApprovalApprover", fields: [approverUserId], references: [id], onDelete: SetNull)
-  decidedBy     User?           @relation("AgentApprovalDecidedBy", fields: [decidedByUserId], references: [id], onDelete: SetNull)
+  organization    Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agentInstance   AgentInstance         @relation(fields: [agentInstanceId], references: [id], onDelete: Cascade)
+  request         AgentRunRequest       @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  run             AgentRun?             @relation(fields: [runId], references: [id], onDelete: SetNull)
+  requestedBy     User?                 @relation("AgentApprovalRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  approver        User?                 @relation("AgentApprovalApprover", fields: [approverUserId], references: [id], onDelete: SetNull)
+  decidedBy       User?                 @relation("AgentApprovalDecidedBy", fields: [decidedByUserId], references: [id], onDelete: SetNull)
+  toolInvocations AgentToolInvocation[]
 
   @@index([organizationId, status, createdAt])
   @@index([organizationId, approverUserId, status])
@@ -418,6 +449,143 @@ model AgentCostEvent {
   @@index([requestId])
   @@index([runId])
   @@map("agent_cost_events")
+}
+
+/// @namespace AgentOS
+/// @describe User-facing Agent OS conversation thread.
+model AgentConversation {
+  id              String    @id @default(uuid()) @db.Uuid
+  organizationId  String    @map("organization_id") @db.Uuid
+  title           String
+  status          String    @default("active")
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  rootRequestId   String?   @map("root_request_id") @db.Uuid
+  lastMessageAt   DateTime? @map("last_message_at") @db.Timestamptz
+  metadata        Json      @default("{}") @db.JsonB
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization    Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy       User?                 @relation("AgentConversationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  rootRequest     AgentRunRequest?      @relation("AgentConversationRootRequest", fields: [rootRequestId], references: [id], onDelete: SetNull)
+  messages        AgentMessage[]
+  requests        AgentRunRequest[]     @relation("AgentConversationRequests")
+  toolInvocations AgentToolInvocation[]
+  artifacts       AgentArtifact[]
+
+  @@index([organizationId, status, updatedAt])
+  @@index([createdByUserId])
+  @@index([rootRequestId])
+  @@map("agent_conversations")
+}
+
+/// @namespace AgentOS
+/// @describe Visible conversation message tied to user, Operator, agent, or tool output.
+model AgentMessage {
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
+  conversationId  String   @map("conversation_id") @db.Uuid
+  role            String
+  content         String   @db.Text
+  agentInstanceId String?  @map("agent_instance_id") @db.Uuid
+  requestId       String?  @map("request_id") @db.Uuid
+  runId           String?  @map("run_id") @db.Uuid
+  metadata        Json     @default("{}") @db.JsonB
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization      Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation      AgentConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  agentInstance     AgentInstance?    @relation(fields: [agentInstanceId], references: [id], onDelete: SetNull)
+  request           AgentRunRequest?  @relation("AgentRunRequestMessages", fields: [requestId], references: [id], onDelete: SetNull)
+  run               AgentRun?         @relation(fields: [runId], references: [id], onDelete: SetNull)
+  initiatedRequests AgentRunRequest[] @relation("AgentRunRequestInitiatedByMessage")
+
+  @@index([organizationId, conversationId, createdAt])
+  @@index([agentInstanceId])
+  @@index([requestId])
+  @@index([runId])
+  @@map("agent_messages")
+}
+
+/// @namespace AgentOS
+/// @describe Durable capability/tool invocation audit record.
+model AgentToolInvocation {
+  id                String    @id @default(uuid()) @db.Uuid
+  organizationId    String    @map("organization_id") @db.Uuid
+  conversationId    String?   @map("conversation_id") @db.Uuid
+  agentInstanceId   String    @map("agent_instance_id") @db.Uuid
+  requestId         String?   @map("request_id") @db.Uuid
+  runId             String?   @map("run_id") @db.Uuid
+  approvalRequestId String?   @map("approval_request_id") @db.Uuid
+  capabilityKey     String    @map("capability_key")
+  status            String    @default("requested")
+  policyDecision    String    @map("policy_decision")
+  reasonCode        String?   @map("reason_code")
+  resourceType      String?   @map("resource_type")
+  resourceId        String?   @map("resource_id")
+  idempotencyKey    String?   @map("idempotency_key")
+  inputSummary      Json      @default("{}") @map("input_summary") @db.JsonB
+  outputSummary     Json?     @map("output_summary") @db.JsonB
+  errorCode         String?   @map("error_code")
+  errorMessage      String?   @map("error_message") @db.Text
+  startedAt         DateTime? @map("started_at") @db.Timestamptz
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization    Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation    AgentConversation?    @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  agentInstance   AgentInstance         @relation(fields: [agentInstanceId], references: [id], onDelete: Cascade)
+  request         AgentRunRequest?      @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  run             AgentRun?             @relation(fields: [runId], references: [id], onDelete: SetNull)
+  approvalRequest AgentApprovalRequest? @relation(fields: [approvalRequestId], references: [id], onDelete: SetNull)
+  artifacts       AgentArtifact[]
+
+  @@unique([organizationId, capabilityKey, idempotencyKey], map: "agent_tool_invocation_org_key_idempotency_unique", where: raw("idempotency_key IS NOT NULL"))
+  @@index([organizationId, conversationId, createdAt])
+  @@index([organizationId, agentInstanceId, createdAt])
+  @@index([requestId])
+  @@index([runId])
+  @@index([approvalRequestId])
+  @@index([capabilityKey])
+  @@map("agent_tool_invocations")
+}
+
+/// @namespace AgentOS
+/// @describe User-visible output card linked to task, tool, or domain record.
+model AgentArtifact {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
+  conversationId   String?  @map("conversation_id") @db.Uuid
+  agentInstanceId  String?  @map("agent_instance_id") @db.Uuid
+  requestId        String?  @map("request_id") @db.Uuid
+  runId            String?  @map("run_id") @db.Uuid
+  toolInvocationId String?  @map("tool_invocation_id") @db.Uuid
+  artifactType     String   @map("artifact_type")
+  targetDomain     String   @map("target_domain")
+  targetModel      String   @map("target_model")
+  targetId         String?  @map("target_id")
+  title            String
+  href             String?
+  summary          Json     @default("{}") @db.JsonB
+  status           String   @default("active")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation   AgentConversation?    @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  agentInstance  AgentInstance?        @relation(fields: [agentInstanceId], references: [id], onDelete: SetNull)
+  request        AgentRunRequest?      @relation(fields: [requestId], references: [id], onDelete: SetNull)
+  run            AgentRun?             @relation(fields: [runId], references: [id], onDelete: SetNull)
+  toolInvocation AgentToolInvocation?  @relation(fields: [toolInvocationId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, conversationId, createdAt])
+  @@index([organizationId, artifactType, status])
+  @@index([targetDomain, targetModel, targetId])
+  @@index([requestId])
+  @@index([runId])
+  @@index([toolInvocationId])
+  @@map("agent_artifacts")
 }
 
 /// @namespace AgentOS
