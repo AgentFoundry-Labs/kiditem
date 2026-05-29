@@ -34,4 +34,30 @@ describe('agent definition registry', () => {
       'AGENT_THUMBNAIL_GENERATE_MODEL',
     );
   });
+
+  it('registers Operator and Order Agent with default tool policies', () => {
+    const manager = findAgentDefinitionByType('manager');
+    const order = findAgentDefinitionByType('order');
+
+    expect(manager).toMatchObject({
+      name: 'Operator',
+      runtimeKind: 'coordinator',
+    });
+    expect(manager?.defaultToolPolicies.map((policy) => policy.toolKey)).toContain(
+      'sourcing.score_opportunities',
+    );
+    expect(order).toMatchObject({
+      name: 'Order Agent',
+      runtimeKind: 'agent',
+    });
+    expect(order?.defaultToolPolicies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolKey: 'supply.submit_purchase_order',
+          effect: 'approval_required',
+          approvalMode: 'admin',
+        }),
+      ]),
+    );
+  });
 });

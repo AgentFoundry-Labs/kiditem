@@ -14,6 +14,7 @@ import { AGENT_LOG_STORE_PORT } from './application/port/out/storage/agent-log-s
 import { AGENT_OS_REPOSITORY_PORT } from './application/port/out/repository/agent-os-repository.port';
 import { AGENT_RUNTIME_PORT } from './application/port/out/runtime/agent-runtime.port';
 import { AGENT_RUNNER_PORT } from './application/port/in/agent-runner.port';
+import { AgentCapabilityRegistry } from './application/service/agent-capability-registry.service';
 import { AgentCatalogService } from './application/service/agent-catalog.service';
 import { AgentConversationService } from './application/service/agent-conversation.service';
 import { AgentObservabilityService } from './application/service/agent-observability.service';
@@ -23,6 +24,7 @@ import { AgentRunExecutor } from './application/service/agent-run-executor.servi
 import { AgentRunGraphService } from './application/service/agent-run-graph.service';
 import { AgentRunWorker } from './application/service/agent-run-worker.service';
 import { AgentRuntimeHandlerRegistry } from './application/service/agent-runtime-handler-registry.service';
+import { AgentToolRouter } from './application/service/agent-tool-router.service';
 
 @Module({
   imports: [AutomationModule],
@@ -36,6 +38,7 @@ import { AgentRuntimeHandlerRegistry } from './application/service/agent-runtime
   ],
   providers: [
     AgentCatalogService,
+    AgentCapabilityRegistry,
     AgentConversationService,
     AgentObservabilityService,
     AgentPolicyService,
@@ -44,6 +47,7 @@ import { AgentRuntimeHandlerRegistry } from './application/service/agent-runtime
     AgentRunGraphService,
     AgentRunWorker,
     AgentRuntimeHandlerRegistry,
+    AgentToolRouter,
     RoutingRuntimeAdapter,
     AgentRunOperationAlertBridge,
     { provide: AGENT_RUNNER_PORT, useExisting: AgentRunCoordinator },
@@ -58,10 +62,12 @@ import { AgentRuntimeHandlerRegistry } from './application/service/agent-runtime
     AgentRunGraphService,
     AgentRunWorker,
     AgentCatalogService,
+    AgentCapabilityRegistry,
     AgentConversationService,
     AgentObservabilityService,
     AgentPolicyService,
     AgentRuntimeHandlerRegistry,
+    AgentToolRouter,
   ],
 })
 export class AgentOsModule {}

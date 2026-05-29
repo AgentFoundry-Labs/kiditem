@@ -21,17 +21,81 @@ type AgentDefinitionSeed = Omit<
   defaultToolPolicies?: AgentDefinitionToolPolicyRecord[];
 };
 
+const SOURCING_DISCOVERY_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [
+  {
+    toolKey: 'market.collect_keyword_category_rankings',
+    effect: 'allow',
+    approvalMode: 'none',
+    dryRunMode: 'optional',
+    constraints: {},
+  },
+  {
+    toolKey: 'coupang.match_products',
+    effect: 'allow',
+    approvalMode: 'none',
+    dryRunMode: 'optional',
+    constraints: {},
+  },
+  {
+    toolKey: 'coupang.collect_tracking_snapshot',
+    effect: 'allow',
+    approvalMode: 'none',
+    dryRunMode: 'optional',
+    constraints: {},
+  },
+  {
+    toolKey: 'supplier1688.match_products',
+    effect: 'allow',
+    approvalMode: 'none',
+    dryRunMode: 'optional',
+    constraints: {},
+  },
+  {
+    toolKey: 'sourcing.score_opportunities',
+    effect: 'allow',
+    approvalMode: 'none',
+    dryRunMode: 'optional',
+    constraints: {},
+  },
+  {
+    toolKey: 'sourcing.create_recommendation_packet',
+    effect: 'allow',
+    approvalMode: 'none',
+    dryRunMode: 'optional',
+    constraints: {},
+  },
+];
+
+const ORDER_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [
+  {
+    toolKey: 'supply.create_purchase_order_draft',
+    effect: 'allow',
+    approvalMode: 'none',
+    dryRunMode: 'optional',
+    constraints: {},
+  },
+  {
+    toolKey: 'supply.submit_purchase_order',
+    effect: 'approval_required',
+    approvalMode: 'admin',
+    dryRunMode: 'required',
+    constraints: {},
+  },
+];
+
 const DEFINITIONS: readonly AgentDefinitionSeed[] = [
   {
     type: 'manager',
-    name: 'Manager Agent',
-    description: '전사 데이터 분석/지시 에이전트',
+    name: 'Operator',
+    description:
+      'User-facing coordinator agent for Agent OS conversations and cross-domain delegation.',
     promptPath: `${PROMPT_BASE}/manager.md`,
     defaultAdapterType: 'claude_local',
     defaultModelEnv: 'AGENT_MANAGER_MODEL',
     defaultRuntimeConfig: {},
     defaultCapabilities: {},
     runtimeKind: 'coordinator',
+    defaultToolPolicies: SOURCING_DISCOVERY_TOOL_POLICIES,
   },
   {
     type: 'rules_evaluation',
@@ -76,6 +140,20 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     defaultRuntimeConfig: {},
     defaultCapabilities: {},
     runtimeKind: 'tool_wrapper',
+    defaultToolPolicies: SOURCING_DISCOVERY_TOOL_POLICIES,
+  },
+  {
+    type: 'order',
+    name: 'Order Agent',
+    description:
+      'Creates purchase order drafts from approved sourcing recommendations.',
+    promptPath: `${PROMPT_BASE}/order.md`,
+    defaultAdapterType: 'claude_local',
+    defaultModelEnv: 'AGENT_ORDER_MODEL',
+    defaultRuntimeConfig: {},
+    defaultCapabilities: {},
+    runtimeKind: 'agent',
+    defaultToolPolicies: ORDER_TOOL_POLICIES,
   },
   {
     type: 'thumbnail_analyst',
