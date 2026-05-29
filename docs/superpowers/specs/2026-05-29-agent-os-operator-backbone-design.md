@@ -1,7 +1,7 @@
 # Agent OS Operator Backbone Design
 
 Date: 2026-05-29
-Status: Draft for user review, benchmark updated
+Status: Draft for user review, sourcing discovery backbone updated
 
 ## Purpose
 
@@ -26,13 +26,16 @@ manually wire agents and tools like an n8n canvas.
   OS database writes.
 - Record a durable execution graph for read-only inspection.
 - Support policies, approvals, retries, cost, and audit logs from the beginning.
-- Validate the backbone with one end-to-end scenario:
-  source product URL -> create product records -> generate detail and thumbnail
-  drafts -> prepare a Coupang registration package.
+- Validate the backbone with one sourcing discovery scenario:
+  keyword/category market signals -> Coupang matching/tracking evidence -> 1688
+  supplier matches -> opportunity scores -> recommendation packet -> user
+  selection -> purchase order draft.
 
 ## Non-Goals
 
 - No external Coupang submit in the first slice.
+- No supplier purchase, payment, or external order placement in the first slice.
+- No automatic product catalog/listing preparation in the first slice.
 - No n8n-style workflow editor.
 - No project or workspace grouping model yet.
 - No user-facing direct tool or agent picker in chat.
@@ -114,6 +117,11 @@ KidItem Agent OS is the orchestrator.
 | `AgentToolInvocation` | Durable record of a capability/tool call, including policy, approval, input/output summary, and result. |
 | `AgentArtifact` | Durable output card linked to a task/tool, such as a candidate, product, thumbnail draft, or channel package. |
 | `AgentApprovalRequest` | User approval gate for risky or external side effects. |
+| `Tool/Capability` | A schema-defined operation with clear input/output, owned by a domain. |
+| `Workflow Capability` | A deterministic multi-step domain operation exposed as one capability to Agent OS. |
+| `Scheduled Job` | Background collection, tracking, or refresh work that does not require a user-facing agent run. |
+| `Scorer/Rule Engine` | Explainable deterministic scoring, filtering, and ranking logic. |
+| `Playbook` | Code-defined orchestration shell for a known business flow. |
 
 ## Agent Manifest Direction
 
@@ -152,6 +160,32 @@ First slice:
 - Validate every run against the resolved manifest snapshot and store the
   snapshot key on the task or run attempt.
 
+## Execution Unit Boundary
+
+A business pipeline step is not automatically an agent. KidItem should default
+to the lowest capable abstraction and introduce agents only when judgment,
+synthesis, user interaction, or cross-domain delegation is required.
+
+| Unit | Use when | Agent OS relationship |
+|---|---|---|
+| Tool/Capability | The operation has clear input/output, such as search, match, calculate, create draft, or fetch status. | Agent calls it through Tool Router; invocation is logged. |
+| Workflow Capability | Several deterministic steps must run together with retries, idempotency, and domain state transitions. | Agent OS sees one capability call plus artifacts/events; domain owns internal workflow state. |
+| Scheduled Job | Data must be collected, tracked, or refreshed periodically without a user conversation. | Runs outside Agent OS unless an agent explicitly requests a bounded refresh. |
+| Scorer/Rule Engine | Filtering, scoring, ranking, and risk checks can be made explainable and repeatable. | Called as a capability or embedded in a domain workflow; score reasons become artifacts. |
+| Agent | The work needs ambiguous judgment, evidence synthesis, strategy selection, user questions, or handoff to another agent. | Creates or executes `AgentTask` records and calls tools through policy. |
+| Playbook | A known business flow needs a code-defined orchestration shell. | Operator matches playbook; playbook creates agent tasks and capability calls. |
+
+Design rule:
+
+- Do not create one agent per pipeline step.
+- Do not use an agent for deterministic filtering that can be expressed as a
+  scorer or workflow step.
+- Do use agents for final recommendation, exception handling, ambiguous product
+  judgment, and cross-domain handoff.
+- Deterministic automation workflows must not create Agent OS runs by
+  themselves. If LLM judgment is required, the entrypoint starts in Agent OS and
+  may call deterministic workflow capabilities.
+
 ## Architecture
 
 All agents are judgment-capable instances. The key distinction is responsibility
@@ -162,6 +196,7 @@ scope, not intelligence level.
 | Operator | Interpret the user request, choose playbook or dynamic plan, delegate tasks, ask for approvals, summarize results. |
 | Domain Agent | Reason inside a bounded domain, choose allowed capabilities, execute through Tool Router, report structured output and risks. |
 | Tool/Capability | Perform deterministic data reads or writes through domain-owned ports and services. |
+| Workflow/Job/Scorer | Perform repeatable pipeline mechanics without pretending to be an agent. |
 
 Execution shape:
 
@@ -171,10 +206,9 @@ AgentConversation
      -> Operator AgentTask
         -> Operator AgentRunAttempt
            -> Sourcing AgentTask
-           -> Product AgentTask
-           -> Detail Content AgentTask
-           -> Thumbnail AgentTask
-           -> Channel Registration AgentTask
+           -> Tool/Workflow/Scorer invocations
+           -> Recommendation artifacts
+           -> Order AgentTask, after user selection
 ```
 
 First scenario run tree:
@@ -182,15 +216,15 @@ First scenario run tree:
 ```text
 Operator Agent
   -> Sourcing Agent
-     -> sourcing.scrape_and_assess_product
-  -> Product Agent
-     -> products.create_product_from_candidate
-  -> Detail Content Agent
-     -> ai.generate_detail_page_draft
-  -> Thumbnail Agent
-     -> ai.generate_thumbnail_draft
-  -> Channel Registration Agent
-     -> channels.prepare_coupang_registration_package
+     -> market.collect_keyword_category_rankings
+     -> coupang.match_products
+     -> coupang.collect_tracking_snapshot
+     -> supplier1688.match_products
+     -> sourcing.score_opportunities
+     -> sourcing.create_recommendation_packet
+  -> User selects recommendation
+  -> Order Agent
+     -> supply.create_purchase_order_draft
 ```
 
 ## Data Model Direction
@@ -317,18 +351,36 @@ business mutations.
 Example:
 
 ```text
-playbook: sourcing_to_channel_registration_v1
-input: sourceUrl
+playbook: sourcing_market_opportunity_to_order_draft_v1
+input: keyword, category, target market, optional constraints
 steps:
-  1. Sourcing Agent: scrape and assess product
-  2. Product Agent: create catalog product
-  3. Detail Content Agent: generate detail page draft
-  4. Thumbnail Agent: generate thumbnail draft
-  5. Channel Registration Agent: prepare Coupang package
+  1. Sourcing Agent: decide search scope and request market signal refresh
+  2. Market/Coupang workflow capabilities: collect and match market signals
+  3. Scorers: rank market response, novelty, competition, margin, and risk
+  4. Supplier matching capability: find 1688 candidates
+  5. Sourcing Agent: synthesize evidence packet and final recommendations
+  6. User selects a recommendation
+  7. Order Agent: create purchase order draft through supply capability
 ```
 
 If a user request does not match a playbook, Operator can propose a dynamic plan.
 The plan must still pass the same validator and Tool Router policy checks.
+
+Manual URL intake is a secondary playbook, not the backbone scenario:
+
+```text
+playbook: manual_product_intake_from_url_v1
+input: sourceUrl
+steps:
+  1. Sourcing Agent: evaluate the user-provided product URL
+  2. Optional listing-prep flow: create product, detail, thumbnail, and channel
+     registration drafts
+```
+
+The sourcing discovery playbook should not split market collection, Coupang
+matching, 1688 matching, and filtering into separate agents by default. Those
+are tools, jobs, workflows, and scorers unless they later need their own
+user-facing judgment loop.
 
 ## Tool And Capability Contract
 
@@ -349,6 +401,7 @@ Capability registration should include:
 
 - capability key
 - owning domain
+- execution kind: tool, workflow, job trigger, or scorer
 - input schema
 - output schema
 - side-effect classification
@@ -362,11 +415,13 @@ First scenario capabilities:
 
 | Capability | Owner | Effect |
 |---|---|---|
-| `sourcing.scrape_and_assess_product` | sourcing | Scrape URL, assess product, create sourcing candidate. |
-| `products.create_product_from_candidate` | products | Create `MasterProduct`, `ProductOption`, and `ProductPreparation`. |
-| `ai.generate_detail_page_draft` | ai | Create or schedule a detail page draft through AI-owned content workspace rows. |
-| `ai.generate_thumbnail_draft` | ai | Create or schedule a thumbnail draft through AI-owned thumbnail generation rows. |
-| `channels.prepare_coupang_registration_package` | channels | Prepare internal Coupang registration draft data on the preparation record. |
+| `market.collect_keyword_category_rankings` | sourcing or market | Collect or refresh keyword/category rank signals. |
+| `coupang.match_products` | channels or sourcing | Match market opportunities to Coupang listings and seller evidence. |
+| `coupang.collect_tracking_snapshot` | channels or sourcing | Capture rank, review, price, seller-count, and recency signals. |
+| `supplier1688.match_products` | sourcing | Match candidate products to 1688 supplier/product/option candidates. |
+| `sourcing.score_opportunities` | sourcing | Produce explainable score breakdowns for demand, novelty, competition, supply fit, margin, and risk. |
+| `sourcing.create_recommendation_packet` | sourcing | Persist final recommendations and evidence cards for the user. |
+| `supply.create_purchase_order_draft` | supply | Create a purchase order draft after explicit user selection. |
 
 Agents must not directly mutate another domain's tables. They call
 capabilities; capabilities call domain-owned ports and services.
@@ -376,7 +431,79 @@ Detail-page and thumbnail work must reuse the existing AI domain model:
 `DetailPageRevision`, `ThumbnailGeneration`, and
 `ThumbnailGenerationCandidate`. The agent-facing capability is a Tool Router
 entry, not a revival of retired Agent OS runtime types such as
-`detail_page_generate` or `thumbnail_generate`.
+`detail_page_generate` or `thumbnail_generate`. These capabilities belong to a
+later listing-prep flow, not the first sourcing discovery backbone.
+
+## Sourcing Pipeline Modeling
+
+The sourcing pipeline should be modeled as a mix of jobs, tools, workflows,
+scorers, and a small number of agents. The goal is to build a scored product
+opportunity graph, not to make every step a separate agent.
+
+User-proposed flow:
+
+```text
+keyword/category rankings
+  -> filtering
+  -> Coupang product matching
+  -> top-seller latest-registration tracking and product tracking
+  -> strong seller / responsive new-product filtering
+  -> 1688 product matching
+  -> product-standard filtering
+  -> final recommendations
+  -> user selection
+  -> Order Agent handoff
+```
+
+Recommended modeling:
+
+| Pipeline step | Primary unit | Reason |
+|---|---|---|
+| Keyword/category ranking collection | Scheduled Job + Tool | Repeatable market data collection. |
+| Initial filtering | Scorer/Rule Engine | Deterministic criteria should be explainable and tunable. |
+| Coupang product matching | Tool or Workflow Capability | Search/match operation with structured results. |
+| Top-seller latest-registration and product tracking | Scheduled Job + Workflow Capability | Durable signal accumulation should not depend on a chat session. |
+| Strong seller / responsive new-product filtering | Scorer/Rule Engine | Ranking velocity, review growth, price movement, and seller count are score inputs. |
+| 1688 product matching | Tool or Workflow Capability | Image/text/option matching can be retried and audited. |
+| Product-standard filtering | Scorer + Sourcing Agent judgment | Rules handle margin, KC, IP, banned terms, MOQ, and shipping; agent handles ambiguous tradeoffs. |
+| Final recommendations | Sourcing Agent | Requires synthesis, explanation, and user-facing judgment. |
+| User selection -> order draft | Workflow handoff + Order Agent | Creates a purchase order draft; actual ordering requires approval. |
+
+Initial agent definitions for this pipeline:
+
+| Agent | Responsibility |
+|---|---|
+| Sourcing Agent | Decide search scope, synthesize evidence, explain recommendations, ask follow-up questions, and hand off selected opportunities. |
+| Order Agent | Convert a selected sourcing recommendation into a purchase order draft with MOQ, options, quantity, estimated cost, and shipping assumptions. |
+
+Do not add separate Market Signal Agent, Coupang Agent, Supplier Match Agent, or
+Product Evaluation Agent in the first sourcing pipeline. Add them later only if
+their work becomes judgment-heavy, independently configurable, or user-facing.
+
+Important artifacts:
+
+| Artifact | Meaning |
+|---|---|
+| `MarketSignalSnapshot` | Keyword/category rank and market signal capture. |
+| `CoupangProductMatch` | Matched Coupang products and seller/listing evidence. |
+| `ProductTrackingSignal` | Time-series response signals such as rank, reviews, price, and seller count. |
+| `SupplierMatch` | 1688 supplier/product/option matches and confidence. |
+| `OpportunityScore` | Explainable score breakdown for demand, novelty, competition, supply fit, margin, and risk. |
+| `SourcingRecommendation` | Final recommendation packet shown to the user. |
+| `PurchaseOrderDraft` | Draft order created after user selection. |
+
+Recommendation packets should include evidence, not just a product name:
+
+- matched Coupang products
+- response velocity and tracking evidence
+- seller count and price range
+- 1688 supplier candidates
+- estimated landed cost and margin
+- KC, brand, IP, banned-term, and operational risks
+- recommendation action: test order, hold, reject, or investigate further
+
+The handoff to Order Agent should create a draft only. External purchase,
+payment, or supplier commitment remains approval-required.
 
 ## Sandbox And External Runtime Policy
 
@@ -424,39 +551,45 @@ Future runtime adapters may include:
 User request:
 
 ```text
-Source this product URL and prepare it for Coupang registration.
+Find responsive new product opportunities in this keyword/category and prepare
+test-order candidates.
 ```
 
 Expected behavior:
 
-1. Operator matches `sourcing_to_channel_registration_v1`.
-2. Sourcing Agent scrapes the URL, assesses suitability, and creates a
-   `SourcingCandidate`.
-3. Product Agent creates `MasterProduct`, `ProductOption`, and
-   `ProductPreparation`.
-4. Detail Content Agent asks the AI capability to create or schedule a detail
-   page draft and link the selected draft to `ProductPreparation`.
-5. Thumbnail Agent asks the AI capability to create or schedule a thumbnail
-   draft and link the selected draft to `ProductPreparation`.
-6. Channel Registration Agent prepares an internal Coupang registration package
-   in `ProductPreparation.registrationInput`.
-7. Operator returns a summary and result cards.
+1. Operator matches `sourcing_market_opportunity_to_order_draft_v1`.
+2. Sourcing Agent decides the search scope and requests bounded market signal
+   collection or replay/stub data.
+3. Market/Coupang capabilities collect keyword/category rankings, match Coupang
+   products, and capture tracking snapshots.
+4. 1688 supplier matching capability finds supplier/product/option candidates.
+5. Scorers produce explainable demand, novelty, competition, supply fit, margin,
+   and risk scores.
+6. Sourcing Agent synthesizes a recommendation packet with evidence and asks
+   the user to choose whether to create a test-order draft.
+7. After explicit user selection, Order Agent creates a purchase order draft
+   through a supply-owned capability.
+8. Operator returns a summary and result cards.
 
 Automatic in first slice:
 
-- `SourcingCandidate` creation
-- `MasterProduct` creation
-- `ProductOption` creation
-- `ProductPreparation` creation
-- detail page draft creation
-- thumbnail draft creation
-- Coupang registration package draft creation
+- market signal snapshot artifact creation
+- Coupang product match artifact creation
+- product tracking snapshot artifact creation
+- 1688 supplier match artifact creation
+- opportunity score artifact creation
+- sourcing recommendation artifact creation
+- purchase order draft creation after explicit user selection
 
 Out of scope for first slice:
 
 - actual external Coupang submit
 - inventory receiving
-- purchase order creation
+- supplier purchase, payment, or external order placement
+- automatic product catalog/listing preparation
+- detail page, thumbnail, or channel registration package generation
+- full-scale autonomous scheduled crawling beyond bounded refresh, stub, or
+  replay data needed for the first workflow
 
 ## Policy And Approval
 
@@ -474,11 +607,14 @@ First scenario defaults:
 
 | Agent | Capability | Policy |
 |---|---|---|
-| Sourcing Agent | `sourcing.scrape_and_assess_product` | `auto` |
-| Product Agent | `products.create_product_from_candidate` | `auto` |
-| Detail Content Agent | `ai.generate_detail_page_draft` | `auto` |
-| Thumbnail Agent | `ai.generate_thumbnail_draft` | `auto` |
-| Channel Registration Agent | `channels.prepare_coupang_registration_package` | `auto` |
+| Sourcing Agent | `market.collect_keyword_category_rankings` | `auto` for bounded refresh/stub/replay |
+| Sourcing Agent | `coupang.match_products` | `auto` |
+| Sourcing Agent | `coupang.collect_tracking_snapshot` | `auto` for bounded refresh/stub/replay |
+| Sourcing Agent | `supplier1688.match_products` | `auto` |
+| Sourcing Agent | `sourcing.score_opportunities` | `auto` |
+| Sourcing Agent | `sourcing.create_recommendation_packet` | `auto` |
+| Order Agent | `supply.create_purchase_order_draft` | `auto` after explicit user selection |
+| Order Agent | `supply.submit_purchase_order` | `approval_required` later |
 | Channel Registration Agent | `channels.submit_coupang_listing` | `approval_required` later |
 
 Approval flow:
@@ -590,11 +726,26 @@ Recommended first implementation slice:
 7. Add manifest registry/resolver for code-defined agent contracts and
    organization-scoped instances.
 8. Add playbook registry and validator.
-9. Add `sourcing_to_channel_registration_v1` playbook.
-10. Implement or adapt first scenario capabilities, reusing AI generation ports
-   for detail and thumbnail work instead of adding Agent OS generation run
-   definitions.
-11. Replace the Agent OS first screen with the three-pane workspace.
+9. Add market signal snapshot and tracking artifacts or domain read models.
+10. Add market/Coupang/1688 collection and matching capabilities, with stub or
+   replay mode required before real live collection.
+11. Add explainable scorers for response velocity, novelty, competition, margin,
+   supplier fit, and risk.
+12. Add `sourcing_market_opportunity_to_order_draft_v1` playbook.
+13. Add Sourcing Agent synthesis over score/evidence packets.
+14. Add Order Agent handoff to create purchase order drafts through supply-owned
+   ports.
+15. Replace the Agent OS first screen with the three-pane workspace.
+
+Follow-on listing-prep/manual URL slice:
+
+1. Add `manual_product_intake_from_url_v1` as a secondary playbook.
+2. Reuse or adapt URL scraping as a sourcing capability.
+3. Add product creation, detail-page draft, thumbnail draft, and channel
+   registration package capabilities.
+4. Reuse AI generation ports for detail and thumbnail work instead of adding
+   Agent OS generation run definitions.
+5. Keep actual marketplace submit behind approval.
 
 Testing focus:
 
@@ -607,12 +758,20 @@ Testing focus:
 - memory summaries are audited and do not create hidden production context
 - sandbox/external runtime fields are modeled without requiring a first-slice
   external worker
-- first scenario can run in stub or replay mode without provider API cost
+- first scenario can run with stub or replay market/supplier data without
+  provider API or scraping cost
+- purchase order draft creation requires explicit user selection and never
+  places an external order in the first slice
 
 ## First-Slice Decisions
 
+- The first backbone scenario is sourcing discovery from market signals, not a
+  user-provided URL intake.
+- User-provided URL intake remains useful as a later manual intake playbook, not
+  the first validation path.
 - Detail-page and thumbnail draft persistence is owned by the existing AI
-  domain. Agent OS records task/tool/artifact lineage and calls AI capabilities.
+  domain when the later listing-prep flow is implemented. Agent OS records
+  task/tool/artifact lineage and calls AI capabilities.
 - Database names should not be renamed in the first slice. Preserve
   `AgentRunRequest` and `AgentRun` physically, but use task/attempt language in
   Agent OS code and UI.
@@ -625,15 +784,21 @@ Testing focus:
   design. They are not first-slice runtime dependencies.
 - Agent manifests, memory policy, and sandbox profiles should be explicit in the
   design before adding external autonomous runtime adapters.
+- Sourcing discovery should not be modeled as one agent per pipeline step.
+  Market collection, matching, tracking, and filtering default to jobs, tools,
+  workflows, and scorers. The first sourcing pipeline needs only Sourcing Agent
+  and Order Agent as judgment-capable agents.
 
 ## Review Checklist
 
 - Does the task/attempt/tool/artifact model match the intended Agent OS mental
   model?
 - Does the Operator versus Domain Agent boundary feel right?
-- Is the first scenario narrow enough for a first implementation while still
-  proving cross-agent delegation?
+- Is the market-signal sourcing scenario narrow enough for a first
+  implementation while still proving cross-agent delegation?
 - Is the three-pane UI the right first Agent OS surface?
 - Are the first automatic changes acceptable without approval?
 - Do the manifest, memory, and sandbox policies capture the right lessons from
   OpenClaw, Hermes, and NemoClaw without overfitting to them?
+- Does the sourcing pipeline use agents only where judgment/handoff is needed,
+  with deterministic stages modeled as tools, workflows, jobs, or scorers?
