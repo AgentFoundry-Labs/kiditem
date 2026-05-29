@@ -1,7 +1,7 @@
 # Agent OS Operator Backbone Design
 
 Date: 2026-05-29
-Status: Draft for user review
+Status: Draft for user review, benchmark updated
 
 ## Purpose
 
@@ -38,6 +38,8 @@ manually wire agents and tools like an n8n canvas.
 - No user-facing direct tool or agent picker in chat.
 - No BYOK or personal Codex/Claude account connection in the first slice.
 - No migration to an external workflow engine unless later evidence demands it.
+- No direct product dependency on OpenClaw, Hermes, NemoClaw, Codex CLI, or
+  Claude Code as the first Agent OS orchestrator.
 
 ## Existing Codebase Fit
 
@@ -58,6 +60,45 @@ The current codebase is a reasonable base for this design.
 The design can preserve existing table names initially, but the domain language
 should shift toward task/attempt/tool/artifact concepts.
 
+## External Orchestrator Benchmark
+
+OpenClaw, Hermes, and NemoClaw are useful design references, but they should not
+own KidItem's production source of truth. KidItem Agent OS must own
+conversation, task state, policy, approval, audit, cost, memory, and artifacts.
+
+Reference sources:
+
+- OpenClaw agents overview:
+  https://openclawdoc.com/docs/agents/overview/
+- OpenClaw repository and README:
+  https://github.com/openclaw/openclaw
+- OpenClaw skills documentation:
+  https://github.com/openclaw/openclaw/blob/main/docs/tools/skills.md
+- Hermes repository and README:
+  https://github.com/NousResearch/hermes-agent
+- NemoClaw Hermes quickstart:
+  https://docs.nvidia.com/nemoclaw/get-started/quickstart-hermes
+- NemoClaw runtime controls:
+  https://docs.nvidia.com/nemoclaw/manage-sandboxes/runtime-controls
+
+Benchmark summary:
+
+| System | Useful pattern | KidItem interpretation |
+|---|---|---|
+| OpenClaw | Agent is a stateful, tool-using, multi-step workflow actor with model, memory, tool, and channel layers. | Keep every KidItem agent as a judgment-capable `AgentInstance` with explicit model, memory, tool, and UI/channel policy. |
+| OpenClaw | Gateway controls sessions, channels, tools, events, multi-agent routing, per-agent workspaces, and skill allowlists. | Keep Agent OS as the control plane; route user work into Operator and child `AgentTask` records, with capability allowlists per agent. |
+| OpenClaw | Unknown inbound DMs use pairing/allowlist before processing. | Treat future external channels as untrusted input; every non-Agent-OS channel needs pairing, organization binding, and audit. |
+| OpenClaw | Non-main or remote sessions can run in sandboxed environments with restricted tools. | Add sandbox profiles to agent manifests; external browser/CLI workers should not get direct database access. |
+| Hermes | Persistent memory, session search, user profiles, skills, scheduled automations, and isolated subagents. | Borrow memory and delegation concepts, but memory writes must be visible, scoped, redacted, and deletable inside KidItem. |
+| Hermes | Skills can be created or improved from experience. | Production capability changes must remain code-defined; agents may propose skill/capability improvements as review artifacts only. |
+| Hermes | Multiple terminal backends and gateway surfaces can run the same agent away from the user's laptop. | Runtime adapter abstraction should allow future hosted workers, but Agent OS state remains in KidItem. |
+| NemoClaw | Sandbox setup bakes some choices at onboard time; network policies and allowlists can have separate runtime mutability. | Split runtime configuration into immutable sandbox profile, runtime policy, and hot-reloadable network allowlist. |
+| NemoClaw | Hermes integration is documented as experimental. | Treat external autonomous runtimes as optional later adapters, not first-slice product infrastructure. |
+
+The benchmark changes the design by making agent manifests, memory policy, and
+sandbox policy first-class. It does not change the first-slice decision that
+KidItem Agent OS is the orchestrator.
+
 ## Core Concepts
 
 | Concept | Meaning |
@@ -73,6 +114,43 @@ should shift toward task/attempt/tool/artifact concepts.
 | `AgentToolInvocation` | Durable record of a capability/tool call, including policy, approval, input/output summary, and result. |
 | `AgentArtifact` | Durable output card linked to a task/tool, such as a candidate, product, thumbnail draft, or channel package. |
 | `AgentApprovalRequest` | User approval gate for risky or external side effects. |
+
+## Agent Manifest Direction
+
+OpenClaw and Hermes both make agent configuration explicit. KidItem should do
+the same, but with SaaS-grade ownership boundaries and auditability.
+
+`AgentDefinition` should be code-defined and versioned. It declares what an
+agent type is allowed to be. `AgentInstance` should be organization-scoped and
+stores only approved overrides.
+
+Recommended manifest fields:
+
+| Field | Purpose |
+|---|---|
+| `agentType` | Stable code-defined type, such as `operator` or `sourcing`. |
+| `definitionVersion` | Version of the code-defined agent contract. |
+| `displayName` | User-facing name in progress cards and inspector. |
+| `role` | Short responsibility summary injected into the agent manual. |
+| `runtimeAdapter` | Provider/runtime family, such as `openai_responses`, `anthropic_api`, `stub`, `replay`, or future `external_sandbox`. |
+| `modelPolicy` | Allowed model family, reasoning effort, fallback policy, and missing-model behavior. |
+| `promptManualKey` | Pointer to compact operating instructions, not a dump of all `AGENTS.md` files. |
+| `capabilityAllowlist` | Capabilities this agent may request through Tool Router. |
+| `delegationAllowlist` | Child agent types this agent may delegate to. Operator has the broadest set. |
+| `memoryPolicy` | Allowed memory scopes, write types, retention, redaction, and deletion behavior. |
+| `approvalPolicy` | Default mode per capability: `auto`, `approval_required`, or `disabled`. |
+| `budgetPolicy` | Max turns, token budget, cost budget, timeout, and retry limits. |
+| `sandboxProfile` | Optional execution isolation profile for browser, CLI, or external worker tasks. |
+| `channelPolicy` | Agent OS chat by default; future external channels require pairing and org binding. |
+| `artifactProjection` | Which artifacts the agent can emit and how they should appear in UI. |
+
+First slice:
+
+- Keep manifests in code and seed `AgentInstance` rows for the organization.
+- Do not build a full manifest editor yet.
+- Allow minimal settings UI for model, enable/disable, and capability policy.
+- Validate every run against the resolved manifest snapshot and store the
+  snapshot key on the task or run attempt.
 
 ## Architecture
 
@@ -172,6 +250,30 @@ Likely `AgentRunRequest` additions:
 - target id
 - display title
 - summary payload
+
+Memory should be modeled separately from opaque agent-private notes.
+
+Initial memory types:
+
+| Memory type | Scope | First-slice behavior |
+|---|---|---|
+| Conversation context | Conversation | Use compact recent messages and selected artifacts. |
+| Run summary | Task tree | Store audited summaries through run events/artifacts. |
+| Organization knowledge | Organization | Defer autonomous writes; allow future curated, user-visible memory. |
+| Agent operating memory | Agent definition/instance | Defer autonomous writes; use code-defined manuals first. |
+
+Memory rules:
+
+- No hidden, agent-private memory that can influence production actions without
+  audit.
+- Memory writes must be visible in Agent OS and tied to organization, agent,
+  source run, and source artifact.
+- Memory containing product, customer, supplier, or marketplace data must have
+  retention and deletion behavior.
+- User-editable/deletable memory is required before long-term autonomous memory
+  is enabled.
+- First slice should rely on conversation context, run summaries, and artifacts,
+  not autonomous long-term memory.
 
 ## Runtime Flow
 
@@ -275,6 +377,47 @@ Detail-page and thumbnail work must reuse the existing AI domain model:
 `ThumbnailGenerationCandidate`. The agent-facing capability is a Tool Router
 entry, not a revival of retired Agent OS runtime types such as
 `detail_page_generate` or `thumbnail_generate`.
+
+## Sandbox And External Runtime Policy
+
+NemoClaw and OpenClaw both show that sandbox policy becomes its own lifecycle.
+KidItem should model this early, even if the first implementation only runs
+local in-process API handlers and background workers.
+
+Sandbox profile fields:
+
+- profile key
+- runtime adapter
+- allowed network egress presets
+- allowed secret mounts
+- allowed tool families
+- filesystem/storage scope
+- timeout and idle limits
+- snapshot/log retention
+- rebuild required fields
+- hot-reloadable fields
+
+First-slice sandbox posture:
+
+- Default domain capabilities run inside KidItem server/worker processes.
+- External autonomous runtimes are not required.
+- Browser automation and external web interaction should be designed as future
+  sandbox worker tasks.
+- Sandbox workers must call back through Tool Router or a narrow callback API;
+  they must not receive direct database credentials.
+- Network allowlists and external credentials should be explicit policy inputs,
+  not hidden inside prompts.
+
+Future runtime adapters may include:
+
+| Adapter | Use |
+|---|---|
+| `openai_responses` | Default model/tool reasoning loop. |
+| `anthropic_api` | Alternative model/tool reasoning loop. |
+| `stub` | Deterministic local development without provider cost. |
+| `replay` | Recorded provider/tool outputs for regression testing. |
+| `external_sandbox` | Later OpenClaw/Hermes/NemoClaw-style worker bridge. |
+| `codex_or_claude_cli` | Internal development/code worker only, not customer-facing product runtime. |
 
 ## First End-to-End Scenario
 
@@ -444,12 +587,14 @@ Recommended first implementation slice:
 5. Add run graph projection API for the inspector.
 6. Add Tool Router that wraps policy, approval, idempotency, and invocation
    logging.
-7. Add playbook registry and validator.
-8. Add `sourcing_to_channel_registration_v1` playbook.
-9. Implement or adapt first scenario capabilities, reusing AI generation ports
+7. Add manifest registry/resolver for code-defined agent contracts and
+   organization-scoped instances.
+8. Add playbook registry and validator.
+9. Add `sourcing_to_channel_registration_v1` playbook.
+10. Implement or adapt first scenario capabilities, reusing AI generation ports
    for detail and thumbnail work instead of adding Agent OS generation run
    definitions.
-10. Replace the Agent OS first screen with the three-pane workspace.
+11. Replace the Agent OS first screen with the three-pane workspace.
 
 Testing focus:
 
@@ -458,6 +603,10 @@ Testing focus:
 - child task tree is persisted and projected correctly
 - retry creates a new attempt without duplicating artifacts
 - organization boundary is enforced on conversation, task, tool, and artifact
+- manifest resolution prevents unauthorized delegation and tool use
+- memory summaries are audited and do not create hidden production context
+- sandbox/external runtime fields are modeled without requiring a first-slice
+  external worker
 - first scenario can run in stub or replay mode without provider API cost
 
 ## First-Slice Decisions
@@ -472,6 +621,10 @@ Testing focus:
 - Current `apps/server/src/chat` should remain transitional and separate. The
   new Agent OS conversation runtime should not depend on the Claude CLI chat
   service.
+- OpenClaw, Hermes, and NemoClaw are benchmark references for orchestrator
+  design. They are not first-slice runtime dependencies.
+- Agent manifests, memory policy, and sandbox profiles should be explicit in the
+  design before adding external autonomous runtime adapters.
 
 ## Review Checklist
 
@@ -482,3 +635,5 @@ Testing focus:
   proving cross-agent delegation?
 - Is the three-pane UI the right first Agent OS surface?
 - Are the first automatic changes acceptable without approval?
+- Do the manifest, memory, and sandbox policies capture the right lessons from
+  OpenClaw, Hermes, and NemoClaw without overfitting to them?
