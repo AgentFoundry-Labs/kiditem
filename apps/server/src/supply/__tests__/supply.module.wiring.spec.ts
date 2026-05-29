@@ -5,8 +5,12 @@ import { SuppliersController } from '../adapter/in/http/suppliers.controller';
 import { ProcurementController } from '../adapter/in/http/procurement.controller';
 import { SuppliersService } from '../application/service/suppliers.service';
 import { ProcurementService } from '../application/service/procurement.service';
+import { PurchaseOrderDraftService } from '../application/service/purchase-order-draft.service';
+import { SupplyAgentCapabilityAdapter } from '../adapter/in/agent/supply-agent-capability.adapter';
+import { OrderAgentRuntimeHandler } from '../adapter/out/runtime/order-agent-runtime.handler';
 import { SupplierRepositoryAdapter } from '../adapter/out/repository/supplier.repository.adapter';
 import { ProcurementRepositoryAdapter } from '../adapter/out/repository/procurement.repository.adapter';
+import { PURCHASE_ORDER_DRAFT_PORT } from '../application/port/in/procurement/purchase-order-draft.port';
 import { SUPPLIER_REPOSITORY_PORT } from '../application/port/out/repository/supplier.repository.port';
 import { PROCUREMENT_REPOSITORY_PORT } from '../application/port/out/repository/procurement.repository.port';
 
@@ -38,7 +42,7 @@ describe('SupplyModule owner wiring', () => {
 
   it('declares supply services as providers', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, SupplyModule) ?? [];
-    for (const cls of [SuppliersService, ProcurementService]) {
+    for (const cls of [SuppliersService, ProcurementService, PurchaseOrderDraftService]) {
       expect(providers).toContain(cls);
     }
   });
@@ -48,6 +52,9 @@ describe('SupplyModule owner wiring', () => {
 
     expect(providers).toContain(SupplierRepositoryAdapter);
     expect(providers).toContain(ProcurementRepositoryAdapter);
+    expect(providers).toContain(SupplyAgentCapabilityAdapter);
+    expect(providers).toContain(OrderAgentRuntimeHandler);
+    expectBinding(providers, PURCHASE_ORDER_DRAFT_PORT, PurchaseOrderDraftService);
     expectBinding(providers, SUPPLIER_REPOSITORY_PORT, SupplierRepositoryAdapter);
     expectBinding(providers, PROCUREMENT_REPOSITORY_PORT, ProcurementRepositoryAdapter);
   });
