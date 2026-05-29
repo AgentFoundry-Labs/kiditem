@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AutomationModule } from '../automation/automation.module';
 import { AgentCatalogController } from './adapter/in/http/agent-catalog.controller';
+import { AgentConversationsController } from './adapter/in/http/agent-conversations.controller';
 import { AgentExecutorController } from './adapter/in/http/agent-executor.controller';
 import { AgentRunObservabilityController } from './adapter/in/http/agent-run-observability.controller';
 import { AgentRunRequestsController } from './adapter/in/http/agent-run-requests.controller';
@@ -14,10 +15,12 @@ import { AGENT_OS_REPOSITORY_PORT } from './application/port/out/repository/agen
 import { AGENT_RUNTIME_PORT } from './application/port/out/runtime/agent-runtime.port';
 import { AGENT_RUNNER_PORT } from './application/port/in/agent-runner.port';
 import { AgentCatalogService } from './application/service/agent-catalog.service';
+import { AgentConversationService } from './application/service/agent-conversation.service';
 import { AgentObservabilityService } from './application/service/agent-observability.service';
 import { AgentPolicyService } from './application/service/agent-policy.service';
 import { AgentRunCoordinator } from './application/service/agent-run-coordinator.service';
 import { AgentRunExecutor } from './application/service/agent-run-executor.service';
+import { AgentRunGraphService } from './application/service/agent-run-graph.service';
 import { AgentRunWorker } from './application/service/agent-run-worker.service';
 import { AgentRuntimeHandlerRegistry } from './application/service/agent-runtime-handler-registry.service';
 
@@ -29,13 +32,16 @@ import { AgentRuntimeHandlerRegistry } from './application/service/agent-runtime
     AgentExecutorController,
     AgentRunsQueryController,
     AgentRunObservabilityController,
+    AgentConversationsController,
   ],
   providers: [
     AgentCatalogService,
+    AgentConversationService,
     AgentObservabilityService,
     AgentPolicyService,
     AgentRunCoordinator,
     AgentRunExecutor,
+    AgentRunGraphService,
     AgentRunWorker,
     AgentRuntimeHandlerRegistry,
     RoutingRuntimeAdapter,
@@ -49,8 +55,10 @@ import { AgentRuntimeHandlerRegistry } from './application/service/agent-runtime
     AGENT_RUNNER_PORT,
     AgentRunCoordinator,
     AgentRunExecutor,
+    AgentRunGraphService,
     AgentRunWorker,
     AgentCatalogService,
+    AgentConversationService,
     AgentObservabilityService,
     AgentPolicyService,
     AgentRuntimeHandlerRegistry,

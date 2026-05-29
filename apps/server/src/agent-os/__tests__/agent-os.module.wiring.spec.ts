@@ -4,6 +4,7 @@ import { MODULE_METADATA } from '@nestjs/common/constants';
 import { AgentOsModule } from '../agent-os.module';
 import { AutomationModule } from '../../automation/automation.module';
 import { AgentCatalogController } from '../adapter/in/http/agent-catalog.controller';
+import { AgentConversationsController } from '../adapter/in/http/agent-conversations.controller';
 import { AgentExecutorController } from '../adapter/in/http/agent-executor.controller';
 import { AgentRunObservabilityController } from '../adapter/in/http/agent-run-observability.controller';
 import { AgentRunRequestsController } from '../adapter/in/http/agent-run-requests.controller';
@@ -30,6 +31,7 @@ describe('AgentOsModule wiring', () => {
       AgentExecutorController,
       AgentRunsQueryController,
       AgentRunObservabilityController,
+      AgentConversationsController,
     ]);
   });
 
