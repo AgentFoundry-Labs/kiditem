@@ -51,4 +51,19 @@ export class AgentConversationsController {
   ) {
     return this.graph.getConversationGraph({ organizationId, conversationId });
   }
+
+  @Post(':id/recommendations/:artifactId/order-draft')
+  async createOrderDraft(
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+    @Param('id') conversationId: string,
+    @Param('artifactId') artifactId: string,
+  ) {
+    return this.conversations.createOrderDraftFromRecommendation({
+      organizationId,
+      userId: user.id,
+      conversationId,
+      artifactId,
+    });
+  }
 }

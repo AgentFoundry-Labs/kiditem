@@ -21,6 +21,14 @@ function titleFromContent(content: string): string {
   return compact.length > 40 ? `${compact.slice(0, 40)}...` : compact;
 }
 
+function stringField(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+}
+
+function numberField(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
 @Injectable()
 export class AgentConversationService {
   constructor(
@@ -64,6 +72,7 @@ export class AgentConversationService {
         playbookKey: DEFAULT_PLAYBOOK_KEY,
         userMessage: input.content,
         conversationId: conversation.id,
+        requestedByUserId: input.userId,
       },
     });
 
@@ -91,5 +100,59 @@ export class AgentConversationService {
       throw new NotFoundException('Agent conversation not found');
     }
     return this.repository.listMessages({ ...input, limit: 200 });
+  }
+
+  async createOrderDraftFromRecommendation(input: {
+    organizationId: string;
+    userId: string;
+    conversationId: string;
+    artifactId: string;
+  }) {
+    const artifacts = await this.repository.listArtifacts({
+      organizationId: input.organizationId,
+      conversationId: input.conversationId,
+      artifactType: 'sourcing_recommendation',
+    });
+    const artifact = artifacts.find((item) => item.id === input.artifactId);
+    if (!artifact) {
+      throw new NotFoundException('Sourcing recommendation not found');
+    }
+
+    const summary = artifact.summary;
+    const result = await this.runner.runByType('order', {
+      organizationId: input.organizationId,
+      requestedByUserId: input.userId,
+      requestedByActorType: 'user',
+      requestedByActorId: input.userId,
+      taskKey: `conversation:${input.conversationId}:order_draft`,
+      sourceType: 'agent_os_selection',
+      sourceResourceType: 'agent_artifact',
+      sourceResourceId: artifact.id,
+      conversationId: input.conversationId,
+      parentRequestId: artifact.requestId ?? undefined,
+      playbookKey: DEFAULT_PLAYBOOK_KEY,
+      planStepKey: 'order_draft',
+      displayName: 'Order Agent',
+      payload: {
+        conversationId: input.conversationId,
+        recommendationArtifactId: artifact.id,
+        productName: stringField(summary.productName, artifact.title),
+        supplierName: stringField(summary.supplierName, '1688 supplier'),
+        unitPriceCny: numberField(summary.unitPriceCny, 22.8),
+        moq: numberField(summary.moq, 2),
+        testQuantity: 6,
+      },
+    });
+
+    await this.repository.createMessage({
+      organizationId: input.organizationId,
+      conversationId: input.conversationId,
+      role: 'user',
+      content: `발주 초안 생성 요청: ${artifact.title}`,
+      requestId: result.requestId ?? null,
+      metadata: { selectedArtifactId: artifact.id },
+    });
+
+    return result;
   }
 }

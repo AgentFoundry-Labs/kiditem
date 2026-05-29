@@ -10,6 +10,9 @@ import { AgentRunObservabilityController } from '../adapter/in/http/agent-run-ob
 import { AgentRunRequestsController } from '../adapter/in/http/agent-run-requests.controller';
 import { AgentRunsQueryController } from '../adapter/in/http/agent-runs-query.controller';
 import { AgentRunOperationAlertBridge } from '../adapter/out/automation/agent-run-operation-alert.bridge';
+import { OperatorRuntimeHandler } from '../adapter/out/runtime/operator-runtime.handler';
+import { AgentPlanValidator } from '../application/service/agent-plan-validator.service';
+import { AgentTaskDelegationService } from '../application/service/agent-task-delegation.service';
 
 const IMPORTS_KEY = MODULE_METADATA.IMPORTS;
 const CONTROLLERS_KEY = MODULE_METADATA.CONTROLLERS;
@@ -38,5 +41,12 @@ describe('AgentOsModule wiring', () => {
   it('registers the operation-alert bridge in Agent OS, not automation', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, AgentOsModule) ?? [];
     expect(providers).toContain(AgentRunOperationAlertBridge);
+  });
+
+  it('registers Operator playbook orchestration providers', () => {
+    const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, AgentOsModule) ?? [];
+    expect(providers).toContain(AgentPlanValidator);
+    expect(providers).toContain(AgentTaskDelegationService);
+    expect(providers).toContain(OperatorRuntimeHandler);
   });
 });

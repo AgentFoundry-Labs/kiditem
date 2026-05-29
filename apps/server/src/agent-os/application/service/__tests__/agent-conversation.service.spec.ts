@@ -84,4 +84,78 @@ describe('AgentConversationService', () => {
     expect(result.conversation.id).toBe('conversation-1');
     expect(result.rootRequestId).toBe('request-operator-1');
   });
+
+  it('enqueues Order Agent when a recommendation artifact is selected', async () => {
+    const repository = {
+      listArtifacts: vi.fn().mockResolvedValue([
+        {
+          id: 'artifact-1',
+          organizationId: 'org-1',
+          conversationId: 'conversation-1',
+          agentInstanceId: 'agent-sourcing-1',
+          requestId: 'request-sourcing-1',
+          runId: 'run-sourcing-1',
+          toolInvocationId: 'tool-1',
+          artifactType: 'sourcing_recommendation',
+          targetDomain: 'sourcing',
+          targetModel: 'SourcingRecommendation',
+          targetId: 'recommendation-1',
+          title: '실리콘 흡착 식판 테스트 발주 후보',
+          href: null,
+          summary: {
+            productName: '실리콘 식판 흡착형 신제품',
+            supplierName: '1688 Kids Tableware Factory',
+            unitPriceCny: 22.8,
+            moq: 2,
+          },
+          status: 'active',
+          createdAt: new Date('2026-05-29T00:00:00.000Z'),
+          updatedAt: new Date('2026-05-29T00:00:00.000Z'),
+        },
+      ]),
+      createMessage: vi.fn().mockResolvedValue({ id: 'message-selection-1' }),
+    } as unknown as AgentOsRepositoryPort;
+
+    const runner = {
+      runByType: vi.fn().mockResolvedValue({
+        ok: true,
+        requestId: 'request-order-1',
+        agentType: 'order',
+        status: 'pending',
+      }),
+    } as unknown as AgentRunnerPort;
+
+    const service = new AgentConversationService(repository, runner);
+    const result = await service.createOrderDraftFromRecommendation({
+      organizationId: 'org-1',
+      userId: 'user-1',
+      conversationId: 'conversation-1',
+      artifactId: 'artifact-1',
+    });
+
+    expect(runner.runByType).toHaveBeenCalledWith(
+      'order',
+      expect.objectContaining({
+        sourceType: 'agent_os_selection',
+        sourceResourceType: 'agent_artifact',
+        sourceResourceId: 'artifact-1',
+        conversationId: 'conversation-1',
+        parentRequestId: 'request-sourcing-1',
+        planStepKey: 'order_draft',
+        payload: expect.objectContaining({
+          productName: '실리콘 식판 흡착형 신제품',
+          supplierName: '1688 Kids Tableware Factory',
+          unitPriceCny: 22.8,
+          moq: 2,
+        }),
+      }),
+    );
+    expect(repository.createMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: 'request-order-1',
+        metadata: { selectedArtifactId: 'artifact-1' },
+      }),
+    );
+    expect(result.requestId).toBe('request-order-1');
+  });
 });
