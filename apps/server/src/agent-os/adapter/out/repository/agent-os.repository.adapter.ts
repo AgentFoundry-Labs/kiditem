@@ -3,11 +3,16 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   type AgentOsRepositoryPort,
   type AppendRunEventInput,
+  type CompleteToolInvocationInput,
+  type CreateArtifactInput,
   type CreateAgentInstanceInput,
   type CreateApprovalRequestInput,
   type CreateAuthorizationEventInput,
+  type CreateConversationInput,
+  type CreateMessageInput,
   type CreateRunRecordInput,
   type CreateRunRequestRecordInput,
+  type CreateToolInvocationInput,
   type FailClaimedRequestInput,
   type FinalizeRunInput,
   type FindAuthorizationEventsQuery,
@@ -24,6 +29,7 @@ import {
 } from '../../../application/port/out/repository/agent-os-repository.port';
 import { type AgentRunStatus } from '../../../domain/agent-os.types';
 import { AgentOsApprovalRepository } from './agent-os.approval.repository';
+import { AgentOsConversationRepository } from './agent-os.conversation.repository';
 import { AgentOsCostAuditRepository } from './agent-os.cost-audit.repository';
 import { AgentOsInstanceSessionRepository } from './agent-os.instance-session.repository';
 import { AgentOsRequestRepository } from './agent-os.request.repository';
@@ -36,6 +42,7 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
   private readonly runs: AgentOsRunRepository;
   private readonly costAudit: AgentOsCostAuditRepository;
   private readonly approvals: AgentOsApprovalRepository;
+  private readonly conversations: AgentOsConversationRepository;
 
   constructor(prisma: PrismaService) {
     this.instances = new AgentOsInstanceSessionRepository(prisma);
@@ -43,6 +50,7 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
     this.runs = new AgentOsRunRepository(prisma);
     this.costAudit = new AgentOsCostAuditRepository(prisma);
     this.approvals = new AgentOsApprovalRepository(prisma);
+    this.conversations = new AgentOsConversationRepository(prisma);
   }
 
   // ---- Instances / policy / sessions ------------------------------------
@@ -196,5 +204,86 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
 
   resolveApprovalRequest(input: ResolveApprovalRequestInput) {
     return this.approvals.resolveApprovalRequest(input);
+  }
+
+  // ---- Conversations / visible graph -------------------------------------
+  createConversation(input: CreateConversationInput) {
+    return this.conversations.createConversation(input);
+  }
+
+  findConversationById(input: {
+    organizationId: string;
+    conversationId: string;
+  }) {
+    return this.conversations.findConversationById(input);
+  }
+
+  listConversations(input: {
+    organizationId: string;
+    cursor?: string | null;
+    limit?: number;
+  }) {
+    return this.conversations.listConversations(input);
+  }
+
+  updateConversationRootRequest(input: {
+    organizationId: string;
+    conversationId: string;
+    rootRequestId: string;
+  }) {
+    return this.conversations.updateConversationRootRequest(input);
+  }
+
+  createMessage(input: CreateMessageInput) {
+    return this.conversations.createMessage(input);
+  }
+
+  listMessages(input: {
+    organizationId: string;
+    conversationId: string;
+    cursor?: string | null;
+    limit?: number;
+  }) {
+    return this.conversations.listMessages(input);
+  }
+
+  createToolInvocation(input: CreateToolInvocationInput) {
+    return this.conversations.createToolInvocation(input);
+  }
+
+  findToolInvocationByIdempotency(input: {
+    organizationId: string;
+    capabilityKey: string;
+    idempotencyKey: string;
+  }) {
+    return this.conversations.findToolInvocationByIdempotency(input);
+  }
+
+  completeToolInvocation(input: CompleteToolInvocationInput) {
+    return this.conversations.completeToolInvocation(input);
+  }
+
+  listToolInvocations(input: {
+    organizationId: string;
+    conversationId?: string | null;
+    requestId?: string | null;
+    runId?: string | null;
+  }) {
+    return this.conversations.listToolInvocations(input);
+  }
+
+  createArtifact(input: CreateArtifactInput) {
+    return this.conversations.createArtifact(input);
+  }
+
+  listArtifacts(input: {
+    organizationId: string;
+    conversationId?: string | null;
+    requestId?: string | null;
+    runId?: string | null;
+    toolInvocationId?: string | null;
+    artifactType?: string | null;
+  }) {
+    return this.conversations.listArtifacts(input);
   }
 }

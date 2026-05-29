@@ -1,5 +1,8 @@
 import type {
+  AgentArtifactRecord,
   AgentInstanceRecord,
+  AgentConversationRecord,
+  AgentMessageRecord,
   AgentRunRecord,
   AgentRunRequestRecord,
   AgentRunRequestStatus,
@@ -9,6 +12,7 @@ import type {
   AgentAuthorizationDecision,
   AgentApprovalStatus,
   AgentInstanceLifecycleStatus,
+  AgentToolInvocationRecord,
 } from '../../../../domain/agent-os.types';
 
 export const AGENT_OS_REPOSITORY_PORT = Symbol('AGENT_OS_REPOSITORY_PORT');
@@ -72,6 +76,15 @@ export interface CreateRunRequestRecordInput {
   organizationId: string;
   agentInstanceId: string;
   taskSessionId: string;
+  conversationId?: string | null;
+  initiatedByMessageId?: string | null;
+  parentRequestId?: string | null;
+  delegatedByRunId?: string | null;
+  playbookKey?: string | null;
+  planStepKey?: string | null;
+  displayName?: string | null;
+  statusReason?: string | null;
+  dependencyKeys?: string[];
   source: string;
   triggerDetail?: string | null;
   reason?: string | null;
@@ -219,10 +232,73 @@ export interface ResolveApprovalRequestInput {
   decisionReason?: string | null;
 }
 
+export interface CreateConversationInput {
+  organizationId: string;
+  title: string;
+  createdByUserId: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CreateMessageInput {
+  organizationId: string;
+  conversationId: string;
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  content: string;
+  agentInstanceId?: string | null;
+  requestId?: string | null;
+  runId?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CreateToolInvocationInput {
+  organizationId: string;
+  conversationId?: string | null;
+  agentInstanceId: string;
+  requestId?: string | null;
+  runId?: string | null;
+  approvalRequestId?: string | null;
+  capabilityKey: string;
+  policyDecision: AgentAuthorizationDecision;
+  reasonCode?: string | null;
+  resourceType?: string | null;
+  resourceId?: string | null;
+  idempotencyKey?: string | null;
+  inputSummary?: Record<string, unknown>;
+}
+
+export interface CompleteToolInvocationInput {
+  organizationId: string;
+  invocationId: string;
+  approvalRequestId?: string | null;
+  status: 'succeeded' | 'failed' | 'cancelled' | 'waiting_approval';
+  outputSummary?: Record<string, unknown> | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  resourceType?: string | null;
+  resourceId?: string | null;
+}
+
+export interface CreateArtifactInput {
+  organizationId: string;
+  conversationId?: string | null;
+  agentInstanceId?: string | null;
+  requestId?: string | null;
+  runId?: string | null;
+  toolInvocationId?: string | null;
+  artifactType: string;
+  targetDomain: string;
+  targetModel: string;
+  targetId?: string | null;
+  title: string;
+  href?: string | null;
+  summary?: Record<string, unknown>;
+}
+
 export interface FindRequestsQuery {
   organizationId: string;
   agentInstanceId?: string | null;
   status?: AgentRunRequestStatus[] | null;
+  conversationId?: string | null;
   source?: string | null;
   sourceWorkflowRunId?: string | null;
   sourceResourceType?: string | null;
@@ -401,4 +477,54 @@ export interface AgentOsRepositoryPort {
     status: AgentApprovalStatus;
   }>;
   resolveApprovalRequest(input: ResolveApprovalRequestInput): Promise<void>;
+
+  // Conversations / visible graph
+  createConversation(input: CreateConversationInput): Promise<AgentConversationRecord>;
+  findConversationById(input: {
+    organizationId: string;
+    conversationId: string;
+  }): Promise<AgentConversationRecord | null>;
+  listConversations(input: {
+    organizationId: string;
+    cursor?: string | null;
+    limit?: number;
+  }): Promise<AgentConversationRecord[]>;
+  updateConversationRootRequest(input: {
+    organizationId: string;
+    conversationId: string;
+    rootRequestId: string;
+  }): Promise<void>;
+  createMessage(input: CreateMessageInput): Promise<AgentMessageRecord>;
+  listMessages(input: {
+    organizationId: string;
+    conversationId: string;
+    cursor?: string | null;
+    limit?: number;
+  }): Promise<AgentMessageRecord[]>;
+  createToolInvocation(
+    input: CreateToolInvocationInput,
+  ): Promise<AgentToolInvocationRecord>;
+  findToolInvocationByIdempotency(input: {
+    organizationId: string;
+    capabilityKey: string;
+    idempotencyKey: string;
+  }): Promise<AgentToolInvocationRecord | null>;
+  completeToolInvocation(
+    input: CompleteToolInvocationInput,
+  ): Promise<AgentToolInvocationRecord>;
+  listToolInvocations(input: {
+    organizationId: string;
+    conversationId?: string | null;
+    requestId?: string | null;
+    runId?: string | null;
+  }): Promise<AgentToolInvocationRecord[]>;
+  createArtifact(input: CreateArtifactInput): Promise<AgentArtifactRecord>;
+  listArtifacts(input: {
+    organizationId: string;
+    conversationId?: string | null;
+    requestId?: string | null;
+    runId?: string | null;
+    toolInvocationId?: string | null;
+    artifactType?: string | null;
+  }): Promise<AgentArtifactRecord[]>;
 }
