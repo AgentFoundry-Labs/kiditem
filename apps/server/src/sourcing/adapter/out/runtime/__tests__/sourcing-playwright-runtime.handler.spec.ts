@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { chromium } from 'playwright';
-import { AgentRuntimeHandlerRegistry } from '../../../../../agent-os/application/service/agent-runtime-handler-registry.service';
 import type { AgentRuntimeExecutionContext } from '../../../../../agent-os/application/port/out/runtime/agent-runtime.port';
 import {
   SourcingPlaywrightRuntimeHandler,
@@ -45,15 +44,6 @@ describe('SourcingPlaywrightRuntimeHandler', () => {
     vi.restoreAllMocks();
   });
 
-  it('registers itself as the sourcing runtime handler on module init', () => {
-    const registry = new AgentRuntimeHandlerRegistry();
-    const handler = new SourcingPlaywrightRuntimeHandler(registry);
-
-    handler.onModuleInit();
-
-    expect(registry.resolve('sourcing')).toBe(handler);
-  });
-
   it('executes sourcing scrape_url by launching Playwright with the prepared profile and extension extractors', async () => {
     const evaluate = vi.fn()
       .mockResolvedValueOnce(undefined)
@@ -77,7 +67,7 @@ describe('SourcingPlaywrightRuntimeHandler', () => {
       newPage: vi.fn(),
       close: vi.fn().mockResolvedValue(undefined),
     } as never);
-    const handler = new SourcingPlaywrightRuntimeHandler(new AgentRuntimeHandlerRegistry());
+    const handler = new SourcingPlaywrightRuntimeHandler();
 
     const result = await handler.execute(context());
 
@@ -128,7 +118,7 @@ describe('SourcingPlaywrightRuntimeHandler', () => {
       newPage: vi.fn(),
       close: vi.fn().mockResolvedValue(undefined),
     } as never);
-    const handler = new SourcingPlaywrightRuntimeHandler(new AgentRuntimeHandlerRegistry());
+    const handler = new SourcingPlaywrightRuntimeHandler();
 
     await expect(handler.execute(context())).resolves.toMatchObject({
       output: {

@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { chromium, type Page } from 'playwright';
 import { AgentOsRuntimeError } from '../../../../agent-os/domain/agent-os.errors';
 import type {
@@ -9,7 +9,6 @@ import type {
   AgentRuntimeResult,
 } from '../../../../agent-os/application/port/out/runtime/agent-runtime.port';
 import type { AgentTypeRuntimeHandler } from '../../../../agent-os/application/port/out/runtime/agent-runtime-handler.port';
-import { AgentRuntimeHandlerRegistry } from '../../../../agent-os/application/service/agent-runtime-handler-registry.service';
 import { detectSourcingScrapePlatform } from '../../../domain/sourcing-url';
 
 const DEFAULT_USER_DATA_DIR = '.kiditem/playwright/sourcing';
@@ -109,14 +108,8 @@ interface ExtractorScripts {
 }
 
 @Injectable()
-export class SourcingPlaywrightRuntimeHandler implements AgentTypeRuntimeHandler, OnModuleInit {
+export class SourcingPlaywrightRuntimeHandler implements AgentTypeRuntimeHandler {
   private readonly logger = new Logger(SourcingPlaywrightRuntimeHandler.name);
-
-  constructor(private readonly registry: AgentRuntimeHandlerRegistry) {}
-
-  onModuleInit(): void {
-    this.registry.register('sourcing', this);
-  }
 
   async execute(context: AgentRuntimeExecutionContext): Promise<AgentRuntimeResult> {
     const action = stringField(context.input.action);
