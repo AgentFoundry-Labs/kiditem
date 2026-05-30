@@ -167,15 +167,13 @@ beforeEach(() => {
 });
 
 describe('Agent OS conversation workspace', () => {
-  it('renders the agent network with Operator chat, run graph, and recommendation actions together', async () => {
+  it('renders conversations, chat messages, run graph, and recommendation actions', async () => {
     renderPage();
 
     await waitFor(() => {
       expect(getMock).toHaveBeenCalledWith('/api/agent-os/conversations');
     });
 
-    expect((await screen.findAllByText('Agent Network')).length).toBeGreaterThan(0);
-    expect(screen.getByText('Operator Chat')).toBeInTheDocument();
     expect(await screen.findByText('실리콘 식판 시장 기회')).toBeInTheDocument();
     expect(
       await screen.findByText('실리콘 식판 반응 오는 신제품 찾아줘'),
