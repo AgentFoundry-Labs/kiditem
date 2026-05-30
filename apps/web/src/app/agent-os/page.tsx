@@ -2,9 +2,8 @@
 
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ConversationList } from './components/ConversationList';
-import { OperatorChatPanel } from './components/OperatorChatPanel';
-import { RunInspector } from './components/RunInspector';
+import { AgentOsNetworkSurface } from './components/AgentOsNetworkSurface';
+import { AgentOsOperatorDock } from './components/AgentOsOperatorDock';
 import {
   agentOsChatKeys,
   createAgentConversation,
@@ -90,31 +89,36 @@ export default function AgentOsPage() {
     () => graph.data?.artifacts ?? [],
     [graph.data?.artifacts],
   );
+  const selectedConversation = useMemo(
+    () =>
+      (conversations.data?.items ?? []).find(
+        (conversation) => conversation.id === selectedConversationId,
+      ) ?? null,
+    [conversations.data?.items, selectedConversationId],
+  );
+  const currentGraph =
+    graph.data &&
+    Array.isArray(graph.data.nodes) &&
+    Array.isArray(graph.data.artifacts) &&
+    Array.isArray(graph.data.toolInvocations)
+      ? graph.data
+      : null;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#090d16] text-white">
-      <ConversationList
-        conversations={conversations.data?.items ?? []}
-        selectedId={selectedConversationId}
-        loading={conversations.isFetching}
-        onNew={() => setSelectedId(null)}
-        onRefresh={() =>
-          queryClient.invalidateQueries({
-            queryKey: agentOsChatKeys.conversations,
-          })
-        }
-        onSelect={(id) => setSelectedId(id)}
-      />
-      <OperatorChatPanel
-        messages={messages.data?.items ?? []}
-        artifacts={artifacts}
-        selectedConversationId={selectedConversationId}
-        sending={createConversation.isPending}
-        draftPending={createDraft.isPending}
-        onSend={(content) => createConversation.mutate(content)}
-        onCreateDraft={(artifactId) => createDraft.mutate(artifactId)}
-      />
-      <RunInspector graph={graph.data ?? null} />
-    </div>
+    <AgentOsNetworkSurface
+      rightPanel={
+        <AgentOsOperatorDock
+          conversationTitle={selectedConversation?.title ?? null}
+          messages={messages.data?.items ?? []}
+          artifacts={artifacts}
+          graph={currentGraph}
+          selectedConversationId={selectedConversationId}
+          sending={createConversation.isPending}
+          draftPending={createDraft.isPending}
+          onSend={(content) => createConversation.mutate(content)}
+          onCreateDraft={(artifactId) => createDraft.mutate(artifactId)}
+        />
+      }
+    />
   );
 }
