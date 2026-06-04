@@ -33,6 +33,7 @@ const CANVAS_PADDING_BOTTOM = 38;
 const MIN_CANVAS_WIDTH = 760;
 const MIN_CANVAS_HEIGHT = 360;
 const MIN_ZOOM = 0.6;
+const FIT_MIN_ZOOM = 0.2;
 const MAX_ZOOM = 1.4;
 const DEFAULT_ZOOM = 1;
 
@@ -122,7 +123,9 @@ export function ExecutionCanvas({
     }
 
     setZoom(
-      clampZoom(Math.min(viewportWidth / canvasWidth, viewportHeight / canvasHeight)),
+      clampFitZoom(
+        Math.min(viewportWidth / canvasWidth, viewportHeight / canvasHeight),
+      ),
     );
   };
 
@@ -328,6 +331,10 @@ export function ExecutionCanvas({
 
 function clampZoom(zoom: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
+}
+
+function clampFitZoom(zoom: number): number {
+  return Math.min(MAX_ZOOM, Math.max(FIT_MIN_ZOOM, zoom));
 }
 
 function nodesForLane(

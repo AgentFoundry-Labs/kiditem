@@ -239,6 +239,32 @@ describe('ExecutionCanvas', () => {
     }
   });
 
+  it('allows fit view to zoom below the manual lower bound', () => {
+    const clientWidth = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockReturnValue(354);
+    const clientHeight = vi
+      .spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+      .mockReturnValue(144);
+
+    try {
+      render(
+        <ExecutionCanvas
+          graph={canvasGraph}
+          selectedNodeId={null}
+          onSelectNode={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Fit view' }));
+
+      expect(screen.getByText('40%')).toBeInTheDocument();
+    } finally {
+      clientWidth.mockRestore();
+      clientHeight.mockRestore();
+    }
+  });
+
   it('shows an empty state for a conversation without graph records', () => {
     render(
       <ExecutionCanvas
