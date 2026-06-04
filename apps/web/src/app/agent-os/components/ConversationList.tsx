@@ -13,6 +13,8 @@ function statusLabel(status: string): string {
 export function ConversationList({
   conversations,
   selectedId,
+  className,
+  headerClassName,
   loading = false,
   onNew,
   onRefresh,
@@ -20,14 +22,26 @@ export function ConversationList({
 }: {
   conversations: AgentOsConversation[];
   selectedId: string | null;
+  className?: string;
+  headerClassName?: string;
   loading?: boolean;
   onNew: () => void;
   onRefresh: () => void;
   onSelect: (id: string) => void;
 }) {
   return (
-    <aside className="flex h-full w-[300px] shrink-0 flex-col border-r border-white/10 bg-[#0c1220]">
-      <div className="flex h-16 items-center justify-between border-b border-white/10 px-4">
+    <aside
+      className={cn(
+        'flex h-full w-[300px] shrink-0 flex-col border-r border-white/10 bg-[#0c1220]',
+        className,
+      )}
+    >
+      <div
+        className={cn(
+          'flex h-16 items-center justify-between border-b border-white/10 px-4',
+          headerClassName,
+        )}
+      >
         <div>
           <h1 className="text-sm font-bold text-white">Agent OS</h1>
           <p className="mt-0.5 text-xs text-slate-400">Operator conversations</p>

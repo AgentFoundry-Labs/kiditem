@@ -401,7 +401,11 @@ describe('Agent OS network page', () => {
     expect(await screen.findByText('Listing Agent')).toBeInTheDocument();
     expect(await screen.findByText('Scrape Url')).toBeInTheDocument();
     expect(await screen.findByText('Create Generation Package')).toBeInTheDocument();
-    expect(await screen.findByText('User approval required')).toBeInTheDocument();
+    expect(
+      (await screen.findAllByText('User approval required')).length,
+    ).toBeGreaterThan(0);
+    expect(await screen.findByRole('button', { name: '승인' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '거절' })).toBeInTheDocument();
     expect(await screen.findByText('실리콘 식판 시장 기회')).toBeInTheDocument();
     expect(
       await screen.findByText('실리콘 식판 반응 오는 신제품 찾아줘'),

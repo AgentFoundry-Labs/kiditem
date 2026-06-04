@@ -165,6 +165,10 @@ export function AgentOsOperatorWorkspace({
       }
 
       const priorityNode =
+        canvasGraph.nodes.find(
+          (node) =>
+            node.kind === 'approval' && node.status === 'waiting_approval',
+        ) ??
         canvasGraph.nodes.find((node) => node.status === 'waiting_approval') ??
         canvasGraph.nodes.find((node) => node.status === 'running') ??
         canvasGraph.nodes[0] ??
@@ -179,11 +183,13 @@ export function AgentOsOperatorWorkspace({
   return (
     <section
       aria-label="Operator workspace"
-      className="absolute bottom-4 left-4 right-4 top-[88px] z-40 flex min-h-0 overflow-hidden rounded-xl border border-cyan-300/20 bg-[#080d17]/95 shadow-2xl shadow-black/50 backdrop-blur md:left-auto md:w-[min(1120px,calc(100vw-2rem))]"
+      className="absolute bottom-4 left-4 right-4 top-[88px] z-40 flex min-h-0 flex-col overflow-y-auto rounded-xl border border-cyan-300/20 bg-[#080d17]/95 shadow-2xl shadow-black/50 backdrop-blur xl:left-auto xl:w-[min(1120px,calc(100vw-2rem))] xl:flex-row xl:overflow-hidden"
     >
       <ConversationList
         conversations={conversations}
         selectedId={selectedConversationId}
+        className="h-[168px] w-full border-b border-r-0 xl:h-full xl:w-[300px] xl:border-b-0 xl:border-r"
+        headerClassName="pr-16 xl:pr-4"
         loading={conversationsQuery.isFetching}
         onNew={() => setSelectedConversationId(null)}
         onRefresh={() =>
@@ -193,14 +199,14 @@ export function AgentOsOperatorWorkspace({
         }
         onSelect={setSelectedConversationId}
       />
-      <main className="min-w-0 flex-1 bg-slate-100 p-3 pr-0">
+      <main className="min-h-[480px] min-w-0 shrink-0 bg-slate-100 p-3 xl:min-h-0 xl:flex-1 xl:pr-0">
         <ExecutionCanvas
           graph={canvasGraph}
           selectedNodeId={selectedNodeId}
           onSelectNode={setSelectedNodeId}
         />
       </main>
-      <aside className="flex h-full w-[340px] shrink-0 flex-col border-l border-white/10 bg-white text-slate-950">
+      <aside className="flex min-h-[560px] w-full shrink-0 flex-col border-t border-white/10 bg-white text-slate-950 xl:h-full xl:min-h-0 xl:w-[340px] xl:border-l xl:border-t-0">
         <header className="shrink-0 border-b border-slate-200 px-4 py-3">
           <h2 className="text-sm font-bold text-slate-950">Node Detail</h2>
           <p className="mt-1 truncate text-xs font-medium text-slate-500">
@@ -209,7 +215,7 @@ export function AgentOsOperatorWorkspace({
               : selectedNode?.label ?? 'Select a canvas node'}
           </p>
         </header>
-        <div className="min-h-0 h-[44%] shrink-0 [&>aside]:w-full">
+        <div className="h-[260px] min-h-0 shrink-0 xl:h-[44%] [&>aside]:w-full">
           <ExecutionNodeDetail
             node={selectedNode}
             approvalPendingId={pendingApprovalRequestId}

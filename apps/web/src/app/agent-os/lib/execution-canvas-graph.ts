@@ -273,6 +273,8 @@ function toolToCanvasNode(
       requestId: tool.requestId,
       runId: tool.runId,
       approvalRequestId: tool.approvalRequestId,
+      inputSummary: tool.inputSummary,
+      outputSummary: tool.outputSummary,
       duration: durationLabel(tool.startedAt, tool.completedAt),
     }),
   };
@@ -301,6 +303,7 @@ function artifactToCanvasNode(
       targetId: artifact.targetId,
       requestId: artifact.requestId,
       runId: artifact.runId,
+      summary: artifact.summary,
     }),
   };
 }
@@ -596,7 +599,7 @@ function toPublicNode(node: InternalExecutionCanvasNode): ExecutionCanvasNode {
 }
 
 function compactMetadata(
-  entries: Record<string, string | number | null | undefined>,
+  entries: Record<string, unknown>,
 ): Record<string, string> {
   const metadata: Record<string, string> = {};
 
@@ -605,10 +608,26 @@ function compactMetadata(
       continue;
     }
 
-    metadata[key] = String(value).slice(0, 160);
+    metadata[key] = compactMetadataValue(value);
   }
 
   return metadata;
+}
+
+function compactMetadataValue(value: unknown): string {
+  if (typeof value === 'string') {
+    return value.slice(0, 160);
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  try {
+    return JSON.stringify(value).slice(0, 160);
+  } catch {
+    return String(value).slice(0, 160);
+  }
 }
 
 function durationLabel(

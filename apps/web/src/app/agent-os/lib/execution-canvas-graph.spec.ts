@@ -350,6 +350,22 @@ describe('projectAgentRunGraph', () => {
     });
   });
 
+  it('preserves compact tool and artifact summaries for node detail inspection', () => {
+    const result = projectAgentRunGraph(graph);
+
+    expect(
+      getExecutionCanvasNode(result, 'tool:tool-scrape-1')?.metadata,
+    ).toMatchObject({
+      inputSummary: expect.stringContaining('detail.1688.com'),
+      outputSummary: expect.stringContaining('imageCount'),
+    });
+    expect(
+      getExecutionCanvasNode(result, 'artifact:artifact-listing-1')?.metadata,
+    ).toMatchObject({
+      summary: expect.stringContaining('thumbnailDrafts'),
+    });
+  });
+
   it('normalizes backend statuses into the small canvas status vocabulary', () => {
     expect(toExecutionCanvasStatus('pending')).toBe('waiting');
     expect(toExecutionCanvasStatus('claimed')).toBe('waiting');
