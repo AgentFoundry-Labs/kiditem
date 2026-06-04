@@ -143,9 +143,100 @@ describe('ExecutionCanvas', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Scrape Url node' }));
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Scrape Url node in sourcing lane, succeeded',
+      }),
+    );
 
     expect(onSelectNode).toHaveBeenCalledWith('tool:tool-scrape-1');
+  });
+
+  it('exposes the selected node state to assistive technology', () => {
+    render(
+      <ExecutionCanvas
+        graph={canvasGraph}
+        selectedNodeId="tool:tool-scrape-1"
+        onSelectNode={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole('button', {
+        name: 'Scrape Url node in sourcing lane, succeeded',
+      }),
+    ).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('renders without edges when the graph has no edges', () => {
+    const graphWithoutEdges: ExecutionCanvasGraph = {
+      ...canvasGraph,
+      edges: [],
+    };
+
+    expect(() =>
+      render(
+        <ExecutionCanvas
+          graph={graphWithoutEdges}
+          selectedNodeId={null}
+          onSelectNode={vi.fn()}
+        />,
+      ),
+    ).not.toThrow();
+
+    expect(screen.getByText('Execution Canvas')).toBeInTheDocument();
+  });
+
+  it('ignores an edge with a missing endpoint', () => {
+    const graphWithMissingEndpoint: ExecutionCanvasGraph = {
+      ...canvasGraph,
+      edges: [
+        {
+          id: 'tool:tool-scrape-1->missing-node',
+          from: 'tool:tool-scrape-1',
+          to: 'missing-node',
+          crossLane: false,
+        },
+      ],
+    };
+
+    expect(() =>
+      render(
+        <ExecutionCanvas
+          graph={graphWithMissingEndpoint}
+          selectedNodeId={null}
+          onSelectNode={vi.fn()}
+        />,
+      ),
+    ).not.toThrow();
+
+    expect(screen.getByText('Scrape Url')).toBeInTheDocument();
+  });
+
+  it('fits the canvas to the available viewport', () => {
+    const clientWidth = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockReturnValue(663);
+    const clientHeight = vi
+      .spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+      .mockReturnValue(270);
+
+    try {
+      render(
+        <ExecutionCanvas
+          graph={canvasGraph}
+          selectedNodeId={null}
+          onSelectNode={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Fit view' }));
+
+      expect(screen.getByText('75%')).toBeInTheDocument();
+    } finally {
+      clientWidth.mockRestore();
+      clientHeight.mockRestore();
+    }
   });
 
   it('shows an empty state for a conversation without graph records', () => {

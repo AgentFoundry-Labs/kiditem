@@ -12,7 +12,7 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import type {
   ExecutionCanvasGraph,
@@ -32,6 +32,9 @@ const CANVAS_PADDING_X = 24;
 const CANVAS_PADDING_BOTTOM = 38;
 const MIN_CANVAS_WIDTH = 760;
 const MIN_CANVAS_HEIGHT = 360;
+const MIN_ZOOM = 0.6;
+const MAX_ZOOM = 1.4;
+const DEFAULT_ZOOM = 1;
 
 interface ExecutionCanvasProps {
   graph: ExecutionCanvasGraph;
@@ -51,7 +54,8 @@ export function ExecutionCanvas({
   selectedNodeId,
   onSelectNode,
 }: ExecutionCanvasProps) {
-  const [zoom, setZoom] = useState(1);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
 
   const laneNodeEntries = useMemo(
     () =>
@@ -102,6 +106,25 @@ export function ExecutionCanvas({
   }, [laneNodeEntries]);
 
   const hasGraphRecords = graph.nodes.length > 0 || graph.lanes.length > 0;
+  const handleFitView = () => {
+    const viewport = viewportRef.current;
+    const viewportWidth = viewport?.clientWidth ?? 0;
+    const viewportHeight = viewport?.clientHeight ?? 0;
+
+    if (
+      viewportWidth <= 0 ||
+      viewportHeight <= 0 ||
+      canvasWidth <= 0 ||
+      canvasHeight <= 0
+    ) {
+      setZoom(DEFAULT_ZOOM);
+      return;
+    }
+
+    setZoom(
+      clampZoom(Math.min(viewportWidth / canvasWidth, viewportHeight / canvasHeight)),
+    );
+  };
 
   return (
     <section className="flex h-full min-h-[420px] flex-col overflow-hidden rounded-lg border border-sky-200/80 bg-sky-50 text-slate-950 shadow-sm">
@@ -117,7 +140,9 @@ export function ExecutionCanvas({
         <div className="flex shrink-0 items-center gap-1 rounded-lg border border-sky-200 bg-white/80 p-1 shadow-sm">
           <IconButton
             label="Zoom out"
-            onClick={() => setZoom((currentZoom) => Math.max(0.6, currentZoom - 0.1))}
+            onClick={() =>
+              setZoom((currentZoom) => clampZoom(currentZoom - 0.1))
+            }
           >
             <ZoomOut className="h-3.5 w-3.5" aria-hidden="true" />
           </IconButton>
@@ -126,21 +151,23 @@ export function ExecutionCanvas({
           </span>
           <IconButton
             label="Zoom in"
-            onClick={() => setZoom((currentZoom) => Math.min(1.4, currentZoom + 0.1))}
+            onClick={() =>
+              setZoom((currentZoom) => clampZoom(currentZoom + 0.1))
+            }
           >
             <ZoomIn className="h-3.5 w-3.5" aria-hidden="true" />
           </IconButton>
           <div className="mx-1 h-4 w-px bg-sky-200" />
-          <IconButton label="Fit view" onClick={() => setZoom(0.86)}>
+          <IconButton label="Fit view" onClick={handleFitView}>
             <Maximize2 className="h-3.5 w-3.5" aria-hidden="true" />
           </IconButton>
-          <IconButton label="Reset view" onClick={() => setZoom(1)}>
+          <IconButton label="Reset view" onClick={() => setZoom(DEFAULT_ZOOM)}>
             <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
           </IconButton>
         </div>
       </header>
 
-      <div className="relative flex-1 overflow-auto">
+      <div ref={viewportRef} className="relative flex-1 overflow-auto">
         <div
           className="absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,rgba(14,165,233,0.28)_1px,transparent_0)] [background-size:22px_22px]"
           aria-hidden="true"
@@ -241,16 +268,19 @@ export function ExecutionCanvas({
                   return null;
                 }
 
+                const selected = selectedNodeId === node.id;
+
                 return (
                   <button
                     key={node.id}
                     type="button"
-                    aria-label={`${node.label} node`}
+                    aria-label={`${node.label} node in ${node.laneId} lane, ${node.status}`}
+                    aria-pressed={selected}
                     onClick={() => onSelectNode(node.id)}
                     className={cn(
                       'absolute flex items-start gap-2 rounded-lg border bg-white px-3 py-2 text-left shadow-sm transition',
                       'hover:-translate-y-0.5 hover:border-sky-400 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2',
-                      selectedNodeId === node.id
+                      selected
                         ? 'border-sky-500 ring-2 ring-sky-200'
                         : 'border-sky-200',
                     )}
@@ -294,6 +324,10 @@ export function ExecutionCanvas({
       </div>
     </section>
   );
+}
+
+function clampZoom(zoom: number): number {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
 }
 
 function nodesForLane(
