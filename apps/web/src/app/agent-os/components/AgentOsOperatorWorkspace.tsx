@@ -96,18 +96,16 @@ export function AgentOsOperatorWorkspace({
   });
 
   const orderDraftMutation = useMutation({
-    mutationFn: (artifactId: string) => {
-      if (!selectedConversationId) {
-        throw new Error('conversation_required');
-      }
-      return createOrderDraftFromRecommendation(selectedConversationId, artifactId);
+    mutationFn: (input: { conversationId: string; artifactId: string }) => {
+      return createOrderDraftFromRecommendation(
+        input.conversationId,
+        input.artifactId,
+      );
     },
-    onSuccess: () => {
-      if (selectedConversationId) {
-        queryClient.invalidateQueries({
-          queryKey: agentOsChatKeys.graph(selectedConversationId),
-        });
-      }
+    onSuccess: (_result, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: agentOsChatKeys.graph(variables.conversationId),
+      });
       queryClient.invalidateQueries({ queryKey: ['agent-os', 'runs'] });
       toast.success('발주 초안 요청을 보냈습니다');
     },
@@ -116,13 +114,18 @@ export function AgentOsOperatorWorkspace({
 
   const approvalMutation = useMutation({
     mutationFn: (input: {
+      conversationId: string | null;
       approvalRequestId: string;
       status: 'approved' | 'rejected';
     }) => resolveAgentApproval(input.approvalRequestId, input.status),
     onSuccess: (_, variables) => {
-      if (selectedConversationId) {
+      if (variables.conversationId) {
         queryClient.invalidateQueries({
-          queryKey: agentOsChatKeys.graph(selectedConversationId),
+          queryKey: agentOsChatKeys.graph(variables.conversationId),
+        });
+      } else {
+        queryClient.invalidateQueries({
+          queryKey: agentOsChatKeys.conversations,
         });
       }
       queryClient.invalidateQueries({ queryKey: ['agent-os', 'runs'] });
@@ -142,6 +145,13 @@ export function AgentOsOperatorWorkspace({
     () => getExecutionCanvasNode(canvasGraph, selectedNodeId),
     [canvasGraph, selectedNodeId],
   );
+  const pendingApprovalRequestId = approvalMutation.isPending
+    ? (approvalMutation.variables?.approvalRequestId ?? null)
+    : null;
+
+  useEffect(() => {
+    setSelectedNodeId(null);
+  }, [selectedConversationId]);
 
   useEffect(() => {
     if (!open) {
@@ -149,13 +159,19 @@ export function AgentOsOperatorWorkspace({
       return;
     }
 
-    const priorityNode =
-      canvasGraph.nodes.find((node) => node.status === 'waiting_approval') ??
-      canvasGraph.nodes.find((node) => node.status === 'running') ??
-      canvasGraph.nodes[0] ??
-      null;
+    setSelectedNodeId((current) => {
+      if (current && canvasGraph.nodes.some((node) => node.id === current)) {
+        return current;
+      }
 
-    setSelectedNodeId(priorityNode?.id ?? null);
+      const priorityNode =
+        canvasGraph.nodes.find((node) => node.status === 'waiting_approval') ??
+        canvasGraph.nodes.find((node) => node.status === 'running') ??
+        canvasGraph.nodes[0] ??
+        null;
+
+      return priorityNode?.id ?? null;
+    });
   }, [canvasGraph, open]);
 
   if (!open) return null;
@@ -196,11 +212,13 @@ export function AgentOsOperatorWorkspace({
         <div className="min-h-0 h-[44%] shrink-0 [&>aside]:w-full">
           <ExecutionNodeDetail
             node={selectedNode}
-            approvalPendingId={
-              approvalMutation.variables?.approvalRequestId ?? null
-            }
+            approvalPendingId={pendingApprovalRequestId}
             onResolveApproval={(approvalRequestId, status) =>
-              approvalMutation.mutate({ approvalRequestId, status })
+              approvalMutation.mutate({
+                conversationId: selectedConversationId,
+                approvalRequestId,
+                status,
+              })
             }
           />
         </div>
@@ -211,7 +229,13 @@ export function AgentOsOperatorWorkspace({
           className="min-h-0 flex-1"
           sending={sendMutation.isPending}
           draftPending={orderDraftMutation.isPending}
-          onCreateDraft={(artifactId) => orderDraftMutation.mutate(artifactId)}
+          onCreateDraft={(artifactId) => {
+            if (!selectedConversationId) return;
+            orderDraftMutation.mutate({
+              conversationId: selectedConversationId,
+              artifactId,
+            });
+          }}
           onSend={(content) => sendMutation.mutate(content)}
         />
       </aside>

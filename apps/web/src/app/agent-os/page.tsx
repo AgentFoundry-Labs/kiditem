@@ -2,7 +2,13 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, Layers, MoreHorizontal, Radio } from 'lucide-react';
+import {
+  ChevronLeft,
+  Layers,
+  MessageSquareText,
+  MoreHorizontal,
+  Radio,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import {
   ActionTaskSchema,
@@ -27,6 +33,7 @@ import { ActionBoardOverlay } from './components/ActionBoardOverlay';
 import { AgentNetworkCanvas } from './components/AgentNetworkCanvas';
 import { AgentOsBottomDashboard } from './components/AgentOsBottomDashboard';
 import { AgentOsHeader } from './components/AgentOsHeader';
+import { AgentOsOperatorWorkspace } from './components/AgentOsOperatorWorkspace';
 import { AgentsListPanel } from './components/AgentsListPanel';
 import { LiveActivityPanel, type RecentLog } from './components/LiveActivityPanel';
 import {
@@ -80,6 +87,7 @@ export default function AgentOsPage() {
   const teamStyle = useTeamStyle();
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [showActionBoard, setShowActionBoard] = useState(false);
+  const [operatorWorkspaceOpen, setOperatorWorkspaceOpen] = useState(false);
   const [agentsMinimized, setAgentsMinimized] = useState(false);
   const [activityMinimized, setActivityMinimized] = useState(false);
 
@@ -366,6 +374,14 @@ export default function AgentOsPage() {
         <div className="flex items-center gap-1.5">
           <button
             type="button"
+            onClick={() => setOperatorWorkspaceOpen(true)}
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-cyan-300/30 bg-cyan-300/10 text-cyan-100 hover:border-cyan-200"
+            aria-label="Operator 대화"
+          >
+            <MessageSquareText size={15} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
             onClick={() => setShowActionBoard((value) => !value)}
             className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-[#111827] text-slate-400 hover:bg-white/[0.04]"
             aria-label="액션 보드"
@@ -444,6 +460,10 @@ export default function AgentOsPage() {
         allTeamTasks={allTeamTasks}
         executingId={executingId}
         onExecute={executeAction}
+      />
+      <AgentOsOperatorWorkspace
+        open={operatorWorkspaceOpen}
+        onClose={() => setOperatorWorkspaceOpen(false)}
       />
     </div>
   );
