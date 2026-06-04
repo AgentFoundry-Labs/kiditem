@@ -69,7 +69,7 @@ export function OperatorChatPanel({
               <div
                 key={message.id}
                 className={cn(
-                  'max-w-[82%] rounded-lg px-4 py-3 text-sm leading-6',
+                  'max-w-[82%] break-words rounded-lg px-4 py-3 text-sm leading-6',
                   isUser
                     ? 'self-end bg-sky-500 text-white'
                     : 'self-start border border-slate-200 bg-white text-slate-700 shadow-sm',
@@ -102,7 +102,8 @@ export function OperatorChatPanel({
           <textarea
             value={content}
             onChange={(event) => setContent(event.target.value)}
-            className="min-h-11 flex-1 resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-400"
+            className="min-h-11 min-w-0 flex-1 resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-400 focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
+            aria-label="Operator 메시지"
             placeholder="시장 기회나 카테고리를 요청하세요"
           />
           <button
