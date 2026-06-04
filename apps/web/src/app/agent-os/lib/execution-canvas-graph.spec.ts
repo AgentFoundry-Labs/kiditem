@@ -171,7 +171,9 @@ describe('projectAgentRunGraph', () => {
     expect(result.lanes).toEqual([]);
     expect(result.nodes).toEqual([]);
     expect(result.edges).toEqual([]);
-    expect(result.summary).toMatchObject({
+    expect(result.conversationId).toBeNull();
+    expect(result.rootRequestId).toBeNull();
+    expect(result.summary).toEqual({
       totalNodes: 0,
       runningNodes: 0,
       failedNodes: 0,
@@ -182,6 +184,8 @@ describe('projectAgentRunGraph', () => {
   it('groups task, tool, artifact, and approval nodes into agent lanes', () => {
     const result = projectAgentRunGraph(graph);
 
+    expect(result.conversationId).toBe('conversation-1');
+    expect(result.rootRequestId).toBe('request-operator-1');
     expect(result.lanes.map((lane) => lane.id)).toEqual([
       'operator',
       'sourcing',
@@ -236,6 +240,56 @@ describe('projectAgentRunGraph', () => {
     );
   });
 
+  it('returns the public graph, lane, and node fields expected by canvas consumers', () => {
+    const result = projectAgentRunGraph(graph);
+    const listingLane = result.lanes.find((lane) => lane.id === 'listing');
+    const listingTask = getExecutionCanvasNode(result, 'task:request-listing-1');
+
+    expect(Object.keys(result).sort()).toEqual([
+      'conversationId',
+      'edges',
+      'lanes',
+      'nodes',
+      'rootRequestId',
+      'summary',
+    ].sort());
+    expect(result.summary).toEqual({
+      totalNodes: 10,
+      runningNodes: 2,
+      failedNodes: 0,
+      approvalNodes: 1,
+    });
+    expect(Object.keys(listingLane ?? {}).sort()).toEqual([
+      'agentType',
+      'id',
+      'label',
+      'nodes',
+    ].sort());
+    expect(Object.keys(listingTask ?? {}).sort()).toEqual([
+      'description',
+      'eyebrow',
+      'finishedAt',
+      'id',
+      'kind',
+      'label',
+      'laneId',
+      'metadata',
+      'sourceId',
+      'startedAt',
+      'status',
+    ].sort());
+    expect(listingLane).toMatchObject({
+      id: 'listing',
+      agentType: 'listing',
+    });
+    expect(listingTask).toMatchObject({
+      id: 'task:request-listing-1',
+      kind: 'agent',
+      eyebrow: 'Listing',
+      description: null,
+    });
+  });
+
   it('normalizes backend statuses into the small canvas status vocabulary', () => {
     expect(toExecutionCanvasStatus('pending')).toBe('waiting');
     expect(toExecutionCanvasStatus('claimed')).toBe('waiting');
@@ -259,5 +313,6 @@ describe('projectAgentRunGraph', () => {
       status: 'succeeded',
     });
     expect(getExecutionCanvasNode(result, 'missing')).toBeNull();
+    expect(getExecutionCanvasNode(result, null)).toBeNull();
   });
 });

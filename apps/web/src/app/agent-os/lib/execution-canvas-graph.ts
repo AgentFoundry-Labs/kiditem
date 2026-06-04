@@ -22,23 +22,22 @@ export type ExecutionCanvasNodeKind =
 export interface ExecutionCanvasNode {
   id: string;
   sourceId: string;
-  kind: ExecutionCanvasNodeKind;
   laneId: string;
+  kind: ExecutionCanvasNodeKind;
   label: string;
+  eyebrow: string;
+  description: string | null;
   status: ExecutionCanvasStatus;
   startedAt: string | null;
   finishedAt: string | null;
-  timestamp: string | null;
-  href: string | null;
   metadata: Record<string, string>;
 }
 
 export interface ExecutionCanvasLane {
   id: string;
   label: string;
+  agentType: string | null;
   nodes: ExecutionCanvasNode[];
-  status: ExecutionCanvasStatus;
-  timestamp: string | null;
 }
 
 export interface ExecutionCanvasEdge {
@@ -49,36 +48,43 @@ export interface ExecutionCanvasEdge {
 }
 
 export interface ExecutionCanvasGraph {
+  conversationId: string | null;
+  rootRequestId: string | null;
   lanes: ExecutionCanvasLane[];
   nodes: ExecutionCanvasNode[];
   edges: ExecutionCanvasEdge[];
   summary: {
-    totalLanes: number;
     totalNodes: number;
-    totalEdges: number;
     runningNodes: number;
-    waitingApprovalNodes: number;
-    approvalNodes: number;
     failedNodes: number;
-    succeededNodes: number;
+    approvalNodes: number;
   };
 }
 
 type TimestampInput = string | null | undefined;
+type InternalExecutionCanvasNode = ExecutionCanvasNode & {
+  timestamp: string | null;
+};
+
+interface InternalExecutionCanvasLane {
+  id: string;
+  label: string;
+  agentType: string | null;
+  nodes: InternalExecutionCanvasNode[];
+  timestamp: string | null;
+}
 
 const EMPTY_GRAPH: ExecutionCanvasGraph = {
+  conversationId: null,
+  rootRequestId: null,
   lanes: [],
   nodes: [],
   edges: [],
   summary: {
-    totalLanes: 0,
     totalNodes: 0,
-    totalEdges: 0,
     runningNodes: 0,
-    waitingApprovalNodes: 0,
-    approvalNodes: 0,
     failedNodes: 0,
-    succeededNodes: 0,
+    approvalNodes: 0,
   },
 };
 
@@ -129,7 +135,7 @@ export function projectAgentRunGraph(
   const toolById = new Map(graph.toolInvocations.map((tool) => [tool.id, tool]));
   const laneByRequestId = new Map<string, string>();
   const sequenceByNodeId = new Map<string, number>();
-  const nodes: ExecutionCanvasNode[] = [];
+  const nodes: InternalExecutionCanvasNode[] = [];
 
   for (const task of taskById.values()) {
     laneByRequestId.set(task.id, laneIdFromTask(task));
@@ -171,27 +177,23 @@ export function projectAgentRunGraph(
 
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const edges = buildEdges(graph, nodeById);
-  const lanes = buildLanes(nodes, sequenceByNodeId);
+  const internalLanes = buildLanes(nodes, sequenceByNodeId);
+  const lanes = internalLanes.map(toPublicLane);
   const sortedNodes = lanes.flatMap((lane) => lane.nodes);
 
   return {
+    conversationId: graph.conversationId,
+    rootRequestId: graph.rootRequestId,
     lanes,
     nodes: sortedNodes,
     edges,
     summary: {
-      totalLanes: lanes.length,
       totalNodes: sortedNodes.length,
-      totalEdges: edges.length,
       runningNodes: sortedNodes.filter((node) => node.status === 'running')
-        .length,
-      waitingApprovalNodes: sortedNodes.filter(
-        (node) => node.status === 'waiting_approval',
-      ).length,
-      approvalNodes: sortedNodes.filter((node) => node.kind === 'approval')
         .length,
       failedNodes: sortedNodes.filter((node) => node.status === 'failed')
         .length,
-      succeededNodes: sortedNodes.filter((node) => node.status === 'succeeded')
+      approvalNodes: sortedNodes.filter((node) => node.kind === 'approval')
         .length,
     },
   };
@@ -199,34 +201,39 @@ export function projectAgentRunGraph(
 
 export function getExecutionCanvasNode(
   graph: ExecutionCanvasGraph,
-  nodeId: string,
+  nodeId: string | null,
 ): ExecutionCanvasNode | null {
+  if (!nodeId) {
+    return null;
+  }
+
   return graph.nodes.find((node) => node.id === nodeId) ?? null;
 }
 
 function addNode(
-  nodes: ExecutionCanvasNode[],
+  nodes: InternalExecutionCanvasNode[],
   sequenceByNodeId: Map<string, number>,
-  node: ExecutionCanvasNode,
+  node: InternalExecutionCanvasNode,
 ) {
   sequenceByNodeId.set(node.id, nodes.length);
   nodes.push(node);
 }
 
-function taskToCanvasNode(task: AgentRunGraphNode): ExecutionCanvasNode {
+function taskToCanvasNode(task: AgentRunGraphNode): InternalExecutionCanvasNode {
   const timestamp = earliestTimestamp(task.startedAt, task.finishedAt);
 
   return {
     id: taskNodeId(task.id),
     sourceId: task.id,
-    kind: 'agent',
     laneId: laneIdFromTask(task),
+    kind: 'agent',
     label: task.label,
+    eyebrow: formatLaneLabel(laneIdFromTask(task)),
+    description: task.capabilityKey,
     status: toExecutionCanvasStatus(task.status),
     startedAt: task.startedAt,
     finishedAt: task.finishedAt,
     timestamp,
-    href: null,
     metadata: compactMetadata({
       agentType: task.agentType,
       capabilityKey: task.capabilityKey,
@@ -238,7 +245,7 @@ function taskToCanvasNode(task: AgentRunGraphNode): ExecutionCanvasNode {
 function toolToCanvasNode(
   tool: AgentToolInvocationSummary,
   laneId: string,
-): ExecutionCanvasNode {
+): InternalExecutionCanvasNode {
   const timestamp = earliestTimestamp(
     tool.createdAt,
     tool.startedAt,
@@ -248,14 +255,15 @@ function toolToCanvasNode(
   return {
     id: toolNodeId(tool.id),
     sourceId: tool.id,
-    kind: 'tool',
     laneId,
+    kind: 'tool',
     label: formatCapabilityLabel(tool.capabilityKey),
+    eyebrow: tool.resourceType ?? 'Tool',
+    description: tool.resourceId ?? tool.reasonCode,
     status: toExecutionCanvasStatus(tool.status),
     startedAt: tool.startedAt,
     finishedAt: tool.completedAt,
     timestamp,
-    href: null,
     metadata: compactMetadata({
       capabilityKey: tool.capabilityKey,
       resourceType: tool.resourceType,
@@ -273,18 +281,19 @@ function toolToCanvasNode(
 function artifactToCanvasNode(
   artifact: AgentArtifactSummary,
   laneId: string,
-): ExecutionCanvasNode {
+): InternalExecutionCanvasNode {
   return {
     id: artifactNodeId(artifact.id),
     sourceId: artifact.id,
-    kind: 'artifact',
     laneId,
+    kind: 'artifact',
     label: artifact.title,
+    eyebrow: formatArtifactEyebrow(artifact),
+    description: artifact.href ?? artifact.targetId,
     status: toExecutionCanvasStatus(artifact.status),
     startedAt: artifact.createdAt,
     finishedAt: null,
     timestamp: artifact.createdAt,
-    href: artifact.href,
     metadata: compactMetadata({
       artifactType: artifact.artifactType,
       targetDomain: artifact.targetDomain,
@@ -299,7 +308,7 @@ function artifactToCanvasNode(
 function approvalToCanvasNode(
   tool: AgentToolInvocationSummary,
   laneId: string,
-): ExecutionCanvasNode {
+): InternalExecutionCanvasNode {
   const timestamp = earliestTimestamp(
     tool.createdAt,
     tool.startedAt,
@@ -309,14 +318,15 @@ function approvalToCanvasNode(
   return {
     id: approvalNodeId(tool.approvalRequestId ?? tool.id),
     sourceId: tool.approvalRequestId ?? tool.id,
-    kind: 'approval',
     laneId,
+    kind: 'approval',
     label: `Approval: ${formatCapabilityLabel(tool.capabilityKey)}`,
+    eyebrow: 'Approval',
+    description: tool.reasonCode,
     status: 'waiting_approval',
     startedAt: tool.startedAt,
     finishedAt: tool.completedAt,
     timestamp,
-    href: null,
     metadata: compactMetadata({
       approvalRequestId: tool.approvalRequestId,
       capabilityKey: tool.capabilityKey,
@@ -329,10 +339,10 @@ function approvalToCanvasNode(
 }
 
 function buildLanes(
-  nodes: ExecutionCanvasNode[],
+  nodes: InternalExecutionCanvasNode[],
   sequenceByNodeId: Map<string, number>,
-): ExecutionCanvasLane[] {
-  const laneNodes = new Map<string, ExecutionCanvasNode[]>();
+): InternalExecutionCanvasLane[] {
+  const laneNodes = new Map<string, InternalExecutionCanvasNode[]>();
 
   for (const node of nodes) {
     const lane = laneNodes.get(node.laneId) ?? [];
@@ -358,8 +368,8 @@ function buildLanes(
     return {
       id,
       label: formatLaneLabel(id),
+      agentType: agentTypeFromLaneId(id),
       nodes: sortedNodes,
-      status: laneStatus(sortedNodes),
       timestamp: earliestTimestamp(...sortedNodes.map((node) => node.timestamp)),
     };
   });
@@ -386,7 +396,7 @@ function buildLanes(
 
 function buildEdges(
   graph: AgentRunGraph,
-  nodeById: Map<string, ExecutionCanvasNode>,
+  nodeById: Map<string, InternalExecutionCanvasNode>,
 ): ExecutionCanvasEdge[] {
   const edges: ExecutionCanvasEdge[] = [];
   const edgeIds = new Set<string>();
@@ -443,30 +453,6 @@ function buildEdges(
   }
 
   return edges;
-}
-
-function laneStatus(nodes: ExecutionCanvasNode[]): ExecutionCanvasStatus {
-  if (nodes.some((node) => node.status === 'failed')) {
-    return 'failed';
-  }
-
-  if (nodes.some((node) => node.status === 'waiting_approval')) {
-    return 'waiting_approval';
-  }
-
-  if (nodes.some((node) => node.status === 'running')) {
-    return 'running';
-  }
-
-  if (nodes.some((node) => node.status === 'waiting')) {
-    return 'waiting';
-  }
-
-  if (nodes.some((node) => node.status === 'succeeded')) {
-    return 'succeeded';
-  }
-
-  return 'skipped';
 }
 
 function laneIdFromTask(task: AgentRunGraphNode): string {
@@ -557,6 +543,41 @@ function formatCapabilityLabel(capabilityKey: string): string {
     .filter(Boolean)
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join(' ');
+}
+
+function formatArtifactEyebrow(artifact: AgentArtifactSummary): string {
+  return formatCapabilityLabel(
+    artifact.artifactType || artifact.targetDomain || 'artifact',
+  );
+}
+
+function agentTypeFromLaneId(laneId: string): string | null {
+  return laneId === 'agent' ? null : laneId;
+}
+
+function toPublicLane(lane: InternalExecutionCanvasLane): ExecutionCanvasLane {
+  return {
+    id: lane.id,
+    label: lane.label,
+    agentType: lane.agentType,
+    nodes: lane.nodes.map(toPublicNode),
+  };
+}
+
+function toPublicNode(node: InternalExecutionCanvasNode): ExecutionCanvasNode {
+  return {
+    id: node.id,
+    sourceId: node.sourceId,
+    laneId: node.laneId,
+    kind: node.kind,
+    label: node.label,
+    eyebrow: node.eyebrow,
+    description: node.description,
+    status: node.status,
+    startedAt: node.startedAt,
+    finishedAt: node.finishedAt,
+    metadata: node.metadata,
+  };
 }
 
 function compactMetadata(
