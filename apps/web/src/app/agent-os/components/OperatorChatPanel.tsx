@@ -17,6 +17,7 @@ export function OperatorChatPanel({
   messages,
   artifacts,
   selectedConversationId,
+  className,
   sending = false,
   draftPending = false,
   onCreateDraft,
@@ -25,6 +26,7 @@ export function OperatorChatPanel({
   messages: AgentOsMessage[];
   artifacts: AgentOsArtifact[];
   selectedConversationId: string | null;
+  className?: string;
   sending?: boolean;
   draftPending?: boolean;
   onCreateDraft: (artifactId: string) => void;
@@ -41,20 +43,22 @@ export function OperatorChatPanel({
   }
 
   return (
-    <main className="flex min-w-0 flex-1 flex-col bg-[#090d16]">
-      <div className="flex h-16 items-center border-b border-white/10 px-5">
+    <main
+      className={cn('flex min-h-0 min-w-0 flex-1 flex-col bg-white', className)}
+    >
+      <div className="flex h-14 shrink-0 items-center border-b border-slate-200 px-4">
         <div>
-          <h2 className="text-sm font-bold text-white">Operator Chat</h2>
-          <p className="mt-0.5 text-xs text-slate-400">
+          <h2 className="text-sm font-bold text-slate-950">Operator Chat</h2>
+          <p className="mt-0.5 text-xs text-slate-500">
             Sourcing · Listing · Supply
           </p>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-5 py-4">
-        <div className="mx-auto flex max-w-3xl flex-col gap-3">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+        <div className="flex flex-col gap-3">
           {messages.length === 0 && artifacts.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-white/10 bg-white/[0.02] p-6 text-sm leading-6 text-slate-300">
+            <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-500">
               새 Operator 세션
             </div>
           ) : null}
@@ -67,8 +71,8 @@ export function OperatorChatPanel({
                 className={cn(
                   'max-w-[82%] rounded-lg px-4 py-3 text-sm leading-6',
                   isUser
-                    ? 'self-end bg-cyan-500 text-white'
-                    : 'self-start border border-white/10 bg-[#101827] text-slate-100',
+                    ? 'self-end bg-sky-500 text-white'
+                    : 'self-start border border-slate-200 bg-white text-slate-700 shadow-sm',
                 )}
               >
                 <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide opacity-70">
@@ -92,19 +96,19 @@ export function OperatorChatPanel({
 
       <form
         onSubmit={submit}
-        className="border-t border-white/10 bg-[#0c1220] p-4"
+        className="shrink-0 border-t border-slate-200 bg-white px-4 py-3"
       >
-        <div className="mx-auto flex max-w-3xl gap-2">
+        <div className="flex gap-2">
           <textarea
             value={content}
             onChange={(event) => setContent(event.target.value)}
-            className="min-h-12 flex-1 resize-none rounded-lg border border-white/10 bg-[#090d16] px-3 py-2 text-sm leading-6 text-white outline-none placeholder:text-slate-500 focus:border-cyan-300"
+            className="min-h-11 flex-1 resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-950 outline-none placeholder:text-slate-400 focus:border-sky-400"
             placeholder="시장 기회나 카테고리를 요청하세요"
           />
           <button
             type="submit"
             disabled={sending || !content.trim()}
-            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-cyan-300/50 text-cyan-100 hover:border-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-sky-200 text-sky-600 hover:border-sky-300 hover:text-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
             aria-label="전송"
           >
             <SendHorizontal className="h-4 w-4" aria-hidden="true" />
