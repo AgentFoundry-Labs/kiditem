@@ -58,6 +58,7 @@ export interface ExecutionCanvasGraph {
     totalEdges: number;
     runningNodes: number;
     waitingApprovalNodes: number;
+    approvalNodes: number;
     failedNodes: number;
     succeededNodes: number;
   };
@@ -75,6 +76,7 @@ const EMPTY_GRAPH: ExecutionCanvasGraph = {
     totalEdges: 0,
     runningNodes: 0,
     waitingApprovalNodes: 0,
+    approvalNodes: 0,
     failedNodes: 0,
     succeededNodes: 0,
   },
@@ -185,6 +187,8 @@ export function projectAgentRunGraph(
       waitingApprovalNodes: sortedNodes.filter(
         (node) => node.status === 'waiting_approval',
       ).length,
+      approvalNodes: sortedNodes.filter((node) => node.kind === 'approval')
+        .length,
       failedNodes: sortedNodes.filter((node) => node.status === 'failed')
         .length,
       succeededNodes: sortedNodes.filter((node) => node.status === 'succeeded')

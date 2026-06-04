@@ -145,6 +145,22 @@ const graph: AgentRunGraph = {
       status: 'active',
       createdAt: '2026-06-04T00:00:16.000Z',
     },
+    {
+      id: 'artifact-listing-fallback-1',
+      conversationId: 'conversation-1',
+      requestId: 'request-listing-1',
+      runId: 'run-listing-1',
+      toolInvocationId: null,
+      artifactType: 'listing_review_snapshot',
+      targetDomain: 'listing',
+      targetModel: 'ListingReviewSnapshot',
+      targetId: 'listing-review-1',
+      title: '등록 검수 스냅샷',
+      href: null,
+      summary: { checks: 4, status: 'ready' },
+      status: 'active',
+      createdAt: '2026-06-04T00:00:17.000Z',
+    },
   ],
 };
 
@@ -155,7 +171,12 @@ describe('projectAgentRunGraph', () => {
     expect(result.lanes).toEqual([]);
     expect(result.nodes).toEqual([]);
     expect(result.edges).toEqual([]);
-    expect(result.summary.totalNodes).toBe(0);
+    expect(result.summary).toMatchObject({
+      totalNodes: 0,
+      runningNodes: 0,
+      failedNodes: 0,
+      approvalNodes: 0,
+    });
   });
 
   it('groups task, tool, artifact, and approval nodes into agent lanes', () => {
@@ -175,6 +196,7 @@ describe('projectAgentRunGraph', () => {
       'task:request-listing-1',
       'tool:tool-listing-1',
       'artifact:artifact-listing-1',
+      'artifact:artifact-listing-fallback-1',
       'tool:tool-approval-1',
       'approval:approval-1',
     ]);
@@ -203,6 +225,11 @@ describe('projectAgentRunGraph', () => {
         expect.objectContaining({
           from: 'tool:tool-approval-1',
           to: 'approval:approval-1',
+          crossLane: false,
+        }),
+        expect.objectContaining({
+          from: 'task:request-listing-1',
+          to: 'artifact:artifact-listing-fallback-1',
           crossLane: false,
         }),
       ]),
