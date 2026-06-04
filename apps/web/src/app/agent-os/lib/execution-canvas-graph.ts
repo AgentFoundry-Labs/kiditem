@@ -478,9 +478,7 @@ function laneIdForTool(
     }
   }
 
-  return normalizeLaneId(
-    agentTypeFromCapability(tool.capabilityKey) ?? tool.resourceType ?? 'tools',
-  );
+  return laneIdFromDomain(tool.capabilityKey ?? tool.resourceType ?? 'tools');
 }
 
 function laneIdForArtifact(
@@ -508,7 +506,7 @@ function laneIdForArtifact(
     }
   }
 
-  return normalizeLaneId(artifact.targetDomain || artifact.artifactType);
+  return laneIdFromDomain(artifact.targetDomain || artifact.artifactType);
 }
 
 function normalizeLaneId(value: string | null | undefined): string {
@@ -522,27 +520,44 @@ function normalizeLaneId(value: string | null | undefined): string {
   return normalized || 'agent';
 }
 
+function laneIdFromDomain(value: string | null | undefined): string {
+  return normalizeLaneId(agentTypeFromCapability(value) ?? value);
+}
+
 function agentTypeFromCapability(
   capabilityKey: string | null | undefined,
 ): string | null {
-  const [firstSegment] = capabilityKey?.split('_') ?? [];
-  return firstSegment?.trim() || null;
+  const [domain] = splitCapabilitySegments(capabilityKey);
+
+  if (domain === 'channel' || domain === 'channels') {
+    return 'channel_registration';
+  }
+
+  return domain ?? null;
 }
 
 function formatLaneLabel(laneId: string): string {
-  return laneId
-    .split(/[_-]+/)
+  return splitCapabilitySegments(laneId)
     .filter(Boolean)
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join(' ');
 }
 
 function formatCapabilityLabel(capabilityKey: string): string {
-  return capabilityKey
-    .split('_')
+  return splitCapabilitySegments(capabilityKey)
     .filter(Boolean)
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join(' ');
+}
+
+function splitCapabilitySegments(value: string | null | undefined): string[] {
+  return (
+    value
+      ?.trim()
+      .toLowerCase()
+      .split(/[._-]+/)
+      .filter(Boolean) ?? []
+  );
 }
 
 function formatArtifactEyebrow(artifact: AgentArtifactSummary): string {

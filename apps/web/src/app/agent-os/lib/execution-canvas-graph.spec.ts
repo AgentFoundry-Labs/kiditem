@@ -240,6 +240,66 @@ describe('projectAgentRunGraph', () => {
     );
   });
 
+  it('uses capability domains for requestless dot-form tool lanes', () => {
+    const result = projectAgentRunGraph({
+      ...graph,
+      toolInvocations: [
+        ...graph.toolInvocations,
+        {
+          id: 'tool-score-dot-1',
+          organizationId: 'org-1',
+          agentInstanceId: 'agent-sourcing-2',
+          requestId: null,
+          runId: null,
+          approvalRequestId: null,
+          capabilityKey: 'sourcing.score_opportunities',
+          status: 'succeeded',
+          policyDecision: 'allowed',
+          reasonCode: null,
+          resourceType: 'opportunity_score',
+          resourceId: 'opportunity-1',
+          idempotencyKey: null,
+          inputSummary: { candidateId: 'candidate-1' },
+          outputSummary: { score: 92 },
+          errorCode: null,
+          errorMessage: null,
+          startedAt: '2026-06-04T00:00:19.000Z',
+          completedAt: '2026-06-04T00:00:20.000Z',
+          createdAt: '2026-06-04T00:00:19.000Z',
+        },
+        {
+          id: 'tool-channel-dot-1',
+          organizationId: 'org-1',
+          agentInstanceId: 'agent-channel-2',
+          requestId: null,
+          runId: null,
+          approvalRequestId: null,
+          capabilityKey: 'channels.submit_coupang_listing',
+          status: 'requested',
+          policyDecision: 'approval_required',
+          reasonCode: 'policy_approval_required',
+          resourceType: 'coupang_listing',
+          resourceId: null,
+          idempotencyKey: null,
+          inputSummary: { productName: '오프로드 장난감 자동차' },
+          outputSummary: null,
+          errorCode: null,
+          errorMessage: null,
+          startedAt: null,
+          completedAt: null,
+          createdAt: '2026-06-04T00:00:21.000Z',
+        },
+      ],
+    });
+
+    expect(result.lanes.find((lane) => lane.id === 'sourcing')?.nodes.map((node) => node.id)).toContain(
+      'tool:tool-score-dot-1',
+    );
+    expect(result.lanes.find((lane) => lane.id === 'channel_registration')?.nodes.map((node) => node.id)).toEqual([
+      'tool:tool-channel-dot-1',
+    ]);
+  });
+
   it('returns the public graph, lane, and node fields expected by canvas consumers', () => {
     const result = projectAgentRunGraph(graph);
     const listingLane = result.lanes.find((lane) => lane.id === 'listing');
