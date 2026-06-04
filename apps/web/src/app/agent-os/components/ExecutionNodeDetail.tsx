@@ -194,11 +194,7 @@ function isPromotedMetadata(
   key: string,
   value: string,
 ): boolean {
-  return (
-    (key === 'capabilityKey' && value === node.eyebrow) ||
-    value === node.label ||
-    value === node.description
-  );
+  return key === 'capabilityKey' && value === node.eyebrow;
 }
 
 function kindTone(kind: ExecutionCanvasNodeKind): string {

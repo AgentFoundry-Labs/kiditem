@@ -57,6 +57,27 @@ describe('ExecutionNodeDetail', () => {
     expect(screen.getByText('8')).toBeInTheDocument();
   });
 
+  it('keeps metadata values that happen to match the selected node label', () => {
+    const productNode: ExecutionCanvasNode = {
+      ...toolNode,
+      label: '오프로드 장난감 자동차',
+      metadata: {
+        productName: '오프로드 장난감 자동차',
+      },
+    };
+
+    render(
+      <ExecutionNodeDetail
+        node={productNode}
+        approvalPendingId={null}
+        onResolveApproval={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('productName')).toBeInTheDocument();
+    expect(screen.getAllByText('오프로드 장난감 자동차')).toHaveLength(2);
+  });
+
   it('resolves an approval node from the right panel', () => {
     const onResolveApproval = vi.fn();
     render(
@@ -72,5 +93,39 @@ describe('ExecutionNodeDetail', () => {
 
     expect(onResolveApproval).toHaveBeenCalledWith('approval-1', 'approved');
     expect(onResolveApproval).toHaveBeenCalledWith('approval-1', 'rejected');
+  });
+
+  it('disables approval actions while an approval resolution is pending', () => {
+    const onResolveApproval = vi.fn();
+    render(
+      <ExecutionNodeDetail
+        node={approvalNode}
+        approvalPendingId="approval-1"
+        onResolveApproval={onResolveApproval}
+      />,
+    );
+
+    const approveButton = screen.getByRole('button', { name: '승인' });
+    const rejectButton = screen.getByRole('button', { name: '거절' });
+
+    expect(approveButton).toBeDisabled();
+    expect(rejectButton).toBeDisabled();
+
+    fireEvent.click(approveButton);
+    fireEvent.click(rejectButton);
+
+    expect(onResolveApproval).not.toHaveBeenCalled();
+  });
+
+  it('explains approval side effects are blocked before approval', () => {
+    render(
+      <ExecutionNodeDetail
+        node={approvalNode}
+        approvalPendingId={null}
+        onResolveApproval={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/부수 효과가 실행되지 않습니다/)).toBeInTheDocument();
   });
 });
