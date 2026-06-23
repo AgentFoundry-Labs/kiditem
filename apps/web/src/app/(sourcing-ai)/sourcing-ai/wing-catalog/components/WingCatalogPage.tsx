@@ -146,7 +146,7 @@ export function WingCatalogPage() {
 
   return (
     <main className="min-h-full bg-[var(--surface-sunken)] text-[var(--text-primary)]">
-      <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-5 px-5 py-6">
+      <div className="flex w-full max-w-none flex-col gap-5 px-5 py-6">
         <header className="px-4 pb-1 pt-3 text-center">
           <h1 className="inline-block bg-gradient-to-r from-[#ff5a1f] via-[#ff7a36] to-[#ffb14a] bg-clip-text text-5xl font-black tracking-normal text-transparent md:text-6xl">
             쿠팡 상품 분석
