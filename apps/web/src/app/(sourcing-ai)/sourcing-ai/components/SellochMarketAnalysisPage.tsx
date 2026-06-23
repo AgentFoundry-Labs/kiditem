@@ -1,32 +1,75 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { BarChart3, CheckCircle2, Clock3, PackageSearch, TrendingUp } from 'lucide-react';
+import { AlertCircle, BarChart3, CheckCircle2, Clock3, Loader2, PackageSearch, PlayCircle, TrendingUp } from 'lucide-react';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import {
   formatWingCatalogRate,
   resolveCoupangCatalogImageUrl,
+  searchWingCatalogProducts,
 } from '../wing-catalog/lib/wing-catalog-extension';
+import { readRankedKeywordPool } from '../lib/ranked-keyword-pool';
 import { useTodayRecommendationRows, useTodayRecommendationSnapshots } from '../lib/use-today-recommendation-rows';
 import {
+  createManualSourcingWorkspaceSnapshotMeta,
+  saveTodaySourcingWorkspaceSnapshot,
+  type SourcingWorkspaceSnapshotMeta,
+} from '../lib/sourcing-workspace-snapshot-api';
+import {
+  appendProductSnapshots,
   buildProductTrackingSummary,
   buildRecommendationSummary,
   buildRisingKeywordOpportunities,
+  buildTodayRecommendationRows,
+  mergeTodayRecommendationRows,
+  readTodayRecommendationSnapshots,
+  snapshotsToMap,
   snapshotsToLatestMap,
   THREE_DAY_TRACKING_MS,
+  writeTodayRecommendationRows,
+  writeTodayRecommendationSnapshots,
   type ProductSnapshot,
   type RecommendationGrade,
   type TodayRecommendationRow,
 } from '../recommendations/lib/today-recommendations';
 
+const MARKET_ANALYSIS_KEYWORD_LIMIT = 12;
+const MARKET_ANALYSIS_MAX_PAGES = 1;
+const MARKET_ANALYSIS_RESULT_LIMIT = 80;
+
 interface SellochMarketAnalysisPageProps {
   compact?: boolean;
 }
 
+type MarketAnalysisProgress = {
+  current: number;
+  total: number;
+  keyword: string;
+};
+
+type TodayRecommendationsSnapshotPayload = {
+  version: 1;
+  input: {
+    keywordText: string;
+    keywordLimit: number;
+    maxPages: number;
+  };
+  result: {
+    rows: TodayRecommendationRow[];
+    productSnapshots: ProductSnapshot[];
+  };
+  meta: SourcingWorkspaceSnapshotMeta;
+};
+
 export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnalysisPageProps) {
   const rows = useTodayRecommendationRows();
   const snapshots = useTodayRecommendationSnapshots();
+  const [isRunning, setIsRunning] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [errors, setErrors] = useState<string[]>([]);
+  const [progress, setProgress] = useState<MarketAnalysisProgress>({ current: 0, total: 0, keyword: '' });
+  const cancelRef = useRef(false);
   const snapshotMap = useMemo(() => snapshotsToLatestMap(snapshots), [snapshots]);
   const summary = buildRecommendationSummary(rows);
   const trackingSummary = buildProductTrackingSummary(rows, snapshotMap);
@@ -36,8 +79,108 @@ export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnal
   const priceBuckets = buildPriceBuckets(rows);
   const reviewBuckets = buildReviewBuckets(rows);
 
+  const runMarketAnalysis = useCallback(async () => {
+    const rankedKeywordPool = readRankedKeywordPool();
+    const keywords = Array.from(new Set(
+      (rankedKeywordPool?.entries ?? [])
+        .map((entry) => entry.keyword.trim())
+        .filter(Boolean),
+    )).slice(0, MARKET_ANALYSIS_KEYWORD_LIMIT);
+
+    if (keywords.length === 0) {
+      setNotice(null);
+      setErrors(['키워드 분석에서 순위 갱신을 먼저 실행해야 시장분석 후보를 만들 수 있습니다.']);
+      return;
+    }
+
+    cancelRef.current = false;
+    setIsRunning(true);
+    setNotice(null);
+    setErrors([]);
+    setProgress({ current: 0, total: keywords.length, keyword: '' });
+
+    let productSnapshots = readTodayRecommendationSnapshots();
+    const previousSnapshots = snapshotsToMap(productSnapshots);
+    let accumulated: TodayRecommendationRow[] = [];
+    const nextErrors: string[] = [];
+
+    for (let index = 0; index < keywords.length; index += 1) {
+      if (cancelRef.current) break;
+      const keyword = keywords[index];
+      setProgress({ current: index + 1, total: keywords.length, keyword });
+
+      try {
+        const response = await searchWingCatalogProducts({
+          keyword,
+          maxPages: MARKET_ANALYSIS_MAX_PAGES,
+        });
+        const scored = buildTodayRecommendationRows({
+          keyword,
+          products: response.rows ?? [],
+          previousSnapshots,
+        });
+        productSnapshots = appendProductSnapshots(scored, productSnapshots);
+        accumulated = mergeTodayRecommendationRows([...accumulated, ...scored]);
+        const nextRows = accumulated.slice(0, MARKET_ANALYSIS_RESULT_LIMIT);
+        writeTodayRecommendationRows(nextRows);
+        writeTodayRecommendationSnapshots(productSnapshots);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        nextErrors.push(`${keyword}: ${message}`);
+        setErrors([...nextErrors]);
+        if (message.includes('확장프로그램') || message.includes('Wing 로그인')) break;
+      }
+
+      await sleep(700);
+    }
+
+    const finalRows = accumulated.slice(0, MARKET_ANALYSIS_RESULT_LIMIT);
+    writeTodayRecommendationRows(finalRows);
+    writeTodayRecommendationSnapshots(productSnapshots);
+
+    if (finalRows.length > 0) {
+      const payload: TodayRecommendationsSnapshotPayload = {
+        version: 1,
+        input: {
+          keywordText: keywords.join('\n'),
+          keywordLimit: keywords.length,
+          maxPages: MARKET_ANALYSIS_MAX_PAGES,
+        },
+        result: {
+          rows: finalRows.slice(0, 100),
+          productSnapshots: productSnapshots.slice(0, 2000),
+        },
+        meta: createManualSourcingWorkspaceSnapshotMeta(),
+      };
+      void saveTodaySourcingWorkspaceSnapshot('today_recommendations', payload).catch(() => {
+        // Local storage still carries the page-to-page handoff when the API is unavailable.
+      });
+      setNotice(`시장분석 후보 ${formatNumber(finalRows.length)}개를 오늘의 추천으로 보냈습니다.`);
+    } else if (!cancelRef.current && nextErrors.length === 0) {
+      setNotice('Wing 검증 결과로 추천할 상품이 아직 없습니다.');
+    }
+
+    setIsRunning(false);
+    setProgress((current) => ({ ...current, keyword: cancelRef.current ? '중단됨' : '완료' }));
+  }, []);
+
+  const cancelMarketAnalysis = useCallback(() => {
+    cancelRef.current = true;
+    setIsRunning(false);
+  }, []);
+
   if (rows.length === 0) {
-    return <EmptyMarketState compact={compact} />;
+    return (
+      <EmptyMarketState
+        compact={compact}
+        errors={errors}
+        isRunning={isRunning}
+        notice={notice}
+        onCancel={cancelMarketAnalysis}
+        onRun={runMarketAnalysis}
+        progress={progress}
+      />
+    );
   }
 
   return (
@@ -47,22 +190,34 @@ export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnal
           <div>
             <div className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[var(--primary-soft,#eef2ff)] px-3 text-xs font-bold text-[var(--primary,#6d5dfc)]">
               <BarChart3 size={14} />
-              오늘의 추천 기반
+              시장분석 실행 결과
             </div>
             <h2 className="mt-3 text-2xl font-black tracking-normal text-[var(--text-primary,#111827)]">
               시장 분석
             </h2>
             <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-[var(--text-secondary,#475569)]">
-              Wing 검증 상품 {formatNumber(rows.length)}개를 기준으로 3일 신규 관측, 저리뷰 판매력, 가격대를 봅니다.
+              키워드 분석 순위권을 Wing으로 먼저 검증하고, 통과한 상품을 오늘의 추천 후보로 넘깁니다.
             </p>
           </div>
-          <Link
-            href="/sourcing-ai/recommendations"
-            className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-[var(--border,#e2e8f0)] bg-[var(--surface-sunken,#f8fafc)] px-4 text-xs font-black text-[var(--text-secondary,#475569)] transition hover:border-[#ffb89f] hover:text-[#d94112]"
-          >
-            오늘의 추천 갱신
-          </Link>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <button
+              type="button"
+              onClick={runMarketAnalysis}
+              disabled={isRunning}
+              className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-[#ff5a1f] px-4 text-xs font-black text-white transition hover:bg-[#ef4f18] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isRunning ? <Loader2 size={15} className="animate-spin" /> : <PlayCircle size={15} />}
+              시장분석 다시 실행
+            </button>
+            <Link
+              href="/sourcing-ai/recommendations"
+              className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-[var(--border,#e2e8f0)] bg-[var(--surface-sunken,#f8fafc)] px-4 text-xs font-black text-[var(--text-secondary,#475569)] transition hover:border-[#ffb89f] hover:text-[#d94112]"
+            >
+              오늘의 추천 보기
+            </Link>
+          </div>
         </div>
+        <MarketRunFeedback errors={errors} isRunning={isRunning} notice={notice} progress={progress} />
 
         <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <SummaryMetric icon={PackageSearch} label="분석 상품" value={`${formatNumber(summary.totalCandidates)}개`} caption="중복 제거 후" />
@@ -93,7 +248,7 @@ export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnal
             TOP {formatNumber(topProducts.length)}
           </span>
         </div>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           {topProducts.map((row) => (
             <MarketProductCard key={marketProductKey(row)} row={row} snapshot={snapshotMap.get(marketProductKey(row))} />
           ))}
@@ -103,25 +258,107 @@ export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnal
   );
 }
 
-function EmptyMarketState({ compact }: { compact: boolean }) {
+function EmptyMarketState({
+  compact,
+  errors,
+  isRunning,
+  notice,
+  onCancel,
+  onRun,
+  progress,
+}: {
+  compact: boolean;
+  errors: string[];
+  isRunning: boolean;
+  notice: string | null;
+  onCancel: () => void;
+  onRun: () => void;
+  progress: MarketAnalysisProgress;
+}) {
   return (
     <section className="rounded-lg border border-[var(--border,#e2e8f0)] bg-[var(--surface,white)] p-8 text-center shadow-sm">
       <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-xl bg-[var(--surface-sunken,#f8fafc)] text-[var(--text-tertiary,#94a3b8)]">
         <PackageSearch size={24} />
       </div>
-      <h2 className="mt-4 text-xl font-black text-[var(--text-primary,#111827)]">분석할 추천 상품이 없습니다</h2>
+      <h2 className="mt-4 text-xl font-black text-[var(--text-primary,#111827)]">먼저 시장분석을 실행하세요</h2>
       <p className="mx-auto mt-2 max-w-xl text-sm font-semibold leading-6 text-[var(--text-secondary,#475569)]">
-        오늘의 추천에서 Wing 상품 검증을 실행하면 이 화면이 상품 기반 시장분석으로 채워집니다.
+        키워드 분석 순위권을 Wing 카탈로그로 검증한 뒤, 반응이 있는 상품을 오늘의 추천 후보로 보냅니다.
       </p>
       {!compact && (
-        <Link
-          href="/sourcing-ai/recommendations"
-          className="mt-5 inline-flex h-10 items-center justify-center rounded-lg bg-[#ff5a1f] px-4 text-sm font-black text-white transition hover:bg-[#ef4f18]"
-        >
-          오늘의 추천으로 이동
-        </Link>
+        <div className="mt-5 flex flex-col items-center justify-center gap-2 sm:flex-row">
+          <button
+            type="button"
+            onClick={onRun}
+            disabled={isRunning}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#ff5a1f] px-5 text-sm font-black text-white transition hover:bg-[#ef4f18] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isRunning ? <Loader2 size={16} className="animate-spin" /> : <PlayCircle size={16} />}
+            시장분석 시작
+          </button>
+          {isRunning ? (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="inline-flex h-11 items-center justify-center rounded-lg border border-[var(--border,#e2e8f0)] bg-white px-5 text-sm font-black text-[var(--text-secondary,#475569)]"
+            >
+              중단
+            </button>
+          ) : (
+            <Link
+              href="/sourcing-ai/keywords"
+              className="inline-flex h-11 items-center justify-center rounded-lg border border-[var(--border,#e2e8f0)] bg-white px-5 text-sm font-black text-[var(--text-secondary,#475569)] transition hover:border-[#ffb89f] hover:text-[#d94112]"
+            >
+              키워드 분석 확인
+            </Link>
+          )}
+        </div>
       )}
+      <MarketRunFeedback errors={errors} isRunning={isRunning} notice={notice} progress={progress} centered />
     </section>
+  );
+}
+
+function MarketRunFeedback({
+  centered = false,
+  errors,
+  isRunning,
+  notice,
+  progress,
+}: {
+  centered?: boolean;
+  errors: string[];
+  isRunning: boolean;
+  notice: string | null;
+  progress: MarketAnalysisProgress;
+}) {
+  if (!isRunning && !notice && errors.length === 0) return null;
+
+  return (
+    <div className={cn('mt-4 space-y-2 text-sm font-bold', centered && 'mx-auto max-w-xl text-left')}>
+      {isRunning && (
+        <div className="rounded-lg bg-[var(--surface-sunken,#f8fafc)] px-4 py-3 text-[var(--text-secondary,#475569)]">
+          <div className="flex items-center justify-between gap-3">
+            <span>{progress.keyword ? `${progress.keyword} 검증 중` : '시장분석 준비 중'}</span>
+            <span>{formatNumber(progress.current)} / {formatNumber(progress.total)}</span>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-white">
+            <div
+              className="h-full rounded-full bg-[#ff5a1f]"
+              style={{ width: `${progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 8}%` }}
+            />
+          </div>
+        </div>
+      )}
+      {notice && (
+        <p className="rounded-lg bg-green-50 px-4 py-3 text-green-700">{notice}</p>
+      )}
+      {errors.slice(0, 3).map((error) => (
+        <p key={error} className="flex items-start gap-2 rounded-lg bg-red-50 px-4 py-3 text-red-700">
+          <AlertCircle size={16} className="mt-0.5 shrink-0" />
+          <span>{error}</span>
+        </p>
+      ))}
+    </div>
   );
 }
 
@@ -226,7 +463,7 @@ function MarketProductCard({ row, snapshot }: { row: TodayRecommendationRow; sna
 
   return (
     <article className="overflow-hidden rounded-lg border border-[var(--border-subtle,#eef1f5)] bg-[var(--surface-sunken,#f8fafc)]">
-      <div className="relative aspect-[4/3] bg-[var(--surface-raised,#f1f5f9)]">
+      <div className="relative aspect-square bg-[var(--surface-raised,#f1f5f9)]">
         {imageUrl ? (
           <img src={imageUrl} alt="" className="h-full w-full object-cover" />
         ) : (
@@ -243,12 +480,12 @@ function MarketProductCard({ row, snapshot }: { row: TodayRecommendationRow; sna
           </span>
         )}
       </div>
-      <div className="p-4">
+      <div className="p-3">
         <p className="text-[11px] font-black text-[#ff5a1f]">{row.primaryKeyword}</p>
         <h3 className="mt-1 line-clamp-2 min-h-10 text-sm font-black leading-5 text-[var(--text-primary,#111827)]">
           {row.productName}
         </h3>
-        <div className="mt-3 grid grid-cols-2 gap-2">
+        <div className="mt-3 grid grid-cols-2 gap-1.5">
           <SmallMetric label="점수" value={`${formatNumber(row.score)}점`} strong />
           <SmallMetric label="판매가" value={formatPrice(row.salePrice)} />
           <SmallMetric label="3일 판매" value={`${formatNumber(resolveSalesLast3d(row))}개`} />
@@ -390,4 +627,10 @@ function formatFirstSeen(snapshot: ProductSnapshot | undefined): string {
   const elapsedDays = Math.max(0, Math.floor((Date.now() - firstSeenAt) / (24 * 60 * 60 * 1000)));
   if (elapsedDays === 0) return '오늘';
   return `${formatNumber(elapsedDays)}일 전`;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 }

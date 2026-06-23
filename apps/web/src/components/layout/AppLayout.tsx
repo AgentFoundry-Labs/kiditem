@@ -59,6 +59,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   const isEditorRoute = pathname.includes('/editor');
+  const isFinalSelectionRoute = pathname === '/sourcing-ai/final-selection';
   const collapsedForEditor = isEditorRoute || !sidebarOpen;
   const showAutoReadinessModal = pathname === '/dashboard';
 
@@ -117,7 +118,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           collapsedForEditor ? 'md:ml-[68px]' : 'md:ml-60'
         )}
       >
-        <main className={cn(isEditorRoute ? 'p-0' : 'p-6')}>{children}</main>
+        <main className={cn(isEditorRoute ? 'p-0' : isFinalSelectionRoute ? 'p-3' : 'p-6')}>{children}</main>
       </div>
       <PanelErrorBoundary>
         <PanelMount />

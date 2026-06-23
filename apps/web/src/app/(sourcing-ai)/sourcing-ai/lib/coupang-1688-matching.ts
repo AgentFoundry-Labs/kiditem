@@ -28,6 +28,18 @@ export interface ImageSearchOffer {
   matchScore: number;
   estimatedProfitKrw: number | null;
   estimatedMarginRate: number | null;
+  salesText?: string | null;
+  salesNum?: number | null;
+  supplierName?: string | null;
+  supplierFactoryUrl?: string | null;
+  supplierTags?: string[];
+  purchaseTags?: string[];
+  minOrderQuantity?: number | null;
+  shippingFulfillmentRate?: string | null;
+  shippingPickupRate?: string | null;
+  shipFrom?: string | null;
+  serviceScore?: number | null;
+  repurchaseRate?: string | null;
 }
 
 interface BuildImageSearchRowsInput {
@@ -41,8 +53,11 @@ interface QueryRule {
 }
 
 const queryRules: QueryRule[] = [
+  { terms: ['말랑이', '스퀴시', '스트레스볼', '악뿌볼'], query: '解压玩具捏捏乐' },
   { terms: ['슬라임'], query: '儿童史莱姆玩具' },
   { terms: ['잔디인형', '인형'], query: '儿童毛绒玩具' },
+  { terms: ['도장'], query: '儿童印章玩具' },
+  { terms: ['레고', '블록'], query: '积木玩具' },
   { terms: ['우산'], query: '儿童雨伞' },
   { terms: ['물총'], query: '儿童水枪玩具' },
   { terms: ['목욕놀이', '목욕'], query: '儿童洗澡玩具' },
@@ -119,7 +134,36 @@ export function buildImageSearchOffer(
     matchScore: Math.round(item.score),
     estimatedProfitKrw,
     estimatedMarginRate,
+    salesText: item.salesText,
+    salesNum: item.salesNum,
+    supplierName: item.supplierName,
+    supplierFactoryUrl: item.supplierFactoryUrl,
+    supplierTags: item.supplierTags,
+    purchaseTags: item.purchaseTags,
+    minOrderQuantity: item.minOrderQuantity,
+    shippingFulfillmentRate: item.shippingFulfillmentRate,
+    shippingPickupRate: item.shippingPickupRate,
+    shipFrom: item.shipFrom,
+    serviceScore: item.serviceScore,
+    repurchaseRate: item.repurchaseRate,
   };
+}
+
+export function selectBestImageSearchOffer(offers: ImageSearchOffer[]): ImageSearchOffer | null {
+  return offers
+    .slice()
+    .sort((a, b) => scoreImageSearchOffer(b) - scoreImageSearchOffer(a))
+    [0] ?? null;
+}
+
+export function scoreImageSearchOffer(offer: ImageSearchOffer): number {
+  let score = offer.matchScore * 0.34;
+  score += scoreMargin(offer) * 0.22;
+  score += scoreShipping(offer) * 0.18;
+  score += scoreSupplier(offer) * 0.14;
+  score += scoreDemand(offer) * 0.08;
+  score += scorePrice(offer) * 0.04;
+  return Math.max(0, Math.min(100, Math.round(score)));
 }
 
 export function build1688SearchUrl(query: string): string {
@@ -147,6 +191,74 @@ function estimateLandedCostKrw(priceCny: number | null): number | null {
     DEFAULT_SERVICE_FEE_KRW +
     DEFAULT_INSPECTION_FEE_KRW,
   );
+}
+
+function scoreMargin(offer: ImageSearchOffer): number {
+  const profit = offer.estimatedProfitKrw;
+  const margin = offer.estimatedMarginRate;
+  let score = 35;
+  if (profit != null) {
+    if (profit >= 7000) score += 34;
+    else if (profit >= 4500) score += 26;
+    else if (profit >= 2500) score += 18;
+    else if (profit >= 1000) score += 8;
+    else score -= 16;
+  }
+  if (margin != null) {
+    if (margin >= 35) score += 30;
+    else if (margin >= 24) score += 22;
+    else if (margin >= 14) score += 10;
+    else score -= 12;
+  }
+  return clampScore(score);
+}
+
+function scoreShipping(offer: ImageSearchOffer): number {
+  const fulfillment = parsePercent(offer.shippingFulfillmentRate);
+  const pickup = parsePercent(offer.shippingPickupRate);
+  let score = 40;
+  if (fulfillment != null) score += fulfillment >= 98 ? 28 : fulfillment >= 95 ? 22 : fulfillment >= 90 ? 12 : -8;
+  if (pickup != null) score += pickup >= 98 ? 28 : pickup >= 95 ? 22 : pickup >= 90 ? 12 : -8;
+  return clampScore(score);
+}
+
+function scoreSupplier(offer: ImageSearchOffer): number {
+  let score = 42;
+  if (offer.supplierName) score += 10;
+  if ((offer.supplierTags ?? []).some((tag) => /원천|공장|factory|源头|实力/i.test(tag))) score += 24;
+  if (offer.repurchaseRate) score += 8;
+  if (offer.serviceScore != null) score += Math.min(16, offer.serviceScore);
+  return clampScore(score);
+}
+
+function scoreDemand(offer: ImageSearchOffer): number {
+  const sales = offer.salesNum ?? null;
+  if (sales == null) return 45;
+  if (sales >= 1000) return 86;
+  if (sales >= 300) return 76;
+  if (sales >= 50) return 62;
+  if (sales >= 10) return 52;
+  return 42;
+}
+
+function scorePrice(offer: ImageSearchOffer): number {
+  if (offer.priceCny == null) return 35;
+  if (offer.priceCny <= 20) return 88;
+  if (offer.priceCny <= 50) return 76;
+  if (offer.priceCny <= 100) return 58;
+  return 34;
+}
+
+function parsePercent(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const parsed = Number(value.replace(/[%\s,]/g, ''));
+  if (!Number.isFinite(parsed)) return null;
+  return parsed <= 1 ? parsed * 100 : parsed;
+}
+
+function clampScore(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
 }
 
 function stripCoupangNoise(value: string): string {

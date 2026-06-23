@@ -12,6 +12,18 @@ export interface Search1688ImageItem {
   sourceUrl: string;
   imageUrl: string | null;
   score: number;
+  salesText?: string | null;
+  salesNum?: number | null;
+  supplierName?: string | null;
+  supplierFactoryUrl?: string | null;
+  supplierTags?: string[];
+  purchaseTags?: string[];
+  minOrderQuantity?: number | null;
+  shippingFulfillmentRate?: string | null;
+  shippingPickupRate?: string | null;
+  shipFrom?: string | null;
+  serviceScore?: number | null;
+  repurchaseRate?: string | null;
 }
 
 export interface Search1688ImageResult {

@@ -5,10 +5,14 @@ import type {
 export function PopularKeywordCard({
   board,
   disabled,
+  isInterestKeyword,
+  onTrackKeyword,
   onUseKeyword,
 }: {
   board: NaverDatalabPopularKeywordBoard;
   disabled: boolean;
+  isInterestKeyword: (keyword: string) => boolean;
+  onTrackKeyword: (keyword: string, metrics?: Record<string, number | string | null>) => void;
   onUseKeyword: (keyword: string) => void;
 }) {
   return (
@@ -35,23 +39,40 @@ export function PopularKeywordCard({
           </div>
         ) : board.ranks.length === 0 ? (
           <div className="px-4 py-8 text-center text-xs font-bold text-[var(--text-tertiary)]">표시할 키워드가 없습니다.</div>
-        ) : board.ranks.slice(0, 10).map((rank) => (
-          <button
-            key={`${board.key}:${rank.rank}:${rank.keyword}`}
-            type="button"
-            onClick={() => onUseKeyword(rank.keyword)}
-            disabled={disabled}
-            className="grid w-full grid-cols-[34px_minmax(0,1fr)] items-center gap-2 px-4 py-2 text-left transition hover:bg-[var(--surface-sunken)] disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <span className="text-xs font-black text-[#ff5a1f]">{rank.rank}</span>
-            <span className="min-w-0">
-              <span className="block truncate text-xs font-black">{rank.keyword}</span>
-              {rank.categories.length > 0 && (
-                <span className="block truncate text-[10px] font-bold text-[var(--text-tertiary)]">{rank.categories.slice(0, 2).join(', ')}</span>
-              )}
-            </span>
-          </button>
-        ))}
+        ) : board.ranks.slice(0, 10).map((rank) => {
+          const registered = isInterestKeyword(rank.keyword);
+          return (
+            <div
+              key={`${board.key}:${rank.rank}:${rank.keyword}`}
+              className="grid w-full grid-cols-[34px_minmax(0,1fr)_72px] items-center gap-2 px-4 py-2 text-left transition hover:bg-[var(--surface-sunken)]"
+            >
+              <span className="text-xs font-black text-[#ff5a1f]">{rank.rank}</span>
+              <button
+                type="button"
+                onClick={() => onUseKeyword(rank.keyword)}
+                disabled={disabled}
+                className="min-w-0 text-left disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <span className="block truncate text-xs font-black">{rank.keyword}</span>
+                {rank.categories.length > 0 && (
+                  <span className="block truncate text-[10px] font-bold text-[var(--text-tertiary)]">{rank.categories.slice(0, 2).join(', ')}</span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => onTrackKeyword(rank.keyword, {
+                  rank: rank.rank,
+                  board: board.label,
+                  categoryPath: board.categoryPath,
+                })}
+                disabled={disabled || registered}
+                className="inline-flex h-7 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 text-[10px] font-black text-[var(--text-secondary)] transition hover:border-[var(--primary)] hover:text-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {registered ? '등록됨' : '관심'}
+              </button>
+            </div>
+          );
+        })}
       </div>
     </article>
   );

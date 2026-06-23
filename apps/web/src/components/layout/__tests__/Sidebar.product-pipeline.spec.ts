@@ -14,6 +14,8 @@ describe('Sidebar product pipeline navigation', () => {
       ['/sourcing-ai/category-sourcing', '카테고리 소싱'],
       ['/sourcing-ai/wholesale-search', '도매 상품 검색'],
       ['/sourcing-ai/validation', '상품 검증'],
+      ['/sourcing-ai/settings', '소싱 설정'],
+      ['/sourcing-ai/final-selection', '최종 선택'],
     ]);
   });
 

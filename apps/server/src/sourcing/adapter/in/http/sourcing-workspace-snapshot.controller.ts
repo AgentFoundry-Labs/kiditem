@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, Put } from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { SourcingWorkspaceSnapshotService } from '../../../application/service/sourcing-workspace-snapshot.service';
 import {
   SaveSourcingWorkspaceSnapshotDto,
+  SourcingWorkspaceSnapshotRecentQueryDto,
   SourcingWorkspaceSnapshotParamsDto,
 } from './dto';
 
@@ -17,6 +18,16 @@ export class SourcingWorkspaceSnapshotController {
   ) {
     const snapshot = await this.snapshots.getToday(organizationId, params.scope);
     return { snapshot: snapshot ? toResponse(snapshot) : null };
+  }
+
+  @Get(':scope/recent')
+  async getRecent(
+    @Param() params: SourcingWorkspaceSnapshotParamsDto,
+    @Query() query: SourcingWorkspaceSnapshotRecentQueryDto,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    const snapshots = await this.snapshots.getRecent(organizationId, params.scope, query.days);
+    return { snapshots: snapshots.map(toResponse) };
   }
 
   @Put(':scope/today')

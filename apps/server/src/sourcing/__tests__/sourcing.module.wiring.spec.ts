@@ -1,7 +1,11 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
 import { SourcingModule } from '../sourcing.module';
+import { Sourcing1688NewProductModelService } from '../application/service/sourcing-1688-new-product-model.service';
 import { Sourcing1688ImageSearchService } from '../application/service/sourcing-1688-image-search.service';
+import { Sourcing1688KeywordSearchService } from '../application/service/sourcing-1688-keyword-search.service';
+import { SourcingAgentRagService } from '../application/service/sourcing-agent-rag.service';
+import { SourcingMarketModelService } from '../application/service/sourcing-market-model.service';
 import { NaverKeywordResearchService } from '../application/service/naver-keyword-research.service';
 import { SourcingService } from '../application/service/sourcing.service';
 import { SourcingPromotionService } from '../application/service/sourcing-promotion.service';
@@ -19,8 +23,10 @@ import { SourcingProductsCatalogAdapter } from '../adapter/out/products/products
 import { SourcingCandidateRepositoryAdapter } from '../adapter/out/repository/sourcing-candidate.repository.adapter';
 import { SourcingWorkspaceSnapshotRepositoryAdapter } from '../adapter/out/repository/sourcing-workspace-snapshot.repository.adapter';
 import { SourcingPlaywrightRuntimeHandler } from '../adapter/out/runtime/sourcing-playwright-runtime.handler';
-import { Tmapi1688ImageSearchAdapter } from '../adapter/out/tmapi/tmapi-1688-image-search.adapter';
+import { Direct1688ImageSearchAdapter } from '../adapter/out/1688/direct-1688-image-search.adapter';
+import { Direct1688KeywordSearchAdapter } from '../adapter/out/1688/direct-1688-keyword-search.adapter';
 import { SOURCING_1688_IMAGE_SEARCH_PORT } from '../application/port/out/provider/1688-image-search.port';
+import { SOURCING_1688_KEYWORD_SEARCH_PORT } from '../application/port/out/provider/1688-keyword-search.port';
 import {
   SOURCING_NAVER_DATALAB_POPULAR_KEYWORD_PORT,
   SOURCING_NAVER_DATALAB_TREND_PORT,
@@ -53,6 +59,10 @@ describe('SourcingModule canonical owner wiring', () => {
       'SourcingExtensionIngestController',
       'SourcingKeywordResearchController',
       'Sourcing1688ImageSearchController',
+      'Sourcing1688KeywordSearchController',
+      'SourcingAgentRagController',
+      'SourcingMarketModelController',
+      'Sourcing1688NewProductModelController',
       'SourcingCandidateWorkspaceController',
       'SourcingWorkspaceSnapshotController',
     ]);
@@ -63,6 +73,10 @@ describe('SourcingModule canonical owner wiring', () => {
     expect(providers).toContain(SourcingService);
     expect(providers).toContain(NaverKeywordResearchService);
     expect(providers).toContain(Sourcing1688ImageSearchService);
+    expect(providers).toContain(Sourcing1688KeywordSearchService);
+    expect(providers).toContain(SourcingAgentRagService);
+    expect(providers).toContain(SourcingMarketModelService);
+    expect(providers).toContain(Sourcing1688NewProductModelService);
     expect(providers).toContain(SourcingPromotionService);
     expect(providers).toContain(SourcingWorkspaceArchiveService);
     expect(providers).toContain(SourcingWorkspaceSnapshotService);
@@ -82,7 +96,8 @@ describe('SourcingModule canonical owner wiring', () => {
     expect(providers).toContain(SourcingCandidateRepositoryAdapter);
     expect(providers).toContain(SourcingWorkspaceSnapshotRepositoryAdapter);
     expect(providers).toContain(SourcingPlaywrightRuntimeHandler);
-    expect(providers).toContain(Tmapi1688ImageSearchAdapter);
+    expect(providers).toContain(Direct1688ImageSearchAdapter);
+    expect(providers).toContain(Direct1688KeywordSearchAdapter);
     expect(
       providers.some((provider) =>
         typeof provider === 'function' && provider.name === 'SourcingPythonRuntimeHandler',
@@ -129,7 +144,13 @@ describe('SourcingModule canonical owner wiring', () => {
         typeof p === 'object' && p !== null && (p as any).provide === SOURCING_1688_IMAGE_SEARCH_PORT,
     );
     expect(imageSearchBinding).toBeDefined();
-    expect(imageSearchBinding!.useExisting).toBe(Tmapi1688ImageSearchAdapter);
+    expect(imageSearchBinding!.useExisting).toBe(Direct1688ImageSearchAdapter);
+    const keywordSearchBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === 'object' && p !== null && (p as any).provide === SOURCING_1688_KEYWORD_SEARCH_PORT,
+    );
+    expect(keywordSearchBinding).toBeDefined();
+    expect(keywordSearchBinding!.useExisting).toBe(Direct1688KeywordSearchAdapter);
     const naverKeywordBinding = providers.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
         typeof p === 'object' && p !== null && (p as any).provide === SOURCING_NAVER_KEYWORD_RESEARCH_PORT,
@@ -176,6 +197,10 @@ describe('SourcingModule canonical owner wiring', () => {
       'sourcing',
       'sourcing/keyword-research/naver',
       'sourcing/1688/image-search',
+      'sourcing/1688/keyword-search',
+      'sourcing/agent-rag',
+      'sourcing/market-model',
+      'sourcing/1688-new-product-model',
       'sourcing',
       'sourcing/workspace-snapshots',
     ]);

@@ -10,6 +10,7 @@ import {
   Search,
   type LucideIcon,
 } from 'lucide-react';
+import { isChromeExtensionRuntimeAvailable } from '@/lib/extension-bridge';
 import { cn, formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
 import {
   buildWingCatalogSummary,
@@ -50,6 +51,7 @@ export function WingCatalogPage() {
   const [result, setResult] = useState<WingCatalogSearchResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [extensionRuntimeAvailable, setExtensionRuntimeAvailable] = useState<boolean | null>(null);
   const [naverRelatedKeywords, setNaverRelatedKeywords] = useState<NaverRelatedKeyword[]>([]);
   const [relatedKeywordNotice, setRelatedKeywordNotice] = useState<string | null>(null);
   const [loadingRelatedKeywords, setLoadingRelatedKeywords] = useState(false);
@@ -86,6 +88,10 @@ export function WingCatalogPage() {
     }),
     [analyzedKeyword, relatedKeywordRows],
   );
+
+  useEffect(() => {
+    setExtensionRuntimeAvailable(isChromeExtensionRuntimeAvailable());
+  }, []);
 
   useEffect(() => {
     const seedKeyword = result?.keyword?.trim();
@@ -182,7 +188,7 @@ export function WingCatalogPage() {
             </select>
             <button
               type="submit"
-              disabled={isSearching}
+              disabled={isSearching || extensionRuntimeAvailable === false}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#ff5a1f] px-4 text-sm font-black text-white transition hover:bg-[#ef4f18] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSearching ? <Loader2 size={17} className="animate-spin" /> : <PackageSearch size={17} />}
@@ -195,6 +201,18 @@ export function WingCatalogPage() {
             {result?.endedAt && <span>{formatDateTime(result.endedAt)} 기준</span>}
           </div>
         </header>
+
+        {extensionRuntimeAvailable === false && (
+          <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
+            <AlertCircle className="mt-0.5 shrink-0" size={18} />
+            <div>
+              <p className="font-black">Chrome에서 실행 필요</p>
+              <p className="mt-1">
+                쿠팡 크롤링은 Chrome 확장프로그램으로 실행됩니다. Chrome에서 http://localhost:3000/sourcing-ai/wing-catalog 를 열어주세요.
+              </p>
+            </div>
+          </div>
+        )}
 
         <nav className="mx-auto grid w-full max-w-[760px] grid-cols-3 rounded-xl bg-[var(--surface)] p-2 shadow-sm">
           {analysisTabs.map((tab, index) => (
@@ -339,7 +357,11 @@ function HeroAnalysisCard({
 }
 
 function PriceDistributionCard({ buckets, rows }: { buckets: PriceBucket[]; rows: WingCatalogProduct[] }) {
-  const strongest = buckets.reduce((best, bucket) => (bucket.reviewCount > best.reviewCount ? bucket : best), buckets[0] ?? emptyBucket());
+  const strongestIndex = buckets.reduce(
+    (bestIndex, bucket, index) => (bucket.reviewCount > buckets[bestIndex].reviewCount ? index : bestIndex),
+    0,
+  );
+  const strongest = buckets[strongestIndex] ?? emptyBucket();
   const maxReview = Math.max(1, ...buckets.map((bucket) => bucket.reviewCount));
 
   return (
@@ -355,15 +377,15 @@ function PriceDistributionCard({ buckets, rows }: { buckets: PriceBucket[]; rows
       </div>
 
       <div className="mt-8 flex h-48 items-end gap-3 border-b border-[var(--border-subtle)] px-1">
-        {buckets.map((bucket) => {
+        {buckets.map((bucket, index) => {
           const height = rows.length === 0 ? 18 : Math.max(18, Math.round((bucket.reviewCount / maxReview) * 150));
           return (
-            <div key={bucket.label} className="flex min-w-0 flex-1 flex-col items-center gap-2">
+            <div key={`${bucket.label}:${index}`} className="flex min-w-0 flex-1 flex-col items-center gap-2">
               <span className="text-xs font-black text-[var(--text-secondary)]">{formatNumber(bucket.reviewCount)}개</span>
               <div
                 className={cn(
                   'w-full max-w-16 rounded-t-lg bg-[#b7e2e3]',
-                  bucket.label === strongest.label && 'border-2 border-dashed border-[#94d6d7]',
+                  index === strongestIndex && 'border-2 border-dashed border-[#94d6d7]',
                 )}
                 style={{ height }}
               />
@@ -372,7 +394,7 @@ function PriceDistributionCard({ buckets, rows }: { buckets: PriceBucket[]; rows
         })}
       </div>
       <div className="mt-2 grid grid-cols-6 gap-2 text-center text-xs font-bold text-[var(--text-tertiary)]">
-        {buckets.map((bucket) => <span key={bucket.label}>{bucket.label}</span>)}
+        {buckets.map((bucket, index) => <span key={`${bucket.label}:${index}`}>{bucket.label}</span>)}
       </div>
       <div className="mt-7">
         <p className="text-base font-black">

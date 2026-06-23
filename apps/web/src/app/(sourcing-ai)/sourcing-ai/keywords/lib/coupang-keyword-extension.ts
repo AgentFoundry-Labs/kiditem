@@ -37,6 +37,8 @@ interface KidItemExtensionPingResponse {
   };
 }
 
+export const COUPANG_KEYWORD_SUGGESTION_TIMEOUT_MS = 75_000;
+
 export async function searchCoupangKeywordSuggestions(input: {
   keyword: string;
   maxResults?: number;
@@ -59,7 +61,7 @@ export async function searchCoupangKeywordSuggestions(input: {
     action: 'searchCoupangKeywordSuggestions',
     keyword,
     maxResults: input.maxResults ?? 30,
-  });
+  }, COUPANG_KEYWORD_SUGGESTION_TIMEOUT_MS);
 
   if (!response?.success) {
     throw new Error(response?.error ?? '쿠팡 인기 키워드 수집 실패');

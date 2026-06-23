@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "KIDITEM OS - 주문수집 도우미",
+  "description": "아이스크림몰 등 주문관리 화면에서 주문 행을 수집해 KidItem 주문수집에 전달합니다.",
+  "version": "0.1.0",
+  "permissions": ["tabs", "scripting"],
+  "externally_connectable": {
+    "matches": ["http://localhost:3000/*"]
+  },
+  "host_permissions": [
+    "https://po.i-screammall.co.kr/*",
+    "http://localhost:3000/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["http://localhost:3000/*"],
+      "js": ["content/host-bridge.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "action": {
+    "default_title": "KIDITEM 주문수집"
+  }
+}

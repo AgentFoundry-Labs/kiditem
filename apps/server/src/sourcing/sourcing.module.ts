@@ -5,13 +5,21 @@ import { AiModule } from '../ai/ai.module';
 import { AutomationModule } from '../automation/automation.module';
 import { ProductsModule } from '../products/products.module';
 
+import { Sourcing1688NewProductModelController } from './adapter/in/http/sourcing-1688-new-product-model.controller';
 import { SourcingCandidateWorkspaceController } from './adapter/in/http/sourcing-candidate-workspace.controller';
 import { Sourcing1688ImageSearchController } from './adapter/in/http/sourcing-1688-image-search.controller';
+import { Sourcing1688KeywordSearchController } from './adapter/in/http/sourcing-1688-keyword-search.controller';
+import { SourcingAgentRagController } from './adapter/in/http/sourcing-agent-rag.controller';
 import { SourcingExtensionIngestController } from './adapter/in/http/sourcing-extension-ingest.controller';
 import { SourcingKeywordResearchController } from './adapter/in/http/sourcing-keyword-research.controller';
+import { SourcingMarketModelController } from './adapter/in/http/sourcing-market-model.controller';
 import { SourcingWorkspaceSnapshotController } from './adapter/in/http/sourcing-workspace-snapshot.controller';
 import { NaverKeywordResearchService } from './application/service/naver-keyword-research.service';
+import { Sourcing1688NewProductModelService } from './application/service/sourcing-1688-new-product-model.service';
 import { Sourcing1688ImageSearchService } from './application/service/sourcing-1688-image-search.service';
+import { Sourcing1688KeywordSearchService } from './application/service/sourcing-1688-keyword-search.service';
+import { SourcingAgentRagService } from './application/service/sourcing-agent-rag.service';
+import { SourcingMarketModelService } from './application/service/sourcing-market-model.service';
 import { SourcingService } from './application/service/sourcing.service';
 import { SourcingPromotionService } from './application/service/sourcing-promotion.service';
 import { SourcingWorkspaceArchiveService } from './application/service/sourcing-workspace-archive.service';
@@ -30,8 +38,10 @@ import { SourcingProductsCatalogAdapter } from './adapter/out/products/products-
 import { SourcingCandidateRepositoryAdapter } from './adapter/out/repository/sourcing-candidate.repository.adapter';
 import { SourcingWorkspaceSnapshotRepositoryAdapter } from './adapter/out/repository/sourcing-workspace-snapshot.repository.adapter';
 import { SourcingPlaywrightRuntimeHandler } from './adapter/out/runtime/sourcing-playwright-runtime.handler';
-import { Tmapi1688ImageSearchAdapter } from './adapter/out/tmapi/tmapi-1688-image-search.adapter';
+import { Direct1688ImageSearchAdapter } from './adapter/out/1688/direct-1688-image-search.adapter';
+import { Direct1688KeywordSearchAdapter } from './adapter/out/1688/direct-1688-keyword-search.adapter';
 import { SOURCING_1688_IMAGE_SEARCH_PORT } from './application/port/out/provider/1688-image-search.port';
+import { SOURCING_1688_KEYWORD_SEARCH_PORT } from './application/port/out/provider/1688-keyword-search.port';
 import {
   SOURCING_NAVER_DATALAB_POPULAR_KEYWORD_PORT,
   SOURCING_NAVER_DATALAB_TREND_PORT,
@@ -72,6 +82,10 @@ import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from './application/port/
     SourcingExtensionIngestController,
     SourcingKeywordResearchController,
     Sourcing1688ImageSearchController,
+    Sourcing1688KeywordSearchController,
+    SourcingAgentRagController,
+    SourcingMarketModelController,
+    Sourcing1688NewProductModelController,
     SourcingCandidateWorkspaceController,
     SourcingWorkspaceSnapshotController,
   ],
@@ -79,6 +93,10 @@ import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from './application/port/
     SourcingService,
     NaverKeywordResearchService,
     Sourcing1688ImageSearchService,
+    Sourcing1688KeywordSearchService,
+    SourcingAgentRagService,
+    SourcingMarketModelService,
+    Sourcing1688NewProductModelService,
     SourcingPromotionService,
     SourcingWorkspaceArchiveService,
     SourcingWorkspaceSnapshotService,
@@ -95,10 +113,15 @@ import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from './application/port/
     SourcingCandidateRepositoryAdapter,
     SourcingWorkspaceSnapshotRepositoryAdapter,
     SourcingPlaywrightRuntimeHandler,
-    Tmapi1688ImageSearchAdapter,
+    Direct1688ImageSearchAdapter,
+    Direct1688KeywordSearchAdapter,
     {
       provide: SOURCING_1688_IMAGE_SEARCH_PORT,
-      useExisting: Tmapi1688ImageSearchAdapter,
+      useExisting: Direct1688ImageSearchAdapter,
+    },
+    {
+      provide: SOURCING_1688_KEYWORD_SEARCH_PORT,
+      useExisting: Direct1688KeywordSearchAdapter,
     },
     {
       provide: SOURCING_NAVER_KEYWORD_RESEARCH_PORT,

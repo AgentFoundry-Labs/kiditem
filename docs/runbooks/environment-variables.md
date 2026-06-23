@@ -318,8 +318,9 @@ variables apply when running `agents/` as a separate runtime.
 | `AI_TEXT_MODEL` | Text generation agents | Python content agents | No silent fallback. |
 | `AI_IMAGE_ANALYSIS_MODEL` | Vision analysis agents | Python content agents | No silent fallback. |
 | `DETAIL_PAGE_TEMPLATE` | Default template selection needed | Python config | Defaults to `bold_vertical`. |
-| `TMAPI_TOKEN` | 1688/TMAPI sourcing matcher or wholesale image search enabled | Python sourcing matcher, Nest sourcing image-search API | Optional unless matcher/search is used. |
-| `TMAPI_BASE_URL` | Custom TMAPI endpoint needed | Python sourcing matcher, Nest sourcing image-search API | Defaults in code. |
+| `DIRECT_1688_MTOP_BASE_URL` | Custom 1688 public mtop host needed | Nest sourcing 1688 keyword/matching APIs | Defaults to `https://h5api.m.1688.com`; wholesale keyword/matching search does not require TMAPI. |
+| `TMAPI_TOKEN` | Legacy 1688/TMAPI sourcing matcher enabled | Python sourcing matcher | Optional unless the legacy matcher is used. |
+| `TMAPI_BASE_URL` | Custom TMAPI endpoint needed | Python sourcing matcher | Defaults in code. |
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | LLM tracing enabled | Python config/Langfuse | Both keys required to enable. |
 | `LANGFUSE_BASE_URL` | Custom Langfuse endpoint needed | Langfuse SDK | Defaults to Langfuse Cloud in examples. |
 | `LANGFUSE_HOST` | Migrating an old local agents env | Python config | Legacy alias mapped to `LANGFUSE_BASE_URL` when set and `LANGFUSE_BASE_URL` is empty. Prefer `LANGFUSE_BASE_URL`; it is intentionally omitted from new `.env.example` files. |
@@ -343,6 +344,7 @@ STAGING_DB_BASELINE_BUCKET
 STAGING_DB_BASELINE_PREFIX
 STAGING_DB_BASELINE_S3_ENDPOINT
 STAGING_DB_BASELINE_S3_REGION
+STAGING_DIRECT_1688_MTOP_BASE_URL
 STAGING_HOST
 STAGING_NAVER_DATALAB_BASE_URL
 STAGING_NAVER_DATALAB_WEB_BASE_URL

@@ -1,10 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  detectExtensionId,
+  isChromeExtensionRuntimeAvailable,
+  sendToExtension,
+} from '@/lib/extension-bridge';
 import {
   buildWingCatalogSummary,
   formatWingCatalogRate,
   resolveCoupangCatalogImageUrl,
+  searchWingCatalogProducts,
   sortWingCatalogRows,
+  WING_CATALOG_CHROME_REQUIRED,
   WING_CATALOG_EXTENSION_RELOAD_REQUIRED,
+  WING_CATALOG_SEARCH_TIMEOUT_MS,
   type WingCatalogProduct,
 } from './wing-catalog-extension';
 import {
@@ -12,6 +20,16 @@ import {
   buildProductNameKeywordFrequencies,
   buildRelatedKeywordCandidates,
 } from './wing-catalog-keyword-insights';
+
+vi.mock('@/lib/extension-bridge', () => ({
+  detectExtensionId: vi.fn(),
+  isChromeExtensionRuntimeAvailable: vi.fn(() => true),
+  sendToExtension: vi.fn(),
+}));
+
+const mockedDetectExtensionId = vi.mocked(detectExtensionId);
+const mockedIsChromeExtensionRuntimeAvailable = vi.mocked(isChromeExtensionRuntimeAvailable);
+const mockedSendToExtension = vi.mocked(sendToExtension);
 
 const rows: WingCatalogProduct[] = [
   {
@@ -55,6 +73,11 @@ const rows: WingCatalogProduct[] = [
 ];
 
 describe('wing catalog extension helpers', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedIsChromeExtensionRuntimeAvailable.mockReturnValue(true);
+  });
+
   it('summarizes Wing 28-day catalog metrics', () => {
     expect(buildWingCatalogSummary(rows)).toEqual({
       totalProducts: 2,
@@ -82,6 +105,38 @@ describe('wing catalog extension helpers', () => {
     expect(WING_CATALOG_EXTENSION_RELOAD_REQUIRED).toContain('chrome://extensions');
   });
 
+  it('explains that in-app browsers cannot run Chrome extension crawling', async () => {
+    mockedIsChromeExtensionRuntimeAvailable.mockReturnValueOnce(false);
+
+    await expect(searchWingCatalogProducts({ keyword: '슬라임', maxPages: 2 }))
+      .rejects.toThrow(WING_CATALOG_CHROME_REQUIRED);
+
+    expect(mockedDetectExtensionId).not.toHaveBeenCalled();
+    expect(mockedSendToExtension).not.toHaveBeenCalled();
+  });
+
+  it('waits long enough for Wing tab loading and paged catalog search', async () => {
+    mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
+    mockedSendToExtension
+      .mockResolvedValueOnce({ success: true, capabilities: { wingCatalogSearch: true } })
+      .mockResolvedValueOnce({ success: true, keyword: '슬라임', rows: [] });
+
+    await expect(searchWingCatalogProducts({ keyword: ' 슬라임 ', maxPages: 2 }))
+      .resolves.toMatchObject({ keyword: '슬라임', rows: [] });
+
+    expect(mockedSendToExtension).toHaveBeenNthCalledWith(1, 'extension-1', { action: 'ping' });
+    expect(mockedSendToExtension).toHaveBeenNthCalledWith(
+      2,
+      'extension-1',
+      {
+        action: 'searchWingCatalogProducts',
+        keyword: '슬라임',
+        maxPages: 2,
+      },
+      WING_CATALOG_SEARCH_TIMEOUT_MS,
+    );
+  });
+
   it('builds related keyword insight candidates from catalog product names', () => {
     const insightRows: WingCatalogProduct[] = [
       { ...rows[0], productName: '수채화 팔레트 1개 미술용' },
@@ -103,5 +158,12 @@ describe('wing catalog extension helpers', () => {
     expect(frequencies[0]).toEqual({ keyword: '팔레트', count: 3 });
     expect(related).toContain('수채화팔레트');
     expect(autocomplete[0]).toBe('팔레트 슬라임');
+  });
+
+  it('does not repeat the seed keyword as an autocomplete suffix', () => {
+    expect(buildAutocompleteKeywordCandidates({
+      seedKeyword: '슬라임',
+      relatedKeywords: [],
+    })).not.toContain('슬라임 슬라임');
   });
 });

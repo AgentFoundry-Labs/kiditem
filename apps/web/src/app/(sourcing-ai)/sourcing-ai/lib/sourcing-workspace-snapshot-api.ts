@@ -1,6 +1,13 @@
 import { apiClient } from '@/lib/api-client';
 
-export type SourcingWorkspaceSnapshotScope = 'keyword_analysis' | 'today_recommendations';
+export type SourcingWorkspaceSnapshotScope =
+  | 'keyword_analysis'
+  | 'today_recommendations'
+  | 'interest_tracking'
+  | '1688_new_products'
+  | 'sourcing_agent_rag'
+  | 'sourcing_market_model'
+  | 'sourcing_1688_new_product_model';
 
 export type SourcingWorkspaceSnapshotGenerationSource = 'manual' | 'scheduled' | 'imported';
 
@@ -26,6 +33,10 @@ export interface SourcingWorkspaceSnapshotEnvelope<TPayload = Record<string, unk
   snapshot: SourcingWorkspaceSnapshot<TPayload> | null;
 }
 
+export interface SourcingWorkspaceSnapshotListEnvelope<TPayload = Record<string, unknown>> {
+  snapshots: SourcingWorkspaceSnapshot<TPayload>[];
+}
+
 export function createManualSourcingWorkspaceSnapshotMeta(): SourcingWorkspaceSnapshotMeta {
   return {
     generatedAt: new Date().toISOString(),
@@ -39,6 +50,15 @@ export function getTodaySourcingWorkspaceSnapshot<TPayload>(
 ): Promise<SourcingWorkspaceSnapshotEnvelope<TPayload>> {
   return apiClient.get<SourcingWorkspaceSnapshotEnvelope<TPayload>>(
     `/api/sourcing/workspace-snapshots/${scope}/today`,
+  );
+}
+
+export function getRecentSourcingWorkspaceSnapshots<TPayload>(
+  scope: SourcingWorkspaceSnapshotScope,
+  days = 3,
+): Promise<SourcingWorkspaceSnapshotListEnvelope<TPayload>> {
+  return apiClient.get<SourcingWorkspaceSnapshotListEnvelope<TPayload>>(
+    `/api/sourcing/workspace-snapshots/${scope}/recent?days=${encodeURIComponent(String(days))}`,
   );
 }
 
