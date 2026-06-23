@@ -30,6 +30,24 @@ export const AgentToolPolicyEffectSchema = z.enum([
   'approval_required',
 ]);
 
+export const AgentToolPolicyApprovalModeSchema = z.enum([
+  'none',
+  'admin',
+  'self',
+]);
+
+export const AgentToolPolicyDryRunModeSchema = z.enum([
+  'optional',
+  'required',
+  'disabled',
+]);
+
+export const AgentToolPolicySourceSchema = z.enum([
+  'definition',
+  'instance',
+  'missing',
+]);
+
 export const AgentAuthorizationDecisionSchema = z.enum([
   'allowed',
   'denied',
@@ -75,10 +93,95 @@ export const AgentRunGraphNodeKindSchema = z.enum([
   'approval',
 ]);
 
+export const OperatorDecisionTypeSchema = z.enum([
+  'delegate',
+  'ask_user',
+  'refuse',
+]);
+
+export const OperatorDelegationTargetAgentTypeSchema = z.enum([
+  'sourcing',
+  'listing',
+  'order',
+  'channel_registration',
+]);
+
+const NonEmptyRecordSchema = z
+  .record(z.string(), z.unknown())
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'Expected at least one task input field',
+  });
+
+export const OperatorDelegateDecisionSchema = z
+  .object({
+    decisionType: z.literal('delegate'),
+    targetAgentType: OperatorDelegationTargetAgentTypeSchema,
+    playbookKey: z.string().trim().min(1),
+    taskInput: NonEmptyRecordSchema,
+    userVisibleRationale: z.string().trim().min(1),
+  })
+  .strict();
+
+export const OperatorAskUserDecisionSchema = z
+  .object({
+    decisionType: z.literal('ask_user'),
+    question: z.string().trim().min(1),
+    reason: z.string().trim().min(1),
+  })
+  .strict();
+
+export const OperatorRefuseDecisionSchema = z
+  .object({
+    decisionType: z.literal('refuse'),
+    reason: z.string().trim().min(1),
+  })
+  .strict();
+
+export const OperatorDecisionSchema = z.discriminatedUnion('decisionType', [
+  OperatorDelegateDecisionSchema,
+  OperatorAskUserDecisionSchema,
+  OperatorRefuseDecisionSchema,
+]);
+
+export const AgentHandoffTriggerSchema = z.enum(['user_selection']);
+
+export const AgentHandoffIntentSchema = z
+  .object({
+    targetAgentType: OperatorDelegationTargetAgentTypeSchema,
+    playbookKey: z.string().trim().min(1),
+    planStepKey: z.string().trim().min(1),
+    trigger: AgentHandoffTriggerSchema,
+    requiresUserSelection: z.boolean(),
+    actionLabel: z.string().trim().min(1),
+    rationale: z.string().trim().min(1),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.trigger !== 'user_selection' || value.requiresUserSelection === true,
+    { message: 'user_selection handoffs require user selection' },
+  );
+
+export const AgentArtifactHandoffSummarySchema = z
+  .object({
+    handoffIntent: AgentHandoffIntentSchema,
+  })
+  .passthrough();
+
 export const AgentDefinitionRuntimeKindSchema = z.enum([
   'agent',
   'coordinator',
   'tool_wrapper',
+]);
+
+export const AgentDefinitionDelegationRoleSchema = z.enum([
+  'orchestrator',
+  'leaf',
+]);
+
+export const AgentSkillModeSchema = z.enum([
+  'development_workflow',
+  'runtime_playbook',
 ]);
 
 export const CreateAgentRunRequestSchema = z.object({
@@ -119,9 +222,23 @@ export const AgentDefinitionSummarySchema = z.object({
   defaultModelEnv: z.string(),
   defaultRuntimeConfig: z.record(z.string(), z.unknown()),
   defaultCapabilities: z.record(z.string(), z.unknown()),
+  defaultSkillKeys: z.array(z.string()),
   runtimeKind: AgentDefinitionRuntimeKindSchema,
+  delegationRole: AgentDefinitionDelegationRoleSchema,
   catalogStatus: z.string(),
   marketplaceId: z.string().nullable(),
+});
+
+export const AgentSkillSummarySchema = z.object({
+  key: z.string(),
+  name: z.string(),
+  description: z.string(),
+  category: z.string(),
+  version: z.string(),
+  skillPath: z.string(),
+  defaultPreload: z.boolean(),
+  allowedAgentTypes: z.array(z.string()),
+  mode: AgentSkillModeSchema,
 });
 
 export const AgentInstanceSummarySchema = z.object({
@@ -139,6 +256,15 @@ export const AgentInstanceSummarySchema = z.object({
   adapterType: z.string(),
   modelOverride: z.string().nullable(),
   effectiveModel: z.string(),
+});
+
+export const AgentInstanceToolPolicySummarySchema = z.object({
+  toolKey: z.string(),
+  effect: AgentToolPolicyEffectSchema,
+  source: AgentToolPolicySourceSchema,
+  approvalMode: AgentToolPolicyApprovalModeSchema,
+  dryRunMode: AgentToolPolicyDryRunModeSchema,
+  constraints: z.record(z.string(), z.unknown()),
 });
 
 export const AgentRunRequestSummarySchema = z.object({
@@ -240,6 +366,35 @@ export const SelectSourcingRecommendationSchema = z.object({
   artifactId: z.string().min(1),
 });
 
+export const ResolveAgentApprovalSchema = z.object({
+  status: z.enum(['approved', 'rejected']),
+  decisionReason: z.string().trim().max(2000).optional(),
+});
+
+export const AgentApprovalRequestSummarySchema = z.object({
+  id: z.string(),
+  organizationId: z.string(),
+  agentInstanceId: z.string(),
+  requestId: z.string(),
+  runId: z.string().nullable(),
+  status: AgentApprovalStatusSchema,
+  reasonCode: z.string().nullable(),
+  reason: z.string().nullable(),
+  prompt: z.string().nullable(),
+  payload: z.record(z.string(), z.unknown()),
+  actionSnapshot: z.record(z.string(), z.unknown()).nullable(),
+  requestedByActorType: z.string().nullable(),
+  requestedByActorId: z.string().nullable(),
+  requestedByUserId: z.string().nullable(),
+  approverUserId: z.string().nullable(),
+  decidedByUserId: z.string().nullable(),
+  decidedAt: z.string().nullable(),
+  decisionReason: z.string().nullable(),
+  expiresAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
 export const AgentToolInvocationSummarySchema = z.object({
   id: z.string(),
   organizationId: z.string(),
@@ -300,6 +455,28 @@ export const AgentRunGraphSchema = z.object({
   toolInvocations: z.array(AgentToolInvocationSummarySchema),
 });
 
+export const AgentOsLiveReadinessStatusSchema = z.enum([
+  'ready',
+  'missing',
+  'blocked',
+]);
+
+export const AgentOsLiveReadinessCheckSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  status: AgentOsLiveReadinessStatusSchema,
+  detail: z.string(),
+  requiredFor: z.array(z.string()),
+  remediation: z.string().nullable(),
+});
+
+export const AgentOsLiveReadinessResponseSchema = z.object({
+  checks: z.array(AgentOsLiveReadinessCheckSchema),
+  allReady: z.boolean(),
+  runnableCapabilities: z.array(z.string()),
+  blockedCapabilities: z.array(z.string()),
+});
+
 export const AgentCostEventSummarySchema = z.object({
   id: z.string(),
   organizationId: z.string(),
@@ -335,6 +512,9 @@ export type AgentInstanceLifecycleStatus = z.infer<typeof AgentInstanceLifecycle
 export type AgentRunRequestStatus = z.infer<typeof AgentRunRequestStatusSchema>;
 export type AgentRunStatus = z.infer<typeof AgentRunStatusSchema>;
 export type AgentToolPolicyEffect = z.infer<typeof AgentToolPolicyEffectSchema>;
+export type AgentToolPolicyApprovalMode = z.infer<typeof AgentToolPolicyApprovalModeSchema>;
+export type AgentToolPolicyDryRunMode = z.infer<typeof AgentToolPolicyDryRunModeSchema>;
+export type AgentToolPolicySource = z.infer<typeof AgentToolPolicySourceSchema>;
 export type AgentAuthorizationDecision = z.infer<typeof AgentAuthorizationDecisionSchema>;
 export type AgentApprovalStatus = z.infer<typeof AgentApprovalStatusSchema>;
 export type AgentConversationStatus = z.infer<typeof AgentConversationStatusSchema>;
@@ -342,11 +522,28 @@ export type AgentMessageRole = z.infer<typeof AgentMessageRoleSchema>;
 export type AgentToolInvocationStatus = z.infer<typeof AgentToolInvocationStatusSchema>;
 export type AgentArtifactStatus = z.infer<typeof AgentArtifactStatusSchema>;
 export type AgentRunGraphNodeKind = z.infer<typeof AgentRunGraphNodeKindSchema>;
+export type OperatorDecisionType = z.infer<typeof OperatorDecisionTypeSchema>;
+export type OperatorDelegationTargetAgentType = z.infer<typeof OperatorDelegationTargetAgentTypeSchema>;
+export type OperatorDelegateDecision = z.infer<typeof OperatorDelegateDecisionSchema>;
+export type OperatorAskUserDecision = z.infer<typeof OperatorAskUserDecisionSchema>;
+export type OperatorRefuseDecision = z.infer<typeof OperatorRefuseDecisionSchema>;
+export type OperatorDecision = z.infer<typeof OperatorDecisionSchema>;
+export type AgentHandoffTrigger = z.infer<typeof AgentHandoffTriggerSchema>;
+export type AgentHandoffIntent = z.infer<typeof AgentHandoffIntentSchema>;
+export type AgentArtifactHandoffSummary = z.infer<
+  typeof AgentArtifactHandoffSummarySchema
+>;
 export type AgentDefinitionRuntimeKind = z.infer<typeof AgentDefinitionRuntimeKindSchema>;
+export type AgentDefinitionDelegationRole = z.infer<
+  typeof AgentDefinitionDelegationRoleSchema
+>;
+export type AgentSkillMode = z.infer<typeof AgentSkillModeSchema>;
 export type CreateAgentRunRequest = z.infer<typeof CreateAgentRunRequestSchema>;
 export type AgentRunnerResult = z.infer<typeof AgentRunnerResultSchema>;
 export type AgentDefinitionSummary = z.infer<typeof AgentDefinitionSummarySchema>;
+export type AgentSkillSummary = z.infer<typeof AgentSkillSummarySchema>;
 export type AgentInstanceSummary = z.infer<typeof AgentInstanceSummarySchema>;
+export type AgentInstanceToolPolicySummary = z.infer<typeof AgentInstanceToolPolicySummarySchema>;
 export type AgentRunRequestSummary = z.infer<typeof AgentRunRequestSummarySchema>;
 export type AgentRunSummary = z.infer<typeof AgentRunSummarySchema>;
 export type AgentRunEventSummary = z.infer<typeof AgentRunEventSummarySchema>;
@@ -354,9 +551,14 @@ export type AgentConversationSummary = z.infer<typeof AgentConversationSummarySc
 export type AgentMessage = z.infer<typeof AgentMessageSchema>;
 export type SendAgentMessage = z.infer<typeof SendAgentMessageSchema>;
 export type SelectSourcingRecommendation = z.infer<typeof SelectSourcingRecommendationSchema>;
+export type ResolveAgentApproval = z.infer<typeof ResolveAgentApprovalSchema>;
+export type AgentApprovalRequestSummary = z.infer<typeof AgentApprovalRequestSummarySchema>;
 export type AgentToolInvocationSummary = z.infer<typeof AgentToolInvocationSummarySchema>;
 export type AgentArtifactSummary = z.infer<typeof AgentArtifactSummarySchema>;
 export type AgentRunGraphNode = z.infer<typeof AgentRunGraphNodeSchema>;
 export type AgentRunGraph = z.infer<typeof AgentRunGraphSchema>;
+export type AgentOsLiveReadinessStatus = z.infer<typeof AgentOsLiveReadinessStatusSchema>;
+export type AgentOsLiveReadinessCheck = z.infer<typeof AgentOsLiveReadinessCheckSchema>;
+export type AgentOsLiveReadinessResponse = z.infer<typeof AgentOsLiveReadinessResponseSchema>;
 export type AgentCostEventSummary = z.infer<typeof AgentCostEventSummarySchema>;
 export type AgentAuthorizationEventSummary = z.infer<typeof AgentAuthorizationEventSummarySchema>;

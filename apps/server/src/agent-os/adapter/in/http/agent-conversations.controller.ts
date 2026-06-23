@@ -44,6 +44,21 @@ export class AgentConversationsController {
     return { items };
   }
 
+  @Post(':id/messages')
+  async sendMessage(
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+    @Param('id') conversationId: string,
+    @Body() body: SendAgentMessageDto,
+  ) {
+    return this.conversations.sendMessage({
+      organizationId,
+      userId: user.id,
+      conversationId,
+      content: body.content,
+    });
+  }
+
   @Get(':id/graph')
   async getGraph(
     @CurrentOrganization() organizationId: string,

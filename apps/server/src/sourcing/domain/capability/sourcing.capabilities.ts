@@ -59,7 +59,7 @@ export const SOURCING_CAPABILITIES = defineCapabilities([
     description: 'Duplicate-check, scrape, ingest, and return the candidate detail link.',
     inputSchema: { sourceUrl: 'string' },
     outputSchema: { skipped: 'boolean', candidateId: 'string', href: 'string' },
-    effects: ['read', 'browser', 'external_io', 'db_write'],
+    effects: ['read', 'browser', 'external_io', 'db_write', 'job_enqueue'],
     approval: 'none',
     idempotency: 'required',
     visibility: 'both',
@@ -119,11 +119,21 @@ export const SOURCING_CAPABILITIES = defineCapabilities([
   {
     key: 'supplier1688.match_products',
     ownerDomain: 'sourcing',
-    kind: 'tool',
-    description: 'Match candidate products to 1688 supplier/product/option candidates.',
-    inputSchema: { keyword: 'string', category: 'string|null', mode: 'stub|replay' },
-    outputSchema: { matches: 'SupplierMatch[]' },
-    effects: ['read'],
+    kind: 'workflow',
+    description:
+      'Match candidate products to 1688 supplier/product/option candidates and enqueue scrape intake when supplier URLs are present.',
+    inputSchema: {
+      keyword: 'string',
+      category: 'string|null',
+      mode: 'stub|replay',
+      supplierUrl: 'string?',
+      supplierUrls: 'string[]?',
+    },
+    outputSchema: {
+      matches: 'SupplierMatch[]',
+      scrapeWorkflowRequests: 'number?',
+    },
+    effects: ['read', 'browser', 'external_io', 'db_write', 'job_enqueue'],
     approval: 'none',
     idempotency: 'required',
     visibility: 'agent',
@@ -164,6 +174,34 @@ export const SOURCING_CAPABILITIES = defineCapabilities([
     entrypoint: {
       type: 'incoming_port',
       token: 'SOURCING_DISCOVERY_CAPABILITY_PORT',
+    },
+  },
+  {
+    key: 'product_listing.create_generation_package',
+    ownerDomain: 'sourcing',
+    kind: 'workflow',
+    description:
+      'Create a product-generation package for listing prep: sourcing candidate, detail-page job, and thumbnail job.',
+    inputSchema: {
+      productName: 'string',
+      imageUrls: 'string[]',
+      category: 'string|null',
+      description: 'string|null',
+    },
+    outputSchema: {
+      candidateId: 'string',
+      detailGenerationId: 'string|null',
+      thumbnailGenerationId: 'string|null',
+      contentWorkspaceId: 'string|null',
+      href: 'string',
+    },
+    effects: ['db_write', 'job_enqueue'],
+    approval: 'none',
+    idempotency: 'required',
+    visibility: 'agent',
+    entrypoint: {
+      type: 'incoming_port',
+      token: 'SOURCING_LISTING_PREP_CAPABILITY_PORT',
     },
   },
 ] as const satisfies readonly CapabilityManifest[]);

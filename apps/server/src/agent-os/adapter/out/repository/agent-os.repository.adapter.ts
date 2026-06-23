@@ -3,6 +3,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   type AgentOsRepositoryPort,
   type AppendRunEventInput,
+  type CompleteToolInvocationWithArtifactsInput,
   type CompleteToolInvocationInput,
   type CreateArtifactInput,
   type CreateAgentInstanceInput,
@@ -15,6 +16,7 @@ import {
   type CreateToolInvocationInput,
   type FailClaimedRequestInput,
   type FinalizeRunInput,
+  type FindApprovalRequestsQuery,
   type FindAuthorizationEventsQuery,
   type FindCostEventsQuery,
   type FindRequestsQuery,
@@ -82,6 +84,13 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
     return this.instances.resolveInstanceToolPolicy(input);
   }
 
+  listInstanceToolPolicies(input: {
+    organizationId: string;
+    agentInstanceId: string;
+  }) {
+    return this.instances.listInstanceToolPolicies(input);
+  }
+
   upsertInstanceToolPolicy(input: UpsertInstanceToolPolicyInput) {
     return this.instances.upsertInstanceToolPolicy(input);
   }
@@ -95,6 +104,21 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
     metadata?: Record<string, unknown>;
   }) {
     return this.instances.ensureTaskSession(input);
+  }
+
+  getTaskSession(input: {
+    organizationId: string;
+    taskSessionId: string;
+  }) {
+    return this.instances.getTaskSession(input);
+  }
+
+  updateTaskSessionMetadata(input: {
+    organizationId: string;
+    taskSessionId: string;
+    metadata: Record<string, unknown>;
+  }) {
+    return this.instances.updateTaskSessionMetadata(input);
   }
 
   // ---- Requests -----------------------------------------------------------
@@ -202,6 +226,17 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
     return this.approvals.createApprovalRequest(input);
   }
 
+  findApprovalRequestById(input: {
+    organizationId: string;
+    approvalRequestId: string;
+  }) {
+    return this.approvals.findApprovalRequestById(input);
+  }
+
+  listApprovalRequests(input: FindApprovalRequestsQuery) {
+    return this.approvals.listApprovalRequests(input);
+  }
+
   resolveApprovalRequest(input: ResolveApprovalRequestInput) {
     return this.approvals.resolveApprovalRequest(input);
   }
@@ -259,8 +294,21 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
     return this.conversations.findToolInvocationByIdempotency(input);
   }
 
+  markToolInvocationRunning(input: {
+    organizationId: string;
+    invocationId: string;
+  }) {
+    return this.conversations.markToolInvocationRunning(input);
+  }
+
   completeToolInvocation(input: CompleteToolInvocationInput) {
     return this.conversations.completeToolInvocation(input);
+  }
+
+  completeToolInvocationWithArtifacts(
+    input: CompleteToolInvocationWithArtifactsInput,
+  ) {
+    return this.conversations.completeToolInvocationWithArtifacts(input);
   }
 
   listToolInvocations(input: {

@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import type { PrismaClient } from '@prisma/client';
+import { AdvertisingModule } from '../advertising.module';
 import { AdActionService } from '../application/service/ad-action.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -152,11 +154,11 @@ describe('AdAction flow (PG integration)', () => {
     await prisma.$connect();
 
     const m = await Test.createTestingModule({
-      providers: [
-        AdActionService,
-        { provide: PrismaService, useValue: prisma },
-      ],
-    }).compile();
+      imports: [EventEmitterModule.forRoot(), AdvertisingModule],
+    })
+      .overrideProvider(PrismaService)
+      .useValue(prisma)
+      .compile();
     adActionService = m.get(AdActionService);
   });
 

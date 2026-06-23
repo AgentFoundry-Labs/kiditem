@@ -15,7 +15,18 @@ function statusTone(status: string): string {
   return 'text-slate-300 bg-white/5';
 }
 
-export function RunInspector({ graph }: { graph: AgentOsGraph | null }) {
+export function RunInspector({
+  graph,
+  approvalPendingId,
+  onResolveApproval,
+}: {
+  graph: AgentOsGraph | null;
+  approvalPendingId?: string | null;
+  onResolveApproval?: (
+    approvalRequestId: string,
+    status: 'approved' | 'rejected',
+  ) => void;
+}) {
   const approvals =
     graph?.toolInvocations.filter((tool) => tool.status === 'waiting_approval') ??
     [];
@@ -76,7 +87,15 @@ export function RunInspector({ graph }: { graph: AgentOsGraph | null }) {
                   Approvals
                 </div>
                 {approvals.map((approval) => (
-                  <ApprovalCard key={approval.id} invocation={approval} />
+                  <ApprovalCard
+                    key={approval.id}
+                    invocation={approval}
+                    pending={
+                      Boolean(approval.approvalRequestId) &&
+                      approvalPendingId === approval.approvalRequestId
+                    }
+                    onResolve={onResolveApproval}
+                  />
                 ))}
               </section>
             ) : null}

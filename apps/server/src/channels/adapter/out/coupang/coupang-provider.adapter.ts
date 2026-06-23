@@ -1,6 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type {
   CoupangProviderPort,
+  CoupangCreateSellerProductResponse,
+  CoupangSellerProductPayload,
   SellerProductListResponse,
   SellerProductDetailResponse,
   OrderSheetResponse,
@@ -9,7 +11,11 @@ import {
   COUPANG_CREDENTIALS_PORT,
   type CoupangCredentialsPort,
 } from '../../../application/port/out/repository/channel-account.repository.port';
-import { getSellerProducts, getSellerProduct } from './products';
+import {
+  createSellerProduct,
+  getSellerProducts,
+  getSellerProduct,
+} from './products';
 import {
   getOrderSheets,
   confirmOrderSheets,
@@ -33,6 +39,17 @@ export class CoupangProviderAdapter implements CoupangProviderPort {
 
   getDeliveryCompanies() {
     return DELIVERY_COMPANIES;
+  }
+
+  async createSellerProduct(
+    organizationId: string,
+    payload: CoupangSellerProductPayload,
+  ): Promise<CoupangCreateSellerProductResponse> {
+    const credentials = await this.credentials.resolveCoupangCredentials(organizationId);
+    return createSellerProduct(
+      credentials,
+      payload,
+    ) as Promise<CoupangCreateSellerProductResponse>;
   }
 
   async getSellerProducts(organizationId: string, params: {

@@ -1,4 +1,10 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { AgentArtifactHandoffSummarySchema } from '@kiditem/shared/agent-os';
 import {
   AGENT_RUNNER_PORT,
   type AgentRunnerPort,
@@ -7,13 +13,18 @@ import {
   AGENT_OS_REPOSITORY_PORT,
   type AgentOsRepositoryPort,
 } from '../port/out/repository/agent-os-repository.port';
+import { AgentTaskDelegationService } from './agent-task-delegation.service';
 
-const DEFAULT_PLAYBOOK_KEY = 'sourcing_market_opportunity_to_order_draft_v1';
+const SOURCING_MARKET_PLAYBOOK_KEY = 'sourcing_market_opportunity_to_order_draft_v1';
 
 export interface StartConversationInput {
   organizationId: string;
   userId: string;
   content: string;
+}
+
+export interface SendConversationMessageInput extends StartConversationInput {
+  conversationId: string;
 }
 
 function titleFromContent(content: string): string {
@@ -36,6 +47,7 @@ export class AgentConversationService {
     private readonly repository: AgentOsRepositoryPort,
     @Inject(AGENT_RUNNER_PORT)
     private readonly runner: AgentRunnerPort,
+    private readonly delegation: AgentTaskDelegationService,
   ) {}
 
   async startConversation(input: StartConversationInput) {
@@ -65,11 +77,10 @@ export class AgentConversationService {
       sourceResourceId: conversation.id,
       conversationId: conversation.id,
       initiatedByMessageId: message.id,
-      playbookKey: DEFAULT_PLAYBOOK_KEY,
+      playbookKey: null,
       planStepKey: 'operator',
       displayName: 'Operator',
       payload: {
-        playbookKey: DEFAULT_PLAYBOOK_KEY,
         userMessage: input.content,
         conversationId: conversation.id,
         requestedByUserId: input.userId,
@@ -102,6 +113,47 @@ export class AgentConversationService {
     return this.repository.listMessages({ ...input, limit: 200 });
   }
 
+  async sendMessage(input: SendConversationMessageInput) {
+    const conversation = await this.repository.findConversationById({
+      organizationId: input.organizationId,
+      conversationId: input.conversationId,
+    });
+    if (!conversation) {
+      throw new NotFoundException('Agent conversation not found');
+    }
+
+    const message = await this.repository.createMessage({
+      organizationId: input.organizationId,
+      conversationId: input.conversationId,
+      role: 'user',
+      content: input.content,
+      metadata: {},
+    });
+
+    const root = await this.runner.runByType('manager', {
+      organizationId: input.organizationId,
+      requestedByUserId: input.userId,
+      requestedByActorType: 'user',
+      requestedByActorId: input.userId,
+      taskKey: `conversation:${input.conversationId}:message:${message.id}`,
+      sourceType: 'agent_os_conversation',
+      sourceResourceType: 'agent_conversation',
+      sourceResourceId: input.conversationId,
+      conversationId: input.conversationId,
+      initiatedByMessageId: message.id,
+      playbookKey: null,
+      planStepKey: 'operator',
+      displayName: 'Operator',
+      payload: {
+        userMessage: input.content,
+        conversationId: input.conversationId,
+        requestedByUserId: input.userId,
+      },
+    });
+
+    return { conversation, message, rootRequestId: root.requestId ?? null };
+  }
+
   async createOrderDraftFromRecommendation(input: {
     organizationId: string;
     userId: string;
@@ -118,21 +170,59 @@ export class AgentConversationService {
       throw new NotFoundException('Sourcing recommendation not found');
     }
 
-    const summary = artifact.summary;
-    const result = await this.runner.runByType('order', {
+    const parsedSummary = AgentArtifactHandoffSummarySchema.safeParse(
+      artifact.summary,
+    );
+    if (!parsedSummary.success) {
+      throw new BadRequestException(
+        'Selected recommendation does not define an executable handoff intent',
+      );
+    }
+
+    const summary = parsedSummary.data;
+    const intent = summary.handoffIntent;
+    if (
+      intent.targetAgentType !== 'order' ||
+      intent.playbookKey !== SOURCING_MARKET_PLAYBOOK_KEY ||
+      intent.planStepKey !== 'order_draft' ||
+      intent.trigger !== 'user_selection' ||
+      intent.requiresUserSelection !== true
+    ) {
+      throw new BadRequestException(
+        'Selected recommendation handoff intent is not supported',
+      );
+    }
+
+    const conversation = await this.repository.findConversationById({
       organizationId: input.organizationId,
+      conversationId: input.conversationId,
+    });
+    if (!conversation) {
+      throw new NotFoundException('Agent conversation not found');
+    }
+    if (!conversation.rootRequestId) {
+      throw new BadRequestException(
+        'Selected recommendation conversation has no Operator root request',
+      );
+    }
+
+    const result = await this.delegation.delegate({
+      organizationId: input.organizationId,
+      parentAgentType: 'manager',
+      agentType: intent.targetAgentType,
+      conversationId: input.conversationId,
+      parentRequestId: conversation.rootRequestId,
       requestedByUserId: input.userId,
       requestedByActorType: 'user',
       requestedByActorId: input.userId,
-      taskKey: `conversation:${input.conversationId}:order_draft`,
+      taskKey: `conversation:${input.conversationId}:${intent.planStepKey}:artifact:${artifact.id}`,
       sourceType: 'agent_os_selection',
       sourceResourceType: 'agent_artifact',
       sourceResourceId: artifact.id,
-      conversationId: input.conversationId,
-      parentRequestId: artifact.requestId ?? undefined,
-      playbookKey: DEFAULT_PLAYBOOK_KEY,
-      planStepKey: 'order_draft',
+      playbookKey: intent.playbookKey,
+      planStepKey: intent.planStepKey,
       displayName: 'Order Agent',
+      idempotencyKey: `handoff:${input.conversationId}:${artifact.id}:${intent.targetAgentType}:${intent.planStepKey}`,
       payload: {
         conversationId: input.conversationId,
         recommendationArtifactId: artifact.id,
@@ -150,7 +240,7 @@ export class AgentConversationService {
       role: 'user',
       content: `발주 초안 생성 요청: ${artifact.title}`,
       requestId: result.requestId ?? null,
-      metadata: { selectedArtifactId: artifact.id },
+      metadata: { selectedArtifactId: artifact.id, handoffIntent: intent },
     });
 
     return result;

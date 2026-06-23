@@ -1,7 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import type { AgentPlaybook } from './agent-playbook.registry';
 
-const ALLOWED_AGENT_TYPES = new Set(['manager', 'sourcing', 'order']);
+const ALLOWED_AGENT_TYPES = new Set([
+  'manager',
+  'sourcing',
+  'listing',
+  'order',
+  'channel_registration',
+]);
 const ALLOWED_CAPABILITIES = new Set([
   'market.collect_keyword_category_rankings',
   'coupang.match_products',
@@ -9,7 +15,13 @@ const ALLOWED_CAPABILITIES = new Set([
   'supplier1688.match_products',
   'sourcing.score_opportunities',
   'sourcing.create_recommendation_packet',
+  'sourcing.scrapeProductUrl',
+  'sourcing.scrapeUrlWorkflow',
+  'product_listing.create_generation_package',
+  'channels.register_confirmed_listing',
+  'channels.submit_coupang_listing',
   'supply.create_purchase_order_draft',
+  'supply.submit_purchase_order',
 ]);
 
 export type PlanValidationResult =

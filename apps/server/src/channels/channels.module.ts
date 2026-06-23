@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
+import { AgentOsModule } from '../agent-os/agent-os.module';
 import { AutomationModule } from '../automation/automation.module';
 import { ProductsModule } from '../products/products.module';
+import { ChannelRegistrationCapabilityAdapter } from './adapter/in/agent/channel-registration-capability.adapter';
 import { ChannelSyncController } from './adapter/in/http/channel-sync.controller';
 import { ChannelDashboardController } from './adapter/in/http/channel-dashboard.controller';
 import { ChannelReconciliationController } from './adapter/in/http/channel-reconciliation.controller';
@@ -13,6 +15,7 @@ import { ChannelDashboardRepositoryAdapter } from './adapter/out/repository/chan
 import { ChannelListingRepositoryAdapter } from './adapter/out/repository/channel-listing.repository.adapter';
 import { MarketplaceRegistrationRepositoryAdapter } from './adapter/out/repository/marketplace-registration.repository.adapter';
 import { ChannelsProductMasterBarcodeAdapter } from './adapter/out/products/product-master-barcode.adapter';
+import { ChannelRegistrationRuntimeHandler } from './adapter/out/runtime/channel-registration-runtime.handler';
 import { ChannelSyncRepositoryAdapter } from './adapter/out/repository/channel-sync.repository.adapter';
 import { ChannelReconciliationMatcherRepositoryAdapter } from './adapter/out/repository/channel-reconciliation-matcher.repository.adapter';
 import { ChannelReconciliationQueryRepositoryAdapter } from './adapter/out/repository/channel-reconciliation-query.repository.adapter';
@@ -33,6 +36,7 @@ import { COUPANG_PROVIDER_PORT } from './application/port/out/provider/coupang-p
 import { ChannelsOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { CHANNELS_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
 import { CHANNELS_PRODUCT_MASTER_BARCODE_PORT } from './application/port/out/cross-domain/product-master-barcode.port';
+import { CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT } from './application/port/in/capability/marketplace-registration.port';
 import {
   CHANNEL_ACCOUNT_REPOSITORY_PORT,
   COUPANG_CREDENTIALS_PORT,
@@ -51,7 +55,7 @@ import {
 } from './application/port/out/repository/channel-reconciliation.repository.port';
 
 @Module({
-  imports: [AutomationModule, ProductsModule],
+  imports: [AgentOsModule, AutomationModule, ProductsModule],
   controllers: [
     ChannelSyncController,
     ChannelDashboardController,
@@ -72,6 +76,8 @@ import {
     ChannelReconciliationScanService,
     ChannelReconciliationService,
     ChannelAccountService,
+    ChannelRegistrationCapabilityAdapter,
+    ChannelRegistrationRuntimeHandler,
     CoupangProviderAdapter,
     ChannelsOperationAlertAdapter,
     ChannelsProductMasterBarcodeAdapter,
@@ -97,6 +103,10 @@ import {
     {
       provide: MARKETPLACE_REGISTRATION_REPOSITORY_PORT,
       useExisting: MarketplaceRegistrationRepositoryAdapter,
+    },
+    {
+      provide: CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT,
+      useExisting: ChannelRegistrationCapabilityAdapter,
     },
     { provide: CHANNEL_SYNC_REPOSITORY_PORT, useExisting: ChannelSyncRepositoryAdapter },
     {

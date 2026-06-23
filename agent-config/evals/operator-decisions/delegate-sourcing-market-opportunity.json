@@ -1,0 +1,9 @@
+{
+  "name": "delegate-sourcing-market-opportunity",
+  "rawOutput": "{\"decisionType\":\"delegate\",\"targetAgentType\":\"sourcing\",\"playbookKey\":\"sourcing_market_opportunity_to_order_draft_v1\",\"taskInput\":{\"keyword\":\"silicone plate\",\"category\":null,\"objective\":\"Find responsive new product opportunities for a test order.\",\"minMarginRate\":null},\"userVisibleRationale\":\"The sourcing agent should collect market signals and supplier evidence before an order draft is created.\",\"question\":null,\"reason\":null}",
+  "expected": {
+    "decisionType": "delegate",
+    "targetAgentType": "sourcing",
+    "taskInputKeys": ["keyword", "objective"]
+  }
+}

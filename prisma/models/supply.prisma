@@ -89,6 +89,9 @@ model PurchaseOrder {
   orderDate            DateTime  @default(now()) @map("order_date") @db.Date
   expectedDeliveryDate DateTime? @map("expected_delivery_date") @db.Date
   trackingNumber       String?   @map("tracking_number")
+  externalOrderPlatform String?  @map("external_order_platform") @db.VarChar(40)
+  externalOrderId       String?  @map("external_order_id") @db.VarChar(120)
+  externalOrderUrl      String?  @map("external_order_url") @db.Text
 
   // Inspection (from dashboard)
   receivedAt   DateTime? @map("received_at") @db.Timestamptz
@@ -109,6 +112,7 @@ model PurchaseOrder {
   supplierPayments SupplierPayment[]
 
   @@index([organizationId])
+  @@index([organizationId, externalOrderPlatform, externalOrderId])
   @@index([status])
   @@index([supplierId])
   @@map("purchase_orders")

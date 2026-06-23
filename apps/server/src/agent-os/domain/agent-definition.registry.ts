@@ -14,11 +14,15 @@ type AgentDefinitionSeed = Omit<
   | 'marketplaceId'
   | 'defaultAuxiliaryModelEnvs'
   | 'defaultToolPolicies'
+  | 'defaultSkillKeys'
+  | 'delegationRole'
 > & {
   catalogStatus?: string;
   marketplaceId?: string | null;
   defaultAuxiliaryModelEnvs?: AgentDefinitionRecord['defaultAuxiliaryModelEnvs'];
   defaultToolPolicies?: AgentDefinitionToolPolicyRecord[];
+  defaultSkillKeys?: AgentDefinitionRecord['defaultSkillKeys'];
+  delegationRole?: AgentDefinitionRecord['delegationRole'];
 };
 
 const SOURCING_DISCOVERY_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [
@@ -64,6 +68,30 @@ const SOURCING_DISCOVERY_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [
     dryRunMode: 'optional',
     constraints: {},
   },
+  {
+    toolKey: 'sourcing.scrapeProductUrl',
+    effect: 'allow',
+    approvalMode: 'none',
+    dryRunMode: 'optional',
+    constraints: {},
+  },
+];
+
+const LISTING_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [
+  {
+    toolKey: 'product_listing.create_generation_package',
+    effect: 'allow',
+    approvalMode: 'none',
+    dryRunMode: 'optional',
+    constraints: {},
+  },
+  {
+    toolKey: 'product_listing.submit_wing_thumbnail',
+    effect: 'approval_required',
+    approvalMode: 'admin',
+    dryRunMode: 'disabled',
+    constraints: {},
+  },
 ];
 
 const ORDER_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [
@@ -78,10 +106,29 @@ const ORDER_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [
     toolKey: 'supply.submit_purchase_order',
     effect: 'approval_required',
     approvalMode: 'admin',
-    dryRunMode: 'required',
+    dryRunMode: 'disabled',
     constraints: {},
   },
 ];
+
+const CHANNEL_REGISTRATION_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [
+  {
+    toolKey: 'channels.register_confirmed_listing',
+    effect: 'approval_required',
+    approvalMode: 'admin',
+    dryRunMode: 'disabled',
+    constraints: {},
+  },
+  {
+    toolKey: 'channels.submit_coupang_listing',
+    effect: 'approval_required',
+    approvalMode: 'admin',
+    dryRunMode: 'disabled',
+    constraints: {},
+  },
+];
+
+const MANAGER_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [];
 
 const DEFINITIONS: readonly AgentDefinitionSeed[] = [
   {
@@ -95,7 +142,8 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     defaultRuntimeConfig: {},
     defaultCapabilities: {},
     runtimeKind: 'coordinator',
-    defaultToolPolicies: SOURCING_DISCOVERY_TOOL_POLICIES,
+    delegationRole: 'orchestrator',
+    defaultToolPolicies: MANAGER_TOOL_POLICIES,
   },
   {
     type: 'rules_evaluation',
@@ -139,8 +187,22 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     defaultModelEnv: 'AGENT_SOURCING_MODEL',
     defaultRuntimeConfig: {},
     defaultCapabilities: {},
+    defaultSkillKeys: ['sourcing.magic_scraper'],
     runtimeKind: 'tool_wrapper',
     defaultToolPolicies: SOURCING_DISCOVERY_TOOL_POLICIES,
+  },
+  {
+    type: 'listing',
+    name: 'Listing Agent',
+    description:
+      'Prepares marketplace listing draft packages, detail-page drafts, and thumbnail draft jobs from sourced candidates.',
+    promptPath: `${PROMPT_BASE}/listing.md`,
+    defaultAdapterType: 'claude_local',
+    defaultModelEnv: 'AGENT_LISTING_MODEL',
+    defaultRuntimeConfig: {},
+    defaultCapabilities: {},
+    runtimeKind: 'agent',
+    defaultToolPolicies: LISTING_TOOL_POLICIES,
   },
   {
     type: 'order',
@@ -154,6 +216,19 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     defaultCapabilities: {},
     runtimeKind: 'agent',
     defaultToolPolicies: ORDER_TOOL_POLICIES,
+  },
+  {
+    type: 'channel_registration',
+    name: 'Channel Registration Agent',
+    description:
+      'Registers externally confirmed marketplace listing identities into KidItem ChannelListing records.',
+    promptPath: `${PROMPT_BASE}/channel-registration.md`,
+    defaultAdapterType: 'claude_local',
+    defaultModelEnv: 'AGENT_CHANNEL_REGISTRATION_MODEL',
+    defaultRuntimeConfig: {},
+    defaultCapabilities: {},
+    runtimeKind: 'agent',
+    defaultToolPolicies: CHANNEL_REGISTRATION_TOOL_POLICIES,
   },
   {
     type: 'thumbnail_analyst',
@@ -239,5 +314,7 @@ function toRecord(definition: AgentDefinitionSeed): AgentDefinitionRecord {
     marketplaceId: definition.marketplaceId ?? null,
     defaultAuxiliaryModelEnvs: definition.defaultAuxiliaryModelEnvs ?? {},
     defaultToolPolicies: definition.defaultToolPolicies ?? [],
+    defaultSkillKeys: [...(definition.defaultSkillKeys ?? [])],
+    delegationRole: definition.delegationRole ?? 'leaf',
   };
 }

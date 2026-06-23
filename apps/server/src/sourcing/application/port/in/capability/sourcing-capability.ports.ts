@@ -13,6 +13,9 @@ export const SOURCING_SCRAPE_URL_WORKFLOW_PORT = Symbol(
 export const SOURCING_DISCOVERY_CAPABILITY_PORT = Symbol(
   'SOURCING_DISCOVERY_CAPABILITY_PORT',
 );
+export const SOURCING_LISTING_PREP_CAPABILITY_PORT = Symbol(
+  'SOURCING_LISTING_PREP_CAPABILITY_PORT',
+);
 
 export interface SourcingDuplicateCheckInput {
   organizationId: string;
@@ -80,6 +83,9 @@ export interface SourcingScrapeUrlWorkflowInput {
   organizationId: string;
   sourceUrl: string;
   triggeredByUserId?: string | null;
+  conversationId?: string | null;
+  parentRequestId?: string | null;
+  delegatedByRunId?: string | null;
 }
 
 export interface SourcingScrapeUrlWorkflowResult {
@@ -87,6 +93,7 @@ export interface SourcingScrapeUrlWorkflowResult {
   candidateId: string | null;
   href: string | null;
   operationKey: string | null;
+  taskId?: string | null;
 }
 
 export interface SourcingScrapeUrlWorkflowPort {
@@ -114,4 +121,44 @@ export interface SourcingDiscoveryCapabilityPort {
   executeDiscoveryCapability(
     input: SourcingDiscoveryCapabilityInput,
   ): Promise<SourcingDiscoveryCapabilityResult>;
+}
+
+export interface SourcingListingPrepCapabilityInput {
+  organizationId: string;
+  triggeredByUserId?: string | null;
+  productName: string;
+  category?: string | null;
+  description?: string | null;
+  target?: string | null;
+  imageUrls: string[];
+  thumbnailUrl?: string | null;
+  thumbnailUrls?: string[];
+  optionNames?: string[];
+  keywords?: string[];
+  templateId?: 'kids-playful' | 'bold-vertical';
+  ageGroup?: 'age-8-plus' | 'age-14-plus';
+  detailImageCount?: '2' | '3' | '4' | '5' | '6';
+  usageSectionMode?: 'include' | 'exclude';
+  kcCertificationStatus?: 'unknown' | 'none' | 'exists';
+  kcCertificationNumber?: string | null;
+  productSize?: string | null;
+  colorVariantStatus?: string | null;
+  colorVariantNames?: string | null;
+  boxSetStatus?: string | null;
+  boxSetQuantity?: string | null;
+}
+
+export interface SourcingListingPrepCapabilityResult {
+  candidateId: string;
+  href: string;
+  parentOperationKey: string;
+  detailGenerationId: string | null;
+  thumbnailGenerationId: string | null;
+  contentWorkspaceId: string | null;
+}
+
+export interface SourcingListingPrepCapabilityPort {
+  createGenerationPackage(
+    input: SourcingListingPrepCapabilityInput,
+  ): Promise<SourcingListingPrepCapabilityResult>;
 }

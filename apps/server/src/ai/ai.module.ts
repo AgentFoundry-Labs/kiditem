@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { StorageService } from '../common/storage/storage.service';
+import { AgentOsModule } from '../agent-os/agent-os.module';
 import { ChannelsModule } from '../channels/channels.module';
 import { AutomationModule } from '../automation/automation.module';
 
@@ -23,6 +24,9 @@ import { ThumbnailAutoController } from './adapter/in/http/thumbnail-auto.contro
 import { ThumbnailEditorController } from './adapter/in/http/thumbnail-editor.controller';
 import { ThumbnailTrackingController } from './adapter/in/http/thumbnail-tracking.controller';
 import { CoupangImageSyncController } from './adapter/in/http/coupang-image-sync.controller';
+
+// adapter/in/agent
+import { AiWingRegistrationCapabilityAdapter } from './adapter/in/agent/ai-wing-registration-capability.adapter';
 
 // adapter/out
 import { DetailPageContentGenerationSinkAdapter } from './adapter/out/direct-output/detail-page-content-generation-sink.adapter';
@@ -104,6 +108,7 @@ import { SourcingWorkspaceArchiveService } from './application/service/sourcing-
 import { AiGenerationCancellationService } from './application/service/ai-generation-cancellation.service';
 
 // application/port — in
+import { AI_WING_REGISTRATION_CAPABILITY_PORT } from './application/port/in/capability/wing-registration.port';
 import {
   AI_GENERATION_CANCELLATION_PORT,
   POST_PROMOTION_AI_TRIGGER_PORT,
@@ -154,7 +159,7 @@ import {
 import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
 
 @Module({
-  imports: [ChannelsModule, AutomationModule],
+  imports: [ChannelsModule, AutomationModule, AgentOsModule],
   controllers: [
     ContentArchiveController,
     ContentArchiveLinkageController,
@@ -222,6 +227,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     ThumbnailTrackingService,
     ThumbnailVisionAiService,
     ThumbnailWingService,
+    AiWingRegistrationCapabilityAdapter,
 
     // outgoing adapters
     DetailPageContentGenerationSinkAdapter,
@@ -349,6 +355,10 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
 
     // Inbound port — sourcing's post-promotion gateway injects this to fire
     // detail-page + thumbnail generation with AI-domain-owned defaults.
+    {
+      provide: AI_WING_REGISTRATION_CAPABILITY_PORT,
+      useExisting: AiWingRegistrationCapabilityAdapter,
+    },
     { provide: POST_PROMOTION_AI_TRIGGER_PORT, useExisting: PostPromotionAiService },
     { provide: PRODUCT_GENERATION_AI_TRIGGER_PORT, useExisting: ProductGenerationAiService },
     { provide: AI_WORKSPACE_ARCHIVE_PORT, useExisting: SourcingWorkspaceArchiveService },

@@ -24,7 +24,7 @@ export function AgentsListPanel({
     return (
       <button
         onClick={onToggleMinimize}
-        className="absolute top-4 left-4 w-11 h-[200px] bg-[#0f1628]/95 backdrop-blur-xl border border-white/10 rounded-2xl flex flex-col items-center justify-between py-3 z-20 shadow-xl shadow-black/40 hover:bg-[#0f1628] transition-colors group"
+        className="absolute left-4 top-4 z-20 flex h-[200px] w-11 flex-col items-center justify-between rounded-2xl border border-white/10 bg-[#0f1628]/95 py-3 shadow-xl shadow-black/40 backdrop-blur-xl transition-colors hover:bg-[#0f1628] max-md:left-3 max-md:top-3 group"
         title="Agents 펼치기"
       >
         <Users size={14} className="text-slate-400 group-hover:text-white transition-colors" />
@@ -35,7 +35,7 @@ export function AgentsListPanel({
   }
 
   return (
-    <div className="absolute top-4 left-4 w-[300px] max-h-[calc(100%-32px)] bg-[#0f1628]/95 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden flex flex-col z-20 shadow-xl shadow-black/40">
+    <div className="absolute left-4 top-4 z-20 flex max-h-[calc(100%-32px)] w-[300px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0f1628]/95 shadow-xl shadow-black/40 backdrop-blur-xl max-md:left-3 max-md:right-3 max-md:top-3 max-md:max-h-[calc(100%-24px)] max-md:w-auto">
       <div className="shrink-0 px-4 py-3 flex items-center justify-between border-b border-white/5">
         <div>
           <div className="text-[14px] font-bold">Agents</div>

@@ -2,10 +2,12 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   type CompleteToolInvocationInput,
+  type CompleteToolInvocationWithArtifactsInput,
   type CreateArtifactInput,
   type CreateConversationInput,
   type CreateMessageInput,
   type CreateToolInvocationInput,
+  type MarkToolInvocationRunningInput,
 } from '../../../application/port/out/repository/agent-os-repository.port';
 import { AgentOsBoundaryError } from '../../../domain/agent-os.errors';
 import {
@@ -21,6 +23,13 @@ function nullableJson(
 ): Prisma.InputJsonValue | typeof Prisma.JsonNull | undefined {
   if (value === undefined) return undefined;
   return value === null ? Prisma.JsonNull : (value as Prisma.InputJsonValue);
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2002'
+  );
 }
 
 export class AgentOsConversationRepository {
@@ -159,26 +168,46 @@ export class AgentOsConversationRepository {
     await this.assertConversation(input.organizationId, input.conversationId);
     await this.assertApprovalRequest(input.organizationId, input.approvalRequestId);
 
-    const row = await this.prisma.agentToolInvocation.create({
-      data: {
-        organizationId: input.organizationId,
-        conversationId: input.conversationId ?? null,
-        agentInstanceId: input.agentInstanceId,
-        requestId: input.requestId ?? null,
-        runId: input.runId ?? null,
-        approvalRequestId: input.approvalRequestId ?? null,
-        capabilityKey: input.capabilityKey,
-        policyDecision: input.policyDecision,
-        status: input.approvalRequestId ? 'waiting_approval' : 'requested',
-        reasonCode: input.reasonCode ?? null,
-        resourceType: input.resourceType ?? null,
-        resourceId: input.resourceId ?? null,
-        idempotencyKey: input.idempotencyKey ?? null,
-        inputSummary: (input.inputSummary ?? {}) as Prisma.InputJsonValue,
-        startedAt: new Date(),
-      },
-    });
-    return toToolInvocationRecord(row);
+    let row;
+    try {
+      row = await this.prisma.agentToolInvocation.create({
+        data: {
+          organizationId: input.organizationId,
+          conversationId: input.conversationId ?? null,
+          agentInstanceId: input.agentInstanceId,
+          requestId: input.requestId ?? null,
+          runId: input.runId ?? null,
+          approvalRequestId: input.approvalRequestId ?? null,
+          capabilityKey: input.capabilityKey,
+          policyDecision: input.policyDecision,
+          status: input.approvalRequestId
+            ? 'waiting_approval'
+            : input.policyDecision === 'allowed'
+              ? 'running'
+              : 'requested',
+          reasonCode: input.reasonCode ?? null,
+          resourceType: input.resourceType ?? null,
+          resourceId: input.resourceId ?? null,
+          idempotencyKey: input.idempotencyKey ?? null,
+          inputSummary: (input.inputSummary ?? {}) as Prisma.InputJsonValue,
+          startedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      if (!input.idempotencyKey || !isUniqueConstraintError(error)) {
+        throw error;
+      }
+      row = await this.prisma.agentToolInvocation.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          capabilityKey: input.capabilityKey,
+          idempotencyKey: input.idempotencyKey,
+        },
+      });
+      if (!row) throw error;
+      return { ...toToolInvocationRecord(row), created: false };
+    }
+    return { ...toToolInvocationRecord(row), created: true };
   }
 
   async findToolInvocationByIdempotency(input: {
@@ -194,6 +223,51 @@ export class AgentOsConversationRepository {
       },
     });
     return row ? toToolInvocationRecord(row) : null;
+  }
+
+  async markToolInvocationRunning(input: MarkToolInvocationRunningInput) {
+    const updated = await this.prisma.agentToolInvocation.updateMany({
+      where: {
+        id: input.invocationId,
+        organizationId: input.organizationId,
+        status: { in: ['requested', 'waiting_approval'] },
+      },
+      data: {
+        status: 'running',
+        errorCode: null,
+        errorMessage: null,
+        completedAt: null,
+      },
+    });
+    if (updated.count !== 1) {
+      const current = await this.prisma.agentToolInvocation.findFirst({
+        where: {
+          id: input.invocationId,
+          organizationId: input.organizationId,
+        },
+      });
+      if (!current) {
+        throw new AgentOsBoundaryError(
+          'agent_tool_invocation_not_found',
+          `AgentToolInvocation ${input.invocationId} not found in organization ${input.organizationId}.`,
+        );
+      }
+      return {
+        claimed: false,
+        invocation: toToolInvocationRecord(current),
+      };
+    }
+
+    const row = await this.prisma.agentToolInvocation.findFirstOrThrow({
+      where: {
+        id: input.invocationId,
+        organizationId: input.organizationId,
+      },
+    });
+    return {
+      claimed: true,
+      invocation: toToolInvocationRecord(row),
+    };
   }
 
   async completeToolInvocation(input: CompleteToolInvocationInput) {
@@ -215,8 +289,14 @@ export class AgentOsConversationRepository {
             ? undefined
             : input.approvalRequestId,
         outputSummary: nullableJson(input.outputSummary),
-        errorCode: input.errorCode ?? undefined,
-        errorMessage: input.errorMessage ?? undefined,
+        errorCode:
+          input.errorCode === undefined && isTerminal
+            ? null
+            : input.errorCode ?? undefined,
+        errorMessage:
+          input.errorMessage === undefined && isTerminal
+            ? null
+            : input.errorMessage ?? undefined,
         resourceType: input.resourceType ?? undefined,
         resourceId: input.resourceId ?? undefined,
         completedAt: isTerminal ? new Date() : undefined,
@@ -236,6 +316,101 @@ export class AgentOsConversationRepository {
       },
     });
     return toToolInvocationRecord(row);
+  }
+
+  async completeToolInvocationWithArtifacts(
+    input: CompleteToolInvocationWithArtifactsInput,
+  ) {
+    await this.assertApprovalRequest(input.organizationId, input.approvalRequestId);
+
+    const isTerminal =
+      input.status === 'succeeded' ||
+      input.status === 'failed' ||
+      input.status === 'cancelled';
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.agentToolInvocation.updateMany({
+        where: {
+          id: input.invocationId,
+          organizationId: input.organizationId,
+        },
+        data: {
+          status: input.status,
+          approvalRequestId:
+            input.approvalRequestId === undefined
+              ? undefined
+              : input.approvalRequestId,
+          outputSummary: nullableJson(input.outputSummary),
+          errorCode:
+            input.errorCode === undefined && isTerminal
+              ? null
+              : input.errorCode ?? undefined,
+          errorMessage:
+            input.errorMessage === undefined && isTerminal
+              ? null
+              : input.errorMessage ?? undefined,
+          resourceType: input.resourceType ?? undefined,
+          resourceId: input.resourceId ?? undefined,
+          completedAt: isTerminal ? new Date() : undefined,
+        },
+      });
+      if (updated.count !== 1) {
+        throw new AgentOsBoundaryError(
+          'agent_tool_invocation_not_found',
+          `AgentToolInvocation ${input.invocationId} not found in organization ${input.organizationId}.`,
+        );
+      }
+
+      const row = await tx.agentToolInvocation.findFirstOrThrow({
+        where: {
+          id: input.invocationId,
+          organizationId: input.organizationId,
+        },
+      });
+
+      const artifacts = [];
+      for (const artifact of input.artifacts) {
+        if (artifact.conversationId) {
+          const conversation = await tx.agentConversation.findFirst({
+            where: {
+              id: artifact.conversationId,
+              organizationId: input.organizationId,
+            },
+            select: { id: true },
+          });
+          if (!conversation) {
+            throw new AgentOsBoundaryError(
+              'agent_conversation_not_found',
+              `AgentConversation ${artifact.conversationId} not found in organization ${input.organizationId}.`,
+            );
+          }
+        }
+
+        const artifactRow = await tx.agentArtifact.create({
+          data: {
+            organizationId: input.organizationId,
+            conversationId: artifact.conversationId ?? null,
+            agentInstanceId: artifact.agentInstanceId ?? null,
+            requestId: artifact.requestId ?? null,
+            runId: artifact.runId ?? null,
+            toolInvocationId: row.id,
+            artifactType: artifact.artifactType,
+            targetDomain: artifact.targetDomain,
+            targetModel: artifact.targetModel,
+            targetId: artifact.targetId ?? null,
+            title: artifact.title,
+            href: artifact.href ?? null,
+            summary: (artifact.summary ?? {}) as Prisma.InputJsonValue,
+          },
+        });
+        artifacts.push(toArtifactRecord(artifactRow));
+      }
+
+      return {
+        invocation: toToolInvocationRecord(row),
+        artifacts,
+      };
+    });
   }
 
   async listToolInvocations(input: {

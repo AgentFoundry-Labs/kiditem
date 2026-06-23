@@ -288,15 +288,19 @@ erDiagram
 | Organization | organization | referenced by external | Advertising | ExecutionWorker |
 | Organization | organization | referenced by external | Advertising | ScrapeTarget |
 | Organization | organization | referenced by external | AgentOS | AgentApprovalRequest |
+| Organization | organization | referenced by external | AgentOS | AgentArtifact |
 | Organization | organization | referenced by external | AgentOS | AgentAuthorizationEvent |
+| Organization | organization | referenced by external | AgentOS | AgentConversation |
 | Organization | organization | referenced by external | AgentOS | AgentCostEvent |
 | Organization | organization | referenced by external | AgentOS | AgentInstance |
 | Organization | organization | referenced by external | AgentOS | AgentInstanceToolPolicy |
+| Organization | organization | referenced by external | AgentOS | AgentMessage |
 | Organization | organization | referenced by external | AgentOS | AgentRun |
 | Organization | organization | referenced by external | AgentOS | AgentRunEvent |
 | Organization | organization | referenced by external | AgentOS | AgentRunRequest |
 | Organization | organization | referenced by external | AgentOS | AgentRuntimeState |
 | Organization | organization | referenced by external | AgentOS | AgentTaskSession |
+| Organization | organization | referenced by external | AgentOS | AgentToolInvocation |
 | Organization | organization | referenced by external | AgentOS | WorkflowTemplate |
 | Organization | organization | referenced by external | AI | ContentAsset |
 | Organization | organization | referenced by external | AI | ContentGeneration |
@@ -375,6 +379,7 @@ erDiagram
 | User | agentInstance | references external | AgentOS | AgentInstance |
 | User | approver | referenced by external | AgentOS | AgentApprovalRequest |
 | User | assigneeUser | referenced by external | System | ActionTask |
+| User | createdBy | referenced by external | AgentOS | AgentConversation |
 | User | createdByUser | referenced by external | AI | ContentAsset |
 | User | createdByUser | referenced by external | AI | ContentWorkspace |
 | User | createdByUser | referenced by external | AI | DetailPageArtifact |

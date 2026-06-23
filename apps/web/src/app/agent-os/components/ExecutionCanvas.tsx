@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 import {
   Bot,
@@ -10,17 +10,17 @@ import {
   Wrench,
   ZoomIn,
   ZoomOut,
-} from 'lucide-react';
-import type { ReactNode } from 'react';
-import { useMemo, useRef, useState } from 'react';
-import { cn } from '@/lib/utils';
+} from "lucide-react";
+import type { ReactNode } from "react";
+import { useMemo, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
 import type {
   ExecutionCanvasGraph,
   ExecutionCanvasLane,
   ExecutionCanvasNode,
   ExecutionCanvasNodeKind,
   ExecutionCanvasStatus,
-} from '../lib/execution-canvas-graph';
+} from "../lib/execution-canvas-graph";
 
 const LANE_WIDTH = 260;
 const LANE_GAP = 28;
@@ -105,6 +105,10 @@ export function ExecutionCanvas({
 
     return positions;
   }, [laneNodeEntries]);
+  const nodeById = useMemo(
+    () => new Map(graph.nodes.map((node) => [node.id, node])),
+    [graph.nodes],
+  );
 
   const hasGraphRecords = graph.nodes.length > 0 || graph.lanes.length > 0;
   const handleFitView = () => {
@@ -131,11 +135,25 @@ export function ExecutionCanvas({
 
   return (
     <section className="flex h-full min-h-[420px] flex-col overflow-hidden rounded-lg border border-sky-200/80 bg-sky-50 text-slate-950 shadow-sm">
+      <style>{EXECUTION_CANVAS_ANIMATION_CSS}</style>
       <header className="flex min-h-16 shrink-0 items-center justify-between gap-4 border-b border-sky-200/80 bg-white/75 px-4 py-3 backdrop-blur">
         <div>
-          <h2 className="text-sm font-bold text-slate-950">Execution Canvas</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-bold text-slate-950">
+              Execution Canvas
+            </h2>
+            {graph.summary.runningNodes > 0 ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-cyan-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-cyan-700">
+                <span
+                  className="execution-status-dot h-1.5 w-1.5 rounded-full bg-cyan-500"
+                  aria-hidden="true"
+                />
+                Live
+              </span>
+            ) : null}
+          </div>
           <p className="mt-1 text-xs font-medium text-slate-500">
-            {graph.summary.totalNodes} nodes / {graph.summary.runningNodes}{' '}
+            {graph.summary.totalNodes} nodes / {graph.summary.runningNodes}{" "}
             running / {graph.summary.approvalNodes} approvals
           </p>
         </div>
@@ -209,6 +227,26 @@ export function ExecutionCanvas({
                 >
                   <path d="M0,0 L7,3.5 L0,7 Z" fill="#38bdf8" />
                 </marker>
+                <marker
+                  id="execution-canvas-arrow-live"
+                  markerHeight="7"
+                  markerWidth="7"
+                  orient="auto"
+                  refX="6"
+                  refY="3.5"
+                >
+                  <path d="M0,0 L7,3.5 L0,7 Z" fill="#06b6d4" />
+                </marker>
+                <marker
+                  id="execution-canvas-arrow-approval"
+                  markerHeight="7"
+                  markerWidth="7"
+                  orient="auto"
+                  refX="6"
+                  refY="3.5"
+                >
+                  <path d="M0,0 L7,3.5 L0,7 Z" fill="#f59e0b" />
+                </marker>
               </defs>
               {graph.edges.map((edge) => {
                 const from = nodePositions.get(edge.from);
@@ -217,29 +255,60 @@ export function ExecutionCanvas({
                 if (!from || !to) {
                   return null;
                 }
+                const state = edgeVisualState(edge, nodeById);
+                const live = state === "live";
+                const approval = state === "approval";
 
                 return (
                   <path
                     key={edge.id}
+                    data-execution-edge-state={state}
                     d={edgePath(from, to)}
                     fill="none"
-                    markerEnd="url(#execution-canvas-arrow)"
-                    stroke={edge.crossLane ? '#0ea5e9' : '#38bdf8'}
-                    strokeDasharray={edge.crossLane ? '5 5' : undefined}
+                    markerEnd={
+                      approval
+                        ? "url(#execution-canvas-arrow-approval)"
+                        : live
+                          ? "url(#execution-canvas-arrow-live)"
+                          : "url(#execution-canvas-arrow)"
+                    }
+                    stroke={approval ? "#f59e0b" : live ? "#06b6d4" : "#38bdf8"}
+                    strokeDasharray={
+                      live || approval
+                        ? "9 7"
+                        : edge.crossLane
+                          ? "5 5"
+                          : undefined
+                    }
                     strokeLinecap="round"
-                    strokeWidth="2"
+                    strokeOpacity={live || approval ? 1 : 0.72}
+                    strokeWidth={live || approval ? 2.8 : 2}
+                    className={cn(
+                      (live || approval) && "execution-live-edge",
+                      approval && "execution-approval-edge",
+                    )}
                   />
                 );
               })}
             </svg>
 
             {laneNodeEntries.map(({ lane, nodes }, laneIndex) => {
-              const laneX = CANVAS_PADDING_X + laneIndex * (LANE_WIDTH + LANE_GAP);
+              const laneX =
+                CANVAS_PADDING_X + laneIndex * (LANE_WIDTH + LANE_GAP);
+              const laneState = laneVisualState(nodes);
 
               return (
                 <div
                   key={lane.id}
-                  className="absolute top-4 rounded-lg border border-sky-200/80 bg-white/45"
+                  data-execution-lane-state={laneState}
+                  className={cn(
+                    "absolute top-4 rounded-lg border bg-white/45 transition-colors duration-300",
+                    laneState === "live"
+                      ? "border-cyan-300 bg-cyan-50/65 shadow-[0_0_32px_rgba(14,165,233,0.15)]"
+                      : laneState === "approval"
+                        ? "border-amber-300 bg-amber-50/55 shadow-[0_0_28px_rgba(245,158,11,0.13)]"
+                        : "border-sky-200/80",
+                  )}
                   style={{
                     height: canvasHeight - 32,
                     left: laneX,
@@ -252,7 +321,7 @@ export function ExecutionCanvas({
                         {lane.label}
                       </h3>
                       <p className="mt-0.5 truncate text-[10px] font-medium uppercase text-sky-700">
-                        {lane.agentType ?? 'agent'}
+                        {lane.agentType ?? "agent"}
                       </p>
                     </div>
                     <span className="rounded-md bg-sky-100 px-2 py-0.5 text-[10px] font-bold text-sky-700">
@@ -272,6 +341,7 @@ export function ExecutionCanvas({
                 }
 
                 const selected = selectedNodeId === node.id;
+                const liveState = nodeVisualState(node);
 
                 return (
                   <button
@@ -279,13 +349,19 @@ export function ExecutionCanvas({
                     type="button"
                     aria-label={`${node.label} node in ${node.laneId} lane, ${node.status}`}
                     aria-pressed={selected}
+                    data-execution-node-state={liveState}
+                    data-node-kind={node.kind}
+                    data-status={node.status}
                     onClick={() => onSelectNode(node.id)}
                     className={cn(
-                      'absolute flex items-start gap-2 rounded-lg border bg-white px-3 py-2 text-left shadow-sm transition',
-                      'hover:-translate-y-0.5 hover:border-sky-400 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2',
+                      "absolute flex items-start gap-2 rounded-lg border bg-white px-3 py-2 text-left shadow-sm transition",
+                      "hover:-translate-y-0.5 hover:border-sky-400 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2",
+                      nodeMotionClass(node),
                       selected
-                        ? 'border-sky-500 ring-2 ring-sky-200'
-                        : 'border-sky-200',
+                        ? "border-sky-500 ring-2 ring-sky-200"
+                        : liveState === "idle"
+                          ? "border-sky-200"
+                          : "",
                     )}
                     style={{
                       height: NODE_HEIGHT,
@@ -294,9 +370,20 @@ export function ExecutionCanvas({
                       width: NODE_WIDTH,
                     }}
                   >
+                    {liveState !== "idle" ? (
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          "pointer-events-none absolute -inset-1 rounded-xl",
+                          liveState === "approval"
+                            ? "execution-approval-halo"
+                            : "execution-running-halo",
+                        )}
+                      />
+                    ) : null}
                     <span
                       className={cn(
-                        'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md',
+                        "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md",
                         kindTone(node.kind),
                       )}
                     >
@@ -311,10 +398,20 @@ export function ExecutionCanvas({
                       </span>
                       <span
                         className={cn(
-                          'mt-1 inline-flex max-w-full items-center rounded px-1.5 py-0.5 text-[10px] font-bold',
+                          "mt-1 inline-flex max-w-full items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold",
                           statusTone(node.status),
                         )}
                       >
+                        {liveState !== "idle" ? (
+                          <span
+                            className={cn(
+                              "execution-status-dot h-1.5 w-1.5 rounded-full bg-current",
+                              liveState === "approval" &&
+                                "execution-approval-dot",
+                            )}
+                            aria-hidden="true"
+                          />
+                        ) : null}
                         {node.status}
                       </span>
                     </span>
@@ -327,6 +424,147 @@ export function ExecutionCanvas({
       </div>
     </section>
   );
+}
+
+const EXECUTION_CANVAS_ANIMATION_CSS = `
+@keyframes execution-node-glow {
+  0%, 100% {
+    box-shadow: 0 8px 18px rgba(8, 47, 73, 0.08), 0 0 0 1px rgba(6, 182, 212, 0.34);
+  }
+  50% {
+    box-shadow: 0 12px 30px rgba(6, 182, 212, 0.22), 0 0 0 4px rgba(6, 182, 212, 0.18);
+  }
+}
+
+@keyframes execution-approval-glow {
+  0%, 100% {
+    box-shadow: 0 8px 18px rgba(120, 53, 15, 0.08), 0 0 0 1px rgba(245, 158, 11, 0.36);
+  }
+  50% {
+    box-shadow: 0 12px 30px rgba(245, 158, 11, 0.24), 0 0 0 4px rgba(245, 158, 11, 0.2);
+  }
+}
+
+@keyframes execution-edge-flow {
+  to {
+    stroke-dashoffset: -32;
+  }
+}
+
+@keyframes execution-status-ping {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.42;
+    transform: scale(0.72);
+  }
+}
+
+.execution-node-running {
+  animation: execution-node-glow 1.35s ease-in-out infinite;
+}
+
+.execution-node-approval {
+  animation: execution-approval-glow 1.35s ease-in-out infinite;
+}
+
+.execution-live-edge {
+  animation: execution-edge-flow 0.9s linear infinite;
+  filter: drop-shadow(0 0 5px rgba(6, 182, 212, 0.42));
+}
+
+.execution-approval-edge {
+  filter: drop-shadow(0 0 5px rgba(245, 158, 11, 0.38));
+}
+
+.execution-running-halo {
+  border: 1px solid rgba(6, 182, 212, 0.34);
+  box-shadow: 0 0 0 5px rgba(6, 182, 212, 0.08);
+}
+
+.execution-approval-halo {
+  border: 1px solid rgba(245, 158, 11, 0.38);
+  box-shadow: 0 0 0 5px rgba(245, 158, 11, 0.1);
+}
+
+.execution-status-dot {
+  animation: execution-status-ping 1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .execution-node-running,
+  .execution-node-approval,
+  .execution-live-edge,
+  .execution-status-dot {
+    animation: none !important;
+  }
+}
+`;
+
+type CanvasVisualState = "idle" | "live" | "approval";
+
+function nodeVisualState(node: ExecutionCanvasNode): CanvasVisualState {
+  if (node.status === "waiting_approval" || node.kind === "approval") {
+    return "approval";
+  }
+
+  if (node.status === "running") {
+    return "live";
+  }
+
+  return "idle";
+}
+
+function laneVisualState(nodes: ExecutionCanvasNode[]): CanvasVisualState {
+  if (nodes.some((node) => nodeVisualState(node) === "live")) {
+    return "live";
+  }
+
+  if (nodes.some((node) => nodeVisualState(node) === "approval")) {
+    return "approval";
+  }
+
+  return "idle";
+}
+
+function edgeVisualState(
+  edge: ExecutionCanvasGraph["edges"][number],
+  nodeById: Map<string, ExecutionCanvasNode>,
+): CanvasVisualState {
+  const fromState = nodeVisualStateFromId(edge.from, nodeById);
+  const toState = nodeVisualStateFromId(edge.to, nodeById);
+
+  if (fromState === "approval" || toState === "approval") {
+    return "approval";
+  }
+
+  if (fromState === "live" || toState === "live") {
+    return "live";
+  }
+
+  return "idle";
+}
+
+function nodeVisualStateFromId(
+  nodeId: string,
+  nodeById: Map<string, ExecutionCanvasNode>,
+): CanvasVisualState {
+  const node = nodeById.get(nodeId);
+  return node ? nodeVisualState(node) : "idle";
+}
+
+function nodeMotionClass(node: ExecutionCanvasNode): string {
+  switch (nodeVisualState(node)) {
+    case "live":
+      return "execution-node-running border-cyan-400 bg-cyan-50/95";
+    case "approval":
+      return "execution-node-approval border-amber-400 bg-amber-50/95";
+    case "idle":
+    default:
+      return "";
+  }
 }
 
 function clampZoom(zoom: number): number {
@@ -357,7 +595,7 @@ function edgePath(from: NodePosition, to: NodePosition): string {
       `C ${from.centerX} ${startY + controlOffset}`,
       `${to.centerX} ${endY - controlOffset}`,
       `${to.centerX} ${endY}`,
-    ].join(' ');
+    ].join(" ");
   }
 
   const startX = from.centerX < to.centerX ? from.x + NODE_WIDTH : from.x;
@@ -373,7 +611,7 @@ function edgePath(from: NodePosition, to: NodePosition): string {
     `C ${firstControlX} ${from.centerY}`,
     `${secondControlX} ${to.centerY}`,
     `${endX} ${to.centerY}`,
-  ].join(' ');
+  ].join(" ");
 }
 
 function visibleNodeLabel(
@@ -397,46 +635,46 @@ function visibleEyebrow(node: ExecutionCanvasNode): string {
 
 function kindTone(kind: ExecutionCanvasNodeKind): string {
   switch (kind) {
-    case 'agent':
-      return 'bg-cyan-100 text-cyan-700';
-    case 'tool':
-      return 'bg-indigo-100 text-indigo-700';
-    case 'artifact':
-      return 'bg-emerald-100 text-emerald-700';
-    case 'approval':
-      return 'bg-amber-100 text-amber-700';
+    case "agent":
+      return "bg-cyan-100 text-cyan-700";
+    case "tool":
+      return "bg-indigo-100 text-indigo-700";
+    case "artifact":
+      return "bg-emerald-100 text-emerald-700";
+    case "approval":
+      return "bg-amber-100 text-amber-700";
     default:
-      return 'bg-slate-100 text-slate-600';
+      return "bg-slate-100 text-slate-600";
   }
 }
 
 function statusTone(status: ExecutionCanvasStatus): string {
   switch (status) {
-    case 'running':
-      return 'bg-cyan-100 text-cyan-700';
-    case 'succeeded':
-      return 'bg-emerald-100 text-emerald-700';
-    case 'failed':
-      return 'bg-red-100 text-red-700';
-    case 'waiting_approval':
-      return 'bg-amber-100 text-amber-700';
-    case 'skipped':
-      return 'bg-slate-100 text-slate-500';
-    case 'waiting':
+    case "running":
+      return "bg-cyan-100 text-cyan-700";
+    case "succeeded":
+      return "bg-emerald-100 text-emerald-700";
+    case "failed":
+      return "bg-red-100 text-red-700";
+    case "waiting_approval":
+      return "bg-amber-100 text-amber-700";
+    case "skipped":
+      return "bg-slate-100 text-slate-500";
+    case "waiting":
     default:
-      return 'bg-sky-100 text-sky-700';
+      return "bg-sky-100 text-sky-700";
   }
 }
 
 function NodeKindIcon({ kind }: { kind: ExecutionCanvasNodeKind }) {
   switch (kind) {
-    case 'agent':
+    case "agent":
       return <Bot className="h-4 w-4" aria-hidden="true" />;
-    case 'tool':
+    case "tool":
       return <Wrench className="h-4 w-4" aria-hidden="true" />;
-    case 'artifact':
+    case "artifact":
       return <FileBox className="h-4 w-4" aria-hidden="true" />;
-    case 'approval':
+    case "approval":
       return <ShieldCheck className="h-4 w-4" aria-hidden="true" />;
     default:
       return <CheckCircle2 className="h-4 w-4" aria-hidden="true" />;

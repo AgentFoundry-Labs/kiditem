@@ -1,5 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { AgentOsRuntimeError } from '../../domain/agent-os.errors';
+import type {
+  AgentArtifactRecord,
+  AgentToolInvocationRecord,
+} from '../../domain/agent-os.types';
+import type {
+  AgentCapabilityExecutionInput,
+  AgentCapabilityHandler,
+} from '../port/out/capability/agent-capability-handler.port';
 import {
   AGENT_OS_REPOSITORY_PORT,
   type AgentOsRepositoryPort,
@@ -57,12 +65,14 @@ export class AgentToolRouter {
         capabilityKey: input.capabilityKey,
         idempotencyKey,
       });
-      if (existing?.status === 'succeeded') {
-        const artifacts = await this.repository.listArtifacts({
-          organizationId: input.organizationId,
-          toolInvocationId: existing.id,
+      if (existing) {
+        const resolved = await this.resolveExistingIdempotentInvocation({
+          input,
+          handler,
+          executionInput,
+          invocation: existing,
         });
-        return { status: existing.status, invocation: existing, artifacts };
+        if (resolved) return resolved;
       }
     }
 
@@ -96,6 +106,17 @@ export class AgentToolRouter {
       inputSummary: parsedInput.data,
     });
 
+    if (idempotencyKey && invocation.created === false) {
+      const resolved = await this.resolveExistingIdempotentInvocation({
+        input,
+        handler,
+        executionInput,
+        invocation,
+      });
+      if (resolved) return resolved;
+      return { status: invocation.status, invocation, artifacts: [] };
+    }
+
     if (decision.decision !== 'allowed') {
       return this.pauseOrDeny({
         input,
@@ -111,9 +132,174 @@ export class AgentToolRouter {
       });
     }
 
+    return this.executeCapabilityInvocation({
+      input,
+      handler,
+      executionInput,
+      invocation,
+    });
+  }
+
+  private async resolveExistingIdempotentInvocation(input: {
+    input: InvokeAgentToolInput;
+    handler: AgentCapabilityHandler;
+    executionInput: AgentCapabilityExecutionInput;
+    invocation: AgentToolInvocationRecord;
+  }) {
+    if (isCleanSucceededInvocation(input.invocation)) {
+      const artifacts = await this.materializeSucceededIdempotentArtifacts({
+        input: input.input,
+        invocation: input.invocation,
+      });
+      return {
+        status: input.invocation.status,
+        invocation: input.invocation,
+        artifacts,
+      };
+    }
+
+    if (
+      input.invocation.status === 'requested' ||
+      input.invocation.status === 'running'
+    ) {
+      return {
+        status: input.invocation.status,
+        invocation: input.invocation,
+        artifacts: [],
+      };
+    }
+
+    if (input.invocation.status === 'waiting_approval') {
+      return this.resumeWaitingInvocation(input);
+    }
+
+    return null;
+  }
+
+  private async resumeWaitingInvocation(input: {
+    input: InvokeAgentToolInput;
+    handler: AgentCapabilityHandler;
+    executionInput: AgentCapabilityExecutionInput;
+    invocation: AgentToolInvocationRecord;
+  }) {
+    if (!input.invocation.approvalRequestId) {
+      return { status: input.invocation.status, invocation: input.invocation, artifacts: [] };
+    }
+
+    const approval = await this.repository.findApprovalRequestById({
+      organizationId: input.input.organizationId,
+      approvalRequestId: input.invocation.approvalRequestId,
+    });
+    if (approval?.status !== 'approved') {
+      return { status: input.invocation.status, invocation: input.invocation, artifacts: [] };
+    }
+    if (approval.requestId !== input.input.requestId) {
+      throw new AgentOsRuntimeError(
+        'approval_request_mismatch',
+        'Approved capability invocation belongs to a different request.',
+      );
+    }
+
+    const runningClaim = await this.repository.markToolInvocationRunning({
+      organizationId: input.input.organizationId,
+      invocationId: input.invocation.id,
+    });
+    if (!runningClaim.claimed) {
+      if (isCleanSucceededInvocation(runningClaim.invocation)) {
+        const artifacts = await this.materializeSucceededIdempotentArtifacts({
+          input: input.input,
+          invocation: runningClaim.invocation,
+        });
+        return {
+          status: runningClaim.invocation.status,
+          invocation: runningClaim.invocation,
+          artifacts,
+        };
+      }
+      return {
+        status: runningClaim.invocation.status,
+        invocation: runningClaim.invocation,
+        artifacts: [],
+      };
+    }
+
+    return this.executeCapabilityInvocation({
+      ...input,
+      invocation: runningClaim.invocation,
+    });
+  }
+
+  private async materializeSucceededIdempotentArtifacts(input: {
+    input: InvokeAgentToolInput;
+    invocation: AgentToolInvocationRecord;
+  }): Promise<AgentArtifactRecord[]> {
+    const artifacts = await this.repository.listArtifacts({
+      organizationId: input.input.organizationId,
+      toolInvocationId: input.invocation.id,
+    });
+    if (!input.input.conversationId || artifacts.length === 0) {
+      return artifacts;
+    }
+
+    const sameContext = artifacts.every(
+      (artifact) =>
+        artifact.conversationId === input.input.conversationId &&
+        artifact.agentInstanceId === input.input.agentInstanceId &&
+        artifact.requestId === (input.input.requestId ?? null) &&
+        artifact.runId === (input.input.runId ?? null),
+    );
+    if (sameContext) return artifacts;
+
+    const visibleArtifacts = await this.repository.listArtifacts({
+      organizationId: input.input.organizationId,
+      conversationId: input.input.conversationId,
+    });
+
+    const currentArtifacts: AgentArtifactRecord[] = [];
+    for (const artifact of artifacts) {
+      const visible = visibleArtifacts.find((candidate) =>
+        sameArtifactIdentity(candidate, artifact),
+      );
+      if (visible) {
+        currentArtifacts.push(visible);
+        continue;
+      }
+      currentArtifacts.push(
+        await this.repository.createArtifact({
+          organizationId: input.input.organizationId,
+          conversationId: input.input.conversationId,
+          agentInstanceId: input.input.agentInstanceId,
+          requestId: input.input.requestId ?? null,
+          runId: input.input.runId ?? null,
+          toolInvocationId: null,
+          artifactType: artifact.artifactType,
+          targetDomain: artifact.targetDomain,
+          targetModel: artifact.targetModel,
+          targetId: artifact.targetId,
+          title: artifact.title,
+          href: artifact.href,
+          summary: {
+            ...artifact.summary,
+            agentOsCacheSource: {
+              artifactId: artifact.id,
+              toolInvocationId: input.invocation.id,
+            },
+          },
+        }),
+      );
+    }
+    return currentArtifacts;
+  }
+
+  private async executeCapabilityInvocation(input: {
+    input: InvokeAgentToolInput;
+    handler: AgentCapabilityHandler;
+    executionInput: AgentCapabilityExecutionInput;
+    invocation: AgentToolInvocationRecord;
+  }) {
     try {
-      const result = await handler.execute(executionInput);
-      const parsedOutput = handler.outputSchema.safeParse(
+      const result = await input.handler.execute(input.executionInput);
+      const parsedOutput = input.handler.outputSchema.safeParse(
         result.outputSummary ?? {},
       );
       if (!parsedOutput.success) {
@@ -123,9 +309,44 @@ export class AgentToolRouter {
         );
       }
 
+      const artifactInputs = (result.artifacts ?? []).map((artifact) => ({
+        conversationId: input.input.conversationId ?? null,
+        agentInstanceId: input.input.agentInstanceId,
+        requestId: input.input.requestId ?? null,
+        runId: input.input.runId ?? null,
+        artifactType: artifact.artifactType,
+        targetDomain: artifact.targetDomain,
+        targetModel: artifact.targetModel,
+        targetId: artifact.targetId ?? null,
+        title: artifact.title,
+        href: artifact.href ?? null,
+        summary: artifact.summary ?? {},
+      }));
+
+      if (
+        artifactInputs.length > 0 &&
+        this.repository.completeToolInvocationWithArtifacts
+      ) {
+        const completed =
+          await this.repository.completeToolInvocationWithArtifacts({
+            organizationId: input.input.organizationId,
+            invocationId: input.invocation.id,
+            status: 'succeeded',
+            outputSummary: parsedOutput.data,
+            resourceType: result.resourceType ?? null,
+            resourceId: result.resourceId ?? null,
+            artifacts: artifactInputs,
+          });
+        return {
+          status: completed.invocation.status,
+          invocation: completed.invocation,
+          artifacts: completed.artifacts,
+        };
+      }
+
       const completed = await this.repository.completeToolInvocation({
-        organizationId: input.organizationId,
-        invocationId: invocation.id,
+        organizationId: input.input.organizationId,
+        invocationId: input.invocation.id,
         status: 'succeeded',
         outputSummary: parsedOutput.data,
         resourceType: result.resourceType ?? null,
@@ -133,22 +354,12 @@ export class AgentToolRouter {
       });
 
       const artifacts = [];
-      for (const artifact of result.artifacts ?? []) {
+      for (const artifact of artifactInputs) {
         artifacts.push(
           await this.repository.createArtifact({
-            organizationId: input.organizationId,
-            conversationId: input.conversationId ?? null,
-            agentInstanceId: input.agentInstanceId,
-            requestId: input.requestId ?? null,
-            runId: input.runId ?? null,
+            organizationId: input.input.organizationId,
             toolInvocationId: completed.id,
-            artifactType: artifact.artifactType,
-            targetDomain: artifact.targetDomain,
-            targetModel: artifact.targetModel,
-            targetId: artifact.targetId ?? null,
-            title: artifact.title,
-            href: artifact.href ?? null,
-            summary: artifact.summary ?? {},
+            ...artifact,
           }),
         );
       }
@@ -157,8 +368,8 @@ export class AgentToolRouter {
     } catch (error) {
       const message = errorMessage(error);
       await this.repository.completeToolInvocation({
-        organizationId: input.organizationId,
-        invocationId: invocation.id,
+        organizationId: input.input.organizationId,
+        invocationId: input.invocation.id,
         status: 'failed',
         outputSummary: null,
         errorCode: 'capability_failed',
@@ -227,4 +438,26 @@ export class AgentToolRouter {
 
     return { status: completed.status, invocation: completed, artifacts: [] };
   }
+}
+
+function sameArtifactIdentity(
+  left: AgentArtifactRecord,
+  right: AgentArtifactRecord,
+): boolean {
+  return (
+    left.artifactType === right.artifactType &&
+    left.targetDomain === right.targetDomain &&
+    left.targetModel === right.targetModel &&
+    left.targetId === right.targetId
+  );
+}
+
+function isCleanSucceededInvocation(
+  invocation: AgentToolInvocationRecord,
+): boolean {
+  return (
+    invocation.status === 'succeeded' &&
+    !invocation.errorCode &&
+    !invocation.errorMessage
+  );
 }

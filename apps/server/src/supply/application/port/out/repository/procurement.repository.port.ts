@@ -50,6 +50,9 @@ export type PurchaseOrderRecord = {
   orderDate: Date;
   expectedDeliveryDate: Date | null;
   trackingNumber: string | null;
+  externalOrderPlatform: string | null;
+  externalOrderId: string | null;
+  externalOrderUrl: string | null;
   receivedAt: Date | null;
   receivedQty: number | null;
   defectQty: number | null;
@@ -60,6 +63,21 @@ export type PurchaseOrderRecord = {
   inspectedBy: string | null;
   createdAt: Date;
   updatedAt: Date;
+};
+
+export type PurchaseOrderCheckoutSnapshotItem = {
+  productName: string;
+  optionId: string | null;
+  quantity: number;
+  unitPriceCny: string;
+};
+
+export type PurchaseOrderCheckoutSnapshot = {
+  id: string;
+  supplierName: string;
+  supplierId: string | null;
+  totalAmountCny: string;
+  items: PurchaseOrderCheckoutSnapshotItem[];
 };
 
 export type PurchaseOrderListResult = {
@@ -79,6 +97,9 @@ export type CreateDraftPurchaseOrderResult =
 export type PurchaseOrderStatusUpdate = {
   status: string;
   receivedAt?: Date;
+  externalOrderPlatform?: string | null;
+  externalOrderId?: string | null;
+  externalOrderUrl?: string | null;
 };
 
 export interface ProcurementRepositoryPort {
@@ -91,6 +112,10 @@ export interface ProcurementRepositoryPort {
     organizationId: string,
     id: string,
   ): Promise<{ id: string; status: string } | null>;
+  findCheckoutSnapshot(
+    organizationId: string,
+    id: string,
+  ): Promise<PurchaseOrderCheckoutSnapshot | null>;
   updateStatusScoped(
     organizationId: string,
     id: string,

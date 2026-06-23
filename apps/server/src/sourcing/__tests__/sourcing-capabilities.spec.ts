@@ -4,6 +4,7 @@ import {
   SOURCING_DUPLICATE_CHECK_PORT,
   SOURCING_DISCOVERY_CAPABILITY_PORT,
   SOURCING_INGEST_CANDIDATE_PORT,
+  SOURCING_LISTING_PREP_CAPABILITY_PORT,
   SOURCING_SCRAPE_PRODUCT_URL_PORT,
   SOURCING_SCRAPE_URL_WORKFLOW_PORT,
 } from '../application/port/in/capability/sourcing-capability.ports';
@@ -22,6 +23,7 @@ describe('sourcing capability manifest', () => {
       'supplier1688.match_products',
       'sourcing.score_opportunities',
       'sourcing.create_recommendation_packet',
+      'product_listing.create_generation_package',
     ]);
   });
 
@@ -34,6 +36,46 @@ describe('sourcing capability manifest', () => {
     expect(keys.has('supplier1688.match_products')).toBe(true);
     expect(keys.has('sourcing.score_opportunities')).toBe(true);
     expect(keys.has('sourcing.create_recommendation_packet')).toBe(true);
+    expect(keys.has('product_listing.create_generation_package')).toBe(true);
+  });
+
+  it('marks listing-prep generation as a write workflow that enqueues AI jobs', () => {
+    expect(
+      SOURCING_CAPABILITIES.find(
+        (capability) => capability.key === 'product_listing.create_generation_package',
+      ),
+    ).toMatchObject({
+      kind: 'workflow',
+      effects: ['db_write', 'job_enqueue'],
+      idempotency: 'required',
+      visibility: 'agent',
+    });
+  });
+
+  it('marks scrape URL workflow as browser work that enqueues a sourcing scrape job', () => {
+    expect(
+      SOURCING_CAPABILITIES.find(
+        (capability) => capability.key === 'sourcing.scrapeUrlWorkflow',
+      ),
+    ).toMatchObject({
+      kind: 'workflow',
+      effects: ['read', 'browser', 'external_io', 'db_write', 'job_enqueue'],
+      idempotency: 'required',
+      visibility: 'both',
+    });
+  });
+
+  it('marks 1688 supplier matching as a workflow when supplier URLs trigger scrape intake', () => {
+    expect(
+      SOURCING_CAPABILITIES.find(
+        (capability) => capability.key === 'supplier1688.match_products',
+      ),
+    ).toMatchObject({
+      kind: 'workflow',
+      effects: ['read', 'browser', 'external_io', 'db_write', 'job_enqueue'],
+      idempotency: 'required',
+      visibility: 'agent',
+    });
   });
 
   it('keeps capability ownership, kind, and write effects explicit', () => {
@@ -102,6 +144,10 @@ describe('sourcing capability manifest', () => {
       'sourcing.create_recommendation_packet': {
         type: 'incoming_port',
         token: SOURCING_DISCOVERY_CAPABILITY_PORT.description,
+      },
+      'product_listing.create_generation_package': {
+        type: 'incoming_port',
+        token: SOURCING_LISTING_PREP_CAPABILITY_PORT.description,
       },
     });
   });

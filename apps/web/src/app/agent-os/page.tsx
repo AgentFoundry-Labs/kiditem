@@ -6,8 +6,9 @@ import {
   ChevronLeft,
   Layers,
   MessageSquareText,
-  MoreHorizontal,
   Radio,
+  Settings2,
+  ShieldCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -17,6 +18,7 @@ import {
 import type {
   AgentDefinitionSummary,
   AgentInstanceSummary,
+  AgentOsLiveReadinessResponse,
   AgentRunSummary,
 } from '@kiditem/shared/agent-os';
 import type {
@@ -33,15 +35,35 @@ import { ActionBoardOverlay } from './components/ActionBoardOverlay';
 import { AgentNetworkCanvas } from './components/AgentNetworkCanvas';
 import { AgentOsBottomDashboard } from './components/AgentOsBottomDashboard';
 import { AgentOsHeader } from './components/AgentOsHeader';
+import { AgentOsObservabilityOverlay } from './components/AgentOsObservabilityOverlay';
 import { AgentOsOperatorWorkspace } from './components/AgentOsOperatorWorkspace';
+import { AgentOsPolicyOverlay } from './components/AgentOsPolicyOverlay';
 import { AgentsListPanel } from './components/AgentsListPanel';
 import { LiveActivityPanel, type RecentLog } from './components/LiveActivityPanel';
+import {
+  agentOsChatKeys,
+  getAgentOsLiveReadiness,
+  listAgentApprovals,
+  listAgentInstanceToolPolicies,
+  listAgentAuthorizationEvents,
+  listAgentCostEvents,
+  listAgentRunEvents,
+  listAgentRuns,
+  upsertAgentInstanceToolPolicy,
+} from './lib/agent-os-chat-api';
 import {
   classifyAction,
   classifyAgentCategory,
   flattenNodes,
 } from './lib/agent-os-helpers';
 import { type OrgNode, useTeamStyle } from './lib/agent-os-types';
+
+const EMPTY_LIVE_READINESS: AgentOsLiveReadinessResponse = {
+  checks: [],
+  allReady: false,
+  runnableCapabilities: [],
+  blockedCapabilities: [],
+};
 
 function buildOrgNodes(
   instances: AgentInstanceSummary[],
@@ -87,6 +109,9 @@ export default function AgentOsPage() {
   const teamStyle = useTeamStyle();
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [showActionBoard, setShowActionBoard] = useState(false);
+  const [showObservability, setShowObservability] = useState(false);
+  const [showPolicyOverlay, setShowPolicyOverlay] = useState(false);
+  const [policyAgentId, setPolicyAgentId] = useState<string | null>(null);
   const [operatorWorkspaceOpen, setOperatorWorkspaceOpen] = useState(false);
   const [agentsMinimized, setAgentsMinimized] = useState(false);
   const [activityMinimized, setActivityMinimized] = useState(false);
@@ -110,6 +135,75 @@ export default function AgentOsPage() {
         '/api/agent-os/runs?status=running&limit=100',
       ),
     refetchInterval: 15_000,
+  });
+  const {
+    data: costEventsData = { items: [], totalCostMicros: '0' },
+    isFetching: costEventsFetching,
+  } = useQuery({
+    queryKey: agentOsChatKeys.costEvents,
+    queryFn: () => listAgentCostEvents(50),
+    enabled: showObservability,
+    refetchInterval: showObservability ? 30_000 : false,
+  });
+  const {
+    data: authorizationEventsData = { items: [] },
+    isFetching: authorizationEventsFetching,
+  } = useQuery({
+    queryKey: agentOsChatKeys.authorizationEvents,
+    queryFn: () => listAgentAuthorizationEvents(50),
+    enabled: showObservability,
+    refetchInterval: showObservability ? 30_000 : false,
+  });
+  const {
+    data: approvalsData = { items: [] },
+    isFetching: approvalsFetching,
+  } = useQuery({
+    queryKey: agentOsChatKeys.approvals,
+    queryFn: () => listAgentApprovals(50),
+    enabled: showObservability,
+    refetchInterval: showObservability ? 30_000 : false,
+  });
+  const {
+    data: recentRunsData = { items: [] as AgentRunSummary[] },
+    isFetching: recentRunsFetching,
+  } = useQuery({
+    queryKey: agentOsChatKeys.runs,
+    queryFn: () => listAgentRuns(20),
+    enabled: showObservability,
+    refetchInterval: showObservability ? 15_000 : false,
+  });
+  const latestAuditRunId = recentRunsData.items[0]?.id ?? null;
+  const {
+    data: runEventsData = { items: [] },
+    isFetching: runEventsFetching,
+  } = useQuery({
+    queryKey: latestAuditRunId
+      ? agentOsChatKeys.runEvents(latestAuditRunId)
+      : agentOsChatKeys.runEvents('none'),
+    queryFn: () => listAgentRunEvents(latestAuditRunId ?? ''),
+    enabled: showObservability && Boolean(latestAuditRunId),
+    refetchInterval: showObservability && latestAuditRunId ? 10_000 : false,
+  });
+  const {
+    data: liveReadinessData = EMPTY_LIVE_READINESS,
+    isFetching: liveReadinessFetching,
+  } = useQuery({
+    queryKey: agentOsChatKeys.liveReadiness,
+    queryFn: getAgentOsLiveReadiness,
+    enabled: showObservability,
+    refetchInterval: showObservability ? 30_000 : false,
+  });
+  const effectivePolicyAgentId =
+    policyAgentId ?? selectedAgent ?? instances[0]?.id ?? null;
+  const {
+    data: policyData = { items: [] },
+    isFetching: policyFetching,
+  } = useQuery({
+    queryKey: effectivePolicyAgentId
+      ? agentOsChatKeys.instanceToolPolicies(effectivePolicyAgentId)
+      : agentOsChatKeys.instanceToolPolicies('none'),
+    queryFn: () => listAgentInstanceToolPolicies(effectivePolicyAgentId ?? ''),
+    enabled: showPolicyOverlay && Boolean(effectivePolicyAgentId),
   });
   const { data: actionTasks = [] } = useQuery({
     queryKey: queryKeys.actionTasks.list(),
@@ -139,6 +233,32 @@ export default function AgentOsPage() {
       toast.success('실행 완료');
     },
     onError: () => toast.error('실행 실패'),
+  });
+  const { mutate: savePolicy, variables: savingPolicy } = useMutation({
+    mutationFn: async (input: {
+      agentInstanceId: string;
+      toolKey: string;
+      effect: 'allow' | 'deny' | 'approval_required';
+      approvalMode: 'none' | 'admin' | 'self';
+      dryRunMode: 'optional' | 'required' | 'disabled';
+      constraints: Record<string, unknown>;
+    }) =>
+      upsertAgentInstanceToolPolicy(input.agentInstanceId, input.toolKey, {
+        effect: input.effect,
+        approvalMode: input.approvalMode,
+        dryRunMode: input.dryRunMode,
+        constraints: input.constraints,
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: agentOsChatKeys.instanceToolPolicies(variables.agentInstanceId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: agentOsChatKeys.authorizationEvents,
+      });
+      toast.success('정책 저장 완료');
+    },
+    onError: () => toast.error('정책 저장 실패'),
   });
 
   const definitionsByType = useMemo(
@@ -346,13 +466,20 @@ export default function AgentOsPage() {
 
   const select = (id: string) => setSelectedAgent((previous) => (previous === id ? null : id));
   const title = selectedData?.name ?? ceo?.name ?? 'Agent Network';
+  const openPolicyOverlay = () => {
+    setPolicyAgentId(selectedAgent ?? instances[0]?.id ?? null);
+    setShowPolicyOverlay(true);
+  };
 
   return (
-    <div className="fixed inset-0 flex flex-col overflow-hidden bg-[#0a0f1a] text-white">
+    <div
+      data-testid="agent-os-shell"
+      className="fixed inset-0 flex flex-col overflow-hidden bg-[#0a0f1a] text-white max-md:overflow-y-auto"
+    >
       <AgentOsHeader ceoName={ceo?.name ?? null} onRefresh={handleRefresh} />
 
-      <div className="flex shrink-0 items-center justify-between px-5 pb-3">
-        <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center justify-between px-5 pb-3 max-md:px-3">
+        <div className="flex min-w-0 items-center gap-2">
           {selectedData ? (
             <button
               type="button"
@@ -363,7 +490,9 @@ export default function AgentOsPage() {
               <ChevronLeft size={17} />
             </button>
           ) : null}
-          <span className="text-[18px] font-bold">{title}</span>
+          <span className="min-w-0 truncate text-[18px] font-bold max-md:text-[17px]">
+            {title}
+          </span>
           {runningCount > 0 ? (
             <span className="ml-2 flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-400">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
@@ -371,7 +500,7 @@ export default function AgentOsPage() {
             </span>
           ) : null}
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5">
           <button
             type="button"
             onClick={() => setOperatorWorkspaceOpen(true)}
@@ -393,6 +522,14 @@ export default function AgentOsPage() {
           </button>
           <button
             type="button"
+            onClick={openPolicyOverlay}
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-[#111827] text-slate-400 hover:bg-white/[0.04]"
+            aria-label="정책 설정"
+          >
+            <Settings2 size={15} />
+          </button>
+          <button
+            type="button"
             className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-[#111827] text-slate-400 hover:bg-white/[0.04]"
             aria-label="패널 연결"
           >
@@ -403,15 +540,16 @@ export default function AgentOsPage() {
           </button>
           <button
             type="button"
+            onClick={() => setShowObservability((value) => !value)}
             className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-[#111827] text-slate-400 hover:bg-white/[0.04]"
-            aria-label="더보기"
+            aria-label="운영 감사"
           >
-            <MoreHorizontal size={15} />
+            <ShieldCheck size={15} />
           </button>
         </div>
       </div>
 
-      <div className="relative mx-5 min-h-0 flex-1 overflow-hidden rounded-2xl border border-white/10 bg-[#0d1321]">
+      <div className="relative mx-5 min-h-0 flex-1 overflow-hidden rounded-2xl border border-white/10 bg-[#0d1321] max-md:mx-3 max-md:h-[520px] max-md:min-h-[520px] max-md:flex-none">
         <AgentNetworkCanvas
           ceo={ceo}
           teams={teams}
@@ -460,6 +598,43 @@ export default function AgentOsPage() {
         allTeamTasks={allTeamTasks}
         executingId={executingId}
         onExecute={executeAction}
+      />
+      <AgentOsObservabilityOverlay
+        open={showObservability}
+        onClose={() => setShowObservability(false)}
+        costEvents={costEventsData.items}
+        totalCostMicros={costEventsData.totalCostMicros}
+        authorizationEvents={authorizationEventsData.items}
+        approvals={approvalsData.items}
+        runs={recentRunsData.items}
+        runEvents={runEventsData.items}
+        liveReadiness={liveReadinessData}
+        loading={
+          costEventsFetching ||
+          authorizationEventsFetching ||
+          approvalsFetching ||
+          recentRunsFetching ||
+          runEventsFetching ||
+          liveReadinessFetching
+        }
+      />
+      <AgentOsPolicyOverlay
+        open={showPolicyOverlay}
+        onClose={() => setShowPolicyOverlay(false)}
+        agents={instances}
+        selectedAgentId={effectivePolicyAgentId}
+        policies={policyData.items}
+        loading={policyFetching}
+        savingToolKey={savingPolicy?.toolKey ?? null}
+        onSelectAgent={setPolicyAgentId}
+        onSavePolicy={(toolKey, policy) => {
+          if (!effectivePolicyAgentId) return;
+          savePolicy({
+            agentInstanceId: effectivePolicyAgentId,
+            toolKey,
+            ...policy,
+          });
+        }}
       />
       <AgentOsOperatorWorkspace
         open={operatorWorkspaceOpen}

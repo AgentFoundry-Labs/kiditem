@@ -1,0 +1,14 @@
+{
+  "name": "delegate-coupang-listing-submission",
+  "rawOutput": "{\"decisionType\":\"delegate\",\"targetAgentType\":\"channel_registration\",\"playbookKey\":\"coupang_listing_submission_v1\",\"taskInput\":{\"masterId\":\"00000000-0000-4000-8000-000000000001\",\"channelAccountId\":\"00000000-0000-4000-8000-000000000002\",\"productBarcode\":\"8806384882841\",\"listingPayloadJson\":\"{\\\"vendorId\\\":\\\"A00012345\\\",\\\"sellerProductName\\\":\\\"Silicone plate\\\",\\\"items\\\":[]}\"},\"userVisibleRationale\":\"The listing package is ready and should be submitted through the approval-gated Coupang seller-product capability.\",\"question\":null,\"reason\":null}",
+  "expected": {
+    "decisionType": "delegate",
+    "targetAgentType": "channel_registration",
+    "taskInputKeys": [
+      "channelAccountId",
+      "listingPayloadJson",
+      "masterId",
+      "productBarcode"
+    ]
+  }
+}

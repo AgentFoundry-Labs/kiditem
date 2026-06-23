@@ -35,6 +35,7 @@ export interface AgentCapabilityExecutionInput<
   agentType: string;
   requestId?: string | null;
   runId?: string | null;
+  requestedByUserId?: string | null;
   input: TInput;
 }
 

@@ -6,13 +6,17 @@ import { ProcurementController } from '../adapter/in/http/procurement.controller
 import { SuppliersService } from '../application/service/suppliers.service';
 import { ProcurementService } from '../application/service/procurement.service';
 import { PurchaseOrderDraftService } from '../application/service/purchase-order-draft.service';
+import { PurchaseOrderSubmissionService } from '../application/service/purchase-order-submission.service';
 import { SupplyAgentCapabilityAdapter } from '../adapter/in/agent/supply-agent-capability.adapter';
+import { Alibaba1688CheckoutRuntimeAdapter } from '../adapter/out/runtime/alibaba-1688-checkout-runtime.adapter';
 import { OrderAgentRuntimeHandler } from '../adapter/out/runtime/order-agent-runtime.handler';
 import { SupplierRepositoryAdapter } from '../adapter/out/repository/supplier.repository.adapter';
 import { ProcurementRepositoryAdapter } from '../adapter/out/repository/procurement.repository.adapter';
 import { PURCHASE_ORDER_DRAFT_PORT } from '../application/port/in/procurement/purchase-order-draft.port';
+import { PURCHASE_ORDER_SUBMISSION_PORT } from '../application/port/in/procurement/purchase-order-submission.port';
 import { SUPPLIER_REPOSITORY_PORT } from '../application/port/out/repository/supplier.repository.port';
 import { PROCUREMENT_REPOSITORY_PORT } from '../application/port/out/repository/procurement.repository.port';
+import { PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT } from '../application/port/out/runtime/purchase-order-checkout-runtime.port';
 
 // NestJS @Module / @Controller metadata keys (stable across Nest 10/11).
 const CONTROLLERS_KEY = 'controllers';
@@ -42,7 +46,12 @@ describe('SupplyModule owner wiring', () => {
 
   it('declares supply services as providers', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, SupplyModule) ?? [];
-    for (const cls of [SuppliersService, ProcurementService, PurchaseOrderDraftService]) {
+    for (const cls of [
+      SuppliersService,
+      ProcurementService,
+      PurchaseOrderDraftService,
+      PurchaseOrderSubmissionService,
+    ]) {
       expect(providers).toContain(cls);
     }
   });
@@ -53,10 +62,17 @@ describe('SupplyModule owner wiring', () => {
     expect(providers).toContain(SupplierRepositoryAdapter);
     expect(providers).toContain(ProcurementRepositoryAdapter);
     expect(providers).toContain(SupplyAgentCapabilityAdapter);
+    expect(providers).toContain(Alibaba1688CheckoutRuntimeAdapter);
     expect(providers).toContain(OrderAgentRuntimeHandler);
     expectBinding(providers, PURCHASE_ORDER_DRAFT_PORT, PurchaseOrderDraftService);
+    expectBinding(providers, PURCHASE_ORDER_SUBMISSION_PORT, PurchaseOrderSubmissionService);
     expectBinding(providers, SUPPLIER_REPOSITORY_PORT, SupplierRepositoryAdapter);
     expectBinding(providers, PROCUREMENT_REPOSITORY_PORT, ProcurementRepositoryAdapter);
+    expectBinding(
+      providers,
+      PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT,
+      Alibaba1688CheckoutRuntimeAdapter,
+    );
   });
 
   it('keeps public /api route prefixes', () => {

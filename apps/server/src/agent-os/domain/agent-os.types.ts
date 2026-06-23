@@ -94,12 +94,37 @@ export const AGENT_DEFINITION_RUNTIME_KINDS = [
 export type AgentDefinitionRuntimeKind =
   (typeof AGENT_DEFINITION_RUNTIME_KINDS)[number];
 
+export const AGENT_DEFINITION_DELEGATION_ROLES = [
+  'orchestrator',
+  'leaf',
+] as const;
+export type AgentDefinitionDelegationRole =
+  (typeof AGENT_DEFINITION_DELEGATION_ROLES)[number];
+
 export interface AgentDefinitionToolPolicyRecord {
   toolKey: string;
   effect: AgentToolPolicyEffect;
   approvalMode: 'none' | 'admin' | 'self';
   dryRunMode: 'optional' | 'required' | 'disabled';
   constraints: Record<string, unknown>;
+}
+
+export const AGENT_SKILL_MODES = [
+  'development_workflow',
+  'runtime_playbook',
+] as const;
+export type AgentSkillMode = (typeof AGENT_SKILL_MODES)[number];
+
+export interface AgentSkillDefinitionRecord {
+  key: string;
+  name: string;
+  description: string;
+  category: string;
+  version: string;
+  skillPath: string;
+  defaultPreload: boolean;
+  allowedAgentTypes: string[];
+  mode: AgentSkillMode;
 }
 
 export const AGENT_MODEL_PLAN_ROLES = [
@@ -130,9 +155,11 @@ export interface AgentDefinitionRecord {
   >;
   defaultRuntimeConfig: Record<string, unknown>;
   defaultCapabilities: Record<string, unknown>;
+  defaultSkillKeys: string[];
   catalogStatus: string;
   marketplaceId: string | null;
   runtimeKind: AgentDefinitionRuntimeKind;
+  delegationRole: AgentDefinitionDelegationRole;
   defaultToolPolicies: AgentDefinitionToolPolicyRecord[];
 }
 

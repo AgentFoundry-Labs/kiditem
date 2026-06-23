@@ -30,6 +30,21 @@ describe('AgentCatalogService', () => {
     vi.unstubAllEnvs();
   });
 
+  it('lists code-owned Agent OS skills', () => {
+    const service = new AgentCatalogService({} as never, {} as never);
+
+    expect(service.listSkills()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'sourcing.magic_scraper',
+          skillPath: 'tools/codex/skills/magic-scraper/SKILL.md',
+          allowedAgentTypes: ['sourcing'],
+          mode: 'development_workflow',
+        }),
+      ]),
+    );
+  });
+
   it('hides persisted instances whose agent definition is no longer registered', async () => {
     const repository = {
       listInstances: vi.fn().mockResolvedValue([
@@ -63,5 +78,58 @@ describe('AgentCatalogService', () => {
       message: expect.stringContaining('detail_page_generate'),
     });
     expect(repository.createInstanceWithRuntimeState).not.toHaveBeenCalled();
+  });
+
+  it('lists effective tool policies with instance overrides ahead of definition defaults', async () => {
+    const repository = {
+      findInstanceById: vi.fn().mockResolvedValue(instance('sourcing', 'agent-sourcing-1')),
+      listInstanceToolPolicies: vi.fn().mockResolvedValue([
+        {
+          organizationId: ORG,
+          agentInstanceId: 'agent-sourcing-1',
+          toolId: 'tool-wing-thumbnail',
+          toolKey: 'product_listing.submit_wing_thumbnail',
+          effect: 'deny',
+          approvalMode: 'none',
+          dryRunMode: 'disabled',
+          constraints: { reason: 'staging pause' },
+        },
+      ]),
+    };
+    const service = new AgentCatalogService(repository as never, {} as never);
+
+    const policies = await service.listInstanceToolPolicies({
+      organizationId: ORG,
+      agentInstanceId: 'agent-sourcing-1',
+    });
+
+    expect(repository.findInstanceById).toHaveBeenCalledWith({
+      organizationId: ORG,
+      id: 'agent-sourcing-1',
+    });
+    expect(repository.listInstanceToolPolicies).toHaveBeenCalledWith({
+      organizationId: ORG,
+      agentInstanceId: 'agent-sourcing-1',
+    });
+    expect(
+      policies.find(
+        (policy) => policy.toolKey === 'product_listing.submit_wing_thumbnail',
+      ),
+    ).toMatchObject({
+      effect: 'deny',
+      source: 'instance',
+      approvalMode: 'none',
+      dryRunMode: 'disabled',
+      constraints: { reason: 'staging pause' },
+    });
+    expect(
+      policies.find(
+        (policy) => policy.toolKey === 'market.collect_keyword_category_rankings',
+      ),
+    ).toMatchObject({
+      effect: 'allow',
+      source: 'definition',
+      approvalMode: 'none',
+    });
   });
 });

@@ -1,14 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 
 import { Test } from '@nestjs/testing';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { NotFoundException, ConflictException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
+import { AdvertisingModule } from '../advertising.module';
 import { AdStrategyService } from '../application/service/ad-strategy.service';
-import { AdConfigService } from '../application/service/ad-config.service';
-import { AdGradeRulesService } from '../application/service/ad-grade-rules.service';
-import { AdBudgetAllocatorService } from '../application/service/ad-budget-allocator.service';
-import { AdExposureService } from '../application/service/ad-exposure.service';
-import { AdRecommendService } from '../application/service/ad-recommend.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -129,16 +126,11 @@ describe('AdStrategy flow (PG integration)', () => {
     await prisma.$connect();
 
     const m = await Test.createTestingModule({
-      providers: [
-        AdStrategyService,
-        AdConfigService,
-        AdGradeRulesService,
-        AdBudgetAllocatorService,
-        AdExposureService,
-        AdRecommendService,
-        { provide: PrismaService, useValue: prisma },
-      ],
-    }).compile();
+      imports: [EventEmitterModule.forRoot(), AdvertisingModule],
+    })
+      .overrideProvider(PrismaService)
+      .useValue(prisma)
+      .compile();
     service = m.get(AdStrategyService);
   });
 

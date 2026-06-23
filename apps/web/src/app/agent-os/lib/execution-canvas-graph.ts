@@ -3,21 +3,21 @@ import type {
   AgentRunGraph,
   AgentRunGraphNode,
   AgentToolInvocationSummary,
-} from '@kiditem/shared/agent-os';
+} from "@kiditem/shared/agent-os";
 
 export type ExecutionCanvasStatus =
-  | 'waiting'
-  | 'running'
-  | 'succeeded'
-  | 'failed'
-  | 'waiting_approval'
-  | 'skipped';
+  | "waiting"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "waiting_approval"
+  | "skipped";
 
 export type ExecutionCanvasNodeKind =
-  | 'agent'
-  | 'tool'
-  | 'artifact'
-  | 'approval';
+  | "agent"
+  | "tool"
+  | "artifact"
+  | "approval";
 
 export interface ExecutionCanvasNode {
   id: string;
@@ -92,31 +92,31 @@ export function toExecutionCanvasStatus(
   status: string | null | undefined,
 ): ExecutionCanvasStatus {
   switch (status) {
-    case 'pending':
-    case 'claimed':
-    case 'requested':
-      return 'waiting';
-    case 'running':
-      return 'running';
-    case 'active':
-    case 'approved':
-    case 'succeeded':
-      return 'succeeded';
-    case 'failed':
-    case 'rejected':
-    case 'expired':
-      return 'failed';
-    case 'requires_approval':
-    case 'waiting_approval':
-      return 'waiting_approval';
-    case 'cancelled':
-    case 'coalesced':
-    case 'deleted':
-    case 'skipped':
-    case 'superseded':
-      return 'skipped';
+    case "pending":
+    case "requested":
+      return "waiting";
+    case "claimed":
+    case "running":
+      return "running";
+    case "active":
+    case "approved":
+    case "succeeded":
+      return "succeeded";
+    case "failed":
+    case "rejected":
+    case "expired":
+      return "failed";
+    case "requires_approval":
+    case "waiting_approval":
+      return "waiting_approval";
+    case "cancelled":
+    case "coalesced":
+    case "deleted":
+    case "skipped":
+    case "superseded":
+      return "skipped";
     default:
-      return 'waiting';
+      return "waiting";
   }
 }
 
@@ -129,10 +129,12 @@ export function projectAgentRunGraph(
 
   const taskById = new Map(
     graph.nodes
-      .filter((node) => node.kind === 'agent_task')
+      .filter((node) => node.kind === "agent_task")
       .map((node) => [node.id, node]),
   );
-  const toolById = new Map(graph.toolInvocations.map((tool) => [tool.id, tool]));
+  const toolById = new Map(
+    graph.toolInvocations.map((tool) => [tool.id, tool]),
+  );
   const laneByRequestId = new Map<string, string>();
   const sequenceByNodeId = new Map<string, number>();
   const nodes: InternalExecutionCanvasNode[] = [];
@@ -152,7 +154,7 @@ export function projectAgentRunGraph(
       toolToCanvasNode(tool, laneIdForTool(tool, taskById, laneByRequestId)),
     );
 
-    if (tool.status === 'waiting_approval' && tool.approvalRequestId) {
+    if (tool.status === "waiting_approval" && tool.approvalRequestId) {
       addNode(
         nodes,
         sequenceByNodeId,
@@ -189,11 +191,11 @@ export function projectAgentRunGraph(
     edges,
     summary: {
       totalNodes: sortedNodes.length,
-      runningNodes: sortedNodes.filter((node) => node.status === 'running')
+      runningNodes: sortedNodes.filter((node) => node.status === "running")
         .length,
-      failedNodes: sortedNodes.filter((node) => node.status === 'failed')
+      failedNodes: sortedNodes.filter((node) => node.status === "failed")
         .length,
-      approvalNodes: sortedNodes.filter((node) => node.kind === 'approval')
+      approvalNodes: sortedNodes.filter((node) => node.kind === "approval")
         .length,
     },
   };
@@ -219,14 +221,16 @@ function addNode(
   nodes.push(node);
 }
 
-function taskToCanvasNode(task: AgentRunGraphNode): InternalExecutionCanvasNode {
+function taskToCanvasNode(
+  task: AgentRunGraphNode,
+): InternalExecutionCanvasNode {
   const timestamp = earliestTimestamp(task.startedAt, task.finishedAt);
 
   return {
     id: taskNodeId(task.id),
     sourceId: task.id,
     laneId: laneIdFromTask(task),
-    kind: 'agent',
+    kind: "agent",
     label: task.label,
     eyebrow: formatLaneLabel(laneIdFromTask(task)),
     description: task.capabilityKey,
@@ -256,9 +260,9 @@ function toolToCanvasNode(
     id: toolNodeId(tool.id),
     sourceId: tool.id,
     laneId,
-    kind: 'tool',
+    kind: "tool",
     label: formatCapabilityLabel(tool.capabilityKey),
-    eyebrow: tool.resourceType ?? 'Tool',
+    eyebrow: tool.resourceType ?? "Tool",
     description: tool.resourceId ?? tool.reasonCode,
     status: toExecutionCanvasStatus(tool.status),
     startedAt: tool.startedAt,
@@ -288,7 +292,7 @@ function artifactToCanvasNode(
     id: artifactNodeId(artifact.id),
     sourceId: artifact.id,
     laneId,
-    kind: 'artifact',
+    kind: "artifact",
     label: artifact.title,
     eyebrow: formatArtifactEyebrow(artifact),
     description: artifact.href ?? artifact.targetId,
@@ -322,11 +326,11 @@ function approvalToCanvasNode(
     id: approvalNodeId(tool.approvalRequestId ?? tool.id),
     sourceId: tool.approvalRequestId ?? tool.id,
     laneId,
-    kind: 'approval',
+    kind: "approval",
     label: `Approval: ${formatCapabilityLabel(tool.capabilityKey)}`,
-    eyebrow: 'Approval',
+    eyebrow: "Approval",
     description: tool.reasonCode,
-    status: 'waiting_approval',
+    status: "waiting_approval",
     startedAt: tool.startedAt,
     finishedAt: tool.completedAt,
     timestamp,
@@ -356,7 +360,8 @@ function buildLanes(
   const lanes = [...laneNodes.entries()].map(([id, laneNodeList]) => {
     const sortedNodes = [...laneNodeList].sort((left, right) => {
       const timestampDelta =
-        timestampSortValue(left.timestamp) - timestampSortValue(right.timestamp);
+        timestampSortValue(left.timestamp) -
+        timestampSortValue(right.timestamp);
 
       if (timestampDelta !== 0) {
         return timestampDelta;
@@ -373,16 +378,18 @@ function buildLanes(
       label: formatLaneLabel(id),
       agentType: agentTypeFromLaneId(id),
       nodes: sortedNodes,
-      timestamp: earliestTimestamp(...sortedNodes.map((node) => node.timestamp)),
+      timestamp: earliestTimestamp(
+        ...sortedNodes.map((node) => node.timestamp),
+      ),
     };
   });
 
   return lanes.sort((left, right) => {
-    if (left.id === 'operator') {
+    if (isOperatorLane(left.id) && !isOperatorLane(right.id)) {
       return -1;
     }
 
-    if (right.id === 'operator') {
+    if (!isOperatorLane(left.id) && isOperatorLane(right.id)) {
       return 1;
     }
 
@@ -395,6 +402,10 @@ function buildLanes(
 
     return left.id.localeCompare(right.id);
   });
+}
+
+function isOperatorLane(laneId: string): boolean {
+  return laneId === "operator" || laneId === "manager";
 }
 
 function buildEdges(
@@ -427,7 +438,7 @@ function buildEdges(
   };
 
   for (const task of graph.nodes) {
-    if (task.kind !== 'agent_task' || !task.parentId) {
+    if (task.kind !== "agent_task" || !task.parentId) {
       continue;
     }
 
@@ -439,14 +450,17 @@ function buildEdges(
       addEdge(taskNodeId(tool.requestId), toolNodeId(tool.id));
     }
 
-    if (tool.status === 'waiting_approval' && tool.approvalRequestId) {
+    if (tool.status === "waiting_approval" && tool.approvalRequestId) {
       addEdge(toolNodeId(tool.id), approvalNodeId(tool.approvalRequestId));
     }
   }
 
   for (const artifact of graph.artifacts) {
     if (artifact.toolInvocationId) {
-      addEdge(toolNodeId(artifact.toolInvocationId), artifactNodeId(artifact.id));
+      addEdge(
+        toolNodeId(artifact.toolInvocationId),
+        artifactNodeId(artifact.id),
+      );
       continue;
     }
 
@@ -481,7 +495,7 @@ function laneIdForTool(
     }
   }
 
-  return laneIdFromDomain(tool.capabilityKey ?? tool.resourceType ?? 'tools');
+  return laneIdFromDomain(tool.capabilityKey ?? tool.resourceType ?? "tools");
 }
 
 function laneIdForArtifact(
@@ -516,11 +530,11 @@ function normalizeLaneId(value: string | null | undefined): string {
   const normalized = value
     ?.trim()
     .toLowerCase()
-    .replace(/\s+/g, '_')
-    .replace(/[^a-z0-9_-]+/g, '_')
-    .replace(/^_+|_+$/g, '');
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 
-  return normalized || 'agent';
+  return normalized || "agent";
 }
 
 function laneIdFromDomain(value: string | null | undefined): string {
@@ -532,8 +546,8 @@ function agentTypeFromCapability(
 ): string | null {
   const [domain] = splitCapabilitySegments(capabilityKey);
 
-  if (domain === 'channel' || domain === 'channels') {
-    return 'channel_registration';
+  if (domain === "channel" || domain === "channels") {
+    return "channel_registration";
   }
 
   return domain ?? null;
@@ -543,14 +557,14 @@ function formatLaneLabel(laneId: string): string {
   return splitCapabilitySegments(laneId)
     .filter(Boolean)
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
-    .join(' ');
+    .join(" ");
 }
 
 function formatCapabilityLabel(capabilityKey: string): string {
   return splitCapabilitySegments(capabilityKey)
     .filter(Boolean)
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
-    .join(' ');
+    .join(" ");
 }
 
 function splitCapabilitySegments(value: string | null | undefined): string[] {
@@ -565,12 +579,12 @@ function splitCapabilitySegments(value: string | null | undefined): string[] {
 
 function formatArtifactEyebrow(artifact: AgentArtifactSummary): string {
   return formatCapabilityLabel(
-    artifact.artifactType || artifact.targetDomain || 'artifact',
+    artifact.artifactType || artifact.targetDomain || "artifact",
   );
 }
 
 function agentTypeFromLaneId(laneId: string): string | null {
-  return laneId === 'agent' ? null : laneId;
+  return laneId === "agent" ? null : laneId;
 }
 
 function toPublicLane(lane: InternalExecutionCanvasLane): ExecutionCanvasLane {
@@ -604,7 +618,7 @@ function compactMetadata(
   const metadata: Record<string, string> = {};
 
   for (const [key, value] of Object.entries(entries)) {
-    if (value === null || value === undefined || value === '') {
+    if (value === null || value === undefined || value === "") {
       continue;
     }
 
@@ -615,11 +629,11 @@ function compactMetadata(
 }
 
 function compactMetadataValue(value: unknown): string {
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     return value.slice(0, 160);
   }
 
-  if (typeof value === 'number' || typeof value === 'boolean') {
+  if (typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
 

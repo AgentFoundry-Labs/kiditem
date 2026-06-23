@@ -10,6 +10,8 @@ import { SourcingWorkspaceSnapshotService } from '../application/service/sourcin
 import { ProductPreparationSelectionService } from '../application/service/product-preparation-selection.service';
 import { SourcingMarketDiscoveryService } from '../application/service/sourcing-market-discovery.service';
 import { SourcingDiscoveryCapabilityAdapter } from '../adapter/in/agent/sourcing-discovery-capability.adapter';
+import { SourcingListingPrepCapabilityAdapter } from '../adapter/in/agent/sourcing-listing-prep-capability.adapter';
+import { SourcingScrapeUrlCapabilityAdapter } from '../adapter/in/agent/sourcing-scrape-url-capability.adapter';
 import { NaverDatalabPopularKeywordAdapter } from '../adapter/out/naver/naver-datalab-popular-keyword.adapter';
 import { NaverDatalabTrendAdapter } from '../adapter/out/naver/naver-datalab-trend.adapter';
 import { NaverAutocompleteKeywordAdapter } from '../adapter/out/naver/naver-autocomplete-keyword.adapter';
@@ -23,7 +25,11 @@ import { SourcingWorkspaceSnapshotRepositoryAdapter } from '../adapter/out/repos
 import { SourcingPlaywrightRuntimeHandler } from '../adapter/out/runtime/sourcing-playwright-runtime.handler';
 import { SourcingRuntimeHandler } from '../adapter/out/runtime/sourcing-runtime.handler';
 import { Tmapi1688ImageSearchAdapter } from '../adapter/out/tmapi/tmapi-1688-image-search.adapter';
-import { SOURCING_DISCOVERY_CAPABILITY_PORT } from '../application/port/in/capability/sourcing-capability.ports';
+import {
+  SOURCING_DISCOVERY_CAPABILITY_PORT,
+  SOURCING_LISTING_PREP_CAPABILITY_PORT,
+  SOURCING_SCRAPE_URL_WORKFLOW_PORT,
+} from '../application/port/in/capability/sourcing-capability.ports';
 import { SOURCING_1688_IMAGE_SEARCH_PORT } from '../application/port/out/provider/1688-image-search.port';
 import {
   SOURCING_NAVER_DATALAB_POPULAR_KEYWORD_PORT,
@@ -87,6 +93,8 @@ describe('SourcingModule canonical owner wiring', () => {
     expect(providers).toContain(SourcingCandidateRepositoryAdapter);
     expect(providers).toContain(SourcingWorkspaceSnapshotRepositoryAdapter);
     expect(providers).toContain(SourcingDiscoveryCapabilityAdapter);
+    expect(providers).toContain(SourcingListingPrepCapabilityAdapter);
+    expect(providers).toContain(SourcingScrapeUrlCapabilityAdapter);
     expect(providers).toContain(SourcingPlaywrightRuntimeHandler);
     expect(providers).toContain(SourcingRuntimeHandler);
     expect(providers).toContain(Tmapi1688ImageSearchAdapter);
@@ -107,6 +115,18 @@ describe('SourcingModule canonical owner wiring', () => {
     );
     expect(discoveryBinding).toBeDefined();
     expect(discoveryBinding!.useExisting).toBe(SourcingDiscoveryCapabilityAdapter);
+    const listingPrepBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === 'object' && p !== null && (p as any).provide === SOURCING_LISTING_PREP_CAPABILITY_PORT,
+    );
+    expect(listingPrepBinding).toBeDefined();
+    expect(listingPrepBinding!.useExisting).toBe(SourcingListingPrepCapabilityAdapter);
+    const scrapeUrlBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === 'object' && p !== null && (p as any).provide === SOURCING_SCRAPE_URL_WORKFLOW_PORT,
+    );
+    expect(scrapeUrlBinding).toBeDefined();
+    expect(scrapeUrlBinding!.useExisting).toBe(SourcingScrapeUrlCapabilityAdapter);
     const alertBinding = providers.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
         typeof p === 'object' && p !== null && (p as any).provide === SOURCING_OPERATION_ALERT_PORT,
