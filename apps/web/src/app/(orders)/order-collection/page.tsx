@@ -86,23 +86,24 @@ export default function OrderCollectionPage() {
   const configuredMallCount = mallAccounts.filter((account) => account.configured).length;
   const enabledMallCount = mallAccounts.filter((account) => account.configured && account.enabled).length;
   const canCollectSelectedMall = selectedMall?.key === ICECREAM_MALL_KEY;
+  const lastOrderCount = getOrderCount(lastResult);
 
   const summary = useMemo(() => {
     if (!lastResult) {
       return [
-        { label: '원본 행', value: '-' },
-        { label: '변환 상품', value: '-' },
-        { label: '출력 행', value: '-' },
-        { label: '제외 행', value: '-' },
+        { label: '주문 수', value: '-' },
+        { label: '상품 수', value: '-' },
+        { label: '출력 수', value: '-' },
+        { label: '제외 수', value: '-' },
       ];
     }
     return [
-      { label: '원본 행', value: countLabel(lastResult.sourceRows) },
-      { label: '변환 상품', value: countLabel(lastResult.productRows) },
-      { label: '출력 행', value: countLabel(lastResult.outputRows) },
-      { label: '제외 행', value: countLabel(lastResult.skippedRows) },
+      { label: '주문 수', value: countLabel(lastOrderCount) },
+      { label: '상품 수', value: countLabel(lastResult.productRows) },
+      { label: '출력 수', value: countLabel(lastResult.outputRows) },
+      { label: '제외 수', value: countLabel(lastResult.skippedRows) },
     ];
-  }, [lastResult]);
+  }, [lastOrderCount, lastResult]);
 
   const generatedFileGroups = useMemo(() => groupHistoryByDay(history), [history]);
 
@@ -333,7 +334,7 @@ export default function OrderCollectionPage() {
           </button>
         </div>
 
-        <div className="grid gap-4 p-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="grid items-start gap-4 p-5 xl:grid-cols-[minmax(0,1fr)_380px]">
           <div className="overflow-hidden rounded-lg border border-slate-200">
             <div className="grid grid-cols-[minmax(140px,1.3fr)_minmax(120px,1fr)_96px_82px] bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500">
               <div>몰</div>
@@ -341,7 +342,7 @@ export default function OrderCollectionPage() {
               <div className="text-center">비밀번호</div>
               <div className="text-center">상태</div>
             </div>
-            <div className="max-h-[336px] overflow-auto">
+            <div className="overflow-hidden">
               {mallError && (
                 <div className="flex items-center gap-2 px-4 py-5 text-sm text-red-600">
                   <AlertCircle size={15} />
@@ -785,6 +786,12 @@ function stateMessage(state: ConversionState, file: File | null, error: string |
 
 function countLabel(value: number | null): string {
   return value === null ? '-' : formatNumber(value);
+}
+
+function getOrderCount(result: ConversionHistoryItem | null): number | null {
+  if (!result || result.outputRows === null || result.productRows === null) return null;
+  const orderCount = result.outputRows - result.productRows;
+  return orderCount >= 0 ? orderCount : null;
 }
 
 function groupHistoryByDay(items: ConversionHistoryItem[]): Array<{
