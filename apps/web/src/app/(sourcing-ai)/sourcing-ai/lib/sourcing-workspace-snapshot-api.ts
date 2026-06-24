@@ -9,6 +9,11 @@ export type SourcingWorkspaceSnapshotScope =
   | 'sourcing_market_model'
   | 'sourcing_1688_new_product_model';
 
+export type WritableSourcingWorkspaceSnapshotScope = Extract<
+  SourcingWorkspaceSnapshotScope,
+  'keyword_analysis' | 'today_recommendations' | 'interest_tracking' | '1688_new_products'
+>;
+
 export type SourcingWorkspaceSnapshotGenerationSource = 'manual' | 'scheduled' | 'imported';
 
 export interface SourcingWorkspaceSnapshotMeta {
@@ -63,7 +68,7 @@ export function getRecentSourcingWorkspaceSnapshots<TPayload>(
 }
 
 export function saveTodaySourcingWorkspaceSnapshot<TPayload>(
-  scope: SourcingWorkspaceSnapshotScope,
+  scope: WritableSourcingWorkspaceSnapshotScope,
   payload: TPayload,
 ): Promise<SourcingWorkspaceSnapshotEnvelope<TPayload>> {
   return apiClient.put<SourcingWorkspaceSnapshotEnvelope<TPayload>>(

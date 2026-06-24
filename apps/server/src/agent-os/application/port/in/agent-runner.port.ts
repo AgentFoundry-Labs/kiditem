@@ -8,6 +8,15 @@ export interface AgentRunnerInput {
   requestedByUserId?: string;
   requestedByActorType?: string;
   requestedByActorId?: string;
+  conversationId?: string | null;
+  initiatedByMessageId?: string | null;
+  parentRequestId?: string | null;
+  delegatedByRunId?: string | null;
+  playbookKey?: string | null;
+  planStepKey?: string | null;
+  displayName?: string | null;
+  statusReason?: string | null;
+  dependencyKeys?: string[];
   sourceType: string;
   sourceId?: string;
   sourceWorkflowRunId?: string;

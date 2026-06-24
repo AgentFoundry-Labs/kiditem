@@ -50,10 +50,18 @@ export function assertPublicHttpUrl(raw: string): void {
   }
 
   const ipKind = isIP(host);
-  // Non-IP hostnames: accept here. A full CDN allowlist + DNS-resolution
-  // re-check would block TOCTOU dns rebinding but adds latency; tracked
-  // separately. The fetch path still enforces redirect bounds + MIME limits.
+  // Non-IP hostnames: accept here. Fetch paths that resolve DNS before
+  // outbound requests should pass each resolved address through
+  // assertPublicIpAddress().
   if (ipKind === 0) return;
+
+  assertPublicIpAddress(host);
+}
+
+export function assertPublicIpAddress(address: string): void {
+  const host = normalizeHost(address);
+  const ipKind = isIP(host);
+  if (ipKind === 0) throw new PublicUrlError('image url host not allowed');
 
   if (ipKind === 4) {
     if (isPrivateIPv4(host)) throw new PublicUrlError('image url host not allowed');
@@ -81,6 +89,14 @@ export function assertPublicHttpUrl(raw: string): void {
     /^fc[0-9a-f]{2}:/.test(host) || // fc00::/7 ULA
     /^fd[0-9a-f]{2}:/.test(host); // fd00::/8 ULA
   if (blocked6) throw new PublicUrlError('image url host not allowed');
+}
+
+function normalizeHost(value: string): string {
+  let host = value.toLowerCase();
+  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
+  const zoneIdx = host.indexOf('%');
+  if (zoneIdx !== -1) host = host.slice(0, zoneIdx);
+  return stripTrailingRootDots(host);
 }
 
 function extractEmbeddedIPv4(host: string): string | null {

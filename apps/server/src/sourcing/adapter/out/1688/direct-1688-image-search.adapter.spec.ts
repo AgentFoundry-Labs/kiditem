@@ -1,7 +1,14 @@
-import { BadGatewayException } from '@nestjs/common';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { BadGatewayException, BadRequestException } from '@nestjs/common';
+import { lookup } from 'node:dns/promises';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Direct1688ImageSearchAdapter } from './direct-1688-image-search.adapter';
 import type { Direct1688KeywordSearchAdapter } from './direct-1688-keyword-search.adapter';
+
+vi.mock('node:dns/promises', () => ({
+  lookup: vi.fn(),
+}));
+
+const lookupMock = vi.mocked(lookup);
 
 function keywordAdapterStub(): Direct1688KeywordSearchAdapter {
   return {
@@ -31,6 +38,11 @@ function keywordAdapterStub(): Direct1688KeywordSearchAdapter {
 }
 
 describe('Direct1688ImageSearchAdapter', () => {
+  beforeEach(() => {
+    lookupMock.mockReset();
+    lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
@@ -198,6 +210,34 @@ describe('Direct1688ImageSearchAdapter', () => {
     });
     expect(result.convertedImageUrl).toBeNull();
     expect(result.items[0]?.sourceUrl).toBe('https://detail.1688.com/offer/773667152445.html');
+  });
+
+  it('rejects source image hosts that resolve to private addresses before fetch', async () => {
+    const adapter = new Direct1688ImageSearchAdapter(keywordAdapterStub());
+    lookupMock.mockResolvedValueOnce([{ address: '169.254.169.254', family: 4 }]);
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(adapter.searchByImage({
+      imageUrl: 'https://metadata.example/image.jpg',
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects redirects to private hosts before following them', async () => {
+    const adapter = new Direct1688ImageSearchAdapter(keywordAdapterStub());
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(null, {
+      status: 302,
+      headers: {
+        location: 'http://127.0.0.1/private.jpg',
+      },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(adapter.searchByImage({
+      imageUrl: 'https://img.coupangcdn.com/example.jpg',
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('fails clearly when AlphaShop search fails and no keyword fallback is available', async () => {

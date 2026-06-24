@@ -4,6 +4,170 @@ import { ReadinessService } from '../readiness.service';
 const ORGANIZATION_ID = '00000000-0000-0000-0000-0000000c0001';
 
 describe('ReadinessService', () => {
+  it('reports Agent OS live automation readiness without exposing secrets', async () => {
+    const originalEnv = { ...process.env };
+    process.env.OPENAI_API_KEY = 'sk-test-secret';
+    process.env.AGENT_OS_OPENAI_RESPONSES_MODEL = 'gpt-test';
+    delete process.env.AGENT_OS_1688_CHECKOUT_RUNTIME;
+
+    const prisma = {
+      channelAccount: {
+        findFirst: vi.fn(async () => ({
+          vendorId: 'vendor-1',
+          externalAccountId: null,
+          config: {
+            coupangCredentials: {
+              accessKey: {
+                version: 1,
+                algorithm: 'aes-256-gcm',
+                iv: 'iv',
+                ciphertext: 'access-secret',
+                tag: 'tag',
+              },
+              secretKey: {
+                version: 1,
+                algorithm: 'aes-256-gcm',
+                iv: 'iv',
+                ciphertext: 'secret-secret',
+                tag: 'tag',
+              },
+            },
+          },
+        })),
+      },
+    };
+
+    try {
+      const service = new ReadinessService(prisma as never);
+      const status = await service.getAgentOsLiveStatus(ORGANIZATION_ID);
+
+      expect(status.allReady).toBe(false);
+      expect(status.checks).toEqual([
+        expect.objectContaining({
+          key: 'openai_responses_operator',
+          status: 'ready',
+          requiredFor: ['operator_runtime'],
+        }),
+        expect.objectContaining({
+          key: 'coupang_seller_product_api',
+          status: 'ready',
+          requiredFor: ['channels.submit_coupang_listing'],
+        }),
+        expect.objectContaining({
+          key: 'alibaba_1688_checkout_runtime',
+          status: 'missing',
+          requiredFor: [
+            'supply.submit_purchase_order',
+            'supply.submit_purchase_order_live_checkout',
+          ],
+        }),
+      ]);
+      expect(JSON.stringify(status)).not.toContain('sk-test-secret');
+      expect(JSON.stringify(status)).not.toContain('access-secret');
+      expect(JSON.stringify(status)).not.toContain('secret-secret');
+    } finally {
+      process.env = originalEnv;
+    }
+  });
+
+  it('reports missing Agent OS live automation prerequisites', async () => {
+    const originalEnv = { ...process.env };
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.AGENT_OS_OPENAI_RESPONSES_MODEL;
+    delete process.env.AGENT_OS_1688_CHECKOUT_RUNTIME;
+
+    const prisma = {
+      channelAccount: {
+        findFirst: vi.fn(async () => null),
+      },
+    };
+
+    try {
+      const service = new ReadinessService(prisma as never);
+      const status = await service.getAgentOsLiveStatus(ORGANIZATION_ID);
+
+      expect(status.allReady).toBe(false);
+      expect(status.checks.map((check) => [check.key, check.status])).toEqual([
+        ['openai_responses_operator', 'missing'],
+        ['coupang_seller_product_api', 'missing'],
+        ['alibaba_1688_checkout_runtime', 'missing'],
+      ]);
+      expect(status.blockedCapabilities).toEqual([
+        'operator_runtime',
+        'channels.submit_coupang_listing',
+        'supply.submit_purchase_order',
+        'supply.submit_purchase_order_live_checkout',
+      ]);
+    } finally {
+      process.env = originalEnv;
+    }
+  });
+
+  it('requires a provider endpoint before marking 1688 checkout runtime ready', async () => {
+    const originalEnv = { ...process.env };
+    process.env.OPENAI_API_KEY = 'sk-test';
+    process.env.AGENT_OS_OPENAI_RESPONSES_MODEL = 'gpt-test';
+    process.env.AGENT_OS_1688_CHECKOUT_RUNTIME = 'provider';
+    delete process.env.AGENT_OS_1688_CHECKOUT_PROVIDER_URL;
+
+    const prisma = {
+      channelAccount: {
+        findFirst: vi.fn(async () => ({
+          vendorId: 'vendor-1',
+          externalAccountId: null,
+          config: {
+            coupangCredentials: {
+              accessKey: {
+                version: 1,
+                algorithm: 'aes-256-gcm',
+                iv: 'iv',
+                ciphertext: 'access-secret',
+                tag: 'tag',
+              },
+              secretKey: {
+                version: 1,
+                algorithm: 'aes-256-gcm',
+                iv: 'iv',
+                ciphertext: 'secret-secret',
+                tag: 'tag',
+              },
+            },
+          },
+        })),
+      },
+    };
+
+    try {
+      const service = new ReadinessService(prisma as never);
+      const missingEndpoint = await service.getAgentOsLiveStatus(ORGANIZATION_ID);
+      expect(
+        missingEndpoint.checks.find(
+          (check) => check.key === 'alibaba_1688_checkout_runtime',
+        ),
+      ).toMatchObject({
+        status: 'missing',
+        detail: expect.stringContaining('AGENT_OS_1688_CHECKOUT_PROVIDER_URL'),
+      });
+
+      process.env.AGENT_OS_1688_CHECKOUT_PROVIDER_URL =
+        'https://checkout.example.test/1688/orders';
+      const ready = await service.getAgentOsLiveStatus(ORGANIZATION_ID);
+      expect(
+        ready.checks.find(
+          (check) => check.key === 'alibaba_1688_checkout_runtime',
+        ),
+      ).toMatchObject({
+        status: 'ready',
+        requiredFor: [
+          'supply.submit_purchase_order',
+          'supply.submit_purchase_order_live_checkout',
+        ],
+      });
+    } finally {
+      process.env = originalEnv;
+    }
+  });
+
   it('includes the KST reference date when querying @db.Date business dates', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-02T01:00:00.000Z'));

@@ -342,6 +342,22 @@ export class AgentRunExecutor {
         return { executed: true, requestId: claimed.id, runId: run.id };
       }
 
+      if (finalized.requestStatus === 'requires_approval') {
+        await this.repository.appendRunEvent({
+          organizationId: run.organizationId,
+          runId: run.id,
+          agentInstanceId: instance.id,
+          type: 'run.awaiting_approval',
+          data: { requestId: claimed.id },
+        });
+        return {
+          executed: true,
+          requestId: claimed.id,
+          runId: run.id,
+          reason: 'requires_approval',
+        };
+      }
+
       await this.repository.appendRunEvent({
         organizationId: run.organizationId,
         runId: run.id,

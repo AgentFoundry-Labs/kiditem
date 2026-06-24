@@ -49,6 +49,8 @@
     "storage:cache-control": "tsx scripts/storage-cache-control.ts",
     "staging:db": "tsx scripts/staging-db-baseline.ts",
     "seed:agent-os": "tsx scripts/seed-agent-os.ts",
+    "agent-os:operator:openai": "npm run build --workspace=apps/server && node apps/server/dist/agent-os/adapter/in/cli/run-openai-operator.js",
+    "agent-os:e2e:hermes-tool-loop": "npm run build --workspace=apps/server && node apps/server/dist/agent-os/adapter/in/cli/run-hermes-tool-loop-e2e.js",
     "db:test:up": "docker compose -f docker-compose.test.yml up -d --wait",
     "db:test:down": "docker compose -f docker-compose.test.yml down -v",
     "db:test:prepare": "bash prisma/test-db-setup.sh",

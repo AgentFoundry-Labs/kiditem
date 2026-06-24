@@ -13,6 +13,9 @@ export interface SourcingScrapeRequest {
   organizationId: string;
   url: string;
   triggeredByUserId?: string | null;
+  conversationId?: string | null;
+  parentRequestId?: string | null;
+  delegatedByRunId?: string | null;
 }
 
 export interface SourcingScrapeResult {

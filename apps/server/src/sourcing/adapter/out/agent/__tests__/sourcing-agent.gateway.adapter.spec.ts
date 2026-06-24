@@ -105,6 +105,35 @@ describe('SourcingAgentGatewayAdapter', () => {
       expect(result.requestId).toBe('req-1');
     });
 
+    it('preserves parent request and run lineage when enqueueing scrape work', async () => {
+      const runByType = vi.fn().mockResolvedValue({
+        ok: true,
+        runId: 'run-child-1',
+        requestId: 'req-child-1',
+        agentType: 'sourcing',
+        status: 'running',
+      });
+      const { adapter } = makeAdapter(runByType);
+
+      await adapter.scrapeUrl({
+        organizationId: 'org-1',
+        url: 'https://1688.com/item/lineage',
+        triggeredByUserId: 'user-7',
+        conversationId: 'conversation-1',
+        parentRequestId: 'request-parent-1',
+        delegatedByRunId: 'run-parent-1',
+      });
+
+      expect(runByType).toHaveBeenCalledWith(
+        'sourcing',
+        expect.objectContaining({
+          conversationId: 'conversation-1',
+          parentRequestId: 'request-parent-1',
+          delegatedByRunId: 'run-parent-1',
+        }),
+      );
+    });
+
     it('falls back to requestId for taskId when the runner deferred execution', async () => {
       const runByType = vi.fn().mockResolvedValue({
         ok: true,

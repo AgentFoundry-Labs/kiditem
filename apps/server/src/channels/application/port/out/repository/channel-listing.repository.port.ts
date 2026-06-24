@@ -79,6 +79,17 @@ export interface RegisterConfirmedListingInput {
   channelPrice?: number | null;
 }
 
+export interface RegisteredMarketplaceListingResult {
+  id: string;
+  masterId: string;
+  channel: string;
+  channelAccountId: string | null;
+  externalId: string;
+  channelName: string | null;
+  channelPrice: number | null;
+  status: string | null;
+}
+
 export interface ChannelListingRepositoryPort {
   list(
     organizationId: string,
@@ -100,5 +111,5 @@ export interface MarketplaceRegistrationRepositoryPort {
   registerConfirmedListing(
     organizationId: string,
     input: RegisterConfirmedListingInput,
-  ): Promise<unknown>;
+  ): Promise<RegisteredMarketplaceListingResult>;
 }

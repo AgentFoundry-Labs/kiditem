@@ -3,6 +3,7 @@ import {
   PublicUrlError,
   assertHttpUrl,
   assertPublicHttpUrl,
+  assertPublicIpAddress,
 } from '../public-url';
 
 /**
@@ -92,6 +93,14 @@ describe('public-url policy', () => {
         expect(() => assertPublicHttpUrl(url)).not.toThrow();
       });
     }
+  });
+
+  describe('assertPublicIpAddress', () => {
+    it('applies the same blocklist to DNS-resolved addresses', () => {
+      expect(() => assertPublicIpAddress('169.254.169.254')).toThrow(PublicUrlError);
+      expect(() => assertPublicIpAddress('::ffff:7f00:1')).toThrow(PublicUrlError);
+      expect(() => assertPublicIpAddress('93.184.216.34')).not.toThrow();
+    });
   });
 
   describe('error shape', () => {

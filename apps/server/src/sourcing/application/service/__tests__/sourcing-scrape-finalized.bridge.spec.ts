@@ -150,6 +150,8 @@ describe('SourcingScrapeFinalizedBridge', () => {
         ok: false,
         source_url: 'https://detail.1688.com/offer/123.html',
         error: 'Failed to extract data',
+        requiresRecovery: true,
+        recommendedSkillKey: 'sourcing.magic_scraper',
       },
     });
 
@@ -178,6 +180,8 @@ describe('SourcingScrapeFinalizedBridge', () => {
         metadata: expect.objectContaining({
           runId: RUN_ID,
           errorCode: 'sourcing_scrape_empty_output',
+          requiresRecovery: true,
+          recommendedSkillKey: 'sourcing.magic_scraper',
         }),
       }),
     );

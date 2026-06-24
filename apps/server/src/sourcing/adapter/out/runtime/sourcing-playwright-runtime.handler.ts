@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { chromium, type Page } from 'playwright';
 import { AgentOsRuntimeError } from '../../../../agent-os/domain/agent-os.errors';
 import type {
@@ -9,21 +9,48 @@ import type {
   AgentRuntimeResult,
 } from '../../../../agent-os/application/port/out/runtime/agent-runtime.port';
 import type { AgentTypeRuntimeHandler } from '../../../../agent-os/application/port/out/runtime/agent-runtime-handler.port';
-import { AgentRuntimeHandlerRegistry } from '../../../../agent-os/application/service/agent-runtime-handler-registry.service';
 import { detectSourcingScrapePlatform } from '../../../domain/sourcing-url';
+import { extract1688DetailModelSnapshot } from './extractor/supplier-1688-detail-model.extractor';
 
 const DEFAULT_USER_DATA_DIR = '.kiditem/playwright/sourcing';
 const NAVIGATE_TIMEOUT_MS = 30_000;
 const DATA_WAIT_TIMEOUT_MS = 15_000;
 const SCROLL_PAUSE_MS = 500;
+const MAGIC_SCRAPER_SKILL_KEY = 'sourcing.magic_scraper';
 
 const DATA_READY_CHECK = `
-() => {
+(() => {
   if (window.context && window.context.result) return 'context';
   if (window.__INIT_DATA__ && window.__INIT_DATA__.globalData) return '__INIT_DATA__';
   if (window.detailData && window.detailData.globalData) return 'detailData';
   return false;
-}
+})()
+`;
+
+const READ_1688_DETAIL_MODEL_SNAPSHOT = `
+(() => {
+  const result = window.context && window.context.result;
+  const model = result
+    && result.global
+    && result.global.globalData
+    && result.global.globalData.model;
+  if (!model || !model.offerDetail) return null;
+  return {
+    model,
+    data: result.data || null,
+  };
+})()
+`;
+
+const WAIT_FOR_1688_DETAIL_MODEL = `
+(() => {
+  const result = window.context && window.context.result;
+  const model = result
+    && result.global
+    && result.global.globalData
+    && result.global.globalData.model;
+  return Boolean(model && model.offerDetail && (model.offerDetail.subject || model.offerDetail.offerId));
+})()
 `;
 
 const EXTRACT_WITH_PRODUCT_SCRAPER = `
@@ -108,15 +135,19 @@ interface ExtractorScripts {
   bridgeJs: string;
 }
 
+interface ExtractionAttemptResult {
+  data: Record<string, unknown> | null;
+  recoveryReason?: string;
+}
+
+interface BrowserPageSession {
+  page: Page;
+  close: () => Promise<void>;
+}
+
 @Injectable()
-export class SourcingPlaywrightRuntimeHandler implements AgentTypeRuntimeHandler, OnModuleInit {
+export class SourcingPlaywrightRuntimeHandler implements AgentTypeRuntimeHandler {
   private readonly logger = new Logger(SourcingPlaywrightRuntimeHandler.name);
-
-  constructor(private readonly registry: AgentRuntimeHandlerRegistry) {}
-
-  onModuleInit(): void {
-    this.registry.register('sourcing', this);
-  }
 
   async execute(context: AgentRuntimeExecutionContext): Promise<AgentRuntimeResult> {
     const action = stringField(context.input.action);
@@ -149,9 +180,53 @@ export class SourcingPlaywrightRuntimeHandler implements AgentTypeRuntimeHandler
       return { ok: false, error: 'Unsupported sourcing URL', source_url: url, platform: null };
     }
 
+    const session = await this.openPageSession(runtimeConfig);
+
+    try {
+      const extracted = await this.extract(session.page, url, platform);
+      if (!extracted.data) {
+        const output: Record<string, unknown> = {
+          ok: false,
+          error: 'Failed to extract data',
+          source_url: url,
+          platform,
+          requiresRecovery: true,
+          recommendedSkillKey: MAGIC_SCRAPER_SKILL_KEY,
+        };
+        if (extracted.recoveryReason) output.recoveryReason = extracted.recoveryReason;
+        return output;
+      }
+      return {
+        ok: true,
+        scraped_data: normalizeScrapedData(url, platform, extracted.data),
+        source_url: url,
+        platform,
+      };
+    } finally {
+      await session.close();
+    }
+  }
+
+  private async openPageSession(
+    runtimeConfig: Record<string, unknown>,
+  ): Promise<BrowserPageSession> {
+    const cdpEndpoint = resolveSourcingPlaywrightCdpEndpoint(runtimeConfig);
+    if (cdpEndpoint) {
+      const browser = await chromium.connectOverCDP(cdpEndpoint, { timeout: 20_000 });
+      const context = browser.contexts()[0] ?? await browser.newContext();
+      const page = await context.newPage();
+      await page.setViewportSize({ width: 1920, height: 1080 }).catch(() => undefined);
+      return {
+        page,
+        close: async () => {
+          await page.close().catch(() => undefined);
+          await browser.close().catch(() => undefined);
+        },
+      };
+    }
+
     const userDataDir = resolveSourcingPlaywrightUserDataDir(runtimeConfig);
     await mkdir(userDataDir, { recursive: true });
-
     const context = await chromium.launchPersistentContext(userDataDir, {
       executablePath: chromium.executablePath(),
       headless: resolveHeadless(runtimeConfig),
@@ -160,59 +235,123 @@ export class SourcingPlaywrightRuntimeHandler implements AgentTypeRuntimeHandler
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
       args: ['--no-sandbox', '--disable-dev-shm-usage'],
     });
-
-    try {
-      const page = context.pages()[0] ?? await context.newPage();
-      const extracted = await this.extract(page, url, platform);
-      if (!extracted) {
-        return { ok: false, error: 'Failed to extract data', source_url: url, platform };
-      }
-      return {
-        ok: true,
-        scraped_data: normalizeScrapedData(url, platform, extracted),
-        source_url: url,
-        platform,
-      };
-    } finally {
-      await context.close();
-    }
+    return {
+      page: context.pages()[0] ?? await context.newPage(),
+      close: () => context.close(),
+    };
   }
 
   private async extract(
     page: Page,
     url: string,
     platform: '1688' | 'ALIBABA',
-  ): Promise<Record<string, unknown> | null> {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAVIGATE_TIMEOUT_MS });
+  ): Promise<ExtractionAttemptResult> {
     try {
-      await page.waitForFunction(DATA_READY_CHECK, undefined, {
-        timeout: DATA_WAIT_TIMEOUT_MS,
-      });
-    } catch {
-      this.logger.warn(`sourcing data wait timed out for ${url}`);
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAVIGATE_TIMEOUT_MS });
+      try {
+        await page.waitForFunction(DATA_READY_CHECK, undefined, {
+          timeout: DATA_WAIT_TIMEOUT_MS,
+        });
+      } catch {
+        this.logger.warn(`sourcing data wait timed out for ${url}`);
+      }
+
+      await page.evaluate('window.scrollTo(0, document.documentElement.scrollHeight)');
+      await page.waitForTimeout(SCROLL_PAUSE_MS);
+      await page.evaluate('window.scrollTo(0, 0)');
+      await page.waitForTimeout(SCROLL_PAUSE_MS);
+    } catch (error) {
+      if (error instanceof AgentOsRuntimeError) throw error;
+      const recoveryReason = runtimeErrorMessage(error);
+      this.logger.warn(`sourcing page preparation failed for ${url}: ${recoveryReason}`);
+      return { data: null, recoveryReason };
     }
 
-    await page.evaluate('window.scrollTo(0, document.documentElement.scrollHeight)');
-    await page.waitForTimeout(SCROLL_PAUSE_MS);
-    await page.evaluate('window.scrollTo(0, 0)');
-    await page.waitForTimeout(SCROLL_PAUSE_MS);
+    let extraction: ExtractionAttemptResult = { data: null };
+    if (platform === '1688' && detectSourcingPlatform(url) === '1688') {
+      extraction = await this.extractWith1688DetailModel(page, url);
+    }
+    if (!extraction.data) {
+      extraction = await this.extractWithProductScraper(page, url, platform);
+    }
+    if (!extraction.data) {
+      const recoveryReason = extraction.recoveryReason
+        ?? await this.detectRecoveryReason(page);
+      return { data: null, recoveryReason };
+    }
 
-    const scripts = await loadExtractorScripts(platform);
-    await page.evaluate(scripts.commonJs);
-    await page.evaluate(scripts.platformJs);
-    const bridgeData = await page.evaluate(BRIDGE_DATA_FROM_EXTENSION_BRIDGE, scripts.bridgeJs);
-    const extracted = await page.evaluate(EXTRACT_WITH_PRODUCT_SCRAPER, bridgeData);
-    if (!isRecord(extracted)) return null;
-
-    const detailUrl = stringField(extracted._detail_url);
+    const detailUrl = stringField(extraction.data._detail_url);
     if (detailUrl && platform === '1688' && detectSourcingPlatform(detailUrl) === '1688') {
-      const description = await page.evaluate(DETAIL_DESCRIPTION_FETCH, detailUrl);
-      if (isRecord(description)) {
-        return { ...extracted, ...description };
+      try {
+        const description = await page.evaluate(DETAIL_DESCRIPTION_FETCH, detailUrl);
+        if (isRecord(description)) {
+          return { data: { ...extraction.data, ...description } };
+        }
+      } catch (error) {
+        const reason = runtimeErrorMessage(error);
+        this.logger.warn(`sourcing detail description extraction failed for ${url}: ${reason}`);
       }
     }
 
-    return extracted;
+    return { data: extraction.data };
+  }
+
+  private async extractWith1688DetailModel(
+    page: Page,
+    url: string,
+  ): Promise<ExtractionAttemptResult> {
+    try {
+      await page.waitForFunction(WAIT_FOR_1688_DETAIL_MODEL, undefined, {
+        timeout: DATA_WAIT_TIMEOUT_MS,
+      }).catch(() => undefined);
+      const snapshot = await page.evaluate(READ_1688_DETAIL_MODEL_SNAPSHOT);
+      const extracted = extract1688DetailModelSnapshot(snapshot);
+      return { data: extracted };
+    } catch (error) {
+      if (error instanceof AgentOsRuntimeError) throw error;
+      const recoveryReason = runtimeErrorMessage(error);
+      this.logger.warn(`1688 context model extraction failed for ${url}: ${recoveryReason}`);
+      return { data: null, recoveryReason };
+    }
+  }
+
+  private async extractWithProductScraper(
+    page: Page,
+    url: string,
+    platform: '1688' | 'ALIBABA',
+  ): Promise<ExtractionAttemptResult> {
+    try {
+      const scripts = await loadExtractorScripts(platform);
+      await page.evaluate(scripts.commonJs);
+      await page.evaluate(scripts.platformJs);
+      const bridgeData = await page.evaluate(BRIDGE_DATA_FROM_PRODUCT_SCRAPER_BRIDGE, scripts.bridgeJs);
+      const extracted = await page.evaluate(EXTRACT_WITH_PRODUCT_SCRAPER, bridgeData);
+      return { data: isRecord(extracted) ? extracted : null };
+    } catch (error) {
+      if (error instanceof AgentOsRuntimeError) throw error;
+      const recoveryReason = runtimeErrorMessage(error);
+      this.logger.warn(`product-scraper extraction failed for ${url}: ${recoveryReason}`);
+      return { data: null, recoveryReason };
+    }
+  }
+
+  private async detectRecoveryReason(page: Page): Promise<string | undefined> {
+    try {
+      const currentUrl = typeof page.url === 'function' ? page.url() : '';
+      if (currentUrl.includes('/_____tmd_____/punish') || currentUrl.includes('punish?')) {
+        return '1688 captcha or anti-bot page detected';
+      }
+
+      const title = typeof page.title === 'function' ? await page.title() : '';
+      if (matchesBlockedSupplierPage(title)) return '1688 captcha or anti-bot page detected';
+
+      const bodyText = await page.evaluate('document.body ? document.body.innerText.slice(0, 2000) : ""');
+      return matchesBlockedSupplierPage(stringField(bodyText) ?? '')
+        ? '1688 captcha or anti-bot page detected'
+        : undefined;
+    } catch {
+      return undefined;
+    }
   }
 }
 
@@ -246,12 +385,30 @@ export function resolveSourcingPlaywrightUserDataDir(runtimeConfig: Record<strin
   return resolve(configured ?? env ?? DEFAULT_USER_DATA_DIR);
 }
 
+export function resolveSourcingPlaywrightCdpEndpoint(
+  runtimeConfig: Record<string, unknown>,
+): string | null {
+  const configured =
+    stringField(runtimeConfig.playwrightCdpEndpoint) ??
+    stringField(runtimeConfig.cdpEndpoint);
+  const env = process.env.SOURCING_PLAYWRIGHT_CDP_ENDPOINT?.trim() || null;
+  return configured ?? env;
+}
+
 function resolveHeadless(runtimeConfig: Record<string, unknown>): boolean {
   if (typeof runtimeConfig.playwrightHeadless === 'boolean') {
     return runtimeConfig.playwrightHeadless;
   }
   const env = process.env.SOURCING_PLAYWRIGHT_HEADLESS;
   return env !== '0' && env !== 'false';
+}
+
+function runtimeErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function matchesBlockedSupplierPage(value: string): boolean {
+  return /captcha|interception|verify|slider|验证码|滑块|请拖动|安全验证/i.test(value);
 }
 
 async function loadExtractorScripts(platform: '1688' | 'ALIBABA'): Promise<ExtractorScripts> {
@@ -278,7 +435,7 @@ function resolveExtractorDir(): string {
   return found;
 }
 
-const BRIDGE_DATA_FROM_EXTENSION_BRIDGE = `
+const BRIDGE_DATA_FROM_PRODUCT_SCRAPER_BRIDGE = `
 (bridgeJs) => {
   return new Promise((resolve) => {
     const validTypes = new Set(["__ps_1688_detail_data", "__ps_detail_data"]);

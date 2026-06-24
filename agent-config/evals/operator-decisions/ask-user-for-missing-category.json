@@ -1,0 +1,7 @@
+{
+  "name": "ask-user-for-missing-category",
+  "rawOutput": "{\"decisionType\":\"ask_user\",\"targetAgentType\":null,\"playbookKey\":null,\"taskInput\":null,\"userVisibleRationale\":null,\"question\":\"Which Coupang category or product family should I focus on?\",\"reason\":\"The request is too broad to choose a bounded sourcing scope.\"}",
+  "expected": {
+    "decisionType": "ask_user"
+  }
+}

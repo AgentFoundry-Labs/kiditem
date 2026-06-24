@@ -1,4 +1,12 @@
 import { BadGatewayException, BadRequestException, Injectable } from '@nestjs/common';
+import * as dns from 'node:dns/promises';
+import { isIP } from 'node:net';
+import { Agent } from 'undici';
+import {
+  PublicUrlError,
+  assertPublicHttpUrl,
+  assertPublicIpAddress,
+} from '../../../../common/security/public-url';
 import {
   type Search1688ImageInput,
   type Search1688ImageItem,
@@ -17,6 +25,12 @@ const DEFAULT_1688_ALPHA_CURRENCY = 'CNY';
 const REQUEST_TIMEOUT_MS = 30_000;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_ALPHA_PAGE_SIZE = 18;
+const MAX_IMAGE_REDIRECTS = 3;
+const publicImageFetchDispatcher = new Agent({
+  connect: {
+    lookup: publicImageLookup,
+  },
+});
 
 @Injectable()
 export class Direct1688ImageSearchAdapter implements Sourcing1688ImageSearchPort {
@@ -50,6 +64,8 @@ export class Direct1688ImageSearchAdapter implements Sourcing1688ImageSearchPort
         items: normalizeAlphaItems(searchResult.data).slice(0, maxResults),
       };
     } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+
       const keyword = input.keyword?.trim();
       if (!keyword) {
         throw new BadGatewayException(`1688 AlphaShop image search failed: ${errorMessage(error)}`);
@@ -149,33 +165,209 @@ async function fetchImageAsDataUrl(imageUrl: string): Promise<string> {
     throw new BadRequestException('imageUrl must use http or https');
   }
 
-  let response: Response;
-  try {
-    response = await fetch(parsed.toString(), {
-      headers: {
-        Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-        'User-Agent': 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari/537.36',
-      },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-  } catch (error) {
-    throw new BadGatewayException(`image download failed: ${errorMessage(error)}`);
-  }
-
+  const { response, finalUrl } = await fetchPublicImageResponse(parsed);
   if (!response.ok) {
     throw new BadGatewayException(`image download failed: ${response.status}`);
   }
 
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.length > MAX_IMAGE_BYTES) {
-    throw new BadRequestException('imageUrl image is too large for 1688 AlphaShop search');
-  }
-
+  const bytes = await readResponseBytes(response);
   const contentType = normalizeImageContentType(response.headers.get('content-type')) ||
-    inferImageContentType(parsed.pathname) ||
+    inferImageContentType(finalUrl.pathname) ||
     'image/jpeg';
 
   return `data:${contentType};base64,${bytes.toString('base64')}`;
+}
+
+async function fetchPublicImageResponse(initialUrl: URL): Promise<{
+  response: Response;
+  finalUrl: URL;
+}> {
+  let currentUrl = initialUrl;
+
+  for (let redirectCount = 0; redirectCount <= MAX_IMAGE_REDIRECTS; redirectCount += 1) {
+    await assertSafeImageFetchUrl(currentUrl);
+
+    let response: Response;
+    try {
+      response = await fetch(currentUrl.toString(), {
+        headers: {
+          Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+          'User-Agent': 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari/537.36',
+        },
+        dispatcher: publicImageFetchDispatcher,
+        redirect: 'manual',
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      } as RequestInit & { dispatcher: Agent });
+    } catch (error) {
+      throw new BadGatewayException(`image download failed: ${errorMessage(error)}`);
+    }
+
+    if (!isRedirectStatus(response.status)) return { response, finalUrl: currentUrl };
+
+    const location = response.headers.get('location');
+    if (!location) {
+      throw new BadGatewayException(`image download redirect missing location: ${response.status}`);
+    }
+    if (redirectCount === MAX_IMAGE_REDIRECTS) {
+      throw new BadRequestException('imageUrl has too many redirects');
+    }
+
+    try {
+      currentUrl = new URL(location, currentUrl);
+    } catch {
+      throw new BadRequestException('imageUrl redirect location is invalid');
+    }
+  }
+
+  throw new BadRequestException('imageUrl has too many redirects');
+}
+
+type PublicImageLookupOptions = {
+  all?: boolean;
+  family?: number;
+  hints?: number;
+  verbatim?: boolean;
+};
+
+type PublicImageLookupCallback = (
+  error: NodeJS.ErrnoException | null,
+  address: string | Array<{ address: string; family: number }>,
+  family?: number,
+) => void;
+
+function publicImageLookup(
+  hostname: string,
+  options: PublicImageLookupOptions,
+  callback: PublicImageLookupCallback,
+): void {
+  void (async () => {
+    try {
+      const records = await resolvePublicHostAddresses(hostname, options.family);
+      if (options.all) {
+        callback(null, records);
+        return;
+      }
+
+      const record = records.find((entry) => matchesLookupFamily(entry, options.family)) ?? records[0];
+      callback(null, record.address, record.family);
+    } catch (error) {
+      callback(toLookupError(error), []);
+    }
+  })();
+}
+
+async function assertSafeImageFetchUrl(url: URL): Promise<void> {
+  try {
+    assertPublicHttpUrl(url.toString());
+  } catch (error) {
+    if (error instanceof PublicUrlError) {
+      throw new BadRequestException('imageUrl host is not allowed');
+    }
+    throw error;
+  }
+
+  const host = normalizeLookupHost(url.hostname);
+  await resolvePublicHostAddresses(host);
+}
+
+async function resolvePublicHostAddresses(
+  hostname: string,
+  family?: number,
+): Promise<Array<{ address: string; family: number }>> {
+  const host = normalizeLookupHost(hostname);
+  const ipFamily = isIP(host);
+  if (ipFamily !== 0) {
+    assertPublicIpAddressOrBadRequest(host);
+    return [{ address: host, family: ipFamily }];
+  }
+
+  let records: Array<{ address: string; family: number }>;
+  try {
+    records = await dns.lookup(host, { all: true, family, verbatim: true });
+  } catch (error) {
+    throw new BadGatewayException(`image host lookup failed: ${errorMessage(error)}`);
+  }
+
+  const matchingRecords = records.filter((record) => matchesLookupFamily(record, family));
+  if (matchingRecords.length === 0) {
+    throw new BadGatewayException('image host lookup returned no addresses');
+  }
+
+  for (const record of matchingRecords) {
+    assertPublicIpAddressOrBadRequest(record.address);
+  }
+
+  return matchingRecords;
+}
+
+function matchesLookupFamily(record: { family: number }, family: number | undefined): boolean {
+  return family == null || family === 0 || record.family === family;
+}
+
+function assertPublicIpAddressOrBadRequest(address: string): void {
+  try {
+    assertPublicIpAddress(address);
+  } catch (error) {
+    if (error instanceof PublicUrlError) {
+      throw new BadRequestException('imageUrl host is not allowed');
+    }
+    throw error;
+  }
+}
+
+function toLookupError(error: unknown): NodeJS.ErrnoException {
+  if (error instanceof Error) return error as NodeJS.ErrnoException;
+  return new Error(errorMessage(error)) as NodeJS.ErrnoException;
+}
+
+function normalizeLookupHost(hostname: string): string {
+  let host = hostname.toLowerCase();
+  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
+  const zoneIdx = host.indexOf('%');
+  if (zoneIdx !== -1) host = host.slice(0, zoneIdx);
+  return host.replace(/\.+$/, '');
+}
+
+function isRedirectStatus(status: number): boolean {
+  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
+}
+
+async function readResponseBytes(response: Response): Promise<Buffer> {
+  const contentLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_BYTES) {
+    throw new BadRequestException('imageUrl image is too large for 1688 AlphaShop search');
+  }
+
+  if (!response.body) {
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > MAX_IMAGE_BYTES) {
+      throw new BadRequestException('imageUrl image is too large for 1688 AlphaShop search');
+    }
+    return bytes;
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_IMAGE_BYTES) {
+        await reader.cancel();
+        throw new BadRequestException('imageUrl image is too large for 1688 AlphaShop search');
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return Buffer.concat(chunks, totalBytes);
 }
 
 async function postAlphaJson<T extends { retCode?: unknown; retMsg?: unknown; success?: unknown }>(

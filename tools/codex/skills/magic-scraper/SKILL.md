@@ -32,7 +32,7 @@ Internal developer workflow for turning real browser observations into durable K
 
 3. Observe the page with local Chrome CDP:
    - Reuse the KidItem managed CDP browser when available at `http://127.0.0.1:9222`.
-   - Run `scripts/probe-cdp-page.mjs <url> --out /tmp/<name>.json` from the repo root.
+   - Run `tools/codex/skills/magic-scraper/scripts/probe-cdp-page.mjs <url> --out /tmp/<name>.json` from the repo root.
    - Prefer model/data paths (`window.context`, `__INIT_DATA__`, JSON script tags, network payloads) over translated visible text.
    - Use DOM selectors only after checking that no stable model data exists.
 

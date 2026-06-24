@@ -7,6 +7,9 @@ import { ProductsModule } from '../products/products.module';
 
 import { Sourcing1688NewProductModelController } from './adapter/in/http/sourcing-1688-new-product-model.controller';
 import { SourcingCandidateWorkspaceController } from './adapter/in/http/sourcing-candidate-workspace.controller';
+import { SourcingDiscoveryCapabilityAdapter } from './adapter/in/agent/sourcing-discovery-capability.adapter';
+import { SourcingListingPrepCapabilityAdapter } from './adapter/in/agent/sourcing-listing-prep-capability.adapter';
+import { SourcingScrapeUrlCapabilityAdapter } from './adapter/in/agent/sourcing-scrape-url-capability.adapter';
 import { Sourcing1688ImageSearchController } from './adapter/in/http/sourcing-1688-image-search.controller';
 import { Sourcing1688KeywordSearchController } from './adapter/in/http/sourcing-1688-keyword-search.controller';
 import { SourcingAgentRagController } from './adapter/in/http/sourcing-agent-rag.controller';
@@ -26,6 +29,7 @@ import { SourcingWorkspaceArchiveService } from './application/service/sourcing-
 import { SourcingWorkspaceSnapshotService } from './application/service/sourcing-workspace-snapshot.service';
 import { ProductPreparationSelectionService } from './application/service/product-preparation-selection.service';
 import { SourcingScrapeFinalizedBridge } from './application/service/sourcing-scrape-finalized.bridge';
+import { SourcingMarketDiscoveryService } from './application/service/sourcing-market-discovery.service';
 
 import { NaverDatalabPopularKeywordAdapter } from './adapter/out/naver/naver-datalab-popular-keyword.adapter';
 import { NaverDatalabTrendAdapter } from './adapter/out/naver/naver-datalab-trend.adapter';
@@ -40,6 +44,12 @@ import { SourcingWorkspaceSnapshotRepositoryAdapter } from './adapter/out/reposi
 import { SourcingPlaywrightRuntimeHandler } from './adapter/out/runtime/sourcing-playwright-runtime.handler';
 import { Direct1688ImageSearchAdapter } from './adapter/out/1688/direct-1688-image-search.adapter';
 import { Direct1688KeywordSearchAdapter } from './adapter/out/1688/direct-1688-keyword-search.adapter';
+import { SourcingRuntimeHandler } from './adapter/out/runtime/sourcing-runtime.handler';
+import {
+  SOURCING_DISCOVERY_CAPABILITY_PORT,
+  SOURCING_LISTING_PREP_CAPABILITY_PORT,
+  SOURCING_SCRAPE_URL_WORKFLOW_PORT,
+} from './application/port/in/capability/sourcing-capability.ports';
 import { SOURCING_1688_IMAGE_SEARCH_PORT } from './application/port/out/provider/1688-image-search.port';
 import { SOURCING_1688_KEYWORD_SEARCH_PORT } from './application/port/out/provider/1688-keyword-search.port';
 import {
@@ -100,8 +110,12 @@ import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from './application/port/
     SourcingPromotionService,
     SourcingWorkspaceArchiveService,
     SourcingWorkspaceSnapshotService,
+    SourcingMarketDiscoveryService,
     ProductPreparationSelectionService,
     SourcingScrapeFinalizedBridge,
+    SourcingDiscoveryCapabilityAdapter,
+    SourcingListingPrepCapabilityAdapter,
+    SourcingScrapeUrlCapabilityAdapter,
     NaverDatalabPopularKeywordAdapter,
     NaverDatalabTrendAdapter,
     NaverAutocompleteKeywordAdapter,
@@ -115,6 +129,19 @@ import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from './application/port/
     SourcingPlaywrightRuntimeHandler,
     Direct1688ImageSearchAdapter,
     Direct1688KeywordSearchAdapter,
+    SourcingRuntimeHandler,
+    {
+      provide: SOURCING_DISCOVERY_CAPABILITY_PORT,
+      useExisting: SourcingDiscoveryCapabilityAdapter,
+    },
+    {
+      provide: SOURCING_LISTING_PREP_CAPABILITY_PORT,
+      useExisting: SourcingListingPrepCapabilityAdapter,
+    },
+    {
+      provide: SOURCING_SCRAPE_URL_WORKFLOW_PORT,
+      useExisting: SourcingScrapeUrlCapabilityAdapter,
+    },
     {
       provide: SOURCING_1688_IMAGE_SEARCH_PORT,
       useExisting: Direct1688ImageSearchAdapter,

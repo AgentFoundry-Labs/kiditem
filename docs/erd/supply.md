@@ -41,6 +41,9 @@ erDiagram
     DateTime orderDate
     DateTime expectedDeliveryDate
     String trackingNumber
+    String externalOrderPlatform
+    String externalOrderId
+    String externalOrderUrl
     DateTime receivedAt
     Int receivedQty
     Int defectQty

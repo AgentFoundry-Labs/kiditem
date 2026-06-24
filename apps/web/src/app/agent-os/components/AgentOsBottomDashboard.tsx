@@ -36,8 +36,11 @@ export function AgentOsBottomDashboard({
   const am = adData?.monthly;
 
   return (
-    <div className="shrink-0 grid grid-cols-12 grid-rows-2 gap-3 px-5 py-4 h-[240px]">
-      <div className="col-span-3 row-span-2 rounded-2xl bg-[#0d1321] border border-white/10 p-4 flex flex-col">
+    <div
+      data-testid="agent-os-bottom-dashboard"
+      className="grid h-[240px] shrink-0 grid-cols-12 grid-rows-2 gap-3 px-5 py-4 max-md:h-auto max-md:grid-cols-2 max-md:grid-rows-none max-md:gap-2 max-md:px-3 max-md:py-3"
+    >
+      <div className="col-span-3 row-span-2 flex flex-col rounded-2xl border border-white/10 bg-[#0d1321] p-4 max-md:col-span-2 max-md:row-span-1">
         <div className="flex items-center justify-between mb-1">
           <span className="text-[13px] font-bold text-slate-300">Agent Network</span>
           <span className="text-[10px] text-slate-600">Last sync · now</span>
@@ -69,7 +72,7 @@ export function AgentOsBottomDashboard({
         </div>
       </div>
 
-      <div className="col-span-2 rounded-2xl bg-[#0d1321] border border-white/10 p-4 flex flex-col justify-between">
+      <div className="col-span-2 flex flex-col justify-between rounded-2xl border border-white/10 bg-[#0d1321] p-4 max-md:col-span-1 max-md:min-h-[108px]">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <DollarSign size={13} className="text-cyan-400" />
@@ -88,7 +91,7 @@ export function AgentOsBottomDashboard({
         </div>
       </div>
 
-      <div className="col-span-2 rounded-2xl bg-[#0d1321] border border-white/10 p-4 flex flex-col justify-between">
+      <div className="col-span-2 flex flex-col justify-between rounded-2xl border border-white/10 bg-[#0d1321] p-4 max-md:col-span-1 max-md:min-h-[108px]">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <BarChart3 size={13} className="text-emerald-400" />
@@ -107,7 +110,7 @@ export function AgentOsBottomDashboard({
         </div>
       </div>
 
-      <div className="col-span-5 row-span-2 rounded-2xl bg-[#0d1321] border border-white/10 p-4 flex flex-col overflow-hidden">
+      <div className="col-span-5 row-span-2 flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0d1321] p-4 max-md:col-span-2 max-md:row-span-1 max-md:min-h-[180px]">
         <div className="flex items-center justify-between mb-3 shrink-0">
           <div className="flex items-center gap-2">
             <span className="text-[13px] font-bold text-slate-300">Overview Panel</span>
@@ -154,7 +157,7 @@ export function AgentOsBottomDashboard({
         </div>
       </div>
 
-      <div className="col-span-2 col-start-4 rounded-2xl bg-[#0d1321] border border-white/10 p-4 flex flex-col justify-between">
+      <div className="col-span-2 col-start-4 flex flex-col justify-between rounded-2xl border border-white/10 bg-[#0d1321] p-4 max-md:col-span-1 max-md:col-start-auto max-md:min-h-[108px]">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <TrendingUp size={13} className="text-amber-400" />
@@ -168,7 +171,7 @@ export function AgentOsBottomDashboard({
         </div>
       </div>
 
-      <div className="col-span-2 rounded-2xl bg-[#0d1321] border border-white/10 p-4 flex flex-col justify-between">
+      <div className="col-span-2 flex flex-col justify-between rounded-2xl border border-white/10 bg-[#0d1321] p-4 max-md:col-span-1 max-md:min-h-[108px]">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <Megaphone size={13} className="text-violet-400" />
