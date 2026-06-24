@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OperatorDecision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "decisionType",
+    "targetAgentType",
+    "playbookKey",
+    "taskInput",
+    "userVisibleRationale",
+    "question",
+    "reason"
+  ],
+  "properties": {
+    "decisionType": { "enum": ["delegate", "ask_user", "refuse"] },
+    "targetAgentType": {
+      "enum": ["sourcing", "listing", "order", "channel_registration", null]
+    },
+    "playbookKey": {
+      "type": ["string", "null"]
+    },
+    "taskInput": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": [
+        "keyword",
+        "category",
+        "objective",
+        "minMarginRate",
+        "sourceUrl",
+        "url",
+        "masterId",
+        "channelAccountId",
+        "externalId",
+        "productBarcode",
+        "productName",
+        "channelName",
+        "channelPrice",
+        "listingPayloadJson",
+        "purchaseOrderId",
+        "externalOrderPlatform",
+        "externalOrderId",
+        "externalOrderUrl",
+        "imageUrls"
+      ],
+      "properties": {
+        "keyword": { "type": ["string", "null"] },
+        "category": { "type": ["string", "null"] },
+        "objective": { "type": ["string", "null"] },
+        "minMarginRate": { "type": ["number", "null"] },
+        "sourceUrl": { "type": ["string", "null"] },
+        "url": { "type": ["string", "null"] },
+        "masterId": { "type": ["string", "null"] },
+        "channelAccountId": { "type": ["string", "null"] },
+        "externalId": { "type": ["string", "null"] },
+        "productBarcode": { "type": ["string", "null"] },
+        "productName": { "type": ["string", "null"] },
+        "channelName": { "type": ["string", "null"] },
+        "channelPrice": { "type": ["number", "null"] },
+        "listingPayloadJson": { "type": ["string", "null"] },
+        "purchaseOrderId": { "type": ["string", "null"] },
+        "externalOrderPlatform": { "type": ["string", "null"] },
+        "externalOrderId": { "type": ["string", "null"] },
+        "externalOrderUrl": { "type": ["string", "null"] },
+        "imageUrls": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "userVisibleRationale": {
+      "type": ["string", "null"]
+    },
+    "question": {
+      "type": ["string", "null"]
+    },
+    "reason": {
+      "type": ["string", "null"]
+    }
+  }
+}

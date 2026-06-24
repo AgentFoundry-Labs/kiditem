@@ -1,4 +1,11 @@
-import type { AgentDefinitionRuntimeKind } from '@kiditem/shared/agent-os';
+import type {
+  AgentArtifactSummary,
+  AgentConversationSummary,
+  AgentDefinitionRuntimeKind,
+  AgentMessage,
+  AgentRunGraph,
+  AgentToolInvocationSummary,
+} from '@kiditem/shared/agent-os';
 import {
   Megaphone, Package, Palette, Search, Shield, ShoppingBag, type LucideIcon,
 } from 'lucide-react';
@@ -50,3 +57,9 @@ export const CATEGORY_FACE: Record<string, string> = {
 export function useTeamStyle(): Record<string, TeamStyle> {
   return TEAM_STYLE_DARK;
 }
+
+export type AgentOsConversation = AgentConversationSummary;
+export type AgentOsMessage = AgentMessage;
+export type AgentOsGraph = AgentRunGraph;
+export type AgentOsArtifact = AgentArtifactSummary;
+export type AgentOsToolInvocation = AgentToolInvocationSummary;

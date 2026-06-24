@@ -114,6 +114,40 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
     });
   }
 
+  async findCheckoutSnapshot(organizationId: string, id: string) {
+    const order = await this.prisma.purchaseOrder.findFirst({
+      where: { id, organizationId },
+      select: {
+        id: true,
+        supplierName: true,
+        supplierId: true,
+        totalAmountCny: true,
+        items: {
+          select: {
+            productName: true,
+            optionId: true,
+            quantity: true,
+            unitPriceCny: true,
+          },
+        },
+      },
+    });
+    if (!order) return null;
+
+    return {
+      id: order.id,
+      supplierName: order.supplierName,
+      supplierId: order.supplierId,
+      totalAmountCny: decimalString(order.totalAmountCny),
+      items: order.items.map((item) => ({
+        productName: item.productName,
+        optionId: item.optionId,
+        quantity: item.quantity,
+        unitPriceCny: decimalString(item.unitPriceCny),
+      })),
+    };
+  }
+
   async updateStatusScoped(
     organizationId: string,
     id: string,
@@ -200,4 +234,8 @@ function summarizePurchaseOrders(orders: PurchaseOrderSummarySource[]) {
 
 function toNumber(value: Prisma.Decimal | number | string | null | undefined): number {
   return Number(value ?? 0);
+}
+
+function decimalString(value: Prisma.Decimal | number | string): string {
+  return String(value);
 }

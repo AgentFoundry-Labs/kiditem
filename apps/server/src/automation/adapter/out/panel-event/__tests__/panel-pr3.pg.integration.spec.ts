@@ -14,11 +14,14 @@
  *   npm run db:test:up && npm run db:test:prepare && npm run test:integration
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { Test } from '@nestjs/testing';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 
+import { AutomationModule } from '../../../../automation.module';
 import { AlertsService } from '../../../../application/service/alerts.service';
+import { PrismaService } from '../../../../../prisma/prisma.service';
 import {
   makeTestPrisma,
   resetDb,
@@ -47,11 +50,17 @@ function alertSeed(overrides: Record<string, unknown> = {}) {
 describe('Alerts.promote — real Postgres race guard', () => {
   let prisma: PrismaClient;
   let service: AlertsService;
-  let emitter: EventEmitter2;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
+    const moduleRef = await Test.createTestingModule({
+      imports: [EventEmitterModule.forRoot(), AutomationModule],
+    })
+      .overrideProvider(PrismaService)
+      .useValue(prisma)
+      .compile();
+    service = moduleRef.get(AlertsService, { strict: false });
   });
 
   afterAll(async () => {
@@ -61,8 +70,6 @@ describe('Alerts.promote — real Postgres race guard', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    emitter = new EventEmitter2();
-    service = new AlertsService(prisma as any, emitter);
   });
 
   it('단일 promote → ActionTask 생성 + alert.actionTaskId 매칭', async () => {

@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import type { PrismaClient } from '@prisma/client';
+import { AdvertisingModule } from '../advertising.module';
 import { AdSyncService } from '../application/service/ad-sync.service';
-import { ChannelScrapePersistenceService } from '../services/channel-scrape-persistence.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -72,13 +72,11 @@ describe('AdSync flow (PG integration, H2)', () => {
     await prisma.$connect();
 
     const m = await Test.createTestingModule({
-      providers: [
-        AdSyncService,
-        ChannelScrapePersistenceService,
-        EventEmitter2,
-        { provide: PrismaService, useValue: prisma },
-      ],
-    }).compile();
+      imports: [EventEmitterModule.forRoot(), AdvertisingModule],
+    })
+      .overrideProvider(PrismaService)
+      .useValue(prisma)
+      .compile();
     adSyncService = m.get(AdSyncService);
   });
 

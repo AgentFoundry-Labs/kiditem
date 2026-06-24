@@ -280,7 +280,10 @@ describe('AgentRunExecutor', () => {
     });
 
     const result = await executor.executeNext('worker-1', ORGANIZATION_ID);
-    expect(result).toMatchObject({ executed: true, requestId: REQUEST_ID });
+    expect(result).toMatchObject({
+      executed: true,
+      requestId: REQUEST_ID,
+    });
     expect(repository.finalizeRun).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'succeeded' }),
     );
@@ -398,6 +401,32 @@ describe('AgentRunExecutor', () => {
 
     await executor.executeNext('worker-1', ORGANIZATION_ID);
 
+    expect(repository.finalizeRun).toHaveBeenCalledWith(
+      expect.objectContaining({ requestId: REQUEST_ID, status: 'succeeded' }),
+    );
+    expect(eventEmitter.emitAsync).not.toHaveBeenCalledWith(
+      AGENT_RUN_EVENTS.FINALIZED,
+      expect.anything(),
+    );
+  });
+
+  it('does not emit FINALIZED when a successful run leaves the request waiting for approval', async () => {
+    const { executor, repository, eventEmitter } = makeExecutor({
+      claimed: makeClaimedRequest({ status: 'claimed' }),
+      runtimeResult: { output: { status: 'waiting_approval' } },
+    });
+    repository.finalizeRun.mockResolvedValueOnce({
+      run: makeRun({ status: 'succeeded' }),
+      requestStatus: 'requires_approval',
+    });
+
+    const result = await executor.executeNext('worker-1', ORGANIZATION_ID);
+
+    expect(result).toMatchObject({
+      executed: true,
+      requestId: REQUEST_ID,
+      reason: 'requires_approval',
+    });
     expect(repository.finalizeRun).toHaveBeenCalledWith(
       expect.objectContaining({ requestId: REQUEST_ID, status: 'succeeded' }),
     );

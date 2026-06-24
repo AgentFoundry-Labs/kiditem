@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Test } from '@nestjs/testing';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import type { PrismaClient } from '@prisma/client';
+import { AdvertisingModule } from '../advertising.module';
 import { AdSyncService } from '../application/service/ad-sync.service';
 import { ChannelScrapePersistenceService } from '../services/channel-scrape-persistence.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -85,13 +86,11 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const m = await Test.createTestingModule({
-      providers: [
-        AdSyncService,
-        ChannelScrapePersistenceService,
-        EventEmitter2,
-        { provide: PrismaService, useValue: prisma },
-      ],
-    }).compile();
+      imports: [EventEmitterModule.forRoot(), AdvertisingModule],
+    })
+      .overrideProvider(PrismaService)
+      .useValue(prisma)
+      .compile();
     adSyncService = m.get(AdSyncService);
     scrapePersistence = m.get(ChannelScrapePersistenceService);
   });

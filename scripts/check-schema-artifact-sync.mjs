@@ -29,6 +29,32 @@ function changedFilesFromGit(base, head) {
   return output ? output.split('\n').filter(Boolean) : [];
 }
 
+function changedFilesFromWorkingTree() {
+  return mergeChangedFiles([
+    parseGitFileList(git(['diff', '--name-only'])),
+    parseGitFileList(git(['diff', '--cached', '--name-only'])),
+    parseGitFileList(git(['ls-files', '--others', '--exclude-standard'])),
+  ]);
+}
+
+function parseGitFileList(output) {
+  return output ? output.split('\n').filter(Boolean) : [];
+}
+
+export function mergeChangedFiles(groups) {
+  const seen = new Set();
+  const files = [];
+  for (const group of groups) {
+    for (const rawFile of group) {
+      const file = rawFile.trim();
+      if (!file || seen.has(file)) continue;
+      seen.add(file);
+      files.push(file);
+    }
+  }
+  return files;
+}
+
 function matchesAnyPath(file, paths) {
   return paths.some((target) => {
     if (target.endsWith('/')) return file.startsWith(target);
@@ -58,7 +84,10 @@ function main() {
   const head = args.head || 'HEAD';
   const files = args.files
     ? args.files.split(',').map((file) => file.trim()).filter(Boolean)
-    : changedFilesFromGit(base, head);
+    : mergeChangedFiles([
+      changedFilesFromGit(base, head),
+      changedFilesFromWorkingTree(),
+    ]);
 
   const result = analyzeSchemaArtifactSync(files);
 

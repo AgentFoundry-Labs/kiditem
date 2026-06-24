@@ -12,6 +12,7 @@ import { backfillChannelListingAccounts } from './v0.1.2/001_backfill_channel_li
 import { renameRegistrationWorkspacesToContentWorkspaces } from './v0.1.2/002_rename_registration_workspaces_to_content_workspaces';
 import { retireFixedAiAgentOsRequests } from './v0.1.2/003_retire_fixed_ai_agent_os_requests';
 import { removeLegacySourcingWorkspaceSnapshotPayloads } from './v0.1.3/001_remove_legacy_sourcing_workspace_snapshot_payloads';
+import { recordAgentOsOperatorBackboneRelease } from './v0.1.4/001_record_agent_os_operator_backbone_release';
 import type { DataMigration } from './types';
 
 export {
@@ -38,6 +39,7 @@ export const dataMigrations: readonly DataMigration[] = [
   renameRegistrationWorkspacesToContentWorkspaces,
   retireFixedAiAgentOsRequests,
   removeLegacySourcingWorkspaceSnapshotPayloads,
+  recordAgentOsOperatorBackboneRelease,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(

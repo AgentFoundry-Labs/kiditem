@@ -1,8 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Test } from '@nestjs/testing';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import type { PrismaClient } from '@prisma/client';
 import { kstMonthStart } from '../../../../common/kst';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { AutomationModule } from '../../../automation.module';
 import {
   seedAd,
   seedOrderWithLineItems,
@@ -46,12 +48,12 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
     await prisma.$connect();
 
     const moduleRef = await Test.createTestingModule({
-      providers: [
-        ActionBoardService,
-        { provide: PrismaService, useValue: prisma },
-      ],
-    }).compile();
-    service = moduleRef.get(ActionBoardService);
+      imports: [EventEmitterModule.forRoot(), AutomationModule],
+    })
+      .overrideProvider(PrismaService)
+      .useValue(prisma)
+      .compile();
+    service = moduleRef.get(ActionBoardService, { strict: false });
   });
 
   afterAll(async () => {

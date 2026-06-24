@@ -82,14 +82,27 @@ status changes, detail-page attachment, and preparation writes.
 
 `/api/sourcing/scrape-url` enqueues a `sourcing` Agent OS request. The active
 runtime handler is `SourcingPlaywrightRuntimeHandler`: it opens Playwright
-Chromium with a persistent profile, injects the existing
-`extensions/product-scraper/extractors/*` scripts, and returns scraped JSON in
-the same shape as the extension/Python path used before.
+Chromium with a persistent profile and runs approved deterministic extractor
+code. During migration it may still reuse
+`extensions/product-scraper/extractors/*` as legacy/reference page scripts, but
+new scraper development should happen through
+`tools/codex/skills/magic-scraper/SKILL.md` and then be promoted into reviewed
+sourcing extractor/runtime code with fixtures and tests.
 
-The operator prepares the Playwright profile with any required 1688 or Alibaba
-login session. The runtime does not write sourcing rows directly; candidate
-creation still happens through `SourcingScrapeFinalizedBridge` after Agent OS
-finalization.
+For 1688/Alibaba sessions that need real user browser state, configure
+`SOURCING_PLAYWRIGHT_CDP_ENDPOINT` or `runtimeConfig.playwrightCdpEndpoint` to
+attach to a dedicated managed CDP browser/profile where the user has completed
+login or verification. This is preferred over launching a fresh anonymous
+browser when CAPTCHA/verification risk is high.
+
+The `magic-scraper` skill is a development workflow, not a production runtime:
+do not expose arbitrary browser JS, local file scripts, CDN scripts, or raw CDP
+execution as Agent OS/MCP tools. If extraction fails, the runtime returns
+`recommendedSkillKey: "sourcing.magic_scraper"` so the Sourcing Agent can repair
+or harden the extractor from authorized browser evidence instead of bypassing
+login or captcha controls. The runtime does not write sourcing rows directly;
+candidate creation still happens through `SourcingScrapeFinalizedBridge` after
+Agent OS finalization.
 
 ## Capability Surface
 

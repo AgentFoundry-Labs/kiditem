@@ -189,6 +189,7 @@ export class AgentOsRunRepository {
       }
 
       const requestWasCancelled = request.status === 'cancelled';
+      const requestRequiresApproval = request.status === 'requires_approval';
       const runStatus = requestWasCancelled ? 'cancelled' : input.status;
       const run = await tx.agentRun.update({
         where: { id: input.runId },
@@ -209,7 +210,7 @@ export class AgentOsRunRepository {
       });
 
       let requestStatus = request.status as AgentRunRequestStatus;
-      if (request.status !== 'cancelled') {
+      if (!requestWasCancelled && !requestRequiresApproval) {
         requestStatus =
           runStatus === 'succeeded'
             ? 'succeeded'

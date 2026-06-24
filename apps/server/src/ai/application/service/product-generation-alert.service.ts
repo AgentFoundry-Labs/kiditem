@@ -82,18 +82,7 @@ function mergeChildId(
   childId: string,
 ): ProductGenerationChildIds {
   const isSyntheticEnqueueId = childId.endsWith('-enqueue');
-  if (
-    isSyntheticEnqueueId &&
-    childKind === 'detail_page' &&
-    childIds.detailPageGenerationId
-  ) {
-    return childIds;
-  }
-  if (
-    isSyntheticEnqueueId &&
-    childKind === 'thumbnail' &&
-    childIds.thumbnailGenerationId
-  ) {
+  if (isSyntheticEnqueueId) {
     return childIds;
   }
   return childKind === 'detail_page'

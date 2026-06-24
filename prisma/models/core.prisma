@@ -54,6 +54,10 @@ model Organization {
   agentAuthorizationEvents  AgentAuthorizationEvent[]
   agentApprovalRequests     AgentApprovalRequest[]
   agentCostEvents           AgentCostEvent[]
+  agentConversations        AgentConversation[]
+  agentMessages             AgentMessage[]
+  agentToolInvocations      AgentToolInvocation[]
+  agentArtifacts            AgentArtifact[]
 
   // Order domain (Plan A.5)
   orderLineItems       OrderLineItem[]
@@ -175,6 +179,7 @@ model User {
   requestedAgentApprovalRequests    AgentApprovalRequest[]    @relation("AgentApprovalRequestedBy")
   approverAgentApprovalRequests     AgentApprovalRequest[]    @relation("AgentApprovalApprover")
   decidedAgentApprovalRequests      AgentApprovalRequest[]    @relation("AgentApprovalDecidedBy")
+  createdAgentConversations         AgentConversation[]       @relation("AgentConversationCreatedBy")
 
   // Sourcing (issue #192)
   rejectedSourcingCandidates  SourcingCandidate[] @relation("SourcingCandidateRejectedBy")

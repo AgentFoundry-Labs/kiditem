@@ -57,7 +57,11 @@ export class SourcingScrapeFinalizedBridge {
     const output = isRecord(event.output) ? event.output : {};
     const scraped = isRecord(output.scraped_data) ? output.scraped_data : null;
     if (!scraped || output.ok !== true) {
-      await this.failOperation(event, nonEmptyString(output.error) ?? '스크래핑 결과를 추출하지 못했습니다.');
+      await this.failOperation(
+        event,
+        nonEmptyString(output.error) ?? '스크래핑 결과를 추출하지 못했습니다.',
+        output,
+      );
       return;
     }
 
@@ -149,8 +153,16 @@ export class SourcingScrapeFinalizedBridge {
     };
   }
 
-  private async failOperation(event: AgentRunFinalizedEvent, message: string): Promise<void> {
+  private async failOperation(
+    event: AgentRunFinalizedEvent,
+    message: string,
+    output?: Record<string, unknown>,
+  ): Promise<void> {
     try {
+      const recommendedSkillKey = output
+        ? nonEmptyString(output.recommendedSkillKey)
+        : null;
+      const requiresRecovery = output?.requiresRecovery === true;
       await this.reemitOperation(event, {});
       await this.operationAlerts.closeBySource(
         event.organizationId,
@@ -163,6 +175,8 @@ export class SourcingScrapeFinalizedBridge {
           metadata: {
             ...(event.runId ? { runId: event.runId } : {}),
             errorCode: 'sourcing_scrape_empty_output',
+            ...(requiresRecovery ? { requiresRecovery } : {}),
+            ...(recommendedSkillKey ? { recommendedSkillKey } : {}),
           },
         },
       );

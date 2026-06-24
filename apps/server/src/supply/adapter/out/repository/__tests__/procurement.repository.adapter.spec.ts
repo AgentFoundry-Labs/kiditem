@@ -119,6 +119,96 @@ describe('ProcurementRepositoryAdapter', () => {
     expect(updated).toEqual({ id: 'po-1', status: 'pending' });
   });
 
+  it('loads an organization-scoped checkout snapshot with supplier and item lines', async () => {
+    const prisma = makePrisma();
+    prisma.purchaseOrder.findFirst.mockResolvedValue({
+      id: 'po-1',
+      supplierName: '1688 Supplier',
+      supplierId: 'supplier-1',
+      totalAmountCny: '45.60',
+      items: [
+        {
+          productName: 'Silicone plate',
+          optionId: 'option-1',
+          quantity: 2,
+          unitPriceCny: '22.80',
+        },
+      ],
+    });
+    const adapter = new ProcurementRepositoryAdapter(prisma as never);
+
+    const snapshot = await adapter.findCheckoutSnapshot('organization-1', 'po-1');
+
+    expect(prisma.purchaseOrder.findFirst).toHaveBeenCalledWith({
+      where: { id: 'po-1', organizationId: 'organization-1' },
+      select: {
+        id: true,
+        supplierName: true,
+        supplierId: true,
+        totalAmountCny: true,
+        items: {
+          select: {
+            productName: true,
+            optionId: true,
+            quantity: true,
+            unitPriceCny: true,
+          },
+        },
+      },
+    });
+    expect(snapshot).toEqual({
+      id: 'po-1',
+      supplierName: '1688 Supplier',
+      supplierId: 'supplier-1',
+      totalAmountCny: '45.60',
+      items: [
+        {
+          productName: 'Silicone plate',
+          optionId: 'option-1',
+          quantity: 2,
+          unitPriceCny: '22.80',
+        },
+      ],
+    });
+  });
+
+  it('persists external supplier order identity when marking an order as ordered', async () => {
+    const prisma = makePrisma();
+    prisma.purchaseOrder.findFirst.mockResolvedValue({
+      id: 'po-1',
+      status: 'ordered',
+      externalOrderPlatform: 'ALIBABA_1688',
+      externalOrderId: '1688-ORDER-1',
+      externalOrderUrl: 'https://trade.1688.com/order/1688-ORDER-1.html',
+    });
+    prisma.purchaseOrder.updateMany.mockResolvedValue({ count: 1 });
+    const adapter = new ProcurementRepositoryAdapter(prisma as never);
+
+    const updated = await adapter.updateStatusScoped('organization-1', 'po-1', 'pending', {
+      status: 'ordered',
+      externalOrderPlatform: 'ALIBABA_1688',
+      externalOrderId: '1688-ORDER-1',
+      externalOrderUrl: 'https://trade.1688.com/order/1688-ORDER-1.html',
+    });
+
+    expect(prisma.purchaseOrder.updateMany).toHaveBeenCalledWith({
+      where: { id: 'po-1', organizationId: 'organization-1', status: 'pending' },
+      data: {
+        status: 'ordered',
+        externalOrderPlatform: 'ALIBABA_1688',
+        externalOrderId: '1688-ORDER-1',
+        externalOrderUrl: 'https://trade.1688.com/order/1688-ORDER-1.html',
+      },
+    });
+    expect(updated).toEqual({
+      id: 'po-1',
+      status: 'ordered',
+      externalOrderPlatform: 'ALIBABA_1688',
+      externalOrderId: '1688-ORDER-1',
+      externalOrderUrl: 'https://trade.1688.com/order/1688-ORDER-1.html',
+    });
+  });
+
   it('does not update status when the current database status already changed', async () => {
     const prisma = makePrisma();
     prisma.purchaseOrder.updateMany.mockResolvedValue({ count: 0 });

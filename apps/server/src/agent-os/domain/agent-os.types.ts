@@ -55,6 +55,37 @@ export const AGENT_APPROVAL_STATUSES = [
 export type AgentApprovalStatus =
   (typeof AGENT_APPROVAL_STATUSES)[number];
 
+export const AGENT_CONVERSATION_STATUSES = ['active', 'archived'] as const;
+export type AgentConversationStatus =
+  (typeof AGENT_CONVERSATION_STATUSES)[number];
+
+export const AGENT_MESSAGE_ROLES = [
+  'user',
+  'assistant',
+  'system',
+  'tool',
+] as const;
+export type AgentMessageRole = (typeof AGENT_MESSAGE_ROLES)[number];
+
+export const AGENT_TOOL_INVOCATION_STATUSES = [
+  'requested',
+  'running',
+  'waiting_approval',
+  'succeeded',
+  'failed',
+  'cancelled',
+] as const;
+export type AgentToolInvocationStatus =
+  (typeof AGENT_TOOL_INVOCATION_STATUSES)[number];
+
+export const AGENT_ARTIFACT_STATUSES = [
+  'active',
+  'superseded',
+  'deleted',
+] as const;
+export type AgentArtifactStatus =
+  (typeof AGENT_ARTIFACT_STATUSES)[number];
+
 export const AGENT_DEFINITION_RUNTIME_KINDS = [
   'agent',
   'coordinator',
@@ -63,12 +94,37 @@ export const AGENT_DEFINITION_RUNTIME_KINDS = [
 export type AgentDefinitionRuntimeKind =
   (typeof AGENT_DEFINITION_RUNTIME_KINDS)[number];
 
+export const AGENT_DEFINITION_DELEGATION_ROLES = [
+  'orchestrator',
+  'leaf',
+] as const;
+export type AgentDefinitionDelegationRole =
+  (typeof AGENT_DEFINITION_DELEGATION_ROLES)[number];
+
 export interface AgentDefinitionToolPolicyRecord {
   toolKey: string;
   effect: AgentToolPolicyEffect;
   approvalMode: 'none' | 'admin' | 'self';
   dryRunMode: 'optional' | 'required' | 'disabled';
   constraints: Record<string, unknown>;
+}
+
+export const AGENT_SKILL_MODES = [
+  'development_workflow',
+  'runtime_playbook',
+] as const;
+export type AgentSkillMode = (typeof AGENT_SKILL_MODES)[number];
+
+export interface AgentSkillDefinitionRecord {
+  key: string;
+  name: string;
+  description: string;
+  category: string;
+  version: string;
+  skillPath: string;
+  defaultPreload: boolean;
+  allowedAgentTypes: string[];
+  mode: AgentSkillMode;
 }
 
 export const AGENT_MODEL_PLAN_ROLES = [
@@ -99,9 +155,11 @@ export interface AgentDefinitionRecord {
   >;
   defaultRuntimeConfig: Record<string, unknown>;
   defaultCapabilities: Record<string, unknown>;
+  defaultSkillKeys: string[];
   catalogStatus: string;
   marketplaceId: string | null;
   runtimeKind: AgentDefinitionRuntimeKind;
+  delegationRole: AgentDefinitionDelegationRole;
   defaultToolPolicies: AgentDefinitionToolPolicyRecord[];
 }
 
@@ -171,6 +229,86 @@ export interface AgentRunRequestRecord {
   agentType: string;
   adapterType: string;
   latestRunId: string | null;
+  conversationId: string | null;
+  initiatedByMessageId: string | null;
+  parentRequestId: string | null;
+  delegatedByRunId: string | null;
+  playbookKey: string | null;
+  planStepKey: string | null;
+  displayName: string | null;
+  statusReason: string | null;
+  dependencyKeys: string[];
+}
+
+export interface AgentConversationRecord {
+  id: string;
+  organizationId: string;
+  title: string;
+  status: AgentConversationStatus;
+  createdByUserId: string | null;
+  rootRequestId: string | null;
+  lastMessageAt: Date | null;
+  metadata: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AgentMessageRecord {
+  id: string;
+  organizationId: string;
+  conversationId: string;
+  role: AgentMessageRole;
+  content: string;
+  agentInstanceId: string | null;
+  requestId: string | null;
+  runId: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: Date;
+}
+
+export interface AgentToolInvocationRecord {
+  id: string;
+  organizationId: string;
+  conversationId: string | null;
+  agentInstanceId: string;
+  requestId: string | null;
+  runId: string | null;
+  approvalRequestId: string | null;
+  capabilityKey: string;
+  status: AgentToolInvocationStatus;
+  policyDecision: AgentAuthorizationDecision;
+  reasonCode: string | null;
+  resourceType: string | null;
+  resourceId: string | null;
+  idempotencyKey: string | null;
+  inputSummary: Record<string, unknown>;
+  outputSummary: Record<string, unknown> | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  startedAt: Date | null;
+  completedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AgentArtifactRecord {
+  id: string;
+  organizationId: string;
+  conversationId: string | null;
+  agentInstanceId: string | null;
+  requestId: string | null;
+  runId: string | null;
+  toolInvocationId: string | null;
+  artifactType: string;
+  targetDomain: string;
+  targetModel: string;
+  targetId: string | null;
+  title: string;
+  href: string | null;
+  summary: Record<string, unknown>;
+  status: AgentArtifactStatus;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface AgentRunRecord {

@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import type { AgentInstanceToolPolicySummary } from '@kiditem/shared/agent-os';
 import {
   AGENT_OS_REPOSITORY_PORT,
   type AgentOsRepositoryPort,
@@ -10,6 +11,7 @@ import { AgentOsCatalogError } from '../../domain/agent-os.errors';
 import { AgentPolicyService } from './agent-policy.service';
 import {
   type AgentDefinitionRecord,
+  type AgentSkillDefinitionRecord,
   type AgentInstanceRecord,
   resolveEffectiveModel,
 } from '../../domain/agent-os.types';
@@ -19,6 +21,7 @@ import {
   resolveDefinitionDefaultModel,
   resolveDefinitionModelPlan,
 } from '../../domain/agent-definition.registry';
+import { listAgentSkills } from '../../domain/agent-skill.registry';
 
 @Injectable()
 export class AgentCatalogService {
@@ -30,6 +33,10 @@ export class AgentCatalogService {
 
   listDefinitions(): AgentDefinitionRecord[] {
     return listAgentDefinitions();
+  }
+
+  listSkills(): AgentSkillDefinitionRecord[] {
+    return listAgentSkills();
   }
 
   async listInstances(input: { organizationId: string }): Promise<AgentInstanceRecord[]> {
@@ -105,6 +112,60 @@ export class AgentCatalogService {
 
   updateInstance(input: UpdateAgentInstanceInput): Promise<AgentInstanceRecord> {
     return this.repository.updateInstance(input);
+  }
+
+  async listInstanceToolPolicies(input: {
+    organizationId: string;
+    agentInstanceId: string;
+  }): Promise<AgentInstanceToolPolicySummary[]> {
+    const instance = await this.repository.findInstanceById({
+      organizationId: input.organizationId,
+      id: input.agentInstanceId,
+    });
+    if (!instance) {
+      throw new AgentOsCatalogError(
+        'agent_instance_not_found',
+        `Agent instance ${input.agentInstanceId} not found.`,
+      );
+    }
+
+    const definition = findAgentDefinitionByType(instance.type);
+    const definitionPolicies = definition?.defaultToolPolicies ?? [];
+    const overrides = await this.repository.listInstanceToolPolicies(input);
+    const overridesByToolKey = new Map(
+      overrides.map((policy) => [policy.toolKey, policy]),
+    );
+    const toolKeys = new Set([
+      ...definitionPolicies.map((policy) => policy.toolKey),
+      ...overrides.map((policy) => policy.toolKey),
+    ]);
+
+    return [...toolKeys]
+      .sort()
+      .map((toolKey) => {
+        const override = overridesByToolKey.get(toolKey);
+        if (override) {
+          return {
+            toolKey,
+            effect: override.effect,
+            source: 'instance',
+            approvalMode: override.approvalMode,
+            dryRunMode: override.dryRunMode,
+            constraints: override.constraints,
+          } satisfies AgentInstanceToolPolicySummary;
+        }
+        const definitionPolicy = definitionPolicies.find(
+          (policy) => policy.toolKey === toolKey,
+        );
+        return {
+          toolKey,
+          effect: definitionPolicy?.effect ?? 'deny',
+          source: definitionPolicy ? 'definition' : 'missing',
+          approvalMode: definitionPolicy?.approvalMode ?? 'none',
+          dryRunMode: definitionPolicy?.dryRunMode ?? 'optional',
+          constraints: definitionPolicy?.constraints ?? {},
+        } satisfies AgentInstanceToolPolicySummary;
+      });
   }
 
   async upsertInstanceToolPolicy(

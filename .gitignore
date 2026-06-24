@@ -76,6 +76,7 @@ coverage/
 .swarm/
 .mcp.json
 .gstack/
+.kiditem/playwright/
 .tmp/
 data/
 .data/
@@ -83,3 +84,4 @@ data/
 prisma/init.sql
 tools/telegram-bot/
 .superpowers/
+docs/superpowers/plans/

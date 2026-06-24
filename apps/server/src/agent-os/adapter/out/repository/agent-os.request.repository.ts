@@ -39,6 +39,15 @@ export class AgentOsRequestRepository {
         organizationId: input.organizationId,
         agentInstanceId: input.agentInstanceId,
         taskSessionId: input.taskSessionId,
+        conversationId: input.conversationId ?? null,
+        initiatedByMessageId: input.initiatedByMessageId ?? null,
+        parentRequestId: input.parentRequestId ?? null,
+        delegatedByRunId: input.delegatedByRunId ?? null,
+        playbookKey: input.playbookKey ?? null,
+        planStepKey: input.planStepKey ?? null,
+        displayName: input.displayName ?? null,
+        statusReason: input.statusReason ?? null,
+        dependencyKeys: (input.dependencyKeys ?? []) as Prisma.InputJsonValue,
         source: input.source,
         triggerDetail: input.triggerDetail ?? null,
         reason: input.reason ?? null,
@@ -93,6 +102,7 @@ export class AgentOsRequestRepository {
     };
     if (input.agentInstanceId) where.agentInstanceId = input.agentInstanceId;
     if (input.status && input.status.length > 0) where.status = { in: input.status };
+    if (input.conversationId) where.conversationId = input.conversationId;
     if (input.source) where.source = input.source;
     if (input.sourceWorkflowRunId) where.sourceWorkflowRunId = input.sourceWorkflowRunId;
     if (input.sourceResourceType) where.sourceResourceType = input.sourceResourceType;

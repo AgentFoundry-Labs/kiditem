@@ -95,8 +95,32 @@ export interface DeliveryCompany {
   name: string;
 }
 
+export type CoupangSellerProductPayload = Record<string, unknown>;
+
+export interface CoupangCreateSellerProductResponse {
+  code: string;
+  message: string;
+  data?:
+    | number
+    | string
+    | {
+        code?: string;
+        message?: string;
+        data?: number | string | null;
+        details?: string | null;
+        errorItems?: unknown;
+      }
+    | null;
+  details?: string | null;
+  errorItems?: unknown;
+}
+
 export interface CoupangProviderPort {
   getDeliveryCompanies(): readonly DeliveryCompany[];
+  createSellerProduct(
+    organizationId: string,
+    payload: CoupangSellerProductPayload,
+  ): Promise<CoupangCreateSellerProductResponse>;
   getSellerProducts(organizationId: string, params: {
     nextToken?: string;
     maxPerPage?: number;
