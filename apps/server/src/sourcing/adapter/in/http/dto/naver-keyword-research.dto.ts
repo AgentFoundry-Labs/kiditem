@@ -125,8 +125,32 @@ export class SearchNaverDatalabPopularKeywordsDto {
 }
 
 export class SourcingWorkspaceSnapshotParamsDto {
-  @IsIn(['keyword_analysis', 'today_recommendations'])
-  scope!: 'keyword_analysis' | 'today_recommendations';
+  @IsIn([
+    'keyword_analysis',
+    'today_recommendations',
+    'interest_tracking',
+    '1688_new_products',
+    'sourcing_agent_rag',
+    'sourcing_market_model',
+    'sourcing_1688_new_product_model',
+  ])
+  scope!:
+    | 'keyword_analysis'
+    | 'today_recommendations'
+    | 'interest_tracking'
+    | '1688_new_products'
+    | 'sourcing_agent_rag'
+    | 'sourcing_market_model'
+    | 'sourcing_1688_new_product_model';
+}
+
+export class SourcingWorkspaceSnapshotRecentQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(30)
+  days?: number;
 }
 
 export class SaveSourcingWorkspaceSnapshotDto {

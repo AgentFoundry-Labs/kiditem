@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { LucideIcon } from 'lucide-react';
 import {
   AlertCircle,
   ExternalLink,
@@ -10,8 +9,7 @@ import {
   Loader2,
   PackageSearch,
   RefreshCw,
-  Search,
-  TrendingUp,
+  type LucideIcon,
 } from 'lucide-react';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { resolveCoupangCatalogImageUrl } from '../wing-catalog/lib/wing-catalog-extension';
@@ -19,18 +17,24 @@ import { useTodayRecommendationRows } from '../lib/use-today-recommendation-rows
 import {
   buildCoupangImageSearchRows,
   buildImageSearchOffer,
+  scoreImageSearchOffer,
+  selectBestImageSearchOffer,
   type CoupangImageSearchRow,
+  type ImageSearchOffer,
 } from '../lib/coupang-1688-matching';
 import {
   get1688ImageSearchStatus,
   search1688ByImage,
   type Search1688ImageResponse,
 } from '../lib/1688-image-search-api';
+import { append1688NewProductSnapshot } from '../lib/1688-new-product-snapshot';
 import { getTodaySourcingWorkspaceSnapshot } from '../lib/sourcing-workspace-snapshot-api';
+import { SellochWholesaleOfferGrid } from './SellochWholesaleOfferGrid';
 import type { TodayRecommendationRow } from '../recommendations/lib/today-recommendations';
 
-const AUTO_IMAGE_SEARCH_LIMIT = 8;
-const IMAGE_SEARCH_RESULT_LIMIT = 8;
+const IMAGE_SEARCH_LAUNCH_INTERVAL_MS = 500;
+const IMAGE_SEARCH_RESULT_LIMIT = 18;
+const IMAGE_SEARCH_DAILY_CACHE_PREFIX = 'kiditem:sourcing-ai:1688-image-search:daily:';
 
 type TodayRecommendationSnapshotPayload = Record<string, unknown> & {
   result?: {
@@ -48,12 +52,20 @@ type ImageSearchAvailability =
   | { status: 'ready'; configured: boolean }
   | { status: 'error'; message: string };
 
+type CachedImageSearchState = Exclude<ImageSearchState, { status: 'loading' }>;
+
+type DailyImageSearchCache = {
+  dateKey: string;
+  states: Record<string, CachedImageSearchState>;
+};
+
 export function SellochWholesaleCoupangMatches() {
   const localRows = useTodayRecommendationRows();
   const [snapshotRows, setSnapshotRows] = useState<TodayRecommendationRow[]>([]);
   const [imageSearches, setImageSearches] = useState<Record<string, ImageSearchState>>({});
   const [imageSearchAvailability, setImageSearchAvailability] = useState<ImageSearchAvailability>({ status: 'checking' });
   const autoRequestedIds = useRef<Set<string>>(new Set());
+  const autoSearchTimers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
 
   const coupangRows = localRows.length > 0 ? localRows : snapshotRows;
   const matches = useMemo(
@@ -78,7 +90,7 @@ export function SellochWholesaleCoupangMatches() {
     if (!imageUrl) {
       setImageSearches((prev) => ({
         ...prev,
-        [match.id]: { status: 'error', message: '쿠팡 상품 이미지가 없어 1688 이미지검색을 실행할 수 없습니다.' },
+        [match.id]: { status: 'error', message: '쿠팡 상품 이미지가 없어 1688 매칭을 실행할 수 없습니다.' },
       }));
       return;
     }
@@ -90,34 +102,101 @@ export function SellochWholesaleCoupangMatches() {
         keyword: match.searchQuery,
         maxResults: IMAGE_SEARCH_RESULT_LIMIT,
       });
-      setImageSearches((prev) => ({ ...prev, [match.id]: { status: 'success', result } }));
+      void append1688NewProductSnapshot({
+        source: '1688_image_match',
+        keyword: match.searchQuery,
+        items: result.items.map((item) => {
+          const offer = buildImageSearchOffer(item, match.targetSalePriceKrw);
+          return {
+            ...item,
+            keyword: match.searchQuery,
+            imageMatchScore: item.score,
+            targetSalePriceKrw: match.targetSalePriceKrw,
+            landedCostKrw: offer.landedCostKrw,
+            estimatedProfitKrw: offer.estimatedProfitKrw,
+            estimatedMarginRate: offer.estimatedMarginRate,
+            matchedCoupang: {
+              productId: match.coupangProduct.productId,
+              productName: match.coupangProduct.productName,
+              primaryKeyword: match.coupangProduct.primaryKeyword,
+              keywords: match.coupangProduct.keywords,
+              score: match.coupangProduct.score,
+              grade: match.coupangProduct.grade,
+              salePrice: match.coupangProduct.salePrice ?? match.targetSalePriceKrw,
+              salesLast3d: match.coupangProduct.salesLast3d,
+              salesLast28d: match.coupangProduct.salesLast28d ?? 0,
+              reviews: match.coupangProduct.ratingCount ?? 0,
+              marketReaction: match.coupangProduct.marketReactionSignal,
+              threeDayValidation: match.coupangProduct.newEntrySignal,
+              matchScore: item.score,
+            },
+          };
+        }),
+      }).catch(() => undefined);
+      const nextState: CachedImageSearchState = { status: 'success', result };
+      saveDailyImageSearchState(match.id, nextState);
+      setImageSearches((prev) => ({ ...prev, [match.id]: nextState }));
     } catch (error) {
+      const nextState: CachedImageSearchState = {
+        status: 'error',
+        message: formatImageSearchError(error),
+      };
+      saveDailyImageSearchState(match.id, nextState);
       setImageSearches((prev) => ({
         ...prev,
-        [match.id]: {
-          status: 'error',
-          message: formatImageSearchError(error),
-        },
+        [match.id]: nextState,
       }));
     }
   }, [canRunImageSearch, imageSearchAvailability]);
 
-  const rerunTopSearches = useCallback(() => {
+  const clearAutoSearchTimers = useCallback(() => {
+    for (const timer of autoSearchTimers.current) clearTimeout(timer);
+    autoSearchTimers.current = [];
+  }, []);
+
+  const scheduleImageSearches = useCallback((targetMatches: CoupangImageSearchRow[]) => {
     if (!canRunImageSearch) return;
-    for (const match of matches.slice(0, AUTO_IMAGE_SEARCH_LIMIT)) {
+    targetMatches.forEach((match, index) => {
       autoRequestedIds.current.add(match.id);
-      void runImageSearch(match);
-    }
-  }, [canRunImageSearch, matches, runImageSearch]);
+      const timer = setTimeout(() => {
+        void runImageSearch(match);
+      }, index * IMAGE_SEARCH_LAUNCH_INTERVAL_MS);
+      autoSearchTimers.current.push(timer);
+    });
+  }, [canRunImageSearch, runImageSearch]);
+
+  const rerunAllSearches = useCallback(() => {
+    if (!canRunImageSearch) return;
+    clearAutoSearchTimers();
+    autoRequestedIds.current.clear();
+    clearDailyImageSearchCache();
+    setImageSearches({});
+    scheduleImageSearches(matches);
+  }, [canRunImageSearch, clearAutoSearchTimers, matches, scheduleImageSearches]);
+
+  useEffect(() => {
+    if (matches.length === 0) return;
+    const cached = loadDailyImageSearchCache();
+    const cachedStates = Object.fromEntries(
+      matches
+        .map((match) => [match.id, cached.states[match.id]] as const)
+        .filter((entry): entry is [string, CachedImageSearchState] => Boolean(entry[1])),
+    );
+    if (Object.keys(cachedStates).length === 0) return;
+
+    Object.keys(cachedStates).forEach((matchId) => autoRequestedIds.current.add(matchId));
+    setImageSearches((prev) => ({ ...cachedStates, ...prev }));
+  }, [matches]);
 
   useEffect(() => {
     if (!canRunImageSearch) return;
-    for (const match of matches.slice(0, AUTO_IMAGE_SEARCH_LIMIT)) {
-      if (autoRequestedIds.current.has(match.id)) continue;
-      autoRequestedIds.current.add(match.id);
-      void runImageSearch(match);
-    }
-  }, [canRunImageSearch, matches, runImageSearch]);
+    const pendingMatches = matches.filter((match) => !autoRequestedIds.current.has(match.id));
+    scheduleImageSearches(pendingMatches);
+  }, [canRunImageSearch, matches, scheduleImageSearches]);
+
+  useEffect(() => () => {
+    clearAutoSearchTimers();
+  }, [clearAutoSearchTimers]);
 
   useEffect(() => {
     let active = true;
@@ -154,55 +233,59 @@ export function SellochWholesaleCoupangMatches() {
     };
   }, [localRows.length]);
 
-  const completedSearchCount = matches.filter((match) => imageSearches[match.id]?.status === 'success').length;
-  const loadingSearchCount = matches.filter((match) => imageSearches[match.id]?.status === 'loading').length;
-  const pendingSearchCount = matches.filter((match) => !imageSearches[match.id]).length;
-  const resultCandidateCount = matches.reduce((sum, match) => {
+  const finishedSearchCount = matches.filter((match) => {
     const state = imageSearches[match.id];
-    return sum + (state?.status === 'success' ? state.result.items.length : 0);
-  }, 0);
+    return state?.status === 'success' || state?.status === 'error';
+  }).length;
+  const loadingSearchCount = matches.filter((match) => imageSearches[match.id]?.status === 'loading').length;
+  const collecting = canRunImageSearch && matches.length > 0 && finishedSearchCount < matches.length;
 
   return (
-    <section className="space-y-4">
-      <div className="rounded-[18px] border border-[#eef1f5] bg-white p-5 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
+    <section className="overflow-hidden rounded-[18px] border border-[#eef1f5] bg-white shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
+      <div className="border-b border-[#eef1f5] p-5">
         <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-center 2xl:justify-between">
           <div>
             <div className="inline-flex h-8 items-center gap-1.5 rounded-md bg-[#eef2ff] px-3 text-xs font-black text-[#5b50d6]">
               <ImageIcon size={14} />
-              쿠팡 이미지로 1688 찾기
+              1688 이미지 매칭
             </div>
-            <h2 className="mt-3 text-xl font-black text-[#111827]">쿠팡에서 팔리는 상품을 1688 이미지검색으로 매칭</h2>
+            <h2 className="mt-3 text-xl font-black text-[#111827]">쿠팡 판매상품 매칭</h2>
             <p className="mt-2 max-w-4xl text-sm font-bold leading-6 text-[#667085]">
-              오늘 추천/Wing 판매 후보의 쿠팡 상품 이미지를 1688 이미지검색에 넣고, 실제 검색 결과를 오른쪽에 바로 보여줍니다.
+              오늘 추천/Wing 판매 후보의 이미지와 검색어를 기준으로 1688 직접 검색 결과를 붙입니다.
             </p>
           </div>
           <button
             type="button"
-            onClick={rerunTopSearches}
-            disabled={!canRunImageSearch || matches.length === 0 || loadingSearchCount > 0}
+            onClick={rerunAllSearches}
+            disabled={!canRunImageSearch || matches.length === 0 || collecting}
             className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-[#dbe2ea] bg-[#fbfbfc] px-4 text-xs font-black text-[#4b5563] transition hover:border-[#b5482b] hover:text-[#b5482b] disabled:opacity-60"
           >
             {loadingSearchCount > 0 ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
-            상위 {AUTO_IMAGE_SEARCH_LIMIT}개 이미지검색 다시
+            전체 다시 수집
           </button>
         </div>
+
+        {canRunImageSearch && matches.length > 0 && (
+          <div className={cn(
+            'mt-4 inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-black',
+            collecting ? 'bg-[#eef2ff] text-[#5b50d6]' : 'bg-green-100 text-green-700',
+          )}>
+            {collecting ? <Loader2 size={14} className="animate-spin" /> : <ImageIcon size={14} />}
+            {collecting
+              ? `수집중 ${formatNumber(finishedSearchCount)}/${formatNumber(matches.length)}`
+              : `수집 완료 ${formatNumber(matches.length)}개`}
+          </div>
+        )}
 
         {!canRunImageSearch && (
           <ImageSearchSetupNotice availability={imageSearchAvailability} />
         )}
-
-        <div className="mt-5 grid gap-3 md:grid-cols-4">
-          <SummaryTile icon={TrendingUp} label="쿠팡 판매 후보" value={`${formatNumber(matches.length)}개`} />
-          <SummaryTile icon={ImageIcon} label="이미지검색 완료" value={`${formatNumber(completedSearchCount)}개`} />
-          <SummaryTile icon={PackageSearch} label="1688 결과 후보" value={`${formatNumber(resultCandidateCount)}개`} />
-          <SummaryTile icon={Search} label="검색 대기" value={`${formatNumber(pendingSearchCount)}개`} />
-        </div>
       </div>
 
       {matches.length === 0 ? (
         <EmptyMatches />
       ) : (
-        <div className="grid gap-4">
+        <div className="divide-y divide-[#eef1f5]">
           {matches.map((match) => (
             <MatchCard
               key={match.id}
@@ -215,26 +298,6 @@ export function SellochWholesaleCoupangMatches() {
         </div>
       )}
     </section>
-  );
-}
-
-function SummaryTile({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: string;
-}) {
-  return (
-    <article className="rounded-lg bg-[#f8fafc] p-4 ring-1 ring-[#eef1f5]">
-      <div className="flex items-center gap-2 text-xs font-bold text-[#8a94a6]">
-        <Icon size={15} />
-        {label}
-      </div>
-      <p className="mt-2 text-xl font-black text-[#111827]">{value}</p>
-    </article>
   );
 }
 
@@ -253,7 +316,7 @@ function ImageSearchSetupNotice({ availability }: { availability: ImageSearchAva
         )}
         <div>
           <h3 className="text-sm font-black text-[#111827]">
-            {checking ? '1688 이미지검색 연결 확인 중' : '1688 이미지검색 연결 전입니다'}
+            {checking ? '1688 매칭 연결 확인 중' : '1688 매칭 연결 전입니다'}
           </h3>
           <p className={cn('mt-1 text-xs font-bold leading-5', checking ? 'text-[#667085]' : 'text-red-800')}>
             {imageSearchUnavailableMessage(availability)}
@@ -266,13 +329,13 @@ function ImageSearchSetupNotice({ availability }: { availability: ImageSearchAva
 
 function EmptyMatches() {
   return (
-    <section className="rounded-[18px] border border-dashed border-[#dbe2ea] bg-white p-10 text-center">
+    <section className="bg-white p-10 text-center">
       <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-xl bg-[#f8fafc] text-[#9ca3af]">
         <PackageSearch size={24} />
       </div>
-      <h2 className="mt-4 text-lg font-black text-[#111827]">이미지검색할 쿠팡 판매 후보가 없습니다</h2>
+      <h2 className="mt-4 text-lg font-black text-[#111827]">매칭할 쿠팡 상품이 없습니다</h2>
       <p className="mx-auto mt-2 max-w-xl text-sm font-bold leading-6 text-[#667085]">
-        오늘의 추천에서 Wing 상품 검증을 실행하면 3일 판매 추적이 잡힌 쿠팡 후보를 이곳에서 1688 이미지검색으로 확인합니다.
+        오늘의 추천에서 Wing 상품 검증을 실행하면 3일 판매 추적이 잡힌 쿠팡 후보를 이곳에서 1688 후보로 확인합니다.
       </p>
     </section>
   );
@@ -291,41 +354,72 @@ function MatchCard({
 }) {
   const row = match.coupangProduct;
   const coupangImageUrl = resolveCoupangCatalogImageUrl(row.imagePath);
+  const offers = searchState?.status === 'success'
+    ? searchState.result.items.map((item) => buildImageSearchOffer(item, match.targetSalePriceKrw))
+    : [];
 
   return (
-    <article className="overflow-hidden rounded-[18px] border border-[#eef1f5] bg-white shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
-      <div className="grid gap-0 xl:grid-cols-[minmax(0,1.08fr)_minmax(380px,0.92fr)]">
-        <div className="grid gap-4 border-b border-[#eef1f5] p-4 md:grid-cols-[104px_1fr] xl:border-b-0 xl:border-r">
-          <div className="flex h-[104px] w-[104px] items-center justify-center overflow-hidden rounded-xl bg-[#f3f4f6]">
+    <article className="bg-white p-4">
+      <div className="grid items-stretch gap-4 xl:grid-cols-2">
+        <section className="grid h-full gap-4 rounded-2xl border border-[#e5eaf5] bg-[#fbfcfe] p-4 md:grid-cols-[132px_minmax(0,1fr)]">
+          <div className="flex h-[132px] w-[132px] items-center justify-center overflow-hidden rounded-2xl bg-[#f3f4f6] shadow-[0_10px_24px_rgba(15,23,42,0.08)]">
             {coupangImageUrl ? (
               <img src={coupangImageUrl} alt="" className="h-full w-full object-cover" />
             ) : (
-              <PackageSearch size={24} className="text-[#9ca3af]" />
+              <PackageSearch size={30} className="text-[#9ca3af]" />
             )}
           </div>
-          <div className="min-w-0">
+          <div className="flex h-full min-w-0 flex-col">
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-md bg-[#fff4ee] px-2 py-1 text-[11px] font-black text-[#d94112]">쿠팡 판매상품</span>
               <span className="rounded-md bg-[#eef2ff] px-2 py-1 text-[11px] font-black text-[#5b50d6]">{row.grade}</span>
             </div>
-            <h3 className="mt-2 line-clamp-2 text-base font-black leading-6 text-[#111827]">{row.productName}</h3>
-            <p className="mt-1 text-xs font-bold text-[#8a94a6]">{row.keywords.slice(0, 3).join(', ')}</p>
-            <div className="mt-4 grid gap-2 sm:grid-cols-4">
+            <div className="mt-3 min-w-0">
+              <h3 className="line-clamp-2 text-lg font-black leading-6 text-[#111827]">{row.productName}</h3>
+              <p className="mt-1 truncate text-sm font-bold text-[#8a94a6]">{row.keywords.slice(0, 3).join(', ')}</p>
+            </div>
+            <div className="mt-auto grid gap-2 pt-4 sm:grid-cols-2">
               <MiniMetric label="3일 판매" value={`${formatNumber(row.salesLast3d)}개`} strong />
               <MiniMetric label="쿠팡가" value={`${formatKRW(match.targetSalePriceKrw)}원`} />
               <MiniMetric label="리뷰" value={`${formatNumber(row.ratingCount)}개`} />
               <MiniMetric label="점수" value={`${formatNumber(row.score)}점`} />
             </div>
           </div>
-        </div>
+        </section>
 
         <ImageSearchPanel
           match={match}
           searchState={searchState}
+          offers={offers}
           onSearch={onSearch}
           availability={availability}
         />
       </div>
+      {offers.length > 0 && (
+        <div className="mt-4 rounded-2xl border border-[#eef1f5] bg-[#fbfcfe] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="rounded-md bg-green-100 px-2 py-1 text-[11px] font-black text-green-700">
+              다른 1688 상품
+            </span>
+            <a
+              href={match.searchUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#dbe2ea] bg-white px-3 text-[11px] font-black text-[#4b5563] hover:border-[#5b50d6] hover:text-[#5b50d6]"
+            >
+              <ExternalLink size={13} />
+              검색 전체 열기
+            </a>
+          </div>
+          <SellochWholesaleOfferGrid
+            offers={offers}
+            searchUrl={match.searchUrl}
+            density="compact"
+            inlineLimit={6}
+            expandTitle={`${match.coupangProduct.productName} · 다른 1688 상품`}
+          />
+        </div>
+      )}
     </article>
   );
 }
@@ -333,40 +427,40 @@ function MatchCard({
 function ImageSearchPanel({
   match,
   searchState,
+  offers,
   onSearch,
   availability,
 }: {
   match: CoupangImageSearchRow;
   searchState?: ImageSearchState;
+  offers: ImageSearchOffer[];
   onSearch: (match: CoupangImageSearchRow) => void;
   availability: ImageSearchAvailability;
 }) {
   const canSearch = availability.status === 'ready' && availability.configured;
-  const offers = searchState?.status === 'success'
-    ? searchState.result.items.map((item) => buildImageSearchOffer(item, match.targetSalePriceKrw)).slice(0, 3)
-    : [];
+  const bestOffer = selectBestImageSearchOffer(offers);
+  const bestScore = bestOffer ? scoreImageSearchOffer(bestOffer) : null;
 
   return (
-    <div className="p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <span className="rounded-md bg-green-100 px-2 py-1 text-[11px] font-black text-green-700">1688 이미지검색 결과</span>
-        <button
-          type="button"
-          onClick={() => onSearch(match)}
-          disabled={!canSearch || searchState?.status === 'loading'}
-          className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dbe2ea] bg-[#fbfbfc] px-3 text-xs font-black text-[#4b5563] transition hover:border-[#2f80ed] hover:text-[#2f80ed] disabled:opacity-60"
-        >
-          {searchState?.status === 'loading' ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-          이미지검색 다시
-        </button>
-      </div>
-
-      <p className="mt-3 text-xs font-black text-[#5b50d6]">검색어 보조: {match.searchQuery}</p>
+    <section className="flex h-full flex-col rounded-2xl border border-[#e5eaf5] bg-[#fbfcfe] p-4">
+      {!bestOffer && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => onSearch(match)}
+            disabled={!canSearch || searchState?.status === 'loading'}
+            className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dbe2ea] bg-[#fbfbfc] px-3 text-xs font-black text-[#4b5563] transition hover:border-[#2f80ed] hover:text-[#2f80ed] disabled:opacity-60"
+          >
+            {searchState?.status === 'loading' ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            매칭 다시
+          </button>
+        </div>
+      )}
 
       {!canSearch && (
         <StatePanel
           icon={availability.status === 'checking' ? Loader2 : KeyRound}
-          title={availability.status === 'checking' ? '1688 이미지검색 설정 확인 중' : 'TMAPI 토큰 설정 필요'}
+          title={availability.status === 'checking' ? '1688 매칭 설정 확인 중' : '1688 매칭 연결 필요'}
           body={imageSearchUnavailableMessage(availability)}
           tone={availability.status === 'checking' ? 'muted' : 'danger'}
           spin={availability.status === 'checking'}
@@ -376,16 +470,16 @@ function ImageSearchPanel({
       {canSearch && !searchState && (
         <StatePanel
           icon={ImageIcon}
-          title="이미지검색 대기"
-          body="상위 후보는 자동으로 검색하고, 나머지는 오른쪽 버튼으로 바로 검색할 수 있습니다."
+          title="자동 수집 대기"
+          body="전체 상품을 시간 간격을 두고 자동 수집합니다. 곧 1688 상품을 불러옵니다."
         />
       )}
 
       {searchState?.status === 'loading' && (
         <StatePanel
           icon={Loader2}
-          title="1688 이미지검색 중"
-          body="쿠팡 이미지를 변환한 뒤 1688 이미지검색 결과를 불러오고 있습니다."
+          title="1688 매칭 중"
+          body="쿠팡 상품 이미지로 AlphaShop 방식의 1688 후보를 불러오고 있습니다."
           spin
         />
       )}
@@ -393,7 +487,7 @@ function ImageSearchPanel({
       {searchState?.status === 'error' && (
         <StatePanel
           icon={AlertCircle}
-          title="이미지검색 실패"
+          title="1688 매칭 실패"
           body={searchState.message}
           tone="danger"
         />
@@ -402,66 +496,103 @@ function ImageSearchPanel({
       {searchState?.status === 'success' && offers.length === 0 && (
         <StatePanel
           icon={PackageSearch}
-          title="1688 이미지검색 결과 없음"
-          body="이미지로 찾은 후보가 없습니다. 상품 이미지나 키워드를 바꿔 다시 확인해 주세요."
+          title="1688 매칭 결과 없음"
+          body="찾은 후보가 없습니다. 상품 키워드를 바꿔 다시 확인해 주세요."
           tone="muted"
         />
       )}
 
-      {offers.length > 0 && (
-        <div className="mt-4 space-y-3">
-          {offers.map((offer) => (
-            <div key={offer.id} className="rounded-xl border border-[#eef1f5] bg-[#fbfbfc] p-3">
-              <div className="flex gap-3">
-                <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[#f3f4f6]">
-                  {offer.imageUrl ? (
-                    <img src={offer.imageUrl} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <ExternalLink size={22} className="text-[#9ca3af]" />
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-white px-2 py-1 text-[11px] font-black text-[#4b5563] ring-1 ring-[#e5e7eb]">
-                      매칭 {formatNumber(offer.matchScore)}점
-                    </span>
-                    <span className="rounded-full bg-white px-2 py-1 text-[11px] font-black text-[#4b5563] ring-1 ring-[#e5e7eb]">
-                      {offer.priceCny == null ? '단가 미확인' : `¥${offer.priceCny.toFixed(1)}`}
-                    </span>
-                  </div>
-                  <h4 className="mt-2 line-clamp-2 text-sm font-black leading-5 text-[#111827]">{offer.title}</h4>
-                </div>
-              </div>
-
-              <div className="mt-3 grid grid-cols-3 gap-2">
-                <MiniMetric label="입고원가" value={offer.landedCostKrw == null ? '-' : `${formatKRW(offer.landedCostKrw)}원`} strong />
-                <MiniMetric label="예상 이익" value={offer.estimatedProfitKrw == null ? '-' : `${formatKRW(offer.estimatedProfitKrw)}원`} />
-                <MiniMetric label="예상 마진" value={offer.estimatedMarginRate == null ? '-' : `${offer.estimatedMarginRate}%`} />
-              </div>
-
-              <div className="mt-3 flex flex-wrap gap-2">
-                <a
-                  href={offer.sourceUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#2f80ed] px-3 text-xs font-black text-white transition hover:bg-[#256bd1]"
-                >
-                  <ExternalLink size={14} />
-                  1688 상품 열기
-                </a>
-                <a
-                  href={match.searchUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dbe2ea] bg-white px-3 text-xs font-black text-[#4b5563] transition hover:border-[#2f80ed] hover:text-[#2f80ed]"
-                >
-                  키워드 검색 열기
-                </a>
-              </div>
-            </div>
-          ))}
-        </div>
+      {bestOffer && (
+        <BestImageSearchOfferCard
+          offer={bestOffer}
+          score={bestScore}
+          onRetry={() => onSearch(match)}
+          retryDisabled={!canSearch || searchState?.status === 'loading'}
+          retryLoading={searchState?.status === 'loading'}
+        />
       )}
+    </section>
+  );
+}
+
+function BestImageSearchOfferCard({
+  offer,
+  score,
+  onRetry,
+  retryDisabled,
+  retryLoading,
+}: {
+  offer: ImageSearchOffer;
+  score: number | null;
+  onRetry: () => void;
+  retryDisabled: boolean;
+  retryLoading: boolean;
+}) {
+  const priceKrw = offer.priceCny == null ? null : Math.round(offer.priceCny * 190);
+  const sourceFactory = (offer.supplierTags ?? []).some((tag) => /원천|공장|factory|源头|实力/i.test(tag));
+
+  return (
+    <div className="grid h-full flex-1 gap-4 md:grid-cols-[132px_minmax(0,1fr)]">
+      <a
+        href={offer.sourceUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="group relative flex h-[132px] w-[132px] items-center justify-center overflow-hidden rounded-xl bg-[#f1f5fb]"
+      >
+        {offer.imageUrl ? (
+          <img src={offer.imageUrl} alt="" className="h-full w-full object-cover transition group-hover:scale-[1.03]" />
+        ) : (
+          <ExternalLink size={28} className="text-[#9ca3af]" />
+        )}
+      </a>
+
+      <div className="flex h-full min-w-0 flex-col">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="rounded-md bg-green-100 px-2 py-1 text-[11px] font-black text-green-700">1688 매칭상품</span>
+          {score != null && (
+            <span className="rounded-md bg-[#eef2ff] px-2 py-1 text-[11px] font-black text-[#5b50d6]">{formatNumber(score)}점</span>
+          )}
+          <span className="rounded-full bg-[#fff4ee] px-2 py-1 text-[10px] font-black text-[#d94112]">
+            {offer.priceCny == null ? '단가 미확인' : `¥${offer.priceCny.toFixed(2)}`}
+          </span>
+          {sourceFactory && (
+            <span className="rounded-full bg-green-100 px-2 py-1 text-[10px] font-black text-green-700">원천 공장</span>
+          )}
+          <a
+            href={offer.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-[#5b52e6] px-2.5 text-[10px] font-black text-white transition hover:bg-[#4b43d8]"
+          >
+            <ExternalLink size={12} />
+            1688 상품 열기
+          </a>
+          <button
+            type="button"
+            onClick={onRetry}
+            disabled={retryDisabled}
+            className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-[#dbe2ea] bg-white px-2.5 text-[10px] font-black text-[#4b5563] transition hover:border-[#2f80ed] hover:text-[#2f80ed] disabled:opacity-60"
+          >
+            {retryLoading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+            매칭 다시
+          </button>
+        </div>
+
+        <h4 className="mt-2 line-clamp-2 text-base font-black leading-6 text-[#111827]">{offer.title}</h4>
+        {offer.supplierName && (
+          <p className="mt-1 truncate text-xs font-black text-[#667085]">{offer.supplierName}</p>
+        )}
+
+        <div className="mt-auto grid gap-2 pt-4 sm:grid-cols-3">
+          <MiniMetric label="1688 원가" value={priceKrw == null ? '-' : `${formatKRW(priceKrw)}원`} strong />
+          <MiniMetric label="예상 이익" value={offer.estimatedProfitKrw == null ? '-' : `${formatKRW(offer.estimatedProfitKrw)}원`} />
+          <MiniMetric label="예상 마진" value={offer.estimatedMarginRate == null ? '-' : `${offer.estimatedMarginRate}%`} />
+          <MiniMetric label="배송 이행률" value={offer.shippingFulfillmentRate ?? '-'} />
+          <MiniMetric label="48시간 이내" value={offer.shippingPickupRate ?? '-'} />
+          <MiniMetric label="판매량" value={offer.salesText ?? (offer.salesNum == null ? '-' : formatNumber(offer.salesNum))} />
+        </div>
+
+      </div>
     </div>
   );
 }
@@ -509,21 +640,85 @@ function MiniMetric({ label, value, strong = false }: { label: string; value: st
 
 function imageSearchUnavailableMessage(availability: ImageSearchAvailability): string {
   if (availability.status === 'checking') {
-    return '백엔드에서 1688 이미지검색 설정을 확인하고 있습니다.';
+    return '백엔드에서 1688 직접 매칭 설정을 확인하고 있습니다.';
   }
   if (availability.status === 'error') {
     return availability.message;
   }
   if (!availability.configured) {
-    return 'apps/server/.env 또는 서버 실행 환경에 TMAPI_TOKEN 값을 넣고 Nest 서버를 다시 시작하면 쿠팡 이미지로 1688 결과를 가져옵니다.';
+    return '1688 직접 검색 연결을 확인한 뒤 다시 시도해 주세요.';
   }
-  return '1688 이미지검색을 실행할 수 있습니다.';
+  return '1688 직접 매칭을 실행할 수 있습니다.';
+}
+
+function loadDailyImageSearchCache(): DailyImageSearchCache {
+  const dateKey = todayLocalDateKey();
+  if (typeof window === 'undefined') return { dateKey, states: {} };
+
+  try {
+    const raw = window.localStorage.getItem(dailyImageSearchCacheKey(dateKey));
+    if (!raw) return { dateKey, states: {} };
+    const parsed = JSON.parse(raw) as Partial<DailyImageSearchCache>;
+    if (parsed.dateKey !== dateKey || !parsed.states || typeof parsed.states !== 'object') {
+      return { dateKey, states: {} };
+    }
+    return {
+      dateKey,
+      states: Object.fromEntries(
+        Object.entries(parsed.states).filter((entry): entry is [string, CachedImageSearchState] => {
+          const state = entry[1] as Partial<ImageSearchState>;
+          return state?.status === 'success' || state?.status === 'error';
+        }),
+      ),
+    };
+  } catch {
+    return { dateKey, states: {} };
+  }
+}
+
+function saveDailyImageSearchState(matchId: string, state: CachedImageSearchState) {
+  if (typeof window === 'undefined') return;
+  const cache = loadDailyImageSearchCache();
+  const nextCache: DailyImageSearchCache = {
+    ...cache,
+    states: {
+      ...cache.states,
+      [matchId]: state,
+    },
+  };
+
+  try {
+    window.localStorage.setItem(dailyImageSearchCacheKey(cache.dateKey), JSON.stringify(nextCache));
+  } catch {
+    void 0;
+  }
+}
+
+function clearDailyImageSearchCache() {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(dailyImageSearchCacheKey(todayLocalDateKey()));
+  } catch {
+    void 0;
+  }
+}
+
+function dailyImageSearchCacheKey(dateKey: string): string {
+  return `${IMAGE_SEARCH_DAILY_CACHE_PREFIX}${dateKey}`;
+}
+
+function todayLocalDateKey(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = `${now.getMonth() + 1}`.padStart(2, '0');
+  const day = `${now.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function formatImageSearchError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
-  if (message.includes('TMAPI_TOKEN')) {
-    return 'TMAPI_TOKEN이 비어 있습니다. apps/server/.env 또는 서버 실행 환경에 토큰을 넣고 Nest 서버를 다시 시작해 주세요.';
+  if (message.includes('keyword helper')) {
+    return '1688 매칭에 사용할 검색어가 없어 실행할 수 없습니다.';
   }
   return message;
 }

@@ -378,6 +378,7 @@ async function searchWingCatalogProducts(message) {
   const warnings = [];
   let searchPage = 0;
   let stopReason = "max_pages_reached";
+  let upstreamTotal = null;
 
   for (let index = 0; index < maxPages; index++) {
     const payload = {
@@ -413,10 +414,12 @@ async function searchWingCatalogProducts(message) {
 
     const body = response.body || {};
     const result = Array.isArray(body.result) ? body.result : [];
+    upstreamTotal = upstreamTotal ?? resolveWingCatalogTotal(body);
     pages.push({
       searchPage,
       itemCount: result.length,
       nextSearchPage: body.nextSearchPage ?? null,
+      total: resolveWingCatalogTotal(body),
     });
 
     for (const product of result) {
@@ -453,7 +456,9 @@ async function searchWingCatalogProducts(message) {
     stopReason,
     pages,
     rows,
-    total: rows.length,
+    total: upstreamTotal ?? rows.length,
+    collectedCount: rows.length,
+    upstreamTotal,
     warnings,
     endpoint: WING_CATALOG_SEARCH_ENDPOINT,
     dateWindow: "last28d",
@@ -796,6 +801,26 @@ function normalizeWingCatalogProduct(product) {
       pvLast28Day != null && pvLast28Day > 0 && salesLast28d != null ? salesLast28d / pvLast28Day : null,
     deliveryInfo: product.deliveryInfo ? String(product.deliveryInfo) : null,
   };
+}
+
+function resolveWingCatalogTotal(body) {
+  if (!body || typeof body !== "object") return null;
+  const candidates = [
+    body.total,
+    body.totalCount,
+    body.productTotalCount,
+    body.totalProductCount,
+    body.count,
+    body.pagination?.total,
+    body.pagination?.totalCount,
+    body.pageInfo?.total,
+    body.pageInfo?.totalCount,
+  ];
+  for (const candidate of candidates) {
+    const numeric = toNullableNumber(candidate);
+    if (numeric != null) return numeric;
+  }
+  return null;
 }
 
 function toNullableNumber(value) {

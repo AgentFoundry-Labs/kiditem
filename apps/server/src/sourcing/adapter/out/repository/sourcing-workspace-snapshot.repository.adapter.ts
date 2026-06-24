@@ -28,6 +28,30 @@ export class SourcingWorkspaceSnapshotRepositoryAdapter implements SourcingWorks
     return row ? toRow(row) : null;
   }
 
+  async listRecent(input: {
+    organizationId: string;
+    scope: SourcingWorkspaceSnapshotScope;
+    fromBusinessDate: Date;
+    toBusinessDate: Date;
+    limit: number;
+  }): Promise<SourcingWorkspaceSnapshotRow[]> {
+    const rows = await this.prisma.sourcingWorkspaceSnapshot.findMany({
+      where: {
+        organizationId: input.organizationId,
+        scope: input.scope,
+        businessDate: {
+          gte: input.fromBusinessDate,
+          lte: input.toBusinessDate,
+        },
+      },
+      orderBy: {
+        businessDate: 'desc',
+      },
+      take: input.limit,
+    });
+    return rows.map(toRow);
+  }
+
   async upsert(input: {
     organizationId: string;
     scope: SourcingWorkspaceSnapshotScope;

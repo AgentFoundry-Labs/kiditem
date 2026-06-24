@@ -42,6 +42,10 @@ import {
   saveTodaySourcingWorkspaceSnapshot,
   type SourcingWorkspaceSnapshotMeta,
 } from '../../lib/sourcing-workspace-snapshot-api';
+import {
+  addSourcingInterestTarget,
+  createProductInterestTarget,
+} from '../../lib/sourcing-interest-tracking';
 
 const keywordLimitOptions = [10, 20, 50];
 const pageOptions = [1, 2];
@@ -67,6 +71,7 @@ export function TodayRecommendationsPage() {
   const [maxPages, setMaxPages] = useState(1);
   const [rows, setRows] = useState<TodayRecommendationRow[]>(() => readTodayRecommendationRows());
   const [errors, setErrors] = useState<string[]>([]);
+  const [interestNotice, setInterestNotice] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0, keyword: '' });
   const [editingKeywords, setEditingKeywords] = useState(false);
@@ -202,6 +207,39 @@ export function TodayRecommendationsPage() {
   const cancelRun = () => {
     cancelRef.current = true;
     setIsRunning(false);
+  };
+
+  const trackProductInterest = async (row: TodayRecommendationRow) => {
+    setInterestNotice(null);
+    try {
+      const payload = await addSourcingInterestTarget({
+        target: createProductInterestTarget({
+          productId: row.productId,
+          productName: row.productName,
+          itemId: row.itemId,
+          vendorItemId: row.vendorItemId,
+        }),
+        observation: {
+          source: 'today_recommendation',
+          metrics: {
+            score: row.score,
+            grade: row.grade,
+            salesLast28d: row.salesLast28d,
+            salesLast3d: row.salesLast3d,
+            pvLast28Day: row.pvLast28Day,
+            ratingCount: row.ratingCount,
+            salePrice: row.salePrice,
+          },
+          note: '오늘 추천 페이지에서 관심 상품으로 저장',
+        },
+        trackingWindowDays: 3,
+      });
+      setInterestNotice(
+        `${row.productName} 관심 상품 저장 완료 · 3일 추적 대상 ${formatNumber(payload.result.targets.length)}개`,
+      );
+    } catch (error) {
+      setInterestNotice(error instanceof Error ? error.message : String(error));
+    }
   };
 
   return (
@@ -355,7 +393,13 @@ export function TodayRecommendationsPage() {
               </div>
             )}
 
-            <RecommendationsTable rows={rows} />
+            {interestNotice && (
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-xs font-black text-[var(--text-secondary)] shadow-sm">
+                {interestNotice}
+              </div>
+            )}
+
+            <RecommendationsTable rows={rows} onTrackProduct={trackProductInterest} />
         </section>
       </div>
     </main>
@@ -474,8 +518,10 @@ function ProgressBar({ current, total, label }: { current: number; total: number
 
 function RecommendationsTable({
   rows,
+  onTrackProduct,
 }: {
   rows: TodayRecommendationRow[];
+  onTrackProduct: (row: TodayRecommendationRow) => void;
 }) {
   return (
     <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-sm">
@@ -503,6 +549,7 @@ function RecommendationsTable({
               <RecommendationRow
                 key={rowKey(row)}
                 row={row}
+                onTrackProduct={onTrackProduct}
               />
             ))}
           </tbody>
@@ -512,7 +559,13 @@ function RecommendationsTable({
   );
 }
 
-function RecommendationRow({ row }: { row: TodayRecommendationRow }) {
+function RecommendationRow({
+  row,
+  onTrackProduct,
+}: {
+  row: TodayRecommendationRow;
+  onTrackProduct: (row: TodayRecommendationRow) => void;
+}) {
   const imageUrl = resolveCoupangCatalogImageUrl(row.imagePath);
 
   return (
@@ -549,6 +602,13 @@ function RecommendationRow({ row }: { row: TodayRecommendationRow }) {
         <div className="space-y-1">
           {row.reasons.slice(0, 2).map((reason) => <p key={reason} className="text-xs font-black text-[#268b7f]">{reason}</p>)}
           {row.risks.slice(0, 2).map((risk) => <p key={risk} className="text-xs font-bold text-amber-700">{risk}</p>)}
+          <button
+            type="button"
+            onClick={() => onTrackProduct(row)}
+            className="mt-2 inline-flex h-8 items-center justify-center rounded-md border border-[var(--border)] px-3 text-xs font-black text-[var(--text-secondary)] transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+          >
+            3일 추적
+          </button>
         </div>
       </td>
     </tr>

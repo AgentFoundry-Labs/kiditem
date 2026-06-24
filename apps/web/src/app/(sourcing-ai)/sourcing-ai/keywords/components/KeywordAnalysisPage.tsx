@@ -29,6 +29,7 @@ import { KeywordAnalysisWorkbench } from './KeywordAnalysisWorkbench';
 import { EmptyState, PopularKeywordCard } from './KeywordAnalysisPopularBoard';
 import { TrendComparePanel } from './KeywordAnalysisTrendPanel';
 import { TrendKeywordAgentPanel } from './TrendKeywordAgentPanel';
+import { InterestKeywordManager } from './InterestKeywordManager';
 import {
   boardKeys,
   filterLabel,
@@ -49,6 +50,15 @@ import {
   saveTodaySourcingWorkspaceSnapshot,
   type SourcingWorkspaceSnapshotMeta,
 } from '../../lib/sourcing-workspace-snapshot-api';
+import {
+  addSourcingInterestTarget,
+  createKeywordInterestTargetId,
+  createKeywordInterestTarget,
+  loadLatestInterestTrackingPayload,
+  removeSourcingInterestTarget,
+  type SourcingInterestTrackingSnapshotPayload,
+  type SourcingInterestSource,
+} from '../../lib/sourcing-interest-tracking';
 
 interface CoupangPopularKeyword extends CoupangKeywordSuggestion {
   monthlyTotalSearchCount: number | null;
@@ -115,6 +125,9 @@ export function KeywordAnalysisPage() {
   const [coupangKeywordNotice, setCoupangKeywordNotice] = useState<string | null>(null);
   const [trendAgentResult, setTrendAgentResult] = useState<TrendKeywordAgentResult | null>(null);
   const [trendAgentNotice, setTrendAgentNotice] = useState<string | null>(null);
+  const [interestNotice, setInterestNotice] = useState<string | null>(null);
+  const [interestPayload, setInterestPayload] = useState<SourcingInterestTrackingSnapshotPayload | null>(null);
+  const [loadingInterestKeywords, setLoadingInterestKeywords] = useState(false);
   const [loadingTrendAgent, setLoadingTrendAgent] = useState(false);
   const [showRecentKeywords, setShowRecentKeywords] = useState(true);
   const [dailySnapshotHydrated, setDailySnapshotHydrated] = useState(false);
@@ -133,6 +146,10 @@ export function KeywordAnalysisPage() {
       }));
   }, [boards, focusMode, rankLimit, selectedBoardKey]);
   const rows = useMemo(() => visibleBoards.flatMap((board) => board.ranks.map((rank) => ({ board, rank }))), [visibleBoards]);
+  const interestKeywordTargets = useMemo(() => (
+    (interestPayload?.result.targets ?? []).filter((target) => target.type === 'keyword' && target.keyword)
+  ), [interestPayload]);
+  const interestKeywordIds = useMemo(() => new Set(interestKeywordTargets.map((target) => target.id)), [interestKeywordTargets]);
 
   const recentKeywords = useMemo(() => {
     const fromBoards = boards.flatMap((board) => board.ranks.map((rank) => rank.keyword));
@@ -367,6 +384,64 @@ export function KeywordAnalysisPage() {
     void loadRelatedKeywordData(keyword);
   };
 
+  const loadInterestKeywords = async () => {
+    setLoadingInterestKeywords(true);
+    try {
+      const payload = await loadLatestInterestTrackingPayload(3);
+      setInterestPayload(payload);
+    } catch (error) {
+      setInterestNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoadingInterestKeywords(false);
+    }
+  };
+
+  const trackKeywordInterest = async (
+    keyword: string,
+    source: SourcingInterestSource,
+    metrics?: Record<string, number | string | null>,
+  ) => {
+    const normalizedKeyword = keyword.trim();
+    if (!normalizedKeyword) return;
+    setInterestNotice(null);
+    try {
+      const payload = await addSourcingInterestTarget({
+        target: createKeywordInterestTarget({
+          keyword: normalizedKeyword,
+          source,
+        }),
+        observation: {
+          source,
+          metrics,
+          note: '키워드 분석 페이지에서 관심 키워드로 저장',
+        },
+        trackingWindowDays: 3,
+      });
+      setInterestPayload(payload);
+      setInterestNotice(
+        `${normalizedKeyword} 관심 키워드 저장 완료 · 키워드 ${formatNumber(payload.result.targets.filter((target) => target.type === 'keyword').length)}개 관리 중`,
+      );
+    } catch (error) {
+      setInterestNotice(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const removeKeywordInterest = async (targetId: string) => {
+    setInterestNotice(null);
+    try {
+      const payload = await removeSourcingInterestTarget({
+        targetId,
+        trackingWindowDays: 3,
+      });
+      setInterestPayload(payload);
+      setInterestNotice(`관심 키워드 삭제 완료 · 키워드 ${formatNumber(payload.result.targets.filter((target) => target.type === 'keyword').length)}개 관리 중`);
+    } catch (error) {
+      setInterestNotice(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const isInterestKeyword = (keyword: string) => interestKeywordIds.has(createKeywordInterestTargetId(keyword));
+
   const runTrendAgent = async () => {
     setLoadingTrendAgent(true);
     setTrendAgentNotice(null);
@@ -448,6 +523,10 @@ export function KeywordAnalysisPage() {
     return () => {
       active = false;
     };
+  }, []);
+
+  useEffect(() => {
+    void loadInterestKeywords();
   }, []);
 
   useEffect(() => {
@@ -601,12 +680,29 @@ export function KeywordAnalysisPage() {
             autocompleteNotice={autocompleteNotice}
             coupangKeywordNotice={coupangKeywordNotice}
             onUseKeyword={useKeywordForAnalysis}
+            isInterestKeyword={isInterestKeyword}
+            onTrackKeyword={(keyword, source, metrics) => {
+              void trackKeywordInterest(keyword, source, metrics);
+            }}
             onSelectKeywords={(keywords) => {
               setTrendText((current) => {
                 const next = [...keywords, ...current.split(/\n|,/).map((item) => item.trim()).filter(Boolean)];
                 return Array.from(new Set(next)).slice(0, 5).join('\n');
               });
             }}
+          />
+
+          <InterestKeywordManager
+            className="mt-4 max-w-[1600px]"
+            loading={loadingInterestKeywords}
+            notice={interestNotice}
+            observations={interestPayload?.result.observations ?? []}
+            targets={interestPayload?.result.targets ?? []}
+            onRefresh={() => void loadInterestKeywords()}
+            onRemove={(targetId) => {
+              void removeKeywordInterest(targetId);
+            }}
+            onUseKeyword={useKeywordForAnalysis}
           />
 
           <TrendKeywordAgentPanel
@@ -689,7 +785,16 @@ export function KeywordAnalysisPage() {
             {visibleBoards.length === 0 ? (
               <EmptyState loading={loadingPopular} text="순위 갱신을 누르면 인기 키워드 보드가 표시됩니다." />
             ) : visibleBoards.map((board) => (
-              <PopularKeywordCard key={board.key} board={board} disabled={loadingPopular} onUseKeyword={addTrendKeyword} />
+              <PopularKeywordCard
+                key={board.key}
+                board={board}
+                disabled={loadingPopular}
+                isInterestKeyword={isInterestKeyword}
+                onUseKeyword={useKeywordForAnalysis}
+                onTrackKeyword={(keyword, metrics) => {
+                  void trackKeywordInterest(keyword, 'keyword_analysis', metrics);
+                }}
+              />
             ))}
           </div>
         </section>
@@ -707,6 +812,10 @@ export function KeywordAnalysisPage() {
           autocompleteNotice={autocompleteNotice}
           coupangKeywordNotice={coupangKeywordNotice}
           onUseKeyword={useKeywordForAnalysis}
+          isInterestKeyword={isInterestKeyword}
+          onTrackKeyword={(keyword, source, metrics) => {
+            void trackKeywordInterest(keyword, source, metrics);
+          }}
           onSelectKeywords={(keywords) => {
             setTrendText((current) => {
               const next = [...keywords, ...current.split(/\n|,/).map((item) => item.trim()).filter(Boolean)];
@@ -849,6 +958,8 @@ function RelatedKeywordOverview({
   autocompleteNotice,
   coupangKeywordNotice,
   onUseKeyword,
+  isInterestKeyword,
+  onTrackKeyword,
 }: {
   className?: string;
   seed: string | null;
@@ -863,6 +974,8 @@ function RelatedKeywordOverview({
   autocompleteNotice: string | null;
   coupangKeywordNotice: string | null;
   onUseKeyword: (keyword: string) => void;
+  isInterestKeyword: (keyword: string) => boolean;
+  onTrackKeyword: (keyword: string, source: SourcingInterestSource, metrics?: Record<string, number | string | null>) => void;
   onSelectKeywords: (keywords: string[]) => void;
 }) {
   const [open, setOpen] = useState(true);
@@ -940,7 +1053,13 @@ function RelatedKeywordOverview({
         ) : (
           <div className="grid items-start gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
             {groups.map((group) => (
-              <CompactKeywordGroup key={group.title} {...group} onUseKeyword={onUseKeyword} />
+              <CompactKeywordGroup
+                key={group.title}
+                {...group}
+                onUseKeyword={onUseKeyword}
+                isInterestKeyword={isInterestKeyword}
+                onTrackKeyword={onTrackKeyword}
+              />
             ))}
           </div>
         )
@@ -962,6 +1081,8 @@ function SourceKeywordGrid({
   autocompleteNotice,
   coupangKeywordNotice,
   onUseKeyword,
+  isInterestKeyword,
+  onTrackKeyword,
   onSelectKeywords,
 }: {
   seed: string | null;
@@ -976,6 +1097,8 @@ function SourceKeywordGrid({
   autocompleteNotice: string | null;
   coupangKeywordNotice: string | null;
   onUseKeyword: (keyword: string) => void;
+  isInterestKeyword: (keyword: string) => boolean;
+  onTrackKeyword: (keyword: string, source: SourcingInterestSource, metrics?: Record<string, number | string | null>) => void;
   onSelectKeywords: (keywords: string[]) => void;
 }) {
   const [open, setOpen] = useState(true);
@@ -1142,6 +1265,8 @@ function SourceKeywordGrid({
                 key={`${card.title}:${card.label}`}
                 {...card}
                 onUseKeyword={onUseKeyword}
+                isInterestKeyword={isInterestKeyword}
+                onTrackKeyword={onTrackKeyword}
                 onSelectKeywords={onSelectKeywords}
               />
             ))}
@@ -1166,12 +1291,16 @@ function CompactKeywordGroup({
   items,
   emptyText,
   onUseKeyword,
+  isInterestKeyword,
+  onTrackKeyword,
 }: {
   title: string;
   caption: string;
   items: Array<{ keyword: string; meta: string }>;
   emptyText: string;
   onUseKeyword: (keyword: string) => void;
+  isInterestKeyword: (keyword: string) => boolean;
+  onTrackKeyword: (keyword: string, source: SourcingInterestSource, metrics?: Record<string, number | string | null>) => void;
 }) {
   return (
     <article className="flex h-[300px] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-sm">
@@ -1184,21 +1313,59 @@ function CompactKeywordGroup({
       ) : (
         <ol className="min-h-0 flex-1 divide-y divide-[var(--border-subtle)] overflow-y-auto">
           {items.map((item, index) => (
-            <li key={`${title}:${item.keyword}`} className="grid grid-cols-[24px_minmax(0,1fr)_74px] items-center gap-2 px-3 py-2.5">
-              <span className="text-xs font-black text-[#ff5a1f]">{index + 1}</span>
-              <button
-                type="button"
-                onClick={() => onUseKeyword(item.keyword)}
-                className="min-w-0 truncate text-left text-sm font-black text-[var(--text-primary)] transition hover:text-[var(--primary)]"
-              >
-                {item.keyword}
-              </button>
-              <span className="truncate text-right text-xs font-bold text-[var(--text-tertiary)]">{item.meta}</span>
-            </li>
+            <CompactKeywordRow
+              key={`${title}:${item.keyword}`}
+              index={index}
+              item={item}
+              sourceTitle={title}
+              isInterestKeyword={isInterestKeyword}
+              onUseKeyword={onUseKeyword}
+              onTrackKeyword={onTrackKeyword}
+            />
           ))}
         </ol>
       )}
     </article>
+  );
+}
+
+function CompactKeywordRow({
+  index,
+  item,
+  sourceTitle,
+  isInterestKeyword,
+  onUseKeyword,
+  onTrackKeyword,
+}: {
+  index: number;
+  item: { keyword: string; meta: string };
+  sourceTitle: string;
+  isInterestKeyword: (keyword: string) => boolean;
+  onUseKeyword: (keyword: string) => void;
+  onTrackKeyword: (keyword: string, source: SourcingInterestSource, metrics?: Record<string, number | string | null>) => void;
+}) {
+  const registered = isInterestKeyword(item.keyword);
+
+  return (
+    <li className="grid grid-cols-[24px_minmax(0,1fr)_74px_48px] items-center gap-2 px-3 py-2.5">
+      <span className="text-xs font-black text-[#ff5a1f]">{index + 1}</span>
+      <button
+        type="button"
+        onClick={() => onUseKeyword(item.keyword)}
+        className="min-w-0 truncate text-left text-sm font-black text-[var(--text-primary)] transition hover:text-[var(--primary)]"
+      >
+        {item.keyword}
+      </button>
+      <span className="truncate text-right text-xs font-bold text-[var(--text-tertiary)]">{item.meta}</span>
+      <button
+        type="button"
+        onClick={() => onTrackKeyword(item.keyword, interestSourceForCompactGroup(sourceTitle), parseMetricFromMeta(item.meta))}
+        disabled={registered}
+        className="shrink-0 rounded-md border border-[var(--border)] px-2 py-1 text-[10px] font-black text-[var(--text-secondary)] transition hover:border-[var(--primary)] hover:text-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {registered ? '등록됨' : '추적'}
+      </button>
+    </li>
   );
 }
 
@@ -1219,9 +1386,13 @@ function SourceKeywordCard({
   valueHeader,
   emptyText,
   onUseKeyword,
+  isInterestKeyword,
+  onTrackKeyword,
   onSelectKeywords,
 }: SourceKeywordCardProps & {
   onUseKeyword: (keyword: string) => void;
+  isInterestKeyword: (keyword: string) => boolean;
+  onTrackKeyword: (keyword: string, source: SourcingInterestSource, metrics?: Record<string, number | string | null>) => void;
   onSelectKeywords: (keywords: string[]) => void;
 }) {
   const hasRows = rows.length > 0;
@@ -1254,24 +1425,15 @@ function SourceKeywordCard({
       ) : (
         <ol className="min-h-0 flex-1 overflow-y-auto px-4 py-2">
           {rows.map((row) => (
-            <li key={`${title}:${label}:${row.keyword}`} className="flex min-h-11 items-center justify-between gap-3 border-b border-[var(--border-subtle)] py-2 text-sm font-bold text-[var(--text-primary)] last:border-b-0">
-              <button
-                type="button"
-                onClick={() => onUseKeyword(row.keyword)}
-                className="min-w-0 flex-1 truncate text-left transition hover:text-[var(--primary)]"
-              >
-                {row.keyword}
-              </button>
-              {valueHeader && <span className="shrink-0 tabular-nums text-[var(--text-secondary)]">{row.meta || '-'}</span>}
-              {!valueHeader && row.caption && <span className="shrink-0 text-xs text-[var(--text-tertiary)]">{row.caption}</span>}
-              <button
-                type="button"
-                onClick={() => onUseKeyword(row.keyword)}
-                className="shrink-0 rounded-md border border-[var(--border)] px-2.5 py-1 text-[11px] font-black text-[var(--text-secondary)] transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
-              >
-                조회
-              </button>
-            </li>
+            <SourceKeywordRow
+              key={`${title}:${label}:${row.keyword}`}
+              row={row}
+              sourceTitle={title}
+              valueHeader={valueHeader}
+              isInterestKeyword={isInterestKeyword}
+              onUseKeyword={onUseKeyword}
+              onTrackKeyword={onTrackKeyword}
+            />
           ))}
         </ol>
       )}
@@ -1279,8 +1441,83 @@ function SourceKeywordCard({
   );
 }
 
+function SourceKeywordRow({
+  row,
+  sourceTitle,
+  valueHeader,
+  isInterestKeyword,
+  onUseKeyword,
+  onTrackKeyword,
+}: {
+  row: { keyword: string; meta: string; caption?: string | null };
+  sourceTitle: string;
+  valueHeader: string | null;
+  isInterestKeyword: (keyword: string) => boolean;
+  onUseKeyword: (keyword: string) => void;
+  onTrackKeyword: (keyword: string, source: SourcingInterestSource, metrics?: Record<string, number | string | null>) => void;
+}) {
+  const registered = isInterestKeyword(row.keyword);
+
+  return (
+    <li className="flex min-h-11 items-center justify-between gap-2 border-b border-[var(--border-subtle)] py-2 text-sm font-bold text-[var(--text-primary)] last:border-b-0">
+      <button
+        type="button"
+        onClick={() => onUseKeyword(row.keyword)}
+        className="min-w-0 flex-1 truncate text-left transition hover:text-[var(--primary)]"
+      >
+        {row.keyword}
+      </button>
+      {valueHeader && <span className="shrink-0 tabular-nums text-[var(--text-secondary)]">{row.meta || '-'}</span>}
+      {!valueHeader && row.caption && <span className="shrink-0 text-xs text-[var(--text-tertiary)]">{row.caption}</span>}
+      <button
+        type="button"
+        onClick={() => onUseKeyword(row.keyword)}
+        className="shrink-0 rounded-md border border-[var(--border)] px-2.5 py-1 text-[11px] font-black text-[var(--text-secondary)] transition hover:border-[var(--primary)] hover:text-[var(--primary)]"
+      >
+        조회
+      </button>
+      <button
+        type="button"
+        onClick={() => onTrackKeyword(row.keyword, interestSourceForSourceCard(sourceTitle), parseMetricFromMeta(row.meta))}
+        disabled={registered}
+        className="shrink-0 rounded-md border border-[var(--border)] px-2.5 py-1 text-[11px] font-black text-[var(--text-secondary)] transition hover:border-[var(--primary)] hover:text-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {registered ? '등록됨' : '추적'}
+      </button>
+    </li>
+  );
+}
+
 function compactKeyword(keyword: string) {
   return keyword.replace(/\s+/g, '').toLowerCase();
+}
+
+function interestSourceForCompactGroup(title: string): SourcingInterestSource {
+  if (title === '쿠팡 인기검색어' || title === '상품명분석') return 'keyword_analysis';
+  return 'keyword_analysis';
+}
+
+function interestSourceForSourceCard(title: string): SourcingInterestSource {
+  if (title === 'COUPANG') return 'keyword_analysis';
+  if (title === 'NAVER') return 'keyword_analysis';
+  return 'keyword_analysis';
+}
+
+function parseMetricFromMeta(meta: string): Record<string, number | string | null> {
+  const numeric = Number(meta.replace(/[^\d.-]/g, ''));
+  if (!Number.isFinite(numeric)) {
+    return meta ? { label: meta } : {};
+  }
+  if (meta.includes('월')) {
+    return { monthlySearchCount: numeric };
+  }
+  if (meta.includes('지수')) {
+    return { latestTrendRatio: numeric };
+  }
+  if (meta.startsWith('#')) {
+    return { rank: numeric };
+  }
+  return { value: numeric };
 }
 
 function compareSearchAdRelatedKeywords(a: NaverRelatedKeyword, b: NaverRelatedKeyword) {

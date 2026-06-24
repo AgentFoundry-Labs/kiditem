@@ -1,4 +1,8 @@
-import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import {
+  detectExtensionId,
+  isChromeExtensionRuntimeAvailable,
+  sendToExtension,
+} from '@/lib/extension-bridge';
 
 export type WingCatalogSortKey = 'sales' | 'revenue' | 'views' | 'conversion' | 'reviews';
 
@@ -31,6 +35,8 @@ export interface WingCatalogSearchResponse {
   keyword?: string;
   rows?: WingCatalogProduct[];
   total?: number;
+  collectedCount?: number;
+  upstreamTotal?: number | null;
   pageCount?: number;
   maxPages?: number;
   stopReason?: string;
@@ -58,8 +64,11 @@ interface KidItemExtensionPingResponse {
 
 export const WING_CATALOG_EXTENSION_REQUIRED =
   'KIDITEM 쿠팡 확장프로그램을 설치/새로고침한 뒤 다시 실행하세요.';
+export const WING_CATALOG_CHROME_REQUIRED =
+  '쿠팡 크롤링은 Chrome 확장프로그램으로 실행됩니다. Codex 인앱 브라우저에서는 실행할 수 없어서 Chrome에서 이 페이지를 열어주세요.';
 export const WING_CATALOG_EXTENSION_RELOAD_REQUIRED =
   'KIDITEM 쿠팡 확장프로그램이 예전 버전입니다. chrome://extensions 에서 KIDITEM 확장프로그램을 새로고침한 뒤 다시 실행하세요.';
+export const WING_CATALOG_SEARCH_TIMEOUT_MS = 90_000;
 
 export async function searchWingCatalogProducts(input: {
   keyword: string;
@@ -67,6 +76,7 @@ export async function searchWingCatalogProducts(input: {
 }): Promise<WingCatalogSearchResponse> {
   const keyword = input.keyword.trim();
   if (!keyword) throw new Error('검색 키워드를 입력하세요.');
+  if (!isChromeExtensionRuntimeAvailable()) throw new Error(WING_CATALOG_CHROME_REQUIRED);
 
   const extensionId = await detectExtensionId();
   if (!extensionId) throw new Error(WING_CATALOG_EXTENSION_REQUIRED);
@@ -80,7 +90,7 @@ export async function searchWingCatalogProducts(input: {
     action: 'searchWingCatalogProducts',
     keyword,
     maxPages: input.maxPages,
-  });
+  }, WING_CATALOG_SEARCH_TIMEOUT_MS);
 
   if (!response?.success) {
     throw new Error(

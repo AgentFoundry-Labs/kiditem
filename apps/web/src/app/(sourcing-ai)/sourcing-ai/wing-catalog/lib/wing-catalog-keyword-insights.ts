@@ -66,10 +66,12 @@ export function buildAutocompleteKeywordCandidates(input: {
   limit?: number;
 }): string[] {
   const seed = input.seedKeyword.trim();
+  const compactSeed = compactKeyword(seed);
   const suffixes = ['슬라임', '세트', '키트', '만들기 세트', '추천', '대용량', '통', '재료', '선물세트', '보관함'];
   const generated = suffixes
+    .filter((suffix) => compactKeyword(suffix) !== compactSeed)
     .map((suffix) => `${seed} ${suffix}`.trim())
-    .filter((keyword) => keyword && compactKeyword(keyword) !== compactKeyword(seed));
+    .filter((keyword) => keyword && compactKeyword(keyword) !== compactSeed);
   return uniqueKeywords([...generated, ...input.relatedKeywords], input.limit ?? 10);
 }
 

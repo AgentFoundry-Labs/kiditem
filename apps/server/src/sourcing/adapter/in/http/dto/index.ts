@@ -10,11 +10,16 @@ export { UpdateProductBasicsDto } from './update-product-basics.dto';
 export { SelectPreparationThumbnailDto } from './select-preparation-thumbnail.dto';
 export { SelectPreparationDetailDto } from './select-preparation-detail.dto';
 export { Search1688ImageDto } from './search-1688-image.dto';
+export { Search1688KeywordDto } from './search-1688-keyword.dto';
+export { QuerySourcingAgentRagDto, RebuildSourcingAgentRagDto } from './sourcing-agent-rag.dto';
+export { RunSourcing1688NewProductModelDto } from './sourcing-1688-new-product-model.dto';
+export { RunSourcingMarketModelDto } from './sourcing-market-model.dto';
 export {
   CompareNaverDatalabSearchTrendsDto,
   SaveSourcingWorkspaceSnapshotDto,
   SearchNaverAutocompleteKeywordsDto,
   SearchNaverDatalabPopularKeywordsDto,
   SearchNaverRelatedKeywordsDto,
+  SourcingWorkspaceSnapshotRecentQueryDto,
   SourcingWorkspaceSnapshotParamsDto,
 } from './naver-keyword-research.dto';

@@ -9,6 +9,7 @@ import {
 } from '../port/out/repository/sourcing-workspace-snapshot.repository.port';
 
 const MAX_SNAPSHOT_PAYLOAD_BYTES = 2_000_000;
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class SourcingWorkspaceSnapshotService {
@@ -23,6 +24,24 @@ export class SourcingWorkspaceSnapshotService {
       organizationId,
       scope,
       businessDate: kstBusinessDate(new Date()),
+    });
+  }
+
+  async getRecent(
+    organizationId: string,
+    rawScope: string,
+    days = 3,
+  ): Promise<SourcingWorkspaceSnapshotRow[]> {
+    const scope = parseSnapshotScope(rawScope);
+    const normalizedDays = Math.max(1, Math.min(30, Math.floor(days)));
+    const toBusinessDate = kstBusinessDate(new Date());
+    const fromBusinessDate = new Date(toBusinessDate.getTime() - (normalizedDays - 1) * ONE_DAY_MS);
+    return this.snapshots.listRecent({
+      organizationId,
+      scope,
+      fromBusinessDate,
+      toBusinessDate,
+      limit: normalizedDays,
     });
   }
 
@@ -62,6 +81,31 @@ function validateSourcingWorkspaceSnapshotPayload(
 
   if (scope === 'today_recommendations') {
     assertTodayRecommendationsPayload(input, result);
+    return payload;
+  }
+
+  if (scope === 'interest_tracking') {
+    assertInterestTrackingPayload(input, result);
+    return payload;
+  }
+
+  if (scope === 'sourcing_agent_rag') {
+    assertSourcingAgentRagPayload(input, result);
+    return payload;
+  }
+
+  if (scope === 'sourcing_market_model') {
+    assertSourcingMarketModelPayload(input, result);
+    return payload;
+  }
+
+  if (scope === '1688_new_products') {
+    assert1688NewProductsPayload(input, result);
+    return payload;
+  }
+
+  if (scope === 'sourcing_1688_new_product_model') {
+    assertSourcing1688NewProductModelPayload(input, result);
     return payload;
   }
 
@@ -136,6 +180,60 @@ function assertKeywordAnalysisPayload(
   if (result.trendAgentResult !== null && !isRecord(result.trendAgentResult)) {
     throw new BadRequestException('result.trendAgentResult 형식이 올바르지 않습니다.');
   }
+}
+
+function assertInterestTrackingPayload(
+  input: Record<string, unknown>,
+  result: Record<string, unknown>,
+) {
+  assertIntegerInRange(input.trackingWindowDays, 'input.trackingWindowDays', 1, 30);
+  assertArray(result.targets, 'result.targets', 500);
+  assertArray(result.observations, 'result.observations', 5_000);
+}
+
+function assertSourcingAgentRagPayload(
+  input: Record<string, unknown>,
+  result: Record<string, unknown>,
+) {
+  assertIntegerInRange(input.days, 'input.days', 1, 30);
+  assertArray(input.sourceScopes, 'input.sourceScopes', 4);
+  assertIntegerInRange(input.documentLimit, 'input.documentLimit', 0, 800);
+  assertArray(result.documents, 'result.documents', 800);
+  requireRecord(result.stats, 'result.stats');
+}
+
+function assertSourcingMarketModelPayload(
+  input: Record<string, unknown>,
+  result: Record<string, unknown>,
+) {
+  assertIntegerInRange(input.days, 'input.days', 1, 30);
+  assertArray(input.sourceScopes, 'input.sourceScopes', 4);
+  assertIntegerInRange(input.candidateLimit, 'input.candidateLimit', 1, 240);
+  assertArray(result.candidates, 'result.candidates', 240);
+  requireRecord(result.stats, 'result.stats');
+  requireRecord(result.model, 'result.model');
+}
+
+function assert1688NewProductsPayload(
+  input: Record<string, unknown>,
+  result: Record<string, unknown>,
+) {
+  assertString(input.source, 'input.source', 80);
+  if (input.keyword !== undefined) assertString(input.keyword, 'input.keyword', 120);
+  if (input.category !== undefined) assertString(input.category, 'input.category', 120);
+  assertArray(result.items, 'result.items', 500);
+}
+
+function assertSourcing1688NewProductModelPayload(
+  input: Record<string, unknown>,
+  result: Record<string, unknown>,
+) {
+  assertIntegerInRange(input.days, 'input.days', 1, 30);
+  assertArray(input.sourceScopes, 'input.sourceScopes', 5);
+  assertIntegerInRange(input.candidateLimit, 'input.candidateLimit', 1, 240);
+  assertArray(result.candidates, 'result.candidates', 240);
+  requireRecord(result.stats, 'result.stats');
+  requireRecord(result.model, 'result.model');
 }
 
 function requireRecord(value: unknown, path: string): Record<string, unknown> {

@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Bookmark,
   ChevronDown,
   Download,
   Home,
@@ -15,25 +14,30 @@ import {
   sourcingRows,
   trendKeywords,
   type SourcingReport,
-  type WholesaleProduct,
 } from '../lib/sourcing-ai-dashboard';
 import { getTodaySourcingWorkspaceSnapshot } from '../lib/sourcing-workspace-snapshot-api';
 import { useTodayRecommendationRows } from '../lib/use-today-recommendation-rows';
-import type { TodayRecommendationRow } from '../recommendations/lib/today-recommendations';
 import { resolveCoupangCatalogImageUrl } from '../wing-catalog/lib/wing-catalog-extension';
 import { HomeRankingBoard } from './SellochSourcingHomeRankings';
 import { SellochMarketAnalysisPage } from './SellochMarketAnalysisPage';
+import { SellochCompetitorAnalysisPage } from './SellochCompetitorAnalysisPage';
 import { RealtimeSourcingTerminal } from './SellochRealtimeTerminal';
+import { SellochFinalSelectionPage } from './SellochFinalSelectionPage';
 import { SellochWholesaleCoupangMatches } from './SellochWholesaleCoupangMatches';
+import { SellochWholesaleKeywordSearch } from './SellochWholesaleKeywordSearch';
+import { SellochWholesaleRankingTabs } from './SellochWholesaleRankingTabs';
+import type { TodayRecommendationRow } from '../recommendations/lib/today-recommendations';
 
 export type SellochSourcingPageKind =
   | 'home'
   | 'recommendations'
   | 'keywords'
   | 'market'
+  | 'competitor'
   | 'category'
   | 'wholesale'
-  | 'validation';
+  | 'validation'
+  | 'final';
 
 const pageMeta: Record<SellochSourcingPageKind, { title: string }> = {
   home: {
@@ -48,6 +52,9 @@ const pageMeta: Record<SellochSourcingPageKind, { title: string }> = {
   market: {
     title: '시장분석',
   },
+  competitor: {
+    title: '경쟁업체 분석',
+  },
   category: {
     title: '카테고리 소싱',
   },
@@ -57,6 +64,9 @@ const pageMeta: Record<SellochSourcingPageKind, { title: string }> = {
   validation: {
     title: '상품 검증',
   },
+  final: {
+    title: '소싱 에이전트',
+  },
 };
 
 export function SellochSourcingPage({ kind }: { kind: SellochSourcingPageKind }) {
@@ -64,16 +74,21 @@ export function SellochSourcingPage({ kind }: { kind: SellochSourcingPageKind })
 
   return (
     <main className="min-h-full bg-transparent text-[#171923]">
-      <div className="flex w-full flex-col gap-10 px-8 py-8">
-        {kind !== 'home' && <PageTitle title={meta.title} />}
+      <div className={cn(
+        'flex w-full flex-col',
+        kind === 'final' ? 'gap-0 px-0 py-0' : 'gap-10 px-8 py-8',
+      )}>
+        {kind !== 'home' && kind !== 'final' && <PageTitle title={meta.title} />}
 
         {kind === 'home' && <HomePage />}
         {kind === 'recommendations' && <RecommendationsPage />}
         {kind === 'keywords' && <KeywordsPage />}
         {kind === 'market' && <MarketPage />}
+        {kind === 'competitor' && <SellochCompetitorAnalysisPage />}
         {kind === 'category' && <CategoryPage />}
         {kind === 'wholesale' && <WholesalePage />}
         {kind === 'validation' && <ValidationPage />}
+        {kind === 'final' && <SellochFinalSelectionPage />}
       </div>
     </main>
   );
@@ -155,7 +170,7 @@ function TodayRecommendationImageRail() {
       </div>
 
       {recommendationRows.length > 0 ? (
-        <div className="mt-4 flex snap-x gap-3 overflow-x-auto pb-2 [scrollbar-width:thin]">
+        <div className="mt-4 grid snap-x grid-flow-col auto-cols-[calc((100%-0.75rem)/2)] gap-3 overflow-x-auto pb-2 [scrollbar-width:thin] md:auto-cols-[calc((100%-2.25rem)/4)] xl:auto-cols-[calc((100%-3.75rem)/6)]">
           {recommendationRows.map((row) => (
             <TodayRecommendationImageCard key={recommendationRowKey(row)} row={row} />
           ))}
@@ -174,7 +189,7 @@ function TodayRecommendationImageCard({ row }: { row: TodayRecommendationRow }) 
   const salesLast3d = row.salesLast3d > 0 ? row.salesLast3d : row.salesLast28d ?? 0;
 
   return (
-    <article className="w-[164px] shrink-0 snap-start overflow-hidden rounded-2xl border border-[#dbe5f4] bg-white">
+    <article className="min-w-0 snap-start overflow-hidden rounded-2xl border border-[#dbe5f4] bg-white">
       <div className="relative flex aspect-square items-center justify-center overflow-hidden bg-[#f1f5fb]">
         {imageUrl ? (
           <img src={imageUrl} alt={row.productName} className="h-full w-full object-cover" loading="lazy" />
@@ -279,12 +294,10 @@ function WholesalePage() {
   return (
     <div className="w-full space-y-8">
       <SearchHero placeholder="1688 상품 URL 또는 상품명(한/중/영)을 입력해 주세요" compact homeButton />
-      <div className="grid gap-7 xl:grid-cols-[260px_1fr]">
-        <FilterSidebar />
-        <div className="space-y-5">
-          <HorizontalTabs items={['쿠팡이미지→1688', '이미지검색 결과', '검색대기', '관찰']} activeIndex={0} />
-          <SellochWholesaleCoupangMatches />
-        </div>
+      <div className="space-y-5">
+        <SellochWholesaleRankingTabs />
+        <SellochWholesaleKeywordSearch />
+        <SellochWholesaleCoupangMatches />
       </div>
     </div>
   );
@@ -378,75 +391,6 @@ function MarketplaceFilter() {
   );
 }
 
-function FilterSidebar() {
-  return (
-    <aside className="space-y-7 border-r border-[#eef1f5] pr-7">
-      <div>
-        <div className="flex items-center justify-between text-sm font-black text-[#111827]">
-          <span>필터 옵션</span>
-          <button type="button" className="text-xs text-[#9ca3af]">초기화</button>
-        </div>
-      </div>
-      <FilterGroup title="가격 범위 (元)" items={['최소', '최대']} inputs />
-      <FilterGroup title="배송 옵션" items={['당일 배송', '24시간 내 배송', '48시간 내 배송']} />
-      <FilterGroup title="평점" items={['전체', '5점', '4.5-5.0점', '4.0-4.5점']} />
-      <FilterGroup title="24시간 내 발송 비율" items={['전체', '95% 미만', '95% 이상', '99% 이상']} />
-    </aside>
-  );
-}
-
-function FilterGroup({ title, items, inputs = false }: { title: string; items: string[]; inputs?: boolean }) {
-  return (
-    <section>
-      <h2 className="mb-3 text-sm font-black text-[#111827]">{title}</h2>
-      {inputs ? (
-        <div className="space-y-2">
-          {items.map((item) => (
-            <input key={item} placeholder={item} className="h-11 w-full rounded-lg border border-[#eef1f5] px-4 text-sm font-bold outline-none placeholder:text-[#c3c8d0]" />
-          ))}
-          <button type="button" className="h-11 w-full rounded-lg bg-[#b5482b] text-sm font-black text-white">적용</button>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {items.map((item, index) => (
-            <label key={item} className="flex items-center gap-2 text-sm font-bold text-[#4b5563]">
-              <span className={cn('h-4 w-4 rounded border border-[#cfd6df]', index === 0 && 'border-[#b5482b] bg-[#b5482b]')} />
-              {item}
-            </label>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function WholesaleProductGrid({ products }: { products: WholesaleProduct[] }) {
-  return (
-    <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-      {products.map((product) => (
-        <article key={product.id} className="overflow-hidden rounded-[20px] border border-[#eef1f5] bg-white shadow-[0_12px_30px_rgba(15,23,42,0.07)]">
-          <div className="relative aspect-square bg-[#f3f4f6]">
-            <img src={product.imageUrl} alt="" className="h-full w-full object-cover" />
-            <button type="button" className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-[#9ca3af] shadow">
-              <Bookmark size={17} />
-            </button>
-            <span className="absolute left-3 top-3 rounded-lg bg-[#2f80ed] px-2 py-1 text-xs font-black text-white">PLUS</span>
-          </div>
-          <div className="p-4">
-            <h3 className="line-clamp-2 min-h-11 text-sm font-black leading-6 text-[#111827]">{product.title}</h3>
-            <p className="mt-3 text-xl font-black text-[#b5482b]">{formatKRW(product.priceKrw)}원</p>
-            <p className="mt-1 text-xs font-bold text-[#7a8494]">월 {formatNumber(product.minOrder * 46)}개 판매 · 재구매 {Math.round(product.minOrder * 1.7)}%</p>
-            <button type="button" className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-[#2f80ed] text-sm font-black text-white">
-              <ShoppingCart size={16} />
-              상품 판매하기
-            </button>
-          </div>
-        </article>
-      ))}
-    </section>
-  );
-}
-
 function DataTable({ title, right, children }: { title: string; right?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section className="overflow-hidden rounded-[18px] border border-[#eef1f5] bg-white">
@@ -481,18 +425,6 @@ function KeywordTableRows() {
         </tr>
       ))}
     </>
-  );
-}
-
-function HorizontalTabs({ items, activeIndex }: { items: string[]; activeIndex: number }) {
-  return (
-    <div className="flex flex-wrap gap-8 border-b border-[#eef1f5] text-sm font-black">
-      {items.map((item, index) => (
-        <button key={item} type="button" className={cn('border-b-2 px-1 pb-3', index === activeIndex ? 'border-[#b5482b] text-[#b5482b]' : 'border-transparent text-[#4b5563]')}>
-          {item}
-        </button>
-      ))}
-    </div>
   );
 }
 

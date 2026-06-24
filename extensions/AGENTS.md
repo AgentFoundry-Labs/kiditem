@@ -9,7 +9,8 @@ extension-specific guide before editing a concrete extension.
 ```text
 extensions/
 ├── product-scraper/          # Alibaba/1688 sourcing ingest
-└── coupang-ads-scraper/      # Coupang Wing and ad-center operations
+├── coupang-ads-scraper/      # Coupang Wing and ad-center operations
+└── order-collector/          # Marketplace order collection helpers
 ```
 
 ## Scoped Guides
@@ -18,6 +19,7 @@ extensions/
 |---|---|
 | [`product-scraper/AGENTS.md`](product-scraper/AGENTS.md) | Alibaba/1688 sourcing ingest |
 | [`coupang-ads-scraper/AGENTS.md`](coupang-ads-scraper/AGENTS.md) | Coupang Wing and ad-center operations |
+| [`order-collector/AGENTS.md`](order-collector/AGENTS.md) | Marketplace order collection helpers |
 
 ## Common Rules
 
@@ -49,5 +51,6 @@ extensions/
 ```bash
 node -e "JSON.parse(require('fs').readFileSync('extensions/product-scraper/manifest.json','utf8'))"
 node -e "JSON.parse(require('fs').readFileSync('extensions/coupang-ads-scraper/manifest.json','utf8'))"
+node -e "JSON.parse(require('fs').readFileSync('extensions/order-collector/manifest.json','utf8'))"
 git diff --check -- extensions
 ```
