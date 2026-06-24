@@ -79,4 +79,36 @@ describe('OrderAgentRuntimeHandler', () => {
       },
     });
   });
+
+  it('fails the runtime when Tool Router returns a failed purchase order invocation', async () => {
+    const registry = { register: vi.fn() };
+    const toolRouter = {
+      invoke: vi.fn().mockResolvedValue({
+        status: 'failed',
+        invocation: {
+          id: 'tool-submit-po-1',
+          errorCode: 'policy_denied',
+          errorMessage: 'External purchase submission is denied.',
+        },
+        artifacts: [],
+      }),
+    };
+    const handler = new OrderAgentRuntimeHandler(
+      registry as never,
+      toolRouter as never,
+    );
+
+    await expect(
+      handler.execute(
+        context({
+          action: 'submit_purchase_order',
+          purchaseOrderId: PURCHASE_ORDER_ID,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: 'AgentOsRuntimeError',
+      code: 'policy_denied',
+      message: 'External purchase submission is denied.',
+    });
+  });
 });

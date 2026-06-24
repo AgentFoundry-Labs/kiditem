@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
+import { SupplyAgentCapabilityAdapter } from '../supply-agent-capability.adapter';
 import type { AgentCapabilityRegistry } from '../../../../agent-os/application/service/agent-capability-registry.service';
 import type { PurchaseOrderDraftPort } from '../../../../application/port/in/procurement/purchase-order-draft.port';
 import type { PurchaseOrderSubmissionPort } from '../../../../application/port/in/procurement/purchase-order-submission.port';
-import { SupplyAgentCapabilityAdapter } from '../supply-agent-capability.adapter';
 
 const PURCHASE_ORDER_ID = '0187e942-9098-7382-9a22-c5b821f2f5d1';
 
@@ -65,6 +65,90 @@ describe('SupplyAgentCapabilityAdapter', () => {
         },
       }),
     ).toBe('org-1:supply.create_purchase_order_draft:request:request-2');
+  });
+
+  it('requires an explicit supplier name for purchase order draft recommendations', () => {
+    const register = vi.fn();
+    const registry = { register } as unknown as AgentCapabilityRegistry;
+    const drafts = {
+      createFromRecommendation: vi.fn(),
+    } as unknown as PurchaseOrderDraftPort;
+    const submissions = {
+      submit: vi.fn(),
+    } as unknown as PurchaseOrderSubmissionPort;
+    const adapter = new SupplyAgentCapabilityAdapter(
+      registry,
+      drafts,
+      submissions,
+    );
+
+    adapter.onModuleInit();
+
+    const draftHandler = register.mock.calls
+      .map((call) => call[0])
+      .find((handler) => handler.key === 'supply.create_purchase_order_draft');
+
+    expect(
+      draftHandler.inputSchema.safeParse({
+        productName: '실리콘 식판 흡착형 신제품',
+        unitPriceCny: 22.8,
+        moq: 2,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('creates purchase order drafts from explicit recommendation terms only', async () => {
+    const register = vi.fn();
+    const registry = { register } as unknown as AgentCapabilityRegistry;
+    const drafts = {
+      createFromRecommendation: vi.fn().mockResolvedValue({
+        orderId: PURCHASE_ORDER_ID,
+        status: 'draft',
+        href: `/purchase-orders?orderId=${PURCHASE_ORDER_ID}`,
+      }),
+    } as unknown as PurchaseOrderDraftPort;
+    const submissions = {
+      submit: vi.fn(),
+    } as unknown as PurchaseOrderSubmissionPort;
+    const adapter = new SupplyAgentCapabilityAdapter(
+      registry,
+      drafts,
+      submissions,
+    );
+
+    adapter.onModuleInit();
+
+    const draftHandler = register.mock.calls
+      .map((call) => call[0])
+      .find((handler) => handler.key === 'supply.create_purchase_order_draft');
+
+    await draftHandler.execute({
+      organizationId: 'org-1',
+      conversationId: 'conversation-1',
+      agentInstanceId: 'agent-order-1',
+      agentType: 'order',
+      requestId: 'request-1',
+      runId: 'run-1',
+      input: {
+        recommendationArtifactId: '0187e942-9098-7382-9a22-c5b821f2f5d1',
+        productName: '실리콘 식판 흡착형 신제품',
+        supplierName: '1688 Kids Tableware Factory',
+        unitPriceCny: 22.8,
+        moq: 2,
+      },
+    });
+
+    expect(drafts.createFromRecommendation).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      recommendation: {
+        productName: '실리콘 식판 흡착형 신제품',
+        supplierName: '1688 Kids Tableware Factory',
+        supplierId: null,
+        unitPriceCny: 22.8,
+        moq: 2,
+        testQuantity: null,
+      },
+    });
   });
 
   it('registers purchase order draft and approval-gated submission capabilities', async () => {

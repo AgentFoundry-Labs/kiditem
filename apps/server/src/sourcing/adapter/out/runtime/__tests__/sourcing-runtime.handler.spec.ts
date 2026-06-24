@@ -150,6 +150,82 @@ describe('SourcingRuntimeHandler', () => {
     });
   });
 
+  it('fails manual URL intake when Tool Router returns a failed scrape invocation', async () => {
+    const registry = { register: vi.fn() };
+    const toolRouter = {
+      invoke: vi.fn().mockResolvedValue({
+        status: 'failed',
+        invocation: {
+          id: 'tool-scrape-1',
+          errorCode: 'capability_failed',
+          errorMessage: 'Scrape workflow failed.',
+        },
+        artifacts: [],
+      }),
+    };
+    const playwright = { execute: vi.fn() };
+    const handler = new SourcingRuntimeHandler(
+      registry as never,
+      toolRouter as never,
+      playwright as never,
+    );
+
+    await expect(
+      handler.execute(
+        context({
+          action: 'manual_url_intake',
+          sourceUrl: 'https://detail.1688.com/offer/123.html',
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: 'AgentOsRuntimeError',
+      code: 'capability_failed',
+      message: 'Scrape workflow failed.',
+    });
+  });
+
+  it('fails market discovery as soon as a Tool Router capability fails', async () => {
+    const registry = { register: vi.fn() };
+    const toolRouter = {
+      invoke: vi
+        .fn()
+        .mockResolvedValueOnce({
+          status: 'succeeded',
+          invocation: { id: 'tool-market-1' },
+          artifacts: [],
+        })
+        .mockResolvedValueOnce({
+          status: 'failed',
+          invocation: {
+            id: 'tool-coupang-1',
+            errorCode: 'capability_failed',
+            errorMessage: 'Coupang match failed.',
+          },
+          artifacts: [],
+        }),
+    };
+    const playwright = { execute: vi.fn() };
+    const handler = new SourcingRuntimeHandler(
+      registry as never,
+      toolRouter as never,
+      playwright as never,
+    );
+
+    await expect(
+      handler.execute(
+        context({
+          action: 'market_opportunity_discovery',
+          keyword: '실리콘 식판',
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: 'AgentOsRuntimeError',
+      code: 'capability_failed',
+      message: 'Coupang match failed.',
+    });
+    expect(toolRouter.invoke).toHaveBeenCalledTimes(2);
+  });
+
   it('invokes the listing-prep capability for product listing generation packages', async () => {
     const registry = { register: vi.fn() };
     const toolRouter = {

@@ -1,6 +1,5 @@
 import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import { z } from 'zod';
-import type { AgentCapabilityHandler } from '../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
 import { AgentCapabilityRegistry } from '../../../../agent-os/application/service/agent-capability-registry.service';
 import {
   PURCHASE_ORDER_DRAFT_PORT,
@@ -10,11 +9,12 @@ import {
   PURCHASE_ORDER_SUBMISSION_PORT,
   type PurchaseOrderSubmissionPort,
 } from '../../../application/port/in/procurement/purchase-order-submission.port';
+import type { AgentCapabilityHandler } from '../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
 
 const PurchaseOrderDraftInputSchema = z.object({
   recommendationArtifactId: z.string().uuid().optional(),
   productName: z.string().min(1),
-  supplierName: z.string().min(1).optional(),
+  supplierName: z.string().min(1),
   supplierId: z.string().uuid().optional(),
   unitPriceCny: z.number().positive(),
   moq: z.number().int().positive(),
@@ -42,16 +42,14 @@ const PurchaseOrderSubmissionOutputSchema = z.object({
 });
 
 function recommendationFromInput(input: Record<string, unknown>) {
+  const parsed = PurchaseOrderDraftInputSchema.parse(input);
   return {
-    productName:
-      typeof input.productName === 'string' ? input.productName : '소싱 추천 상품',
-    supplierName:
-      typeof input.supplierName === 'string' ? input.supplierName : '1688 supplier',
-    supplierId: typeof input.supplierId === 'string' ? input.supplierId : null,
-    unitPriceCny: typeof input.unitPriceCny === 'number' ? input.unitPriceCny : 22.8,
-    moq: typeof input.moq === 'number' ? input.moq : 2,
-    testQuantity:
-      typeof input.testQuantity === 'number' ? input.testQuantity : 6,
+    productName: parsed.productName,
+    supplierName: parsed.supplierName,
+    supplierId: parsed.supplierId ?? null,
+    unitPriceCny: parsed.unitPriceCny,
+    moq: parsed.moq,
+    testQuantity: parsed.testQuantity ?? null,
   };
 }
 

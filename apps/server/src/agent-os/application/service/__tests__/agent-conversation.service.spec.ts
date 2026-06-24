@@ -360,4 +360,69 @@ describe('AgentConversationService', () => {
     });
     expect(delegation.delegate).not.toHaveBeenCalled();
   });
+
+  it('rejects order handoff when recommendation summary is missing commercial terms', async () => {
+    const repository = {
+      listArtifacts: vi.fn().mockResolvedValue([
+        {
+          id: 'artifact-1',
+          organizationId: 'org-1',
+          conversationId: 'conversation-1',
+          agentInstanceId: 'agent-sourcing-1',
+          requestId: 'request-sourcing-1',
+          runId: 'run-sourcing-1',
+          toolInvocationId: 'tool-1',
+          artifactType: 'sourcing_recommendation',
+          targetDomain: 'sourcing',
+          targetModel: 'SourcingRecommendation',
+          targetId: 'recommendation-1',
+          title: '실리콘 흡착 식판 테스트 발주 후보',
+          href: null,
+          summary: {
+            productName: '실리콘 식판 흡착형 신제품',
+            handoffIntent: {
+              targetAgentType: 'order',
+              playbookKey: 'sourcing_market_opportunity_to_order_draft_v1',
+              planStepKey: 'order_draft',
+              trigger: 'user_selection',
+              requiresUserSelection: true,
+              actionLabel: '발주 초안 생성',
+              rationale:
+                '사용자가 소싱 추천을 선택하면 Order Agent가 발주 초안을 만든다.',
+            },
+          },
+          status: 'active',
+          createdAt: new Date('2026-05-29T00:00:00.000Z'),
+          updatedAt: new Date('2026-05-29T00:00:00.000Z'),
+        },
+      ]),
+      findConversationById: vi.fn(),
+      createMessage: vi.fn(),
+    } as unknown as AgentOsRepositoryPort;
+
+    const runner = {
+      runByType: vi.fn(),
+    } as unknown as AgentRunnerPort;
+    const delegation = {
+      delegate: vi.fn(),
+    } as unknown as AgentTaskDelegationService;
+
+    const service = new AgentConversationService(repository, runner, delegation);
+
+    await expect(
+      service.createOrderDraftFromRecommendation({
+        organizationId: 'org-1',
+        userId: 'user-1',
+        conversationId: 'conversation-1',
+        artifactId: 'artifact-1',
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        message:
+          'Selected recommendation is missing required order handoff fields',
+      },
+    });
+    expect(repository.findConversationById).not.toHaveBeenCalled();
+    expect(delegation.delegate).not.toHaveBeenCalled();
+  });
 });

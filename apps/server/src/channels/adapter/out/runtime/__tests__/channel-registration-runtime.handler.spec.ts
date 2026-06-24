@@ -149,4 +149,38 @@ describe('ChannelRegistrationRuntimeHandler', () => {
       },
     });
   });
+
+  it('fails the runtime when Tool Router returns a failed channel invocation', async () => {
+    const registry = { register: vi.fn() };
+    const toolRouter = {
+      invoke: vi.fn().mockResolvedValue({
+        status: 'failed',
+        invocation: {
+          id: 'tool-channel-submit-1',
+          errorCode: 'policy_denied',
+          errorMessage: 'Coupang listing submission is denied.',
+        },
+        artifacts: [],
+      }),
+    };
+    const handler = new ChannelRegistrationRuntimeHandler(
+      registry as never,
+      toolRouter as never,
+    );
+
+    await expect(
+      handler.execute(
+        context({
+          action: 'coupang_listing_submit',
+          masterId: MASTER_ID,
+          channelAccountId: CHANNEL_ACCOUNT_ID,
+          listingPayload: { vendorId: 'A00012345' },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: 'AgentOsRuntimeError',
+      code: 'policy_denied',
+      message: 'Coupang listing submission is denied.',
+    });
+  });
 });

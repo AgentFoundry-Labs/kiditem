@@ -1,11 +1,12 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
+import { AgentRuntimeHandlerRegistry } from '../../../../agent-os/application/service/agent-runtime-handler-registry.service';
+import { AgentToolRouter } from '../../../../agent-os/application/service/agent-tool-router.service';
+import { AgentOsRuntimeError } from '../../../../agent-os/domain/agent-os.errors';
 import type {
   AgentRuntimeExecutionContext,
   AgentRuntimeResult,
 } from '../../../../agent-os/application/port/out/runtime/agent-runtime.port';
 import type { AgentTypeRuntimeHandler } from '../../../../agent-os/application/port/out/runtime/agent-runtime-handler.port';
-import { AgentRuntimeHandlerRegistry } from '../../../../agent-os/application/service/agent-runtime-handler-registry.service';
-import { AgentToolRouter } from '../../../../agent-os/application/service/agent-tool-router.service';
 
 function stringField(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -30,6 +31,17 @@ function submissionInput(input: Record<string, unknown>): Record<string, unknown
   if (externalOrderId !== undefined) output.externalOrderId = externalOrderId;
   if (externalOrderUrl !== undefined) output.externalOrderUrl = externalOrderUrl;
   return output;
+}
+
+function assertToolInvocationDidNotFail(
+  result: Awaited<ReturnType<AgentToolRouter['invoke']>>,
+): void {
+  if (result.status !== 'failed') return;
+  throw new AgentOsRuntimeError(
+    result.invocation.errorCode ?? 'capability_failed',
+    result.invocation.errorMessage ??
+      `Capability failed: ${result.invocation.capabilityKey}`,
+  );
 }
 
 @Injectable()
@@ -64,6 +76,7 @@ export class OrderAgentRuntimeHandler
         : 'supply.create_purchase_order_draft',
       input: isSubmission ? submissionInput(context.input) : context.input,
     });
+    assertToolInvocationDidNotFail(result);
     return {
       provider: 'kiditem-supply',
       output: {

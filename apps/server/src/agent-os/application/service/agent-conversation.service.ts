@@ -32,12 +32,49 @@ function titleFromContent(content: string): string {
   return compact.length > 40 ? `${compact.slice(0, 40)}...` : compact;
 }
 
-function stringField(value: unknown, fallback: string): string {
-  return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+function requiredStringField(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-function numberField(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+function requiredPositiveNumberField(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : null;
+}
+
+function optionalPositiveIntegerField(value: unknown): number | undefined {
+  return typeof value === 'number' &&
+    Number.isInteger(value) &&
+    Number.isFinite(value) &&
+    value > 0
+    ? value
+    : undefined;
+}
+
+function orderDraftPayloadFromSummary(
+  summary: Record<string, unknown>,
+  artifactId: string,
+): Record<string, unknown> {
+  const productName = requiredStringField(summary.productName);
+  const supplierName = requiredStringField(summary.supplierName);
+  const unitPriceCny = requiredPositiveNumberField(summary.unitPriceCny);
+  const moq = optionalPositiveIntegerField(summary.moq);
+
+  if (!productName || !supplierName || unitPriceCny === null || moq === undefined) {
+    throw new BadRequestException(
+      'Selected recommendation is missing required order handoff fields',
+    );
+  }
+
+  const testQuantity = optionalPositiveIntegerField(summary.testQuantity);
+  return {
+    recommendationArtifactId: artifactId,
+    productName,
+    supplierName,
+    unitPriceCny,
+    moq,
+    ...(testQuantity === undefined ? {} : { testQuantity }),
+  };
 }
 
 @Injectable()
@@ -193,6 +230,8 @@ export class AgentConversationService {
       );
     }
 
+    const orderDraftPayload = orderDraftPayloadFromSummary(summary, artifact.id);
+
     const conversation = await this.repository.findConversationById({
       organizationId: input.organizationId,
       conversationId: input.conversationId,
@@ -225,12 +264,7 @@ export class AgentConversationService {
       idempotencyKey: `handoff:${input.conversationId}:${artifact.id}:${intent.targetAgentType}:${intent.planStepKey}`,
       payload: {
         conversationId: input.conversationId,
-        recommendationArtifactId: artifact.id,
-        productName: stringField(summary.productName, artifact.title),
-        supplierName: stringField(summary.supplierName, '1688 supplier'),
-        unitPriceCny: numberField(summary.unitPriceCny, 22.8),
-        moq: numberField(summary.moq, 2),
-        testQuantity: 6,
+        ...orderDraftPayload,
       },
     });
 

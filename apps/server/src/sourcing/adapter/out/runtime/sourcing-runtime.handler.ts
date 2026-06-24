@@ -1,13 +1,13 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
+import { AgentRuntimeHandlerRegistry } from '../../../../agent-os/application/service/agent-runtime-handler-registry.service';
+import { AgentToolRouter } from '../../../../agent-os/application/service/agent-tool-router.service';
+import { AgentOsRuntimeError } from '../../../../agent-os/domain/agent-os.errors';
+import { SourcingPlaywrightRuntimeHandler } from './sourcing-playwright-runtime.handler';
 import type {
   AgentRuntimeExecutionContext,
   AgentRuntimeResult,
 } from '../../../../agent-os/application/port/out/runtime/agent-runtime.port';
 import type { AgentTypeRuntimeHandler } from '../../../../agent-os/application/port/out/runtime/agent-runtime-handler.port';
-import { AgentRuntimeHandlerRegistry } from '../../../../agent-os/application/service/agent-runtime-handler-registry.service';
-import { AgentToolRouter } from '../../../../agent-os/application/service/agent-tool-router.service';
-import { AgentOsRuntimeError } from '../../../../agent-os/domain/agent-os.errors';
-import { SourcingPlaywrightRuntimeHandler } from './sourcing-playwright-runtime.handler';
 
 function stringField(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -53,6 +53,17 @@ function supplierUrlInput(input: Record<string, unknown>): Record<string, unknow
     ...(url ? { url } : {}),
     ...(supplierUrls.length > 0 ? { supplierUrls } : {}),
   };
+}
+
+function assertToolInvocationDidNotFail(
+  result: Awaited<ReturnType<AgentToolRouter['invoke']>>,
+): void {
+  if (result.status !== 'failed') return;
+  throw new AgentOsRuntimeError(
+    result.invocation.errorCode ?? 'capability_failed',
+    result.invocation.errorMessage ??
+      `Capability failed: ${result.invocation.capabilityKey}`,
+  );
 }
 
 function hermesLeafOwns(agentType: string): boolean {
@@ -126,26 +137,32 @@ export class SourcingRuntimeHandler implements AgentTypeRuntimeHandler, OnModule
       ...common,
       capabilityKey: 'market.collect_keyword_category_rankings',
     });
+    assertToolInvocationDidNotFail(market);
     const coupang = await this.toolRouter.invoke({
       ...common,
       capabilityKey: 'coupang.match_products',
     });
+    assertToolInvocationDidNotFail(coupang);
     const tracking = await this.toolRouter.invoke({
       ...common,
       capabilityKey: 'coupang.collect_tracking_snapshot',
     });
+    assertToolInvocationDidNotFail(tracking);
     const supplier = await this.toolRouter.invoke({
       ...common,
       capabilityKey: 'supplier1688.match_products',
     });
+    assertToolInvocationDidNotFail(supplier);
     const score = await this.toolRouter.invoke({
       ...common,
       capabilityKey: 'sourcing.score_opportunities',
     });
+    assertToolInvocationDidNotFail(score);
     const recommendation = await this.toolRouter.invoke({
       ...common,
       capabilityKey: 'sourcing.create_recommendation_packet',
     });
+    assertToolInvocationDidNotFail(recommendation);
 
     return {
       provider: 'kiditem-sourcing-stub',
@@ -183,6 +200,7 @@ export class SourcingRuntimeHandler implements AgentTypeRuntimeHandler, OnModule
       capabilityKey: 'sourcing.scrapeUrlWorkflow',
       input: manualUrlInput(context.input),
     });
+    assertToolInvocationDidNotFail(result);
 
     return {
       provider: 'kiditem-sourcing-manual-url-intake',
@@ -211,6 +229,7 @@ export class SourcingRuntimeHandler implements AgentTypeRuntimeHandler, OnModule
       capabilityKey: 'product_listing.create_generation_package',
       input: listingPrepInput(context.input),
     });
+    assertToolInvocationDidNotFail(result);
 
     return {
       provider: 'kiditem-sourcing-listing-prep',
@@ -239,6 +258,7 @@ export class SourcingRuntimeHandler implements AgentTypeRuntimeHandler, OnModule
       capabilityKey: 'product_listing.submit_wing_thumbnail',
       input: wingRegistrationInput(context.input),
     });
+    assertToolInvocationDidNotFail(result);
 
     return {
       provider: 'kiditem-sourcing-wing-registration',
