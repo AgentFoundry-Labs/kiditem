@@ -18,6 +18,8 @@ export interface BrowserOrderRowsPayload {
   fileName?: string;
 }
 
+const OUTPUT_FILE_SUFFIX = '_아이스크림몰_변환';
+
 export async function convertIcecreamMallOrderFile(
   file: File,
   password?: string,
@@ -114,7 +116,15 @@ function fileNameFromContentDisposition(value: string | null): string | null {
 
 function fallbackFileName(inputName: string): string {
   const baseName = inputName.replace(/\.[^.]+$/, '').replace(/[\\/:*?"<>|]+/g, '_');
-  return `${baseName || '주문수집'}_아이스크림몰_변환.xlsx`;
+  return `${withSingleOutputSuffix(baseName || '주문수집')}.xls`;
+}
+
+function withSingleOutputSuffix(value: string): string {
+  let base = value;
+  while (base.endsWith(`${OUTPUT_FILE_SUFFIX}${OUTPUT_FILE_SUFFIX}`)) {
+    base = base.slice(0, -OUTPUT_FILE_SUFFIX.length);
+  }
+  return base.endsWith(OUTPUT_FILE_SUFFIX) ? base : `${base}${OUTPUT_FILE_SUFFIX}`;
 }
 
 async function readPreviewRows(blob: Blob): Promise<string[][]> {

@@ -4,12 +4,17 @@ export interface StoredOrderCollectionFile extends OrderCollectionConversionResu
   id: string;
   sourceName: string;
   convertedAt: number;
+  collectionDate?: string;
+  collectionMode?: 'browser' | 'manual-upload';
+  collectedRows?: number;
+  mallKey?: string;
+  mallName?: string;
 }
 
 const DB_NAME = 'kiditem-order-collection-files';
 const STORE_NAME = 'files';
 const DB_VERSION = 1;
-const MAX_FILES = 100;
+const MAX_FILES = 1000;
 
 export async function loadGeneratedOrderFiles(): Promise<StoredOrderCollectionFile[]> {
   if (!canUseIndexedDb()) return [];

@@ -4,6 +4,7 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 import {
   OrderCollectionMallAccountService,
   type OrderCollectionMallAccount,
+  type OrderCollectionMallPassword,
   type UpdateOrderCollectionMallAccountInput,
 } from '../services/order-collection-mall-account.service';
 
@@ -16,6 +17,15 @@ export class OrderCollectionMallAccountController {
     @CurrentOrganization() organizationId: string,
   ): Promise<OrderCollectionMallAccount[]> {
     return this.accounts.list(organizationId);
+  }
+
+  @Get(':mallKey/password')
+  @Roles('owner', 'admin')
+  password(
+    @CurrentOrganization() organizationId: string,
+    @Param('mallKey') mallKey: string,
+  ): Promise<OrderCollectionMallPassword> {
+    return this.accounts.getPassword(organizationId, mallKey);
   }
 
   @Patch(':mallKey')

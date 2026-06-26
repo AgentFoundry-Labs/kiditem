@@ -152,6 +152,24 @@ function readOutputRows(buffer: Buffer): string[][] {
   }) as string[][];
 }
 
+function readOutputWorkbook(buffer: Buffer): XLSX.WorkBook {
+  return XLSX.read(buffer, { type: 'buffer', cellFormula: true });
+}
+
+function makeXlsUploadFileFromRows(rows: string[][], originalname: string): MulterFile {
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), 'deliveryMgmt1');
+  const buffer = XLSX.write(workbook, { bookType: 'xls', type: 'buffer' }) as Buffer;
+  return {
+    fieldname: 'file',
+    originalname,
+    encoding: '7bit',
+    mimetype: 'application/vnd.ms-excel',
+    size: buffer.length,
+    buffer,
+  };
+}
+
 describe('OrderCollectionService', () => {
   it('converts every product order row into deliveryMgmt1 rows with shipping-fee rows', async () => {
     const service = new OrderCollectionService();
@@ -185,7 +203,7 @@ describe('OrderCollectionService', () => {
       productRows: 3,
       outputRows: 6,
       skippedRows: 0,
-      fileName: 'icecream-orders_아이스크림몰_변환.xlsx',
+      fileName: 'icecream-orders_아이스크림몰_변환.xls',
     });
     expect(rows[0]?.slice(0, 5)).toEqual(['No', '주문번호', '배송번호', '사이트', '배송순번']);
     expect(rows[1]?.slice(0, 18)).toEqual([
@@ -219,6 +237,19 @@ describe('OrderCollectionService', () => {
     expect(rows[4]?.[15]).toBe('택배비');
     expect(rows[5]?.[15]).toBe('애니멀 블럭');
     expect(rows[6]?.[15]).toBe('택배비');
+  });
+
+  it('writes a Cellpia upload workbook as a single xls file shape', async () => {
+    const service = new OrderCollectionService();
+    const result = await service.convertIcecreamMallOrderFile(makeUploadFile([makeRow({})]));
+    const workbook = readOutputWorkbook(result.buffer);
+
+    expect(result.fileName).toBe('icecream-orders_아이스크림몰_변환.xls');
+    expect(result.buffer.subarray(0, 8).toString('hex')).toBe('d0cf11e0a1b11ae1');
+    expect(workbook.SheetNames).toEqual(['deliveryMgmt1', 'Sheet1']);
+    expect(workbook.Props?.Application).toBe('Apache POI');
+    expect(workbook.Props?.Author).toBe('Apache POI');
+    expect(workbook.Sheets.deliveryMgmt1?.['!ref']).toBe('A1:AU3');
   });
 
   it('keeps orderer phone when the upload contains 주문자휴대폰번호', async () => {
@@ -255,11 +286,67 @@ describe('OrderCollectionService', () => {
       sourceRows: 1,
       productRows: 1,
       outputRows: 2,
-      fileName: '아이스크림몰_20260623_브라우저수집_아이스크림몰_변환.xlsx',
+      fileName: '아이스크림몰_20260623_브라우저수집_아이스크림몰_변환.xls',
     });
     expect(rows[1]?.[1]).toBe('20260623M664721');
     expect(rows[1]?.[31]).toBe('윤다은(아이스크림몰)');
     expect(rows[2]?.[15]).toBe('택배비');
+  });
+
+  it('does not add another shipping row when a converted Cellpia file is uploaded again', async () => {
+    const service = new OrderCollectionService();
+    const firstResult = await service.convertIcecreamMallOrderFile(makeUploadFile([makeRow({})]));
+
+    const secondResult = await service.convertIcecreamMallOrderFile({
+      fieldname: 'file',
+      originalname: firstResult.fileName,
+      encoding: '7bit',
+      mimetype: 'application/vnd.ms-excel',
+      size: firstResult.buffer.length,
+      buffer: firstResult.buffer,
+    });
+
+    const rows = readOutputRows(secondResult.buffer);
+    expect(secondResult).toMatchObject({
+      sourceRows: 2,
+      productRows: 1,
+      outputRows: 2,
+      skippedRows: 0,
+      fileName: 'icecream-orders_아이스크림몰_변환.xls',
+    });
+    expect(rows).toHaveLength(3);
+    expect(rows[1]?.[15]).toBe('카피바라 비눗방울');
+    expect(rows[1]?.[31]).toBe('강명숙선생님(아이스크림몰)');
+    expect(rows[2]?.[15]).toBe('택배비');
+    expect(rows[2]?.[31]).toBe('강명숙선생님(아이스크림몰)');
+  });
+
+  it('deduplicates legacy double-converted shipping rows', async () => {
+    const service = new OrderCollectionService();
+    const firstResult = await service.convertIcecreamMallOrderFile(makeUploadFile([makeRow({})]));
+    const rows = readOutputRows(firstResult.buffer);
+    const duplicatedShipping = [...rows[2]];
+    duplicatedShipping[4] = '2';
+    duplicatedShipping[9] = '출고지시';
+    const file = makeXlsUploadFileFromRows(
+      [rows[0], rows[1], duplicatedShipping, rows[2]],
+      'icecream-orders_아이스크림몰_변환_아이스크림몰_변환.xls',
+    );
+
+    const result = await service.convertIcecreamMallOrderFile(file);
+    const normalizedRows = readOutputRows(result.buffer);
+
+    expect(result).toMatchObject({
+      productRows: 1,
+      outputRows: 2,
+      fileName: 'icecream-orders_아이스크림몰_변환.xls',
+    });
+    expect(normalizedRows).toHaveLength(3);
+    expect(normalizedRows[1]?.[0]).toBe('1');
+    expect(normalizedRows[2]?.[0]).toBe('2');
+    expect(normalizedRows[2]?.[4]).toBe('');
+    expect(normalizedRows[2]?.[9]).toBe('');
+    expect(normalizedRows[2]?.[15]).toBe('택배비');
   });
 
   it('repairs mojibake Korean upload filenames before building the download name', async () => {
@@ -274,7 +361,7 @@ describe('OrderCollectionService', () => {
       withOriginalName(makeUploadFile([makeRow({})]), doubleMojibakeName),
     );
 
-    expect(result.fileName).toBe('26.06.23아이스크림몰_아이스크림몰_변환.xlsx');
+    expect(result.fileName).toBe('26.06.23아이스크림몰_아이스크림몰_변환.xls');
   });
 
   it('decrypts a password-protected Excel upload when a password is supplied', async () => {

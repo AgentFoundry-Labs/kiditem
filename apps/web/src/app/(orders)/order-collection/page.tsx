@@ -1,5 +1,6 @@
 'use client';
 
+import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import {
   AlertCircle,
@@ -7,13 +8,14 @@ import {
   Clock,
   Download,
   Eye,
+  EyeOff,
   ExternalLink,
   FileSpreadsheet,
-  KeyRound,
   Loader2,
   LockKeyhole,
   RefreshCw,
   Save,
+  Send,
   Store,
   Upload,
   X,
@@ -25,7 +27,10 @@ import {
   convertIcecreamMallOrderRows,
   downloadOrderCollectionFile,
 } from './lib/order-collection-api';
-import { collectIcecreamMallRowsFromExtension } from './lib/order-collection-extension';
+import {
+  collectIcecreamMallRowsFromExtension,
+  sendOrderFileToSellpiaViaExtension,
+} from './lib/order-collection-extension';
 import {
   orderMallAccountApi,
   type OrderCollectionMallAccount,
@@ -35,6 +40,8 @@ import {
   saveGeneratedOrderFile,
   type StoredOrderCollectionFile,
 } from './lib/order-generated-file-store';
+import { OrderCollectionDailyPanel } from './components/OrderCollectionDailyPanel';
+import { OrderCollectionFlow } from './components/OrderCollectionFlow';
 
 type ConversionState = 'idle' | 'ready' | 'converting' | 'success' | 'error';
 
@@ -50,6 +57,7 @@ interface MallAccountDraft {
 
 const ACCEPTED_EXTENSIONS = '.txt,.tsv,.csv,.xls,.xlsx';
 const ICECREAM_MALL_KEY = 'icecream-mall';
+const MAX_HISTORY_ITEMS = 1000;
 
 const EMPTY_MALL_DRAFT: MallAccountDraft = {
   loginId: '',
@@ -72,9 +80,14 @@ export default function OrderCollectionPage() {
   const [mallLoading, setMallLoading] = useState(true);
   const [mallSaving, setMallSaving] = useState(false);
   const [browserCollecting, setBrowserCollecting] = useState(false);
+  const [collectingMallKey, setCollectingMallKey] = useState<string | null>(null);
   const [mallError, setMallError] = useState<string | null>(null);
   const [selectedMallKey, setSelectedMallKey] = useState<string | null>(ICECREAM_MALL_KEY);
   const [mallDraft, setMallDraft] = useState<MallAccountDraft>(EMPTY_MALL_DRAFT);
+  const [mallSettingsOpen, setMallSettingsOpen] = useState(false);
+  const [mallPasswordLoading, setMallPasswordLoading] = useState(false);
+  const [mallPasswordVisible, setMallPasswordVisible] = useState(false);
+  const [sellpiaSendingId, setSellpiaSendingId] = useState<string | null>(null);
 
   const canConvert = selectedFile !== null && state !== 'converting';
   const lastResult = history[0] ?? null;
@@ -85,25 +98,7 @@ export default function OrderCollectionPage() {
     mallAccounts.find((account) => account.key === selectedMallKey) ?? defaultMall;
   const configuredMallCount = mallAccounts.filter((account) => account.configured).length;
   const enabledMallCount = mallAccounts.filter((account) => account.configured && account.enabled).length;
-  const canCollectSelectedMall = selectedMall?.key === ICECREAM_MALL_KEY;
   const lastOrderCount = getOrderCount(lastResult);
-
-  const summary = useMemo(() => {
-    if (!lastResult) {
-      return [
-        { label: '주문 수', value: '-' },
-        { label: '상품 수', value: '-' },
-        { label: '출력 수', value: '-' },
-        { label: '제외 수', value: '-' },
-      ];
-    }
-    return [
-      { label: '주문 수', value: countLabel(lastOrderCount) },
-      { label: '상품 수', value: countLabel(lastResult.productRows) },
-      { label: '출력 수', value: countLabel(lastResult.outputRows) },
-      { label: '제외 수', value: countLabel(lastResult.skippedRows) },
-    ];
-  }, [lastOrderCount, lastResult]);
 
   const generatedFileGroups = useMemo(() => groupHistoryByDay(history), [history]);
 
@@ -144,17 +139,7 @@ export default function OrderCollectionPage() {
   }, []);
 
   useEffect(() => {
-    if (!selectedMall) {
-      setMallDraft(EMPTY_MALL_DRAFT);
-      return;
-    }
-    setMallDraft({
-      loginId: selectedMall.loginId ?? '',
-      password: '',
-      siteUrl: selectedMall.siteUrl ?? '',
-      memo: selectedMall.memo ?? '',
-      enabled: selectedMall.enabled,
-    });
+    setMallDraft(selectedMall ? draftFromMallAccount(selectedMall) : EMPTY_MALL_DRAFT);
   }, [selectedMall?.key, selectedMall?.loginId, selectedMall?.siteUrl, selectedMall?.memo, selectedMall?.enabled]);
 
   const selectFile = (file: File | null) => {
@@ -185,6 +170,8 @@ export default function OrderCollectionPage() {
         id: `${Date.now()}-${selectedFile.name}`,
         sourceName: selectedFile.name.normalize('NFC'),
         convertedAt: Date.now(),
+        collectionDate: todayYmd(),
+        collectionMode: 'manual-upload' as const,
       };
       addGeneratedFile(historyItem);
       setPreviewId(historyItem.id);
@@ -204,17 +191,50 @@ export default function OrderCollectionPage() {
   const addGeneratedFile = (historyItem: ConversionHistoryItem) => {
     setHistory((prev) => [
       historyItem,
-      ...prev.filter((item) => item.id !== historyItem.id).slice(0, 49),
+      ...prev.filter((item) => item.id !== historyItem.id).slice(0, MAX_HISTORY_ITEMS - 1),
     ]);
     void saveGeneratedOrderFile(historyItem).catch(() => {
       toast.error('생성 파일 목록 저장 실패');
     });
   };
 
-  const handleBrowserCollect = async () => {
-    if (!selectedMall) return;
-    if (!canCollectSelectedMall) {
-      toast.error(`${selectedMall.name} 수집은 아직 준비 중입니다.`);
+  const collectBrowserMall = async (account: OrderCollectionMallAccount) => {
+    if (!isBrowserCollectableMall(account)) {
+      throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
+    }
+
+    const credentials = await loadMallLoginCredentials(account);
+    const collected = await collectIcecreamMallRowsFromExtension(todayYmd(), credentials);
+    const result = await convertIcecreamMallOrderRows({
+      headers: collected.headers,
+      rows: collected.rows,
+      fileName: `아이스크림몰_${collected.date ?? todayYmd()}_브라우저수집`,
+    });
+    const convertedAt = Date.now();
+    const historyItem = {
+      ...result,
+      id: `${convertedAt}-${account.key}-browser`,
+      sourceName: `${account.name} 브라우저 수집 (${formatNumber(collected.rowCount)}행)`,
+      convertedAt,
+      collectionDate: collected.date ?? todayYmd(),
+      collectionMode: 'browser' as const,
+      collectedRows: collected.rowCount,
+      mallKey: account.key,
+      mallName: account.name,
+    };
+    addGeneratedFile(historyItem);
+    setPreviewId(historyItem.id);
+
+    return collected;
+  };
+
+  const handleBrowserCollectAll = async () => {
+    const enabledAccounts = mallAccounts.filter((account) => account.configured && account.enabled);
+    const collectableAccounts = enabledAccounts.filter(isBrowserCollectableMall);
+    const pendingCount = enabledAccounts.length - collectableAccounts.length;
+
+    if (collectableAccounts.length === 0) {
+      toast.error('현재 자동 수집 가능한 몰 계정이 없습니다.');
       return;
     }
 
@@ -223,25 +243,19 @@ export default function OrderCollectionPage() {
     setError(null);
 
     try {
-      const collected = await collectIcecreamMallRowsFromExtension(todayYmd());
-      const result = await convertIcecreamMallOrderRows({
-        headers: collected.headers,
-        rows: collected.rows,
-        fileName: `아이스크림몰_${collected.date ?? todayYmd()}_브라우저수집`,
-      });
-      const historyItem = {
-        ...result,
-        id: `${Date.now()}-icecream-browser`,
-        sourceName: `${selectedMall.name} 브라우저 수집 (${formatNumber(collected.rowCount)}행)`,
-        convertedAt: Date.now(),
-      };
-      addGeneratedFile(historyItem);
-      setPreviewId(historyItem.id);
-      setState('success');
-      toast.success('아이스크림몰 당일 주문 수집 완료');
-      if (collected.masked) {
-        toast.warning('화면 표는 일부 개인정보가 마스킹되어 있습니다.');
+      for (const account of collectableAccounts) {
+        setCollectingMallKey(account.key);
+        const collected = await collectBrowserMall(account);
+        if (collected.masked) {
+          toast.warning('화면 표는 일부 개인정보가 마스킹되어 있습니다.');
+        }
       }
+      setState('success');
+      toast.success(
+        pendingCount > 0
+          ? `자동 수집 완료. ${formatNumber(pendingCount)}개 몰은 준비 중입니다.`
+          : '전체 수집 완료',
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : '브라우저 수집 실패';
       setError(message);
@@ -249,6 +263,70 @@ export default function OrderCollectionPage() {
       toast.error(message);
     } finally {
       setBrowserCollecting(false);
+      setCollectingMallKey(null);
+    }
+  };
+
+  const handleBrowserCollectMall = async (account: OrderCollectionMallAccount) => {
+    if (!account.configured) {
+      toast.error(`${account.name} 계정을 먼저 설정해주세요.`);
+      return;
+    }
+    if (!account.enabled) {
+      toast.error(`${account.name} 계정이 중지되어 있습니다.`);
+      return;
+    }
+    if (!isBrowserCollectableMall(account)) {
+      toast.error(`${account.name} 자동 수집은 준비 중입니다.`);
+      return;
+    }
+
+    setCollectingMallKey(account.key);
+    setState('converting');
+    setError(null);
+
+    try {
+      const collected = await collectBrowserMall(account);
+      setState('success');
+      if (collected.masked) {
+        toast.warning('화면 표는 일부 개인정보가 마스킹되어 있습니다.');
+      }
+      toast.success(`${account.name} 수집 완료`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '브라우저 수집 실패';
+      setError(message);
+      setState('error');
+      toast.error(message);
+    } finally {
+      setCollectingMallKey(null);
+    }
+  };
+
+  const handleOpenMallSettings = async (account: OrderCollectionMallAccount) => {
+    setSelectedMallKey(account.key);
+    setMallDraft(draftFromMallAccount(account));
+    setMallPasswordVisible(account.hasPassword);
+    setMallSettingsOpen(true);
+    if (!account.hasPassword) return;
+
+    setMallPasswordLoading(true);
+    try {
+      const result = await orderMallAccountApi.password(account.key);
+      setMallDraft((current) => ({ ...current, password: result.password ?? '' }));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '저장된 비밀번호를 불러오지 못했습니다.';
+      toast.error(message);
+    } finally {
+      setMallPasswordLoading(false);
+    }
+  };
+
+  const handleMallSettingsOpenChange = (open: boolean) => {
+    setMallSettingsOpen(open);
+    if (!open && selectedMall) {
+      setMallDraft(draftFromMallAccount(selectedMall));
+      setMallPasswordLoading(false);
+      setMallPasswordVisible(false);
     }
   };
 
@@ -267,6 +345,7 @@ export default function OrderCollectionPage() {
         prev.map((account) => (account.key === saved.key ? saved : account)),
       );
       setMallDraft((current) => ({ ...current, password: '' }));
+      setMallSettingsOpen(false);
       toast.success(`${saved.name} 계정 저장 완료`);
     } catch (err) {
       const message = err instanceof Error ? err.message : '몰 계정 저장 실패';
@@ -281,16 +360,34 @@ export default function OrderCollectionPage() {
     window.open(mallDraft.siteUrl, '_blank', 'noopener,noreferrer');
   };
 
+  const handleSendToSellpia = async (item: ConversionHistoryItem) => {
+    setSellpiaSendingId(item.id);
+    try {
+      const shopName = item.mallName ?? '아이스크림몰';
+      const result = await sendOrderFileToSellpiaViaExtension({
+        shopName,
+        fileName: item.fileName,
+        blob: item.blob,
+      });
+      toast.success(`셀피아 전송 완료 — ${result.shop ?? shopName} 주문접수 클릭`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '셀피아 전송 실패';
+      toast.error(message);
+    } finally {
+      setSellpiaSendingId(null);
+    }
+  };
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100">
-            <FileSpreadsheet size={19} className="text-slate-600" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-50">
+            <FileSpreadsheet size={20} className="text-purple-600" />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-slate-900">주문수집</h1>
-            <div className="text-sm text-slate-500">아이스크림몰 출고 파일 변환</div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">주문 수집</h1>
+            <div className="text-sm text-slate-500">여러 몰 주문을 수집해 셀피아 납품 양식으로 변환합니다</div>
           </div>
         </div>
         <button
@@ -303,16 +400,16 @@ export default function OrderCollectionPage() {
         </button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-4">
-        {summary.map((item) => (
-          <div key={item.label} className="rounded-lg border border-slate-200 bg-white p-4">
-            <div className="text-xs font-medium text-slate-500">{item.label}</div>
-            <div className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">{item.value}</div>
-          </div>
-        ))}
-      </div>
+      <OrderCollectionFlow
+        orderCount={lastOrderCount}
+        productRows={lastResult?.productRows ?? null}
+        outputRows={lastResult?.outputRows ?? null}
+        skippedRows={lastResult?.skippedRows ?? null}
+      />
 
-      <section className="rounded-lg border border-slate-200 bg-white">
+      <OrderCollectionDailyPanel history={history} />
+
+      <section className="rounded-xl border border-slate-200 bg-white">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div className="flex items-center gap-2.5">
             <Store size={18} className="text-slate-500" />
@@ -323,26 +420,44 @@ export default function OrderCollectionPage() {
               </div>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => void loadMallAccounts()}
-            disabled={mallLoading}
-            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
-            <RefreshCw size={15} className={mallLoading ? 'animate-spin' : ''} />
-            새로고침
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleBrowserCollectAll()}
+              disabled={
+                mallLoading ||
+                browserCollecting ||
+                collectingMallKey !== null ||
+                state === 'converting' ||
+                enabledMallCount === 0
+              }
+              className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-3 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {browserCollecting ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+              전체 수집
+            </button>
+            <button
+              type="button"
+              onClick={() => void loadMallAccounts()}
+              disabled={mallLoading}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              <RefreshCw size={15} className={mallLoading ? 'animate-spin' : ''} />
+              새로고침
+            </button>
+          </div>
         </div>
 
-        <div className="grid items-start gap-4 p-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="p-5">
           <div className="overflow-hidden rounded-lg border border-slate-200">
-            <div className="grid grid-cols-[minmax(140px,1.3fr)_minmax(120px,1fr)_96px_82px] bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500">
+            <div className="grid grid-cols-[minmax(150px,1.8fr)_minmax(96px,1fr)_88px_96px_148px] gap-2 bg-slate-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
               <div>몰</div>
-              <div>로그인 ID</div>
-              <div className="text-center">비밀번호</div>
+              <div>ID</div>
               <div className="text-center">상태</div>
+              <div className="text-center">마지막 수집</div>
+              <div className="text-right">작업</div>
             </div>
-            <div className="overflow-hidden">
+            <div>
               {mallError && (
                 <div className="flex items-center gap-2 px-4 py-5 text-sm text-red-600">
                   <AlertCircle size={15} />
@@ -357,32 +472,37 @@ export default function OrderCollectionPage() {
               )}
               {!mallError && !mallLoading && mallAccounts.map((account) => {
                 const status = mallStatus(account);
+                const isOpenAccount = mallSettingsOpen && selectedMall?.key === account.key;
+                const isCollectingAccount = collectingMallKey === account.key;
+                const collectable = isBrowserCollectableMall(account);
+                const latestCollectedAt = latestMallCollectedAt(history, account.key);
                 return (
-                  <button
+                  <div
                     key={account.key}
-                    type="button"
-                    onClick={() => setSelectedMallKey(account.key)}
                     className={cn(
-                      'grid w-full grid-cols-[minmax(140px,1.3fr)_minmax(120px,1fr)_96px_82px] items-center border-t border-slate-100 px-3 py-3 text-left text-sm hover:bg-slate-50',
-                      selectedMall?.key === account.key && 'bg-blue-50/60 hover:bg-blue-50',
+                      'grid grid-cols-[minmax(150px,1.8fr)_minmax(96px,1fr)_88px_96px_148px] items-center gap-2 border-t border-slate-100 px-4 py-3 text-sm',
+                      isOpenAccount && 'bg-purple-50/60',
                     )}
                   >
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium text-slate-900">{account.name}</span>
-                      <span className="block truncate text-xs text-slate-400">{account.key}</span>
-                    </span>
-                    <span className="truncate text-slate-600">{account.loginId || '-'}</span>
-                    <span className="flex justify-center">
-                      {account.hasPassword ? (
-                        <CheckCircle2 size={16} className="text-emerald-600" />
-                      ) : (
-                        <KeyRound size={16} className="text-slate-300" />
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <span className="flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-slate-100 text-xs font-semibold text-slate-600">
+                        {account.name.slice(0, 1)}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium text-slate-900">{account.name}</span>
+                        <span className="block truncate text-xs text-slate-400">{account.key}</span>
+                      </span>
+                    </div>
+                    <div className="flex min-w-0 items-center gap-1.5 text-slate-600">
+                      <span className="truncate">{account.loginId || '-'}</span>
+                      {account.hasPassword && (
+                        <LockKeyhole size={13} className="flex-none text-emerald-500" aria-label="비밀번호 저장됨" />
                       )}
-                    </span>
-                    <span className="flex justify-center">
+                    </div>
+                    <div className="flex justify-center">
                       <span
                         className={cn(
-                          'rounded-full px-2 py-1 text-xs font-medium',
+                          'rounded-full px-2.5 py-1 text-xs font-medium',
                           status.tone === 'ready' && 'bg-emerald-50 text-emerald-700',
                           status.tone === 'paused' && 'bg-slate-100 text-slate-500',
                           status.tone === 'empty' && 'bg-amber-50 text-amber-700',
@@ -390,38 +510,88 @@ export default function OrderCollectionPage() {
                       >
                         {status.label}
                       </span>
-                    </span>
-                  </button>
+                    </div>
+                    <div
+                      className="text-center text-xs tabular-nums text-slate-500"
+                      title={latestCollectedAt ? formatDateTime(latestCollectedAt) : undefined}
+                    >
+                      {latestCollectedAt ? formatMallCollectionTime(latestCollectedAt) : '-'}
+                    </div>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleOpenMallSettings(account)}
+                        className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        설정
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleBrowserCollectMall(account)}
+                        disabled={
+                          browserCollecting ||
+                          collectingMallKey !== null ||
+                          state === 'converting' ||
+                          !collectable
+                        }
+                        title={collectable ? `${account.name} 개별 수집` : '자동 수집 준비 중'}
+                        className="inline-flex min-w-[52px] items-center justify-center rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-35"
+                      >
+                        {isCollectingAccount ? (
+                          <Loader2 size={13} className="animate-spin" />
+                        ) : (
+                          '수집'
+                        )}
+                      </button>
+                    </div>
+                  </div>
                 );
               })}
             </div>
           </div>
+        </div>
+      </section>
 
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-            <div className="flex items-start justify-between gap-3">
+      <Dialog.Root open={mallSettingsOpen} onOpenChange={handleMallSettingsOpenChange}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-[130] bg-black/35" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-[140] w-[min(520px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-slate-200 bg-white shadow-xl">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-slate-900">
-                  {selectedMall?.name ?? '몰 선택'}
-                </div>
-                <div className="mt-1 text-xs text-slate-500">
+                <Dialog.Title className="truncate text-sm font-semibold text-slate-900">
+                  {selectedMall?.name ?? '몰 설정'}
+                </Dialog.Title>
+                <Dialog.Description className="mt-1 text-xs text-slate-500">
                   {selectedMall?.configured ? '계정 저장됨' : '계정 미설정'}
-                </div>
+                </Dialog.Description>
               </div>
-              <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={mallDraft.enabled}
-                  onChange={(event) =>
-                    setMallDraft((current) => ({ ...current, enabled: event.target.checked }))
-                  }
-                  disabled={!selectedMall || mallSaving}
-                  className="h-4 w-4 rounded border-slate-300"
-                />
-                사용
-              </label>
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  aria-label="닫기"
+                  disabled={mallSaving}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+                >
+                  <X size={16} />
+                </button>
+              </Dialog.Close>
             </div>
 
-            <div className="mt-4 space-y-3">
+            <div className="space-y-3 px-5 py-4">
+              <div className="flex justify-end">
+                <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={mallDraft.enabled}
+                    onChange={(event) =>
+                      setMallDraft((current) => ({ ...current, enabled: event.target.checked }))
+                    }
+                    disabled={!selectedMall || mallSaving}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  사용
+                </label>
+              </div>
               <label className="block">
                 <span className="text-xs font-medium text-slate-600">접속 URL</span>
                 <div className="mt-1 flex gap-2">
@@ -459,19 +629,47 @@ export default function OrderCollectionPage() {
                 />
               </label>
               <label className="block">
-                <span className="text-xs font-medium text-slate-600">
-                  새 비밀번호 {selectedMall?.hasPassword ? '(저장됨)' : ''}
+                <span className="flex items-center justify-between gap-2 text-xs font-medium text-slate-600">
+                  <span>비밀번호</span>
+                  {selectedMall?.hasPassword && (
+                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700">
+                      저장됨
+                    </span>
+                  )}
                 </span>
-                <input
-                  type="password"
-                  value={mallDraft.password}
-                  onChange={(event) =>
-                    setMallDraft((current) => ({ ...current, password: event.target.value }))
-                  }
-                  disabled={!selectedMall || mallSaving}
-                  placeholder={selectedMall?.hasPassword ? '변경할 때만 입력' : ''}
-                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400 disabled:opacity-50"
-                />
+                <span className="mt-1 flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 focus-within:border-slate-400">
+                  <input
+                    type={mallPasswordVisible ? 'text' : 'password'}
+                    value={mallDraft.password}
+                    onChange={(event) =>
+                      setMallDraft((current) => ({ ...current, password: event.target.value }))
+                    }
+                    disabled={!selectedMall || mallSaving || mallPasswordLoading}
+                    placeholder={
+                      mallPasswordLoading
+                        ? '저장된 비밀번호 불러오는 중'
+                        : selectedMall?.hasPassword
+                          ? '저장된 비밀번호'
+                          : '비밀번호 입력'
+                    }
+                    autoComplete="new-password"
+                    className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setMallPasswordVisible((visible) => !visible)}
+                    disabled={!selectedMall || mallPasswordLoading}
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 disabled:opacity-40"
+                    aria-label={mallPasswordVisible ? '비밀번호 숨기기' : '비밀번호 보기'}
+                  >
+                    {mallPasswordVisible ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </span>
+                <span className="mt-1 block text-xs text-slate-400">
+                  {selectedMall?.hasPassword
+                    ? `저장된 비밀번호를 불러와 표시합니다.${selectedMall.passwordUpdatedAt ? ` 마지막 저장: ${formatDateTime(selectedMall.passwordUpdatedAt)}` : ''}`
+                    : '저장하면 암호화되어 보관됩니다.'}
+                </span>
               </label>
               <label className="block">
                 <span className="text-xs font-medium text-slate-600">메모</span>
@@ -487,36 +685,34 @@ export default function OrderCollectionPage() {
               </label>
             </div>
 
-            <div className="mt-4 flex items-center justify-between gap-3">
-              <div className="text-xs text-slate-500">
-                사용 {formatNumber(enabledMallCount)}
-              </div>
+            <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-5 py-4">
+              <div className="text-xs text-slate-500">사용 {formatNumber(enabledMallCount)}</div>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => void handleBrowserCollect()}
-                  disabled={!selectedMall || !canCollectSelectedMall || browserCollecting || state === 'converting'}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {browserCollecting ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
-                  {canCollectSelectedMall ? '수집' : '준비중'}
-                </button>
+                <Dialog.Close asChild>
+                  <button
+                    type="button"
+                    disabled={mallSaving}
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    취소
+                  </button>
+                </Dialog.Close>
                 <button
                   type="button"
                   onClick={() => void handleSaveMallAccount()}
                   disabled={!selectedMall || mallSaving}
-                  className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {mallSaving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
                   저장
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-      </section>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
-      <section className="rounded-lg border border-slate-200 bg-white">
+      <section className="rounded-xl border border-slate-200 bg-white">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div>
             <div className="text-sm font-semibold text-slate-900">수동 업로드</div>
@@ -538,7 +734,7 @@ export default function OrderCollectionPage() {
             onDrop={handleDrop}
             className={cn(
               'flex min-h-44 flex-col items-center justify-center rounded-lg border border-dashed px-5 py-6 text-center transition-colors',
-              dragActive ? 'border-blue-400 bg-blue-50' : 'border-slate-300 bg-slate-50/70',
+              dragActive ? 'border-purple-400 bg-purple-50' : 'border-slate-300 bg-slate-50/70',
             )}
           >
             <input
@@ -569,7 +765,7 @@ export default function OrderCollectionPage() {
                 type="button"
                 onClick={handleConvert}
                 disabled={!canConvert}
-                className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {state === 'converting' ? (
                   <Loader2 size={15} className="animate-spin" />
@@ -633,7 +829,7 @@ export default function OrderCollectionPage() {
       </section>
 
       {previewItem && (
-        <section className="rounded-lg border border-slate-200 bg-white">
+        <section className="rounded-xl border border-slate-200 bg-white">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
             <div className="min-w-0">
               <div className="text-sm font-semibold text-slate-900">파일 미리보기</div>
@@ -662,7 +858,7 @@ export default function OrderCollectionPage() {
         </section>
       )}
 
-      <section className="rounded-lg border border-slate-200 bg-white">
+      <section className="rounded-xl border border-slate-200 bg-white">
         <div className="border-b border-slate-100 px-5 py-4">
           <div className="text-sm font-semibold text-slate-900">생성 파일</div>
         </div>
@@ -704,6 +900,19 @@ export default function OrderCollectionPage() {
                           <td className="px-4 py-3 text-slate-500">{formatDateTime(item.convertedAt)}</td>
                           <td className="px-4 py-3">
                             <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void handleSendToSellpia(item)}
+                                disabled={sellpiaSendingId === item.id}
+                                className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {sellpiaSendingId === item.id ? (
+                                  <Loader2 size={13} className="animate-spin" />
+                                ) : (
+                                  <Send size={13} />
+                                )}
+                                셀피아 전송
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => setPreviewId(item.id)}
@@ -770,7 +979,7 @@ function PreviewTable({ rows }: { rows: string[][] }) {
 }
 
 function stateIcon(state: ConversionState) {
-  if (state === 'converting') return <Loader2 size={15} className="animate-spin text-blue-600" />;
+  if (state === 'converting') return <Loader2 size={15} className="animate-spin text-purple-600" />;
   if (state === 'success') return <CheckCircle2 size={15} className="text-emerald-600" />;
   if (state === 'error') return <AlertCircle size={15} className="text-red-600" />;
   return <Clock size={15} className="text-slate-500" />;
@@ -803,7 +1012,7 @@ function groupHistoryByDay(items: ConversionHistoryItem[]): Array<{
   const byKey = new Map<string, { key: string; label: string; items: ConversionHistoryItem[] }>();
 
   for (const item of items) {
-    const key = dayKey(item.convertedAt);
+    const key = item.collectionDate ?? dayKey(item.convertedAt);
     let group = byKey.get(key);
     if (!group) {
       group = { key, label: dayLabel(key), items: [] };
@@ -826,6 +1035,48 @@ function mallStatus(account: OrderCollectionMallAccount): { label: string; tone:
   if (!account.configured) return { label: '미설정', tone: 'empty' };
   if (!account.enabled) return { label: '중지', tone: 'paused' };
   return { label: '사용', tone: 'ready' };
+}
+
+function isBrowserCollectableMall(account: OrderCollectionMallAccount): boolean {
+  return account.key === ICECREAM_MALL_KEY && account.configured && account.enabled;
+}
+
+async function loadMallLoginCredentials(account: OrderCollectionMallAccount) {
+  if (!account.loginId || !account.hasPassword) {
+    throw new Error(`${account.name} 계정 ID와 비밀번호를 먼저 저장해주세요.`);
+  }
+
+  const result = await orderMallAccountApi.password(account.key);
+  if (!result.password) {
+    throw new Error(`${account.name} 저장된 비밀번호를 불러오지 못했습니다.`);
+  }
+
+  return {
+    loginId: account.loginId,
+    password: result.password,
+  };
+}
+
+function latestMallCollectedAt(items: ConversionHistoryItem[], mallKey: string): number | null {
+  const matched = items.find((item) => item.mallKey === mallKey || item.id.includes(`-${mallKey}-browser`));
+  return matched?.convertedAt ?? null;
+}
+
+function formatMallCollectionTime(timestamp: number): string {
+  const value = new Date(timestamp);
+  const hours = String(value.getHours()).padStart(2, '0');
+  const minutes = String(value.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+}
+
+function draftFromMallAccount(account: OrderCollectionMallAccount): MallAccountDraft {
+  return {
+    loginId: account.loginId ?? '',
+    password: '',
+    siteUrl: account.siteUrl ?? '',
+    memo: account.memo ?? '',
+    enabled: account.enabled,
+  };
 }
 
 function todayYmd(): string {

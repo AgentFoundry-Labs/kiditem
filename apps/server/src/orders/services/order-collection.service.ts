@@ -85,6 +85,18 @@ const REQUIRED_INPUT_HEADERS = [
 ] as const;
 
 const SHIPPING_FEE = 3000;
+const OUTPUT_FILE_SUFFIX = '_아이스크림몰_변환';
+const NUMERIC_OUTPUT_HEADERS = new Set<OutputHeader>([
+  'No',
+  '배송순번',
+  '출고수량',
+  '정상가',
+  '판매가',
+  '판매가(합계)',
+  '공급가',
+  '공급가(합계)',
+  '배송비',
+]);
 
 type OutputHeader = (typeof OUTPUT_HEADERS)[number];
 type SourceRow = Record<string, string>;
@@ -143,32 +155,151 @@ function convertIcecreamMallRows(
   sourceRows: SourceRow[],
   fileName: string,
 ): OrderCollectionConversion {
-    if (sourceRows.length === 0) {
-      throw new BadRequestException('변환할 주문 행이 없습니다.');
+  if (sourceRows.length === 0) {
+    throw new BadRequestException('변환할 주문 행이 없습니다.');
+  }
+
+  const headers = Object.keys(sourceRows[0] ?? {});
+  if (isConvertedOutput(headers)) {
+    return normalizeConvertedOutputRows(sourceRows, fileName);
+  }
+
+  validateInputHeaders(headers);
+
+  const includedRows = sourceRows.filter((row) => cell(row, '상품명') !== '');
+  if (includedRows.length === 0) {
+    throw new BadRequestException('변환할 상품 주문 행이 없습니다.');
+  }
+
+  const outputRows = buildOutputRows(includedRows);
+  return buildConversionResult({
+    outputRows,
+    helperRows: includedRows,
+    fileName,
+    sourceRows: sourceRows.length,
+    productRows: includedRows.length,
+    skippedRows: sourceRows.length - includedRows.length,
+  });
+}
+
+function normalizeConvertedOutputRows(
+  sourceRows: SourceRow[],
+  fileName: string,
+): OrderCollectionConversion {
+  const mappedRows = sourceRows
+    .filter((row) => OUTPUT_HEADERS.some((header) => cell(row, header) !== ''))
+    .map((row) => mapConvertedOutputRow(row));
+  const outputRows = renumberOutputRows(dedupeShippingRows(mappedRows));
+  if (outputRows.length === 0) {
+    throw new BadRequestException('변환할 주문 행이 없습니다.');
+  }
+
+  const productRows = outputRows.filter((row) => row.상품명 !== '' && row.상품명 !== '택배비').length;
+  return buildConversionResult({
+    outputRows,
+    helperRows: outputRows.map((row) => outputRowToSourceRow(row)),
+    fileName,
+    sourceRows: sourceRows.length,
+    productRows,
+    skippedRows: sourceRows.length - outputRows.length,
+  });
+}
+
+function buildConversionResult({
+  outputRows,
+  helperRows,
+  fileName,
+  sourceRows,
+  productRows,
+  skippedRows,
+}: {
+  outputRows: OutputRow[];
+  helperRows: SourceRow[];
+  fileName: string;
+  sourceRows: number;
+  productRows: number;
+  skippedRows: number;
+}): OrderCollectionConversion {
+  const workbook = buildWorkbook(outputRows, helperRows);
+  const buffer = XLSX.write(workbook, {
+    bookType: 'xls',
+    bookSST: true,
+    type: 'buffer',
+  }) as Buffer;
+
+  return {
+    buffer,
+    fileName,
+    sourceRows,
+    productRows,
+    outputRows: outputRows.length,
+    skippedRows,
+  };
+}
+
+function isConvertedOutput(headers: string[]): boolean {
+  return OUTPUT_HEADERS.every((header) => headers.includes(header));
+}
+
+function mapConvertedOutputRow(source: SourceRow): OutputRow {
+  const row = Object.fromEntries(
+    OUTPUT_HEADERS.map((header) => [header, convertedOutputValue(header, cell(source, header))]),
+  ) as OutputRow;
+  row.수취인 = icecreamMallRecipient(source);
+  return row;
+}
+
+function convertedOutputValue(header: OutputHeader, value: string): string | number {
+  if (!NUMERIC_OUTPUT_HEADERS.has(header) || value === '') return value;
+  const parsed = Number(value.replace(/,/g, ''));
+  return Number.isFinite(parsed) ? parsed : value;
+}
+
+function outputRowToSourceRow(row: OutputRow): SourceRow {
+  return Object.fromEntries(
+    OUTPUT_HEADERS.map((header) => [header, String(row[header] ?? '')]),
+  );
+}
+
+function dedupeShippingRows(rows: OutputRow[]): OutputRow[] {
+  const result: OutputRow[] = [];
+  const shippingIndexes = new Map<string, number>();
+
+  for (const row of rows) {
+    if (row.상품명 !== '택배비') {
+      result.push(row);
+      continue;
     }
 
-    validateInputHeaders(Object.keys(sourceRows[0] ?? {}));
-
-    const includedRows = sourceRows.filter((row) => cell(row, '상품명') !== '');
-    if (includedRows.length === 0) {
-      throw new BadRequestException('변환할 상품 주문 행이 없습니다.');
+    const key = `${row.주문번호}\u001f${row.배송번호}`;
+    const existingIndex = shippingIndexes.get(key);
+    if (existingIndex === undefined) {
+      shippingIndexes.set(key, result.length);
+      result.push(row);
+      continue;
     }
 
-    const outputRows = buildOutputRows(includedRows);
-    const workbook = buildWorkbook(outputRows, includedRows);
-    const buffer = XLSX.write(workbook, {
-      bookType: 'xlsx',
-      type: 'buffer',
-    }) as Buffer;
+    if (shippingRowPenalty(row) < shippingRowPenalty(result[existingIndex])) {
+      result[existingIndex] = row;
+    }
+  }
 
-    return {
-      buffer,
-      fileName,
-      sourceRows: sourceRows.length,
-      productRows: includedRows.length,
-      outputRows: outputRows.length,
-      skippedRows: sourceRows.length - includedRows.length,
-    };
+  return result;
+}
+
+function shippingRowPenalty(row: OutputRow): number {
+  let penalty = 0;
+  if (row.배송순번 !== '') penalty += 1;
+  if (row.주문내역상태 !== '') penalty += 1;
+  if (row.사이트 !== '') penalty += 1;
+  return penalty;
+}
+
+function renumberOutputRows(rows: OutputRow[]): OutputRow[] {
+  return rows.map((row, index) => ({
+    ...row,
+    No: index + 1,
+  }));
 }
 
 async function readSourceRows(
@@ -409,6 +540,13 @@ function makeShippingFeeRow(rowNumber: number, source: SourceRow): OutputRow {
 
 function buildWorkbook(outputRows: OutputRow[], sourceRows: SourceRow[]): XLSX.WorkBook {
   const workbook = XLSX.utils.book_new();
+  workbook.Props = {
+    Author: 'Apache POI',
+    LastAuthor: 'com',
+    Application: 'Apache POI',
+    AppVersion: '16.0000',
+    DocSecurity: '0',
+  };
   const deliverySheet = XLSX.utils.aoa_to_sheet([
     [...OUTPUT_HEADERS],
     ...outputRows.map((row) => OUTPUT_HEADERS.map((header) => row[header])),
@@ -420,6 +558,11 @@ function buildWorkbook(outputRows: OutputRow[], sourceRows: SourceRow[]): XLSX.W
 
   const helperSheet = buildRecipientHelperSheet(sourceRows);
   XLSX.utils.book_append_sheet(workbook, helperSheet, 'Sheet1');
+  workbook.Workbook = {
+    Sheets: workbook.SheetNames.map((name) => ({ name, Hidden: 0 })),
+    WBProps: { date1904: false },
+    Views: [{}],
+  };
   return workbook;
 }
 
@@ -437,7 +580,11 @@ function styleHeaderRow(sheet: XLSX.WorkSheet): void {
 }
 
 function buildRecipientHelperSheet(sourceRows: SourceRow[]): XLSX.WorkSheet {
-  const recipients = unique(sourceRows.map((row) => cell(row, '수취인')).filter(Boolean));
+  const recipients = unique(
+    sourceRows
+      .map((row) => baseIcecreamMallRecipient(cell(row, '수취인')))
+      .filter(Boolean),
+  );
   const rows = [
     ['', '수취인', ''],
     ...recipients.map((recipient) => ['(아이스크림몰)', recipient, `${recipient}(아이스크림몰)`]),
@@ -473,9 +620,17 @@ function ordererPhone(source: SourceRow): string {
 }
 
 function icecreamMallRecipient(source: SourceRow): string {
-  const recipient = cell(source, '수취인');
-  if (!recipient || recipient.endsWith('(아이스크림몰)')) return recipient;
+  const recipient = baseIcecreamMallRecipient(cell(source, '수취인'));
+  if (!recipient) return '';
   return `${recipient}(아이스크림몰)`;
+}
+
+function baseIcecreamMallRecipient(value: string): string {
+  let recipient = value.trim();
+  while (recipient.endsWith('(아이스크림몰)')) {
+    recipient = recipient.slice(0, -'(아이스크림몰)'.length).trim();
+  }
+  return recipient;
 }
 
 function unique(values: string[]): string[] {
@@ -486,7 +641,15 @@ function buildOutputFileName(inputName: string): string {
   const normalizedInputName = normalizeUploadFileName(inputName);
   const extension = extname(normalizedInputName);
   const base = basename(normalizedInputName, extension).replace(/[\\/:*?"<>|]+/g, '_');
-  return `${base || '주문수집'}_아이스크림몰_변환.xlsx`;
+  return `${withSingleOutputSuffix(base || '주문수집')}.xls`;
+}
+
+function withSingleOutputSuffix(value: string): string {
+  let base = value;
+  while (base.endsWith(`${OUTPUT_FILE_SUFFIX}${OUTPUT_FILE_SUFFIX}`)) {
+    base = base.slice(0, -OUTPUT_FILE_SUFFIX.length);
+  }
+  return base.endsWith(OUTPUT_FILE_SUFFIX) ? base : `${base}${OUTPUT_FILE_SUFFIX}`;
 }
 
 function normalizeUploadFileName(inputName: string): string {

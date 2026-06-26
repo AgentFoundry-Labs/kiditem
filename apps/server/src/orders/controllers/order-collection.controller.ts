@@ -101,7 +101,7 @@ export class OrderCollectionController {
     );
     response.setHeader(
       'Content-Type',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-excel',
     );
     response.setHeader('X-Order-Collection-Source-Rows', String(result.sourceRows));
     response.setHeader('X-Order-Collection-Product-Rows', String(result.productRows));

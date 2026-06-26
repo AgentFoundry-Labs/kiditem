@@ -130,6 +130,24 @@ function isFormDataBody(init: RequestInit | undefined): boolean {
   return typeof FormData !== 'undefined' && init?.body instanceof FormData;
 }
 
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'AbortError';
+}
+
+async function fetchApi(path: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(`${getApiBase()}${path}`, await withAuthHeaders(init));
+  } catch (err) {
+    if (isAbortError(err)) throw err;
+    console.error('[apiClient] Network request failed', { path, error: err });
+    throw new ApiError(
+      0,
+      'network_error',
+      'API 서버에 연결하지 못했습니다. 백엔드 실행 상태 또는 CORS 설정을 확인해주세요.',
+    );
+  }
+}
+
 async function read401Message(res: Response): Promise<string | null> {
   try {
     const body = (await res.clone().json()) as Record<string, unknown>;
@@ -145,7 +163,7 @@ async function requestWithRetry<T>(
   init: RequestInit | undefined,
   attempt: 1 | 2,
 ): Promise<T> {
-  const res = await fetch(`${getApiBase()}${path}`, await withAuthHeaders(init));
+  const res = await fetchApi(path, init);
 
   if (res.status === 401) {
     const message = await read401Message(res);
@@ -209,7 +227,7 @@ async function fetchRawWithRetry(
   init: RequestInit | undefined,
   attempt: 1 | 2,
 ): Promise<Response> {
-  const res = await fetch(`${getApiBase()}${path}`, await withAuthHeaders(init));
+  const res = await fetchApi(path, init);
   if (res.status === 401) {
     const message = await read401Message(res);
     if (message === 'auth_required') {

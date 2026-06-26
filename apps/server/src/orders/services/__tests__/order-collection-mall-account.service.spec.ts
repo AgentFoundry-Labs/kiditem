@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { encryptCredential } from '../../../channels/domain/channel-credential-crypto';
 import { OrderCollectionMallAccountService } from '../order-collection-mall-account.service';
 
 const ORGANIZATION_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
@@ -79,5 +80,24 @@ describe('OrderCollectionMallAccountService', () => {
     });
     expect(JSON.stringify(stored?.config)).not.toContain('icecream-password');
     expect(JSON.stringify(account)).not.toContain('icecream-password');
+  });
+
+  it('reveals a saved mall password only through the password lookup', async () => {
+    const prisma = makePrisma();
+    const service = new OrderCollectionMallAccountService(prisma as never);
+    prisma.channelAccount.findFirst.mockResolvedValue({
+      config: {
+        orderCollection: {
+          password: encryptCredential('kidkids-password'),
+        },
+      },
+    });
+
+    const result = await service.getPassword(ORGANIZATION_ID, 'kidkids');
+
+    expect(result).toEqual({
+      key: 'kidkids',
+      password: 'kidkids-password',
+    });
   });
 });

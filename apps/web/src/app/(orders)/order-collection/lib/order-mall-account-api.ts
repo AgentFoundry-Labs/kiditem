@@ -21,6 +21,11 @@ export interface UpdateOrderCollectionMallAccountInput {
   enabled: boolean;
 }
 
+export interface OrderCollectionMallPassword {
+  key: string;
+  password: string | null;
+}
+
 export const orderMallAccountApi = {
   list(): Promise<OrderCollectionMallAccount[]> {
     return apiClient.get<OrderCollectionMallAccount[]>('/api/orders/collection/malls');
@@ -33,6 +38,12 @@ export const orderMallAccountApi = {
     return apiClient.patch<OrderCollectionMallAccount>(
       `/api/orders/collection/malls/${encodeURIComponent(mallKey)}`,
       input,
+    );
+  },
+
+  password(mallKey: string): Promise<OrderCollectionMallPassword> {
+    return apiClient.get<OrderCollectionMallPassword>(
+      `/api/orders/collection/malls/${encodeURIComponent(mallKey)}/password`,
     );
   },
 };

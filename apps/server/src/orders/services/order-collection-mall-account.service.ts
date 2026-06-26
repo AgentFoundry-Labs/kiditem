@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   CoupangCredentialCryptoError,
+  decryptCredential,
   encryptCredential,
   type EncryptedCredentialEnvelope,
   isEncryptedCredentialEnvelope,
@@ -45,6 +46,11 @@ export interface UpdateOrderCollectionMallAccountInput {
   siteUrl?: unknown;
   memo?: unknown;
   enabled?: unknown;
+}
+
+export interface OrderCollectionMallPassword {
+  key: OrderCollectionMallKey;
+  password: string | null;
 }
 
 @Injectable()
@@ -130,6 +136,38 @@ export class OrderCollectionMallAccountService {
         });
 
     return toMallAccount(mall.key, mall.name, saved);
+  }
+
+  async getPassword(
+    organizationId: string,
+    mallKey: string,
+  ): Promise<OrderCollectionMallPassword> {
+    const mall = findMall(mallKey);
+    const existing = await this.prisma.channelAccount.findFirst({
+      where: {
+        organizationId,
+        channel: ORDER_COLLECTION_CHANNEL,
+        externalAccountId: mall.key,
+      },
+    });
+    const config = readOrderCollectionConfig(toJsonRecord(existing?.config));
+    const encryptedPassword = config.password;
+
+    if (!isEncryptedCredentialEnvelope(encryptedPassword)) {
+      return { key: mall.key, password: null };
+    }
+
+    try {
+      return {
+        key: mall.key,
+        password: decryptCredential(encryptedPassword),
+      };
+    } catch (err) {
+      if (err instanceof CoupangCredentialCryptoError) {
+        throw new BadRequestException('채널 계정 암호화 키가 필요합니다.');
+      }
+      throw err;
+    }
   }
 }
 

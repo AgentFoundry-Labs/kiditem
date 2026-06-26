@@ -187,6 +187,17 @@ describe('apiClient HTTP method envelopes', () => {
       detail: 'API error: 500',
     });
   });
+
+  it('wraps network/CORS fetch failures with an actionable ApiError', async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+    await expect(apiClient.get('/api/products')).rejects.toMatchObject({
+      status: 0,
+      code: 'network_error',
+      detail: 'API 서버에 연결하지 못했습니다. 백엔드 실행 상태 또는 CORS 설정을 확인해주세요.',
+    });
+  });
 });
 
 describe('apiClient — 401 interceptor', () => {
