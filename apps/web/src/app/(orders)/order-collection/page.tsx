@@ -55,9 +55,28 @@ interface MallAccountDraft {
   enabled: boolean;
 }
 
+interface MallCollectionStat {
+  orderRows: number;
+  productRows: number;
+  latestAt: number;
+}
+
 const ACCEPTED_EXTENSIONS = '.txt,.tsv,.csv,.xls,.xlsx';
 const ICECREAM_MALL_KEY = 'icecream-mall';
 const MAX_HISTORY_ITEMS = 1000;
+
+const MALL_LABELS: Record<string, string> = {
+  'one-polaris': '원폴라리스',
+  'icecream-mall': '아이스크림몰',
+  kidkids: '키드키즈',
+  kidsnote: '키즈노트',
+  'haebub-mall': '해법몰',
+  onch: '온채널',
+  kkomangse: '꼬망세',
+  art09: '아트공구',
+  'tekville-edu': '테크빌교육',
+  'benepia-mul': '베네피아물',
+};
 
 const EMPTY_MALL_DRAFT: MallAccountDraft = {
   loginId: '',
@@ -101,6 +120,7 @@ export default function OrderCollectionPage() {
   const lastOrderCount = getOrderCount(lastResult);
 
   const generatedFileGroups = useMemo(() => groupHistoryByDay(history), [history]);
+  const mallCollectionStats = useMemo(() => buildMallCollectionStats(history), [history]);
 
   const loadMallAccounts = async () => {
     setMallLoading(true);
@@ -172,6 +192,8 @@ export default function OrderCollectionPage() {
         convertedAt: Date.now(),
         collectionDate: todayYmd(),
         collectionMode: 'manual-upload' as const,
+        mallKey: ICECREAM_MALL_KEY,
+        mallName: '아이스크림몰',
       };
       addGeneratedFile(historyItem);
       setPreviewId(historyItem.id);
@@ -450,11 +472,12 @@ export default function OrderCollectionPage() {
 
         <div className="p-5">
           <div className="overflow-hidden rounded-lg border border-slate-200">
-            <div className="grid grid-cols-[minmax(150px,1.8fr)_minmax(96px,1fr)_88px_96px_148px] gap-2 bg-slate-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
+            <div className="grid grid-cols-[minmax(150px,1.6fr)_minmax(96px,1fr)_80px_112px_88px_148px] gap-2 bg-slate-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
               <div>몰</div>
               <div>ID</div>
+              <div className="text-right">주문</div>
+              <div className="text-center">업데이트</div>
               <div className="text-center">상태</div>
-              <div className="text-center">마지막 수집</div>
               <div className="text-right">작업</div>
             </div>
             <div>
@@ -475,12 +498,12 @@ export default function OrderCollectionPage() {
                 const isOpenAccount = mallSettingsOpen && selectedMall?.key === account.key;
                 const isCollectingAccount = collectingMallKey === account.key;
                 const collectable = isBrowserCollectableMall(account);
-                const latestCollectedAt = latestMallCollectedAt(history, account.key);
+                const collectionStat = mallCollectionStats.get(account.key);
                 return (
                   <div
                     key={account.key}
                     className={cn(
-                      'grid grid-cols-[minmax(150px,1.8fr)_minmax(96px,1fr)_88px_96px_148px] items-center gap-2 border-t border-slate-100 px-4 py-3 text-sm',
+                      'grid grid-cols-[minmax(150px,1.6fr)_minmax(96px,1fr)_80px_112px_88px_148px] items-center gap-2 border-t border-slate-100 px-4 py-3 text-sm',
                       isOpenAccount && 'bg-purple-50/60',
                     )}
                   >
@@ -499,6 +522,18 @@ export default function OrderCollectionPage() {
                         <LockKeyhole size={13} className="flex-none text-emerald-500" aria-label="비밀번호 저장됨" />
                       )}
                     </div>
+                    <div
+                      className="text-right text-sm font-semibold tabular-nums text-slate-900"
+                      title={collectionStat ? `상품 행 ${formatNumber(collectionStat.productRows)}개` : undefined}
+                    >
+                      {formatNumber(collectionStat?.orderRows ?? 0)}
+                    </div>
+                    <div
+                      className="text-center text-xs tabular-nums text-slate-500"
+                      title={collectionStat ? formatDateTime(collectionStat.latestAt) : undefined}
+                    >
+                      {collectionStat ? formatMallCollectionTime(collectionStat.latestAt) : '-'}
+                    </div>
                     <div className="flex justify-center">
                       <span
                         className={cn(
@@ -510,12 +545,6 @@ export default function OrderCollectionPage() {
                       >
                         {status.label}
                       </span>
-                    </div>
-                    <div
-                      className="text-center text-xs tabular-nums text-slate-500"
-                      title={latestCollectedAt ? formatDateTime(latestCollectedAt) : undefined}
-                    >
-                      {latestCollectedAt ? formatMallCollectionTime(latestCollectedAt) : '-'}
                     </div>
                     <div className="flex items-center justify-end gap-2">
                       <button
@@ -1025,6 +1054,41 @@ function groupHistoryByDay(items: ConversionHistoryItem[]): Array<{
   return groups;
 }
 
+function buildMallCollectionStats(items: ConversionHistoryItem[]): Map<string, MallCollectionStat> {
+  const stats = new Map<string, MallCollectionStat>();
+
+  for (const item of items) {
+    const mallKey = resolveHistoryMallKey(item);
+    if (!mallKey) continue;
+
+    const current = stats.get(mallKey) ?? {
+      orderRows: 0,
+      productRows: 0,
+      latestAt: item.convertedAt,
+    };
+
+    current.orderRows += getOrderCount(item) ?? 0;
+    current.productRows += item.productRows ?? 0;
+    current.latestAt = Math.max(current.latestAt, item.convertedAt);
+    stats.set(mallKey, current);
+  }
+
+  return stats;
+}
+
+function resolveHistoryMallKey(item: ConversionHistoryItem): string | null {
+  if (item.mallKey) return item.mallKey;
+
+  const searchable = `${item.mallName ?? ''} ${item.sourceName} ${item.fileName}`.toLowerCase();
+  for (const [key, label] of Object.entries(MALL_LABELS)) {
+    if (searchable.includes(key.toLowerCase()) || searchable.includes(label.toLowerCase())) {
+      return key;
+    }
+  }
+
+  return null;
+}
+
 function fileSizeLabel(size: number): string {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
@@ -1057,16 +1121,13 @@ async function loadMallLoginCredentials(account: OrderCollectionMallAccount) {
   };
 }
 
-function latestMallCollectedAt(items: ConversionHistoryItem[], mallKey: string): number | null {
-  const matched = items.find((item) => item.mallKey === mallKey || item.id.includes(`-${mallKey}-browser`));
-  return matched?.convertedAt ?? null;
-}
-
 function formatMallCollectionTime(timestamp: number): string {
   const value = new Date(timestamp);
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
   const hours = String(value.getHours()).padStart(2, '0');
   const minutes = String(value.getMinutes()).padStart(2, '0');
-  return `${hours}:${minutes}`;
+  return `${month}.${day} ${hours}:${minutes}`;
 }
 
 function draftFromMallAccount(account: OrderCollectionMallAccount): MallAccountDraft {

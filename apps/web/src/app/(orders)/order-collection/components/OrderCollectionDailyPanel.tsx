@@ -21,8 +21,17 @@ interface DailyCollectionStat {
   malls: string[];
 }
 
+interface MallCollectionStat {
+  key: string;
+  name: string;
+  files: number;
+  orderRows: number;
+  productRows: number;
+  latestAt: number;
+}
+
 const CHART_DAYS = 14;
-const DETAIL_DAYS = 10;
+const MALL_DETAIL_LIMIT = 12;
 
 const MALL_LABELS: Record<string, string> = {
   'one-polaris': '원폴라리스',
@@ -39,16 +48,15 @@ const MALL_LABELS: Record<string, string> = {
 
 export function OrderCollectionDailyPanel({ history }: OrderCollectionDailyPanelProps) {
   const stats = buildDailyStats(history);
+  const mallStats = buildMallStats(history);
   const chartStats = stats.slice(0, CHART_DAYS).reverse();
-  const latest = stats[0] ?? null;
+  const latestAt = history.reduce((latest, item) => Math.max(latest, item.convertedAt), 0);
   const totals = stats.reduce(
     (acc, stat) => ({
-      files: acc.files + stat.files,
       orders: acc.orders + stat.orderRows,
       products: acc.products + stat.productRows,
-      days: acc.days + 1,
     }),
-    { files: 0, orders: 0, products: 0, days: 0 },
+    { orders: 0, products: 0 },
   );
 
   return (
@@ -58,21 +66,21 @@ export function OrderCollectionDailyPanel({ history }: OrderCollectionDailyPanel
           <CalendarDays size={18} className="text-slate-500" />
           <div>
             <div className="text-sm font-semibold text-slate-900">일별 수집 현황</div>
-            <div className="text-xs text-slate-500">생성 파일 기준으로 날짜별 주문 데이터를 누적</div>
+            <div className="text-xs text-slate-500">몰별 주문 수와 최근 업데이트 시간을 확인</div>
           </div>
         </div>
         <div className="text-xs tabular-nums text-slate-500">
-          {latest ? `최근 수집 ${formatDateTime(latest.latestAt)}` : '수집 이력 없음'}
+          {latestAt > 0 ? `최근 업데이트 ${formatDateTime(latestAt)}` : '수집 이력 없음'}
         </div>
       </div>
 
       <div className="grid gap-5 p-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
         <div className="min-w-0 space-y-4">
           <div className="grid gap-3 sm:grid-cols-4">
-            <DailyMetric label="수집일" value={formatNumber(totals.days)} />
-            <DailyMetric label="수집 파일" value={formatNumber(totals.files)} />
             <DailyMetric label="주문 수" value={formatNumber(totals.orders)} />
             <DailyMetric label="상품 행" value={formatNumber(totals.products)} />
+            <DailyMetric label="수집 몰" value={formatNumber(mallStats.length)} />
+            <DailyMetric label="최근 업데이트" value={latestAt > 0 ? shortDateTimeLabel(latestAt) : '-'} />
           </div>
           <div>
             <div className="mb-3 flex items-center gap-2 text-xs font-medium text-slate-500">
@@ -84,8 +92,8 @@ export function OrderCollectionDailyPanel({ history }: OrderCollectionDailyPanel
         </div>
 
         <div className="min-w-0">
-          <div className="mb-3 text-xs font-medium text-slate-500">날짜별 상세</div>
-          {stats.length === 0 ? (
+          <div className="mb-3 text-xs font-medium text-slate-500">몰별 현황</div>
+          {mallStats.length === 0 ? (
             <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-slate-200 text-sm text-slate-400">
               아직 쌓인 수집 데이터가 없습니다.
             </div>
@@ -94,24 +102,26 @@ export function OrderCollectionDailyPanel({ history }: OrderCollectionDailyPanel
               <table className="min-w-full text-sm">
                 <thead className="bg-slate-50 text-xs text-slate-500">
                   <tr>
-                    <th className="px-3 py-2.5 text-left font-medium">날짜</th>
-                    <th className="px-3 py-2.5 text-right font-medium">주문</th>
-                    <th className="px-3 py-2.5 text-right font-medium">파일</th>
                     <th className="px-3 py-2.5 text-left font-medium">몰</th>
+                    <th className="px-3 py-2.5 text-right font-medium">주문</th>
+                    <th className="px-3 py-2.5 text-right font-medium">상품</th>
+                    <th className="px-3 py-2.5 text-left font-medium">업데이트</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {stats.slice(0, DETAIL_DAYS).map((stat) => (
+                  {mallStats.slice(0, MALL_DETAIL_LIMIT).map((stat) => (
                     <tr key={stat.key} className="border-t border-slate-100">
-                      <td className="px-3 py-2.5 text-xs font-medium text-slate-700">{shortDayLabel(stat.key)}</td>
+                      <td className="max-w-[150px] truncate px-3 py-2.5 text-xs font-medium text-slate-700">
+                        {stat.name}
+                      </td>
                       <td className="px-3 py-2.5 text-right tabular-nums text-slate-900">
                         {formatNumber(stat.orderRows)}
                       </td>
                       <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">
-                        {formatNumber(stat.files)}
+                        {formatNumber(stat.productRows)}
                       </td>
-                      <td className="max-w-[150px] truncate px-3 py-2.5 text-xs text-slate-500">
-                        {stat.malls.length > 0 ? stat.malls.join(', ') : '-'}
+                      <td className="whitespace-nowrap px-3 py-2.5 text-xs tabular-nums text-slate-500">
+                        {shortDateTimeLabel(stat.latestAt)}
                       </td>
                     </tr>
                   ))}
@@ -209,7 +219,8 @@ function buildDailyStats(items: StoredOrderCollectionFile[]): DailyCollectionSta
     if (item.collectionMode === 'manual-upload') stat.manualFiles += 1;
     else stat.browserFiles += 1;
 
-    const mallName = item.mallName ?? (item.mallKey ? MALL_LABELS[item.mallKey] : null);
+    const mallKey = resolveMallKey(item);
+    const mallName = item.mallName ?? (mallKey ? MALL_LABELS[mallKey] : null);
     if (mallName) stat.malls.add(mallName);
   }
 
@@ -218,9 +229,52 @@ function buildDailyStats(items: StoredOrderCollectionFile[]): DailyCollectionSta
     .sort((a, b) => b.key.localeCompare(a.key));
 }
 
+function buildMallStats(items: StoredOrderCollectionFile[]): MallCollectionStat[] {
+  const byMall = new Map<string, MallCollectionStat>();
+
+  for (const item of items) {
+    const mallKey = resolveMallKey(item);
+    const mallName = item.mallName ?? (mallKey ? MALL_LABELS[mallKey] : null) ?? '기타';
+    const key = mallKey ?? `unknown-${mallName}`;
+    let stat = byMall.get(key);
+
+    if (!stat) {
+      stat = {
+        key,
+        name: mallName,
+        files: 0,
+        orderRows: 0,
+        productRows: 0,
+        latestAt: item.convertedAt,
+      };
+      byMall.set(key, stat);
+    }
+
+    stat.files += 1;
+    stat.orderRows += getOrderCount(item);
+    stat.productRows += item.productRows ?? 0;
+    stat.latestAt = Math.max(stat.latestAt, item.convertedAt);
+  }
+
+  return [...byMall.values()].sort((a, b) => b.latestAt - a.latestAt || b.orderRows - a.orderRows);
+}
+
 function getOrderCount(result: StoredOrderCollectionFile): number {
   if (result.outputRows === null || result.productRows === null) return 0;
   return Math.max(0, result.outputRows - result.productRows);
+}
+
+function resolveMallKey(item: StoredOrderCollectionFile): string | null {
+  if (item.mallKey) return item.mallKey;
+
+  const searchable = `${item.mallName ?? ''} ${item.sourceName} ${item.fileName}`.toLowerCase();
+  for (const [key, label] of Object.entries(MALL_LABELS)) {
+    if (searchable.includes(key.toLowerCase()) || searchable.includes(label.toLowerCase())) {
+      return key;
+    }
+  }
+
+  return null;
 }
 
 function dayKey(timestamp: number): string {
@@ -236,12 +290,16 @@ function dayLabel(key: string): string {
   return `${year}. ${month}. ${day}.`;
 }
 
-function shortDayLabel(key: string): string {
-  const [, month, day] = key.split('-');
-  return `${month}.${day}`;
-}
-
 function chartDayLabel(key: string): string {
   const [, month, day] = key.split('-');
   return `${Number(month)}/${Number(day)}`;
+}
+
+function shortDateTimeLabel(timestamp: number): string {
+  const value = new Date(timestamp);
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  const hours = String(value.getHours()).padStart(2, '0');
+  const minutes = String(value.getMinutes()).padStart(2, '0');
+  return `${month}.${day} ${hours}:${minutes}`;
 }
