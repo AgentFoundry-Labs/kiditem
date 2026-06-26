@@ -1,7 +1,7 @@
 'use client';
 
-import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
+import * as Dialog from '@radix-ui/react-dialog';
 import {
   AlertCircle,
   CheckCircle2,
@@ -40,6 +40,7 @@ import {
   saveGeneratedOrderFile,
   type StoredOrderCollectionFile,
 } from './lib/order-generated-file-store';
+import { buildOrderCollectionSummary } from './lib/order-collection-stats';
 import { OrderCollectionDailyPanel } from './components/OrderCollectionDailyPanel';
 import { OrderCollectionFlow } from './components/OrderCollectionFlow';
 
@@ -58,6 +59,8 @@ interface MallAccountDraft {
 const ACCEPTED_EXTENSIONS = '.txt,.tsv,.csv,.xls,.xlsx';
 const ICECREAM_MALL_KEY = 'icecream-mall';
 const MAX_HISTORY_ITEMS = 1000;
+const MALL_ACCOUNT_GRID_CLASS =
+  'grid min-w-[760px] grid-cols-[minmax(150px,1.6fr)_minmax(96px,1fr)_80px_112px_88px_148px] gap-2';
 
 const EMPTY_MALL_DRAFT: MallAccountDraft = {
   loginId: '',
@@ -101,6 +104,8 @@ export default function OrderCollectionPage() {
   const lastOrderCount = getOrderCount(lastResult);
 
   const generatedFileGroups = useMemo(() => groupHistoryByDay(history), [history]);
+  const orderCollectionSummary = useMemo(() => buildOrderCollectionSummary(history), [history]);
+  const mallCollectionStats = orderCollectionSummary.mallStatsByKey;
 
   const loadMallAccounts = async () => {
     setMallLoading(true);
@@ -172,6 +177,8 @@ export default function OrderCollectionPage() {
         convertedAt: Date.now(),
         collectionDate: todayYmd(),
         collectionMode: 'manual-upload' as const,
+        mallKey: ICECREAM_MALL_KEY,
+        mallName: '아이스크림몰',
       };
       addGeneratedFile(historyItem);
       setPreviewId(historyItem.id);
@@ -407,7 +414,7 @@ export default function OrderCollectionPage() {
         skippedRows={lastResult?.skippedRows ?? null}
       />
 
-      <OrderCollectionDailyPanel history={history} />
+      <OrderCollectionDailyPanel summary={orderCollectionSummary} />
 
       <section className="rounded-xl border border-slate-200 bg-white">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
@@ -449,12 +456,18 @@ export default function OrderCollectionPage() {
         </div>
 
         <div className="p-5">
-          <div className="overflow-hidden rounded-lg border border-slate-200">
-            <div className="grid grid-cols-[minmax(150px,1.8fr)_minmax(96px,1fr)_88px_96px_148px] gap-2 bg-slate-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <div
+              className={cn(
+                MALL_ACCOUNT_GRID_CLASS,
+                'bg-slate-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-500',
+              )}
+            >
               <div>몰</div>
               <div>ID</div>
+              <div className="text-right">주문</div>
+              <div className="text-center">업데이트</div>
               <div className="text-center">상태</div>
-              <div className="text-center">마지막 수집</div>
               <div className="text-right">작업</div>
             </div>
             <div>
@@ -475,12 +488,13 @@ export default function OrderCollectionPage() {
                 const isOpenAccount = mallSettingsOpen && selectedMall?.key === account.key;
                 const isCollectingAccount = collectingMallKey === account.key;
                 const collectable = isBrowserCollectableMall(account);
-                const latestCollectedAt = latestMallCollectedAt(history, account.key);
+                const collectionStat = mallCollectionStats.get(account.key);
                 return (
                   <div
                     key={account.key}
                     className={cn(
-                      'grid grid-cols-[minmax(150px,1.8fr)_minmax(96px,1fr)_88px_96px_148px] items-center gap-2 border-t border-slate-100 px-4 py-3 text-sm',
+                      MALL_ACCOUNT_GRID_CLASS,
+                      'items-center border-t border-slate-100 px-4 py-3 text-sm',
                       isOpenAccount && 'bg-purple-50/60',
                     )}
                   >
@@ -499,6 +513,18 @@ export default function OrderCollectionPage() {
                         <LockKeyhole size={13} className="flex-none text-emerald-500" aria-label="비밀번호 저장됨" />
                       )}
                     </div>
+                    <div
+                      className="text-right text-sm font-semibold tabular-nums text-slate-900"
+                      title={collectionStat ? `상품 행 ${formatNumber(collectionStat.productRows)}개` : undefined}
+                    >
+                      {formatNumber(collectionStat?.orderRows ?? 0)}
+                    </div>
+                    <div
+                      className="text-center text-xs tabular-nums text-slate-500"
+                      title={collectionStat ? formatDateTime(collectionStat.latestAt) : undefined}
+                    >
+                      {collectionStat ? formatMallCollectionTime(collectionStat.latestAt) : '-'}
+                    </div>
                     <div className="flex justify-center">
                       <span
                         className={cn(
@@ -510,12 +536,6 @@ export default function OrderCollectionPage() {
                       >
                         {status.label}
                       </span>
-                    </div>
-                    <div
-                      className="text-center text-xs tabular-nums text-slate-500"
-                      title={latestCollectedAt ? formatDateTime(latestCollectedAt) : undefined}
-                    >
-                      {latestCollectedAt ? formatMallCollectionTime(latestCollectedAt) : '-'}
                     </div>
                     <div className="flex items-center justify-end gap-2">
                       <button
@@ -1057,16 +1077,13 @@ async function loadMallLoginCredentials(account: OrderCollectionMallAccount) {
   };
 }
 
-function latestMallCollectedAt(items: ConversionHistoryItem[], mallKey: string): number | null {
-  const matched = items.find((item) => item.mallKey === mallKey || item.id.includes(`-${mallKey}-browser`));
-  return matched?.convertedAt ?? null;
-}
-
 function formatMallCollectionTime(timestamp: number): string {
   const value = new Date(timestamp);
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
   const hours = String(value.getHours()).padStart(2, '0');
   const minutes = String(value.getMinutes()).padStart(2, '0');
-  return `${hours}:${minutes}`;
+  return `${month}.${day} ${hours}:${minutes}`;
 }
 
 function draftFromMallAccount(account: OrderCollectionMallAccount): MallAccountDraft {
