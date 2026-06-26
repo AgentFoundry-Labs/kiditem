@@ -1,6 +1,6 @@
 'use client';
 
-import { BarChart3, CalendarDays } from 'lucide-react';
+import { CalendarDays } from 'lucide-react';
 import { formatDateTime, formatNumber } from '@/lib/utils';
 import type { StoredOrderCollectionFile } from '../lib/order-generated-file-store';
 
@@ -60,42 +60,35 @@ export function OrderCollectionDailyPanel({ history }: OrderCollectionDailyPanel
   );
 
   return (
-    <section className="rounded-xl border border-slate-200 bg-white">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3.5">
         <div className="flex items-center gap-2.5">
-          <CalendarDays size={18} className="text-slate-500" />
-          <div>
-            <div className="text-sm font-semibold text-slate-900">일별 수집 현황</div>
-            <div className="text-xs text-slate-500">몰별 주문 수와 최근 업데이트 시간을 확인</div>
-          </div>
+          <CalendarDays size={17} className="text-slate-500" />
+          <div className="text-sm font-semibold text-slate-900">수집 현황</div>
         </div>
-        <div className="text-xs tabular-nums text-slate-500">
-          {latestAt > 0 ? `최근 업데이트 ${formatDateTime(latestAt)}` : '수집 이력 없음'}
+        <div
+          className="rounded-full bg-slate-50 px-2.5 py-1 text-xs tabular-nums text-slate-500"
+          title={latestAt > 0 ? formatDateTime(latestAt) : undefined}
+        >
+          {latestAt > 0 ? shortDateTimeLabel(latestAt) : '-'}
         </div>
       </div>
 
-      <div className="grid gap-5 p-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+      <div className="grid gap-4 p-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
         <div className="min-w-0 space-y-4">
-          <div className="grid gap-3 sm:grid-cols-4">
-            <DailyMetric label="주문 수" value={formatNumber(totals.orders)} />
-            <DailyMetric label="상품 행" value={formatNumber(totals.products)} />
-            <DailyMetric label="수집 몰" value={formatNumber(mallStats.length)} />
-            <DailyMetric label="최근 업데이트" value={latestAt > 0 ? shortDateTimeLabel(latestAt) : '-'} />
+          <div className="grid overflow-hidden rounded-lg border border-slate-200 bg-white sm:grid-cols-4">
+            <DailyMetric label="주문" value={formatNumber(totals.orders)} />
+            <DailyMetric label="상품" value={formatNumber(totals.products)} />
+            <DailyMetric label="몰" value={formatNumber(mallStats.length)} />
+            <DailyMetric label="업데이트" value={latestAt > 0 ? shortDateTimeLabel(latestAt) : '-'} />
           </div>
-          <div>
-            <div className="mb-3 flex items-center gap-2 text-xs font-medium text-slate-500">
-              <BarChart3 size={14} />
-              최근 {CHART_DAYS}일 주문 수
-            </div>
-            <DailyBarChart stats={chartStats} />
-          </div>
+          <DailyBarChart stats={chartStats} />
         </div>
 
         <div className="min-w-0">
-          <div className="mb-3 text-xs font-medium text-slate-500">몰별 현황</div>
           {mallStats.length === 0 ? (
-            <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-slate-200 text-sm text-slate-400">
-              아직 쌓인 수집 데이터가 없습니다.
+            <div className="flex h-full min-h-48 items-center justify-center rounded-lg border border-dashed border-slate-200 text-sm text-slate-400">
+              데이터 없음
             </div>
           ) : (
             <div className="overflow-hidden rounded-lg border border-slate-200">
@@ -137,9 +130,9 @@ export function OrderCollectionDailyPanel({ history }: OrderCollectionDailyPanel
 
 function DailyMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
-      <div className="text-xs font-medium text-slate-500">{label}</div>
-      <div className="mt-1 text-lg font-semibold tabular-nums text-slate-900">{value}</div>
+    <div className="border-b border-slate-100 px-4 py-3 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0">
+      <div className="text-[11px] font-medium text-slate-400">{label}</div>
+      <div className="mt-1 truncate text-lg font-semibold tabular-nums text-slate-900">{value}</div>
     </div>
   );
 }
@@ -148,7 +141,7 @@ function DailyBarChart({ stats }: { stats: DailyCollectionStat[] }) {
   if (stats.length === 0) {
     return (
       <div className="flex h-52 items-center justify-center rounded-lg border border-dashed border-slate-200 text-sm text-slate-400">
-        수집이 완료되면 막대 그래프가 표시됩니다.
+        데이터 없음
       </div>
     );
   }
@@ -156,15 +149,16 @@ function DailyBarChart({ stats }: { stats: DailyCollectionStat[] }) {
   const maxOrders = Math.max(1, ...stats.map((stat) => stat.orderRows));
 
   return (
-    <div className="h-56 rounded-lg border border-slate-200 bg-slate-50 px-3 pb-3 pt-4">
-      <div className="flex h-40 items-end gap-2">
-        {stats.map((stat) => {
+    <div className="h-56 rounded-lg border border-slate-200 bg-slate-50 px-4 pb-3 pt-4">
+      <div className="flex h-44 items-end gap-2">
+        {stats.map((stat, index) => {
           const height = Math.max(stat.orderRows > 0 ? 8 : 3, Math.round((stat.orderRows / maxOrders) * 100));
+          const latest = index === stats.length - 1;
           return (
             <div key={stat.key} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2">
-              <div className="flex h-32 w-full items-end justify-center">
+              <div className="flex h-36 w-full items-end justify-center">
                 <div
-                  className="w-full max-w-8 rounded-t-md bg-purple-600 shadow-sm"
+                  className={latest ? 'w-full max-w-7 rounded-t-md bg-purple-600' : 'w-full max-w-7 rounded-t-md bg-slate-300'}
                   style={{ height: `${height}%` }}
                   title={`${stat.label} 주문 ${formatNumber(stat.orderRows)}건`}
                 />
@@ -175,10 +169,6 @@ function DailyBarChart({ stats }: { stats: DailyCollectionStat[] }) {
             </div>
           );
         })}
-      </div>
-      <div className="mt-2 flex items-center justify-between border-t border-slate-200 pt-2 text-[11px] text-slate-500">
-        <span>주문 수 기준</span>
-        <span>최대 {formatNumber(maxOrders)}건</span>
       </div>
     </div>
   );
