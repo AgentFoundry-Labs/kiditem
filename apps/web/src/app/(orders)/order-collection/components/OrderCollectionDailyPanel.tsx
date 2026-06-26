@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { CalendarDays } from 'lucide-react';
 import { formatDateTime, formatNumber } from '@/lib/utils';
 import type {
@@ -8,9 +8,13 @@ import type {
   MallCollectionStat,
   OrderCollectionSummary,
 } from '../lib/order-collection-stats';
+import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
 
 interface OrderCollectionDailyPanelProps {
   summary: OrderCollectionSummary;
+  mallAccounts: OrderCollectionMallAccount[];
+  selectedMallKey: string | null;
+  collectingMallKey: string | null;
 }
 
 const CHART_DAYS = 14;
@@ -22,32 +26,50 @@ interface CollectionTabStat {
   orderRows: number;
   productRows: number;
   latestAt: number;
+  collecting?: boolean;
+  selected?: boolean;
 }
 
 export const OrderCollectionDailyPanel = memo(function OrderCollectionDailyPanel({
+  collectingMallKey,
+  mallAccounts,
+  selectedMallKey,
   summary,
 }: OrderCollectionDailyPanelProps) {
   const [activeTab, setActiveTab] = useState('all');
   const { dailyStats, mallStats, latestAt, totals } = summary;
   const chartStats = useMemo(() => dailyStats.slice(0, CHART_DAYS).reverse(), [dailyStats]);
+  const mallStatsByKey = useMemo(
+    () => new Map(mallStats.map((stat) => [stat.key, stat])),
+    [mallStats],
+  );
   const tabs = useMemo<CollectionTabStat[]>(
-    () => [
-      {
-        key: 'all',
-        name: '전체',
-        orderRows: totals.orders,
-        productRows: totals.products,
+    () =>
+      buildCollectionTabs({
+        collectingMallKey,
         latestAt,
-      },
-      ...mallStats,
-    ],
-    [latestAt, mallStats, totals.orders, totals.products],
+        mallAccounts,
+        mallStats,
+        mallStatsByKey,
+        selectedMallKey,
+        totals,
+      }),
+    [collectingMallKey, latestAt, mallAccounts, mallStats, mallStatsByKey, selectedMallKey, totals],
   );
   const activeStat = tabs.find((tab) => tab.key === activeTab) ?? tabs[0]!;
   const visibleMallStats =
     activeStat.key === 'all'
-      ? mallStats.slice(0, MALL_DETAIL_LIMIT)
-      : mallStats.filter((stat) => stat.key === activeStat.key);
+      ? tabs.filter((tab) => tab.key !== 'all').slice(0, MALL_DETAIL_LIMIT)
+      : tabs.filter((tab) => tab.key === activeStat.key);
+  const collectionMallCount = Math.max(mallAccounts.length, mallStats.length);
+
+  useEffect(() => {
+    if (collectingMallKey && collectingMallKey !== activeTab && tabs.some((tab) => tab.key === collectingMallKey)) {
+      setActiveTab(collectingMallKey);
+      return;
+    }
+    if (!tabs.some((tab) => tab.key === activeTab)) setActiveTab('all');
+  }, [activeTab, collectingMallKey, tabs]);
 
   return (
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -69,7 +91,7 @@ export const OrderCollectionDailyPanel = memo(function OrderCollectionDailyPanel
           <div className="grid overflow-hidden rounded-lg border border-slate-200 bg-white sm:grid-cols-4">
             <DailyMetric label="주문" value={formatNumber(totals.orders)} />
             <DailyMetric label="상품" value={formatNumber(totals.products)} />
-            <DailyMetric label="몰" value={formatNumber(mallStats.length)} />
+            <DailyMetric label="몰" value={formatNumber(collectionMallCount)} />
             <DailyMetric label="업데이트" value={latestAt > 0 ? shortDateTimeLabel(latestAt) : '-'} />
           </div>
           <DailyBarChart stats={chartStats} />
@@ -146,14 +168,22 @@ function RealtimeProcessingPanel({
 }: {
   activeStat: CollectionTabStat;
   activeTab: string;
-  rows: MallCollectionStat[];
+  rows: CollectionTabStat[];
   tabs: CollectionTabStat[];
   onTabChange: (key: string) => void;
 }) {
   return (
     <div className="flex min-h-[360px] min-w-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
       <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-        <div className="text-sm font-semibold text-slate-900">실시간 처리</div>
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="truncate text-sm font-semibold text-slate-900">실시간 처리</div>
+          {activeStat.collecting && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2 py-0.5 text-[11px] font-medium text-purple-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-purple-600" />
+              수집 중
+            </span>
+          )}
+        </div>
         <div className="text-xs tabular-nums text-slate-400">
           {activeStat.latestAt > 0 ? shortDateTimeLabel(activeStat.latestAt) : '-'}
         </div>
@@ -174,6 +204,9 @@ function RealtimeProcessingPanel({
                     : 'whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-slate-800'
                 }
               >
+                {tab.collecting && (
+                  <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-purple-600 align-middle" />
+                )}
                 {tab.name}
               </button>
             );
@@ -201,8 +234,18 @@ function RealtimeProcessingPanel({
             </thead>
             <tbody>
               {rows.map((stat) => (
-                <tr key={stat.key} className="border-t border-slate-100">
+                <tr
+                  key={stat.key}
+                  className={
+                    stat.selected || stat.collecting
+                      ? 'border-t border-slate-100 bg-purple-50/50'
+                      : 'border-t border-slate-100'
+                  }
+                >
                   <td className="max-w-[150px] truncate px-4 py-3 text-xs font-medium text-slate-700">
+                    {stat.collecting && (
+                      <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-purple-600 align-middle" />
+                    )}
                     {stat.name}
                   </td>
                   <td className="px-3 py-3 text-right tabular-nums text-slate-900">
@@ -228,6 +271,65 @@ function ProcessingMetric({ label, value }: { label: string; value: string }) {
       <div className="mt-1 truncate text-base font-semibold tabular-nums text-slate-900">{value}</div>
     </div>
   );
+}
+
+function buildCollectionTabs({
+  collectingMallKey,
+  latestAt,
+  mallAccounts,
+  mallStats,
+  mallStatsByKey,
+  selectedMallKey,
+  totals,
+}: {
+  collectingMallKey: string | null;
+  latestAt: number;
+  mallAccounts: OrderCollectionMallAccount[];
+  mallStats: MallCollectionStat[];
+  mallStatsByKey: Map<string, MallCollectionStat>;
+  selectedMallKey: string | null;
+  totals: { orders: number; products: number };
+}): CollectionTabStat[] {
+  const tabs: CollectionTabStat[] = [
+    {
+      key: 'all',
+      name: '전체',
+      orderRows: totals.orders,
+      productRows: totals.products,
+      latestAt,
+      collecting: collectingMallKey !== null,
+    },
+  ];
+  const addedKeys = new Set<string>();
+
+  for (const account of mallAccounts) {
+    const stat = mallStatsByKey.get(account.key);
+    tabs.push({
+      key: account.key,
+      name: account.name,
+      orderRows: stat?.orderRows ?? 0,
+      productRows: stat?.productRows ?? 0,
+      latestAt: stat?.latestAt ?? 0,
+      collecting: collectingMallKey === account.key,
+      selected: selectedMallKey === account.key,
+    });
+    addedKeys.add(account.key);
+  }
+
+  for (const stat of mallStats) {
+    if (addedKeys.has(stat.key)) continue;
+    tabs.push({
+      key: stat.key,
+      name: stat.name,
+      orderRows: stat.orderRows,
+      productRows: stat.productRows,
+      latestAt: stat.latestAt,
+      collecting: collectingMallKey === stat.key,
+      selected: selectedMallKey === stat.key,
+    });
+  }
+
+  return tabs;
 }
 
 function chartDayLabel(key: string): string {
