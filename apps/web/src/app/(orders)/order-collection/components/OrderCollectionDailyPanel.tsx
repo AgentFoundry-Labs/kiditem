@@ -1,63 +1,25 @@
 'use client';
 
+import { memo, useMemo } from 'react';
 import { CalendarDays } from 'lucide-react';
 import { formatDateTime, formatNumber } from '@/lib/utils';
-import type { StoredOrderCollectionFile } from '../lib/order-generated-file-store';
+import type {
+  DailyCollectionStat,
+  OrderCollectionSummary,
+} from '../lib/order-collection-stats';
 
 interface OrderCollectionDailyPanelProps {
-  history: StoredOrderCollectionFile[];
-}
-
-interface DailyCollectionStat {
-  key: string;
-  label: string;
-  files: number;
-  orderRows: number;
-  productRows: number;
-  outputRows: number;
-  browserFiles: number;
-  manualFiles: number;
-  latestAt: number;
-  malls: string[];
-}
-
-interface MallCollectionStat {
-  key: string;
-  name: string;
-  files: number;
-  orderRows: number;
-  productRows: number;
-  latestAt: number;
+  summary: OrderCollectionSummary;
 }
 
 const CHART_DAYS = 14;
 const MALL_DETAIL_LIMIT = 12;
 
-const MALL_LABELS: Record<string, string> = {
-  'one-polaris': '원폴라리스',
-  'icecream-mall': '아이스크림몰',
-  kidkids: '키드키즈',
-  kidsnote: '키즈노트',
-  'haebub-mall': '해법몰',
-  onch: '온채널',
-  kkomangse: '꼬망세',
-  art09: '아트공구',
-  'tekville-edu': '테크빌교육',
-  'benepia-mul': '베네피아물',
-};
-
-export function OrderCollectionDailyPanel({ history }: OrderCollectionDailyPanelProps) {
-  const stats = buildDailyStats(history);
-  const mallStats = buildMallStats(history);
-  const chartStats = stats.slice(0, CHART_DAYS).reverse();
-  const latestAt = history.reduce((latest, item) => Math.max(latest, item.convertedAt), 0);
-  const totals = stats.reduce(
-    (acc, stat) => ({
-      orders: acc.orders + stat.orderRows,
-      products: acc.products + stat.productRows,
-    }),
-    { orders: 0, products: 0 },
-  );
+export const OrderCollectionDailyPanel = memo(function OrderCollectionDailyPanel({
+  summary,
+}: OrderCollectionDailyPanelProps) {
+  const { dailyStats, mallStats, latestAt, totals } = summary;
+  const chartStats = useMemo(() => dailyStats.slice(0, CHART_DAYS).reverse(), [dailyStats]);
 
   return (
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -126,7 +88,7 @@ export function OrderCollectionDailyPanel({ history }: OrderCollectionDailyPanel
       </div>
     </section>
   );
-}
+});
 
 function DailyMetric({ label, value }: { label: string; value: string }) {
   return (
@@ -172,112 +134,6 @@ function DailyBarChart({ stats }: { stats: DailyCollectionStat[] }) {
       </div>
     </div>
   );
-}
-
-function buildDailyStats(items: StoredOrderCollectionFile[]): DailyCollectionStat[] {
-  const byDate = new Map<
-    string,
-    Omit<DailyCollectionStat, 'malls'> & {
-      malls: Set<string>;
-    }
-  >();
-
-  for (const item of items) {
-    const key = item.collectionDate || dayKey(item.convertedAt);
-    let stat = byDate.get(key);
-    if (!stat) {
-      stat = {
-        key,
-        label: dayLabel(key),
-        files: 0,
-        orderRows: 0,
-        productRows: 0,
-        outputRows: 0,
-        browserFiles: 0,
-        manualFiles: 0,
-        latestAt: item.convertedAt,
-        malls: new Set<string>(),
-      };
-      byDate.set(key, stat);
-    }
-
-    stat.files += 1;
-    stat.orderRows += getOrderCount(item);
-    stat.productRows += item.productRows ?? 0;
-    stat.outputRows += item.outputRows ?? 0;
-    stat.latestAt = Math.max(stat.latestAt, item.convertedAt);
-    if (item.collectionMode === 'manual-upload') stat.manualFiles += 1;
-    else stat.browserFiles += 1;
-
-    const mallKey = resolveMallKey(item);
-    const mallName = item.mallName ?? (mallKey ? MALL_LABELS[mallKey] : null);
-    if (mallName) stat.malls.add(mallName);
-  }
-
-  return [...byDate.values()]
-    .map((stat) => ({ ...stat, malls: [...stat.malls] }))
-    .sort((a, b) => b.key.localeCompare(a.key));
-}
-
-function buildMallStats(items: StoredOrderCollectionFile[]): MallCollectionStat[] {
-  const byMall = new Map<string, MallCollectionStat>();
-
-  for (const item of items) {
-    const mallKey = resolveMallKey(item);
-    const mallName = item.mallName ?? (mallKey ? MALL_LABELS[mallKey] : null) ?? '기타';
-    const key = mallKey ?? `unknown-${mallName}`;
-    let stat = byMall.get(key);
-
-    if (!stat) {
-      stat = {
-        key,
-        name: mallName,
-        files: 0,
-        orderRows: 0,
-        productRows: 0,
-        latestAt: item.convertedAt,
-      };
-      byMall.set(key, stat);
-    }
-
-    stat.files += 1;
-    stat.orderRows += getOrderCount(item);
-    stat.productRows += item.productRows ?? 0;
-    stat.latestAt = Math.max(stat.latestAt, item.convertedAt);
-  }
-
-  return [...byMall.values()].sort((a, b) => b.latestAt - a.latestAt || b.orderRows - a.orderRows);
-}
-
-function getOrderCount(result: StoredOrderCollectionFile): number {
-  if (result.outputRows === null || result.productRows === null) return 0;
-  return Math.max(0, result.outputRows - result.productRows);
-}
-
-function resolveMallKey(item: StoredOrderCollectionFile): string | null {
-  if (item.mallKey) return item.mallKey;
-
-  const searchable = `${item.mallName ?? ''} ${item.sourceName} ${item.fileName}`.toLowerCase();
-  for (const [key, label] of Object.entries(MALL_LABELS)) {
-    if (searchable.includes(key.toLowerCase()) || searchable.includes(label.toLowerCase())) {
-      return key;
-    }
-  }
-
-  return null;
-}
-
-function dayKey(timestamp: number): string {
-  const value = new Date(timestamp);
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, '0');
-  const day = String(value.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function dayLabel(key: string): string {
-  const [year, month, day] = key.split('-');
-  return `${year}. ${month}. ${day}.`;
 }
 
 function chartDayLabel(key: string): string {

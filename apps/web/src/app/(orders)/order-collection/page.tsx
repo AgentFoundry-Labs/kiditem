@@ -1,7 +1,7 @@
 'use client';
 
-import * as Dialog from '@radix-ui/react-dialog';
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
+import * as Dialog from '@radix-ui/react-dialog';
 import {
   AlertCircle,
   CheckCircle2,
@@ -40,6 +40,7 @@ import {
   saveGeneratedOrderFile,
   type StoredOrderCollectionFile,
 } from './lib/order-generated-file-store';
+import { buildOrderCollectionSummary } from './lib/order-collection-stats';
 import { OrderCollectionDailyPanel } from './components/OrderCollectionDailyPanel';
 import { OrderCollectionFlow } from './components/OrderCollectionFlow';
 
@@ -55,28 +56,11 @@ interface MallAccountDraft {
   enabled: boolean;
 }
 
-interface MallCollectionStat {
-  orderRows: number;
-  productRows: number;
-  latestAt: number;
-}
-
 const ACCEPTED_EXTENSIONS = '.txt,.tsv,.csv,.xls,.xlsx';
 const ICECREAM_MALL_KEY = 'icecream-mall';
 const MAX_HISTORY_ITEMS = 1000;
-
-const MALL_LABELS: Record<string, string> = {
-  'one-polaris': '원폴라리스',
-  'icecream-mall': '아이스크림몰',
-  kidkids: '키드키즈',
-  kidsnote: '키즈노트',
-  'haebub-mall': '해법몰',
-  onch: '온채널',
-  kkomangse: '꼬망세',
-  art09: '아트공구',
-  'tekville-edu': '테크빌교육',
-  'benepia-mul': '베네피아물',
-};
+const MALL_ACCOUNT_GRID_CLASS =
+  'grid min-w-[760px] grid-cols-[minmax(150px,1.6fr)_minmax(96px,1fr)_80px_112px_88px_148px] gap-2';
 
 const EMPTY_MALL_DRAFT: MallAccountDraft = {
   loginId: '',
@@ -120,7 +104,8 @@ export default function OrderCollectionPage() {
   const lastOrderCount = getOrderCount(lastResult);
 
   const generatedFileGroups = useMemo(() => groupHistoryByDay(history), [history]);
-  const mallCollectionStats = useMemo(() => buildMallCollectionStats(history), [history]);
+  const orderCollectionSummary = useMemo(() => buildOrderCollectionSummary(history), [history]);
+  const mallCollectionStats = orderCollectionSummary.mallStatsByKey;
 
   const loadMallAccounts = async () => {
     setMallLoading(true);
@@ -429,7 +414,7 @@ export default function OrderCollectionPage() {
         skippedRows={lastResult?.skippedRows ?? null}
       />
 
-      <OrderCollectionDailyPanel history={history} />
+      <OrderCollectionDailyPanel summary={orderCollectionSummary} />
 
       <section className="rounded-xl border border-slate-200 bg-white">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
@@ -471,8 +456,13 @@ export default function OrderCollectionPage() {
         </div>
 
         <div className="p-5">
-          <div className="overflow-hidden rounded-lg border border-slate-200">
-            <div className="grid grid-cols-[minmax(150px,1.6fr)_minmax(96px,1fr)_80px_112px_88px_148px] gap-2 bg-slate-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <div
+              className={cn(
+                MALL_ACCOUNT_GRID_CLASS,
+                'bg-slate-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-500',
+              )}
+            >
               <div>몰</div>
               <div>ID</div>
               <div className="text-right">주문</div>
@@ -503,7 +493,8 @@ export default function OrderCollectionPage() {
                   <div
                     key={account.key}
                     className={cn(
-                      'grid grid-cols-[minmax(150px,1.6fr)_minmax(96px,1fr)_80px_112px_88px_148px] items-center gap-2 border-t border-slate-100 px-4 py-3 text-sm',
+                      MALL_ACCOUNT_GRID_CLASS,
+                      'items-center border-t border-slate-100 px-4 py-3 text-sm',
                       isOpenAccount && 'bg-purple-50/60',
                     )}
                   >
@@ -1052,41 +1043,6 @@ function groupHistoryByDay(items: ConversionHistoryItem[]): Array<{
   }
 
   return groups;
-}
-
-function buildMallCollectionStats(items: ConversionHistoryItem[]): Map<string, MallCollectionStat> {
-  const stats = new Map<string, MallCollectionStat>();
-
-  for (const item of items) {
-    const mallKey = resolveHistoryMallKey(item);
-    if (!mallKey) continue;
-
-    const current = stats.get(mallKey) ?? {
-      orderRows: 0,
-      productRows: 0,
-      latestAt: item.convertedAt,
-    };
-
-    current.orderRows += getOrderCount(item) ?? 0;
-    current.productRows += item.productRows ?? 0;
-    current.latestAt = Math.max(current.latestAt, item.convertedAt);
-    stats.set(mallKey, current);
-  }
-
-  return stats;
-}
-
-function resolveHistoryMallKey(item: ConversionHistoryItem): string | null {
-  if (item.mallKey) return item.mallKey;
-
-  const searchable = `${item.mallName ?? ''} ${item.sourceName} ${item.fileName}`.toLowerCase();
-  for (const [key, label] of Object.entries(MALL_LABELS)) {
-    if (searchable.includes(key.toLowerCase()) || searchable.includes(label.toLowerCase())) {
-      return key;
-    }
-  }
-
-  return null;
 }
 
 function fileSizeLabel(size: number): string {
