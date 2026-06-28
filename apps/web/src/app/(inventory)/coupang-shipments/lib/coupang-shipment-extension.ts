@@ -60,7 +60,7 @@ export async function clickCoupangShipmentDownloadsViaExtension(params: {
 }
 
 async function getOrderCollectorExtensionId(): Promise<string> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = await detectOrderCollectionExtensionId(1200, 'coupangShipmentDownloads');
   if (!extensionId) {
     throw new Error('주문수집 확장프로그램이 필요합니다. extensions/order-collector를 Chrome에서 로드한 뒤 다시 시도해주세요.');
   }

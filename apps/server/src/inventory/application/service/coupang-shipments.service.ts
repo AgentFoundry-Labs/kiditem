@@ -19,15 +19,13 @@ export class CoupangShipmentsService implements CoupangShipmentsPort {
   ) {}
 
   listLocalFiles(organizationId: string): Promise<CoupangShipmentFilesResponse> {
-    void organizationId;
-    return this.storage.listMergedFiles();
+    return this.storage.listMergedFiles(organizationId);
   }
 
   resolveLocalFile(
     organizationId: string,
     input: CoupangShipmentFileRequest,
   ): Promise<CoupangShipmentResolvedFile> {
-    void organizationId;
-    return this.storage.resolveMergedFile(input);
+    return this.storage.resolveMergedFile(organizationId, input);
   }
 }

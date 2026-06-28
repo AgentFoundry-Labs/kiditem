@@ -328,7 +328,7 @@ model ChannelAccountDailyKpiSnapshot {
 }
 
 /// @namespace Channels
-/// @describe 쿠팡 로켓(공급사 발주) 일별 매출 fact. po-web 발주리스트의 발주금액(공급가)을 발주일(KST) 기준으로 집계한 값으로, 윙 매출과 분리된 로켓 매출 소스. 테넌트 격리는 repository organizationId predicate 로 보장.
+/// @describe 쿠팡 로켓(공급사 발주) 일별 매출 fact. po-web 발주리스트의 발주금액(공급가)을 입고예정일(KST) 기준으로 집계한 값으로, 윙 매출과 분리된 로켓 매출 소스.
 model RocketSupplyDailySnapshot {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
@@ -344,6 +344,8 @@ model RocketSupplyDailySnapshot {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   @@unique([organizationId, businessDate])
   @@index([organizationId, businessDate])
   @@map("rocket_supply_daily_snapshots")
@@ -355,7 +357,7 @@ model RocketPurchaseOrder {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
   poSeq          Int      @map("po_seq") // purchaseOrderSeq
-  businessDate   DateTime @map("business_date") @db.Date // 발주일(KST)
+  businessDate   DateTime @map("business_date") @db.Date // 입고예정일(KST)
   orderedAt      DateTime @map("ordered_at") @db.Timestamptz
 
   status       String? // 거래처확인요청 등
@@ -370,6 +372,8 @@ model RocketPurchaseOrder {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, poSeq])
   @@index([organizationId, businessDate])

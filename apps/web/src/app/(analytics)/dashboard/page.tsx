@@ -155,7 +155,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (!salesBaseline?.trafficKpi?.needsScrape) return;
     const source = salesBaseline?.effectivePeriod?.revenueSource;
-    if (source === 'wing' || source === 'mixed' || source === 'orders') return;
+    if (source === 'wing' || source === 'mixed' || source === 'orders' || source === 'rocket' || source === 'wing_rocket') return;
     const COOLDOWN_KEY = 'kiditem_wing_scrape_triggered';
     const lastTrigger = localStorage.getItem(COOLDOWN_KEY);
     if (lastTrigger && Date.now() - Number(lastTrigger) < 30 * 60 * 1000) return; // 30분 쿨다운
@@ -236,6 +236,10 @@ export default function Dashboard() {
   const adSource = effectivePeriod?.adSource ?? adBaseline.effectivePeriod?.adSource ?? 'orders';
   const revenueSourceLabel =
     revenueSource === 'wing' ? 'Wing 매출 기준'
+    : revenueSource === 'rocket' ? '로켓 발주 기준'
+    : revenueSource === 'wing_rocket' ? 'Wing + 로켓'
+    : revenueSource === 'mixed' && rocketRevenue > 0 && wingRevenue > 0 ? '주문 + Wing + 로켓'
+    : revenueSource === 'mixed' && rocketRevenue > 0 ? '주문 + 로켓'
     : revenueSource === 'mixed' ? '주문 + Wing'
     : revenueSource === 'orders' ? '주문 기준'
     : '데이터 대기';

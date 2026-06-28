@@ -22,7 +22,7 @@ export async function collectRocketPoRowsFromExtension(
   from: string,
   to: string,
 ): Promise<{ rows: RocketConfirmSourceRow[]; poCount: number }> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = await detectOrderCollectionExtensionId(1200, 'collectRocketPoRows');
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 supplier.coupang.com 에 로그인한 뒤 다시 시도해주세요.',
@@ -67,7 +67,7 @@ export async function listRocketPosFromExtension(
   to: string,
   status = '',
 ): Promise<RocketPoSummary[]> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = await detectOrderCollectionExtensionId(1200, 'listRocketPos');
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 supplier.coupang.com 에 로그인한 뒤 다시 시도해주세요.',

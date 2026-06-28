@@ -55,6 +55,7 @@ export interface ConfirmSourceRow {
   center?: string;
   inboundType?: string;
   poStatus?: string;
+  vendorName?: string;
   productNo?: string;
   barcode: string;
   productName?: string;
@@ -99,6 +100,20 @@ export interface ConfirmPreviewResult {
 
 export const ROCKET_SHORTAGE_REASONS = SHORTAGE_REASONS;
 
+type ConfirmQuantityInput = {
+  barcode: string;
+  orderQty: number;
+  requestedConfirmQty?: unknown;
+  availabilityByBarcode: Map<string, number>;
+  remainingByBarcode: Map<string, number>;
+};
+
+type ConfirmQuantityResult = {
+  available: number | null;
+  confirmQty: number;
+  matched: boolean;
+};
+
 @Injectable()
 export class RocketPoConfirmService {
   constructor(private readonly prisma: PrismaService) {}
@@ -129,32 +144,16 @@ export class RocketPoConfirmService {
     if (!rows.length) throw new BadRequestException('생성할 발주 행이 없습니다.');
     const barcodes = [...new Set(rows.map((r) => String(r.barcode ?? '').trim()).filter(Boolean))];
     const avail = await this.availabilityByBarcode(barcodes, organizationId);
+    await this.persistRocketPurchaseOrders(rows, organizationId);
 
     const aoa: (string | number)[][] = [HEADER];
-    let fullyConfirmed = 0;
-    let shortRows = 0;
-    let matchedSkus = 0;
+    const computed = this.computeConfirmRows(rows, avail);
 
-    for (const r of rows) {
-      const barcode = String(r.barcode ?? '').trim();
-      const orderQty = toInt(r.orderQty);
-      const a = avail.get(barcode);
-      if (a !== undefined) matchedSkus++;
-      // 편집값이 오면 그대로, 아니면 재고로 계산.
-      const confirmQty =
-        typeof r.confirmQty === 'number' ? Math.max(0, r.confirmQty) : Math.min(orderQty, a ?? 0);
-      const reason =
-        r.shortageReason !== undefined
-          ? r.shortageReason
-          : confirmQty < orderQty
-            ? DEFAULT_SHORTAGE_REASON
-            : '';
-      if (confirmQty < orderQty) shortRows++;
-      else fullyConfirmed++;
+    for (const r of computed.rows) {
       aoa.push([
         r.poNumber ?? '', r.center ?? '', r.inboundType ?? '', r.poStatus ?? '',
-        r.productNo ?? '', barcode, r.productName ?? '', orderQty, confirmQty,
-        '', '', '', reason,
+        r.productNo ?? '', r.barcode, r.productName ?? '', r.orderQty, r.confirmQty,
+        '', '', '', r.shortageReason,
         r.returnManager ?? '', r.returnContact ?? '', r.returnAddress ?? '',
         r.purchasePrice ?? '', r.supplyPrice ?? '', r.vat ?? '', r.totalPurchase ?? '',
         r.expectedInboundDate ?? '', r.poRegisteredAt ?? '', r.xdock ?? 'N',
@@ -164,9 +163,9 @@ export class RocketPoConfirmService {
     return {
       ...this.workbookToResult(aoa),
       totalRows: rows.length,
-      fullyConfirmed,
-      shortRows,
-      matchedSkus,
+      fullyConfirmed: computed.fullyConfirmed,
+      shortRows: computed.shortRows,
+      matchedSkus: computed.matchedSkus,
     };
   }
 
@@ -178,29 +177,9 @@ export class RocketPoConfirmService {
     if (!rows.length) throw new BadRequestException('미리볼 발주 행이 없습니다.');
     const barcodes = [...new Set(rows.map((r) => String(r.barcode ?? '').trim()).filter(Boolean))];
     const avail = await this.availabilityByBarcode(barcodes, organizationId);
+    await this.persistRocketPurchaseOrders(rows, organizationId);
 
-    let fullyConfirmed = 0;
-    let shortRows = 0;
-    let matchedSkus = 0;
-    const computed = rows.map((r) => {
-      const barcode = String(r.barcode ?? '').trim();
-      const orderQty = toInt(r.orderQty);
-      const a = avail.get(barcode);
-      if (a !== undefined) matchedSkus++;
-      const confirmQty = Math.min(orderQty, a ?? 0);
-      const shortageReason = confirmQty < orderQty ? DEFAULT_SHORTAGE_REASON : '';
-      if (shortageReason) shortRows++;
-      else fullyConfirmed++;
-      return {
-        ...r,
-        barcode,
-        orderQty,
-        available: a ?? null,
-        confirmQty,
-        shortageReason,
-      } satisfies ConfirmComputedRow;
-    });
-    return { rows: computed, totalRows: rows.length, fullyConfirmed, shortRows, matchedSkus };
+    return this.computeConfirmRows(rows, avail);
   }
 
   /** 쿠팡 업로드 양식(.xlsx)을 받아 확정수량/사유만 채우는 폴백 경로. */
@@ -226,13 +205,18 @@ export class RocketPoConfirmService {
     let fullyConfirmed = 0;
     let shortRows = 0;
     let matchedSkus = 0;
+    const remaining = new Map(avail);
     for (let i = 1; i < rows.length; i++) {
       const barcode = String(rows[i][COL.barcode] ?? '').trim();
       if (!barcode) continue;
-      const orderQty = toInt(rows[i][COL.orderQty]);
-      const a = avail.get(barcode);
-      if (a !== undefined) matchedSkus++;
-      const confirmQty = Math.min(orderQty, a ?? 0);
+      const orderQty = toQuantity(rows[i][COL.orderQty]);
+      const { confirmQty, matched } = computeConfirmQuantity({
+        barcode,
+        orderQty,
+        availabilityByBarcode: avail,
+        remainingByBarcode: remaining,
+      });
+      if (matched) matchedSkus++;
       sheet[XLSX.utils.encode_cell({ r: i, c: COL.confirmQty })] = { t: 'n', v: confirmQty };
       const reasonAddr = XLSX.utils.encode_cell({ r: i, c: COL.shortageReason });
       if (confirmQty < orderQty) {
@@ -254,6 +238,133 @@ export class RocketPoConfirmService {
     };
   }
 
+  private computeConfirmRows(
+    rows: ConfirmSourceRow[],
+    availabilityByBarcode: Map<string, number>,
+  ): ConfirmPreviewResult {
+    const remainingByBarcode = new Map(availabilityByBarcode);
+    let fullyConfirmed = 0;
+    let shortRows = 0;
+    let matchedSkus = 0;
+    const computed = rows.map((r) => {
+      const barcode = String(r.barcode ?? '').trim();
+      const orderQty = toQuantity(r.orderQty);
+      const { available, confirmQty, matched } = computeConfirmQuantity({
+        barcode,
+        orderQty,
+        requestedConfirmQty: r.confirmQty,
+        availabilityByBarcode,
+        remainingByBarcode,
+      });
+      if (matched) matchedSkus++;
+      const shortageReason = normalizeShortageReason(r.shortageReason, confirmQty, orderQty);
+      if (confirmQty < orderQty) shortRows++;
+      else fullyConfirmed++;
+      return {
+        ...r,
+        barcode,
+        orderQty,
+        available,
+        confirmQty,
+        shortageReason,
+      } satisfies ConfirmComputedRow;
+    });
+    return { rows: computed, totalRows: rows.length, fullyConfirmed, shortRows, matchedSkus };
+  }
+
+  private async persistRocketPurchaseOrders(
+    rows: ConfirmSourceRow[],
+    organizationId: string,
+  ): Promise<void> {
+    const summaries = buildRocketPurchaseOrderSummaries(rows);
+    if (summaries.length === 0) return;
+
+    const affectedDates = new Map<string, Date>();
+    for (const summary of summaries) {
+      affectedDates.set(summary.businessDate.toISOString().slice(0, 10), summary.businessDate);
+      await this.prisma.rocketPurchaseOrder.upsert({
+        where: {
+          organizationId_poSeq: {
+            organizationId,
+            poSeq: summary.poSeq,
+          },
+        },
+        create: {
+          organizationId,
+          poSeq: summary.poSeq,
+          businessDate: summary.businessDate,
+          orderedAt: summary.orderedAt,
+          status: summary.status,
+          vendorName: summary.vendorName,
+          centerName: summary.centerName,
+          firstSkuName: summary.firstSkuName,
+          skuCount: summary.skuCount,
+          orderQty: summary.orderQty,
+          orderAmount: summary.orderAmount,
+          items: summary.items,
+        },
+        update: {
+          businessDate: summary.businessDate,
+          orderedAt: summary.orderedAt,
+          status: summary.status,
+          vendorName: summary.vendorName,
+          centerName: summary.centerName,
+          firstSkuName: summary.firstSkuName,
+          skuCount: summary.skuCount,
+          orderQty: summary.orderQty,
+          orderAmount: summary.orderAmount,
+          items: summary.items,
+        },
+      });
+    }
+
+    await this.refreshRocketDailySnapshots(organizationId, [...affectedDates.values()]);
+  }
+
+  private async refreshRocketDailySnapshots(
+    organizationId: string,
+    businessDates: Date[],
+  ): Promise<void> {
+    for (const businessDate of businessDates) {
+      const orders = await this.prisma.rocketPurchaseOrder.findMany({
+        where: { organizationId, businessDate },
+        select: { poSeq: true, orderAmount: true, orderQty: true },
+      });
+      const totals = orders.reduce(
+        (acc, order) => ({
+          revenueKrw: acc.revenueKrw + order.orderAmount,
+          itemQty: acc.itemQty + order.orderQty,
+          poSeqs: [...acc.poSeqs, order.poSeq],
+        }),
+        { revenueKrw: 0, itemQty: 0, poSeqs: [] as number[] },
+      );
+      await this.prisma.rocketSupplyDailySnapshot.upsert({
+        where: {
+          organizationId_businessDate: {
+            organizationId,
+            businessDate,
+          },
+        },
+        create: {
+          organizationId,
+          businessDate,
+          revenueKrw: totals.revenueKrw,
+          poCount: orders.length,
+          itemQty: totals.itemQty,
+          source: 'rocket',
+          rawJson: { poSeqs: totals.poSeqs, source: 'rocket-po-confirm' },
+        },
+        update: {
+          revenueKrw: totals.revenueKrw,
+          poCount: orders.length,
+          itemQty: totals.itemQty,
+          source: 'rocket',
+          rawJson: { poSeqs: totals.poSeqs, source: 'rocket-po-confirm' },
+        },
+      });
+    }
+  }
+
   private workbookToResult(aoa: (string | number)[][]): { buffer: Buffer; fileName: string } {
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     const hidden = XLSX.utils.aoa_to_sheet(SHORTAGE_REASONS.map((r) => [r]));
@@ -265,8 +376,159 @@ export class RocketPoConfirmService {
   }
 }
 
-function toInt(value: unknown): number {
-  return parseInt(String(value ?? '').replace(/[^0-9]/g, ''), 10) || 0;
+function computeConfirmQuantity({
+  barcode,
+  orderQty,
+  requestedConfirmQty,
+  availabilityByBarcode,
+  remainingByBarcode,
+}: ConfirmQuantityInput): ConfirmQuantityResult {
+  const available = availabilityByBarcode.get(barcode);
+  if (available === undefined) return { available: null, confirmQty: 0, matched: false };
+
+  const remaining = Math.max(0, remainingByBarcode.get(barcode) ?? 0);
+  const requested =
+    requestedConfirmQty === undefined
+      ? Math.min(orderQty, remaining)
+      : toQuantity(requestedConfirmQty);
+  const confirmQty = Math.min(orderQty, remaining, requested);
+  remainingByBarcode.set(barcode, remaining - confirmQty);
+  return { available, confirmQty, matched: true };
+}
+
+function normalizeShortageReason(value: unknown, confirmQty: number, orderQty: number): string {
+  if (confirmQty >= orderQty) return '';
+  const reason = typeof value === 'string' ? value.trim() : '';
+  return SHORTAGE_REASONS.includes(reason) ? reason : DEFAULT_SHORTAGE_REASON;
+}
+
+type RocketPurchaseOrderSummary = {
+  poSeq: number;
+  businessDate: Date;
+  orderedAt: Date;
+  status: string | null;
+  vendorName: string | null;
+  centerName: string | null;
+  firstSkuName: string | null;
+  skuCount: number;
+  orderQty: number;
+  orderAmount: number;
+  items: RocketPurchaseOrderItem[];
+};
+
+type RocketPurchaseOrderItem = {
+  name: string;
+  qty: number;
+  unitPrice: number;
+  amount: number;
+  productNo: string;
+  barcode: string;
+};
+
+function buildRocketPurchaseOrderSummaries(rows: ConfirmSourceRow[]): RocketPurchaseOrderSummary[] {
+  const groups = new Map<number, ConfirmSourceRow[]>();
+  for (const row of rows) {
+    const poSeq = parsePoSeq(row.poNumber);
+    if (poSeq === null) continue;
+    groups.set(poSeq, [...(groups.get(poSeq) ?? []), row]);
+  }
+
+  const summaries: RocketPurchaseOrderSummary[] = [];
+  for (const [poSeq, poRows] of groups) {
+    const first = poRows[0];
+    if (!first) continue;
+    const businessDate = parseBusinessDate(first.expectedInboundDate) ?? parseBusinessDate(first.poRegisteredAt);
+    if (!businessDate) continue;
+    const orderedAt = parseOrderedAt(first.poRegisteredAt) ?? businessDate;
+    const items = poRows.map((row) => {
+      const qty = toQuantity(row.orderQty);
+      const amount = toMoney(row.totalPurchase);
+      return {
+        name: cleanText(row.productName),
+        qty,
+        unitPrice: toMoney(row.purchasePrice) || toMoney(row.supplyPrice),
+        amount,
+        productNo: cleanText(row.productNo),
+        barcode: cleanText(row.barcode),
+      };
+    });
+    summaries.push({
+      poSeq,
+      businessDate,
+      orderedAt,
+      status: nullableText(first.poStatus),
+      vendorName: nullableText(first.vendorName),
+      centerName: nullableText(first.center),
+      firstSkuName: nullableText(items.find((item) => item.name)?.name),
+      skuCount: poRows.length,
+      orderQty: items.reduce((sum, item) => sum + item.qty, 0),
+      orderAmount: items.reduce((sum, item) => sum + item.amount, 0),
+      items,
+    });
+  }
+  return summaries;
+}
+
+function parsePoSeq(value: unknown): number | null {
+  const raw = String(value ?? '').trim();
+  if (!/^\d+$/.test(raw)) return null;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseBusinessDate(value: unknown): Date | null {
+  const raw = String(value ?? '').trim();
+  const compact = raw.match(/^(\d{4})(\d{2})(\d{2})$/);
+  const dashed = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const parts = compact ?? dashed;
+  if (!parts) return null;
+  const year = Number(parts[1]);
+  const month = Number(parts[2]);
+  const day = Number(parts[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    return null;
+  }
+  return date;
+}
+
+function parseOrderedAt(value: unknown): Date | null {
+  const raw = String(value ?? '').trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!match) {
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  const date = new Date(Date.UTC(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    Number(match[4]) - 9,
+    Number(match[5]),
+    Number(match[6] ?? 0),
+  ));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function toMoney(value: unknown): number {
+  return toQuantity(value);
+}
+
+function cleanText(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+function nullableText(value: unknown): string | null {
+  const text = cleanText(value);
+  return text ? text : null;
+}
+
+function toQuantity(value: unknown): number {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+  }
+  const parsed = parseInt(String(value ?? '').replace(/[^0-9-]/g, ''), 10);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 }
 
 function ymd(): string {

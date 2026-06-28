@@ -11,7 +11,7 @@ import type {
 /**
  * Coupang Rocket(공급사 발주) revenue read model.
  *
- * Reads `rocket_supply_daily_snapshots` (발주금액=공급가, 발주일 KST 기준 일별
+ * Reads `rocket_supply_daily_snapshots` (발주금액=공급가, 입고예정일 KST 기준 일별
  * fact). The dashboard surfaces this as a separate revenue lane from Wing.
  *
  * Multi-tenant: every read binds `organizationId`. `business_date` is `@db.Date`;

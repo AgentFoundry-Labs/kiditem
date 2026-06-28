@@ -231,6 +231,7 @@ export class DashboardSalesService {
           curMonth,
           wingTrafficMonth,
           coupangAdsMonth,
+          rocketMonth,
         ),
       } satisfies DashboardSalesSummary;
     } catch (error) {
@@ -241,7 +242,7 @@ export class DashboardSalesService {
 
   /**
    * 쿠팡 로켓(발주) 일별 매출 — 매출분석 화면 상세 테이블/차트용.
-   * `rocket_supply_daily_snapshots` 를 해당 월(KST 발주일) 범위로 읽는다.
+   * `rocket_supply_daily_snapshots` 를 해당 월(KST 입고예정일) 범위로 읽는다.
    */
   async getRocketDailySales(
     organizationId: string,
@@ -263,7 +264,7 @@ export class DashboardSalesService {
   }
 
   /**
-   * 특정 발주일(KST)의 로켓 발주 목록 + 품목(SKU) 내역 — 드릴다운용.
+   * 특정 입고예정일(KST)의 로켓 발주 목록 + 품목(SKU) 내역 — 드릴다운용.
    */
   async getRocketOrders(organizationId: string, dateStr: string): Promise<RocketOrderRow[]> {
     const date = new Date(dateStr + 'T00:00:00.000Z');
@@ -370,7 +371,8 @@ export class DashboardSalesService {
   // When `useWing` is true the order-based profit math is unreliable
   // (no settlement data on Drive replay), so we report Wing revenue but
   // leave profit / profitRate at zero. The UI is responsible for hiding
-  // those metric tiles when `effectivePeriod.revenueSource === 'wing'`.
+  // those metric tiles when `effectivePeriod.revenueSource` is not backed by
+  // order-settlement revenue.
   private buildRangeKpi(
     range: string,
     cur: RangeProfitMetrics,
