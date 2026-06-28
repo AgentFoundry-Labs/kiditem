@@ -36,7 +36,7 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
   const [poCount, setPoCount] = useState(0);
   // 입고예정일(다음 7일) 범위 — 거래처확인요청 발주를 이 eta 안의 것만 가져온다.
   const [etaFrom, setEtaFrom] = useState(todayYmd());
-  const [etaTo, setEtaTo] = useState(plusDaysYmd(7));
+  const [etaTo, setEtaTo] = useState(plusDaysYmd(6));
 
   async function handlePreview() {
     setBusy('preview');
@@ -154,7 +154,7 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
                 type="button"
                 onClick={() => {
                   setEtaFrom(todayYmd());
-                  setEtaTo(plusDaysYmd(7));
+                  setEtaTo(plusDaysYmd(6));
                 }}
                 className="rounded-md border border-slate-200 bg-white px-2 py-1 font-medium text-purple-600 hover:bg-purple-50"
               >

@@ -78,7 +78,7 @@ function shiftMonthBounds(dateStr: string, delta: number) {
 export default function RocketOrdersPage() {
   // 입고예정일 기준 (기본: 다음 7일) — 신규주문(거래처확인요청)을 실시간 조회
   const [from, setFrom] = useState(todayYmd());
-  const [to, setTo] = useState(plusDaysYmd(7));
+  const [to, setTo] = useState(plusDaysYmd(6));
   const [status, setStatus] = useState('거래처확인요청');
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [view, setView] = useState<'week' | 'month' | 'chart'>('week');
@@ -142,7 +142,7 @@ export default function RocketOrdersPage() {
   function gotoWeek() {
     setView('week');
     setFrom(todayYmd());
-    setTo(plusDaysYmd(7));
+    setTo(plusDaysYmd(6));
     setSelectedDay(null);
   }
   function gotoMonth() {
@@ -304,7 +304,7 @@ export default function RocketOrdersPage() {
           type="button"
           onClick={() => {
             setFrom(todayYmd());
-            setTo(plusDaysYmd(7));
+            setTo(plusDaysYmd(6));
             setSelectedDay(null);
           }}
           className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-medium text-purple-600 hover:bg-purple-50"

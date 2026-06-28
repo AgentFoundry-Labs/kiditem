@@ -65,7 +65,7 @@ export function RocketMonthCalendar({
           <div
             key={w}
             className={cn(
-              'py-1 text-center text-[11px] font-medium',
+              'py-1 text-center text-sm font-medium',
               i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-slate-400',
             )}
           >
@@ -84,7 +84,7 @@ export function RocketMonthCalendar({
               type="button"
               onClick={() => has && onSelect(active ? null : date)}
               className={cn(
-                'flex min-h-[68px] flex-col items-start rounded-lg border p-1.5 text-left transition',
+                'flex min-h-[80px] flex-col items-start rounded-lg border p-2 text-left transition',
                 active
                   ? 'border-purple-500 bg-purple-100 ring-1 ring-purple-300'
                   : has
@@ -94,7 +94,7 @@ export function RocketMonthCalendar({
             >
               <span
                 className={cn(
-                  'text-[11px]',
+                  'text-sm font-medium',
                   dow === 0 ? 'text-red-400' : dow === 6 ? 'text-blue-400' : 'text-slate-500',
                 )}
               >
@@ -102,9 +102,9 @@ export function RocketMonthCalendar({
               </span>
               {has && (
                 <span className="mt-auto w-full">
-                  <span className="block text-[11px] font-bold tabular-nums text-slate-800">{dd.count}건</span>
-                  <span className="block truncate text-[9px] tabular-nums text-slate-500">{formatNumber(dd.qty)}개</span>
-                  <span className="block truncate text-[9px] tabular-nums text-purple-600">{formatKRW(dd.amount)}</span>
+                  <span className="block text-sm font-bold tabular-nums text-slate-800">{dd.count}건</span>
+                  <span className="block truncate text-[11px] tabular-nums text-slate-500">{formatNumber(dd.qty)}개</span>
+                  <span className="block truncate text-[11px] tabular-nums text-purple-600">{formatKRW(dd.amount)}</span>
                 </span>
               )}
             </button>

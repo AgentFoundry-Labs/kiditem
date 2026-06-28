@@ -48,24 +48,24 @@ export function RocketWeekCalendar({
               <div className="flex w-full items-center justify-between">
                 <span
                   className={cn(
-                    'text-[11px] font-semibold',
+                    'text-sm font-semibold',
                     d.dow === 0 ? 'text-red-500' : d.dow === 6 ? 'text-blue-500' : 'text-slate-400',
                   )}
                 >
                   {d.weekday}
                 </span>
-                <span className="text-[11px] tabular-nums text-slate-400">
+                <span className="text-xs tabular-nums text-slate-400">
                   {d.date.slice(5).replace('-', '/')}
                 </span>
               </div>
               {has ? (
                 <>
-                  <span className="mt-1 text-sm font-bold tabular-nums text-slate-900">{d.count}건</span>
-                  <span className="text-[10px] tabular-nums text-slate-500">{formatNumber(d.qty)}개</span>
-                  <span className="text-[10px] tabular-nums text-purple-600">{formatKRW(d.amount)}</span>
+                  <span className="mt-1 text-lg font-bold tabular-nums text-slate-900">{d.count}건</span>
+                  <span className="text-xs tabular-nums text-slate-500">{formatNumber(d.qty)}개</span>
+                  <span className="text-xs tabular-nums text-purple-600">{formatKRW(d.amount)}</span>
                 </>
               ) : (
-                <span className="mt-1 text-sm text-slate-300">—</span>
+                <span className="mt-1 text-lg text-slate-300">—</span>
               )}
             </button>
           );
