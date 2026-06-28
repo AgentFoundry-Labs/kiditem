@@ -17,6 +17,7 @@ import type { MulterFile } from '../../common/types';
 import {
   RocketPoConfirmService,
   type ConfirmSourceRow,
+  type ConfirmPreviewResult,
   type RocketConfirmFillResult,
 } from '../services/rocket-po-confirm.service';
 
@@ -73,6 +74,19 @@ export class RocketPoController {
     const result = await this.rocketPoConfirmService.generateConfirmFile(rows, organizationId);
     setConfirmHeaders(result, response);
     return new StreamableFile(result.buffer);
+  }
+
+  /** 발주리스트 SKU 행 → 확정수량/사유 계산(편집 미리보기용 JSON) */
+  @Post('confirm-preview')
+  async confirmPreview(
+    @CurrentOrganization() organizationId: string,
+    @Body() body: { rows?: ConfirmSourceRow[] },
+  ): Promise<ConfirmPreviewResult> {
+    const rows = body?.rows ?? [];
+    if (!rows.length) {
+      throw new BadRequestException('미리볼 발주 행이 없습니다.');
+    }
+    return this.rocketPoConfirmService.previewConfirmRows(rows, organizationId);
   }
 }
 

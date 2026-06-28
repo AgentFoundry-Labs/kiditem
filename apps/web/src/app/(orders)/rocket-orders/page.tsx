@@ -11,16 +11,13 @@ import {
   PackageCheck,
   RefreshCw,
   Rocket,
-  Sparkles,
   Truck,
-  Upload,
 } from 'lucide-react';
-import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
-import { downloadBlob } from '@/lib/browser-download';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { collectRocketPoRowsFromExtension, generateRocketConfirmFile } from './lib/rocket-confirm-api';
+import { RocketConfirmPanel } from './components/RocketConfirmPanel';
+import { RocketConfirmFileList } from './components/RocketConfirmFileList';
 
 interface RocketItem {
   name: string;
@@ -71,60 +68,7 @@ export default function RocketOrdersPage() {
   const [to, setTo] = useState(todayYmd());
   const [status, setStatus] = useState('거래처확인요청');
   const [openPo, setOpenPo] = useState<number | null>(null);
-  const [filling, setFilling] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [fillResult, setFillResult] = useState<
-    { total: number; confirmed: number; short: number; matched: number } | null
-  >(null);
-
-  async function handleGenerate() {
-    setGenerating(true);
-    setFillResult(null);
-    try {
-      const { rows, poCount } = await collectRocketPoRowsFromExtension(from, to);
-      if (!rows.length) {
-        toast.error('해당 기간 거래처확인요청 발주가 없습니다.');
-        return;
-      }
-      const summary = await generateRocketConfirmFile(rows);
-      setFillResult(summary);
-      toast.success(`발주확정 양식 생성 완료 — 발주 ${poCount}건 · ${summary.total}행 (다운로드됨)`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '양식 생성 실패');
-    } finally {
-      setGenerating(false);
-    }
-  }
-
-  async function handleConfirmFill(file: File) {
-    setFilling(true);
-    setFillResult(null);
-    try {
-      const form = new FormData();
-      form.append('file', file);
-      const res = await apiClient.fetchRaw('/api/orders/rocket/confirm-fill', { method: 'POST', body: form });
-      if (!res.ok) {
-        const msg = await res.text().catch(() => '');
-        throw new Error(msg || '양식 생성에 실패했습니다.');
-      }
-      const blob = await res.blob();
-      const cd = res.headers.get('Content-Disposition') ?? '';
-      const m = /filename\*=UTF-8''([^;]+)/.exec(cd);
-      const fileName = m ? decodeURIComponent(m[1]) : `발주확정_${Date.now()}.xlsx`;
-      downloadBlob(blob, fileName);
-      setFillResult({
-        total: Number(res.headers.get('X-Rocket-Total') ?? 0),
-        confirmed: Number(res.headers.get('X-Rocket-Confirmed') ?? 0),
-        short: Number(res.headers.get('X-Rocket-Short') ?? 0),
-        matched: Number(res.headers.get('X-Rocket-Matched') ?? 0),
-      });
-      toast.success('발주확정 양식 생성 완료 — 다운로드되었습니다');
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '양식 생성 실패');
-    } finally {
-      setFilling(false);
-    }
-  }
+  const [fileRefreshKey, setFileRefreshKey] = useState(0);
 
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['dashboard', 'rocket-orders', from, to, status],
@@ -179,59 +123,8 @@ export default function RocketOrdersPage() {
         })}
       </div>
 
-      {/* 발주확정 양식 채우기 */}
-      <div className="rounded-xl border border-purple-200 bg-purple-50/40 px-5 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-sm font-semibold text-slate-900">발주확정 양식 생성</div>
-            <div className="mt-0.5 text-xs text-slate-500">
-              위 기간의 <b>거래처확인요청</b> 발주를 확장프로그램으로 수집 → KidItem 재고로 <b>확정수량 = min(발주수량, 재고)</b> · 부족분 사유까지 채운 업로드 양식을 자동 생성합니다. → 쿠팡 발주업로드에 올리면 발주 완료.
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void handleGenerate()}
-              disabled={generating || filling}
-              className={cn(
-                'inline-flex items-center gap-2 rounded-lg bg-purple-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-purple-700',
-                (generating || filling) && 'pointer-events-none opacity-60',
-              )}
-            >
-              {generating ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-              {generating ? '수집·생성 중…' : '발주리스트에서 양식 생성'}
-            </button>
-            <label
-              className={cn(
-                'inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50',
-                (filling || generating) && 'pointer-events-none opacity-60',
-              )}
-            >
-              {filling ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
-              {filling ? '채우는 중…' : '쿠팡 양식 채우기'}
-              <input
-                type="file"
-                accept=".xlsx,.xls"
-                className="hidden"
-                disabled={filling || generating}
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void handleConfirmFill(f);
-                  e.target.value = '';
-                }}
-              />
-            </label>
-          </div>
-        </div>
-        {fillResult && (
-          <div className="mt-3 flex flex-wrap gap-4 border-t border-purple-100 pt-3 text-xs">
-            <span className="text-slate-500">총 <b className="text-slate-900">{formatNumber(fillResult.total)}</b>행</span>
-            <span className="text-emerald-600">전량확정 <b>{formatNumber(fillResult.confirmed)}</b></span>
-            <span className="text-amber-600">납품부족 <b>{formatNumber(fillResult.short)}</b></span>
-            <span className="text-slate-500">재고매칭 <b className="text-slate-900">{formatNumber(fillResult.matched)}</b></span>
-          </div>
-        )}
-      </div>
+      {/* 발주확정 양식 생성 + 편집 미리보기 */}
+      <RocketConfirmPanel from={from} to={to} onSaved={() => setFileRefreshKey((k) => k + 1)} />
 
       {/* 필터 */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3">
@@ -369,6 +262,9 @@ export default function RocketOrdersPage() {
           })}
         </div>
       )}
+
+      {/* 생성한 발주확정 파일 관리 (목록 · 재다운로드 · 삭제) */}
+      <RocketConfirmFileList refreshKey={fileRefreshKey} />
     </div>
   );
 }

@@ -69,6 +69,9 @@ export interface ConfirmSourceRow {
   expectedInboundDate?: string;
   poRegisteredAt?: string;
   xdock?: string;
+  /** 편집 미리보기에서 사용자가 직접 넣은 값 — 있으면 재고 계산 대신 이 값을 씀. */
+  confirmQty?: number;
+  shortageReason?: string;
 }
 
 export interface RocketConfirmFillResult {
@@ -79,6 +82,22 @@ export interface RocketConfirmFillResult {
   shortRows: number;
   matchedSkus: number;
 }
+
+export interface ConfirmComputedRow extends ConfirmSourceRow {
+  available: number | null; // null = KidItem 재고 매칭 안됨
+  confirmQty: number;
+  shortageReason: string;
+}
+
+export interface ConfirmPreviewResult {
+  rows: ConfirmComputedRow[];
+  totalRows: number;
+  fullyConfirmed: number;
+  shortRows: number;
+  matchedSkus: number;
+}
+
+export const ROCKET_SHORTAGE_REASONS = SHORTAGE_REASONS;
 
 @Injectable()
 export class RocketPoConfirmService {
@@ -121,9 +140,16 @@ export class RocketPoConfirmService {
       const orderQty = toInt(r.orderQty);
       const a = avail.get(barcode);
       if (a !== undefined) matchedSkus++;
-      const confirmQty = Math.min(orderQty, a ?? 0);
-      const reason = confirmQty < orderQty ? DEFAULT_SHORTAGE_REASON : '';
-      if (reason) shortRows++;
+      // 편집값이 오면 그대로, 아니면 재고로 계산.
+      const confirmQty =
+        typeof r.confirmQty === 'number' ? Math.max(0, r.confirmQty) : Math.min(orderQty, a ?? 0);
+      const reason =
+        r.shortageReason !== undefined
+          ? r.shortageReason
+          : confirmQty < orderQty
+            ? DEFAULT_SHORTAGE_REASON
+            : '';
+      if (confirmQty < orderQty) shortRows++;
       else fullyConfirmed++;
       aoa.push([
         r.poNumber ?? '', r.center ?? '', r.inboundType ?? '', r.poStatus ?? '',
@@ -142,6 +168,39 @@ export class RocketPoConfirmService {
       shortRows,
       matchedSkus,
     };
+  }
+
+  /** 발주리스트 SKU 행 + 재고 → 확정수량/사유 계산해서 편집 미리보기용 JSON 반환. */
+  async previewConfirmRows(
+    rows: ConfirmSourceRow[],
+    organizationId: string,
+  ): Promise<ConfirmPreviewResult> {
+    if (!rows.length) throw new BadRequestException('미리볼 발주 행이 없습니다.');
+    const barcodes = [...new Set(rows.map((r) => String(r.barcode ?? '').trim()).filter(Boolean))];
+    const avail = await this.availabilityByBarcode(barcodes, organizationId);
+
+    let fullyConfirmed = 0;
+    let shortRows = 0;
+    let matchedSkus = 0;
+    const computed = rows.map((r) => {
+      const barcode = String(r.barcode ?? '').trim();
+      const orderQty = toInt(r.orderQty);
+      const a = avail.get(barcode);
+      if (a !== undefined) matchedSkus++;
+      const confirmQty = Math.min(orderQty, a ?? 0);
+      const shortageReason = confirmQty < orderQty ? DEFAULT_SHORTAGE_REASON : '';
+      if (shortageReason) shortRows++;
+      else fullyConfirmed++;
+      return {
+        ...r,
+        barcode,
+        orderQty,
+        available: a ?? null,
+        confirmQty,
+        shortageReason,
+      } satisfies ConfirmComputedRow;
+    });
+    return { rows: computed, totalRows: rows.length, fullyConfirmed, shortRows, matchedSkus };
   }
 
   /** 쿠팡 업로드 양식(.xlsx)을 받아 확정수량/사유만 채우는 폴백 경로. */
