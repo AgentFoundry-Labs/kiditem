@@ -265,18 +265,10 @@ async function scrapeRocketPoRows(from, to) {
     const clean = (s, n) => (s || "").replace(ctrl, " ").replace(/^\d{8,}\s*/, "").trim().slice(0, n || 80);
     const num = (s) => Number(String(s == null ? "" : s).replace(/[^0-9.-]/g, "")) || 0;
     const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
-    // from/to = 입고예정일(다음 7일) 범위. 발주는 과거이므로 발주일 검색창은 eta 기준 과거로 넓혀 받고,
-    // 응답을 입고예정일(expectedDeliveryDate)로 다시 거른다. (API 는 발주일 검색만 지원)
-    const shift = (d, days) => {
-      const x = new Date(d + "T00:00:00Z");
-      x.setUTCDate(x.getUTCDate() + days);
-      return x.toISOString().slice(0, 10);
-    };
-    const orderFrom = from ? shift(from, -30) : "";
-    const orderTo = to || "";
+    // from/to = 입고예정일(다음 7일) 범위. po-web 는 WAREHOUSING_PLAN_DATE(입고예정일) 서버검색을 지원하므로 그대로 사용.
     const listUrl = (p) =>
       "/po-web/app/purchase-order/list?page=" + p +
-      "&searchDateType=ORDER_DATE&searchStartDate=" + orderFrom + "&searchEndDate=" + orderTo +
+      "&searchDateType=WAREHOUSING_PLAN_DATE&searchStartDate=" + (from || "") + "&searchEndDate=" + (to || "") +
       "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
 
     const pos = [];
