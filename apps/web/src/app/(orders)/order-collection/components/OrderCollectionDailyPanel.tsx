@@ -61,7 +61,7 @@ export const OrderCollectionDailyPanel = memo(function OrderCollectionDailyPanel
     activeStat.key === 'all'
       ? tabs.filter((tab) => tab.key !== 'all').slice(0, MALL_DETAIL_LIMIT)
       : tabs.filter((tab) => tab.key === activeStat.key);
-  const collectionMallCount = Math.max(mallAccounts.length, mallStats.length);
+  const collectionMallCount = tabs.length - 1;
 
   useEffect(() => {
     if (collectingMallKey && collectingMallKey !== activeTab && tabs.some((tab) => tab.key === collectingMallKey)) {
