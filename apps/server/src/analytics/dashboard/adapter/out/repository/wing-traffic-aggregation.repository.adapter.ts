@@ -63,8 +63,75 @@ export class WingTrafficAggregationRepositoryAdapter
     const conversionRate =
       visitors > 0 ? Math.round((orders / visitors) * 1000) / 10 : 0;
 
-    const hasData =
+    const listingHasData =
       (agg._count._all ?? 0) > 0 &&
+      (visitors > 0 || views > 0 || orders > 0 || salesQty > 0 || revenue !== 0);
+
+    if (listingHasData) {
+      return {
+        revenue,
+        orders,
+        salesQty,
+        visitors,
+        views,
+        cartAdds,
+        conversionRate,
+        hasData: true,
+        lastObservedAt: agg._max.lastObservedAt ?? null,
+      } satisfies WingTrafficMetrics;
+    }
+
+    // Fallback — Wing 일별 요약은 account-level KPI 스냅샷(wing_dashboard.summary)에 적재된다.
+    // 상품-리스팅 매칭이 없어 channel_listing_daily_snapshots 가 비는 워크스페이스(매칭 전/미동기화)
+    // 에서도 수집한 Wing 매출을 대시보드에 노출하기 위해 계정 요약을 합산해 동일 지표로 반환.
+    return this.aggregateWingAccountSummary(organizationId, from, to);
+  }
+
+  /** wing_dashboard 계정 KPI 스냅샷의 일별 summary 를 합산 (상품별 facts 폴백). */
+  private async aggregateWingAccountSummary(
+    organizationId: string,
+    from: Date,
+    to: Date,
+  ): Promise<WingTrafficMetrics> {
+    const rows = await this.prisma.channelAccountDailyKpiSnapshot.findMany({
+      where: {
+        organizationId,
+        source: 'wing',
+        kpiType: 'wing_dashboard',
+        businessDate: { gte: from, lt: to },
+      },
+      select: { normalizedJson: true, lastObservedAt: true },
+    });
+
+    let revenue = 0;
+    let orders = 0;
+    let salesQty = 0;
+    let visitors = 0;
+    let views = 0;
+    let cartAdds = 0;
+    let lastObservedAt: Date | null = null;
+
+    for (const row of rows) {
+      const summary =
+        ((row.normalizedJson as Record<string, unknown> | null)?.summary as
+          | Record<string, unknown>
+          | undefined) ?? null;
+      if (!summary) continue;
+      revenue += toInt(summary.revenue);
+      orders += toInt(summary.orders);
+      salesQty += toInt(summary.salesQty);
+      visitors += toInt(summary.visitors);
+      views += toInt(summary.views);
+      cartAdds += toInt(summary.cartAdds);
+      if (!lastObservedAt || row.lastObservedAt > lastObservedAt) {
+        lastObservedAt = row.lastObservedAt;
+      }
+    }
+
+    const conversionRate =
+      visitors > 0 ? Math.round((orders / visitors) * 1000) / 10 : 0;
+    const hasData =
+      rows.length > 0 &&
       (visitors > 0 || views > 0 || orders > 0 || salesQty > 0 || revenue !== 0);
 
     return {
@@ -76,7 +143,7 @@ export class WingTrafficAggregationRepositoryAdapter
       cartAdds,
       conversionRate,
       hasData,
-      lastObservedAt: agg._max.lastObservedAt ?? null,
+      lastObservedAt,
     } satisfies WingTrafficMetrics;
   }
 
@@ -140,7 +207,7 @@ export class WingTrafficAggregationRepositoryAdapter
   async findLatestDataDate(
     organizationId: string,
   ): Promise<Date | null> {
-    const [wing, ads] = await Promise.all([
+    const [wing, wingKpi, ads] = await Promise.all([
       this.prisma.channelListingDailySnapshot.aggregate({
         where: {
           organizationId,
@@ -153,6 +220,15 @@ export class WingTrafficAggregationRepositoryAdapter
         },
         _max: { businessDate: true },
       }),
+      // 상품별 facts 가 비어도 wing 요약(account KPI)이 있으면 그 최신일로 앵커.
+      this.prisma.channelAccountDailyKpiSnapshot.aggregate({
+        where: {
+          organizationId,
+          source: 'wing',
+          kpiType: 'wing_dashboard',
+        },
+        _max: { businessDate: true },
+      }),
       this.prisma.channelAccountDailyKpiSnapshot.aggregate({
         where: {
           organizationId,
@@ -162,9 +238,11 @@ export class WingTrafficAggregationRepositoryAdapter
       }),
     ]);
 
-    const dates = [wing._max.businessDate, ads._max.businessDate].filter(
-      (d): d is Date => d instanceof Date,
-    );
+    const dates = [
+      wing._max.businessDate,
+      wingKpi._max.businessDate,
+      ads._max.businessDate,
+    ].filter((d): d is Date => d instanceof Date);
     if (dates.length === 0) return null;
     return dates.reduce((a, b) => (a.getTime() >= b.getTime() ? a : b));
   }
@@ -180,7 +258,7 @@ export class WingTrafficAggregationRepositoryAdapter
     until?: Date,
   ): Promise<WingDailyTrendRow[]> {
     const upperBound = until ?? null;
-    return this.prisma.$queryRaw<WingDailyTrendRow[]>(Prisma.sql`
+    const rows = await this.prisma.$queryRaw<WingDailyTrendRow[]>(Prisma.sql`
       SELECT
         TO_CHAR(business_date, 'YYYY-MM-DD') AS date,
         COALESCE(SUM(traffic_revenue), 0)::int  AS revenue,
@@ -194,6 +272,32 @@ export class WingTrafficAggregationRepositoryAdapter
       GROUP BY 1
       ORDER BY 1
     `);
+    if (rows.length > 0) return rows;
+
+    // 상품별 facts 가 비면 wing 요약(account KPI)의 일별 summary 로 추이를 구성.
+    const kpiRows = await this.prisma.channelAccountDailyKpiSnapshot.findMany({
+      where: {
+        organizationId,
+        source: 'wing',
+        kpiType: 'wing_dashboard',
+        businessDate: until ? { gte: since, lt: until } : { gte: since },
+      },
+      select: { businessDate: true, normalizedJson: true },
+      orderBy: { businessDate: 'asc' },
+    });
+    return kpiRows.map((row) => {
+      const summary =
+        ((row.normalizedJson as Record<string, unknown> | null)?.summary as
+          | Record<string, unknown>
+          | undefined) ?? {};
+      return {
+        date: row.businessDate.toISOString().slice(0, 10),
+        revenue: toInt(summary.revenue),
+        orders: toInt(summary.orders),
+        salesQty: toInt(summary.salesQty),
+        visitors: toInt(summary.visitors),
+      } satisfies WingDailyTrendRow;
+    });
   }
 
   /**
