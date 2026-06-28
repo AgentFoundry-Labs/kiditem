@@ -1,0 +1,91 @@
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Header,
+  Post,
+  Res,
+  StreamableFile,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
+
+import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
+import type { MulterFile } from '../../common/types';
+import {
+  RocketPoConfirmService,
+  type ConfirmSourceRow,
+  type RocketConfirmFillResult,
+} from '../services/rocket-po-confirm.service';
+
+const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
+const ALLOWED_EXTENSIONS = /\.(xls|xlsx)$/i;
+
+@Controller('orders/rocket')
+export class RocketPoController {
+  constructor(private readonly rocketPoConfirmService: RocketPoConfirmService) {}
+
+  /** 쿠팡 발주 업로드 양식(.xlsx) → KidItem 재고로 확정수량/사유 채워서 반환 */
+  @Post('confirm-fill')
+  @Header(
+    'Access-Control-Expose-Headers',
+    ['Content-Disposition', 'X-Rocket-Total', 'X-Rocket-Confirmed', 'X-Rocket-Short', 'X-Rocket-Matched'].join(', '),
+  )
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_UPLOAD_SIZE },
+      fileFilter: (_req, file, cb) => {
+        if (ALLOWED_EXTENSIONS.test(file.originalname)) return cb(null, true);
+        cb(new BadRequestException('xlsx 발주 양식만 업로드 가능합니다.'), false);
+      },
+    }),
+  )
+  async confirmFill(
+    @UploadedFile() file: MulterFile,
+    @CurrentOrganization() organizationId: string,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile> {
+    if (!file) {
+      throw new BadRequestException('파일이 필요합니다.');
+    }
+    const result = await this.rocketPoConfirmService.fillConfirmTemplate(file, organizationId);
+    setConfirmHeaders(result, response);
+    return new StreamableFile(result.buffer);
+  }
+
+  /** 발주리스트(거래처확인요청) SKU 행 → 양식을 처음부터 직접 생성 */
+  @Post('confirm-generate')
+  @Header(
+    'Access-Control-Expose-Headers',
+    ['Content-Disposition', 'X-Rocket-Total', 'X-Rocket-Confirmed', 'X-Rocket-Short', 'X-Rocket-Matched'].join(', '),
+  )
+  async confirmGenerate(
+    @CurrentOrganization() organizationId: string,
+    @Body() body: { rows?: ConfirmSourceRow[] },
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile> {
+    const rows = body?.rows ?? [];
+    if (!rows.length) {
+      throw new BadRequestException('생성할 발주 행이 없습니다.');
+    }
+    const result = await this.rocketPoConfirmService.generateConfirmFile(rows, organizationId);
+    setConfirmHeaders(result, response);
+    return new StreamableFile(result.buffer);
+  }
+}
+
+function setConfirmHeaders(result: RocketConfirmFillResult, response: Response): void {
+  response.setHeader('Content-Disposition', contentDispositionAttachment(result.fileName));
+  response.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  response.setHeader('X-Rocket-Total', String(result.totalRows));
+  response.setHeader('X-Rocket-Confirmed', String(result.fullyConfirmed));
+  response.setHeader('X-Rocket-Short', String(result.shortRows));
+  response.setHeader('X-Rocket-Matched', String(result.matchedSkus));
+}
+
+function contentDispositionAttachment(fileName: string): string {
+  const asciiFallback = fileName.replace(/[^\x20-\x7E]/g, '_');
+  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+}

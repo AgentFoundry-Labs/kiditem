@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "KIDITEM OS - 주문수집 도우미",
   "description": "아이스크림몰 등 주문관리 화면에서 주문 행을 수집해 KidItem 주문수집에 전달합니다.",
-  "version": "0.1.4",
+  "version": "0.1.6",
   "permissions": ["tabs", "scripting"],
   "externally_connectable": {
     "matches": ["http://localhost:3000/*"]
@@ -11,6 +11,7 @@
     "https://*.i-screammall.co.kr/*",
     "https://*.i-screammedia.com/*",
     "https://*.i-screammedia.co.kr/*",
+    "https://supplier.coupang.com/*",
     "https://*.sellpia.com/*",
     "http://localhost:3000/*"
   ],

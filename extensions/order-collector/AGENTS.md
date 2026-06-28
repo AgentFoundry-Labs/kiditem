@@ -7,6 +7,7 @@ back to the KidItem web app.
 ## Owned Surfaces
 
 - Icecream Mall PO delivery inquiry grid capture.
+- Coupang supplier ASN visible-row Label/statement download triggers.
 - KidItem localhost extension-id discovery for order collection only.
 
 ## Browser Boundary

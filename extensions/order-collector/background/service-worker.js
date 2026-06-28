@@ -6,6 +6,8 @@ const ICECREAM_MALL_TAB_MATCHES = [
 ];
 const SELLPIA_ORDER_UPLOAD_URL = "https://kiditem.sellpia.com/order_collect.html?ctype=OM_FILE";
 const SELLPIA_TAB_MATCHES = ["https://*.sellpia.com/*"];
+const COUPANG_SHIPMENT_URL = "https://supplier.coupang.com/ibs/asn/active";
+const COUPANG_SUPPLIER_TAB_MATCHES = ["https://supplier.coupang.com/*"];
 const ICECREAM_DELIVERY_HEADERS = [
   "No",
   "주문번호",
@@ -58,6 +60,7 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
       version: chrome.runtime.getManifest().version,
       capabilities: {
         orderCollectionIcecreamMall: true,
+        coupangShipmentDownloads: true,
       },
     });
     return false;
@@ -89,6 +92,49 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
         sendResponse({
           success: false,
           error: error?.message || "셀피아 전송 실패",
+        });
+      });
+    return true;
+  }
+
+  if (msg?.action === "openCoupangShipmentPage") {
+    openCoupangShipmentPage()
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({
+          success: false,
+          error: error?.message || "쿠팡 쉽먼트 화면 열기 실패",
+        });
+      });
+    return true;
+  }
+
+  if (msg?.action === "clickCoupangShipmentDownloads") {
+    clickCoupangShipmentDownloads({
+      date: typeof msg.date === "string" ? msg.date : null,
+      labels: msg.labels !== false,
+      statements: msg.statements !== false,
+    })
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({
+          success: false,
+          error: error?.message || "쿠팡 쉽먼트 다운로드 실행 실패",
+        });
+      });
+    return true;
+  }
+
+  if (msg?.action === "collectRocketPoRows") {
+    collectRocketPoRows({
+      from: typeof msg.from === "string" ? msg.from : null,
+      to: typeof msg.to === "string" ? msg.to : null,
+    })
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({
+          success: false,
+          error: error?.message || "로켓 발주 수집 실패",
         });
       });
     return true;
@@ -148,6 +194,309 @@ async function findOrCreateSellpiaTab() {
     return chrome.tabs.get(tabs[0].id);
   }
   return chrome.tabs.create({ url: SELLPIA_ORDER_UPLOAD_URL, active: true });
+}
+
+async function openCoupangShipmentPage() {
+  const tab = await findOrCreateCoupangSupplierTab();
+  if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
+  await waitForTabReady(tab.id);
+  const currentTab = await chrome.tabs.get(tab.id).catch(() => tab);
+  return {
+    success: true,
+    tabId: tab.id,
+    url: currentTab.url || tab.url || COUPANG_SHIPMENT_URL,
+  };
+}
+
+async function clickCoupangShipmentDownloads(options) {
+  const tab = await findOrCreateCoupangSupplierTab();
+  if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
+  await waitForTabReady(tab.id);
+
+  const injected = await withTimeout(
+    chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: clickCoupangShipmentDownloadButtons,
+      args: [options],
+    }),
+    90000,
+    "쿠팡 쉽먼트 다운로드 버튼 실행 시간이 초과되었습니다.",
+  );
+
+  const result = injected[0]?.result ?? {
+    success: false,
+    error: "쿠팡 쉽먼트 화면에 접근하지 못했습니다.",
+  };
+  const currentTab = await chrome.tabs.get(tab.id).catch(() => tab);
+  return {
+    ...result,
+    url: currentTab.url || tab.url || COUPANG_SHIPMENT_URL,
+  };
+}
+
+// ── 로켓 발주확정: 발주리스트(거래처확인요청) + 상세를 풀컬럼 스크래핑 ──
+async function collectRocketPoRows({ from, to }) {
+  const tab = await findOrCreateCoupangSupplierTab();
+  if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
+  await waitForTabReady(tab.id);
+
+  const injected = await withTimeout(
+    chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: scrapeRocketPoRows,
+      args: [from, to],
+    }),
+    180000,
+    "로켓 발주 수집 시간이 초과되었습니다.",
+  );
+
+  return (
+    injected[0]?.result ?? {
+      success: false,
+      error: "supplier 화면에 접근하지 못했습니다.",
+    }
+  );
+}
+
+// supplier.coupang.com 페이지 컨텍스트에서 실행 (DOMParser + same-origin fetch + 쿠키).
+async function scrapeRocketPoRows(from, to) {
+  try {
+    const ctrl = new RegExp("[\\u0000-\\u001F]", "g");
+    const clean = (s, n) => (s || "").replace(ctrl, " ").replace(/^\d{8,}\s*/, "").trim().slice(0, n || 80);
+    const num = (s) => Number(String(s == null ? "" : s).replace(/[^0-9.-]/g, "")) || 0;
+    const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
+    const listUrl = (p) =>
+      "/po-web/app/purchase-order/list?page=" + p +
+      "&searchDateType=ORDER_DATE&searchStartDate=" + from + "&searchEndDate=" + to +
+      "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
+
+    const pos = [];
+    for (let p = 1; p <= 40; p++) {
+      const res = await fetch(listUrl(p), { credentials: "include", headers: { accept: "application/json" } });
+      const text = await res.text();
+      if (!res.ok || text.trim().charAt(0) === "<") {
+        if (p === 1)
+          return {
+            success: false,
+            error:
+              "쿠팡 supplier 로그인이 필요합니다. supplier.coupang.com 에 로그인한 뒤 다시 시도하세요. (발주리스트가 JSON 대신 로그인 페이지를 반환했습니다)",
+          };
+        break;
+      }
+      let j;
+      try {
+        j = JSON.parse(text);
+      } catch (e) {
+        if (p === 1) return { success: false, error: "발주리스트 응답을 해석하지 못했습니다 (supplier 로그인/세션 확인)." };
+        break;
+      }
+      const b = j.body || {};
+      const rows = b.body || [];
+      for (const o of rows) {
+        if ((o.purchaseOrderStatusDescription || "") === "거래처확인요청") pos.push(o);
+      }
+      if (p >= (b.lastPageNumber || 1)) break;
+    }
+    if (pos.length === 0) return { success: true, rows: [], poCount: 0 };
+
+    const out = [];
+    const parseDetail = async (po) => {
+      try {
+        const html = await (await fetch("/scm/purchase/order/get/" + po.purchaseOrderSeq, { credentials: "include" })).text();
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        const tabs = Array.from(doc.querySelectorAll("table"));
+        const rt = tabs.find((t) => /회송\s*담당자/.test(t.textContent) && /회송지/.test(t.textContent));
+        const rtRow = rt && rt.rows[1] ? Array.from(rt.rows[1].cells).map((c) => norm(c.textContent)) : ["", "", ""];
+        const st = tabs.find((t) => /상품\s*번호/.test(t.textContent) && /발주금액/.test(t.textContent));
+        const skus = st
+          ? Array.from(st.rows)
+              .map((r) => Array.from(r.cells).map((c) => norm(c.textContent)))
+              .filter((r) => /^\d+$/.test(r[0]) && r.length > 9)
+          : [];
+        for (const r of skus) {
+          out.push({
+            poNumber: String(po.purchaseOrderSeq),
+            center: po.centerName || "",
+            inboundType: po.transportTypeDescription || "",
+            poStatus: po.purchaseOrderStatusDescription || "",
+            productNo: r[1] || "",
+            barcode: (String(r[2]).match(/^\d{8,}/) || [""])[0],
+            productName: clean(r[2], 80),
+            orderQty: num(r[4]),
+            returnManager: rtRow[0] || "",
+            returnContact: rtRow[1] || "",
+            returnAddress: rtRow[2] || "",
+            purchasePrice: num(r[6]),
+            supplyPrice: num(r[7]),
+            vat: num(r[8]),
+            totalPurchase: num(r[9]),
+            expectedInboundDate: (po.expectedDeliveryDate || "").slice(0, 10).replace(/-/g, ""),
+            poRegisteredAt: (po.createdAt || "").replace("T", " ").slice(0, 19),
+            xdock: "N",
+          });
+        }
+      } catch (e) {
+        /* skip this PO */
+      }
+    };
+
+    for (let i = 0; i < pos.length; i += 5) {
+      await Promise.all(pos.slice(i, i + 5).map(parseDetail));
+    }
+    return { success: true, rows: out, poCount: pos.length };
+  } catch (e) {
+    return { success: false, error: String((e && e.message) || e) };
+  }
+}
+
+async function findOrCreateCoupangSupplierTab() {
+  const tabs = await chrome.tabs.query({ url: COUPANG_SUPPLIER_TAB_MATCHES });
+  const shipmentTab = tabs.find((tab) => (tab.url || "").includes("/ibs/asn/active"));
+  if (shipmentTab?.id) {
+    await chrome.tabs.update(shipmentTab.id, { active: true });
+    return shipmentTab;
+  }
+  if (tabs[0]?.id) {
+    await chrome.tabs.update(tabs[0].id, { url: COUPANG_SHIPMENT_URL, active: true });
+    return chrome.tabs.get(tabs[0].id);
+  }
+  return chrome.tabs.create({ url: COUPANG_SHIPMENT_URL, active: true });
+}
+
+async function clickCoupangShipmentDownloadButtons(options) {
+  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const targetDate = compactDate(options?.date || "");
+  const wantLabels = options?.labels !== false;
+  const wantStatements = options?.statements !== false;
+
+  const table = findShipmentTable();
+  if (!table) {
+    return {
+      success: false,
+      error: "쿠팡 쉽먼트 조회 결과 표를 찾지 못했습니다.",
+    };
+  }
+
+  const headerMap = buildHeaderMap(table);
+  const rowElements = Array.from(table.querySelectorAll("tbody tr")).filter((row) => {
+    const cells = Array.from(row.querySelectorAll("td"));
+    return cells.length >= 6 && row.offsetParent !== null;
+  });
+
+  const rows = [];
+  let labelCount = 0;
+  let statementCount = 0;
+
+  for (const row of rowElements) {
+    const cells = Array.from(row.querySelectorAll("td"));
+    const shipmentId = textAt(cells, headerMap, ["쉽먼트 번호", "shipment"]);
+    const outboundAt = textAt(cells, headerMap, ["발송일"]);
+    const inboundDate = textAt(cells, headerMap, ["입고예정일", "입고 예정일"]);
+    const center = textAt(cells, headerMap, ["센터"]);
+    const candidateDate = compactDate(inboundDate || outboundAt);
+    if (targetDate && candidateDate !== targetDate) continue;
+
+    let labelClicked = false;
+    let statementClicked = false;
+
+    if (wantLabels) {
+      const button = findRowButton(row, ["label", "라벨"]);
+      if (button) {
+        button.click();
+        labelClicked = true;
+        labelCount += 1;
+        await delay(450);
+      }
+    }
+    if (wantStatements) {
+      const button = findRowButton(row, ["내역서"]);
+      if (button) {
+        button.click();
+        statementClicked = true;
+        statementCount += 1;
+        await delay(450);
+      }
+    }
+
+    rows.push({
+      shipmentId,
+      outboundAt,
+      inboundDate,
+      center,
+      labelClicked,
+      statementClicked,
+    });
+  }
+
+  if (rows.length === 0) {
+    return {
+      success: false,
+      error: targetDate
+        ? "선택한 날짜에 해당하는 쉽먼트 행을 찾지 못했습니다."
+        : "다운로드할 쉽먼트 행을 찾지 못했습니다.",
+    };
+  }
+
+  return {
+    success: true,
+    rows,
+    labelCount,
+    statementCount,
+    url: location.href,
+  };
+
+  function findShipmentTable() {
+    const tables = Array.from(document.querySelectorAll("table"));
+    return tables.find((candidate) => {
+      const text = (candidate.textContent || "").replace(/\s+/g, "");
+      return text.includes("쉽먼트번호") && text.includes("입고예정일") && text.includes("센터");
+    }) || null;
+  }
+
+  function buildHeaderMap(tableElement) {
+    const headers = Array.from(tableElement.querySelectorAll("thead th, tr:first-child th"));
+    const map = new Map();
+    headers.forEach((header, index) => {
+      const text = normalizeText(header.textContent || "");
+      if (text) map.set(text, index);
+    });
+    return map;
+  }
+
+  function textAt(cells, map, names) {
+    for (const name of names) {
+      const normalized = normalizeText(name);
+      const exact = map.get(normalized);
+      if (typeof exact === "number" && cells[exact]) {
+        return normalizeText(cells[exact].textContent || "");
+      }
+      const fuzzy = Array.from(map.entries()).find(([header]) => header.includes(normalized));
+      if (fuzzy && cells[fuzzy[1]]) return normalizeText(cells[fuzzy[1]].textContent || "");
+    }
+    return "";
+  }
+
+  function findRowButton(row, labels) {
+    const targets = labels.map((label) => label.toLowerCase());
+    return Array.from(row.querySelectorAll("button, a, input[type='button']")).find((element) => {
+      const text = normalizeText(
+        element.tagName === "INPUT"
+          ? element.value || element.getAttribute("aria-label") || ""
+          : element.textContent || element.getAttribute("aria-label") || element.getAttribute("title") || "",
+      ).toLowerCase();
+      return targets.some((target) => text.includes(target));
+    }) || null;
+  }
+
+  function compactDate(value) {
+    const digits = String(value || "").replace(/[^\d]/g, "");
+    if (digits.length >= 8) return digits.slice(0, 8);
+    return "";
+  }
+
+  function normalizeText(value) {
+    return String(value || "").replace(/\s+/g, " ").trim();
+  }
 }
 
 async function injectSellpiaOrderFile(payload) {

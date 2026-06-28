@@ -203,6 +203,9 @@ export default function Dashboard() {
   const prevProfitRate = rk?.prevProfitRate ?? (salesBaseline.monthly.prevRevenue > 0 ? (salesBaseline.monthly.prevProfit / salesBaseline.monthly.prevRevenue) * 100 : 0);
   const kpiAdRate = rkAd?.adRate ?? salesBaseline.monthly.adRate;
   const kpiPrevAdRate = rkAd?.prevAdRate ?? salesBaseline.monthly.prevAdRate;
+  // 윙/로켓 분리 표시 — headline(kpiRevenue)은 합산, 아래 라인에서 채널별로 분해.
+  const wingRevenue = effectiveSales?.monthly?.wingRevenue ?? salesBaseline.monthly.wingRevenue ?? kpiRevenue;
+  const rocketRevenue = effectiveSales?.monthly?.rocketRevenue ?? salesBaseline.monthly.rocketRevenue ?? 0;
   const adRateChange = rkAd?.adRateChange ?? (kpiPrevAdRate > 0 ? kpiAdRate - kpiPrevAdRate : 0);
 
   const revenueGoal = Math.max(kpiPrevRevenue * 1.15, 1000000);
@@ -351,6 +354,26 @@ export default function Dashboard() {
               <span className="text-lg font-semibold text-blue-600/60">원</span>
             </div>
             <div className="text-sm text-slate-500">이전 {formatKRW(kpiPrevRevenue)}원</div>
+            {(wingRevenue > 0 || rocketRevenue > 0) && (
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <Link
+                  href="/sales-analysis?tab=wing-daily"
+                  className="rounded-lg bg-blue-50/70 px-2.5 py-1.5 transition-colors hover:bg-blue-100"
+                >
+                  <div className="text-[11px] font-medium text-blue-500">쿠팡 윙</div>
+                  <div className="text-sm font-bold tabular-nums text-blue-700">{formatKRW(wingRevenue)}원</div>
+                </Link>
+                <Link
+                  href="/sales-analysis?tab=rocket-daily"
+                  className="rounded-lg bg-purple-50 px-2.5 py-1.5 transition-colors hover:bg-purple-100"
+                >
+                  <div className="text-[11px] font-medium text-purple-600">
+                    쿠팡 로켓 <span className="text-[9px] text-purple-400">→ 분석</span>
+                  </div>
+                  <div className="text-sm font-bold tabular-nums text-purple-700">{formatKRW(rocketRevenue)}원</div>
+                </Link>
+              </div>
+            )}
             <div className="mt-2 pt-2 border-t border-blue-100">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-[12px] font-medium text-blue-400">목표 {formatKRW(revenueGoal)}원</span>

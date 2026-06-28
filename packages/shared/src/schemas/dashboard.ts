@@ -174,7 +174,7 @@ export const DashboardEffectivePeriodSchema = z.object({
   label: z.string(),
   shifted: z.boolean(),
   latestDataDate: z.string().nullable(),
-  revenueSource: z.enum(['orders', 'wing', 'mixed', 'none']),
+  revenueSource: z.enum(['orders', 'wing', 'mixed', 'none', 'rocket', 'wing_rocket']),
   adSource: z.enum(['orders', 'coupang_ads', 'wing', 'mixed', 'none']).optional(),
 });
 export type DashboardEffectivePeriod = z.infer<typeof DashboardEffectivePeriodSchema>;
@@ -186,7 +186,9 @@ export const DashboardSalesSummarySchema = z.object({
     orders: z.number(),
   }),
   monthly: z.object({
-    revenue: z.number(),
+    revenue: z.number(), // 윙+로켓 합산(총 매출)
+    wingRevenue: z.number().optional(), // 쿠팡 윙 매출 (분리 표시용)
+    rocketRevenue: z.number().optional(), // 쿠팡 로켓(발주) 매출 (분리 표시용)
     profit: z.number(),
     adRate: z.number(),
     prevRevenue: z.number(),

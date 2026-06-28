@@ -13,6 +13,8 @@ import { OrderCollectionService } from './services/order-collection.service';
 import { OrderCollectionMallAccountService } from './services/order-collection-mall-account.service';
 import { ReturnTransfersController } from './return-transfers/return-transfers.controller';
 import { ReturnTransfersService } from './return-transfers/return-transfers.service';
+import { RocketPoController } from './controllers/rocket-po.controller';
+import { RocketPoConfirmService } from './services/rocket-po-confirm.service';
 import { ChannelsModule } from '../channels/channels.module';
 
 @Module({
@@ -25,6 +27,7 @@ import { ChannelsModule } from '../channels/channels.module';
     CsController,
     ReviewsController,
     ReturnTransfersController,
+    RocketPoController,
   ],
   providers: [
     OrdersService,
@@ -34,6 +37,7 @@ import { ChannelsModule } from '../channels/channels.module';
     CsService,
     ReviewsService,
     ReturnTransfersService,
+    RocketPoConfirmService,
   ],
 })
 export class OrdersModule {}

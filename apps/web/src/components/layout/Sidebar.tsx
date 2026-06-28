@@ -40,6 +40,7 @@ import {
   Wand2,
   Link2,
   FileSpreadsheet,
+  Rocket,
   LogOut,
   type LucideIcon,
 } from 'lucide-react';
@@ -130,6 +131,7 @@ export const menuSections: MenuSection[] = [
     items: [
       { href: '/order-hub', label: '주문 처리', icon: ShoppingCart },
       { href: '/order-collection', label: '주문수집', icon: FileSpreadsheet },
+      { href: '/rocket-orders', label: '쿠팡 로켓', icon: Rocket },
       { href: '/cs-management', label: 'CS 관리', icon: Headphones },
       { href: '/order-status-hub', label: '주문 현황', icon: ClipboardList },
       { href: '/unshipped-items', label: '미배송 조회', icon: AlertTriangle },
@@ -149,6 +151,7 @@ export const menuSections: MenuSection[] = [
     collapsible: true,
     items: [
       { href: '/outbound', label: '출고 현황', icon: Truck },
+      { href: '/coupang-shipments', label: '쿠팡 쉽먼트', icon: PackageCheck },
       { href: '/returns', label: '반품 관리', icon: RotateCcw },
       { href: '/return-scan', label: '반품 스캔', icon: ScanLine },
     ],

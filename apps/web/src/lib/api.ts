@@ -24,7 +24,7 @@ export function normalizeLoopbackApiBase(apiBase: string, browserHostname: strin
   try {
     const url = new URL(apiBase);
     if (isLoopbackHost(url.hostname) && isLoopbackHost(browserHostname)) {
-      url.hostname = browserHostname;
+      url.hostname = browserHostname === '0.0.0.0' ? 'localhost' : browserHostname;
     }
     return url.toString().replace(/\/$/, '');
   } catch {
@@ -33,5 +33,10 @@ export function normalizeLoopbackApiBase(apiBase: string, browserHostname: strin
 }
 
 function isLoopbackHost(hostname: string): boolean {
-  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+  return (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '0.0.0.0' ||
+    hostname === '::1'
+  );
 }
