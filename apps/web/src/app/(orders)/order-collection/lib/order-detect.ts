@@ -1,0 +1,77 @@
+/**
+ * 신규 주문 감지(diff)용 클라이언트 저장소 + 비교 로직.
+ * 수집한 주문 행을 "이미 본 행"과 비교해 신규 행만 가려낸다. 저장은 localStorage(로컬 전용 도메인).
+ */
+
+const SEEN_PREFIX = 'kiditem-order-seen:';
+const MAX_KEYS_PER_MALL = 8000;
+const ROW_KEY_SEP = '';
+
+export interface OrderDiff {
+  /** 이전에 본 적 없는 신규 행 */
+  newRows: string[][];
+  /** 신규 행의 키 (seen 저장용) */
+  newRowKeys: string[];
+  /** 신규 행에 포함된 서로 다른 주문번호 개수 (헤더에 주문번호가 있을 때) */
+  newOrderCount: number;
+}
+
+/** 몰별로 이미 본 주문 행 키 집합을 불러온다. */
+export function loadSeenOrderKeys(mallKey: string): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = window.localStorage.getItem(SEEN_PREFIX + mallKey);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as unknown;
+    return new Set(Array.isArray(parsed) ? (parsed as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/** 본 주문 행 키를 추가 저장한다. 오래된 키부터 잘라 최대 개수를 유지한다. */
+export function addSeenOrderKeys(mallKey: string, keys: string[]): void {
+  if (typeof window === 'undefined' || keys.length === 0) return;
+  try {
+    const seen = loadSeenOrderKeys(mallKey);
+    for (const key of keys) seen.add(key);
+    let next = [...seen];
+    if (next.length > MAX_KEYS_PER_MALL) {
+      next = next.slice(next.length - MAX_KEYS_PER_MALL);
+    }
+    window.localStorage.setItem(SEEN_PREFIX + mallKey, JSON.stringify(next));
+  } catch {
+    // localStorage 용량 초과 등은 무시 (감지 실패해도 수집 자체엔 영향 없음)
+  }
+}
+
+/** 각 행을 고유 키로 변환 (셀 전체 결합 — 스크래퍼의 dedup 키와 동일 방식). */
+export function rowKeysOf(rows: string[][]): string[] {
+  return rows.map((row) => row.map((cell) => (cell ?? '').trim()).join(ROW_KEY_SEP));
+}
+
+/** seen 에 없는 신규 행만 가려낸다. */
+export function diffNewOrderRows(headers: string[], rows: string[][], seen: Set<string>): OrderDiff {
+  const orderNoIndex = headers.findIndex((header) => header.replace(/\s+/g, '') === '주문번호');
+  const allKeys = rowKeysOf(rows);
+  const newRows: string[][] = [];
+  const newRowKeys: string[] = [];
+  const newOrderNumbers = new Set<string>();
+
+  rows.forEach((row, index) => {
+    const key = allKeys[index];
+    if (seen.has(key)) return;
+    newRows.push(row);
+    newRowKeys.push(key);
+    if (orderNoIndex >= 0) {
+      const orderNo = (row[orderNoIndex] ?? '').trim();
+      if (orderNo) newOrderNumbers.add(orderNo);
+    }
+  });
+
+  return {
+    newRows,
+    newRowKeys,
+    newOrderCount: orderNoIndex >= 0 ? newOrderNumbers.size : newRows.length,
+  };
+}
