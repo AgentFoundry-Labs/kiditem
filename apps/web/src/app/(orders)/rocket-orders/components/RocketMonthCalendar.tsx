@@ -1,7 +1,7 @@
 'use client';
 
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { cn, formatKRW } from '@/lib/utils';
+import { cn, formatKRW, formatNumber } from '@/lib/utils';
 
 const WD = ['일', '월', '화', '수', '목', '금', '토'];
 
@@ -84,7 +84,7 @@ export function RocketMonthCalendar({
               type="button"
               onClick={() => has && onSelect(active ? null : date)}
               className={cn(
-                'flex min-h-[58px] flex-col items-start rounded-lg border p-1.5 text-left transition',
+                'flex min-h-[68px] flex-col items-start rounded-lg border p-1.5 text-left transition',
                 active
                   ? 'border-purple-400 bg-purple-50 ring-1 ring-purple-300'
                   : 'border-slate-100',
@@ -102,6 +102,7 @@ export function RocketMonthCalendar({
               {has && (
                 <span className="mt-auto w-full">
                   <span className="block text-[11px] font-bold tabular-nums text-slate-800">{dd.count}건</span>
+                  <span className="block truncate text-[9px] tabular-nums text-slate-500">{formatNumber(dd.qty)}개</span>
                   <span className="block truncate text-[9px] tabular-nums text-purple-600">{formatKRW(dd.amount)}</span>
                 </span>
               )}
