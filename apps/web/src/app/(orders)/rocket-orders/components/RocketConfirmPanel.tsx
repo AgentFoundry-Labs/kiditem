@@ -17,24 +17,32 @@ import { saveRocketConfirmFile } from '../lib/rocket-confirm-file-store';
 
 type Busy = null | 'preview' | 'download' | 'fill';
 
-export function RocketConfirmPanel({
-  from,
-  to,
-  onSaved,
-}: {
-  from: string;
-  to: string;
-  onSaved: () => void;
-}) {
+function ymd(d: Date) {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+function todayYmd() {
+  return ymd(new Date());
+}
+function plusDaysYmd(n: number) {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return ymd(d);
+}
+
+export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
   const [busy, setBusy] = useState<Busy>(null);
   const [rows, setRows] = useState<RocketComputedRow[] | null>(null);
   const [poCount, setPoCount] = useState(0);
+  // 입고예정일(다음 7일) 범위 — 거래처확인요청 발주를 이 eta 안의 것만 가져온다.
+  const [etaFrom, setEtaFrom] = useState(todayYmd());
+  const [etaTo, setEtaTo] = useState(plusDaysYmd(7));
 
   async function handlePreview() {
     setBusy('preview');
     setRows(null);
     try {
-      const { rows: scraped, poCount: count } = await collectRocketPoRowsFromExtension(from, to);
+      const { rows: scraped, poCount: count } = await collectRocketPoRowsFromExtension(etaFrom, etaTo);
       if (!scraped.length) {
         toast.error('해당 기간 거래처확인요청 발주가 없습니다.');
         return;
@@ -125,7 +133,33 @@ export function RocketConfirmPanel({
           <div className="min-w-0">
             <div className="text-sm font-semibold text-slate-900">발주확정 양식 생성</div>
             <div className="mt-0.5 text-xs text-slate-500">
-              위 기간의 <b>거래처확인요청</b> 발주를 수집 → KidItem 재고로 확정수량을 계산해 <b>아래에서 미리보기·수정</b> → 엑셀 다운로드.
+              <b>거래처확인요청</b> + <b>입고예정일</b> 범위(기본 다음 7일) 발주만 수집 → 재고로 확정수량 계산 → <b>아래에서 미리보기·수정</b> → 엑셀 다운로드.
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="text-slate-400">입고예정일</span>
+              <input
+                type="date"
+                value={etaFrom}
+                onChange={(e) => setEtaFrom(e.target.value)}
+                className="rounded-md border border-slate-200 px-2 py-1"
+              />
+              <span className="text-slate-300">~</span>
+              <input
+                type="date"
+                value={etaTo}
+                onChange={(e) => setEtaTo(e.target.value)}
+                className="rounded-md border border-slate-200 px-2 py-1"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setEtaFrom(todayYmd());
+                  setEtaTo(plusDaysYmd(7));
+                }}
+                className="rounded-md border border-slate-200 bg-white px-2 py-1 font-medium text-purple-600 hover:bg-purple-50"
+              >
+                다음 7일
+              </button>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">

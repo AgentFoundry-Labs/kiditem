@@ -123,8 +123,8 @@ export default function RocketOrdersPage() {
         })}
       </div>
 
-      {/* 발주확정 양식 생성 + 편집 미리보기 */}
-      <RocketConfirmPanel from={from} to={to} onSaved={() => setFileRefreshKey((k) => k + 1)} />
+      {/* 발주확정 양식 생성 + 편집 미리보기 (입고예정일 다음 7일 기준) */}
+      <RocketConfirmPanel onSaved={() => setFileRefreshKey((k) => k + 1)} />
 
       {/* 필터 */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3">
