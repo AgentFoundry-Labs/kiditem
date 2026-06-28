@@ -7,40 +7,20 @@ import {
   ChevronRight,
   FileText,
   Loader2,
-  Package,
   PackageCheck,
   RefreshCw,
   Rocket,
   Truck,
 } from 'lucide-react';
-import { apiClient } from '@/lib/api-client';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { RocketConfirmPanel } from './components/RocketConfirmPanel';
 import { RocketConfirmFileList } from './components/RocketConfirmFileList';
-
-interface RocketItem {
-  name: string;
-  qty: number;
-  amount: number;
-}
-
-interface RocketOrder {
-  poSeq: number;
-  businessDate: string;
-  status: string | null;
-  vendorName: string | null;
-  centerName: string | null;
-  firstSkuName: string | null;
-  skuCount: number;
-  orderQty: number;
-  orderAmount: number;
-  items: RocketItem[];
-}
+import { listRocketPosFromExtension, type RocketPoSummary } from './lib/rocket-confirm-api';
 
 const STATUS_OPTIONS = [
-  { value: '', label: '전체 상태' },
   { value: '거래처확인요청', label: '신규 주문 (거래확인서요청)' },
+  { value: '', label: '전체 상태' },
   { value: '발주확정', label: '발주확정' },
 ];
 
@@ -52,34 +32,37 @@ const STAGES = [
   { icon: FileText, label: '송장 · 출력', desc: '송장 입력 → 부착/동봉 문서 출력' },
 ];
 
-function todayYmd() {
-  const d = new Date();
+function ymd(d: Date) {
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
-function monthStartYmd() {
+function todayYmd() {
+  return ymd(new Date());
+}
+function plusDaysYmd(n: number) {
   const d = new Date();
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-01`;
+  d.setDate(d.getDate() + n);
+  return ymd(d);
 }
 
 export default function RocketOrdersPage() {
-  const [from, setFrom] = useState(monthStartYmd());
-  const [to, setTo] = useState(todayYmd());
+  // 입고예정일 기준 (기본: 다음 7일) — 신규주문(거래처확인요청)을 실시간 조회
+  const [from, setFrom] = useState(todayYmd());
+  const [to, setTo] = useState(plusDaysYmd(7));
   const [status, setStatus] = useState('거래처확인요청');
   const [openPo, setOpenPo] = useState<number | null>(null);
   const [fileRefreshKey, setFileRefreshKey] = useState(0);
 
-  const { data, isLoading, isFetching, refetch } = useQuery({
-    queryKey: ['dashboard', 'rocket-orders', from, to, status],
-    queryFn: () =>
-      apiClient.get<RocketOrder[]>(
-        `/api/dashboard/rocket-orders?from=${from}&to=${to}${status ? `&status=${encodeURIComponent(status)}` : ''}`,
-      ),
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
+    queryKey: ['rocket-po-list', from, to],
+    queryFn: () => listRocketPosFromExtension(from, to),
     staleTime: 0,
+    retry: false,
+    refetchOnWindowFocus: false,
   });
 
-  const orders = data ?? [];
+  const all = data ?? [];
+  const orders = status ? all.filter((o) => o.status === status) : all;
   const totalAmount = orders.reduce((s, o) => s + o.orderAmount, 0);
   const totalQty = orders.reduce((s, o) => s + o.orderQty, 0);
 
@@ -93,14 +76,15 @@ export default function RocketOrdersPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">쿠팡 로켓 발주</h1>
-            <div className="text-sm text-slate-500">공급사 발주(로켓 물류) 처리 — 발주 리스트 · 납품 · 송장 · 출력</div>
+            <div className="text-sm text-slate-500">신규 주문(거래처확인요청) 실시간 조회 · 납품 · 송장 · 출력</div>
           </div>
         </div>
         <button
           onClick={() => refetch()}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          disabled={isFetching}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
         >
-          <RefreshCw size={15} className={isFetching ? 'animate-spin' : ''} /> 새로고침
+          <RefreshCw size={15} className={isFetching ? 'animate-spin' : ''} /> 불러오기
         </button>
       </div>
 
@@ -126,8 +110,9 @@ export default function RocketOrdersPage() {
       {/* 발주확정 양식 생성 + 편집 미리보기 (입고예정일 다음 7일 기준) */}
       <RocketConfirmPanel onSaved={() => setFileRefreshKey((k) => k + 1)} />
 
-      {/* 필터 */}
+      {/* 필터 (입고예정일 기준) */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3">
+        <span className="text-xs font-medium text-slate-400">입고예정일</span>
         <input
           type="date"
           value={from}
@@ -141,6 +126,16 @@ export default function RocketOrdersPage() {
           onChange={(e) => setTo(e.target.value)}
           className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm"
         />
+        <button
+          type="button"
+          onClick={() => {
+            setFrom(todayYmd());
+            setTo(plusDaysYmd(7));
+          }}
+          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-medium text-purple-600 hover:bg-purple-50"
+        >
+          다음 7일
+        </button>
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value)}
@@ -159,30 +154,47 @@ export default function RocketOrdersPage() {
 
       {isLoading && <PageSkeleton variant="table" />}
 
-      {data && orders.length === 0 && (
+      {isError && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-center">
+          <p className="text-sm font-medium text-amber-800">발주 목록을 불러오지 못했습니다</p>
+          <p className="mt-1 text-xs text-amber-600">
+            {error instanceof Error ? error.message : '주문수집 확장 + supplier.coupang.com 로그인을 확인하세요.'}
+          </p>
+          <button
+            onClick={() => refetch()}
+            className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100"
+          >
+            <RefreshCw size={13} /> 다시 시도
+          </button>
+        </div>
+      )}
+
+      {data && !isError && orders.length === 0 && (
         <div className="rounded-xl border border-slate-200 bg-white p-12 text-center text-slate-400">
           <Rocket size={32} className="mx-auto mb-3 opacity-20" />
-          <p className="text-sm font-medium">해당 조건의 발주가 없습니다</p>
+          <p className="text-sm font-medium">해당 조건의 신규 발주가 없습니다</p>
+          <p className="mt-1 text-xs text-slate-400">입고예정일 범위를 바꾸거나 상태를 전체로 바꿔보세요.</p>
         </div>
       )}
 
       {/* 발주 리스트 */}
       {orders.length > 0 && (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-          <div className="grid grid-cols-[110px_minmax(0,1fr)_88px_120px_120px] gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+          <div className="grid grid-cols-[110px_minmax(0,1fr)_88px_120px_130px] gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
             <div>발주번호</div>
-            <div>상품</div>
+            <div>상품 / 입고예정일</div>
             <div className="text-right">수량</div>
             <div className="text-right">발주금액</div>
             <div className="text-center">상태 / 처리</div>
           </div>
-          {orders.map((po) => {
+          {orders.map((po: RocketPoSummary) => {
             const open = openPo === po.poSeq;
+            const isNew = po.status === '거래처확인요청';
             return (
               <Fragment key={po.poSeq}>
                 <div
                   className={cn(
-                    'grid cursor-pointer grid-cols-[110px_minmax(0,1fr)_88px_120px_120px] items-center gap-2 border-b border-slate-100 px-4 py-2.5 text-sm hover:bg-slate-50',
+                    'grid cursor-pointer grid-cols-[110px_minmax(0,1fr)_88px_120px_130px] items-center gap-2 border-b border-slate-100 px-4 py-2.5 text-sm hover:bg-slate-50',
                     open && 'bg-purple-50/50',
                   )}
                   onClick={() => setOpenPo(open ? null : po.poSeq)}
@@ -197,47 +209,33 @@ export default function RocketOrdersPage() {
                   </div>
                   <div className="min-w-0">
                     <div className="truncate text-slate-800">
-                      {po.firstSkuName}
+                      {po.firstSkuName || '—'}
                       {po.skuCount > 1 && <span className="text-slate-400"> 외 {po.skuCount - 1}종</span>}
                     </div>
-                    <div className="text-[11px] text-slate-400">{po.businessDate} · {po.centerName}</div>
+                    <div className="text-[11px] text-slate-400">
+                      입고예정 <b className="text-slate-500">{po.eta || '—'}</b> · {po.centerName}
+                      {po.inboundType && ` · ${po.inboundType}`}
+                    </div>
                   </div>
                   <div className="text-right tabular-nums text-slate-600">{formatNumber(po.orderQty)}개</div>
                   <div className="text-right font-semibold tabular-nums text-slate-800">{formatKRW(po.orderAmount)}원</div>
                   <div className="text-center">
-                    <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700">
+                    <span
+                      className={cn(
+                        'rounded-full px-2.5 py-1 text-[11px] font-medium',
+                        isNew ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500',
+                      )}
+                    >
                       {po.status}
                     </span>
                   </div>
                 </div>
                 {open && (
                   <div className="border-b border-slate-200 bg-slate-50/60 px-4 py-3 pl-9">
-                    {/* 품목(SKU) */}
-                    {po.items.length === 0 ? (
-                      <div className="text-[11px] text-slate-400">품목 상세 없음 (대표상품: {po.firstSkuName})</div>
-                    ) : (
-                      <table className="w-full text-[12px]">
-                        <thead>
-                          <tr className="text-[10px] text-slate-400">
-                            <th className="py-1 text-left font-medium">품목 (SKU)</th>
-                            <th className="py-1 text-right font-medium">수량</th>
-                            <th className="py-1 text-right font-medium">금액</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {po.items.map((it, i) => (
-                            <tr key={i} className="border-t border-slate-100">
-                              <td className="py-1 pr-2 text-slate-600">
-                                <Package size={11} className="mr-1 inline text-purple-400" />
-                                {it.name}
-                              </td>
-                              <td className="py-1 text-right tabular-nums text-slate-500">{formatNumber(it.qty)}</td>
-                              <td className="py-1 text-right tabular-nums text-slate-700">{formatKRW(it.amount)}원</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
+                    <div className="text-[11px] text-slate-400">
+                      발주일 {po.orderedAt || '—'} · 품목 {formatNumber(po.skuCount)}종 · 품목 상세는 위
+                      <b className="text-purple-500"> 발주리스트에서 양식 만들기</b> 에서 확인하세요.
+                    </div>
                     {/* 워크플로 액션 (다음 단계 — 쿠팡 쓰기 동작 연동 예정) */}
                     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3">
                       <span className="text-[11px] text-slate-400">처리:</span>

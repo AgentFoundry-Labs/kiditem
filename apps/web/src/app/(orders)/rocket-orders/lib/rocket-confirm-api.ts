@@ -39,6 +39,39 @@ export async function collectRocketPoRowsFromExtension(
   return { rows: res.rows, poCount: res.poCount ?? 0 };
 }
 
+export interface RocketPoSummary {
+  poSeq: number;
+  orderedAt: string;
+  eta: string;
+  status: string;
+  vendorName: string;
+  centerName: string;
+  inboundType: string;
+  firstSkuName: string;
+  skuCount: number;
+  orderQty: number;
+  orderAmount: number;
+}
+
+/** 입고예정일 범위의 발주 목록(PO 단위, SKU 상세 없이)을 supplier 세션에서 빠르게 조회. */
+export async function listRocketPosFromExtension(from: string, to: string): Promise<RocketPoSummary[]> {
+  const extensionId = await detectOrderCollectionExtensionId();
+  if (!extensionId) {
+    throw new Error(
+      '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 supplier.coupang.com 에 로그인한 뒤 다시 시도해주세요.',
+    );
+  }
+  const res = await sendToExtension<{ success?: boolean; pos?: RocketPoSummary[]; error?: string }>(
+    extensionId,
+    { action: 'listRocketPos', from, to },
+    70000,
+  );
+  if (!res?.success || !res.pos) {
+    throw new Error(res?.error ?? '로켓 발주 목록 조회에 실패했습니다.');
+  }
+  return res.pos;
+}
+
 export interface RocketConfirmSummary {
   total: number;
   confirmed: number;

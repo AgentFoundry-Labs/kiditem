@@ -140,6 +140,21 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
     return true;
   }
 
+  if (msg?.action === "listRocketPos") {
+    listRocketPos({
+      from: typeof msg.from === "string" ? msg.from : null,
+      to: typeof msg.to === "string" ? msg.to : null,
+    })
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({
+          success: false,
+          error: error?.message || "로켓 발주 목록 조회 실패",
+        });
+      });
+    return true;
+  }
+
   return false;
 });
 
@@ -256,6 +271,86 @@ async function collectRocketPoRows({ from, to }) {
       error: "supplier 화면에 접근하지 못했습니다.",
     }
   );
+}
+
+// ── 로켓 발주 목록(PO 단위, SKU 상세 없이) — 화면 리스트용 빠른 조회 ──
+async function listRocketPos({ from, to }) {
+  const tab = await findOrCreateCoupangSupplierTab();
+  if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
+  await waitForTabReady(tab.id);
+
+  const injected = await withTimeout(
+    chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: scrapeRocketPoList,
+      args: [from, to],
+    }),
+    60000,
+    "로켓 발주 목록 조회 시간이 초과되었습니다.",
+  );
+
+  return (
+    injected[0]?.result ?? {
+      success: false,
+      error: "supplier 화면에 접근하지 못했습니다.",
+    }
+  );
+}
+
+// supplier 페이지 컨텍스트: 입고예정일(WAREHOUSING_PLAN_DATE) 범위의 발주를 PO 단위로만 빠르게.
+async function scrapeRocketPoList(from, to) {
+  try {
+    const clean = (s, n) =>
+      (s || "").replace(new RegExp("[\\u0000-\\u001F]", "g"), " ").trim().slice(0, n || 60);
+    const listUrl = (p) =>
+      "/po-web/app/purchase-order/list?page=" + p +
+      "&searchDateType=WAREHOUSING_PLAN_DATE&searchStartDate=" + (from || "") + "&searchEndDate=" + (to || "") +
+      "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
+    const out = [];
+    for (let p = 1; p <= 20; p++) {
+      const res = await fetch(listUrl(p), { credentials: "include", headers: { accept: "application/json" } });
+      const text = await res.text();
+      if (!res.ok || text.trim().charAt(0) === "<") {
+        if (p === 1)
+          return {
+            success: false,
+            error: "쿠팡 supplier 로그인이 필요합니다. supplier.coupang.com 에 로그인한 뒤 다시 시도하세요.",
+          };
+        break;
+      }
+      let j;
+      try {
+        j = JSON.parse(text);
+      } catch (e) {
+        if (p === 1) return { success: false, error: "발주리스트 응답을 해석하지 못했습니다 (supplier 로그인/세션 확인)." };
+        break;
+      }
+      const b = j.body || {};
+      const rows = b.body || [];
+      for (const o of rows) {
+        const eta = (o.expectedDeliveryDate || "").slice(0, 10);
+        if (eta && from && eta < from) continue;
+        if (eta && to && eta > to) continue;
+        out.push({
+          poSeq: o.purchaseOrderSeq,
+          orderedAt: (o.createdAt || "").slice(0, 10),
+          eta: eta,
+          status: o.purchaseOrderStatusDescription || "",
+          vendorName: o.vendorName || "",
+          centerName: o.centerName || "",
+          inboundType: o.transportTypeDescription || "",
+          firstSkuName: clean(o.firstSkuName, 60),
+          skuCount: o.skuCount || 0,
+          orderQty: o.sumOfOrderQty || 0,
+          orderAmount: o.sumOfOrderAmount || 0,
+        });
+      }
+      if (p >= (b.lastPageNumber || 1)) break;
+    }
+    return { success: true, pos: out };
+  } catch (e) {
+    return { success: false, error: (e && e.message) || "로켓 발주 목록 조회 실패" };
+  }
 }
 
 // supplier.coupang.com 페이지 컨텍스트에서 실행 (DOMParser + same-origin fetch + 쿠키).
