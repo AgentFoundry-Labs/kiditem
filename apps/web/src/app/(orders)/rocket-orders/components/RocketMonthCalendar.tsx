@@ -86,9 +86,10 @@ export function RocketMonthCalendar({
               className={cn(
                 'flex min-h-[68px] flex-col items-start rounded-lg border p-1.5 text-left transition',
                 active
-                  ? 'border-purple-400 bg-purple-50 ring-1 ring-purple-300'
-                  : 'border-slate-100',
-                has ? 'cursor-pointer hover:border-purple-300 hover:bg-purple-50/40' : 'bg-slate-50/40',
+                  ? 'border-purple-500 bg-purple-100 ring-1 ring-purple-300'
+                  : has
+                    ? 'cursor-pointer border-purple-200 bg-purple-50 hover:bg-purple-100/70'
+                    : 'border-slate-100 bg-slate-50/30',
               )}
             >
               <span

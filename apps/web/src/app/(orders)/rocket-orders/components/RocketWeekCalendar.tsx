@@ -39,9 +39,10 @@ export function RocketWeekCalendar({
               className={cn(
                 'flex flex-col items-start rounded-lg border px-2.5 py-2 text-left transition',
                 active
-                  ? 'border-purple-400 bg-purple-50 ring-1 ring-purple-300'
-                  : 'border-slate-200 bg-white',
-                has ? 'cursor-pointer hover:border-purple-300 hover:bg-purple-50/40' : 'cursor-default opacity-50',
+                  ? 'border-purple-500 bg-purple-100 ring-1 ring-purple-300'
+                  : has
+                    ? 'cursor-pointer border-purple-200 bg-purple-50 hover:bg-purple-100/70'
+                    : 'cursor-default border-slate-200 bg-white opacity-50',
               )}
             >
               <div className="flex w-full items-center justify-between">
