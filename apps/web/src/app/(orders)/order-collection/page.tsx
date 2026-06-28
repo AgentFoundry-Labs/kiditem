@@ -1,9 +1,11 @@
 'use client';
 
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  CheckCircle2,
+  Clock,
   Download,
   Eye,
   EyeOff,
@@ -19,7 +21,6 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { friendlyError } from '@/lib/api-error';
 import { cn, formatDateTime, formatNumber } from '@/lib/utils';
 import {
   convertIcecreamMallOrderFile,
@@ -39,15 +40,9 @@ import {
   saveGeneratedOrderFile,
   type StoredOrderCollectionFile,
 } from './lib/order-generated-file-store';
-import { OrderActivityFeed } from './components/OrderActivityFeed';
+import { buildOrderCollectionSummary } from './lib/order-collection-stats';
 import { OrderCollectionDailyPanel } from './components/OrderCollectionDailyPanel';
-import { OrderUploadModal } from './components/OrderUploadModal';
-import {
-  addSeenOrderKeys,
-  diffNewOrderRows,
-  loadSeenOrderKeys,
-  rowKeysOf,
-} from './lib/order-detect';
+import { OrderCollectionFlow } from './components/OrderCollectionFlow';
 
 type ConversionState = 'idle' | 'ready' | 'converting' | 'success' | 'error';
 
@@ -61,29 +56,11 @@ interface MallAccountDraft {
   enabled: boolean;
 }
 
-interface MallCollectionStat {
-  orderRows: number;
-  productRows: number;
-  latestAt: number;
-}
-
+const ACCEPTED_EXTENSIONS = '.txt,.tsv,.csv,.xls,.xlsx';
 const ICECREAM_MALL_KEY = 'icecream-mall';
 const MAX_HISTORY_ITEMS = 1000;
-const DEFAULT_AUTO_INTERVAL_MIN = 30;
-const AUTO_INTERVAL_OPTIONS_MIN = [5, 10, 15, 30, 60];
-
-const MALL_LABELS: Record<string, string> = {
-  'one-polaris': '원폴라리스',
-  'icecream-mall': '아이스크림몰',
-  kidkids: '키드키즈',
-  kidsnote: '키즈노트',
-  'haebub-mall': '해법몰',
-  onch: '온채널',
-  kkomangse: '꼬망세',
-  art09: '아트공구',
-  'tekville-edu': '테크빌교육',
-  'benepia-mul': '베네피아물',
-};
+const MALL_ACCOUNT_GRID_CLASS =
+  'grid min-w-[760px] grid-cols-[minmax(150px,1.6fr)_minmax(96px,1fr)_80px_112px_88px_148px] gap-2';
 
 const EMPTY_MALL_DRAFT: MallAccountDraft = {
   loginId: '',
@@ -94,8 +71,13 @@ const EMPTY_MALL_DRAFT: MallAccountDraft = {
 };
 
 export default function OrderCollectionPage() {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [state, setState] = useState<ConversionState>('idle');
+  const [dragActive, setDragActive] = useState(false);
   const [history, setHistory] = useState<ConversionHistoryItem[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [filePassword, setFilePassword] = useState('');
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [mallAccounts, setMallAccounts] = useState<OrderCollectionMallAccount[]>([]);
   const [mallLoading, setMallLoading] = useState(true);
@@ -109,16 +91,9 @@ export default function OrderCollectionPage() {
   const [mallPasswordLoading, setMallPasswordLoading] = useState(false);
   const [mallPasswordVisible, setMallPasswordVisible] = useState(false);
   const [sellpiaSendingId, setSellpiaSendingId] = useState<string | null>(null);
-  const [uploadModalOpen, setUploadModalOpen] = useState(false);
-  const [autoDetect, setAutoDetect] = useState(false);
-  const [autoLastRunAt, setAutoLastRunAt] = useState<number | null>(null);
-  const [autoNextRunAt, setAutoNextRunAt] = useState<number | null>(null);
-  const [autoRunning, setAutoRunning] = useState(false);
-  const [autoIntervalMin, setAutoIntervalMin] = useState(DEFAULT_AUTO_INTERVAL_MIN);
-  const autoBusyRef = useRef(false);
-  const autoDetectRef = useRef<() => Promise<void>>(async () => {});
 
-  const autoIntervalMs = autoIntervalMin * 60 * 1000;
+  const canConvert = selectedFile !== null && state !== 'converting';
+  const lastResult = history[0] ?? null;
   const previewItem = previewId ? history.find((item) => item.id === previewId) ?? null : null;
   const defaultMall =
     mallAccounts.find((account) => account.key === ICECREAM_MALL_KEY) ?? mallAccounts[0] ?? null;
@@ -126,24 +101,11 @@ export default function OrderCollectionPage() {
     mallAccounts.find((account) => account.key === selectedMallKey) ?? defaultMall;
   const configuredMallCount = mallAccounts.filter((account) => account.configured).length;
   const enabledMallCount = mallAccounts.filter((account) => account.configured && account.enabled).length;
-
-  const collectionSummary = useMemo(() => {
-    const today = todayYmd();
-    let totalOrders = 0;
-    let todayOrders = 0;
-    let latestAt = 0;
-    for (const item of history) {
-      const orders = getOrderCount(item) ?? 0;
-      totalOrders += orders;
-      if ((item.collectionDate ?? '') === today) todayOrders += orders;
-      latestAt = Math.max(latestAt, item.convertedAt);
-    }
-    return { totalOrders, todayOrders, latestAt };
-  }, [history]);
+  const lastOrderCount = getOrderCount(lastResult);
 
   const generatedFileGroups = useMemo(() => groupHistoryByDay(history), [history]);
-  const mallCollectionStats = useMemo(() => buildMallCollectionStats(history), [history]);
-  const pendingSellpiaCount = history.filter((item) => !item.sentAt).length;
+  const orderCollectionSummary = useMemo(() => buildOrderCollectionSummary(history), [history]);
+  const mallCollectionStats = orderCollectionSummary.mallStatsByKey;
 
   const loadMallAccounts = async () => {
     setMallLoading(true);
@@ -156,7 +118,7 @@ export default function OrderCollectionPage() {
           current ?? accounts.find((account) => account.key === ICECREAM_MALL_KEY)?.key ?? accounts[0]?.key ?? null,
       );
     } catch (err) {
-      const message = orderCollectionError(err, '몰 계정을 불러오지 못했습니다.');
+      const message = err instanceof Error ? err.message : '몰 계정을 불러오지 못했습니다.';
       setMallError(message);
     } finally {
       setMallLoading(false);
@@ -184,6 +146,54 @@ export default function OrderCollectionPage() {
   useEffect(() => {
     setMallDraft(selectedMall ? draftFromMallAccount(selectedMall) : EMPTY_MALL_DRAFT);
   }, [selectedMall?.key, selectedMall?.loginId, selectedMall?.siteUrl, selectedMall?.memo, selectedMall?.enabled]);
+
+  const selectFile = (file: File | null) => {
+    setSelectedFile(file);
+    setError(null);
+    setState(file ? 'ready' : 'idle');
+  };
+
+  const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    selectFile(event.target.files?.[0] ?? null);
+  };
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setDragActive(false);
+    selectFile(event.dataTransfer.files?.[0] ?? null);
+  };
+
+  const handleConvert = async () => {
+    if (!selectedFile) return;
+    setState('converting');
+    setError(null);
+
+    try {
+      const result = await convertIcecreamMallOrderFile(selectedFile, filePassword || undefined);
+      const historyItem = {
+        ...result,
+        id: `${Date.now()}-${selectedFile.name}`,
+        sourceName: selectedFile.name.normalize('NFC'),
+        convertedAt: Date.now(),
+        collectionDate: todayYmd(),
+        collectionMode: 'manual-upload' as const,
+        mallKey: ICECREAM_MALL_KEY,
+        mallName: '아이스크림몰',
+      };
+      addGeneratedFile(historyItem);
+      setPreviewId(historyItem.id);
+      setState('success');
+      toast.success('주문수집 엑셀 변환 완료');
+      if (inputRef.current) inputRef.current.value = '';
+      setSelectedFile(null);
+      setFilePassword('');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '변환 실패';
+      setError(message);
+      setState('error');
+      toast.error(message);
+    }
+  };
 
   const addGeneratedFile = (historyItem: ConversionHistoryItem) => {
     setHistory((prev) => [
@@ -221,7 +231,6 @@ export default function OrderCollectionPage() {
     };
     addGeneratedFile(historyItem);
     setPreviewId(historyItem.id);
-    addSeenOrderKeys(account.key, rowKeysOf(collected.rows));
 
     return collected;
   };
@@ -238,6 +247,7 @@ export default function OrderCollectionPage() {
 
     setBrowserCollecting(true);
     setState('converting');
+    setError(null);
 
     try {
       for (const account of collectableAccounts) {
@@ -254,7 +264,8 @@ export default function OrderCollectionPage() {
           : '전체 수집 완료',
       );
     } catch (err) {
-      const message = orderCollectionError(err, '브라우저 수집 실패');
+      const message = err instanceof Error ? err.message : '브라우저 수집 실패';
+      setError(message);
       setState('error');
       toast.error(message);
     } finally {
@@ -279,6 +290,7 @@ export default function OrderCollectionPage() {
 
     setCollectingMallKey(account.key);
     setState('converting');
+    setError(null);
 
     try {
       const collected = await collectBrowserMall(account);
@@ -288,7 +300,8 @@ export default function OrderCollectionPage() {
       }
       toast.success(`${account.name} 수집 완료`);
     } catch (err) {
-      const message = orderCollectionError(err, '브라우저 수집 실패');
+      const message = err instanceof Error ? err.message : '브라우저 수집 실패';
+      setError(message);
       setState('error');
       toast.error(message);
     } finally {
@@ -308,7 +321,7 @@ export default function OrderCollectionPage() {
       const result = await orderMallAccountApi.password(account.key);
       setMallDraft((current) => ({ ...current, password: result.password ?? '' }));
     } catch (err) {
-      const message = orderCollectionError(err, '저장된 비밀번호를 불러오지 못했습니다.');
+      const message = err instanceof Error ? err.message : '저장된 비밀번호를 불러오지 못했습니다.';
       toast.error(message);
     } finally {
       setMallPasswordLoading(false);
@@ -342,7 +355,7 @@ export default function OrderCollectionPage() {
       setMallSettingsOpen(false);
       toast.success(`${saved.name} 계정 저장 완료`);
     } catch (err) {
-      const message = orderCollectionError(err, '몰 계정 저장 실패');
+      const message = err instanceof Error ? err.message : '몰 계정 저장 실패';
       toast.error(message);
     } finally {
       setMallSaving(false);
@@ -363,142 +376,14 @@ export default function OrderCollectionPage() {
         fileName: item.fileName,
         blob: item.blob,
       });
-      const sentAt = Date.now();
-      setHistory((prev) => prev.map((entry) => (entry.id === item.id ? { ...entry, sentAt } : entry)));
-      void saveGeneratedOrderFile({ ...item, sentAt }).catch(() => {});
       toast.success(`셀피아 전송 완료 — ${result.shop ?? shopName} 주문접수 클릭`);
     } catch (err) {
-      const message = orderCollectionError(err, '셀피아 전송 실패');
+      const message = err instanceof Error ? err.message : '셀피아 전송 실패';
       toast.error(message);
     } finally {
       setSellpiaSendingId(null);
     }
   };
-
-  const handleModalUpload = async ({
-    mall,
-    file,
-    password,
-  }: {
-    mall: OrderCollectionMallAccount;
-    file: File;
-    password?: string;
-  }) => {
-    if (mall.key !== ICECREAM_MALL_KEY) {
-      throw new Error(`${mall.name} 변환은 아직 준비 중입니다. 현재는 아이스크림몰만 변환됩니다.`);
-    }
-    const result = await convertIcecreamMallOrderFile(file, password);
-    const historyItem = {
-      ...result,
-      id: `${Date.now()}-${file.name}`,
-      sourceName: file.name.normalize('NFC'),
-      convertedAt: Date.now(),
-      collectionDate: todayYmd(),
-      collectionMode: 'manual-upload' as const,
-      mallKey: mall.key,
-      mallName: mall.name,
-    };
-    addGeneratedFile(historyItem);
-    setPreviewId(historyItem.id);
-    toast.success(`${mall.name} 변환 완료`);
-  };
-
-  // 30분 간격 신규 주문 자동 감지: 수집한 행을 '이미 본 주문'과 비교해 신규만 생성 파일에 추가.
-  const runAutoDetect = async () => {
-    if (autoBusyRef.current) return;
-    const targets = mallAccounts.filter(isBrowserCollectableMall);
-    if (targets.length === 0) return;
-    autoBusyRef.current = true;
-    setAutoRunning(true);
-    try {
-      for (const account of targets) {
-        try {
-          const credentials = await loadMallLoginCredentials(account);
-          const collected = await collectIcecreamMallRowsFromExtension(todayYmd(), credentials);
-          const diff = diffNewOrderRows(
-            collected.headers,
-            collected.rows,
-            loadSeenOrderKeys(account.key),
-          );
-          if (diff.newRows.length === 0) continue;
-          const result = await convertIcecreamMallOrderRows(
-            {
-              headers: collected.headers,
-              rows: diff.newRows,
-              fileName: `${account.name}_${collected.date ?? todayYmd()}_자동감지`,
-            },
-            { download: false },
-          );
-          const convertedAt = Date.now();
-          addGeneratedFile({
-            ...result,
-            id: `${convertedAt}-${account.key}-auto`,
-            sourceName: `${account.name} 자동감지 신규 ${formatNumber(diff.newOrderCount)}건`,
-            convertedAt,
-            collectionDate: collected.date ?? todayYmd(),
-            collectionMode: 'browser' as const,
-            collectedRows: diff.newRows.length,
-            mallKey: account.key,
-            mallName: account.name,
-          });
-          addSeenOrderKeys(account.key, diff.newRowKeys);
-          toast.success(`${account.name} 새 주문 ${formatNumber(diff.newOrderCount)}건 감지`);
-        } catch (err) {
-          console.warn('[order-auto-detect]', account.key, err);
-        }
-      }
-      setAutoLastRunAt(Date.now());
-    } finally {
-      autoBusyRef.current = false;
-      setAutoRunning(false);
-    }
-  };
-
-  const toggleAutoDetect = () => {
-    const next = !autoDetect;
-    setAutoDetect(next);
-    setAutoNextRunAt(next ? Date.now() + autoIntervalMs : null);
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('kiditem-order-auto-detect', next ? '1' : '0');
-    }
-    if (next) void runAutoDetect();
-  };
-
-  const handleAutoIntervalChange = (minutes: number) => {
-    setAutoIntervalMin(minutes);
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('kiditem-order-auto-interval', String(minutes));
-    }
-    if (autoDetect) setAutoNextRunAt(Date.now() + minutes * 60 * 1000);
-  };
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const savedMin = Number(window.localStorage.getItem('kiditem-order-auto-interval'));
-    const intervalMin = AUTO_INTERVAL_OPTIONS_MIN.includes(savedMin) ? savedMin : DEFAULT_AUTO_INTERVAL_MIN;
-    setAutoIntervalMin(intervalMin);
-    if (window.localStorage.getItem('kiditem-order-auto-detect') === '1') {
-      setAutoDetect(true);
-      setAutoNextRunAt(Date.now() + intervalMin * 60 * 1000);
-    }
-  }, []);
-
-  // 타이머가 항상 최신 runAutoDetect 를 부르도록 ref 갱신 (stale closure 방지).
-  useEffect(() => {
-    autoDetectRef.current = runAutoDetect;
-  });
-
-  // 카운트다운(autoNextRunAt)이 끝나면 한 번 실행하고 다음 30분 뒤로 재예약.
-  useEffect(() => {
-    if (!autoDetect || autoNextRunAt === null) return;
-    const delay = Math.max(0, autoNextRunAt - Date.now());
-    const timer = window.setTimeout(() => {
-      void autoDetectRef.current().finally(() => {
-        setAutoNextRunAt(Date.now() + autoIntervalMs);
-      });
-    }, delay);
-    return () => window.clearTimeout(timer);
-  }, [autoDetect, autoNextRunAt, autoIntervalMs]);
 
   return (
     <div className="space-y-6">
@@ -509,106 +394,45 @@ export default function OrderCollectionPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">주문 수집</h1>
+            <div className="text-sm text-slate-500">여러 몰 주문을 수집해 셀피아 납품 양식으로 변환합니다</div>
           </div>
         </div>
         <button
           type="button"
-          onClick={() => setUploadModalOpen(true)}
-          className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-3 py-2 text-sm font-medium text-white hover:bg-purple-700"
+          onClick={() => inputRef.current?.click()}
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
         >
           <Upload size={16} />
-          업로드
+          파일 선택
         </button>
       </div>
 
-      <OrderUploadModal
-        open={uploadModalOpen}
-        onOpenChange={setUploadModalOpen}
-        mallAccounts={mallAccounts}
-        defaultMallKey={selectedMallKey ?? ICECREAM_MALL_KEY}
-        onUpload={handleModalUpload}
+      <OrderCollectionFlow
+        orderCount={lastOrderCount}
+        productRows={lastResult?.productRows ?? null}
+        outputRows={lastResult?.outputRows ?? null}
+        skippedRows={lastResult?.skippedRows ?? null}
       />
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-slate-200 bg-white px-5 py-4">
-          <div className="text-xs font-medium text-slate-500">오늘 주문</div>
-          <div className="mt-1 text-2xl font-bold tabular-nums tracking-tight text-slate-900">
-            {formatNumber(collectionSummary.todayOrders)}
-          </div>
-        </div>
-        <div className="rounded-xl border border-purple-200 bg-purple-50 px-5 py-4">
-          <div className="text-xs font-medium text-purple-700">셀피아 전송 대기</div>
-          <div className="mt-1 text-2xl font-bold tabular-nums tracking-tight text-purple-700">
-            {formatNumber(pendingSellpiaCount)}
-          </div>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white px-5 py-4">
-          <div className="text-xs font-medium text-slate-500">사용 몰</div>
-          <div className="mt-1 text-2xl font-bold tabular-nums tracking-tight text-slate-900">
-            {formatNumber(enabledMallCount)}
-          </div>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white px-5 py-4">
-          <div className="text-xs font-medium text-slate-500">누적 주문</div>
-          <div className="mt-1 text-2xl font-bold tabular-nums tracking-tight text-slate-900">
-            {formatNumber(collectionSummary.totalOrders)}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-3 xl:grid-cols-4">
-        <div className="min-w-0 xl:col-span-3">
-          <OrderCollectionDailyPanel history={history} />
-        </div>
-        <OrderActivityFeed className="min-h-[430px] max-h-[460px] xl:col-span-1" history={history} />
-      </div>
+      <OrderCollectionDailyPanel
+        collectingMallKey={collectingMallKey}
+        mallAccounts={mallAccounts}
+        selectedMallKey={selectedMallKey}
+        summary={orderCollectionSummary}
+      />
 
       <section className="rounded-xl border border-slate-200 bg-white">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
           <div className="flex items-center gap-2.5">
             <Store size={18} className="text-slate-500" />
             <div>
-              <div className="text-sm font-semibold text-slate-900">주문수집</div>
+              <div className="text-sm font-semibold text-slate-900">몰 계정 관리</div>
               <div className="text-xs text-slate-500">
-                {formatNumber(configuredMallCount)} / {formatNumber(mallAccounts.length)} 계정
-                {autoDetect ? ` · 자동감지 ${autoIntervalMin}분` : ''}
+                {formatNumber(configuredMallCount)} / {formatNumber(mallAccounts.length)} 저장
               </div>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {autoLastRunAt !== null && (
-              <span className="hidden text-xs tabular-nums text-slate-400 sm:inline">
-                자동감지 {formatMallCollectionTime(autoLastRunAt)}
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={toggleAutoDetect}
-              title="설정한 간격마다 새 주문을 자동 감지합니다 (이 페이지가 열려 있을 때)"
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors',
-                autoDetect
-                  ? 'border-purple-200 bg-purple-50 text-purple-700'
-                  : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50',
-              )}
-            >
-              <span
-                className={cn('h-1.5 w-1.5 rounded-full', autoDetect ? 'bg-purple-600' : 'bg-slate-300')}
-              />
-              자동감지
-            </button>
-            <select
-              value={autoIntervalMin}
-              onChange={(event) => handleAutoIntervalChange(Number(event.target.value))}
-              title="자동 감지 간격"
-              className="rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm font-medium text-slate-600 outline-none hover:bg-slate-50 focus:border-slate-400"
-            >
-              {AUTO_INTERVAL_OPTIONS_MIN.map((minutes) => (
-                <option key={minutes} value={minutes}>
-                  {minutes}분
-                </option>
-              ))}
-            </select>
             <button
               type="button"
               onClick={() => void handleBrowserCollectAll()}
@@ -637,12 +461,17 @@ export default function OrderCollectionPage() {
         </div>
 
         <div className="p-5">
-          <div className="overflow-hidden rounded-lg border border-slate-200">
-            <div className="grid grid-cols-[minmax(150px,1.6fr)_minmax(96px,1fr)_80px_112px_88px_148px] gap-2 bg-slate-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <div
+              className={cn(
+                MALL_ACCOUNT_GRID_CLASS,
+                'bg-slate-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-wider text-slate-500',
+              )}
+            >
               <div>몰</div>
               <div>ID</div>
               <div className="text-right">주문</div>
-              <div className="text-center">다음 감지</div>
+              <div className="text-center">업데이트</div>
               <div className="text-center">상태</div>
               <div className="text-right">작업</div>
             </div>
@@ -669,7 +498,8 @@ export default function OrderCollectionPage() {
                   <div
                     key={account.key}
                     className={cn(
-                      'grid grid-cols-[minmax(150px,1.6fr)_minmax(96px,1fr)_80px_112px_88px_148px] items-center gap-2 border-t border-slate-100 px-4 py-3 text-sm',
+                      MALL_ACCOUNT_GRID_CLASS,
+                      'items-center border-t border-slate-100 px-4 py-3 text-sm',
                       isOpenAccount && 'bg-purple-50/60',
                     )}
                   >
@@ -689,26 +519,16 @@ export default function OrderCollectionPage() {
                       )}
                     </div>
                     <div
-                      className="text-right tabular-nums"
+                      className="text-right text-sm font-semibold tabular-nums text-slate-900"
                       title={collectionStat ? `상품 행 ${formatNumber(collectionStat.productRows)}개` : undefined}
                     >
-                      <div className="text-sm font-semibold text-slate-900">
-                        {formatNumber(collectionStat?.orderRows ?? 0)}
-                      </div>
-                      <div className="text-[11px] text-slate-400">
-                        {collectionStat ? formatMallCollectionTime(collectionStat.latestAt) : '-'}
-                      </div>
+                      {formatNumber(collectionStat?.orderRows ?? 0)}
                     </div>
-                    <div className="flex justify-center">
-                      {autoDetect && collectable && autoNextRunAt !== null ? (
-                        <AutoDetectCountdown
-                          targetAt={autoNextRunAt}
-                          totalMs={autoIntervalMs}
-                          running={autoRunning}
-                        />
-                      ) : (
-                        <span className="text-xs text-slate-300">-</span>
-                      )}
+                    <div
+                      className="text-center text-xs tabular-nums text-slate-500"
+                      title={collectionStat ? formatDateTime(collectionStat.latestAt) : undefined}
+                    >
+                      {collectionStat ? formatMallCollectionTime(collectionStat.latestAt) : '-'}
                     </div>
                     <div className="flex justify-center">
                       <span
@@ -917,6 +737,122 @@ export default function OrderCollectionPage() {
         </Dialog.Portal>
       </Dialog.Root>
 
+      <section className="rounded-xl border border-slate-200 bg-white">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+          <div>
+            <div className="text-sm font-semibold text-slate-900">수동 업로드</div>
+            <div className="text-xs text-slate-500">업로드된 상품 주문 행 전체를 납품 양식으로 변환</div>
+          </div>
+          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+            아이스크림몰
+          </span>
+        </div>
+
+        <div className="grid gap-4 p-5 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <div
+            onDragEnter={(event) => {
+              event.preventDefault();
+              setDragActive(true);
+            }}
+            onDragOver={(event) => event.preventDefault()}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={handleDrop}
+            className={cn(
+              'flex min-h-44 flex-col items-center justify-center rounded-lg border border-dashed px-5 py-6 text-center transition-colors',
+              dragActive ? 'border-purple-400 bg-purple-50' : 'border-slate-300 bg-slate-50/70',
+            )}
+          >
+            <input
+              ref={inputRef}
+              type="file"
+              accept={ACCEPTED_EXTENSIONS}
+              onChange={handleInputChange}
+              className="hidden"
+            />
+            <FileSpreadsheet size={34} className="text-slate-400" />
+            <div className="mt-3 text-sm font-medium text-slate-900">
+              {selectedFile ? selectedFile.name : '주문 파일'}
+            </div>
+            <div className="mt-1 text-xs text-slate-500">
+              {selectedFile ? fileSizeLabel(selectedFile.size) : ACCEPTED_EXTENSIONS}
+            </div>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => inputRef.current?.click()}
+                disabled={state === 'converting'}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                <Upload size={15} />
+                선택
+              </button>
+              <button
+                type="button"
+                onClick={handleConvert}
+                disabled={!canConvert}
+                className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {state === 'converting' ? (
+                  <Loader2 size={15} className="animate-spin" />
+                ) : (
+                  <Download size={15} />
+                )}
+                변환
+              </button>
+            </div>
+            <label className="mt-4 w-full max-w-sm text-left">
+              <span className="text-xs font-medium text-slate-600">파일 비밀번호</span>
+              <span className="mt-1 flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 focus-within:border-slate-400">
+                <LockKeyhole size={15} className="shrink-0 text-slate-400" />
+                <input
+                  type="password"
+                  value={filePassword}
+                  onChange={(event) => setFilePassword(event.target.value)}
+                  disabled={state === 'converting'}
+                  placeholder="비밀번호가 있을 때 입력"
+                  className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-50"
+                />
+              </span>
+            </label>
+          </div>
+
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+              {stateIcon(state)}
+              상태
+            </div>
+            <div className="mt-3 text-sm text-slate-600">{stateMessage(state, selectedFile, error)}</div>
+            {lastResult && (
+              <div className="mt-4 rounded-md bg-white p-3 text-xs text-slate-600">
+                <div className="break-words font-medium text-slate-900">{lastResult.fileName}</div>
+                <div className="mt-1 flex items-center gap-1">
+                  <Clock size={12} />
+                  {formatDateTime(lastResult.convertedAt)}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => downloadOrderCollectionFile(lastResult)}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <Download size={13} />
+                    다운로드
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewId(lastResult.id)}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    <Eye size={13} />
+                    미리보기
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
       {previewItem && (
         <section className="rounded-xl border border-slate-200 bg-white">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
@@ -1034,56 +970,6 @@ export default function OrderCollectionPage() {
   );
 }
 
-function AutoDetectCountdown({
-  targetAt,
-  totalMs,
-  running,
-}: {
-  targetAt: number;
-  totalMs: number;
-  running: boolean;
-}) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const remaining = Math.max(0, targetAt - now);
-  const progress = Math.max(0, Math.min(1, remaining / totalMs));
-  const radius = 9;
-  const circumference = 2 * Math.PI * radius;
-  const minutes = Math.floor(remaining / 60000);
-  const seconds = Math.floor((remaining % 60000) / 1000);
-  const label = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-
-  return (
-    <span className="inline-flex items-center gap-1.5" title="다음 자동 감지까지 남은 시간">
-      {running ? (
-        <Loader2 size={16} className="animate-spin text-purple-600" />
-      ) : (
-        <svg width="20" height="20" viewBox="0 0 24 24" className="-rotate-90">
-          <circle cx="12" cy="12" r={radius} fill="none" stroke="#e2e8f0" strokeWidth="3" />
-          <circle
-            cx="12"
-            cy="12"
-            r={radius}
-            fill="none"
-            stroke="#9333ea"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeDasharray={circumference}
-            strokeDashoffset={circumference * (1 - progress)}
-          />
-        </svg>
-      )}
-      <span className={cn('text-xs tabular-nums', running ? 'text-purple-600' : 'text-slate-500')}>
-        {running ? '감지 중' : label}
-      </span>
-    </span>
-  );
-}
-
 function PreviewTable({ rows }: { rows: string[][] }) {
   if (rows.length === 0) {
     return <div className="px-5 py-8 text-center text-sm text-slate-400">미리볼 데이터가 없습니다.</div>;
@@ -1115,6 +1001,21 @@ function PreviewTable({ rows }: { rows: string[][] }) {
       </table>
     </div>
   );
+}
+
+function stateIcon(state: ConversionState) {
+  if (state === 'converting') return <Loader2 size={15} className="animate-spin text-purple-600" />;
+  if (state === 'success') return <CheckCircle2 size={15} className="text-emerald-600" />;
+  if (state === 'error') return <AlertCircle size={15} className="text-red-600" />;
+  return <Clock size={15} className="text-slate-500" />;
+}
+
+function stateMessage(state: ConversionState, file: File | null, error: string | null): string {
+  if (state === 'converting') return '변환 중';
+  if (state === 'success') return '다운로드 완료';
+  if (state === 'error') return error ?? '변환 실패';
+  if (file) return '변환 대기';
+  return '파일 대기';
 }
 
 function countLabel(value: number | null): string {
@@ -1149,39 +1050,10 @@ function groupHistoryByDay(items: ConversionHistoryItem[]): Array<{
   return groups;
 }
 
-function buildMallCollectionStats(items: ConversionHistoryItem[]): Map<string, MallCollectionStat> {
-  const stats = new Map<string, MallCollectionStat>();
-
-  for (const item of items) {
-    const mallKey = resolveHistoryMallKey(item);
-    if (!mallKey) continue;
-
-    const current = stats.get(mallKey) ?? {
-      orderRows: 0,
-      productRows: 0,
-      latestAt: item.convertedAt,
-    };
-
-    current.orderRows += getOrderCount(item) ?? 0;
-    current.productRows += item.productRows ?? 0;
-    current.latestAt = Math.max(current.latestAt, item.convertedAt);
-    stats.set(mallKey, current);
-  }
-
-  return stats;
-}
-
-function resolveHistoryMallKey(item: ConversionHistoryItem): string | null {
-  if (item.mallKey) return item.mallKey;
-
-  const searchable = `${item.mallName ?? ''} ${item.sourceName} ${item.fileName}`.toLowerCase();
-  for (const [key, label] of Object.entries(MALL_LABELS)) {
-    if (searchable.includes(key.toLowerCase()) || searchable.includes(label.toLowerCase())) {
-      return key;
-    }
-  }
-
-  return null;
+function fileSizeLabel(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function mallStatus(account: OrderCollectionMallAccount): { label: string; tone: 'empty' | 'paused' | 'ready' } {
@@ -1227,13 +1099,6 @@ function draftFromMallAccount(account: OrderCollectionMallAccount): MallAccountD
     memo: account.memo ?? '',
     enabled: account.enabled,
   };
-}
-
-function orderCollectionError(err: unknown, fallback: string): string {
-  const message = friendlyError(err) ?? fallback;
-  return message === 'Failed to fetch'
-    ? 'API 서버에 연결하지 못했습니다. 백엔드 실행 상태 또는 브라우저 접속 주소를 확인해주세요.'
-    : message;
 }
 
 function todayYmd(): string {
