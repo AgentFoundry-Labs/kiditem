@@ -16,6 +16,8 @@ import PageSkeleton from '@/components/ui/PageSkeleton';
 import { RocketConfirmPanel } from './components/RocketConfirmPanel';
 import { RocketConfirmFileList } from './components/RocketConfirmFileList';
 import { RocketWeekCalendar, type RocketCalDay } from './components/RocketWeekCalendar';
+import { RocketMonthCalendar, type MonthDayData } from './components/RocketMonthCalendar';
+import { RocketOrdersChart, type RocketChartPoint } from './components/RocketOrdersChart';
 import { listRocketPosFromExtension, type RocketPoSummary } from './lib/rocket-confirm-api';
 
 const STATUS_OPTIONS = [
@@ -60,6 +62,18 @@ function datesInRange(from: string, to: string): string[] {
 function dowOf(date: string): number {
   return new Date(date + 'T00:00:00').getDay();
 }
+function monthBounds(dateStr: string) {
+  const d = new Date((dateStr || todayYmd()) + 'T00:00:00');
+  const y = d.getFullYear();
+  const m = d.getMonth();
+  return { start: ymd(new Date(y, m, 1)), end: ymd(new Date(y, m + 1, 0)) };
+}
+function shiftMonthBounds(dateStr: string, delta: number) {
+  const d = new Date((dateStr || todayYmd()) + 'T00:00:00');
+  d.setDate(1);
+  d.setMonth(d.getMonth() + delta);
+  return { start: ymd(new Date(d.getFullYear(), d.getMonth(), 1)), end: ymd(new Date(d.getFullYear(), d.getMonth() + 1, 0)) };
+}
 
 export default function RocketOrdersPage() {
   // 입고예정일 기준 (기본: 다음 7일) — 신규주문(거래처확인요청)을 실시간 조회
@@ -67,6 +81,7 @@ export default function RocketOrdersPage() {
   const [to, setTo] = useState(plusDaysYmd(7));
   const [status, setStatus] = useState('거래처확인요청');
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [view, setView] = useState<'week' | 'month' | 'chart'>('week');
   const [openPo, setOpenPo] = useState<number | null>(null);
   const [fileRefreshKey, setFileRefreshKey] = useState(0);
 
@@ -107,6 +122,43 @@ export default function RocketOrdersPage() {
   const scoped = selectedDay ? byDate.get(selectedDay) ?? [] : orders;
   const totalAmount = scoped.reduce((s, o) => s + o.orderAmount, 0);
   const totalQty = scoped.reduce((s, o) => s + o.orderQty, 0);
+
+  // 달력/차트용 일자 데이터
+  const dayDataRecord: Record<string, MonthDayData> = {};
+  for (const [date, pos] of byDate) {
+    dayDataRecord[date] = {
+      count: pos.length,
+      qty: pos.reduce((s, o) => s + o.orderQty, 0),
+      amount: pos.reduce((s, o) => s + o.orderAmount, 0),
+    };
+  }
+  const chartData: RocketChartPoint[] = calDays.map((d) => ({
+    date: d.date,
+    label: d.date.slice(5).replace('-', '/'),
+    count: d.count,
+    qty: d.qty,
+    amount: d.amount,
+  }));
+
+  function gotoWeek() {
+    setView('week');
+    setFrom(todayYmd());
+    setTo(plusDaysYmd(7));
+    setSelectedDay(null);
+  }
+  function gotoMonth() {
+    const b = monthBounds(from);
+    setFrom(b.start);
+    setTo(b.end);
+    setSelectedDay(null);
+    setView('month');
+  }
+  function onShiftMonth(delta: number) {
+    const b = shiftMonthBounds(from, delta);
+    setFrom(b.start);
+    setTo(b.end);
+    setSelectedDay(null);
+  }
 
   function renderPoRow(po: RocketPoSummary) {
     const open = openPo === po.poSeq;
@@ -291,7 +343,7 @@ export default function RocketOrdersPage() {
         </div>
       )}
 
-      {data && !isError && orders.length === 0 && (
+      {data && !isError && orders.length === 0 && view !== 'month' && (
         <div className="rounded-xl border border-slate-200 bg-white p-12 text-center text-slate-400">
           <Rocket size={32} className="mx-auto mb-3 opacity-20" />
           <p className="text-sm font-medium">해당 조건의 신규 발주가 없습니다</p>
@@ -299,9 +351,47 @@ export default function RocketOrdersPage() {
         </div>
       )}
 
-      {/* 입고예정일 주 달력 */}
-      {orders.length > 0 && (
-        <RocketWeekCalendar days={calDays} selected={selectedDay} onSelect={setSelectedDay} />
+      {/* 보기 토글 (주 달력 / 월 달력 / 차트) + 시각화 */}
+      {data && !isError && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <span className="mr-1 text-xs font-medium text-slate-400">보기</span>
+            {(
+              [
+                ['week', '주 달력'],
+                ['month', '월 달력'],
+                ['chart', '차트'],
+              ] as const
+            ).map(([v, label]) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => (v === 'week' ? gotoWeek() : v === 'month' ? gotoMonth() : setView('chart'))}
+                className={cn(
+                  'rounded-lg border px-3 py-1.5 text-sm font-medium',
+                  view === v
+                    ? 'border-purple-300 bg-purple-50 text-purple-700'
+                    : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {view === 'week' && orders.length > 0 && (
+            <RocketWeekCalendar days={calDays} selected={selectedDay} onSelect={setSelectedDay} />
+          )}
+          {view === 'month' && (
+            <RocketMonthCalendar
+              monthAnchor={from}
+              data={dayDataRecord}
+              selected={selectedDay}
+              onSelect={setSelectedDay}
+              onShiftMonth={onShiftMonth}
+            />
+          )}
+          {view === 'chart' && orders.length > 0 && <RocketOrdersChart data={chartData} />}
+        </div>
       )}
 
       {/* 발주 리스트 (입고예정일별 그룹) */}
