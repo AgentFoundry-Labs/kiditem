@@ -146,7 +146,9 @@ export default function RocketOrdersPage() {
     setSelectedDay(null);
   }
   function gotoMonth() {
-    const b = monthBounds(from);
+    // 데이터가 있으면 가장 이른 입고예정일의 달로, 없으면 현재 from 의 달로.
+    const firstDate = datesWithOrders.find((d) => d !== '미정');
+    const b = monthBounds(firstDate || from || todayYmd());
     setFrom(b.start);
     setTo(b.end);
     setSelectedDay(null);
@@ -381,13 +383,20 @@ export default function RocketOrdersPage() {
             <RocketWeekCalendar days={calDays} selected={selectedDay} onSelect={setSelectedDay} />
           )}
           {view === 'month' && (
-            <RocketMonthCalendar
-              monthAnchor={from}
-              data={dayDataRecord}
-              selected={selectedDay}
-              onSelect={setSelectedDay}
-              onShiftMonth={onShiftMonth}
-            />
+            <>
+              <RocketMonthCalendar
+                monthAnchor={from}
+                data={dayDataRecord}
+                selected={selectedDay}
+                onSelect={setSelectedDay}
+                onShiftMonth={onShiftMonth}
+              />
+              {data && !isError && orders.length === 0 && (
+                <p className="px-1 pt-0.5 text-xs text-slate-400">
+                  이 달엔 해당 발주가 없습니다 · 위 <b>‹ ›</b> 로 다른 달을 보거나 상태/기간을 바꿔보세요.
+                </p>
+              )}
+            </>
           )}
           {view === 'chart' && orders.length > 0 && <RocketOrdersChart data={chartData} />}
         </div>
