@@ -53,17 +53,30 @@ export interface RocketPoSummary {
   orderAmount: number;
 }
 
-/** 입고예정일 범위의 발주 목록(PO 단위, SKU 상세 없이)을 supplier 세션에서 빠르게 조회. */
-export async function listRocketPosFromExtension(from: string, to: string): Promise<RocketPoSummary[]> {
+/** 발주현황(상태) → 쿠팡 po-web 상태코드 */
+const ROCKET_STATUS_CODE: Record<string, string> = {
+  거래처확인요청: 'RP',
+  발주확정: 'PA',
+  거래명세서확인요청: 'RI',
+  거래명세서확인: 'CI',
+};
+
+/** 입고예정일(KST) 범위 + 발주현황으로 발주 목록(PO 단위)을 supplier 세션에서 빠르게 조회. */
+export async function listRocketPosFromExtension(
+  from: string,
+  to: string,
+  status = '',
+): Promise<RocketPoSummary[]> {
   const extensionId = await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 supplier.coupang.com 에 로그인한 뒤 다시 시도해주세요.',
     );
   }
+  const statusCode = status ? ROCKET_STATUS_CODE[status] ?? '' : '';
   const res = await sendToExtension<{ success?: boolean; pos?: RocketPoSummary[]; error?: string }>(
     extensionId,
-    { action: 'listRocketPos', from, to },
+    { action: 'listRocketPos', from, to, status: statusCode },
     70000,
   );
   if (!res?.success || !res.pos) {

@@ -86,15 +86,14 @@ export default function RocketOrdersPage() {
   const [fileRefreshKey, setFileRefreshKey] = useState(0);
 
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
-    queryKey: ['rocket-po-list', from, to],
-    queryFn: () => listRocketPosFromExtension(from, to),
+    queryKey: ['rocket-po-list', from, to, status],
+    queryFn: () => listRocketPosFromExtension(from, to, status),
     staleTime: 0,
     retry: false,
     refetchOnWindowFocus: false,
   });
 
-  const all = data ?? [];
-  const orders = status ? all.filter((o) => o.status === status) : all;
+  const orders = data ?? [];
 
   // 입고예정일별 그룹
   const byDate = new Map<string, RocketPoSummary[]>();

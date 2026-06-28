@@ -144,6 +144,7 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
     listRocketPos({
       from: typeof msg.from === "string" ? msg.from : null,
       to: typeof msg.to === "string" ? msg.to : null,
+      status: typeof msg.status === "string" ? msg.status : "",
     })
       .then((result) => sendResponse(result))
       .catch((error) => {
@@ -274,7 +275,7 @@ async function collectRocketPoRows({ from, to }) {
 }
 
 // ── 로켓 발주 목록(PO 단위, SKU 상세 없이) — 화면 리스트용 빠른 조회 ──
-async function listRocketPos({ from, to }) {
+async function listRocketPos({ from, to, status }) {
   const tab = await findOrCreateCoupangSupplierTab();
   if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
   await waitForTabReady(tab.id);
@@ -283,7 +284,7 @@ async function listRocketPos({ from, to }) {
     chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: scrapeRocketPoList,
-      args: [from, to],
+      args: [from, to, status || ""],
     }),
     60000,
     "로켓 발주 목록 조회 시간이 초과되었습니다.",
@@ -298,14 +299,23 @@ async function listRocketPos({ from, to }) {
 }
 
 // supplier 페이지 컨텍스트: 입고예정일(WAREHOUSING_PLAN_DATE) 범위의 발주를 PO 단위로만 빠르게.
-async function scrapeRocketPoList(from, to) {
+async function scrapeRocketPoList(from, to, statusCode) {
   try {
     const clean = (s, n) =>
       (s || "").replace(new RegExp("[\\u0000-\\u001F]", "g"), " ").trim().slice(0, n || 60);
+    // expectedDeliveryDate 는 UTC(예: 06-30T15:00Z = KST 07-01). KST 날짜로 변환해서 입고예정일로 사용.
+    const kstDate = (iso) => {
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return String(iso).slice(0, 10);
+      d.setUTCHours(d.getUTCHours() + 9);
+      return d.toISOString().slice(0, 10);
+    };
     const listUrl = (p) =>
       "/po-web/app/purchase-order/list?page=" + p +
       "&searchDateType=WAREHOUSING_PLAN_DATE&searchStartDate=" + (from || "") + "&searchEndDate=" + (to || "") +
-      "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
+      "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=" + (statusCode || "") +
+      "&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
     const out = [];
     for (let p = 1; p <= 20; p++) {
       const res = await fetch(listUrl(p), { credentials: "include", headers: { accept: "application/json" } });
@@ -328,13 +338,11 @@ async function scrapeRocketPoList(from, to) {
       const b = j.body || {};
       const rows = b.body || [];
       for (const o of rows) {
-        const eta = (o.expectedDeliveryDate || "").slice(0, 10);
-        if (eta && from && eta < from) continue;
-        if (eta && to && eta > to) continue;
+        // 서버가 입고예정일(WAREHOUSING_PLAN_DATE)+상태로 이미 필터함. eta/orderedAt 은 KST 날짜.
         out.push({
           poSeq: o.purchaseOrderSeq,
-          orderedAt: (o.createdAt || "").slice(0, 10),
-          eta: eta,
+          orderedAt: kstDate(o.createdAt),
+          eta: kstDate(o.expectedDeliveryDate),
           status: o.purchaseOrderStatusDescription || "",
           vendorName: o.vendorName || "",
           centerName: o.centerName || "",
@@ -360,11 +368,26 @@ async function scrapeRocketPoRows(from, to) {
     const clean = (s, n) => (s || "").replace(ctrl, " ").replace(/^\d{8,}\s*/, "").trim().slice(0, n || 80);
     const num = (s) => Number(String(s == null ? "" : s).replace(/[^0-9.-]/g, "")) || 0;
     const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
-    // from/to = 입고예정일(다음 7일) 범위. po-web 는 WAREHOUSING_PLAN_DATE(입고예정일) 서버검색을 지원하므로 그대로 사용.
+    // expectedDeliveryDate/createdAt 는 UTC → KST 변환.
+    const kstDate = (iso) => {
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return String(iso).slice(0, 10);
+      d.setUTCHours(d.getUTCHours() + 9);
+      return d.toISOString().slice(0, 10);
+    };
+    const kstDateTime = (iso) => {
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return String(iso).replace("T", " ").slice(0, 19);
+      d.setUTCHours(d.getUTCHours() + 9);
+      return d.toISOString().replace("T", " ").slice(0, 19);
+    };
+    // from/to = 입고예정일(KST) 범위. 발주현황=거래처확인요청(RP) 을 서버에 넘겨 조회.
     const listUrl = (p) =>
       "/po-web/app/purchase-order/list?page=" + p +
       "&searchDateType=WAREHOUSING_PLAN_DATE&searchStartDate=" + (from || "") + "&searchEndDate=" + (to || "") +
-      "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
+      "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=RP&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
 
     const pos = [];
     for (let p = 1; p <= 40; p++) {
@@ -389,11 +412,7 @@ async function scrapeRocketPoRows(from, to) {
       const b = j.body || {};
       const rows = b.body || [];
       for (const o of rows) {
-        if ((o.purchaseOrderStatusDescription || "") !== "거래처확인요청") continue;
-        // 발주현황 = 거래처확인요청 + 입고예정일이 선택 범위(다음 7일) 안인 것만
-        const eta = (o.expectedDeliveryDate || "").slice(0, 10);
-        if (eta && from && eta < from) continue;
-        if (eta && to && eta > to) continue;
+        // 서버가 발주현황=거래처확인요청(RP) + 입고예정일(KST) 범위로 이미 필터함.
         pos.push(o);
       }
       if (p >= (b.lastPageNumber || 1)) break;
@@ -431,8 +450,8 @@ async function scrapeRocketPoRows(from, to) {
             supplyPrice: num(r[7]),
             vat: num(r[8]),
             totalPurchase: num(r[9]),
-            expectedInboundDate: (po.expectedDeliveryDate || "").slice(0, 10).replace(/-/g, ""),
-            poRegisteredAt: (po.createdAt || "").replace("T", " ").slice(0, 19),
+            expectedInboundDate: kstDate(po.expectedDeliveryDate).replace(/-/g, ""),
+            poRegisteredAt: kstDateTime(po.createdAt),
             xdock: "N",
           });
         }
