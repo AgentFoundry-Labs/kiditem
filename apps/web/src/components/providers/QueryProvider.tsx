@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
 import { shouldRenderQueryDevtools } from './query-devtools';
-import { makeQueryClient } from './query-client';
+import { installQueryClientErrorHandler, makeQueryClient } from './query-client';
 import { AuthProvider } from './AuthProvider';
 
 const ReactQueryDevtools = dynamic(
@@ -16,6 +16,7 @@ const ReactQueryDevtools = dynamic(
 export default function QueryProvider({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(makeQueryClient);
   const safeChildren = children as any;
+  installQueryClientErrorHandler(queryClient);
 
   // AuthProvider 는 QueryProvider 내부에서 mount — useQueryClient() 가 의존.
   return (

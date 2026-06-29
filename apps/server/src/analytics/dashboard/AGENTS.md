@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # analytics/dashboard — Reporting Read Model
 
 `src/analytics/dashboard/` owns `/api/dashboard/*` read endpoints for the

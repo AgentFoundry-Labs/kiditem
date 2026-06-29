@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # packages/shared — @kiditem/shared
 
 `packages/shared/` owns frontend/backend Zod schemas, TypeScript contracts, and

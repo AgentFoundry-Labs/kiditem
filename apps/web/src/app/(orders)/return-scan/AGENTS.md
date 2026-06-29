@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # web/return-scan — Barcode Input + Local Scan Log
 
 `app/(orders)/return-scan/` owns the barcode-scanner return receiving UI. All

@@ -328,6 +328,8 @@ erDiagram
 | Organization | organization | referenced by external | Channels | ChannelReconciliationRun |
 | Organization | organization | referenced by external | Channels | ChannelScrapeRun |
 | Organization | organization | referenced by external | Channels | ChannelScrapeSnapshot |
+| Organization | organization | referenced by external | Channels | RocketPurchaseOrder |
+| Organization | organization | referenced by external | Channels | RocketSupplyDailySnapshot |
 | Organization | organization | referenced by external | Finance | GradeHistory |
 | Organization | organization | referenced by external | Finance | ManualLedger |
 | Organization | organization | referenced by external | Finance | ProcessingCost |

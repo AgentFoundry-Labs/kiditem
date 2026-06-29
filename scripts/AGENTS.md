@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # scripts — Durable Repo Automation
 
 `scripts/` owns durable repo automation. Human-facing inventory lives in

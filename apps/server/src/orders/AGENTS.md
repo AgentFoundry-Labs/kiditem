@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # orders — Orders, Returns, CS, Reviews
 
 `src/orders/` owns the channel-agnostic order spine and adjacent operational

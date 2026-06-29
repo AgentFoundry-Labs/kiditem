@@ -5,6 +5,7 @@ import { ProductsModule } from '../products/products.module';
 import { InventoryAssetsController } from './adapter/in/http/inventory-assets.controller';
 import { InventoryItemsController } from './adapter/in/http/inventory-items.controller';
 import { InventoryStockMutationsController } from './adapter/in/http/inventory-stock-mutations.controller';
+import { CoupangShipmentsController } from './adapter/in/http/coupang-shipments.controller';
 import { InventoryTransactionsController } from './adapter/in/http/inventory-transactions.controller';
 import { UnshippedController } from './adapter/in/http/unshipped.controller';
 import { WarehousesController } from './adapter/in/http/warehouses.controller';
@@ -19,8 +20,10 @@ import { TransfersRepositoryAdapter } from './adapter/out/repository/transfers.r
 import { AuditsRepositoryAdapter } from './adapter/out/repository/audits.repository.adapter';
 import { PickingRepositoryAdapter } from './adapter/out/repository/picking.repository.adapter';
 import { ConfirmedOrdersRepositoryAdapter } from './adapter/out/repository/confirmed-orders.repository.adapter';
+import { LocalCoupangShipmentFilesAdapter } from './adapter/out/storage/local-coupang-shipment-files.adapter';
 import { BundleStockAdapter } from './adapter/out/products/bundle-stock.adapter';
 
+import { CoupangShipmentsService } from './application/service/coupang-shipments.service';
 import { InventoryService } from './application/service/inventory.service';
 import { UnshippedService } from './application/service/unshipped.service';
 import { WarehousesService } from './application/service/warehouses.service';
@@ -29,7 +32,7 @@ import { AuditsService } from './application/service/audits.service';
 import { PickingService } from './application/service/picking.service';
 
 import { AUDITS_PORT, INVENTORY_PORT } from './application/port/in/stock';
-import { PICKING_PORT, UNSHIPPED_PORT } from './application/port/in/fulfillment';
+import { COUPANG_SHIPMENTS_PORT, PICKING_PORT, UNSHIPPED_PORT } from './application/port/in/fulfillment';
 import { TRANSFERS_PORT, WAREHOUSES_PORT } from './application/port/in/warehouse';
 
 import { INVENTORY_QUERY_REPOSITORY_PORT } from './application/port/out/repository/inventory-query.repository.port';
@@ -40,6 +43,7 @@ import { AUDITS_REPOSITORY_PORT } from './application/port/out/repository/audits
 import { PICKING_REPOSITORY_PORT } from './application/port/out/repository/picking.repository.port';
 import { CONFIRMED_ORDERS_PORT } from './application/port/out/cross-domain/confirmed-orders.port';
 import { BUNDLE_STOCK_PORT } from './application/port/out/cross-domain/bundle-stock.port';
+import { COUPANG_SHIPMENT_FILE_STORAGE_PORT } from './application/port/out/storage';
 
 // Application port → adapter bindings live in this module. Application services
 // only depend on `application/port/out/*` contracts; the Nest module is the
@@ -53,6 +57,7 @@ const REPOSITORY_PORT_BINDINGS = [
   { provide: PICKING_REPOSITORY_PORT, useExisting: PickingRepositoryAdapter },
   { provide: CONFIRMED_ORDERS_PORT, useExisting: ConfirmedOrdersRepositoryAdapter },
   { provide: BUNDLE_STOCK_PORT, useExisting: BundleStockAdapter },
+  { provide: COUPANG_SHIPMENT_FILE_STORAGE_PORT, useExisting: LocalCoupangShipmentFilesAdapter },
 ];
 
 const APPLICATION_PORT_BINDINGS = [
@@ -62,6 +67,7 @@ const APPLICATION_PORT_BINDINGS = [
   { provide: TRANSFERS_PORT, useExisting: TransfersService },
   { provide: AUDITS_PORT, useExisting: AuditsService },
   { provide: PICKING_PORT, useExisting: PickingService },
+  { provide: COUPANG_SHIPMENTS_PORT, useExisting: CoupangShipmentsService },
 ];
 
 @Module({
@@ -75,6 +81,7 @@ const APPLICATION_PORT_BINDINGS = [
     WarehousesController,
     TransfersController,
     AuditsController,
+    CoupangShipmentsController,
     PickingController,
   ],
   providers: [
@@ -86,9 +93,11 @@ const APPLICATION_PORT_BINDINGS = [
     AuditsRepositoryAdapter,
     PickingRepositoryAdapter,
     ConfirmedOrdersRepositoryAdapter,
+    LocalCoupangShipmentFilesAdapter,
     // adapter/out/products
     BundleStockAdapter,
     // application/service
+    CoupangShipmentsService,
     InventoryService,
     UnshippedService,
     WarehousesService,

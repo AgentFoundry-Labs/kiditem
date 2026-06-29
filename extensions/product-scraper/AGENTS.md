@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # product-scraper — Alibaba/1688 Sourcing Extension
 
 `extensions/product-scraper/` extracts Alibaba and 1688 product data and sends

@@ -447,6 +447,8 @@ describe('api base helpers', () => {
       .toBe('http://127.0.0.1:4000');
     expect(normalizeLoopbackApiBase('http://127.0.0.1:4000', 'localhost'))
       .toBe('http://localhost:4000');
+    expect(normalizeLoopbackApiBase('http://localhost:4000', '0.0.0.0'))
+      .toBe('http://localhost:4000');
     expect(normalizeLoopbackApiBase('https://api.kiditem.local', 'localhost'))
       .toBe('https://api.kiditem.local');
   });

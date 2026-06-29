@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # order-collector — Marketplace Order Collection Extension
 
 `extensions/order-collector/` reads order tables from marketplace admin pages
@@ -7,6 +9,7 @@ back to the KidItem web app.
 ## Owned Surfaces
 
 - Icecream Mall PO delivery inquiry grid capture.
+- Coupang supplier ASN visible-row Label/statement download triggers.
 - KidItem localhost extension-id discovery for order collection only.
 
 ## Browser Boundary

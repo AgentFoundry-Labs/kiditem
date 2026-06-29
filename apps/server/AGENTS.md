@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # apps/server — NestJS Backend
 
 `apps/server/` is the NestJS API on port 4000. It owns HTTP entrypoints,

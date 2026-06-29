@@ -1,0 +1,116 @@
+'use client';
+
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { cn, formatKRW, formatNumber } from '@/lib/utils';
+
+const WD = ['일', '월', '화', '수', '목', '금', '토'];
+
+export interface MonthDayData {
+  count: number;
+  qty: number;
+  amount: number;
+}
+
+function pad(n: number) {
+  return String(n).padStart(2, '0');
+}
+
+export function RocketMonthCalendar({
+  monthAnchor,
+  data,
+  selected,
+  onSelect,
+  onShiftMonth,
+}: {
+  monthAnchor: string;
+  data: Record<string, MonthDayData>;
+  selected: string | null;
+  onSelect: (d: string | null) => void;
+  onShiftMonth: (delta: number) => void;
+}) {
+  const anchor = new Date((monthAnchor || '') + 'T00:00:00');
+  const year = anchor.getFullYear();
+  const month = anchor.getMonth(); // 0-based
+  const startDow = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const cells: (string | null)[] = [];
+  for (let i = 0; i < startDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(`${year}-${pad(month + 1)}-${pad(d)}`);
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3">
+      <div className="mb-2 flex items-center justify-between px-1">
+        <button
+          type="button"
+          onClick={() => onShiftMonth(-1)}
+          className="rounded-md p-1 text-slate-400 hover:bg-slate-100"
+        >
+          <ChevronLeft size={16} />
+        </button>
+        <span className="text-sm font-semibold text-slate-900">
+          {year}.{pad(month + 1)}
+        </span>
+        <button
+          type="button"
+          onClick={() => onShiftMonth(1)}
+          className="rounded-md p-1 text-slate-400 hover:bg-slate-100"
+        >
+          <ChevronRight size={16} />
+        </button>
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {WD.map((w, i) => (
+          <div
+            key={w}
+            className={cn(
+              'py-1 text-center text-sm font-medium',
+              i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-slate-400',
+            )}
+          >
+            {w}
+          </div>
+        ))}
+        {cells.map((date, i) => {
+          if (!date) return <div key={`b${i}`} />;
+          const dd = data[date];
+          const has = !!dd && dd.count > 0;
+          const active = selected === date;
+          const dow = i % 7;
+          return (
+            <button
+              key={date}
+              type="button"
+              onClick={() => has && onSelect(active ? null : date)}
+              className={cn(
+                'flex min-h-[80px] flex-col items-start rounded-lg border p-2 text-left transition',
+                active
+                  ? 'border-purple-500 bg-purple-100 ring-1 ring-purple-300'
+                  : has
+                    ? 'cursor-pointer border-purple-200 bg-purple-50 hover:bg-purple-100/70'
+                    : 'border-slate-100 bg-slate-50/30',
+              )}
+            >
+              <span
+                className={cn(
+                  'text-sm font-medium',
+                  dow === 0 ? 'text-red-400' : dow === 6 ? 'text-blue-400' : 'text-slate-500',
+                )}
+              >
+                {Number(date.slice(8))}
+              </span>
+              {has && (
+                <span className="mt-auto w-full">
+                  <span className="block text-sm font-bold tabular-nums text-slate-800">{dd.count}건</span>
+                  <span className="block truncate text-[11px] tabular-nums text-slate-500">{formatNumber(dd.qty)}개</span>
+                  <span className="block truncate text-[11px] tabular-nums text-purple-600">{formatKRW(dd.amount)}</span>
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

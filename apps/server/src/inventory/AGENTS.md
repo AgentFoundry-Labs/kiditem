@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # inventory — Stock, Warehouses, Transfers, Picking
 
 `src/inventory/` owns stock state, unshipped reads, warehouses, stock transfers,

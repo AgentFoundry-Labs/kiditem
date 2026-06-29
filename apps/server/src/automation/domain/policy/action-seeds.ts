@@ -28,7 +28,7 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
       taskKey: 'h-ad-bid', type: 'human',
       label: `광고비 초과 ${metrics.highAdProducts}개 — 입찰가 하향 조정`,
       detail: '쿠팡 광고센터에서 해당 상품 입찰가를 낮추거나 일예산 축소',
-      where: '쿠팡 광고센터', priority: 'urgent', role: 'ad', href: '/ads-hub',
+      where: '쿠팡 광고센터', priority: 'urgent', role: 'ad', href: '/ad-ops',
     });
   }
   if (metrics.minusProducts > 0) {
@@ -36,13 +36,13 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
       taskKey: 'h-minus-ad-stop', type: 'human',
       label: `적자 상품 ${metrics.minusProducts}개 — 광고 중단 처리`,
       detail: '쿠팡 광고센터에서 적자 상품 캠페인 OFF 처리',
-      where: '쿠팡 광고센터', priority: 'urgent', role: 'ad', href: '/cleanup',
+      where: '쿠팡 광고센터', priority: 'urgent', role: 'ad', href: '/product-hub?tab=cleanup',
     });
     seeds.push({
       taskKey: 'h-minus-price', type: 'human',
       label: `적자 상품 ${metrics.minusProducts}개 — 판매가 인상 검토`,
       detail: '경쟁사 가격 확인 후 마진 확보 가능한 상품 가격 조정',
-      where: '쿠팡 윙', priority: 'high', role: 'finance', href: '/cleanup',
+      where: '쿠팡 윙', priority: 'high', role: 'finance', href: '/product-hub?tab=cleanup',
     });
   }
   if (metrics.needReorder > 0) {
@@ -66,7 +66,7 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
       taskKey: 'h-low-profit', type: 'human',
       label: `저이익 ${metrics.lowProfitProducts}개 — 소싱처/수수료 재검토`,
       detail: '원가 절감 가능한 소싱처 확인, 카테고리 수수료율 점검',
-      where: '소싱처/쿠팡 윙', priority: 'medium', role: 'finance', href: '/cleanup',
+      where: '소싱처/쿠팡 윙', priority: 'medium', role: 'finance', href: '/product-hub?tab=cleanup',
     });
   }
   if (metrics.lowCtrProducts > 0) {

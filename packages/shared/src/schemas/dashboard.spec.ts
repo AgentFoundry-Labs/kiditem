@@ -36,7 +36,7 @@ describe('dashboard schemas', () => {
         title: '썸네일 편집 완료',
         message: null,
         sourceType: 'thumbnail_generation',
-        href: '/thumbnails?generationId=gen-1',
+        href: '/product-pipeline/thumbnail-ai?generationId=gen-1',
         progress: 1,
         targetType: null,
         targetId: null,
@@ -53,6 +53,6 @@ describe('dashboard schemas', () => {
     });
 
     expect(summary.alerts[0].status).toBe('succeeded');
-    expect(summary.alerts[0].href).toBe('/thumbnails?generationId=gen-1');
+    expect(summary.alerts[0].href).toBe('/product-pipeline/thumbnail-ai?generationId=gen-1');
   });
 });

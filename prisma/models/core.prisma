@@ -92,7 +92,9 @@ model Organization {
   categoryMappings CategoryMapping[]
 
   // Analytics
-  salesPlans SalesPlan[]
+  salesPlans                 SalesPlan[]
+  rocketSupplyDailySnapshots RocketSupplyDailySnapshot[]
+  rocketPurchaseOrders       RocketPurchaseOrder[]
 
   // Ontology
   businessRules  BusinessRule[]

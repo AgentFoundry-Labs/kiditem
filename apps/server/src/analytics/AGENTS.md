@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # analytics — Reporting + Read Models
 
 `src/analytics/` owns dashboard, statistics, traffic, and supplier-stats read

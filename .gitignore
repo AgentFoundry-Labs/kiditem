@@ -38,6 +38,11 @@ graphify-out/.graphify_*
 # Database
 *.db
 
+# Local dev scratch — scripts, scraped data dumps, generated artifacts (never commit)
+tmp/
+output/
+outputs/
+
 # Python
 __pycache__/
 *.pyc

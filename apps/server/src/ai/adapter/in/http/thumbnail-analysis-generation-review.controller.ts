@@ -57,7 +57,7 @@ export class ThumbnailAnalysisGenerationReviewController {
 
   /**
    * "선택 대기" 탭의 모든 generation 의 `selectedUrl` 일괄 해제.
-   * Frontend (`/thumbnails` AI 편집 탭) 가 ready 탭 진입 시 호출.
+   * Frontend (`/product-pipeline/thumbnail-ai` AI 편집 탭) 가 ready 탭 진입 시 호출.
    */
   @Put('generations/clear-ready-selections')
   clearReadySelections(@CurrentOrganization() organizationId: string) {

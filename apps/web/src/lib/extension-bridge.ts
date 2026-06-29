@@ -149,12 +149,15 @@ export async function detectSourcingExtensionId(timeoutMs = 1200): Promise<strin
   });
 }
 
-export async function detectOrderCollectionExtensionId(timeoutMs = 1200): Promise<string | null> {
+export async function detectOrderCollectionExtensionId(
+  timeoutMs = 1200,
+  requiredCapability = 'orderCollectionIcecreamMall',
+): Promise<string | null> {
   return detectExtensionIdWithHandshake({
     storageKey: KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY,
     requestType: 'kiditem:request-order-ext-id',
     responseType: 'kiditem:order-ext-id',
     timeoutMs,
-    accepts: (response) => response.capabilities?.orderCollectionIcecreamMall === true,
+    accepts: (response) => response.capabilities?.[requiredCapability] === true,
   });
 }

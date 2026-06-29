@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # web/collected-products — Collected Product Workspace
 
 `app/(product-pipeline)/product-pipeline/collected-products/` owns the collected
@@ -31,7 +33,7 @@ live under `product-pipeline/_shared/`.
 - Candidate-scoped generated detail/thumbnail history links
 - Candidate editor bridge into the shared generated-content editor
 
-Do not reintroduce user-facing `/sourcing` or `/product-content` routes.
+Do not reintroduce standalone sourcing or product-content routes.
 
 ## Data Ownership
 

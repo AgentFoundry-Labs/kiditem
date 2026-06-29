@@ -9,6 +9,8 @@ export interface StoredOrderCollectionFile extends OrderCollectionConversionResu
   collectedRows?: number;
   mallKey?: string;
   mallName?: string;
+  /** 셀피아 전송 완료 시각 (전송 대기 집계 + 최근 활동 피드용). */
+  sentAt?: number;
 }
 
 const DB_NAME = 'kiditem-order-collection-files';

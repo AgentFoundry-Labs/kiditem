@@ -139,7 +139,7 @@ describe('alertPanelMapper', () => {
       sourceType: 'content_generation',
       sourceId: ALERT_ID,
       actorUserId: USER_ID,
-      href: `/products/${TARGET_ID}`,
+      href: `/product-hub/${TARGET_ID}`,
       progress: 0.75,
       metadata: { step: 'render' },
       startedAt: new Date('2026-04-15T00:00:01Z'),
@@ -151,7 +151,7 @@ describe('alertPanelMapper', () => {
     expect(item.operationKey).toBe(`ai.detail_page:${ALERT_ID}`);
     expect(item.sourceType).toBe('content_generation');
     expect(item.sourceId).toBe(ALERT_ID);
-    expect(item.href).toBe(`/products/${TARGET_ID}`);
+    expect(item.href).toBe(`/product-hub/${TARGET_ID}`);
     expect(item.progress).toBe(0.75);
     expect(item.metadata).toEqual({ step: 'render' });
     expect(item.startedAt).toBe('2026-04-15T00:00:01.000Z');

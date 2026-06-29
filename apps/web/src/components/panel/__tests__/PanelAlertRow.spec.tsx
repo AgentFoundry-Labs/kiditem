@@ -233,12 +233,12 @@ describe('PanelAlertRow', () => {
           item={makeAlert({
             alertKind: 'operation',
             status: 'succeeded',
-            href: '/products/abc',
+            href: '/product-hub/abc',
           })}
         />,
       );
       const link = screen.getByRole('link', { name: /이동/ });
-      expect(link).toHaveAttribute('href', '/products/abc');
+      expect(link).toHaveAttribute('href', '/product-hub/abc');
     });
 
     it('renders canonical product-pipeline hrefs without runtime legacy normalization', () => {
@@ -265,7 +265,7 @@ describe('PanelAlertRow', () => {
           item={makeAlert({
             alertKind: 'operation',
             status: 'succeeded',
-            href: '/products/abc',
+            href: '/product-hub/abc',
           })}
         />,
       );

@@ -56,6 +56,7 @@ export async function convertIcecreamMallOrderFile(
 
 export async function convertIcecreamMallOrderRows(
   payload: BrowserOrderRowsPayload,
+  options?: { download?: boolean },
 ): Promise<OrderCollectionConversionResult> {
   const response = await apiClient.fetchRaw('/api/orders/collection/icecream-mall/convert-rows', {
     method: 'POST',
@@ -71,7 +72,10 @@ export async function convertIcecreamMallOrderRows(
   const fileName =
     fileNameFromContentDisposition(response.headers.get('Content-Disposition')) ??
     fallbackFileName(payload.fileName ?? '아이스크림몰_브라우저수집');
-  downloadBlob(blob, fileName);
+  // 자동 감지 등 백그라운드 변환은 파일 자동 다운로드를 끈다 (download: false).
+  if (options?.download !== false) {
+    downloadBlob(blob, fileName);
+  }
 
   return {
     fileName,

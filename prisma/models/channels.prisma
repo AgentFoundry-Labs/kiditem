@@ -328,6 +328,59 @@ model ChannelAccountDailyKpiSnapshot {
 }
 
 /// @namespace Channels
+/// @describe 쿠팡 로켓(공급사 발주) 일별 매출 fact. po-web 발주리스트의 발주금액(공급가)을 입고예정일(KST) 기준으로 집계한 값으로, 윙 매출과 분리된 로켓 매출 소스.
+model RocketSupplyDailySnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  businessDate   DateTime @map("business_date") @db.Date
+
+  revenueKrw Int @default(0) @map("revenue_krw") // 발주금액 합계 (KRW)
+  poCount    Int @default(0) @map("po_count") // 발주서 수
+  itemQty    Int @default(0) @map("item_qty") // 발주 총 수량
+
+  source  String @default("rocket")
+  rawJson Json?  @map("raw_json")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, businessDate])
+  @@index([organizationId, businessDate])
+  @@map("rocket_supply_daily_snapshots")
+}
+
+/// @namespace Channels
+/// @describe 쿠팡 로켓 발주 단건(per-PO) 상세 — 매출분석 드릴다운(일자→발주→품목)용. items 는 발주서 품목(SKU) 라인 JSON(표시 전용).
+model RocketPurchaseOrder {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  poSeq          Int      @map("po_seq") // purchaseOrderSeq
+  businessDate   DateTime @map("business_date") @db.Date // 입고예정일(KST)
+  orderedAt      DateTime @map("ordered_at") @db.Timestamptz
+
+  status       String? // 거래처확인요청 등
+  vendorName   String? @map("vendor_name")
+  centerName   String? @map("center_name")
+  firstSkuName String? @map("first_sku_name")
+  skuCount     Int     @default(0) @map("sku_count")
+  orderQty     Int     @default(0) @map("order_qty")
+  orderAmount  Int     @default(0) @map("order_amount") // 발주금액 KRW
+
+  items Json? // [{ name, qty, unitPrice, amount, productNo, barcode }] (표시 전용)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, poSeq])
+  @@index([organizationId, businessDate])
+  @@map("rocket_purchase_orders")
+}
+
+/// @namespace Channels
 /// @describe 채널-KidItem 상품 매칭 스캔 실행 이력. 실제 연결 source of truth 는 ChannelListing / ChannelListingOption.
 model ChannelReconciliationRun {
   id             String @id @default(uuid()) @db.Uuid
