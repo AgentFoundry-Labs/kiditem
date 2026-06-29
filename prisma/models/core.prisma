@@ -73,6 +73,11 @@ model Organization {
   stockTransfers    StockTransfer[]
   stockTransactions StockTransaction[]
   stockAudits       StockAudit[]
+  sellpiaStockSnapshots       SellpiaStockSnapshot[]
+  sellpiaStockSnapshotItems   SellpiaStockSnapshotItem[]
+  sellpiaNewProductCandidates SellpiaNewProductCandidate[]
+  sellpiaReceiptUploadBatches SellpiaReceiptUploadBatch[]
+  rocketInventoryLedger       RocketInventoryLedger[]
 
   // Logistics
   shipments       Shipment[]
@@ -456,6 +461,9 @@ model ProductOption {
   stockTransfers     StockTransfer[]
   pickingItems       PickingItem[]
   returnTransfers    ReturnTransfer[]
+  sellpiaStockSnapshotItems   SellpiaStockSnapshotItem[]
+  sellpiaNewProductCandidates SellpiaNewProductCandidate[]
+  rocketInventoryLedger       RocketInventoryLedger[]
   purchaseOrderItems PurchaseOrderItem[]
   supplierProducts   SupplierProduct[]
   shipments          Shipment[]
