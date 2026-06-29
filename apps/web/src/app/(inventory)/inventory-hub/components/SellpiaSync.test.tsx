@@ -101,6 +101,18 @@ function buildSnapshotItem(patch: Partial<SellpiaStockSnapshotItem>): SellpiaSto
   };
 }
 
+function buildManySnapshotItems(count: number): SellpiaStockSnapshotItem[] {
+  return Array.from({ length: count }, (_, index) => {
+    const number = index + 1;
+    const idSuffix = String(number).padStart(12, '0');
+    return buildSnapshotItem({
+      id: `00000000-0000-4000-8000-${idSuffix}`,
+      rowNumber: number + 1,
+      sellpiaProductCode: `SP-${String(number).padStart(3, '0')}`,
+    });
+  });
+}
+
 async function uploadSellpiaFixture(): Promise<void> {
   await userEvent.upload(screen.getByLabelText('Sellpia XLSX'), new File(['xlsx'], 'exported-list.xlsx'));
   await userEvent.click(screen.getByRole('button', { name: '미리보기' }));
@@ -156,6 +168,55 @@ describe('SellpiaSync', () => {
 
     expect(screen.queryByText('SP-REC')).not.toBeInTheDocument();
     expect(screen.getByText('SP-WARN')).toBeInTheDocument();
+  });
+
+  it('paginates Sellpia review rows in 50-row pages', async () => {
+    importSellpiaInventoryFile.mockResolvedValueOnce(buildImportResponse({
+      summary: { recommendedCount: 55, matchedCount: 55 },
+      items: buildManySnapshotItems(55),
+    }));
+
+    render(<SellpiaSync />);
+    await uploadSellpiaFixture();
+
+    expect(await screen.findByText('SP-001')).toBeInTheDocument();
+    expect(screen.getByText('SP-050')).toBeInTheDocument();
+    expect(screen.queryByText('SP-051')).not.toBeInTheDocument();
+    expect(screen.getByText('1-50 / 55')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: '다음 페이지' }));
+
+    expect(screen.queryByText('SP-001')).not.toBeInTheDocument();
+    expect(screen.getByText('SP-051')).toBeInTheDocument();
+    expect(screen.getByText('SP-055')).toBeInTheDocument();
+    expect(screen.getByText('51-55 / 55')).toBeInTheDocument();
+  });
+
+  it('returns to the first Sellpia review page when the filter changes', async () => {
+    importSellpiaInventoryFile.mockResolvedValueOnce(buildImportResponse({
+      summary: { recommendedCount: 51, reviewCount: 1, matchedCount: 52 },
+      items: [
+        ...buildManySnapshotItems(51),
+        buildSnapshotItem({
+          id: '00000000-0000-4000-8000-000000000991',
+          rowNumber: 53,
+          sellpiaProductCode: 'SP-REVIEW',
+          status: 'needs_review',
+          blockingReasons: ['recent_kiditem_event'],
+        }),
+      ],
+    }));
+
+    render(<SellpiaSync />);
+    await uploadSellpiaFixture();
+    await userEvent.click(screen.getByRole('button', { name: '다음 페이지' }));
+
+    expect(screen.getByText('51-52 / 52')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /검토/ }));
+
+    expect(screen.getByText('SP-REVIEW')).toBeInTheDocument();
+    expect(screen.getByText('1-1 / 1')).toBeInTheDocument();
   });
 
   it('requires an approval reason for large difference rows', async () => {

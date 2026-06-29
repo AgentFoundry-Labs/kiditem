@@ -53,6 +53,8 @@ const actionLabels: Record<CandidateAction, string> = {
   ignore: '무시',
 };
 
+const SELLPIA_REVIEW_PAGE_SIZE = 50;
+
 function defaultExportedAt(): string {
   return new Date().toISOString().slice(0, 16);
 }
@@ -102,6 +104,7 @@ export default function SellpiaSync() {
   const [rowForms, setRowForms] = useState<Record<string, RowReviewForm>>({});
   const [candidateForms, setCandidateForms] = useState<Record<string, CandidateForm>>({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [reviewPage, setReviewPage] = useState(1);
   const [bulkMessage, setBulkMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -124,6 +127,17 @@ export default function SellpiaSync() {
   const reviewRows = useMemo(
     () => filterSellpiaRows(actionableRows, filter),
     [actionableRows, filter],
+  );
+
+  const reviewTotalPages = Math.max(1, Math.ceil(reviewRows.length / SELLPIA_REVIEW_PAGE_SIZE));
+  const currentReviewPage = Math.min(reviewPage, reviewTotalPages);
+  const reviewStartIndex = reviewRows.length === 0
+    ? 0
+    : (currentReviewPage - 1) * SELLPIA_REVIEW_PAGE_SIZE;
+  const reviewEndIndex = Math.min(reviewStartIndex + SELLPIA_REVIEW_PAGE_SIZE, reviewRows.length);
+  const pagedReviewRows = useMemo(
+    () => reviewRows.slice(reviewStartIndex, reviewEndIndex),
+    [reviewEndIndex, reviewRows, reviewStartIndex],
   );
 
   const selectedRows = useMemo(
@@ -179,6 +193,11 @@ export default function SellpiaSync() {
     });
   }
 
+  function changeFilter(nextFilter: SellpiaReviewFilter) {
+    setFilter(nextFilter);
+    setReviewPage(1);
+  }
+
   async function preview() {
     if (!file) return;
     setLoading(true);
@@ -188,6 +207,7 @@ export default function SellpiaSync() {
       const imported = await importSellpiaInventoryFile(file, toIsoFromDatetimeLocal(effectiveExportedAt));
       setResult(imported);
       setSelectedIds(new Set());
+      setReviewPage(1);
       setRowForms(Object.fromEntries(imported.items.map((item) => [item.id, rowReviewDefaults(item)])));
       setCandidateForms(Object.fromEntries(
         imported.newProductCandidates.map((candidate) => [candidate.id, candidateDefaults(candidate)]),
@@ -414,7 +434,7 @@ export default function SellpiaSync() {
                 <button
                   key={value}
                   type="button"
-                  onClick={() => setFilter(value as SellpiaReviewFilter)}
+                  onClick={() => changeFilter(value as SellpiaReviewFilter)}
                   className={cn(
                     'rounded-md border px-2.5 py-1 text-xs font-medium',
                     filter === value
@@ -462,6 +482,36 @@ export default function SellpiaSync() {
                 </ul>
               </div>
             ) : null}
+            {reviewRows.length > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3 text-xs text-slate-500">
+                <div className="font-medium tabular-nums">
+                  {formatNumber(reviewStartIndex + 1)}-{formatNumber(reviewEndIndex)} / {formatNumber(reviewRows.length)}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    aria-label="이전 페이지"
+                    onClick={() => setReviewPage((page) => Math.max(1, page - 1))}
+                    disabled={busyId !== null || currentReviewPage <= 1}
+                    className="rounded-md border border-slate-200 px-2.5 py-1 font-medium text-slate-600 disabled:opacity-50"
+                  >
+                    이전
+                  </button>
+                  <span className="tabular-nums">
+                    {formatNumber(currentReviewPage)} / {formatNumber(reviewTotalPages)}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label="다음 페이지"
+                    onClick={() => setReviewPage((page) => Math.min(reviewTotalPages, page + 1))}
+                    disabled={busyId !== null || currentReviewPage >= reviewTotalPages}
+                    className="rounded-md border border-slate-200 px-2.5 py-1 font-medium text-slate-600 disabled:opacity-50"
+                  >
+                    다음
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead className="bg-slate-50 text-xs text-slate-500">
@@ -482,7 +532,7 @@ export default function SellpiaSync() {
                         검토할 row가 없습니다.
                       </td>
                     </tr>
-                  ) : reviewRows.map((item) => {
+                  ) : pagedReviewRows.map((item) => {
                     const form = rowForms[item.id] ?? rowReviewDefaults(item);
                     const targetCurrentStock = toStock(form.targetCurrentStock, item.targetCurrentStock);
                     const reasonRequired = requiresSellpiaRowReason(item, targetCurrentStock);
