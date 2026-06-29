@@ -6,13 +6,17 @@ import { InventoryModule } from '../inventory.module';
 import { InventoryAssetsController } from '../adapter/in/http/inventory-assets.controller';
 import { InventoryItemsController } from '../adapter/in/http/inventory-items.controller';
 import { InventoryStockMutationsController } from '../adapter/in/http/inventory-stock-mutations.controller';
+import { CoupangShipmentsController } from '../adapter/in/http/coupang-shipments.controller';
 import { InventoryTransactionsController } from '../adapter/in/http/inventory-transactions.controller';
 import { UnshippedController } from '../adapter/in/http/unshipped.controller';
 import { WarehousesController } from '../adapter/in/http/warehouses.controller';
 import { TransfersController } from '../adapter/in/http/transfers.controller';
 import { AuditsController } from '../adapter/in/http/audits.controller';
 import { PickingController } from '../adapter/in/http/picking.controller';
+import { SellpiaReceiptBatchController } from '../adapter/in/http/sellpia-receipt-batch.controller';
+import { SellpiaSyncController } from '../adapter/in/http/sellpia-sync.controller';
 import { InventoryService } from '../application/service/inventory.service';
+import { SellpiaSyncService } from '../application/service/sellpia-sync.service';
 import { UnshippedService } from '../application/service/unshipped.service';
 import { WarehousesService } from '../application/service/warehouses.service';
 import { TransfersService } from '../application/service/transfers.service';
@@ -20,6 +24,7 @@ import { AuditsService } from '../application/service/audits.service';
 import { PickingService } from '../application/service/picking.service';
 import { InventoryQueryRepositoryAdapter } from '../adapter/out/repository/inventory-query.repository.adapter';
 import { InventoryRepositoryAdapter } from '../adapter/out/repository/inventory.repository.adapter';
+import { SellpiaSyncRepositoryAdapter } from '../adapter/out/repository/sellpia-sync.repository.adapter';
 import { WarehousesRepositoryAdapter } from '../adapter/out/repository/warehouses.repository.adapter';
 import { TransfersRepositoryAdapter } from '../adapter/out/repository/transfers.repository.adapter';
 import { AuditsRepositoryAdapter } from '../adapter/out/repository/audits.repository.adapter';
@@ -62,6 +67,9 @@ describe('InventoryModule capability wiring', () => {
         InventoryAssetsController,
         InventoryItemsController,
         InventoryStockMutationsController,
+        CoupangShipmentsController,
+        SellpiaSyncController,
+        SellpiaReceiptBatchController,
         UnshippedController,
         WarehousesController,
         TransfersController,
@@ -103,6 +111,7 @@ describe('InventoryModule capability wiring', () => {
       AuditsRepositoryAdapter,
       PickingRepositoryAdapter,
       ConfirmedOrdersRepositoryAdapter,
+      SellpiaSyncRepositoryAdapter,
       BundleStockAdapter,
     ]) {
       expect(providers).toContain(cls);
@@ -113,6 +122,7 @@ describe('InventoryModule capability wiring', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, InventoryModule) ?? [];
     for (const cls of [
       InventoryService,
+      SellpiaSyncService,
       UnshippedService,
       WarehousesService,
       TransfersService,
@@ -133,6 +143,9 @@ describe('InventoryModule capability wiring', () => {
     expect(Reflect.getMetadata(PATH_KEY, InventoryAssetsController)).toBe('inventory');
     expect(Reflect.getMetadata(PATH_KEY, InventoryItemsController)).toBe('inventory');
     expect(Reflect.getMetadata(PATH_KEY, InventoryStockMutationsController)).toBe('inventory');
+    expect(Reflect.getMetadata(PATH_KEY, CoupangShipmentsController)).toBe('coupang-shipments');
+    expect(Reflect.getMetadata(PATH_KEY, SellpiaSyncController)).toBe('inventory/sellpia-sync');
+    expect(Reflect.getMetadata(PATH_KEY, SellpiaReceiptBatchController)).toBe('inventory/sellpia-receipt-batches');
     expect(Reflect.getMetadata(PATH_KEY, UnshippedController)).toBe('unshipped');
     expect(Reflect.getMetadata(PATH_KEY, WarehousesController)).toBe('warehouses');
     expect(Reflect.getMetadata(PATH_KEY, TransfersController)).toBe('stock-transfers');

@@ -239,7 +239,7 @@ export type SellpiaStockSnapshot = z.infer<typeof SellpiaStockSnapshotSchema>;
 export const SellpiaStockSnapshotItemSchema = z.object({
   id: z.string().uuid(),
   rowNumber: z.number().int().positive(),
-  sellpiaProductCode: z.string().min(1),
+  sellpiaProductCode: z.string(),
   sellpiaProductName: z.string().nullable(),
   sellpiaStock: z.number().int().nonnegative(),
   safetyStock: z.number().int().nonnegative(),
