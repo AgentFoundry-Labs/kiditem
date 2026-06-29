@@ -1,9 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Check, Loader2, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { postRocketInventoryEvent } from '../../_shared/inventory-api';
+import { parseRocketEventDraft, validateRocketEventDraft } from '../lib/rocket-event-draft';
 import type {
   RocketInventoryEventInput,
   RocketInventoryEventResult,
@@ -42,12 +44,37 @@ const eventLabels: Record<RocketInventoryEventType, string> = {
 };
 
 export default function RocketStockEvents() {
+  const searchParams = useSearchParams();
   const [form, setForm] = useState<FormState>(initialForm);
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<RocketInventoryEventResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    const draft = parseRocketEventDraft(new URLSearchParams(searchParams.toString()));
+    if (Object.values(draft).every((value) => value === undefined)) return;
+    setForm((current) => ({
+      ...current,
+      inventoryId: draft.inventoryId ?? current.inventoryId,
+      optionId: draft.optionId ?? current.optionId,
+      eventType: draft.eventType ?? current.eventType,
+      quantity: draft.quantity === undefined ? current.quantity : String(draft.quantity),
+      sourceRef: draft.sourceRef ?? current.sourceRef,
+      openReservationQty: draft.openReservationQty === undefined
+        ? current.openReservationQty
+        : String(draft.openReservationQty),
+      note: draft.note ?? current.note,
+    }));
+  }, [searchParams]);
+
   async function submit() {
+    const validationError = validateRocketEventDraft(form);
+    if (validationError) {
+      setResult(null);
+      setError(validationError);
+      return;
+    }
+
     const quantity = Math.max(0, Math.trunc(Number(form.quantity) || 0));
     const openReservationQty = form.openReservationQty === ''
       ? undefined
@@ -109,6 +136,7 @@ export default function RocketStockEvents() {
               className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
             >
               <option value="return_restock">{eventLabels.return_restock}</option>
+              <option value="reserve">{eventLabels.reserve}</option>
               <option value="issue">{eventLabels.issue}</option>
               <option value="release">{eventLabels.release}</option>
             </select>

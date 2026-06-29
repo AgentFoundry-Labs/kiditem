@@ -1,6 +1,8 @@
 'use client';
 
+import { Suspense } from 'react';
 import dynamic from 'next/dynamic';
+import { useSearchParams } from 'next/navigation';
 import {
   Warehouse,
   Package,
@@ -12,6 +14,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import TabLayout from '@/components/ui/TabLayout';
+import PageSkeleton from '@/components/ui/PageSkeleton';
 
 const InventoryPage = dynamic(() => import('@/app/(inventory)/inventory/page'), { ssr: false });
 const PurchaseOrdersPage = dynamic(() => import('@/app/(supply)/purchase-orders/page'), { ssr: false });
@@ -24,9 +27,24 @@ const RocketStockEventsPage = dynamic(() => import('@/app/(inventory)/inventory-
 
 export default function InventoryHubPage() {
   return (
+    <Suspense fallback={<PageSkeleton variant="table" />}>
+      <InventoryHubContent />
+    </Suspense>
+  );
+}
+
+function InventoryHubContent() {
+  const searchParams = useSearchParams();
+  const requestedTab = searchParams.get('tab');
+  const defaultTab = requestedTab === 'rocket-events' || requestedTab === 'sellpia-sync'
+    ? requestedTab
+    : undefined;
+
+  return (
     <TabLayout
       title="재고 관리"
       titleIcon={Warehouse}
+      defaultTab={defaultTab}
       tabs={[
         { id: 'status', label: '재고 현황', icon: Warehouse, content: <InventoryPage /> },
         { id: 'po', label: '발주 관리', icon: Package, content: <PurchaseOrdersPage /> },
