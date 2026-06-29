@@ -183,6 +183,8 @@ describe('SellpiaSync', () => {
     expect(screen.getByText('SP-050')).toBeInTheDocument();
     expect(screen.queryByText('SP-051')).not.toBeInTheDocument();
     expect(screen.getByText('1-50 / 55')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '이전 페이지' })).toHaveTextContent('이전 페이지');
+    expect(screen.getByRole('button', { name: '다음 페이지' })).toHaveTextContent('다음 페이지');
 
     await userEvent.click(screen.getByRole('button', { name: '다음 페이지' }));
 

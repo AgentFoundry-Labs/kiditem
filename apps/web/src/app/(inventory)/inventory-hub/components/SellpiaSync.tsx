@@ -483,8 +483,8 @@ export default function SellpiaSync() {
               </div>
             ) : null}
             {reviewRows.length > 0 ? (
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3 text-xs text-slate-500">
-                <div className="font-medium tabular-nums">
+              <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 bg-slate-50/60 px-5 py-3 text-xs text-slate-600">
+                <div className="font-semibold tabular-nums text-slate-700">
                   {formatNumber(reviewStartIndex + 1)}-{formatNumber(reviewEndIndex)} / {formatNumber(reviewRows.length)}
                 </div>
                 <div className="flex items-center gap-2">
@@ -495,9 +495,9 @@ export default function SellpiaSync() {
                     disabled={busyId !== null || currentReviewPage <= 1}
                     className="rounded-md border border-slate-200 px-2.5 py-1 font-medium text-slate-600 disabled:opacity-50"
                   >
-                    이전
+                    이전 페이지
                   </button>
-                  <span className="tabular-nums">
+                  <span className="rounded-md bg-white px-2.5 py-1 font-medium tabular-nums text-slate-700">
                     {formatNumber(currentReviewPage)} / {formatNumber(reviewTotalPages)}
                   </span>
                   <button
@@ -507,7 +507,7 @@ export default function SellpiaSync() {
                     disabled={busyId !== null || currentReviewPage >= reviewTotalPages}
                     className="rounded-md border border-slate-200 px-2.5 py-1 font-medium text-slate-600 disabled:opacity-50"
                   >
-                    다음
+                    다음 페이지
                   </button>
                 </div>
               </div>
