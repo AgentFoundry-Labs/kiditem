@@ -228,7 +228,7 @@ export async function setSelectedCandidate(
 /**
  * 선택 대기 (`phase: 'ready'`) 상태의 generation 들의 `selectedUrl` 을 일괄 해제.
  *
- * 사용처: `/thumbnails` AI 편집 탭의 "선택 대기" 진입 시 — 사용자가 새로
+ * 사용처: `/product-pipeline/thumbnail-ai` AI 편집 탭의 "선택 대기" 진입 시 — 사용자가 새로
  * 들어올 때마다 깨끗한 선택 상태에서 시작하도록 한다. 이미 적용된
  * (`phase: 'applied'`) generation 의 `selectedUrl` 은 유지 (실 적용 결과니까).
  *

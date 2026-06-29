@@ -23,7 +23,7 @@ describe('workflowPanelMapper', () => {
       title: '소싱 파이프라인',
       subtitle: '1/3 단계',
       progress: 1 / 3,
-      deepLink: '/workflows/runs/run-uuid',
+      deepLink: '/workflows',
       actorUserId: 'user-uuid',
       visibility: 'user',
     });

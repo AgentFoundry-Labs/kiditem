@@ -663,7 +663,7 @@ export default function Dashboard() {
             <div className="text-2xl font-extrabold tabular-nums text-slate-900">{inventoryData.warnings.lowProfitProducts}<span className="text-sm ml-0.5">개</span></div>
             <div className="text-xs mt-1 text-slate-400">이익률 3% 이하</div>
           </Link>
-          <Link href="/ads-hub" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
+          <Link href="/ad-ops" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
             <div className="text-sm font-bold mb-1 text-slate-900">광고비 초과</div>
             <div className="text-2xl font-extrabold tabular-nums text-slate-900">{inventoryData.warnings.highAdProducts}<span className="text-sm ml-0.5">개</span></div>
             <div className="text-xs mt-1 text-slate-400">광고비율 15% 초과</div>

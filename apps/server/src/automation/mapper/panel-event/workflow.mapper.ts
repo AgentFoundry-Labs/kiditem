@@ -53,7 +53,7 @@ export const workflowPanelMapper: PanelRunMapper<WorkflowRunInput> = {
       title: input.templateName || '워크플로우',
       subtitle: `${completed}/${total} 단계`,
       progress: total > 0 ? completed / total : undefined,
-      deepLink: `/workflows/runs/${input.id}`,
+      deepLink: '/workflows',
       parentId: input.parentRunId ? `workflow:${input.parentRunId}` : undefined,
       actorUserId: input.triggeredByUserId,
       visibility: workflowPanelMapper.defaultVisibility(input),

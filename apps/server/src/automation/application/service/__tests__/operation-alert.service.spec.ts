@@ -26,7 +26,7 @@ function existingAlert(overrides: Record<string, unknown> = {}) {
     sourceId: 'content-gen-1',
     actorUserId: ACTOR_USER_ID,
     actionTaskId: null,
-    href: '/products/p1',
+    href: '/product-hub/p1',
     progress: 0,
     metadata: { templateId: 'kids-playful' },
     isRead: false,
@@ -78,7 +78,7 @@ describe('OperationAlertService.start', () => {
       sourceType: 'content_generation',
       sourceId: 'content-gen-1',
       actorUserId: ACTOR_USER_ID,
-      href: '/products/p1',
+      href: '/product-hub/p1',
       metadata: { templateId: 'kids-playful' },
     });
 
@@ -96,7 +96,7 @@ describe('OperationAlertService.start', () => {
         sourceType: 'content_generation',
         sourceId: 'content-gen-1',
         actorUserId: ACTOR_USER_ID,
-        href: '/products/p1',
+        href: '/product-hub/p1',
         progress: 0,
         startedAt: expect.any(Date),
         finishedAt: null,

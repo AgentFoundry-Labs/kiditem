@@ -88,6 +88,7 @@ export default function RocketOrdersPage() {
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ['rocket-po-list', from, to, status],
     queryFn: () => listRocketPosFromExtension(from, to, status),
+    meta: { suppressGlobalErrorToast: true },
     staleTime: 0,
     retry: false,
     refetchOnWindowFocus: false,
