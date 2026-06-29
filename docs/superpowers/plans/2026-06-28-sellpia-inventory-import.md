@@ -234,7 +234,7 @@ Blocking reasons include:
 - negative target
 - row parse warning
 - recent KidItem event after export time
- 
+
 Warning reasons include:
 
 - diff absolute value greater than or equal to 20
