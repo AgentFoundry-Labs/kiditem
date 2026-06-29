@@ -9,6 +9,13 @@ import {
   importSellpiaInventoryFile,
   resolveSellpiaCandidate,
 } from '../../_shared/inventory-api';
+import {
+  filterSellpiaRows,
+  getSellpiaFilterCount,
+  getSellpiaRowBadges,
+  requiresSellpiaRowReason,
+  type SellpiaReviewFilter,
+} from '../lib/sellpia-review-ui';
 import type {
   SellpiaCandidateResolutionInput,
   SellpiaNewProductCandidate,
@@ -87,20 +94,30 @@ export default function SellpiaSync() {
   const [file, setFile] = useState<File | null>(null);
   const [effectiveExportedAt, setEffectiveExportedAt] = useState(defaultExportedAt);
   const [result, setResult] = useState<SellpiaSnapshotImportResponse | null>(null);
+  const [filter, setFilter] = useState<SellpiaReviewFilter>('all');
   const [rowForms, setRowForms] = useState<Record<string, RowReviewForm>>({});
   const [candidateForms, setCandidateForms] = useState<Record<string, CandidateForm>>({});
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const reviewRows = useMemo(
+  const actionableRows = useMemo(
     () => result?.items.filter((item) =>
       item.status === 'recommended' ||
       item.status === 'needs_review' ||
       item.status === 'new_product_candidate' ||
-      item.status === 'missing_inventory',
+      item.status === 'missing_inventory' ||
+      item.status === 'rejected' ||
+      item.status === 'approved_adjusted' ||
+      item.status === 'manual_adjusted' ||
+      item.status === 'ignored',
     ) ?? [],
     [result],
+  );
+
+  const reviewRows = useMemo(
+    () => filterSellpiaRows(actionableRows, filter),
+    [actionableRows, filter],
   );
 
   async function preview() {
@@ -253,6 +270,30 @@ export default function SellpiaSync() {
             <div className="border-b border-slate-100 px-5 py-3 text-sm font-semibold text-slate-900">
               Sellpia row review
             </div>
+            <div className="flex flex-wrap gap-2 border-b border-slate-100 px-5 py-3">
+              {[
+                ['all', '전체'],
+                ['recommended', '추천'],
+                ['review', '검토'],
+                ['candidate', '신규 후보'],
+                ['rejected', '거부'],
+                ['done', '완료'],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setFilter(value as SellpiaReviewFilter)}
+                  className={cn(
+                    'rounded-md border px-2.5 py-1 text-xs font-medium',
+                    filter === value
+                      ? 'border-slate-900 bg-slate-900 text-white'
+                      : 'border-slate-200 text-slate-600 hover:bg-slate-50',
+                  )}
+                >
+                  {label} {formatNumber(getSellpiaFilterCount(actionableRows, value as SellpiaReviewFilter))}
+                </button>
+              ))}
+            </div>
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead className="bg-slate-50 text-xs text-slate-500">
@@ -274,11 +315,35 @@ export default function SellpiaSync() {
                     </tr>
                   ) : reviewRows.map((item) => {
                     const form = rowForms[item.id] ?? rowReviewDefaults(item);
+                    const targetCurrentStock = toStock(form.targetCurrentStock, item.targetCurrentStock);
+                    const reasonRequired = requiresSellpiaRowReason(item, targetCurrentStock);
+                    const approveDisabled =
+                      busyId !== null ||
+                      !item.inventoryId ||
+                      (reasonRequired && !form.reason.trim());
                     return (
                       <tr key={item.id} className="border-t border-slate-100">
                         <td className="px-3 py-2 font-mono text-xs text-slate-500">{item.sellpiaProductCode}</td>
-                        <td className="max-w-[260px] truncate px-3 py-2 text-slate-700">
-                          {item.sellpiaProductName ?? '-'}
+                        <td className="px-3 py-2 text-slate-700">
+                          <div className="flex max-w-[280px] flex-col gap-1">
+                            <span className="truncate">{item.sellpiaProductName ?? '-'}</span>
+                            <div className="flex flex-wrap gap-1">
+                              {getSellpiaRowBadges(item).map((badge) => (
+                                <span
+                                  key={`${badge.tone}-${badge.label}`}
+                                  className={cn(
+                                    'rounded px-1.5 py-0.5 text-[11px] font-medium',
+                                    badge.tone === 'danger' && 'bg-red-50 text-red-700',
+                                    badge.tone === 'warning' && 'bg-amber-50 text-amber-700',
+                                    badge.tone === 'success' && 'bg-emerald-50 text-emerald-700',
+                                    badge.tone === 'neutral' && 'bg-slate-100 text-slate-600',
+                                  )}
+                                >
+                                  {badge.label}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">{formatNumber(item.sellpiaStock)}</td>
                         <td className="px-3 py-2 text-right">
@@ -304,13 +369,16 @@ export default function SellpiaSync() {
                             }))}
                             className="w-full min-w-[160px] rounded-md border border-slate-200 px-2 py-1"
                           />
+                          {reasonRequired && !form.reason.trim() ? (
+                            <div className="mt-1 text-[11px] text-amber-700">사유 입력 후 승인할 수 있습니다.</div>
+                          ) : null}
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex justify-end gap-1.5">
                             <button
                               type="button"
                               onClick={() => void approve(item)}
-                              disabled={busyId !== null || !item.inventoryId}
+                              disabled={approveDisabled}
                               className="inline-flex h-8 items-center gap-1 rounded-md bg-emerald-600 px-2.5 text-xs font-medium text-white disabled:opacity-50"
                             >
                               {busyId === item.id ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
