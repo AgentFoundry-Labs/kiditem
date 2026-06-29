@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # extensions — Chrome Extensions
 
 `extensions/` owns Chrome Manifest V3 browser extensions that collect

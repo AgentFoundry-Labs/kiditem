@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # supply — Suppliers + Procurement
 
 `src/supply/` owns supplier registry, master-supplier policy

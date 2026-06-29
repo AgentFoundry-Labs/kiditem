@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # finance — P&L, Costs, Payments, Settlements
 
 `src/finance/` owns live financial aggregation plus manual ledger, processing

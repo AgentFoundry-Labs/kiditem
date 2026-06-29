@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # web/thumbnail-ai — Thumbnail Analysis Dashboard
 
 `app/(product-pipeline)/product-pipeline/thumbnail-ai/` owns the six-tab

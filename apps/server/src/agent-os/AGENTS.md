@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # agent-os — Agent Runtime Platform
 
 `src/agent-os/` owns code-defined agent definitions, organization-scoped agent

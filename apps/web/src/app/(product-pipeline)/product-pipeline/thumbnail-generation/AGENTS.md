@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # web/thumbnail-generation — Generation Workspace
 
 `app/(product-pipeline)/product-pipeline/thumbnail-generation/` owns the

@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # web/workflows — Workflow List + Mutation Hooks
 
 `app/(automation)/workflows/` owns the workflow list UI, workflow activation,

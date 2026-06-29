@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # coupang-ads-scraper — Coupang Wing + Ad-Center Extension
 
 `extensions/coupang-ads-scraper/` collects Coupang Wing and ad-center data,

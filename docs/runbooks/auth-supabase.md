@@ -161,7 +161,7 @@ npm run dev:all
 
 - 잘못된 비밀번호 → sonner 에러 토스트, 리다이렉트 없음
 - "이메일 기억하기" 체크 → 로그아웃 후 재방문 시 email prefill (`localStorage.kiditem.login.rememberedEmail`)
-- `?next=/products` 쿼리 → 로그인 후 `/products` 도달
+- `?next=/product-hub` 쿼리 → 로그인 후 `/product-hub` 도달
 - 로그인 상태에서 `/login` 직접 접근 → `/` 리다이렉트
 - Sidebar 하단 로그아웃 버튼 → 쿠키 제거 → `/login` 리다이렉트
 

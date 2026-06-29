@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # auth — Authentication + Organization Context
 
 `src/auth/` owns global HTTP authentication, organization context, role checks,
