@@ -10,12 +10,13 @@ import {
   CheckCircle,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW } from '@/lib/utils';
 import type { Settlement } from '@/app/(finance)/_shared/types';
 
 export default function ReceivableSchedule() {
   const { data: settlements = [] } = useQuery({
-    queryKey: ['settlements'],
+    queryKey: queryKeys.settlements.list(),
     queryFn: () => apiClient.get<Settlement[]>('/api/settlements'),
   });
 

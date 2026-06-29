@@ -82,7 +82,7 @@ export default function Settlements() {
   const [reconcilePeriod, setReconcilePeriod] = useState('');
 
   const { data: settlements = [], isFetching } = useQuery({
-    queryKey: [...queryKeys.settlements.all, period],
+    queryKey: queryKeys.settlements.list(period),
     queryFn: () => {
       const params = new URLSearchParams();
       if (period) params.set('period', period);
@@ -102,7 +102,7 @@ export default function Settlements() {
     mutationFn: ({ id, actualAmount: amt }: { id: string; actualAmount: number }) =>
       apiClient.patch(`/api/settlements/${id}`, { status: 'confirmed', actualAmount: amt }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settlements'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.settlements.all });
       setEditId(null);
     },
   });

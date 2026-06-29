@@ -95,7 +95,7 @@ export const menuSections: MenuSection[] = [
       { href: '/product-pipeline/productgenerate', label: '상품 생성', icon: Plus },
       { href: '/product-pipeline/collected-products', label: '수집 상품', icon: Search },
       { href: '/product-pipeline/registered-products', label: '등록 상품', icon: Package },
-      { href: '/product-pipeline/detailgenerate', label: '상세 템플릿 생성', icon: Sparkles },
+      { href: '/product-pipeline/detail-template-generation', label: '상세 템플릿 생성', icon: Sparkles },
       { href: '/product-pipeline/thumbnail-ai', label: '썸네일 AI', icon: ImageIcon },
       { href: '/product-pipeline/thumbnail-generation', label: '썸네일 생성', icon: Wand2 },
     ],
@@ -186,16 +186,10 @@ export const menuSections: MenuSection[] = [
   },
 ];
 
-const adsSubPaths = ['/ads/campaigns', '/ads/strategy', '/ads/benchmark', '/ads/collect'];
-
 function isItemActive(href: string, pathname: string): boolean {
   if (href === '/dashboard') return pathname === '/dashboard';
   if (href === '/agents') return pathname.startsWith('/agents') || pathname.startsWith('/workflows') || pathname.startsWith('/marketplace');
   if (href === '/agent-os') return pathname.startsWith('/agent-os');
-  if (href === '/ads') {
-    return pathname === '/ads' ||
-      (pathname.startsWith('/ads/') && !adsSubPaths.some(sub => pathname.startsWith(sub)));
-  }
   const matchesRoute = pathname === href || pathname.startsWith(href + '/');
   if (!matchesRoute) return false;
 
