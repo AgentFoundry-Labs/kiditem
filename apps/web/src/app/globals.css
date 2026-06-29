@@ -98,6 +98,12 @@
   box-sizing: border-box;
 }
 
+html {
+  overflow-x: clip;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
 html, body {
   overscroll-behavior: none;
 }
@@ -105,6 +111,8 @@ html, body {
 body {
   background: var(--background);
   color: var(--foreground);
+  overflow-x: clip;
+  overflow-y: visible;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';

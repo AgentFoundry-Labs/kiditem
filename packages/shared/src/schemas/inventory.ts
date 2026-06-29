@@ -202,6 +202,7 @@ export const SellpiaSnapshotStatusSchema = z.enum(['previewed', 'applied', 'fail
 export type SellpiaSnapshotStatus = z.infer<typeof SellpiaSnapshotStatusSchema>;
 
 export const SellpiaSnapshotItemStatusSchema = z.enum([
+  'matched',
   'recommended',
   'needs_review',
   'approved_adjusted',

@@ -5,7 +5,7 @@ import {
 } from '../sellpia-adjustment-recommendation';
 
 describe('Sellpia adjustment recommendation policy', () => {
-  it('uses Sellpia stock plus Rocket stock-impact ledger net as target', () => {
+  it('marks non-zero differences as review rows using Sellpia stock plus Rocket stock-impact ledger net', () => {
     const result = buildSellpiaRecommendation({
       sellpiaStock: 10,
       rocketLedgerNet: -2,
@@ -18,7 +18,23 @@ describe('Sellpia adjustment recommendation policy', () => {
 
     expect(result.targetCurrentStock).toBe(8);
     expect(result.diff).toBe(2);
-    expect(result.status).toBe('recommended');
+    expect(result.status).toBe('needs_review');
+  });
+
+  it('marks exact stock matches as no-action matched rows', () => {
+    const result = buildSellpiaRecommendation({
+      sellpiaStock: 10,
+      rocketLedgerNet: 0,
+      kiditemStockBefore: 10,
+      warnings: [],
+      productOptionId: 'option-1',
+      inventoryId: 'inventory-1',
+      hasRecentKidItemEvent: false,
+    });
+
+    expect(result.targetCurrentStock).toBe(10);
+    expect(result.diff).toBe(0);
+    expect(result.status).toBe('matched');
   });
 
   it('marks unmatched rows as new product candidates', () => {
@@ -47,7 +63,7 @@ describe('Sellpia adjustment recommendation policy', () => {
       hasRecentKidItemEvent: false,
     });
 
-    expect(result.status).toBe('recommended');
+    expect(result.status).toBe('needs_review');
     expect(result.warningReasons).toContain('large_difference');
     expect(requiresSellpiaApprovalReason(result, 100)).toBe(true);
   });

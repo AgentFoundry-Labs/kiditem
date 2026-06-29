@@ -11,7 +11,7 @@ describe('SellpiaSyncService', () => {
     const repository = makeRepository({
       optionsByCode: new Map([[
         'SP-001',
-        { productOptionId: 'option-1', inventoryId: 'inventory-1', currentStock: 8 },
+        { productOptionId: 'option-1', inventoryId: 'inventory-1', currentStock: 6 },
       ]]),
       rocketNetByOption: new Map([['option-1', -2]]),
     });
@@ -47,11 +47,57 @@ describe('SellpiaSyncService', () => {
       headers: ['상품코드', '재고'],
     });
 
-    expect(result.summary.recommendedCount).toBe(1);
+    expect(result.summary.recommendedCount).toBe(0);
+    expect(result.summary.reviewCount).toBe(1);
     expect(result.items[0]?.targetCurrentStock).toBe(8);
+    expect(result.items[0]?.status).toBe('needs_review');
     expect(repository.findOptionsBySellpiaCodes).toHaveBeenCalledTimes(1);
     expect(repository.sumRocketStockDeltas).toHaveBeenCalledTimes(1);
     expect(inventoryRepository.appendStockLedger).not.toHaveBeenCalled();
+  });
+
+  it('imports exact Sellpia/KidItem stock matches as no-action matched rows', async () => {
+    const repository = makeRepository({
+      optionsByCode: new Map([[
+        'SP-MATCH',
+        { productOptionId: 'option-1', inventoryId: 'inventory-1', currentStock: 10 },
+      ]]),
+    });
+    const service = new SellpiaSyncService(
+      repository,
+      makeInventoryRepository(),
+      makeBundleStock(),
+      makeProductProvision(),
+    );
+
+    const result = await service.importRows({
+      organizationId: 'org-1',
+      userId: 'user-1',
+      fileName: 'sellpia.xlsx',
+      fileHash: 'hash-1',
+      effectiveExportedAt: new Date('2026-06-29T00:00:00Z'),
+      rows: [
+        {
+          rowNumber: 2,
+          sellpiaProductCode: 'SP-MATCH',
+          sellpiaProductName: '완전 일치 상품',
+          sellpiaStock: 10,
+          safetyStock: 0,
+          ownProductCode: null,
+          barcode: null,
+          modelName: null,
+          warnings: [],
+          raw: {},
+        },
+      ],
+      ignoredColumns: [],
+      headers: ['상품코드', '재고'],
+    });
+
+    expect(result.summary.matchedCount).toBe(1);
+    expect(result.summary.reviewCount).toBe(0);
+    expect(result.summary.recommendedCount).toBe(0);
+    expect(result.items[0]?.status).toBe('matched');
   });
 
   it('requires reason for large difference approval', async () => {
@@ -64,7 +110,7 @@ describe('SellpiaSyncService', () => {
         kiditemStockBefore: 1,
         warningReasons: ['large_difference'],
         blockingReasons: [],
-        status: 'recommended',
+        status: 'needs_review',
       },
     });
     const service = new SellpiaSyncService(
@@ -79,6 +125,34 @@ describe('SellpiaSyncService', () => {
       userId: 'user-1',
       itemId: 'item-1',
       targetCurrentStock: 100,
+    })).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects approval for matched no-action rows', async () => {
+    const repository = makeRepository({
+      item: {
+        id: 'item-1',
+        inventoryId: 'inventory-1',
+        productOptionId: 'option-1',
+        targetCurrentStock: 10,
+        kiditemStockBefore: 10,
+        warningReasons: [],
+        blockingReasons: [],
+        status: 'matched',
+      },
+    });
+    const service = new SellpiaSyncService(
+      repository,
+      makeInventoryRepository({ lockedStock: 10 }),
+      makeBundleStock(),
+      makeProductProvision(),
+    );
+
+    await expect(service.approveItem({
+      organizationId: 'org-1',
+      userId: 'user-1',
+      itemId: 'item-1',
+      targetCurrentStock: 10,
     })).rejects.toThrow(BadRequestException);
   });
 
@@ -150,7 +224,7 @@ function makeRepository(
         status: 'previewed',
       },
       summary: {
-        matchedCount: input.items.filter((item) => item.productOptionId).length,
+        matchedCount: input.items.filter((item) => item.status === 'matched').length,
         recommendedCount: input.items.filter((item) => item.status === 'recommended').length,
         reviewCount: input.items.filter((item) => item.status === 'needs_review').length,
         rejectedCount: input.items.filter((item) => item.status === 'rejected').length,

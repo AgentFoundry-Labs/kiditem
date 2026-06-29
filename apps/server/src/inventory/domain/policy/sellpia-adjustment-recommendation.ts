@@ -51,7 +51,9 @@ export function buildSellpiaRecommendation(
     ? 'new_product_candidate'
     : blockingReasons.length > 0
       ? 'needs_review'
-      : 'recommended';
+      : diff === 0
+        ? 'matched'
+        : 'needs_review';
 
   return { targetCurrentStock, diff, diffRate, status, blockingReasons, warningReasons };
 }

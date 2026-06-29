@@ -45,6 +45,7 @@ function InventoryHubContent() {
       title="재고 관리"
       titleIcon={Warehouse}
       defaultTab={defaultTab}
+      wrapTabs
       tabs={[
         { id: 'status', label: '재고 현황', icon: Warehouse, content: <InventoryPage /> },
         { id: 'po', label: '발주 관리', icon: Package, content: <PurchaseOrdersPage /> },

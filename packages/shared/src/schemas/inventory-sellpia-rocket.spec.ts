@@ -19,9 +19,9 @@ describe('Sellpia and Rocket inventory contracts', () => {
         status: 'previewed',
       },
       summary: {
-        matchedCount: 1,
-        recommendedCount: 1,
-        reviewCount: 0,
+        matchedCount: 0,
+        recommendedCount: 0,
+        reviewCount: 1,
         rejectedCount: 0,
         newProductCandidateCount: 1,
       },
@@ -41,7 +41,7 @@ describe('Sellpia and Rocket inventory contracts', () => {
           kiditemStockBefore: 8,
           diff: 2,
           diffRate: 0.2,
-          status: 'recommended',
+          status: 'needs_review',
           blockingReasons: [],
           warningReasons: [],
           operatorTargetStock: null,
@@ -65,6 +65,32 @@ describe('Sellpia and Rocket inventory contracts', () => {
 
     expect(parsed.summary.newProductCandidateCount).toBe(1);
     expect(parsed.items[0]?.targetCurrentStock).toBe(10);
+  });
+
+  it('accepts matched Sellpia rows for exact no-action stock matches', () => {
+    const parsed = SellpiaStockSnapshotItemSchema.parse({
+      id: '00000000-0000-4000-8000-000000000001',
+      rowNumber: 2,
+      sellpiaProductCode: 'SP-MATCH',
+      sellpiaProductName: '완전 일치 상품',
+      sellpiaStock: 10,
+      safetyStock: 0,
+      barcode: null,
+      productOptionId: '00000000-0000-4000-8000-000000000002',
+      inventoryId: '00000000-0000-4000-8000-000000000003',
+      rocketLedgerNet: 0,
+      targetCurrentStock: 10,
+      kiditemStockBefore: 10,
+      diff: 0,
+      diffRate: 0,
+      status: 'matched',
+      blockingReasons: [],
+      warningReasons: [],
+      operatorTargetStock: null,
+      reviewNote: null,
+    });
+
+    expect(parsed.status).toBe('matched');
   });
 
   it('requires a reason for Rocket issue over the open reservation', () => {

@@ -157,6 +157,9 @@ export class SellpiaSyncService implements SellpiaSyncPort {
         );
         if (!item) throw new NotFoundException('Sellpia snapshot item not found');
         if (isAppliedStatus(item.status) || item.status === 'ignored') return;
+        if (!isReviewableStatus(item.status)) {
+          throw new BadRequestException('Sellpia snapshot item is not reviewable');
+        }
         if (!item.productOptionId || !item.inventoryId) {
           throw new BadRequestException('Sellpia snapshot item is not linked to inventory');
         }
@@ -376,6 +379,10 @@ function normalizeWarnings(warnings: string[]): SellpiaRecommendationWarning[] {
 
 function isAppliedStatus(status: SellpiaSnapshotItemStatus): boolean {
   return status === 'approved_adjusted' || status === 'manual_adjusted';
+}
+
+function isReviewableStatus(status: SellpiaSnapshotItemStatus): boolean {
+  return status === 'recommended' || status === 'needs_review';
 }
 
 function assertApprovalAllowed(

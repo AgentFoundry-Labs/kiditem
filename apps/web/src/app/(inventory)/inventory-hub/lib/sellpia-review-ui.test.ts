@@ -35,16 +35,23 @@ function row(patch: Partial<SellpiaStockSnapshotItem>): SellpiaStockSnapshotItem
 }
 
 describe('sellpia review UI model', () => {
-  it('filters rows by operational buckets', () => {
+  it('filters matched no-action rows out of the operational buckets', () => {
     const rows = [
       row({ id: '00000000-0000-4000-8000-000000000011', status: 'recommended' }),
       row({ id: '00000000-0000-4000-8000-000000000012', status: 'needs_review' }),
       row({ id: '00000000-0000-4000-8000-000000000013', status: 'new_product_candidate' }),
       row({ id: '00000000-0000-4000-8000-000000000014', status: 'approved_adjusted' }),
+      row({
+        id: '00000000-0000-4000-8000-000000000015',
+        status: 'matched',
+        diff: 0,
+        targetCurrentStock: 10,
+        kiditemStockBefore: 10,
+      }),
     ];
 
-    expect(filterSellpiaRows(rows, 'recommended')).toHaveLength(1);
-    expect(filterSellpiaRows(rows, 'review')).toHaveLength(1);
+    expect(filterSellpiaRows(rows, 'all')).toHaveLength(4);
+    expect(filterSellpiaRows(rows, 'review')).toHaveLength(2);
     expect(filterSellpiaRows(rows, 'candidate')).toHaveLength(1);
     expect(filterSellpiaRows(rows, 'done')).toHaveLength(1);
   });

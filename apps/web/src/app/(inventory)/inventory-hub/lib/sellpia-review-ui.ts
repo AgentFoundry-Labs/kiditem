@@ -4,7 +4,7 @@ import type {
   SellpiaWarningReason,
 } from '@kiditem/shared/inventory';
 
-export type SellpiaReviewFilter = 'all' | 'recommended' | 'review' | 'candidate' | 'rejected' | 'done';
+export type SellpiaReviewFilter = 'all' | 'review' | 'candidate' | 'rejected' | 'done';
 export type SellpiaBadgeTone = 'neutral' | 'warning' | 'danger' | 'success';
 export type SellpiaRowBadge = { tone: SellpiaBadgeTone; label: string };
 
@@ -41,10 +41,13 @@ export function filterSellpiaRows(
   rows: SellpiaStockSnapshotItem[],
   filter: SellpiaReviewFilter,
 ): SellpiaStockSnapshotItem[] {
-  if (filter === 'all') return rows;
-  if (filter === 'recommended') return rows.filter((row) => row.status === 'recommended');
+  if (filter === 'all') return rows.filter((row) => row.status !== 'matched');
   if (filter === 'review') {
-    return rows.filter((row) => row.status === 'needs_review' || row.status === 'missing_inventory');
+    return rows.filter((row) =>
+      row.status === 'recommended' ||
+      row.status === 'needs_review' ||
+      row.status === 'missing_inventory',
+    );
   }
   if (filter === 'candidate') return rows.filter((row) => row.status === 'new_product_candidate');
   if (filter === 'rejected') return rows.filter((row) => row.status === 'rejected');
