@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { SellpiaSyncService } from './sellpia-sync.service';
 import type { BundleStockPort } from '../port/out/cross-domain/bundle-stock.port';
+import type { InventoryProductOptionProvisionPort } from '../port/out/cross-domain/product-option-provision.port';
 import type { InventoryRepositoryPort } from '../port/out/repository/inventory.repository.port';
 import type { SellpiaSyncRepositoryPort } from '../port/out/repository/sellpia-sync.repository.port';
 
@@ -19,6 +20,7 @@ describe('SellpiaSyncService', () => {
       repository,
       inventoryRepository,
       makeBundleStock(),
+      makeProductProvision(),
     );
 
     const result = await service.importRows({
@@ -69,6 +71,7 @@ describe('SellpiaSyncService', () => {
       repository,
       makeInventoryRepository({ lockedStock: 1 }),
       makeBundleStock(),
+      makeProductProvision(),
     );
 
     await expect(service.approveItem({
@@ -77,6 +80,60 @@ describe('SellpiaSyncService', () => {
       itemId: 'item-1',
       targetCurrentStock: 100,
     })).rejects.toThrow(BadRequestException);
+  });
+
+  it('resolves a new product candidate by linking an option and recording initial stock through RECEIVE', async () => {
+    const repository = makeRepository({
+      candidate: {
+        id: 'candidate-1',
+        snapshotItemId: 'item-1',
+        sellpiaProductCode: 'SP-NEW',
+        sellpiaProductName: '신규 상품',
+        sellpiaStock: 7,
+        safetyStock: 0,
+        barcode: '8801234567890',
+        status: 'pending',
+      },
+    });
+    const inventoryRepository = makeInventoryRepository();
+    const productProvision = makeProductProvision();
+    const service = new SellpiaSyncService(
+      repository,
+      inventoryRepository,
+      makeBundleStock(),
+      productProvision,
+    );
+
+    await service.resolveCandidate({
+      organizationId: 'org-1',
+      userId: 'user-1',
+      candidateId: 'candidate-1',
+      action: 'link_option',
+      productOptionId: 'option-linked',
+      operatorInitialStock: 7,
+      note: 'Sellpia 신규 상품 확인',
+    });
+
+    expect(productProvision.linkOption).toHaveBeenCalledWith(expect.anything(), 'org-1', {
+      productOptionId: 'option-linked',
+      legacyCode: 'SP-NEW',
+    });
+    expect(inventoryRepository.ensureInventoryForOption).toHaveBeenCalledWith(
+      expect.anything(),
+      'org-1',
+      'option-linked',
+    );
+    expect(inventoryRepository.appendStockLedger).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      type: 'RECEIVE',
+      quantity: 7,
+      relatedId: 'candidate-1',
+      relatedType: 'sellpia_new_product_candidate',
+    }));
+    expect(repository.markCandidateResolved).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      status: 'linked_existing_option',
+      resolvedProductOptionId: 'option-linked',
+      operatorInitialStock: 7,
+    }));
   });
 });
 
@@ -135,6 +192,18 @@ function makeRepository(
     lockSnapshotItemForApproval: vi.fn(async () => overrides.item as never),
     markItemApplied: vi.fn(async () => undefined),
     markItemIgnored: vi.fn(async () => undefined),
+    lockCandidateForResolution: vi.fn(async () => overrides.candidate as never),
+    markCandidateResolved: vi.fn(async (_tx, input) => ({
+      id: input.candidateId,
+      snapshotItemId: input.snapshotItemId,
+      sellpiaProductCode: 'SP-NEW',
+      sellpiaProductName: '신규 상품',
+      sellpiaStock: 7,
+      safetyStock: 0,
+      barcode: '8801234567890',
+      status: input.status,
+      operatorInitialStock: input.operatorInitialStock,
+    })),
     createReceiptBatch: vi.fn(async () => ({
       id: '00000000-0000-4000-8000-000000000010',
       status: 'template_pending',
@@ -162,11 +231,28 @@ function makeRepository(
 
 function makeInventoryRepository(overrides: { lockedStock?: number } = {}): InventoryRepositoryPort {
   return {
+    runTransaction: vi.fn(async (op) => op(Symbol('tx') as never)),
     runInventoryStockMutation: vi.fn(async (_inventoryId, _organizationId, op) => op(Symbol('tx') as never, {
       id: 'inventory-1',
       optionId: 'option-1',
       organizationId: 'org-1',
       currentStock: overrides.lockedStock ?? 1,
+      reservedStock: 0,
+      safetyStock: 0,
+      reorderPoint: 0,
+      reorderQuantity: 0,
+      leadTimeDays: null,
+      dailySalesAvg: 0,
+      warehouseLocation: null,
+      lastRestockedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })),
+    ensureInventoryForOption: vi.fn(async (_tx, organizationId, optionId) => ({
+      id: 'inventory-1',
+      optionId,
+      organizationId,
+      currentStock: 0,
       reservedStock: 0,
       safetyStock: 0,
       reorderPoint: 0,
@@ -218,5 +304,13 @@ function makeInventoryRepository(overrides: { lockedStock?: number } = {}): Inve
 function makeBundleStock(): BundleStockPort {
   return {
     recomputeForComponent: vi.fn(async () => []),
+  };
+}
+
+function makeProductProvision(): InventoryProductOptionProvisionPort {
+  return {
+    createProductWithOption: vi.fn(async () => ({ masterId: 'master-created', optionId: 'option-created' })),
+    createOption: vi.fn(async () => ({ masterId: 'master-existing', optionId: 'option-created' })),
+    linkOption: vi.fn(async () => ({ masterId: 'master-linked', optionId: 'option-linked' })),
   };
 }

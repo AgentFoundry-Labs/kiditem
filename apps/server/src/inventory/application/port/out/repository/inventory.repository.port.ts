@@ -50,6 +50,10 @@ export type RocketLedgerEntry = {
 };
 
 export interface InventoryRepositoryPort {
+  runTransaction<T>(
+    op: (tx: RepositoryTransaction) => Promise<T>,
+  ): Promise<T>;
+
   updateInventoryMetadata(
     id: string,
     organizationId: string,
@@ -80,6 +84,12 @@ export interface InventoryRepositoryPort {
     tx: RepositoryTransaction,
     entry: StockLedgerEntry,
   ): Promise<StockTransactionRow>;
+
+  ensureInventoryForOption(
+    tx: RepositoryTransaction,
+    organizationId: string,
+    optionId: string,
+  ): Promise<InventoryRow>;
 
   findRocketLedgerBySource(
     organizationId: string,

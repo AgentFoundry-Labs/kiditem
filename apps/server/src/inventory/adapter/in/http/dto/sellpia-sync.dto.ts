@@ -1,4 +1,4 @@
-import { IsDateString, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { IsDateString, IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 
 export class ImportSellpiaWorkbookDto {
   @IsDateString()
@@ -21,5 +21,19 @@ export class CreateSellpiaReceiptBatchDto {
 }
 
 export class MarkSellpiaReceiptBatchUploadedDto {
+  @IsOptional() @IsString() @MaxLength(500) note?: string;
+}
+
+export class ResolveSellpiaCandidateDto {
+  @IsIn(['create_product', 'create_option', 'link_option', 'ignore'])
+  action!: 'create_product' | 'create_option' | 'link_option' | 'ignore';
+
+  @IsOptional() @IsString() @MaxLength(200) masterName?: string;
+  @IsOptional() @IsUUID() masterProductId?: string;
+  @IsOptional() @IsString() @MaxLength(100) optionName?: string | null;
+  @IsOptional() @IsString() @MaxLength(100) sku?: string;
+  @IsOptional() @IsString() @MaxLength(100) barcode?: string | null;
+  @IsOptional() @IsUUID() productOptionId?: string;
+  @IsOptional() @IsInt() @Min(0) operatorInitialStock?: number;
   @IsOptional() @IsString() @MaxLength(500) note?: string;
 }

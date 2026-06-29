@@ -32,6 +32,7 @@ import { AuditsRepositoryAdapter } from '../adapter/out/repository/audits.reposi
 import { PickingRepositoryAdapter } from '../adapter/out/repository/picking.repository.adapter';
 import { ConfirmedOrdersRepositoryAdapter } from '../adapter/out/repository/confirmed-orders.repository.adapter';
 import { BundleStockAdapter } from '../adapter/out/products/bundle-stock.adapter';
+import { ProductOptionProvisionAdapter } from '../adapter/out/products/product-option-provision.adapter';
 import { INVENTORY_PORT } from '../application/port/in/stock/inventory.port';
 
 // NestJS @Module / @Controller metadata keys (stable across Nest 10/11).
@@ -115,6 +116,7 @@ describe('InventoryModule capability wiring', () => {
       ConfirmedOrdersRepositoryAdapter,
       SellpiaSyncRepositoryAdapter,
       BundleStockAdapter,
+      ProductOptionProvisionAdapter,
     ]) {
       expect(providers).toContain(cls);
     }

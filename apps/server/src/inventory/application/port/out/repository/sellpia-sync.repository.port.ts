@@ -1,5 +1,7 @@
 import type {
   SellpiaBlockingReason,
+  SellpiaNewProductCandidate,
+  SellpiaNewProductCandidateStatus,
   SellpiaReceiptUploadBatch,
   SellpiaSnapshotImportResponse,
   SellpiaSnapshotItemStatus,
@@ -71,6 +73,32 @@ export type MarkSellpiaItemAppliedInput = {
   status: Extract<SellpiaSnapshotItemStatus, 'approved_adjusted' | 'manual_adjusted'>;
 };
 
+export type SellpiaCandidateResolutionRow = {
+  id: string;
+  snapshotItemId: string;
+  sellpiaProductCode: string;
+  sellpiaProductName: string | null;
+  sellpiaStock: number;
+  safetyStock: number;
+  barcode: string | null;
+  status: SellpiaNewProductCandidateStatus;
+};
+
+export type MarkSellpiaCandidateResolvedInput = {
+  organizationId: string;
+  candidateId: string;
+  snapshotItemId: string;
+  status: SellpiaNewProductCandidateStatus;
+  resolvedMasterProductId: string | null;
+  resolvedProductOptionId: string | null;
+  createdInventoryId: string | null;
+  initialReceiveTransactionId: string | null;
+  operatorInitialStock: number | null;
+  resolutionDecision: string;
+  userId: string;
+  note: string | null;
+};
+
 export interface SellpiaSyncRepositoryPort {
   findOptionsBySellpiaCodes(
     organizationId: string,
@@ -114,6 +142,17 @@ export interface SellpiaSyncRepositoryPort {
     userId: string;
     reason: string | null;
   }): Promise<void>;
+
+  lockCandidateForResolution(
+    tx: RepositoryTransaction,
+    organizationId: string,
+    candidateId: string,
+  ): Promise<SellpiaCandidateResolutionRow | null>;
+
+  markCandidateResolved(
+    tx: RepositoryTransaction,
+    input: MarkSellpiaCandidateResolvedInput,
+  ): Promise<SellpiaNewProductCandidate>;
 
   createReceiptBatch(input: {
     organizationId: string;

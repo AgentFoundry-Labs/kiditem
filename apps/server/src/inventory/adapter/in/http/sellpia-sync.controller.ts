@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { createHash } from 'node:crypto';
+import { SellpiaCandidateResolutionInputSchema } from '@kiditem/shared/inventory';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
@@ -22,6 +23,7 @@ import {
   ApproveSellpiaItemDto,
   IgnoreSellpiaItemDto,
   ImportSellpiaWorkbookDto,
+  ResolveSellpiaCandidateDto,
 } from './dto';
 
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
@@ -104,6 +106,22 @@ export class SellpiaSyncController {
       userId: user.id,
       itemId,
       reason: dto.reason,
+    });
+  }
+
+  @Post('candidates/:id/resolve')
+  resolveCandidate(
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+    @Param('id') candidateId: string,
+    @Body() dto: ResolveSellpiaCandidateDto,
+  ) {
+    const parsed = SellpiaCandidateResolutionInputSchema.parse(dto);
+    return this.sellpiaSync.resolveCandidate({
+      organizationId,
+      userId: user.id,
+      candidateId,
+      ...parsed,
     });
   }
 }

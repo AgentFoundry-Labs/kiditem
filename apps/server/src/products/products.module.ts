@@ -10,6 +10,7 @@ import { MastersService } from './application/service/masters.service';
 import { MasterBarcodeService } from './application/service/master-barcode.service';
 import { MasterPromotionService } from './application/service/master-promotion.service';
 import { OptionsService } from './application/service/options.service';
+import { ProductOptionProvisionService } from './application/service/product-option-provision.service';
 import { BundleStockService } from './application/service/bundle-stock.service';
 import { BundleComponentsService } from './application/service/bundle-components.service';
 import { ProductCatalogService } from './application/service/product-catalog.service';
@@ -28,6 +29,7 @@ import { CategoriesModule } from './categories/categories.module';
 import { PRODUCT_BUNDLE_STOCK_PORT } from './application/port/in/bundle-stock.port';
 import { PRODUCT_MASTER_BARCODE_PORT } from './application/port/in/master-barcode.port';
 import { PRODUCT_MASTER_PROMOTION_PORT } from './application/port/in/master-promotion.port';
+import { PRODUCT_OPTION_PROVISION_PORT } from './application/port/in/product-option-provision.port';
 import { MASTER_CODE_PORT } from './application/port/out/repository/master-code.port';
 import { MASTER_PRODUCT_REPOSITORY_PORT } from './application/port/out/repository/master-product.repository.port';
 import { PRODUCT_OPTION_REPOSITORY_PORT } from './application/port/out/repository/product-option.repository.port';
@@ -59,6 +61,7 @@ import { PRODUCTS_TRANSACTION_PORT } from './application/port/out/transaction/pr
     MasterBarcodeService,
     MasterPromotionService,
     OptionsService,
+    ProductOptionProvisionService,
     BundleStockService,
     BundleComponentsService,
     ProductCatalogService,
@@ -75,11 +78,13 @@ import { PRODUCTS_TRANSACTION_PORT } from './application/port/out/transaction/pr
     { provide: PRODUCTS_TRANSACTION_PORT, useExisting: ProductsTransactionAdapter },
     { provide: PRODUCT_MASTER_BARCODE_PORT, useExisting: MasterBarcodeService },
     { provide: PRODUCT_MASTER_PROMOTION_PORT, useExisting: MasterPromotionService },
+    { provide: PRODUCT_OPTION_PROVISION_PORT, useExisting: ProductOptionProvisionService },
     { provide: PRODUCT_BUNDLE_STOCK_PORT, useExisting: BundleStockService },
   ],
   exports: [
     PRODUCT_MASTER_BARCODE_PORT,
     PRODUCT_MASTER_PROMOTION_PORT,
+    PRODUCT_OPTION_PROVISION_PORT,
     PRODUCT_BUNDLE_STOCK_PORT,
   ],
 })

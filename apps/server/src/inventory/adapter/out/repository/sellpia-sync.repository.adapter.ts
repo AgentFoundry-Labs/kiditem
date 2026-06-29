@@ -4,6 +4,8 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   CreateSellpiaSnapshotInput,
   MarkSellpiaItemAppliedInput,
+  MarkSellpiaCandidateResolvedInput,
+  SellpiaCandidateResolutionRow,
   SellpiaMatchedOptionRow,
   SellpiaSnapshotItemApprovalRow,
   SellpiaSyncRepositoryPort,
@@ -11,6 +13,8 @@ import type {
 import type { RepositoryTransaction } from '../../../application/port/out/transaction/repository-transaction';
 import type {
   SellpiaBlockingReason,
+  SellpiaNewProductCandidate,
+  SellpiaNewProductCandidateStatus,
   SellpiaReceiptUploadBatch,
   SellpiaSnapshotImportResponse,
   SellpiaSnapshotItemStatus,
@@ -264,6 +268,95 @@ export class SellpiaSyncRepositoryAdapter implements SellpiaSyncRepositoryPort {
     if (updated.count === 0) throw new NotFoundException('Sellpia snapshot item not found');
   }
 
+  async lockCandidateForResolution(
+    tx: RepositoryTransaction,
+    organizationId: string,
+    candidateId: string,
+  ): Promise<SellpiaCandidateResolutionRow | null> {
+    const prismaTx = tx as Prisma.TransactionClient;
+    await prismaTx.$queryRaw`
+      SELECT id FROM sellpia_new_product_candidates
+      WHERE id = ${candidateId}::uuid
+        AND organization_id = ${organizationId}::uuid
+      FOR UPDATE
+    `;
+    const row = await prismaTx.sellpiaNewProductCandidate.findFirst({
+      where: { id: candidateId, organizationId },
+      select: {
+        id: true,
+        snapshotItemId: true,
+        sellpiaProductCode: true,
+        sellpiaProductName: true,
+        sellpiaStock: true,
+        safetyStock: true,
+        barcode: true,
+        status: true,
+      },
+    });
+    if (!row) return null;
+    return {
+      ...row,
+      status: row.status as SellpiaNewProductCandidateStatus,
+    };
+  }
+
+  async markCandidateResolved(
+    tx: RepositoryTransaction,
+    input: MarkSellpiaCandidateResolvedInput,
+  ): Promise<SellpiaNewProductCandidate> {
+    const prismaTx = tx as Prisma.TransactionClient;
+    const resolvedAt = new Date();
+    const updated = await prismaTx.sellpiaNewProductCandidate.updateMany({
+      where: { id: input.candidateId, organizationId: input.organizationId },
+      data: {
+        status: input.status,
+        resolvedMasterProductId: input.resolvedMasterProductId,
+        resolvedProductOptionId: input.resolvedProductOptionId,
+        createdInventoryId: input.createdInventoryId,
+        initialReceiveTransactionId: input.initialReceiveTransactionId,
+        operatorInitialStock: input.operatorInitialStock,
+        resolutionDecision: input.resolutionDecision,
+        resolvedBy: input.userId,
+        resolvedAt,
+        note: input.note,
+      },
+    });
+    if (updated.count === 0) throw new NotFoundException('Sellpia new product candidate not found');
+
+    await prismaTx.sellpiaStockSnapshotItem.updateMany({
+      where: { id: input.snapshotItemId, organizationId: input.organizationId },
+      data: {
+        status: input.status === 'ignored' ? 'ignored' : 'manual_adjusted',
+        productOptionId: input.resolvedProductOptionId,
+        inventoryId: input.createdInventoryId,
+        operatorTargetStock: input.operatorInitialStock,
+        kiditemStockAtApply: input.operatorInitialStock,
+        appliedTransactionId: input.initialReceiveTransactionId,
+        reviewedBy: input.userId,
+        reviewedAt: resolvedAt,
+        reviewDecision: input.resolutionDecision,
+        reviewNote: input.note,
+      },
+    });
+
+    const candidate = await prismaTx.sellpiaNewProductCandidate.findFirst({
+      where: { id: input.candidateId, organizationId: input.organizationId },
+      select: {
+        id: true,
+        snapshotItemId: true,
+        sellpiaProductCode: true,
+        sellpiaProductName: true,
+        sellpiaStock: true,
+        safetyStock: true,
+        barcode: true,
+        status: true,
+        operatorInitialStock: true,
+      },
+    });
+    if (!candidate) throw new NotFoundException('Sellpia new product candidate not found');
+    return toNewProductCandidate(candidate);
+  }
+
   async createReceiptBatch(input: {
     organizationId: string;
     userId: string;
@@ -413,6 +506,30 @@ function toReceiptBatch(row: {
     uploadedAt: row.uploadedAt,
     note: row.note,
     createdAt: row.createdAt,
+  };
+}
+
+function toNewProductCandidate(row: {
+  id: string;
+  snapshotItemId: string;
+  sellpiaProductCode: string;
+  sellpiaProductName: string | null;
+  sellpiaStock: number;
+  safetyStock: number;
+  barcode: string | null;
+  status: string;
+  operatorInitialStock: number | null;
+}): SellpiaNewProductCandidate {
+  return {
+    id: row.id,
+    snapshotItemId: row.snapshotItemId,
+    sellpiaProductCode: row.sellpiaProductCode,
+    sellpiaProductName: row.sellpiaProductName,
+    sellpiaStock: row.sellpiaStock,
+    safetyStock: row.safetyStock,
+    barcode: row.barcode,
+    status: row.status as SellpiaNewProductCandidateStatus,
+    operatorInitialStock: row.operatorInitialStock,
   };
 }
 

@@ -185,14 +185,8 @@ function toCommitQuantity(value: unknown): number {
   return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
 }
 
-function rocketConfirmSourceActionId(row: ConfirmComputedRow, index: number): string {
-  return [
-    'rocket-confirm',
-    sourcePart(row.poNumber, 48),
-    sourcePart(row.productNo ?? row.barcode, 48),
-    sourcePart(row.barcode, 48),
-    String(index + 1),
-  ].join(':').slice(0, 200);
+function rocketConfirmSourceActionId(row: ConfirmComputedRow, _index: number): string {
+  return `rocket-confirm:${sourcePart(row.poNumber, 64)}:${sourcePart(row.barcode, 64)}:${toCommitQuantity(row.confirmQty)}`.slice(0, 200);
 }
 
 function rocketConfirmSourceRef(row: ConfirmComputedRow): string {

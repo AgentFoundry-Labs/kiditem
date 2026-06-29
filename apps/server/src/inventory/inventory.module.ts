@@ -26,6 +26,7 @@ import { PickingRepositoryAdapter } from './adapter/out/repository/picking.repos
 import { ConfirmedOrdersRepositoryAdapter } from './adapter/out/repository/confirmed-orders.repository.adapter';
 import { LocalCoupangShipmentFilesAdapter } from './adapter/out/storage/local-coupang-shipment-files.adapter';
 import { BundleStockAdapter } from './adapter/out/products/bundle-stock.adapter';
+import { ProductOptionProvisionAdapter } from './adapter/out/products/product-option-provision.adapter';
 
 import { CoupangShipmentsService } from './application/service/coupang-shipments.service';
 import { InventoryService } from './application/service/inventory.service';
@@ -49,6 +50,7 @@ import { AUDITS_REPOSITORY_PORT } from './application/port/out/repository/audits
 import { PICKING_REPOSITORY_PORT } from './application/port/out/repository/picking.repository.port';
 import { CONFIRMED_ORDERS_PORT } from './application/port/out/cross-domain/confirmed-orders.port';
 import { BUNDLE_STOCK_PORT } from './application/port/out/cross-domain/bundle-stock.port';
+import { INVENTORY_PRODUCT_OPTION_PROVISION_PORT } from './application/port/out/cross-domain/product-option-provision.port';
 import { COUPANG_SHIPMENT_FILE_STORAGE_PORT } from './application/port/out/storage';
 
 // Application port → adapter bindings live in this module. Application services
@@ -64,6 +66,7 @@ const REPOSITORY_PORT_BINDINGS = [
   { provide: PICKING_REPOSITORY_PORT, useExisting: PickingRepositoryAdapter },
   { provide: CONFIRMED_ORDERS_PORT, useExisting: ConfirmedOrdersRepositoryAdapter },
   { provide: BUNDLE_STOCK_PORT, useExisting: BundleStockAdapter },
+  { provide: INVENTORY_PRODUCT_OPTION_PROVISION_PORT, useExisting: ProductOptionProvisionAdapter },
   { provide: COUPANG_SHIPMENT_FILE_STORAGE_PORT, useExisting: LocalCoupangShipmentFilesAdapter },
 ];
 
@@ -108,6 +111,7 @@ const APPLICATION_PORT_BINDINGS = [
     LocalCoupangShipmentFilesAdapter,
     // adapter/out/products
     BundleStockAdapter,
+    ProductOptionProvisionAdapter,
     // application/service
     CoupangShipmentsService,
     InventoryService,

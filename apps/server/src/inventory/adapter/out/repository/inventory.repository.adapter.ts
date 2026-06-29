@@ -21,6 +21,15 @@ import type { RepositoryTransaction } from '../../../application/port/out/transa
 export class InventoryRepositoryAdapter implements InventoryRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
+  runTransaction<T>(
+    op: (tx: RepositoryTransaction) => Promise<T>,
+  ): Promise<T> {
+    return this.prisma.$transaction(
+      (tx) => op(tx as RepositoryTransaction),
+      { timeout: 15_000 },
+    );
+  }
+
   async updateInventoryMetadata(
     id: string,
     organizationId: string,
@@ -95,6 +104,35 @@ export class InventoryRepositoryAdapter implements InventoryRepositoryPort {
   ): Promise<StockTransactionRow> {
     const prismaTx = tx as Prisma.TransactionClient;
     return prismaTx.stockTransaction.create({ data: entry });
+  }
+
+  async ensureInventoryForOption(
+    tx: RepositoryTransaction,
+    organizationId: string,
+    optionId: string,
+  ): Promise<InventoryRow> {
+    const prismaTx = tx as Prisma.TransactionClient;
+    const option = await prismaTx.productOption.findFirst({
+      where: { id: optionId, organizationId, isDeleted: false },
+      select: { id: true, isBundle: true },
+    });
+    if (!option || option.isBundle) throw new NotFoundException('Product option not found');
+
+    await prismaTx.$queryRaw`
+      SELECT id FROM inventory
+      WHERE option_id = ${optionId}::uuid
+        AND organization_id = ${organizationId}::uuid
+      FOR UPDATE
+    `;
+
+    const existing = await prismaTx.inventory.findFirst({
+      where: { optionId, organizationId },
+    });
+    if (existing) return existing;
+
+    return prismaTx.inventory.create({
+      data: { organizationId, optionId, currentStock: 0 },
+    });
   }
 
   async findRocketLedgerBySource(

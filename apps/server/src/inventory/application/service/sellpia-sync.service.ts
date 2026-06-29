@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type {
   SellpiaReceiptUploadBatch,
+  SellpiaNewProductCandidate,
   SellpiaSnapshotImportResponse,
   SellpiaSnapshotItemStatus,
 } from '@kiditem/shared/inventory';
@@ -11,6 +12,7 @@ import {
   type IgnoreSellpiaItemInput,
   type ImportSellpiaRowsInput,
   type MarkSellpiaReceiptBatchUploadedInput,
+  type ResolveSellpiaCandidateInput,
   type SellpiaSyncPort,
 } from '../port/in/stock/sellpia-sync.port';
 import {
@@ -25,6 +27,10 @@ import {
   BUNDLE_STOCK_PORT,
   type BundleStockPort,
 } from '../port/out/cross-domain/bundle-stock.port';
+import {
+  INVENTORY_PRODUCT_OPTION_PROVISION_PORT,
+  type InventoryProductOptionProvisionPort,
+} from '../port/out/cross-domain/product-option-provision.port';
 import {
   assertSufficientStock,
   computeStoredQuantity,
@@ -47,6 +53,8 @@ export class SellpiaSyncService implements SellpiaSyncPort {
     private readonly inventoryRepository: InventoryRepositoryPort,
     @Inject(BUNDLE_STOCK_PORT)
     private readonly bundleStock: BundleStockPort,
+    @Inject(INVENTORY_PRODUCT_OPTION_PROVISION_PORT)
+    private readonly productProvision: InventoryProductOptionProvisionPort,
   ) {}
 
   async importRows(input: ImportSellpiaRowsInput): Promise<SellpiaSnapshotImportResponse> {
@@ -220,6 +228,109 @@ export class SellpiaSyncService implements SellpiaSyncPort {
       itemId: input.itemId,
       userId: input.userId,
       reason: input.reason ?? null,
+    });
+  }
+
+  async resolveCandidate(
+    input: ResolveSellpiaCandidateInput,
+  ): Promise<SellpiaNewProductCandidate> {
+    return this.inventoryRepository.runTransaction(async (tx) => {
+      const candidate = await this.sellpiaRepository.lockCandidateForResolution(
+        tx,
+        input.organizationId,
+        input.candidateId,
+      );
+      if (!candidate) throw new NotFoundException('Sellpia new product candidate not found');
+      if (candidate.status !== 'pending') {
+        throw new BadRequestException('Sellpia new product candidate is already resolved');
+      }
+
+      if (input.action === 'ignore') {
+        return this.sellpiaRepository.markCandidateResolved(tx, {
+          organizationId: input.organizationId,
+          candidateId: candidate.id,
+          snapshotItemId: candidate.snapshotItemId,
+          status: 'ignored',
+          resolvedMasterProductId: null,
+          resolvedProductOptionId: null,
+          createdInventoryId: null,
+          initialReceiveTransactionId: null,
+          operatorInitialStock: null,
+          resolutionDecision: input.action,
+          userId: input.userId,
+          note: input.note ?? null,
+        });
+      }
+
+      const provisioned = input.action === 'create_product'
+        ? await this.productProvision.createProductWithOption(tx, input.organizationId, {
+          masterName: input.masterName,
+          optionName: input.optionName ?? candidate.sellpiaProductName,
+          legacyCode: candidate.sellpiaProductCode,
+          barcode: input.barcode ?? candidate.barcode,
+        })
+        : input.action === 'create_option'
+          ? await this.productProvision.createOption(tx, input.organizationId, {
+            masterProductId: input.masterProductId,
+            optionName: input.optionName ?? candidate.sellpiaProductName,
+            legacyCode: candidate.sellpiaProductCode,
+            barcode: input.barcode ?? candidate.barcode,
+          })
+          : await this.productProvision.linkOption(tx, input.organizationId, {
+            productOptionId: input.productOptionId,
+            legacyCode: candidate.sellpiaProductCode,
+          });
+
+      const inventory = await this.inventoryRepository.ensureInventoryForOption(
+        tx,
+        input.organizationId,
+        provisioned.optionId,
+      );
+      let transactionId: string | null = null;
+      if (input.operatorInitialStock > 0) {
+        const updated = await this.inventoryRepository.applyStockDelta(
+          tx,
+          inventory.id,
+          input.operatorInitialStock,
+          true,
+          inventory.lastRestockedAt,
+        );
+        const optionName = await this.inventoryRepository.findOptionNameForLedger(
+          tx,
+          updated.optionId,
+          input.organizationId,
+        );
+        const transaction = await this.inventoryRepository.appendStockLedger(tx, {
+          organizationId: input.organizationId,
+          optionId: updated.optionId,
+          optionName,
+          type: 'RECEIVE',
+          quantity: input.operatorInitialStock,
+          unitCost: 0,
+          totalCost: 0,
+          relatedId: candidate.id,
+          relatedType: 'sellpia_new_product_candidate',
+          note: input.note ?? 'Sellpia new product candidate initial stock',
+          createdBy: input.userId,
+        });
+        transactionId = transaction.id;
+        await this.bundleStock.recomputeForComponent(input.organizationId, updated.optionId, tx);
+      }
+
+      return this.sellpiaRepository.markCandidateResolved(tx, {
+        organizationId: input.organizationId,
+        candidateId: candidate.id,
+        snapshotItemId: candidate.snapshotItemId,
+        status: input.action === 'link_option' ? 'linked_existing_option' : 'created_new_option',
+        resolvedMasterProductId: provisioned.masterId,
+        resolvedProductOptionId: provisioned.optionId,
+        createdInventoryId: inventory.id,
+        initialReceiveTransactionId: transactionId,
+        operatorInitialStock: input.operatorInitialStock,
+        resolutionDecision: input.action,
+        userId: input.userId,
+        note: input.note ?? null,
+      });
     });
   }
 
