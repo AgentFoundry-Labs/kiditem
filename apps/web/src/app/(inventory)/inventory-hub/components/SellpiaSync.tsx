@@ -4,13 +4,17 @@ import { useMemo, useState } from 'react';
 import { Check, FileSpreadsheet, Loader2, Upload, X } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
 import {
+  approveSellpiaSnapshotItems,
   approveSellpiaSnapshotItem,
+  ignoreSellpiaSnapshotItems,
   ignoreSellpiaItem,
   importSellpiaInventoryFile,
   resolveSellpiaCandidate,
 } from '../../_shared/inventory-api';
 import {
+  canBulkApproveSellpiaRow,
   filterSellpiaRows,
+  getSellpiaBulkApprovalBlockReason,
   getSellpiaFilterCount,
   getSellpiaRowBadges,
   requiresSellpiaRowReason,
@@ -97,6 +101,8 @@ export default function SellpiaSync() {
   const [filter, setFilter] = useState<SellpiaReviewFilter>('all');
   const [rowForms, setRowForms] = useState<Record<string, RowReviewForm>>({});
   const [candidateForms, setCandidateForms] = useState<Record<string, CandidateForm>>({});
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkMessage, setBulkMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -120,13 +126,68 @@ export default function SellpiaSync() {
     [actionableRows, filter],
   );
 
+  const selectedRows = useMemo(
+    () => actionableRows.filter((item) => selectedIds.has(item.id)),
+    [actionableRows, selectedIds],
+  );
+
+  const bulkApprovableRows = useMemo(
+    () => selectedRows.filter((item) => {
+      const form = rowForms[item.id] ?? rowReviewDefaults(item);
+      return canBulkApproveSellpiaRow(
+        item,
+        toStock(form.targetCurrentStock, item.targetCurrentStock),
+        form.reason,
+      );
+    }),
+    [rowForms, selectedRows],
+  );
+
+  const bulkSkippedRows = useMemo(
+    () => selectedRows.filter((item) => {
+      const form = rowForms[item.id] ?? rowReviewDefaults(item);
+      return !canBulkApproveSellpiaRow(
+        item,
+        toStock(form.targetCurrentStock, item.targetCurrentStock),
+        form.reason,
+      );
+    }),
+    [rowForms, selectedRows],
+  );
+
+  const bulkSkippedRowsWithReasons = useMemo(
+    () => bulkSkippedRows.map((item) => {
+      const form = rowForms[item.id] ?? rowReviewDefaults(item);
+      return {
+        item,
+        reason: getSellpiaBulkApprovalBlockReason(
+          item,
+          toStock(form.targetCurrentStock, item.targetCurrentStock),
+          form.reason,
+        ) ?? '승인 불가',
+      };
+    }),
+    [bulkSkippedRows, rowForms],
+  );
+
+  function toggleSelected(itemId: string, checked: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(itemId);
+      else next.delete(itemId);
+      return next;
+    });
+  }
+
   async function preview() {
     if (!file) return;
     setLoading(true);
     setError(null);
+    setBulkMessage(null);
     try {
       const imported = await importSellpiaInventoryFile(file, toIsoFromDatetimeLocal(effectiveExportedAt));
       setResult(imported);
+      setSelectedIds(new Set());
       setRowForms(Object.fromEntries(imported.items.map((item) => [item.id, rowReviewDefaults(item)])));
       setCandidateForms(Object.fromEntries(
         imported.newProductCandidates.map((candidate) => [candidate.id, candidateDefaults(candidate)]),
@@ -135,6 +196,77 @@ export default function SellpiaSync() {
       setError(err instanceof Error ? err.message : 'Sellpia import failed');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function approveSelected() {
+    if (bulkApprovableRows.length === 0) return;
+    const approvalRequests = bulkApprovableRows.map((item) => {
+      const form = rowForms[item.id] ?? rowReviewDefaults(item);
+      return {
+        item,
+        targetCurrentStock: toStock(form.targetCurrentStock, item.targetCurrentStock),
+        reason: cleanOptional(form.reason),
+      };
+    });
+    setBusyId('bulk');
+    setError(null);
+    setBulkMessage(null);
+    try {
+      const results = await approveSellpiaSnapshotItems(approvalRequests.map((request) => ({
+        itemId: request.item.id,
+        targetCurrentStock: request.targetCurrentStock,
+        reason: request.reason,
+      })));
+      const successIds = new Set(results.filter((row) => row.ok).map((row) => row.itemId));
+      const approvedById = new Map(approvalRequests.map((request) => [request.item.id, request]));
+      setResult((prev) => prev ? {
+        ...prev,
+        items: prev.items.map((row) => {
+          if (!successIds.has(row.id)) return row;
+          const approved = approvedById.get(row.id);
+          const targetCurrentStock = approved?.targetCurrentStock ?? row.targetCurrentStock;
+          return {
+            ...row,
+            status: targetCurrentStock === row.targetCurrentStock ? 'approved_adjusted' : 'manual_adjusted',
+            operatorTargetStock: targetCurrentStock,
+            reviewNote: approved?.reason ?? null,
+          };
+        }),
+      } : prev);
+      setSelectedIds((prev) => new Set([...prev].filter((id) => !successIds.has(id))));
+      setBulkMessage(
+        `선택 처리 완료 승인 ${results.filter((row) => row.ok).length}건 · 실패 ${results.filter((row) => !row.ok).length}건 · 제외 ${bulkSkippedRows.length}건`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '선택 승인 실패');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function ignoreSelected() {
+    const rows = selectedRows.filter((item) => item.status !== 'approved_adjusted' && item.status !== 'manual_adjusted');
+    if (rows.length === 0) return;
+    setBusyId('bulk');
+    setError(null);
+    setBulkMessage(null);
+    try {
+      const results = await ignoreSellpiaSnapshotItems(rows.map((item) => ({
+        itemId: item.id,
+        reason: cleanOptional((rowForms[item.id] ?? rowReviewDefaults(item)).reason),
+      })));
+      const successIds = new Set(results.filter((row) => row.ok).map((row) => row.itemId));
+      setResult((prev) => prev ? {
+        ...prev,
+        items: prev.items.map((row) => successIds.has(row.id) ? { ...row, status: 'ignored' } : row),
+      } : prev);
+      setSelectedIds((prev) => new Set([...prev].filter((id) => !successIds.has(id))));
+      setBulkMessage(`선택 제외 완료 ${results.filter((row) => row.ok).length}건 · 실패 ${results.filter((row) => !row.ok).length}건`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '선택 제외 실패');
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -294,10 +426,47 @@ export default function SellpiaSync() {
                 </button>
               ))}
             </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3">
+              <div className="text-xs font-medium text-slate-500">선택 {formatNumber(selectedRows.length)}건</div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => void approveSelected()}
+                  disabled={busyId !== null || bulkApprovableRows.length === 0}
+                  className="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50"
+                >
+                  선택 승인
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void ignoreSelected()}
+                  disabled={busyId !== null || selectedRows.length === 0}
+                  className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 disabled:opacity-50"
+                >
+                  선택 무시
+                </button>
+              </div>
+            </div>
+            {bulkMessage ? (
+              <div className="border-b border-emerald-100 bg-emerald-50 px-5 py-2 text-xs text-emerald-800">
+                {bulkMessage}
+              </div>
+            ) : null}
+            {bulkSkippedRowsWithReasons.length > 0 ? (
+              <div className="border-b border-amber-100 bg-amber-50 px-5 py-2 text-xs text-amber-800">
+                선택 row 중 {formatNumber(bulkSkippedRowsWithReasons.length)}건은 사유 누락 또는 차단 사유 때문에 승인에서 제외됩니다.
+                <ul className="mt-1 list-disc pl-4">
+                  {bulkSkippedRowsWithReasons.map(({ item, reason }) => (
+                    <li key={item.id}>{item.sellpiaProductCode}: {reason}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead className="bg-slate-50 text-xs text-slate-500">
                   <tr>
+                    <th className="px-3 py-2 text-left">선택</th>
                     <th className="px-3 py-2 text-left">상품코드</th>
                     <th className="px-3 py-2 text-left">상품명</th>
                     <th className="px-3 py-2 text-right">Sellpia</th>
@@ -309,7 +478,7 @@ export default function SellpiaSync() {
                 <tbody>
                   {reviewRows.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-3 py-8 text-center text-slate-400">
+                      <td colSpan={7} className="px-3 py-8 text-center text-slate-400">
                         검토할 row가 없습니다.
                       </td>
                     </tr>
@@ -323,6 +492,16 @@ export default function SellpiaSync() {
                       (reasonRequired && !form.reason.trim());
                     return (
                       <tr key={item.id} className="border-t border-slate-100">
+                        <td className="px-3 py-2">
+                          <input
+                            aria-label={`select-${item.id}`}
+                            type="checkbox"
+                            checked={selectedIds.has(item.id)}
+                            onChange={(event) => toggleSelected(item.id, event.target.checked)}
+                            disabled={busyId !== null}
+                            className="h-4 w-4 rounded border-slate-300"
+                          />
+                        </td>
                         <td className="px-3 py-2 font-mono text-xs text-slate-500">{item.sellpiaProductCode}</td>
                         <td className="px-3 py-2 text-slate-700">
                           <div className="flex max-w-[280px] flex-col gap-1">

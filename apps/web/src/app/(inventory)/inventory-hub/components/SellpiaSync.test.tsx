@@ -27,6 +27,8 @@ const importSellpiaInventoryFile = vi.hoisted(() => vi.fn(async () => ({
 })));
 const approveSellpiaSnapshotItem = vi.hoisted(() => vi.fn(async () => undefined));
 const ignoreSellpiaItem = vi.hoisted(() => vi.fn(async () => undefined));
+const approveSellpiaSnapshotItems = vi.hoisted(() => vi.fn());
+const ignoreSellpiaSnapshotItems = vi.hoisted(() => vi.fn());
 const resolveSellpiaCandidate = vi.hoisted(() => vi.fn(async () => ({
   id: '00000000-0000-4000-8000-000000000011',
   snapshotItemId: '00000000-0000-4000-8000-000000000012',
@@ -43,6 +45,8 @@ vi.mock('../../_shared/inventory-api', () => ({
   importSellpiaInventoryFile,
   approveSellpiaSnapshotItem,
   ignoreSellpiaItem,
+  approveSellpiaSnapshotItems,
+  ignoreSellpiaSnapshotItems,
   resolveSellpiaCandidate,
 }));
 
@@ -169,8 +173,68 @@ describe('SellpiaSync', () => {
     render(<SellpiaSync />);
     await uploadSellpiaFixture();
 
-    expect(screen.getByRole('button', { name: /승인/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '승인' })).toBeDisabled();
     await userEvent.type(screen.getByLabelText('reason-00000000-0000-4000-8000-000000000103'), '실사 확인');
-    expect(screen.getByRole('button', { name: /승인/ })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '승인' })).toBeEnabled();
+  });
+
+  it('bulk approves selected safe Sellpia rows and reports partial failure', async () => {
+    importSellpiaInventoryFile.mockResolvedValueOnce(buildImportResponse({
+      items: [
+        buildSnapshotItem({
+          id: '00000000-0000-4000-8000-000000000201',
+          sellpiaProductCode: 'SP-1',
+        }),
+        buildSnapshotItem({
+          id: '00000000-0000-4000-8000-000000000202',
+          sellpiaProductCode: 'SP-2',
+        }),
+      ],
+    }));
+    approveSellpiaSnapshotItems.mockResolvedValueOnce([
+      { itemId: '00000000-0000-4000-8000-000000000201', ok: true },
+      { itemId: '00000000-0000-4000-8000-000000000202', ok: false, error: 'already applied' },
+    ]);
+
+    render(<SellpiaSync />);
+    await uploadSellpiaFixture();
+    await userEvent.click(screen.getByRole('checkbox', { name: 'select-00000000-0000-4000-8000-000000000201' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'select-00000000-0000-4000-8000-000000000202' }));
+    await userEvent.click(screen.getByRole('button', { name: /선택 승인/ }));
+
+    expect(approveSellpiaSnapshotItems).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('선택 처리 완료 승인 1건 · 실패 1건 · 제외 0건')).toBeInTheDocument();
+  });
+
+  it('keeps unsafe selected rows selected and explains skipped approval reasons', async () => {
+    importSellpiaInventoryFile.mockResolvedValueOnce(buildImportResponse({
+      items: [
+        buildSnapshotItem({
+          id: '00000000-0000-4000-8000-000000000203',
+          sellpiaProductCode: 'SP-SAFE',
+        }),
+        buildSnapshotItem({
+          id: '00000000-0000-4000-8000-000000000204',
+          sellpiaProductCode: 'SP-BLOCK',
+          blockingReasons: ['duplicate_code'],
+        }),
+      ],
+    }));
+    approveSellpiaSnapshotItems.mockResolvedValueOnce([
+      { itemId: '00000000-0000-4000-8000-000000000203', ok: true },
+    ]);
+
+    render(<SellpiaSync />);
+    await uploadSellpiaFixture();
+    await userEvent.click(screen.getByRole('checkbox', { name: 'select-00000000-0000-4000-8000-000000000203' }));
+    await userEvent.click(screen.getByRole('checkbox', { name: 'select-00000000-0000-4000-8000-000000000204' }));
+    await userEvent.click(screen.getByRole('button', { name: /선택 승인/ }));
+
+    expect(approveSellpiaSnapshotItems).toHaveBeenCalledWith([
+      { itemId: '00000000-0000-4000-8000-000000000203', targetCurrentStock: 10, reason: undefined },
+    ]);
+    expect(screen.getByText('선택 처리 완료 승인 1건 · 실패 0건 · 제외 1건')).toBeInTheDocument();
+    expect(screen.getByText('SP-BLOCK: 중복 코드')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'select-00000000-0000-4000-8000-000000000204' })).toBeChecked();
   });
 });

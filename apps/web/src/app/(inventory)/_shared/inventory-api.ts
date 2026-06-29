@@ -199,6 +199,69 @@ export async function ignoreSellpiaItem(
   await apiClient.post<unknown>(`/api/inventory/sellpia-sync/items/${itemId}/ignore`, body);
 }
 
+export type SellpiaBulkApprovalRequest = {
+  itemId: string;
+  targetCurrentStock: number;
+  reason?: string;
+};
+
+export type SellpiaBulkIgnoreRequest = {
+  itemId: string;
+  reason?: string;
+};
+
+export type SellpiaBulkOperationResult = {
+  itemId: string;
+  ok: boolean;
+  skipped?: boolean;
+  error?: string;
+};
+
+const SELLPIA_BULK_BATCH_SIZE = 5;
+
+export async function approveSellpiaSnapshotItems(
+  items: SellpiaBulkApprovalRequest[],
+): Promise<SellpiaBulkOperationResult[]> {
+  const results: SellpiaBulkOperationResult[] = [];
+  for (let start = 0; start < items.length; start += SELLPIA_BULK_BATCH_SIZE) {
+    const chunk = items.slice(start, start + SELLPIA_BULK_BATCH_SIZE);
+    const settled = await Promise.allSettled(
+      chunk.map((item) => approveSellpiaSnapshotItem(item.itemId, {
+        targetCurrentStock: item.targetCurrentStock,
+        reason: item.reason,
+      })),
+    );
+    results.push(...settled.map((result, index) => ({
+      itemId: chunk[index].itemId,
+      ok: result.status === 'fulfilled',
+      error: result.status === 'rejected' ? errorMessage(result.reason) : undefined,
+    })));
+  }
+  return results;
+}
+
+export async function ignoreSellpiaSnapshotItems(
+  items: SellpiaBulkIgnoreRequest[],
+): Promise<SellpiaBulkOperationResult[]> {
+  const results: SellpiaBulkOperationResult[] = [];
+  for (let start = 0; start < items.length; start += SELLPIA_BULK_BATCH_SIZE) {
+    const chunk = items.slice(start, start + SELLPIA_BULK_BATCH_SIZE);
+    const settled = await Promise.allSettled(
+      chunk.map((item) => ignoreSellpiaItem(item.itemId, { reason: item.reason })),
+    );
+    results.push(...settled.map((result, index) => ({
+      itemId: chunk[index].itemId,
+      ok: result.status === 'fulfilled',
+      error: result.status === 'rejected' ? errorMessage(result.reason) : undefined,
+    })));
+  }
+  return results;
+}
+
+function errorMessage(reason: unknown): string {
+  return reason instanceof Error ? reason.message : '처리 실패';
+}
+
 export async function resolveSellpiaCandidate(
   candidateId: string,
   input: SellpiaCandidateResolutionInput,
