@@ -13,6 +13,7 @@ import { WarehousesController } from '../adapter/in/http/warehouses.controller';
 import { TransfersController } from '../adapter/in/http/transfers.controller';
 import { AuditsController } from '../adapter/in/http/audits.controller';
 import { PickingController } from '../adapter/in/http/picking.controller';
+import { RocketInventoryController } from '../adapter/in/http/rocket-inventory.controller';
 import { SellpiaReceiptBatchController } from '../adapter/in/http/sellpia-receipt-batch.controller';
 import { SellpiaSyncController } from '../adapter/in/http/sellpia-sync.controller';
 import { InventoryService } from '../application/service/inventory.service';
@@ -68,6 +69,7 @@ describe('InventoryModule capability wiring', () => {
         InventoryItemsController,
         InventoryStockMutationsController,
         CoupangShipmentsController,
+        RocketInventoryController,
         SellpiaSyncController,
         SellpiaReceiptBatchController,
         UnshippedController,
@@ -144,6 +146,7 @@ describe('InventoryModule capability wiring', () => {
     expect(Reflect.getMetadata(PATH_KEY, InventoryItemsController)).toBe('inventory');
     expect(Reflect.getMetadata(PATH_KEY, InventoryStockMutationsController)).toBe('inventory');
     expect(Reflect.getMetadata(PATH_KEY, CoupangShipmentsController)).toBe('coupang-shipments');
+    expect(Reflect.getMetadata(PATH_KEY, RocketInventoryController)).toBe('inventory/rocket');
     expect(Reflect.getMetadata(PATH_KEY, SellpiaSyncController)).toBe('inventory/sellpia-sync');
     expect(Reflect.getMetadata(PATH_KEY, SellpiaReceiptBatchController)).toBe('inventory/sellpia-receipt-batches');
     expect(Reflect.getMetadata(PATH_KEY, UnshippedController)).toBe('unshipped');

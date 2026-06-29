@@ -30,6 +30,10 @@ describe('RocketPoConfirmService', () => {
       expect.objectContaining({ where: expect.objectContaining({ organizationId: ORGANIZATION_ID }) }),
     );
     expect(result.rows.map((row) => row.confirmQty)).toEqual([8, 2]);
+    expect(result.rows[0]).toMatchObject({
+      inventoryId: 'inventory-1',
+      optionId: 'option-1',
+    });
     expect(result.rows[1].shortageReason).toBe('협력사 재고부족 - 수요예측 오류');
     expect(result.fullyConfirmed).toBe(1);
     expect(result.shortRows).toBe(1);
@@ -164,7 +168,8 @@ function makeServiceWithAvailability(available: number) {
   const findMany = vi.fn().mockResolvedValue([
     {
       barcode: BARCODE,
-      inventory: { currentStock: available, reservedStock: 0 },
+      id: 'option-1',
+      inventory: { id: 'inventory-1', currentStock: available, reservedStock: 0 },
     },
   ]);
   const rocketPurchaseOrder = {

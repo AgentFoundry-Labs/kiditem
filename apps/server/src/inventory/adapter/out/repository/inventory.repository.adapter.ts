@@ -4,6 +4,8 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   InventoryMetadataUpdateData,
   InventoryRepositoryPort,
+  RocketLedgerEntry,
+  StockAndReservedDeltas,
   StockLedgerEntry,
 } from '../../../application/port/out/repository/inventory.repository.port';
 import type {
@@ -93,5 +95,43 @@ export class InventoryRepositoryAdapter implements InventoryRepositoryPort {
   ): Promise<StockTransactionRow> {
     const prismaTx = tx as Prisma.TransactionClient;
     return prismaTx.stockTransaction.create({ data: entry });
+  }
+
+  async findRocketLedgerBySource(
+    organizationId: string,
+    sourceActionId: string,
+    eventType: string,
+  ): Promise<{ id: string } | null> {
+    return this.prisma.rocketInventoryLedger.findFirst({
+      where: { organizationId, sourceActionId, eventType },
+      select: { id: true },
+    });
+  }
+
+  applyStockAndReservedDeltas(
+    tx: RepositoryTransaction,
+    inventoryId: string,
+    deltas: StockAndReservedDeltas,
+  ): Promise<InventoryRow> {
+    const prismaTx = tx as Prisma.TransactionClient;
+    return prismaTx.inventory.update({
+      where: { id: inventoryId },
+      data: {
+        currentStock: { increment: deltas.stockDelta },
+        reservedStock: { increment: deltas.reservedDelta },
+        lastRestockedAt: deltas.stockDelta > 0 ? new Date() : undefined,
+      },
+    });
+  }
+
+  async appendRocketLedger(
+    tx: RepositoryTransaction,
+    entry: RocketLedgerEntry,
+  ): Promise<{ id: string }> {
+    const prismaTx = tx as Prisma.TransactionClient;
+    return prismaTx.rocketInventoryLedger.create({
+      data: entry,
+      select: { id: true },
+    });
   }
 }

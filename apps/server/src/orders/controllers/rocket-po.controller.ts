@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Header,
+  Inject,
   Post,
   Res,
   StreamableFile,
@@ -13,9 +14,16 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../../auth/auth.types';
 import type { MulterFile } from '../../common/types';
 import {
+  INVENTORY_PORT,
+  type InventoryPort,
+} from '../../inventory/application/port/in/stock/inventory.port';
+import {
   RocketPoConfirmService,
+  type ConfirmComputedRow,
   type ConfirmSourceRow,
   type ConfirmPreviewResult,
   type RocketConfirmFillResult,
@@ -26,7 +34,11 @@ const ALLOWED_EXTENSIONS = /\.(xls|xlsx)$/i;
 
 @Controller('orders/rocket')
 export class RocketPoController {
-  constructor(private readonly rocketPoConfirmService: RocketPoConfirmService) {}
+  constructor(
+    private readonly rocketPoConfirmService: RocketPoConfirmService,
+    @Inject(INVENTORY_PORT)
+    private readonly inventory: InventoryPort,
+  ) {}
 
   /** 쿠팡 발주 업로드 양식(.xlsx) → KidItem 재고로 확정수량/사유 채워서 반환 */
   @Post('confirm-fill')
@@ -88,6 +100,68 @@ export class RocketPoController {
     }
     return this.rocketPoConfirmService.previewConfirmRows(rows, organizationId);
   }
+
+  /** 미리보기에서 확정한 쿠팡 로켓 수량 → KidItem Rocket 예약 ledger 기록 */
+  @Post('confirm-commit')
+  async confirmCommit(
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body: { rows?: ConfirmComputedRow[] },
+  ): Promise<RocketConfirmCommitResult> {
+    const rows = body?.rows ?? [];
+    if (!rows.length) {
+      throw new BadRequestException('예약 처리할 발주 행이 없습니다.');
+    }
+
+    const result: RocketConfirmCommitResult = {
+      reservedRows: 0,
+      alreadyReservedRows: 0,
+      skippedRows: 0,
+      skipped: [],
+    };
+
+    for (const [index, row] of rows.entries()) {
+      const quantity = toCommitQuantity(row.confirmQty);
+      if (quantity <= 0) {
+        result.skippedRows += 1;
+        result.skipped.push(toSkipped(row, 'zero_confirm_qty'));
+        continue;
+      }
+      if (!row.inventoryId || !row.optionId) {
+        result.skippedRows += 1;
+        result.skipped.push(toSkipped(row, 'unmatched_inventory'));
+        continue;
+      }
+
+      const applied = await this.inventory.applyRocketInventoryEvent({
+        organizationId,
+        userId: user.id,
+        inventoryId: row.inventoryId,
+        optionId: row.optionId,
+        eventType: 'reserve',
+        quantity,
+        sourceActionId: rocketConfirmSourceActionId(row, index),
+        sourceType: 'rocket_confirm',
+        sourceRef: rocketConfirmSourceRef(row),
+        note: 'Coupang Rocket confirm quantity reserve',
+      });
+      if (applied.alreadyApplied) result.alreadyReservedRows += 1;
+      else result.reservedRows += 1;
+    }
+
+    return result;
+  }
+}
+
+interface RocketConfirmCommitResult {
+  reservedRows: number;
+  alreadyReservedRows: number;
+  skippedRows: number;
+  skipped: Array<{
+    poNumber: string;
+    barcode: string;
+    reason: 'zero_confirm_qty' | 'unmatched_inventory';
+  }>;
 }
 
 function setConfirmHeaders(result: RocketConfirmFillResult, response: Response): void {
@@ -102,4 +176,41 @@ function setConfirmHeaders(result: RocketConfirmFillResult, response: Response):
 function contentDispositionAttachment(fileName: string): string {
   const asciiFallback = fileName.replace(/[^\x20-\x7E]/g, '_');
   return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+}
+
+function toCommitQuantity(value: unknown): number {
+  const parsed = typeof value === 'number'
+    ? value
+    : Number.parseInt(String(value ?? '').replace(/[^0-9-]/g, ''), 10);
+  return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
+}
+
+function rocketConfirmSourceActionId(row: ConfirmComputedRow, index: number): string {
+  return [
+    'rocket-confirm',
+    sourcePart(row.poNumber, 48),
+    sourcePart(row.productNo ?? row.barcode, 48),
+    sourcePart(row.barcode, 48),
+    String(index + 1),
+  ].join(':').slice(0, 200);
+}
+
+function rocketConfirmSourceRef(row: ConfirmComputedRow): string {
+  return `${sourcePart(row.poNumber, 80)}/${sourcePart(row.barcode, 80)}`.slice(0, 200);
+}
+
+function sourcePart(value: unknown, maxLength: number): string {
+  const text = String(value ?? '').trim().replace(/\s+/g, '');
+  return (text || 'none').slice(0, maxLength);
+}
+
+function toSkipped(
+  row: ConfirmComputedRow,
+  reason: 'zero_confirm_qty' | 'unmatched_inventory',
+): RocketConfirmCommitResult['skipped'][number] {
+  return {
+    poNumber: String(row.poNumber ?? ''),
+    barcode: String(row.barcode ?? ''),
+    reason,
+  };
 }

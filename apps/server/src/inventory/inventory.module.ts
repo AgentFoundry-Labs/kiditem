@@ -12,6 +12,7 @@ import { WarehousesController } from './adapter/in/http/warehouses.controller';
 import { TransfersController } from './adapter/in/http/transfers.controller';
 import { AuditsController } from './adapter/in/http/audits.controller';
 import { PickingController } from './adapter/in/http/picking.controller';
+import { RocketInventoryController } from './adapter/in/http/rocket-inventory.controller';
 import { SellpiaReceiptBatchController } from './adapter/in/http/sellpia-receipt-batch.controller';
 import { SellpiaSyncController } from './adapter/in/http/sellpia-sync.controller';
 
@@ -89,6 +90,7 @@ const APPLICATION_PORT_BINDINGS = [
     TransfersController,
     AuditsController,
     CoupangShipmentsController,
+    RocketInventoryController,
     SellpiaSyncController,
     SellpiaReceiptBatchController,
     PickingController,

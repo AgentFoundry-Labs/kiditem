@@ -12,6 +12,7 @@ export * from './adjust-stock.dto';
 export * from './list-transactions-query.dto';
 export * from './transaction-summary-query.dto';
 export * from './sellpia-sync.dto';
+export * from './rocket-inventory.dto';
 
 // Unshipped
 export * from './list-unshipped.dto';

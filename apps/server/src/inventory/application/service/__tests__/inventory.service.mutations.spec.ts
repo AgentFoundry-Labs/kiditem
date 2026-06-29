@@ -7,11 +7,15 @@ import type { BundleStockPort } from '../../port/out/cross-domain/bundle-stock.p
 
 // Stub for InventoryRepositoryPort — mocks the run-in-transaction callback by
 // invoking it immediately with a fake `tx` and the seeded locked inventory row.
-function makeRepository(initialStock: number, lastRestockedAt: Date | null = null) {
+function makeRepository(
+  initialStock: number,
+  lastRestockedAt: Date | null = null,
+  reservedStock = 0,
+) {
   const lockedRow = {
     id: 'i1', optionId: 'o1', organizationId: 'c1',
     currentStock: initialStock,
-    reservedStock: 0, safetyStock: 0, reorderPoint: 0, reorderQuantity: 0,
+    reservedStock, safetyStock: 0, reorderPoint: 0, reorderQuantity: 0,
     leadTimeDays: null, dailySalesAvg: 0, warehouseLocation: null,
     lastRestockedAt,
     createdAt: new Date(), updatedAt: new Date(),
@@ -28,6 +32,9 @@ function makeRepository(initialStock: number, lastRestockedAt: Date | null = nul
     applyStockDelta: vi.fn(),
     findOptionNameForLedger: vi.fn(),
     appendStockLedger: vi.fn(),
+    findRocketLedgerBySource: vi.fn(),
+    applyStockAndReservedDeltas: vi.fn(),
+    appendRocketLedger: vi.fn(),
   };
   return { repository, lockedRow, tx };
 }
@@ -38,8 +45,12 @@ describe('InventoryService — mutations (receive/issue/adjust)', () => {
   let bundleStock: { recomputeForComponent: ReturnType<typeof vi.fn> };
   let tx: symbol;
 
-  function bind(initialStock: number, lastRestockedAt: Date | null = null) {
-    const made = makeRepository(initialStock, lastRestockedAt);
+  function bind(
+    initialStock: number,
+    lastRestockedAt: Date | null = null,
+    reservedStock = 0,
+  ) {
+    const made = makeRepository(initialStock, lastRestockedAt, reservedStock);
     repository = made.repository;
     tx = made.tx;
     bundleStock = { recomputeForComponent: vi.fn().mockResolvedValue([]) };
@@ -183,6 +194,138 @@ describe('InventoryService — mutations (receive/issue/adjust)', () => {
       await expect(service.adjust('i1', { delta: -5, reason: 'shrinkage' }, 'c1', 'user-1'))
         .rejects.toThrow(BadRequestException);
       expect(repository.applyStockDelta).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Rocket inventory events', () => {
+    it('reserves Rocket stock without stock transaction or bundle fan-out', async () => {
+      bind(10, null, 0);
+      repository.findRocketLedgerBySource.mockResolvedValue(null);
+      repository.applyStockAndReservedDeltas.mockResolvedValue({
+        id: 'i1',
+        optionId: 'o1',
+        organizationId: 'c1',
+        currentStock: 10,
+        reservedStock: 4,
+      });
+      repository.appendRocketLedger.mockResolvedValue({ id: 'rocket-ledger-1' });
+
+      const result = await service.applyRocketInventoryEvent({
+        organizationId: 'c1',
+        userId: 'user-1',
+        inventoryId: 'i1',
+        optionId: 'o1',
+        eventType: 'reserve',
+        quantity: 4,
+        sourceActionId: 'rocket-confirm:PO-1:8800:4',
+        sourceType: 'rocket_confirm',
+        sourceRef: 'PO-1/8800',
+      });
+
+      expect(result).toEqual({ ledgerId: 'rocket-ledger-1', alreadyApplied: false });
+      expect(repository.applyStockAndReservedDeltas).toHaveBeenCalledWith(tx, 'i1', {
+        reservedDelta: 4,
+        stockDelta: 0,
+        overReservationQty: 0,
+      });
+      expect(repository.appendStockLedger).not.toHaveBeenCalled();
+      expect(bundleStock.recomputeForComponent).not.toHaveBeenCalled();
+      expect(repository.appendRocketLedger).toHaveBeenCalledWith(tx, expect.objectContaining({
+        eventType: 'reserve',
+        quantity: 4,
+        reservedDelta: 4,
+        stockDelta: 0,
+        sourceActionId: 'rocket-confirm:PO-1:8800:4',
+      }));
+    });
+
+    it('issues Rocket shipment by reducing current and reserved stock', async () => {
+      bind(10, null, 5);
+      repository.findRocketLedgerBySource.mockResolvedValue(null);
+      repository.applyStockAndReservedDeltas.mockResolvedValue({
+        id: 'i1',
+        optionId: 'o1',
+        organizationId: 'c1',
+        currentStock: 7,
+        reservedStock: 2,
+      });
+      repository.findOptionNameForLedger.mockResolvedValue('Red');
+      repository.appendStockLedger.mockResolvedValue({
+        id: 'stock-tx-1',
+        optionId: 'o1',
+        type: 'ISSUE',
+        quantity: 3,
+        unitCost: 0,
+        createdAt: new Date(),
+      });
+      repository.appendRocketLedger.mockResolvedValue({ id: 'rocket-ledger-2' });
+      bundleStock.recomputeForComponent.mockResolvedValue(['bundle-A']);
+
+      await service.applyRocketInventoryEvent({
+        organizationId: 'c1',
+        userId: 'user-1',
+        inventoryId: 'i1',
+        optionId: 'o1',
+        eventType: 'issue',
+        quantity: 3,
+        sourceActionId: 'rocket-shipment:SHIP-1',
+        sourceType: 'rocket_shipment',
+        sourceRef: 'SHIP-1',
+      });
+
+      expect(repository.applyStockAndReservedDeltas).toHaveBeenCalledWith(tx, 'i1', {
+        reservedDelta: -3,
+        stockDelta: -3,
+        overReservationQty: 0,
+      });
+      expect(repository.appendStockLedger).toHaveBeenCalledWith(tx, expect.objectContaining({
+        type: 'ISSUE',
+        quantity: 3,
+        relatedId: 'rocket-shipment:SHIP-1',
+        relatedType: 'rocket_shipment',
+      }));
+      expect(bundleStock.recomputeForComponent).toHaveBeenCalledWith('c1', 'o1', tx);
+    });
+
+    it('returns alreadyApplied when source action was already recorded', async () => {
+      bind(10, null, 0);
+      repository.findRocketLedgerBySource.mockResolvedValue({ id: 'existing-ledger' });
+
+      const result = await service.applyRocketInventoryEvent({
+        organizationId: 'c1',
+        userId: 'user-1',
+        inventoryId: 'i1',
+        optionId: 'o1',
+        eventType: 'reserve',
+        quantity: 4,
+        sourceActionId: 'rocket-confirm:PO-1:8800:4',
+        sourceType: 'rocket_confirm',
+        sourceRef: 'PO-1/8800',
+      });
+
+      expect(result).toEqual({ ledgerId: 'existing-ledger', alreadyApplied: true });
+      expect(repository.runInventoryStockMutation).not.toHaveBeenCalled();
+      expect(repository.appendRocketLedger).not.toHaveBeenCalled();
+    });
+
+    it('requires override reason when issuing over open reservation', async () => {
+      bind(10, null, 2);
+      repository.findRocketLedgerBySource.mockResolvedValue(null);
+
+      await expect(service.applyRocketInventoryEvent({
+        organizationId: 'c1',
+        userId: 'user-1',
+        inventoryId: 'i1',
+        optionId: 'o1',
+        eventType: 'issue',
+        quantity: 3,
+        sourceActionId: 'rocket-shipment:SHIP-2',
+        sourceType: 'rocket_shipment',
+        sourceRef: 'SHIP-2',
+      })).rejects.toThrow(BadRequestException);
+
+      expect(repository.applyStockAndReservedDeltas).not.toHaveBeenCalled();
+      expect(repository.appendRocketLedger).not.toHaveBeenCalled();
     });
   });
 });

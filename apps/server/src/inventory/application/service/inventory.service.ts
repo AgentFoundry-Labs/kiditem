@@ -5,6 +5,7 @@ import type {
   InventoryListResponse,
   IssueStockInput,
   ReceiveStockInput,
+  RocketInventoryEventResult,
   StockOperationResult,
   StockTransactionType,
   TransactionListResponse,
@@ -13,6 +14,7 @@ import type {
 } from '@kiditem/shared/inventory';
 import {
   INVENTORY_PORT,
+  type ApplyRocketInventoryEventInput,
   type InventoryPort,
   type ListInventoryInput,
   type ListTransactionsInput,
@@ -37,6 +39,10 @@ import {
   deriveStockDelta,
   InsufficientStockError,
 } from '../../domain/policy/stock-mutation';
+import {
+  buildRocketInventoryEvent,
+  RocketInventoryPolicyError,
+} from '../../domain/policy/rocket-inventory-event';
 import {
   toInventory,
   toInventoryListItem,
@@ -182,6 +188,114 @@ export class InventoryService implements InventoryPort {
     });
   }
 
+  async applyRocketInventoryEvent(
+    input: ApplyRocketInventoryEventInput,
+  ): Promise<RocketInventoryEventResult> {
+    const existing = await this.repository.findRocketLedgerBySource(
+      input.organizationId,
+      input.sourceActionId,
+      input.eventType,
+    );
+    if (existing) return { ledgerId: existing.id, alreadyApplied: true };
+
+    try {
+      return await this.repository.runInventoryStockMutation(
+        input.inventoryId,
+        input.organizationId,
+        async (tx, locked) => {
+          if (locked.optionId !== input.optionId) {
+            throw new BadRequestException('inventoryId and optionId do not match');
+          }
+
+          let event;
+          try {
+            event = buildRocketInventoryEvent({
+              eventType: input.eventType,
+              quantity: input.quantity,
+              openReservationQty: input.openReservationQty ?? locked.reservedStock,
+              allowOverReservation: input.allowOverReservation,
+              overrideReason: input.overrideReason,
+            });
+            assertSufficientStock(locked.currentStock, event.stockDelta);
+          } catch (err) {
+            if (err instanceof RocketInventoryPolicyError || err instanceof InsufficientStockError) {
+              throw new BadRequestException(err.message);
+            }
+            throw err;
+          }
+
+          if (locked.reservedStock + event.reservedDelta < 0) {
+            throw new BadRequestException('reserved stock cannot become negative');
+          }
+
+          const updated = await this.repository.applyStockAndReservedDeltas(
+            tx,
+            locked.id,
+            event,
+          );
+
+          if (event.stockDelta !== 0) {
+            const stockType: StockTransactionType =
+              event.stockDelta > 0 ? 'RECEIVE' : 'ISSUE';
+            const optionName = await this.repository.findOptionNameForLedger(
+              tx,
+              updated.optionId,
+              input.organizationId,
+            );
+            await this.repository.appendStockLedger(tx, {
+              organizationId: input.organizationId,
+              optionId: updated.optionId,
+              optionName,
+              type: stockType,
+              quantity: computeStoredQuantity(stockType, event.stockDelta),
+              unitCost: 0,
+              totalCost: 0,
+              relatedId: input.sourceActionId,
+              relatedType: input.sourceType,
+              note: input.note,
+              createdBy: input.userId,
+            });
+
+            await this.bundleStock.recomputeForComponent(
+              input.organizationId,
+              updated.optionId,
+              tx,
+            );
+          }
+
+          const ledger = await this.repository.appendRocketLedger(tx, {
+            organizationId: input.organizationId,
+            inventoryId: updated.id,
+            optionId: updated.optionId,
+            eventType: input.eventType,
+            quantity: input.quantity,
+            reservedDelta: event.reservedDelta,
+            stockDelta: event.stockDelta,
+            overReservationQty: event.overReservationQty,
+            sourceActionId: input.sourceActionId,
+            sourceType: input.sourceType,
+            sourceRef: input.sourceRef,
+            overrideBy: event.overReservationQty > 0 ? input.userId : null,
+            overrideReason: event.overReservationQty > 0 ? input.overrideReason?.trim() ?? null : null,
+            createdBy: input.userId,
+            note: input.note?.trim() || null,
+          });
+
+          return { ledgerId: ledger.id, alreadyApplied: false };
+        },
+      );
+    } catch (err) {
+      if (!isUniqueConstraintError(err)) throw err;
+      const existingAfterRace = await this.repository.findRocketLedgerBySource(
+        input.organizationId,
+        input.sourceActionId,
+        input.eventType,
+      );
+      if (!existingAfterRace) throw err;
+      return { ledgerId: existingAfterRace.id, alreadyApplied: true };
+    }
+  }
+
   // The application service owns the use case; the repository adapter owns the
   // transaction + row lock. Domain policy decides whether the delta is legal.
   // Bundle fan-out is composed inside the same tx via the products port.
@@ -311,4 +425,13 @@ export class InventoryService implements InventoryPort {
       outAmount: lookup.ISSUE?.amt ?? 0,
     };
   }
+}
+
+function isUniqueConstraintError(err: unknown): boolean {
+  return Boolean(
+    err &&
+      typeof err === 'object' &&
+      'code' in err &&
+      (err as { code?: unknown }).code === 'P2002',
+  );
 }
