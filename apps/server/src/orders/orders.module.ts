@@ -16,9 +16,10 @@ import { ReturnTransfersService } from './return-transfers/return-transfers.serv
 import { RocketPoController } from './controllers/rocket-po.controller';
 import { RocketPoConfirmService } from './services/rocket-po-confirm.service';
 import { ChannelsModule } from '../channels/channels.module';
+import { InventoryModule } from '../inventory/inventory.module';
 
 @Module({
-  imports: [ChannelsModule],
+  imports: [ChannelsModule, InventoryModule],
   controllers: [
     OrdersController,
     OrderCollectionController,

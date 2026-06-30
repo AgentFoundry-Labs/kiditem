@@ -30,6 +30,10 @@ describe('RocketPoConfirmService', () => {
       expect.objectContaining({ where: expect.objectContaining({ organizationId: ORGANIZATION_ID }) }),
     );
     expect(result.rows.map((row) => row.confirmQty)).toEqual([8, 2]);
+    expect(result.rows[0]).toMatchObject({
+      inventoryId: 'inventory-1',
+      optionId: 'option-1',
+    });
     expect(result.rows[1].shortageReason).toBe('협력사 재고부족 - 수요예측 오류');
     expect(result.fullyConfirmed).toBe(1);
     expect(result.shortRows).toBe(1);
@@ -83,7 +87,7 @@ describe('RocketPoConfirmService', () => {
   });
 
   it('upserts rocket purchase orders and daily snapshots from preview rows', async () => {
-    const { service, rocketPurchaseOrder, rocketSupplyDailySnapshot } = makeServiceWithAvailability(10);
+    const { service, rocketPurchaseOrder, rocketSupplyDailySnapshot, transaction, queryRaw } = makeServiceWithAvailability(10);
 
     await service.previewConfirmRows(
       [
@@ -137,6 +141,8 @@ describe('RocketPoConfirmService', () => {
         }),
       }),
     );
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(queryRaw).toHaveBeenCalledTimes(1);
     expect(rocketPurchaseOrder.findMany).toHaveBeenCalledWith({
       where: { organizationId: ORGANIZATION_ID, businessDate },
       select: { poSeq: true, orderAmount: true, orderQty: true },
@@ -164,7 +170,8 @@ function makeServiceWithAvailability(available: number) {
   const findMany = vi.fn().mockResolvedValue([
     {
       barcode: BARCODE,
-      inventory: { currentStock: available, reservedStock: 0 },
+      id: 'option-1',
+      inventory: { id: 'inventory-1', currentStock: available, reservedStock: 0 },
     },
   ]);
   const rocketPurchaseOrder = {
@@ -174,12 +181,23 @@ function makeServiceWithAvailability(available: number) {
   const rocketSupplyDailySnapshot = {
     upsert: vi.fn().mockResolvedValue({}),
   };
+  const queryRaw = vi.fn().mockResolvedValue([]);
   const prisma = {
     productOption: { findMany },
     rocketPurchaseOrder,
     rocketSupplyDailySnapshot,
+    $queryRaw: queryRaw,
   } as unknown as PrismaService;
-  return { service: new RocketPoConfirmService(prisma), findMany, rocketPurchaseOrder, rocketSupplyDailySnapshot };
+  const transaction = vi.fn(async (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma));
+  (prisma as unknown as { $transaction: typeof transaction }).$transaction = transaction;
+  return {
+    service: new RocketPoConfirmService(prisma),
+    findMany,
+    rocketPurchaseOrder,
+    rocketSupplyDailySnapshot,
+    transaction,
+    queryRaw,
+  };
 }
 
 function sourceRow(input: Partial<ConfirmSourceRow>): ConfirmSourceRow {

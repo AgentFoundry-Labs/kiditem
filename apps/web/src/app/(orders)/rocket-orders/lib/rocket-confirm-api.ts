@@ -156,6 +156,8 @@ export const ROCKET_SHORTAGE_REASONS = [
 export interface RocketComputedRow extends RocketConfirmSourceRow {
   productName?: string;
   center?: string;
+  inventoryId?: string;
+  optionId?: string;
   available: number | null;
   confirmQty: number;
   shortageReason: string;
@@ -172,4 +174,29 @@ export interface RocketPreview {
 /** 수집한 발주 행 → 백엔드가 재고로 확정수량/사유 계산해 편집 미리보기용으로 반환. */
 export async function previewRocketConfirm(rows: RocketConfirmSourceRow[]): Promise<RocketPreview> {
   return apiClient.post<RocketPreview>('/api/orders/rocket/confirm-preview', { rows });
+}
+
+export interface RocketConfirmCommitResult {
+  reservedRows: number;
+  alreadyReservedRows: number;
+  skippedRows: number;
+  failedRows: number;
+  skipped?: Array<{
+    poNumber: string;
+    productNo: string;
+    barcode: string;
+    reason: 'zero_confirm_qty' | 'unmatched_inventory';
+  }>;
+  failed?: Array<{
+    poNumber: string;
+    productNo: string;
+    barcode: string;
+    reason: string;
+  }>;
+}
+
+export async function commitRocketConfirmRows(
+  rows: RocketComputedRow[],
+): Promise<RocketConfirmCommitResult> {
+  return apiClient.post<RocketConfirmCommitResult>('/api/orders/rocket/confirm-commit', { rows });
 }

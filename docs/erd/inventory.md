@@ -13,6 +13,11 @@
 | PickingItem | `picking_items` | - |
 | PickingList | `picking_lists` | - |
 | ReturnTransfer | `return_transfers` | - |
+| RocketInventoryLedger | `rocket_inventory_ledger` | Coupang Rocket stock event ledger. Sellpia never contains these effects. |
+| SellpiaNewProductCandidate | `sellpia_new_product_candidates` | Unmatched Sellpia row that must be explicitly created, linked, ignored, or rejected. |
+| SellpiaReceiptUploadBatch | `sellpia_receipt_upload_batches` | KidItem receipt batch that still needs Sellpia upload confirmation. |
+| SellpiaStockSnapshot | `sellpia_stock_snapshots` | Sellpia stock export import attempt. Imports are row-scoped; absent products are ignored. |
+| SellpiaStockSnapshotItem | `sellpia_stock_snapshot_items` | One imported Sellpia product row with recommendation/review state. |
 | StockAudit | `stock_audits` | - |
 | StockTransaction | `stock_transactions` | - |
 | StockTransfer | `stock_transfers` | 창고 간 이동 (from → to warehouse). |
@@ -84,6 +89,115 @@ erDiagram
     DateTime completedAt
     DateTime updatedAt
   }
+  RocketInventoryLedger {
+    String id PK
+    String organizationId FK
+    String inventoryId FK
+    String optionId FK
+    String eventType
+    Int quantity
+    Int reservedDelta
+    Int stockDelta
+    Int overReservationQty
+    String overrideBy
+    String overrideReason
+    Int rocketPoSeq
+    String rocketPoLineKey
+    String sourceActionId
+    String sourceType
+    String sourceRef
+    DateTime occurredAt
+    String createdBy
+    String note
+    Json metaJson
+    DateTime createdAt
+  }
+  SellpiaNewProductCandidate {
+    String id PK
+    String organizationId FK
+    String snapshotItemId FK,UK
+    String sellpiaProductCode
+    String sellpiaProductName
+    Int sellpiaStock
+    Int safetyStock
+    String ownProductCode
+    String barcode
+    String modelName
+    String status
+    String resolvedMasterProductId
+    String resolvedProductOptionId FK
+    String createdInventoryId FK
+    String initialReceiveTransactionId
+    Int operatorInitialStock
+    String resolutionDecision
+    String resolvedBy
+    DateTime resolvedAt
+    String note
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SellpiaReceiptUploadBatch {
+    String id PK
+    String organizationId FK
+    String status
+    String sourceType
+    String sourceRef
+    String templateVersion
+    String uploadedBy
+    DateTime uploadedAt
+    String note
+    Json metaJson
+    String createdBy
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SellpiaStockSnapshot {
+    String id PK
+    String organizationId FK
+    String fileName
+    String fileHash
+    Int rowCount
+    DateTime effectiveExportedAt
+    DateTime uploadedAt
+    String status
+    String createdBy
+    Json metaJson
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SellpiaStockSnapshotItem {
+    String id PK
+    String organizationId FK
+    String snapshotId FK
+    Int rowNumber
+    String sellpiaProductCode
+    String sellpiaProductName
+    Int sellpiaStock
+    Int safetyStock
+    String ownProductCode
+    String barcode
+    String modelName
+    String productOptionId FK
+    String inventoryId FK
+    Int rocketLedgerNet
+    Int targetCurrentStock
+    Int kiditemStockBefore
+    Int operatorTargetStock
+    Int kiditemStockAtApply
+    Int diff
+    Decimal diffRate
+    String status
+    Json blockingReasons
+    Json warningReasons
+    String appliedTransactionId
+    String reviewedBy
+    DateTime reviewedAt
+    String reviewDecision
+    String reviewNote
+    Json rawJson
+    DateTime createdAt
+    DateTime updatedAt
+  }
   StockAudit {
     String id PK
     String organizationId FK
@@ -142,7 +256,12 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  Inventory ||--o{ RocketInventoryLedger : "inventory"
+  Inventory o|--o{ SellpiaNewProductCandidate : "createdInventory"
+  Inventory o|--o{ SellpiaStockSnapshotItem : "inventory"
   PickingList ||--o{ PickingItem : "pickingList"
+  SellpiaStockSnapshot ||--o{ SellpiaStockSnapshotItem : "snapshot"
+  SellpiaStockSnapshotItem ||--|| SellpiaNewProductCandidate : "snapshotItem"
   Warehouse o|--o{ StockTransaction : "warehouse"
   Warehouse ||--o{ StockTransfer : "fromWarehouse"
   Warehouse ||--o{ StockTransfer : "toWarehouse"
@@ -158,6 +277,14 @@ erDiagram
 | PickingList | organization | references external | Core | Organization |
 | ReturnTransfer | option | references external | Core | ProductOption |
 | ReturnTransfer | organization | references external | Core | Organization |
+| RocketInventoryLedger | option | references external | Core | ProductOption |
+| RocketInventoryLedger | organization | references external | Core | Organization |
+| SellpiaNewProductCandidate | organization | references external | Core | Organization |
+| SellpiaNewProductCandidate | resolvedOption | references external | Core | ProductOption |
+| SellpiaReceiptUploadBatch | organization | references external | Core | Organization |
+| SellpiaStockSnapshot | organization | references external | Core | Organization |
+| SellpiaStockSnapshotItem | option | references external | Core | ProductOption |
+| SellpiaStockSnapshotItem | organization | references external | Core | Organization |
 | StockAudit | organization | references external | Core | Organization |
 | StockTransaction | option | references external | Core | ProductOption |
 | StockTransaction | organization | references external | Core | Organization |
