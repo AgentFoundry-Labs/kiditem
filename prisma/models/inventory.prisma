@@ -56,6 +56,7 @@ model StockTransaction {
 
   @@index([organizationId])
   @@index([organizationId, createdAt])
+  @@index([organizationId, optionId, createdAt])
   @@index([optionId])
   @@index([warehouseId])
   @@index([type])
@@ -284,10 +285,10 @@ model SellpiaStockSnapshotItem {
   newProductCandidate SellpiaNewProductCandidate?
 
   @@index([organizationId])
-  @@index([organizationId, snapshotId])
+  @@index([snapshotId, organizationId])
   @@index([organizationId, sellpiaProductCode])
-  @@index([organizationId, productOptionId])
-  @@index([organizationId, inventoryId])
+  @@index([productOptionId, organizationId])
+  @@index([inventoryId, organizationId])
   @@index([organizationId, status])
   @@map("sellpia_stock_snapshot_items")
 }
@@ -326,6 +327,8 @@ model SellpiaNewProductCandidate {
   @@index([organizationId])
   @@index([organizationId, status])
   @@index([organizationId, sellpiaProductCode])
+  @@index([resolvedProductOptionId, organizationId])
+  @@index([createdInventoryId, organizationId])
   @@map("sellpia_new_product_candidates")
 }
 
@@ -386,8 +389,8 @@ model RocketInventoryLedger {
   @@unique([organizationId, sourceActionId, eventType])
   @@index([organizationId])
   @@index([organizationId, createdAt])
-  @@index([organizationId, inventoryId, createdAt])
-  @@index([organizationId, optionId, createdAt])
+  @@index([inventoryId, organizationId, createdAt])
+  @@index([optionId, organizationId, occurredAt])
   @@index([organizationId, rocketPoSeq])
   @@map("rocket_inventory_ledger")
 }
