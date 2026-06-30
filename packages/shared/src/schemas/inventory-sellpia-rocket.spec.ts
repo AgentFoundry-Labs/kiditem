@@ -129,7 +129,6 @@ describe('Sellpia and Rocket inventory contracts', () => {
       action: 'create_product',
       masterName: '신규 상품',
       optionName: '단품',
-      sku: 'SP-NEW',
       barcode: '8801234567890',
       operatorInitialStock: 7,
       note: 'Sellpia row confirmed',

@@ -34,7 +34,6 @@ type CandidateForm = {
   masterName: string;
   masterProductId: string;
   optionName: string;
-  sku: string;
   barcode: string;
   productOptionId: string;
   operatorInitialStock: string;
@@ -81,7 +80,6 @@ function candidateDefaults(candidate: SellpiaNewProductCandidate): CandidateForm
     masterName: candidate.sellpiaProductName ?? candidate.sellpiaProductCode,
     masterProductId: '',
     optionName: candidate.sellpiaProductName ?? '',
-    sku: candidate.sellpiaProductCode,
     barcode: candidate.barcode ?? '',
     productOptionId: '',
     operatorInitialStock: String(candidate.sellpiaStock),
@@ -776,7 +774,6 @@ function CandidateEditor({
         {form.action === 'create_product' || form.action === 'create_option' ? (
           <>
             <TextField label="옵션명" value={form.optionName} disabled={disabled} onChange={(optionName) => onChange({ ...form, optionName })} />
-            <TextField label="SKU" value={form.sku} disabled={disabled} onChange={(sku) => onChange({ ...form, sku })} />
             <TextField label="바코드" value={form.barcode} disabled={disabled} onChange={(barcode) => onChange({ ...form, barcode })} />
           </>
         ) : null}
@@ -843,7 +840,6 @@ function buildCandidatePayload(form: CandidateForm): SellpiaCandidateResolutionI
       action: 'create_product',
       masterName: form.masterName.trim(),
       optionName: cleanOptional(form.optionName) ?? null,
-      sku: form.sku.trim(),
       barcode: cleanOptional(form.barcode) ?? null,
       operatorInitialStock,
       note,
@@ -854,7 +850,6 @@ function buildCandidatePayload(form: CandidateForm): SellpiaCandidateResolutionI
       action: 'create_option',
       masterProductId: form.masterProductId.trim(),
       optionName: cleanOptional(form.optionName) ?? null,
-      sku: form.sku.trim(),
       barcode: cleanOptional(form.barcode) ?? null,
       operatorInitialStock,
       note,

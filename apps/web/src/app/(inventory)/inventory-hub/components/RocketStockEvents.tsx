@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { Check, Loader2, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { postRocketInventoryEvent } from '../../_shared/inventory-api';
+import { buildManualRocketSourceActionId } from '../lib/rocket-event-source';
 import { parseRocketEventDraft, validateRocketEventDraft } from '../lib/rocket-event-draft';
 import type {
   RocketInventoryEventInput,
@@ -96,7 +97,7 @@ export default function RocketStockEvents() {
       optionId: form.optionId.trim(),
       eventType: form.eventType,
       quantity,
-      sourceActionId: `manual-rocket:${form.eventType}:${form.sourceRef.trim()}:${quantity}`,
+      sourceActionId: buildManualRocketSourceActionId(form.eventType, form.sourceRef.trim(), quantity),
       sourceType: sourceTypeFor(form.eventType),
       sourceRef: form.sourceRef.trim(),
       openReservationQty,

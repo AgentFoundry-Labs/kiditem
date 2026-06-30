@@ -117,10 +117,13 @@ export class RocketPoController {
       reservedRows: 0,
       alreadyReservedRows: 0,
       skippedRows: 0,
+      failedRows: 0,
       skipped: [],
+      failed: [],
     };
+    const seenSourceActionIds = new Set<string>();
 
-    for (const [index, row] of rows.entries()) {
+    for (const row of rows) {
       const quantity = toCommitQuantity(row.confirmQty);
       if (quantity <= 0) {
         result.skippedRows += 1;
@@ -133,20 +136,34 @@ export class RocketPoController {
         continue;
       }
 
-      const applied = await this.inventory.applyRocketInventoryEvent({
-        organizationId,
-        userId: user.id,
-        inventoryId: row.inventoryId,
-        optionId: row.optionId,
-        eventType: 'reserve',
-        quantity,
-        sourceActionId: rocketConfirmSourceActionId(row, index),
-        sourceType: 'rocket_confirm',
-        sourceRef: rocketConfirmSourceRef(row),
-        note: 'Coupang Rocket confirm quantity reserve',
-      });
-      if (applied.alreadyApplied) result.alreadyReservedRows += 1;
-      else result.reservedRows += 1;
+      const sourceActionId = rocketConfirmSourceActionId(row);
+      if (seenSourceActionIds.has(sourceActionId)) {
+        result.failedRows += 1;
+        result.failed.push(toFailed(row, 'duplicate_source_action'));
+        continue;
+      }
+      seenSourceActionIds.add(sourceActionId);
+
+      try {
+        const applied = await this.inventory.applyRocketInventoryEvent({
+          organizationId,
+          userId: user.id,
+          inventoryId: row.inventoryId,
+          optionId: row.optionId,
+          eventType: 'reserve',
+          quantity,
+          sourceActionId,
+          sourceType: 'rocket_confirm',
+          sourceRef: rocketConfirmSourceRef(row),
+          note: 'Coupang Rocket confirm quantity reserve',
+        });
+        if (applied.alreadyApplied) result.alreadyReservedRows += 1;
+        else result.reservedRows += 1;
+      } catch (err) {
+        if (!(err instanceof BadRequestException)) throw err;
+        result.failedRows += 1;
+        result.failed.push(toFailed(row, badRequestMessage(err)));
+      }
     }
 
     return result;
@@ -157,10 +174,18 @@ interface RocketConfirmCommitResult {
   reservedRows: number;
   alreadyReservedRows: number;
   skippedRows: number;
+  failedRows: number;
   skipped: Array<{
     poNumber: string;
+    productNo: string;
     barcode: string;
     reason: 'zero_confirm_qty' | 'unmatched_inventory';
+  }>;
+  failed: Array<{
+    poNumber: string;
+    productNo: string;
+    barcode: string;
+    reason: string;
   }>;
 }
 
@@ -185,12 +210,21 @@ function toCommitQuantity(value: unknown): number {
   return Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
 }
 
-function rocketConfirmSourceActionId(row: ConfirmComputedRow, _index: number): string {
-  return `rocket-confirm:${sourcePart(row.poNumber, 64)}:${sourcePart(row.barcode, 64)}:${toCommitQuantity(row.confirmQty)}`.slice(0, 200);
+function rocketConfirmSourceActionId(row: ConfirmComputedRow): string {
+  return [
+    'rocket-confirm',
+    sourcePart(row.poNumber, 64),
+    sourcePart(row.productNo, 64),
+    sourcePart(row.barcode, 64),
+  ].join(':').slice(0, 200);
 }
 
 function rocketConfirmSourceRef(row: ConfirmComputedRow): string {
-  return `${sourcePart(row.poNumber, 80)}/${sourcePart(row.barcode, 80)}`.slice(0, 200);
+  return [
+    sourcePart(row.poNumber, 80),
+    sourcePart(row.productNo, 80),
+    sourcePart(row.barcode, 80),
+  ].join('/').slice(0, 200);
 }
 
 function sourcePart(value: unknown, maxLength: number): string {
@@ -204,7 +238,31 @@ function toSkipped(
 ): RocketConfirmCommitResult['skipped'][number] {
   return {
     poNumber: String(row.poNumber ?? ''),
+    productNo: String(row.productNo ?? ''),
     barcode: String(row.barcode ?? ''),
     reason,
   };
+}
+
+function toFailed(
+  row: ConfirmComputedRow,
+  reason: string,
+): RocketConfirmCommitResult['failed'][number] {
+  return {
+    poNumber: String(row.poNumber ?? ''),
+    productNo: String(row.productNo ?? ''),
+    barcode: String(row.barcode ?? ''),
+    reason,
+  };
+}
+
+function badRequestMessage(err: BadRequestException): string {
+  const response = err.getResponse();
+  if (typeof response === 'string') return response;
+  if (response && typeof response === 'object' && 'message' in response) {
+    const message = (response as { message?: unknown }).message;
+    if (Array.isArray(message)) return message.join(', ');
+    if (typeof message === 'string') return message;
+  }
+  return err.message || 'rocket_inventory_event_failed';
 }

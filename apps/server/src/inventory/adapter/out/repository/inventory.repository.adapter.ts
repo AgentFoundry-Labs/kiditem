@@ -5,6 +5,7 @@ import type {
   InventoryMetadataUpdateData,
   InventoryRepositoryPort,
   RocketLedgerEntry,
+  RocketLedgerSourceRow,
   StockAndReservedDeltas,
   StockLedgerEntry,
 } from '../../../application/port/out/repository/inventory.repository.port';
@@ -139,10 +140,15 @@ export class InventoryRepositoryAdapter implements InventoryRepositoryPort {
     organizationId: string,
     sourceActionId: string,
     eventType: string,
-  ): Promise<{ id: string } | null> {
+  ): Promise<RocketLedgerSourceRow | null> {
     return this.prisma.rocketInventoryLedger.findFirst({
       where: { organizationId, sourceActionId, eventType },
-      select: { id: true },
+      select: {
+        id: true,
+        inventoryId: true,
+        optionId: true,
+        quantity: true,
+      },
     });
   }
 

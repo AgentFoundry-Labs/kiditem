@@ -289,7 +289,12 @@ describe('InventoryService — mutations (receive/issue/adjust)', () => {
 
     it('returns alreadyApplied when source action was already recorded', async () => {
       bind(10, null, 0);
-      repository.findRocketLedgerBySource.mockResolvedValue({ id: 'existing-ledger' });
+      repository.findRocketLedgerBySource.mockResolvedValue({
+        id: 'existing-ledger',
+        inventoryId: 'i1',
+        optionId: 'o1',
+        quantity: 4,
+      });
 
       const result = await service.applyRocketInventoryEvent({
         organizationId: 'c1',
@@ -304,6 +309,31 @@ describe('InventoryService — mutations (receive/issue/adjust)', () => {
       });
 
       expect(result).toEqual({ ledgerId: 'existing-ledger', alreadyApplied: true });
+      expect(repository.runInventoryStockMutation).not.toHaveBeenCalled();
+      expect(repository.appendRocketLedger).not.toHaveBeenCalled();
+    });
+
+    it('rejects a repeated source action with a different quantity', async () => {
+      bind(10, null, 0);
+      repository.findRocketLedgerBySource.mockResolvedValue({
+        id: 'existing-ledger',
+        inventoryId: 'i1',
+        optionId: 'o1',
+        quantity: 3,
+      });
+
+      await expect(service.applyRocketInventoryEvent({
+        organizationId: 'c1',
+        userId: 'user-1',
+        inventoryId: 'i1',
+        optionId: 'o1',
+        eventType: 'reserve',
+        quantity: 4,
+        sourceActionId: 'rocket-confirm:PO-1:SKU-1:8800',
+        sourceType: 'rocket_confirm',
+        sourceRef: 'PO-1/SKU-1/8800',
+      })).rejects.toThrow(BadRequestException);
+
       expect(repository.runInventoryStockMutation).not.toHaveBeenCalled();
       expect(repository.appendRocketLedger).not.toHaveBeenCalled();
     });

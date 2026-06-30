@@ -49,6 +49,13 @@ export type RocketLedgerEntry = {
   note: string | null;
 };
 
+export type RocketLedgerSourceRow = {
+  id: string;
+  inventoryId: string;
+  optionId: string;
+  quantity: number;
+};
+
 export interface InventoryRepositoryPort {
   runTransaction<T>(
     op: (tx: RepositoryTransaction) => Promise<T>,
@@ -95,7 +102,7 @@ export interface InventoryRepositoryPort {
     organizationId: string,
     sourceActionId: string,
     eventType: string,
-  ): Promise<{ id: string } | null>;
+  ): Promise<RocketLedgerSourceRow | null>;
 
   applyStockAndReservedDeltas(
     tx: RepositoryTransaction,

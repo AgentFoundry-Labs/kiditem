@@ -97,7 +97,9 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
     try {
       const result = await commitRocketConfirmRows(rows);
       setCommitResult(result);
-      toast.success(`예약 확정 완료 — 신규 ${result.reservedRows} · 중복 ${result.alreadyReservedRows} · 제외 ${result.skippedRows}`);
+      const message = `예약 확정 — 신규 ${result.reservedRows} · 중복 ${result.alreadyReservedRows} · 제외 ${result.skippedRows} · 실패 ${result.failedRows}`;
+      if (result.failedRows > 0) toast.warning(message);
+      else toast.success(message);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '예약 확정 실패');
     } finally {
@@ -263,7 +265,13 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
             <div className="border-b border-emerald-100 bg-emerald-50 px-5 py-2 text-xs text-emerald-800">
               예약 신규 <b className="tabular-nums">{commitResult.reservedRows}</b> · 중복{' '}
               <b className="tabular-nums">{commitResult.alreadyReservedRows}</b> · 제외{' '}
-              <b className="tabular-nums">{commitResult.skippedRows}</b>
+              <b className="tabular-nums">{commitResult.skippedRows}</b> · 실패{' '}
+              <b className="tabular-nums">{commitResult.failedRows}</b>
+              {commitResult.failed?.length ? (
+                <span className="ml-2 text-amber-700">
+                  {commitResult.failed[0]?.poNumber} {commitResult.failed[0]?.reason}
+                </span>
+              ) : null}
             </div>
           )}
           <div className="max-h-[460px] overflow-auto">

@@ -196,7 +196,10 @@ export class InventoryService implements InventoryPort {
       input.sourceActionId,
       input.eventType,
     );
-    if (existing) return { ledgerId: existing.id, alreadyApplied: true };
+    if (existing) {
+      assertSameRocketSourceAction(existing, input);
+      return { ledgerId: existing.id, alreadyApplied: true };
+    }
 
     try {
       return await this.repository.runInventoryStockMutation(
@@ -292,6 +295,7 @@ export class InventoryService implements InventoryPort {
         input.eventType,
       );
       if (!existingAfterRace) throw err;
+      assertSameRocketSourceAction(existingAfterRace, input);
       return { ledgerId: existingAfterRace.id, alreadyApplied: true };
     }
   }
@@ -434,4 +438,21 @@ function isUniqueConstraintError(err: unknown): boolean {
       'code' in err &&
       (err as { code?: unknown }).code === 'P2002',
   );
+}
+
+function assertSameRocketSourceAction(
+  existing: {
+    inventoryId: string;
+    optionId: string;
+    quantity: number;
+  },
+  input: ApplyRocketInventoryEventInput,
+): void {
+  if (
+    existing.inventoryId !== input.inventoryId ||
+    existing.optionId !== input.optionId ||
+    existing.quantity !== input.quantity
+  ) {
+    throw new BadRequestException('Rocket source action already has a different inventory target or quantity');
+  }
 }

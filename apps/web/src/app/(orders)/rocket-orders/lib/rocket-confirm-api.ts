@@ -180,10 +180,18 @@ export interface RocketConfirmCommitResult {
   reservedRows: number;
   alreadyReservedRows: number;
   skippedRows: number;
+  failedRows: number;
   skipped?: Array<{
     poNumber: string;
+    productNo: string;
     barcode: string;
     reason: 'zero_confirm_qty' | 'unmatched_inventory';
+  }>;
+  failed?: Array<{
+    poNumber: string;
+    productNo: string;
+    barcode: string;
+    reason: string;
   }>;
 }
 
