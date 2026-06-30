@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { MulterFile } from '../../common/types';
@@ -24,6 +25,7 @@ const HEADER = [
   '총발주 매입금', '입고예정일', '발주등록일시', 'Xdock',
 ];
 const COL = { barcode: 5, orderQty: 7, confirmQty: 8, shortageReason: 12 };
+const ROCKET_DAILY_LOCK_NAMESPACE = 'rocket-daily-snapshot';
 
 const SHORTAGE_REASONS = [
   '제조사 생산중단 혹은 공급사 취급중단 - 제품 리뉴얼/모델 변경',
@@ -302,53 +304,83 @@ export class RocketPoConfirmService {
     if (summaries.length === 0) return;
 
     const affectedDates = new Map<string, Date>();
-    for (const summary of summaries) {
+    const orderedSummaries = [...summaries].sort((a, b) => a.poSeq - b.poSeq);
+    for (const summary of orderedSummaries) {
       affectedDates.set(summary.businessDate.toISOString().slice(0, 10), summary.businessDate);
-      await this.prisma.rocketPurchaseOrder.upsert({
-        where: {
-          organizationId_poSeq: {
+    }
+    const orderedAffectedDates = [...affectedDates.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([dateKey, businessDate]) => ({ dateKey, businessDate }));
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const { dateKey } of orderedAffectedDates) {
+        await this.lockRocketDailySnapshot(tx, organizationId, dateKey);
+      }
+      for (const summary of orderedSummaries) {
+        await tx.rocketPurchaseOrder.upsert({
+          where: {
+            organizationId_poSeq: {
+              organizationId,
+              poSeq: summary.poSeq,
+            },
+          },
+          create: {
             organizationId,
             poSeq: summary.poSeq,
+            businessDate: summary.businessDate,
+            orderedAt: summary.orderedAt,
+            status: summary.status,
+            vendorName: summary.vendorName,
+            centerName: summary.centerName,
+            firstSkuName: summary.firstSkuName,
+            skuCount: summary.skuCount,
+            orderQty: summary.orderQty,
+            orderAmount: summary.orderAmount,
+            items: summary.items,
           },
-        },
-        create: {
-          organizationId,
-          poSeq: summary.poSeq,
-          businessDate: summary.businessDate,
-          orderedAt: summary.orderedAt,
-          status: summary.status,
-          vendorName: summary.vendorName,
-          centerName: summary.centerName,
-          firstSkuName: summary.firstSkuName,
-          skuCount: summary.skuCount,
-          orderQty: summary.orderQty,
-          orderAmount: summary.orderAmount,
-          items: summary.items,
-        },
-        update: {
-          businessDate: summary.businessDate,
-          orderedAt: summary.orderedAt,
-          status: summary.status,
-          vendorName: summary.vendorName,
-          centerName: summary.centerName,
-          firstSkuName: summary.firstSkuName,
-          skuCount: summary.skuCount,
-          orderQty: summary.orderQty,
-          orderAmount: summary.orderAmount,
-          items: summary.items,
-        },
-      });
-    }
+          update: {
+            businessDate: summary.businessDate,
+            orderedAt: summary.orderedAt,
+            status: summary.status,
+            vendorName: summary.vendorName,
+            centerName: summary.centerName,
+            firstSkuName: summary.firstSkuName,
+            skuCount: summary.skuCount,
+            orderQty: summary.orderQty,
+            orderAmount: summary.orderAmount,
+            items: summary.items,
+          },
+        });
+      }
 
-    await this.refreshRocketDailySnapshots(organizationId, [...affectedDates.values()]);
+      await this.refreshRocketDailySnapshots(
+        tx,
+        organizationId,
+        orderedAffectedDates.map(({ businessDate }) => businessDate),
+      );
+    });
+  }
+
+  private async lockRocketDailySnapshot(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    businessDateKey: string,
+  ): Promise<void> {
+    await tx.$queryRaw`
+      SELECT pg_advisory_xact_lock(
+        hashtext(${ROCKET_DAILY_LOCK_NAMESPACE}),
+        hashtext(${`${organizationId}:${businessDateKey}`})
+      ) AS organization_id_scoped_lock
+    `;
   }
 
   private async refreshRocketDailySnapshots(
+    tx: Prisma.TransactionClient,
     organizationId: string,
     businessDates: Date[],
   ): Promise<void> {
     for (const businessDate of businessDates) {
-      const orders = await this.prisma.rocketPurchaseOrder.findMany({
+      const orders = await tx.rocketPurchaseOrder.findMany({
         where: { organizationId, businessDate },
         select: { poSeq: true, orderAmount: true, orderQty: true },
       });
@@ -360,7 +392,7 @@ export class RocketPoConfirmService {
         }),
         { revenueKrw: 0, itemQty: 0, poSeqs: [] as number[] },
       );
-      await this.prisma.rocketSupplyDailySnapshot.upsert({
+      await tx.rocketSupplyDailySnapshot.upsert({
         where: {
           organizationId_businessDate: {
             organizationId,

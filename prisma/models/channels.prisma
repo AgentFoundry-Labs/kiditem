@@ -347,7 +347,6 @@ model RocketSupplyDailySnapshot {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, businessDate])
-  @@index([organizationId, businessDate])
   @@map("rocket_supply_daily_snapshots")
 }
 
