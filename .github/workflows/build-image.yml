@@ -1,0 +1,113 @@
+name: Build Container Image
+
+on:
+  workflow_call:
+    inputs:
+      image_base:
+        description: Full image base without tag, for example ghcr.io/org/app-api
+        required: true
+        type: string
+      dockerfile:
+        description: Dockerfile path
+        required: true
+        type: string
+      cache_scope:
+        description: Buildx cache scope
+        required: true
+        type: string
+      title:
+        description: OCI image title
+        required: true
+        type: string
+      app_version:
+        description: KidItem app version label
+        required: true
+        type: string
+      build_args:
+        description: Optional newline-separated Docker build args
+        required: false
+        type: string
+        default: ""
+      extra_tags:
+        description: Optional newline-separated extra image tags, for example ghcr.io/org/app:staging
+        required: false
+        type: string
+        default: ""
+      preflight_image:
+        description: Optional image that must exist before the build starts
+        required: false
+        type: string
+        default: ""
+    outputs:
+      image_ref:
+        description: Immutable image reference with digest
+        value: ${{ jobs.build.outputs.image_ref }}
+      digest:
+        description: Built image digest
+        value: ${{ jobs.build.outputs.digest }}
+
+jobs:
+  build:
+    name: Build ${{ inputs.title }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_ref: ${{ steps.image.outputs.image_ref }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify required base image
+        if: inputs.preflight_image != ''
+        run: docker buildx imagetools inspect "${{ inputs.preflight_image }}"
+
+      - name: Collect image tags
+        id: tags
+        env:
+          IMAGE_BASE: ${{ inputs.image_base }}
+          EXTRA_TAGS: ${{ inputs.extra_tags }}
+        run: |
+          set -euo pipefail
+          {
+            echo 'tags<<EOF'
+            printf '%s:%s\n' "$IMAGE_BASE" "$GITHUB_SHA"
+            if [[ -n "$EXTRA_TAGS" ]]; then
+              printf '%s\n' "$EXTRA_TAGS"
+            fi
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ${{ inputs.dockerfile }}
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: ${{ inputs.build_args }}
+          cache-from: type=gha,scope=${{ inputs.cache_scope }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.cache_scope }}
+          labels: |
+            org.opencontainers.image.title=${{ inputs.title }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ inputs.app_version }}
+
+      - name: Emit immutable image reference
+        id: image
+        run: echo "image_ref=${{ inputs.image_base }}@${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"

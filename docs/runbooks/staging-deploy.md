@@ -2,8 +2,9 @@
 
 This runbook creates and operates the KidItem staging runtime on one EC2
 instance. The primary deploy path is GitHub Actions -> GHCR -> EC2 Docker
-Compose. The local `bin/deploy-staging.sh` path remains a break-glass fallback
-for initial bootstrapping or GitHub outage recovery.
+Compose. There is no supported local Docker image streaming deploy path; keep
+staging releases observable through GitHub Actions, GHCR digest image refs, and
+`/opt/kiditem/deployments/current.json`.
 
 For the full environment variable inventory, feature-specific requirements, and
 safe verification commands, see
@@ -14,8 +15,9 @@ Internet
   -> host nginx + TLS on EC2
     -> 127.0.0.1:8080
       -> docker compose nginx
-        -> /api/*  -> NestJS container :4000
-        -> /*      -> Next.js container :3000
+        -> /api/*  -> active NestJS API slot :4000
+        -> /*      -> active Next.js web slot :3000
+        -> worker  -> active Agent OS worker slot
 
 External services:
   PostgreSQL/Auth -> Supabase project for this staging runtime
@@ -53,10 +55,6 @@ truth for staging runtime secrets and variables. Each deploy renders
 ## Expected Directory Shape
 
 ```text
-/repo/.secrets/staging/
-  kiditem-staging-keypair.pem
-  deploy.env
-
 /opt/kiditem/
   VERSION
   docker-compose.staging.yml
@@ -67,6 +65,7 @@ truth for staging runtime secrets and variables. Each deploy renders
   .env.staging.api
   .env.staging.web
   .env.staging.deploy
+  deployments/nginx.conf
   deployments/current.json
   deployments/history/<timestamp>-<git-sha>.json
   deployments/current-db.json
@@ -75,29 +74,34 @@ truth for staging runtime secrets and variables. Each deploy renders
 
 ## One-Time EC2 Setup
 
-From the local repo, copy and run the setup script on the EC2 host:
+Provision the EC2 host, security group, Docker runtime, nginx package, and
+Elastic IP through Terraform:
 
 ```bash
-scp -i ~/.ssh/<key>.pem ./bin/setup-staging-ec2.sh ubuntu@<ec2-host>:/tmp/setup-staging-ec2.sh
-ssh -i ~/.ssh/<key>.pem ubuntu@<ec2-host> 'bash /tmp/setup-staging-ec2.sh'
+cd infra/terraform/envs/staging
+terraform init
+terraform plan \
+  -var='vpc_id=vpc-...' \
+  -var='subnet_id=subnet-...' \
+  -var='key_name=kiditem-staging-keypair' \
+  -var='allowed_ssh_cidrs=["<operator-ip>/32"]' \
+  -var='public_http_cidrs=["<cloudflare-ip-range>"]'
+terraform apply \
+  -var='vpc_id=vpc-...' \
+  -var='subnet_id=subnet-...' \
+  -var='key_name=kiditem-staging-keypair' \
+  -var='allowed_ssh_cidrs=["<operator-ip>/32"]' \
+  -var='public_http_cidrs=["<cloudflare-ip-range>"]'
 ```
 
-The script installs Docker Engine, the Docker Compose plugin, nginx, and rsync.
-It does not create swap by default because small 8 GB root disks need the space
-for Docker layers. If the root disk is already larger and the host will build
-images itself, set an explicit swap size:
-
-```bash
-ssh -i ~/.ssh/<key>.pem ubuntu@<ec2-host> 'SWAP_SIZE=2G bash /tmp/setup-staging-ec2.sh'
-```
-
-Log out and SSH back in after the script finishes so Docker group membership
-applies.
+Use Cloudflare's current IP ranges for `public_http_cidrs` when the public
+domain is proxied. SSH must be limited to operator CIDRs or replaced by SSM
+Session Manager before treating staging as production.
 
 Create the local SSH helper files. They stay inside the project directory for
-convenience, but `.secrets/` is ignored by git and Docker. The normal GitHub
-Actions deploy path does not read local `.env.staging.*` files; it renders
-runtime env files from GitHub Environment `staging`.
+operator convenience, but `.secrets/` is ignored by git and Docker. GitHub
+Actions does not read local `.env.staging.*` files; it renders runtime env files
+from GitHub Environment `staging`.
 
 ```bash
 mkdir -p .secrets/staging
@@ -112,10 +116,6 @@ EOF
 
 chmod 600 .secrets/staging/deploy.env
 ```
-
-For the break-glass local `bin/deploy-staging.sh` path only, create local
-`.env.staging.api` and `.env.staging.web` files or pass
-`STAGING_API_ENV_FILE` / `STAGING_WEB_ENV_FILE` explicitly.
 
 For the initial staging rollout using project `gheoobctiarluauprvro`, the
 Supabase Storage values are:
@@ -440,7 +440,9 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-Use `http://<ec2-public-ip>` for the first smoke test.
+Use `http://<ec2-public-ip>` only for the first origin smoke test. The normal
+staging URL is the Cloudflare proxied HTTPS origin configured in
+`STAGING_URL`.
 
 If `/product-pipeline/thumbnail-generation` Coupang image sync is tested from the staging web app, the
 local Chrome extension must allow the same public origin. Do not commit the
@@ -493,66 +495,6 @@ host, then re-run:
 sudo nginx -t
 sudo systemctl reload nginx
 ```
-
-## Local Deploy Fallback
-
-Use this only when GitHub Actions or GHCR is unavailable, or for the first smoke
-bootstrap before the GitHub Environment exists.
-
-From the local repo:
-
-```bash
-STAGING_HOST=<ec2-hostname-or-ip> \
-STAGING_USER=ubuntu \
-STAGING_SSH_KEY=~/.ssh/<key>.pem \
-./bin/deploy-staging.sh
-```
-
-The fallback script builds both Docker images locally, streams
-`docker save | gzip` directly into `docker load` over SSH, restarts the compose
-stack, and checks `http://127.0.0.1:8080/login` on the EC2 host. It
-intentionally does not store the compressed image archive on EC2, which keeps
-small root disks from holding both the archive and the loaded images at the
-same time.
-
-Fallback deploys do not write the GHCR deployment manifest unless the operator
-also runs `deploy/staging/remote-deploy.sh` with explicit GHCR image refs.
-
-By default, local builds target `linux/amd64`, which matches normal EC2 Ubuntu
-instances even when the operator is using Apple Silicon locally. Override only
-when the EC2 host is intentionally a different architecture:
-
-```bash
-DOCKER_PLATFORM=linux/arm64 ./bin/deploy-staging.sh
-```
-
-Staging API images include Chromium so `/api/render-image` can launch
-Puppeteer. Keep enough free disk on the EC2 root volume before deploy; the
-remote deploy smoke check launches Puppeteer inside the API container and fails
-the deploy if the browser runtime is missing.
-
-```bash
-INSTALL_CHROMIUM=true ./bin/deploy-staging.sh
-```
-
-The deploy script reads connection settings from:
-
-```text
-.secrets/staging/deploy.env
-```
-
-Override individual paths with:
-
-```bash
-STAGING_WEB_ENV_FILE=/absolute/path/to/web.env \
-STAGING_API_ENV_FILE=/absolute/path/to/api.env \
-./bin/deploy-staging.sh
-```
-
-The deploy script always builds staging with `NEXT_PUBLIC_API_URL=` unless
-`STAGING_NEXT_PUBLIC_API_URL` is explicitly set. This keeps browser API calls on
-same-origin `/api/*` even if `apps/web/.env.local` points local dev at
-`http://localhost:4000`.
 
 ## Manual Compose Commands
 
