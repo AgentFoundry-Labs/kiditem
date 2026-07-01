@@ -14,6 +14,148 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  workflow-lint:
+    name: GitHub Actions lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Lint workflow files
+        uses: rhysd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca # v1.7.12
+
+  deploy-shell-lint:
+    name: Deploy shell lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Parse deploy scripts
+        run: bash -n deploy/staging/render-runtime-env.sh deploy/staging/remote-deploy.sh deploy/production/remote-deploy.sh infra/terraform/modules/single-host/user-data.sh
+
+      - name: Shellcheck deploy scripts
+        run: shellcheck deploy/staging/render-runtime-env.sh deploy/staging/remote-deploy.sh deploy/production/remote-deploy.sh infra/terraform/modules/single-host/user-data.sh
+
+  infra-config-lint:
+    name: Infra config lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+
+      - name: Validate compose files
+        env:
+          KIDITEM_BLUE_API_IMAGE: ghcr.io/agentfoundry-labs/kiditem-api:blue
+          KIDITEM_BLUE_WEB_IMAGE: ghcr.io/agentfoundry-labs/kiditem-web:blue
+          KIDITEM_GREEN_API_IMAGE: ghcr.io/agentfoundry-labs/kiditem-api:green
+          KIDITEM_GREEN_WEB_IMAGE: ghcr.io/agentfoundry-labs/kiditem-web:green
+        run: |
+          set -euo pipefail
+          mkdir -p deployments
+          printf 'server { listen 80; }\n' > deployments/nginx.conf
+          : > .env.staging.web
+          : > .env.staging.api
+          : > .env.production.web
+          : > .env.production.api
+          docker compose --env-file .env.staging.web -f docker-compose.staging.yml config >/dev/null
+          docker compose --env-file .env.production.web -f docker-compose.production.yml config >/dev/null
+
+      - name: Validate Terraform
+        run: |
+          set -euo pipefail
+          terraform fmt -check -recursive infra/terraform
+          terraform -chdir=infra/terraform/envs/staging init -backend=false
+          terraform -chdir=infra/terraform/envs/staging validate
+          terraform -chdir=infra/terraform/envs/production init -backend=false
+          terraform -chdir=infra/terraform/envs/production validate
+
+  app-lint:
+    name: Lint ${{ matrix.workspace }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace:
+          - apps/server
+          - apps/web
+    env:
+      DATABASE_URL: postgresql://kiditem_ci:kiditem_ci@localhost:5432/kiditem_ci
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Run lint
+        run: npm run lint --workspace=${{ matrix.workspace }}
+
+  app-builds:
+    name: Build ${{ matrix.workspace }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        workspace:
+          - apps/server
+          - apps/web
+          - packages/shared
+          - packages/templates
+    env:
+      DATABASE_URL: postgresql://kiditem_ci:kiditem_ci@localhost:5432/kiditem_ci
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Build shared dependency
+        if: matrix.workspace == 'apps/server' || matrix.workspace == 'apps/web' || matrix.workspace == 'packages/templates'
+        run: npm run build --workspace=packages/shared
+
+      - name: Build template dependency
+        if: matrix.workspace == 'apps/web'
+        run: npm run build --workspace=packages/templates
+
+      - name: Run build
+        run: npm run build --workspace=${{ matrix.workspace }}
+
   review-guardrails:
     name: PR review guardrails
     runs-on: ubuntu-latest
@@ -36,7 +178,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ripgrep
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 22
           cache: npm

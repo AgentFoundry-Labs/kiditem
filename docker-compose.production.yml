@@ -1,8 +1,8 @@
-name: kiditem-staging
+name: kiditem-production
 
 x-api-service: &api-service
   env_file:
-    - path: ./.env.staging.api
+    - path: ./.env.production.api
       required: false
   environment:
     NODE_ENV: production
@@ -24,7 +24,7 @@ x-api-service: &api-service
 
 x-web-service: &web-service
   env_file:
-    - path: ./.env.staging.web
+    - path: ./.env.production.web
       required: false
   environment:
     NODE_ENV: production
@@ -46,7 +46,7 @@ x-web-service: &web-service
 
 x-worker-service: &worker-service
   env_file:
-    - path: ./.env.staging.api
+    - path: ./.env.production.api
       required: false
   environment:
     NODE_ENV: production
@@ -57,36 +57,36 @@ x-worker-service: &worker-service
 services:
   api-blue:
     <<: *api-service
-    container_name: kiditem-staging-api-blue
+    container_name: kiditem-production-api-blue
     image: ${KIDITEM_BLUE_API_IMAGE:?KIDITEM_BLUE_API_IMAGE is required}
 
   web-blue:
     <<: *web-service
-    container_name: kiditem-staging-web-blue
+    container_name: kiditem-production-web-blue
     image: ${KIDITEM_BLUE_WEB_IMAGE:?KIDITEM_BLUE_WEB_IMAGE is required}
 
   worker-blue:
     <<: *worker-service
-    container_name: kiditem-staging-worker-blue
+    container_name: kiditem-production-worker-blue
     image: ${KIDITEM_BLUE_API_IMAGE:?KIDITEM_BLUE_API_IMAGE is required}
 
   api-green:
     <<: *api-service
-    container_name: kiditem-staging-api-green
+    container_name: kiditem-production-api-green
     image: ${KIDITEM_GREEN_API_IMAGE:?KIDITEM_GREEN_API_IMAGE is required}
 
   web-green:
     <<: *web-service
-    container_name: kiditem-staging-web-green
+    container_name: kiditem-production-web-green
     image: ${KIDITEM_GREEN_WEB_IMAGE:?KIDITEM_GREEN_WEB_IMAGE is required}
 
   worker-green:
     <<: *worker-service
-    container_name: kiditem-staging-worker-green
+    container_name: kiditem-production-worker-green
     image: ${KIDITEM_GREEN_API_IMAGE:?KIDITEM_GREEN_API_IMAGE is required}
 
   nginx:
-    container_name: kiditem-staging-nginx
+    container_name: kiditem-production-nginx
     image: nginx:1.27-alpine
     ports:
       - "127.0.0.1:8080:80"
