@@ -149,6 +149,8 @@ describe('product pipeline DB model contract', () => {
     assert.ok(candidateCapture < deployEnvLoad, 'legacy deploy env must not overwrite candidate image input');
     assert.ok(deployEnvLoad < targetAssignment, 'target slot assignment must happen after legacy env normalization');
     assert.match(remoteDeploy, /normalize_slot_deploy_env\(\)/);
+    assert.match(remoteDeploy, /KIDITEM_API_IMAGE="\$candidate_api"/);
+    assert.match(remoteDeploy, /KIDITEM_WEB_IMAGE="\$candidate_web"/);
     assert.match(remoteDeploy, /KIDITEM_BLUE_API_IMAGE="\$\{KIDITEM_BLUE_API_IMAGE:-\$legacy_api\}"/);
     assert.match(remoteDeploy, /KIDITEM_GREEN_WEB_IMAGE="\$\{KIDITEM_GREEN_WEB_IMAGE:-\$legacy_web\}"/);
   });

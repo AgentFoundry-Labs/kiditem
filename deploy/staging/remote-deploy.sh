@@ -218,6 +218,9 @@ write_slot_deploy_env() {
 
   load_deploy_env_if_exists
   normalize_slot_deploy_env
+  KIDITEM_API_IMAGE="$candidate_api"
+  KIDITEM_WEB_IMAGE="$candidate_web"
+  export KIDITEM_API_IMAGE KIDITEM_WEB_IMAGE
 
   local blue_api="${KIDITEM_BLUE_API_IMAGE:-}"
   local blue_web="${KIDITEM_BLUE_WEB_IMAGE:-}"
