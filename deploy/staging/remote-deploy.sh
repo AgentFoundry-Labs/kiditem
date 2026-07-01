@@ -86,6 +86,28 @@ load_deploy_env_if_exists() {
   fi
 }
 
+normalize_slot_deploy_env() {
+  local legacy_api="${KIDITEM_API_IMAGE:-}"
+  local legacy_web="${KIDITEM_WEB_IMAGE:-}"
+
+  if ! validate_color "${KIDITEM_ACTIVE_COLOR:-}"; then
+    KIDITEM_ACTIVE_COLOR="blue"
+  fi
+
+  if [[ -n "$legacy_api" ]]; then
+    KIDITEM_BLUE_API_IMAGE="${KIDITEM_BLUE_API_IMAGE:-$legacy_api}"
+    KIDITEM_GREEN_API_IMAGE="${KIDITEM_GREEN_API_IMAGE:-$legacy_api}"
+  fi
+  if [[ -n "$legacy_web" ]]; then
+    KIDITEM_BLUE_WEB_IMAGE="${KIDITEM_BLUE_WEB_IMAGE:-$legacy_web}"
+    KIDITEM_GREEN_WEB_IMAGE="${KIDITEM_GREEN_WEB_IMAGE:-$legacy_web}"
+  fi
+
+  export KIDITEM_ACTIVE_COLOR
+  export KIDITEM_BLUE_API_IMAGE KIDITEM_BLUE_WEB_IMAGE
+  export KIDITEM_GREEN_API_IMAGE KIDITEM_GREEN_WEB_IMAGE
+}
+
 validate_agent_os_runtime_env() {
   load_api_env
 
@@ -113,6 +135,7 @@ compose() (
   # shellcheck disable=SC1090
   source "$DEPLOY_ENV_FILE"
   set +a
+  normalize_slot_deploy_env
   docker compose --env-file "$WEB_ENV_FILE" -f "$COMPOSE_FILE" "$@"
 )
 
@@ -149,6 +172,7 @@ current_color() {
 
   if [[ -f "$DEPLOY_ENV_FILE" ]]; then
     load_deploy_env_if_exists
+    normalize_slot_deploy_env
     color="${KIDITEM_ACTIVE_COLOR:-}"
     if validate_color "$color"; then
       printf '%s\n' "$color"
@@ -185,12 +209,15 @@ slot_services() {
 write_slot_deploy_env() {
   local target_color="$1"
   local active_color="$2"
+  local candidate_api="$KIDITEM_API_IMAGE"
+  local candidate_web="$KIDITEM_WEB_IMAGE"
   require_color "$target_color"
   require_color "$active_color"
-  require_env KIDITEM_API_IMAGE
-  require_env KIDITEM_WEB_IMAGE
+  [[ -n "$candidate_api" ]] || fail "missing required environment variable: KIDITEM_API_IMAGE"
+  [[ -n "$candidate_web" ]] || fail "missing required environment variable: KIDITEM_WEB_IMAGE"
 
   load_deploy_env_if_exists
+  normalize_slot_deploy_env
 
   local blue_api="${KIDITEM_BLUE_API_IMAGE:-}"
   local blue_web="${KIDITEM_BLUE_WEB_IMAGE:-}"
@@ -198,17 +225,17 @@ write_slot_deploy_env() {
   local green_web="${KIDITEM_GREEN_WEB_IMAGE:-}"
 
   if [[ "$target_color" == "blue" ]]; then
-    blue_api="$KIDITEM_API_IMAGE"
-    blue_web="$KIDITEM_WEB_IMAGE"
+    blue_api="$candidate_api"
+    blue_web="$candidate_web"
   else
-    green_api="$KIDITEM_API_IMAGE"
-    green_web="$KIDITEM_WEB_IMAGE"
+    green_api="$candidate_api"
+    green_web="$candidate_web"
   fi
 
-  blue_api="${blue_api:-$KIDITEM_API_IMAGE}"
-  blue_web="${blue_web:-$KIDITEM_WEB_IMAGE}"
-  green_api="${green_api:-$KIDITEM_API_IMAGE}"
-  green_web="${green_web:-$KIDITEM_WEB_IMAGE}"
+  blue_api="${blue_api:-$candidate_api}"
+  blue_web="${blue_web:-$candidate_web}"
+  green_api="${green_api:-$candidate_api}"
+  green_web="${green_web:-$candidate_web}"
 
   local tmp
   tmp="$(mktemp "${DEPLOY_ENV_FILE}.tmp.XXXXXX")"
@@ -632,6 +659,7 @@ status() {
 
   if [[ -f "$DEPLOY_ENV_FILE" ]]; then
     load_deploy_env_if_exists
+    normalize_slot_deploy_env
     echo "Slot images:"
     printf '  blue api:  %s\n' "${KIDITEM_BLUE_API_IMAGE:-unset}"
     printf '  blue web:  %s\n' "${KIDITEM_BLUE_WEB_IMAGE:-unset}"

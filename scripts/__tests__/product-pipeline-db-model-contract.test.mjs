@@ -137,6 +137,22 @@ describe('product pipeline DB model contract', () => {
     assert.match(remoteDeploy, /Set ALLOW_STAGING_DOWNTIME_FOR_SPACE=1/);
   });
 
+  it('preserves candidate image refs when normalizing legacy staging deploy env files', () => {
+    const remoteDeploy = readModelFile('deploy/staging/remote-deploy.sh');
+    const candidateCapture = remoteDeploy.indexOf('local candidate_api="$KIDITEM_API_IMAGE"');
+    const deployEnvLoad = remoteDeploy.indexOf('load_deploy_env_if_exists', candidateCapture);
+    const targetAssignment = remoteDeploy.indexOf('green_api="$candidate_api"', deployEnvLoad);
+
+    assert.ok(candidateCapture !== -1, 'expected deploy script to capture candidate API image before loading deploy env');
+    assert.ok(deployEnvLoad !== -1, 'expected deploy script to load existing deploy env after candidate capture');
+    assert.ok(targetAssignment !== -1, 'expected target slot to use the captured candidate image');
+    assert.ok(candidateCapture < deployEnvLoad, 'legacy deploy env must not overwrite candidate image input');
+    assert.ok(deployEnvLoad < targetAssignment, 'target slot assignment must happen after legacy env normalization');
+    assert.match(remoteDeploy, /normalize_slot_deploy_env\(\)/);
+    assert.match(remoteDeploy, /KIDITEM_BLUE_API_IMAGE="\$\{KIDITEM_BLUE_API_IMAGE:-\$legacy_api\}"/);
+    assert.match(remoteDeploy, /KIDITEM_GREEN_WEB_IMAGE="\$\{KIDITEM_GREEN_WEB_IMAGE:-\$legacy_web\}"/);
+  });
+
   it('uses ContentWorkspace as the active content/version workspace schema name', () => {
     const aiSchema = readModelFile('prisma/models/ai.prisma');
     const model = extractModel(aiSchema, 'ContentWorkspace');
