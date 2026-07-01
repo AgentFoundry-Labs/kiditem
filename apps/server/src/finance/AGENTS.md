@@ -7,23 +7,6 @@ costs, supplier payments, sales plans, and settlement reconciliation.
 `Settlement` still lives in the Orders Prisma namespace and `SupplierPayment`
 in Supply, but the backend capability owner is finance.
 
-## Folder Map
-
-```text
-finance/
-├── controllers/              # profit-loss, sales-analysis
-├── services/                 # profit-loss, sales-analysis
-├── dto/
-├── manual-ledger/
-├── processing-costs/
-├── supplier-payments/
-├── sales-plans/
-├── settlements/
-├── adapter/out/automation/   # operation-alert adapter
-├── application/port/out/     # finance-local operation-alert port
-└── finance.module.ts
-```
-
 ## Owned Surfaces
 
 - Company P&L: `GET /api/profit-loss`

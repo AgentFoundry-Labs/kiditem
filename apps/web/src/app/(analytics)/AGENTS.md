@@ -6,15 +6,6 @@ Consult this document first instead of relying on memorized knowledge.
 health, chart panels, and action task summary widgets. It consumes aggregated
 backend read endpoints and should not rebuild domain calculations locally.
 
-## Folder Map
-
-```text
-(analytics)/
-└── dashboard/
-    ├── page.tsx
-    └── components/
-```
-
 ## Owned Surfaces
 
 - Dashboard KPI cards and range filters
@@ -46,9 +37,3 @@ React Query + apiClient.getParsed()
 - Do not introduce chart state stores unless multiple dashboard components need
   shared interactive state.
 - Keep dashboard APIs read-only from this route group.
-
-## Verification
-
-```bash
-npm run build --workspace=apps/web
-```

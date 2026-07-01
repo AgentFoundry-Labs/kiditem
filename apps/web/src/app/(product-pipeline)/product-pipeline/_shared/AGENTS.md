@@ -6,15 +6,6 @@ Consult this document first instead of relying on memorized knowledge.
 routes: workspace screens, detail editor pieces, thumbnail/detail generation
 hooks, route builders, preview helpers, and content workspace API wrappers.
 
-## Folder Map
-
-```text
-_shared/
-├── components/
-├── hooks/
-└── lib/
-```
-
 ## State Rules
 
 - Keep helpers here only while they are product-pipeline-shared. Move to
@@ -35,5 +26,4 @@ _shared/
 
 ```bash
 npm exec --workspace=apps/web vitest -- run src/app/\(product-pipeline\)/product-pipeline/_shared
-npm run build --workspace=apps/web
 ```

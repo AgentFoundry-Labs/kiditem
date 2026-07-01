@@ -6,16 +6,6 @@ Consult this document first instead of relying on memorized knowledge.
 models. It may read across owner-domain tables for reporting, but it does not
 import owner-domain services or take mutation authority from them.
 
-## Folder Map
-
-```text
-analytics/
-├── dashboard/         # hexagonal dashboard read model; see dashboard/AGENTS.md
-├── statistics/        # transitional flat read service
-├── traffic/           # transitional read service plus upload mutation lane
-└── supplier-stats/    # transitional flat read service
-```
-
 ## Owned Surfaces
 
 - Dashboard APIs: `/api/dashboard/sales`, `/api/dashboard/ad`,

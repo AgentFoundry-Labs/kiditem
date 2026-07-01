@@ -6,15 +6,6 @@ Consult this document first instead of relying on memorized knowledge.
 the order-collector extension or uploads, convert rows through backend APIs, and
 manage local generated-file history.
 
-## Folder Map
-
-```text
-order-collection/
-├── page.tsx
-├── components/
-└── lib/
-```
-
 ## State Rules
 
 - Extension collection goes through `lib/order-collection-extension.ts` and
@@ -37,5 +28,4 @@ order-collection/
 
 ```bash
 npm exec --workspace=apps/web vitest -- run src/app/\(orders\)/order-collection
-npm run build --workspace=apps/web
 ```

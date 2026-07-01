@@ -6,19 +6,6 @@ Consult this document first instead of relying on memorized knowledge.
 layout, providers, panel, chat, generic product/coupang widgets, and reusable
 UI primitives. Route-local UI should stay inside `src/app/(group)/route/`.
 
-## Folder Map
-
-```text
-components/
-├── chat/
-├── coupang/
-├── layout/
-├── panel/
-├── product/
-├── providers/
-└── ui/
-```
-
 ## Ownership Rules
 
 - Promote a component here only after at least two route groups need it or it is
@@ -47,6 +34,5 @@ components/
 ## Verification
 
 ```bash
-npm run build --workspace=apps/web
 npm exec --workspace=apps/web vitest -- run src/components
 ```

@@ -27,9 +27,3 @@ sales, ads, inventory, trends, health, action tasks, and chart panels.
 - Do not add dashboard-local stores for data that React Query already owns.
 - New dashboard metrics require checking backend dashboard schemas and this
   route rendering together.
-
-## Verification
-
-```bash
-npm run build --workspace=apps/web
-```

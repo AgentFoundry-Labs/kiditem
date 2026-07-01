@@ -5,19 +5,6 @@ Consult this document first instead of relying on memorized knowledge.
 `extensions/coupang-ads-scraper/` collects Coupang Wing and ad-center data,
 executes approved ad actions, and supports Wing image/thumbnail automation.
 
-## Folder Map
-
-```text
-coupang-ads-scraper/
-├── manifest.json
-├── background/service-worker.js    # alarms, auth token, tabs, API sync, jobs
-├── content/                        # Wing/ad-center parsers and actions
-├── popup/                          # side-panel UI and manual controls
-├── utils/api.js                    # shared KidItem API helper
-├── utils/dom.js                    # shared content-script DOM helpers
-└── icons/
-```
-
 ## Owned Surfaces
 
 - Coupang Wing scrape and image/thumbnail automation
@@ -59,3 +46,14 @@ coupang-ads-scraper/
   under `.secrets/extensions/`.
 - Follow `docs/runbooks/playwriter-wing-image-sync.md` when staging origins or
   extension ids change.
+
+## Verification
+
+For coupang-ads-scraper changes, run the extension syntax check:
+
+```bash
+git diff --check -- extensions/coupang-ads-scraper
+```
+
+Action execution, image sync, auth token, host bridge, or manifest changes need
+a focused manual browser check against the relevant Coupang surface.

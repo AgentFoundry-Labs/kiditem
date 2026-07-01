@@ -6,16 +6,6 @@ Consult this document first instead of relying on memorized knowledge.
 auth session handling, query error behavior, and query devtools loading. Changes
 here affect every route.
 
-## Folder Map
-
-```text
-providers/
-├── AuthProvider.tsx
-├── QueryProvider.tsx
-├── query-client.ts
-└── query-devtools.ts
-```
-
 ## Owned Behavior
 
 - QueryClient construction and default query options
@@ -46,5 +36,4 @@ providers/
 
 ```bash
 npm exec --workspace=apps/web vitest -- run src/components/providers
-npm run build --workspace=apps/web
 ```

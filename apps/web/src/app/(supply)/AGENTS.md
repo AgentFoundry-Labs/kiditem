@@ -6,14 +6,6 @@ Consult this document first instead of relying on memorized knowledge.
 the frontend surface for procurement workflows and does not own inventory stock
 state, finance settlement state, or catalog product editing.
 
-## Folder Map
-
-```text
-(supply)/
-├── purchase-orders/
-└── suppliers/
-```
-
 ## Owned Surfaces
 
 - Supplier list/create/delete operations
@@ -43,9 +35,3 @@ React Query + apiClient
 - Do not update supplier payments or settlements here; finance owns those
   workflows.
 - Do not send `organizationId`; backend session scope owns tenancy.
-
-## Verification
-
-```bash
-npm run build --workspace=apps/web
-```

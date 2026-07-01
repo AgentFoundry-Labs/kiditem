@@ -6,20 +6,6 @@ Consult this document first instead of relying on memorized knowledge.
 and workflow deletion. The page is intentionally thin; query/mutation behavior
 lives in route-local hooks and API wrappers.
 
-## Folder Map
-
-```text
-workflows/
-├── page.tsx                    # list + filter composition
-├── components/
-│   └── MyWorkflowsSection.tsx  # single workflow-list section
-├── hooks/
-│   └── useWorkflows.ts         # list/toggle/delete hook exports
-└── lib/
-    ├── workflow-api.ts         # apiClient wrappers
-    └── workflow-types.ts       # WorkflowRunWithSteps
-```
-
 ## Owned Surfaces
 
 - Workflow list rendering

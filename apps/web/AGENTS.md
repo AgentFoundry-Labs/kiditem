@@ -6,20 +6,7 @@ Consult this document first instead of relying on memorized knowledge.
 React Query data access, and browser-only integrations. It does not own backend
 API routes or database access.
 
-## Folder Map
-
-```text
-apps/web/
-├── src/
-│   ├── app/                 # route groups and pages
-│   ├── components/          # shared components used by 2+ domains
-│   ├── hooks/               # shared hooks used by 2+ domains
-│   ├── lib/                 # apiClient, query keys, utils
-│   └── styles/
-└── next.config.*            # rewrites, build config
-```
-
-Route shape:
+## Route Shape
 
 ```text
 app/(group-name)/{domain}/
@@ -33,85 +20,21 @@ Route-group private shared code can live in `app/(group)/_shared/`. Global
 `src/components`, `src/hooks`, and `src/lib` are only for code used by 2+
 domains.
 
-## Route Groups
+## Scoped Guide Discovery
 
-Route groups do not affect URLs.
+Do not rely on this file as a route index or on remembered route rules. Before
+editing a web file, use `rg --files -g AGENTS.md apps/web/src` and read every
+applicable guide in path order: `apps/web/AGENTS.md`, then any `AGENTS.md`
+under `src/app`, route group, route, or shared component/helper directory that
+contains the target file. Route groups do not affect URLs.
 
-| Group | Routes |
-|---|---|
-| `(advertising)` | `ad-ops` |
-| `(analytics)` | `dashboard` |
-| `(automation)` | `action-board`, `agents`, `marketplace`, `workflows` |
-| `(catalog)` | `product-hub`, `product-hub/[id]`, `product-hub/matching`, `product-hub/options` |
-| `(sourcing-ai)` | `sourcing-ai`, `sourcing-ai/category-sourcing`, `sourcing-ai/competitor-analysis`, `sourcing-ai/final-selection`, `sourcing-ai/keywords`, `sourcing-ai/market`, `sourcing-ai/recommendations`, `sourcing-ai/settings`, `sourcing-ai/validation`, `sourcing-ai/wholesale-search`, `sourcing-ai/wing-catalog` |
-| `(product-pipeline)` | `product-pipeline/collected-products`, `product-pipeline/collected-products/[id]`, `product-pipeline/collected-products/[id]/editor`, `product-pipeline/collected-products/[id]/templates`, `product-pipeline/detail-pages/[generationId]/editor`, `product-pipeline/detail-template-generation`, `product-pipeline/productgenerate`, `product-pipeline/registered-products`, `product-pipeline/registered-products/[workspaceId]`, `product-pipeline/thumbnail-ai`, `product-pipeline/thumbnail-generation`, `product-pipeline/thumbnail-generation/edit` |
-| `(supply)` | `suppliers`, `purchase-orders` |
-| `(inventory)` | `coupang-shipments`, `inventory`, `inventory-hub`, `outbound`, `stock-ops`, `unshipped-items`, `warehouses` |
-| `(orders)` | `cs-management`, `order-collection`, `order-hub`, `order-status-hub`, `orders`, `return-scan`, `returns`, `reviews`, `rocket-orders` |
-| `(finance)` | `finance-hub`, `profit-loss`, `reports`, `sales-analysis`, `supplier-hub` |
-
-## Scoped Guides
-
-Read the most-specific guide before editing. For route work, read
-`src/app/AGENTS.md`, then the route-group guide, then any route guide.
-
-### Route Group Guides
-
-| Path | Focus |
-|---|---|
-| [`src/app/AGENTS.md`](src/app/AGENTS.md) | App Router ownership and route shape |
-| [`src/app/(advertising)/AGENTS.md`](<src/app/(advertising)/AGENTS.md>) | ad operations route group |
-| [`src/app/(analytics)/AGENTS.md`](<src/app/(analytics)/AGENTS.md>) | dashboard read models |
-| [`src/app/(automation)/AGENTS.md`](<src/app/(automation)/AGENTS.md>) | workflows, agents, marketplace, action board |
-| [`src/app/(catalog)/AGENTS.md`](<src/app/(catalog)/AGENTS.md>) | catalog products and channel matching |
-| [`src/app/(finance)/AGENTS.md`](<src/app/(finance)/AGENTS.md>) | P&L, settlements, costs, payments |
-| [`src/app/(inventory)/AGENTS.md`](<src/app/(inventory)/AGENTS.md>) | stock, warehouses, fulfillment |
-| [`src/app/(orders)/AGENTS.md`](<src/app/(orders)/AGENTS.md>) | orders, returns, CS, Rocket PO |
-| [`src/app/(product-pipeline)/AGENTS.md`](<src/app/(product-pipeline)/AGENTS.md>) | sourcing content pipeline |
-| [`src/app/(sourcing-ai)/AGENTS.md`](<src/app/(sourcing-ai)/AGENTS.md>) | sourcing discovery workspace |
-| [`src/app/(supply)/AGENTS.md`](<src/app/(supply)/AGENTS.md>) | suppliers and purchase orders |
-
-### Focused Route And Area Guides
-
-| Path | Focus |
-|---|---|
-| [`src/app/(advertising)/ad-ops/AGENTS.md`](<src/app/(advertising)/ad-ops/AGENTS.md>) | Coupang ads operations |
-| [`src/app/(analytics)/dashboard/AGENTS.md`](<src/app/(analytics)/dashboard/AGENTS.md>) | dashboard route details |
-| [`src/app/(automation)/action-board/AGENTS.md`](<src/app/(automation)/action-board/AGENTS.md>) | action task operations |
-| [`src/app/(automation)/agents/AGENTS.md`](<src/app/(automation)/agents/AGENTS.md>) | Agent OS runtime views |
-| [`src/app/(automation)/workflows/AGENTS.md`](<src/app/(automation)/workflows/AGENTS.md>) | workflow page/query behavior |
-| [`src/app/(catalog)/product-hub/AGENTS.md`](<src/app/(catalog)/product-hub/AGENTS.md>) | product hub list/detail/options |
-| [`src/app/(catalog)/product-hub/matching/AGENTS.md`](<src/app/(catalog)/product-hub/matching/AGENTS.md>) | product matching |
-| [`src/app/(inventory)/coupang-shipments/AGENTS.md`](<src/app/(inventory)/coupang-shipments/AGENTS.md>) | shipment files and extension support |
-| [`src/app/(inventory)/stock-ops/AGENTS.md`](<src/app/(inventory)/stock-ops/AGENTS.md>) | stock operation projections |
-| [`src/app/(orders)/order-collection/AGENTS.md`](<src/app/(orders)/order-collection/AGENTS.md>) | marketplace order collection |
-| [`src/app/(orders)/order-status-hub/AGENTS.md`](<src/app/(orders)/order-status-hub/AGENTS.md>) | order status read models |
-| [`src/app/(orders)/return-scan/AGENTS.md`](<src/app/(orders)/return-scan/AGENTS.md>) | local-only scan flow |
-| [`src/app/(orders)/rocket-orders/AGENTS.md`](<src/app/(orders)/rocket-orders/AGENTS.md>) | Rocket PO confirmation |
-| [`src/app/(product-pipeline)/product-pipeline/_shared/AGENTS.md`](<src/app/(product-pipeline)/product-pipeline/_shared/AGENTS.md>) | product-pipeline shared code |
-| [`src/app/(product-pipeline)/product-pipeline/_shared/components/detail-editor/AGENTS.md`](<src/app/(product-pipeline)/product-pipeline/_shared/components/detail-editor/AGENTS.md>) | detail-page editing surface |
-| [`src/app/(product-pipeline)/product-pipeline/collected-products/AGENTS.md`](<src/app/(product-pipeline)/product-pipeline/collected-products/AGENTS.md>) | collected product workspace |
-| [`src/app/(product-pipeline)/product-pipeline/detail-template-generation/AGENTS.md`](<src/app/(product-pipeline)/product-pipeline/detail-template-generation/AGENTS.md>) | template detail generation |
-| [`src/app/(product-pipeline)/product-pipeline/productgenerate/AGENTS.md`](<src/app/(product-pipeline)/product-pipeline/productgenerate/AGENTS.md>) | product generation workflow |
-| [`src/app/(product-pipeline)/product-pipeline/registered-products/AGENTS.md`](<src/app/(product-pipeline)/product-pipeline/registered-products/AGENTS.md>) | confirmed channel listings |
-| [`src/app/(product-pipeline)/product-pipeline/thumbnail-generation/AGENTS.md`](<src/app/(product-pipeline)/product-pipeline/thumbnail-generation/AGENTS.md>) | thumbnail generation workflow |
-| [`src/app/(product-pipeline)/product-pipeline/thumbnail-ai/AGENTS.md`](<src/app/(product-pipeline)/product-pipeline/thumbnail-ai/AGENTS.md>) | thumbnail polling/batch UI |
-| [`src/app/(sourcing-ai)/sourcing-ai/AGENTS.md`](<src/app/(sourcing-ai)/sourcing-ai/AGENTS.md>) | sourcing research routes |
-| [`src/app/(sourcing-ai)/sourcing-ai/keywords/AGENTS.md`](<src/app/(sourcing-ai)/sourcing-ai/keywords/AGENTS.md>) | keyword collection and analysis |
-| [`src/app/(sourcing-ai)/sourcing-ai/recommendations/AGENTS.md`](<src/app/(sourcing-ai)/sourcing-ai/recommendations/AGENTS.md>) | today recommendations |
-| [`src/app/(sourcing-ai)/sourcing-ai/wing-catalog/AGENTS.md`](<src/app/(sourcing-ai)/sourcing-ai/wing-catalog/AGENTS.md>) | Wing catalog collection |
-
-### Shared Frontend Guides
-
-| Path | Focus |
-|---|---|
-| [`src/components/AGENTS.md`](src/components/AGENTS.md) | shared component ownership |
-| [`src/components/panel/AGENTS.md`](src/components/panel/AGENTS.md) | live panel and SSE exception |
-| [`src/components/providers/AGENTS.md`](src/components/providers/AGENTS.md) | React Query and auth providers |
-| [`src/components/ui/AGENTS.md`](src/components/ui/AGENTS.md) | domain-neutral UI primitives |
-| [`src/hooks/AGENTS.md`](src/hooks/AGENTS.md) | shared hooks |
-| [`src/lib/AGENTS.md`](src/lib/AGENTS.md) | shared API client, query keys, auth, extensions |
-| [`src/store/AGENTS.md`](src/store/AGENTS.md) | global client-only UI state |
+When a change expands into another route group, shared frontend folder, or
+nested route, rerun discovery and read the newly applicable guide before
+editing there. Shared frontend guidance lives beside the owned surface:
+`src/components/AGENTS.md`, `src/hooks/AGENTS.md`, `src/lib/AGENTS.md`,
+`src/store/AGENTS.md`, and any nested `AGENTS.md` under those folders.
+Web `Folder Map` sections are intentionally sparse; use `rg --files` for route
+contents and keep local maps only when they encode ownership or exceptions.
 
 ## Shared Frontend Boundaries
 
@@ -189,6 +112,11 @@ Read the most-specific guide before editing. For route work, read
   route groups.
 
 ## Verification
+
+Route guides may omit local `Verification` when this app-level gate is enough.
+Add a local section only for route-specific tests, browser checks, or
+cross-layer contracts that would otherwise be easy to miss. When a local
+section lists narrow tests, run them before this app-level gate.
 
 ```bash
 npm run build --workspace=apps/web

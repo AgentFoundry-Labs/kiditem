@@ -64,7 +64,14 @@ reconstruction. `/api/categories` remains a products compatibility route.
 
 ## Scoped Guides
 
-Read the nearest guide before editing:
+Do not rely on this table or remembered backend rules as a complete index.
+Before editing a backend file, use `rg --files -g AGENTS.md apps/server/src`
+and read every applicable guide in path order: `apps/server/AGENTS.md`, then
+the nearest owner-domain or nested surface guide that contains the target file.
+If the work expands into another owner domain or nested surface, rerun
+discovery and read the newly applicable guide before editing there.
+
+Common owner-domain guides:
 
 | Path | Focus |
 |---|---|
@@ -183,7 +190,14 @@ and weaken the Adapter Seam.
 
 ## Verification
 
-For backend changes, run the narrow domain test first when available, then:
+Scoped server guides inherit this section unless they document a different
+gate. For backend domain changes, run the narrow suite first when it exists:
+
+```bash
+npm exec --workspace=apps/server vitest -- run src/<domain-or-path>
+```
+
+Then run the backend gates:
 
 ```bash
 npm run build --workspace=apps/server

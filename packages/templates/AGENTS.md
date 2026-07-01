@@ -6,18 +6,6 @@ Consult this document first instead of relying on memorized knowledge.
 product detail pages. It is consumed by AI/detail-page rendering and editor
 surfaces.
 
-## Folder Map
-
-```text
-packages/templates/
-├── src/
-│   ├── templates/{id}/     # template component and local assets/styles
-│   ├── schemas/            # template data schemas
-│   └── index.ts            # getTemplate, parseDetailPageData, exports
-├── package.json
-└── tsup.config.ts
-```
-
 ## Owned Surfaces
 
 - `@kiditem/templates`

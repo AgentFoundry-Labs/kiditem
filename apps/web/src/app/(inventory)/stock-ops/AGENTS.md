@@ -24,5 +24,4 @@ combine inventory, order, and purchase-order read models for operator decisions.
 
 ```bash
 npm exec --workspace=apps/web vitest -- run src/app/\(inventory\)/stock-ops
-npm run build --workspace=apps/web
 ```

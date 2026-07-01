@@ -22,9 +22,3 @@ validation, Wing catalog, 1688 search, and final selection helpers.
 - Do not add silent model fallbacks.
 - Extension-backed collection must use the focused extension bridge helper and
   stay aligned with the relevant extension guide.
-
-## Verification
-
-```bash
-npm run build --workspace=apps/web
-```

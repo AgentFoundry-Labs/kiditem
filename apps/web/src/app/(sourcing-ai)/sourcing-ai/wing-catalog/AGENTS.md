@@ -22,5 +22,4 @@ wrappers, and keyword insight projections for sourcing research.
 
 ```bash
 npm exec --workspace=apps/web vitest -- run src/app/\(sourcing-ai\)/sourcing-ai/wing-catalog
-npm run build --workspace=apps/web
 ```

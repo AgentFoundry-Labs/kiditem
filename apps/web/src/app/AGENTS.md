@@ -6,17 +6,6 @@ Consult this document first instead of relying on memorized knowledge.
 route-local components/hooks/lib folders. It does not own global UI primitives,
 global data clients, backend API route handlers, or database access.
 
-## Folder Map
-
-```text
-app/
-├── (route-groups)/          # business-domain UI routes
-├── auth/                    # auth callback route shell
-├── login/                   # login page and local hooks
-├── settings/                # operational settings and health checks
-└── agent-os/                # fullscreen Agent OS visualization surface
-```
-
 Route groups do not affect URLs. Treat the group folder as a documentation and
 ownership boundary, not as a public path segment.
 
@@ -55,9 +44,3 @@ route groups need it.
   route group actually imports them.
 - When adding a route group or moving a route, update `apps/web/AGENTS.md` and
   `docs/ARCHITECTURE.md`.
-
-## Verification
-
-```bash
-npm run build --workspace=apps/web
-```

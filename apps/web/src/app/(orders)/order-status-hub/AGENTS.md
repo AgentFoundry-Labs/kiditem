@@ -5,15 +5,6 @@ Consult this document first instead of relying on memorized knowledge.
 `order-status-hub/` owns read-model screens for delivery search, sync checks,
 order comparison, order inventory risk, and order status projections.
 
-## Folder Map
-
-```text
-order-status-hub/
-├── page.tsx
-├── components/
-└── lib/
-```
-
 ## State Rules
 
 - Use route-local `lib/orders-api.ts` for shared order-status API wrappers.
@@ -33,5 +24,4 @@ order-status-hub/
 
 ```bash
 npm exec --workspace=apps/web vitest -- run src/app/\(orders\)/order-status-hub
-npm run build --workspace=apps/web
 ```

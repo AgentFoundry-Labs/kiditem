@@ -6,18 +6,6 @@ Consult this document first instead of relying on memorized knowledge.
 and agent marketplace screens, and the action board. It presents backend-owned
 automation state; deterministic workflow execution remains in the backend.
 
-## Folder Map
-
-```text
-(automation)/
-├── _shared/
-│   └── marketplace/
-├── action-board/
-├── agents/
-├── marketplace/
-└── workflows/
-```
-
 ## Owned Surfaces
 
 - Workflow list, activation, deletion, and run navigation
@@ -52,9 +40,3 @@ React Query + route-local hooks
 - Do not inline workflow API calls in `page.tsx`; use route-local hooks/lib.
 - Do not add polling or streaming to workflow pages without documenting the
   query key and backend event source.
-
-## Verification
-
-```bash
-npm run build --workspace=apps/web
-```

@@ -29,7 +29,18 @@ kiditem/
 `AGENTS.md` wins, then parent files. `CLAUDE.md` is only a compatibility shim
 and should normally contain `@AGENTS.md`.
 
-Read the nearest scoped guide before editing:
+Before editing, do not rely on memorized rules or this table alone. Use
+`rg --files -g AGENTS.md` to discover scoped guides for the target path, then
+read every applicable `AGENTS.md` from the repo root down to the nearest one
+under the target directory. If the work moves to another directory or creates a
+new nested surface, rerun discovery and read the newly applicable guide before
+editing there.
+
+Keep `Folder Map` sections only when the structure itself is a contract,
+exception, or ownership boundary. Do not add maps that only repeat discoverable
+file lists; use `rg --files` for exploration instead.
+
+Common entrypoints:
 
 | Work area | Guide |
 |---|---|
@@ -116,6 +127,10 @@ business rewrites.
 ## Verification
 
 Do not claim completion without evidence.
+
+Scoped `AGENTS.md` files include local `Verification` only when they add a
+different or narrower gate; otherwise inherit the nearest parent verification
+section.
 
 | Change type | Required gate |
 |---|---|

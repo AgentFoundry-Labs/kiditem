@@ -6,22 +6,6 @@ Consult this document first instead of relying on memorized knowledge.
 detail, product options, and catalog-local product actions. It backs
 `/product-hub`, `/product-hub/[id]`, and `/product-hub/options`.
 
-## Folder Map
-
-```text
-product-hub/
-├── page.tsx
-├── [id]/
-│   ├── page.tsx
-│   ├── components/
-│   └── hooks/
-├── components/
-├── hooks/
-├── lib/
-├── matching/
-└── options/
-```
-
 ## Data Flow
 
 ```text
@@ -53,5 +37,4 @@ React Query + apiClient
 
 ```bash
 npm exec --workspace=apps/web vitest -- run src/app/\(catalog\)/product-hub
-npm run build --workspace=apps/web
 ```

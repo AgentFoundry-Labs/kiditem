@@ -26,5 +26,4 @@ handoff screens.
 
 ```bash
 npm exec --workspace=apps/web vitest -- run src/app/\(product-pipeline\)/product-pipeline/registered-products
-npm run build --workspace=apps/web
 ```

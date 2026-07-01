@@ -7,17 +7,6 @@ performance, scrape targets, rules, planning, and benchmark/recommendation
 surfaces. It consumes backend advertising APIs and does not own catalog,
 finance, or dashboard aggregation logic.
 
-## Folder Map
-
-```text
-(advertising)/
-└── ad-ops/
-    ├── page.tsx
-    ├── components/
-    ├── hooks/
-    └── lib/
-```
-
 ## Owned Surfaces
 
 - Ad operations dashboard and tab composition
@@ -52,9 +41,3 @@ React Query + apiClient
   `extensions/*/AGENTS.md`.
 - Keep ad threshold display aligned with `/api/ads/config`; do not duplicate
   backend threshold policy in component state.
-
-## Verification
-
-```bash
-npm run build --workspace=apps/web
-```

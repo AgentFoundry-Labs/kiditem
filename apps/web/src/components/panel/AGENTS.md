@@ -6,21 +6,6 @@ Consult this document first instead of relying on memorized knowledge.
 task promotion UI, panel store, SSE client, stream hook, and recovery helpers.
 It is the only frontend SSE exception documented for `apps/web`.
 
-## Folder Map
-
-```text
-panel/
-├── PanelSheet.tsx
-├── PanelAlertRow.tsx
-├── PanelItemRow.tsx
-├── PromoteToTaskModal.tsx
-├── hooks/
-└── lib/
-    ├── panel-sse-client.ts
-    ├── panel-store.ts
-    └── panel-recovery.ts
-```
-
 ## Data Flow
 
 ```text
@@ -53,5 +38,4 @@ fallback/recovery
 
 ```bash
 npm exec --workspace=apps/web vitest -- run src/components/panel
-npm run build --workspace=apps/web
 ```

@@ -22,5 +22,4 @@ research and today-recommendation row shaping.
 
 ```bash
 npm exec --workspace=apps/web vitest -- run src/app/\(sourcing-ai\)/sourcing-ai/recommendations
-npm run build --workspace=apps/web
 ```

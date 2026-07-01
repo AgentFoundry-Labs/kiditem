@@ -6,15 +6,6 @@ Consult this document first instead of relying on memorized knowledge.
 marketplace data and send it to KidItem NestJS APIs. Read the
 extension-specific guide before editing a concrete extension.
 
-## Folder Map
-
-```text
-extensions/
-├── product-scraper/          # Alibaba/1688 sourcing ingest
-├── coupang-ads-scraper/      # Coupang Wing and ad-center operations
-└── order-collector/          # Marketplace order collection helpers
-```
-
 ## Scoped Guides
 
 | Path | Focus |

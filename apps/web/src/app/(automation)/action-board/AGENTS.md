@@ -5,16 +5,6 @@ Consult this document first instead of relying on memorized knowledge.
 `action-board/` owns the action task work surface: scoped task lists, columns,
 claim/unclaim, notes, status updates, and execution triggers.
 
-## Folder Map
-
-```text
-action-board/
-├── page.tsx
-├── components/
-├── hooks/
-└── lib/
-```
-
 ## State Rules
 
 - Use `useActionBoardWorkflow()` for task reads and mutations.
@@ -30,9 +20,3 @@ action-board/
   backend task/alert APIs.
 - Do not add polling/streaming without documenting the query key and backend
   event source.
-
-## Verification
-
-```bash
-npm run build --workspace=apps/web
-```

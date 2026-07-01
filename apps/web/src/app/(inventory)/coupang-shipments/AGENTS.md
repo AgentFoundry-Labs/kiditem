@@ -30,5 +30,4 @@ integration, generated shipment files, and browser download/print helpers.
 
 ```bash
 npm exec --workspace=apps/web vitest -- run src/app/\(inventory\)/coupang-shipments
-npm run build --workspace=apps/web
 ```

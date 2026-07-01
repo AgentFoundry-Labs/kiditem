@@ -6,17 +6,6 @@ Consult this document first instead of relying on memorized knowledge.
 token-streaming SSE endpoints. It is self-contained and independent from Agent
 OS.
 
-## Folder Map
-
-```text
-chat/
-├── chat.module.ts
-├── chat.controller.ts        # POST /api/chat simple SSE endpoint
-├── chat.service.ts           # CopilotKit runtime init + Observable stream
-├── claude-cli-adapter.ts     # CopilotServiceAdapter implementation
-└── dto/chat.dto.ts
-```
-
 ## Owned Surfaces
 
 - `POST /api/chat`

@@ -6,21 +6,6 @@ Consult this document first instead of relying on memorized knowledge.
 pagination, sortable headers, tab layouts, date/period selectors, status badges,
 confirm dialogs, and skeletons. These components should be domain-neutral.
 
-## Folder Map
-
-```text
-ui/
-├── ConfirmDialog.tsx
-├── DateRangePicker.tsx
-├── EmptyState.tsx
-├── PageSkeleton.tsx
-├── Pagination.tsx
-├── PeriodSelector.tsx
-├── SortableHeader.tsx
-├── StatusBadge.tsx
-└── TabLayout.tsx
-```
-
 ## Design Rules
 
 - Keep copy generic; route-specific labels belong at the call site.
@@ -40,5 +25,4 @@ ui/
 
 ```bash
 npm exec --workspace=apps/web vitest -- run src/components/ui
-npm run build --workspace=apps/web
 ```

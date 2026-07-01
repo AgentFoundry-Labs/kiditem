@@ -8,23 +8,6 @@ recommendations, validation, final selection, Wing catalog support, and
 sourcing settings. It reads and writes sourcing workflow APIs, not catalog
 master data directly.
 
-## Folder Map
-
-```text
-(sourcing-ai)/
-└── sourcing-ai/
-    ├── category-sourcing/
-    ├── competitor-analysis/
-    ├── final-selection/
-    ├── keywords/
-    ├── market/
-    ├── recommendations/
-    ├── settings/
-    ├── validation/
-    ├── wholesale-search/
-    └── wing-catalog/
-```
-
 ## Owned Surfaces
 
 - Sourcing dashboard and keyword workflows
@@ -60,9 +43,3 @@ React Query + route-local lib helpers
   explicit error.
 - Extension-backed browser collection must stay aligned with the relevant
   extension AGENTS guide.
-
-## Verification
-
-```bash
-npm run build --workspace=apps/web
-```

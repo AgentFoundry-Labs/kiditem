@@ -7,21 +7,6 @@ warehouses, unshipped items, outbound views, inventory hub widgets, and
 Coupang shipment support. It consumes inventory/order read APIs and does not own
 order lifecycle decisions.
 
-## Folder Map
-
-```text
-(inventory)/
-├── _shared/
-│   └── inventory-api.ts
-├── coupang-shipments/
-├── inventory/
-├── inventory-hub/
-├── outbound/
-├── stock-ops/
-├── unshipped-items/
-└── warehouses/
-```
-
 ## Owned Surfaces
 
 - Inventory list, receive, issue, adjust, and asset reporting
@@ -58,9 +43,3 @@ React Query + inventory API helpers
   tested `lib/` helpers or backend read models.
 - Coupang shipment extension/file behavior stays inside `coupang-shipments/`
   unless another inventory route imports it.
-
-## Verification
-
-```bash
-npm run build --workspace=apps/web
-```

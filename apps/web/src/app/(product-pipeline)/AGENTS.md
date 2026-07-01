@@ -8,21 +8,6 @@ detail editing, thumbnail analysis, and thumbnail generation. It coordinates
 backend AI/content APIs but does not own the model prompts or durable generation
 state.
 
-## Folder Map
-
-```text
-(product-pipeline)/
-└── product-pipeline/
-    ├── _shared/
-    ├── collected-products/
-    ├── registered-products/
-    ├── detail-pages/
-    ├── detail-template-generation/
-    ├── productgenerate/
-    ├── thumbnail-ai/
-    └── thumbnail-generation/
-```
-
 ## Owned Surfaces
 
 - Collected product workspace and raw-data projections
@@ -67,6 +52,5 @@ React Query + apiClient
 ## Verification
 
 ```bash
-npm run build --workspace=apps/web
 npm exec --workspace=apps/web vitest -- run 'src/app/(product-pipeline)/product-pipeline'
 ```

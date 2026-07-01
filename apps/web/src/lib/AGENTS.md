@@ -7,19 +7,6 @@ query keys, API errors, auth refresh helpers, extension bridges, download
 helpers, formatting utilities, and operation helper APIs. Changes here affect
 multiple route groups.
 
-## Folder Map
-
-```text
-lib/
-├── api-client.ts
-├── api-error.ts
-├── api.ts
-├── query-keys.ts
-├── extension-bridge.ts
-├── supabase/
-└── *.ts
-```
-
 ## API Client Rules
 
 - `apiClient` is the only shared path for NestJS API calls.
@@ -57,5 +44,4 @@ lib/
 
 ```bash
 npm exec --workspace=apps/web vitest -- run src/lib
-npm run build --workspace=apps/web
 ```

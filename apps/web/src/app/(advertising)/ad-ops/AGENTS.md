@@ -27,9 +27,3 @@ drilldown, strategy/planning, scrape targets, exports, and ad sync triggers.
 - Do not add direct Chrome messaging here without documenting the matching
   extension capability and checking `extensions/coupang-ads-scraper/AGENTS.md`.
 - Do not mix finance settlement or catalog editing behavior into ad operations.
-
-## Verification
-
-```bash
-npm run build --workspace=apps/web
-```

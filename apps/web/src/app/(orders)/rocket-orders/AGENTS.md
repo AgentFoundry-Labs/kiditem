@@ -7,22 +7,6 @@ orders: reading PO summaries from the order-collector extension, previewing
 confirm quantities through backend inventory logic, generating Coupang Excel
 files, and keeping a local browser history of generated files.
 
-## Folder Map
-
-```text
-rocket-orders/
-├── page.tsx
-├── components/
-│   ├── RocketConfirmPanel.tsx
-│   ├── RocketConfirmFileList.tsx
-│   ├── RocketWeekCalendar.tsx
-│   ├── RocketMonthCalendar.tsx
-│   └── RocketOrdersChart.tsx
-└── lib/
-    ├── rocket-confirm-api.ts
-    └── rocket-confirm-file-store.ts
-```
-
 ## Owned Surfaces
 
 - PO list query by ETA range and Coupang Rocket status
@@ -66,6 +50,5 @@ order-collector extension
 ## Verification
 
 ```bash
-npm run build --workspace=apps/web
 npm exec --workspace=apps/web vitest -- run src/components/providers/__tests__/query-client.spec.ts
 ```

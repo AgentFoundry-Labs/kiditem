@@ -26,5 +26,4 @@ generation form/workflow hooks.
 
 ```bash
 npm exec --workspace=apps/web vitest -- run src/app/\(product-pipeline\)/product-pipeline/detail-template-generation
-npm run build --workspace=apps/web
 ```

@@ -28,5 +28,4 @@ helpers, editor data hooks, and direct detail generation helpers.
 
 ```bash
 npm exec --workspace=apps/web vitest -- run src/app/\(product-pipeline\)/product-pipeline/_shared/components/detail-editor
-npm run build --workspace=apps/web
 ```

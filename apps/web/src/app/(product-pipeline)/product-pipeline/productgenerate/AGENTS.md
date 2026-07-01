@@ -23,5 +23,4 @@ payload assembly for backend product generation.
 
 ```bash
 npm exec --workspace=apps/web vitest -- run src/app/\(product-pipeline\)/product-pipeline/productgenerate
-npm run build --workspace=apps/web
 ```

@@ -17,9 +17,3 @@ extension-backed Coupang keyword collection.
 - Do not call marketplace pages directly from UI code; use extension helpers.
 - Do not promote candidates or mutate catalog records here.
 - Missing model/config selection must be surfaced explicitly.
-
-## Verification
-
-```bash
-npm run build --workspace=apps/web
-```

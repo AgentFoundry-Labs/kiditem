@@ -9,19 +9,6 @@ scope; product hub implementation code lives under `product-hub/`. This group
 does not own sourcing candidate promotion, generated content workspaces, or
 marketplace ingest.
 
-## Folder Map
-
-```text
-(catalog)/
-├── product-hub/
-│   ├── [id]/
-│   ├── components/
-│   ├── hooks/
-│   ├── lib/
-│   ├── matching/
-│   └── options/
-```
-
 Verify list/detail UI through `/product-hub` and `/product-hub/[id]`.
 
 ## Owned Surfaces
@@ -57,9 +44,3 @@ React Query + apiClient
 - Workflow runs shown on product pages are context actions; workflow engine
   behavior remains backend/automation-owned.
 - Traffic uploads must stay aligned with backend upload contracts.
-
-## Verification
-
-```bash
-npm run build --workspace=apps/web
-```

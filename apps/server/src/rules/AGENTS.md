@@ -6,18 +6,6 @@ Consult this document first instead of relying on memorized knowledge.
 post-processing, activity events, critical alerts, and panel emits. Actual rule
 evaluation is asynchronous Agent OS work.
 
-## Folder Map
-
-```text
-rules/
-├── rules.module.ts
-├── rules.controller.ts
-├── rules.service.ts
-├── dto/
-├── adapter/out/automation/   # operation-alert adapter
-└── application/port/out/     # rules-local operation-alert port
-```
-
 ## Owned Surfaces
 
 - Rule evaluation enqueue: `POST /api/rules/evaluate`

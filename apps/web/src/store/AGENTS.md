@@ -6,13 +6,6 @@ Consult this document first instead of relying on memorized knowledge.
 store for app shell toggles, editor dirty state, and the global confirm dialog.
 It must not become a server-state cache.
 
-## Folder Map
-
-```text
-store/
-└── useStore.ts
-```
-
 ## Owned State
 
 - Sidebar open/closed state
@@ -34,9 +27,3 @@ store/
 - Do not add order, product, inventory, finance, or auth response data here.
 - Do not put generated files, extension rows, or API responses in Zustand.
 - Do not use the store to bypass provider-owned auth/query behavior.
-
-## Verification
-
-```bash
-npm run build --workspace=apps/web
-```

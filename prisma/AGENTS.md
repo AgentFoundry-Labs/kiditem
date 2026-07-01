@@ -124,11 +124,14 @@ constraint, expression index, standalone sequence, or SQL overlay systems.
 Tenant isolation is enforced by Nest guards plus application/repository
 `organizationId` predicates.
 
-## Generated Navigation
+## Verification
 
 After Prisma model or schema-consumer changes:
 
 ```bash
+npm run db:push
+npx prisma generate
+npm run build --workspace=packages/shared
 npm run db:erd
 npm run graphify:schema
 ```

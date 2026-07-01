@@ -7,18 +7,6 @@ supplier payments, manual ledger, processing costs, settlements, receivables,
 and reports. It presents backend-calculated money views and should not recreate
 accounting logic in the browser.
 
-## Folder Map
-
-```text
-(finance)/
-├── _shared/
-├── finance-hub/
-├── profit-loss/
-├── reports/
-├── sales-analysis/
-└── supplier-hub/
-```
-
 ## Owned Surfaces
 
 - Profit/loss period views
@@ -54,9 +42,3 @@ React Query + apiClient
   through explicit finance backend endpoints.
 - Reports may aggregate multiple APIs for display/export, but durable
   calculations remain server-side.
-
-## Verification
-
-```bash
-npm run build --workspace=apps/web
-```

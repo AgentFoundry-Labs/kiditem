@@ -25,9 +25,3 @@ requests, events, traces, runtime state, and cost analytics.
 - Do not add deterministic workflow behavior here; workflows remain under
   `workflows/` and backend automation services.
 - Do not bypass shared `apiClient` auth behavior.
-
-## Verification
-
-```bash
-npm run build --workspace=apps/web
-```

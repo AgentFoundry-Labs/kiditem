@@ -8,17 +8,6 @@ runtime is owned by the NestJS sourcing domain through TS Playwright. Image edit
 (`image_edit`) is not owned here; it runs in the NestJS AI domain through Agent
 OS runtime handlers.
 
-## Folder Map
-
-```text
-agents/
-├── src/
-│   ├── server.py          # FastAPI server and AGENTS registry
-│   └── agents/            # BaseAgent subclasses
-├── requirements.txt
-└── .env.example
-```
-
 ## Owned Surfaces
 
 - FastAPI server on port 8001
@@ -59,3 +48,16 @@ NestJS python_http runtime adapter
 - Use Langfuse `@observe` for LLM/agent observability.
 - Do not add image edit or generated media ownership here; Nest AI owns those
   runtime handlers.
+
+## Verification
+
+For Python agent changes, run the narrow Python test suite and start the dev
+server when runtime wiring changes:
+
+```bash
+cd agents && .venv/bin/python -m pytest
+npm run dev:agents
+```
+
+DB query, agent registration, or runtime input/output changes need a focused
+test for organization scope and response shape.

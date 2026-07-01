@@ -7,22 +7,6 @@ order collection, Rocket PO confirmation, returns, reviews, CS, picking, and
 return scanning. It uses NestJS order APIs and browser extension bridges where
 explicitly documented.
 
-## Folder Map
-
-```text
-(orders)/
-├── _shared/
-├── cs-management/
-├── order-collection/
-├── order-hub/
-├── order-status-hub/
-├── orders/
-├── return-scan/
-├── returns/
-├── reviews/
-└── rocket-orders/
-```
-
 ## Owned Surfaces
 
 - Order pipeline reads and order action mutations
@@ -58,9 +42,3 @@ React Query + apiClient
 - Do not persist return-scan logs from `return-scan/`; that route is local-only.
 - Extension-backed queries that render local error UI may suppress the global
   React Query error toast with query meta.
-
-## Verification
-
-```bash
-npm run build --workspace=apps/web
-```

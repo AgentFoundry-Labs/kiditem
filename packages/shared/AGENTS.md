@@ -6,20 +6,6 @@ Consult this document first instead of relying on memorized knowledge.
 shared error codes. It is a contract package, not a backend implementation
 package.
 
-## Folder Map
-
-```text
-packages/shared/
-├── src/
-│   ├── schemas/          # Zod schemas by domain
-│   ├── errors.ts         # shared error contracts
-│   ├── {domain}.ts       # focused public subpath entrypoints
-│   ├── index.ts          # compatibility root barrel
-│   └── schemas/index.ts  # compatibility schema barrel
-├── package.json          # subpath exports
-└── tsup.config.ts
-```
-
 ## Owned Surfaces
 
 - Public Zod schemas shared by server and web

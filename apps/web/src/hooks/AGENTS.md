@@ -6,15 +6,6 @@ Consult this document first instead of relying on memorized knowledge.
 belong under `src/app/(group)/route/hooks/` until more than one route group
 needs them.
 
-## Folder Map
-
-```text
-hooks/
-├── useAuth.ts
-├── usePeriodSelector.ts
-└── useProductImages.ts
-```
-
 ## Owned Behavior
 
 - `useAuth()` reads `/api/auth/me` through React Query.
@@ -40,5 +31,4 @@ hooks/
 
 ```bash
 npm exec --workspace=apps/web vitest -- run src/hooks
-npm run build --workspace=apps/web
 ```
