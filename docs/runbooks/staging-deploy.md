@@ -293,6 +293,12 @@ downtime, but it must not delete Docker volumes, the database, or uploaded
 assets. Set `allow_downtime_for_space=false` only for a deploy that must
 preserve the currently running stack at all costs.
 
+The same approval also lets the remote deploy recover when the candidate slot
+passes initial health checks but the small staging host cannot keep both slots
+and the API render-image Chromium readiness check stable at the same time. In
+that case, the script stops the current stack and retries the candidate once
+before switching traffic.
+
 Workflow actions are pinned to commit SHA with the tag version left as a YAML
 comment. When upgrading an action, resolve the new tag SHA with
 `git ls-remote https://github.com/<owner>/<repo>.git refs/tags/<tag>`.

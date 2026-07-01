@@ -47,7 +47,8 @@ a second image build.
 2. Pull the candidate API and web images.
 3. Write candidate slot image refs into `.env.<env>.deploy`.
 4. Start only the inactive `api-*`, `web-*`, and `worker-*` services.
-5. Wait for API/web health and worker running state.
+5. Wait for API/web health, worker running state, and API render-image browser
+   runtime readiness.
 6. Render `deployments/nginx.conf` from the environment-specific nginx
    template and reload compose nginx.
 7. Smoke `/login` and `/api/auth/me` through the local public route.
@@ -55,6 +56,12 @@ a second image build.
 
 The switch does not roll database migrations back. Production schema changes
 must be backward-compatible across the old and new app versions before deploy.
+
+If candidate health fails while the previous slot is still running, the deploy
+fails without switching traffic unless downtime was explicitly approved. With
+`allow_downtime_for_space=true`, the remote script may stop the current stack,
+prune/pull again, and retry the candidate once. This recovers small-host disk or
+memory pressure while staying inside the GitHub Actions release entrypoint.
 
 ## Rollback Boundary
 

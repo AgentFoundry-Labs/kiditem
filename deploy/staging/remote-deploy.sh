@@ -637,7 +637,30 @@ deploy() {
   if ! wait_for_candidate_health "$target_color"; then
     candidate_logs "$target_color"
     compose stop "${target_services[@]}" >/dev/null 2>&1 || true
-    fail "candidate slot $target_color failed health checks"
+    if [[ "$allow_downtime_for_space" != "1" ]]; then
+      fail "candidate slot $target_color failed health checks"
+    fi
+
+    echo "Candidate slot $target_color failed while previous slot $active_color was still running; retrying after stopping current stack because downtime is approved"
+    stop_staging_stack_for_space
+    reclaim_docker_space
+    pull_staging_images
+    active_color="blue"
+    target_color="green"
+    write_slot_deploy_env "$target_color" "$active_color"
+    validate_agent_os_runtime_env
+    compose config >/dev/null
+    render_nginx_for_color "$active_color"
+    seed_agent_os "$target_color"
+    read -r -a target_services <<<"$(slot_services "$target_color")"
+    compose up -d --force-recreate "${target_services[@]}"
+    compose ps
+
+    if ! wait_for_candidate_health "$target_color"; then
+      candidate_logs "$target_color"
+      compose stop "${target_services[@]}" >/dev/null 2>&1 || true
+      fail "candidate slot $target_color failed health checks after downtime recovery"
+    fi
   fi
 
   switch_traffic "$target_color" "$active_color"

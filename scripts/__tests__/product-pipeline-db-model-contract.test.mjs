@@ -155,6 +155,25 @@ describe('product pipeline DB model contract', () => {
     assert.match(remoteDeploy, /KIDITEM_GREEN_WEB_IMAGE="\$\{KIDITEM_GREEN_WEB_IMAGE:-\$legacy_web\}"/);
   });
 
+  it('retries candidate health after stopping the active staging stack when downtime is approved', () => {
+    const remoteDeploy = readModelFile('deploy/staging/remote-deploy.sh');
+    const retryMessage = remoteDeploy.indexOf(
+      'Candidate slot $target_color failed while previous slot $active_color was still running',
+    );
+    const stopStack = remoteDeploy.indexOf('stop_staging_stack_for_space', retryMessage);
+    const pullImages = remoteDeploy.indexOf('pull_staging_images', stopStack);
+    const retryHealth = remoteDeploy.indexOf('failed health checks after downtime recovery', pullImages);
+
+    assert.ok(retryMessage !== -1, 'expected candidate health recovery path to explain approved downtime retry');
+    assert.ok(stopStack !== -1, 'expected recovery to stop the active stack before retrying candidate health');
+    assert.ok(pullImages !== -1, 'expected recovery to repull images after pruning active image layers');
+    assert.ok(retryHealth !== -1, 'expected recovery retry to have a distinct final failure message');
+    assert.ok(retryMessage < stopStack);
+    assert.ok(stopStack < pullImages);
+    assert.ok(pullImages < retryHealth);
+    assert.match(remoteDeploy, /ALLOW_STAGING_DOWNTIME_FOR_SPACE/);
+  });
+
   it('uses ContentWorkspace as the active content/version workspace schema name', () => {
     const aiSchema = readModelFile('prisma/models/ai.prisma');
     const model = extractModel(aiSchema, 'ContentWorkspace');
