@@ -566,6 +566,11 @@ Stop and report instead of guessing if:
 - `.env.staging.api` or `.env.staging.web` is missing on EC2.
 - `docker compose config` fails.
 - nginx returns `502` after both containers are running.
+  - If `deployments/nginx.conf` on the host points at the active slot but
+    `/etc/nginx/conf.d/default.conf` inside the nginx container still points at
+    the old slot, recreate the compose nginx service. The deploy script should
+    then be fixed or rerun from GitHub Actions so the file bind mount cannot
+    keep a stale config inode.
 - Supabase connection errors mention the production project.
 - `npx prisma db push` reports destructive changes or asks for
   `--accept-data-loss` during a normal deploy. Stop unless the PR is a reviewed

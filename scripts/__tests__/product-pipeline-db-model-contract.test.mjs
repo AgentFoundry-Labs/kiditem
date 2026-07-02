@@ -174,6 +174,17 @@ describe('product pipeline DB model contract', () => {
     assert.match(remoteDeploy, /ALLOW_STAGING_DOWNTIME_FOR_SPACE/);
   });
 
+  it('keeps nginx file bind mounts attached to the rendered config', () => {
+    const remoteDeploy = readModelFile('deploy/staging/remote-deploy.sh');
+
+    assert.match(remoteDeploy, /cat "\$tmp" >"\$GENERATED_NGINX_FILE"/);
+    assert.doesNotMatch(remoteDeploy, /mv "\$tmp" "\$GENERATED_NGINX_FILE"\n\s*chmod 644 "\$GENERATED_NGINX_FILE"/);
+    assert.match(remoteDeploy, /nginx_config_mount_matches\(\)/);
+    assert.match(remoteDeploy, /cmp -s "\$GENERATED_NGINX_FILE"/);
+    assert.match(remoteDeploy, /force-recreate nginx/);
+    assert.match(remoteDeploy, /file bind mount sees the rendered config/);
+  });
+
   it('uses ContentWorkspace as the active content/version workspace schema name', () => {
     const aiSchema = readModelFile('prisma/models/ai.prisma');
     const model = extractModel(aiSchema, 'ContentWorkspace');
