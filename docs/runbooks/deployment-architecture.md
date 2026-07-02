@@ -50,7 +50,10 @@ a second image build.
 5. Wait for API/web health, worker running state, and API render-image browser
    runtime readiness.
 6. Render `deployments/nginx.conf` from the environment-specific nginx
-   template and reload compose nginx.
+   template and reload compose nginx. The generated file is mounted into the
+   nginx container as a file bind mount, so the deploy script updates an
+   existing file in place and recreates nginx when the container still sees an
+   older mounted config.
 7. Smoke `/login` and `/api/auth/me` through the local public route.
 8. Write `deployments/current.json` and stop the previous slot.
 
