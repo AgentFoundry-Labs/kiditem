@@ -442,17 +442,32 @@ with open(target_path, "w", encoding="utf-8") as handle:
     handle.write(text)
 PY
 
-  mv "$tmp" "$GENERATED_NGINX_FILE"
+  if [[ -f "$GENERATED_NGINX_FILE" ]]; then
+    cat "$tmp" >"$GENERATED_NGINX_FILE"
+    rm -f "$tmp"
+  else
+    mv "$tmp" "$GENERATED_NGINX_FILE"
+  fi
   chmod 644 "$GENERATED_NGINX_FILE"
   echo "Rendered nginx config for $color"
 }
 
+nginx_config_mount_matches() {
+  [[ -f "$GENERATED_NGINX_FILE" ]] || return 1
+  cmp -s "$GENERATED_NGINX_FILE" <(compose exec -T nginx cat /etc/nginx/conf.d/default.conf 2>/dev/null)
+}
+
 reload_or_start_nginx() {
   if [[ -n "$(compose ps -q nginx 2>/dev/null || true)" ]]; then
+    if ! nginx_config_mount_matches; then
+      echo "Recreating nginx so its file bind mount sees the rendered config"
+      compose up -d --force-recreate nginx
+    fi
     compose exec -T nginx nginx -t
     compose exec -T nginx nginx -s reload
   else
     compose up -d nginx
+    compose exec -T nginx nginx -t
   fi
 }
 
