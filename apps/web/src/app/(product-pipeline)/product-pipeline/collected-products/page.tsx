@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Wand2, X } from 'lucide-react';
+import { Loader2, RefreshCw, Wand2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   useAllGenerationsInProgress,
@@ -53,7 +53,7 @@ export default function SourcingPage() {
   const scrape = useScrapeUrl();
   const platform = platformForSourceFilter(sourceFilter);
 
-  const { data: productData, isLoading } = useQuery({
+  const { data: productData, isLoading, isPlaceholderData } = useQuery({
     queryKey: queryKeys.sourcing.list({
       page: String(page),
       limit: String(pageSize),
@@ -61,12 +61,14 @@ export default function SourcingPage() {
       source: sourceFilter,
     }),
     queryFn: () => productsApi.list({ page, limit: pageSize, sort, platform }),
+    placeholderData: previousData => previousData,
     // 후보 inbox 는 sourced 상태가 작업 대상이다. 진행 중 AI 생성은 별도 배너 쿼리가 맡는다.
     refetchInterval: (query) => {
       const items = query.state.data?.items ?? [];
       return items.some((p) => isInProgress(p.status)) ? 10000 : false;
     },
   });
+  const isRefreshing = isPlaceholderData;
 
   const products = productData?.items ?? [];
   const total = productData?.total ?? 0;
@@ -245,8 +247,15 @@ export default function SourcingPage() {
           />
         )}
 
+        {isRefreshing && (
+          <div className="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm" aria-live="polite">
+            <RefreshCw size={14} className="animate-spin text-emerald-600" />
+            수집 상품 목록을 갱신 중입니다.
+          </div>
+        )}
+        <div aria-busy={isRefreshing}>
         <ProductList
-          isLoading={isLoading}
+          isLoading={isLoading && !productData}
           products={products}
           processingIds={displayedProcessingIds}
           deletingIds={deletingIds}
@@ -262,6 +271,7 @@ export default function SourcingPage() {
           onOpenQuickProcess={openQuickProcessModal}
           isQuickProcessingSelected={quickProcessMutation.isPending}
         />
+        </div>
 
         <div className="mt-4">
           <Pagination page={page} limit={pageSize} total={total} onPageChange={setPage} />

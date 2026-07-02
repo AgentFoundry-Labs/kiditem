@@ -5,37 +5,43 @@
       "source": "mattpocock/skills",
       "sourceType": "github",
       "skillPath": "skills/productivity/caveman/SKILL.md",
-      "computedHash": "934433479903febc585bf6deb5f0cebc63137e3f86b7babe0aab1ecb94d6d7a4"
+      "computedHash": "2c151fa8c4d69cee97fd72c35c89080f7f70cb4b5fece0c3c1033de0fd3aa028",
+      "hashAlgorithm": "sha256-directory-v1"
     },
     "grill-me": {
       "source": "mattpocock/skills",
       "sourceType": "github",
       "skillPath": "skills/productivity/grill-me/SKILL.md",
-      "computedHash": "784f0dbb7403b0f00324bce9a112f715342777a0daee7bbb7385f9c6f0a170ea"
+      "computedHash": "c1cf50e1f66728ba5c29d50ec90112dfbb1c1de8fad585e588c3bf137f0b34f6",
+      "hashAlgorithm": "sha256-directory-v1"
     },
     "improve-codebase-architecture": {
       "source": "mattpocock/skills",
       "sourceType": "github",
       "skillPath": "skills/engineering/improve-codebase-architecture/SKILL.md",
-      "computedHash": "c77b86b4332919499608f9af1880074e1fec65a59b95c70c27a9f39cd137865e"
+      "computedHash": "2f70dd128b47dd3533dc4e925c01052904a6e2b4ea9396143518b83b9c631222",
+      "hashAlgorithm": "sha256-directory-v1"
     },
     "supabase": {
       "source": "supabase/agent-skills",
       "sourceType": "github",
       "skillPath": "skills/supabase/SKILL.md",
-      "computedHash": "45a3cdccc364a4bbd6cdf700fc069e9f24ebc0428098746cbfbf8b18a5e160d2"
+      "computedHash": "3544b77034fc42c55672473d25ff13fa879bd79bad71c375c9d9e2bb3e875ed2",
+      "hashAlgorithm": "sha256-directory-v1"
     },
     "supabase-postgres-best-practices": {
       "source": "supabase/agent-skills",
       "sourceType": "github",
       "skillPath": "skills/supabase-postgres-best-practices/SKILL.md",
-      "computedHash": "d606a1146be6d54fb9e73f718b5320b9acac5ff2ba2d7230a555df4b5a923b4a"
+      "computedHash": "b7f9157862203dbc11fc22ff64d5b7ed71cc5af37937566ed1e2890f14eeb3e1",
+      "hashAlgorithm": "sha256-directory-v1"
     },
     "vercel-react-best-practices": {
       "source": "vercel-labs/agent-skills",
       "sourceType": "github",
       "skillPath": "skills/react-best-practices/SKILL.md",
-      "computedHash": "ca7b0c0c6e5f2750043f7f0cd72d16ac4e2abc48f9b5500d047a4b77a2506212"
+      "computedHash": "99c51ec5786b76eb4690ba47a2b0e06ff7a7be43057f21036fc5025f038debd9",
+      "hashAlgorithm": "sha256-directory-v1"
     }
   }
 }

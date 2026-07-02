@@ -12,6 +12,7 @@ interface ActionBoardHeaderProps {
   onViewModeChange: (viewMode: ViewMode) => void;
   taskCount: number;
   onRefresh: () => void;
+  isRefreshing?: boolean;
 }
 
 export function ActionBoardHeader({
@@ -19,6 +20,7 @@ export function ActionBoardHeader({
   onViewModeChange,
   taskCount,
   onRefresh,
+  isRefreshing = false,
 }: ActionBoardHeaderProps) {
   return (
     <div className="flex items-center justify-between px-6 py-4 border-b bg-white">
@@ -48,10 +50,11 @@ export function ActionBoardHeader({
         </div>
         <button
           onClick={onRefresh}
+          disabled={isRefreshing}
           className="p-1.5 text-slate-400 hover:text-slate-600 rounded-md hover:bg-slate-100 transition-colors"
           aria-label="새로고침"
         >
-          <RefreshCw size={16} />
+          <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : undefined} />
         </button>
       </div>
     </div>

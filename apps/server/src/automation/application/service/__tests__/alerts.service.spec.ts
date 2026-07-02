@@ -325,7 +325,7 @@ describe('AlertsService.promote', () => {
 
 describe('AlertsService.markAsRead', () => {
   it('updates and re-reads the alert in tenant scope', async () => {
-    const { service, prisma } = makeService();
+    const { service, prisma, eventEmitter } = makeService();
     prisma.alert.updateMany.mockResolvedValue({ count: 1 });
     prisma.alert.findFirst.mockResolvedValue({ ...BASE_ALERT, isRead: true });
 
@@ -339,10 +339,14 @@ describe('AlertsService.markAsRead', () => {
       where: { id: ALERT_ID, organizationId: ORGANIZATION_ID },
     });
     expect(result).toEqual({ ...BASE_ALERT, isRead: true });
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      PANEL_EVENTS.UPSERT,
+      expect.objectContaining({ organizationId: ORGANIZATION_ID }),
+    );
   });
 
   it('rejects a cross-organization alert id without a bare update', async () => {
-    const { service, prisma } = makeService();
+    const { service, prisma, eventEmitter } = makeService();
     prisma.alert.findUnique.mockResolvedValue({ ...BASE_ALERT, organizationId: 'other-organization' });
     prisma.alert.updateMany.mockResolvedValue({ count: 0 });
 
@@ -352,6 +356,61 @@ describe('AlertsService.markAsRead', () => {
       data: { isRead: true, readAt: expect.any(Date) },
     });
     expect(prisma.alert.update).not.toHaveBeenCalled();
+    expect(eventEmitter.emit).not.toHaveBeenCalled();
+  });
+});
+
+describe('AlertsService.markAllAsRead', () => {
+  it('marks unread alerts in tenant scope and emits panel upserts for read state sync', async () => {
+    const { service, prisma, eventEmitter } = makeService();
+    const secondAlert = {
+      ...BASE_ALERT,
+      id: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+      title: 'Second alert',
+    };
+    prisma.alert.findMany.mockResolvedValue([BASE_ALERT, secondAlert]);
+    prisma.alert.updateMany.mockResolvedValue({ count: 2 });
+
+    const result = await service.markAllAsRead(ORGANIZATION_ID);
+
+    expect(prisma.alert.findMany).toHaveBeenCalledWith({
+      where: { organizationId: ORGANIZATION_ID, isRead: false },
+    });
+    expect(prisma.alert.updateMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: ORGANIZATION_ID,
+        id: { in: [BASE_ALERT.id, secondAlert.id] },
+        isRead: false,
+      },
+      data: { isRead: true, readAt: expect.any(Date) },
+    });
+    expect(result).toEqual({ updated: 2 });
+    expect(eventEmitter.emit).toHaveBeenCalledTimes(2);
+    expect(eventEmitter.emit).toHaveBeenNthCalledWith(
+      1,
+      PANEL_EVENTS.UPSERT,
+      expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        item: expect.objectContaining({ id: BASE_ALERT.id, isRead: true }),
+      }),
+    );
+    expect(eventEmitter.emit).toHaveBeenNthCalledWith(
+      2,
+      PANEL_EVENTS.UPSERT,
+      expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        item: expect.objectContaining({ id: secondAlert.id, isRead: true }),
+      }),
+    );
+  });
+
+  it('returns zero and emits nothing when there are no unread alerts', async () => {
+    const { service, prisma, eventEmitter } = makeService();
+    prisma.alert.findMany.mockResolvedValue([]);
+
+    await expect(service.markAllAsRead(ORGANIZATION_ID)).resolves.toEqual({ updated: 0 });
+    expect(prisma.alert.updateMany).not.toHaveBeenCalled();
+    expect(eventEmitter.emit).not.toHaveBeenCalled();
   });
 });
 

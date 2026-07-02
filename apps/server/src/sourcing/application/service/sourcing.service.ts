@@ -334,7 +334,16 @@ export class SourcingService {
     };
   }
 
-  async scrapeUrl(url: string, organizationId: string, triggeredByUserId: string | null) {
+  async scrapeUrl(
+    url: string,
+    organizationId: string,
+    triggeredByUserId: string | null,
+    lineage?: {
+      conversationId?: string | null;
+      parentRequestId?: string | null;
+      delegatedByRunId?: string | null;
+    },
+  ) {
     const existing = await this.candidates.findActiveBySourceUrl({
       organizationId,
       sourceUrl: url,
@@ -348,10 +357,18 @@ export class SourcingService {
         candidateId: existing.id,
         product_id: existing.id,
         href: collectedCandidateHref(existing.id),
+        operationKey: null,
       };
     }
 
-    const result = await this.agentGateway.scrapeUrl({ organizationId, url, triggeredByUserId });
+    const result = await this.agentGateway.scrapeUrl({
+      organizationId,
+      url,
+      triggeredByUserId,
+      conversationId: lineage?.conversationId ?? null,
+      parentRequestId: lineage?.parentRequestId ?? null,
+      delegatedByRunId: lineage?.delegatedByRunId ?? null,
+    });
     if (result.requestId) {
       await this.operationAlerts.start({
         organizationId,
@@ -373,6 +390,7 @@ export class SourcingService {
       candidateId: null,
       product_id: null,
       href: null,
+      operationKey: result.requestId ? `sourcing-scrape:${result.requestId}` : null,
     };
   }
 

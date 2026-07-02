@@ -15,21 +15,30 @@ interface EffectivePeriodCoupangAdsMetrics {
   hasData: boolean;
 }
 
+interface EffectivePeriodRocketMetrics {
+  revenue: number;
+  hasData: boolean;
+}
+
 export function buildEffectivePeriod(
   ctx: DashboardContext,
   latestDataDate: Date | null,
   cur: EffectivePeriodProfitMetrics,
   wingCur: EffectivePeriodWingTrafficMetrics,
   coupangAds: EffectivePeriodCoupangAdsMetrics,
+  rocketCur: EffectivePeriodRocketMetrics = { revenue: 0, hasData: false },
 ): DashboardEffectivePeriod {
   const orderActive = cur.revenue !== 0 || cur.orderCount > 0;
   const wingActive = wingCur.hasData;
+  const rocketActive = rocketCur.hasData || rocketCur.revenue !== 0;
   const adsActive = coupangAds.hasData;
 
   let revenueSource: DashboardEffectivePeriod['revenueSource'] = 'none';
-  if (orderActive && wingActive) revenueSource = 'mixed';
+  if (orderActive && (wingActive || rocketActive)) revenueSource = 'mixed';
   else if (orderActive) revenueSource = 'orders';
+  else if (wingActive && rocketActive) revenueSource = 'wing_rocket';
   else if (wingActive) revenueSource = 'wing';
+  else if (rocketActive) revenueSource = 'rocket';
 
   let adSource: DashboardEffectivePeriod['adSource'] = 'none';
   if (cur.adCost > 0 && adsActive) adSource = 'mixed';

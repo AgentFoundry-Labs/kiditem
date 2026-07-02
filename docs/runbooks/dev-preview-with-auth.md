@@ -55,6 +55,20 @@ What this does, in order:
      identity used as verification evidence
 5. Prints the URL and verified user/org on stdout for the AI agent to consume.
 
+### In-app browser / same-origin API proxy
+
+Some isolated preview browsers block direct `localhost:4000` requests even when
+the app at `localhost:3000` is allowed. For those sessions, start web with a
+same-origin API proxy and leave the public API base empty for that process:
+
+```bash
+KIDITEM_PROXY_ALL_API=true NEXT_PUBLIC_API_URL= npm run dev --workspace=apps/web
+```
+
+This makes browser calls to `/api/*` stay on `localhost:3000` while Next rewrites
+them to the Nest server at `localhost:4000`. Normal local development can keep
+using `NEXT_PUBLIC_API_URL=http://localhost:4000`.
+
 ### Custom dev user
 
 ```bash

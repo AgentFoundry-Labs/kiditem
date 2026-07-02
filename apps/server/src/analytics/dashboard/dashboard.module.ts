@@ -12,6 +12,7 @@ import { DashboardAdRepositoryAdapter } from './adapter/out/repository/dashboard
 import { DashboardTrendRepositoryAdapter } from './adapter/out/repository/dashboard-trend.repository.adapter';
 import { WingTrafficAggregationRepositoryAdapter } from './adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { DashboardInventoryRepositoryAdapter } from './adapter/out/repository/dashboard-inventory.repository.adapter';
+import { RocketRevenueRepositoryAdapter } from './adapter/out/repository/rocket-revenue.repository.adapter';
 
 // application/service
 import { DashboardContextService } from './application/service/dashboard-context.service';
@@ -29,6 +30,7 @@ import { DASHBOARD_AD_REPOSITORY_PORT } from './application/port/out/repository/
 import { DASHBOARD_TREND_REPOSITORY_PORT } from './application/port/out/repository/dashboard-trend.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from './application/port/out/repository/wing-traffic-aggregation.repository.port';
 import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from './application/port/out/repository/dashboard-inventory.repository.port';
+import { ROCKET_REVENUE_REPOSITORY_PORT } from './application/port/out/repository/rocket-revenue.repository.port';
 
 // `application/port/out/*` ports bound to their adapters via `useExisting`
 // so application services depend on tokens, not concrete classes. Mirrors
@@ -42,6 +44,7 @@ const REPOSITORY_PORT_BINDINGS = [
   { provide: DASHBOARD_TREND_REPOSITORY_PORT, useExisting: DashboardTrendRepositoryAdapter },
   { provide: WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, useExisting: WingTrafficAggregationRepositoryAdapter },
   { provide: DASHBOARD_INVENTORY_REPOSITORY_PORT, useExisting: DashboardInventoryRepositoryAdapter },
+  { provide: ROCKET_REVENUE_REPOSITORY_PORT, useExisting: RocketRevenueRepositoryAdapter },
 ];
 
 @Module({
@@ -57,6 +60,7 @@ const REPOSITORY_PORT_BINDINGS = [
     DashboardTrendRepositoryAdapter,
     WingTrafficAggregationRepositoryAdapter,
     DashboardInventoryRepositoryAdapter,
+    RocketRevenueRepositoryAdapter,
     // application/service
     DashboardContextService,
     DashboardSalesService,

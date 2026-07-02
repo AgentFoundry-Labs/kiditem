@@ -3,6 +3,8 @@ import type {
   Inventory,
   InventoryAssetReport,
   InventoryListResponse,
+  RocketInventoryEventInput,
+  RocketInventoryEventResult,
   IssueStockInput,
   ReceiveStockInput,
   StockOperationResult,
@@ -33,6 +35,11 @@ export type ListTransactionsInput = {
 
 export type TransactionSummaryInput = {
   days?: number;
+};
+
+export type ApplyRocketInventoryEventInput = RocketInventoryEventInput & {
+  organizationId: string;
+  userId: string;
 };
 
 export interface InventoryPort {
@@ -67,6 +74,10 @@ export interface InventoryPort {
     organizationId: string,
     userId: string,
   ): Promise<StockOperationResult>;
+
+  applyRocketInventoryEvent(
+    input: ApplyRocketInventoryEventInput,
+  ): Promise<RocketInventoryEventResult>;
 
   listTransactions(
     input: ListTransactionsInput,

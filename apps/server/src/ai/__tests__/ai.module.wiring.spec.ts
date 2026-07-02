@@ -1,8 +1,10 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
+import { AgentOsModule } from '../../agent-os/agent-os.module';
 import { AutomationModule } from '../../automation/automation.module';
 import { ChannelsModule } from '../../channels/channels.module';
 import { AiModule } from '../ai.module';
+import { AiWingRegistrationCapabilityAdapter } from '../adapter/in/agent/ai-wing-registration-capability.adapter';
 import { DetailPageContentGenerationSinkAdapter } from '../adapter/out/direct-output/detail-page-content-generation-sink.adapter';
 import { ThumbnailGenerationSinkAdapter } from '../adapter/out/direct-output/thumbnail-generation-sink.adapter';
 import { AiOperationAlertAdapter } from '../adapter/out/automation/operation-alert.adapter';
@@ -28,6 +30,9 @@ import { AiGenerationCancellationService } from '../application/service/ai-gener
 import { PostPromotionAiService } from '../application/service/post-promotion-ai.service';
 import { ProductGenerationAiService } from '../application/service/product-generation-ai.service';
 import { SourcingWorkspaceArchiveService } from '../application/service/sourcing-workspace-archive.service';
+import {
+  AI_WING_REGISTRATION_CAPABILITY_PORT,
+} from '../application/port/in/capability/wing-registration.port';
 import {
   AI_GENERATION_CANCELLATION_PORT,
   POST_PROMOTION_AI_TRIGGER_PORT,
@@ -83,7 +88,7 @@ describe('AiModule hexagonal wiring contract', () => {
   it('imports owner modules only at the Nest module boundary', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, AiModule) ?? [];
 
-    expect(imports).toEqual([ChannelsModule, AutomationModule]);
+    expect(imports).toEqual([ChannelsModule, AutomationModule, AgentOsModule]);
   });
 
   it('binds AI-domain ports that keep PR 2A application services off Prisma', () => {
@@ -121,6 +126,7 @@ describe('AiModule hexagonal wiring contract', () => {
     const exports: unknown[] = Reflect.getMetadata(EXPORTS_KEY, AiModule) ?? [];
 
     [
+      [AI_WING_REGISTRATION_CAPABILITY_PORT, AiWingRegistrationCapabilityAdapter],
       [POST_PROMOTION_AI_TRIGGER_PORT, PostPromotionAiService],
       [PRODUCT_GENERATION_AI_TRIGGER_PORT, ProductGenerationAiService],
       [AI_WORKSPACE_ARCHIVE_PORT, SourcingWorkspaceArchiveService],

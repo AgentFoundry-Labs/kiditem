@@ -40,7 +40,7 @@ interface AggregatedRow {
 
 const TRAFFIC_UPLOAD_SURFACES: Record<TrafficUploadSource, { href: string }> = {
   settings: { href: '/settings' },
-  products: { href: '/products' },
+  products: { href: '/product-hub' },
 };
 
 export async function uploadTrafficStats({

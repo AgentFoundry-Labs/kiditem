@@ -1,20 +1,10 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # packages/templates — Detail Page Templates
 
 `packages/templates/` owns React template components and Zod schemas for Coupang
 product detail pages. It is consumed by AI/detail-page rendering and editor
 surfaces.
-
-## Folder Map
-
-```text
-packages/templates/
-├── src/
-│   ├── templates/{id}/     # template component and local assets/styles
-│   ├── schemas/            # template data schemas
-│   └── index.ts            # getTemplate, parseDetailPageData, exports
-├── package.json
-└── tsup.config.ts
-```
 
 ## Owned Surfaces
 

@@ -28,6 +28,7 @@ function ActionBoardContent() {
         onViewModeChange={workflow.setViewMode}
         taskCount={workflow.tasks.length}
         onRefresh={workflow.refreshTasks}
+        isRefreshing={workflow.isRefreshing}
       />
       <ActionBoardScopeTabs
         scope={workflow.scope}
@@ -45,6 +46,7 @@ function ActionBoardContent() {
         executeMutation={workflow.executeMutation}
         claimMutation={workflow.claimMutation}
         unclaimMutation={workflow.unclaimMutation}
+        isRefreshing={workflow.isRefreshing}
       />
       <ActionTaskDrawer
         selectedTask={workflow.selectedTask}

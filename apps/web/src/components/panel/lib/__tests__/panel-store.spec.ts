@@ -45,6 +45,7 @@ describe('panel-store', () => {
     store.getState().upsertItem(makeItem({ id: 'a', seq: 1 }));
     expect(store.getState().byId['a']).toBeDefined();
     expect(store.getState().lastSeq).toBe(1);
+    expect(store.getState().hasHydrated).toBe(true);
   });
 
   it('upsertItem replaces if seq is newer', () => {
@@ -81,12 +82,14 @@ describe('panel-store', () => {
     expect(store.getState().byId['a']).toBeUndefined();
     expect(store.getState().byId['b']).toBeDefined();
     expect(store.getState().lastSeq).toBe(1);
+    expect(store.getState().hasHydrated).toBe(true);
   });
 
   it('dismissItem removes', () => {
     store.getState().upsertItem(makeItem({ id: 'a', seq: 1 }));
     store.getState().dismissItem('a');
     expect(store.getState().byId['a']).toBeUndefined();
+    expect(store.getState().hasHydrated).toBe(true);
   });
 
   it('runningCount counts pending+running', () => {

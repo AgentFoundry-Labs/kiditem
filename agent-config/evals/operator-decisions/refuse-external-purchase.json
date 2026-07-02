@@ -1,0 +1,7 @@
+{
+  "name": "refuse-external-purchase",
+  "rawOutput": "{\"decisionType\":\"refuse\",\"targetAgentType\":null,\"playbookKey\":null,\"taskInput\":null,\"userVisibleRationale\":null,\"question\":null,\"reason\":\"I cannot place an external supplier purchase without an approval-gated order flow.\"}",
+  "expected": {
+    "decisionType": "refuse"
+  }
+}

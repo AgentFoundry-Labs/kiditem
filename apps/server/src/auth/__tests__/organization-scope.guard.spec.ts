@@ -4,10 +4,14 @@ import { Reflector } from '@nestjs/core';
 import { OrganizationScopeGuard } from '../guards/organization-scope.guard';
 import { SKIP_AUTH_KEY } from '../decorators/skip-auth.decorator';
 
-function createCtx(authUser: unknown, meta: Record<string | symbol, unknown> = {}): ExecutionContext {
+function createCtx(
+  authUser: unknown,
+  meta: Record<string | symbol, unknown> = {},
+  authFailureReason?: string,
+): ExecutionContext {
   return {
     switchToHttp: () => ({
-      getRequest: () => ({ authUser }),
+      getRequest: () => ({ authUser, authFailureReason }),
       getResponse: () => ({}),
       getNext: () => ({}),
     }),
@@ -43,6 +47,17 @@ describe('OrganizationScopeGuard', () => {
       guard.canActivate(ctx);
     } catch (e) {
       expect((e as UnauthorizedException).message).toContain('auth_required');
+    }
+  });
+
+  it('throws recorded auth failure reason when req.authUser missing', () => {
+    const guard = new OrganizationScopeGuard(makeReflector(() => undefined));
+    const ctx = createCtx(undefined, {}, 'auth_user_not_mirrored');
+    expect(() => guard.canActivate(ctx)).toThrow(UnauthorizedException);
+    try {
+      guard.canActivate(ctx);
+    } catch (e) {
+      expect((e as UnauthorizedException).message).toContain('auth_user_not_mirrored');
     }
   });
 

@@ -1,0 +1,101 @@
+name: kiditem-production
+
+x-api-service: &api-service
+  env_file:
+    - path: ./.env.production.api
+      required: false
+  environment:
+    NODE_ENV: production
+    PORT: 4000
+    AGENT_RUNTIME_WORKER_ENABLED: "0"
+  expose:
+    - "4000"
+  restart: unless-stopped
+  healthcheck:
+    test:
+      [
+        "CMD-SHELL",
+        "node -e \"fetch('http://127.0.0.1:4000/api/auth/me').then((r)=>process.exit(r.status===401||r.status===403?0:1)).catch(()=>process.exit(1))\"",
+      ]
+    interval: 30s
+    timeout: 5s
+    retries: 5
+    start_period: 30s
+
+x-web-service: &web-service
+  env_file:
+    - path: ./.env.production.web
+      required: false
+  environment:
+    NODE_ENV: production
+    PORT: 3000
+    HOSTNAME: 0.0.0.0
+  expose:
+    - "3000"
+  restart: unless-stopped
+  healthcheck:
+    test:
+      [
+        "CMD-SHELL",
+        "node -e \"fetch('http://127.0.0.1:3000/login').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+      ]
+    interval: 30s
+    timeout: 5s
+    retries: 5
+    start_period: 30s
+
+x-worker-service: &worker-service
+  env_file:
+    - path: ./.env.production.api
+      required: false
+  environment:
+    NODE_ENV: production
+    AGENT_RUNTIME_WORKER_ENABLED: "1"
+  command: ["node", "dist/worker.js"]
+  restart: unless-stopped
+
+services:
+  api-blue:
+    <<: *api-service
+    container_name: kiditem-production-api-blue
+    image: ${KIDITEM_BLUE_API_IMAGE:?KIDITEM_BLUE_API_IMAGE is required}
+
+  web-blue:
+    <<: *web-service
+    container_name: kiditem-production-web-blue
+    image: ${KIDITEM_BLUE_WEB_IMAGE:?KIDITEM_BLUE_WEB_IMAGE is required}
+
+  worker-blue:
+    <<: *worker-service
+    container_name: kiditem-production-worker-blue
+    image: ${KIDITEM_BLUE_API_IMAGE:?KIDITEM_BLUE_API_IMAGE is required}
+
+  api-green:
+    <<: *api-service
+    container_name: kiditem-production-api-green
+    image: ${KIDITEM_GREEN_API_IMAGE:?KIDITEM_GREEN_API_IMAGE is required}
+
+  web-green:
+    <<: *web-service
+    container_name: kiditem-production-web-green
+    image: ${KIDITEM_GREEN_WEB_IMAGE:?KIDITEM_GREEN_WEB_IMAGE is required}
+
+  worker-green:
+    <<: *worker-service
+    container_name: kiditem-production-worker-green
+    image: ${KIDITEM_GREEN_API_IMAGE:?KIDITEM_GREEN_API_IMAGE is required}
+
+  nginx:
+    container_name: kiditem-production-nginx
+    image: nginx:1.27-alpine
+    ports:
+      - "127.0.0.1:8080:80"
+    volumes:
+      - ./deployments/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/login >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

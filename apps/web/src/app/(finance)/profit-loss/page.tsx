@@ -1,9 +1,9 @@
 'use client';
 
-import Link from "next/link";
 import { Suspense, useMemo, useState, useEffect } from "react";
+import Link from "next/link";
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
-import { Download, Info, TrendingUp } from "lucide-react";
+import { Download, Info, RefreshCw, TrendingUp } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { z } from 'zod';
 import { PLDataSchema, SalesAnalysisDataSourcesSchema } from '@kiditem/shared/finance';
@@ -68,10 +68,12 @@ function ProfitLossContent() {
     },
   });
 
-  const { data = [], isLoading: loading, error: queryError } = useQuery({
+  const { data = [], isLoading: loading, isFetching, error: queryError } = useQuery({
     queryKey: queryKeys.profitLoss.list(period),
     queryFn: () => apiClient.getParsed(`/api/profit-loss?period=${period}`, z.array(PLDataSchema)),
+    placeholderData: previousData => previousData,
   });
+  const isRefreshing = isFetching && !loading;
   const { data: dataSources } = useQuery({
     queryKey: queryKeys.salesAnalysis.dataSources(),
     queryFn: () =>
@@ -209,12 +211,19 @@ function ProfitLossContent() {
         </div>
       )}
 
-      {loading ? (
+      {isRefreshing && (
+        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm" aria-live="polite">
+          <RefreshCw size={14} className="animate-spin text-purple-600" />
+          손익표를 갱신 중입니다.
+        </div>
+      )}
+
+      {loading && data.length === 0 ? (
         <PageSkeleton variant="table" />
       ) : error ? (
         <ErrorState message={error} />
       ) : (
-        <>
+        <div className="space-y-6" aria-busy={isRefreshing}>
           <ProfitLossSummaryCards
             totalRevenue={totalRevenue}
             totalProfit={totalProfit}
@@ -239,7 +248,7 @@ function ProfitLossContent() {
             total={sorted.length}
             onPageChange={setPage}
           />
-        </>
+        </div>
       )}
     </div>
   );

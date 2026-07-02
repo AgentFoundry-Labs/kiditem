@@ -16,6 +16,7 @@ import {
   FileSearch,
   Download,
   Loader2,
+  RefreshCw,
   Receipt,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
@@ -80,14 +81,16 @@ export default function Settlements() {
   const [actualAmount, setActualAmount] = useState(0);
   const [reconcilePeriod, setReconcilePeriod] = useState('');
 
-  const { data: settlements = [] } = useQuery({
-    queryKey: [...queryKeys.settlements.all, period],
+  const { data: settlements = [], isFetching } = useQuery({
+    queryKey: queryKeys.settlements.list(period),
     queryFn: () => {
       const params = new URLSearchParams();
       if (period) params.set('period', period);
       return apiClient.get<Settlement[]>(`/api/settlements?${params}`);
     },
+    placeholderData: previousData => previousData,
   });
+  const isRefreshing = isFetching && settlements.length > 0;
 
   const reconcileMutation = useMutation({
     mutationFn: (p: string) =>
@@ -99,7 +102,7 @@ export default function Settlements() {
     mutationFn: ({ id, actualAmount: amt }: { id: string; actualAmount: number }) =>
       apiClient.patch(`/api/settlements/${id}`, { status: 'confirmed', actualAmount: amt }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settlements'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.settlements.all });
       setEditId(null);
     },
   });
@@ -168,6 +171,13 @@ export default function Settlements() {
           options={allPeriodOptions}
         />
       </div>
+
+      {isRefreshing && (
+        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm" aria-live="polite">
+          <RefreshCw size={14} className="animate-spin text-purple-600" />
+          정산 데이터를 갱신 중입니다.
+        </div>
+      )}
 
       {/* 요약 카드 */}
       <div className="grid grid-cols-4 gap-4">

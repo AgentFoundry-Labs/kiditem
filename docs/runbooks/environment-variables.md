@@ -220,7 +220,39 @@ text/detail/thumbnail/image-edit AI features are enabled.
 | `AI_IMAGE_MODEL` | Thumbnail/editor image generation, image edit, and detail-page generated images | Thumbnail/image-edit Gemini config and detail-page media adapter | Direct AI provider config. Human-triggered and fixed workflow thumbnail/detail/image-edit media generation use this value. Do not use deprecated preview IDs called out by the config. |
 | `AI_IMAGE_ANALYSIS_MODEL` | Thumbnail/image analysis and detail-page image inference | Thumbnail Gemini config and detail-page media adapter | No silent fallback. |
 | `AI_IMAGE_ANALYSIS_VERIFY_MODEL` | Thumbnail compliance verify path | Thumbnail Gemini config | No silent fallback. |
-| `OPENAI_API_KEY` | Not currently used by deployed API/web code | Python agents or future providers | Staging may have it set, but current API code does not read it directly. |
+| `AGENT_OS_OPERATOR_RUNTIME` | Agent OS Operator should use a non-deterministic provider runtime | Nest Agent OS Operator runtime handler | Set `hermes_tool_loop` for the current Hermes tool-loop runtime. `hermes` remains a legacy/dev final-decision fallback. `openai_responses` remains a hosted API fallback/eval path. Missing value keeps the deterministic local path. |
+| `AGENT_OS_HERMES_PATH` | Agent OS `hermes_tool_loop` or legacy `hermes` runtime is enabled and Hermes is not on `PATH` | Nest Agent OS Hermes runtime | Optional Hermes CLI binary path. Defaults to `hermes`; missing binaries fail closed with `operator_runtime_unavailable`. |
+| `AGENT_OS_HERMES_MODEL` | Agent OS `hermes_tool_loop` or legacy `hermes` runtime is enabled | Nest Agent OS Hermes runtime and Hermes CLI harness | Explicit Hermes model selection is required; no silent default. |
+| `AGENT_OS_HERMES_HOME` | Agent OS `hermes_tool_loop` or legacy `hermes` runtime is enabled | Nest Agent OS Hermes runtime profile service | Optional base directory for isolated Hermes profiles. Defaults to `/tmp/kiditem-agent-os-hermes`; per-run profiles are nested by organization and task session. |
+| `AGENT_OS_HERMES_AUTH_HOME` | Hermes auth material should be copied from an existing Hermes profile | Nest Agent OS Hermes runtime profile service | Optional source directory containing `auth.json`. KidItem copies auth into the isolated `HERMES_HOME`; the original source path is not forwarded to Hermes or MCP env. Nested Leaf Hermes sessions receive the isolated profile path as their auth source. |
+| `AGENT_OS_HERMES_LEAF_AGENT_TYPES` | Agent OS should run configured Leaf Agents through Hermes instead of deterministic local runtime handlers | Nest Agent OS Operator and Leaf runtime handlers | Comma-separated agent types, for example `sourcing,listing`. When set, `AGENT_OS_OPERATOR_RUNTIME` must also be explicit. |
+| `AGENT_OS_HERMES_TIMEOUT_MS` | Custom Hermes Operator timeout is needed | Nest Agent OS Hermes runtime | Optional; defaults to 60000 ms. |
+| `AGENT_OS_HERMES_MAX_OUTPUT_BYTES` | Hermes stdout/stderr capture should be capped differently | Nest Agent OS Hermes runtime | Optional; defaults to 262144 bytes. Output is truncated before diagnostics. |
+| `AGENT_OS_HERMES_MAX_CONCURRENT_RUNS` | Hermes subprocess concurrency should be capped differently | Nest Agent OS Hermes runtime | Optional; defaults to 1. Extra concurrent turns fail closed with `operator_runtime_busy`. |
+| `AGENT_OS_HERMES_ENABLE_KIDITEM_MCP` | Legacy `hermes` final-decision fallback needs manual MCP experimentation | Nest Agent OS Hermes runtime profile service | `hermes_tool_loop` force-enables the KidItem MCP toolset itself. This flag is only for legacy/dev fallback sessions. |
+| `OPENAI_API_KEY` | Agent OS `openai_responses` Operator runtime or Python direct OpenAI mode is enabled | Nest Agent OS OpenAI Responses runtime; Python agents direct provider path | Required for paid OpenAI Operator verification. Server code fails closed when this runtime is selected without a key. |
+| `AGENT_OS_OPENAI_RESPONSES_MODEL` | Agent OS `openai_responses` Operator runtime is enabled | Nest Agent OS OpenAI Responses runtime | Explicit model selection is required; no silent default. |
+| `AGENT_OS_OPENAI_RESPONSES_TIMEOUT_MS` | Custom OpenAI Operator timeout is needed | Nest Agent OS OpenAI Responses runtime | Optional; defaults in code. |
+| `AGENT_OS_OPENAI_RESPONSES_BASE_URL` | Custom OpenAI-compatible Responses endpoint is needed | Nest Agent OS OpenAI Responses runtime | Optional; defaults to OpenAI's v1 API base URL. |
+| `AGENT_OS_1688_CHECKOUT_RUNTIME` | Agent OS should execute live 1688 checkout/payment | Agent OS live readiness preflight; Supply 1688 checkout runtime | Set to `provider` for the current provider-backed runtime. Missing or unsupported values block `supply.submit_purchase_order` live checkout readiness. |
+| `AGENT_OS_1688_CHECKOUT_PROVIDER_URL` | `AGENT_OS_1688_CHECKOUT_RUNTIME=provider` | Supply `Alibaba1688CheckoutRuntimeAdapter` | Provider endpoint that accepts `{ organizationId, purchaseOrderId }` and returns `externalOrderId` plus optional `externalOrderUrl`. Required before readiness reports the 1688 checkout runtime as ready. |
+| `AGENT_OS_1688_CHECKOUT_TIMEOUT_MS` | Custom 1688 provider checkout timeout is needed | Supply `Alibaba1688CheckoutRuntimeAdapter` | Optional; defaults in code. |
+
+## Server Market Data Providers
+
+These variables are feature-specific and should be present only where sourcing
+keyword research is intentionally enabled.
+
+| Variable | Required when | Consumed by | Notes |
+|---|---|---|---|
+| `NAVER_DATALAB_CLIENT_ID` | Naver DataLab trend verification is enabled | Sourcing Naver DataLab adapter | Developer Center application client id. Server-side only. |
+| `NAVER_DATALAB_CLIENT_SECRET` | Naver DataLab trend verification is enabled | Sourcing Naver DataLab adapter | Developer Center application secret. Never expose to web or agents. |
+| `NAVER_DATALAB_BASE_URL` | Non-production DataLab endpoint override is needed | Sourcing Naver DataLab adapter | Optional. Defaults to `https://openapi.naver.com`. |
+| `NAVER_DATALAB_WEB_BASE_URL` | Non-production DataLab web endpoint override is needed | Sourcing DataLab popular keyword adapter | Optional. Defaults to `https://datalab.naver.com`. Used for Shopping Insight popular keyword boards. |
+| `NAVER_SEARCHAD_API_KEY` | Naver SearchAd keyword research is enabled | Sourcing Naver keyword adapter | Access license from Naver SearchAd API manager. Server-side only. |
+| `NAVER_SEARCHAD_SECRET_KEY` | Naver SearchAd keyword research is enabled | Sourcing Naver keyword adapter | HMAC signing secret. Never expose to web or agents. |
+| `NAVER_SEARCHAD_CUSTOMER_ID` | Naver SearchAd keyword research is enabled | Sourcing Naver keyword adapter | SearchAd advertiser customer id used in `X-Customer`. |
+| `NAVER_SEARCHAD_BASE_URL` | Non-production SearchAd endpoint override is needed | Sourcing Naver keyword adapter | Optional. Defaults to `https://api.searchad.naver.com`. |
 
 ## Agent OS And Claude CLI
 
@@ -283,6 +315,7 @@ The deployed API blocks current Coupang Wing scraping paths when
 | `PLAYWRITER_BROWSER_PROFILE_DIR` | Custom Chrome profile needed | Coupang inventory scrape adapter | Local/operator use. |
 | `PLAYWRITER_DIRECT_PORT` | Custom Chrome CDP port needed | Coupang inventory scrape adapter | Defaults to `9222`. |
 | `PUPPETEER_EXECUTABLE_PATH` | Puppeteer render path uses a non-default browser | Render image controller | Docker server image sets `/usr/bin/chromium`; staging API builds install Chromium and smoke-check Puppeteer launch after deploy. |
+| `SOURCING_PLAYWRIGHT_CDP_ENDPOINT` | Sourcing URL scrape should reuse a logged-in managed browser session | Sourcing Playwright runtime | Optional CDP endpoint such as `http://127.0.0.1:9222`. Use a dedicated managed browser/profile where the user has completed 1688 login or verification; do not point production at a personal default Chrome profile. |
 | `SOURCING_PLAYWRIGHT_USER_DATA_DIR` | Sourcing URL scrape needs a prepared browser login session | Sourcing Playwright runtime | Defaults to `.kiditem/playwright/sourcing`. Use a dedicated automation profile, not a personal default Chrome profile. |
 | `SOURCING_PLAYWRIGHT_HEADLESS` | Local sourcing scrape login/profile debugging | Sourcing Playwright runtime | Defaults to `true`; set `false` while preparing or debugging the 1688/Alibaba profile. |
 
@@ -302,7 +335,8 @@ variables apply when running `agents/` as a separate runtime.
 | `AI_TEXT_MODEL` | Text generation agents | Python content agents | No silent fallback. |
 | `AI_IMAGE_ANALYSIS_MODEL` | Vision analysis agents | Python content agents | No silent fallback. |
 | `DETAIL_PAGE_TEMPLATE` | Default template selection needed | Python config | Defaults to `bold_vertical`. |
-| `TMAPI_TOKEN` | 1688/TMAPI sourcing matcher enabled | Python sourcing matcher | Optional unless matcher is used. |
+| `DIRECT_1688_MTOP_BASE_URL` | Custom 1688 public mtop host needed | Nest sourcing 1688 keyword/matching APIs | Defaults to `https://h5api.m.1688.com`; wholesale keyword/matching search does not require TMAPI. |
+| `TMAPI_TOKEN` | Legacy 1688/TMAPI sourcing matcher enabled | Python sourcing matcher | Optional unless the legacy matcher is used. |
 | `TMAPI_BASE_URL` | Custom TMAPI endpoint needed | Python sourcing matcher | Defaults in code. |
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | LLM tracing enabled | Python config/Langfuse | Both keys required to enable. |
 | `LANGFUSE_BASE_URL` | Custom Langfuse endpoint needed | Langfuse SDK | Defaults to Langfuse Cloud in examples. |
@@ -327,13 +361,18 @@ STAGING_DB_BASELINE_BUCKET
 STAGING_DB_BASELINE_PREFIX
 STAGING_DB_BASELINE_S3_ENDPOINT
 STAGING_DB_BASELINE_S3_REGION
+STAGING_DIRECT_1688_MTOP_BASE_URL
 STAGING_HOST
+STAGING_NAVER_DATALAB_BASE_URL
+STAGING_NAVER_DATALAB_WEB_BASE_URL
+STAGING_NAVER_SEARCHAD_BASE_URL
 STAGING_REMOTE_DIR
 STAGING_S3_BUCKET
 STAGING_S3_ENDPOINT
 STAGING_S3_PUBLIC_URL
 STAGING_S3_REGION
 STAGING_SUPABASE_URL
+STAGING_TMAPI_BASE_URL
 STAGING_URL
 STAGING_USER
 ```
@@ -347,10 +386,16 @@ STAGING_DB_BASELINE_S3_ACCESS_KEY
 STAGING_DB_BASELINE_S3_SECRET_KEY
 STAGING_DIRECT_URL
 STAGING_GEMINI_API_KEY
+STAGING_NAVER_DATALAB_CLIENT_ID
+STAGING_NAVER_DATALAB_CLIENT_SECRET
+STAGING_NAVER_SEARCHAD_API_KEY
+STAGING_NAVER_SEARCHAD_CUSTOMER_ID
+STAGING_NAVER_SEARCHAD_SECRET_KEY
 STAGING_S3_ACCESS_KEY
 STAGING_S3_SECRET_KEY
 STAGING_SSH_KEY
 STAGING_SSH_KNOWN_HOSTS
+STAGING_TMAPI_TOKEN
 ```
 
 The workflow uses the short-lived `GITHUB_TOKEN` for GHCR push/pull. Do not add
@@ -388,6 +433,8 @@ ssh -i "$STAGING_SSH_KEY" "$STAGING_USER@$STAGING_HOST" '
   docker exec kiditem-staging-api sh -lc '"'"'
     for k in OPENAI_API_KEY GEMINI_API_KEY AI_TEXT_MODEL AI_IMAGE_MODEL \
       AI_IMAGE_ANALYSIS_MODEL AI_IMAGE_ANALYSIS_VERIFY_MODEL \
+      NAVER_DATALAB_CLIENT_ID NAVER_DATALAB_CLIENT_SECRET NAVER_DATALAB_WEB_BASE_URL \
+      NAVER_SEARCHAD_API_KEY NAVER_SEARCHAD_SECRET_KEY NAVER_SEARCHAD_CUSTOMER_ID \
       CHANNEL_CREDENTIALS_ENCRYPTION_KEY \
       AGENT_RUNTIME_WORKER_ENABLED AGENT_DEFAULT_MODEL \
       ANTHROPIC_API_KEY \

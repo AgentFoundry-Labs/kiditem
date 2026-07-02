@@ -6,6 +6,7 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Hash,
+  Loader2,
 } from 'lucide-react';
 import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
@@ -32,13 +33,15 @@ export default function StockIo() {
 
   // Page through every transaction in the period — server caps limit at 200,
   // so a single request would silently truncate months with > 200 movements.
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isPlaceholderData } = useQuery({
     queryKey: queryKeys.inventory.transactions(transactionKeyParams({ from, to })),
     queryFn: () => fetchAllTransactionsInWindow({ from, to }),
+    placeholderData: (previousData) => previousData,
   });
 
   const allTransactions: TransactionListItem[] = data ?? [];
   const transactions = allTransactions.filter((tx) => tx.type === tab);
+  const showInitialLoading = isLoading && !data;
 
   // KPIs derived from period-filtered transactions (server summary endpoint
   // uses rolling Date.now() - days, which can't represent past months).
@@ -69,30 +72,37 @@ export default function StockIo() {
         <PeriodSelector value={period} onChange={setPeriod} />
       </div>
 
+      {isPlaceholderData && (
+        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+          <Loader2 size={14} className="animate-spin text-purple-600" />
+          선택한 기간의 입출고 데이터를 갱신하는 중입니다.
+        </div>
+      )}
+
       {/* KPI */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <p className="card-label mb-1">입고 수량</p>
           <p className="card-value text-green-600">
-            {isLoading ? '-' : `${formatNumber(summary.inQty)}개`}
+            {showInitialLoading ? '-' : `${formatNumber(summary.inQty)}개`}
           </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <p className="card-label mb-1">출고 수량</p>
           <p className="card-value text-red-600">
-            {isLoading ? '-' : `${formatNumber(summary.outQty)}개`}
+            {showInitialLoading ? '-' : `${formatNumber(summary.outQty)}개`}
           </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <p className="card-label mb-1">입고 금액</p>
           <p className="card-value text-slate-800">
-            {isLoading ? '-' : `${formatKRW(summary.inAmount)}원`}
+            {showInitialLoading ? '-' : `${formatKRW(summary.inAmount)}원`}
           </p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-5">
           <p className="card-label mb-1">출고 금액</p>
           <p className="card-value text-slate-800">
-            {isLoading ? '-' : `${formatKRW(summary.outAmount)}원`}
+            {showInitialLoading ? '-' : `${formatKRW(summary.outAmount)}원`}
           </p>
         </div>
       </div>
@@ -136,7 +146,7 @@ export default function StockIo() {
               </tr>
             </thead>
             <tbody>
-              {isLoading ? (
+              {showInitialLoading ? (
                 <tr>
                   <td colSpan={7} className="py-12 text-center text-slate-400">
                     로딩 중...

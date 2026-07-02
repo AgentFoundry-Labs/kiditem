@@ -8,6 +8,7 @@ import {
   ShoppingCart,
   RotateCcw,
   Package,
+  PackageCheck,
   Warehouse,
   MessageSquare,
   Settings,
@@ -19,6 +20,7 @@ import {
   Sparkles,
   Plus,
   TrendingUp,
+  PackageSearch,
   Headphones,
   AlertTriangle,
   Bot,
@@ -37,6 +39,8 @@ import {
   Zap,
   Wand2,
   Link2,
+  FileSpreadsheet,
+  Rocket,
   LogOut,
   type LucideIcon,
 } from 'lucide-react';
@@ -75,10 +79,13 @@ export const menuSections: MenuSection[] = [
       { href: '/sourcing-ai/recommendations', label: '오늘의 추천', icon: Sparkles },
       { href: '/sourcing-ai/keywords', label: '키워드 분석', icon: Search },
       { href: '/sourcing-ai/market', label: '시장 분석', icon: TrendingUp },
+      { href: '/sourcing-ai/competitor-analysis', label: '경쟁업체 분석', icon: Building2 },
+      { href: '/sourcing-ai/wing-catalog', label: '쿠팡 상품 분석', icon: PackageSearch },
       { href: '/sourcing-ai/category-sourcing', label: '카테고리 소싱', icon: Layers },
       { href: '/sourcing-ai/wholesale-search', label: '도매 상품 검색', icon: ShoppingCart },
       { href: '/sourcing-ai/validation', label: '상품 검증', icon: ClipboardList },
-      { href: '/sourcing-ai/saved', label: '보관함 / 비교함', icon: Boxes },
+      { href: '/sourcing-ai/settings', label: '소싱 설정', icon: Settings },
+      { href: '/sourcing-ai/final-selection', label: '최종 선택', icon: PackageCheck },
     ],
   },
   {
@@ -88,7 +95,7 @@ export const menuSections: MenuSection[] = [
       { href: '/product-pipeline/productgenerate', label: '상품 생성', icon: Plus },
       { href: '/product-pipeline/collected-products', label: '수집 상품', icon: Search },
       { href: '/product-pipeline/registered-products', label: '등록 상품', icon: Package },
-      { href: '/product-pipeline/detailgenerate', label: '상세 템플릿 생성', icon: Sparkles },
+      { href: '/product-pipeline/detail-template-generation', label: '상세 템플릿 생성', icon: Sparkles },
       { href: '/product-pipeline/thumbnail-ai', label: '썸네일 AI', icon: ImageIcon },
       { href: '/product-pipeline/thumbnail-generation', label: '썸네일 생성', icon: Wand2 },
     ],
@@ -123,6 +130,8 @@ export const menuSections: MenuSection[] = [
     collapsible: true,
     items: [
       { href: '/order-hub', label: '주문 처리', icon: ShoppingCart },
+      { href: '/order-collection', label: '주문수집', icon: FileSpreadsheet },
+      { href: '/rocket-orders', label: '쿠팡 로켓', icon: Rocket },
       { href: '/cs-management', label: 'CS 관리', icon: Headphones },
       { href: '/order-status-hub', label: '주문 현황', icon: ClipboardList },
       { href: '/unshipped-items', label: '미배송 조회', icon: AlertTriangle },
@@ -142,6 +151,7 @@ export const menuSections: MenuSection[] = [
     collapsible: true,
     items: [
       { href: '/outbound', label: '출고 현황', icon: Truck },
+      { href: '/coupang-shipments', label: '쿠팡 쉽먼트', icon: PackageCheck },
       { href: '/returns', label: '반품 관리', icon: RotateCcw },
       { href: '/return-scan', label: '반품 스캔', icon: ScanLine },
     ],
@@ -176,16 +186,10 @@ export const menuSections: MenuSection[] = [
   },
 ];
 
-const adsSubPaths = ['/ads/campaigns', '/ads/strategy', '/ads/benchmark', '/ads/collect'];
-
 function isItemActive(href: string, pathname: string): boolean {
   if (href === '/dashboard') return pathname === '/dashboard';
   if (href === '/agents') return pathname.startsWith('/agents') || pathname.startsWith('/workflows') || pathname.startsWith('/marketplace');
   if (href === '/agent-os') return pathname.startsWith('/agent-os');
-  if (href === '/ads') {
-    return pathname === '/ads' ||
-      (pathname.startsWith('/ads/') && !adsSubPaths.some(sub => pathname.startsWith(sub)));
-  }
   const matchesRoute = pathname === href || pathname.startsWith(href + '/');
   if (!matchesRoute) return false;
 

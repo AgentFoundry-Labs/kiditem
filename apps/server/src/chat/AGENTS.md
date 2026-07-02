@@ -1,19 +1,10 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # chat — CopilotKit Runtime + Claude CLI Adapter
 
 `src/chat/` owns the CopilotKit runtime bridge, Claude CLI adapter, and
 token-streaming SSE endpoints. It is self-contained and independent from Agent
 OS.
-
-## Folder Map
-
-```text
-chat/
-├── chat.module.ts
-├── chat.controller.ts        # POST /api/chat simple SSE endpoint
-├── chat.service.ts           # CopilotKit runtime init + Observable stream
-├── claude-cli-adapter.ts     # CopilotServiceAdapter implementation
-└── dto/chat.dto.ts
-```
 
 ## Owned Surfaces
 

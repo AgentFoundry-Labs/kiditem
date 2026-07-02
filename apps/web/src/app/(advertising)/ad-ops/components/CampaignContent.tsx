@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { RefreshCw } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { queryKeys } from "@/lib/query-keys";
 import { cn, formatKRW } from "@/lib/utils";
@@ -25,21 +26,24 @@ export default function CampaignContent({ initialCampaign }: { initialCampaign: 
   });
   const roasT = adsConfig?.roas?.thresholds ?? { excellent: 300, warning: 200, poor: 100 };
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: queryKeys.ads.campaigns(period),
     queryFn: () =>
       apiClient
         .get<AdCampaignSnapshot[]>(`/api/ads/campaigns?period=${period}`)
         .then(toCampaignsResponse),
+    placeholderData: previousData => previousData,
   });
 
   // Trends carries the account-level KPI summary from coupang_ads_daily —
   // useful as a fallback KPI surface when campaign-grain rollups are sparse
   // or fully campaign-attributed (no listing identity).
-  const { data: trends } = useQuery({
+  const { data: trends, isFetching: trendsFetching } = useQuery({
     queryKey: queryKeys.ads.trends(period),
     queryFn: () => apiClient.get<AdTrendsData>(`/api/ads/campaigns/trends?period=${period}`),
+    placeholderData: previousData => previousData,
   });
+  const isRefreshing = (isFetching || trendsFetching) && !isLoading;
 
   const campaigns = data?.campaigns ?? [];
   const campaignKpi = data?.totalKpi ?? {};
@@ -82,6 +86,14 @@ export default function CampaignContent({ initialCampaign }: { initialCampaign: 
         </div>
       </div>
 
+      {isRefreshing && (
+        <div className="flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold" style={{ background: "var(--surface-raised)", borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }} aria-live="polite">
+          <RefreshCw size={14} className="animate-spin" style={{ color: "var(--primary)" }} />
+          캠페인 데이터를 갱신 중입니다.
+        </div>
+      )}
+
+      <div className="space-y-4" aria-busy={isRefreshing}>
       {/* 캠페인 합산 KPI — 캠페인 단위 rollup. 0 이면 0 그대로 보여줌. */}
       <div>
         <div className="flex items-center gap-2 mb-2">
@@ -154,6 +166,7 @@ export default function CampaignContent({ initialCampaign }: { initialCampaign: 
       {selectedCampaign && (
         <ProductDrilldown campaignName={selectedCampaign} period={period} />
       )}
+      </div>
     </div>
   );
 }

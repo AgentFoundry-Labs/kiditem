@@ -28,9 +28,36 @@ export class AgentCatalogController {
     return this.catalog.listDefinitions();
   }
 
+  @Get('skills')
+  listSkills() {
+    return { items: this.catalog.listSkills() };
+  }
+
   @Get('instances')
   listInstances(@CurrentOrganization() organizationId: string) {
     return this.catalog.listInstances({ organizationId });
+  }
+
+  @Get('instances/:id/tool-policies')
+  async listInstanceToolPolicies(
+    @CurrentOrganization() organizationId: string,
+    @Param('id') agentInstanceId: string,
+  ) {
+    try {
+      const items = await this.catalog.listInstanceToolPolicies({
+        organizationId,
+        agentInstanceId,
+      });
+      return { items };
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.includes('not found')
+      ) {
+        throw new NotFoundException('Agent instance not found');
+      }
+      throw error;
+    }
   }
 
   // Organization-scoped but high-trust mutation: creating an AgentInstance

@@ -26,7 +26,41 @@ export type StockLedgerEntry = {
   createdBy: string;
 };
 
+export type StockAndReservedDeltas = {
+  stockDelta: number;
+  reservedDelta: number;
+};
+
+export type RocketLedgerEntry = {
+  organizationId: string;
+  inventoryId: string;
+  optionId: string;
+  eventType: string;
+  quantity: number;
+  reservedDelta: number;
+  stockDelta: number;
+  overReservationQty: number;
+  sourceActionId: string;
+  sourceType: string;
+  sourceRef: string;
+  overrideBy: string | null;
+  overrideReason: string | null;
+  createdBy: string;
+  note: string | null;
+};
+
+export type RocketLedgerSourceRow = {
+  id: string;
+  inventoryId: string;
+  optionId: string;
+  quantity: number;
+};
+
 export interface InventoryRepositoryPort {
+  runTransaction<T>(
+    op: (tx: RepositoryTransaction) => Promise<T>,
+  ): Promise<T>;
+
   updateInventoryMetadata(
     id: string,
     organizationId: string,
@@ -57,4 +91,27 @@ export interface InventoryRepositoryPort {
     tx: RepositoryTransaction,
     entry: StockLedgerEntry,
   ): Promise<StockTransactionRow>;
+
+  ensureInventoryForOption(
+    tx: RepositoryTransaction,
+    organizationId: string,
+    optionId: string,
+  ): Promise<InventoryRow>;
+
+  findRocketLedgerBySource(
+    organizationId: string,
+    sourceActionId: string,
+    eventType: string,
+  ): Promise<RocketLedgerSourceRow | null>;
+
+  applyStockAndReservedDeltas(
+    tx: RepositoryTransaction,
+    inventoryId: string,
+    deltas: StockAndReservedDeltas,
+  ): Promise<InventoryRow>;
+
+  appendRocketLedger(
+    tx: RepositoryTransaction,
+    entry: RocketLedgerEntry,
+  ): Promise<{ id: string }>;
 }

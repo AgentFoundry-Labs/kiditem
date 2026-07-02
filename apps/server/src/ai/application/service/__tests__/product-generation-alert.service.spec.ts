@@ -420,6 +420,59 @@ describe('ProductGenerationAlertService', () => {
     );
   });
 
+  it('does not persist synthetic enqueue IDs when child ledger rows were never created', async () => {
+    const childLedger = makeChildLedger();
+    childLedger.readChildStatuses.mockResolvedValueOnce({
+      detailPageStatus: 'READY',
+      thumbnailStatus: null,
+    });
+    const operationAlerts = {
+      start: vi.fn(),
+      findByOperationKey: vi.fn().mockResolvedValue(makeAlert({
+        productName: '자석 다트게임',
+        children: { detail_page: 'queued', thumbnail: 'queued' },
+        childIds: {
+          detailPageGenerationId: 'content-generation-1',
+          thumbnailGenerationId: null,
+        },
+      })),
+      progress: vi.fn(),
+      succeed: vi.fn(),
+      fail: vi.fn().mockResolvedValue(makeAlert({})),
+    };
+    const service = new ProductGenerationAlertService(operationAlerts as never, childLedger as never);
+
+    await service.markChildFinished({
+      organizationId: ORGANIZATION_ID,
+      parentOperationKey: OPERATION_KEY,
+      childKind: 'thumbnail',
+      status: 'failed',
+      childId: 'thumbnail-enqueue',
+      errorMessage: 'queue down',
+    });
+
+    expect(childLedger.readChildStatuses).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      childIds: {
+        detailPageGenerationId: 'content-generation-1',
+        thumbnailGenerationId: null,
+      },
+    });
+    expect(operationAlerts.fail).toHaveBeenCalledWith(
+      ORGANIZATION_ID,
+      OPERATION_KEY,
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          children: { detail_page: 'succeeded', thumbnail: 'failed' },
+          childIds: {
+            detailPageGenerationId: 'content-generation-1',
+            thumbnailGenerationId: null,
+          },
+        }),
+      }),
+    );
+  });
+
   it('fails parent alert after any child fails and both children are terminal', async () => {
     const childLedger = makeChildLedger();
     childLedger.readChildStatuses.mockResolvedValueOnce({

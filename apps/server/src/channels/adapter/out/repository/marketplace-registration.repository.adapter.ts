@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   MarketplaceRegistrationRepositoryPort,
+  RegisteredMarketplaceListingResult,
   RegisterConfirmedListingInput,
 } from '../../../application/port/out/repository/channel-listing.repository.port';
 
@@ -14,7 +15,7 @@ export class MarketplaceRegistrationRepositoryAdapter
   async registerConfirmedListing(
     organizationId: string,
     input: RegisterConfirmedListingInput,
-  ) {
+  ): Promise<RegisteredMarketplaceListingResult> {
     const externalId = input.externalId.trim();
     if (!externalId) throw new BadRequestException('마켓 상품번호를 입력하세요.');
 

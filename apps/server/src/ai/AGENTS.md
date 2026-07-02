@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # ai — Media AI + Agent Delegation
 
 `src/ai/` owns AI-generated media and detail-page content for the product

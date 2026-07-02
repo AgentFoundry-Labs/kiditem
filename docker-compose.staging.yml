@@ -1,55 +1,89 @@
 name: kiditem-staging
 
-services:
-  api:
-    container_name: kiditem-staging-api
-    image: ${KIDITEM_API_IMAGE:?KIDITEM_API_IMAGE is required}
-    env_file:
-      - path: ./.env.staging.api
-        required: false
-    environment:
-      NODE_ENV: production
-      PORT: 4000
-    expose:
-      - "4000"
-    restart: unless-stopped
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "node -e \"fetch('http://127.0.0.1:4000/api/auth/me').then((r)=>process.exit(r.status===401||r.status===403?0:1)).catch(()=>process.exit(1))\"",
-        ]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+x-api-service: &api-service
+  env_file:
+    - path: ./.env.staging.api
+      required: false
+  environment:
+    NODE_ENV: production
+    PORT: 4000
+    AGENT_RUNTIME_WORKER_ENABLED: "0"
+  expose:
+    - "4000"
+  restart: unless-stopped
+  healthcheck:
+    test:
+      [
+        "CMD-SHELL",
+        "node -e \"fetch('http://127.0.0.1:4000/api/auth/me').then((r)=>process.exit(r.status===401||r.status===403?0:1)).catch(()=>process.exit(1))\"",
+      ]
+    interval: 30s
+    timeout: 5s
+    retries: 5
+    start_period: 30s
 
-  web:
-    container_name: kiditem-staging-web
-    image: ${KIDITEM_WEB_IMAGE:?KIDITEM_WEB_IMAGE is required}
-    env_file:
-      - path: ./.env.staging.web
-        required: false
-    environment:
-      NODE_ENV: production
-      PORT: 3000
-      HOSTNAME: 0.0.0.0
-    expose:
-      - "3000"
-    restart: unless-stopped
-    depends_on:
-      api:
-        condition: service_started
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "node -e \"fetch('http://127.0.0.1:3000/login').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
-        ]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+x-web-service: &web-service
+  env_file:
+    - path: ./.env.staging.web
+      required: false
+  environment:
+    NODE_ENV: production
+    PORT: 3000
+    HOSTNAME: 0.0.0.0
+  expose:
+    - "3000"
+  restart: unless-stopped
+  healthcheck:
+    test:
+      [
+        "CMD-SHELL",
+        "node -e \"fetch('http://127.0.0.1:3000/login').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+      ]
+    interval: 30s
+    timeout: 5s
+    retries: 5
+    start_period: 30s
+
+x-worker-service: &worker-service
+  env_file:
+    - path: ./.env.staging.api
+      required: false
+  environment:
+    NODE_ENV: production
+    AGENT_RUNTIME_WORKER_ENABLED: "1"
+  command: ["node", "dist/worker.js"]
+  restart: unless-stopped
+
+services:
+  api-blue:
+    <<: *api-service
+    container_name: kiditem-staging-api-blue
+    image: ${KIDITEM_BLUE_API_IMAGE:?KIDITEM_BLUE_API_IMAGE is required}
+
+  web-blue:
+    <<: *web-service
+    container_name: kiditem-staging-web-blue
+    image: ${KIDITEM_BLUE_WEB_IMAGE:?KIDITEM_BLUE_WEB_IMAGE is required}
+
+  worker-blue:
+    <<: *worker-service
+    container_name: kiditem-staging-worker-blue
+    image: ${KIDITEM_BLUE_API_IMAGE:?KIDITEM_BLUE_API_IMAGE is required}
+
+  api-green:
+    <<: *api-service
+    container_name: kiditem-staging-api-green
+    image: ${KIDITEM_GREEN_API_IMAGE:?KIDITEM_GREEN_API_IMAGE is required}
+
+  web-green:
+    <<: *web-service
+    container_name: kiditem-staging-web-green
+    image: ${KIDITEM_GREEN_WEB_IMAGE:?KIDITEM_GREEN_WEB_IMAGE is required}
+
+  worker-green:
+    <<: *worker-service
+    container_name: kiditem-staging-worker-green
+    image: ${KIDITEM_GREEN_API_IMAGE:?KIDITEM_GREEN_API_IMAGE is required}
 
   nginx:
     container_name: kiditem-staging-nginx
@@ -57,13 +91,8 @@ services:
     ports:
       - "127.0.0.1:8080:80"
     volumes:
-      - ./deploy/staging/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deployments/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     restart: unless-stopped
-    depends_on:
-      api:
-        condition: service_started
-      web:
-        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/login >/dev/null"]
       interval: 30s

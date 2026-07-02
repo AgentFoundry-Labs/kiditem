@@ -196,25 +196,27 @@ npm run db:test:down       # 종료 + 볼륨 자동 소멸 (tmpfs)
 - `test-helpers/real-prisma.ts::assertTestDbUrl` — DATABASE_URL 이 5434 또는 `kiditem_test` 포함 아니면 throw. dev DB 에 TRUNCATE 실수 방지.
 - `vitest.config.integration.ts` — `fileParallelism: false` + `isolate: false` 로 단일 fork serial 실행 (테스트 사이 reset 만 하면 충분).
 
-## CI 통합 (future)
+## CI 통합
 
-현재 `.github/workflows/` 없음. 추가 시 Postgres service 컨테이너로 동일 compose 재사용 가능:
+PR 은 `.github/workflows/pr-checks.yml` 에서 최소 운영 게이트를 통과해야 한다.
 
-```yaml
-# .github/workflows/test.yml (예시)
-jobs:
-  integration:
-    services:
-      postgres:
-        image: postgres:17
-        env: { POSTGRES_USER: kiditem_test, POSTGRES_PASSWORD: kiditem_test, POSTGRES_DB: kiditem_test }
-        ports: ["5434:5432"]
-        options: --health-cmd="pg_isready -U kiditem_test" ...
-    steps:
-      - uses: actions/checkout@v4
-      - run: npm ci
-      - run: npm run db:test:prepare
-      - run: npm run test:integration
+| Job | 역할 |
+|---|---|
+| `GitHub Actions lint` | workflow syntax/actionlint 검증 |
+| `Deploy shell lint` | 배포 shell script `bash -n` + `shellcheck` |
+| `Lint apps/server`, `Lint apps/web` | workspace lint |
+| `Build apps/server`, `Build apps/web`, `Build packages/shared` | deployable package build |
+| `PR review guardrails` | reconstruction/release/convention/script scanner |
+
+Real Postgres integration 은 아직 모든 PR 의 기본 게이트가 아니다. DB 동시성,
+tenant isolation, raw SQL, migration 위험을 건드리는 PR 은 아래 명령을 focused
+gate 로 실행하고 PR 본문에 기록한다.
+
+```bash
+npm run db:test:up
+npm run db:test:prepare
+npm run test:integration
+npm run db:test:down
 ```
 
 ## FAQ

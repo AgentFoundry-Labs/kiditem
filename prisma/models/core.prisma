@@ -34,7 +34,7 @@ model Organization {
   contentGenerationSources     ContentGenerationSource[]
   contentAssets                ContentAsset[]
   contentGenerationAssetUsages ContentGenerationAssetUsage[]
-  contentWorkspaces       ContentWorkspace[]
+  contentWorkspaces            ContentWorkspace[]
   productPreparations          ProductPreparation[]
   detailPageArtifacts          DetailPageArtifact[]
   detailPageRevisions          DetailPageRevision[]
@@ -54,6 +54,10 @@ model Organization {
   agentAuthorizationEvents  AgentAuthorizationEvent[]
   agentApprovalRequests     AgentApprovalRequest[]
   agentCostEvents           AgentCostEvent[]
+  agentConversations        AgentConversation[]
+  agentMessages             AgentMessage[]
+  agentToolInvocations      AgentToolInvocation[]
+  agentArtifacts            AgentArtifact[]
 
   // Order domain (Plan A.5)
   orderLineItems       OrderLineItem[]
@@ -69,6 +73,11 @@ model Organization {
   stockTransfers    StockTransfer[]
   stockTransactions StockTransaction[]
   stockAudits       StockAudit[]
+  sellpiaStockSnapshots       SellpiaStockSnapshot[]
+  sellpiaStockSnapshotItems   SellpiaStockSnapshotItem[]
+  sellpiaNewProductCandidates SellpiaNewProductCandidate[]
+  sellpiaReceiptUploadBatches SellpiaReceiptUploadBatch[]
+  rocketInventoryLedger       RocketInventoryLedger[]
 
   // Logistics
   shipments       Shipment[]
@@ -88,7 +97,9 @@ model Organization {
   categoryMappings CategoryMapping[]
 
   // Analytics
-  salesPlans SalesPlan[]
+  salesPlans                 SalesPlan[]
+  rocketSupplyDailySnapshots RocketSupplyDailySnapshot[]
+  rocketPurchaseOrders       RocketPurchaseOrder[]
 
   // Ontology
   businessRules  BusinessRule[]
@@ -129,8 +140,9 @@ model Organization {
   gradeHistory GradeHistory[] // Task 8 Step 2 adds organizationId to GradeHistory
 
   // Sourcing (issue #192)
-  sourcingCandidates SourcingCandidate[]
-  candidateImages    CandidateImage[]
+  sourcingCandidates         SourcingCandidate[]
+  candidateImages            CandidateImage[]
+  sourcingWorkspaceSnapshots SourcingWorkspaceSnapshot[]
 
   @@map("organizations")
 }
@@ -160,7 +172,7 @@ model User {
   thumbnailGenerationEvents      ThumbnailGenerationEvent[] @relation("ThumbnailGenerationEventActor")
   triggeredContentGenerations    ContentGeneration[]        @relation("ContentGenerationTriggeredBy")
   createdContentAssets           ContentAsset[]             @relation("ContentAssetCreatedBy")
-  createdContentWorkspaces  ContentWorkspace[]    @relation("ContentWorkspaceCreatedBy")
+  createdContentWorkspaces       ContentWorkspace[]         @relation("ContentWorkspaceCreatedBy")
   createdProductPreparations     ProductPreparation[]       @relation("ProductPreparationCreatedBy")
   createdDetailPageArtifacts     DetailPageArtifact[]       @relation("DetailPageArtifactCreatedBy")
   createdDetailPageRevisions     DetailPageRevision[]       @relation("DetailPageRevisionCreatedBy")
@@ -174,6 +186,7 @@ model User {
   requestedAgentApprovalRequests    AgentApprovalRequest[]    @relation("AgentApprovalRequestedBy")
   approverAgentApprovalRequests     AgentApprovalRequest[]    @relation("AgentApprovalApprover")
   decidedAgentApprovalRequests      AgentApprovalRequest[]    @relation("AgentApprovalDecidedBy")
+  createdAgentConversations         AgentConversation[]       @relation("AgentConversationCreatedBy")
 
   // Sourcing (issue #192)
   rejectedSourcingCandidates  SourcingCandidate[] @relation("SourcingCandidateRejectedBy")
@@ -333,7 +346,7 @@ model MasterProduct {
 
   contentGenerationGroups ContentGenerationGroup[]
   detailPageArtifacts     DetailPageArtifact[]     @relation("DetailPageArtifactTargetMaster")
-  contentWorkspaces  ContentWorkspace[]  @relation("ContentWorkspaceTargetMaster")
+  contentWorkspaces       ContentWorkspace[]       @relation("ContentWorkspaceTargetMaster")
   productPreparations     ProductPreparation[]
   thumbnailAnalyses       ThumbnailAnalysis[]
   thumbnailGenerations    ThumbnailGeneration[]
@@ -448,6 +461,9 @@ model ProductOption {
   stockTransfers     StockTransfer[]
   pickingItems       PickingItem[]
   returnTransfers    ReturnTransfer[]
+  sellpiaStockSnapshotItems   SellpiaStockSnapshotItem[]
+  sellpiaNewProductCandidates SellpiaNewProductCandidate[]
+  rocketInventoryLedger       RocketInventoryLedger[]
   purchaseOrderItems PurchaseOrderItem[]
   supplierProducts   SupplierProduct[]
   shipments          Shipment[]

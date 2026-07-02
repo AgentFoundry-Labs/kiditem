@@ -37,6 +37,10 @@ describe('data migration registry', () => {
       'v0.1.2:001_backfill_channel_listing_accounts',
       'v0.1.2:002_rename_registration_workspaces_to_content_workspaces',
       'v0.1.2:003_retire_fixed_ai_agent_os_requests',
+      'v0.1.3:001_remove_legacy_sourcing_workspace_snapshot_payloads',
+      'v0.1.4:001_record_agent_os_operator_backbone_release',
+      'v0.1.6:001_record_rocket_read_model_release',
+      'v0.1.7:001_record_sellpia_rocket_inventory_sync_release',
     ]);
   });
 

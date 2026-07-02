@@ -50,6 +50,15 @@ export class SourcingAgentGatewayAdapter implements SourcingAgentGatewayPort {
         url: request.url,
         organization_id: request.organizationId,
       },
+      ...(request.conversationId
+        ? { conversationId: request.conversationId }
+        : {}),
+      ...(request.parentRequestId
+        ? { parentRequestId: request.parentRequestId }
+        : {}),
+      ...(request.delegatedByRunId
+        ? { delegatedByRunId: request.delegatedByRunId }
+        : {}),
       ...(request.triggeredByUserId
         ? { requestedByUserId: request.triggeredByUserId }
         : {}),
@@ -77,7 +86,7 @@ export class SourcingAgentGatewayAdapter implements SourcingAgentGatewayPort {
         sourceType: 'master_product',
         sourceId: request.masterId,
         actorUserId: null,
-        href: `/products/${request.masterId}`,
+        href: `/product-hub/${request.masterId}`,
         metadata: { error: errorMessage },
       });
     }

@@ -18,6 +18,7 @@ export default function TabLayout({
   defaultTab,
   activeTab: controlledTab,
   onTabChange,
+  wrapTabs = false,
 }: {
   title: string;
   titleIcon?: LucideIcon;
@@ -25,6 +26,7 @@ export default function TabLayout({
   defaultTab?: string;
   activeTab?: string;
   onTabChange?: (tabId: string) => void;
+  wrapTabs?: boolean;
 }) {
   const [internalTab, setInternalTab] = useState(defaultTab || tabs[0]?.id || "");
   const activeTab = controlledTab ?? internalTab;
@@ -33,6 +35,7 @@ export default function TabLayout({
     onTabChange?.(id);
   };
   const scrollRef = useRef<HTMLDivElement>(null);
+  const showScrollControls = tabs.length > 5 && !wrapTabs;
 
   const scroll = (dir: "left" | "right") => {
     if (!scrollRef.current) return;
@@ -53,15 +56,24 @@ export default function TabLayout({
       </div>
 
       <div className="relative flex items-center gap-1">
-        {tabs.length > 5 && (
-          <button onClick={() => scroll("left")} className="shrink-0 w-6 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded">
+        {showScrollControls && (
+          <button
+            type="button"
+            aria-label="이전 탭"
+            onClick={() => scroll("left")}
+            className="shrink-0 w-6 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded"
+          >
             <ChevronLeft size={16} />
           </button>
         )}
         <div
           ref={scrollRef}
-          className="flex items-center gap-1 p-1 bg-slate-100/80 rounded-lg overflow-x-auto flex-1"
-          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+          data-testid="tab-layout-tabs"
+          className={cn(
+            'flex items-center gap-1 p-1 bg-slate-100/80 rounded-lg flex-1',
+            wrapTabs ? 'flex-wrap overflow-hidden' : 'overflow-x-auto',
+          )}
+          style={wrapTabs ? undefined : { scrollbarWidth: "none", msOverflowStyle: "none" }}
         >
           {tabs.map((tab) => {
             const Icon = tab.icon;
@@ -75,14 +87,19 @@ export default function TabLayout({
                   isActive ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700',
                 )}
               >
-                {Icon && <Icon size={15} className={cn(isActive && 'text-blue-500')} />}
+                {Icon && <Icon size={15} className={cn(isActive && 'text-purple-600')} />}
                 {tab.label}
               </button>
             );
           })}
         </div>
-        {tabs.length > 5 && (
-          <button onClick={() => scroll("right")} className="shrink-0 w-6 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded">
+        {showScrollControls && (
+          <button
+            type="button"
+            aria-label="다음 탭"
+            onClick={() => scroll("right")}
+            className="shrink-0 w-6 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded"
+          >
             <ChevronRight size={16} />
           </button>
         )}

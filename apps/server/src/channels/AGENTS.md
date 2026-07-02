@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # channels — Marketplace Sync + Reconciliation
 
 `src/channels/` owns marketplace account settings, Coupang product/order/return

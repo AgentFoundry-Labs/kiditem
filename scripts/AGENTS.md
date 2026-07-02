@@ -1,17 +1,9 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # scripts — Durable Repo Automation
 
 `scripts/` owns durable repo automation. Human-facing inventory lives in
 `scripts/README.md`; this file is the agent-facing contract for editing scripts.
-
-## Folder Map
-
-```text
-scripts/
-├── __tests__/                    # script behavior tests
-├── check-script-inventory.mjs    # script ownership guard
-├── data-migrations/              # release-scoped data migrations
-└── README.md                     # human script catalogue
-```
 
 ## Owned Surfaces
 

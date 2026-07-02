@@ -6,7 +6,7 @@ import { SKIP_AUTH_KEY } from '../decorators/skip-auth.decorator';
 /**
  * 모든 도메인 라우트에 전역으로 걸리는 가드.
  * - `@SkipAuth()` 메타데이터가 있으면 통과
- * - `req.authUser` 가 없으면 401 (auth_required)
+ * - `req.authUser` 가 없으면 401 (auth_required 또는 middleware 분류 reason)
  * - `req.authUser.organizationId` 가 null 이면 401 (no_organization_context)
  *
  * HTTP 컨텍스트가 아닌 경우(예: SSE 구독, WS)는 통과시킨다.
@@ -26,7 +26,7 @@ export class OrganizationScopeGuard implements CanActivate {
     if (skip) return true;
 
     const req = context.switchToHttp().getRequest<Request>();
-    if (!req.authUser) throw new UnauthorizedException('auth_required');
+    if (!req.authUser) throw new UnauthorizedException(req.authFailureReason ?? 'auth_required');
     if (!req.authUser.organizationId) throw new UnauthorizedException('no_organization_context');
     return true;
   }

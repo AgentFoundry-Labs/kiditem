@@ -9,7 +9,7 @@ const makeRun = (overrides = {}) => ({
   seq: 1,
   status: 'running' as const,
   title: 'Test',
-  deepLink: '/workflows/runs/abc',
+  deepLink: '/workflows',
   actorUserId: null,
   visibility: 'organization' as const,
   createdAt: '2026-04-15T00:00:00Z',

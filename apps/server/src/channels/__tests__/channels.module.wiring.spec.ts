@@ -1,8 +1,10 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
+import { AgentOsModule } from '../../agent-os/agent-os.module';
 import { AutomationModule } from '../../automation/automation.module';
 import { ProductsModule } from '../../products/products.module';
 import { ChannelsModule } from '../channels.module';
+import { ChannelRegistrationCapabilityAdapter } from '../adapter/in/agent/channel-registration-capability.adapter';
 import { ChannelAccountRepositoryAdapter } from '../adapter/out/repository/channel-account.repository.adapter';
 import { ChannelDashboardRepositoryAdapter } from '../adapter/out/repository/channel-dashboard.repository.adapter';
 import { ChannelListingRepositoryAdapter } from '../adapter/out/repository/channel-listing.repository.adapter';
@@ -15,6 +17,8 @@ import { MarketplaceRegistrationRepositoryAdapter } from '../adapter/out/reposit
 import { ChannelsProductMasterBarcodeAdapter } from '../adapter/out/products/product-master-barcode.adapter';
 import { CoupangProviderAdapter } from '../adapter/out/coupang/coupang-provider.adapter';
 import { ChannelsOperationAlertAdapter } from '../adapter/out/automation/operation-alert.adapter';
+import { ChannelRegistrationRuntimeHandler } from '../adapter/out/runtime/channel-registration-runtime.handler';
+import { CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT } from '../application/port/in/capability/marketplace-registration.port';
 import {
   CHANNEL_ACCOUNT_REPOSITORY_PORT,
   COUPANG_CREDENTIALS_PORT,
@@ -56,6 +60,7 @@ function expectBinding(
 describe('ChannelsModule canonical owner wiring', () => {
   it('imports owner modules for consumer adapters', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, ChannelsModule) ?? [];
+    expect(imports).toContain(AgentOsModule);
     expect(imports).toContain(AutomationModule);
     expect(imports).toContain(ProductsModule);
   });
@@ -75,6 +80,8 @@ describe('ChannelsModule canonical owner wiring', () => {
     expect(providers).toContain(CoupangProviderAdapter);
     expect(providers).toContain(ChannelsOperationAlertAdapter);
     expect(providers).toContain(ChannelsProductMasterBarcodeAdapter);
+    expect(providers).toContain(ChannelRegistrationCapabilityAdapter);
+    expect(providers).toContain(ChannelRegistrationRuntimeHandler);
 
     expectBinding(providers, CHANNEL_ACCOUNT_REPOSITORY_PORT, ChannelAccountRepositoryAdapter);
     expectBinding(providers, COUPANG_CREDENTIALS_PORT, ChannelAccountRepositoryAdapter);
@@ -112,6 +119,11 @@ describe('ChannelsModule canonical owner wiring', () => {
       providers,
       CHANNELS_PRODUCT_MASTER_BARCODE_PORT,
       ChannelsProductMasterBarcodeAdapter,
+    );
+    expectBinding(
+      providers,
+      CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT,
+      ChannelRegistrationCapabilityAdapter,
     );
   });
 });

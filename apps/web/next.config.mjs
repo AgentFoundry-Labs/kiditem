@@ -1,4 +1,5 @@
 /** @type {import('next').NextConfig} */
+import { fileURLToPath } from 'node:url';
 
 // Strip a single trailing slash so rewrite destinations don't double up the
 // slash between backend base and path (e.g. `http://host:4000//api/...`).
@@ -9,10 +10,15 @@ function stripTrailingSlash(value) {
 const backendBase = stripTrailingSlash(
   process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000',
 );
+const proxyAllApi = process.env.KIDITEM_PROXY_ALL_API === 'true';
+const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 
 const nextConfig = {
   output: 'standalone',
   transpilePackages: ['@kiditem/templates'],
+  turbopack: {
+    root: repoRoot,
+  },
   async headers() {
     return [
       {
@@ -45,6 +51,14 @@ const nextConfig = {
         source: '/api/chat/copilot/:path*',
         destination: `${backendBase}/api/chat/copilot/:path*`,
       },
+      ...(proxyAllApi
+        ? [
+            {
+              source: '/api/:path*',
+              destination: `${backendBase}/api/:path*`,
+            },
+          ]
+        : []),
     ];
   },
 };

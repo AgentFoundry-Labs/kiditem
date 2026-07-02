@@ -290,4 +290,111 @@ describe('Inventory flow (PG integration)', () => {
     const tx = await prisma.stockTransaction.findFirst({ where: { optionId: simple.option.id } });
     expect(tx?.createdBy).toBe('specific-user');
   });
+
+  it('#12 Rocket reserve is idempotent and issue consumes reservation + stock', async () => {
+    const simple = await seedOption(false, 10);
+
+    const reserved = await inventory.applyRocketInventoryEvent({
+      organizationId,
+      userId,
+      inventoryId: simple.inventory.id,
+      optionId: simple.option.id,
+      eventType: 'reserve',
+      quantity: 4,
+      sourceActionId: 'rocket-confirm:po-1:barcode-1:1',
+      sourceType: 'rocket_confirm',
+      sourceRef: 'po-1/barcode-1',
+    });
+    const duplicate = await inventory.applyRocketInventoryEvent({
+      organizationId,
+      userId,
+      inventoryId: simple.inventory.id,
+      optionId: simple.option.id,
+      eventType: 'reserve',
+      quantity: 4,
+      sourceActionId: 'rocket-confirm:po-1:barcode-1:1',
+      sourceType: 'rocket_confirm',
+      sourceRef: 'po-1/barcode-1',
+    });
+
+    expect(reserved.alreadyApplied).toBe(false);
+    expect(duplicate).toEqual({ ledgerId: reserved.ledgerId, alreadyApplied: true });
+    let inv = await prisma.inventory.findUnique({ where: { id: simple.inventory.id } });
+    expect(inv?.currentStock).toBe(10);
+    expect(inv?.reservedStock).toBe(4);
+    expect(await prisma.rocketInventoryLedger.count({ where: { optionId: simple.option.id } })).toBe(1);
+    expect(await prisma.stockTransaction.count({ where: { optionId: simple.option.id } })).toBe(0);
+
+    await inventory.applyRocketInventoryEvent({
+      organizationId,
+      userId,
+      inventoryId: simple.inventory.id,
+      optionId: simple.option.id,
+      eventType: 'issue',
+      quantity: 3,
+      sourceActionId: 'rocket-shipment:ship-1',
+      sourceType: 'rocket_shipment',
+      sourceRef: 'ship-1',
+    });
+
+    inv = await prisma.inventory.findUnique({ where: { id: simple.inventory.id } });
+    expect(inv?.currentStock).toBe(7);
+    expect(inv?.reservedStock).toBe(1);
+    expect(await prisma.rocketInventoryLedger.count({ where: { optionId: simple.option.id } })).toBe(2);
+    const stockTx = await prisma.stockTransaction.findFirst({
+      where: { optionId: simple.option.id, type: 'ISSUE' },
+    });
+    expect(stockTx?.quantity).toBe(3);
+    expect(stockTx?.relatedId).toBe('rocket-shipment:ship-1');
+  });
+
+  it('#13 Rocket return restock updates bundle availability', async () => {
+    const simple = await seedOption(false, 0);
+    const bundle = await seedOption(true, 0);
+    await bindBundle(bundle.option.id, simple.option.id, 1);
+    await inventory.receive(simple.inventory.id, { quantity: 2 }, organizationId, userId);
+    await inventory.applyRocketInventoryEvent({
+      organizationId,
+      userId,
+      inventoryId: simple.inventory.id,
+      optionId: simple.option.id,
+      eventType: 'reserve',
+      quantity: 1,
+      sourceActionId: 'rocket-confirm:po-2:barcode-1:1',
+      sourceType: 'rocket_confirm',
+      sourceRef: 'po-2/barcode-1',
+    });
+    await inventory.applyRocketInventoryEvent({
+      organizationId,
+      userId,
+      inventoryId: simple.inventory.id,
+      optionId: simple.option.id,
+      eventType: 'issue',
+      quantity: 1,
+      sourceActionId: 'rocket-shipment:ship-2',
+      sourceType: 'rocket_shipment',
+      sourceRef: 'ship-2',
+    });
+
+    let updatedBundle = await prisma.productOption.findUnique({ where: { id: bundle.option.id } });
+    expect(updatedBundle?.availableStock).toBe(1);
+
+    await inventory.applyRocketInventoryEvent({
+      organizationId,
+      userId,
+      inventoryId: simple.inventory.id,
+      optionId: simple.option.id,
+      eventType: 'return_restock',
+      quantity: 1,
+      sourceActionId: 'rocket-return:return-1',
+      sourceType: 'rocket_return',
+      sourceRef: 'return-1',
+    });
+
+    const inv = await prisma.inventory.findUnique({ where: { id: simple.inventory.id } });
+    expect(inv?.currentStock).toBe(2);
+    expect(inv?.reservedStock).toBe(0);
+    updatedBundle = await prisma.productOption.findUnique({ where: { id: bundle.option.id } });
+    expect(updatedBundle?.availableStock).toBe(2);
+  });
 });

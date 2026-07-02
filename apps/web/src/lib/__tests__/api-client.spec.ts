@@ -187,6 +187,17 @@ describe('apiClient HTTP method envelopes', () => {
       detail: 'API error: 500',
     });
   });
+
+  it('wraps network/CORS fetch failures with an actionable ApiError', async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+    await expect(apiClient.get('/api/products')).rejects.toMatchObject({
+      status: 0,
+      code: 'network_error',
+      detail: 'API 서버에 연결하지 못했습니다. 백엔드 실행 상태 또는 CORS 설정을 확인해주세요.',
+    });
+  });
 });
 
 describe('apiClient — 401 interceptor', () => {
@@ -284,6 +295,28 @@ describe('apiClient — 401 interceptor', () => {
     await expect(apiClient.get('/api/foo')).rejects.toMatchObject({
       status: 401,
       code: 'no_organization_context',
+    });
+
+    expect(refreshOrFailMock).not.toHaveBeenCalled();
+    expect(triggerSignOutMock).not.toHaveBeenCalled();
+  });
+
+  it('AC4b: GET 401 auth_user_not_mirrored -> NO signOut, throw actionable ApiError', async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(401, {
+        statusCode: 401,
+        error: 'Unauthorized',
+        message: 'auth_user_not_mirrored',
+        timestamp: '2026-05-21T00:00:00Z',
+        path: '/api/auth/me',
+      }),
+    );
+
+    await expect(apiClient.get('/api/auth/me')).rejects.toMatchObject({
+      status: 401,
+      code: 'auth_user_not_mirrored',
+      detail: '로그인 계정이 KidItem 사용자로 연결되지 않았습니다. 관리자에게 사용자 동기화를 요청해주세요.',
     });
 
     expect(refreshOrFailMock).not.toHaveBeenCalled();
@@ -413,6 +446,8 @@ describe('api base helpers', () => {
     expect(normalizeLoopbackApiBase('http://localhost:4000', '127.0.0.1'))
       .toBe('http://127.0.0.1:4000');
     expect(normalizeLoopbackApiBase('http://127.0.0.1:4000', 'localhost'))
+      .toBe('http://localhost:4000');
+    expect(normalizeLoopbackApiBase('http://localhost:4000', '0.0.0.0'))
       .toBe('http://localhost:4000');
     expect(normalizeLoopbackApiBase('https://api.kiditem.local', 'localhost'))
       .toBe('https://api.kiditem.local');

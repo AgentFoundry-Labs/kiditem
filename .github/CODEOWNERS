@@ -1,0 +1,26 @@
+# KidItem review routing.
+# The repository currently has no GitHub teams attached. Reintroduce team
+# ownership after AgentFoundry-Labs teams are created and visible to this repo.
+
+* @yhc125
+
+.github/ @yhc125
+deploy/ @yhc125
+docker-compose*.yml @yhc125
+Dockerfile @yhc125
+infra/ @yhc125
+
+apps/server/ @yhc125 @parkerynch
+prisma/ @yhc125
+packages/shared/ @yhc125 @parkerynch
+
+apps/web/ @yhc125 @parkerynch
+packages/templates/ @yhc125 @parkerynch
+
+agents/ @yhc125
+scripts/ @yhc125
+extensions/ @yhc125 @parkerynch
+
+AGENTS.md @yhc125
+CLAUDE.md @yhc125
+docs/ @yhc125

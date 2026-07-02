@@ -1,5 +1,6 @@
 export const KIDITEM_EXTENSION_ID_KEY = 'kiditem-ext-id';
 export const KIDITEM_SOURCING_EXTENSION_ID_KEY = 'kiditem-sourcing-ext-id';
+export const KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY = 'kiditem-order-ext-id';
 
 type ChromeRuntime = {
   runtime?: {
@@ -15,26 +16,45 @@ function getChrome(): ChromeRuntime | undefined {
   return (window as WindowWithChrome).chrome;
 }
 
+export function isChromeExtensionRuntimeAvailable(): boolean {
+  return typeof getChrome()?.runtime?.sendMessage === 'function';
+}
+
 export function sendToExtension<TResponse = unknown>(
   id: string,
   message: unknown,
+  timeoutMs = 15000,
 ): Promise<TResponse> {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const settle = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      fn();
+    };
+    const timeout = window.setTimeout(() => {
+      settle(() => reject(new Error('익스텐션 응답 시간이 초과되었습니다.')));
+    }, timeoutMs);
+
     try {
       const chrome = getChrome();
       if (!chrome?.runtime?.sendMessage) {
-        reject(new Error('Chrome 익스텐션 API 미지원'));
+        settle(() => reject(new Error('Chrome 익스텐션 API 미지원')));
         return;
       }
       chrome.runtime.sendMessage(id, message, (response: unknown) => {
-        if (chrome.runtime?.lastError) {
-          reject(new Error(chrome.runtime.lastError.message ?? '익스텐션 통신 실패'));
+        const lastError = chrome.runtime?.lastError;
+        if (lastError) {
+          settle(() =>
+            reject(new Error(lastError.message ?? '익스텐션 통신 실패')),
+          );
           return;
         }
-        resolve(response as TResponse);
+        settle(() => resolve(response as TResponse));
       });
     } catch (error) {
-      reject(error instanceof Error ? error : new Error(String(error)));
+      settle(() => reject(error instanceof Error ? error : new Error(String(error))));
     }
   });
 }
@@ -57,7 +77,7 @@ async function detectExtensionIdWithHandshake(options: DetectExtensionOptions): 
 
   const tryPing = async (id: string): Promise<boolean> => {
     try {
-      const response = await sendToExtension<ExtensionPingResponse>(id, { action: 'ping' });
+      const response = await sendToExtension<ExtensionPingResponse>(id, { action: 'ping' }, options.timeoutMs);
       return !!response?.success && options.accepts(response);
     } catch {
       return false;
@@ -126,5 +146,18 @@ export async function detectSourcingExtensionId(timeoutMs = 1200): Promise<strin
     responseType: 'kiditem:sourcing-ext-id',
     timeoutMs,
     accepts: (response) => response.capabilities?.sourcingProductScraper === true,
+  });
+}
+
+export async function detectOrderCollectionExtensionId(
+  timeoutMs = 1200,
+  requiredCapability = 'orderCollectionIcecreamMall',
+): Promise<string | null> {
+  return detectExtensionIdWithHandshake({
+    storageKey: KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY,
+    requestType: 'kiditem:request-order-ext-id',
+    responseType: 'kiditem:order-ext-id',
+    timeoutMs,
+    accepts: (response) => response.capabilities?.[requiredCapability] === true,
   });
 }

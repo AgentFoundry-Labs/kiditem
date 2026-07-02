@@ -25,14 +25,14 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Domain | Models |
 |---|---:|
 | [Advertising](erd/advertising.md) | 5 |
-| [AgentOS](erd/agentos.md) | 13 |
+| [AgentOS](erd/agentos.md) | 17 |
 | [AI](erd/ai.md) | 18 |
-| [Channels](erd/channels.md) | 8 |
+| [Channels](erd/channels.md) | 10 |
 | [Core](erd/core.md) | 13 |
 | [Finance](erd/finance.md) | 5 |
-| [Inventory](erd/inventory.md) | 8 |
+| [Inventory](erd/inventory.md) | 13 |
 | [Orders](erd/orders.md) | 9 |
-| [Sourcing](erd/sourcing.md) | 2 |
+| [Sourcing](erd/sourcing.md) | 3 |
 | [Supply](erd/supply.md) | 6 |
 | [System](erd/system.md) | 9 |
 
@@ -46,16 +46,20 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ExecutionWorker | Advertising | `execution_workers` | - |
 | ScrapeTarget | Advertising | `scrape_targets` | - |
 | AgentApprovalRequest | AgentOS | `agent_approval_requests` | Human approval state. While pending, AgentRunRequest.status = requires_approval. |
+| AgentArtifact | AgentOS | `agent_artifacts` | User-visible output card linked to task, tool, or domain record. |
 | AgentAuthorizationEvent | AgentOS | `agent_authorization_events` | Authorization audit. Logged before, during, and outside runs (eg. admin policy widening). |
+| AgentConversation | AgentOS | `agent_conversations` | User-facing Agent OS conversation thread. |
 | AgentCostEvent | AgentOS | `agent_cost_events` | Cost ledger source of truth. Insert + AgentRuntimeState aggregate update share one transaction. |
 | AgentInstance | AgentOS | `agent_instances` | Organization-owned runnable subject. Type must match the code-owned Agent Definition Registry. |
 | AgentInstanceToolPolicy | AgentOS | `agent_instance_tool_policies` | Per-instance override for tool policy. Registry defaults are code-owned; DB stores organization overrides. |
+| AgentMessage | AgentOS | `agent_messages` | Visible conversation message tied to user, Operator, agent, or tool output. |
 | AgentRun | AgentOS | `agent_runs` | Accepted execution attempt. Replaces HeartbeatRun. Always starts at status="running"; queue state lives on AgentRunRequest. |
 | AgentRunEvent | AgentOS | `agent_run_events` | Run-local event timeline (status, tool, model, safety, fallback). Bulk logs go to external store via logRef. |
 | AgentRunRequest | AgentOS | `agent_run_requests` | Durable request inbox + queue + dedupe + audit. Replaces AgentWakeupRequest. Queue state lives here, not on AgentRun. |
 | AgentRuntimeState | AgentOS | `agent_runtime_states` | Frequently-changing per-instance runtime state (last run, totals, cached aggregates). 1:1 with AgentInstance. |
 | AgentTaskSession | AgentOS | `agent_task_sessions` | Per-task durable session. taskKey defaults to "default" only at API boundary. |
 | AgentToolDefinition | AgentOS | `agent_tool_definitions` | Catalog of business tools agents may invoke. KidItem ships a curated set; not a generic HTTP/DB tool marketplace. |
+| AgentToolInvocation | AgentOS | `agent_tool_invocations` | Durable capability/tool invocation audit record. |
 | WorkflowRun | AgentOS | `workflow_runs` | Workflow run record. Workflow runner triggers Agent OS via AgentRunnerPort with sourceWorkflowRunId. |
 | WorkflowTemplate | AgentOS | `workflow_templates` | Workflow definition. Trigger config + nodes/edges. |
 | ContentAsset | AI | `content_assets` | Generated/editable media workspace asset. Product gallery adoption copies selected rows into MasterProductImage. |
@@ -84,6 +88,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ChannelReconciliationRun | Channels | `channel_reconciliation_runs` | 채널-KidItem 상품 매칭 스캔 실행 이력. 실제 연결 source of truth 는 ChannelListing / ChannelListingOption. |
 | ChannelScrapeRun | Channels | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
 | ChannelScrapeSnapshot | Channels | `channel_scrape_snapshots` | 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존. |
+| RocketPurchaseOrder | Channels | `rocket_purchase_orders` | 쿠팡 로켓 발주 단건(per-PO) 상세 — 매출분석 드릴다운(일자→발주→품목)용. items 는 발주서 품목(SKU) 라인 JSON(표시 전용). |
+| RocketSupplyDailySnapshot | Channels | `rocket_supply_daily_snapshots` | 쿠팡 로켓(공급사 발주) 일별 매출 fact. po-web 발주리스트의 발주금액(공급가)을 입고예정일(KST) 기준으로 집계한 값으로, 윙 매출과 분리된 로켓 매출 소스. |
 | BundleComponent | Core | `bundle_components` | 세트 옵션의 구성품 관계. bundleOption(isBundle=true) ↔ componentOption. Cross-master 허용, cross-organization 금지. |
 | CategoryMapping | Core | `category_mappings` | - |
 | ChannelAccount | Core | `channel_accounts` | Marketplace/store account such as Coupang Wing or Naver SmartStore. Operational channel ownership is distinct from the SaaS organization. |
@@ -106,6 +112,11 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | PickingItem | Inventory | `picking_items` | - |
 | PickingList | Inventory | `picking_lists` | - |
 | ReturnTransfer | Inventory | `return_transfers` | - |
+| RocketInventoryLedger | Inventory | `rocket_inventory_ledger` | Coupang Rocket stock event ledger. Sellpia never contains these effects. |
+| SellpiaNewProductCandidate | Inventory | `sellpia_new_product_candidates` | Unmatched Sellpia row that must be explicitly created, linked, ignored, or rejected. |
+| SellpiaReceiptUploadBatch | Inventory | `sellpia_receipt_upload_batches` | KidItem receipt batch that still needs Sellpia upload confirmation. |
+| SellpiaStockSnapshot | Inventory | `sellpia_stock_snapshots` | Sellpia stock export import attempt. Imports are row-scoped; absent products are ignored. |
+| SellpiaStockSnapshotItem | Inventory | `sellpia_stock_snapshot_items` | One imported Sellpia product row with recommendation/review state. |
 | StockAudit | Inventory | `stock_audits` | - |
 | StockTransaction | Inventory | `stock_transactions` | - |
 | StockTransfer | Inventory | `stock_transfers` | 창고 간 이동 (from → to warehouse). |
@@ -121,6 +132,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | UnshippedItem | Orders | `unshipped_items` | - |
 | CandidateImage | Sourcing | `sourcing_candidate_images` | 소싱 후보의 이미지 갤러리. 승격 시 MasterProductImage로 clone. |
 | SourcingCandidate | Sourcing | `sourcing_candidates` | 외부 플랫폼에서 스크랩한 소싱 후보. MasterProduct와 분리된 sourcing inbox. |
+| SourcingWorkspaceSnapshot | Sourcing | `sourcing_workspace_snapshots` | 조직/KST 날짜/scope 단위의 소싱 AI 결과 캐시. 오늘의 추천/키워드 분석 결과를 최신 1개로 재사용한다. |
 | MasterSupplierProduct | Supply | `master_supplier_products` | Master 단위 주공급처 정책. 여러 supplier 후보 중 isPrimary 가 기본. |
 | PurchaseOrder | Supply | `purchase_orders` | 발주 state machine (draft→pending→ordered→shipped→received). 입고 검수 필드 포함 (receivedQty, defectQty). 단위는 CNY(Decimal 12,2). |
 | PurchaseOrderItem | Supply | `purchase_order_items` | - |
@@ -221,6 +233,25 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  AgentArtifact {
+    String id PK
+    String organizationId FK
+    String conversationId FK
+    String agentInstanceId FK
+    String requestId FK
+    String runId FK
+    String toolInvocationId FK
+    String artifactType
+    String targetDomain
+    String targetModel
+    String targetId
+    String title
+    String href
+    Json summary
+    String status
+    DateTime createdAt
+    DateTime updatedAt
+  }
   AgentAuthorizationEvent {
     String id PK
     String organizationId FK
@@ -240,6 +271,18 @@ erDiagram
     String requestedByUserId FK
     String decidedByUserId FK
     DateTime createdAt
+  }
+  AgentConversation {
+    String id PK
+    String organizationId FK
+    String title
+    String status
+    String createdByUserId FK
+    String rootRequestId FK
+    DateTime lastMessageAt
+    Json metadata
+    DateTime createdAt
+    DateTime updatedAt
   }
   AgentCostEvent {
     String id PK
@@ -291,6 +334,18 @@ erDiagram
     Json constraints
     DateTime createdAt
     DateTime updatedAt
+  }
+  AgentMessage {
+    String id PK
+    String organizationId FK
+    String conversationId FK
+    String role
+    String content
+    String agentInstanceId FK
+    String requestId FK
+    String runId FK
+    Json metadata
+    DateTime createdAt
   }
   AgentRun {
     String id PK
@@ -361,6 +416,15 @@ erDiagram
     String requestedByUserId FK
     String requestedByActorType
     String requestedByActorId
+    String conversationId FK
+    String initiatedByMessageId FK
+    String parentRequestId FK
+    String delegatedByRunId FK
+    String playbookKey
+    String planStepKey
+    String displayName
+    String statusReason
+    Json dependencyKeys
     Json payload
     String status
     DateTime scheduledFor
@@ -417,6 +481,30 @@ erDiagram
     Json inputSchemaJson
     Json outputSchemaJson
     Boolean isActive
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  AgentToolInvocation {
+    String id PK
+    String organizationId FK
+    String conversationId FK
+    String agentInstanceId FK
+    String requestId FK
+    String runId FK
+    String approvalRequestId FK
+    String capabilityKey
+    String status
+    String policyDecision
+    String reasonCode
+    String resourceType
+    String resourceId
+    String idempotencyKey
+    Json inputSummary
+    Json outputSummary
+    String errorCode
+    String errorMessage
+    DateTime startedAt
+    DateTime completedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -1372,6 +1460,9 @@ erDiagram
     DateTime orderDate
     DateTime expectedDeliveryDate
     String trackingNumber
+    String externalOrderPlatform
+    String externalOrderId
+    String externalOrderUrl
     DateTime receivedAt
     Int receivedQty
     Int defectQty
@@ -1421,6 +1512,58 @@ erDiagram
     DateTime reviewedAt
     DateTime createdAt
   }
+  RocketInventoryLedger {
+    String id PK
+    String organizationId FK
+    String inventoryId FK
+    String optionId FK
+    String eventType
+    Int quantity
+    Int reservedDelta
+    Int stockDelta
+    Int overReservationQty
+    String overrideBy
+    String overrideReason
+    Int rocketPoSeq
+    String rocketPoLineKey
+    String sourceActionId
+    String sourceType
+    String sourceRef
+    DateTime occurredAt
+    String createdBy
+    String note
+    Json metaJson
+    DateTime createdAt
+  }
+  RocketPurchaseOrder {
+    String id PK
+    String organizationId FK
+    Int poSeq
+    DateTime businessDate
+    DateTime orderedAt
+    String status
+    String vendorName
+    String centerName
+    String firstSkuName
+    Int skuCount
+    Int orderQty
+    Int orderAmount
+    Json items
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  RocketSupplyDailySnapshot {
+    String id PK
+    String organizationId FK
+    DateTime businessDate
+    Int revenueKrw
+    Int poCount
+    Int itemQty
+    String source
+    Json rawJson
+    DateTime createdAt
+    DateTime updatedAt
+  }
   SalesPlan {
     String id PK
     String organizationId FK
@@ -1444,6 +1587,92 @@ erDiagram
     Boolean isActive
     DateTime lastScrapedAt
     DateTime createdAt
+  }
+  SellpiaNewProductCandidate {
+    String id PK
+    String organizationId FK
+    String snapshotItemId FK,UK
+    String sellpiaProductCode
+    String sellpiaProductName
+    Int sellpiaStock
+    Int safetyStock
+    String ownProductCode
+    String barcode
+    String modelName
+    String status
+    String resolvedMasterProductId
+    String resolvedProductOptionId FK
+    String createdInventoryId FK
+    String initialReceiveTransactionId
+    Int operatorInitialStock
+    String resolutionDecision
+    String resolvedBy
+    DateTime resolvedAt
+    String note
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SellpiaReceiptUploadBatch {
+    String id PK
+    String organizationId FK
+    String status
+    String sourceType
+    String sourceRef
+    String templateVersion
+    String uploadedBy
+    DateTime uploadedAt
+    String note
+    Json metaJson
+    String createdBy
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SellpiaStockSnapshot {
+    String id PK
+    String organizationId FK
+    String fileName
+    String fileHash
+    Int rowCount
+    DateTime effectiveExportedAt
+    DateTime uploadedAt
+    String status
+    String createdBy
+    Json metaJson
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SellpiaStockSnapshotItem {
+    String id PK
+    String organizationId FK
+    String snapshotId FK
+    Int rowNumber
+    String sellpiaProductCode
+    String sellpiaProductName
+    Int sellpiaStock
+    Int safetyStock
+    String ownProductCode
+    String barcode
+    String modelName
+    String productOptionId FK
+    String inventoryId FK
+    Int rocketLedgerNet
+    Int targetCurrentStock
+    Int kiditemStockBefore
+    Int operatorTargetStock
+    Int kiditemStockAtApply
+    Int diff
+    Decimal diffRate
+    String status
+    Json blockingReasons
+    Json warningReasons
+    String appliedTransactionId
+    String reviewedBy
+    DateTime reviewedAt
+    String reviewDecision
+    String reviewNote
+    Json rawJson
+    DateTime createdAt
+    DateTime updatedAt
   }
   Settlement {
     String id PK
@@ -1501,6 +1730,15 @@ erDiagram
     String triggeredByUserId FK
     Boolean isDeleted
     DateTime deletedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SourcingWorkspaceSnapshot {
+    String id PK
+    String organizationId FK
+    String scope
+    DateTime businessDate
+    Json payload
     DateTime createdAt
     DateTime updatedAt
   }
@@ -1830,33 +2068,52 @@ erDiagram
   }
   ActionTask o|--o{ Alert : "actionTask"
   AdAction ||--o{ ExecutionTask : "action"
+  AgentApprovalRequest o|--o{ AgentToolInvocation : "approvalRequest"
+  AgentConversation o|--o{ AgentArtifact : "conversation"
+  AgentConversation ||--o{ AgentMessage : "conversation"
+  AgentConversation o|--o{ AgentRunRequest : "conversation"
+  AgentConversation o|--o{ AgentToolInvocation : "conversation"
   AgentInstance ||--o{ AgentApprovalRequest : "agentInstance"
+  AgentInstance o|--o{ AgentArtifact : "agentInstance"
   AgentInstance ||--o{ AgentAuthorizationEvent : "agentInstance"
   AgentInstance ||--o{ AgentCostEvent : "agentInstance"
   AgentInstance o|--o{ AgentInstance : "parent"
   AgentInstance ||--o{ AgentInstanceToolPolicy : "agentInstance"
+  AgentInstance o|--o{ AgentMessage : "agentInstance"
   AgentInstance ||--o{ AgentRun : "agentInstance"
   AgentInstance ||--o{ AgentRunEvent : "agentInstance"
   AgentInstance ||--o{ AgentRunRequest : "agentInstance"
   AgentInstance ||--|| AgentRuntimeState : "agentInstance"
   AgentInstance ||--o{ AgentTaskSession : "agentInstance"
+  AgentInstance ||--o{ AgentToolInvocation : "agentInstance"
   AgentInstance o|--o{ User : "agentInstance"
+  AgentMessage o|--o{ AgentRunRequest : "initiatedByMessage"
   AgentRun o|--o{ AgentApprovalRequest : "run"
+  AgentRun o|--o{ AgentArtifact : "run"
   AgentRun o|--o{ AgentAuthorizationEvent : "run"
   AgentRun ||--o{ AgentCostEvent : "run"
+  AgentRun o|--o{ AgentMessage : "run"
   AgentRun o|--o{ AgentRun : "retryOfRun"
   AgentRun ||--o{ AgentRunEvent : "run"
+  AgentRun o|--o{ AgentRunRequest : "delegatedByRun"
   AgentRun o|--o{ AgentRuntimeState : "lastRun"
   AgentRun o|--o{ AgentTaskSession : "lastRun"
+  AgentRun o|--o{ AgentToolInvocation : "run"
   AgentRunRequest ||--o{ AgentApprovalRequest : "request"
+  AgentRunRequest o|--o{ AgentArtifact : "request"
   AgentRunRequest o|--o{ AgentAuthorizationEvent : "request"
+  AgentRunRequest o|--o{ AgentConversation : "rootRequest"
   AgentRunRequest ||--o{ AgentCostEvent : "request"
+  AgentRunRequest o|--o{ AgentMessage : "request"
   AgentRunRequest ||--o{ AgentRun : "request"
   AgentRunRequest o|--o{ AgentRunRequest : "coalescedIntoRequest"
+  AgentRunRequest o|--o{ AgentRunRequest : "parentRequest"
+  AgentRunRequest o|--o{ AgentToolInvocation : "request"
   AgentTaskSession ||--o{ AgentRun : "taskSession"
   AgentTaskSession ||--o{ AgentRunRequest : "taskSession"
   AgentToolDefinition o|--o{ AgentAuthorizationEvent : "tool"
   AgentToolDefinition ||--o{ AgentInstanceToolPolicy : "tool"
+  AgentToolInvocation o|--o{ AgentArtifact : "toolInvocation"
   CandidateImage o|--o{ ThumbnailGenerationInputImage : "candidateImage"
   ChannelAccount o|--o{ ChannelListing : "channelAccount"
   ChannelAdTargetDailySnapshot o|--o{ AdAction : "adTargetDaily"
@@ -1908,6 +2165,9 @@ erDiagram
   DetailPageRevision o|--o{ ProductPreparation : "selectedDetailPageRevision"
   ExecutionTask ||--o{ ExecutionLog : "task"
   ExecutionWorker o|--o{ ExecutionTask : "worker"
+  Inventory ||--o{ RocketInventoryLedger : "inventory"
+  Inventory o|--o{ SellpiaNewProductCandidate : "createdInventory"
+  Inventory o|--o{ SellpiaStockSnapshotItem : "inventory"
   Marketplace o|--o{ WorkflowTemplate : "marketplace"
   MasterProduct ||--o{ ChannelListing : "master"
   MasterProduct o|--o{ ContentGenerationGroup : "targetMaster"
@@ -1934,15 +2194,19 @@ erDiagram
   Organization ||--o{ ActivityEvent : "organization"
   Organization ||--o{ AdAction : "organization"
   Organization ||--o{ AgentApprovalRequest : "organization"
+  Organization ||--o{ AgentArtifact : "organization"
   Organization ||--o{ AgentAuthorizationEvent : "organization"
+  Organization ||--o{ AgentConversation : "organization"
   Organization ||--o{ AgentCostEvent : "organization"
   Organization ||--o{ AgentInstance : "organization"
   Organization ||--o{ AgentInstanceToolPolicy : "organization"
+  Organization ||--o{ AgentMessage : "organization"
   Organization ||--o{ AgentRun : "organization"
   Organization ||--o{ AgentRunEvent : "organization"
   Organization ||--o{ AgentRunRequest : "organization"
   Organization ||--o{ AgentRuntimeState : "organization"
   Organization ||--o{ AgentTaskSession : "organization"
+  Organization ||--o{ AgentToolInvocation : "organization"
   Organization ||--o{ Alert : "organization"
   Organization ||--o{ BundleComponent : "organization"
   Organization ||--o{ BusinessRule : "organization"
@@ -1988,11 +2252,19 @@ erDiagram
   Organization ||--o{ PurchaseOrder : "organization"
   Organization ||--o{ ReturnTransfer : "organization"
   Organization ||--o{ Review : "organization"
+  Organization ||--o{ RocketInventoryLedger : "organization"
+  Organization ||--o{ RocketPurchaseOrder : "organization"
+  Organization ||--o{ RocketSupplyDailySnapshot : "organization"
   Organization ||--o{ SalesPlan : "organization"
   Organization ||--o{ ScrapeTarget : "organization"
+  Organization ||--o{ SellpiaNewProductCandidate : "organization"
+  Organization ||--o{ SellpiaReceiptUploadBatch : "organization"
+  Organization ||--o{ SellpiaStockSnapshot : "organization"
+  Organization ||--o{ SellpiaStockSnapshotItem : "organization"
   Organization ||--o{ Settlement : "organization"
   Organization ||--o{ Shipment : "organization"
   Organization ||--o{ SourcingCandidate : "organization"
+  Organization ||--o{ SourcingWorkspaceSnapshot : "organization"
   Organization ||--o{ StockAudit : "organization"
   Organization ||--o{ StockTransaction : "organization"
   Organization ||--o{ StockTransfer : "organization"
@@ -2024,6 +2296,9 @@ erDiagram
   ProductOption ||--o{ PickingItem : "option"
   ProductOption o|--o{ PurchaseOrderItem : "option"
   ProductOption ||--o{ ReturnTransfer : "option"
+  ProductOption ||--o{ RocketInventoryLedger : "option"
+  ProductOption o|--o{ SellpiaNewProductCandidate : "resolvedOption"
+  ProductOption o|--o{ SellpiaStockSnapshotItem : "option"
   ProductOption o|--o{ Shipment : "option"
   ProductOption ||--o{ StockTransaction : "option"
   ProductOption ||--o{ StockTransfer : "option"
@@ -2031,6 +2306,8 @@ erDiagram
   ProductOption o|--o{ UnshippedItem : "option"
   PurchaseOrder ||--o{ PurchaseOrderItem : "order"
   PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"
+  SellpiaStockSnapshot ||--o{ SellpiaStockSnapshotItem : "snapshot"
+  SellpiaStockSnapshotItem ||--|| SellpiaNewProductCandidate : "snapshotItem"
   SourcingCandidate ||--o{ CandidateImage : "candidate"
   SourcingCandidate o|--o{ ContentGeneration : "sourceCandidate"
   SourcingCandidate o|--o{ ContentGenerationSource : "sourceCandidate"
@@ -2057,6 +2334,7 @@ erDiagram
   User o|--o{ AgentApprovalRequest : "requestedBy"
   User o|--o{ AgentAuthorizationEvent : "decidedBy"
   User o|--o{ AgentAuthorizationEvent : "requestedBy"
+  User o|--o{ AgentConversation : "createdBy"
   User o|--o{ AgentRunRequest : "requestedBy"
   User o|--o{ Alert : "actorUser"
   User o|--o{ ContentAsset : "createdByUser"

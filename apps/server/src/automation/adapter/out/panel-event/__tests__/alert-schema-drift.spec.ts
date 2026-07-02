@@ -101,7 +101,7 @@ describe('PanelAlertItem drift detection', () => {
       isRead: true,
       actionTaskId: null,
       actorUserId: null,
-      href: '/products',
+      href: '/product-hub',
       progress: null,
       metadata: { rule: 'margin' },
       readAt: '2026-04-15T12:00:00Z',

@@ -108,7 +108,7 @@ export default function StockAssets() {
               <button
                 key={g}
                 onClick={() => setGradeFilter(gradeFilter === g ? '' : g)}
-                className={cn('p-4 rounded-lg border text-left transition-all', gradeFilter === g ? 'border-blue-400 bg-blue-50' : 'border-slate-200 hover:border-slate-300')}
+                className={cn('p-4 rounded-lg border text-left transition-all', gradeFilter === g ? 'border-purple-400 bg-purple-50' : 'border-slate-200 hover:border-slate-300')}
               >
                 <div className="flex items-center justify-between mb-2">
                   <span

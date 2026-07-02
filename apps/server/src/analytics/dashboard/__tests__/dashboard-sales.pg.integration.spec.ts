@@ -7,11 +7,13 @@ import { DashboardSalesRepositoryAdapter } from '../adapter/out/repository/dashb
 import { WingTrafficAggregationRepositoryAdapter } from '../adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { ProfitCalculationRepositoryAdapter } from '../adapter/out/repository/profit-calculation.repository.adapter';
 import { WingAdSummaryRepositoryAdapter } from '../adapter/out/repository/wing-ad-summary.repository.adapter';
+import { RocketRevenueRepositoryAdapter } from '../adapter/out/repository/rocket-revenue.repository.adapter';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/repository/profit-calculation.repository.port';
 import { WING_AD_SUMMARY_REPOSITORY_PORT } from '../application/port/out/repository/wing-ad-summary.repository.port';
 import { DASHBOARD_SALES_REPOSITORY_PORT } from '../application/port/out/repository/dashboard-sales.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../application/port/out/repository/wing-traffic-aggregation.repository.port';
+import { ROCKET_REVENUE_REPOSITORY_PORT } from '../application/port/out/repository/rocket-revenue.repository.port';
 import {
   makeTestPrisma,
   resetDb,
@@ -41,11 +43,13 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         WingTrafficAggregationRepositoryAdapter,
         ProfitCalculationRepositoryAdapter,
         WingAdSummaryRepositoryAdapter,
+        RocketRevenueRepositoryAdapter,
         { provide: PrismaService, useValue: prisma },
         { provide: PROFIT_CALCULATION_REPOSITORY_PORT, useExisting: ProfitCalculationRepositoryAdapter },
         { provide: WING_AD_SUMMARY_REPOSITORY_PORT, useExisting: WingAdSummaryRepositoryAdapter },
         { provide: DASHBOARD_SALES_REPOSITORY_PORT, useExisting: DashboardSalesRepositoryAdapter },
         { provide: WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, useExisting: WingTrafficAggregationRepositoryAdapter },
+        { provide: ROCKET_REVENUE_REPOSITORY_PORT, useExisting: RocketRevenueRepositoryAdapter },
       ],
     }).compile();
     service = m.get(DashboardSalesService);

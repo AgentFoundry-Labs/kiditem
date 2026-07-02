@@ -10,6 +10,37 @@ import { AgentOsBoundaryError } from '../../../domain/agent-os.errors';
 import { type AgentTaskSessionRecord } from '../../../domain/agent-os.types';
 import { toInstanceRecord, toTaskSessionRecord } from './agent-os.repository.mapper';
 
+function metadataRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? { ...(value as Record<string, unknown>) }
+    : {};
+}
+
+function mergeTaskSessionMetadata(
+  current: unknown,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const next = metadataRecord(current);
+  for (const [key, value] of Object.entries(patch)) {
+    if (key === 'runtimeThreadId') {
+      if (value === null) {
+        next[key] = null;
+        continue;
+      }
+      if (typeof value === 'string' && value.trim().length > 0) {
+        next[key] = value.trim();
+        continue;
+      }
+      throw new AgentOsBoundaryError(
+        'task_session_metadata_invalid',
+        'runtimeThreadId must be a string or null.',
+      );
+    }
+    next[key] = value;
+  }
+  return next;
+}
+
 export class AgentOsInstanceSessionRepository {
   constructor(private readonly prisma: PrismaService) {}
 
@@ -128,6 +159,30 @@ export class AgentOsInstanceSessionRepository {
     } satisfies InstanceToolPolicyRecord;
   }
 
+  async listInstanceToolPolicies(input: {
+    organizationId: string;
+    agentInstanceId: string;
+  }) {
+    const rows = await this.prisma.agentInstanceToolPolicy.findMany({
+      where: {
+        organizationId: input.organizationId,
+        agentInstanceId: input.agentInstanceId,
+      },
+      include: { tool: true },
+      orderBy: { updatedAt: 'desc' },
+    });
+    return rows.map((row) => ({
+      organizationId: row.organizationId,
+      agentInstanceId: row.agentInstanceId,
+      toolId: row.toolId,
+      toolKey: row.tool.key,
+      effect: row.effect as InstanceToolPolicyRecord['effect'],
+      approvalMode: (row.approvalMode ?? 'none') as InstanceToolPolicyRecord['approvalMode'],
+      dryRunMode: (row.dryRunMode ?? 'optional') as InstanceToolPolicyRecord['dryRunMode'],
+      constraints: (row.constraints ?? {}) as Record<string, unknown>,
+    } satisfies InstanceToolPolicyRecord));
+  }
+
   async upsertInstanceToolPolicy(input: UpsertInstanceToolPolicyInput) {
     const tool = await this.prisma.agentToolDefinition.findUnique({
       where: { key: input.toolKey },
@@ -208,5 +263,40 @@ export class AgentOsInstanceSessionRepository {
       update: {},
     });
     return toTaskSessionRecord(row);
+  }
+
+  async getTaskSession(input: {
+    organizationId: string;
+    taskSessionId: string;
+  }): Promise<AgentTaskSessionRecord | null> {
+    const row = await this.prisma.agentTaskSession.findFirst({
+      where: { id: input.taskSessionId, organizationId: input.organizationId },
+    });
+    return row ? toTaskSessionRecord(row) : null;
+  }
+
+  async updateTaskSessionMetadata(input: {
+    organizationId: string;
+    taskSessionId: string;
+    metadata: Record<string, unknown>;
+  }): Promise<AgentTaskSessionRecord> {
+    const existing = await this.prisma.agentTaskSession.findFirst({
+      where: { id: input.taskSessionId, organizationId: input.organizationId },
+    });
+    if (!existing) {
+      throw new AgentOsBoundaryError(
+        'task_session_not_found',
+        `AgentTaskSession ${input.taskSessionId} not found in organization ${input.organizationId}.`,
+      );
+    }
+
+    const metadata = mergeTaskSessionMetadata(existing.metadata, input.metadata);
+    const updated = await this.prisma.agentTaskSession.update({
+      where: { id: existing.id },
+      data: {
+        metadata: metadata as Prisma.InputJsonValue,
+      },
+    });
+    return toTaskSessionRecord(updated);
   }
 }

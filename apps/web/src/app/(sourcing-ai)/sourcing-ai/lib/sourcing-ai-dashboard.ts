@@ -437,17 +437,6 @@ export interface TrendKeyword {
   isSurging?: boolean;
 }
 
-export interface TrendProduct {
-  rank: number;
-  title: string;
-  category: string;
-  imageUrl: string;
-  priceKrw: number;
-  rating: number;
-  reviewCount: number;
-  movementLabel: string;
-}
-
 export interface WholesaleProduct {
   id: string;
   title: string;
@@ -675,69 +664,6 @@ export const trendKeywords: TrendKeyword[] = [
     productCount: 780,
     competition: 0.52,
     movement: -1,
-  },
-];
-
-export const topSellingProducts: TrendProduct[] = [
-  {
-    rank: 1,
-    title: '유아 야외 물놀이 매트 대형',
-    category: '완구/물놀이',
-    imageUrl: waterMatOffer.imageUrl,
-    priceKrw: 15900,
-    rating: 4.8,
-    reviewCount: 9820,
-    movementLabel: '상승',
-  },
-  {
-    rank: 2,
-    title: '미끄럼방지 아동 젤리슈즈',
-    category: '유아동/신발',
-    imageUrl: gelShoesOffer.imageUrl,
-    priceKrw: 12900,
-    rating: 4.7,
-    reviewCount: 6210,
-    movementLabel: '신규',
-  },
-  {
-    rank: 3,
-    title: '키즈 냉감 베개 커버 세트',
-    category: '침구/계절',
-    imageUrl: pillowOffer.imageUrl,
-    priceKrw: 14900,
-    rating: 4.6,
-    reviewCount: 3180,
-    movementLabel: '관찰',
-  },
-  {
-    rank: 4,
-    title: '아기 유모차 클립 선풍기',
-    category: '계절가전',
-    imageUrl: fanOffer.imageUrl,
-    priceKrw: 19900,
-    rating: 4.5,
-    reviewCount: 11900,
-    movementLabel: '인증 확인',
-  },
-  {
-    rank: 5,
-    title: '방수 네임스티커 어린이집 준비물',
-    category: '문구',
-    imageUrl: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=220&q=80',
-    priceKrw: 5900,
-    rating: 4.9,
-    reviewCount: 5400,
-    movementLabel: '상승',
-  },
-  {
-    rank: 6,
-    title: '여름 낮잠 이불 얇은 패드',
-    category: '침구/계절',
-    imageUrl: 'https://images.unsplash.com/photo-1582582429416-8f1b4b13a29d?auto=format&fit=crop&w=220&q=80',
-    priceKrw: 18900,
-    rating: 4.7,
-    reviewCount: 2870,
-    movementLabel: '상승',
   },
 ];
 

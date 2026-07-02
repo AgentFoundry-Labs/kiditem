@@ -11,7 +11,9 @@ export type CapabilityEffect =
   | 'read'
   | 'browser'
   | 'external_io'
+  | 'external_write'
   | 'db_write'
+  | 'job_enqueue'
   | 'llm'
   | 'cost';
 

@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import ProductsPageContent from '@/app/(catalog)/products/components/ProductsPageContent';
+import ProductsPageContent from './components/ProductsPageContent';
 
 export default function ProductHubPage() {
   return (

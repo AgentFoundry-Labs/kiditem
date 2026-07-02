@@ -10,6 +10,14 @@ import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
 import { ReturnsTable, ExchangesTable } from './components/ReturnsTables';
 
+interface ReturnLineItem {
+  id: string;
+  vendorItemName: string | null;
+  sellerProductName: string | null;
+  purchaseCount: number;
+  cancelCount: number;
+}
+
 interface ReturnItem {
   id: string;
   receiptId: number;
@@ -27,7 +35,7 @@ interface ReturnItem {
   completedAt: string | null;
   createdAt: string;
   status?: string;
-  returnItems?: { id: string; vendorItemName: string; sellerProductName: string; purchaseCount: number; cancelCount: number }[];
+  lineItems?: ReturnLineItem[];
 }
 
 export default function ReturnsPage() {

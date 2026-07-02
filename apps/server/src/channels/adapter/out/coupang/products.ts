@@ -1,4 +1,23 @@
 import { coupangRequest, type CoupangCredentials } from './coupang-client';
+import type { CoupangSellerProductPayload } from '../../../application/port/out/provider/coupang-provider.port';
+
+const SELLER_PRODUCTS_PATH =
+  '/v2/providers/seller_api/apis/api/v1/marketplace/seller-products';
+
+export async function createSellerProduct(
+  credentials: CoupangCredentials,
+  payload: CoupangSellerProductPayload,
+) {
+  return coupangRequest({
+    method: 'POST',
+    credentials,
+    path: SELLER_PRODUCTS_PATH,
+    body: {
+      ...payload,
+      vendorId: credentials.vendorId,
+    },
+  });
+}
 
 export async function getSellerProducts(credentials: CoupangCredentials, params?: {
   nextToken?: string;
@@ -13,7 +32,7 @@ export async function getSellerProducts(credentials: CoupangCredentials, params?
 
   return coupangRequest({
     method: 'GET',
-    path: `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products`,
+    path: SELLER_PRODUCTS_PATH,
     credentials,
     query: {
       vendorId: credentials.vendorId,
@@ -26,6 +45,6 @@ export async function getSellerProduct(credentials: CoupangCredentials, sellerPr
   return coupangRequest({
     method: 'GET',
     credentials,
-    path: `/v2/providers/seller_api/apis/api/v1/marketplace/seller-products/${sellerProductId}`,
+    path: `${SELLER_PRODUCTS_PATH}/${sellerProductId}`,
   });
 }

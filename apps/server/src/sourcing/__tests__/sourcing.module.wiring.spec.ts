@@ -1,21 +1,54 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
 import { SourcingModule } from '../sourcing.module';
+import { Sourcing1688NewProductModelService } from '../application/service/sourcing-1688-new-product-model.service';
+import { Sourcing1688ImageSearchService } from '../application/service/sourcing-1688-image-search.service';
+import { Sourcing1688KeywordSearchService } from '../application/service/sourcing-1688-keyword-search.service';
+import { SourcingAgentRagService } from '../application/service/sourcing-agent-rag.service';
+import { SourcingMarketModelService } from '../application/service/sourcing-market-model.service';
+import { NaverKeywordResearchService } from '../application/service/naver-keyword-research.service';
 import { SourcingService } from '../application/service/sourcing.service';
 import { SourcingPromotionService } from '../application/service/sourcing-promotion.service';
 import { SourcingWorkspaceArchiveService } from '../application/service/sourcing-workspace-archive.service';
+import { SourcingWorkspaceSnapshotService } from '../application/service/sourcing-workspace-snapshot.service';
 import { ProductPreparationSelectionService } from '../application/service/product-preparation-selection.service';
+import { SourcingMarketDiscoveryService } from '../application/service/sourcing-market-discovery.service';
+import { SourcingDiscoveryCapabilityAdapter } from '../adapter/in/agent/sourcing-discovery-capability.adapter';
+import { SourcingListingPrepCapabilityAdapter } from '../adapter/in/agent/sourcing-listing-prep-capability.adapter';
+import { SourcingScrapeUrlCapabilityAdapter } from '../adapter/in/agent/sourcing-scrape-url-capability.adapter';
+import { NaverDatalabPopularKeywordAdapter } from '../adapter/out/naver/naver-datalab-popular-keyword.adapter';
+import { NaverDatalabTrendAdapter } from '../adapter/out/naver/naver-datalab-trend.adapter';
+import { NaverAutocompleteKeywordAdapter } from '../adapter/out/naver/naver-autocomplete-keyword.adapter';
+import { NaverSearchAdKeywordAdapter } from '../adapter/out/naver/naver-search-ad-keyword.adapter';
 import { SourcingAgentGatewayAdapter } from '../adapter/out/agent/sourcing-agent.gateway.adapter';
 import { SourcingAiWorkspaceArchiveAdapter } from '../adapter/out/ai/workspace-archive.adapter';
 import { SourcingOperationAlertAdapter } from '../adapter/out/automation/operation-alert.adapter';
 import { SourcingProductsCatalogAdapter } from '../adapter/out/products/products-catalog.adapter';
 import { SourcingCandidateRepositoryAdapter } from '../adapter/out/repository/sourcing-candidate.repository.adapter';
+import { SourcingWorkspaceSnapshotRepositoryAdapter } from '../adapter/out/repository/sourcing-workspace-snapshot.repository.adapter';
 import { SourcingPlaywrightRuntimeHandler } from '../adapter/out/runtime/sourcing-playwright-runtime.handler';
+import { Direct1688ImageSearchAdapter } from '../adapter/out/1688/direct-1688-image-search.adapter';
+import { Direct1688KeywordSearchAdapter } from '../adapter/out/1688/direct-1688-keyword-search.adapter';
+import { SourcingRuntimeHandler } from '../adapter/out/runtime/sourcing-runtime.handler';
+import {
+  SOURCING_DISCOVERY_CAPABILITY_PORT,
+  SOURCING_LISTING_PREP_CAPABILITY_PORT,
+  SOURCING_SCRAPE_URL_WORKFLOW_PORT,
+} from '../application/port/in/capability/sourcing-capability.ports';
+import { SOURCING_1688_IMAGE_SEARCH_PORT } from '../application/port/out/provider/1688-image-search.port';
+import { SOURCING_1688_KEYWORD_SEARCH_PORT } from '../application/port/out/provider/1688-keyword-search.port';
+import {
+  SOURCING_NAVER_DATALAB_POPULAR_KEYWORD_PORT,
+  SOURCING_NAVER_DATALAB_TREND_PORT,
+  SOURCING_NAVER_AUTOCOMPLETE_KEYWORD_PORT,
+  SOURCING_NAVER_KEYWORD_RESEARCH_PORT,
+} from '../application/port/out/provider/naver-keyword-research.port';
 import { SOURCING_AGENT_GATEWAY_PORT } from '../application/port/out/runtime/sourcing-agent.gateway.port';
 import { SOURCING_AI_WORKSPACE_ARCHIVE_PORT } from '../application/port/out/cross-domain/ai-workspace-archive.port';
 import { SOURCING_OPERATION_ALERT_PORT } from '../application/port/out/cross-domain/operation-alert.port';
 import { SOURCING_PRODUCTS_CATALOG_PORT } from '../application/port/out/cross-domain/products-catalog.port';
 import { SOURCING_CANDIDATE_REPOSITORY_PORT } from '../application/port/out/repository/sourcing-candidate.repository.port';
+import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from '../application/port/out/repository/sourcing-workspace-snapshot.repository.port';
 import { AutomationModule } from '../../automation/automation.module';
 
 // NestJS @Module / @Controller metadata keys (stable across Nest 10/11).
@@ -34,26 +67,52 @@ describe('SourcingModule canonical owner wiring', () => {
     const controllers: unknown[] = Reflect.getMetadata(CONTROLLERS_KEY, SourcingModule) ?? [];
     expect(controllers.map((controller) => (controller as { name: string }).name)).toEqual([
       'SourcingExtensionIngestController',
+      'SourcingKeywordResearchController',
+      'Sourcing1688ImageSearchController',
+      'Sourcing1688KeywordSearchController',
+      'SourcingAgentRagController',
+      'SourcingMarketModelController',
+      'Sourcing1688NewProductModelController',
       'SourcingCandidateWorkspaceController',
+      'SourcingWorkspaceSnapshotController',
     ]);
   });
 
   it('declares every application service as a provider', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, SourcingModule) ?? [];
     expect(providers).toContain(SourcingService);
+    expect(providers).toContain(NaverKeywordResearchService);
+    expect(providers).toContain(Sourcing1688ImageSearchService);
+    expect(providers).toContain(Sourcing1688KeywordSearchService);
+    expect(providers).toContain(SourcingAgentRagService);
+    expect(providers).toContain(SourcingMarketModelService);
+    expect(providers).toContain(Sourcing1688NewProductModelService);
     expect(providers).toContain(SourcingPromotionService);
     expect(providers).toContain(SourcingWorkspaceArchiveService);
+    expect(providers).toContain(SourcingWorkspaceSnapshotService);
+    expect(providers).toContain(SourcingMarketDiscoveryService);
     expect(providers).toContain(ProductPreparationSelectionService);
   });
 
   it('binds outgoing ports to their adapters', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, SourcingModule) ?? [];
+    expect(providers).toContain(NaverDatalabPopularKeywordAdapter);
+    expect(providers).toContain(NaverDatalabTrendAdapter);
+    expect(providers).toContain(NaverAutocompleteKeywordAdapter);
+    expect(providers).toContain(NaverSearchAdKeywordAdapter);
     expect(providers).toContain(SourcingAgentGatewayAdapter);
     expect(providers).toContain(SourcingAiWorkspaceArchiveAdapter);
     expect(providers).toContain(SourcingOperationAlertAdapter);
     expect(providers).toContain(SourcingProductsCatalogAdapter);
     expect(providers).toContain(SourcingCandidateRepositoryAdapter);
+    expect(providers).toContain(SourcingWorkspaceSnapshotRepositoryAdapter);
+    expect(providers).toContain(SourcingDiscoveryCapabilityAdapter);
+    expect(providers).toContain(SourcingListingPrepCapabilityAdapter);
+    expect(providers).toContain(SourcingScrapeUrlCapabilityAdapter);
     expect(providers).toContain(SourcingPlaywrightRuntimeHandler);
+    expect(providers).toContain(Direct1688ImageSearchAdapter);
+    expect(providers).toContain(Direct1688KeywordSearchAdapter);
+    expect(providers).toContain(SourcingRuntimeHandler);
     expect(
       providers.some((provider) =>
         typeof provider === 'function' && provider.name === 'SourcingPythonRuntimeHandler',
@@ -65,6 +124,24 @@ describe('SourcingModule canonical owner wiring', () => {
     );
     expect(gatewayBinding).toBeDefined();
     expect(gatewayBinding!.useExisting).toBe(SourcingAgentGatewayAdapter);
+    const discoveryBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === 'object' && p !== null && (p as any).provide === SOURCING_DISCOVERY_CAPABILITY_PORT,
+    );
+    expect(discoveryBinding).toBeDefined();
+    expect(discoveryBinding!.useExisting).toBe(SourcingDiscoveryCapabilityAdapter);
+    const listingPrepBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === 'object' && p !== null && (p as any).provide === SOURCING_LISTING_PREP_CAPABILITY_PORT,
+    );
+    expect(listingPrepBinding).toBeDefined();
+    expect(listingPrepBinding!.useExisting).toBe(SourcingListingPrepCapabilityAdapter);
+    const scrapeUrlBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === 'object' && p !== null && (p as any).provide === SOURCING_SCRAPE_URL_WORKFLOW_PORT,
+    );
+    expect(scrapeUrlBinding).toBeDefined();
+    expect(scrapeUrlBinding!.useExisting).toBe(SourcingScrapeUrlCapabilityAdapter);
     const alertBinding = providers.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
         typeof p === 'object' && p !== null && (p as any).provide === SOURCING_OPERATION_ALERT_PORT,
@@ -89,6 +166,48 @@ describe('SourcingModule canonical owner wiring', () => {
     );
     expect(candidateRepositoryBinding).toBeDefined();
     expect(candidateRepositoryBinding!.useExisting).toBe(SourcingCandidateRepositoryAdapter);
+    const workspaceSnapshotRepositoryBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === 'object' && p !== null && (p as any).provide === SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT,
+    );
+    expect(workspaceSnapshotRepositoryBinding).toBeDefined();
+    expect(workspaceSnapshotRepositoryBinding!.useExisting).toBe(SourcingWorkspaceSnapshotRepositoryAdapter);
+    const imageSearchBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === 'object' && p !== null && (p as any).provide === SOURCING_1688_IMAGE_SEARCH_PORT,
+    );
+    expect(imageSearchBinding).toBeDefined();
+    expect(imageSearchBinding!.useExisting).toBe(Direct1688ImageSearchAdapter);
+    const keywordSearchBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === 'object' && p !== null && (p as any).provide === SOURCING_1688_KEYWORD_SEARCH_PORT,
+    );
+    expect(keywordSearchBinding).toBeDefined();
+    expect(keywordSearchBinding!.useExisting).toBe(Direct1688KeywordSearchAdapter);
+    const naverKeywordBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === 'object' && p !== null && (p as any).provide === SOURCING_NAVER_KEYWORD_RESEARCH_PORT,
+    );
+    expect(naverKeywordBinding).toBeDefined();
+    expect(naverKeywordBinding!.useExisting).toBe(NaverSearchAdKeywordAdapter);
+    const naverDatalabBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === 'object' && p !== null && (p as any).provide === SOURCING_NAVER_DATALAB_TREND_PORT,
+    );
+    expect(naverDatalabBinding).toBeDefined();
+    expect(naverDatalabBinding!.useExisting).toBe(NaverDatalabTrendAdapter);
+    const naverPopularKeywordBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === 'object' && p !== null && (p as any).provide === SOURCING_NAVER_DATALAB_POPULAR_KEYWORD_PORT,
+    );
+    expect(naverPopularKeywordBinding).toBeDefined();
+    expect(naverPopularKeywordBinding!.useExisting).toBe(NaverDatalabPopularKeywordAdapter);
+    const naverAutocompleteKeywordBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === 'object' && p !== null && (p as any).provide === SOURCING_NAVER_AUTOCOMPLETE_KEYWORD_PORT,
+    );
+    expect(naverAutocompleteKeywordBinding).toBeDefined();
+    expect(naverAutocompleteKeywordBinding!.useExisting).toBe(NaverAutocompleteKeywordAdapter);
   });
 
   it('imports the Agent OS runtime so the gateway adapter can resolve AGENT_RUNNER_PORT', () => {
@@ -107,6 +226,16 @@ describe('SourcingModule canonical owner wiring', () => {
     const controllers: unknown[] = Reflect.getMetadata(CONTROLLERS_KEY, SourcingModule) ?? [];
     expect(
       controllers.map((controller) => Reflect.getMetadata(PATH_KEY, controller as object)),
-    ).toEqual(['sourcing', 'sourcing']);
+    ).toEqual([
+      'sourcing',
+      'sourcing/keyword-research/naver',
+      'sourcing/1688/image-search',
+      'sourcing/1688/keyword-search',
+      'sourcing/agent-rag',
+      'sourcing/market-model',
+      'sourcing/1688-new-product-model',
+      'sourcing',
+      'sourcing/workspace-snapshots',
+    ]);
   });
 });

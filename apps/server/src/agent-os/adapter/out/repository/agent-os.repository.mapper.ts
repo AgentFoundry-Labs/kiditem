@@ -1,13 +1,22 @@
 import { Prisma } from '@prisma/client';
 import {
+  type AgentArtifactRecord,
+  type AgentArtifactStatus,
+  type AgentAuthorizationDecision,
+  type AgentConversationRecord,
+  type AgentConversationStatus,
   type AgentInstanceLifecycleStatus,
   type AgentInstanceRecord,
+  type AgentMessageRecord,
+  type AgentMessageRole,
   type AgentRunEventRecord,
   type AgentRunRecord,
   type AgentRunRequestRecord,
   type AgentRunRequestStatus,
   type AgentRunStatus,
   type AgentTaskSessionRecord,
+  type AgentToolInvocationRecord,
+  type AgentToolInvocationStatus,
 } from '../../../domain/agent-os.types';
 
 export interface RunRequestRow {
@@ -15,6 +24,15 @@ export interface RunRequestRow {
   organization_id: string;
   agent_instance_id: string;
   task_session_id: string;
+  conversation_id: string | null;
+  initiated_by_message_id: string | null;
+  parent_request_id: string | null;
+  delegated_by_run_id: string | null;
+  playbook_key: string | null;
+  plan_step_key: string | null;
+  display_name: string | null;
+  status_reason: string | null;
+  dependency_keys: Prisma.JsonValue;
   source: string;
   trigger_detail: string | null;
   reason: string | null;
@@ -54,6 +72,16 @@ export type RunRequestContext = {
 export function clampLimit(limit: number | undefined, defaultLimit: number): number {
   if (!limit || limit <= 0) return defaultLimit;
   return Math.min(limit, defaultLimit);
+}
+
+function toRecord(value: Prisma.JsonValue | null | undefined): Record<string, unknown> {
+  return (value ?? {}) as Record<string, unknown>;
+}
+
+function toStringArray(value: Prisma.JsonValue | null | undefined): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
 }
 
 export function toInstanceRecord(
@@ -134,6 +162,15 @@ export function toRunRequestRecord(
     agentType: context.agentType,
     adapterType: context.adapterType,
     latestRunId: context.latestRunId ?? null,
+    conversationId: row.conversationId,
+    initiatedByMessageId: row.initiatedByMessageId,
+    parentRequestId: row.parentRequestId,
+    delegatedByRunId: row.delegatedByRunId,
+    playbookKey: row.playbookKey,
+    planStepKey: row.planStepKey,
+    displayName: row.displayName,
+    statusReason: row.statusReason,
+    dependencyKeys: toStringArray(row.dependencyKeys),
   };
 }
 
@@ -175,6 +212,15 @@ export function rawRowToRunRequestRecord(
     agentType: context.agentType,
     adapterType: context.adapterType,
     latestRunId: context.latestRunId ?? null,
+    conversationId: row.conversation_id,
+    initiatedByMessageId: row.initiated_by_message_id,
+    parentRequestId: row.parent_request_id,
+    delegatedByRunId: row.delegated_by_run_id,
+    playbookKey: row.playbook_key,
+    planStepKey: row.plan_step_key,
+    displayName: row.display_name,
+    statusReason: row.status_reason,
+    dependencyKeys: toStringArray(row.dependency_keys),
   };
 }
 
@@ -218,5 +264,92 @@ export function toRunEventRecord(
     data: (row.data ?? {}) as Record<string, unknown>,
     logRef: row.logRef,
     createdAt: row.createdAt,
+  };
+}
+
+export function toConversationRecord(
+  row: Prisma.AgentConversationGetPayload<{}>,
+): AgentConversationRecord {
+  return {
+    id: row.id,
+    organizationId: row.organizationId,
+    title: row.title,
+    status: row.status as AgentConversationStatus,
+    createdByUserId: row.createdByUserId,
+    rootRequestId: row.rootRequestId,
+    lastMessageAt: row.lastMessageAt,
+    metadata: toRecord(row.metadata),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+export function toMessageRecord(
+  row: Prisma.AgentMessageGetPayload<{}>,
+): AgentMessageRecord {
+  return {
+    id: row.id,
+    organizationId: row.organizationId,
+    conversationId: row.conversationId,
+    role: row.role as AgentMessageRole,
+    content: row.content,
+    agentInstanceId: row.agentInstanceId,
+    requestId: row.requestId,
+    runId: row.runId,
+    metadata: toRecord(row.metadata),
+    createdAt: row.createdAt,
+  };
+}
+
+export function toToolInvocationRecord(
+  row: Prisma.AgentToolInvocationGetPayload<{}>,
+): AgentToolInvocationRecord {
+  return {
+    id: row.id,
+    organizationId: row.organizationId,
+    conversationId: row.conversationId,
+    agentInstanceId: row.agentInstanceId,
+    requestId: row.requestId,
+    runId: row.runId,
+    approvalRequestId: row.approvalRequestId,
+    capabilityKey: row.capabilityKey,
+    status: row.status as AgentToolInvocationStatus,
+    policyDecision: row.policyDecision as AgentAuthorizationDecision,
+    reasonCode: row.reasonCode,
+    resourceType: row.resourceType,
+    resourceId: row.resourceId,
+    idempotencyKey: row.idempotencyKey,
+    inputSummary: toRecord(row.inputSummary),
+    outputSummary: row.outputSummary ? toRecord(row.outputSummary) : null,
+    errorCode: row.errorCode,
+    errorMessage: row.errorMessage,
+    startedAt: row.startedAt,
+    completedAt: row.completedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+export function toArtifactRecord(
+  row: Prisma.AgentArtifactGetPayload<{}>,
+): AgentArtifactRecord {
+  return {
+    id: row.id,
+    organizationId: row.organizationId,
+    conversationId: row.conversationId,
+    agentInstanceId: row.agentInstanceId,
+    requestId: row.requestId,
+    runId: row.runId,
+    toolInvocationId: row.toolInvocationId,
+    artifactType: row.artifactType,
+    targetDomain: row.targetDomain,
+    targetModel: row.targetModel,
+    targetId: row.targetId,
+    title: row.title,
+    href: row.href,
+    summary: toRecord(row.summary),
+    status: row.status as AgentArtifactStatus,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }

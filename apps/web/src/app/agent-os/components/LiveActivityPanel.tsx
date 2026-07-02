@@ -38,7 +38,7 @@ export function LiveActivityPanel({
     return (
       <button
         onClick={onToggleMinimize}
-        className="absolute top-4 right-4 w-11 h-[220px] bg-[#0f1628]/95 backdrop-blur-xl border border-white/10 rounded-2xl flex flex-col items-center justify-between py-3 z-20 shadow-xl shadow-black/40 hover:bg-[#0f1628] transition-colors group"
+        className="absolute right-4 top-4 z-20 flex h-[220px] w-11 flex-col items-center justify-between rounded-2xl border border-white/10 bg-[#0f1628]/95 py-3 shadow-xl shadow-black/40 backdrop-blur-xl transition-colors hover:bg-[#0f1628] max-md:hidden group"
         title="Live Activity 펼치기"
       >
         <div className="relative">
@@ -54,7 +54,10 @@ export function LiveActivityPanel({
   }
 
   return (
-    <div className="absolute top-4 right-4 w-[320px] max-h-[calc(100%-32px)] bg-[#0f1628]/95 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden flex flex-col z-20 shadow-xl shadow-black/40">
+    <div
+      data-testid="agent-os-live-activity-panel"
+      className="absolute right-4 top-4 z-20 flex max-h-[calc(100%-32px)] w-[320px] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0f1628]/95 shadow-xl shadow-black/40 backdrop-blur-xl max-md:hidden"
+    >
       <div className="shrink-0 px-4 py-3 flex items-center justify-between border-b border-white/5">
         <div className="flex items-center gap-2">
           <Radio size={13} className={cn(connectionStatus === 'connected' ? 'text-emerald-400' : 'text-slate-500')} />

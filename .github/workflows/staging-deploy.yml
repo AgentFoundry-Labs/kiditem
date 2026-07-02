@@ -75,142 +75,53 @@ jobs:
               exit 2
               ;;
           esac
-          echo "git_sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-          echo "app_version=${app_version}" >> "$GITHUB_OUTPUT"
-          echo "api_image_tag=${API_IMAGE_BASE}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-          echo "web_image_tag=${WEB_IMAGE_BASE}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          {
+            echo "git_sha=${GITHUB_SHA}"
+            echo "app_version=${app_version}"
+            echo "api_image_tag=${API_IMAGE_BASE}:${GITHUB_SHA}"
+            echo "web_image_tag=${WEB_IMAGE_BASE}:${GITHUB_SHA}"
+          } >> "$GITHUB_OUTPUT"
 
   build_api:
     name: Build and push API image
     if: inputs.operation == 'deploy'
     needs: prepare
-    runs-on: ubuntu-latest
+    uses: ./.github/workflows/build-image.yml
     permissions:
       contents: read
       packages: write
-    outputs:
-      api_image_ref: ${{ steps.image_refs.outputs.api_image_ref }}
-      api_digest: ${{ steps.build_api.outputs.digest }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Verify API runtime base image
-        run: |
-          set -euo pipefail
-          docker buildx imagetools inspect "$API_RUNTIME_BASE_IMAGE" >/dev/null || {
-            echo "::error::API runtime base image not found: $API_RUNTIME_BASE_IMAGE. Run the API Runtime Base Image workflow first."
-            exit 1
-          }
-
-      - name: API image metadata
-        id: api_meta
-        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6
-        with:
-          images: ${{ env.API_IMAGE_BASE }}
-          tags: |
-            type=raw,value=${{ github.sha }}
-            type=raw,value=staging
-          labels: |
-            org.opencontainers.image.title=KidItem Staging API
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ needs.prepare.outputs.app_version }}
-
-      - name: Build and push API image
-        id: build_api
-        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
-        with:
-          context: .
-          file: ./apps/server/Dockerfile
-          platforms: linux/amd64
-          push: true
-          build-args: |
-            API_RUNTIME_BASE_IMAGE=${{ env.API_RUNTIME_BASE_IMAGE }}
-          tags: ${{ steps.api_meta.outputs.tags }}
-          labels: ${{ steps.api_meta.outputs.labels }}
-          cache-from: type=gha,scope=staging-api
-          cache-to: type=gha,mode=max,scope=staging-api
-
-      - name: Emit API digest image reference
-        id: image_refs
-        env:
-          API_DIGEST: ${{ steps.build_api.outputs.digest }}
-        run: |
-          set -euo pipefail
-          echo "api_image_ref=${API_IMAGE_BASE}@${API_DIGEST}" >> "$GITHUB_OUTPUT"
+    secrets: inherit
+    with:
+      image_base: ghcr.io/agentfoundry-labs/kiditem-api
+      dockerfile: ./apps/server/Dockerfile
+      cache_scope: staging-api
+      title: KidItem Staging API
+      app_version: ${{ needs.prepare.outputs.app_version }}
+      build_args: |
+        API_RUNTIME_BASE_IMAGE=ghcr.io/agentfoundry-labs/kiditem-api-base:node22-chromium-b6503cb2512e
+      extra_tags: ghcr.io/agentfoundry-labs/kiditem-api:staging
+      preflight_image: ghcr.io/agentfoundry-labs/kiditem-api-base:node22-chromium-b6503cb2512e
 
   build_web:
     name: Build and push web image
     if: inputs.operation == 'deploy'
     needs: prepare
-    runs-on: ubuntu-latest
+    uses: ./.github/workflows/build-image.yml
     permissions:
       contents: read
       packages: write
-    outputs:
-      web_image_ref: ${{ steps.image_refs.outputs.web_image_ref }}
-      web_digest: ${{ steps.build_web.outputs.digest }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Web image metadata
-        id: web_meta
-        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6
-        with:
-          images: ${{ env.WEB_IMAGE_BASE }}
-          tags: |
-            type=raw,value=${{ github.sha }}
-            type=raw,value=staging
-          labels: |
-            org.opencontainers.image.title=KidItem Staging Web
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ needs.prepare.outputs.app_version }}
-
-      - name: Build and push web image
-        id: build_web
-        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7
-        with:
-          context: .
-          file: ./apps/web/Dockerfile
-          platforms: linux/amd64
-          push: true
-          build-args: |
-            NEXT_PUBLIC_API_URL=
-            NEXT_PUBLIC_SUPABASE_URL=${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
-            NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
-          tags: ${{ steps.web_meta.outputs.tags }}
-          labels: ${{ steps.web_meta.outputs.labels }}
-          cache-from: type=gha,scope=staging-web
-          cache-to: type=gha,mode=max,scope=staging-web
-
-      - name: Emit web digest image reference
-        id: image_refs
-        env:
-          WEB_DIGEST: ${{ steps.build_web.outputs.digest }}
-        run: |
-          set -euo pipefail
-          echo "web_image_ref=${WEB_IMAGE_BASE}@${WEB_DIGEST}" >> "$GITHUB_OUTPUT"
+    secrets: inherit
+    with:
+      image_base: ghcr.io/agentfoundry-labs/kiditem-web
+      dockerfile: ./apps/web/Dockerfile
+      cache_scope: staging-web
+      title: KidItem Staging Web
+      app_version: ${{ needs.prepare.outputs.app_version }}
+      build_args: |
+        NEXT_PUBLIC_API_URL=
+        NEXT_PUBLIC_SUPABASE_URL=${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+      extra_tags: ghcr.io/agentfoundry-labs/kiditem-web:staging
 
   deploy:
     name: Deploy to staging
@@ -391,6 +302,17 @@ jobs:
           S3_ACCESS_KEY: ${{ secrets.STAGING_S3_ACCESS_KEY }}
           S3_SECRET_KEY: ${{ secrets.STAGING_S3_SECRET_KEY }}
           CHANNEL_CREDENTIALS_ENCRYPTION_KEY: ${{ secrets.STAGING_CHANNEL_CREDENTIALS_ENCRYPTION_KEY }}
+          NAVER_DATALAB_CLIENT_ID: ${{ secrets.STAGING_NAVER_DATALAB_CLIENT_ID }}
+          NAVER_DATALAB_CLIENT_SECRET: ${{ secrets.STAGING_NAVER_DATALAB_CLIENT_SECRET }}
+          NAVER_DATALAB_BASE_URL: ${{ vars.STAGING_NAVER_DATALAB_BASE_URL }}
+          NAVER_DATALAB_WEB_BASE_URL: ${{ vars.STAGING_NAVER_DATALAB_WEB_BASE_URL }}
+          NAVER_SEARCHAD_API_KEY: ${{ secrets.STAGING_NAVER_SEARCHAD_API_KEY }}
+          NAVER_SEARCHAD_SECRET_KEY: ${{ secrets.STAGING_NAVER_SEARCHAD_SECRET_KEY }}
+          NAVER_SEARCHAD_CUSTOMER_ID: ${{ secrets.STAGING_NAVER_SEARCHAD_CUSTOMER_ID }}
+          NAVER_SEARCHAD_BASE_URL: ${{ vars.STAGING_NAVER_SEARCHAD_BASE_URL }}
+          DIRECT_1688_MTOP_BASE_URL: ${{ vars.STAGING_DIRECT_1688_MTOP_BASE_URL }}
+          TMAPI_TOKEN: ${{ secrets.STAGING_TMAPI_TOKEN }}
+          TMAPI_BASE_URL: ${{ vars.STAGING_TMAPI_BASE_URL }}
           GEMINI_API_KEY: ${{ secrets.STAGING_GEMINI_API_KEY }}
           AI_TEXT_MODEL: ${{ vars.STAGING_AI_TEXT_MODEL }}
           AI_IMAGE_MODEL: ${{ vars.STAGING_AI_IMAGE_MODEL }}
@@ -446,12 +368,12 @@ jobs:
           STAGING_URL: ${{ vars.STAGING_URL }}
           GHCR_ACTOR: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          KIDITEM_API_IMAGE: ${{ needs.build_api.outputs.api_image_ref }}
-          KIDITEM_WEB_IMAGE: ${{ needs.build_web.outputs.web_image_ref }}
+          KIDITEM_API_IMAGE: ${{ needs.build_api.outputs.image_ref }}
+          KIDITEM_WEB_IMAGE: ${{ needs.build_web.outputs.image_ref }}
           KIDITEM_API_IMAGE_TAG: ${{ needs.prepare.outputs.api_image_tag }}
           KIDITEM_WEB_IMAGE_TAG: ${{ needs.prepare.outputs.web_image_tag }}
-          API_IMAGE_DIGEST: ${{ needs.build_api.outputs.api_digest }}
-          WEB_IMAGE_DIGEST: ${{ needs.build_web.outputs.web_digest }}
+          API_IMAGE_DIGEST: ${{ needs.build_api.outputs.digest }}
+          WEB_IMAGE_DIGEST: ${{ needs.build_web.outputs.digest }}
           GIT_SHA: ${{ needs.prepare.outputs.git_sha }}
           APP_VERSION: ${{ needs.prepare.outputs.app_version }}
           GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -463,6 +385,7 @@ jobs:
           STAGING_REMOTE_DIR="${STAGING_REMOTE_DIR:-/opt/kiditem}"
           target="${STAGING_USER}@${STAGING_HOST}"
           q() { printf '%q' "$1"; }
+          # shellcheck disable=SC2087
           ssh -i ~/.ssh/kiditem-staging "$target" "cd $(q "$STAGING_REMOTE_DIR") && bash -s" <<REMOTE
           set -euo pipefail
           export GHCR_ACTOR=$(q "$GHCR_ACTOR")
@@ -578,6 +501,26 @@ jobs:
           ssh -i ~/.ssh/kiditem-staging "${STAGING_USER}@${STAGING_HOST}" \
             "cd $(q "$STAGING_REMOTE_DIR") && ./deploy/staging/remote-deploy.sh status"
 
+      - name: Write staging deployment summary
+        if: always()
+        env:
+          APP_VERSION: ${{ needs.prepare.outputs.app_version }}
+          GIT_SHA: ${{ needs.prepare.outputs.git_sha }}
+          API_IMAGE: ${{ needs.build_api.outputs.image_ref }}
+          WEB_IMAGE: ${{ needs.build_web.outputs.image_ref }}
+          STAGING_URL: ${{ vars.STAGING_URL }}
+        run: |
+          {
+            echo "## Staging deploy"
+            echo
+            echo "- Version: \`${APP_VERSION}\`"
+            echo "- Git SHA: \`${GIT_SHA}\`"
+            echo "- API image: \`${API_IMAGE}\`"
+            echo "- Web image: \`${WEB_IMAGE}\`"
+            echo "- URL: ${STAGING_URL:-unset}"
+            echo "- Runbook: \`docs/runbooks/staging-deploy.md\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   rollback:
     name: Roll back staging
     if: github.event_name == 'workflow_dispatch' && inputs.operation == 'rollback'
@@ -606,6 +549,17 @@ jobs:
           S3_ACCESS_KEY: ${{ secrets.STAGING_S3_ACCESS_KEY }}
           S3_SECRET_KEY: ${{ secrets.STAGING_S3_SECRET_KEY }}
           CHANNEL_CREDENTIALS_ENCRYPTION_KEY: ${{ secrets.STAGING_CHANNEL_CREDENTIALS_ENCRYPTION_KEY }}
+          NAVER_DATALAB_CLIENT_ID: ${{ secrets.STAGING_NAVER_DATALAB_CLIENT_ID }}
+          NAVER_DATALAB_CLIENT_SECRET: ${{ secrets.STAGING_NAVER_DATALAB_CLIENT_SECRET }}
+          NAVER_DATALAB_BASE_URL: ${{ vars.STAGING_NAVER_DATALAB_BASE_URL }}
+          NAVER_DATALAB_WEB_BASE_URL: ${{ vars.STAGING_NAVER_DATALAB_WEB_BASE_URL }}
+          NAVER_SEARCHAD_API_KEY: ${{ secrets.STAGING_NAVER_SEARCHAD_API_KEY }}
+          NAVER_SEARCHAD_SECRET_KEY: ${{ secrets.STAGING_NAVER_SEARCHAD_SECRET_KEY }}
+          NAVER_SEARCHAD_CUSTOMER_ID: ${{ secrets.STAGING_NAVER_SEARCHAD_CUSTOMER_ID }}
+          NAVER_SEARCHAD_BASE_URL: ${{ vars.STAGING_NAVER_SEARCHAD_BASE_URL }}
+          DIRECT_1688_MTOP_BASE_URL: ${{ vars.STAGING_DIRECT_1688_MTOP_BASE_URL }}
+          TMAPI_TOKEN: ${{ secrets.STAGING_TMAPI_TOKEN }}
+          TMAPI_BASE_URL: ${{ vars.STAGING_TMAPI_BASE_URL }}
           GEMINI_API_KEY: ${{ secrets.STAGING_GEMINI_API_KEY }}
           AI_TEXT_MODEL: ${{ vars.STAGING_AI_TEXT_MODEL }}
           AI_IMAGE_MODEL: ${{ vars.STAGING_AI_IMAGE_MODEL }}
@@ -673,6 +627,7 @@ jobs:
           q() { printf '%q' "$1"; }
           API_IMAGE="${API_IMAGE_BASE}:${IMAGE_TAG}"
           WEB_IMAGE="${WEB_IMAGE_BASE}:${IMAGE_TAG}"
+          # shellcheck disable=SC2087
           ssh -i ~/.ssh/kiditem-staging "$target" "cd $(q "$STAGING_REMOTE_DIR") && bash -s" <<REMOTE
           set -euo pipefail
           export GHCR_ACTOR=$(q "$GHCR_ACTOR")
@@ -691,6 +646,20 @@ jobs:
           export GITHUB_RUN_URL=$(q "$GITHUB_RUN_URL")
           ./deploy/staging/remote-deploy.sh deploy
           REMOTE
+
+      - name: Write staging rollback summary
+        if: always()
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          STAGING_URL: ${{ vars.STAGING_URL }}
+        run: |
+          {
+            echo "## Staging rollback"
+            echo
+            echo "- Image tag: \`${IMAGE_TAG}\`"
+            echo "- URL: ${STAGING_URL:-unset}"
+            echo "- Runbook: \`docs/runbooks/staging-deploy.md\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   status:
     name: Show staging status
@@ -748,3 +717,15 @@ jobs:
           q() { printf '%q' "$1"; }
           ssh -i ~/.ssh/kiditem-staging "${STAGING_USER}@${STAGING_HOST}" \
             "cd $(q "$STAGING_REMOTE_DIR") && ./deploy/staging/remote-deploy.sh status"
+
+      - name: Write staging status summary
+        if: always()
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL }}
+        run: |
+          {
+            echo "## Staging status"
+            echo
+            echo "- URL: ${STAGING_URL:-unset}"
+            echo "- Runbook: \`docs/runbooks/staging-deploy.md\`"
+          } >> "$GITHUB_STEP_SUMMARY"

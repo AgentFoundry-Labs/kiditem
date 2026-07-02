@@ -24,6 +24,10 @@ model Inventory {
   option       ProductOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
   organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  sellpiaStockSnapshotItems   SellpiaStockSnapshotItem[]
+  sellpiaNewProductCandidates SellpiaNewProductCandidate[]
+  rocketInventoryLedger       RocketInventoryLedger[]
+
   @@index([organizationId])
   @@index([currentStock])
   @@map("inventory")
@@ -52,6 +56,7 @@ model StockTransaction {
 
   @@index([organizationId])
   @@index([organizationId, createdAt])
+  @@index([organizationId, optionId, createdAt])
   @@index([optionId])
   @@index([warehouseId])
   @@index([type])
@@ -211,4 +216,181 @@ model ReturnTransfer {
   @@index([optionId])
   @@index([status])
   @@map("return_transfers")
+}
+
+/// @namespace Inventory
+/// @describe Sellpia stock export import attempt. Imports are row-scoped; absent products are ignored.
+model SellpiaStockSnapshot {
+  id                  String   @id @default(uuid()) @db.Uuid
+  organizationId      String   @map("organization_id") @db.Uuid
+  fileName            String   @map("file_name")
+  fileHash            String   @map("file_hash")
+  rowCount            Int      @map("row_count")
+  effectiveExportedAt DateTime @map("effective_exported_at") @db.Timestamptz
+  uploadedAt          DateTime @default(now()) @map("uploaded_at") @db.Timestamptz
+  status              String   @default("previewed")
+  createdBy           String?  @map("created_by")
+  metaJson            Json?    @map("meta_json")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  items        SellpiaStockSnapshotItem[]
+
+  @@index([organizationId])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, effectiveExportedAt])
+  @@map("sellpia_stock_snapshots")
+}
+
+/// @namespace Inventory
+/// @describe One imported Sellpia product row with recommendation/review state.
+model SellpiaStockSnapshotItem {
+  id                   String    @id @default(uuid()) @db.Uuid
+  organizationId       String    @map("organization_id") @db.Uuid
+  snapshotId           String    @map("snapshot_id") @db.Uuid
+  rowNumber            Int       @map("row_number")
+  sellpiaProductCode   String    @map("sellpia_product_code")
+  sellpiaProductName   String?   @map("sellpia_product_name")
+  sellpiaStock         Int       @map("sellpia_stock")
+  safetyStock          Int       @default(0) @map("safety_stock")
+  ownProductCode       String?   @map("own_product_code")
+  barcode              String?
+  modelName            String?   @map("model_name")
+  productOptionId      String?   @map("product_option_id") @db.Uuid
+  inventoryId          String?   @map("inventory_id") @db.Uuid
+  rocketLedgerNet      Int       @default(0) @map("rocket_ledger_net")
+  targetCurrentStock   Int       @map("target_current_stock")
+  kiditemStockBefore   Int       @map("kiditem_stock_before")
+  operatorTargetStock  Int?      @map("operator_target_stock")
+  kiditemStockAtApply  Int?      @map("kiditem_stock_at_apply")
+  diff                 Int
+  diffRate             Decimal   @default(0) @map("diff_rate") @db.Decimal(8, 4)
+  status               String
+  blockingReasons      Json      @map("blocking_reasons")
+  warningReasons       Json?     @map("warning_reasons")
+  appliedTransactionId String?   @map("applied_transaction_id") @db.Uuid
+  reviewedBy           String?   @map("reviewed_by")
+  reviewedAt           DateTime? @map("reviewed_at") @db.Timestamptz
+  reviewDecision       String?   @map("review_decision")
+  reviewNote           String?   @map("review_note")
+  rawJson              Json?     @map("raw_json")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization        Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  snapshot            SellpiaStockSnapshot          @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  option              ProductOption?                @relation(fields: [productOptionId], references: [id], onDelete: SetNull)
+  inventory           Inventory?                    @relation(fields: [inventoryId], references: [id], onDelete: SetNull)
+  newProductCandidate SellpiaNewProductCandidate?
+
+  @@index([organizationId])
+  @@index([snapshotId, organizationId])
+  @@index([organizationId, sellpiaProductCode])
+  @@index([productOptionId, organizationId])
+  @@index([inventoryId, organizationId])
+  @@index([organizationId, status])
+  @@map("sellpia_stock_snapshot_items")
+}
+
+/// @namespace Inventory
+/// @describe Unmatched Sellpia row that must be explicitly created, linked, ignored, or rejected.
+model SellpiaNewProductCandidate {
+  id                          String    @id @default(uuid()) @db.Uuid
+  organizationId              String    @map("organization_id") @db.Uuid
+  snapshotItemId              String    @unique @map("snapshot_item_id") @db.Uuid
+  sellpiaProductCode          String    @map("sellpia_product_code")
+  sellpiaProductName          String?   @map("sellpia_product_name")
+  sellpiaStock                Int       @map("sellpia_stock")
+  safetyStock                 Int       @default(0) @map("safety_stock")
+  ownProductCode              String?   @map("own_product_code")
+  barcode                     String?
+  modelName                   String?   @map("model_name")
+  status                      String    @default("pending")
+  resolvedMasterProductId     String?   @map("resolved_master_product_id") @db.Uuid
+  resolvedProductOptionId     String?   @map("resolved_product_option_id") @db.Uuid
+  createdInventoryId          String?   @map("created_inventory_id") @db.Uuid
+  initialReceiveTransactionId String?   @map("initial_receive_transaction_id") @db.Uuid
+  operatorInitialStock        Int?      @map("operator_initial_stock")
+  resolutionDecision          String?   @map("resolution_decision")
+  resolvedBy                  String?   @map("resolved_by")
+  resolvedAt                  DateTime? @map("resolved_at") @db.Timestamptz
+  note                        String?
+  createdAt                   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization      Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  snapshotItem      SellpiaStockSnapshotItem   @relation(fields: [snapshotItemId], references: [id], onDelete: Cascade)
+  resolvedOption    ProductOption?            @relation(fields: [resolvedProductOptionId], references: [id], onDelete: SetNull)
+  createdInventory  Inventory?                @relation(fields: [createdInventoryId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([organizationId, sellpiaProductCode])
+  @@index([resolvedProductOptionId, organizationId])
+  @@index([createdInventoryId, organizationId])
+  @@map("sellpia_new_product_candidates")
+}
+
+/// @namespace Inventory
+/// @describe KidItem receipt batch that still needs Sellpia upload confirmation.
+model SellpiaReceiptUploadBatch {
+  id              String    @id @default(uuid()) @db.Uuid
+  organizationId  String    @map("organization_id") @db.Uuid
+  status          String    @default("template_pending")
+  sourceType      String    @map("source_type")
+  sourceRef       String    @map("source_ref")
+  templateVersion String?   @map("template_version")
+  uploadedBy      String?   @map("uploaded_by")
+  uploadedAt      DateTime? @map("uploaded_at") @db.Timestamptz
+  note            String?
+  metaJson        Json?     @map("meta_json")
+  createdBy       String?   @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+  @@map("sellpia_receipt_upload_batches")
+}
+
+/// @namespace Inventory
+/// @describe Coupang Rocket stock event ledger. Sellpia never contains these effects.
+model RocketInventoryLedger {
+  id                 String   @id @default(uuid()) @db.Uuid
+  organizationId     String   @map("organization_id") @db.Uuid
+  inventoryId        String   @map("inventory_id") @db.Uuid
+  optionId           String   @map("option_id") @db.Uuid
+  eventType          String   @map("event_type")
+  quantity           Int
+  reservedDelta      Int      @default(0) @map("reserved_delta")
+  stockDelta         Int      @default(0) @map("stock_delta")
+  overReservationQty Int      @default(0) @map("over_reservation_qty")
+  overrideBy         String?  @map("override_by")
+  overrideReason     String?  @map("override_reason")
+  rocketPoSeq        Int?     @map("rocket_po_seq")
+  rocketPoLineKey    String?  @map("rocket_po_line_key")
+  sourceActionId     String   @map("source_action_id")
+  sourceType         String   @map("source_type")
+  sourceRef          String   @map("source_ref")
+  occurredAt         DateTime @default(now()) @map("occurred_at") @db.Timestamptz
+  createdBy          String?  @map("created_by")
+  note               String?
+  metaJson           Json?    @map("meta_json")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  inventory    Inventory     @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  option       ProductOption @relation(fields: [optionId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, sourceActionId, eventType])
+  @@index([organizationId])
+  @@index([organizationId, createdAt])
+  @@index([inventoryId, organizationId, createdAt])
+  @@index([optionId, organizationId, occurredAt])
+  @@index([organizationId, rocketPoSeq])
+  @@map("rocket_inventory_ledger")
 }

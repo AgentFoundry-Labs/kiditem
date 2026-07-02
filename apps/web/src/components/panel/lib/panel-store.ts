@@ -32,6 +32,7 @@ const readOpenFromStorage = (): boolean => {
 interface PanelStoreState {
   byId: Record<string, PanelItem>;
   lastSeq: number;
+  hasHydrated: boolean;
   isOpen: boolean;
   connectionStatus: 'connecting' | 'connected' | 'disconnected' | 'polling_fallback';
 
@@ -53,6 +54,7 @@ interface PanelStoreState {
 export const createPanelStore = () => create<PanelStoreState>((set, get) => ({
   byId: {},
   lastSeq: 0,
+  hasHydrated: false,
   isOpen: readOpenFromStorage(),
   connectionStatus: 'disconnected',
 
@@ -60,18 +62,22 @@ export const createPanelStore = () => create<PanelStoreState>((set, get) => ({
     const existing = state.byId[item.id];
     // PanelAlertItem has no seq — always upsert. PanelRunItem uses seq for dedup.
     if (item.kind === 'alert') {
-      return { byId: { ...state.byId, [item.id]: item } };
+      return { byId: { ...state.byId, [item.id]: item }, hasHydrated: true };
     }
     const itemSeq = item.kind === 'run' ? item.seq : 0;
     const existingSeq = existing?.kind === 'run' ? existing.seq : 0;
-    if (existing && existingSeq >= itemSeq) return state;
-    return { byId: { ...state.byId, [item.id]: item }, lastSeq: Math.max(state.lastSeq, itemSeq) };
+    if (existing && existingSeq >= itemSeq) return { hasHydrated: true };
+    return {
+      byId: { ...state.byId, [item.id]: item },
+      lastSeq: Math.max(state.lastSeq, itemSeq),
+      hasHydrated: true,
+    };
   }),
 
   dismissItem: (id) => set((state) => {
     const rest = { ...state.byId };
     delete rest[id];
-    return { byId: rest };
+    return { byId: rest, hasHydrated: true };
   }),
 
   handleSnapshot: (items, _resetClient) => set(() => {
@@ -86,7 +92,7 @@ export const createPanelStore = () => create<PanelStoreState>((set, get) => ({
       const itemSeq = item.kind === 'run' ? item.seq : 0;
       if (itemSeq > maxSeq) maxSeq = itemSeq;
     });
-    return { byId, lastSeq: maxSeq };
+    return { byId, lastSeq: maxSeq, hasHydrated: true };
   }),
 
   applyEvent: (event) => {

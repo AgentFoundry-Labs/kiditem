@@ -97,6 +97,9 @@ async function bootstrap() {
           'http://localhost:3001',
           'http://localhost:3002',
           /^http:\/\/localhost:\d+$/,
+          /^http:\/\/127\.0\.0\.1:\d+$/,
+          /^http:\/\/0\.0\.0\.0:\d+$/,
+          /^http:\/\/\[::1\]:\d+$/,
         ],
     // apiClient 가 `credentials: 'include'` 로 fetch 하므로 cross-origin (web:3000 →
     // server:4000) 에서 cookie 전송이 허용되도록 credentials 활성화 필수.

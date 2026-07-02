@@ -17,6 +17,8 @@
 | ChannelReconciliationRun | `channel_reconciliation_runs` | 채널-KidItem 상품 매칭 스캔 실행 이력. 실제 연결 source of truth 는 ChannelListing / ChannelListingOption. |
 | ChannelScrapeRun | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
 | ChannelScrapeSnapshot | `channel_scrape_snapshots` | 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존. |
+| RocketPurchaseOrder | `rocket_purchase_orders` | 쿠팡 로켓 발주 단건(per-PO) 상세 — 매출분석 드릴다운(일자→발주→품목)용. items 는 발주서 품목(SKU) 라인 JSON(표시 전용). |
+| RocketSupplyDailySnapshot | `rocket_supply_daily_snapshots` | 쿠팡 로켓(공급사 발주) 일별 매출 fact. po-web 발주리스트의 발주금액(공급가)을 입고예정일(KST) 기준으로 집계한 값으로, 윙 매출과 분리된 로켓 매출 소스. |
 
 ## Mermaid ER Diagram
 
@@ -259,6 +261,35 @@ erDiagram
     Json normalizedJson
     DateTime createdAt
   }
+  RocketPurchaseOrder {
+    String id PK
+    String organizationId FK
+    Int poSeq
+    DateTime businessDate
+    DateTime orderedAt
+    String status
+    String vendorName
+    String centerName
+    String firstSkuName
+    Int skuCount
+    Int orderQty
+    Int orderAmount
+    Json items
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  RocketSupplyDailySnapshot {
+    String id PK
+    String organizationId FK
+    DateTime businessDate
+    Int revenueKrw
+    Int poCount
+    Int itemQty
+    String source
+    Json rawJson
+    DateTime createdAt
+    DateTime updatedAt
+  }
   ChannelReconciliationRun o|--o{ ChannelReconciliationItem : "lastSeenRun"
   ChannelScrapeRun o|--o{ ChannelScrapeSnapshot : "scrapeRun"
   ChannelScrapeSnapshot o|--o{ ChannelAccountDailyKpiSnapshot : "rawSnapshot"
@@ -290,3 +321,5 @@ erDiagram
 | ChannelScrapeSnapshot | listingOption | references external | Core | ChannelListingOption |
 | ChannelScrapeSnapshot | option | references external | Core | ProductOption |
 | ChannelScrapeSnapshot | organization | references external | Core | Organization |
+| RocketPurchaseOrder | organization | references external | Core | Organization |
+| RocketSupplyDailySnapshot | organization | references external | Core | Organization |

@@ -8,10 +8,11 @@ import {
   Package,
   DollarSign,
   ChevronDown,
+  Loader2,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { cn, formatNumber } from '@/lib/utils';
+import { cn, formatDate, formatNumber } from '@/lib/utils';
 
 interface Supplier {
   id: string;
@@ -52,7 +53,7 @@ interface PurchaseOrderResponse {
 const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   pending: { label: '대기', color: 'text-slate-600', bg: 'bg-slate-100' },
   ordered: { label: '발주', color: 'text-purple-600', bg: 'bg-purple-50' },
-  shipped: { label: '배송중', color: 'text-yellow-600', bg: 'bg-yellow-50' },
+  shipped: { label: '배송중', color: 'text-amber-600', bg: 'bg-amber-50' },
   inspecting: { label: '검수중', color: 'text-orange-600', bg: 'bg-orange-50' },
   received: { label: '입고완료', color: 'text-green-600', bg: 'bg-green-50' },
 };
@@ -66,13 +67,14 @@ export default function SupplierPurchases() {
       apiClient.get<Supplier[]>('/api/suppliers'),
   });
 
-  const { data: ordersData, isLoading: loadingOrders } = useQuery({
+  const { data: ordersData, isLoading: loadingOrders, isPlaceholderData } = useQuery({
     queryKey: queryKeys.purchaseOrders.list({ supplier: selectedSupplier }),
     queryFn: () => {
       const query = new URLSearchParams({ supplierId: selectedSupplier });
       return apiClient.get<PurchaseOrderResponse>(`/api/purchase-orders?${query}`);
     },
     enabled: !!selectedSupplier,
+    placeholderData: (previousData) => previousData,
   });
 
   const suppliers = suppliersData ?? [];
@@ -97,13 +99,14 @@ export default function SupplierPurchases() {
   );
 
   const selectedName = suppliers.find((s) => s.id === selectedSupplier)?.name;
+  const showInitialOrdersLoading = loadingOrders && !ordersData;
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <ShoppingCart size={18} className="text-indigo-500" />
+          <ShoppingCart size={18} className="text-purple-600" />
           <div>
             <h1 className="page-title">구매 관리</h1>
           </div>
@@ -128,25 +131,32 @@ export default function SupplierPurchases() {
         <div className="grid grid-cols-3 gap-3">
           <div className="card">
             <div className="flex items-center gap-1.5 mb-1">
-              <Store size={12} className="text-indigo-500" />
+              <Store size={12} className="text-purple-600" />
               <span className="card-label">매입처</span>
             </div>
             <div className="card-value">{selectedName}</div>
           </div>
           <div className="card">
             <div className="flex items-center gap-1.5 mb-1">
-              <Package size={12} className="text-blue-500" />
+              <Package size={12} className="text-purple-600" />
               <span className="card-label">발주 수량 합계</span>
             </div>
-            <div className="card-value text-purple-600 tabular-nums">{loadingOrders ? '-' : `${formatNumber(summary.totalQuantity)}개`}</div>
+            <div className="card-value text-purple-600 tabular-nums">{showInitialOrdersLoading ? '-' : `${formatNumber(summary.totalQuantity)}개`}</div>
           </div>
           <div className="card">
             <div className="flex items-center gap-1.5 mb-1">
               <DollarSign size={12} className="text-green-500" />
               <span className="card-label">발주 금액 합계 (CNY)</span>
             </div>
-            <div className="card-value text-green-600 tabular-nums">{loadingOrders ? '-' : `${formatNumber(summary.totalAmountCny)} CNY`}</div>
+            <div className="card-value text-green-600 tabular-nums">{showInitialOrdersLoading ? '-' : `${formatNumber(summary.totalAmountCny)} CNY`}</div>
           </div>
+        </div>
+      )}
+
+      {isPlaceholderData && (
+        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+          <Loader2 size={14} className="animate-spin text-purple-600" />
+          선택한 매입처의 발주 목록을 갱신하는 중입니다.
         </div>
       )}
 
@@ -159,7 +169,7 @@ export default function SupplierPurchases() {
             <p className="text-xs mt-1">총 {loadingSuppliers ? '...' : suppliers.length}개 매입처 등록</p>
           </div>
         </div>
-      ) : loadingOrders ? (
+      ) : showInitialOrdersLoading ? (
         <div className="card">
           <div className="text-center py-16 text-slate-400">로딩 중...</div>
         </div>
@@ -189,7 +199,7 @@ export default function SupplierPurchases() {
                   const st = STATUS_LABELS[o.status] || STATUS_LABELS.pending;
                   return (
                     <tr key={o.id}>
-                      <td className="text-xs text-slate-500 tabular-nums">{new Date(o.orderDate).toLocaleDateString('ko-KR')}</td>
+                      <td className="text-xs text-slate-500 tabular-nums">{formatDate(o.orderDate)}</td>
                       <td className="font-medium text-slate-900">{o.productName}</td>
                       <td className="text-xs text-slate-400 font-mono">{o.sku}</td>
                       <td className="text-right tabular-nums">{o.quantity}</td>
@@ -200,8 +210,8 @@ export default function SupplierPurchases() {
                           {st.label}
                         </span>
                       </td>
-                      <td className="text-xs text-slate-400 tabular-nums">{o.expectedAt ? new Date(o.expectedAt).toLocaleDateString('ko-KR') : '-'}</td>
-                      <td className="text-xs text-slate-400 tabular-nums">{o.receivedAt ? new Date(o.receivedAt).toLocaleDateString('ko-KR') : '-'}</td>
+                      <td className="text-xs text-slate-400 tabular-nums">{formatDate(o.expectedAt)}</td>
+                      <td className="text-xs text-slate-400 tabular-nums">{formatDate(o.receivedAt)}</td>
                     </tr>
                   );
                 })}

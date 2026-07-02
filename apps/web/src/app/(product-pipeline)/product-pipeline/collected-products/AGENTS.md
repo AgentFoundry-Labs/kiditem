@@ -1,23 +1,11 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # web/collected-products — Collected Product Workspace
 
 `app/(product-pipeline)/product-pipeline/collected-products/` owns the collected
 product workspace for imported/manual `SourcingCandidate` rows. It can promote
 a candidate into `MasterProduct`, launch candidate-scoped detail/thumbnail
 generation, and open the shared generated-content editor.
-
-## Folder Map
-
-```text
-collected-products/
-├── page.tsx                                  # candidate inbox
-├── [id]/page.tsx                             # candidate detail shell
-├── [id]/editor/page.tsx                      # candidate-scoped editor bridge
-├── components/list/
-└── lib/
-    ├── sourcing-api.ts
-    ├── registration-selection.ts
-    └── generation-progress-label.ts
-```
 
 Shared editor, template render, preview sandbox, download modal, workspace
 tabs/history/preview, inbox shells, hooks, and product-pipeline route builders
@@ -31,7 +19,7 @@ live under `product-pipeline/_shared/`.
 - Candidate-scoped generated detail/thumbnail history links
 - Candidate editor bridge into the shared generated-content editor
 
-Do not reintroduce user-facing `/sourcing` or `/product-content` routes.
+Do not reintroduce standalone sourcing or product-content routes.
 
 ## Data Ownership
 
@@ -89,3 +77,15 @@ promotion transaction and persists it in `ProductPreparation`.
   detail-page endpoints together.
 - Candidate promotion/rejection changes require checking shared workspace
   headers and sourcing APIs together.
+
+## Verification
+
+For collected-products changes, run the narrow route suite first, then the web
+build:
+
+```bash
+npm exec --workspace=apps/web vitest -- run 'src/app/(product-pipeline)/product-pipeline/collected-products'
+```
+
+Route href, editor bridge, promotion, or deletion behavior changes need a
+focused regression spec for the changed workspace contract.

@@ -288,15 +288,19 @@ erDiagram
 | Organization | organization | referenced by external | Advertising | ExecutionWorker |
 | Organization | organization | referenced by external | Advertising | ScrapeTarget |
 | Organization | organization | referenced by external | AgentOS | AgentApprovalRequest |
+| Organization | organization | referenced by external | AgentOS | AgentArtifact |
 | Organization | organization | referenced by external | AgentOS | AgentAuthorizationEvent |
+| Organization | organization | referenced by external | AgentOS | AgentConversation |
 | Organization | organization | referenced by external | AgentOS | AgentCostEvent |
 | Organization | organization | referenced by external | AgentOS | AgentInstance |
 | Organization | organization | referenced by external | AgentOS | AgentInstanceToolPolicy |
+| Organization | organization | referenced by external | AgentOS | AgentMessage |
 | Organization | organization | referenced by external | AgentOS | AgentRun |
 | Organization | organization | referenced by external | AgentOS | AgentRunEvent |
 | Organization | organization | referenced by external | AgentOS | AgentRunRequest |
 | Organization | organization | referenced by external | AgentOS | AgentRuntimeState |
 | Organization | organization | referenced by external | AgentOS | AgentTaskSession |
+| Organization | organization | referenced by external | AgentOS | AgentToolInvocation |
 | Organization | organization | referenced by external | AgentOS | WorkflowTemplate |
 | Organization | organization | referenced by external | AI | ContentAsset |
 | Organization | organization | referenced by external | AI | ContentGeneration |
@@ -324,6 +328,8 @@ erDiagram
 | Organization | organization | referenced by external | Channels | ChannelReconciliationRun |
 | Organization | organization | referenced by external | Channels | ChannelScrapeRun |
 | Organization | organization | referenced by external | Channels | ChannelScrapeSnapshot |
+| Organization | organization | referenced by external | Channels | RocketPurchaseOrder |
+| Organization | organization | referenced by external | Channels | RocketSupplyDailySnapshot |
 | Organization | organization | referenced by external | Finance | GradeHistory |
 | Organization | organization | referenced by external | Finance | ManualLedger |
 | Organization | organization | referenced by external | Finance | ProcessingCost |
@@ -332,6 +338,11 @@ erDiagram
 | Organization | organization | referenced by external | Inventory | Inventory |
 | Organization | organization | referenced by external | Inventory | PickingList |
 | Organization | organization | referenced by external | Inventory | ReturnTransfer |
+| Organization | organization | referenced by external | Inventory | RocketInventoryLedger |
+| Organization | organization | referenced by external | Inventory | SellpiaNewProductCandidate |
+| Organization | organization | referenced by external | Inventory | SellpiaReceiptUploadBatch |
+| Organization | organization | referenced by external | Inventory | SellpiaStockSnapshot |
+| Organization | organization | referenced by external | Inventory | SellpiaStockSnapshotItem |
 | Organization | organization | referenced by external | Inventory | StockAudit |
 | Organization | organization | referenced by external | Inventory | StockTransaction |
 | Organization | organization | referenced by external | Inventory | StockTransfer |
@@ -347,6 +358,7 @@ erDiagram
 | Organization | organization | referenced by external | Orders | UnshippedItem |
 | Organization | organization | referenced by external | Sourcing | CandidateImage |
 | Organization | organization | referenced by external | Sourcing | SourcingCandidate |
+| Organization | organization | referenced by external | Sourcing | SourcingWorkspaceSnapshot |
 | Organization | organization | referenced by external | Supply | PurchaseOrder |
 | Organization | organization | referenced by external | Supply | Supplier |
 | Organization | organization | referenced by external | Supply | SupplierPayment |
@@ -361,6 +373,8 @@ erDiagram
 | ProductOption | option | referenced by external | Inventory | Inventory |
 | ProductOption | option | referenced by external | Inventory | PickingItem |
 | ProductOption | option | referenced by external | Inventory | ReturnTransfer |
+| ProductOption | option | referenced by external | Inventory | RocketInventoryLedger |
+| ProductOption | option | referenced by external | Inventory | SellpiaStockSnapshotItem |
 | ProductOption | option | referenced by external | Inventory | StockTransaction |
 | ProductOption | option | referenced by external | Inventory | StockTransfer |
 | ProductOption | option | referenced by external | Orders | OrderLineItem |
@@ -369,11 +383,13 @@ erDiagram
 | ProductOption | option | referenced by external | Orders | UnshippedItem |
 | ProductOption | option | referenced by external | Supply | PurchaseOrderItem |
 | ProductOption | option | referenced by external | Supply | SupplierProduct |
+| ProductOption | resolvedOption | referenced by external | Inventory | SellpiaNewProductCandidate |
 | User | actor | referenced by external | AI | ThumbnailGenerationEvent |
 | User | actorUser | referenced by external | System | Alert |
 | User | agentInstance | references external | AgentOS | AgentInstance |
 | User | approver | referenced by external | AgentOS | AgentApprovalRequest |
 | User | assigneeUser | referenced by external | System | ActionTask |
+| User | createdBy | referenced by external | AgentOS | AgentConversation |
 | User | createdByUser | referenced by external | AI | ContentAsset |
 | User | createdByUser | referenced by external | AI | ContentWorkspace |
 | User | createdByUser | referenced by external | AI | DetailPageArtifact |

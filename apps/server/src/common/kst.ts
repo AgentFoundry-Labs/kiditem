@@ -13,6 +13,21 @@ export function kstDayStart(date: Date): Date {
 }
 
 /**
+ * Converts a JS Date to the UTC-midnight Date for the corresponding KST
+ * calendar day. Use this for Prisma/Postgres `@db.Date` equality keys.
+ *
+ * Example: 2026-05-26T16:00:00Z (KST 2026-05-27 01:00)
+ * -> 2026-05-27T00:00:00.000Z.
+ */
+export function kstBusinessDate(date: Date): Date {
+  const kst = new Date(date.getTime() + KST_OFFSET_MS);
+  const year = kst.getUTCFullYear();
+  const month = String(kst.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(kst.getUTCDate()).padStart(2, '0');
+  return new Date(`${year}-${month}-${day}T00:00:00.000Z`);
+}
+
+/**
  * Returns the UTC Date that equals '{year}-{month}-01 00:00:00+09:00' (KST midnight).
  * month 는 1-12. month === 13 은 다음해 1월로 wrap (reconcile 의 periodEnd 용).
  */

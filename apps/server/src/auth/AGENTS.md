@@ -1,21 +1,10 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # auth — Authentication + Organization Context
 
 `src/auth/` owns global HTTP authentication, organization context, role checks,
 Supabase JWT enrichment, and `/api/auth/me`. It is infrastructure, not a
 business aggregate.
-
-## Folder Map
-
-```text
-auth/
-├── decorators/       # @CurrentUser, @CurrentOrganization, @Roles, @SkipAuth
-├── guards/           # OrganizationScopeGuard, RolesGuard
-├── middleware/       # SupabaseAuthMiddleware
-├── auth.controller.ts
-├── auth.module.ts
-├── auth.types.ts
-└── __tests__/
-```
 
 ## Owned Surfaces
 

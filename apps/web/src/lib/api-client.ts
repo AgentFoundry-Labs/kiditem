@@ -130,6 +130,24 @@ function isFormDataBody(init: RequestInit | undefined): boolean {
   return typeof FormData !== 'undefined' && init?.body instanceof FormData;
 }
 
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'AbortError';
+}
+
+async function fetchApi(path: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(`${getApiBase()}${path}`, await withAuthHeaders(init));
+  } catch (err) {
+    if (isAbortError(err)) throw err;
+    console.error('[apiClient] Network request failed', { path, error: err });
+    throw new ApiError(
+      0,
+      'network_error',
+      'API 서버에 연결하지 못했습니다. 백엔드 실행 상태 또는 CORS 설정을 확인해주세요.',
+    );
+  }
+}
+
 async function read401Message(res: Response): Promise<string | null> {
   try {
     const body = (await res.clone().json()) as Record<string, unknown>;
@@ -145,7 +163,7 @@ async function requestWithRetry<T>(
   init: RequestInit | undefined,
   attempt: 1 | 2,
 ): Promise<T> {
-  const res = await fetch(`${getApiBase()}${path}`, await withAuthHeaders(init));
+  const res = await fetchApi(path, init);
 
   if (res.status === 401) {
     const message = await read401Message(res);
@@ -165,6 +183,16 @@ async function requestWithRetry<T>(
         401,
         'no_organization_context',
         '조직에 속해있지 않습니다. 관리자에게 문의해주세요.',
+      );
+    }
+
+    if (message === 'auth_user_not_mirrored') {
+      // Supabase JWT 는 유효하지만 KidItem 로컬 사용자 레코드가 없음. 세션 만료가
+      // 아니므로 refresh/signOut 하지 않고 운영자가 조치할 수 있는 오류로 노출.
+      throw new ApiError(
+        401,
+        'auth_user_not_mirrored',
+        '로그인 계정이 KidItem 사용자로 연결되지 않았습니다. 관리자에게 사용자 동기화를 요청해주세요.',
       );
     }
     // 기타 401 (희귀) → 일반 ApiError flow 로 fall through
@@ -199,7 +227,7 @@ async function fetchRawWithRetry(
   init: RequestInit | undefined,
   attempt: 1 | 2,
 ): Promise<Response> {
-  const res = await fetch(`${getApiBase()}${path}`, await withAuthHeaders(init));
+  const res = await fetchApi(path, init);
   if (res.status === 401) {
     const message = await read401Message(res);
     if (message === 'auth_required') {

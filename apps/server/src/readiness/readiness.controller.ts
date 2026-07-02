@@ -1,6 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import { ReadinessService } from './readiness.service';
 import { CurrentOrganization } from '../auth/decorators/current-organization.decorator';
+import type { AgentOsLiveReadinessResponse } from '@kiditem/shared/agent-os';
 import type { ReadinessResponse } from '@kiditem/shared/readiness';
 
 @Controller('readiness')
@@ -10,5 +11,12 @@ export class ReadinessController {
   @Get()
   get(@CurrentOrganization() organizationId: string): Promise<ReadinessResponse> {
     return this.service.getStatus(organizationId);
+  }
+
+  @Get('agent-os-live')
+  getAgentOsLive(
+    @CurrentOrganization() organizationId: string,
+  ): Promise<AgentOsLiveReadinessResponse> {
+    return this.service.getAgentOsLiveStatus(organizationId);
   }
 }

@@ -1,0 +1,14 @@
+{
+  "name": "delegate-purchase-order-submission",
+  "rawOutput": "{\"decisionType\":\"delegate\",\"targetAgentType\":\"order\",\"playbookKey\":\"purchase_order_submission_v1\",\"taskInput\":{\"purchaseOrderId\":\"0187e942-9098-7382-9a22-c5b821f2f5d1\",\"externalOrderPlatform\":\"ALIBABA_1688\",\"externalOrderId\":\"1688-ORDER-1\",\"externalOrderUrl\":\"https://trade.1688.com/order/1688-ORDER-1.html\"},\"userVisibleRationale\":\"The approved purchase order can be submitted and linked to the supplier order identity.\",\"question\":null,\"reason\":null}",
+  "expected": {
+    "decisionType": "delegate",
+    "targetAgentType": "order",
+    "taskInputKeys": [
+      "externalOrderId",
+      "externalOrderPlatform",
+      "externalOrderUrl",
+      "purchaseOrderId"
+    ]
+  }
+}

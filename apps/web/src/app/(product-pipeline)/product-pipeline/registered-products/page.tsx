@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, SlidersHorizontal } from 'lucide-react';
+import { Plus, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { Pagination } from '@/components/ui/Pagination';
 import { formatNumber } from '@/lib/utils';
@@ -64,7 +64,7 @@ export default function RegisteredProductsPage() {
     tab: listingTab,
     mode: 'market-summary',
   };
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isPlaceholderData } = useQuery({
     queryKey: queryKeys.channelListings.list(queryParams),
     queryFn: () => channelListingsApi.listGroups({
       page,
@@ -74,7 +74,9 @@ export default function RegisteredProductsPage() {
       channel: selectedChannel,
       createdSince: recentFilterCreatedSince,
     }),
+    placeholderData: previousData => previousData,
   });
+  const isRefreshing = isPlaceholderData;
   const { data: summaryData } = useQuery({
     queryKey: queryKeys.channelListings.list(summaryQueryParams),
     queryFn: () => channelListingsApi.listGroups({
@@ -225,8 +227,15 @@ export default function RegisteredProductsPage() {
       />
 
       <div className="flex-1 overflow-y-auto px-5 py-4">
+        {isRefreshing && (
+          <div className="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm" aria-live="polite">
+            <RefreshCw size={14} className="animate-spin text-emerald-600" />
+            등록 상품 목록을 갱신 중입니다.
+          </div>
+        )}
+        <div aria-busy={isRefreshing}>
         <ProductInboxListFrame
-          isLoading={isLoading}
+          isLoading={isLoading && !data}
           isEmpty={groups.length === 0}
           emptyState={{
             title: filter === 'deleted'
@@ -256,6 +265,7 @@ export default function RegisteredProductsPage() {
             />
           ))}
         </ProductInboxListFrame>
+        </div>
 
         <div className="mt-4">
           <Pagination page={page} limit={pageSize} total={total} onPageChange={setPage} />

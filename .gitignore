@@ -38,6 +38,11 @@ graphify-out/.graphify_*
 # Database
 *.db
 
+# Local dev scratch — scripts, scraped data dumps, generated artifacts (never commit)
+tmp/
+output/
+outputs/
+
 # Python
 __pycache__/
 *.pyc
@@ -62,14 +67,21 @@ __pycache__/
 # Test
 coverage/
 
+# KidItem local runtime state, including copied browser profiles.
+.kiditem/
+
 # Claude Code — user/session-local only. Repo rules live in AGENTS.md and docs/.
 .claude/
+
+# Codex local skill install target. Shared skill sources live under tools/codex/.
+.agents/
 
 # Tools
 .claude-flow/
 .swarm/
 .mcp.json
 .gstack/
+.kiditem/playwright/
 .tmp/
 data/
 .data/
@@ -77,3 +89,4 @@ data/
 prisma/init.sql
 tools/telegram-bot/
 .superpowers/
+docs/superpowers/plans/

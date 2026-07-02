@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # product-hub/matching — Coupang to KidItem Matching
 
 `app/(catalog)/product-hub/matching/` owns the UI for triaging Coupang Wing rows
@@ -34,7 +36,7 @@ React Query + apiClient
 
 - `@kiditem/shared/channel-reconciliation` provides item, summary, and scan
   request/response schemas.
-- `@/app/(catalog)/products/options/lib/product-options-api` provides product
+- `@/app/(catalog)/product-hub/options/lib/product-options-api` provides product
   option search.
 
 ## Boundary Rules

@@ -1,18 +1,10 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # web/thumbnail-ai — Thumbnail Analysis Dashboard
 
 `app/(product-pipeline)/product-pipeline/thumbnail-ai/` owns the six-tab
 thumbnail analysis dashboard, smart polling, batch analysis/cancel controls,
 and optimistic candidate selection UI.
-
-## Folder Map
-
-```text
-thumbnail-ai/
-├── page.tsx              # tabs, batch refs, route composition
-├── components/           # cards, modals, queues, KPI/chart pieces
-├── hooks/                # thumbnail analysis/tracking/batch/action hooks
-└── lib/                  # Coupang Wing opener, image URL resolver
-```
 
 Shared generation hooks live in
 `app/(product-pipeline)/product-pipeline/_shared/hooks/useThumbnailGenerations.ts`.
@@ -65,3 +57,14 @@ state updates.
 - Batch cancel UX changes touch `page.tsx` refs plus the server cancel endpoint.
 - Optimistic updates should follow the existing `onMutate/onError/onSettled`
   pattern.
+
+## Verification
+
+For thumbnail-ai changes, run the narrow route suite first, then the web build:
+
+```bash
+npm exec --workspace=apps/web vitest -- run 'src/app/(product-pipeline)/product-pipeline/thumbnail-ai'
+```
+
+Tab, polling, cancellation, or optimistic-update changes need a focused
+regression spec for query-key and mutation behavior.

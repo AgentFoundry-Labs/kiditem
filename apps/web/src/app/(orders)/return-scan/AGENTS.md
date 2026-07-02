@@ -1,19 +1,9 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # web/return-scan — Barcode Input + Local Scan Log
 
 `app/(orders)/return-scan/` owns the barcode-scanner return receiving UI. All
 state is local and no mutation is sent to the server.
-
-## Folder Map
-
-```text
-return-scan/
-├── page.tsx
-└── components/
-    ├── BarcodeScanInput.tsx
-    ├── ReturnProductInfo.tsx
-    ├── ReturnScanHeader.tsx
-    └── ScanLogTable.tsx
-```
 
 ## Owned Surfaces
 

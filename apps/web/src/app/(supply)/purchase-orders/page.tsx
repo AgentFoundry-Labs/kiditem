@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
@@ -54,7 +55,7 @@ export default function PurchaseOrdersPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const PAGE_SIZE = 20;
 
-  const { data: orderData, isLoading: loading, error: queryError } = useQuery({
+  const { data: orderData, isLoading: loading, isFetching, error: queryError } = useQuery({
     queryKey: queryKeys.purchaseOrders.list({ page: String(page), filter }),
     queryFn: async () => {
       const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
@@ -76,7 +77,9 @@ export default function PurchaseOrdersPage() {
 
       return { items: fetchedItems, counts, total };
     },
+    placeholderData: previousData => previousData,
   });
+  const isRefreshing = isFetching && !loading;
 
   const orders = orderData?.items ?? [];
   const total = orderData?.total ?? 0;
@@ -141,11 +144,18 @@ export default function PurchaseOrdersPage() {
         onRefresh={refreshData}
         onCreateOrder={() => setShowCreateModal(true)}
       />
+      {isRefreshing && (
+        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm" aria-live="polite">
+          <RefreshCw size={14} className="animate-spin text-purple-600" />
+          발주 목록을 갱신 중입니다.
+        </div>
+      )}
+      <div className="space-y-4" aria-busy={isRefreshing}>
       <PurchaseOrderKpiCards kpis={kpis} />
       <PurchaseOrderFilterTabs filter={filter} tabs={tabs} onFilterChange={setFilter} />
       <PurchaseOrderTable
         orders={orders}
-        loading={loading}
+        loading={loading && !orderData}
         actionLoading={actionLoading}
         page={page}
         pageSize={PAGE_SIZE}
@@ -154,6 +164,7 @@ export default function PurchaseOrdersPage() {
         onStatusChange={handleStatusChange}
         onDelete={handleDelete}
       />
+      </div>
       {showCreateModal && (
         <CreateOrderModal
           onClose={() => setShowCreateModal(false)}
