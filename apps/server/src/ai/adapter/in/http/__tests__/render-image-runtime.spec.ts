@@ -9,7 +9,6 @@ describe('render-image staging runtime', () => {
     const baseWorkflow = readFileSync(join(root, '.github/workflows/api-base-image.yml'), 'utf8');
     const dockerfile = readFileSync(join(root, 'apps/server/Dockerfile'), 'utf8');
     const deployScript = readFileSync(join(root, 'deploy/staging/remote-deploy.sh'), 'utf8');
-    const localDeployScript = readFileSync(join(root, 'bin/deploy-staging.sh'), 'utf8');
 
     expect(dockerfile).toContain('PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium');
     expect(dockerfile).toContain('test -x "$PUPPETEER_EXECUTABLE_PATH"');
@@ -31,7 +30,9 @@ describe('render-image staging runtime', () => {
     expect(baseWorkflow).not.toContain('${API_BASE_IMAGE}:node22-chromium"');
     expect(baseWorkflow).not.toContain('${API_BASE_IMAGE}:node22-chromium-${month}');
     expect(dockerfile).toMatch(/npm ci[\s\S]*--omit=dev[\s\S]*npm cache clean --force[\s\S]*rm -rf \/root\/\.npm/);
-    expect(localDeployScript).toContain('INSTALL_CHROMIUM="${INSTALL_CHROMIUM:-true}"');
+    expect(workflow).toContain(
+      'preflight_image: ghcr.io/agentfoundry-labs/kiditem-api-base:node22-chromium-b6503cb2512e',
+    );
     expect(deployScript).toContain('verify_render_image_runtime');
     expect(deployScript).toContain('puppeteer.launch');
     expect(deployScript).toContain('timeout: 30000');
