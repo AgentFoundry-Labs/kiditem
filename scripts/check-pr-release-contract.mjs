@@ -69,6 +69,57 @@ function isSemver(version) {
   return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version.trim());
 }
 
+function compareSemver(a, b) {
+  const parse = (value) => value
+    .trim()
+    .split(/[+-]/, 1)[0]
+    .split('.')
+    .map((part) => Number.parseInt(part, 10));
+  const left = parse(a);
+  const right = parse(b);
+  for (let i = 0; i < 3; i += 1) {
+    if (left[i] > right[i]) return 1;
+    if (left[i] < right[i]) return -1;
+  }
+  return 0;
+}
+
+function isDevelopToMainPromotion({ baseRef, headRef }) {
+  return baseRef === 'main' && headRef === 'develop';
+}
+
+function readPrMetadata({ event }) {
+  const file = event || process.env.GITHUB_EVENT_PATH;
+  let metadata = {
+    baseRef: process.env.GITHUB_BASE_REF || '',
+    headRef: process.env.GITHUB_HEAD_REF || '',
+  };
+
+  if (!file || !existsSync(file)) return metadata;
+
+  try {
+    const raw = readFileSync(file, 'utf8');
+    const parsed = JSON.parse(raw);
+    metadata = {
+      baseRef: parsed.pull_request?.base?.ref || metadata.baseRef,
+      headRef: parsed.pull_request?.head?.ref || metadata.headRef,
+    };
+  } catch {
+    // Keep the environment-derived fallback metadata.
+  }
+
+  return metadata;
+}
+
+function readVersionAtRef(ref) {
+  if (!ref) return '';
+  try {
+    return git(['show', `${ref}:VERSION`]);
+  } catch {
+    return '';
+  }
+}
+
 export function migrationReleaseFromPath(file) {
   const match = file.match(/^scripts\/data-migrations\/v([^/]+)\/[^/]+\.ts$/);
   return match?.[1] ?? null;
@@ -119,11 +170,14 @@ export function analyzePrReleaseContract({
   files,
   prBody,
   rootVersion,
+  baseVersion = '',
   migrationIndex,
+  allowHistoricalMigrationVersions = false,
 }) {
   const errors = [];
   const requiredReasons = classifyFiles(files);
   const version = rootVersion.trim();
+  const base = baseVersion.trim();
 
   if (!isSemver(version)) {
     errors.push(`Root VERSION must be semver, got "${rootVersion}"`);
@@ -140,7 +194,15 @@ export function analyzePrReleaseContract({
   for (const file of migrationFiles) {
     const migration = migrationNameFromPath(file);
     if (!migration) continue;
-    if (migration.release !== version) {
+    const isCurrentRelease = migration.release === version;
+    const isHistoricalPromotionRelease =
+      allowHistoricalMigrationVersions &&
+      isSemver(migration.release) &&
+      isSemver(base) &&
+      isSemver(version) &&
+      compareSemver(migration.release, base) > 0 &&
+      compareSemver(migration.release, version) <= 0;
+    if (!isCurrentRelease && !isHistoricalPromotionRelease) {
       errors.push(`${file} release v${migration.release} does not match root VERSION ${version}.`);
     }
     const expectedImportPath = `./v${migration.release}/${migration.basename}`;
@@ -163,11 +225,15 @@ function main() {
     ? args.files.split(',').map((file) => file.trim()).filter(Boolean)
     : changedFilesFromGit(base, head);
   const prBody = readPrBody(args);
+  const prMetadata = readPrMetadata({ event: args.event });
+  const allowHistoricalMigrationVersions = isDevelopToMainPromotion(prMetadata);
   const result = analyzePrReleaseContract({
     files,
     prBody,
     rootVersion: readFileSync(path.join(root, 'VERSION'), 'utf8'),
+    baseVersion: allowHistoricalMigrationVersions ? readVersionAtRef(base) : '',
     migrationIndex: readFileSync(path.join(root, 'scripts/data-migrations/index.ts'), 'utf8'),
+    allowHistoricalMigrationVersions,
   });
 
   if (result.errors.length === 0) {
