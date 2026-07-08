@@ -75,6 +75,22 @@ export function rowKeysOf(rows: string[][]): string[] {
   return rows.map((row) => row.map((cell) => (cell ?? '').trim()).join(ROW_KEY_SEP));
 }
 
+/**
+ * 수집한 행에서 서로 다른 주문번호를 뽑는다 (헤더에 '주문번호' 컬럼이 있을 때).
+ * 카운트 집계에서 재수집한 같은 주문번호를 한 번만 세기 위한 dedup 기준.
+ * 주문번호 컬럼이 없으면 빈 배열(호출부가 카운트 폴백을 쓰도록).
+ */
+export function distinctOrderNumbers(headers: string[], rows: string[][]): string[] {
+  const idx = headers.findIndex((header) => header.replace(/\s+/g, '') === '주문번호');
+  if (idx < 0) return [];
+  const set = new Set<string>();
+  for (const row of rows) {
+    const orderNo = (row[idx] ?? '').trim();
+    if (orderNo) set.add(orderNo);
+  }
+  return [...set];
+}
+
 /** seen 에 없는 신규 행만 가려낸다. */
 export function diffNewOrderRows(headers: string[], rows: string[][], seen: Set<string>): OrderDiff {
   const orderNoIndex = headers.findIndex((header) => header.replace(/\s+/g, '') === '주문번호');

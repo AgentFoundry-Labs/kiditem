@@ -522,6 +522,8 @@ export function ProductWorkspaceScreen({
         productId={productId}
         status={product?.status}
         promotedMasterId={promotedMasterId}
+        basicInfo={product?.basicInfo ?? null}
+        costCny={product?.cost_cny ?? null}
         isEditComplete={isEditComplete}
         isLocked={isLocked}
         selectedThumbnailUrl={selectedRegistrationThumbnailUrl}
@@ -564,6 +566,7 @@ export function ProductWorkspaceScreen({
               activeTab={activeTab}
               editData={editData}
               basicInfo={product?.basicInfo ?? null}
+              costCny={product?.cost_cny ?? null}
               updateField={updateField}
               onCommitBasicInfo={handleCommitBasicInfo}
               nameLength={nameLength}

@@ -1,21 +1,17 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileSpreadsheet, Upload } from 'lucide-react';
 import { toast } from 'sonner';
+import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
-import {
-  convertIcecreamMallOrderFile,
-  convertIcecreamMallOrderRows,
-  downloadOrderCollectionFile,
-} from './lib/order-collection-api';
-import {
-  collectIcecreamMallRowsFromExtension,
-  sendOrderFileToSellpiaViaExtension,
-} from './lib/order-collection-extension';
+import { downloadOrderCollectionFile } from './lib/order-collection-download';
+import { sendOrderFileToSellpiaViaExtension } from './lib/order-collection-extension';
 import {
   orderMallAccountApi,
   type OrderCollectionMallAccount,
+  type UpdateOrderCollectionMallAccountInput,
 } from './lib/order-mall-account-api';
 import {
   loadGeneratedOrderFiles,
@@ -35,6 +31,7 @@ import {
   type ConversionState,
   type MallAccountDraft,
 } from './lib/order-collection-page-model';
+import { createBrowserMallCollector } from './lib/browser-mall-collection';
 import { FilePreviewSection } from './components/FilePreviewSection';
 import { GeneratedFilesSection } from './components/GeneratedFilesSection';
 import { MallAccountSection } from './components/MallAccountSection';
@@ -43,6 +40,7 @@ import { OrderCollectionDailyPanel } from './components/OrderCollectionDailyPane
 import { OrderCollectionFlow } from './components/OrderCollectionFlow';
 
 export default function OrderCollectionPage() {
+  const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [state, setState] = useState<ConversionState>('idle');
@@ -51,18 +49,53 @@ export default function OrderCollectionPage() {
   const [error, setError] = useState<string | null>(null);
   const [filePassword, setFilePassword] = useState('');
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const [mallAccounts, setMallAccounts] = useState<OrderCollectionMallAccount[]>([]);
-  const [mallLoading, setMallLoading] = useState(true);
-  const [mallSaving, setMallSaving] = useState(false);
   const [browserCollecting, setBrowserCollecting] = useState(false);
   const [collectingMallKey, setCollectingMallKey] = useState<string | null>(null);
-  const [mallError, setMallError] = useState<string | null>(null);
   const [selectedMallKey, setSelectedMallKey] = useState<string | null>(ICECREAM_MALL_KEY);
   const [mallDraft, setMallDraft] = useState<MallAccountDraft>(EMPTY_MALL_DRAFT);
   const [mallSettingsOpen, setMallSettingsOpen] = useState(false);
   const [mallPasswordLoading, setMallPasswordLoading] = useState(false);
   const [mallPasswordVisible, setMallPasswordVisible] = useState(false);
   const [sellpiaSendingId, setSellpiaSendingId] = useState<string | null>(null);
+
+  const mallAccountsQuery = useQuery({
+    queryKey: queryKeys.orders.collectionMalls(),
+    queryFn: orderMallAccountApi.list,
+    meta: { suppressGlobalErrorToast: true },
+  });
+  const mallAccounts = mallAccountsQuery.data ?? [];
+  const mallLoading = mallAccountsQuery.isLoading;
+  const mallError = mallAccountsQuery.error instanceof Error
+    ? mallAccountsQuery.error.message
+    : mallAccountsQuery.isError
+      ? '몰 계정을 불러오지 못했습니다.'
+      : null;
+
+  const saveMallAccountMutation = useMutation({
+    mutationKey: queryKeys.orders.collectionMallAction('update'),
+    mutationFn: ({
+      mallKey,
+      input,
+    }: {
+      mallKey: string;
+      input: UpdateOrderCollectionMallAccountInput;
+    }) => orderMallAccountApi.update(mallKey, input),
+    onSuccess: (saved) => {
+      queryClient.setQueryData<OrderCollectionMallAccount[]>(
+        queryKeys.orders.collectionMalls(),
+        (current) => current?.map((account) => (account.key === saved.key ? saved : account)) ?? [saved],
+      );
+      void queryClient.invalidateQueries({ queryKey: queryKeys.orders.collectionMalls() });
+      setMallDraft((current) => ({ ...current, password: '' }));
+      setMallSettingsOpen(false);
+      toast.success(`${saved.name} 계정 저장 완료`);
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : '몰 계정 저장 실패';
+      toast.error(message);
+    },
+  });
+  const mallSaving = saveMallAccountMutation.isPending;
 
   const canConvert = selectedFile !== null && state !== 'converting';
   const lastResult = history[0] ?? null;
@@ -72,33 +105,25 @@ export default function OrderCollectionPage() {
   const selectedMall =
     mallAccounts.find((account) => account.key === selectedMallKey) ?? defaultMall;
   const configuredMallCount = mallAccounts.filter((account) => account.configured).length;
-  const enabledMallCount = mallAccounts.filter((account) => account.configured && account.enabled).length;
+  const enabledMallCount = mallAccounts.filter(
+    (account) => account.enabled && isBrowserCollectableMall(account),
+  ).length;
   const lastOrderCount = getOrderCount(lastResult);
 
   const generatedFileGroups = useMemo(() => groupHistoryByDay(history), [history]);
   const orderCollectionSummary = useMemo(() => buildOrderCollectionSummary(history), [history]);
 
-  const loadMallAccounts = async () => {
-    setMallLoading(true);
-    setMallError(null);
-    try {
-      const accounts = await orderMallAccountApi.list();
-      setMallAccounts(accounts);
-      setSelectedMallKey(
-        (current) =>
-          current ?? accounts.find((account) => account.key === ICECREAM_MALL_KEY)?.key ?? accounts[0]?.key ?? null,
-      );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : '몰 계정을 불러오지 못했습니다.';
-      setMallError(message);
-    } finally {
-      setMallLoading(false);
-    }
-  };
+  const refreshMallAccounts = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.orders.collectionMalls() });
+  }, [queryClient]);
 
   useEffect(() => {
-    void loadMallAccounts();
-  }, []);
+    if (mallAccounts.length === 0) return;
+    setSelectedMallKey(
+      (current) =>
+        current ?? mallAccounts.find((account) => account.key === ICECREAM_MALL_KEY)?.key ?? mallAccounts[0]?.key ?? null,
+    );
+  }, [mallAccounts]);
 
   useEffect(() => {
     let active = true;
@@ -118,6 +143,21 @@ export default function OrderCollectionPage() {
     setMallDraft(selectedMall ? draftFromMallAccount(selectedMall) : EMPTY_MALL_DRAFT);
   }, [selectedMall?.key, selectedMall?.loginId, selectedMall?.siteUrl, selectedMall?.memo, selectedMall?.enabled]);
 
+  const addGeneratedFile = useCallback((historyItem: ConversionHistoryItem) => {
+    setHistory((prev) => [
+      historyItem,
+      ...prev.filter((item) => item.id !== historyItem.id).slice(0, MAX_HISTORY_ITEMS - 1),
+    ]);
+    void saveGeneratedOrderFile(historyItem).catch(() => {
+      toast.error('생성 파일 목록 저장 실패');
+    });
+  }, []);
+
+  const collectBrowserMall = useMemo(
+    () => createBrowserMallCollector({ mallAccounts, addGeneratedFile, setPreviewId }),
+    [addGeneratedFile, mallAccounts],
+  );
+
   const selectFile = (file: File | null) => {
     setSelectedFile(file);
     setError(null);
@@ -134,28 +174,20 @@ export default function OrderCollectionPage() {
     selectFile(event.dataTransfer.files?.[0] ?? null);
   };
 
-  const addGeneratedFile = (historyItem: ConversionHistoryItem) => {
-    setHistory((prev) => [
-      historyItem,
-      ...prev.filter((item) => item.id !== historyItem.id).slice(0, MAX_HISTORY_ITEMS - 1),
-    ]);
-    void saveGeneratedOrderFile(historyItem).catch(() => {
-      toast.error('생성 파일 목록 저장 실패');
-    });
-  };
-
   const handleConvert = async () => {
     if (!selectedFile) return;
     setState('converting');
     setError(null);
 
     try {
+      const { convertIcecreamMallOrderFile } = await import('./lib/order-collection-api');
       const result = await convertIcecreamMallOrderFile(selectedFile, filePassword || undefined);
+      const convertedAt = Date.now();
       const historyItem = {
         ...result,
-        id: `${Date.now()}-${selectedFile.name}`,
+        id: `${convertedAt}-${selectedFile.name}`,
         sourceName: selectedFile.name.normalize('NFC'),
-        convertedAt: Date.now(),
+        convertedAt,
         collectionDate: todayYmd(),
         collectionMode: 'manual-upload' as const,
         mallKey: ICECREAM_MALL_KEY,
@@ -176,38 +208,8 @@ export default function OrderCollectionPage() {
     }
   };
 
-  const collectBrowserMall = async (account: OrderCollectionMallAccount) => {
-    if (!isBrowserCollectableMall(account)) {
-      throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
-    }
-
-    const credentials = await loadMallLoginCredentials(account);
-    const collected = await collectIcecreamMallRowsFromExtension(todayYmd(), credentials);
-    const result = await convertIcecreamMallOrderRows({
-      headers: collected.headers,
-      rows: collected.rows,
-      fileName: `아이스크림몰_${collected.date ?? todayYmd()}_브라우저수집`,
-    });
-    const convertedAt = Date.now();
-    const historyItem = {
-      ...result,
-      id: `${convertedAt}-${account.key}-browser`,
-      sourceName: `${account.name} 브라우저 수집 (${formatNumber(collected.rowCount)}행)`,
-      convertedAt,
-      collectionDate: collected.date ?? todayYmd(),
-      collectionMode: 'browser' as const,
-      collectedRows: collected.rowCount,
-      mallKey: account.key,
-      mallName: account.name,
-    };
-    addGeneratedFile(historyItem);
-    setPreviewId(historyItem.id);
-
-    return collected;
-  };
-
   const handleBrowserCollectAll = async () => {
-    const enabledAccounts = mallAccounts.filter((account) => account.configured && account.enabled);
+    const enabledAccounts = mallAccounts.filter((account) => account.enabled);
     const collectableAccounts = enabledAccounts.filter(isBrowserCollectableMall);
     const pendingCount = enabledAccounts.length - collectableAccounts.length;
 
@@ -246,16 +248,16 @@ export default function OrderCollectionPage() {
   };
 
   const handleBrowserCollectMall = async (account: OrderCollectionMallAccount) => {
-    if (!account.configured) {
-      toast.error(`${account.name} 계정을 먼저 설정해주세요.`);
-      return;
-    }
     if (!account.enabled) {
       toast.error(`${account.name} 계정이 중지되어 있습니다.`);
       return;
     }
     if (!isBrowserCollectableMall(account)) {
-      toast.error(`${account.name} 자동 수집은 준비 중입니다.`);
+      toast.error(
+        account.configured
+          ? `${account.name} 자동 수집은 준비 중입니다.`
+          : `${account.name} 계정을 먼저 설정해주세요.`,
+      );
       return;
     }
 
@@ -310,27 +312,16 @@ export default function OrderCollectionPage() {
 
   const handleSaveMallAccount = async () => {
     if (!selectedMall) return;
-    setMallSaving(true);
-    try {
-      const saved = await orderMallAccountApi.update(selectedMall.key, {
+    await saveMallAccountMutation.mutateAsync({
+      mallKey: selectedMall.key,
+      input: {
         loginId: mallDraft.loginId,
         password: mallDraft.password.trim() ? mallDraft.password : undefined,
         siteUrl: mallDraft.siteUrl,
         memo: mallDraft.memo,
         enabled: mallDraft.enabled,
-      });
-      setMallAccounts((prev) =>
-        prev.map((account) => (account.key === saved.key ? saved : account)),
-      );
-      setMallDraft((current) => ({ ...current, password: '' }));
-      setMallSettingsOpen(false);
-      toast.success(`${saved.name} 계정 저장 완료`);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : '몰 계정 저장 실패';
-      toast.error(message);
-    } finally {
-      setMallSaving(false);
-    }
+      },
+    }).catch(() => undefined);
   };
 
   const handleOpenMall = () => {
@@ -414,7 +405,7 @@ export default function OrderCollectionPage() {
         onOpenMall={handleOpenMall}
         onOpenSettings={(account) => void handleOpenMallSettings(account)}
         onPasswordVisibleChange={setMallPasswordVisible}
-        onRefresh={() => void loadMallAccounts()}
+        onRefresh={refreshMallAccounts}
         onSaveMallAccount={() => void handleSaveMallAccount()}
         onSettingsOpenChange={handleMallSettingsOpenChange}
       />
@@ -454,20 +445,4 @@ export default function OrderCollectionPage() {
       />
     </div>
   );
-}
-
-async function loadMallLoginCredentials(account: OrderCollectionMallAccount) {
-  if (!account.loginId || !account.hasPassword) {
-    throw new Error(`${account.name} 계정 ID와 비밀번호를 먼저 저장해주세요.`);
-  }
-
-  const result = await orderMallAccountApi.password(account.key);
-  if (!result.password) {
-    throw new Error(`${account.name} 저장된 비밀번호를 불러오지 못했습니다.`);
-  }
-
-  return {
-    loginId: account.loginId,
-    password: result.password,
-  };
 }

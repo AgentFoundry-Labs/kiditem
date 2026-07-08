@@ -9,6 +9,7 @@ export interface ProductBasics {
   optionNames: string[];
   kcCertificationStatus: string;
   kcCertificationNumber: string;
+  kcCertificationImageUrl: string;
   productSize: string;
   colorVariantStatus: string;
   colorVariantNames: string;
@@ -17,6 +18,8 @@ export interface ProductBasics {
   originalPrice: number;
   salePrice: number;
   discountRate: number;
+  rocketBundleQuantity: number;
+  rocketUnitCost: number;
   thumbnailUrls: string[];
   thumbnailPreviewUrls: string[];
   selectedThumbnailUrl: string | null;
@@ -98,6 +101,7 @@ export function buildProductBasics({
     optionNames: inputOptions.length > 0 ? inputOptions : strings(raw.optionNames ?? raw.options),
     kcCertificationStatus: str(input.kcCertificationStatus) ?? str(raw.kcCertificationStatus) ?? '',
     kcCertificationNumber: str(input.kcCertificationNumber) ?? str(raw.kcCertificationNumber) ?? '',
+    kcCertificationImageUrl: str(input.kcCertificationImageUrl) ?? str(raw.kcCertificationImageUrl) ?? '',
     productSize: str(input.productSize) ?? str(raw.productSize) ?? '',
     colorVariantStatus: str(input.colorVariantStatus) ?? str(raw.colorVariantStatus) ?? '',
     colorVariantNames: str(input.colorVariantNames) ?? str(raw.colorVariantNames) ?? '',
@@ -106,6 +110,8 @@ export function buildProductBasics({
     originalPrice: num(input.originalPrice),
     salePrice: num(input.salePrice),
     discountRate: num(input.discountRate),
+    rocketBundleQuantity: num(input.rocketBundleQuantity),
+    rocketUnitCost: num(input.rocketUnitCost),
     thumbnailUrls: [...new Set(thumbnailUrls)],
     thumbnailPreviewUrls: [...new Set(thumbnailPreviewUrls)],
     selectedThumbnailUrl: preparation?.selectedThumbnailUrl ?? null,

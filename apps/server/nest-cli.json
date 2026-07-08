@@ -4,6 +4,10 @@
   "sourceRoot": "src",
   "compilerOptions": {
     "deleteOutDir": true,
-    "tsConfigPath": "tsconfig.build.json"
+    "tsConfigPath": "tsconfig.build.json",
+    "assets": [
+      { "include": "orders/coupang-directship/*.xls", "watchAssets": true },
+      { "include": "orders/coupang-directship/*.py", "watchAssets": true }
+    ]
   }
 }

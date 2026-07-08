@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Settings } from 'lucide-react';
+import { toast } from 'sonner';
+import { isApiError } from '@/lib/api-error';
 import type {
   ProductBasics,
   UpdateProductBasicsInput,
@@ -25,6 +27,7 @@ interface Props {
   activeTab: EditTabType;
   editData: ProductEditState;
   basicInfo?: ProductBasics | null;
+  costCny?: number | null;
   updateField: <K extends keyof ProductEditState>(field: K, value: ProductEditState[K]) => void;
   onCommitBasicInfo?: (input: UpdateProductBasicsInput) => Promise<void> | void;
   nameLength: number;
@@ -79,6 +82,7 @@ export default function ProductTabContent({
   activeTab,
   editData,
   basicInfo = null,
+  costCny = null,
   updateField,
   onCommitBasicInfo,
   nameLength,
@@ -121,9 +125,10 @@ export default function ProductTabContent({
   const effectiveThumbnailSourceCandidateId =
     thumbnailSourceCandidateId === undefined ? productId : thumbnailSourceCandidateId;
   const initialBasicDraft = useMemo(
-    () => basicDraftFrom({ basicInfo, editData }),
+    () => basicDraftFrom({ basicInfo, editData, costCny }),
     [
       basicInfo,
+      costCny,
       editData.category,
       editData.discountRate,
       editData.name,
@@ -135,6 +140,7 @@ export default function ProductTabContent({
   const [basicDraft, setBasicDraft] = useState(initialBasicDraft);
   const [isBasicEditing, setIsBasicEditing] = useState(false);
   const [isBasicSaving, setIsBasicSaving] = useState(false);
+  const [isKcImageSaving, setIsKcImageSaving] = useState(false);
 
   useEffect(() => {
     if (!isBasicEditing) {
@@ -168,6 +174,21 @@ export default function ProductTabContent({
       // QueryClient/global error handling shows the API message; keep the draft open.
     } finally {
       setIsBasicSaving(false);
+    }
+  };
+
+  // 보기 모드에서 KC 인증 이미지를 올리면 수정/저장 없이 바로 저장한다.
+  const commitKcImage = async (value: string) => {
+    setBasicDraft((current) => ({ ...current, kcCertificationImageUrl: value }));
+    setIsKcImageSaving(true);
+    try {
+      await onCommitBasicInfo?.({ kcCertificationImageUrl: value });
+      toast.success(value ? 'KC 인증 이미지를 저장했어요.' : 'KC 인증 이미지를 삭제했어요.');
+    } catch (err) {
+      setBasicDraft(initialBasicDraft);
+      toast.error(isApiError(err) ? err.detail : 'KC 인증 이미지 저장에 실패했어요.');
+    } finally {
+      setIsKcImageSaving(false);
     }
   };
 
@@ -207,11 +228,14 @@ export default function ProductTabContent({
           <ProductBasicsTab
             editData={editData}
             basicInfo={basicInfo}
+            costCny={costCny}
             nameLength={nameLength}
             isEditing={isBasicEditing}
             draft={basicDraft}
             onDraftChange={updateBasicDraft}
             onDraftTagsChange={updateBasicDraftTags}
+            onCommitKcImage={commitKcImage}
+            isKcImageSaving={isKcImageSaving}
             selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
             selectedDetailPageGenerationId={savedDetailPageGenerationId}
             selectedDetailPageSummary={selectedDetailPageSummary}

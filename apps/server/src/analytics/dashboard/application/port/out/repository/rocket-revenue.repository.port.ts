@@ -41,6 +41,8 @@ export interface RocketOrderRow {
 }
 
 export interface RocketRevenueRepositoryPort {
+  findLatestDataDate(organizationId: string): Promise<Date | null>;
+
   aggregateRevenue(
     organizationId: string,
     from: Date,

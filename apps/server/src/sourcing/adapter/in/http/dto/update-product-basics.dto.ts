@@ -51,6 +51,12 @@ export class UpdateProductBasicsDto {
   @MaxLength(120)
   kcCertificationNumber?: string;
 
+  /** KC 인증 이미지. data:image/ base64 또는 호스팅 URL. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(5_000_000)
+  kcCertificationImageUrl?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(200)
@@ -91,6 +97,19 @@ export class UpdateProductBasicsDto {
   @Min(0)
   @Max(100)
   discountRate?: number;
+
+  /** 쿠팡 로켓 묶음 수량 (소비자가 만원 미만일 때 묶음 계산용). */
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(1000)
+  rocketBundleQuantity?: number;
+
+  /** 쿠팡 로켓 마진 계산용 단가 원가(KRW). 위안 원가 자동 환산값을 덮어쓸 수 있음. */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  rocketUnitCost?: number;
 
   @IsOptional()
   @IsArray()

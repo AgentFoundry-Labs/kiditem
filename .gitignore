@@ -67,7 +67,7 @@ __pycache__/
 # Test
 coverage/
 
-# KidItem local runtime state, including copied browser profiles.
+# KidItem local runtime state, including browser profiles.
 .kiditem/
 
 # Claude Code — user/session-local only. Repo rules live in AGENTS.md and docs/.
