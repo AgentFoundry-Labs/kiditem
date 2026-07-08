@@ -184,6 +184,14 @@ they document behavior, regression risk, domain policy, or public contracts.
 - Commit prefixes: `feat:`, `fix:`, `chore:`, `refactor:`, `docs:`, `test:`.
 - PR bodies include `.github/PULL_REQUEST_TEMPLATE.md` and
   DB/backfill/dev-data notes.
+- After creating or editing a PR, do not rely on the create/edit command
+  succeeding as proof that the body was saved. Immediately read the live body
+  with `gh pr view <number> --json body --jq .body`; if it is blank or missing
+  required template sections, fix the PR body before waiting for CI.
+- Before waiting on PR checks, run the same local PR body guards that CI uses
+  for the target base branch when applicable:
+  `npm run check:pr-reconstruction -- --base origin/<base> --head HEAD` and
+  `npm run check:pr-release-contract -- --base origin/<base> --head HEAD`.
 - PRs that change `AGENTS.md` or `CLAUDE.md` must be shared with the team.
 
 ## References
