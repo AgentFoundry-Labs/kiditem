@@ -102,6 +102,9 @@ export const queryKeys = {
     search: (params: Record<string, string>) => [...queryKeys.orders.all, 'search', params] as const,
     compare: (params: Record<string, string>) => [...queryKeys.orders.all, 'compare', params] as const,
     sync: (params: Record<string, string>) => [...queryKeys.orders.all, 'sync', params] as const,
+    collectionMalls: () => [...queryKeys.orders.all, 'collection', 'malls'] as const,
+    collectionMallAction: (action: string) =>
+      [...queryKeys.orders.collectionMalls(), action] as const,
   },
   coupangDashboard: {
     all: ['coupangDashboard'] as const,
