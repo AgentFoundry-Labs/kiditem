@@ -189,7 +189,6 @@ export class SellpiaSyncRepositoryAdapter implements SellpiaSyncRepositoryPort {
         },
         summary: {
           matchedCount: items.filter((item) => item.status === 'matched').length,
-          recommendedCount: items.filter((item) => item.status === 'recommended').length,
           reviewCount: items.filter((item) => item.status === 'needs_review').length,
           rejectedCount: items.filter((item) => item.status === 'rejected').length,
           newProductCandidateCount: newProductCandidates.length,

@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Operator is signed into KidItem with the correct active organization.
-- Sellpia stock export XLSX is available.
+- Sellpia stock export XLS/XLSX/CSV is available.
 - Coupang Rocket PO rows are collected through the order-collector extension.
 - Sellpia receipt upload workbook generation is pending until the official upload template is configured.
 
@@ -11,9 +11,9 @@
 
 1. Open `/inventory-hub`.
 2. Select `Sellpia 동기화`.
-3. Upload the Sellpia XLSX.
+3. Upload the Sellpia XLS/XLSX/CSV export.
 4. Confirm the effective export time.
-5. Review recommended rows.
+5. Review rows marked for inspection.
 6. Enter or confirm the final target quantity.
 7. Add a reason for large differences or edited targets.
 8. Approve or ignore each selected row.
@@ -27,7 +27,7 @@ is recorded through the normal `RECEIVE` stock ledger path.
 
 ## Sellpia Bulk Review
 
-Use filters to narrow the review table before bulk actions. `추천` rows can be
+Use filters to narrow the review table before bulk actions. `검토` rows can be
 bulk approved when no required reason is missing. Rows with large differences,
 recent KidItem stock changes, or edited target quantities require a reason before
 approval. Rows with hard blocking reasons stay selected and are skipped with a

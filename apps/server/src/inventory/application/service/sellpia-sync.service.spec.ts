@@ -38,6 +38,7 @@ describe('SellpiaSyncService', () => {
           safetyStock: 0,
           ownProductCode: null,
           barcode: null,
+          sourceBarcode: null,
           modelName: null,
           warnings: [],
           raw: {},
@@ -47,7 +48,6 @@ describe('SellpiaSyncService', () => {
       headers: ['상품코드', '재고'],
     });
 
-    expect(result.summary.recommendedCount).toBe(0);
     expect(result.summary.reviewCount).toBe(1);
     expect(result.items[0]?.targetCurrentStock).toBe(8);
     expect(result.items[0]?.status).toBe('needs_review');
@@ -85,6 +85,7 @@ describe('SellpiaSyncService', () => {
           safetyStock: 0,
           ownProductCode: null,
           barcode: null,
+          sourceBarcode: null,
           modelName: null,
           warnings: [],
           raw: {},
@@ -96,8 +97,53 @@ describe('SellpiaSyncService', () => {
 
     expect(result.summary.matchedCount).toBe(1);
     expect(result.summary.reviewCount).toBe(0);
-    expect(result.summary.recommendedCount).toBe(0);
     expect(result.items[0]?.status).toBe('matched');
+  });
+
+  it('uses parser-derived source barcode when persisting new product candidates', async () => {
+    const repository = makeRepository();
+    const service = new SellpiaSyncService(
+      repository,
+      makeInventoryRepository(),
+      makeBundleStock(),
+      makeProductProvision(),
+    );
+
+    const result = await service.importRows({
+      organizationId: 'org-1',
+      userId: 'user-1',
+      fileName: 'sellpia.xlsx',
+      fileHash: 'hash-1',
+      effectiveExportedAt: new Date('2026-06-29T00:00:00Z'),
+      rows: [
+        {
+          rowNumber: 2,
+          sellpiaProductCode: 'SP-NEW',
+          sellpiaProductName: '신규 상품',
+          sellpiaStock: 3,
+          safetyStock: 0,
+          ownProductCode: null,
+          barcode: null,
+          sourceBarcode: '8803333333333',
+          modelName: '8803333333333',
+          warnings: [],
+          raw: {},
+        },
+      ],
+      ignoredColumns: [],
+      headers: ['상품코드', '재고', '모델명'],
+    });
+
+    expect(result.summary.newProductCandidateCount).toBe(1);
+    expect(repository.createSnapshotWithItems).toHaveBeenCalledWith(expect.objectContaining({
+      items: [
+        expect.objectContaining({
+          sellpiaProductCode: 'SP-NEW',
+          barcode: '8803333333333',
+          createCandidate: true,
+        }),
+      ],
+    }));
   });
 
   it('requires reason for large difference approval', async () => {
@@ -225,7 +271,6 @@ function makeRepository(
       },
       summary: {
         matchedCount: input.items.filter((item) => item.status === 'matched').length,
-        recommendedCount: input.items.filter((item) => item.status === 'recommended').length,
         reviewCount: input.items.filter((item) => item.status === 'needs_review').length,
         rejectedCount: input.items.filter((item) => item.status === 'rejected').length,
         newProductCandidateCount: input.items.filter((item) => item.status === 'new_product_candidate').length,

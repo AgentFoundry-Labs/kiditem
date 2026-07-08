@@ -68,6 +68,22 @@ describe('Sellpia adjustment recommendation policy', () => {
     expect(requiresSellpiaApprovalReason(result, 100)).toBe(true);
   });
 
+  it('maps missing product names to non-blocking row warnings', () => {
+    const result = buildSellpiaRecommendation({
+      sellpiaStock: 12,
+      rocketLedgerNet: 0,
+      kiditemStockBefore: 10,
+      warnings: ['missing_product_name'],
+      productOptionId: 'option-1',
+      inventoryId: 'inventory-1',
+      hasRecentKidItemEvent: false,
+    });
+
+    expect(result.status).toBe('needs_review');
+    expect(result.blockingReasons).toEqual([]);
+    expect(result.warningReasons).toContain('missing_product_name');
+  });
+
   it('requires a reason when operator target differs from recommended target', () => {
     const result = buildSellpiaRecommendation({
       sellpiaStock: 10,

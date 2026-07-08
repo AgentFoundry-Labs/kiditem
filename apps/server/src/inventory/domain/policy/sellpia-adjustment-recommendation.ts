@@ -7,7 +7,8 @@ import type {
 export type SellpiaRecommendationWarning =
   | 'duplicate_code'
   | 'invalid_stock'
-  | 'missing_product_code';
+  | 'missing_product_code'
+  | 'missing_product_name';
 
 export type SellpiaRecommendationInput = {
   sellpiaStock: number;
@@ -45,6 +46,7 @@ export function buildSellpiaRecommendation(
   if (input.warnings.includes('duplicate_code')) blockingReasons.push('duplicate_code');
   if (input.warnings.includes('invalid_stock')) blockingReasons.push('invalid_stock');
   if (input.warnings.includes('missing_product_code')) blockingReasons.push('parse_warning');
+  if (input.warnings.includes('missing_product_name')) warningReasons.push('missing_product_name');
   if (Math.abs(diff) >= 20 || diffRate >= 0.3) warningReasons.push('large_difference');
 
   const status: SellpiaSnapshotItemStatus = blockingReasons.includes('new_product_candidate')

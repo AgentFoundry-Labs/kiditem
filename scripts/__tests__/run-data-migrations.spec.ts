@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -18,6 +18,9 @@ import {
   normalizeReleaseVersion,
   selectDataMigrationsForPhase,
 } from '../run-data-migrations';
+import {
+  normalizeSellpiaRecommendedSnapshotItems,
+} from '../data-migrations/v0.1.7/002_normalize_sellpia_recommended_snapshot_items';
 
 const repoRoot = join(__dirname, '..', '..');
 
@@ -41,6 +44,7 @@ describe('data migration registry', () => {
       'v0.1.4:001_record_agent_os_operator_backbone_release',
       'v0.1.6:001_record_rocket_read_model_release',
       'v0.1.7:001_record_sellpia_rocket_inventory_sync_release',
+      'v0.1.7:002_normalize_sellpia_recommended_snapshot_items',
     ]);
   });
 
@@ -67,6 +71,26 @@ describe('data migration registry', () => {
     expect(selectDataMigrationsForPhase(dataMigrations, 'post-schema').map((m) => m.id)).not.toContain(
       'v0.1.2:002_rename_registration_workspaces_to_content_workspaces',
     );
+  });
+});
+
+describe('Sellpia recommended snapshot item migration', () => {
+  it('normalizes legacy recommended status rows to needs_review', async () => {
+    const tx = {
+      $executeRaw: vi.fn(async () => 3),
+    };
+
+    const result = await normalizeSellpiaRecommendedSnapshotItems.run(tx as never);
+    const [statement] = tx.$executeRaw.mock.calls[0] as [TemplateStringsArray];
+
+    expect(String.raw(statement)).toContain('UPDATE sellpia_stock_snapshot_items');
+    expect(String.raw(statement)).toContain("WHERE status = 'recommended'");
+    expect(result).toEqual({
+      affectedRows: 3,
+      details: {
+        normalizedStatus: 'recommended -> needs_review',
+      },
+    });
   });
 });
 

@@ -23,7 +23,7 @@ const baseRow: SellpiaStockSnapshotItem = {
   kiditemStockBefore: 8,
   diff: 2,
   diffRate: 0.2,
-  status: 'recommended',
+  status: 'needs_review',
   blockingReasons: [],
   warningReasons: [],
   operatorTargetStock: null,
@@ -37,7 +37,6 @@ function row(patch: Partial<SellpiaStockSnapshotItem>): SellpiaStockSnapshotItem
 describe('sellpia review UI model', () => {
   it('filters matched no-action rows out of the operational buckets', () => {
     const rows = [
-      row({ id: '00000000-0000-4000-8000-000000000011', status: 'recommended' }),
       row({ id: '00000000-0000-4000-8000-000000000012', status: 'needs_review' }),
       row({ id: '00000000-0000-4000-8000-000000000013', status: 'new_product_candidate' }),
       row({ id: '00000000-0000-4000-8000-000000000014', status: 'approved_adjusted' }),
@@ -50,20 +49,21 @@ describe('sellpia review UI model', () => {
       }),
     ];
 
-    expect(filterSellpiaRows(rows, 'all')).toHaveLength(4);
-    expect(filterSellpiaRows(rows, 'review')).toHaveLength(2);
+    expect(filterSellpiaRows(rows, 'all')).toHaveLength(3);
+    expect(filterSellpiaRows(rows, 'review')).toHaveLength(1);
     expect(filterSellpiaRows(rows, 'candidate')).toHaveLength(1);
     expect(filterSellpiaRows(rows, 'done')).toHaveLength(1);
   });
 
   it('adds warning and blocking badges', () => {
     const badges = getSellpiaRowBadges(row({
-      warningReasons: ['large_difference'],
+      warningReasons: ['large_difference', 'missing_product_name'],
       blockingReasons: ['recent_kiditem_event'],
     }));
 
     expect(badges).toEqual([
       { tone: 'warning', label: '큰 차이' },
+      { tone: 'warning', label: '상품명 없음' },
       { tone: 'danger', label: '최근 KidItem 변동' },
     ]);
   });

@@ -20,11 +20,13 @@ import {
   requiresSellpiaRowReason,
   type SellpiaReviewFilter,
 } from '../lib/sellpia-review-ui';
-import type {
-  SellpiaCandidateResolutionInput,
-  SellpiaNewProductCandidate,
-  SellpiaSnapshotImportResponse,
-  SellpiaStockSnapshotItem,
+import {
+  SELLPIA_WORKBOOK_ACCEPT,
+  SELLPIA_WORKBOOK_FORMAT_LABEL,
+  type SellpiaCandidateResolutionInput,
+  type SellpiaNewProductCandidate,
+  type SellpiaSnapshotImportResponse,
+  type SellpiaStockSnapshotItem,
 } from '@kiditem/shared/inventory';
 
 type CandidateAction = SellpiaCandidateResolutionInput['action'];
@@ -52,6 +54,7 @@ const actionLabels: Record<CandidateAction, string> = {
   ignore: '무시',
 };
 
+const SELLPIA_WORKBOOK_INPUT_LABEL = `Sellpia ${SELLPIA_WORKBOOK_FORMAT_LABEL}`;
 const SELLPIA_REVIEW_PAGE_SIZE = 50;
 
 function defaultExportedAt(): string {
@@ -111,7 +114,6 @@ export default function SellpiaSync() {
 
   const actionableRows = useMemo(
     () => result?.items.filter((item) =>
-      item.status === 'recommended' ||
       item.status === 'needs_review' ||
       item.status === 'new_product_candidate' ||
       item.status === 'missing_inventory' ||
@@ -122,7 +124,7 @@ export default function SellpiaSync() {
     ) ?? [],
     [result],
   );
-  const reviewMetricCount = (result?.summary.reviewCount ?? 0) + (result?.summary.recommendedCount ?? 0);
+  const reviewMetricCount = result?.summary.reviewCount ?? 0;
 
   const reviewRows = useMemo(
     () => filterSellpiaRows(actionableRows, filter),
@@ -394,11 +396,11 @@ export default function SellpiaSync() {
       <div className="rounded-xl border border-slate-200 bg-white p-5">
         <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_220px_auto] md:items-end">
           <label className="block text-sm font-medium text-slate-700">
-            Sellpia XLSX
+            {SELLPIA_WORKBOOK_INPUT_LABEL}
             <input
-              aria-label="Sellpia XLSX"
+              aria-label={SELLPIA_WORKBOOK_INPUT_LABEL}
               type="file"
-              accept=".xlsx,.xls"
+              accept={SELLPIA_WORKBOOK_ACCEPT}
               onChange={(event) => setFile(event.target.files?.[0] ?? null)}
               className="mt-1 block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
             />

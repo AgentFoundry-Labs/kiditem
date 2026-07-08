@@ -109,7 +109,7 @@ export class SellpiaSyncService implements SellpiaSyncPort {
         sellpiaStock: row.sellpiaStock,
         safetyStock: row.safetyStock,
         ownProductCode: row.ownProductCode,
-        barcode: row.barcode,
+        barcode: row.sourceBarcode,
         modelName: row.modelName,
         productOptionId: match?.productOptionId ?? null,
         inventoryId: match?.inventoryId ?? null,
@@ -373,7 +373,8 @@ function normalizeWarnings(warnings: string[]): SellpiaRecommendationWarning[] {
   return warnings.filter((warning): warning is SellpiaRecommendationWarning =>
     warning === 'duplicate_code' ||
     warning === 'invalid_stock' ||
-    warning === 'missing_product_code',
+    warning === 'missing_product_code' ||
+    warning === 'missing_product_name',
   );
 }
 
@@ -382,7 +383,7 @@ function isAppliedStatus(status: SellpiaSnapshotItemStatus): boolean {
 }
 
 function isReviewableStatus(status: SellpiaSnapshotItemStatus): boolean {
-  return status === 'recommended' || status === 'needs_review';
+  return status === 'needs_review';
 }
 
 function assertApprovalAllowed(
