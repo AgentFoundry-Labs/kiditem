@@ -81,6 +81,26 @@ describe('removed market-data migration entrypoints', () => {
   });
 });
 
+describe('removed legacy staging deploy entrypoints', () => {
+  it('does not retain local Docker image streaming or EC2 bootstrap scripts', () => {
+    expect(existsSync(join(repoRoot, 'bin/deploy-staging.sh'))).toBe(false);
+    expect(existsSync(join(repoRoot, 'bin/setup-staging-ec2.sh'))).toBe(false);
+
+    for (const relativePath of [
+      'docs/runbooks/staging-deploy.md',
+      'docs/runbooks/deployment-architecture.md',
+      'docs/runbooks/README.md',
+      'scripts/README.md',
+    ]) {
+      const contents = readFileSync(join(repoRoot, relativePath), 'utf8');
+      expect(contents).not.toContain('bin/deploy-staging.sh');
+      expect(contents).not.toContain('setup-staging-ec2.sh');
+      expect(contents).not.toContain('docker save');
+      expect(contents).not.toContain('docker load');
+    }
+  });
+});
+
 describe('dev data coupang domain adapter', () => {
   it('exports scraper payloads and replays them in dry-run mode', () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'kiditem-coupang-adapter-'));

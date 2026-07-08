@@ -27,10 +27,10 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Advertising](erd/advertising.md) | 5 |
 | [AgentOS](erd/agentos.md) | 17 |
 | [AI](erd/ai.md) | 18 |
-| [Channels](erd/channels.md) | 8 |
+| [Channels](erd/channels.md) | 10 |
 | [Core](erd/core.md) | 13 |
 | [Finance](erd/finance.md) | 5 |
-| [Inventory](erd/inventory.md) | 8 |
+| [Inventory](erd/inventory.md) | 13 |
 | [Orders](erd/orders.md) | 9 |
 | [Sourcing](erd/sourcing.md) | 3 |
 | [Supply](erd/supply.md) | 6 |
@@ -88,6 +88,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ChannelReconciliationRun | Channels | `channel_reconciliation_runs` | 채널-KidItem 상품 매칭 스캔 실행 이력. 실제 연결 source of truth 는 ChannelListing / ChannelListingOption. |
 | ChannelScrapeRun | Channels | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
 | ChannelScrapeSnapshot | Channels | `channel_scrape_snapshots` | 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존. |
+| RocketPurchaseOrder | Channels | `rocket_purchase_orders` | 쿠팡 로켓 발주 단건(per-PO) 상세 — 매출분석 드릴다운(일자→발주→품목)용. items 는 발주서 품목(SKU) 라인 JSON(표시 전용). |
+| RocketSupplyDailySnapshot | Channels | `rocket_supply_daily_snapshots` | 쿠팡 로켓(공급사 발주) 일별 매출 fact. po-web 발주리스트의 발주금액(공급가)을 입고예정일(KST) 기준으로 집계한 값으로, 윙 매출과 분리된 로켓 매출 소스. |
 | BundleComponent | Core | `bundle_components` | 세트 옵션의 구성품 관계. bundleOption(isBundle=true) ↔ componentOption. Cross-master 허용, cross-organization 금지. |
 | CategoryMapping | Core | `category_mappings` | - |
 | ChannelAccount | Core | `channel_accounts` | Marketplace/store account such as Coupang Wing or Naver SmartStore. Operational channel ownership is distinct from the SaaS organization. |
@@ -110,6 +112,11 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | PickingItem | Inventory | `picking_items` | - |
 | PickingList | Inventory | `picking_lists` | - |
 | ReturnTransfer | Inventory | `return_transfers` | - |
+| RocketInventoryLedger | Inventory | `rocket_inventory_ledger` | Coupang Rocket stock event ledger. Sellpia never contains these effects. |
+| SellpiaNewProductCandidate | Inventory | `sellpia_new_product_candidates` | Unmatched Sellpia row that must be explicitly created, linked, ignored, or rejected. |
+| SellpiaReceiptUploadBatch | Inventory | `sellpia_receipt_upload_batches` | KidItem receipt batch that still needs Sellpia upload confirmation. |
+| SellpiaStockSnapshot | Inventory | `sellpia_stock_snapshots` | Sellpia stock export import attempt. Imports are row-scoped; absent products are ignored. |
+| SellpiaStockSnapshotItem | Inventory | `sellpia_stock_snapshot_items` | One imported Sellpia product row with recommendation/review state. |
 | StockAudit | Inventory | `stock_audits` | - |
 | StockTransaction | Inventory | `stock_transactions` | - |
 | StockTransfer | Inventory | `stock_transfers` | 창고 간 이동 (from → to warehouse). |
@@ -1505,6 +1512,58 @@ erDiagram
     DateTime reviewedAt
     DateTime createdAt
   }
+  RocketInventoryLedger {
+    String id PK
+    String organizationId FK
+    String inventoryId FK
+    String optionId FK
+    String eventType
+    Int quantity
+    Int reservedDelta
+    Int stockDelta
+    Int overReservationQty
+    String overrideBy
+    String overrideReason
+    Int rocketPoSeq
+    String rocketPoLineKey
+    String sourceActionId
+    String sourceType
+    String sourceRef
+    DateTime occurredAt
+    String createdBy
+    String note
+    Json metaJson
+    DateTime createdAt
+  }
+  RocketPurchaseOrder {
+    String id PK
+    String organizationId FK
+    Int poSeq
+    DateTime businessDate
+    DateTime orderedAt
+    String status
+    String vendorName
+    String centerName
+    String firstSkuName
+    Int skuCount
+    Int orderQty
+    Int orderAmount
+    Json items
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  RocketSupplyDailySnapshot {
+    String id PK
+    String organizationId FK
+    DateTime businessDate
+    Int revenueKrw
+    Int poCount
+    Int itemQty
+    String source
+    Json rawJson
+    DateTime createdAt
+    DateTime updatedAt
+  }
   SalesPlan {
     String id PK
     String organizationId FK
@@ -1528,6 +1587,92 @@ erDiagram
     Boolean isActive
     DateTime lastScrapedAt
     DateTime createdAt
+  }
+  SellpiaNewProductCandidate {
+    String id PK
+    String organizationId FK
+    String snapshotItemId FK,UK
+    String sellpiaProductCode
+    String sellpiaProductName
+    Int sellpiaStock
+    Int safetyStock
+    String ownProductCode
+    String barcode
+    String modelName
+    String status
+    String resolvedMasterProductId
+    String resolvedProductOptionId FK
+    String createdInventoryId FK
+    String initialReceiveTransactionId
+    Int operatorInitialStock
+    String resolutionDecision
+    String resolvedBy
+    DateTime resolvedAt
+    String note
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SellpiaReceiptUploadBatch {
+    String id PK
+    String organizationId FK
+    String status
+    String sourceType
+    String sourceRef
+    String templateVersion
+    String uploadedBy
+    DateTime uploadedAt
+    String note
+    Json metaJson
+    String createdBy
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SellpiaStockSnapshot {
+    String id PK
+    String organizationId FK
+    String fileName
+    String fileHash
+    Int rowCount
+    DateTime effectiveExportedAt
+    DateTime uploadedAt
+    String status
+    String createdBy
+    Json metaJson
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SellpiaStockSnapshotItem {
+    String id PK
+    String organizationId FK
+    String snapshotId FK
+    Int rowNumber
+    String sellpiaProductCode
+    String sellpiaProductName
+    Int sellpiaStock
+    Int safetyStock
+    String ownProductCode
+    String barcode
+    String modelName
+    String productOptionId FK
+    String inventoryId FK
+    Int rocketLedgerNet
+    Int targetCurrentStock
+    Int kiditemStockBefore
+    Int operatorTargetStock
+    Int kiditemStockAtApply
+    Int diff
+    Decimal diffRate
+    String status
+    Json blockingReasons
+    Json warningReasons
+    String appliedTransactionId
+    String reviewedBy
+    DateTime reviewedAt
+    String reviewDecision
+    String reviewNote
+    Json rawJson
+    DateTime createdAt
+    DateTime updatedAt
   }
   Settlement {
     String id PK
@@ -2020,6 +2165,9 @@ erDiagram
   DetailPageRevision o|--o{ ProductPreparation : "selectedDetailPageRevision"
   ExecutionTask ||--o{ ExecutionLog : "task"
   ExecutionWorker o|--o{ ExecutionTask : "worker"
+  Inventory ||--o{ RocketInventoryLedger : "inventory"
+  Inventory o|--o{ SellpiaNewProductCandidate : "createdInventory"
+  Inventory o|--o{ SellpiaStockSnapshotItem : "inventory"
   Marketplace o|--o{ WorkflowTemplate : "marketplace"
   MasterProduct ||--o{ ChannelListing : "master"
   MasterProduct o|--o{ ContentGenerationGroup : "targetMaster"
@@ -2104,8 +2252,15 @@ erDiagram
   Organization ||--o{ PurchaseOrder : "organization"
   Organization ||--o{ ReturnTransfer : "organization"
   Organization ||--o{ Review : "organization"
+  Organization ||--o{ RocketInventoryLedger : "organization"
+  Organization ||--o{ RocketPurchaseOrder : "organization"
+  Organization ||--o{ RocketSupplyDailySnapshot : "organization"
   Organization ||--o{ SalesPlan : "organization"
   Organization ||--o{ ScrapeTarget : "organization"
+  Organization ||--o{ SellpiaNewProductCandidate : "organization"
+  Organization ||--o{ SellpiaReceiptUploadBatch : "organization"
+  Organization ||--o{ SellpiaStockSnapshot : "organization"
+  Organization ||--o{ SellpiaStockSnapshotItem : "organization"
   Organization ||--o{ Settlement : "organization"
   Organization ||--o{ Shipment : "organization"
   Organization ||--o{ SourcingCandidate : "organization"
@@ -2141,6 +2296,9 @@ erDiagram
   ProductOption ||--o{ PickingItem : "option"
   ProductOption o|--o{ PurchaseOrderItem : "option"
   ProductOption ||--o{ ReturnTransfer : "option"
+  ProductOption ||--o{ RocketInventoryLedger : "option"
+  ProductOption o|--o{ SellpiaNewProductCandidate : "resolvedOption"
+  ProductOption o|--o{ SellpiaStockSnapshotItem : "option"
   ProductOption o|--o{ Shipment : "option"
   ProductOption ||--o{ StockTransaction : "option"
   ProductOption ||--o{ StockTransfer : "option"
@@ -2148,6 +2306,8 @@ erDiagram
   ProductOption o|--o{ UnshippedItem : "option"
   PurchaseOrder ||--o{ PurchaseOrderItem : "order"
   PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"
+  SellpiaStockSnapshot ||--o{ SellpiaStockSnapshotItem : "snapshot"
+  SellpiaStockSnapshotItem ||--|| SellpiaNewProductCandidate : "snapshotItem"
   SourcingCandidate ||--o{ CandidateImage : "candidate"
   SourcingCandidate o|--o{ ContentGeneration : "sourceCandidate"
   SourcingCandidate o|--o{ ContentGenerationSource : "sourceCandidate"

@@ -1,7 +1,8 @@
 // Outgoing port for Coupang Rocket (supplier 발주) revenue. Rocket revenue is
 // the sum of purchase-order amounts (공급가) ingested into
-// `rocket_supply_daily_snapshots`, keyed by 발주일(KST). The dashboard reads it
-// as a separate revenue lane and adds it on top of the Wing/order revenue.
+// `rocket_supply_daily_snapshots`, keyed by 입고예정일(KST). The dashboard
+// reads it as a separate revenue lane and adds it on top of the Wing/order
+// revenue.
 
 export const ROCKET_REVENUE_REPOSITORY_PORT = Symbol('RocketRevenueRepositoryPort');
 

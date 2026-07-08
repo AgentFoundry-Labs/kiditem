@@ -1,19 +1,10 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # orders — Orders, Returns, CS, Reviews
 
 `src/orders/` owns the channel-agnostic order spine and adjacent operational
 surfaces: orders, returns, CS, reviews, and return transfers. Return transfers
 are record-only; stock movement stays with inventory.
-
-## Folder Map
-
-```text
-orders/
-├── controllers/          # orders, returns, CS, reviews
-├── services/             # flat channel-agnostic CRUD/action services
-├── dto/
-├── return-transfers/     # controller, service, dto
-└── orders.module.ts
-```
 
 ## Owned Surfaces
 

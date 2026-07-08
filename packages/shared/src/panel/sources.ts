@@ -4,12 +4,12 @@ export const PANEL_RUN_SOURCES = {
   workflow: {
     label: '워크플로우',
     iconName: 'Workflow',
-    deepLinkPattern: '/workflows/runs/:id',
+    deepLinkPattern: '/workflows',
   },
   agent: {
     label: '에이전트',
     iconName: 'Bot',
-    deepLinkPattern: '/agents/runs/:id',
+    deepLinkPattern: '/agents',
   },
   image: {
     label: '이미지',

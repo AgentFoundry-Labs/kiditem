@@ -175,14 +175,14 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
         title: '트래픽 데이터 업로드',
         sourceType: 'traffic_upload',
         sourceId: 'products',
-        href: '/products',
+        href: '/product-hub',
       }),
     );
     expect(operationAlerts.succeed).toHaveBeenCalledWith(
       ORGANIZATION_ID,
       'traffic-upload:products',
       expect.objectContaining({
-        href: '/products',
+        href: '/product-hub',
         metadata: expect.objectContaining({
           fileName: 'traffic-upload.xlsx',
           source: 'products',

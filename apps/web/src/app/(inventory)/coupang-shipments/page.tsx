@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import Link from 'next/link';
 import {
   AlertCircle,
   Download,
@@ -16,6 +17,7 @@ import {
 import { toast } from 'sonner';
 import { downloadBlob } from '@/lib/browser-download';
 import { cn, formatNumber } from '@/lib/utils';
+import { buildRocketEventDraftHref } from '@/app/(inventory)/inventory-hub/lib/rocket-event-draft';
 import {
   COUPANG_SHIPMENT_CENTERS,
   COUPANG_SHIPMENT_PAGE_URL,
@@ -240,6 +242,17 @@ export default function CoupangShipmentsPage() {
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">쿠팡 쉽먼트</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={buildRocketEventDraftHref({
+              eventType: 'issue',
+              sourceRef: `shipment-${downloadDate}`,
+              note: `쿠팡 쉽먼트 ${downloadDate}`,
+            })}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            <PackageCheck size={15} />
+            출고 재고 처리 초안
+          </Link>
           <button
             type="button"
             onClick={openCoupang}

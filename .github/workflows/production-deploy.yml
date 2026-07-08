@@ -1,0 +1,563 @@
+name: Production Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Deploy this ref, show production status, or rollback to an existing GHCR tag.
+        type: choice
+        required: true
+        default: status
+        options:
+          - deploy
+          - status
+          - rollback
+      image_tag:
+        description: Existing GHCR tag for rollback. Use a git SHA tag, not "production".
+        required: false
+        type: string
+      confirm:
+        description: Use DEPLOY_PRODUCTION for deploy or ROLLBACK_PRODUCTION for rollback.
+        required: false
+        type: string
+      allow_downtime_for_space:
+        description: Stop the current production stack if image pull needs active-layer disk space.
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+env:
+  API_IMAGE_BASE: ghcr.io/agentfoundry-labs/kiditem-api
+  API_RUNTIME_BASE_IMAGE: ghcr.io/agentfoundry-labs/kiditem-api-base:node22-chromium-b6503cb2512e
+  WEB_IMAGE_BASE: ghcr.io/agentfoundry-labs/kiditem-web
+
+jobs:
+  prepare:
+    name: Prepare production image refs
+    if: inputs.operation == 'deploy'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      git_sha: ${{ steps.refs.outputs.git_sha }}
+      app_version: ${{ steps.refs.outputs.app_version }}
+      api_image_tag: ${{ steps.refs.outputs.api_image_tag }}
+      web_image_tag: ${{ steps.refs.outputs.web_image_tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Validate production confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          set -euo pipefail
+          [[ "$CONFIRM" == "DEPLOY_PRODUCTION" ]] || { echo "confirm must be DEPLOY_PRODUCTION" >&2; exit 2; }
+          : "${NEXT_PUBLIC_SUPABASE_URL:?Set production variable PRODUCTION_NEXT_PUBLIC_SUPABASE_URL}"
+          : "${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:?Set production variable PRODUCTION_NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}"
+
+      - name: Compute image references
+        id: refs
+        run: |
+          set -euo pipefail
+          app_version="$(tr -d '[:space:]' < VERSION)"
+          case "$app_version" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "Invalid root VERSION: $app_version" >&2; exit 2 ;;
+          esac
+          {
+            echo "git_sha=${GITHUB_SHA}"
+            echo "app_version=${app_version}"
+            echo "api_image_tag=${API_IMAGE_BASE}:${GITHUB_SHA}"
+            echo "web_image_tag=${WEB_IMAGE_BASE}:${GITHUB_SHA}"
+          } >> "$GITHUB_OUTPUT"
+
+  build_api:
+    name: Build and push API image
+    if: inputs.operation == 'deploy'
+    needs: prepare
+    uses: ./.github/workflows/build-image.yml
+    permissions:
+      contents: read
+      packages: write
+    secrets: inherit
+    with:
+      image_base: ghcr.io/agentfoundry-labs/kiditem-api
+      dockerfile: ./apps/server/Dockerfile
+      cache_scope: production-api
+      title: KidItem Production API
+      app_version: ${{ needs.prepare.outputs.app_version }}
+      build_args: |
+        API_RUNTIME_BASE_IMAGE=ghcr.io/agentfoundry-labs/kiditem-api-base:node22-chromium-b6503cb2512e
+      extra_tags: ghcr.io/agentfoundry-labs/kiditem-api:production-candidate
+      preflight_image: ghcr.io/agentfoundry-labs/kiditem-api-base:node22-chromium-b6503cb2512e
+
+  build_web:
+    name: Build and push web image
+    if: inputs.operation == 'deploy'
+    needs: prepare
+    uses: ./.github/workflows/build-image.yml
+    permissions:
+      contents: read
+      packages: write
+    secrets: inherit
+    with:
+      image_base: ghcr.io/agentfoundry-labs/kiditem-web
+      dockerfile: ./apps/web/Dockerfile
+      cache_scope: production-web
+      title: KidItem Production Web
+      app_version: ${{ needs.prepare.outputs.app_version }}
+      build_args: |
+        NEXT_PUBLIC_API_URL=
+        NEXT_PUBLIC_SUPABASE_URL=${{ vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+      extra_tags: ghcr.io/agentfoundry-labs/kiditem-web:production-candidate
+
+  deploy:
+    name: Deploy to production
+    if: inputs.operation == 'deploy'
+    needs:
+      - prepare
+      - build_api
+      - build_web
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install DB migration dependencies
+        run: npm ci --ignore-scripts --fetch-timeout=600000 --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000 --no-audit --no-fund
+
+      - name: Generate Prisma client for data migrations
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?Set production secret PRODUCTION_DATABASE_URL}"
+          npx prisma generate
+
+      - name: Run pre-schema data migrations
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DATA_MIGRATION_TARGET: production
+          DATA_MIGRATION_CONFIRM: APPLY_DATA_MIGRATIONS
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?Set production secret PRODUCTION_DATABASE_URL}"
+          npm run data:migrate -- up --phase pre-schema
+
+      - name: Apply production Prisma schema
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?Set production secret PRODUCTION_DATABASE_URL}"
+          npx prisma db push
+          npx prisma generate
+
+      - name: Run post-schema data migrations
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DATA_MIGRATION_TARGET: production
+          DATA_MIGRATION_CONFIRM: APPLY_DATA_MIGRATIONS
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?Set production secret PRODUCTION_DATABASE_URL}"
+          npm run data:migrate -- up --phase post-schema
+
+      - name: Render production runtime env files
+        env:
+          API_ENV_FILE: .env.production.api
+          WEB_ENV_FILE: .env.production.web
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL }}
+          SUPABASE_URL: ${{ vars.PRODUCTION_SUPABASE_URL || vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
+          SOURCING_EXTENSION_TOKEN_SECRET: ${{ secrets.PRODUCTION_SOURCING_EXTENSION_TOKEN_SECRET }}
+          SOURCING_EXTENSION_TOKEN_TTL_SECONDS: ${{ vars.PRODUCTION_SOURCING_EXTENSION_TOKEN_TTL_SECONDS }}
+          SOURCING_EXTENSION_TOKEN_MAX_SECONDS: ${{ vars.PRODUCTION_SOURCING_EXTENSION_TOKEN_MAX_SECONDS }}
+          CORS_ORIGINS: ${{ vars.PRODUCTION_CORS_ORIGINS || vars.PRODUCTION_URL }}
+          S3_REGION: ${{ vars.PRODUCTION_S3_REGION }}
+          S3_BUCKET: ${{ vars.PRODUCTION_S3_BUCKET }}
+          S3_ENDPOINT: ${{ vars.PRODUCTION_S3_ENDPOINT }}
+          S3_PUBLIC_URL: ${{ vars.PRODUCTION_S3_PUBLIC_URL }}
+          S3_ACCESS_KEY: ${{ secrets.PRODUCTION_S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.PRODUCTION_S3_SECRET_KEY }}
+          CHANNEL_CREDENTIALS_ENCRYPTION_KEY: ${{ secrets.PRODUCTION_CHANNEL_CREDENTIALS_ENCRYPTION_KEY }}
+          NAVER_DATALAB_CLIENT_ID: ${{ secrets.PRODUCTION_NAVER_DATALAB_CLIENT_ID }}
+          NAVER_DATALAB_CLIENT_SECRET: ${{ secrets.PRODUCTION_NAVER_DATALAB_CLIENT_SECRET }}
+          NAVER_DATALAB_BASE_URL: ${{ vars.PRODUCTION_NAVER_DATALAB_BASE_URL }}
+          NAVER_DATALAB_WEB_BASE_URL: ${{ vars.PRODUCTION_NAVER_DATALAB_WEB_BASE_URL }}
+          NAVER_SEARCHAD_API_KEY: ${{ secrets.PRODUCTION_NAVER_SEARCHAD_API_KEY }}
+          NAVER_SEARCHAD_SECRET_KEY: ${{ secrets.PRODUCTION_NAVER_SEARCHAD_SECRET_KEY }}
+          NAVER_SEARCHAD_CUSTOMER_ID: ${{ secrets.PRODUCTION_NAVER_SEARCHAD_CUSTOMER_ID }}
+          NAVER_SEARCHAD_BASE_URL: ${{ vars.PRODUCTION_NAVER_SEARCHAD_BASE_URL }}
+          DIRECT_1688_MTOP_BASE_URL: ${{ vars.PRODUCTION_DIRECT_1688_MTOP_BASE_URL }}
+          TMAPI_TOKEN: ${{ secrets.PRODUCTION_TMAPI_TOKEN }}
+          TMAPI_BASE_URL: ${{ vars.PRODUCTION_TMAPI_BASE_URL }}
+          GEMINI_API_KEY: ${{ secrets.PRODUCTION_GEMINI_API_KEY }}
+          AI_TEXT_MODEL: ${{ vars.PRODUCTION_AI_TEXT_MODEL }}
+          AI_IMAGE_MODEL: ${{ vars.PRODUCTION_AI_IMAGE_MODEL }}
+          AI_IMAGE_ANALYSIS_MODEL: ${{ vars.PRODUCTION_AI_IMAGE_ANALYSIS_MODEL }}
+          AI_IMAGE_ANALYSIS_VERIFY_MODEL: ${{ vars.PRODUCTION_AI_IMAGE_ANALYSIS_VERIFY_MODEL }}
+          AGENT_RUNTIME_WORKER_ENABLED: ${{ vars.PRODUCTION_AGENT_RUNTIME_WORKER_ENABLED }}
+          AGENT_DEFAULT_MODEL: ${{ vars.PRODUCTION_AGENT_DEFAULT_MODEL }}
+          NEXT_PUBLIC_API_URL:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+        run: bash deploy/staging/render-runtime-env.sh
+
+      - name: Prepare SSH
+        env:
+          PRODUCTION_SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          : "${PRODUCTION_SSH_KEY:?Set production secret PRODUCTION_SSH_KEY}"
+          : "${PRODUCTION_SSH_KNOWN_HOSTS:?Set production secret PRODUCTION_SSH_KNOWN_HOSTS}"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$PRODUCTION_SSH_KEY" > ~/.ssh/kiditem-production
+          chmod 600 ~/.ssh/kiditem-production
+          printf '%s\n' "$PRODUCTION_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Sync production compose assets
+        env:
+          PRODUCTION_HOST: ${{ vars.PRODUCTION_HOST }}
+          PRODUCTION_USER: ${{ vars.PRODUCTION_USER }}
+          PRODUCTION_REMOTE_DIR: ${{ vars.PRODUCTION_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          : "${PRODUCTION_HOST:?Set production variable PRODUCTION_HOST}"
+          PRODUCTION_USER="${PRODUCTION_USER:-ubuntu}"
+          PRODUCTION_REMOTE_DIR="${PRODUCTION_REMOTE_DIR:-/opt/kiditem}"
+          case "$PRODUCTION_USER" in (*[!A-Za-z0-9_.-]*|'') echo "Invalid PRODUCTION_USER" >&2; exit 2 ;; esac
+          case "$PRODUCTION_REMOTE_DIR" in (/*) ;; (*) echo "PRODUCTION_REMOTE_DIR must be absolute" >&2; exit 2 ;; esac
+          case "$PRODUCTION_REMOTE_DIR" in (*[!A-Za-z0-9_./-]*) echo "Invalid PRODUCTION_REMOTE_DIR" >&2; exit 2 ;; esac
+          target="${PRODUCTION_USER}@${PRODUCTION_HOST}"
+          remote_dir_q="$(printf '%q' "$PRODUCTION_REMOTE_DIR")"
+          tar -czf - VERSION docker-compose.production.yml .env.production.api .env.production.web deploy/production/nginx.conf deploy/production/remote-deploy.sh deploy/staging/remote-deploy.sh \
+            | ssh -i ~/.ssh/kiditem-production "$target" \
+                "mkdir -p ${remote_dir_q} && tar -xzf - -C ${remote_dir_q} && chmod +x ${remote_dir_q}/deploy/production/remote-deploy.sh ${remote_dir_q}/deploy/staging/remote-deploy.sh"
+
+      - name: Deploy images on production host
+        env:
+          PRODUCTION_HOST: ${{ vars.PRODUCTION_HOST }}
+          PRODUCTION_USER: ${{ vars.PRODUCTION_USER }}
+          PRODUCTION_REMOTE_DIR: ${{ vars.PRODUCTION_REMOTE_DIR }}
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+          GHCR_ACTOR: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KIDITEM_API_IMAGE: ${{ needs.build_api.outputs.image_ref }}
+          KIDITEM_WEB_IMAGE: ${{ needs.build_web.outputs.image_ref }}
+          KIDITEM_API_IMAGE_TAG: ${{ needs.prepare.outputs.api_image_tag }}
+          KIDITEM_WEB_IMAGE_TAG: ${{ needs.prepare.outputs.web_image_tag }}
+          API_IMAGE_DIGEST: ${{ needs.build_api.outputs.digest }}
+          WEB_IMAGE_DIGEST: ${{ needs.build_web.outputs.digest }}
+          GIT_SHA: ${{ needs.prepare.outputs.git_sha }}
+          APP_VERSION: ${{ needs.prepare.outputs.app_version }}
+          GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ALLOW_PRODUCTION_DOWNTIME_FOR_SPACE: ${{ inputs.allow_downtime_for_space && '1' || '0' }}
+        run: |
+          set -euo pipefail
+          : "${PRODUCTION_HOST:?Set production variable PRODUCTION_HOST}"
+          PRODUCTION_USER="${PRODUCTION_USER:-ubuntu}"
+          PRODUCTION_REMOTE_DIR="${PRODUCTION_REMOTE_DIR:-/opt/kiditem}"
+          target="${PRODUCTION_USER}@${PRODUCTION_HOST}"
+          q() { printf '%q' "$1"; }
+          # shellcheck disable=SC2087
+          ssh -i ~/.ssh/kiditem-production "$target" "cd $(q "$PRODUCTION_REMOTE_DIR") && bash -s" <<REMOTE
+          set -euo pipefail
+          export GHCR_ACTOR=$(q "$GHCR_ACTOR")
+          export GHCR_TOKEN=$(q "$GHCR_TOKEN")
+          export KIDITEM_API_IMAGE=$(q "$KIDITEM_API_IMAGE")
+          export KIDITEM_WEB_IMAGE=$(q "$KIDITEM_WEB_IMAGE")
+          export KIDITEM_API_IMAGE_TAG=$(q "$KIDITEM_API_IMAGE_TAG")
+          export KIDITEM_WEB_IMAGE_TAG=$(q "$KIDITEM_WEB_IMAGE_TAG")
+          export API_IMAGE_DIGEST=$(q "$API_IMAGE_DIGEST")
+          export WEB_IMAGE_DIGEST=$(q "$WEB_IMAGE_DIGEST")
+          export GIT_SHA=$(q "$GIT_SHA")
+          export APP_VERSION=$(q "$APP_VERSION")
+          export DEPLOY_OPERATION=deploy
+          export PUBLIC_URL=$(q "${PRODUCTION_URL:-}")
+          export GITHUB_ACTOR=$(q "$GITHUB_ACTOR")
+          export GITHUB_REPOSITORY=$(q "$GITHUB_REPOSITORY")
+          export GITHUB_RUN_ID=$(q "$GITHUB_RUN_ID")
+          export GITHUB_RUN_ATTEMPT=$(q "$GITHUB_RUN_ATTEMPT")
+          export GITHUB_RUN_URL=$(q "$GITHUB_RUN_URL")
+          export ALLOW_STAGING_DOWNTIME_FOR_SPACE=$(q "$ALLOW_PRODUCTION_DOWNTIME_FOR_SPACE")
+          ./deploy/production/remote-deploy.sh deploy
+          REMOTE
+
+      - name: Verify public production URL
+        env:
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+        run: |
+          set -euo pipefail
+          : "${PRODUCTION_URL:?Set production variable PRODUCTION_URL}"
+          PRODUCTION_URL="${PRODUCTION_URL%/}"
+          for _ in $(seq 1 12); do
+            login_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$PRODUCTION_URL/login" || true)"
+            auth_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$PRODUCTION_URL/api/auth/me" || true)"
+            if [[ "$login_code" == "200" && ( "$auth_code" == "401" || "$auth_code" == "403" ) ]]; then
+              echo "Public production smoke checks passed: $PRODUCTION_URL/login=200, $PRODUCTION_URL/api/auth/me=$auth_code"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Public production URL did not become healthy: $PRODUCTION_URL" >&2
+          exit 1
+
+      - name: Verify production data migration status
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?Set production secret PRODUCTION_DATABASE_URL}"
+          npm run data:migrate -- status
+
+      - name: Query final production status
+        env:
+          PRODUCTION_HOST: ${{ vars.PRODUCTION_HOST }}
+          PRODUCTION_USER: ${{ vars.PRODUCTION_USER }}
+          PRODUCTION_REMOTE_DIR: ${{ vars.PRODUCTION_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          : "${PRODUCTION_HOST:?Set production variable PRODUCTION_HOST}"
+          PRODUCTION_USER="${PRODUCTION_USER:-ubuntu}"
+          PRODUCTION_REMOTE_DIR="${PRODUCTION_REMOTE_DIR:-/opt/kiditem}"
+          q() { printf '%q' "$1"; }
+          ssh -i ~/.ssh/kiditem-production "${PRODUCTION_USER}@${PRODUCTION_HOST}" \
+            "cd $(q "$PRODUCTION_REMOTE_DIR") && ./deploy/production/remote-deploy.sh status"
+
+      - name: Write production deployment summary
+        if: always()
+        env:
+          APP_VERSION: ${{ needs.prepare.outputs.app_version }}
+          GIT_SHA: ${{ needs.prepare.outputs.git_sha }}
+          API_IMAGE: ${{ needs.build_api.outputs.image_ref }}
+          WEB_IMAGE: ${{ needs.build_web.outputs.image_ref }}
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+        run: |
+          {
+            echo "## Production deploy"
+            echo
+            echo "- Version: \`${APP_VERSION}\`"
+            echo "- Git SHA: \`${GIT_SHA}\`"
+            echo "- API image: \`${API_IMAGE}\`"
+            echo "- Web image: \`${WEB_IMAGE}\`"
+            echo "- URL: ${PRODUCTION_URL:-unset}"
+            echo "- Runbook: \`docs/runbooks/production-deploy.md\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  rollback:
+    name: Roll back production
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'rollback'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Validate rollback confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          set -euo pipefail
+          [[ "$CONFIRM" == "ROLLBACK_PRODUCTION" ]] || { echo "confirm must be ROLLBACK_PRODUCTION" >&2; exit 2; }
+          : "${IMAGE_TAG:?image_tag input is required for rollback}"
+          case "$IMAGE_TAG" in (*[!A-Za-z0-9_.-]*|production|production-candidate) echo "Use an immutable git SHA tag for rollback, not '$IMAGE_TAG'" >&2; exit 2 ;; esac
+
+      - name: Render production runtime env files
+        env:
+          API_ENV_FILE: .env.production.api
+          WEB_ENV_FILE: .env.production.web
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL }}
+          SUPABASE_URL: ${{ vars.PRODUCTION_SUPABASE_URL || vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
+          SOURCING_EXTENSION_TOKEN_SECRET: ${{ secrets.PRODUCTION_SOURCING_EXTENSION_TOKEN_SECRET }}
+          CORS_ORIGINS: ${{ vars.PRODUCTION_CORS_ORIGINS || vars.PRODUCTION_URL }}
+          S3_REGION: ${{ vars.PRODUCTION_S3_REGION }}
+          S3_BUCKET: ${{ vars.PRODUCTION_S3_BUCKET }}
+          S3_ENDPOINT: ${{ vars.PRODUCTION_S3_ENDPOINT }}
+          S3_PUBLIC_URL: ${{ vars.PRODUCTION_S3_PUBLIC_URL }}
+          S3_ACCESS_KEY: ${{ secrets.PRODUCTION_S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.PRODUCTION_S3_SECRET_KEY }}
+          CHANNEL_CREDENTIALS_ENCRYPTION_KEY: ${{ secrets.PRODUCTION_CHANNEL_CREDENTIALS_ENCRYPTION_KEY }}
+          GEMINI_API_KEY: ${{ secrets.PRODUCTION_GEMINI_API_KEY }}
+          AI_TEXT_MODEL: ${{ vars.PRODUCTION_AI_TEXT_MODEL }}
+          AI_IMAGE_MODEL: ${{ vars.PRODUCTION_AI_IMAGE_MODEL }}
+          AI_IMAGE_ANALYSIS_MODEL: ${{ vars.PRODUCTION_AI_IMAGE_ANALYSIS_MODEL }}
+          AI_IMAGE_ANALYSIS_VERIFY_MODEL: ${{ vars.PRODUCTION_AI_IMAGE_ANALYSIS_VERIFY_MODEL }}
+          AGENT_RUNTIME_WORKER_ENABLED: ${{ vars.PRODUCTION_AGENT_RUNTIME_WORKER_ENABLED }}
+          AGENT_DEFAULT_MODEL: ${{ vars.PRODUCTION_AGENT_DEFAULT_MODEL }}
+          NEXT_PUBLIC_API_URL:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
+        run: bash deploy/staging/render-runtime-env.sh
+
+      - name: Prepare SSH
+        env:
+          PRODUCTION_SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          : "${PRODUCTION_SSH_KEY:?Set production secret PRODUCTION_SSH_KEY}"
+          : "${PRODUCTION_SSH_KNOWN_HOSTS:?Set production secret PRODUCTION_SSH_KNOWN_HOSTS}"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$PRODUCTION_SSH_KEY" > ~/.ssh/kiditem-production
+          chmod 600 ~/.ssh/kiditem-production
+          printf '%s\n' "$PRODUCTION_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Sync production compose assets
+        env:
+          PRODUCTION_HOST: ${{ vars.PRODUCTION_HOST }}
+          PRODUCTION_USER: ${{ vars.PRODUCTION_USER }}
+          PRODUCTION_REMOTE_DIR: ${{ vars.PRODUCTION_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          : "${PRODUCTION_HOST:?Set production variable PRODUCTION_HOST}"
+          PRODUCTION_USER="${PRODUCTION_USER:-ubuntu}"
+          PRODUCTION_REMOTE_DIR="${PRODUCTION_REMOTE_DIR:-/opt/kiditem}"
+          target="${PRODUCTION_USER}@${PRODUCTION_HOST}"
+          remote_dir_q="$(printf '%q' "$PRODUCTION_REMOTE_DIR")"
+          tar -czf - VERSION docker-compose.production.yml .env.production.api .env.production.web deploy/production/nginx.conf deploy/production/remote-deploy.sh deploy/staging/remote-deploy.sh \
+            | ssh -i ~/.ssh/kiditem-production "$target" \
+                "mkdir -p ${remote_dir_q} && tar -xzf - -C ${remote_dir_q} && chmod +x ${remote_dir_q}/deploy/production/remote-deploy.sh ${remote_dir_q}/deploy/staging/remote-deploy.sh"
+
+      - name: Deploy selected rollback tag
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          PRODUCTION_HOST: ${{ vars.PRODUCTION_HOST }}
+          PRODUCTION_USER: ${{ vars.PRODUCTION_USER }}
+          PRODUCTION_REMOTE_DIR: ${{ vars.PRODUCTION_REMOTE_DIR }}
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+          GHCR_ACTOR: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          : "${PRODUCTION_HOST:?Set production variable PRODUCTION_HOST}"
+          PRODUCTION_USER="${PRODUCTION_USER:-ubuntu}"
+          PRODUCTION_REMOTE_DIR="${PRODUCTION_REMOTE_DIR:-/opt/kiditem}"
+          API_IMAGE="${API_IMAGE_BASE}:${IMAGE_TAG}"
+          WEB_IMAGE="${WEB_IMAGE_BASE}:${IMAGE_TAG}"
+          target="${PRODUCTION_USER}@${PRODUCTION_HOST}"
+          q() { printf '%q' "$1"; }
+          # shellcheck disable=SC2087
+          ssh -i ~/.ssh/kiditem-production "$target" "cd $(q "$PRODUCTION_REMOTE_DIR") && bash -s" <<REMOTE
+          set -euo pipefail
+          export GHCR_ACTOR=$(q "$GHCR_ACTOR")
+          export GHCR_TOKEN=$(q "$GHCR_TOKEN")
+          export KIDITEM_API_IMAGE=$(q "$API_IMAGE")
+          export KIDITEM_WEB_IMAGE=$(q "$WEB_IMAGE")
+          export KIDITEM_API_IMAGE_TAG=$(q "$API_IMAGE")
+          export KIDITEM_WEB_IMAGE_TAG=$(q "$WEB_IMAGE")
+          export GIT_SHA=$(q "$IMAGE_TAG")
+          export DEPLOY_OPERATION=rollback
+          export PUBLIC_URL=$(q "${PRODUCTION_URL:-}")
+          export GITHUB_ACTOR=$(q "$GITHUB_ACTOR")
+          export GITHUB_REPOSITORY=$(q "$GITHUB_REPOSITORY")
+          export GITHUB_RUN_ID=$(q "$GITHUB_RUN_ID")
+          export GITHUB_RUN_ATTEMPT=$(q "$GITHUB_RUN_ATTEMPT")
+          export GITHUB_RUN_URL=$(q "$GITHUB_RUN_URL")
+          ./deploy/production/remote-deploy.sh deploy
+          REMOTE
+
+      - name: Write production rollback summary
+        if: always()
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+        run: |
+          {
+            echo "## Production rollback"
+            echo
+            echo "- Image tag: \`${IMAGE_TAG}\`"
+            echo "- URL: ${PRODUCTION_URL:-unset}"
+            echo "- Runbook: \`docs/runbooks/production-deploy.md\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  status:
+    name: Show production status
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'status'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Prepare SSH
+        env:
+          PRODUCTION_SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          : "${PRODUCTION_SSH_KEY:?Set production secret PRODUCTION_SSH_KEY}"
+          : "${PRODUCTION_SSH_KNOWN_HOSTS:?Set production secret PRODUCTION_SSH_KNOWN_HOSTS}"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$PRODUCTION_SSH_KEY" > ~/.ssh/kiditem-production
+          chmod 600 ~/.ssh/kiditem-production
+          printf '%s\n' "$PRODUCTION_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Sync production status script
+        env:
+          PRODUCTION_HOST: ${{ vars.PRODUCTION_HOST }}
+          PRODUCTION_USER: ${{ vars.PRODUCTION_USER }}
+          PRODUCTION_REMOTE_DIR: ${{ vars.PRODUCTION_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          : "${PRODUCTION_HOST:?Set production variable PRODUCTION_HOST}"
+          PRODUCTION_USER="${PRODUCTION_USER:-ubuntu}"
+          PRODUCTION_REMOTE_DIR="${PRODUCTION_REMOTE_DIR:-/opt/kiditem}"
+          target="${PRODUCTION_USER}@${PRODUCTION_HOST}"
+          remote_dir_q="$(printf '%q' "$PRODUCTION_REMOTE_DIR")"
+          tar -czf - VERSION docker-compose.production.yml deploy/production/nginx.conf deploy/production/remote-deploy.sh deploy/staging/remote-deploy.sh \
+            | ssh -i ~/.ssh/kiditem-production "$target" \
+                "mkdir -p ${remote_dir_q} && tar -xzf - -C ${remote_dir_q} && chmod +x ${remote_dir_q}/deploy/production/remote-deploy.sh ${remote_dir_q}/deploy/staging/remote-deploy.sh"
+
+      - name: Query production status
+        env:
+          PRODUCTION_HOST: ${{ vars.PRODUCTION_HOST }}
+          PRODUCTION_USER: ${{ vars.PRODUCTION_USER }}
+          PRODUCTION_REMOTE_DIR: ${{ vars.PRODUCTION_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          : "${PRODUCTION_HOST:?Set production variable PRODUCTION_HOST}"
+          PRODUCTION_USER="${PRODUCTION_USER:-ubuntu}"
+          PRODUCTION_REMOTE_DIR="${PRODUCTION_REMOTE_DIR:-/opt/kiditem}"
+          q() { printf '%q' "$1"; }
+          ssh -i ~/.ssh/kiditem-production "${PRODUCTION_USER}@${PRODUCTION_HOST}" \
+            "cd $(q "$PRODUCTION_REMOTE_DIR") && ./deploy/production/remote-deploy.sh status"
+
+      - name: Write production status summary
+        if: always()
+        env:
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+        run: |
+          {
+            echo "## Production status"
+            echo
+            echo "- URL: ${PRODUCTION_URL:-unset}"
+            echo "- Runbook: \`docs/runbooks/production-deploy.md\`"
+          } >> "$GITHUB_STEP_SUMMARY"

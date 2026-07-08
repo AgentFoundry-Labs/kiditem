@@ -93,6 +93,8 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
         orderCollectionIcecreamMall: true,
         coupangShipmentDownloads: true,
         art09Orders: true,
+        collectRocketPoRows: true,
+        listRocketPos: true,
       },
     });
     return false;
@@ -642,6 +644,7 @@ async function scrapeRocketPoRows(from, to) {
             center: po.centerName || "",
             inboundType: po.transportTypeDescription || "",
             poStatus: po.purchaseOrderStatusDescription || "",
+            vendorName: po.vendorName || "",
             productNo: r[1] || "",
             barcode: (String(r[2]).match(/^\d{8,}/) || [""])[0],
             productName: clean(r[2], 80),

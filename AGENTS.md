@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # KidItem
 
 KidItem is an e-commerce operations automation monorepo for kids' products:
@@ -27,7 +29,18 @@ kiditem/
 `AGENTS.md` wins, then parent files. `CLAUDE.md` is only a compatibility shim
 and should normally contain `@AGENTS.md`.
 
-Read the nearest scoped guide before editing:
+Before editing, do not rely on memorized rules or this table alone. Use
+`rg --files -g AGENTS.md` to discover scoped guides for the target path, then
+read every applicable `AGENTS.md` from the repo root down to the nearest one
+under the target directory. If the work moves to another directory or creates a
+new nested surface, rerun discovery and read the newly applicable guide before
+editing there.
+
+Keep `Folder Map` sections only when the structure itself is a contract,
+exception, or ownership boundary. Do not add maps that only repeat discoverable
+file lists; use `rg --files` for exploration instead.
+
+Common entrypoints:
 
 | Work area | Guide |
 |---|---|
@@ -101,6 +114,29 @@ business rewrites.
 - Pulling code does not update the DB; see
   [`prisma/AGENTS.md`](prisma/AGENTS.md#pulling-code-does-not-update-db).
 
+## CI/CD + Infrastructure
+
+- GitHub Actions is the only supported release entrypoint. Do not add local
+  deploy scripts, `docker save` / `docker load` SSH streaming, or manual EC2
+  bootstrap scripts as an alternate production/staging path.
+- Runtime images are built by GitHub Actions, pushed to GHCR, and deployed by
+  immutable digest refs. Mutable tags such as `staging` or
+  `production-candidate` are human pointers only.
+- GitHub Environment variables/secrets are the release-time configuration
+  source of truth. Local `.secrets/` files are operator conveniences and must
+  not become durable deploy inputs.
+- Terraform owns long-lived host shape: EC2 bootstrap, security group rules,
+  Docker/nginx installation, root volume size, and Elastic IP allocation.
+  Manual console changes must be backfilled into Terraform or documented as
+  temporary drift in the relevant runbook.
+- Changes under `.github/workflows/`, `deploy/`, `docker-compose*.yml`,
+  `infra/terraform/`, or deployment runbooks must keep
+  [`docs/runbooks/deployment-architecture.md`](docs/runbooks/deployment-architecture.md)
+  and the PR checks aligned.
+- Add or keep a regression gate before deleting a legacy deploy path. Once the
+  replacement path exists, remove the legacy entrypoint instead of leaving it as
+  a fallback.
+
 ## Documentation
 
 - Keep durable guidance in `docs/`, scoped `AGENTS.md`, or source comments that
@@ -115,6 +151,10 @@ business rewrites.
 
 Do not claim completion without evidence.
 
+Scoped `AGENTS.md` files include local `Verification` only when they add a
+different or narrower gate; otherwise inherit the nearest parent verification
+section.
+
 | Change type | Required gate |
 |---|---|
 | Backend | `npm run dev:server` |
@@ -127,9 +167,21 @@ they document behavior, regression risk, domain policy, or public contracts.
 
 ## Commit + PR
 
-- Branch names: `feat/{issue}-{desc}` or `fix/{desc}`.
-- Regular PRs target `develop`; staging promotion PRs target `main`.
-- Commit prefixes: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`.
+- `main` and `develop` are protected collaboration branches. Do not push to
+  them directly; use PRs.
+- Branch names: `feat/{issue}-{desc}`, `fix/{desc}`, `chore/{desc}`, or
+  `release/{desc}`.
+- Regular feature/fix/chore PRs branch from `develop` and target `develop`.
+  Promotion PRs flow from `develop` to `main`.
+- Use squash merge for normal feature/fix/chore PRs. Use a merge commit for
+  `develop` <-> `main` sync or promotion PRs so ancestry stays clear. Do not
+  use rebase-and-merge for shared branches.
+- Do not rebase a branch that another person or agent may be using. For a
+  private branch, rebase is allowed only with `--force-with-lease`.
+- Before opening or merging a PR, stop if the PR shows unexpected commit count,
+  duplicated commit messages, unrelated merged work, or a base branch that does
+  not match the intent.
+- Commit prefixes: `feat:`, `fix:`, `chore:`, `refactor:`, `docs:`, `test:`.
 - PR bodies include `.github/PULL_REQUEST_TEMPLATE.md` and
   DB/backfill/dev-data notes.
 - PRs that change `AGENTS.md` or `CLAUDE.md` must be shared with the team.

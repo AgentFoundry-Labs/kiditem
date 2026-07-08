@@ -22,7 +22,7 @@ export async function collectRocketPoRowsFromExtension(
   from: string,
   to: string,
 ): Promise<{ rows: RocketConfirmSourceRow[]; poCount: number }> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = await detectOrderCollectionExtensionId(1200, 'collectRocketPoRows');
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 supplier.coupang.com 에 로그인한 뒤 다시 시도해주세요.',
@@ -67,7 +67,7 @@ export async function listRocketPosFromExtension(
   to: string,
   status = '',
 ): Promise<RocketPoSummary[]> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = await detectOrderCollectionExtensionId(1200, 'listRocketPos');
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 supplier.coupang.com 에 로그인한 뒤 다시 시도해주세요.',
@@ -156,6 +156,8 @@ export const ROCKET_SHORTAGE_REASONS = [
 export interface RocketComputedRow extends RocketConfirmSourceRow {
   productName?: string;
   center?: string;
+  inventoryId?: string;
+  optionId?: string;
   available: number | null;
   confirmQty: number;
   shortageReason: string;
@@ -172,4 +174,29 @@ export interface RocketPreview {
 /** 수집한 발주 행 → 백엔드가 재고로 확정수량/사유 계산해 편집 미리보기용으로 반환. */
 export async function previewRocketConfirm(rows: RocketConfirmSourceRow[]): Promise<RocketPreview> {
   return apiClient.post<RocketPreview>('/api/orders/rocket/confirm-preview', { rows });
+}
+
+export interface RocketConfirmCommitResult {
+  reservedRows: number;
+  alreadyReservedRows: number;
+  skippedRows: number;
+  failedRows: number;
+  skipped?: Array<{
+    poNumber: string;
+    productNo: string;
+    barcode: string;
+    reason: 'zero_confirm_qty' | 'unmatched_inventory';
+  }>;
+  failed?: Array<{
+    poNumber: string;
+    productNo: string;
+    barcode: string;
+    reason: string;
+  }>;
+}
+
+export async function commitRocketConfirmRows(
+  rows: RocketComputedRow[],
+): Promise<RocketConfirmCommitResult> {
+  return apiClient.post<RocketConfirmCommitResult>('/api/orders/rocket/confirm-commit', { rows });
 }

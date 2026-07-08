@@ -1,25 +1,11 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # web/thumbnail-generation — Generation Workspace
 
 `app/(product-pipeline)/product-pipeline/thumbnail-generation/` owns the
 standalone thumbnail generation hub and edit route. Its core contract is
 use-case selection, slot-based image input, mutation-driven generation, and
 immediate history sync.
-
-## Folder Map
-
-```text
-thumbnail-generation/
-├── page.tsx                       # standalone hub + query-state handoff
-├── components/
-│   ├── hub/                       # entry cards, queues, upload zone
-│   ├── input/                     # slot cards and image source drawer
-│   ├── control/                   # mode/case/layout controls
-│   ├── result/                    # generated candidate result selection
-│   └── shared/                    # route-local presentational primitives
-├── edit/                          # mode/editCase state machine + payload assembly
-└── hooks/
-    └── useThumbnailEditor.ts      # useGenerateThumbnail and request type
-```
 
 ## Owned Surfaces
 
@@ -87,3 +73,15 @@ Edit mode always sends `purpose: 'compliance'`; creative sends `'quality'`.
   `thumbnail-editor.dto.ts`, and `edit/page.tsx` assembly together.
 - Scene preset changes require checking `EditorControlPanel.tsx` and backend
   creative prompt handling together.
+
+## Verification
+
+For thumbnail-generation changes, run the narrow route suite first, then the
+web build:
+
+```bash
+npm exec --workspace=apps/web vitest -- run 'src/app/(product-pipeline)/product-pipeline/thumbnail-generation'
+```
+
+Payload, polling, generated href, or scene preset changes need a focused
+regression spec for the changed UI/API contract.

@@ -328,6 +328,8 @@ erDiagram
 | Organization | organization | referenced by external | Channels | ChannelReconciliationRun |
 | Organization | organization | referenced by external | Channels | ChannelScrapeRun |
 | Organization | organization | referenced by external | Channels | ChannelScrapeSnapshot |
+| Organization | organization | referenced by external | Channels | RocketPurchaseOrder |
+| Organization | organization | referenced by external | Channels | RocketSupplyDailySnapshot |
 | Organization | organization | referenced by external | Finance | GradeHistory |
 | Organization | organization | referenced by external | Finance | ManualLedger |
 | Organization | organization | referenced by external | Finance | ProcessingCost |
@@ -336,6 +338,11 @@ erDiagram
 | Organization | organization | referenced by external | Inventory | Inventory |
 | Organization | organization | referenced by external | Inventory | PickingList |
 | Organization | organization | referenced by external | Inventory | ReturnTransfer |
+| Organization | organization | referenced by external | Inventory | RocketInventoryLedger |
+| Organization | organization | referenced by external | Inventory | SellpiaNewProductCandidate |
+| Organization | organization | referenced by external | Inventory | SellpiaReceiptUploadBatch |
+| Organization | organization | referenced by external | Inventory | SellpiaStockSnapshot |
+| Organization | organization | referenced by external | Inventory | SellpiaStockSnapshotItem |
 | Organization | organization | referenced by external | Inventory | StockAudit |
 | Organization | organization | referenced by external | Inventory | StockTransaction |
 | Organization | organization | referenced by external | Inventory | StockTransfer |
@@ -366,6 +373,8 @@ erDiagram
 | ProductOption | option | referenced by external | Inventory | Inventory |
 | ProductOption | option | referenced by external | Inventory | PickingItem |
 | ProductOption | option | referenced by external | Inventory | ReturnTransfer |
+| ProductOption | option | referenced by external | Inventory | RocketInventoryLedger |
+| ProductOption | option | referenced by external | Inventory | SellpiaStockSnapshotItem |
 | ProductOption | option | referenced by external | Inventory | StockTransaction |
 | ProductOption | option | referenced by external | Inventory | StockTransfer |
 | ProductOption | option | referenced by external | Orders | OrderLineItem |
@@ -374,6 +383,7 @@ erDiagram
 | ProductOption | option | referenced by external | Orders | UnshippedItem |
 | ProductOption | option | referenced by external | Supply | PurchaseOrderItem |
 | ProductOption | option | referenced by external | Supply | SupplierProduct |
+| ProductOption | resolvedOption | referenced by external | Inventory | SellpiaNewProductCandidate |
 | User | actor | referenced by external | AI | ThumbnailGenerationEvent |
 | User | actorUser | referenced by external | System | Alert |
 | User | agentInstance | references external | AgentOS | AgentInstance |

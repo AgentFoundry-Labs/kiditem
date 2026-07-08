@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # automation — Workflows, Alerts, Action Board, Panel
 
 `src/automation/` owns workflow templates/runs, alert lifecycle, action-board

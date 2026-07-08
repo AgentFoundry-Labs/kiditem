@@ -1,6 +1,13 @@
 ## Summary
 
 
+## Base / Merge
+Base branch:
+
+Merge strategy:
+
+Commit sanity:
+
 ## Change Type
 - [ ] Backend
 - [ ] Frontend
@@ -16,6 +23,9 @@ DB / schema / data notes:
 ```bash
 
 ```
+
+## Reference
+-
 
 ## Reconstruction Contract
 Trigger:

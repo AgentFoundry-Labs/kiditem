@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import {
   fetchProductOptionList,
   productOptionListKeyParams,
-} from '@/app/(catalog)/products/options/lib/product-options-api';
+} from '../../options/lib/product-options-api';
 import { queryKeys } from '@/lib/query-keys';
 import type { ReconciliationItem } from '@kiditem/shared/channel-reconciliation';
 

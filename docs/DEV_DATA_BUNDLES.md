@@ -485,7 +485,7 @@ npm run dev
 | `/inventory` | 재고 목록이 뜨고 필터/검색/상세 진입이 깨지지 않는지 |
 | `/inventory-hub` | 재고 요약/자산/입출고 관련 카드가 에러 없이 뜨는지 |
 | `/stock-ops` | 품절/제로/보류/이동 등 재고 운영 탭이 렌더링되는지 |
-| `/products` 또는 `/products/options` | 쿠팡 listing/option 과 연결된 상품/옵션 데이터가 깨지지 않는지 |
+| `/product-hub` 또는 `/product-hub/options` | 쿠팡 listing/option 과 연결된 상품/옵션 데이터가 깨지지 않는지 |
 
 확인 기준:
 

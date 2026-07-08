@@ -44,18 +44,19 @@ export class LocalCoupangShipmentFilesAdapter implements CoupangShipmentFileStor
     process.env.COUPANG_SHIPMENTS_DIR ?? join(homedir(), 'Downloads', 'kiditem-coupang-shipments'),
   );
 
-  async listMergedFiles(): Promise<CoupangShipmentFilesResponse> {
-    if (!existsSync(this.rootPath)) {
-      return { rootPath: this.rootPath, totalFiles: 0, days: [] };
+  async listMergedFiles(organizationId: string): Promise<CoupangShipmentFilesResponse> {
+    const organizationRoot = this.organizationRootPath(organizationId);
+    if (!existsSync(organizationRoot)) {
+      return { rootPath: organizationRoot, totalFiles: 0, days: [] };
     }
 
     const dayMap = new Map<string, CoupangShipmentDailyFiles>();
-    const runIds = await this.listDirectoryNames(this.rootPath);
+    const runIds = await this.listDirectoryNames(organizationRoot);
 
     for (const runId of runIds) {
-      const runPath = join(this.rootPath, runId);
-      const manifestFiles = await this.readManifestFiles(runId, runPath);
-      const fallbackFiles = manifestFiles.length > 0 ? [] : await this.readFallbackFiles(runId, runPath);
+      const runPath = join(organizationRoot, runId);
+      const manifestFiles = await this.readManifestFiles(runId, runPath, organizationRoot);
+      const fallbackFiles = manifestFiles.length > 0 ? [] : await this.readFallbackFiles(runId, runPath, organizationRoot);
       for (const file of [...manifestFiles, ...fallbackFiles]) {
         const current = dayMap.get(file.date) ?? {
           date: file.date,
@@ -78,15 +79,19 @@ export class LocalCoupangShipmentFilesAdapter implements CoupangShipmentFileStor
       .sort((a, b) => b.date.localeCompare(a.date));
 
     return {
-      rootPath: this.rootPath,
+      rootPath: organizationRoot,
       totalFiles: days.reduce((sum, day) => sum + day.files.length, 0),
       days,
     };
   }
 
-  async resolveMergedFile(input: CoupangShipmentFileRequest): Promise<CoupangShipmentResolvedFile> {
-    const filePath = resolve(this.rootPath, input.runId, input.date, input.fileName);
-    this.assertInsideRoot(filePath);
+  async resolveMergedFile(
+    organizationId: string,
+    input: CoupangShipmentFileRequest,
+  ): Promise<CoupangShipmentResolvedFile> {
+    const organizationRoot = this.organizationRootPath(organizationId);
+    const filePath = resolve(organizationRoot, input.runId, input.date, input.fileName);
+    this.assertInsideRoot(filePath, organizationRoot);
 
     let fileStat: Awaited<ReturnType<typeof stat>>;
     try {
@@ -105,7 +110,11 @@ export class LocalCoupangShipmentFilesAdapter implements CoupangShipmentFileStor
     };
   }
 
-  private async readManifestFiles(runId: string, runPath: string): Promise<CoupangShipmentMergedFileItem[]> {
+  private async readManifestFiles(
+    runId: string,
+    runPath: string,
+    organizationRoot: string,
+  ): Promise<CoupangShipmentMergedFileItem[]> {
     const manifest = await this.readManifest(runPath);
     if (!manifest?.mergedOutputs) return [];
 
@@ -122,7 +131,7 @@ export class LocalCoupangShipmentFilesAdapter implements CoupangShipmentFileStor
         if (!merged?.outPath) continue;
         const fileName = basename(merged.outPath);
         const filePath = resolve(runPath, date, fileName);
-        this.assertInsideRoot(filePath);
+        this.assertInsideRoot(filePath, organizationRoot);
         const fileStat = await this.safeStat(filePath);
         if (!fileStat?.isFile()) continue;
 
@@ -144,7 +153,11 @@ export class LocalCoupangShipmentFilesAdapter implements CoupangShipmentFileStor
     return files;
   }
 
-  private async readFallbackFiles(runId: string, runPath: string): Promise<CoupangShipmentMergedFileItem[]> {
+  private async readFallbackFiles(
+    runId: string,
+    runPath: string,
+    organizationRoot: string,
+  ): Promise<CoupangShipmentMergedFileItem[]> {
     const dates = await this.listDirectoryNames(runPath);
     const files: CoupangShipmentMergedFileItem[] = [];
 
@@ -153,7 +166,7 @@ export class LocalCoupangShipmentFilesAdapter implements CoupangShipmentFileStor
       const names = await this.listFileNames(datePath);
       for (const fileName of names.filter((name) => name.endsWith('.pdf') && name.includes('병합'))) {
         const filePath = resolve(datePath, fileName);
-        this.assertInsideRoot(filePath);
+        this.assertInsideRoot(filePath, organizationRoot);
         const fileStat = await this.safeStat(filePath);
         if (!fileStat?.isFile()) continue;
         const kind = inferKind(fileName);
@@ -210,8 +223,14 @@ export class LocalCoupangShipmentFilesAdapter implements CoupangShipmentFileStor
     }
   }
 
-  private assertInsideRoot(path: string): void {
-    const normalizedRoot = this.rootPath.endsWith(sep) ? this.rootPath : `${this.rootPath}${sep}`;
+  private organizationRootPath(organizationId: string): string {
+    const organizationRoot = resolve(this.rootPath, organizationId);
+    this.assertInsideRoot(organizationRoot, this.rootPath);
+    return organizationRoot;
+  }
+
+  private assertInsideRoot(path: string, rootPath: string): void {
+    const normalizedRoot = rootPath.endsWith(sep) ? rootPath : `${rootPath}${sep}`;
     if (!path.startsWith(normalizedRoot)) {
       throw new NotFoundException('쿠팡 쉽먼트 파일을 찾을 수 없습니다.');
     }

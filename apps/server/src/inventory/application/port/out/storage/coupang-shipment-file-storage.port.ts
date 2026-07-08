@@ -7,6 +7,9 @@ import type {
 export const COUPANG_SHIPMENT_FILE_STORAGE_PORT = Symbol('CoupangShipmentFileStoragePort');
 
 export interface CoupangShipmentFileStoragePort {
-  listMergedFiles(): Promise<CoupangShipmentFilesResponse>;
-  resolveMergedFile(input: CoupangShipmentFileRequest): Promise<CoupangShipmentResolvedFile>;
+  listMergedFiles(organizationId: string): Promise<CoupangShipmentFilesResponse>;
+  resolveMergedFile(
+    organizationId: string,
+    input: CoupangShipmentFileRequest,
+  ): Promise<CoupangShipmentResolvedFile>;
 }

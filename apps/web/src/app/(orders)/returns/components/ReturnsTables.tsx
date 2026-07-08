@@ -1,6 +1,16 @@
 'use client';
-import { Loader2, CheckCircle } from 'lucide-react';
+import Link from 'next/link';
+import { Loader2, CheckCircle, RotateCcw } from 'lucide-react';
 import { cn, formatKRW } from '@/lib/utils';
+import { buildRocketEventDraftHref } from '@/app/(inventory)/inventory-hub/lib/rocket-event-draft';
+
+interface ReturnLineItem {
+  id: string;
+  vendorItemName: string | null;
+  sellerProductName: string | null;
+  purchaseCount: number;
+  cancelCount: number;
+}
 
 interface ReturnItem {
   id: string;
@@ -19,7 +29,7 @@ interface ReturnItem {
   completedAt: string | null;
   createdAt: string;
   status?: string;
-  returnItems?: { id: string; vendorItemName: string; sellerProductName: string; purchaseCount: number; cancelCount: number }[];
+  lineItems?: ReturnLineItem[];
 }
 
 const reasonLabels: Record<string, string> = {
@@ -90,12 +100,14 @@ export function ReturnsTable({ returns, processing, onApprove }: ReturnsTablePro
             {returns.map((r: ReturnItem) => {
               const st = getStatusLabel(r.receiptStatus);
               const reason = getReasonLabel(r.cancelReason || r.cancelReasonCategory1);
+              const firstItem = r.lineItems?.[0];
+              const firstItemName = firstItem?.sellerProductName || firstItem?.vendorItemName || '-';
               return (
                 <tr key={r.receiptId}>
                   <td className="text-xs font-mono">{r.receiptId}</td>
                   <td className="text-xs font-mono text-slate-500">{r.orderId}</td>
-                  <td className="text-sm max-w-[200px] truncate" title={r.returnItems?.[0]?.sellerProductName || r.returnItems?.[0]?.vendorItemName || ''}>
-                    {r.returnItems?.[0]?.sellerProductName || r.returnItems?.[0]?.vendorItemName || '-'}
+                  <td className="text-sm max-w-[200px] truncate" title={firstItemName === '-' ? '' : firstItemName}>
+                    {firstItemName}
                   </td>
                   <td className="text-xs text-slate-500">{new Date(r.requestedAt || r.createdAt).toLocaleDateString('ko-KR')}</td>
                   <td className="text-sm">{r.requesterName || '-'}</td>
@@ -103,7 +115,8 @@ export function ReturnsTable({ returns, processing, onApprove }: ReturnsTablePro
                   <td><span className={cn('px-2 py-0.5 rounded text-xs font-medium', st.color)}>{st.label}</span></td>
                   <td className="text-right">{r.enclosePrice ? `${formatKRW(r.enclosePrice)}원` : '-'}</td>
                   <td>
-                    {r.receiptStatus === 'UC' && (
+                    <div className="flex flex-col items-end gap-1">
+                      {r.receiptStatus === 'UC' && (
                       <button
                         onClick={() => onApprove(r.receiptId)}
                         disabled={processing === r.receiptId}
@@ -112,7 +125,25 @@ export function ReturnsTable({ returns, processing, onApprove }: ReturnsTablePro
                         {processing === r.receiptId ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />}
                         승인
                       </button>
-                    )}
+                      )}
+                      {r.lineItems?.map((item) => (
+                        <Link
+                          key={item.id}
+                          href={buildRocketEventDraftHref({
+                            eventType: 'return_restock',
+                            quantity: item.cancelCount || item.purchaseCount || 1,
+                            sourceRef: `return-${r.receiptId}-line-${item.id}`,
+                            note: r.orderId
+                              ? `쿠팡 반품 ${r.orderId} ${item.vendorItemName ?? item.sellerProductName ?? item.id}`
+                              : undefined,
+                          })}
+                          className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                        >
+                          <RotateCcw size={12} />
+                          재고 처리 초안
+                        </Link>
+                      ))}
+                    </div>
                   </td>
                 </tr>
               );
@@ -143,12 +174,14 @@ export function ExchangesTable({ exchanges }: { exchanges: ReturnItem[] }) {
             {exchanges.map((e: ReturnItem, i: number) => {
               const st = getStatusLabel(e.receiptStatus || e.status);
               const reason = getReasonLabel(e.cancelReason);
+              const firstItem = e.lineItems?.[0];
+              const firstItemName = firstItem?.sellerProductName || firstItem?.vendorItemName || '-';
               return (
                 <tr key={e.receiptId || i}>
                   <td className="text-xs font-mono">{e.receiptId || '-'}</td>
                   <td className="text-xs font-mono text-slate-500">{e.orderId || '-'}</td>
-                  <td className="text-sm max-w-[200px] truncate" title={e.returnItems?.[0]?.sellerProductName || e.returnItems?.[0]?.vendorItemName || ''}>
-                    {e.returnItems?.[0]?.sellerProductName || e.returnItems?.[0]?.vendorItemName || '-'}
+                  <td className="text-sm max-w-[200px] truncate" title={firstItemName === '-' ? '' : firstItemName}>
+                    {firstItemName}
                   </td>
                   <td className="text-xs text-slate-500">{e.createdAt ? new Date(e.createdAt).toLocaleDateString('ko-KR') : '-'}</td>
                   <td><span className={cn('px-2 py-0.5 rounded text-xs font-medium', st.color)}>{st.label}</span></td>

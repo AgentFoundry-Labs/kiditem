@@ -27,7 +27,7 @@ describe('Sidebar product pipeline navigation', () => {
       ['/product-pipeline/productgenerate', '상품 생성'],
       ['/product-pipeline/collected-products', '수집 상품'],
       ['/product-pipeline/registered-products', '등록 상품'],
-      ['/product-pipeline/detailgenerate', '상세 템플릿 생성'],
+      ['/product-pipeline/detail-template-generation', '상세 템플릿 생성'],
       ['/product-pipeline/thumbnail-ai', '썸네일 AI'],
       ['/product-pipeline/thumbnail-generation', '썸네일 생성'],
     ]);

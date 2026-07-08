@@ -1,20 +1,9 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # product-scraper — Alibaba/1688 Sourcing Extension
 
 `extensions/product-scraper/` extracts Alibaba and 1688 product data and sends
 it to the backend sourcing extension API.
-
-## Folder Map
-
-```text
-product-scraper/
-├── manifest.json
-├── background.js              # service worker, extraction orchestration, API sync
-├── host-bridge.js             # KidItem web app extension-id discovery
-├── content.js                 # content-script message bridge and page detection
-├── extractors/                # marketplace-specific DOM and page-data extractors
-├── popup.html/js/css          # manual collection UI and API base setting
-└── icons/
-```
 
 Node tests for this extension live outside the loadable extension root in
 `extensions/tests/product-scraper/`. Chrome rejects unpacked extension roots
@@ -64,3 +53,15 @@ that contain `__tests__` or other `_`-prefixed committed paths.
 - Add new marketplace hosts only with a matching extractor and backend contract.
 - Backend payload changes require checking `background.js` and the sourcing
   extension DTO/controller together.
+
+## Verification
+
+For product-scraper changes, run the extension test and syntax check:
+
+```bash
+node --test extensions/tests/product-scraper/*.test.mjs
+git diff --check -- extensions/product-scraper extensions/tests/product-scraper
+```
+
+Extractor, payload, host permission, or token-bridge changes need a focused
+fixture or test for the changed browser boundary.

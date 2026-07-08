@@ -16,7 +16,7 @@ const makeRunItem = (overrides = {}): PanelItem => ({
   seq: 1,
   status: 'running' as const,
   title: '워크플로우 실행',
-  deepLink: '/workflows/wf-1',
+  deepLink: '/workflows',
   actorUserId: null,
   visibility: 'organization' as const,
   createdAt: '2026-04-15T00:00:00Z',

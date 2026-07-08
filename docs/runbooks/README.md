@@ -23,6 +23,12 @@ Current runbooks:
   GitHub Actions, GHCR image tags/digests, Docker Compose, container nginx, host
   TLS proxy, Supabase staging DB/Auth, and Supabase Storage through its
   S3-compatible API.
+- [Production Deploy](production-deploy.md) — operate production deploy,
+  rollback, status, confirmation strings, and production-only GitHub
+  Environment variables.
+- [Deployment Architecture](deployment-architecture.md) — CI/CD architecture,
+  blue-green slot ownership, API/worker split, image immutability, rollback
+  boundaries, and IaC baseline.
 - [Staging DB Baseline](staging-db-baseline.md) — export, verify, and restore
   pinned staging DB baseline artifacts from a private Supabase Storage
   S3-compatible bucket.

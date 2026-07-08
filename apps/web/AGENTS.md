@@ -1,23 +1,12 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # apps/web — Next.js Frontend
 
 `apps/web/` is the Next.js frontend. It owns UI routes, client-side state,
 React Query data access, and browser-only integrations. It does not own backend
 API routes or database access.
 
-## Folder Map
-
-```text
-apps/web/
-├── src/
-│   ├── app/                 # route groups and pages
-│   ├── components/          # shared components used by 2+ domains
-│   ├── hooks/               # shared hooks used by 2+ domains
-│   ├── lib/                 # apiClient, query keys, utils
-│   └── styles/
-└── next.config.*            # rewrites, build config
-```
-
-Route shape:
+## Route Shape
 
 ```text
 app/(group-name)/{domain}/
@@ -31,35 +20,33 @@ Route-group private shared code can live in `app/(group)/_shared/`. Global
 `src/components`, `src/hooks`, and `src/lib` are only for code used by 2+
 domains.
 
-## Route Groups
+## Scoped Guide Discovery
 
-Route groups do not affect URLs.
+Do not rely on this file as a route index or on remembered route rules. Before
+editing a web file, use `rg --files -g AGENTS.md apps/web/src` and read every
+applicable guide in path order: `apps/web/AGENTS.md`, then any `AGENTS.md`
+under `src/app`, route group, route, or shared component/helper directory that
+contains the target file. Route groups do not affect URLs.
 
-| Group | Routes |
+When a change expands into another route group, shared frontend folder, or
+nested route, rerun discovery and read the newly applicable guide before
+editing there. Shared frontend guidance lives beside the owned surface:
+`src/components/AGENTS.md`, `src/hooks/AGENTS.md`, `src/lib/AGENTS.md`,
+`src/store/AGENTS.md`, and any nested `AGENTS.md` under those folders.
+Web `Folder Map` sections are intentionally sparse; use `rg --files` for route
+contents and keep local maps only when they encode ownership or exceptions.
+
+## Shared Frontend Boundaries
+
+| Scope | Ownership |
 |---|---|
-| `(advertising)` | `ad-ops` |
-| `(analytics)` | `dashboard` |
-| `(automation)` | `agents`, `workflows`, `marketplace`, `action-board` |
-| `(catalog)` | `products`, `product-hub` |
-| `(sourcing-ai)` | `sourcing-ai` |
-| `(product-pipeline)` | collected/registered products, product generation, detail generation, thumbnail AI/generation |
-| `(supply)` | `suppliers`, `purchase-orders` |
-| `(inventory)` | inventory, hubs, stock ops, warehouses, unshipped, outbound |
-| `(orders)` | orders, returns, reviews, return scan, CS |
-| `(finance)` | finance hub, P&L, sales analysis, suppliers, reports |
-
-## Scoped Guides
-
-Read the route guide before editing:
-
-| Path | Focus |
-|---|---|
-| [`src/app/(automation)/workflows/AGENTS.md`](<src/app/(automation)/workflows/AGENTS.md>) | workflow page/query behavior |
-| [`src/app/(catalog)/product-hub/matching/AGENTS.md`](<src/app/(catalog)/product-hub/matching/AGENTS.md>) | product matching |
-| [`src/app/(product-pipeline)/product-pipeline/collected-products/AGENTS.md`](<src/app/(product-pipeline)/product-pipeline/collected-products/AGENTS.md>) | collected product workspace |
-| [`src/app/(product-pipeline)/product-pipeline/thumbnail-generation/AGENTS.md`](<src/app/(product-pipeline)/product-pipeline/thumbnail-generation/AGENTS.md>) | thumbnail generation workflow |
-| [`src/app/(product-pipeline)/product-pipeline/thumbnail-ai/AGENTS.md`](<src/app/(product-pipeline)/product-pipeline/thumbnail-ai/AGENTS.md>) | thumbnail polling/batch UI |
-| [`src/app/(orders)/return-scan/AGENTS.md`](<src/app/(orders)/return-scan/AGENTS.md>) | local-only scan flow |
+| `src/components/` | App-wide components used by 2+ routes/groups. Keep route/domain UI route-local until it is truly shared. |
+| `components/providers/` | Singleton app wiring only: React Query client, global query error handling, auth session provider, devtools loading. |
+| `components/panel/` | Live notification/work panel, SSE client, fallback snapshot/backfill, panel store, and panel-specific alert/task actions. |
+| `components/ui/` | Presentational primitives only. No `apiClient`, React Query, auth, Zustand, route logic, or domain contracts. |
+| `src/lib/` | Shared frontend infrastructure and pure helpers: `apiClient`, `queryKeys`, error helpers, auth/session helpers, browser integration helpers. |
+| `src/hooks/` | Shared hooks used by 2+ domains. Server-state hooks use React Query and `queryKeys`. |
+| `src/store/` | Global client UI state only. No request/response caching; panel keeps its own colocated store. |
 
 ## API + State Rules
 
@@ -115,8 +102,8 @@ Read the route guide before editing:
 
 ## Local Exceptions
 
-- `app/agent-os/` is a fullscreen visualization surface with intentionally
-  hard-coded dark/cyan styling.
+- `app/agent-os/` owns `/agent-os` and `/agent-os/network`, fullscreen
+  visualization surfaces with intentionally hard-coded dark/cyan styling.
 - `components/panel/` owns the live slide-out panel and SSE store.
 - `app/(inventory)/inventory/lib/barcode-print.ts` may use browser print APIs.
 - `app/settings/` may contain operational uploads, printer settings, and health
@@ -125,6 +112,11 @@ Read the route guide before editing:
   route groups.
 
 ## Verification
+
+Route guides may omit local `Verification` when this app-level gate is enough.
+Add a local section only for route-specific tests, browser checks, or
+cross-layer contracts that would otherwise be easy to miss. When a local
+section lists narrow tests, run them before this app-level gate.
 
 ```bash
 npm run build --workspace=apps/web

@@ -11,10 +11,11 @@ Use this skill from inside the KidItem repository, unless the user explicitly na
 
 ## Policy
 
-- Keep all non-system skills project-local under `<repo>/.agents/skills`.
+- Keep KidItem project-owned shared skills project-local under `<repo>/.agents/skills`.
 - Keep shared project-owned skill sources under `<repo>/tools/codex/skills`.
 - Treat `<repo>/.agents/` as each developer's local install/discovery target.
-- Do not install or enable global entries in `~/.codex/skills`, `~/.agents/skills`, or Codex plugins.
+- Treat external personal tools such as gstack and superpowers as linked dependencies whose source lives outside KidItem.
+- Do not install or enable global entries in `~/.codex/skills`, `~/.agents/skills`, or Codex plugins unless the user explicitly asks for global setup.
 - Do not run package setup commands that write global Codex skill dirs unless the user explicitly asks for global setup.
 - Update copied GitHub skills from `skills-lock.json`.
 - Do not manage gstack or superpowers here. Those are personal local tools, not shared KidItem project skills.
@@ -39,7 +40,7 @@ Use this skill from inside the KidItem repository, unless the user explicitly na
    - Shared project skills are linked into `.agents/skills`.
    - Any symlinked skills still resolve to valid `SKILL.md` files.
    - Local-only skills are reported but not overwritten.
-   - gstack and superpowers are not created or updated by this workflow.
+   - gstack and superpowers are not created or updated by this workflow; only existing symlinks are checked for validity.
 4. Report what changed and whether a fresh Codex session is needed.
 
 ## Verification Only

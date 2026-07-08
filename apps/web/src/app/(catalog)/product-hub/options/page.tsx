@@ -14,12 +14,12 @@ import {
   updateProductOption,
   type ProductOptionEditableFields,
   type ProductOptionListParams,
-} from '@/app/(catalog)/products/options/lib/product-options-api';
+} from './lib/product-options-api';
 import ProductOptionFilters, {
   type ProductOptionFilterState,
-} from '@/app/(catalog)/products/options/components/ProductOptionFilters';
-import ProductOptionTable from '@/app/(catalog)/products/options/components/ProductOptionTable';
-import ProductOptionEditModal from '@/app/(catalog)/products/options/components/ProductOptionEditModal';
+} from './components/ProductOptionFilters';
+import ProductOptionTable from './components/ProductOptionTable';
+import ProductOptionEditModal from './components/ProductOptionEditModal';
 import type { ProductOption } from '@kiditem/shared/product';
 
 const PAGE_LIMIT = 100;

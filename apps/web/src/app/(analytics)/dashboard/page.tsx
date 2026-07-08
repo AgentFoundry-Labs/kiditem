@@ -155,7 +155,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (!salesBaseline?.trafficKpi?.needsScrape) return;
     const source = salesBaseline?.effectivePeriod?.revenueSource;
-    if (source === 'wing' || source === 'mixed' || source === 'orders') return;
+    if (source === 'wing' || source === 'mixed' || source === 'orders' || source === 'rocket' || source === 'wing_rocket') return;
     const COOLDOWN_KEY = 'kiditem_wing_scrape_triggered';
     const lastTrigger = localStorage.getItem(COOLDOWN_KEY);
     if (lastTrigger && Date.now() - Number(lastTrigger) < 30 * 60 * 1000) return; // 30분 쿨다운
@@ -238,7 +238,9 @@ export default function Dashboard() {
     revenueSource === 'wing' ? 'Wing 매출 기준'
     : revenueSource === 'rocket' ? '로켓 발주 기준'
     : revenueSource === 'wing_rocket' ? 'Wing + 로켓'
-    : revenueSource === 'mixed' ? '혼합 기준'
+    : revenueSource === 'mixed' && rocketRevenue > 0 && wingRevenue > 0 ? '주문 + Wing + 로켓'
+    : revenueSource === 'mixed' && rocketRevenue > 0 ? '주문 + 로켓'
+    : revenueSource === 'mixed' ? '주문 + Wing'
     : revenueSource === 'orders' ? '주문 기준'
     : '데이터 대기';
   const adSourceLabel =
@@ -285,12 +287,12 @@ export default function Dashboard() {
                   최신 데이터 기준 · {latestDataDate}
                 </span>
               )}
-              {!periodShifted && (revenueSource === 'wing' || revenueSource === 'rocket' || revenueSource === 'wing_rocket') && (
+              {!periodShifted && revenueSource === 'wing' && (
                 <span
                   className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200"
-                  title="이번 달 주문 데이터가 없어 연동 매출 데이터를 기준으로 표시 중"
+                  title="이번 달 주문 데이터가 없어 Wing 매출분석을 기준으로 표시 중"
                 >
-                  {revenueSourceLabel}
+                  Wing 기준
                 </span>
               )}
             </div>
@@ -425,7 +427,7 @@ export default function Dashboard() {
             )}
             {salesBaseline.lastSyncAt && (
               <div className="text-[11px] text-slate-400 mt-1">
-                마지막 업데이트 · {formatDateTime(salesBaseline.lastSyncAt)}
+                Wing 마지막 동기화 · {formatDateTime(salesBaseline.lastSyncAt)}
                 {(Date.now() - new Date(salesBaseline.lastSyncAt).getTime()) > 86400000 && (
                   <span className="text-amber-500 ml-1">⚠ 24시간 이상 미동기화</span>
                 )}
@@ -661,7 +663,7 @@ export default function Dashboard() {
             <div className="text-2xl font-extrabold tabular-nums text-slate-900">{inventoryData.warnings.lowProfitProducts}<span className="text-sm ml-0.5">개</span></div>
             <div className="text-xs mt-1 text-slate-400">이익률 3% 이하</div>
           </Link>
-          <Link href="/ads-hub" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
+          <Link href="/ad-ops" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
             <div className="text-sm font-bold mb-1 text-slate-900">광고비 초과</div>
             <div className="text-2xl font-extrabold tabular-nums text-slate-900">{inventoryData.warnings.highAdProducts}<span className="text-sm ml-0.5">개</span></div>
             <div className="text-xs mt-1 text-slate-400">광고비율 15% 초과</div>

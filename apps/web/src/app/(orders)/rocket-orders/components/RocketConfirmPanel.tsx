@@ -8,9 +8,11 @@ import { downloadBlob } from '@/lib/browser-download';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import {
   ROCKET_SHORTAGE_REASONS,
+  commitRocketConfirmRows,
   collectRocketPoRowsFromExtension,
   generateRocketConfirmFile,
   previewRocketConfirm,
+  type RocketConfirmCommitResult,
   type RocketComputedRow,
 } from '../lib/rocket-confirm-api';
 import { saveRocketConfirmFile } from '../lib/rocket-confirm-file-store';
@@ -34,6 +36,8 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
   const [busy, setBusy] = useState<Busy>(null);
   const [rows, setRows] = useState<RocketComputedRow[] | null>(null);
   const [poCount, setPoCount] = useState(0);
+  const [commitResult, setCommitResult] = useState<RocketConfirmCommitResult | null>(null);
+  const [commitPending, setCommitPending] = useState(false);
   // 입고예정일(다음 7일) 범위 — 거래처확인요청 발주를 이 eta 안의 것만 가져온다.
   const [etaFrom, setEtaFrom] = useState(todayYmd());
   const [etaTo, setEtaTo] = useState(plusDaysYmd(6));
@@ -50,6 +54,7 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
       const preview = await previewRocketConfirm(scraped);
       setRows(preview.rows);
       setPoCount(count);
+      setCommitResult(null);
       toast.success(`발주 ${count}건 · ${preview.rows.length}행 — 확정수량 확인/수정 후 다운로드하세요`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '발주 수집 실패');
@@ -83,6 +88,22 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
       toast.error(e instanceof Error ? e.message : '다운로드 실패');
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function handleCommitReservation() {
+    if (!rows?.length || commitPending || commitResult) return;
+    setCommitPending(true);
+    try {
+      const result = await commitRocketConfirmRows(rows);
+      setCommitResult(result);
+      const message = `예약 확정 — 신규 ${result.reservedRows} · 중복 ${result.alreadyReservedRows} · 제외 ${result.skippedRows} · 실패 ${result.failedRows}`;
+      if (result.failedRows > 0) toast.warning(message);
+      else toast.success(message);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '예약 확정 실패');
+    } finally {
+      setCommitPending(false);
     }
   }
 
@@ -226,8 +247,33 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
                 {busy === 'download' ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                 엑셀 다운로드
               </button>
+              <button
+                type="button"
+                onClick={() => void handleCommitReservation()}
+                disabled={busy !== null || commitPending || Boolean(commitResult)}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800',
+                  (busy !== null || commitPending || Boolean(commitResult)) && 'pointer-events-none opacity-60',
+                )}
+              >
+                {commitPending ? <Loader2 size={14} className="animate-spin" /> : <Package size={14} />}
+                예약 확정
+              </button>
             </div>
           </div>
+          {commitResult && (
+            <div className="border-b border-emerald-100 bg-emerald-50 px-5 py-2 text-xs text-emerald-800">
+              예약 신규 <b className="tabular-nums">{commitResult.reservedRows}</b> · 중복{' '}
+              <b className="tabular-nums">{commitResult.alreadyReservedRows}</b> · 제외{' '}
+              <b className="tabular-nums">{commitResult.skippedRows}</b> · 실패{' '}
+              <b className="tabular-nums">{commitResult.failedRows}</b>
+              {commitResult.failed?.length ? (
+                <span className="ml-2 text-amber-700">
+                  {commitResult.failed[0]?.poNumber} {commitResult.failed[0]?.reason}
+                </span>
+              ) : null}
+            </div>
+          )}
           <div className="max-h-[460px] overflow-auto">
             <table className="min-w-full text-sm">
               <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500">

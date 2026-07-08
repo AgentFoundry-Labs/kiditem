@@ -27,15 +27,29 @@ function isHandledAuthRequiredError(error: unknown): boolean {
   return isApiError(error) && error.status === 401 && error.code === 'auth_required';
 }
 
+type QueryCacheOnError = NonNullable<QueryCache['config']['onError']>;
+
+function shouldSuppressGlobalErrorToast(query: Parameters<QueryCacheOnError>[1]): boolean {
+  const meta = query.meta as Record<string, unknown> | undefined;
+  return meta?.suppressGlobalErrorToast === true;
+}
+
+const handleQueryError: QueryCacheOnError = (error, query) => {
+  if (shouldSuppressGlobalErrorToast(query)) return;
+  if (isTransientFetchError(error)) return;
+  if (isHandledAuthRequiredError(error)) return;
+  const message = isApiError(error) ? error.detail : '요청 처리 중 오류가 발생했습니다.';
+  toast.error(message);
+};
+
+export function installQueryClientErrorHandler(queryClient: QueryClient) {
+  queryClient.getQueryCache().config.onError = handleQueryError;
+}
+
 export function makeQueryClient() {
   return new QueryClient({
     queryCache: new QueryCache({
-      onError: (error) => {
-        if (isTransientFetchError(error)) return;
-        if (isHandledAuthRequiredError(error)) return;
-        const message = isApiError(error) ? error.detail : '요청 처리 중 오류가 발생했습니다.';
-        toast.error(message);
-      },
+      onError: handleQueryError,
     }),
     defaultOptions: {
       queries: {

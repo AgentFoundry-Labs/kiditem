@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # advertising — Ad Operations
 
 `src/advertising/` owns Coupang ad operations, scrape ingest, daily fact

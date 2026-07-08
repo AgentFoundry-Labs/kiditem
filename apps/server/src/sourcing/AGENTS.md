@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # sourcing — Product Discovery + Candidate Promotion
 
 `src/sourcing/` owns Chinese new-product discovery: scraper ingest from

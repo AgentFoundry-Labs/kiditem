@@ -101,7 +101,7 @@ describe('product-pipeline route construction', () => {
       title: '키즈 컵',
       returnTo: '/product-pipeline/registered-products/workspace-1',
     })).toBe(
-      '/product-pipeline/detailgenerate?contentWorkspaceId=workspace-1&title=%ED%82%A4%EC%A6%88+%EC%BB%B5&returnTo=%2Fproduct-pipeline%2Fregistered-products%2Fworkspace-1',
+      '/product-pipeline/detail-template-generation?contentWorkspaceId=workspace-1&title=%ED%82%A4%EC%A6%88+%EC%BB%B5&returnTo=%2Fproduct-pipeline%2Fregistered-products%2Fworkspace-1',
     );
   });
 

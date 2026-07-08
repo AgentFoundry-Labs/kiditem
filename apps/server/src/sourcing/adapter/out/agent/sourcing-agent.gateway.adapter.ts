@@ -86,7 +86,7 @@ export class SourcingAgentGatewayAdapter implements SourcingAgentGatewayPort {
         sourceType: 'master_product',
         sourceId: request.masterId,
         actorUserId: null,
-        href: `/products/${request.masterId}`,
+        href: `/product-hub/${request.masterId}`,
         metadata: { error: errorMessage },
       });
     }

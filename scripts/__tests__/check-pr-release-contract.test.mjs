@@ -58,3 +58,24 @@ test('validates data migration release folder and registry inclusion', () => {
   assert.match(result.errors.join('\n'), /does not match root VERSION 0.1.1/);
   assert.match(result.errors.join('\n'), /is not registered/);
 });
+
+test('allows historical migration releases in develop to main promotion PRs', () => {
+  const result = analyzePrReleaseContract({
+    files: [
+      'scripts/data-migrations/v0.1.3/001_release_note.ts',
+      'scripts/data-migrations/v0.1.4/001_release_note.ts',
+      'scripts/data-migrations/v0.1.7/001_release_note.ts',
+    ],
+    prBody: 'Release decision: promote develop 0.1.7 to main\n',
+    rootVersion: '0.1.7',
+    baseVersion: '0.1.2',
+    migrationIndex: [
+      './v0.1.3/001_release_note',
+      './v0.1.4/001_release_note',
+      './v0.1.7/001_release_note',
+    ].join('\n'),
+    allowHistoricalMigrationVersions: true,
+  });
+
+  assert.deepEqual(result.errors, []);
+});

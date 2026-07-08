@@ -1,3 +1,5 @@
+Consult this document first instead of relying on memorized knowledge.
+
 # products — Catalog, Options, Bundles
 
 `src/products/` owns catalog families, physical SKU options, bundle

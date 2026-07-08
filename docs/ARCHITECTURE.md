@@ -301,14 +301,14 @@ Kinds:
 | `apps/web/src/app/(advertising)` | Route Group | `ad-ops` |
 | `apps/web/src/app/(analytics)` | Route Group | `dashboard` |
 | `apps/web/src/app/(automation)` | Route Group | `_shared`, `action-board`, `agents`, `marketplace`, `workflows` |
-| `apps/web/src/app/(catalog)` | Route Group | `product-hub`, `products` |
+| `apps/web/src/app/(catalog)` | Route Group | `product-hub`, `product-hub/[id]`, `product-hub/matching`, `product-hub/options`; product hub implementation code lives under `product-hub/`. |
 | `apps/web/src/app/(finance)` | Route Group | `_shared`, `finance-hub`, `profit-loss`, `reports`, `sales-analysis`, `supplier-hub` |
-| `apps/web/src/app/(inventory)` | Route Group | `_shared`, `inventory`, `inventory-hub`, `outbound`, `stock-ops`, `unshipped-items`, `warehouses` |
-| `apps/web/src/app/(orders)` | Route Group | `_shared`, `cs-management`, `order-hub`, `order-status-hub`, `orders`, `return-scan`, `returns`, `reviews` |
-| `apps/web/src/app/(sourcing-ai)` | Route Group | `sourcing-ai`, `sourcing-ai/recommendations`, `sourcing-ai/keywords`, `sourcing-ai/market`, `sourcing-ai/category-sourcing`, `sourcing-ai/wholesale-search`, `sourcing-ai/validation`, `sourcing-ai/saved` |
-| `apps/web/src/app/(product-pipeline)` | Route Group | `product-pipeline/collected-products`, `product-pipeline/registered-products`, `product-pipeline/productgenerate`, `product-pipeline/detailgenerate`, `product-pipeline/detail-template-generation` (legacy implementation path), `product-pipeline/thumbnail-ai`, `product-pipeline/thumbnail-generation`, `product-pipeline/thumbnail-generation/edit` |
+| `apps/web/src/app/(inventory)` | Route Group | `_shared`, `coupang-shipments`, `inventory`, `inventory-hub`, `outbound`, `stock-ops`, `unshipped-items`, `warehouses` |
+| `apps/web/src/app/(orders)` | Route Group | `_shared`, `cs-management`, `order-collection`, `order-hub`, `order-status-hub`, `orders`, `return-scan`, `returns`, `reviews`, `rocket-orders` |
+| `apps/web/src/app/(sourcing-ai)` | Route Group | `sourcing-ai`, `sourcing-ai/category-sourcing`, `sourcing-ai/competitor-analysis`, `sourcing-ai/final-selection`, `sourcing-ai/keywords`, `sourcing-ai/market`, `sourcing-ai/recommendations`, `sourcing-ai/settings`, `sourcing-ai/validation`, `sourcing-ai/wholesale-search`, `sourcing-ai/wing-catalog` |
+| `apps/web/src/app/(product-pipeline)` | Route Group | `product-pipeline/collected-products`, `product-pipeline/collected-products/[id]`, `product-pipeline/collected-products/[id]/editor`, `product-pipeline/collected-products/[id]/templates`, `product-pipeline/detail-pages/[generationId]/editor`, `product-pipeline/detail-template-generation`, `product-pipeline/productgenerate`, `product-pipeline/registered-products`, `product-pipeline/registered-products/[workspaceId]`, `product-pipeline/thumbnail-ai`, `product-pipeline/thumbnail-generation`, `product-pipeline/thumbnail-generation/edit` |
 | `apps/web/src/app/(supply)` | Route Group | `purchase-orders`, `suppliers` |
-| `apps/web/src/app/agent-os` | App Internal | Fullscreen visualization surface, separate from `/agents`. |
+| `apps/web/src/app/agent-os` | App Internal | Fullscreen visualization surfaces `/agent-os` and `/agent-os/network`, separate from `/agents`. |
 | `apps/web/src/app/auth` | App Internal | Auth callback subtree. |
 | `apps/web/src/app/fonts` | App Internal | Next font assets. |
 | `apps/web/src/app/login` | Route Leaf | Login route. |
@@ -335,13 +335,11 @@ Notable route subtrees:
   owns the shared generated detail-page editor route
   `/product-pipeline/detail-pages/[generationId]/editor` for both collected and
   registered product workspaces.
-- `apps/web/src/app/(product-pipeline)/product-pipeline/detailgenerate`
-  owns `/product-pipeline/detailgenerate`, the independent detail generation
-  tool. It is a transitional direct-detail shell: outputs do not create
-  collected product candidates, and the durable home for this action is expected
-  to move inside product workspaces. The older `detail-template-generation`
-  folder remains as the shared implementation path while consumers migrate to
-  the shorter route.
+- `apps/web/src/app/(product-pipeline)/product-pipeline/detail-template-generation`
+  owns `/product-pipeline/detail-template-generation`, the independent detail
+  generation tool. Outputs do not create collected product candidates, and
+  product-bound detail generation links should enter through the shared
+  product-pipeline route helpers instead of ad hoc path strings.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/thumbnail-ai`
   owns the independent thumbnail AI analysis and batch UI.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/thumbnail-generation`

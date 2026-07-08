@@ -278,5 +278,6 @@ export const queryKeys = {
   },
   settlements: {
     all: ['settlements'] as const,
+    list: (period?: string) => [...queryKeys.settlements.all, 'list', period || 'all'] as const,
   },
 } as const;

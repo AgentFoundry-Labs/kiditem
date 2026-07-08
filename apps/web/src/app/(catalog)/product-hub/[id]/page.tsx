@@ -5,13 +5,13 @@ import { useQuery } from '@tanstack/react-query';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import ProductHeader from '@/app/(catalog)/products/[id]/components/ProductHeader';
-import ProductMetrics from '@/app/(catalog)/products/[id]/components/ProductMetrics';
-import HealthDiagnosis from '@/app/(catalog)/products/[id]/components/HealthDiagnosis';
-import ActivityHistory from '@/app/(catalog)/products/[id]/components/ActivityHistory';
-import ProductSidebar from '@/app/(catalog)/products/[id]/components/ProductSidebar';
-import ProductInfoCards, { type InventoryData } from '@/app/(catalog)/products/[id]/components/ProductInfoCards';
-import { useProductActions } from '@/app/(catalog)/products/[id]/hooks/useProductActions';
+import ProductHeader from './components/ProductHeader';
+import ProductMetrics from './components/ProductMetrics';
+import HealthDiagnosis from './components/HealthDiagnosis';
+import ActivityHistory from './components/ActivityHistory';
+import ProductSidebar from './components/ProductSidebar';
+import ProductInfoCards, { type InventoryData } from './components/ProductInfoCards';
+import { useProductActions } from './hooks/useProductActions';
 import { ProductCatalogDetailSchema } from '@kiditem/shared/product';
 
 export default function ProductHubDetailPage() {

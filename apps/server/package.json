@@ -7,6 +7,7 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main.js",
+    "start:worker:prod": "node dist/worker.js",
     "lint": "eslint 'src/**/*.ts'",
     "agent-os:mcp:kiditem": "node dist/agent-os/adapter/in/mcp/kiditem-agent-os-mcp-server.js",
     "agent-os:operator:hermes": "npm run build && node dist/agent-os/adapter/in/cli/run-hermes-operator.js",
@@ -40,6 +41,7 @@
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
     "sharp": "^0.34.5",
+    "undici": "^7.28.0",
     "xlsx": "npm:@e965/xlsx@^0.20.3",
     "zod": "^3.25.0"
   },
