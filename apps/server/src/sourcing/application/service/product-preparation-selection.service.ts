@@ -16,6 +16,7 @@ export interface UpdateProductBasicsInput {
   optionNames?: string[];
   kcCertificationStatus?: string;
   kcCertificationNumber?: string;
+  kcCertificationImageUrl?: string;
   productSize?: string;
   colorVariantStatus?: string;
   colorVariantNames?: string;
@@ -24,6 +25,8 @@ export interface UpdateProductBasicsInput {
   salePrice?: number;
   originalPrice?: number;
   discountRate?: number;
+  rocketBundleQuantity?: number;
+  rocketUnitCost?: number;
   thumbnailUrls?: string[];
   /**
    * Client-observed ProductPreparation.updatedAt. Null means the screen opened
@@ -232,6 +235,7 @@ export class ProductPreparationSelectionService {
       ageGroup: stringOr(raw.ageGroup) ?? '',
       kcCertificationStatus: stringOr(raw.kcCertificationStatus) ?? '',
       kcCertificationNumber: stringOr(raw.kcCertificationNumber) ?? '',
+      kcCertificationImageUrl: stringOr(raw.kcCertificationImageUrl) ?? '',
       productSize: stringOr(raw.productSize) ?? '',
       colorVariantStatus: stringOr(raw.colorVariantStatus) ?? '',
       colorVariantNames: stringOr(raw.colorVariantNames) ?? '',
@@ -240,6 +244,8 @@ export class ProductPreparationSelectionService {
       salePrice: numberOr(raw.salePrice),
       originalPrice: numberOr(raw.originalPrice),
       discountRate: numberOr(raw.discountRate),
+      rocketBundleQuantity: numberOr(raw.rocketBundleQuantity),
+      rocketUnitCost: numberOr(raw.rocketUnitCost),
       tags: Array.isArray(candidate.tags) ? candidate.tags.filter((tag): tag is string => typeof tag === 'string') : [],
     };
   }
@@ -257,6 +263,7 @@ export class ProductPreparationSelectionService {
     setString(next, 'ageGroup', input.ageGroup);
     setString(next, 'kcCertificationStatus', input.kcCertificationStatus);
     setString(next, 'kcCertificationNumber', input.kcCertificationNumber);
+    setString(next, 'kcCertificationImageUrl', input.kcCertificationImageUrl);
     setString(next, 'productSize', input.productSize);
     setString(next, 'colorVariantStatus', input.colorVariantStatus);
     setString(next, 'colorVariantNames', input.colorVariantNames);
@@ -265,6 +272,8 @@ export class ProductPreparationSelectionService {
     setNumber(next, 'salePrice', input.salePrice);
     setNumber(next, 'originalPrice', input.originalPrice);
     setNumber(next, 'discountRate', input.discountRate);
+    setNumber(next, 'rocketBundleQuantity', input.rocketBundleQuantity);
+    setNumber(next, 'rocketUnitCost', input.rocketUnitCost);
     setStringArray(next, 'tags', input.tags);
     setStringArray(next, 'keywords', input.keywords);
     setStringArray(next, 'optionNames', input.optionNames);

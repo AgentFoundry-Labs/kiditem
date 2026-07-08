@@ -63,6 +63,23 @@ export async function collectIcecreamMallRowsFromExtension(
   };
 }
 
+/**
+ * 수집 전 자동 로그인 보장(선택). 저장된 계정이 있으면 확장이 백그라운드로 해당 몰에 로그인해둔다.
+ * 실패해도 조용히 넘어감 — 로그인 안 되면 뒤이은 수집 단계가 "로그인 필요"로 안내한다.
+ */
+export async function ensureMallLoggedInViaExtension(
+  mallKey: string,
+  credentials: IcecreamMallExtensionCredentials,
+): Promise<void> {
+  const extensionId = await detectOrderCollectionExtensionId();
+  if (!extensionId) return;
+  try {
+    await sendToExtension(extensionId, { action: 'ensureMallLoggedIn', mallKey, credentials }, 45000);
+  } catch {
+    /* 자동 로그인 실패 — 수집 단계에서 로그인 필요 메시지로 안내됨 */
+  }
+}
+
 export interface SellpiaSendResult {
   success: boolean;
   submitted?: boolean;

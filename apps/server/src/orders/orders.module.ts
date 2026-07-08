@@ -11,6 +11,7 @@ import { OrderCollectionController } from './controllers/order-collection.contro
 import { OrderCollectionMallAccountController } from './controllers/order-collection-mall-account.controller';
 import { OrderCollectionService } from './services/order-collection.service';
 import { OrderCollectionMallAccountService } from './services/order-collection-mall-account.service';
+import { CoupangDirectshipService } from './coupang-directship/coupang-directship.service';
 import { ReturnTransfersController } from './return-transfers/return-transfers.controller';
 import { ReturnTransfersService } from './return-transfers/return-transfers.service';
 import { RocketPoController } from './controllers/rocket-po.controller';
@@ -33,6 +34,7 @@ import { ChannelsModule } from '../channels/channels.module';
     OrdersService,
     OrderCollectionService,
     OrderCollectionMallAccountService,
+    CoupangDirectshipService,
     ReturnsService,
     CsService,
     ReviewsService,

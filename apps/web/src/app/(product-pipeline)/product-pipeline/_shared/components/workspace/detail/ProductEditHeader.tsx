@@ -24,6 +24,7 @@ import { useKidsPlayfulFromSourcing } from '../../../hooks/useKidsPlayfulFromSou
 import TemplateSelectionModal from '@/app/(product-pipeline)/product-pipeline/_shared/components/detail-page/TemplateSelectionModal';
 import {
   candidatesApi,
+  type ProductBasics,
   type PromoteCandidateResponse,
 } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
 import {
@@ -39,6 +40,8 @@ interface ProductEditHeaderProps {
   promotedMasterId?: string | null;
   isEditComplete: boolean;
   isLocked: boolean;
+  basicInfo?: ProductBasics | null;
+  costCny?: number | null;
   selectedThumbnailUrl?: string | null;
   selectedThumbnailGenerationCandidateId?: string | null;
   selectedDetailPageGenerationId?: string | null;
@@ -57,6 +60,8 @@ export default function ProductEditHeader({
   productId,
   status = 'sourced',
   promotedMasterId = null,
+  basicInfo = null,
+  costCny = null,
   selectedThumbnailUrl = null,
   selectedThumbnailGenerationCandidateId = null,
   selectedDetailPageGenerationId = null,
@@ -367,6 +372,11 @@ export default function ProductEditHeader({
               accounts={accountsQuery.data ?? []}
               productName={productName}
               isSubmitting={marketplaceRegistrationMutation.isPending}
+              kcCertificationImageUrl={basicInfo?.kcCertificationImageUrl ?? null}
+              consumerPrice={basicInfo?.salePrice ?? null}
+              bundleQuantity={basicInfo?.rocketBundleQuantity ?? null}
+              unitCost={basicInfo?.rocketUnitCost ?? null}
+              costCny={costCny}
               onClose={() => setMarketplaceOpen(false)}
               onSubmit={(input) => marketplaceRegistrationMutation.mutate(input)}
             />

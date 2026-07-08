@@ -82,6 +82,7 @@ export interface ProductBasics {
   optionNames: string[];
   kcCertificationStatus: string;
   kcCertificationNumber: string;
+  kcCertificationImageUrl: string;
   productSize: string;
   colorVariantStatus: string;
   colorVariantNames: string;
@@ -90,6 +91,8 @@ export interface ProductBasics {
   originalPrice: number;
   salePrice: number;
   discountRate: number;
+  rocketBundleQuantity: number;
+  rocketUnitCost: number;
   thumbnailUrls: string[];
   thumbnailPreviewUrls?: string[];
   selectedThumbnailUrl: string | null;
@@ -111,6 +114,7 @@ export type UpdateProductBasicsInput = Partial<Pick<
   | 'optionNames'
   | 'kcCertificationStatus'
   | 'kcCertificationNumber'
+  | 'kcCertificationImageUrl'
   | 'productSize'
   | 'colorVariantStatus'
   | 'colorVariantNames'
@@ -119,6 +123,8 @@ export type UpdateProductBasicsInput = Partial<Pick<
   | 'salePrice'
   | 'originalPrice'
   | 'discountRate'
+  | 'rocketBundleQuantity'
+  | 'rocketUnitCost'
   | 'thumbnailUrls'
 >> & {
   basePreparationUpdatedAt?: string | null;
@@ -317,6 +323,7 @@ function normalizeProductBasics(
     optionNames,
     kcCertificationStatus: typeof basics.kcCertificationStatus === 'string' ? basics.kcCertificationStatus : '',
     kcCertificationNumber: typeof basics.kcCertificationNumber === 'string' ? basics.kcCertificationNumber : '',
+    kcCertificationImageUrl: typeof basics.kcCertificationImageUrl === 'string' ? basics.kcCertificationImageUrl : '',
     productSize: typeof basics.productSize === 'string' ? basics.productSize : '',
     colorVariantStatus: typeof basics.colorVariantStatus === 'string' ? basics.colorVariantStatus : '',
     colorVariantNames: typeof basics.colorVariantNames === 'string' ? basics.colorVariantNames : '',
@@ -325,6 +332,8 @@ function normalizeProductBasics(
     originalPrice: numberOrZero(basics.originalPrice),
     salePrice: numberOrZero(basics.salePrice) || fallback.salePrice || 0,
     discountRate: numberOrZero(basics.discountRate),
+    rocketBundleQuantity: numberOrZero(basics.rocketBundleQuantity),
+    rocketUnitCost: numberOrZero(basics.rocketUnitCost),
     thumbnailUrls,
     thumbnailPreviewUrls: explicitThumbnailUrls,
     selectedThumbnailUrl: normalizeImageUrl(basics.selectedThumbnailUrl) ?? fallback.preparation?.selectedThumbnailUrl ?? null,

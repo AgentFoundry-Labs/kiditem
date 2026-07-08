@@ -117,7 +117,8 @@ export class DashboardSalesService {
         wingTrafficToday,
         coupangAdsMonth,
         coupangAdsPrevMonth,
-        latestDataDate,
+        latestWingDataDate,
+        latestRocketDataDate,
         rocketMonth,
         rocketPrevMonth,
         rocketRange,
@@ -140,6 +141,7 @@ export class DashboardSalesService {
         this.wingTrafficRepository.aggregateCoupangAds(organizationId, monthStart, monthEnd),
         this.wingTrafficRepository.aggregateCoupangAds(organizationId, prevMonthDate, monthStart),
         this.wingTrafficRepository.findLatestDataDate(organizationId),
+        this.rocketRevenue.findLatestDataDate(organizationId),
         this.rocketRevenue.aggregateRevenue(organizationId, monthStart, monthEnd),
         this.rocketRevenue.aggregateRevenue(organizationId, prevMonthDate, monthStart),
         this.rocketRevenue.aggregateRevenue(organizationId, dateRange.start, dateRange.end),
@@ -160,7 +162,11 @@ export class DashboardSalesService {
         wing?.lastSyncAt ?? null,
         wingTrafficMonth.lastObservedAt,
       );
-      const lastSyncAt = wingLastSync ?? coupangAdsMonth.lastObservedAt;
+      const latestDataDate = pickLatest(latestWingDataDate, latestRocketDataDate);
+      const lastSyncAt = pickLatest(
+        pickLatest(wingLastSync, coupangAdsMonth.lastObservedAt),
+        rocketMonth.lastObservedAt,
+      );
 
       this.logger.debug({
         msg: 'dashboard-sales.getSummary',
@@ -231,6 +237,7 @@ export class DashboardSalesService {
           curMonth,
           wingTrafficMonth,
           coupangAdsMonth,
+          rocketMonth,
         ),
       } satisfies DashboardSalesSummary;
     } catch (error) {
@@ -427,12 +434,13 @@ export class DashboardSalesService {
           1,
         );
         const end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
-        const [m, wing] = await Promise.all([
+        const [m, wing, rocket] = await Promise.all([
           this.profitCalculation.calculateForRange(organizationId, start, end),
           this.wingTrafficRepository.aggregateTraffic(organizationId, start, end),
+          this.rocketRevenue.aggregateRevenue(organizationId, start, end),
         ]);
         const period = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`;
-        const revenue = m.revenue > 0 ? m.revenue : wing.revenue;
+        const revenue = (m.revenue > 0 ? m.revenue : wing.revenue) + rocket.revenue;
         const profit = m.revenue > 0 ? m.netProfit : 0;
         return { period, revenue, profit, adCost: m.adCost } satisfies MonthlyTrendItem;
       }),

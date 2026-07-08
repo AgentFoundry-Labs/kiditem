@@ -4,6 +4,10 @@ import { useState } from 'react';
 import { TrendingUp } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
 import type { StoredOrderCollectionFile } from '../lib/order-generated-file-store';
+import {
+  getHistoryCollectionBucket,
+  getHistoryOrderCount,
+} from '../lib/order-history-count';
 
 interface OrderCollectionDailyPanelProps {
   history: StoredOrderCollectionFile[];
@@ -14,6 +18,14 @@ interface DailyCollectionStat {
   key: string;
   label: string;
   orderRows: number;
+  latestAt: number;
+}
+
+interface DailyCollectionAccumulator {
+  key: string;
+  label: string;
+  orderNumbers: Set<string>;
+  fallbackByBucket: Map<string, number>;
   latestAt: number;
 }
 
@@ -83,57 +95,119 @@ function DailyBarChart({ stats }: { stats: DailyCollectionStat[] }) {
   }
 
   const maxOrders = Math.max(1, ...stats.map((stat) => stat.orderRows));
+  const { axisMax, ticks } = niceAxis(maxOrders); // 눈금 위쪽 값 + 눈금들(위→아래: max … 0)
 
   return (
     <div className="flex min-h-[320px] flex-1 flex-col rounded-lg border border-slate-200 bg-slate-50 px-4 pb-4 pt-5">
-      <div className="flex min-h-0 flex-1 items-end gap-2">
-        {stats.map((stat, index) => {
-          const height = Math.max(stat.orderRows > 0 ? 8 : 3, Math.round((stat.orderRows / maxOrders) * 100));
-          const latest = index === stats.length - 1;
-          return (
-            <div key={stat.key} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2">
-              <div className="flex min-h-0 flex-1 w-full items-end justify-center">
+      <div className="relative min-h-0 flex-1">
+        {/* Y축 눈금(건수) + 가로 격자선 */}
+        <div className="pointer-events-none absolute inset-0 flex flex-col justify-between">
+          {ticks.map((tick, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="w-7 flex-none text-right text-[10px] tabular-nums text-slate-400">
+                {formatNumber(tick)}
+              </span>
+              <span
+                className={cn('h-px flex-1', i === ticks.length - 1 ? 'bg-slate-300' : 'bg-slate-200/70')}
+              />
+            </div>
+          ))}
+        </div>
+        {/* 막대 (Y축 라벨 폭만큼 왼쪽 여백) */}
+        <div className="relative flex h-full items-stretch gap-2 pl-9">
+          {stats.map((stat, index) => {
+            const height = stat.orderRows > 0 ? Math.max(2, Math.round((stat.orderRows / axisMax) * 100)) : 0;
+            const latest = index === stats.length - 1;
+            return (
+              <div key={stat.key} className="flex h-full min-w-0 flex-1 flex-col justify-end">
                 <div
-                  className={
-                    latest
-                      ? 'w-full max-w-7 rounded-t-md bg-purple-600'
-                      : 'w-full max-w-7 rounded-t-md bg-slate-300'
-                  }
+                  className={cn(
+                    'w-full max-w-7 self-center rounded-t-md',
+                    latest ? 'bg-purple-600' : 'bg-slate-300',
+                  )}
                   style={{ height: `${height}%` }}
                   title={`${stat.label} 주문 ${formatNumber(stat.orderRows)}건`}
                 />
               </div>
-              <div className="w-full truncate text-center text-[11px] tabular-nums text-slate-500">
-                {chartDayLabel(stat.key)}
-              </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
+      </div>
+      {/* X축 라벨 (막대와 동일한 왼쪽 여백) */}
+      <div className="mt-1.5 flex gap-2 pl-9">
+        {stats.map((stat) => (
+          <div
+            key={stat.key}
+            className="min-w-0 flex-1 truncate text-center text-[11px] tabular-nums text-slate-500"
+          >
+            {chartDayLabel(stat.key)}
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
+/** 건수 축: 정수 눈금(1/2/5/10 단위)으로 위→아래 배열 + 축 상단값 반환. */
+function niceAxis(max: number): { axisMax: number; ticks: number[] } {
+  const m = Math.max(1, max);
+  const rough = m / 4; // 눈금 4칸 기준 대략 간격
+  const pow = Math.pow(10, Math.floor(Math.log10(rough || 1)));
+  const n = rough / pow;
+  const base = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
+  const step = Math.max(1, Math.round(base * pow)); // 주문 건수는 정수
+  const axisMax = Math.max(step, Math.ceil(m / step) * step);
+  const ticks: number[] = [];
+  for (let t = axisMax; t > 0.001; t -= step) ticks.push(Math.round(t));
+  ticks.push(0);
+  return { axisMax, ticks };
+}
+
 function buildDailyStats(items: StoredOrderCollectionFile[]): DailyCollectionStat[] {
-  const byDate = new Map<string, DailyCollectionStat>();
+  const byDate = new Map<string, DailyCollectionAccumulator>();
 
   for (const item of items) {
     const key = item.collectionDate || dayKey(item.convertedAt);
     let stat = byDate.get(key);
     if (!stat) {
-      stat = { key, label: dayLabel(key), orderRows: 0, latestAt: item.convertedAt };
+      stat = {
+        key,
+        label: dayLabel(key),
+        orderNumbers: new Set<string>(),
+        fallbackByBucket: new Map<string, number>(),
+        latestAt: item.convertedAt,
+      };
       byDate.set(key, stat);
     }
-    stat.orderRows += getOrderCount(item);
+    const orderNumbers = item.orderNumbers ?? [];
+    if (orderNumbers.length > 0) {
+      const prefix = item.mallKey ?? item.mallName ?? item.sourceName;
+      for (const orderNo of orderNumbers) {
+        const normalized = String(orderNo).trim();
+        if (normalized) stat.orderNumbers.add(`${prefix}:${normalized}`);
+      }
+    } else {
+      const bucket = `${item.mallKey ?? item.mallName ?? item.sourceName}:${getHistoryCollectionBucket(item)}`;
+      const count = getHistoryOrderCount(item) ?? 0;
+      stat.fallbackByBucket.set(bucket, Math.max(stat.fallbackByBucket.get(bucket) ?? 0, count));
+    }
     stat.latestAt = Math.max(stat.latestAt, item.convertedAt);
   }
 
-  return [...byDate.values()].sort((a, b) => b.key.localeCompare(a.key));
+  return [...byDate.values()]
+    .map((stat) => ({
+      key: stat.key,
+      label: stat.label,
+      orderRows: stat.orderNumbers.size + sumMapValues(stat.fallbackByBucket),
+      latestAt: stat.latestAt,
+    }))
+    .sort((a, b) => b.key.localeCompare(a.key));
 }
 
-function getOrderCount(result: StoredOrderCollectionFile): number {
-  if (result.outputRows === null || result.productRows === null) return 0;
-  return Math.max(0, result.outputRows - result.productRows);
+function sumMapValues(values: Map<string, number>): number {
+  let sum = 0;
+  for (const value of values.values()) sum += value;
+  return sum;
 }
 
 function dayKey(timestamp: number): string {

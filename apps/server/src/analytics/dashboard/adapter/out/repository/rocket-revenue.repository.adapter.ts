@@ -22,6 +22,21 @@ import type {
 export class RocketRevenueRepositoryAdapter implements RocketRevenueRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
+  async findLatestDataDate(organizationId: string): Promise<Date | null> {
+    const agg = await this.prisma.rocketSupplyDailySnapshot.aggregate({
+      where: {
+        organizationId,
+        OR: [
+          { revenueKrw: { gt: 0 } },
+          { poCount: { gt: 0 } },
+          { itemQty: { gt: 0 } },
+        ],
+      },
+      _max: { businessDate: true },
+    });
+    return agg._max.businessDate ?? null;
+  }
+
   async aggregateRevenue(
     organizationId: string,
     from: Date,

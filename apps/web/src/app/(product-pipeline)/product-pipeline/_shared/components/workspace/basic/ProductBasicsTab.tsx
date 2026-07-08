@@ -1,6 +1,14 @@
-import { type ReactNode } from 'react';
-import { cn, formatDateTime } from '@/lib/utils';
+import { useRef, useState, type ReactNode } from 'react';
+import { AlertTriangle, ImagePlus, Loader2, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
+import { cn, formatDateTime, formatKRW, formatPercent } from '@/lib/utils';
 import TagEditor from '../detail/TagEditor';
+import { fileToCompressedDataUrl } from '../../../lib/compress-image';
+import {
+  computeRocketPricing,
+  unitCostFromCostCny,
+  ROCKET_BUNDLE_THRESHOLD,
+} from '../../../lib/rocket-pricing';
 import type { ProductEditState } from '../../../lib/product-workspace-types';
 import type {
   ProductBasics,
@@ -15,6 +23,12 @@ interface ProductBasicsTabProps {
   draft: BasicDraft;
   onDraftChange: (field: keyof BasicDraft, value: string) => void;
   onDraftTagsChange: (tags: string[]) => void;
+  /** 보기 모드에서 KC 인증 이미지를 즉시 저장. 미제공 시 보기 모드 업로드는 draft 만 갱신. */
+  onCommitKcImage?: (value: string) => void;
+  /** KC 인증 이미지 즉시 저장 진행 중 여부. */
+  isKcImageSaving?: boolean;
+  /** 위안화 원가(소싱 후보). 로켓 마진 계산의 단가 원가 자동 환산에 사용. */
+  costCny?: number | null;
   selectedRegistrationThumbnailUrl?: string | null;
   selectedDetailPageGenerationId?: string | null;
   selectedDetailPageSummary?: SelectedDetailPageSummary | null;
@@ -28,6 +42,9 @@ export default function ProductBasicsTab({
   draft,
   onDraftChange,
   onDraftTagsChange,
+  onCommitKcImage,
+  isKcImageSaving = false,
+  costCny,
   selectedRegistrationThumbnailUrl,
   selectedDetailPageGenerationId,
   selectedDetailPageSummary,
@@ -244,6 +261,19 @@ export default function ProductBasicsTab({
               />
             )}
           </InfoRow>
+          <InfoRow label="KC 인증 이미지">
+            <KcImageField
+              value={draft.kcCertificationImageUrl}
+              busy={!isEditing && isKcImageSaving}
+              onChange={(value) => {
+                if (isEditing) {
+                  onDraftChange('kcCertificationImageUrl', value);
+                } else {
+                  onCommitKcImage?.(value);
+                }
+              }}
+            />
+          </InfoRow>
           <InfoRow label="제품 사이즈">
             {isEditing ? (
               <input
@@ -327,6 +357,24 @@ export default function ProductBasicsTab({
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-5">
+        <SectionHeader
+          title="쿠팡 로켓 가격"
+          description="소비자가(판매가) 기준으로 로켓 판매가·공급가·마진율을 계산합니다."
+        />
+        <div className="mt-4">
+          <RocketPricingSection
+            consumerPrice={parseMoney(draft.salePrice)}
+            quantity={draft.rocketBundleQuantity}
+            unitCost={draft.rocketUnitCost}
+            costCny={costCny}
+            isEditing={isEditing}
+            onQuantityChange={(value) => onDraftChange('rocketBundleQuantity', value)}
+            onUnitCostChange={(value) => onDraftChange('rocketUnitCost', value)}
+          />
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-5">
         <SectionHeader title="옵션과 검색 정보" />
         <div className="mt-4 divide-y divide-slate-100 rounded-lg border border-slate-200">
           <InfoRow label="옵션명">
@@ -401,6 +449,7 @@ export interface BasicDraft {
   tags: string[];
   kcCertificationStatus: string;
   kcCertificationNumber: string;
+  kcCertificationImageUrl: string;
   productSize: string;
   colorVariantStatus: string;
   colorVariantNames: string;
@@ -411,15 +460,23 @@ export interface BasicDraft {
   salePrice: string;
   originalPrice: string;
   discountRate: string;
+  rocketBundleQuantity: string;
+  rocketUnitCost: string;
 }
 
 export function basicDraftFrom({
   basicInfo,
   editData,
+  costCny,
 }: {
   basicInfo: ProductBasics | null;
   editData: ProductEditState;
+  costCny?: number | null;
 }): BasicDraft {
+  const storedUnitCost = basicInfo?.rocketUnitCost ?? 0;
+  const autoUnitCost = unitCostFromCostCny(costCny);
+  const unitCost = storedUnitCost > 0 ? storedUnitCost : autoUnitCost;
+  const bundleQuantity = basicInfo?.rocketBundleQuantity ?? 0;
   return {
     name: basicInfo?.name ?? editData.name,
     category: basicInfo?.category ?? editData.category,
@@ -429,6 +486,7 @@ export function basicDraftFrom({
     tags: basicInfo?.tags ?? editData.tags,
     kcCertificationStatus: basicInfo?.kcCertificationStatus ?? '',
     kcCertificationNumber: basicInfo?.kcCertificationNumber ?? '',
+    kcCertificationImageUrl: basicInfo?.kcCertificationImageUrl ?? '',
     productSize: basicInfo?.productSize ?? '',
     colorVariantStatus: basicInfo?.colorVariantStatus ?? '',
     colorVariantNames: basicInfo?.colorVariantNames ?? '',
@@ -439,6 +497,8 @@ export function basicDraftFrom({
     salePrice: moneyInputValue(basicInfo?.salePrice ?? editData.salePrice),
     originalPrice: moneyInputValue(basicInfo?.originalPrice ?? editData.originalPrice),
     discountRate: moneyInputValue(basicInfo?.discountRate ?? editData.discountRate),
+    rocketBundleQuantity: bundleQuantity > 0 ? String(bundleQuantity) : '1',
+    rocketUnitCost: unitCost > 0 ? String(unitCost) : '',
   };
 }
 
@@ -451,6 +511,7 @@ export function productBasicsInputFromDraft(draft: BasicDraft): UpdateProductBas
     ageGroup: draft.ageGroup,
     kcCertificationStatus: draft.kcCertificationStatus,
     kcCertificationNumber: draft.kcCertificationNumber,
+    kcCertificationImageUrl: draft.kcCertificationImageUrl,
     productSize: draft.productSize,
     colorVariantStatus: draft.colorVariantStatus,
     colorVariantNames: draft.colorVariantNames,
@@ -462,6 +523,8 @@ export function productBasicsInputFromDraft(draft: BasicDraft): UpdateProductBas
     salePrice: parseMoney(draft.salePrice),
     originalPrice: parseMoney(draft.originalPrice),
     discountRate: parseMoney(draft.discountRate),
+    rocketBundleQuantity: parseQuantity(draft.rocketBundleQuantity),
+    rocketUnitCost: parseMoney(draft.rocketUnitCost),
   };
 }
 
@@ -489,6 +552,230 @@ function MoneyInput({
       />
       <span className="shrink-0 text-[11px] font-bold text-slate-400">{suffix}</span>
     </label>
+  );
+}
+
+function KcImageField({
+  value,
+  busy = false,
+  onChange,
+}: {
+  value: string;
+  busy?: boolean;
+  onChange: (value: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const hasImage = value.trim().length > 0;
+  const isBusy = isProcessing || busy;
+
+  const handleFile = async (file: File | undefined | null) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('이미지 파일만 등록할 수 있습니다.');
+      return;
+    }
+    setIsProcessing(true);
+    try {
+      onChange(await fileToCompressedDataUrl(file));
+    } catch {
+      toast.error('KC 인증 이미지를 불러오지 못했습니다.');
+    } finally {
+      setIsProcessing(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        aria-label="KC 인증 이미지 업로드"
+        className="hidden"
+        onChange={(event) => handleFile(event.target.files?.[0])}
+      />
+      {hasImage ? (
+        <img
+          src={value}
+          alt="KC 인증 이미지"
+          className="h-24 w-24 shrink-0 rounded-lg border border-slate-200 bg-slate-50 object-contain"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={isBusy}
+          className="flex h-24 w-24 shrink-0 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-300 bg-slate-50 text-slate-400 transition hover:border-emerald-300 hover:text-emerald-500 disabled:cursor-wait"
+        >
+          {isBusy ? <Loader2 size={18} className="animate-spin" /> : <ImagePlus size={18} />}
+          <span className="text-[11px] font-bold">{isBusy ? '처리 중' : '이미지 추가'}</span>
+        </button>
+      )}
+      <div className="flex flex-col gap-1.5">
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={isBusy}
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-700 transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
+        >
+          {isBusy ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />}
+          {hasImage ? '이미지 변경' : '이미지 업로드'}
+        </button>
+        {hasImage && (
+          <button
+            type="button"
+            onClick={() => onChange('')}
+            disabled={isBusy}
+            className="inline-flex items-center gap-1.5 rounded-md border border-rose-200 bg-white px-3 py-1.5 text-xs font-black text-rose-600 transition hover:bg-rose-50 disabled:cursor-wait disabled:opacity-60"
+          >
+            <Trash2 size={13} />
+            삭제
+          </button>
+        )}
+        <p className="text-[11px] font-semibold text-slate-400">JPG·PNG · 자동 압축 저장</p>
+      </div>
+    </div>
+  );
+}
+
+function RocketPricingSection({
+  consumerPrice,
+  quantity,
+  unitCost,
+  costCny,
+  isEditing,
+  onQuantityChange,
+  onUnitCostChange,
+}: {
+  consumerPrice: number;
+  quantity: string;
+  unitCost: string;
+  costCny?: number | null;
+  isEditing: boolean;
+  onQuantityChange: (value: string) => void;
+  onUnitCostChange: (value: string) => void;
+}) {
+  const autoUnitCost = unitCostFromCostCny(costCny);
+  const unitCostValue = parseMoney(unitCost) || autoUnitCost;
+  const pricing = computeRocketPricing({
+    consumerPrice,
+    quantity: parseQuantity(quantity),
+    unitCost: unitCostValue,
+  });
+
+  if (!pricing.hasConsumerPrice) {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-400">
+        판매가를 입력하면 쿠팡 로켓 판매가·공급가·마진율이 계산됩니다.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-2 sm:grid-cols-3">
+        <RocketStat label="소비자가(판매가)" value={`${formatKRW(consumerPrice)}원`} />
+        {isEditing ? (
+          <label className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1">
+            <span className="shrink-0 text-[11px] font-black text-slate-500">묶음 수량</span>
+            <input
+              aria-label="쿠팡 로켓 묶음 수량"
+              inputMode="numeric"
+              value={quantity}
+              placeholder="1"
+              disabled={!pricing.bundled}
+              onChange={(event) => onQuantityChange(event.target.value.replace(/[^\d]/g, ''))}
+              className="h-7 min-w-0 flex-1 bg-transparent text-right text-sm font-bold text-slate-900 outline-none placeholder:text-slate-300 disabled:text-slate-300"
+            />
+            <span className="shrink-0 text-[11px] font-bold text-slate-400">개</span>
+          </label>
+        ) : (
+          <RocketStat
+            label="묶음 수량"
+            value={pricing.bundled ? `${pricing.effectiveQuantity}개` : '단품'}
+          />
+        )}
+        {isEditing ? (
+          <label className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1">
+            <span className="shrink-0 text-[11px] font-black text-slate-500">단가 원가</span>
+            <input
+              aria-label="쿠팡 로켓 단가 원가"
+              inputMode="numeric"
+              value={unitCost}
+              placeholder={autoUnitCost > 0 ? String(autoUnitCost) : '0'}
+              onChange={(event) => onUnitCostChange(event.target.value.replace(/[^\d]/g, ''))}
+              className="h-7 min-w-0 flex-1 bg-transparent text-right text-sm font-bold text-slate-900 outline-none placeholder:text-slate-300"
+            />
+            <span className="shrink-0 text-[11px] font-bold text-slate-400">원</span>
+          </label>
+        ) : (
+          <RocketStat
+            label="단가 원가"
+            value={unitCostValue > 0 ? `${formatKRW(unitCostValue)}원` : '미입력'}
+          />
+        )}
+      </div>
+
+      {!pricing.bundled && (
+        <p className="text-[11px] font-bold text-slate-400">
+          소비자가가 {formatKRW(ROCKET_BUNDLE_THRESHOLD)}원 이상이라 묶음 없이 단품으로 계산합니다.
+        </p>
+      )}
+
+      <div className="grid gap-2 sm:grid-cols-3">
+        <RocketResult label="쿠팡 로켓 판매가" value={`${formatKRW(pricing.rocketSellingPrice)}원`} tone="primary" />
+        <RocketResult label="쿠팡 공급가" value={`${formatKRW(pricing.supplyPrice)}원`} tone="primary" />
+        <RocketResult
+          label="마진율"
+          value={pricing.marginRate === null ? '원가 입력 필요' : formatPercent(pricing.marginRate)}
+          tone={pricing.marginBelowThreshold ? 'danger' : 'default'}
+        />
+      </div>
+
+      {pricing.marginBelowThreshold && (
+        <div className="flex items-center gap-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-black text-rose-600">
+          <AlertTriangle size={14} className="shrink-0" />
+          마진율 50% 이하 — 로켓 등록 전 단가/수량을 재확인하세요.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RocketStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+      <span className="shrink-0 text-[11px] font-black text-slate-500">{label}</span>
+      <span className="ml-auto text-sm font-bold text-slate-900">{value}</span>
+    </div>
+  );
+}
+
+function RocketResult({
+  label,
+  value,
+  tone = 'default',
+}: {
+  label: string;
+  value: string;
+  tone?: 'default' | 'primary' | 'danger';
+}) {
+  return (
+    <div
+      className={cn(
+        'rounded-lg border px-3 py-2',
+        tone === 'primary' && 'border-emerald-100 bg-emerald-50/50',
+        tone === 'danger' && 'border-rose-200 bg-rose-50',
+        tone === 'default' && 'border-slate-200 bg-white',
+      )}
+    >
+      <p className="text-[11px] font-black text-slate-500">{label}</p>
+      <p className={cn('mt-0.5 text-base font-black', tone === 'danger' ? 'text-rose-600' : 'text-slate-900')}>
+        {value}
+      </p>
+    </div>
   );
 }
 
@@ -632,6 +919,11 @@ function moneyInputValue(value: number | null | undefined): string {
 function parseMoney(value: string): number {
   const parsed = Number.parseInt(value.replace(/[^\d]/g, ''), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function parseQuantity(value: string): number {
+  const parsed = Number.parseInt(value.replace(/[^\d]/g, ''), 10);
+  return Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
 }
 
 function moneyDisplayValue(value: string): string {

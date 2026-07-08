@@ -9,6 +9,8 @@ export interface StoredOrderCollectionFile extends OrderCollectionConversionResu
   collectedRows?: number;
   mallKey?: string;
   mallName?: string;
+  /** 이번 수집에 포함된 서로 다른 주문번호 (있을 때). "당일" 집계에서 재수집한 같은 주문을 중복 카운트하지 않도록 유니크 기준으로 사용. */
+  orderNumbers?: string[];
   /** 셀피아 전송 완료 시각 (전송 대기 집계 + 최근 활동 피드용). */
   sentAt?: number;
 }
@@ -35,6 +37,13 @@ export async function saveGeneratedOrderFile(file: StoredOrderCollectionFile): P
     .sort((a, b) => b.convertedAt - a.convertedAt)
     .slice(MAX_FILES);
   await Promise.all(staleFiles.map((item) => deleteFile(db, item.id)));
+  db.close();
+}
+
+export async function deleteGeneratedOrderFile(id: string): Promise<void> {
+  if (!canUseIndexedDb()) return;
+  const db = await openDb();
+  await deleteFile(db, id);
   db.close();
 }
 

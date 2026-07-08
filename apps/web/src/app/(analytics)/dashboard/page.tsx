@@ -236,7 +236,9 @@ export default function Dashboard() {
   const adSource = effectivePeriod?.adSource ?? adBaseline.effectivePeriod?.adSource ?? 'orders';
   const revenueSourceLabel =
     revenueSource === 'wing' ? 'Wing 매출 기준'
-    : revenueSource === 'mixed' ? '주문 + Wing'
+    : revenueSource === 'rocket' ? '로켓 발주 기준'
+    : revenueSource === 'wing_rocket' ? 'Wing + 로켓'
+    : revenueSource === 'mixed' ? '혼합 기준'
     : revenueSource === 'orders' ? '주문 기준'
     : '데이터 대기';
   const adSourceLabel =
@@ -283,12 +285,12 @@ export default function Dashboard() {
                   최신 데이터 기준 · {latestDataDate}
                 </span>
               )}
-              {!periodShifted && revenueSource === 'wing' && (
+              {!periodShifted && (revenueSource === 'wing' || revenueSource === 'rocket' || revenueSource === 'wing_rocket') && (
                 <span
                   className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200"
-                  title="이번 달 주문 데이터가 없어 Wing 매출분석을 기준으로 표시 중"
+                  title="이번 달 주문 데이터가 없어 연동 매출 데이터를 기준으로 표시 중"
                 >
-                  Wing 기준
+                  {revenueSourceLabel}
                 </span>
               )}
             </div>
@@ -423,7 +425,7 @@ export default function Dashboard() {
             )}
             {salesBaseline.lastSyncAt && (
               <div className="text-[11px] text-slate-400 mt-1">
-                Wing 마지막 동기화 · {formatDateTime(salesBaseline.lastSyncAt)}
+                마지막 업데이트 · {formatDateTime(salesBaseline.lastSyncAt)}
                 {(Date.now() - new Date(salesBaseline.lastSyncAt).getTime()) > 86400000 && (
                   <span className="text-amber-500 ml-1">⚠ 24시간 이상 미동기화</span>
                 )}
