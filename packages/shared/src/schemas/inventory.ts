@@ -198,12 +198,16 @@ export const UpdateInventoryMetadataInputSchema = z.object({
 export type UpdateInventoryMetadataInput = z.infer<typeof UpdateInventoryMetadataInputSchema>;
 
 // ===== Sellpia inventory import / review =====
+export const SELLPIA_WORKBOOK_FILE_EXTENSIONS = ['.xls', '.xlsx', '.csv'] as const;
+export type SellpiaWorkbookFileExtension = typeof SELLPIA_WORKBOOK_FILE_EXTENSIONS[number];
+export const SELLPIA_WORKBOOK_ACCEPT = SELLPIA_WORKBOOK_FILE_EXTENSIONS.join(',');
+export const SELLPIA_WORKBOOK_FORMAT_LABEL = 'XLS/XLSX/CSV';
+
 export const SellpiaSnapshotStatusSchema = z.enum(['previewed', 'applied', 'failed']);
 export type SellpiaSnapshotStatus = z.infer<typeof SellpiaSnapshotStatusSchema>;
 
 export const SellpiaSnapshotItemStatusSchema = z.enum([
   'matched',
-  'recommended',
   'needs_review',
   'approved_adjusted',
   'manual_adjusted',
@@ -225,7 +229,7 @@ export const SellpiaBlockingReasonSchema = z.enum([
 ]);
 export type SellpiaBlockingReason = z.infer<typeof SellpiaBlockingReasonSchema>;
 
-export const SellpiaWarningReasonSchema = z.enum(['large_difference']);
+export const SellpiaWarningReasonSchema = z.enum(['large_difference', 'missing_product_name']);
 export type SellpiaWarningReason = z.infer<typeof SellpiaWarningReasonSchema>;
 
 export const SellpiaStockSnapshotSchema = z.object({
@@ -288,7 +292,6 @@ export const SellpiaSnapshotImportResponseSchema = z.object({
   snapshot: SellpiaStockSnapshotSchema,
   summary: z.object({
     matchedCount: z.number().int().nonnegative(),
-    recommendedCount: z.number().int().nonnegative(),
     reviewCount: z.number().int().nonnegative(),
     rejectedCount: z.number().int().nonnegative(),
     newProductCandidateCount: z.number().int().nonnegative(),

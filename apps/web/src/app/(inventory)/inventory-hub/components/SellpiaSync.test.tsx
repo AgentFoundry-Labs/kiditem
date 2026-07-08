@@ -17,8 +17,7 @@ const importSellpiaInventoryFile = vi.hoisted(() => vi.fn(async () => ({
   },
   summary: {
     matchedCount: 1,
-    recommendedCount: 1,
-    reviewCount: 0,
+    reviewCount: 1,
     rejectedCount: 0,
     newProductCandidateCount: 0,
   },
@@ -65,7 +64,6 @@ function buildImportResponse(patch: Partial<SellpiaSnapshotImportResponse>): Sel
     },
     summary: {
       matchedCount: 0,
-      recommendedCount: 0,
       reviewCount: 0,
       rejectedCount: 0,
       newProductCandidateCount: 0,
@@ -114,11 +112,18 @@ function buildManySnapshotItems(count: number): SellpiaStockSnapshotItem[] {
 }
 
 async function uploadSellpiaFixture(): Promise<void> {
-  await userEvent.upload(screen.getByLabelText('Sellpia XLSX'), new File(['xlsx'], 'exported-list.xlsx'));
+  await userEvent.upload(screen.getByLabelText('Sellpia XLS/XLSX/CSV'), new File(['xlsx'], 'exported-list.xlsx'));
   await userEvent.click(screen.getByRole('button', { name: '미리보기' }));
 }
 
 describe('SellpiaSync', () => {
+  it('uses the shared Sellpia workbook file support label and accept list', () => {
+    render(<SellpiaSync />);
+
+    const input = screen.getByLabelText('Sellpia XLS/XLSX/CSV');
+    expect(input).toHaveAttribute('accept', '.xls,.xlsx,.csv');
+  });
+
   it('shows row-scoped import summary after upload', async () => {
     render(<SellpiaSync />);
     await uploadSellpiaFixture();
@@ -133,25 +138,21 @@ describe('SellpiaSync', () => {
     importSellpiaInventoryFile.mockReturnValueOnce(new Promise(() => undefined));
     render(<SellpiaSync />);
 
-    await user.upload(screen.getByLabelText('Sellpia XLSX'), new File(['xlsx'], 'exported-list.xlsx'));
+    await user.upload(screen.getByLabelText('Sellpia XLS/XLSX/CSV'), new File(['xlsx'], 'exported-list.xlsx'));
     await user.click(screen.getByRole('button', { name: '미리보기' }));
 
     expect(screen.getByRole('button', { name: '미리보기' })).toBeDisabled();
   });
 
-  it('includes legacy recommended Sellpia rows in the review filter and shows warning badges', async () => {
+  it('includes needs-review Sellpia rows in the review filter and shows warning badges', async () => {
     importSellpiaInventoryFile.mockResolvedValueOnce(buildImportResponse({
       items: [
         buildSnapshotItem({
-          id: '00000000-0000-4000-8000-000000000101',
-          sellpiaProductCode: 'SP-REC',
-          status: 'recommended',
-        }),
-        buildSnapshotItem({
           id: '00000000-0000-4000-8000-000000000102',
           sellpiaProductCode: 'SP-WARN',
+          sellpiaProductName: null,
           status: 'needs_review',
-          warningReasons: ['large_difference'],
+          warningReasons: ['large_difference', 'missing_product_name'],
           blockingReasons: ['recent_kiditem_event'],
         }),
       ],
@@ -160,15 +161,14 @@ describe('SellpiaSync', () => {
     render(<SellpiaSync />);
     await uploadSellpiaFixture();
 
-    expect(await screen.findByText('SP-REC')).toBeInTheDocument();
-    expect(screen.getByText('SP-WARN')).toBeInTheDocument();
+    expect(await screen.findByText('SP-WARN')).toBeInTheDocument();
+    expect(screen.getByText('상품명 없음')).toBeInTheDocument();
     expect(screen.getByText('큰 차이')).toBeInTheDocument();
     expect(screen.getByText('최근 KidItem 변동')).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: /검토/ }));
 
     expect(screen.queryByRole('button', { name: /추천/ })).not.toBeInTheDocument();
-    expect(screen.getByText('SP-REC')).toBeInTheDocument();
     expect(screen.getByText('SP-WARN')).toBeInTheDocument();
   });
 
@@ -449,7 +449,7 @@ describe('SellpiaSync', () => {
         buildSnapshotItem({
           id: '00000000-0000-4000-8000-000000000103',
           sellpiaProductCode: 'SP-LARGE',
-          status: 'recommended',
+          status: 'needs_review',
           warningReasons: ['large_difference'],
         }),
       ],

@@ -16,6 +16,7 @@ const appliedStatuses = new Set<SellpiaStockSnapshotItem['status']>([
 
 const warningLabels: Record<SellpiaWarningReason, SellpiaRowBadge> = {
   large_difference: { tone: 'warning', label: '큰 차이' },
+  missing_product_name: { tone: 'warning', label: '상품명 없음' },
 };
 
 const blockingLabels: Record<SellpiaBlockingReason, SellpiaRowBadge> = {
@@ -44,7 +45,6 @@ export function filterSellpiaRows(
   if (filter === 'all') return rows.filter((row) => row.status !== 'matched');
   if (filter === 'review') {
     return rows.filter((row) =>
-      row.status === 'recommended' ||
       row.status === 'needs_review' ||
       row.status === 'missing_inventory',
     );
@@ -79,7 +79,7 @@ export function getSellpiaBulkApprovalBlockReason(
   reason: string,
 ): string | null {
   if (!row.inventoryId) return '재고 row 없음';
-  if (row.status !== 'recommended' && row.status !== 'needs_review') return '승인 대상 아님';
+  if (row.status !== 'needs_review') return '승인 대상 아님';
   const hardBlock = row.blockingReasons.find((blockingReason) => hardBlockingReasons.has(blockingReason));
   if (hardBlock) return blockingLabels[hardBlock].label;
   if (requiresSellpiaRowReason(row, operatorTargetStock) && !reason.trim()) return '사유 필요';

@@ -7,8 +7,15 @@ import {
   SellpiaSnapshotImportResponseSchema,
   SellpiaStockSnapshotItemSchema,
 } from './inventory';
+import * as InventoryContracts from './inventory';
 
 describe('Sellpia and Rocket inventory contracts', () => {
+  it('publishes the single Sellpia workbook file support interface', () => {
+    expect(InventoryContracts.SELLPIA_WORKBOOK_FORMAT_LABEL).toBe('XLS/XLSX/CSV');
+    expect(InventoryContracts.SELLPIA_WORKBOOK_FILE_EXTENSIONS).toEqual(['.xls', '.xlsx', '.csv']);
+    expect(InventoryContracts.SELLPIA_WORKBOOK_ACCEPT).toBe('.xls,.xlsx,.csv');
+  });
+
   it('accepts row-scoped Sellpia snapshot responses with candidate rows', () => {
     const parsed = SellpiaSnapshotImportResponseSchema.parse({
       snapshot: {
@@ -20,7 +27,6 @@ describe('Sellpia and Rocket inventory contracts', () => {
       },
       summary: {
         matchedCount: 0,
-        recommendedCount: 0,
         reviewCount: 1,
         rejectedCount: 0,
         newProductCandidateCount: 1,
@@ -91,6 +97,58 @@ describe('Sellpia and Rocket inventory contracts', () => {
     });
 
     expect(parsed.status).toBe('matched');
+  });
+
+  it('accepts missing Sellpia product names as row warning metadata', () => {
+    const parsed = SellpiaStockSnapshotItemSchema.parse({
+      id: '00000000-0000-4000-8000-000000000001',
+      rowNumber: 2,
+      sellpiaProductCode: 'SP-NAMELESS',
+      sellpiaProductName: null,
+      sellpiaStock: 10,
+      safetyStock: 0,
+      barcode: null,
+      productOptionId: '00000000-0000-4000-8000-000000000002',
+      inventoryId: '00000000-0000-4000-8000-000000000003',
+      rocketLedgerNet: 0,
+      targetCurrentStock: 12,
+      kiditemStockBefore: 10,
+      diff: 2,
+      diffRate: 0.2,
+      status: 'needs_review',
+      blockingReasons: [],
+      warningReasons: ['missing_product_name'],
+      operatorTargetStock: null,
+      reviewNote: null,
+    });
+
+    expect(parsed.warningReasons).toEqual(['missing_product_name']);
+  });
+
+  it('rejects legacy recommended Sellpia row status', () => {
+    expect(() =>
+      SellpiaStockSnapshotItemSchema.parse({
+        id: '00000000-0000-4000-8000-000000000001',
+        rowNumber: 2,
+        sellpiaProductCode: 'SP-LEGACY',
+        sellpiaProductName: '레거시 추천 상태',
+        sellpiaStock: 10,
+        safetyStock: 0,
+        barcode: null,
+        productOptionId: '00000000-0000-4000-8000-000000000002',
+        inventoryId: '00000000-0000-4000-8000-000000000003',
+        rocketLedgerNet: 0,
+        targetCurrentStock: 10,
+        kiditemStockBefore: 8,
+        diff: 2,
+        diffRate: 0.2,
+        status: 'recommended',
+        blockingReasons: [],
+        warningReasons: [],
+        operatorTargetStock: null,
+        reviewNote: null,
+      }),
+    ).toThrow();
   });
 
   it('requires a reason for Rocket issue over the open reservation', () => {

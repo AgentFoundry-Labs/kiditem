@@ -10,7 +10,10 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { createHash } from 'node:crypto';
-import { SellpiaCandidateResolutionInputSchema } from '@kiditem/shared/inventory';
+import {
+  SELLPIA_WORKBOOK_FORMAT_LABEL,
+  SellpiaCandidateResolutionInputSchema,
+} from '@kiditem/shared/inventory';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
@@ -48,7 +51,9 @@ export class SellpiaSyncController {
     @UploadedFile() file: UploadedWorkbookFile | undefined,
     @Body() dto: ImportSellpiaWorkbookDto,
   ) {
-    if (!file?.buffer) throw new BadRequestException('Sellpia XLSX file is required');
+    if (!file?.buffer) {
+      throw new BadRequestException(`Sellpia ${SELLPIA_WORKBOOK_FORMAT_LABEL} file is required`);
+    }
     const parsed = parseSellpiaWorkbook(file.buffer);
     const fileHash = createHash('sha256').update(file.buffer).digest('hex');
 
