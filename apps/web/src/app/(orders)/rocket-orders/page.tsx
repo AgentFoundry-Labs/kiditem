@@ -1,6 +1,7 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useQuery } from '@tanstack/react-query';
 import {
   ChevronDown,
@@ -12,13 +13,22 @@ import {
   Truck,
 } from 'lucide-react';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
+import { queryKeys } from '@/lib/query-keys';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { RocketConfirmPanel } from './components/RocketConfirmPanel';
 import { RocketConfirmFileList } from './components/RocketConfirmFileList';
 import { RocketWeekCalendar, type RocketCalDay } from './components/RocketWeekCalendar';
 import { RocketMonthCalendar, type MonthDayData } from './components/RocketMonthCalendar';
-import { RocketOrdersChart, type RocketChartPoint } from './components/RocketOrdersChart';
 import { listRocketPosFromExtension, type RocketPoSummary } from './lib/rocket-confirm-api';
+import type { RocketChartPoint } from './components/RocketOrdersChart';
+
+const RocketOrdersChart = dynamic(
+  () => import('./components/RocketOrdersChart').then((mod) => mod.RocketOrdersChart),
+  {
+    ssr: false,
+    loading: () => <PageSkeleton variant="cards" />,
+  },
+);
 
 const STATUS_OPTIONS = [
   { value: '거래처확인요청', label: '신규 주문 (거래확인서요청)' },
@@ -27,6 +37,7 @@ const STATUS_OPTIONS = [
 ];
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+const EMPTY_ROCKET_POS: RocketPoSummary[] = [];
 
 // 워크플로 단계 (로켓 물류 발주)
 const STAGES = [
@@ -86,7 +97,7 @@ export default function RocketOrdersPage() {
   const [fileRefreshKey, setFileRefreshKey] = useState(0);
 
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
-    queryKey: ['rocket-po-list', from, to, status],
+    queryKey: queryKeys.orders.rocketPoList({ from, to, status }),
     queryFn: () => listRocketPosFromExtension(from, to, status),
     meta: { suppressGlobalErrorToast: true },
     staleTime: 0,
@@ -94,17 +105,20 @@ export default function RocketOrdersPage() {
     refetchOnWindowFocus: false,
   });
 
-  const orders = data ?? [];
+  const orders = data ?? EMPTY_ROCKET_POS;
 
   // 입고예정일별 그룹
-  const byDate = new Map<string, RocketPoSummary[]>();
-  for (const o of orders) {
-    const key = o.eta || '미정';
-    const arr = byDate.get(key);
-    if (arr) arr.push(o);
-    else byDate.set(key, [o]);
-  }
-  const calDays: RocketCalDay[] = datesInRange(from, to).map((date) => {
+  const byDate = useMemo(() => {
+    const next = new Map<string, RocketPoSummary[]>();
+    for (const order of orders) {
+      const key = order.eta || '미정';
+      const arr = next.get(key);
+      if (arr) arr.push(order);
+      else next.set(key, [order]);
+    }
+    return next;
+  }, [orders]);
+  const calDays: RocketCalDay[] = useMemo(() => datesInRange(from, to).map((date) => {
     const pos = byDate.get(date) ?? [];
     const dow = dowOf(date);
     return {
@@ -115,30 +129,41 @@ export default function RocketOrdersPage() {
       qty: pos.reduce((s, o) => s + o.orderQty, 0),
       amount: pos.reduce((s, o) => s + o.orderAmount, 0),
     };
-  });
-  const datesWithOrders = [...byDate.keys()].sort();
-  const visibleDates = selectedDay ? [selectedDay] : datesWithOrders;
+  }), [byDate, from, to]);
+  const datesWithOrders = useMemo(() => [...byDate.keys()].sort(), [byDate]);
+  const visibleDates = useMemo(
+    () => (selectedDay ? [selectedDay] : datesWithOrders),
+    [datesWithOrders, selectedDay],
+  );
 
-  const scoped = selectedDay ? byDate.get(selectedDay) ?? [] : orders;
-  const totalAmount = scoped.reduce((s, o) => s + o.orderAmount, 0);
-  const totalQty = scoped.reduce((s, o) => s + o.orderQty, 0);
+  const scoped = useMemo(
+    () => (selectedDay ? byDate.get(selectedDay) ?? [] : orders),
+    [byDate, orders, selectedDay],
+  );
+  const { totalAmount, totalQty } = useMemo(() => ({
+    totalAmount: scoped.reduce((s, o) => s + o.orderAmount, 0),
+    totalQty: scoped.reduce((s, o) => s + o.orderQty, 0),
+  }), [scoped]);
 
   // 달력/차트용 일자 데이터
-  const dayDataRecord: Record<string, MonthDayData> = {};
-  for (const [date, pos] of byDate) {
-    dayDataRecord[date] = {
-      count: pos.length,
-      qty: pos.reduce((s, o) => s + o.orderQty, 0),
-      amount: pos.reduce((s, o) => s + o.orderAmount, 0),
-    };
-  }
-  const chartData: RocketChartPoint[] = calDays.map((d) => ({
+  const dayDataRecord: Record<string, MonthDayData> = useMemo(() => {
+    const record: Record<string, MonthDayData> = {};
+    for (const [date, pos] of byDate) {
+      record[date] = {
+        count: pos.length,
+        qty: pos.reduce((s, o) => s + o.orderQty, 0),
+        amount: pos.reduce((s, o) => s + o.orderAmount, 0),
+      };
+    }
+    return record;
+  }, [byDate]);
+  const chartData: RocketChartPoint[] = useMemo(() => calDays.map((d) => ({
     date: d.date,
     label: d.date.slice(5).replace('-', '/'),
     count: d.count,
     qty: d.qty,
     amount: d.amount,
-  }));
+  })), [calDays]);
 
   function gotoWeek() {
     setView('week');

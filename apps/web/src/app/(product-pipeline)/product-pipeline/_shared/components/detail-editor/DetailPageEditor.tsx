@@ -56,11 +56,11 @@ import './grapesjs-editor.css';
 import { buildSizeGuideFrameHtml } from '../../lib/size-guide-frame';
 import TemplateSelectionModal from '../detail-page/TemplateSelectionModal';
 import { useGenerateDetailPage, type GenerateMode } from '../../hooks/useGenerateDetailPage';
-import { AITextEditPanel } from './AITextEditPanel';
 import {
   DownloadOptionsModal,
   type DetailPageDownloadOptions,
 } from '../detail-page/DownloadOptionsModal';
+import { AITextEditPanel } from './AITextEditPanel';
 import EditorDetailMinimap from './EditorDetailMinimap';
 import EditorPagePanel from './EditorPagePanel';
 import EditorToolRail, { type EditorToolId } from './EditorToolRail';
@@ -3945,6 +3945,7 @@ export default function DetailPageEditor({
   const [showImagePicker, setShowImagePicker] = useState(false);
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);
   const [editorRef, setEditorRef] = useState<Editor | null>(null);
+  const editorCleanupRef = useRef<(() => void) | null>(null);
   const [showLeftPanel, setShowLeftPanel] = useState(true);
   const [showRightPanel, setShowRightPanel] = useState(true);
   const [activeLeftTool, setActiveLeftTool] = useState<EditorToolId>('pages');
@@ -3966,11 +3967,19 @@ export default function DetailPageEditor({
     };
   }, []);
 
+  useEffect(() => () => {
+    editorCleanupRef.current?.();
+    editorCleanupRef.current = null;
+  }, []);
+
   const handleEditorInit = useCallback(
     (editor: Editor) => {
+      editorCleanupRef.current?.();
+      editorCleanupRef.current = null;
       setEditorRef(editor);
       editor.setDevice(parsed.viewportWidth <= 720 ? 'detail-640' : 'detail-720');
       let frameHeightSyncTimer: number | null = null;
+      const frameListenerCleanups: Array<() => void> = [];
       const scheduleFrameHeightSync = () => {
         if (frameHeightSyncTimer !== null) window.clearTimeout(frameHeightSyncTimer);
         frameHeightSyncTimer = window.setTimeout(() => {
@@ -3979,15 +3988,16 @@ export default function DetailPageEditor({
         }, 80);
       };
 
-      editor.on('canvas:frame:load:body', ({ window: iframeWindow }: { window: Window }) => {
+      const handleFrameLoadResources = ({ window: iframeWindow }: { window: Window }) => {
         injectHeadResources(iframeWindow, parsed);
         iframeWindow.document.querySelectorAll('img').forEach((image) => {
           image.addEventListener('load', scheduleFrameHeightSync, { once: true });
+          frameListenerCleanups.push(() => image.removeEventListener('load', scheduleFrameHeightSync));
         });
         scheduleFrameHeightSync();
-      });
+      };
 
-      editor.on('component:selected', (component: any) => {
+      const handleComponentSelected = (component: any) => {
         const imageComponent = getEditableImageComponent(component);
         const type = (component.get('type') as string) ?? '';
         const tagName = ((component.get('tagName') as string) ?? '').toLowerCase();
@@ -4023,13 +4033,13 @@ export default function DetailPageEditor({
           lastSelectedImageComponentRef.current = null;
           setSelectedTextComponent(null);
         }
-      });
-      editor.on('component:deselected', () => {
+      };
+      const handleComponentDeselected = () => {
         setSelectedTextComponent(null);
-      });
+      };
 
-      editor.on('canvas:frame:load:body', ({ window: iframeWin }: { window: Window }) => {
-        iframeWin.document.addEventListener('keydown', (e: KeyboardEvent) => {
+      const handleFrameLoadDeleteShortcut = ({ window: iframeWin }: { window: Window }) => {
+        const handleFrameKeyDown = (e: KeyboardEvent) => {
           if (e.key !== 'Delete' && e.key !== 'Backspace') return;
           const sel = editor.getSelected();
           if (!sel) return;
@@ -4040,10 +4050,14 @@ export default function DetailPageEditor({
             e.stopPropagation();
             removeImageComponent(editor, sel);
           }
-        }, { capture: true });
-      });
+        };
+        iframeWin.document.addEventListener('keydown', handleFrameKeyDown, { capture: true });
+        frameListenerCleanups.push(() => {
+          iframeWin.document.removeEventListener('keydown', handleFrameKeyDown, true);
+        });
+      };
 
-      editor.on('component:add', (component: any) => {
+      const handleImageComponentAdd = (component: any) => {
         if (component.get('type') !== 'image') return;
         makeImageComponentInteractive(component);
         const src = component.getAttributes()?.src;
@@ -4064,7 +4078,7 @@ export default function DetailPageEditor({
             return;
           }
         }
-      });
+      };
       const handleComponentRemove = (component: any) => {
         scheduleFrameHeightSync();
         if (isImageComponent(component) || !isAttachedComponent(lastSelectedImageComponentRef.current)) {
@@ -4074,9 +4088,29 @@ export default function DetailPageEditor({
         }
       };
 
+      editor.on('canvas:frame:load:body', handleFrameLoadResources);
+      editor.on('component:selected', handleComponentSelected);
+      editor.on('component:deselected', handleComponentDeselected);
+      editor.on('canvas:frame:load:body', handleFrameLoadDeleteShortcut);
+      editor.on('component:add', handleImageComponentAdd);
       editor.on('component:update', scheduleFrameHeightSync);
       editor.on('component:remove', handleComponentRemove);
       editor.on('component:add', scheduleFrameHeightSync);
+      editorCleanupRef.current = () => {
+        if (frameHeightSyncTimer !== null) {
+          window.clearTimeout(frameHeightSyncTimer);
+          frameHeightSyncTimer = null;
+        }
+        editor.off('canvas:frame:load:body', handleFrameLoadResources);
+        editor.off('component:selected', handleComponentSelected);
+        editor.off('component:deselected', handleComponentDeselected);
+        editor.off('canvas:frame:load:body', handleFrameLoadDeleteShortcut);
+        editor.off('component:add', handleImageComponentAdd);
+        editor.off('component:update', scheduleFrameHeightSync);
+        editor.off('component:remove', handleComponentRemove);
+        editor.off('component:add', scheduleFrameHeightSync);
+        frameListenerCleanups.splice(0).forEach((cleanup) => cleanup());
+      };
 
       rawImages.forEach((url, i) => {
         editor.Blocks.add(`raw-image-${i}`, {

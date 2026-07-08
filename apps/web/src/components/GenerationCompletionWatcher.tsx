@@ -4,7 +4,6 @@ import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import type { PanelAlertItem } from '@kiditem/shared/panel';
 import {
   useBoldVerticalGenerationList,
   useKidsPlayfulGenerationList,
@@ -16,6 +15,8 @@ import {
   registeredProductDetailHref,
 } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/product-pipeline-routes';
 import { usePanelStore } from '@/components/panel/lib/panel-store';
+import { queryKeys } from '@/lib/query-keys';
+import type { PanelAlertItem } from '@kiditem/shared/panel';
 
 const IN_PROGRESS_STATUSES = new Set(['pending', 'processing']);
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
@@ -58,9 +59,15 @@ export default function GenerationCompletionWatcher() {
       ) {
         const generationId = generationIdFromDetailPageAlert(alert);
         if (generationId) {
-          void queryClient.invalidateQueries({ queryKey: ['kp-generations'] });
-          void queryClient.invalidateQueries({ queryKey: ['bold-generations'] });
-          void queryClient.invalidateQueries({ queryKey: ['kp-generations', 'one', generationId] });
+          void queryClient.invalidateQueries({
+            queryKey: queryKeys.productContent.detailGenerationsAll('kids-playful'),
+          });
+          void queryClient.invalidateQueries({
+            queryKey: queryKeys.productContent.detailGenerationsAll('bold-vertical'),
+          });
+          void queryClient.invalidateQueries({
+            queryKey: queryKeys.productContent.detailGeneration(generationId),
+          });
         }
         if (generationId && notifiedGenerationIdsRef.current.has(generationId)) continue;
         if (generationId) notifiedGenerationIdsRef.current.add(generationId);

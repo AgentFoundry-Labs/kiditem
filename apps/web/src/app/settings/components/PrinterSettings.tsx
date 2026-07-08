@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Printer, Save } from 'lucide-react';
 import { toast } from 'sonner';
+import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 
 interface PrinterConfig {
   labelPrinterType: string;
@@ -38,16 +39,18 @@ export default function PrinterSettings() {
 
   useEffect(() => {
     try {
-      const stored = localStorage.getItem('printerSettings');
+      const stored = safeStorageGet('local', 'printerSettings');
       if (stored) setSettings(JSON.parse(stored) as PrinterConfig);
     } catch {
-      // localStorage 읽기 실패 시 기본값 사용
+      // 저장된 설정 파싱 실패 시 기본값 사용
     }
   }, []);
 
   const handleSave = () => {
     try {
-      localStorage.setItem('printerSettings', JSON.stringify(settings));
+      if (!safeStorageSet('local', 'printerSettings', JSON.stringify(settings))) {
+        throw new Error('storage unavailable');
+      }
       setSaved(true);
       toast.success('프린터 설정이 저장되었습니다.');
       setTimeout(() => setSaved(false), 2000);

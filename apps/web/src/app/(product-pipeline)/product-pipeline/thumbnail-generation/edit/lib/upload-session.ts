@@ -1,3 +1,10 @@
+import {
+  safeStorageGet,
+  safeStorageKey,
+  safeStorageLength,
+  safeStorageSet,
+} from '@/lib/browser-storage';
+
 const UPLOAD_KEY_PREFIX = 'thumbnail-editor-upload:';
 const UPLOAD_RESULT_PREFIX = 'thumbnail-editor-upload-result:';
 const RECENT_UPLOADS_KEY = 'thumbnail-editor-recent-uploads';
@@ -28,13 +35,13 @@ export function writeThumbnailEditorUpload(
       ? crypto.randomUUID()
       : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
-  sessionStorage.setItem(`${UPLOAD_KEY_PREFIX}${key}`, imageUrl);
+  safeStorageSet('session', `${UPLOAD_KEY_PREFIX}${key}`, imageUrl);
   rememberThumbnailEditorUpload(key, meta);
   return key;
 }
 
 export function readThumbnailEditorUpload(key: string): string | null {
-  return sessionStorage.getItem(`${UPLOAD_KEY_PREFIX}${key}`);
+  return safeStorageGet('session', `${UPLOAD_KEY_PREFIX}${key}`);
 }
 
 export function writeThumbnailEditorUploadResult(
@@ -49,12 +56,12 @@ export function writeThumbnailEditorUploadResult(
     mode: meta?.mode ?? 'edit',
     createdAt: new Date().toISOString(),
   };
-  sessionStorage.setItem(`${UPLOAD_RESULT_PREFIX}${uploadKey}`, JSON.stringify(payload));
+  safeStorageSet('session', `${UPLOAD_RESULT_PREFIX}${uploadKey}`, JSON.stringify(payload));
   rememberThumbnailEditorUpload(uploadKey, meta);
 }
 
 export function readThumbnailEditorUploadResult(uploadKey: string): ThumbnailEditorUploadResult | null {
-  const raw = sessionStorage.getItem(`${UPLOAD_RESULT_PREFIX}${uploadKey}`);
+  const raw = safeStorageGet('session', `${UPLOAD_RESULT_PREFIX}${uploadKey}`);
   if (!raw) return null;
   try {
     const value = JSON.parse(raw);
@@ -81,16 +88,17 @@ export function rememberThumbnailEditorUpload(
     nextItem,
     ...existing.filter((item) => item.uploadKey !== uploadKey),
   ].slice(0, 12);
-  sessionStorage.setItem(RECENT_UPLOADS_KEY, JSON.stringify(next));
+  safeStorageSet('session', RECENT_UPLOADS_KEY, JSON.stringify(next));
 }
 
 export function listRecentThumbnailEditorUploads(): ThumbnailEditorRecentUpload[] {
-  const raw = sessionStorage.getItem(RECENT_UPLOADS_KEY);
+  const raw = safeStorageGet('session', RECENT_UPLOADS_KEY);
   const parsed = parseRecentUploads(raw);
   const byKey = new Map(parsed.map((item) => [item.uploadKey, item]));
 
-  for (let i = 0; i < sessionStorage.length; i += 1) {
-    const key = sessionStorage.key(i);
+  const storageLength = safeStorageLength('session');
+  for (let i = 0; i < storageLength; i += 1) {
+    const key = safeStorageKey('session', i);
     if (!key?.startsWith(UPLOAD_KEY_PREFIX)) continue;
     const uploadKey = key.slice(UPLOAD_KEY_PREFIX.length);
     if (byKey.has(uploadKey)) continue;

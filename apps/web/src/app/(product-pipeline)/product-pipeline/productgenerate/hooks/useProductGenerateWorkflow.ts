@@ -102,8 +102,12 @@ export function useProductGenerateWorkflow() {
 
     if (isCompleted) {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['kp-generations'] }),
-        queryClient.invalidateQueries({ queryKey: ['bold-generations'] }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.productContent.detailGenerationsAll('kids-playful'),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.productContent.detailGenerationsAll('bold-vertical'),
+        }),
         queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all }),
       ]);
     }
@@ -125,8 +129,12 @@ export function useProductGenerateWorkflow() {
       form.markGenerationDialogCancelled();
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all }),
-        queryClient.invalidateQueries({ queryKey: ['kp-generations'] }),
-        queryClient.invalidateQueries({ queryKey: ['bold-generations'] }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.productContent.detailGenerationsAll('kids-playful'),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.productContent.detailGenerationsAll('bold-vertical'),
+        }),
         queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.all }),
       ]);
     } catch (err) {

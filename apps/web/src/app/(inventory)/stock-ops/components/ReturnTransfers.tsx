@@ -85,7 +85,7 @@ export default function ReturnTransfers() {
   const createMutation = useMutation({
     mutationFn: (body: typeof form) => apiClient.post('/api/return-transfers', body),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['return-transfers'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.returnTransfers.all });
       setShowModal(false);
       setForm({ orderId: '', productName: '', quantity: 1, note: '' });
     },
@@ -95,19 +95,19 @@ export default function ReturnTransfers() {
     mutationFn: ({ id, condition }: { id: string; condition: string }) =>
       apiClient.patch(`/api/return-transfers/${id}`, { status: 'inspecting', condition }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['return-transfers'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.returnTransfers.all });
       setSelected(null);
     },
   });
 
   const restockMutation = useMutation({
     mutationFn: (id: string) => apiClient.patch(`/api/return-transfers/${id}`, { status: 'restocked' }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['return-transfers'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.returnTransfers.all }),
   });
 
   const disposeMutation = useMutation({
     mutationFn: (id: string) => apiClient.patch(`/api/return-transfers/${id}`, { status: 'disposed' }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['return-transfers'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.returnTransfers.all }),
   });
 
   const processing = restockMutation.isPending || disposeMutation.isPending || inspectMutation.isPending

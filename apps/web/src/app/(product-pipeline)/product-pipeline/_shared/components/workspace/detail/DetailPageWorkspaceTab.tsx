@@ -16,7 +16,6 @@ import {
   useGenerationHistory,
   useGenerationHistoryDelete,
 } from '../../../hooks/useGenerationHistory';
-import type { GenerationHistoryItem } from '../../../hooks/useGenerationHistory';
 import { contentWorkspacesApi } from '../../../lib/content-workspaces-api';
 import DetailPagePreview from '../DetailPagePreview';
 import DetailPageVersionRail from './DetailPageVersionRail';
@@ -25,6 +24,7 @@ import {
   getCompletedDetailVersionRows,
   type DetailGenerationRow,
 } from './detail-generation-rows';
+import type { GenerationHistoryItem } from '../../../hooks/useGenerationHistory';
 import type { ProductRegistrationPreviewData } from '../preview/product-registration-preview';
 
 interface DetailPageWorkspaceTabProps {
@@ -120,8 +120,12 @@ export default function DetailPageWorkspaceTab({
       queryClient.invalidateQueries({
         queryKey: [...queryKeys.sourcing.detail(productId), 'history'],
       }),
-      queryClient.invalidateQueries({ queryKey: ['kp-generations'] }),
-      queryClient.invalidateQueries({ queryKey: ['bold-generations'] }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.productContent.detailGenerationsAll('kids-playful'),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.productContent.detailGenerationsAll('bold-vertical'),
+      }),
       queryClient.invalidateQueries({
         queryKey: queryKeys.productContent.sourcingLinks(productId, { limit: '8' }),
       }),

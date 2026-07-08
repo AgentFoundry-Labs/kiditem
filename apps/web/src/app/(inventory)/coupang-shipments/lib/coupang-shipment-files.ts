@@ -1,7 +1,5 @@
 'use client';
 
-import { PDFDocument } from 'pdf-lib';
-
 export type CoupangShipmentFileKind = 'label' | 'statement';
 
 export interface CoupangShipmentFileDraft {
@@ -185,6 +183,7 @@ async function mergePdfKind(
   kind: CoupangShipmentFileKind,
   items: CoupangShipmentFileDraft[],
 ): Promise<CoupangShipmentMergedFile> {
+  const { PDFDocument } = await import('pdf-lib');
   const out = await PDFDocument.create();
   const centers = uniqueSortedCenters(items.map((item) => item.center));
   let pageCount = 0;

@@ -102,6 +102,8 @@ export const queryKeys = {
     search: (params: Record<string, string>) => [...queryKeys.orders.all, 'search', params] as const,
     compare: (params: Record<string, string>) => [...queryKeys.orders.all, 'compare', params] as const,
     sync: (params: Record<string, string>) => [...queryKeys.orders.all, 'sync', params] as const,
+    rocketPoList: (params: { from: string; to: string; status: string }) =>
+      [...queryKeys.orders.all, 'rocket-po-list', params] as const,
     collectionMalls: () => [...queryKeys.orders.all, 'collection', 'malls'] as const,
     collectionMallAction: (action: string) =>
       [...queryKeys.orders.collectionMalls(), action] as const,
@@ -206,6 +208,33 @@ export const queryKeys = {
     editedHtml: (id: string) => [...queryKeys.productContent.all, 'edited-html', id] as const,
     generationEditedHtml: (id: string) =>
       [...queryKeys.productContent.all, 'generation-edited-html', id] as const,
+    detailGenerationsAll: (templateId: 'kids-playful' | 'bold-vertical') =>
+      [templateId === 'bold-vertical' ? 'bold-generations' : 'kp-generations'] as const,
+    detailGenerations: (
+      templateId: 'kids-playful' | 'bold-vertical',
+      scope?: {
+        productId?: string | null;
+        sourceCandidateId?: string | null;
+        contentWorkspaceId?: string | null;
+      },
+    ) => {
+      const root = templateId === 'bold-vertical' ? 'bold-generations' : 'kp-generations';
+      if (scope?.contentWorkspaceId) {
+        return [root, { contentWorkspaceId: scope.contentWorkspaceId }] as const;
+      }
+      if (scope?.sourceCandidateId) {
+        return [root, { sourceCandidateId: scope.sourceCandidateId }] as const;
+      }
+      if (templateId === 'kids-playful' && scope?.productId) {
+        return [root, { productId: scope.productId }] as const;
+      }
+      if (templateId === 'bold-vertical') {
+        return [root, { productId: scope?.productId ?? null }] as const;
+      }
+      return [root] as const;
+    },
+    detailGeneration: (id: string) => ['kp-generations', 'one', id] as const,
+    detailGenerationNoop: () => ['kp-generations', 'one', 'noop'] as const,
   },
   contentWorkspaces: {
     all: ['content-workspaces'] as const,

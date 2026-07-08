@@ -2,6 +2,7 @@
 
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Bot, PackageCheck, SendHorizontal } from 'lucide-react';
+import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 import { cn, formatNumber } from '@/lib/utils';
 import { buildFinalSelectionAgentResponse } from '../lib/final-selection-chat';
 import {
@@ -16,8 +17,8 @@ import { querySourcingAgentRag, type SourcingAgentRagSuggestedFilter } from '../
 import { loadLatestInterestTrackingPayload, type SourcingInterestTarget } from '../lib/sourcing-interest-tracking';
 import { getTodaySourcingWorkspaceSnapshot } from '../lib/sourcing-workspace-snapshot-api';
 import { useTodayRecommendationRows } from '../lib/use-today-recommendation-rows';
-import type { TodayRecommendationRow } from '../recommendations/lib/today-recommendations';
 import { FinalCandidateCard } from './SellochFinalSelectionParts';
+import type { TodayRecommendationRow } from '../recommendations/lib/today-recommendations';
 
 type SelectionMap = Record<string, true>;
 type ChatMessage = { id: string; role: 'agent' | 'user'; content: string };
@@ -63,12 +64,8 @@ export function SellochFinalSelectionPage() {
         if (active) setInterestTargets([]);
       });
 
-    try {
-      const raw = window.localStorage.getItem(FINAL_SELECTION_STORAGE_KEY);
-      if (raw && active) setSelectedRows(parseStoredSelections(raw));
-    } catch {
-      if (active) setSelectedRows({});
-    }
+    const raw = safeStorageGet('local', FINAL_SELECTION_STORAGE_KEY);
+    if (raw && active) setSelectedRows(parseStoredSelections(raw));
 
     return () => {
       active = false;
@@ -130,11 +127,7 @@ export function SellochFinalSelectionPage() {
   }, [coupangRows]);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(FINAL_SELECTION_STORAGE_KEY, JSON.stringify(selectedRows));
-    } catch {
-      void 0;
-    }
+    safeStorageSet('local', FINAL_SELECTION_STORAGE_KEY, JSON.stringify(selectedRows));
   }, [selectedRows]);
 
   const candidateRows = useMemo(() => {

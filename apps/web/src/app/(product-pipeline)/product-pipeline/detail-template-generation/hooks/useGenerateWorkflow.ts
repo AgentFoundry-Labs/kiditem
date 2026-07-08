@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query-keys';
 import { REGISTERED_PRODUCTS_ROOT } from '../../_shared/lib/product-pipeline-routes';
 import { useGenerateForm, type GenerateTemplateId } from './useGenerateForm';
 import { useKidsPlayfulGenerationCancel } from './useKidsPlayfulGenerate';
@@ -35,8 +36,12 @@ export function useGenerateWorkflow() {
 
     if (isCompleted) {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['kp-generations'] }),
-        queryClient.invalidateQueries({ queryKey: ['bold-generations'] }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.productContent.detailGenerationsAll('kids-playful'),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.productContent.detailGenerationsAll('bold-vertical'),
+        }),
       ]);
     }
 
