@@ -70,7 +70,7 @@ export default function StockTransfers() {
   const createMutation = useMutation({
     mutationFn: (body: typeof form) => apiClient.post('/api/stock-transfers', body),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['stock-transfers'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.stockTransfers.all });
       setShowModal(false);
       setForm({ productId: '', fromWarehouseId: '', toWarehouseId: '', quantity: 1, note: '' });
     },
@@ -78,12 +78,12 @@ export default function StockTransfers() {
 
   const completeMutation = useMutation({
     mutationFn: (id: string) => apiClient.patch(`/api/stock-transfers/${id}`, { status: 'completed' }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['stock-transfers'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.stockTransfers.all }),
   });
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => apiClient.patch(`/api/stock-transfers/${id}`, { status: 'cancelled' }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['stock-transfers'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.stockTransfers.all }),
   });
 
   const processing = completeMutation.isPending || cancelMutation.isPending ? (completeMutation.variables || cancelMutation.variables || null) : null;

@@ -16,10 +16,6 @@ import {
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { apiClient } from '@/lib/api-client';
-import PageSkeleton from '@/components/ui/PageSkeleton';
-import { queryKeys } from '@/lib/query-keys';
-import { cn, formatKRW, formatNumber, formatDateTime } from '@/lib/utils';
 import {
   DashboardSalesSummarySchema,
   DashboardAdSummarySchema,
@@ -28,6 +24,11 @@ import {
 } from '@kiditem/shared/dashboard';
 import { ActionTaskListSchema } from '@kiditem/shared/action-task';
 import { z } from 'zod';
+import { apiClient } from '@/lib/api-client';
+import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
+import PageSkeleton from '@/components/ui/PageSkeleton';
+import { queryKeys } from '@/lib/query-keys';
+import { cn, formatKRW, formatNumber, formatDateTime } from '@/lib/utils';
 import { friendlyError } from '@/lib/api-error';
 import ReadinessModal from '@/components/ReadinessModal';
 import { DashboardChartPanel } from './components/DashboardChartPanel';
@@ -157,14 +158,14 @@ export default function Dashboard() {
     const source = salesBaseline?.effectivePeriod?.revenueSource;
     if (source === 'wing' || source === 'mixed' || source === 'orders' || source === 'rocket' || source === 'wing_rocket') return;
     const COOLDOWN_KEY = 'kiditem_wing_scrape_triggered';
-    const lastTrigger = localStorage.getItem(COOLDOWN_KEY);
+    const lastTrigger = safeStorageGet('local', COOLDOWN_KEY);
     if (lastTrigger && Date.now() - Number(lastTrigger) < 30 * 60 * 1000) return; // 30분 쿨다운
     const now = new Date();
     const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
     const today = now.toISOString().slice(0, 10);
     const wingUrl = `https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date=${monthStart}&end_date=${today}`;
     window.open(wingUrl, '_blank');
-    localStorage.setItem(COOLDOWN_KEY, String(Date.now()));
+    safeStorageSet('local', COOLDOWN_KEY, String(Date.now()));
     toast.info('Wing 매출분석 페이지를 열어 데이터를 수집합니다. 잠시 후 새로고침하세요.', { duration: 8000 });
   }, [salesBaseline?.trafficKpi?.needsScrape, salesBaseline?.effectivePeriod?.revenueSource]);
 

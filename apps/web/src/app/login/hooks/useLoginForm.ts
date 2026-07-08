@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { sanitizeInternalRedirectPath } from '@/lib/auth-redirect';
 import { apiClient } from '@/lib/api-client';
+import { safeStorageGet, safeStorageRemove, safeStorageSet } from '@/lib/browser-storage';
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 import { triggerSignOut } from '@/lib/supabase/refresh';
 import type { AuthUserPublic } from '@kiditem/shared/auth';
@@ -23,7 +24,7 @@ export function useLoginForm() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem(REMEMBERED_EMAIL_KEY);
+    const saved = safeStorageGet('local', REMEMBERED_EMAIL_KEY);
     if (saved) {
       setEmail(saved);
       setRemember(true);
@@ -51,10 +52,10 @@ export function useLoginForm() {
       if (!user.organizationId) {
         throw new Error('조직에 속해있지 않습니다. 관리자에게 문의해주세요.');
       }
-      if (remember) localStorage.setItem(REMEMBERED_EMAIL_KEY, email);
-      else localStorage.removeItem(REMEMBERED_EMAIL_KEY);
+      if (remember) safeStorageSet('local', REMEMBERED_EMAIL_KEY, email);
+      else safeStorageRemove('local', REMEMBERED_EMAIL_KEY);
       // 로그인 직후 ReadinessModal 자동 재표시 trigger — 세션마다 한 번 점검.
-      sessionStorage.removeItem('kiditem.readiness.dismissed');
+      safeStorageRemove('session', 'kiditem.readiness.dismissed');
       toast.success('로그인 성공');
       router.replace(next);
       router.refresh();

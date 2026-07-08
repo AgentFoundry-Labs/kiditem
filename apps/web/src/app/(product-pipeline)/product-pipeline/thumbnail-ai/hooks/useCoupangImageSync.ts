@@ -2,14 +2,15 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { apiClient } from '@/lib/api-client';
+import { safeStorageGet, safeStorageRemove, safeStorageSet } from '@/lib/browser-storage';
+import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import { queryKeys } from '@/lib/query-keys';
 import type {
   CoupangImageSyncCapabilities,
   CoupangImageSyncRow,
   CoupangImageSyncRowSource,
 } from '@kiditem/shared/ai';
-import { apiClient } from '@/lib/api-client';
-import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
-import { queryKeys } from '@/lib/query-keys';
 
 export interface CoupangSyncStatus {
   jobId: string;
@@ -88,14 +89,12 @@ async function getCoupangImageSyncCapabilities(): Promise<CoupangImageSyncCapabi
 }
 
 function readStoredJobId(): string | null {
-  if (typeof window === 'undefined') return null;
-  return window.localStorage.getItem(STORAGE_KEY);
+  return safeStorageGet('local', STORAGE_KEY);
 }
 
 function writeStoredJobId(jobId: string | null) {
-  if (typeof window === 'undefined') return;
-  if (jobId) window.localStorage.setItem(STORAGE_KEY, jobId);
-  else window.localStorage.removeItem(STORAGE_KEY);
+  if (jobId) safeStorageSet('local', STORAGE_KEY, jobId);
+  else safeStorageRemove('local', STORAGE_KEY);
 }
 
 function makeRunId(): string {
