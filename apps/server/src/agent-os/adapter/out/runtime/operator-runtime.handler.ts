@@ -160,6 +160,20 @@ function extractFirstUrl(value: unknown): string | null {
   return match[0].replace(/[),.]+$/, '');
 }
 
+type RuntimeUsageFields = Pick<
+  AgentRuntimeResult,
+  'inputTokens' | 'outputTokens' | 'cachedInputTokens' | 'costMicros'
+>;
+
+function runtimeUsageFields(input: RuntimeUsageFields): RuntimeUsageFields {
+  return {
+    inputTokens: input.inputTokens,
+    outputTokens: input.outputTokens,
+    cachedInputTokens: input.cachedInputTokens,
+    costMicros: input.costMicros,
+  };
+}
+
 @Injectable()
 export class OperatorRuntimeHandler
   implements AgentTypeRuntimeHandler, OnModuleInit
@@ -384,6 +398,10 @@ export class OperatorRuntimeHandler
       stdoutBytes: Buffer.byteLength(runtimeResult.rawOutput),
       stderrBytes: Buffer.byteLength(runtimeResult.stderr),
       sessionId: runtimeResult.sessionId ?? null,
+      inputTokens: runtimeResult.inputTokens ?? null,
+      outputTokens: runtimeResult.outputTokens ?? null,
+      cachedInputTokens: runtimeResult.cachedInputTokens ?? null,
+      costMicros: runtimeResult.costMicros?.toString() ?? null,
     });
 
     return this.executeParsedDecision({
@@ -391,6 +409,7 @@ export class OperatorRuntimeHandler
       conversationId,
       provider: runtimeResult.provider,
       rawOutput: runtimeResult.rawOutput,
+      runtimeUsage: runtimeUsageFields(runtimeResult),
     });
   }
 
@@ -508,6 +527,10 @@ export class OperatorRuntimeHandler
         reconciledAfterRuntimeError: recoverableRuntimeError !== null,
         runtimeErrorCode: runtimeErrorCode(recoverableRuntimeError),
         sessionId: runtimeResult?.sessionId ?? null,
+        inputTokens: runtimeResult?.inputTokens ?? null,
+        outputTokens: runtimeResult?.outputTokens ?? null,
+        cachedInputTokens: runtimeResult?.cachedInputTokens ?? null,
+        costMicros: runtimeResult?.costMicros?.toString() ?? null,
       });
 
       return {
@@ -518,6 +541,7 @@ export class OperatorRuntimeHandler
           summary: finalization.summary,
           finalizationEventId: finalization.id,
         },
+        ...(runtimeResult ? runtimeUsageFields(runtimeResult) : {}),
       };
     } catch (error) {
       await this.appendOperatorEvent(
@@ -553,6 +577,7 @@ export class OperatorRuntimeHandler
     conversationId: string;
     provider: string;
     rawOutput: string;
+    runtimeUsage?: RuntimeUsageFields;
   }): Promise<AgentRuntimeResult> {
     let decision: ReturnType<OperatorDecisionParser['parse']>;
     try {
@@ -583,6 +608,7 @@ export class OperatorRuntimeHandler
     return {
       provider: input.provider,
       output: { ...execution },
+      ...(input.runtimeUsage ?? {}),
     };
   }
 

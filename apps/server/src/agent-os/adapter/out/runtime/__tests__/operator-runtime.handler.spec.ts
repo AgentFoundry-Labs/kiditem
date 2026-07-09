@@ -303,6 +303,32 @@ describe('OperatorRuntimeHandler', () => {
     );
   });
 
+  it('returns Hermes token and cost usage so AgentRunExecutor can write cost events', async () => {
+    process.env.AGENT_OS_OPERATOR_RUNTIME = 'hermes';
+    const { handler, hermesRuntime } = makeHandler();
+    vi.mocked(hermesRuntime.decide).mockResolvedValue({
+      provider: 'hermes',
+      rawOutput: '{"decisionType":"delegate"}',
+      stderr: '',
+      durationMs: 42,
+      sessionId: 'hermes-session-usage',
+      inputTokens: 101,
+      outputTokens: 23,
+      cachedInputTokens: 7,
+      costMicros: 2500n,
+    });
+
+    const result = await handler.execute(runtimeContext());
+
+    expect(result).toMatchObject({
+      provider: 'hermes',
+      inputTokens: 101,
+      outputTokens: 23,
+      cachedInputTokens: 7,
+      costMicros: 2500n,
+    });
+  });
+
   it('uses Hermes tool-loop runtime and trusts only KidItem finalization events', async () => {
     process.env.AGENT_OS_OPERATOR_RUNTIME = 'hermes_tool_loop';
     process.env.AGENT_OS_HERMES_MODEL = 'gpt-5.5';

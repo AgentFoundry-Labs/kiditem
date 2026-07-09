@@ -257,4 +257,40 @@ describe('HermesLeafRuntimeHandler', () => {
       metadata: { runtimeThreadId: 'leaf-session-next' },
     });
   });
+
+  it('returns Hermes usage fields for Leaf runtime cost events', async () => {
+    const { handler, hermesRuntime, repository } = makeHandler();
+    vi.mocked(hermesRuntime.decide).mockResolvedValue({
+      provider: 'hermes',
+      rawOutput: 'finalized through MCP',
+      stderr: '',
+      durationMs: 64,
+      sessionId: 'leaf-usage-session',
+      inputTokens: 200,
+      outputTokens: 50,
+      cachedInputTokens: 20,
+      costMicros: 4300n,
+    });
+    vi.mocked(repository.listRunEvents).mockResolvedValue([
+      runEvent({
+        type: 'agent_os.task_finalized',
+        data: {
+          finalizationTool: 'agent_os_finalize_task',
+          status: 'succeeded',
+          artifactIds: [],
+          summary: { message: 'leaf done' },
+        },
+      }),
+    ]);
+
+    const result = await handler.execute(runtimeContext());
+
+    expect(result).toMatchObject({
+      provider: 'hermes',
+      inputTokens: 200,
+      outputTokens: 50,
+      cachedInputTokens: 20,
+      costMicros: 4300n,
+    });
+  });
 });

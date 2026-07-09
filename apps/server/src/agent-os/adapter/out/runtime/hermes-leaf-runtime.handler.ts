@@ -68,6 +68,22 @@ function renderLeafPrompt(input: {
   ].join('\n');
 }
 
+function hermesUsageFields(
+  result: Awaited<ReturnType<HermesOperatorRuntimeAdapter['decide']>> | null,
+): Pick<
+  AgentRuntimeResult,
+  'inputTokens' | 'outputTokens' | 'cachedInputTokens' | 'costMicros'
+> {
+  return result
+    ? {
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        cachedInputTokens: result.cachedInputTokens,
+        costMicros: result.costMicros,
+      }
+    : {};
+}
+
 @Injectable()
 export class HermesLeafRuntimeHandler
   implements AgentTypeRuntimeHandler, OnModuleInit
@@ -184,6 +200,7 @@ export class HermesLeafRuntimeHandler
         finalizationEventId: finalization.id,
       },
       logExcerpt: result?.rawOutput ?? '',
+      ...hermesUsageFields(result),
     };
   }
 }

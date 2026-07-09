@@ -233,4 +233,53 @@ describe('AgentRunWorker → AgentRunExecutor → finalize (real Postgres)', () 
     expect(runtime.observed).toHaveLength(0);
     expect(finalized).toHaveLength(0);
   });
+
+  it('writes Hermes usage to cost events during run finalization', async () => {
+    const { instance } = await seedInstance({
+      type: 'rules_evaluation',
+      name: 'Rules Evaluation',
+    });
+
+    runtime.outputs.set('rules_evaluation', {
+      provider: 'hermes',
+      output: { ok: true },
+      inputTokens: 8,
+      outputTokens: 3,
+      cachedInputTokens: 2,
+      costMicros: 1234n,
+    });
+
+    const enqueue = await coordinator.runByType('rules_evaluation', {
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceType: 'rules',
+      sourceResourceType: 'rule_set',
+      sourceId: 'rules-cost-integration-1',
+      payload: { sample: true },
+    });
+    expect(enqueue.ok).toBe(true);
+
+    await worker.tick();
+
+    const costEvents = await repository.listCostEvents({
+      organizationId: TEST_ORGANIZATION_ID,
+      agentInstanceId: null,
+      provider: 'hermes',
+      model: null,
+      fromOccurredAt: null,
+      toOccurredAt: null,
+      cursor: null,
+      limit: 20,
+    });
+
+    expect(costEvents.items).toEqual([
+      expect.objectContaining({
+        agentInstanceId: instance.id,
+        provider: 'hermes',
+        inputTokens: 8,
+        outputTokens: 3,
+        cachedInputTokens: 2,
+        costMicros: 1234n,
+      }),
+    ]);
+  });
 });
