@@ -18,6 +18,10 @@ import {
   isRecoverableHermesRuntimeError,
   readLatestHermesTaskFinalization,
 } from './hermes-task-finalization';
+import {
+  loadHermesResumeSession,
+  persistHermesRuntimeThread,
+} from './hermes-task-session';
 
 function configuredLeafAgentTypes(): string[] {
   return (process.env.AGENT_OS_HERMES_LEAF_AGENT_TYPES ?? '')
@@ -99,6 +103,11 @@ export class HermesLeafRuntimeHandler
       requestId: context.requestId,
       activeUserMessage: stringField(context.input.userMessage),
     });
+    const resumeSessionId = await loadHermesResumeSession({
+      repository: this.repository,
+      organizationId: context.organizationId,
+      taskSessionId: context.taskSessionId,
+    });
     let result: Awaited<ReturnType<HermesOperatorRuntimeAdapter['decide']>> | null =
       null;
     let recoveredAfterRuntimeError = false;
@@ -112,6 +121,7 @@ export class HermesLeafRuntimeHandler
         agentType: context.agentType,
         taskSessionId: context.taskSessionId,
         requestedByUserId: stringField(context.input.requestedByUserId),
+        resumeSessionId,
         prompt: renderLeafPrompt({
           agentType: context.agentType,
           context: {
@@ -130,6 +140,15 @@ export class HermesLeafRuntimeHandler
     } catch (error) {
       if (!isRecoverableHermesRuntimeError(error)) throw error;
       recoveredAfterRuntimeError = true;
+    }
+
+    if (result) {
+      await persistHermesRuntimeThread({
+        repository: this.repository,
+        organizationId: context.organizationId,
+        taskSessionId: context.taskSessionId,
+        sessionId: result.sessionId,
+      });
     }
 
     const finalization = await readLatestHermesTaskFinalization({

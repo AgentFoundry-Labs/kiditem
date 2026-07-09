@@ -22,6 +22,10 @@ import {
   readLatestHermesTaskFinalization,
   runtimeErrorCode,
 } from './hermes-task-finalization';
+import {
+  loadHermesResumeSession,
+  persistHermesRuntimeThread,
+} from './hermes-task-session';
 import { OpenAiResponsesOperatorRuntimeAdapter } from './openai-responses-operator-runtime.adapter';
 
 function stringField(value: unknown): string | null {
@@ -332,6 +336,11 @@ export class OperatorRuntimeHandler
       context,
       conversationId,
     );
+    const resumeSessionId = await loadHermesResumeSession({
+      repository: this.repository,
+      organizationId: context.organizationId,
+      taskSessionId: context.taskSessionId,
+    });
 
     await this.appendOperatorEvent(context, 'operator.runtime_started', { provider: 'hermes' });
 
@@ -349,6 +358,7 @@ export class OperatorRuntimeHandler
         agentType: context.agentType,
         taskSessionId: context.taskSessionId,
         requestedByUserId: stringField(context.input.requestedByUserId),
+        resumeSessionId,
         prompt: renderOperatorPrompt(operatorContext),
         hermesPath: process.env.AGENT_OS_HERMES_PATH,
         hermesHome: process.env.AGENT_OS_HERMES_HOME,
@@ -361,11 +371,19 @@ export class OperatorRuntimeHandler
       throw error;
     }
 
+    await persistHermesRuntimeThread({
+      repository: this.repository,
+      organizationId: context.organizationId,
+      taskSessionId: context.taskSessionId,
+      sessionId: runtimeResult.sessionId,
+    });
+
     await this.appendOperatorEvent(context, 'operator.runtime_completed', {
       provider: runtimeResult.provider,
       durationMs: runtimeResult.durationMs,
       stdoutBytes: Buffer.byteLength(runtimeResult.rawOutput),
       stderrBytes: Buffer.byteLength(runtimeResult.stderr),
+      sessionId: runtimeResult.sessionId ?? null,
     });
 
     return this.executeParsedDecision({
@@ -388,6 +406,11 @@ export class OperatorRuntimeHandler
       context,
       conversationId,
     );
+    const resumeSessionId = await loadHermesResumeSession({
+      repository: this.repository,
+      organizationId: context.organizationId,
+      taskSessionId: context.taskSessionId,
+    });
 
     await this.appendOperatorEvent(context, 'operator.runtime_started', {
       provider: 'hermes_tool_loop',
@@ -407,6 +430,7 @@ export class OperatorRuntimeHandler
         agentType: context.agentType,
         taskSessionId: context.taskSessionId,
         requestedByUserId: stringField(context.input.requestedByUserId),
+        resumeSessionId,
         prompt: renderHermesToolLoopPrompt(operatorContext),
         hermesPath: process.env.AGENT_OS_HERMES_PATH,
         hermesHome: process.env.AGENT_OS_HERMES_HOME,
@@ -458,6 +482,15 @@ export class OperatorRuntimeHandler
         );
       }
 
+      if (runtimeResult) {
+        await persistHermesRuntimeThread({
+          repository: this.repository,
+          organizationId: context.organizationId,
+          taskSessionId: context.taskSessionId,
+          sessionId: runtimeResult.sessionId,
+        });
+      }
+
       await this.appendOperatorEvent(context, 'operator.runtime_completed', {
         provider: 'hermes_tool_loop',
         hermesProvider: runtimeResult?.provider ?? null,
@@ -474,6 +507,7 @@ export class OperatorRuntimeHandler
         finalizationStatus: finalization.status,
         reconciledAfterRuntimeError: recoverableRuntimeError !== null,
         runtimeErrorCode: runtimeErrorCode(recoverableRuntimeError),
+        sessionId: runtimeResult?.sessionId ?? null,
       });
 
       return {

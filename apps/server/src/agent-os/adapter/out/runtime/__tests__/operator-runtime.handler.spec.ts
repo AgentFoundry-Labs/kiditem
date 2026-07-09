@@ -128,6 +128,10 @@ function makeHandler() {
   const repository = {
     appendRunEvent: vi.fn().mockResolvedValue({}),
     listRunEvents: vi.fn().mockResolvedValue([]),
+    getTaskSession: vi.fn().mockResolvedValue({
+      metadata: { runtimeThreadId: 'hermes-session-existing' },
+    }),
+    updateTaskSessionMetadata: vi.fn().mockResolvedValue({}),
   } as unknown as AgentOsRepositoryPort;
 
   return {
@@ -324,6 +328,42 @@ describe('OperatorRuntimeHandler', () => {
         },
         finalizationEventId: 'event-1',
       },
+    });
+  });
+
+  it('resumes and persists Hermes session ids for tool-loop Operator turns', async () => {
+    process.env.AGENT_OS_OPERATOR_RUNTIME = 'hermes_tool_loop';
+    const { handler, hermesRuntime, repository } = makeHandler();
+    vi.mocked(hermesRuntime.decide).mockResolvedValue({
+      provider: 'hermes',
+      rawOutput: 'finalized through MCP',
+      stderr: '',
+      durationMs: 84,
+      sessionId: 'hermes-session-next',
+    });
+    vi.mocked(repository.listRunEvents).mockResolvedValue([
+      runEvent({
+        type: 'agent_os.task_finalized',
+        data: {
+          finalizationTool: 'agent_os_finalize_task',
+          status: 'succeeded',
+          artifactIds: [],
+          summary: { message: 'done' },
+        },
+      }),
+    ]);
+
+    await handler.execute(runtimeContext());
+
+    expect(hermesRuntime.decide).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resumeSessionId: 'hermes-session-existing',
+      }),
+    );
+    expect(repository.updateTaskSessionMetadata).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      taskSessionId: 'session-1',
+      metadata: { runtimeThreadId: 'hermes-session-next' },
     });
   });
 

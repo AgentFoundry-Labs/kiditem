@@ -55,6 +55,10 @@ function makeHandler() {
   } as unknown as HermesOperatorRuntimeAdapter;
   const repository = {
     listRunEvents: vi.fn().mockResolvedValue([]),
+    getTaskSession: vi.fn().mockResolvedValue({
+      metadata: { runtimeThreadId: 'leaf-session-existing' },
+    }),
+    updateTaskSessionMetadata: vi.fn().mockResolvedValue({}),
   } as unknown as AgentOsRepositoryPort;
   const contextBuilder = {
     build: vi.fn().mockResolvedValue({
@@ -215,6 +219,42 @@ describe('HermesLeafRuntimeHandler', () => {
         finalizationEventId: 'event-finalize-timeout-1',
       },
       logExcerpt: '',
+    });
+  });
+
+  it('resumes and persists Hermes session ids for Leaf turns', async () => {
+    const { handler, hermesRuntime, repository } = makeHandler();
+    vi.mocked(repository.getTaskSession).mockResolvedValue({
+      metadata: { runtimeThreadId: 'leaf-session-existing' },
+    } as Awaited<ReturnType<AgentOsRepositoryPort['getTaskSession']>>);
+    vi.mocked(hermesRuntime.decide).mockResolvedValue({
+      provider: 'hermes',
+      rawOutput: 'finalized through MCP',
+      stderr: '',
+      durationMs: 51,
+      sessionId: 'leaf-session-next',
+    });
+    vi.mocked(repository.listRunEvents).mockResolvedValue([
+      runEvent({
+        type: 'agent_os.task_finalized',
+        data: {
+          finalizationTool: 'agent_os_finalize_task',
+          status: 'succeeded',
+          artifactIds: [],
+          summary: { message: 'leaf done' },
+        },
+      }),
+    ]);
+
+    await handler.execute(runtimeContext());
+
+    expect(hermesRuntime.decide).toHaveBeenCalledWith(
+      expect.objectContaining({ resumeSessionId: 'leaf-session-existing' }),
+    );
+    expect(repository.updateTaskSessionMetadata).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      taskSessionId: 'session-sourcing-1',
+      metadata: { runtimeThreadId: 'leaf-session-next' },
     });
   });
 });
