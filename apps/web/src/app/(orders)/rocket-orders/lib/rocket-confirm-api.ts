@@ -17,22 +17,36 @@ interface CollectResponse {
   error?: string;
 }
 
+async function detectRocketOrderExtensionId(requiredCapability: string): Promise<string> {
+  const exactId = await detectOrderCollectionExtensionId(1200, requiredCapability);
+  if (exactId) return exactId;
+
+  // 이전에 로드된 확장은 action 은 있어도 ping capabilities 에 새 키가 없을 수 있다.
+  // 기본 주문수집 capability 로 한 번 더 잡아보고, 실제 action 호출 결과로 버전 문제를 판단한다.
+  const compatibleId = await detectOrderCollectionExtensionId();
+  if (compatibleId) return compatibleId;
+
+  throw new Error(
+    '주문수집 확장프로그램을 찾지 못했습니다. extensions/order-collector 를 Chrome 에 로드/새로고침하고 supplier.coupang.com 로그인 후 다시 시도해주세요.',
+  );
+}
+
 /** order-collector 확장으로 거래처확인요청 발주 풀컬럼을 supplier 세션에서 수집. */
 export async function collectRocketPoRowsFromExtension(
   from: string,
   to: string,
 ): Promise<{ rows: RocketConfirmSourceRow[]; poCount: number }> {
-  const extensionId = await detectOrderCollectionExtensionId(1200, 'collectRocketPoRows');
-  if (!extensionId) {
-    throw new Error(
-      '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 supplier.coupang.com 에 로그인한 뒤 다시 시도해주세요.',
-    );
-  }
+  const extensionId = await detectRocketOrderExtensionId('collectRocketPoRows');
   const res = await sendToExtension<CollectResponse>(
     extensionId,
     { action: 'collectRocketPoRows', from, to },
     190000,
   );
+  if (!res) {
+    throw new Error(
+      '주문수집 확장이 로켓 발주 수집 액션에 응답하지 않았습니다. Chrome 확장 관리에서 extensions/order-collector 를 새로고침해주세요.',
+    );
+  }
   if (!res?.success || !res.rows) {
     throw new Error(res?.error ?? '로켓 발주 수집에 실패했습니다.');
   }
@@ -67,18 +81,18 @@ export async function listRocketPosFromExtension(
   to: string,
   status = '',
 ): Promise<RocketPoSummary[]> {
-  const extensionId = await detectOrderCollectionExtensionId(1200, 'listRocketPos');
-  if (!extensionId) {
-    throw new Error(
-      '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 supplier.coupang.com 에 로그인한 뒤 다시 시도해주세요.',
-    );
-  }
+  const extensionId = await detectRocketOrderExtensionId('listRocketPos');
   const statusCode = status ? ROCKET_STATUS_CODE[status] ?? '' : '';
   const res = await sendToExtension<{ success?: boolean; pos?: RocketPoSummary[]; error?: string }>(
     extensionId,
     { action: 'listRocketPos', from, to, status: statusCode },
     70000,
   );
+  if (!res) {
+    throw new Error(
+      '주문수집 확장이 로켓 발주 목록 액션에 응답하지 않았습니다. Chrome 확장 관리에서 extensions/order-collector 를 새로고침해주세요.',
+    );
+  }
   if (!res?.success || !res.pos) {
     throw new Error(res?.error ?? '로켓 발주 목록 조회에 실패했습니다.');
   }
@@ -153,12 +167,24 @@ export const ROCKET_SHORTAGE_REASONS = [
   'FC 입고 이슈 - 밀크런 예약불가',
 ];
 
+/**
+ * 재고 매칭 결과.
+ *  - matched:    바코드로 KidItem 재고를 찾음(available 은 숫자, 0 이면 품절)
+ *  - no_barcode: 발주에 상품바코드가 없음
+ *  - no_product: 바코드는 있으나 그 바코드로 등록된 KidItem 상품이 없음
+ *               (셀피아 재고가 있어도 상품에 바코드가 연결 안 되면 여기로 빠짐)
+ */
+export type RocketMatchReason = 'matched' | 'no_barcode' | 'no_product';
+
 export interface RocketComputedRow extends RocketConfirmSourceRow {
   productName?: string;
   center?: string;
+  poRegisteredAt?: string; // 발주일시 "YYYY-MM-DD HH:mm:ss" (KST)
+  expectedInboundDate?: string; // 입고예정일 "YYYYMMDD"
   inventoryId?: string;
   optionId?: string;
   available: number | null;
+  matchReason?: RocketMatchReason;
   confirmQty: number;
   shortageReason: string;
 }

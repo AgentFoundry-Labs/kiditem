@@ -86,8 +86,21 @@ export interface RocketConfirmFillResult {
   matchedSkus: number;
 }
 
+/**
+ * 재고 매칭 결과 — 미매칭이면 "왜" 미매칭인지 구분한다.
+ *  - matched:    바코드로 KidItem 상품/재고를 찾음 (available 은 숫자, 0 이면 품절)
+ *  - no_barcode: 발주 행에 상품바코드가 비어 있음 (쿠팡 발주에 바코드 누락)
+ *  - no_product: 바코드는 있으나 그 바코드로 등록된 KidItem 상품(ProductOption)이 없음.
+ *               → 셀피아에 재고가 있어도 상품에 바코드가 연결 안 되면 여기로 빠진다(가장 흔한 원인).
+ *
+ * 미매칭 행은 확정수량 0 + 기본 납품부족사유로 조용히 품절 처리되므로, UI 에서 실제 품절과
+ * 구분해 노출해야 재고가 있는데도 미납되는 사고를 막는다.
+ */
+export type RocketMatchReason = 'matched' | 'no_barcode' | 'no_product';
+
 export interface ConfirmComputedRow extends ConfirmSourceRow {
   available: number | null; // null = KidItem 재고 매칭 안됨
+  matchReason: RocketMatchReason;
   inventoryId?: string;
   optionId?: string;
   confirmQty: number;
@@ -118,6 +131,7 @@ type ConfirmQuantityResult = {
   optionId?: string;
   confirmQty: number;
   matched: boolean;
+  matchReason: RocketMatchReason;
 };
 
 type ConfirmAvailability = {
@@ -130,7 +144,14 @@ type ConfirmAvailability = {
 export class RocketPoConfirmService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** 가용재고(바코드→qty) 조회. 가용 = currentStock - reservedStock. */
+  /**
+   * 가용재고(바코드→qty) 조회.
+   *  - 일반 SKU: 가용 = Inventory.currentStock - reservedStock.
+   *  - 번들(묶음, isBundle): 가용 = ProductOption.availableStock (구성품 기반 floor(단품/N) 계산값).
+   *    셀피아 낱개(단품)는 바코드 A 로 재고가 잡히고, 쿠팡 묶음은 새 바코드 B 라 1:1 로는 안 이어진다.
+   *    묶음을 번들로 등록해두면 여기서 구성품 재고 기반 가용수량이 잡힌다.
+   *    번들은 자체 Inventory row 가 없어 inventoryId 는 없음(예약확정 커밋에서는 제외됨).
+   */
   private async availabilityByBarcode(
     barcodes: string[],
     organizationId: string,
@@ -140,12 +161,22 @@ export class RocketPoConfirmService {
       select: {
         id: true,
         barcode: true,
+        isBundle: true,
+        availableStock: true,
         inventory: { select: { id: true, currentStock: true, reservedStock: true } },
       },
     });
     const map = new Map<string, ConfirmAvailability>();
     for (const option of options) {
       if (!option.barcode) continue;
+      if (option.isBundle) {
+        map.set(option.barcode, {
+          available: Math.max(0, option.availableStock ?? 0),
+          inventoryId: undefined,
+          optionId: option.id,
+        });
+        continue;
+      }
       const inv = option.inventory;
       map.set(option.barcode, {
         available: inv ? Math.max(0, inv.currentStock - inv.reservedStock) : 0,
@@ -271,13 +302,14 @@ export class RocketPoConfirmService {
     const computed = rows.map((r) => {
       const barcode = String(r.barcode ?? '').trim();
       const orderQty = toQuantity(r.orderQty);
-      const { available, inventoryId, optionId, confirmQty, matched } = computeConfirmQuantity({
-        barcode,
-        orderQty,
-        requestedConfirmQty: r.confirmQty,
-        availabilityByBarcode,
-        remainingByBarcode,
-      });
+      const { available, inventoryId, optionId, confirmQty, matched, matchReason } =
+        computeConfirmQuantity({
+          barcode,
+          orderQty,
+          requestedConfirmQty: r.confirmQty,
+          availabilityByBarcode,
+          remainingByBarcode,
+        });
       if (matched) matchedSkus++;
       const shortageReason = normalizeShortageReason(r.shortageReason, confirmQty, orderQty);
       if (confirmQty < orderQty) shortRows++;
@@ -287,6 +319,7 @@ export class RocketPoConfirmService {
         barcode,
         orderQty,
         available,
+        matchReason,
         inventoryId,
         optionId,
         confirmQty,
@@ -366,11 +399,11 @@ export class RocketPoConfirmService {
     organizationId: string,
     businessDateKey: string,
   ): Promise<void> {
-    await tx.$queryRaw`
+    await tx.$executeRaw`
       SELECT pg_advisory_xact_lock(
         hashtext(${ROCKET_DAILY_LOCK_NAMESPACE}),
         hashtext(${`${organizationId}:${businessDateKey}`})
-      ) AS organization_id_scoped_lock
+      )
     `;
   }
 
@@ -437,8 +470,11 @@ function computeConfirmQuantity({
   availabilityByBarcode,
   remainingByBarcode,
 }: ConfirmQuantityInput): ConfirmQuantityResult {
+  if (!barcode) return { available: null, confirmQty: 0, matched: false, matchReason: 'no_barcode' };
   const match = availabilityByBarcode.get(barcode);
-  if (match === undefined) return { available: null, confirmQty: 0, matched: false };
+  if (match === undefined) {
+    return { available: null, confirmQty: 0, matched: false, matchReason: 'no_product' };
+  }
 
   const remaining = Math.max(0, remainingByBarcode.get(barcode) ?? 0);
   const requested =
@@ -453,6 +489,7 @@ function computeConfirmQuantity({
     optionId: match.optionId,
     confirmQty,
     matched: true,
+    matchReason: 'matched',
   };
 }
 

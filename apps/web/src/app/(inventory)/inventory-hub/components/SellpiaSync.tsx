@@ -53,6 +53,8 @@ const actionLabels: Record<CandidateAction, string> = {
 };
 
 const SELLPIA_REVIEW_PAGE_SIZE = 50;
+/** '전체 적용' 시 사유가 필요한(큰 차이 등) 항목에 자동으로 다는 기본 사유. */
+const DEFAULT_SYNC_REASON = 'Sellpia 일괄 동기화';
 
 function defaultExportedAt(): string {
   return new Date().toISOString().slice(0, 16);
@@ -199,6 +201,19 @@ export default function SellpiaSync() {
     [bulkSkippedRows, rowForms],
   );
 
+  // '전체 적용' 대상 — 페이지/선택 무관하게 승인 가능한 모든 행. 사유가 필요한(큰 차이 등)
+  // 행은 기본 사유를 넣으면 통과하므로 포함되고, 하드블록/미매칭/신규후보만 제외된다.
+  const fullSyncApprovableRows = useMemo(
+    () => actionableRows.filter((item) => {
+      const form = rowForms[item.id] ?? rowReviewDefaults(item);
+      const target = toStock(form.targetCurrentStock, item.targetCurrentStock);
+      const effectiveReason =
+        form.reason.trim() || (requiresSellpiaRowReason(item, target) ? DEFAULT_SYNC_REASON : '');
+      return canBulkApproveSellpiaRow(item, target, effectiveReason);
+    }),
+    [actionableRows, rowForms],
+  );
+
   useEffect(() => {
     if (!selectPageCheckboxRef.current) return;
     selectPageCheckboxRef.current.indeterminate = somePagedRowsSelected;
@@ -250,16 +265,9 @@ export default function SellpiaSync() {
     }
   }
 
-  async function approveSelected() {
-    if (bulkApprovableRows.length === 0) return;
-    const approvalRequests = bulkApprovableRows.map((item) => {
-      const form = rowForms[item.id] ?? rowReviewDefaults(item);
-      return {
-        item,
-        targetCurrentStock: toStock(form.targetCurrentStock, item.targetCurrentStock),
-        reason: cleanOptional(form.reason),
-      };
-    });
+  async function runApproval(
+    approvalRequests: Array<{ item: SellpiaStockSnapshotItem; targetCurrentStock: number; reason: string | undefined }>,
+  ): Promise<{ ok: number; fail: number } | null> {
     setBusyId('bulk');
     setError(null);
     setBulkMessage(null);
@@ -286,13 +294,54 @@ export default function SellpiaSync() {
         }),
       } : prev);
       setSelectedIds((prev) => new Set([...prev].filter((id) => !successIds.has(id))));
-      setBulkMessage(
-        `선택 처리 완료 승인 ${results.filter((row) => row.ok).length}건 · 실패 ${results.filter((row) => !row.ok).length}건 · 제외 ${bulkSkippedRows.length}건`,
-      );
+      return { ok: results.filter((row) => row.ok).length, fail: results.filter((row) => !row.ok).length };
     } catch (err) {
-      setError(err instanceof Error ? err.message : '선택 승인 실패');
+      setError(err instanceof Error ? err.message : '승인 실패');
+      return null;
     } finally {
       setBusyId(null);
+    }
+  }
+
+  async function approveSelected() {
+    if (bulkApprovableRows.length === 0) return;
+    const approvalRequests = bulkApprovableRows.map((item) => {
+      const form = rowForms[item.id] ?? rowReviewDefaults(item);
+      return {
+        item,
+        targetCurrentStock: toStock(form.targetCurrentStock, item.targetCurrentStock),
+        reason: cleanOptional(form.reason),
+      };
+    });
+    const summary = await runApproval(approvalRequests);
+    if (summary) {
+      setBulkMessage(`선택 처리 완료 승인 ${summary.ok}건 · 실패 ${summary.fail}건 · 제외 ${bulkSkippedRows.length}건`);
+    }
+  }
+
+  async function approveAll() {
+    const rows = fullSyncApprovableRows;
+    if (rows.length === 0) return;
+    const approvalRequests = rows.map((item) => {
+      const form = rowForms[item.id] ?? rowReviewDefaults(item);
+      const targetCurrentStock = toStock(form.targetCurrentStock, item.targetCurrentStock);
+      const reason =
+        cleanOptional(form.reason) ??
+        (requiresSellpiaRowReason(item, targetCurrentStock) ? DEFAULT_SYNC_REASON : undefined);
+      return { item, targetCurrentStock, reason };
+    });
+    const totalChange = approvalRequests.reduce(
+      (sum, request) => sum + Math.abs(request.targetCurrentStock - request.item.kiditemStockBefore),
+      0,
+    );
+    const confirmed = window.confirm(
+      `재고현황에 ${formatNumber(rows.length)}개 상품의 Sellpia 재고를 적용할까요?\n` +
+        `총 변동량 약 ${formatNumber(totalChange)}개. 큰 차이 항목은 "${DEFAULT_SYNC_REASON}" 사유로 기록됩니다.`,
+    );
+    if (!confirmed) return;
+    const summary = await runApproval(approvalRequests);
+    if (summary) {
+      setBulkMessage(`전체 적용 완료 승인 ${summary.ok}건 · 실패 ${summary.fail}건`);
     }
   }
 
@@ -479,6 +528,16 @@ export default function SellpiaSync() {
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-3">
               <div className="text-xs font-medium text-slate-500">선택 {formatNumber(selectedRows.length)}건</div>
               <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => void approveAll()}
+                  disabled={busyId !== null || fullSyncApprovableRows.length === 0}
+                  className="inline-flex items-center gap-1 rounded-md bg-purple-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+                  title="검토 대상 전부를 재고현황에 반영 (큰 차이 항목은 기본 사유 자동)"
+                >
+                  {busyId === 'bulk' ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                  전체 적용 {formatNumber(fullSyncApprovableRows.length)}
+                </button>
                 <button
                   type="button"
                   onClick={() => void approveSelected()}

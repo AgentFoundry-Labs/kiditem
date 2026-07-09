@@ -14,6 +14,7 @@ import {
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { RocketConfirmPanel } from './components/RocketConfirmPanel';
+import { BundleRegisterPanel } from './components/BundleRegisterPanel';
 import { RocketConfirmFileList } from './components/RocketConfirmFileList';
 import { RocketWeekCalendar, type RocketCalDay } from './components/RocketWeekCalendar';
 import { RocketMonthCalendar, type MonthDayData } from './components/RocketMonthCalendar';
@@ -278,6 +279,9 @@ export default function RocketOrdersPage() {
 
       {/* 발주확정 양식 생성 + 편집 미리보기 (입고예정일 다음 7일 기준) */}
       <RocketConfirmPanel onSaved={() => setFileRefreshKey((k) => k + 1)} />
+
+      {/* 묶음(번들) 등록 — 쿠팡 묶음 바코드 ↔ 셀피아 낱개 × N 연결 */}
+      <BundleRegisterPanel />
 
       {/* 필터 (입고예정일 기준) */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3">

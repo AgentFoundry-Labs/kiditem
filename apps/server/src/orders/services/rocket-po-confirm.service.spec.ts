@@ -40,6 +40,47 @@ describe('RocketPoConfirmService', () => {
     expect(result.matchedSkus).toBe(2);
   });
 
+  it('classifies unmatched rows as no_product or no_barcode and confirms them to 0', async () => {
+    const { service } = makeServiceWithAvailability(10);
+
+    const result = await service.previewConfirmRows(
+      [
+        sourceRow({ poNumber: 'PO-1', orderQty: 5 }), // BARCODE → matched
+        sourceRow({ poNumber: 'PO-2', barcode: '9999999999999', orderQty: 5 }), // 바코드는 있으나 상품 없음
+        sourceRow({ poNumber: 'PO-3', barcode: '', orderQty: 5 }), // 발주에 바코드 없음
+      ],
+      ORGANIZATION_ID,
+    );
+
+    expect(result.rows.map((row) => row.matchReason)).toEqual(['matched', 'no_product', 'no_barcode']);
+    expect(result.rows.map((row) => row.available)).toEqual([10, null, null]);
+    // 미매칭 행은 재고를 확인 못해 확정 0(품절)으로 내려간다.
+    expect(result.rows[1].confirmQty).toBe(0);
+    expect(result.rows[2].confirmQty).toBe(0);
+    expect(result.matchedSkus).toBe(1);
+    expect(result.shortRows).toBe(2);
+    expect(result.fullyConfirmed).toBe(1);
+  });
+
+  it('reads bundle availableStock (floor of component stock) for bundle options', async () => {
+    const { service } = makeServiceWithAvailability(0, [
+      { barcode: BARCODE, id: 'bundle-1', isBundle: true, availableStock: 20, inventory: null },
+    ]);
+
+    const result = await service.previewConfirmRows(
+      [sourceRow({ poNumber: 'PO-1', orderQty: 8 })],
+      ORGANIZATION_ID,
+    );
+
+    expect(result.rows[0].available).toBe(20);
+    expect(result.rows[0].confirmQty).toBe(8);
+    expect(result.rows[0].matchReason).toBe('matched');
+    // 번들은 자체 Inventory 가 없어 예약 커밋에서 제외됨
+    expect(result.rows[0].inventoryId).toBeUndefined();
+    expect(result.rows[0].optionId).toBe('bundle-1');
+    expect(result.matchedSkus).toBe(1);
+  });
+
   it('clamps edited confirm quantities to remaining available stock when generating files', async () => {
     const { service } = makeServiceWithAvailability(10);
 
@@ -87,7 +128,7 @@ describe('RocketPoConfirmService', () => {
   });
 
   it('upserts rocket purchase orders and daily snapshots from preview rows', async () => {
-    const { service, rocketPurchaseOrder, rocketSupplyDailySnapshot, transaction, queryRaw } = makeServiceWithAvailability(10);
+    const { service, rocketPurchaseOrder, rocketSupplyDailySnapshot, transaction, executeRaw } = makeServiceWithAvailability(10);
 
     await service.previewConfirmRows(
       [
@@ -142,7 +183,7 @@ describe('RocketPoConfirmService', () => {
       }),
     );
     expect(transaction).toHaveBeenCalledTimes(1);
-    expect(queryRaw).toHaveBeenCalledTimes(1);
+    expect(executeRaw).toHaveBeenCalledTimes(1);
     expect(rocketPurchaseOrder.findMany).toHaveBeenCalledWith({
       where: { organizationId: ORGANIZATION_ID, businessDate },
       select: { poSeq: true, orderAmount: true, orderQty: true },
@@ -166,14 +207,18 @@ describe('RocketPoConfirmService', () => {
   });
 });
 
-function makeServiceWithAvailability(available: number) {
-  const findMany = vi.fn().mockResolvedValue([
-    {
-      barcode: BARCODE,
-      id: 'option-1',
-      inventory: { id: 'inventory-1', currentStock: available, reservedStock: 0 },
-    },
-  ]);
+function makeServiceWithAvailability(available: number, optionRows?: unknown[]) {
+  const findMany = vi.fn().mockResolvedValue(
+    optionRows ?? [
+      {
+        barcode: BARCODE,
+        id: 'option-1',
+        isBundle: false,
+        availableStock: null,
+        inventory: { id: 'inventory-1', currentStock: available, reservedStock: 0 },
+      },
+    ],
+  );
   const rocketPurchaseOrder = {
     upsert: vi.fn().mockResolvedValue({}),
     findMany: vi.fn().mockResolvedValue([{ poSeq: 123456, orderAmount: 5000, orderQty: 5 }]),
@@ -181,12 +226,12 @@ function makeServiceWithAvailability(available: number) {
   const rocketSupplyDailySnapshot = {
     upsert: vi.fn().mockResolvedValue({}),
   };
-  const queryRaw = vi.fn().mockResolvedValue([]);
+  const executeRaw = vi.fn().mockResolvedValue(0);
   const prisma = {
     productOption: { findMany },
     rocketPurchaseOrder,
     rocketSupplyDailySnapshot,
-    $queryRaw: queryRaw,
+    $executeRaw: executeRaw,
   } as unknown as PrismaService;
   const transaction = vi.fn(async (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma));
   (prisma as unknown as { $transaction: typeof transaction }).$transaction = transaction;
@@ -196,7 +241,7 @@ function makeServiceWithAvailability(available: number) {
     rocketPurchaseOrder,
     rocketSupplyDailySnapshot,
     transaction,
-    queryRaw,
+    executeRaw,
   };
 }
 

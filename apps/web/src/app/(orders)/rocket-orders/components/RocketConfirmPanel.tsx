@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Download, Loader2, Package, Sparkles, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
@@ -14,6 +14,7 @@ import {
   previewRocketConfirm,
   type RocketConfirmCommitResult,
   type RocketComputedRow,
+  type RocketMatchReason,
 } from '../lib/rocket-confirm-api';
 import { saveRocketConfirmFile } from '../lib/rocket-confirm-file-store';
 
@@ -30,6 +31,71 @@ function plusDaysYmd(n: number) {
   const d = new Date();
   d.setDate(d.getDate() + n);
   return ymd(d);
+}
+
+/** 미매칭 재고 칸에 붙일 짧은 꼬리표 (왜 미매칭인지). */
+function unmatchedTag(reason?: RocketMatchReason): string {
+  if (reason === 'no_barcode') return '바코드없음';
+  if (reason === 'no_product') return '상품없음';
+  return '';
+}
+/** 미매칭 재고 칸 hover 시 안내 문구. */
+function unmatchedHint(reason?: RocketMatchReason): string {
+  if (reason === 'no_barcode') return '쿠팡 발주에 상품바코드가 없어 재고를 매칭할 수 없어요.';
+  if (reason === 'no_product')
+    return '이 바코드로 등록된 KidItem 상품이 없어요. 상품에 바코드를 연결하면 셀피아 재고가 잡힙니다.';
+  return '재고를 매칭하지 못했어요.';
+}
+
+/** 발주일시("YYYY-MM-DD HH:mm:ss")에서 날짜만. 없으면 '미정'. */
+function orderDateOf(r: RocketComputedRow): string {
+  const s = String(r.poRegisteredAt ?? '').slice(0, 10);
+  return s || '미정';
+}
+/** 입고예정일("YYYYMMDD" 컴팩트)을 "YYYY-MM-DD"로. */
+function fmtEta(r: RocketComputedRow): string {
+  const s = String(r.expectedInboundDate ?? '');
+  return /^\d{8}$/.test(s) ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}` : s || '—';
+}
+
+type PreviewItem =
+  | { type: 'header'; date: string; count: number; qty: number; amt: number; short: number }
+  | { type: 'row'; row: RocketComputedRow; index: number };
+
+/**
+ * 미리보기 행을 발주일(발주일시 날짜)별로 그룹핑한 표시용 리스트.
+ * ⭐setRows 원본은 재정렬하지 않는다(다운로드/커밋 순서·인덱스 유지). 표시용으로만 정렬하고,
+ * 편집(editRow)은 반드시 원본 index 를 넘긴다.
+ */
+function groupByOrderDate(rows: RocketComputedRow[]): PreviewItem[] {
+  const withIdx = rows.map((row, index) => ({ row, index }));
+  withIdx.sort((a, b) => {
+    const ka = orderDateOf(a.row) === '미정' ? '9999-99-99' : orderDateOf(a.row);
+    const kb = orderDateOf(b.row) === '미정' ? '9999-99-99' : orderDateOf(b.row);
+    if (ka !== kb) return ka < kb ? -1 : 1;
+    return a.index - b.index; // 안정: 같은 발주일 내 원래 순서 유지
+  });
+  const stats = new Map<string, { count: number; qty: number; amt: number; short: number }>();
+  for (const { row } of withIdx) {
+    const d = orderDateOf(row);
+    const s = stats.get(d) ?? { count: 0, qty: 0, amt: 0, short: 0 };
+    s.count += 1;
+    s.qty += row.confirmQty;
+    s.amt += (Number(row.purchasePrice) || 0) * row.confirmQty;
+    s.short += row.confirmQty < row.orderQty ? 1 : 0;
+    stats.set(d, s);
+  }
+  const items: PreviewItem[] = [];
+  let cur: string | null = null;
+  for (const { row, index } of withIdx) {
+    const d = orderDateOf(row);
+    if (d !== cur) {
+      cur = d;
+      items.push({ type: 'header', date: d, ...stats.get(d)! });
+    }
+    items.push({ type: 'row', row, index });
+  }
+  return items;
 }
 
 export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
@@ -141,11 +207,19 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
     ? rows.reduce(
         (acc, r) => {
           const amt = (Number(r.purchasePrice) || 0) * r.confirmQty;
-          return { qty: acc.qty + r.confirmQty, amt: acc.amt + amt, short: acc.short + (r.confirmQty < r.orderQty ? 1 : 0) };
+          return {
+            qty: acc.qty + r.confirmQty,
+            amt: acc.amt + amt,
+            short: acc.short + (r.confirmQty < r.orderQty ? 1 : 0),
+            unmatched: acc.unmatched + (r.available === null ? 1 : 0),
+          };
         },
-        { qty: 0, amt: 0, short: 0 },
+        { qty: 0, amt: 0, short: 0, unmatched: 0 },
       )
     : null;
+
+  // 발주일별 그룹 + 소계 (표시 전용 — 원본 rows 순서는 유지, 편집은 원본 index 로)
+  const previewItems = useMemo(() => (rows ? groupByOrderDate(rows) : []), [rows]);
 
   return (
     <div className="space-y-3">
@@ -233,6 +307,11 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
                   확정 <b className="tabular-nums text-slate-900">{formatNumber(confirmTotals.qty)}</b>개 · 부족{' '}
                   <b className="tabular-nums text-amber-600">{confirmTotals.short}</b>행 · 금액{' '}
                   <b className="tabular-nums text-purple-700">{formatKRW(confirmTotals.amt)}</b>원
+                  {confirmTotals.unmatched > 0 && (
+                    <>
+                      {' '}· 미매칭 <b className="tabular-nums text-red-500">{confirmTotals.unmatched}</b>행
+                    </>
+                  )}
                 </span>
               )}
               <button
@@ -261,6 +340,13 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
               </button>
             </div>
           </div>
+          {confirmTotals && confirmTotals.unmatched > 0 && (
+            <div className="border-b border-red-100 bg-red-50 px-5 py-2 text-xs text-red-700">
+              미매칭 <b className="tabular-nums">{confirmTotals.unmatched}</b>행 — 재고를 확인하지 못해{' '}
+              <b>확정수량 0(품절)</b>으로 내려갑니다. 셀피아에 재고가 있어도 상품에{' '}
+              <b>바코드가 연결</b>돼 있지 않으면 잡히지 않아요. 상품 바코드 연결을 확인하세요.
+            </div>
+          )}
           {commitResult && (
             <div className="border-b border-emerald-100 bg-emerald-50 px-5 py-2 text-xs text-emerald-800">
               예약 신규 <b className="tabular-nums">{commitResult.reservedRows}</b> · 중복{' '}
@@ -279,6 +365,7 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
               <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500">
                 <tr>
                   <th className="px-3 py-2 text-left font-semibold">발주번호</th>
+                  <th className="px-3 py-2 text-left font-semibold">입고예정일</th>
                   <th className="px-3 py-2 text-left font-semibold">상품 (바코드)</th>
                   <th className="px-3 py-2 text-right font-semibold">발주</th>
                   <th className="px-3 py-2 text-right font-semibold">재고</th>
@@ -287,11 +374,28 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r, i) => {
+                {previewItems.map((item) => {
+                  if (item.type === 'header') {
+                    return (
+                      <tr key={`h-${item.date}`} className="border-t border-slate-200 bg-slate-100/70">
+                        <td colSpan={7} className="px-3 py-1.5 text-xs font-semibold text-slate-700">
+                          발주일 {item.date}
+                          <span className="ml-1 font-normal text-slate-400">
+                            · {formatNumber(item.count)}행 · 확정 {formatNumber(item.qty)}개 · 부족{' '}
+                            <b className="text-amber-600">{item.short}</b>행 · 금액{' '}
+                            <b className="text-purple-700">{formatKRW(item.amt)}</b>원
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  }
+                  const r = item.row;
+                  const i = item.index;
                   const short = r.confirmQty < r.orderQty;
                   return (
                     <tr key={`${r.poNumber}-${r.barcode}-${i}`} className={cn('border-t border-slate-100', short && 'bg-amber-50/40')}>
                       <td className="px-3 py-1.5 font-mono text-[11px] text-slate-500">{r.poNumber}</td>
+                      <td className="whitespace-nowrap px-3 py-1.5 text-[11px] text-slate-500">{fmtEta(r)}</td>
                       <td className="max-w-[260px] px-3 py-1.5">
                         <div className="truncate text-slate-700">
                           <Package size={11} className="mr-1 inline text-purple-400" />
@@ -302,9 +406,19 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
                       <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{formatNumber(r.orderQty)}</td>
                       <td className="px-3 py-1.5 text-right tabular-nums">
                         {r.available === null ? (
-                          <span className="text-[11px] text-red-400">미매칭</span>
+                          <span
+                            className="inline-flex flex-col items-end leading-tight"
+                            title={unmatchedHint(r.matchReason)}
+                          >
+                            <span className="text-[11px] font-medium text-red-500">미매칭</span>
+                            {unmatchedTag(r.matchReason) && (
+                              <span className="text-[9px] text-red-400">{unmatchedTag(r.matchReason)}</span>
+                            )}
+                          </span>
                         ) : (
-                          <span className="text-slate-500">{formatNumber(r.available)}</span>
+                          <span className={cn(r.available === 0 ? 'font-medium text-amber-600' : 'text-slate-500')}>
+                            {formatNumber(r.available)}
+                          </span>
                         )}
                       </td>
                       <td className="px-3 py-1.5 text-right">

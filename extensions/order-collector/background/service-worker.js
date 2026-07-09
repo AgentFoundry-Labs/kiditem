@@ -95,6 +95,7 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
         art09Orders: true,
         collectRocketPoRows: true,
         listRocketPos: true,
+        collectCoupangProducts: true,
       },
     });
     return false;
@@ -185,6 +186,18 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
         sendResponse({
           success: false,
           error: error?.message || "로켓 발주 목록 조회 실패",
+        });
+      });
+    return true;
+  }
+
+  if (msg?.action === "collectCoupangProducts") {
+    collectCoupangProducts()
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({
+          success: false,
+          error: error?.message || "쿠팡 상품목록 조회 실패",
         });
       });
     return true;
@@ -457,7 +470,7 @@ async function clickCoupangShipmentDownloads(options) {
 
 // ── 로켓 발주확정: 발주리스트(거래처확인요청) + 상세를 풀컬럼 스크래핑 ──
 async function collectRocketPoRows({ from, to }) {
-  const tab = await findOrCreateCoupangSupplierTab();
+  const tab = await findCoupangSupplierTabBg();
   if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
   await waitForTabReady(tab.id);
 
@@ -481,7 +494,7 @@ async function collectRocketPoRows({ from, to }) {
 
 // ── 로켓 발주 목록(PO 단위, SKU 상세 없이) — 화면 리스트용 빠른 조회 ──
 async function listRocketPos({ from, to, status }) {
-  const tab = await findOrCreateCoupangSupplierTab();
+  const tab = await findCoupangSupplierTabBg();
   if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
   await waitForTabReady(tab.id);
 
@@ -563,6 +576,110 @@ async function scrapeRocketPoList(from, to, statusCode) {
     return { success: true, pos: out };
   } catch (e) {
     return { success: false, error: (e && e.message) || "로켓 발주 목록 조회 실패" };
+  }
+}
+
+// 쿠팡 supplier 상품(SKU) 목록 수집 — 발주 리스트와 동일 패턴(supplier 탭 same-origin fetch).
+async function collectCoupangProducts() {
+  const tab = await findCoupangSupplierTabBg();
+  if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
+  // vendorSearch 페이지네이션(+페이지 텀)으로 길다. MV3 서비스워커 유휴 종료(=message port closed) 방지 keepalive.
+  const keepAlive = setInterval(() => {
+    chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
+  }, 20000);
+  try {
+    await waitForTabReady(tab.id);
+    const injected = await withTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: scrapeCoupangProducts,
+      }),
+      160000,
+      "쿠팡 상품목록 조회 시간이 초과되었습니다.",
+    );
+    return (
+      injected[0]?.result ?? {
+        success: false,
+        error: "supplier 화면에 접근하지 못했습니다.",
+      }
+    );
+  } catch (e) {
+    if (isMallAccessError(e)) {
+      await bringMallTabToFront(tab.id);
+      return mallAccessErrorResult("쿠팡 supplier");
+    }
+    return mallGenericErrorResult("쿠팡 상품목록", e);
+  } finally {
+    clearInterval(keepAlive);
+  }
+}
+
+// supplier 페이지 컨텍스트: /qvt/v2/wims/vendorSearch 를 페이지네이션하며 전체 상품(바코드·상품명·skuId) 수집.
+// registerDate 기준 필터라 전체를 받기 위해 넓은 범위(2018 ~ 내일)로 조회한다.
+async function scrapeCoupangProducts() {
+  try {
+    const clean = (s, n) =>
+      (s || "").replace(new RegExp("[\\u0000-\\u001F]", "g"), " ").replace(/\s+/g, " ").trim().slice(0, n || 200);
+    const startDate = String(Date.UTC(2018, 0, 1));
+    const endDate = String(Date.now() + 86400000);
+    const body = (page) => ({
+      startDate,
+      endDate,
+      conditions: {
+        vendorId: "", state: "", skuId: "", sourcingChannelId: "",
+        quotationId: "", estimationId: "", progress: "",
+        productName: "", categoryCode: "", barcode: "", isReplyNeeded: false,
+      },
+      page,
+      sizePerPage: 50,
+    });
+    const out = [];
+    const seen = new Set();
+    for (let p = 1; p <= 200; p++) {
+      // 페이지 간 텀 — 쿠팡 봇탐지(Akamai) 완화. 첫 페이지는 지연 없음.
+      if (p > 1) await new Promise((r) => setTimeout(r, 400));
+      const res = await fetch("/qvt/v2/wims/vendorSearch", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify(body(p)),
+      });
+      const text = await res.text();
+      if (!res.ok || text.trim().charAt(0) === "<") {
+        if (p === 1)
+          return {
+            success: false,
+            error: "쿠팡 supplier 로그인이 필요합니다. supplier.coupang.com 에 로그인한 뒤 다시 시도하세요.",
+          };
+        break;
+      }
+      let j;
+      try {
+        j = JSON.parse(text);
+      } catch (e) {
+        if (p === 1) return { success: false, error: "상품목록 응답을 해석하지 못했습니다 (supplier 로그인/세션 확인)." };
+        break;
+      }
+      const items = (j && j.items) || [];
+      for (const it of items) {
+        const barcode = String(it.barcode || "").trim();
+        const key = barcode || String(it.skuId || "") || String(it.vendorItemId || "");
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        out.push({
+          barcode,
+          productName: clean(it.productName, 200),
+          skuId: String(it.skuId || ""),
+          vendorItemId: String(it.vendorItemId || ""),
+          state: String(it.state || ""),
+        });
+      }
+      const nav = (j && j.pageNavigator) || {};
+      if (!items.length || p >= (nav.totalPages || 1)) break;
+    }
+    return { success: true, products: out };
+  } catch (e) {
+    return { success: false, error: (e && e.message) || "쿠팡 상품목록 조회 실패" };
   }
 }
 
@@ -687,6 +804,14 @@ async function findOrCreateCoupangSupplierTab() {
     return chrome.tabs.get(tabs[0].id);
   }
   return chrome.tabs.create({ url: COUPANG_SHIPMENT_URL, active: true });
+}
+
+// PO/상품 수집용 — same-origin fetch 만 하면 되므로 기존 supplier 탭을 앞으로 가져오거나 이동하지 않는다.
+// (findOrCreateCoupangSupplierTab 는 쉽먼트 페이지로 이동+active:true 라 사용자 화면이 쿠팡으로 넘어감. 수집은 백그라운드.)
+async function findCoupangSupplierTabBg() {
+  const tabs = await chrome.tabs.query({ url: COUPANG_SUPPLIER_TAB_MATCHES });
+  if (tabs[0]?.id) return tabs[0]; // 기존 supplier 탭 그대로 사용 — 활성화/이동 안 함(화면 안 넘어감)
+  return chrome.tabs.create({ url: "https://supplier.coupang.com/", active: false }); // 없으면 백그라운드 새 탭
 }
 
 // ── 꼬망세(EduPre) 주문 수집: 입점관리자 "선택엑셀다운"(get_search_excel) xlsx export 를 fetch ──

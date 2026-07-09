@@ -41,6 +41,7 @@ describe('data migration registry', () => {
       'v0.1.4:001_record_agent_os_operator_backbone_release',
       'v0.1.6:001_record_rocket_read_model_release',
       'v0.1.7:001_record_sellpia_rocket_inventory_sync_release',
+      'v0.1.8:001_backfill_product_barcodes_from_sellpia',
     ]);
   });
 

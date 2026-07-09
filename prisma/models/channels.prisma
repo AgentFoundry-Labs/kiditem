@@ -380,6 +380,36 @@ model RocketPurchaseOrder {
 }
 
 /// @namespace Channels
+/// @describe 쿠팡 로켓 supplier 등록 상품(vendorSearch) 카탈로그 + KidItem 매칭/번들 연결 상태.
+/// 로켓 발주확정용 묶음↔낱개 매핑 전용(일반 채널 주문동기화 ChannelListing 과 별개).
+model CoupangProductListing {
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
+  skuId           String   @map("sku_id") // 쿠팡 상품 고유(dedup 키)
+  barcode         String? // 쿠팡 바코드(묶음이면 새 바코드 B)
+  vendorItemId    String?  @map("vendor_item_id")
+  productName     String   @map("product_name")
+  normalizedName  String   @map("normalized_name") // 수량("N개입")·노이즈 제거, 가격(앞자리) 보존 — 이름매칭 키
+  packQty         Int?     @map("pack_qty") // 이름에서 파싱한 입수량(묶음이면 N, 낱개면 null)
+  category        String?
+  state           String? // 쿠팡 상품 상태(INSPECTION_COMPLETE 등)
+  matchStatus     String   @default("unmatched") // unmatched | suggested | linked | bundled | ignored
+  matchedOptionId String?  @map("matched_option_id") @db.Uuid // 이름매칭된 KidItem 단품 옵션(연결 후보)
+  bundleOptionId  String?  @map("bundle_option_id") @db.Uuid // 연결완료된 번들 옵션
+  syncedAt        DateTime @map("synced_at") @db.Timestamptz
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, skuId])
+  @@index([organizationId])
+  @@index([organizationId, matchStatus])
+  @@index([organizationId, barcode])
+  @@map("coupang_product_listings")
+}
+
+/// @namespace Channels
 /// @describe 채널-KidItem 상품 매칭 스캔 실행 이력. 실제 연결 source of truth 는 ChannelListing / ChannelListingOption.
 model ChannelReconciliationRun {
   id             String @id @default(uuid()) @db.Uuid

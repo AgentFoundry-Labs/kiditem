@@ -16,6 +16,8 @@ import { ReturnTransfersController } from './return-transfers/return-transfers.c
 import { ReturnTransfersService } from './return-transfers/return-transfers.service';
 import { RocketPoController } from './controllers/rocket-po.controller';
 import { RocketPoConfirmService } from './services/rocket-po-confirm.service';
+import { CoupangCatalogController } from './controllers/coupang-catalog.controller';
+import { CoupangCatalogService } from './services/coupang-catalog.service';
 import { ChannelsModule } from '../channels/channels.module';
 import { InventoryModule } from '../inventory/inventory.module';
 
@@ -30,6 +32,7 @@ import { InventoryModule } from '../inventory/inventory.module';
     ReviewsController,
     ReturnTransfersController,
     RocketPoController,
+    CoupangCatalogController,
   ],
   providers: [
     OrdersService,
@@ -41,6 +44,7 @@ import { InventoryModule } from '../inventory/inventory.module';
     ReviewsService,
     ReturnTransfersService,
     RocketPoConfirmService,
+    CoupangCatalogService,
   ],
 })
 export class OrdersModule {}
