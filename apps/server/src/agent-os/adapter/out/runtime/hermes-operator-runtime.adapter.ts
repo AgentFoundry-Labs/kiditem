@@ -2,6 +2,10 @@ import { spawn } from 'node:child_process';
 import { Injectable, Optional } from '@nestjs/common';
 import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
 import { HermesRuntimeProfileService } from './hermes-runtime-profile.service';
+import {
+  parseHermesRuntimeOutput,
+  type HermesTranscriptEvent,
+} from './hermes-runtime-output';
 
 const DEFAULT_HERMES_PATH = 'hermes';
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -59,11 +63,6 @@ const SECRET_INPUT_ENV_PATTERNS = [
 ] as const;
 const ENV_ASSIGNMENT_PATTERN =
   /\b([A-Z][A-Z0-9_]*)=("[^"]*"|'[^']*'|[^\s]+)/g;
-const HERMES_STDOUT_METADATA_PATTERNS = [
-  /^session_id:\s*\S+/i,
-  /^⚠\s+tirith security scanner enabled\b/i,
-] as const;
-
 export interface HermesProcessStartInput {
   command: string;
   args: string[];
@@ -103,6 +102,7 @@ export interface HermesOperatorRuntimeInput {
   timeoutMs?: number;
   model?: string;
   provider?: string;
+  resumeSessionId?: string | null;
   toolsets?: string[];
   env?: Record<string, string>;
   enableKidItemMcp?: boolean;
@@ -113,6 +113,12 @@ export interface HermesOperatorRuntimeResult {
   rawOutput: string;
   stderr: string;
   durationMs: number;
+  sessionId?: string | null;
+  inputTokens?: number;
+  outputTokens?: number;
+  cachedInputTokens?: number;
+  costMicros?: bigint;
+  transcriptEvents?: HermesTranscriptEvent[];
 }
 
 let activeHermesRuns = 0;
@@ -187,16 +193,6 @@ function capOutput(value: string, maxBytes = maxOutputBytes()): string {
     return value;
   }
   return capBufferOutput(buffer, maxBytes);
-}
-
-function normalizeHermesStdout(value: string): string {
-  const lines = value.split(/\r?\n/).filter((line) => {
-    const trimmed = line.trim();
-    return !HERMES_STDOUT_METADATA_PATTERNS.some((pattern) =>
-      pattern.test(trimmed),
-    );
-  });
-  return lines.join('\n').trim();
 }
 
 class CappedUtf8OutputBuffer {
@@ -470,6 +466,7 @@ export class HermesOperatorRuntimeAdapter {
         profileToolsets: profile.toolsets,
       });
       const provider = stringField(input.provider);
+      const resumeSessionId = stringField(input.resumeSessionId);
       const args = [
         'chat',
         '-q',
@@ -481,6 +478,9 @@ export class HermesOperatorRuntimeAdapter {
         '-Q',
         '--ignore-rules',
       ];
+      if (resumeSessionId) {
+        args.push('--resume', resumeSessionId);
+      }
       if (provider) {
         args.push('--provider', provider);
       }
@@ -505,8 +505,13 @@ export class HermesOperatorRuntimeAdapter {
       activeHermesRuns -= 1;
     }
 
-    const stdout = normalizeHermesStdout(capOutput(result.stdout));
     const stderr = capOutput(result.stderr);
+    const parsed = parseHermesRuntimeOutput({
+      stdout: capOutput(result.stdout),
+      stderr,
+      durationMs: result.durationMs,
+    });
+    const stdout = parsed.finalText;
 
     if (isTimedOut(result)) {
       throw new AgentOsRuntimeError(
@@ -534,6 +539,12 @@ export class HermesOperatorRuntimeAdapter {
       rawOutput: stdout,
       stderr,
       durationMs: result.durationMs,
+      sessionId: parsed.sessionId,
+      inputTokens: parsed.usage.inputTokens,
+      outputTokens: parsed.usage.outputTokens,
+      cachedInputTokens: parsed.usage.cachedInputTokens,
+      costMicros: parsed.usage.costMicros,
+      transcriptEvents: parsed.transcriptEvents,
     };
   }
 }

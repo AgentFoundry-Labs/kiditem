@@ -166,7 +166,79 @@ describe('HermesOperatorRuntimeAdapter', () => {
       rawOutput: '{"decisionType":"ask_user"}',
       stderr: 'diagnostic output',
       durationMs: 42,
+      sessionId: null,
+      inputTokens: undefined,
+      outputTokens: undefined,
+      cachedInputTokens: undefined,
+      costMicros: undefined,
+      transcriptEvents: [
+        {
+          type: 'assistant',
+          message: '{"decisionType":"ask_user"}',
+          data: { line: 1, durationMs: 42 },
+        },
+      ],
     });
+  });
+
+  it('returns parsed session id, token usage, and cost metadata', async () => {
+    const runner = makeRunner(
+      successfulResult(
+        [
+          'session_id: hermes-session-999',
+          '{"type":"token_usage","input_tokens":41,"output_tokens":9,"cached_input_tokens":3,"cost_micros":"1200"}',
+          '{"decisionType":"delegate","targetAgentType":"sourcing"}',
+        ].join('\n'),
+      ),
+    );
+    const adapter = makeAdapter(runner);
+
+    const result = await adapter.decide(baseInput);
+
+    expect(result).toEqual({
+      provider: 'hermes',
+      rawOutput: '{"decisionType":"delegate","targetAgentType":"sourcing"}',
+      stderr: 'diagnostic output',
+      durationMs: 42,
+      sessionId: 'hermes-session-999',
+      inputTokens: 41,
+      outputTokens: 9,
+      cachedInputTokens: 3,
+      costMicros: 1200n,
+      transcriptEvents: [
+        {
+          type: 'assistant',
+          message: '{"decisionType":"delegate","targetAgentType":"sourcing"}',
+          data: { line: 3, durationMs: 42 },
+        },
+      ],
+    });
+  });
+
+  it('passes --resume when a Hermes session id is available', async () => {
+    const runner = makeRunner();
+    const adapter = makeAdapter(runner);
+
+    await adapter.decide({
+      ...baseInput,
+      resumeSessionId: 'hermes-session-existing',
+    });
+
+    expect(runner.calls[0]?.args).toEqual([
+      'chat',
+      '-q',
+      'Return strict JSON only.',
+      '--model',
+      'anthropic/claude-sonnet-4',
+      '--toolsets',
+      'skills',
+      '-Q',
+      '--ignore-rules',
+      '--resume',
+      'hermes-session-existing',
+      '--provider',
+      'openai-codex',
+    ]);
   });
 
   it('fails closed when KidItem MCP is mixed with other Hermes toolsets', async () => {
