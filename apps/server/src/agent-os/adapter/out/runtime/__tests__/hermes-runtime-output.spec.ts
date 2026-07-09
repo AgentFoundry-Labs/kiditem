@@ -57,4 +57,33 @@ describe('parseHermesRuntimeOutput', () => {
     expect(parsed.usage).toEqual({});
     expect(parsed.finalText).toBe('{"decisionType":"ask_user","message":"승인할까요?"}');
   });
+
+  it('reads session id and usage metadata from stderr without promoting stderr text to final text', () => {
+    const parsed = parseHermesRuntimeOutput({
+      stdout: 'Operator finished.',
+      stderr: [
+        'session_id: hermes-session-stderr',
+        '{"type":"usage","input_tokens":8,"output_tokens":2,"cached_input_tokens":1,"cost_micros":"44"}',
+        'diagnostic output that should stay out of final text',
+      ].join('\n'),
+    });
+
+    expect(parsed).toEqual({
+      finalText: 'Operator finished.',
+      sessionId: 'hermes-session-stderr',
+      usage: {
+        inputTokens: 8,
+        outputTokens: 2,
+        cachedInputTokens: 1,
+        costMicros: 44n,
+      },
+      transcriptEvents: [
+        {
+          type: 'assistant',
+          message: 'Operator finished.',
+          data: { line: 1 },
+        },
+      ],
+    });
+  });
 });

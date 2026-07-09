@@ -215,6 +215,43 @@ describe('HermesOperatorRuntimeAdapter', () => {
     });
   });
 
+  it('returns stderr metadata without treating stderr text as final output', async () => {
+    const runner = makeRunner({
+      ...successfulResult('Operator finished.'),
+      stderr: [
+        'session_id: hermes-session-stderr',
+        '{"type":"token_usage","input_tokens":5,"output_tokens":2,"cached_input_tokens":1,"cost_micros":"17"}',
+        'diagnostic output that should stay out of final text',
+      ].join('\n'),
+    });
+    const adapter = makeAdapter(runner);
+
+    const result = await adapter.decide(baseInput);
+
+    expect(result).toEqual({
+      provider: 'hermes',
+      rawOutput: 'Operator finished.',
+      stderr: [
+        'session_id: hermes-session-stderr',
+        '{"type":"token_usage","input_tokens":5,"output_tokens":2,"cached_input_tokens":1,"cost_micros":"17"}',
+        'diagnostic output that should stay out of final text',
+      ].join('\n'),
+      durationMs: 42,
+      sessionId: 'hermes-session-stderr',
+      inputTokens: 5,
+      outputTokens: 2,
+      cachedInputTokens: 1,
+      costMicros: 17n,
+      transcriptEvents: [
+        {
+          type: 'assistant',
+          message: 'Operator finished.',
+          data: { line: 1, durationMs: 42 },
+        },
+      ],
+    });
+  });
+
   it('passes --resume when a Hermes session id is available', async () => {
     const runner = makeRunner();
     const adapter = makeAdapter(runner);

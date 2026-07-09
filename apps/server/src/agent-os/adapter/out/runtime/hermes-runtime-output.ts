@@ -122,7 +122,11 @@ export function parseHermesRuntimeOutput(input: {
   const finalLines: string[] = [];
   const transcriptEvents: HermesTranscriptEvent[] = [];
 
-  input.stdout.split(/\r?\n/).forEach((line, index) => {
+  const parseLine = (
+    line: string,
+    index: number,
+    options: { collectFinalText: boolean; collectTranscript: boolean },
+  ): void => {
     const trimmed = line.trim();
     if (!trimmed) return;
     if (SECURITY_SCANNER_PATTERN.test(trimmed)) return;
@@ -156,16 +160,20 @@ export function parseHermesRuntimeOutput(input: {
             ? jsonObject.content
             : null;
       if (eventType && message) {
-        transcriptEvents.push({
-          type: eventType,
-          message,
-          data: { ...jsonObject, line: index + 1 },
-        });
-        if (eventType !== 'assistant') return;
+        if (options.collectTranscript) {
+          transcriptEvents.push({
+            type: eventType,
+            message,
+            data: { ...jsonObject, line: index + 1 },
+          });
+        }
+        if (eventType !== 'assistant' || !options.collectFinalText) return;
         finalLines.push(message);
         return;
       }
     }
+
+    if (!options.collectFinalText || !options.collectTranscript) return;
 
     finalLines.push(line);
     transcriptEvents.push({
@@ -176,6 +184,14 @@ export function parseHermesRuntimeOutput(input: {
         ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
       },
     });
+  };
+
+  input.stdout.split(/\r?\n/).forEach((line, index) => {
+    parseLine(line, index, { collectFinalText: true, collectTranscript: true });
+  });
+
+  (input.stderr ?? '').split(/\r?\n/).forEach((line, index) => {
+    parseLine(line, index, { collectFinalText: false, collectTranscript: false });
   });
 
   return {
