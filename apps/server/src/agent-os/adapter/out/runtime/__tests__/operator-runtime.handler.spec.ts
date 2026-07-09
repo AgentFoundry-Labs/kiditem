@@ -269,6 +269,40 @@ describe('OperatorRuntimeHandler', () => {
     });
   });
 
+  it('resumes and persists Hermes session ids for direct Operator turns', async () => {
+    process.env.AGENT_OS_OPERATOR_RUNTIME = 'hermes';
+    const { handler, hermesRuntime, repository } = makeHandler();
+    vi.mocked(hermesRuntime.decide).mockResolvedValue({
+      provider: 'hermes',
+      rawOutput: '{"decisionType":"delegate"}',
+      stderr: '',
+      durationMs: 42,
+      sessionId: 'hermes-session-direct-next',
+    });
+
+    await handler.execute(runtimeContext());
+
+    expect(hermesRuntime.decide).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resumeSessionId: 'hermes-session-existing',
+      }),
+    );
+    expect(repository.updateTaskSessionMetadata).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      taskSessionId: 'session-1',
+      metadata: { runtimeThreadId: 'hermes-session-direct-next' },
+    });
+    expect(repository.appendRunEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'operator.runtime_completed',
+        data: expect.objectContaining({
+          provider: 'hermes',
+          sessionId: 'hermes-session-direct-next',
+        }),
+      }),
+    );
+  });
+
   it('uses Hermes tool-loop runtime and trusts only KidItem finalization events', async () => {
     process.env.AGENT_OS_OPERATOR_RUNTIME = 'hermes_tool_loop';
     process.env.AGENT_OS_HERMES_MODEL = 'gpt-5.5';
