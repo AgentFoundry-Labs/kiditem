@@ -28,6 +28,7 @@ export function AgentCommandBar({
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        aria-label="에이전트 명령 입력"
         className="h-10 min-w-0 flex-1 rounded-md border border-[var(--border)] bg-[var(--surface-sunken)] px-3 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--primary)]"
         placeholder="직원에게 요청하기"
       />

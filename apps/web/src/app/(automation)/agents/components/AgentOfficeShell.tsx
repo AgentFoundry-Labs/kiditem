@@ -30,7 +30,9 @@ export function AgentOfficeShell({
   onRefresh: () => void;
 }) {
   const selectedNode =
-    model.nodes.find((node) => node.id === selectedNodeId) ?? model.nodes[0] ?? null;
+    selectedNodeId === null
+      ? null
+      : model.nodes.find((node) => node.id === selectedNodeId) ?? null;
 
   return (
     <div className="flex min-h-[calc(100vh-88px)] flex-col bg-[var(--surface)]">
@@ -56,7 +58,7 @@ export function AgentOfficeShell({
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[1fr_320px]">
         <AgentOfficeMap
           nodes={model.nodes}
-          selectedNodeId={selectedNode?.id ?? null}
+          selectedNodeId={selectedNodeId}
           onSelectNode={onSelectNode}
         />
         <AgentInspector node={selectedNode} />

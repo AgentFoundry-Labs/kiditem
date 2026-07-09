@@ -12,6 +12,18 @@ const STATUS_CLASS = {
   offline: 'border-slate-300 bg-slate-100 text-slate-500',
 } satisfies Record<AgentOfficeNodeModel['status'], string>;
 
+function nodePositionStyle(x: number, y: number) {
+  if (x <= 25) {
+    return { left: `${x}%`, top: `${y}%`, marginLeft: '0px', marginTop: '-37px' };
+  }
+
+  if (x >= 75) {
+    return { left: `${x}%`, top: `${y}%`, marginLeft: '-142px', marginTop: '-37px' };
+  }
+
+  return { left: `${x}%`, top: `${y}%`, marginLeft: '-71px', marginTop: '-37px' };
+}
+
 function StatusIcon({ status }: { status: AgentOfficeNodeModel['status'] }) {
   if (status === 'blocked') return <CircleAlert size={14} />;
   if (status === 'waiting') return <Clock3 size={14} />;
@@ -34,11 +46,11 @@ export function AgentOfficeNode({
       aria-pressed={selected}
       onClick={() => onSelect(node.id)}
       className={cn(
-        'absolute flex h-[74px] w-[142px] -translate-x-1/2 -translate-y-1/2 items-center gap-2 rounded-md border px-3 text-left shadow-sm transition hover:-translate-y-[53%] hover:shadow-md',
+        'absolute flex h-[74px] w-[142px] items-center gap-2 rounded-md border px-3 text-left shadow-sm transition hover:-translate-y-1 hover:shadow-md',
         STATUS_CLASS[node.status],
         selected && 'ring-2 ring-[var(--primary)] ring-offset-2',
       )}
-      style={{ left: `${node.x}%`, top: `${node.y}%` }}
+      style={nodePositionStyle(node.x, node.y)}
     >
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/80">
         <StatusIcon status={node.status} />

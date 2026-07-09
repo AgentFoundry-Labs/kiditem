@@ -19,6 +19,19 @@ describe('AgentCommandBar', () => {
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
+  it('exposes an accessible name on the command input', () => {
+    render(
+      <AgentCommandBar
+        value=""
+        pending={false}
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('textbox', { name: '에이전트 명령 입력' })).toBeInTheDocument();
+  });
+
   it('disables submit while blank or pending', () => {
     const { rerender } = render(
       <AgentCommandBar value=" " pending={false} onChange={vi.fn()} onSubmit={vi.fn()} />,
