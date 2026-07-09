@@ -23,6 +23,35 @@ const EMPTY_MODEL: AgentOfficeViewModel = {
   },
 };
 
+function conversationTime(value: {
+  lastMessageAt: string | null;
+  updatedAt: string;
+  createdAt: string;
+}): number {
+  return Date.parse(value.lastMessageAt ?? value.updatedAt ?? value.createdAt);
+}
+
+function preferredConversationId(
+  conversations: Array<{
+    id: string;
+    status: string;
+    lastMessageAt: string | null;
+    updatedAt: string;
+    createdAt: string;
+  }>,
+): string | null {
+  if (conversations.length === 0) return null;
+
+  const active = conversations
+    .filter((conversation) => conversation.status === 'active')
+    .sort((a, b) => conversationTime(b) - conversationTime(a));
+
+  if (active[0]) return active[0].id;
+
+  return [...conversations].sort((a, b) => conversationTime(b) - conversationTime(a))[0]
+    ?.id ?? null;
+}
+
 function shouldPoll(statuses: string[]): boolean {
   return statuses.some((status) =>
     ['running', 'pending', 'claimed', 'requires_approval'].includes(status),
@@ -110,6 +139,13 @@ export function useAgentOffice() {
     },
   });
 
+  const resolvedConversationId = useMemo(
+    () =>
+      conversationId ??
+      preferredConversationId(conversationsQuery.data?.items ?? []),
+    [conversationId, conversationsQuery.data],
+  );
+
   const model = useMemo(() => {
     if (!instancesQuery.data) return EMPTY_MODEL;
 
@@ -142,13 +178,27 @@ export function useAgentOffice() {
     const content = command.trim();
     if (!content) return;
 
-    if (conversationId) {
-      sendMessage.mutate({ conversationId, content });
+    if (resolvedConversationId) {
+      sendMessage.mutate({ conversationId: resolvedConversationId, content });
       return;
     }
 
     createConversation.mutate(content);
   };
+
+  const initialQueries = [
+    instancesQuery,
+    runsQuery,
+    requestsQuery,
+    approvalsQuery,
+    conversationsQuery,
+    costQuery,
+    authorizationQuery,
+  ];
+
+  const isInitialLoadPending = initialQueries.some(
+    (query) => query.isPending && query.data === undefined && query.error == null,
+  );
 
   return {
     model,
@@ -158,7 +208,7 @@ export function useAgentOffice() {
     setCommand,
     submitCommand,
     commandPending: createConversation.isPending || sendMessage.isPending,
-    isPending: instancesQuery.isPending,
+    isPending: isInitialLoadPending,
     isFetching:
       instancesQuery.isFetching ||
       runsQuery.isFetching ||
