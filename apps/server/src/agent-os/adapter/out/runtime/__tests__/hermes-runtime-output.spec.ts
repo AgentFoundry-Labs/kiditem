@@ -86,4 +86,38 @@ describe('parseHermesRuntimeOutput', () => {
       ],
     });
   });
+
+  it('preserves structured stderr transcript events while keeping stderr text out of final text', () => {
+    const parsed = parseHermesRuntimeOutput({
+      stdout: 'Operator finished.',
+      stderr: [
+        '{"type":"tool","message":"calling hermes tool"}',
+        '{"type":"error","message":"tool failed"}',
+        'diagnostic output that should stay out of final text',
+      ].join('\n'),
+    });
+
+    expect(parsed).toEqual({
+      finalText: 'Operator finished.',
+      sessionId: null,
+      usage: {},
+      transcriptEvents: [
+        {
+          type: 'assistant',
+          message: 'Operator finished.',
+          data: { line: 1 },
+        },
+        {
+          type: 'tool',
+          message: 'calling hermes tool',
+          data: { type: 'tool', message: 'calling hermes tool', line: 1 },
+        },
+        {
+          type: 'error',
+          message: 'tool failed',
+          data: { type: 'error', message: 'tool failed', line: 2 },
+        },
+      ],
+    });
+  });
 });

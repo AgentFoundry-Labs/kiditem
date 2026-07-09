@@ -191,7 +191,7 @@ export function parseHermesRuntimeOutput(input: {
   });
 
   (input.stderr ?? '').split(/\r?\n/).forEach((line, index) => {
-    parseLine(line, index, { collectFinalText: false, collectTranscript: false });
+    parseLine(line, index, { collectFinalText: false, collectTranscript: true });
   });
 
   return {

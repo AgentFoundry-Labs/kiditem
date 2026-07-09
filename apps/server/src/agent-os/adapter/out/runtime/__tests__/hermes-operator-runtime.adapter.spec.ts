@@ -252,6 +252,53 @@ describe('HermesOperatorRuntimeAdapter', () => {
     });
   });
 
+  it('preserves structured stderr transcript events without using stderr as final output', async () => {
+    const runner = makeRunner({
+      ...successfulResult('Operator finished.'),
+      stderr: [
+        '{"type":"tool","message":"calling hermes tool"}',
+        '{"type":"error","message":"tool failed"}',
+        'diagnostic output that should stay out of final text',
+      ].join('\n'),
+    });
+    const adapter = makeAdapter(runner);
+
+    const result = await adapter.decide(baseInput);
+
+    expect(result).toEqual({
+      provider: 'hermes',
+      rawOutput: 'Operator finished.',
+      stderr: [
+        '{"type":"tool","message":"calling hermes tool"}',
+        '{"type":"error","message":"tool failed"}',
+        'diagnostic output that should stay out of final text',
+      ].join('\n'),
+      durationMs: 42,
+      sessionId: null,
+      inputTokens: undefined,
+      outputTokens: undefined,
+      cachedInputTokens: undefined,
+      costMicros: undefined,
+      transcriptEvents: [
+        {
+          type: 'assistant',
+          message: 'Operator finished.',
+          data: { line: 1, durationMs: 42 },
+        },
+        {
+          type: 'tool',
+          message: 'calling hermes tool',
+          data: { type: 'tool', message: 'calling hermes tool', line: 1 },
+        },
+        {
+          type: 'error',
+          message: 'tool failed',
+          data: { type: 'error', message: 'tool failed', line: 2 },
+        },
+      ],
+    });
+  });
+
   it('passes --resume when a Hermes session id is available', async () => {
     const runner = makeRunner();
     const adapter = makeAdapter(runner);
