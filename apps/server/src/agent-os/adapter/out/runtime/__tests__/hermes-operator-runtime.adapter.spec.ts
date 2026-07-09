@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentOsRuntimeError } from '../../../../domain/agent-os.errors';
 import {
   HermesOperatorRuntimeAdapter,
+  HermesOperatorRuntimeTimeoutError,
   SpawnHermesProcessRunner,
   type HermesOperatorRuntimeInput,
   type HermesProcessRunner,
@@ -591,12 +592,48 @@ describe('HermesOperatorRuntimeAdapter', () => {
     });
     const adapter = makeAdapter(runner);
 
-    await expect(adapter.decide(baseInput)).rejects.toEqual(
-      new AgentOsRuntimeError(
-        'operator_runtime_timeout',
-        'Hermes Operator runtime timed out.',
-      ),
-    );
+    await expect(adapter.decide(baseInput)).rejects.toMatchObject({
+      code: 'operator_runtime_timeout',
+      message: 'Hermes Operator runtime timed out.',
+    });
+  });
+
+  it('keeps parsed metadata on timeout errors for recovered finalization', async () => {
+    const runner = makeRunner({
+      stdout: [
+        'session_id: hermes-timeout-session',
+        '{"type":"token_usage","input_tokens":11,"output_tokens":4,"cached_input_tokens":2,"cost_micros":"900"}',
+        '{"type":"tool","message":"called agent_os_finalize_task"}',
+      ].join('\n'),
+      stderr: '',
+      exitCode: null,
+      signal: 'SIGTERM',
+      durationMs: 12_000,
+      timedOut: true,
+    });
+    const adapter = makeAdapter(runner);
+
+    try {
+      await adapter.decide(baseInput);
+      throw new Error('expected timeout');
+    } catch (error) {
+      expect(error).toBeInstanceOf(HermesOperatorRuntimeTimeoutError);
+      expect(
+        (error as HermesOperatorRuntimeTimeoutError).partialResult,
+      ).toMatchObject({
+        sessionId: 'hermes-timeout-session',
+        inputTokens: 11,
+        outputTokens: 4,
+        cachedInputTokens: 2,
+        costMicros: 900n,
+        transcriptEvents: [
+          {
+            type: 'tool',
+            message: 'called agent_os_finalize_task',
+          },
+        ],
+      });
+    }
   });
 
   it('default process runner kills subprocesses when the timeout elapses', async () => {

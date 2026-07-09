@@ -4,7 +4,10 @@ import type { AgentOsRepositoryPort } from '../../../../application/port/out/rep
 import type { AgentRuntimeHandlerRegistry } from '../../../../application/service/agent-runtime-handler-registry.service';
 import type { OperatorContextBuilder } from '../../../../application/service/operator-context-builder.service';
 import { AgentOsRuntimeError } from '../../../../domain/agent-os.errors';
-import type { HermesOperatorRuntimeAdapter } from '../hermes-operator-runtime.adapter';
+import {
+  HermesOperatorRuntimeTimeoutError,
+  type HermesOperatorRuntimeAdapter,
+} from '../hermes-operator-runtime.adapter';
 import { HermesLeafRuntimeHandler } from '../hermes-leaf-runtime.handler';
 
 const originalEnv = { ...process.env };
@@ -54,6 +57,7 @@ function makeHandler() {
     }),
   } as unknown as HermesOperatorRuntimeAdapter;
   const repository = {
+    appendRunEvent: vi.fn().mockResolvedValue({}),
     listRunEvents: vi.fn().mockResolvedValue([]),
     getTaskSession: vi.fn().mockResolvedValue({
       metadata: { runtimeThreadId: 'leaf-session-existing' },
@@ -220,6 +224,90 @@ describe('HermesLeafRuntimeHandler', () => {
       },
       logExcerpt: '',
     });
+  });
+
+  it('persists Hermes metadata when Leaf finalization recovers after timeout', async () => {
+    process.env.AGENT_OS_HERMES_MODEL = 'gpt-5.5';
+    const { handler, hermesRuntime, repository } = makeHandler();
+    vi.mocked(hermesRuntime.decide).mockRejectedValue(
+      new HermesOperatorRuntimeTimeoutError({
+        provider: 'hermes',
+        rawOutput: 'finalized through MCP',
+        stderr: 'timed out after finalization',
+        durationMs: 12_000,
+        sessionId: 'leaf-session-timeout-next',
+        inputTokens: 44,
+        outputTokens: 8,
+        cachedInputTokens: 3,
+        costMicros: 1200n,
+        transcriptEvents: [
+          {
+            type: 'tool',
+            message: 'leaf finalize accepted',
+            data: { type: 'tool', line: 5 },
+          },
+        ],
+      }),
+    );
+    vi.mocked(repository.listRunEvents).mockResolvedValue([
+      runEvent({
+        id: 'event-leaf-finalize-timeout-1',
+        type: 'agent_os.task_finalized',
+        data: {
+          finalizationTool: 'agent_os_finalize_task',
+          status: 'succeeded',
+          artifactIds: ['artifact-leaf-timeout-1'],
+          summary: { message: 'leaf completed before timeout' },
+        },
+      }),
+    ]);
+
+    await expect(handler.execute(runtimeContext())).resolves.toEqual({
+      provider: 'hermes',
+      output: {
+        status: 'succeeded',
+        artifactIds: ['artifact-leaf-timeout-1'],
+        summary: { message: 'leaf completed before timeout' },
+        finalizationEventId: 'event-leaf-finalize-timeout-1',
+      },
+      logExcerpt: 'finalized through MCP',
+      inputTokens: 44,
+      outputTokens: 8,
+      cachedInputTokens: 3,
+      costMicros: 1200n,
+    });
+    expect(repository.updateTaskSessionMetadata).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      taskSessionId: 'session-sourcing-1',
+      metadata: { runtimeThreadId: 'leaf-session-timeout-next' },
+    });
+    expect(repository.appendRunEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'leaf.runtime_completed',
+        data: expect.objectContaining({
+          provider: 'hermes_leaf',
+          hermesProvider: 'hermes',
+          reconciledAfterRuntimeError: true,
+          runtimeErrorCode: 'operator_runtime_timeout',
+          sessionId: 'leaf-session-timeout-next',
+          inputTokens: 44,
+          outputTokens: 8,
+          cachedInputTokens: 3,
+          costMicros: '1200',
+          transcriptEvents: [
+            {
+              type: 'tool',
+              message: 'leaf finalize accepted',
+              data: {
+                type: 'tool',
+                line: 5,
+                truncated: false,
+              },
+            },
+          ],
+        }),
+      }),
+    );
   });
 
   it('resumes and persists Hermes session ids for Leaf turns', async () => {

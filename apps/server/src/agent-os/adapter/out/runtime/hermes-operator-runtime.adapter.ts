@@ -121,6 +121,24 @@ export interface HermesOperatorRuntimeResult {
   transcriptEvents?: HermesTranscriptEvent[];
 }
 
+export class HermesOperatorRuntimeTimeoutError extends AgentOsRuntimeError {
+  constructor(readonly partialResult: HermesOperatorRuntimeResult) {
+    super(
+      'operator_runtime_timeout',
+      'Hermes Operator runtime timed out.',
+    );
+    this.name = 'HermesOperatorRuntimeTimeoutError';
+  }
+}
+
+export function hermesRuntimeResultFromError(
+  error: unknown,
+): HermesOperatorRuntimeResult | null {
+  return error instanceof HermesOperatorRuntimeTimeoutError
+    ? error.partialResult
+    : null;
+}
+
 let activeHermesRuns = 0;
 
 function stringField(value: unknown): string | null {
@@ -512,12 +530,21 @@ export class HermesOperatorRuntimeAdapter {
       durationMs: result.durationMs,
     });
     const stdout = parsed.finalText;
+    const runtimeResult: HermesOperatorRuntimeResult = {
+      provider: 'hermes',
+      rawOutput: stdout,
+      stderr,
+      durationMs: result.durationMs,
+      sessionId: parsed.sessionId,
+      inputTokens: parsed.usage.inputTokens,
+      outputTokens: parsed.usage.outputTokens,
+      cachedInputTokens: parsed.usage.cachedInputTokens,
+      costMicros: parsed.usage.costMicros,
+      transcriptEvents: parsed.transcriptEvents,
+    };
 
     if (isTimedOut(result)) {
-      throw new AgentOsRuntimeError(
-        'operator_runtime_timeout',
-        'Hermes Operator runtime timed out.',
-      );
+      throw new HermesOperatorRuntimeTimeoutError(runtimeResult);
     }
 
     if (result.exitCode !== 0) {
@@ -534,17 +561,6 @@ export class HermesOperatorRuntimeAdapter {
       );
     }
 
-    return {
-      provider: 'hermes',
-      rawOutput: stdout,
-      stderr,
-      durationMs: result.durationMs,
-      sessionId: parsed.sessionId,
-      inputTokens: parsed.usage.inputTokens,
-      outputTokens: parsed.usage.outputTokens,
-      cachedInputTokens: parsed.usage.cachedInputTokens,
-      costMicros: parsed.usage.costMicros,
-      transcriptEvents: parsed.transcriptEvents,
-    };
+    return runtimeResult;
   }
 }

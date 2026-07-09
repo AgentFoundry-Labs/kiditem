@@ -16,7 +16,11 @@ import { OperatorDecisionExecutor } from '../../../application/service/operator-
 import { OperatorDecisionParser } from '../../../application/service/operator-decision-parser.service';
 import { AgentTaskDelegationService } from '../../../application/service/agent-task-delegation.service';
 import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
-import { HermesOperatorRuntimeAdapter } from './hermes-operator-runtime.adapter';
+import {
+  HermesOperatorRuntimeAdapter,
+  hermesRuntimeResultFromError,
+} from './hermes-operator-runtime.adapter';
+import { hermesTranscriptEventData } from './hermes-runtime-observability';
 import {
   isRecoverableHermesRuntimeError,
   readLatestHermesTaskFinalization,
@@ -402,6 +406,7 @@ export class OperatorRuntimeHandler
       outputTokens: runtimeResult.outputTokens ?? null,
       cachedInputTokens: runtimeResult.cachedInputTokens ?? null,
       costMicros: runtimeResult.costMicros?.toString() ?? null,
+      ...hermesTranscriptEventData(runtimeResult.transcriptEvents),
     });
 
     return this.executeParsedDecision({
@@ -467,6 +472,7 @@ export class OperatorRuntimeHandler
         );
         throw error;
       }
+      runtimeResult = hermesRuntimeResultFromError(error);
       recoverableRuntimeError = error;
     }
 
@@ -531,6 +537,7 @@ export class OperatorRuntimeHandler
         outputTokens: runtimeResult?.outputTokens ?? null,
         cachedInputTokens: runtimeResult?.cachedInputTokens ?? null,
         costMicros: runtimeResult?.costMicros?.toString() ?? null,
+        ...hermesTranscriptEventData(runtimeResult?.transcriptEvents),
       });
 
       return {

@@ -7,7 +7,10 @@ import { OperatorDecisionParser } from '../../../../application/service/operator
 import type { AgentRuntimeHandlerRegistry } from '../../../../application/service/agent-runtime-handler-registry.service';
 import { AgentTaskDelegationService } from '../../../../application/service/agent-task-delegation.service';
 import { AgentOsRuntimeError } from '../../../../domain/agent-os.errors';
-import type { HermesOperatorRuntimeAdapter } from '../hermes-operator-runtime.adapter';
+import {
+  HermesOperatorRuntimeTimeoutError,
+  type HermesOperatorRuntimeAdapter,
+} from '../hermes-operator-runtime.adapter';
 import type { OpenAiResponsesOperatorRuntimeAdapter } from '../openai-responses-operator-runtime.adapter';
 import { OperatorRuntimeHandler } from '../operator-runtime.handler';
 
@@ -278,6 +281,13 @@ describe('OperatorRuntimeHandler', () => {
       stderr: '',
       durationMs: 42,
       sessionId: 'hermes-session-direct-next',
+      transcriptEvents: [
+        {
+          type: 'tool',
+          message: 'called delegate parser',
+          data: { type: 'tool', line: 2 },
+        },
+      ],
     });
 
     await handler.execute(runtimeContext());
@@ -298,6 +308,17 @@ describe('OperatorRuntimeHandler', () => {
         data: expect.objectContaining({
           provider: 'hermes',
           sessionId: 'hermes-session-direct-next',
+          transcriptEvents: [
+            {
+              type: 'tool',
+              message: 'called delegate parser',
+              data: {
+                type: 'tool',
+                line: 2,
+                truncated: false,
+              },
+            },
+          ],
         }),
       }),
     );
@@ -556,6 +577,89 @@ describe('OperatorRuntimeHandler', () => {
           provider: 'hermes_tool_loop',
           reconciledAfterRuntimeError: true,
           runtimeErrorCode: 'operator_runtime_timeout',
+        }),
+      }),
+    );
+  });
+
+  it('persists Hermes metadata when tool-loop finalization recovers after timeout', async () => {
+    process.env.AGENT_OS_OPERATOR_RUNTIME = 'hermes_tool_loop';
+    const { handler, hermesRuntime, repository } = makeHandler();
+    vi.mocked(hermesRuntime.decide).mockRejectedValue(
+      new HermesOperatorRuntimeTimeoutError({
+        provider: 'hermes',
+        rawOutput: 'finalized through MCP',
+        stderr: 'timed out after finalization',
+        durationMs: 12_000,
+        sessionId: 'hermes-session-timeout-next',
+        inputTokens: 88,
+        outputTokens: 12,
+        cachedInputTokens: 6,
+        costMicros: 1700n,
+        transcriptEvents: [
+          {
+            type: 'tool',
+            message: 'agent_os_finalize_task accepted',
+            data: { type: 'tool', line: 4 },
+          },
+        ],
+      }),
+    );
+    vi.mocked(repository.listRunEvents).mockResolvedValue([
+      runEvent({
+        id: 'event-finalize-timeout-usage-1',
+        type: 'agent_os.task_finalized',
+        data: {
+          finalizationTool: 'agent_os_finalize_task',
+          status: 'succeeded',
+          artifactIds: ['artifact-timeout-1'],
+          summary: { message: 'completed before timeout' },
+        },
+      }),
+    ]);
+
+    await expect(handler.execute(runtimeContext())).resolves.toEqual({
+      provider: 'hermes',
+      output: {
+        status: 'succeeded',
+        artifactIds: ['artifact-timeout-1'],
+        summary: { message: 'completed before timeout' },
+        finalizationEventId: 'event-finalize-timeout-usage-1',
+      },
+      inputTokens: 88,
+      outputTokens: 12,
+      cachedInputTokens: 6,
+      costMicros: 1700n,
+    });
+    expect(repository.updateTaskSessionMetadata).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      taskSessionId: 'session-1',
+      metadata: { runtimeThreadId: 'hermes-session-timeout-next' },
+    });
+    expect(repository.appendRunEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'operator.runtime_completed',
+        data: expect.objectContaining({
+          provider: 'hermes_tool_loop',
+          hermesProvider: 'hermes',
+          reconciledAfterRuntimeError: true,
+          runtimeErrorCode: 'operator_runtime_timeout',
+          sessionId: 'hermes-session-timeout-next',
+          inputTokens: 88,
+          outputTokens: 12,
+          cachedInputTokens: 6,
+          costMicros: '1700',
+          transcriptEvents: [
+            {
+              type: 'tool',
+              message: 'agent_os_finalize_task accepted',
+              data: {
+                type: 'tool',
+                line: 4,
+                truncated: false,
+              },
+            },
+          ],
         }),
       }),
     );

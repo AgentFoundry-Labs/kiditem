@@ -13,10 +13,15 @@ import { modelFacingMcpToolNamesForAgentType } from '../../../application/servic
 import { OperatorContextBuilder } from '../../../application/service/operator-context-builder.service';
 import { findAgentDefinitionByType } from '../../../domain/agent-definition.registry';
 import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
-import { HermesOperatorRuntimeAdapter } from './hermes-operator-runtime.adapter';
+import {
+  HermesOperatorRuntimeAdapter,
+  hermesRuntimeResultFromError,
+} from './hermes-operator-runtime.adapter';
+import { hermesTranscriptEventData } from './hermes-runtime-observability';
 import {
   isRecoverableHermesRuntimeError,
   readLatestHermesTaskFinalization,
+  runtimeErrorCode,
 } from './hermes-task-finalization';
 import {
   loadHermesResumeSession,
@@ -126,6 +131,7 @@ export class HermesLeafRuntimeHandler
     });
     let result: Awaited<ReturnType<HermesOperatorRuntimeAdapter['decide']>> | null =
       null;
+    let recoverableRuntimeError: unknown = null;
     let recoveredAfterRuntimeError = false;
     try {
       result = await this.hermesRuntime.decide({
@@ -155,6 +161,8 @@ export class HermesLeafRuntimeHandler
       });
     } catch (error) {
       if (!isRecoverableHermesRuntimeError(error)) throw error;
+      result = hermesRuntimeResultFromError(error);
+      recoverableRuntimeError = error;
       recoveredAfterRuntimeError = true;
     }
 
@@ -190,6 +198,32 @@ export class HermesLeafRuntimeHandler
           'Hermes Leaf finalized with failed status.',
       );
     }
+
+    await this.repository.appendRunEvent({
+      organizationId: context.organizationId,
+      runId: context.runId,
+      agentInstanceId: context.agentInstanceId,
+      type: 'leaf.runtime_completed',
+      data: {
+        provider: 'hermes_leaf',
+        hermesProvider: result?.provider ?? null,
+        durationMs: result?.durationMs ?? null,
+        stdoutBytes:
+          result === null ? null : Buffer.byteLength(result.rawOutput),
+        stderrBytes:
+          result === null ? null : Buffer.byteLength(result.stderr),
+        finalizationEventId: finalization.id,
+        finalizationStatus: finalization.status,
+        reconciledAfterRuntimeError: recoveredAfterRuntimeError,
+        runtimeErrorCode: runtimeErrorCode(recoverableRuntimeError),
+        sessionId: result?.sessionId ?? null,
+        inputTokens: result?.inputTokens ?? null,
+        outputTokens: result?.outputTokens ?? null,
+        cachedInputTokens: result?.cachedInputTokens ?? null,
+        costMicros: result?.costMicros?.toString() ?? null,
+        ...hermesTranscriptEventData(result?.transcriptEvents),
+      },
+    });
 
     return {
       provider: result?.provider ?? 'hermes',
