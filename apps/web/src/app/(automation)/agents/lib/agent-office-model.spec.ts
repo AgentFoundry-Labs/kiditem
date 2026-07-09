@@ -172,4 +172,92 @@ describe('buildAgentOfficeModel', () => {
       'cost-1',
     ]);
   });
+
+  it('treats claimed requests as active work before a run starts', () => {
+    const model = buildAgentOfficeModel({
+      instances: [
+        {
+          id: 'agent-review',
+          organizationId: 'org-1',
+          type: 'review',
+          name: 'Review Agent',
+          role: 'specialist',
+          title: '검토 데스크',
+          icon: null,
+          reportsToId: null,
+          lifecycleStatus: 'active',
+          pauseReason: null,
+          trustLevel: 1,
+          adapterType: 'hermes_local',
+          modelOverride: null,
+          effectiveModel: 'gpt-5.1-codex',
+        },
+      ],
+      runs: [],
+      requests: [
+        {
+          id: 'request-claimed',
+          organizationId: 'org-1',
+          agentInstanceId: 'agent-review',
+          agentType: 'review',
+          taskKey: 'conversation:conversation-2:review',
+          source: 'agent_os_conversation',
+          sourceResourceType: null,
+          sourceResourceId: null,
+          sourceWorkflowRunId: null,
+          status: 'claimed',
+          priority: 3,
+          attempts: 0,
+          maxAttempts: 1,
+          scheduledFor: '2026-07-09T01:00:00.000Z',
+          claimedAt: '2026-07-09T01:01:00.000Z',
+          finishedAt: null,
+          latestRunId: null,
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          createdAt: '2026-07-09T01:00:00.000Z',
+        },
+        {
+          id: 'request-pending',
+          organizationId: 'org-1',
+          agentInstanceId: 'agent-review',
+          agentType: 'review',
+          taskKey: 'conversation:conversation-2:followup',
+          source: 'agent_os_conversation',
+          sourceResourceType: null,
+          sourceResourceId: null,
+          sourceWorkflowRunId: null,
+          status: 'pending',
+          priority: 2,
+          attempts: 0,
+          maxAttempts: 1,
+          scheduledFor: '2026-07-09T01:02:00.000Z',
+          claimedAt: null,
+          finishedAt: null,
+          latestRunId: null,
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          createdAt: '2026-07-09T01:02:00.000Z',
+        },
+      ],
+      approvals: [],
+      conversations: [],
+      costEvents: [],
+      authorizationEvents: [],
+      totalCostMicros: '0',
+    });
+
+    expect(model.nodes).toMatchObject([
+      {
+        id: 'agent-review',
+        status: 'working',
+        activeRunCount: 1,
+      },
+    ]);
+    expect(model.totals).toMatchObject({
+      working: 1,
+      waiting: 0,
+      runningRuns: 0,
+    });
+  });
 });

@@ -135,9 +135,14 @@ export function buildAgentOfficeModel(
     const runs = runsByAgent.get(instance.id) ?? [];
     const requests = requestsByAgent.get(instance.id) ?? [];
     const approvals = approvalsByAgent.get(instance.id) ?? [];
-    const activeRunCount = runs.filter((run) => run.status === 'running').length;
-    const waitingRequestCount = requests.filter((request) =>
-      ['pending', 'claimed'].includes(request.status),
+    const runningRunCount = runs.filter((run) => run.status === 'running').length;
+    const claimedRequestCount = requests.filter(
+      (request) => request.status === 'claimed',
+    ).length;
+    const activeRunCount =
+      runningRunCount > 0 ? runningRunCount : claimedRequestCount;
+    const waitingRequestCount = requests.filter(
+      (request) => request.status === 'pending',
     ).length;
     const pendingApprovalCount = approvals.filter(
       (approval) => approval.status === 'pending',

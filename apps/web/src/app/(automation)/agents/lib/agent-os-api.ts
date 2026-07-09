@@ -18,6 +18,12 @@ import type {
   AgentRunSummary,
 } from '@kiditem/shared/agent-os';
 
+export interface AgentApprovalResolutionResponse {
+  approvalRequestId: string;
+  requestId: string | null;
+  status: Extract<AgentApprovalStatus, 'approved' | 'rejected'>;
+}
+
 // All endpoints are scoped on the backend via `@CurrentOrganization()`. The
 // client must NOT send `organizationId` — it is dropped by the controller DTO.
 export const agentOsApi = {
@@ -101,7 +107,7 @@ export const agentOsApi = {
     approvalRequestId: string,
     input: { status: 'approved' | 'rejected'; decisionReason?: string },
   ) =>
-    apiClient.post<AgentApprovalRequestSummary>(
+    apiClient.post<AgentApprovalResolutionResponse>(
       `/api/agent-os/approvals/${approvalRequestId}/resolve`,
       input,
     ),
