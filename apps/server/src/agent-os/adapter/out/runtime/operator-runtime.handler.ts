@@ -534,7 +534,7 @@ export class OperatorRuntimeHandler
       });
 
       return {
-        provider: 'hermes_tool_loop',
+        provider: runtimeResult?.provider ?? 'hermes_tool_loop',
         output: {
           status: finalization.status,
           artifactIds: finalization.artifactIds,

@@ -378,8 +378,8 @@ describe('OperatorRuntimeHandler', () => {
       runId: 'run-operator-1',
       limit: 200,
     });
-    expect(result).toEqual({
-      provider: 'hermes_tool_loop',
+    expect(result).toMatchObject({
+      provider: 'hermes',
       output: {
         status: 'succeeded',
         artifactIds: ['artifact-sourcing-1', 'artifact-listing-1'],
@@ -389,6 +389,63 @@ describe('OperatorRuntimeHandler', () => {
         finalizationEventId: 'event-1',
       },
     });
+  });
+
+  it('returns Hermes tool-loop usage with Hermes provider identity and emits usage observability fields', async () => {
+    process.env.AGENT_OS_OPERATOR_RUNTIME = 'hermes_tool_loop';
+    const { handler, hermesRuntime, repository } = makeHandler();
+    vi.mocked(hermesRuntime.decide).mockResolvedValue({
+      provider: 'hermes',
+      rawOutput: 'tool loop finalized',
+      stderr: '',
+      durationMs: 72,
+      sessionId: 'hermes-session-usage-loop',
+      inputTokens: 150,
+      outputTokens: 30,
+      cachedInputTokens: 12,
+      costMicros: 3400n,
+    });
+    vi.mocked(repository.listRunEvents).mockResolvedValue([
+      runEvent({
+        id: 'event-usage-1',
+        type: 'agent_os.task_finalized',
+        data: {
+          finalizationTool: 'agent_os_finalize_task',
+          status: 'succeeded',
+          artifactIds: ['artifact-usage-1'],
+          summary: { message: 'usage done' },
+        },
+      }),
+    ]);
+
+    const result = await handler.execute(runtimeContext());
+
+    expect(result).toEqual({
+      provider: 'hermes',
+      output: {
+        status: 'succeeded',
+        artifactIds: ['artifact-usage-1'],
+        summary: { message: 'usage done' },
+        finalizationEventId: 'event-usage-1',
+      },
+      inputTokens: 150,
+      outputTokens: 30,
+      cachedInputTokens: 12,
+      costMicros: 3400n,
+    });
+    expect(repository.appendRunEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'operator.runtime_completed',
+        data: expect.objectContaining({
+          provider: 'hermes_tool_loop',
+          hermesProvider: 'hermes',
+          inputTokens: 150,
+          outputTokens: 30,
+          cachedInputTokens: 12,
+          costMicros: '3400',
+        }),
+      }),
+    );
   });
 
   it('resumes and persists Hermes session ids for tool-loop Operator turns', async () => {
@@ -447,8 +504,8 @@ describe('OperatorRuntimeHandler', () => {
       },
     ] as Awaited<ReturnType<AgentOsRepositoryPort['listRunEvents']>>);
 
-    await expect(handler.execute(runtimeContext())).resolves.toEqual({
-      provider: 'hermes_tool_loop',
+    await expect(handler.execute(runtimeContext())).resolves.toMatchObject({
+      provider: 'hermes',
       output: {
         status: 'waiting_approval',
         artifactIds: [],
