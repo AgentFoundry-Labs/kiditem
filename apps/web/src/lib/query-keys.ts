@@ -5,6 +5,9 @@ export const queryKeys = {
     org: () => [...queryKeys.agents.all, 'org'] as const,
     detail: (id: string) => [...queryKeys.agents.all, 'detail', id] as const,
     runs: (id: string) => [...queryKeys.agents.all, 'runs', id] as const,
+    hq: () => [...queryKeys.agents.all, 'hq'] as const,
+    hqMessages: (conversationId: string) =>
+      [...queryKeys.agents.all, 'hqMessages', conversationId] as const,
     runtimeState: (id: string) => [...queryKeys.agents.all, 'runtimeState', id] as const,
     costAnalytics: (params?: { from?: string; to?: string; agentId?: string }) =>
       [...queryKeys.agents.all, 'costAnalytics', params] as const,
