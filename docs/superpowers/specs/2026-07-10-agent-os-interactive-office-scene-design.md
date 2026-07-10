@@ -1,0 +1,378 @@
+# Agent OS Interactive Office Scene Design
+
+Date: 2026-07-10
+Status: Approved design, pending written-spec review
+
+## Summary
+
+Replace the static office photograph inside `/agent-os` with an interactive
+2D office scene inspired by OpenClaw Office. The benchmark scope is limited to
+the background style and scene interactions.
+
+The existing KidItem Agent OS shell, employee taxonomy, Hermes runtime,
+profile inspector, command composer, activity data, and backend contracts
+remain authoritative. OpenClaw navigation, metrics, branding, Agent/SubAgent
+semantics, and chat/console information architecture are not part of this
+change.
+
+## Decision
+
+The selected approach is a **2.5D semantic office scene**:
+
+- a purpose-built light, top-down bitmap asset generated from the captured
+  reference provides the visual floor and furniture;
+- a route-local scene manifest defines zones, employee seats, status
+  destinations, hit regions, and movement paths in normalized coordinates;
+- semantic HTML controls render employees and interactive desks over the
+  visual asset;
+- a lightweight SVG data layer renders movement paths, selection rings, and
+  collaboration indicators;
+- existing Agent OS data determines every employee state and movement.
+
+This preserves the visual quality of a designed asset while making the office
+meaningful and testable. The result must not be a photograph with decorative
+labels placed on top.
+
+## Reference
+
+Primary reference:
+
+- [OpenClaw Office](https://github.com/WW-AI-Lab/openclaw-office)
+- [Office reference image](https://github.com/WW-AI-Lab/openclaw-office/blob/main/assets/office.png)
+- [2D office components](https://github.com/WW-AI-Lab/openclaw-office/tree/main/src/components/office-2d)
+
+Benchmark these characteristics:
+
+- light gray and desaturated blue floor-plan palette;
+- clear room boundaries, desk slots, corridors, and meeting/lounge areas;
+- compact employee avatars with status rings and labels;
+- visible but restrained status animation;
+- employee selection and speech/activity bubbles;
+- movement between meaningful scene anchors.
+
+Do not copy:
+
+- the OpenClaw name, logo, labels, or language;
+- header navigation, right-side analytics, chat, or console layout;
+- OpenClaw Agent/SubAgent identity rules;
+- token, collaboration-rate, or gateway metrics;
+- source artwork or source code as project-owned KidItem assets.
+
+The reference guides visual direction and behavior. KidItem owns the final
+asset, scene manifest, components, and interaction implementation.
+
+## Scope
+
+### In Scope
+
+- replace the current `office-floor.png` scene skin;
+- replace free-positioned employee cards with scene-aware employee controls;
+- make desks, employees, and status destinations selectable or inspectable;
+- animate employees only when structured Agent OS state changes;
+- show status, selection, approval, and active-work feedback in the scene;
+- preserve the current staff panel, inspector, command dock, activity drawer,
+  refresh action, and dashboard navigation;
+- support the current desktop-only minimum width.
+
+### Out of Scope
+
+- no 3D, Three.js, PixiJS, Phaser, or game-engine dependency;
+- no React Flow scene implementation;
+- no backend, schema, Hermes adapter, or runtime changes;
+- no new employee, capability, or Agent OS identity definitions;
+- no random wandering or simulated conversations;
+- no collaboration line without a structured employee-to-employee relation;
+- no user-authored layout editor or persisted scene geometry;
+- no drag-to-reassign behavior;
+- no OpenClaw header, navigation, analytics, chat, or console clone;
+- no mobile or touch-specific layout work.
+
+## Product Semantics
+
+The office contains only KidItem employees as people. The current seven
+employee types remain the only employee avatars:
+
+- `manager`;
+- `ad_strategy`;
+- `chat` (customer/operations response);
+- `sourcing`;
+- `listing`;
+- `order`;
+- `channel_registration`.
+
+Capabilities remain attached to their owning employee and appear in the
+inspector. Models, adapters, tools, execution sessions, runs, and capabilities
+must not become additional employee avatars.
+
+Runs affect an employee only through the existing authoritative status and
+activity projection; they do not occupy a seat. This prevents the visual
+office from inflating the workforce whenever Hermes starts another execution.
+
+## Visual Design
+
+### Scene Asset
+
+Create a new desktop office bitmap with the built-in image generation tool,
+using the captured OpenClaw reference as visual grounding. The asset has:
+
+- a stable wide aspect ratio that fills the central canvas without cropping;
+- a light `slate-50` base with pale blue-gray room fills;
+- strong enough room and corridor boundaries to remain legible behind UI;
+- seven clearly usable employee desk positions;
+- a waiting/lounge anchor and an approval/meeting anchor;
+- restrained furniture density so employee labels do not overlap assets;
+- no text, logos, employee avatars, status badges, or baked-in labels.
+
+The asset is visual only. Interactive meaning comes from the scene manifest
+and controls rendered above it.
+
+### Scene Integration
+
+Keep the existing shell panels visually above the scene. The scene must remain
+readable in the unobstructed center area between the staff panel, inspector,
+activity drawer, and command dock.
+
+Use KidItem design tokens for controls and state:
+
+- purple for selection and primary interaction;
+- green for ready/success;
+- amber for waiting;
+- red for blocked/approval-required or failed states;
+- slate for offline and secondary scene details.
+
+OpenClaw's palette informs the office asset only. It does not replace the
+KidItem design system.
+
+### Employees
+
+Employee controls use real avatar assets rather than generic person icons.
+Each avatar has:
+
+- a stable visual identity;
+- a compact status ring;
+- employee name and role label;
+- a selected state with a purple focus ring;
+- a blocked state that is clear without relying only on color;
+- a visible keyboard focus state.
+
+Labels must remain one or two compact lines and must not overlap neighboring
+employees or fixed furniture.
+
+## Scene Model
+
+Move layout ownership out of `agent-office-model.ts`. Business projection
+continues to return employees, statuses, counts, capabilities, and activity,
+but it no longer owns scene coordinates.
+
+Add a route-local scene model with these concepts:
+
+```ts
+type OfficePoint = { x: number; y: number };
+
+type OfficeSeat = {
+  id: string;
+  employeeType: string;
+  desk: OfficePoint;
+  idle: OfficePoint;
+  waiting: OfficePoint;
+  blocked: OfficePoint;
+  paths: Partial<Record<AgentOfficeNodeStatus, OfficePoint[]>>;
+};
+
+type OfficeZone = {
+  id: string;
+  label: string;
+  hitRegion: { x: number; y: number; width: number; height: number };
+};
+```
+
+All coordinates are normalized to the scene's intrinsic dimensions. Resizing
+the page scales the visual asset and every overlay together without changing
+the business model.
+
+Unknown future employee types use deterministic overflow seats. They must not
+overlap an existing employee or silently disappear.
+
+## Components
+
+### `AgentOfficeMap`
+
+Remains the public scene boundary used by `AgentOfficeShell`. It owns the
+aspect-ratio container and composes the scene layers.
+
+### `AgentOfficeFloor`
+
+Renders the purpose-built office asset and semantic zone hit regions. Zone
+controls expose their names to assistive technology and show a restrained
+hover/focus treatment.
+
+### `AgentOfficeAvatar`
+
+Replaces the generic `AgentOfficeNode` presentation. It renders the avatar,
+status ring, compact label, selected state, and activity bubble. Clicking or
+pressing Enter/Space selects the existing employee and opens the existing
+inspector flow.
+
+### `agent-office-layout.ts`
+
+Owns zones, seats, anchors, normalized hit regions, overflow placement, and
+motion paths. It contains no API calls or Agent OS business-state mapping.
+
+## Interaction Model
+
+### Selection
+
+- Selecting an employee from either the scene or staff panel updates the same
+  `selectedNodeId` state.
+- Selection highlights the employee in both surfaces and updates the existing
+  inspector and command target.
+- Clicking the selected employee again does not clear the command target.
+- Selecting a desk selects its assigned employee.
+
+### Status Destinations
+
+Employee destination is derived from the existing authoritative status:
+
+| Status | Scene destination | Feedback |
+|---|---|---|
+| `working` | assigned desk | active monitor/status pulse |
+| `idle` | employee idle anchor | ready ring, no continuous motion |
+| `waiting` | waiting anchor | amber waiting badge |
+| `blocked` | approval/meeting anchor | alert icon and approval badge |
+| `offline` | assigned desk | desaturated avatar and disabled motion |
+
+When polling changes an employee status, animate from the previous anchor to
+the new anchor along the configured path. Initial render places the employee
+at the current destination without an entrance animation.
+
+### Motion Rules
+
+- motion is caused only by a structured status transition;
+- no random walking, idle wandering, or fabricated meetings;
+- use transform/opacity animation, not React state updates on every frame;
+- movement must not shift the surrounding layout;
+- `prefers-reduced-motion` places employees directly at their destination;
+- stale or refetched identical data must not replay an animation.
+
+### Activity Feedback
+
+When an employee status changes, show the latest safe activity label associated
+with that employee for six seconds. Do not replay the bubble for an unchanged
+poll result or initial render. Bubble content uses labels already exposed by
+the view model. It must not expose hidden model reasoning, raw prompts, tool
+input/output, or secrets.
+
+### Scene Navigation
+
+V1 keeps the full office framed in the available desktop canvas. It does not
+add free camera rotation, pan, or zoom.
+
+## Data Flow
+
+```text
+Nest Agent OS APIs
+  -> existing React Query polling
+  -> buildAgentOfficeModel
+  -> employee business view model
+  -> AgentOfficeMap
+  -> scene layout + status destination
+  -> avatar, desk, bubble, and connection layers
+```
+
+The frontend does not infer task success, approval resolution, collaboration,
+or employee identity from visual state. Structured Agent OS records remain the
+source of truth.
+
+No new polling interval, WebSocket, SSE stream, or backend endpoint is required
+for this scene redesign.
+
+## Loading And Error States
+
+- During initial loading, preserve the existing full-page loading treatment.
+- During background refetch, keep the current scene visible and use the
+  existing refresh indicator.
+- If an employee has no configured seat, place it in an overflow seat and log
+  no user-visible technical error.
+- If the scene asset fails to load, show a light empty canvas with employee
+  controls at deterministic fallback positions; selection and command routing
+  must still work.
+- If there are no employee instances, show the empty office with the existing
+  operational empty state instead of mock employees.
+- A failed query must not animate employees or reset the current selection.
+
+## Accessibility
+
+- The scene has a descriptive `aria-label` and does not rely on the asset's
+  alt text for employee state.
+- Employees and interactive desks are real buttons with unique accessible
+  names.
+- Status names are exposed as text, not color alone.
+- Keyboard selection follows the same behavior as pointer selection.
+- Decorative floor and furniture are hidden from assistive technology.
+- Motion respects `prefers-reduced-motion`.
+
+## Testing
+
+### Unit Tests
+
+- employee type maps to the expected seat and status destination;
+- overflow seats are deterministic and non-overlapping;
+- unchanged status does not create a new movement transition;
+- reduced-motion mode resolves directly to the destination;
+- scene layout coordinates remain independent of the business view model;
+- employee status never creates speculative collaboration lines.
+
+### Component Tests
+
+- scene and staff panel share selection state;
+- clicking a desk selects its assigned employee;
+- selecting an employee updates the inspector and command target;
+- each status renders its text and non-color indicator;
+- an asset-load failure keeps employee controls usable;
+- empty employee data does not create mock avatars.
+
+### Regression Gates
+
+- existing `agent-office-model` behavior and employee/capability taxonomy tests;
+- existing command dock, inspector, activity drawer, redirect, and route tests;
+- `npm run build --workspace=apps/web`.
+
+### Visual Verification
+
+Verify `/agent-os` in the in-app browser at desktop widths only. Compare the
+captured OpenClaw Office reference and the implemented office in a single
+side-by-side review at the same viewport.
+
+Confirm:
+
+- the scene is recognizably grounded in the reference's light 2D office style;
+- every employee is visibly associated with a desk or status destination;
+- labels and panels do not overlap employees;
+- selected, working, waiting, blocked, idle, and offline states are distinct;
+- the command dock, staff panel, inspector, activity drawer, refresh action,
+  and dashboard navigation remain usable;
+- the scene contains no baked-in OpenClaw branding or fake employee data.
+
+## Relationship To Existing Designs
+
+This design supersedes the execution-canvas visual model as the default
+`/agent-os` scene. It does not supersede the Agent OS Hermes tool-loop design,
+KidItem source-of-truth boundaries, approval behavior, artifact behavior, or
+runtime safety rules.
+
+The office is a presentation of structured Agent OS state, not a workflow
+builder, task simulator, or alternate runtime.
+
+## Completion Criteria
+
+The redesign is complete when:
+
+1. the static current office photograph is no longer the primary scene;
+2. the office matches the approved OpenClaw-inspired background direction;
+3. seven KidItem employees remain the only person-like scene entities;
+4. selection, desk interaction, status feedback, and event-driven movement
+   work from existing Agent OS data;
+5. no random or fabricated activity is displayed;
+6. existing Agent OS controls and backend contracts continue to work;
+7. route tests and the web production build pass;
+8. desktop visual comparison confirms the reference alignment.

@@ -1,6 +1,8 @@
 # Agent OS Execution Canvas Design
 
 Date: 2026-06-04
+Status: Historical visual direction. Superseded for the default `/agent-os`
+scene by `2026-07-10-agent-os-interactive-office-scene-design.md`.
 
 ## Summary
 
