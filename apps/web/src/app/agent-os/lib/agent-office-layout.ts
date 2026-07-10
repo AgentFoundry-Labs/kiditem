@@ -95,7 +95,7 @@ function createSeat(input: {
   };
 }
 
-const knownSeats: readonly OfficeSeat[] = [
+export const OFFICE_SEATS: readonly OfficeSeat[] = [
   createSeat({
     employeeType: 'manager',
     index: 0,
@@ -141,11 +141,11 @@ const knownSeats: readonly OfficeSeat[] = [
 ] as const;
 
 const knownSeatByType = new Map(
-  knownSeats.map((seat) => [seat.employeeType, seat]),
+  OFFICE_SEATS.map((seat) => [seat.employeeType, seat]),
 );
 
 function overflowSeat(agentType: string, index: number): OfficeSeat {
-  const ordinal = Math.max(0, index - knownSeats.length);
+  const ordinal = Math.max(0, index - OFFICE_SEATS.length);
   const desk = {
     x: 12 + (ordinal % 5) * 10,
     y: 91 + Math.floor(ordinal / 5) * 4,

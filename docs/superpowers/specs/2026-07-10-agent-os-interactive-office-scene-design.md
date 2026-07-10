@@ -1,7 +1,7 @@
 # Agent OS Interactive Office Scene Design
 
 Date: 2026-07-10
-Status: Approved design, pending written-spec review
+Status: Approved design, in implementation
 
 ## Summary
 
@@ -17,21 +17,20 @@ change.
 
 ## Decision
 
-The selected approach is a **2.5D semantic office scene**:
+The selected approach is a **code-driven semantic office scene**:
 
-- a purpose-built light, top-down bitmap asset generated from the captured
-  reference provides the visual floor and furniture;
+- an SVG floor-plan layer renders rooms, corridors, furniture, and fixed desk
+  fixtures using the same runtime composition approach as OpenClaw Office;
 - a route-local scene manifest defines zones, employee seats, status
   destinations, hit regions, and movement paths in normalized coordinates;
 - semantic HTML controls render employees and interactive desks over the
-  visual asset;
-- a lightweight SVG data layer renders movement paths, selection rings, and
-  collaboration indicators;
+  SVG floor;
+- generated transparent raster portraits provide stable employee identities;
 - existing Agent OS data determines every employee state and movement.
 
-This preserves the visual quality of a designed asset while making the office
-meaningful and testable. The result must not be a photograph with decorative
-labels placed on top.
+This keeps rooms and furniture independently addressable while making the
+office meaningful and testable. The result must not be a photograph with
+decorative labels placed on top.
 
 ## Reference
 
@@ -56,10 +55,12 @@ Do not copy:
 - header navigation, right-side analytics, chat, or console layout;
 - OpenClaw Agent/SubAgent identity rules;
 - token, collaboration-rate, or gateway metrics;
-- source artwork or source code as project-owned KidItem assets.
+- OpenClaw business semantics or product-specific content.
 
-The reference guides visual direction and behavior. KidItem owns the final
-asset, scene manifest, components, and interaction implementation.
+The floor composition benchmarks OpenClaw Office's MIT-licensed SVG approach.
+KidItem owns its room geometry, palette, seats, employee assets, data mapping,
+and interaction implementation, and retains the upstream license notice next
+to the adapted scene component.
 
 ## Scope
 
@@ -110,21 +111,20 @@ office from inflating the workforce whenever Hermes starts another execution.
 
 ## Visual Design
 
-### Scene Asset
+### Scene Floor
 
-Create a new desktop office bitmap with the built-in image generation tool,
-using the captured OpenClaw reference as visual grounding. The asset has:
+Create a desktop SVG floor composed at runtime. The floor has:
 
-- a stable wide aspect ratio that fills the central canvas without cropping;
+- a stable wide view box that fills the central canvas without cropping;
 - a light `slate-50` base with pale blue-gray room fills;
 - strong enough room and corridor boundaries to remain legible behind UI;
 - seven clearly usable employee desk positions;
 - a waiting/lounge anchor and an approval/meeting anchor;
 - restrained furniture density so employee labels do not overlap assets;
-- no text, logos, employee avatars, status badges, or baked-in labels.
+- no logos, employee avatars, or baked-in status badges.
 
-The asset is visual only. Interactive meaning comes from the scene manifest
-and controls rendered above it.
+Decorative furniture remains in the SVG layer. Interactive meaning comes from
+the scene manifest and semantic controls rendered above it.
 
 ### Scene Integration
 
@@ -140,7 +140,7 @@ Use KidItem design tokens for controls and state:
 - red for blocked/approval-required or failed states;
 - slate for offline and secondary scene details.
 
-OpenClaw's palette informs the office asset only. It does not replace the
+OpenClaw's palette informs the office floor only. It does not replace the
 KidItem design system.
 
 ### Employees
@@ -187,8 +187,8 @@ type OfficeZone = {
 ```
 
 All coordinates are normalized to the scene's intrinsic dimensions. Resizing
-the page scales the visual asset and every overlay together without changing
-the business model.
+the page scales the SVG floor and every overlay together without changing the
+business model.
 
 Unknown future employee types use deterministic overflow seats. They must not
 overlap an existing employee or silently disappear.
@@ -202,9 +202,9 @@ aspect-ratio container and composes the scene layers.
 
 ### `AgentOfficeFloor`
 
-Renders the purpose-built office asset and semantic zone hit regions. Zone
-controls expose their names to assistive technology and show a restrained
-hover/focus treatment.
+Renders the SVG office floor, seven fixed desk fixtures, and semantic zone hit
+regions. Zone controls expose their names to assistive technology and show a
+restrained hover/focus treatment.
 
 ### `AgentOfficeAvatar`
 
@@ -293,17 +293,16 @@ for this scene redesign.
   existing refresh indicator.
 - If an employee has no configured seat, place it in an overflow seat and log
   no user-visible technical error.
-- If the scene asset fails to load, show a light empty canvas with employee
-  controls at deterministic fallback positions; selection and command routing
-  must still work.
+- If an employee portrait fails to load, use the generated default portrait;
+  selection and command routing must still work.
 - If there are no employee instances, show the empty office with the existing
   operational empty state instead of mock employees.
 - A failed query must not animate employees or reset the current selection.
 
 ## Accessibility
 
-- The scene has a descriptive `aria-label` and does not rely on the asset's
-  alt text for employee state.
+- The scene has a descriptive `aria-label` and does not rely on decorative
+  floor graphics for employee state.
 - Employees and interactive desks are real buttons with unique accessible
   names.
 - Status names are exposed as text, not color alone.
@@ -328,7 +327,7 @@ for this scene redesign.
 - clicking a desk selects its assigned employee;
 - selecting an employee updates the inspector and command target;
 - each status renders its text and non-color indicator;
-- an asset-load failure keeps employee controls usable;
+- an avatar-load failure keeps employee controls usable;
 - empty employee data does not create mock avatars.
 
 ### Regression Gates
