@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { AgentOfficeShell } from './AgentOfficeShell';
 import type { AgentOfficeViewModel } from '../lib/agent-office-model';
@@ -112,8 +112,14 @@ describe('AgentOfficeShell', () => {
 
     expect(screen.getByText('직원을 선택하세요.')).toBeInTheDocument();
     expect(screen.getByText('직원을 선택하세요')).toBeInTheDocument();
-    for (const button of screen.getAllByRole('button', { name: /운영 총괄/ })) {
-      expect(button).toHaveAttribute('aria-pressed', 'false');
-    }
+    expect(
+      screen.getByRole('button', { name: '운영 총괄, 집중 중' }),
+    ).toHaveAttribute('aria-pressed', 'false');
+    expect(
+      within(screen.getByRole('complementary', { name: '인력 배치' })).getByRole(
+        'button',
+        { name: /운영 총괄/ },
+      ),
+    ).toHaveAttribute('aria-pressed', 'false');
   });
 });

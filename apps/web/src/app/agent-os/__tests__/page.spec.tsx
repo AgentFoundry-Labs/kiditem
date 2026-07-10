@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import AgentOsPage from '../page';
 
@@ -55,10 +55,15 @@ describe('Agent OS canonical page', () => {
     render(<AgentOsPage />);
 
     expect(screen.getByText('Agent OS 사무실')).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: /운영 총괄/ })).toHaveLength(2);
+    const staffPanel = screen.getByRole('complementary', { name: '인력 배치' });
+    expect(staffPanel).toBeInTheDocument();
     expect(
-      screen.getByRole('complementary', { name: '인력 배치' }),
-    ).toBeInTheDocument();
+      within(staffPanel).getByRole('button', { name: /운영 총괄/ }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '운영 총괄 책상' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '운영 총괄, 준비됨' }),
+    ).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('region', { name: '운영 캔버스' })).toBeInTheDocument();
     expect(screen.getByRole('complementary', { name: '직원 프로필' })).toBeInTheDocument();
     expect(

@@ -1,7 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { AgentOfficeMap } from './AgentOfficeMap';
-import type { AgentOfficeNode } from '../lib/agent-office-model';
+import type {
+  AgentOfficeActivity,
+  AgentOfficeNode,
+} from '../lib/agent-office-model';
 
 const nodes: AgentOfficeNode[] = [
   {
@@ -21,12 +24,12 @@ const nodes: AgentOfficeNode[] = [
     capabilities: [],
   },
   {
-    id: 'agent-qa',
-    name: 'QA',
-    agentType: 'reviewer',
-    title: '검수실',
-    displayName: '검수 담당',
-    responsibility: '검수 업무를 수행한다.',
+    id: 'agent-ad-strategy',
+    name: 'Ad Strategy',
+    agentType: 'ad_strategy',
+    title: '광고 전략실',
+    displayName: '광고 전략 담당',
+    responsibility: '광고 성과 신호를 분석하고 운영 전략을 제안한다.',
     status: 'idle',
     activeRunCount: 0,
     pendingApprovalCount: 0,
@@ -38,57 +41,73 @@ const nodes: AgentOfficeNode[] = [
   },
 ];
 
+const activities: AgentOfficeActivity[] = [
+  {
+    id: 'run-1',
+    kind: 'run',
+    label: '실행 running',
+    status: 'running',
+    occurredAt: '2026-07-09T02:00:00.000Z',
+    agentInstanceId: 'agent-manager',
+  },
+];
+
 describe('AgentOfficeMap', () => {
-  it('renders staff nodes and notifies selection', () => {
+  it('renders the interactive floor, employee avatars, and shared selection', () => {
     const onSelectNode = vi.fn();
 
     render(
       <AgentOfficeMap
         nodes={nodes}
+        activities={activities}
         selectedNodeId={null}
         onSelectNode={onSelectNode}
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /운영 총괄/ }));
-    expect(onSelectNode).toHaveBeenCalledWith('agent-manager');
+    expect(screen.getByTestId('agent-office-scene')).toBeInTheDocument();
+    expect(screen.getByTestId('office-floor-svg')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '운영 총괄 책상' }));
+    fireEvent.click(screen.getByRole('button', { name: '운영 총괄, 집중 중' }));
+
+    expect(onSelectNode).toHaveBeenNthCalledWith(1, 'agent-manager');
+    expect(onSelectNode).toHaveBeenNthCalledWith(2, 'agent-manager');
   });
 
-  it('renders the generated office scene behind interactive staff nodes', () => {
+  it('keeps a true no-selection state', () => {
     render(
       <AgentOfficeMap
         nodes={nodes}
+        activities={activities}
         selectedNodeId={null}
         onSelectNode={vi.fn()}
       />,
     );
 
-    expect(screen.getByRole('region', { name: '운영 캔버스' })).toBeInTheDocument();
     expect(
-      screen.getByRole('img', { name: 'Agent OS 가상 사무공간' }),
-    ).toHaveAttribute('src', expect.stringContaining('office-floor.png'));
-    expect(screen.getByText('대표실')).toBeInTheDocument();
-    expect(screen.getByText('콘텐츠 실험실')).toBeInTheDocument();
-    expect(screen.getByText('운영 광장')).toBeInTheDocument();
+      screen.getByRole('button', { name: '운영 총괄, 집중 중' }),
+    ).toHaveAttribute('aria-pressed', 'false');
+    expect(
+      screen.getByRole('button', { name: '광고 전략 담당, 준비됨' }),
+    ).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('keeps a true no-selection state when selectedNodeId is null', () => {
+  it('renders an empty office without inventing employee avatars', () => {
     render(
       <AgentOfficeMap
-        nodes={nodes}
+        nodes={[]}
+        activities={[]}
         selectedNodeId={null}
         onSelectNode={vi.fn()}
       />,
     );
 
-    expect(screen.getByRole('button', { name: /운영 총괄/ })).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    );
-    expect(screen.getByRole('button', { name: /검수 담당/ })).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    );
+    expect(screen.getByTestId('office-floor-svg')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', {
+        name: /집중 중|대기 중|승인 필요|준비됨|오프라인/,
+      }),
+    ).not.toBeInTheDocument();
   });
-
 });
