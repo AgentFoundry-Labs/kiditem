@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_OFFICE_AVATAR_SRC,
+  OFFICE_SEATS,
+  OFFICE_WORLD_SIZE,
   getOfficeDestination,
+  getOfficeEmployeeRect,
   getOfficeMotionPoints,
   getOfficeSeat,
+  officeRectsOverlap,
 } from './agent-office-layout';
+import type { AgentOfficeNodeStatus } from './agent-office-model';
 
 const employeeTypes = [
   'manager',
@@ -15,6 +20,14 @@ const employeeTypes = [
   'order',
   'channel_registration',
 ] as const;
+
+const destinationStatuses = [
+  'working',
+  'offline',
+  'idle',
+  'waiting',
+  'blocked',
+] as const satisfies readonly AgentOfficeNodeStatus[];
 
 describe('agent office layout', () => {
   it('assigns the seven employees unique desks and role-specific avatars', () => {
@@ -34,6 +47,48 @@ describe('agent office layout', () => {
     expect(getOfficeDestination(seat, 'waiting')).toEqual(seat.waiting);
     expect(getOfficeDestination(seat, 'blocked')).toEqual(seat.blocked);
     expect(getOfficeDestination(seat, 'offline')).toEqual(seat.desk);
+  });
+
+  it('keeps every seven-employee status combination collision-free and in bounds', () => {
+    for (let leftIndex = 0; leftIndex < OFFICE_SEATS.length; leftIndex += 1) {
+      for (
+        let rightIndex = leftIndex + 1;
+        rightIndex < OFFICE_SEATS.length;
+        rightIndex += 1
+      ) {
+        const leftSeat = OFFICE_SEATS[leftIndex];
+        const rightSeat = OFFICE_SEATS[rightIndex];
+
+        for (const leftStatus of destinationStatuses) {
+          for (const rightStatus of destinationStatuses) {
+            const leftRect = getOfficeEmployeeRect(
+              getOfficeDestination(leftSeat, leftStatus),
+            );
+            const rightRect = getOfficeEmployeeRect(
+              getOfficeDestination(rightSeat, rightStatus),
+            );
+
+            expect(
+              officeRectsOverlap(leftRect, rightRect),
+              `${leftSeat.employeeType}:${leftStatus} overlaps ${rightSeat.employeeType}:${rightStatus}`,
+            ).toBe(false);
+          }
+        }
+      }
+    }
+
+    for (const seat of OFFICE_SEATS) {
+      for (const status of destinationStatuses) {
+        const rect = getOfficeEmployeeRect(getOfficeDestination(seat, status));
+
+        expect(rect.x).toBeGreaterThanOrEqual(0);
+        expect(rect.y).toBeGreaterThanOrEqual(0);
+        expect(rect.x + rect.width).toBeLessThanOrEqual(100);
+        expect(rect.y + rect.height).toBeLessThanOrEqual(100);
+      }
+    }
+
+    expect(OFFICE_WORLD_SIZE).toEqual({ width: 1200, height: 750 });
   });
 
   it('creates deterministic, non-overlapping overflow seats', () => {

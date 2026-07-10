@@ -27,6 +27,34 @@ export interface OfficeZone {
   hitRegion: OfficeRect;
 }
 
+export const OFFICE_WORLD_SIZE = { width: 1200, height: 750 } as const;
+
+export const OFFICE_EMPLOYEE_FOOTPRINT = {
+  width: 12,
+  height: 16,
+} as const;
+
+export function getOfficeEmployeeRect(point: OfficePoint): OfficeRect {
+  return {
+    x: point.x - OFFICE_EMPLOYEE_FOOTPRINT.width / 2,
+    y: point.y - OFFICE_EMPLOYEE_FOOTPRINT.height / 2,
+    width: OFFICE_EMPLOYEE_FOOTPRINT.width,
+    height: OFFICE_EMPLOYEE_FOOTPRINT.height,
+  };
+}
+
+export function officeRectsOverlap(
+  left: OfficeRect,
+  right: OfficeRect,
+): boolean {
+  return (
+    left.x < right.x + right.width &&
+    left.x + left.width > right.x &&
+    left.y < right.y + right.height &&
+    left.y + left.height > right.y
+  );
+}
+
 export const DEFAULT_OFFICE_AVATAR_SRC = '/agent-os/avatars/default.png';
 
 export const OFFICE_ZONES: readonly OfficeZone[] = [
@@ -53,23 +81,33 @@ export const OFFICE_ZONES: readonly OfficeZone[] = [
 ] as const;
 
 const waitingPoints: readonly OfficePoint[] = [
-  { x: 12, y: 78 },
-  { x: 22, y: 78 },
-  { x: 32, y: 78 },
-  { x: 42, y: 78 },
-  { x: 52, y: 78 },
-  { x: 27, y: 88 },
-  { x: 47, y: 88 },
+  { x: 20, y: 64 },
+  { x: 36, y: 64 },
+  { x: 52, y: 64 },
+  { x: 68, y: 64 },
+  { x: 20, y: 84 },
+  { x: 36, y: 84 },
+  { x: 52, y: 84 },
 ] as const;
 
 const blockedPoints: readonly OfficePoint[] = [
-  { x: 71, y: 23 },
-  { x: 79, y: 18 },
-  { x: 87, y: 23 },
-  { x: 71, y: 33 },
-  { x: 79, y: 38 },
-  { x: 87, y: 33 },
-  { x: 79, y: 28 },
+  { x: 82, y: 14 },
+  { x: 94, y: 14 },
+  { x: 82, y: 34 },
+  { x: 94, y: 34 },
+  { x: 82, y: 54 },
+  { x: 94, y: 54 },
+  { x: 82, y: 74 },
+] as const;
+
+const knownDeskPoints: readonly OfficePoint[] = [
+  { x: 20, y: 18 },
+  { x: 36, y: 18 },
+  { x: 52, y: 18 },
+  { x: 20, y: 40 },
+  { x: 36, y: 40 },
+  { x: 52, y: 40 },
+  { x: 68, y: 29 },
 ] as const;
 
 function createSeat(input: {
@@ -83,7 +121,7 @@ function createSeat(input: {
     employeeType: input.employeeType,
     avatarSrc: `/agent-os/avatars/${input.avatarFile}`,
     desk: input.desk,
-    idle: { x: input.desk.x, y: input.desk.y + 9 },
+    idle: { x: input.desk.x + 2, y: input.desk.y + 2 },
     waiting: waitingPoints[input.index],
     blocked: blockedPoints[input.index],
     paths: {
@@ -99,43 +137,43 @@ export const OFFICE_SEATS: readonly OfficeSeat[] = [
   createSeat({
     employeeType: 'manager',
     index: 0,
-    desk: { x: 14, y: 20 },
+    desk: knownDeskPoints[0],
     avatarFile: 'manager.png',
   }),
   createSeat({
     employeeType: 'ad_strategy',
     index: 1,
-    desk: { x: 31, y: 20 },
+    desk: knownDeskPoints[1],
     avatarFile: 'ad-strategy.png',
   }),
   createSeat({
     employeeType: 'chat',
     index: 2,
-    desk: { x: 48, y: 20 },
+    desk: knownDeskPoints[2],
     avatarFile: 'chat.png',
   }),
   createSeat({
     employeeType: 'sourcing',
     index: 3,
-    desk: { x: 14, y: 49 },
+    desk: knownDeskPoints[3],
     avatarFile: 'sourcing.png',
   }),
   createSeat({
     employeeType: 'listing',
     index: 4,
-    desk: { x: 31, y: 49 },
+    desk: knownDeskPoints[4],
     avatarFile: 'listing.png',
   }),
   createSeat({
     employeeType: 'order',
     index: 5,
-    desk: { x: 48, y: 49 },
+    desk: knownDeskPoints[5],
     avatarFile: 'order.png',
   }),
   createSeat({
     employeeType: 'channel_registration',
     index: 6,
-    desk: { x: 58, y: 35 },
+    desk: knownDeskPoints[6],
     avatarFile: 'channel-registration.png',
   }),
 ] as const;
