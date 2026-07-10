@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
   OFFICE_SEATS,
+  OFFICE_WORLD_SIZE,
   OFFICE_ZONES,
   type OfficeRect,
   type OfficeSeat,
@@ -13,9 +14,6 @@ import type { AgentOfficeNode } from '../lib/agent-office-model';
 // Scene composition follows the MIT-licensed SVG floor-plan approach used by
 // OpenClaw Office. KidItem owns the room geometry, palette, seats, and behavior.
 // Source reference: https://github.com/WW-AI-Lab/openclaw-office
-
-const VIEWBOX_WIDTH = 1200;
-const VIEWBOX_HEIGHT = 750;
 
 export interface AgentOfficeDeskPlacement {
   node: AgentOfficeNode;
@@ -40,12 +38,19 @@ function deskRect(seat: OfficeSeat): OfficeRect {
   };
 }
 
+function zoneLabelStyle(rect: OfficeRect) {
+  return {
+    left: `${rect.x + 1}%`,
+    top: `${rect.y + 1}%`,
+  };
+}
+
 function toCanvasX(value: number) {
-  return (value / 100) * VIEWBOX_WIDTH;
+  return (value / 100) * OFFICE_WORLD_SIZE.width;
 }
 
 function toCanvasY(value: number) {
-  return (value / 100) * VIEWBOX_HEIGHT;
+  return (value / 100) * OFFICE_WORLD_SIZE.height;
 }
 
 function DeskFixture({ seat, active }: { seat: OfficeSeat; active: boolean }) {
@@ -212,7 +217,7 @@ export function AgentOfficeFloor({
         data-testid="office-floor-svg"
         role="img"
         aria-label="상호작용 가능한 Agent OS 사무공간"
-        viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
+        viewBox={`0 0 ${OFFICE_WORLD_SIZE.width} ${OFFICE_WORLD_SIZE.height}`}
         preserveAspectRatio="xMidYMid meet"
         className="absolute inset-0 h-full w-full"
       >
@@ -247,31 +252,44 @@ export function AgentOfficeFloor({
       </svg>
 
       {OFFICE_ZONES.map((zone) => (
-        <button
-          key={zone.id}
-          type="button"
-          aria-label={`${zone.label} 구역`}
-          aria-pressed={selectedZoneId === zone.id}
-          onClick={() =>
-            setSelectedZoneId((current) => (current === zone.id ? null : zone.id))
-          }
-          style={rectStyle(zone.hitRegion)}
-          className={cn(
-            'group absolute z-10 border border-transparent text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-600',
-            'hover:border-slate-400/70',
-            selectedZoneId === zone.id && 'border-purple-600/70 bg-purple-50/20',
-          )}
-        >
-          <span className="pointer-events-none absolute left-2 top-2 rounded-md border border-slate-200 bg-white/90 px-2 py-1 text-[11px] font-semibold text-slate-600 shadow-sm">
+        <div key={zone.id}>
+          {selectedZoneId === zone.id ? (
+            <span
+              data-testid={`office-zone-highlight-${zone.id}`}
+              aria-hidden="true"
+              style={rectStyle(zone.hitRegion)}
+              className="pointer-events-none absolute z-10 border border-purple-600/70 bg-purple-50/20"
+            />
+          ) : null}
+          <button
+            type="button"
+            data-office-camera-control="true"
+            aria-label={`${zone.label} 구역`}
+            aria-pressed={selectedZoneId === zone.id}
+            onClick={() =>
+              setSelectedZoneId((current) =>
+                current === zone.id ? null : zone.id,
+              )
+            }
+            style={zoneLabelStyle(zone.hitRegion)}
+            className={cn(
+              'absolute z-20 rounded-md border bg-white/90 px-2 py-1 text-[11px] font-semibold shadow-sm',
+              'border-slate-200 text-slate-600 hover:border-slate-400',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-600',
+              selectedZoneId === zone.id &&
+                'border-purple-600 text-purple-700',
+            )}
+          >
             {zone.label}
-          </span>
-        </button>
+          </button>
+        </div>
       ))}
 
       {desks.map(({ node, seat }) => (
         <button
           key={seat.id}
           type="button"
+          data-office-camera-control="true"
           aria-label={`${node.displayName} 책상`}
           onClick={() => onSelectNode(node.id)}
           style={rectStyle(deskRect(seat))}

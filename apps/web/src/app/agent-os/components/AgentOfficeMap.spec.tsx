@@ -67,6 +67,13 @@ describe('AgentOfficeMap', () => {
 
     expect(screen.getByTestId('agent-office-scene')).toBeInTheDocument();
     expect(screen.getByTestId('office-floor-svg')).toBeInTheDocument();
+    expect(screen.getByTestId('agent-office-canvas')).toBeInTheDocument();
+    expect(screen.getByTestId('agent-office-camera-world')).toContainElement(
+      screen.getByTestId('agent-office-scene'),
+    );
+    expect(
+      screen.queryByRole('button', { name: /확대|축소|전체 보기/ }),
+    ).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '운영 총괄 책상' }));
     fireEvent.click(screen.getByRole('button', { name: '운영 총괄, 집중 중' }));

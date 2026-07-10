@@ -2,8 +2,12 @@
 
 import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
-import { getOfficeSeat } from '../lib/agent-office-layout';
+import {
+  getOfficeSeat,
+  OFFICE_WORLD_SIZE,
+} from '../lib/agent-office-layout';
 import { AgentOfficeAvatar } from './AgentOfficeAvatar';
+import { AgentOfficeCanvas } from './AgentOfficeCanvas';
 import { AgentOfficeFloor } from './AgentOfficeFloor';
 import type {
   AgentOfficeActivity,
@@ -60,29 +64,28 @@ export function AgentOfficeMap({
     <section
       aria-label="운영 캔버스"
       className={cn(
-        'relative flex min-h-[720px] items-center justify-center overflow-hidden bg-slate-100',
+        'relative h-full min-h-0 overflow-hidden bg-slate-100',
         className,
       )}
     >
-      <div
-        data-testid="agent-office-scene"
-        className="relative aspect-[8/5] max-w-full overflow-hidden border border-slate-200 bg-white shadow-sm"
-        style={{
-          width: 'min(100%, calc((100vh - 104px) * 1.6))',
-        }}
-      >
-        <AgentOfficeFloor desks={placements} onSelectNode={onSelectNode} />
-        {placements.map(({ node, seat }) => (
-          <AgentOfficeAvatar
-            key={node.id}
-            node={node}
-            seat={seat}
-            selected={selectedNodeId === node.id}
-            activityLabel={activityLabels.get(node.id) ?? null}
-            onSelect={onSelectNode}
-          />
-        ))}
-      </div>
+      <AgentOfficeCanvas worldSize={OFFICE_WORLD_SIZE}>
+        <div
+          data-testid="agent-office-scene"
+          className="relative h-full w-full overflow-hidden border border-slate-200 bg-white shadow-sm"
+        >
+          <AgentOfficeFloor desks={placements} onSelectNode={onSelectNode} />
+          {placements.map(({ node, seat }) => (
+            <AgentOfficeAvatar
+              key={node.id}
+              node={node}
+              seat={seat}
+              selected={selectedNodeId === node.id}
+              activityLabel={activityLabels.get(node.id) ?? null}
+              onSelect={onSelectNode}
+            />
+          ))}
+        </div>
+      </AgentOfficeCanvas>
     </section>
   );
 }

@@ -38,6 +38,9 @@ describe('AgentOfficeFloor', () => {
     });
     fireEvent.click(meeting);
     expect(meeting).toHaveAttribute('aria-pressed', 'true');
+    expect(meeting.style.width).toBe('');
+    expect(meeting.style.height).toBe('');
+    expect(meeting).toHaveAttribute('data-office-camera-control');
   });
 
   it('selects the employee assigned to a clicked desk', () => {
