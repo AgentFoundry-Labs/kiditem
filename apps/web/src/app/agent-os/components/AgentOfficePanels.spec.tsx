@@ -93,4 +93,42 @@ describe('Agent OS office panels', () => {
 
     expect(screen.getAllByText('미지정')).toHaveLength(2);
   });
+
+  it('uses Dashboard light surfaces and purple staff selection', () => {
+    render(
+      <>
+        <AgentOfficeHeader
+          totals={totals}
+          refreshing={false}
+          activityOpen={false}
+          onRefresh={vi.fn()}
+          onToggleActivity={vi.fn()}
+        />
+        <AgentStaffPanel
+          model={{ nodes: [node], capabilities: [], activities: [], totals }}
+          selectedNodeId="agent-manager"
+          onSelectNode={vi.fn()}
+        />
+        <AgentInspector node={node} />
+      </>,
+    );
+
+    const header = screen.getByRole('banner');
+    const staff = screen.getByRole('complementary', { name: '인력 배치' });
+    const profile = screen.getByRole('complementary', {
+      name: '직원 프로필',
+    });
+    const selectedStaff = screen.getByRole('button', { name: /운영 총괄/ });
+
+    expect(header.className).toContain('bg-white');
+    expect(header.className).toContain('border-slate-200');
+    expect(staff.className).toContain('bg-white');
+    expect(profile.className).toContain('bg-white');
+    expect(selectedStaff.className).toContain('bg-purple-50');
+    expect(
+      [header, staff, profile].every(
+        (element) => !element.className.includes('bg-slate-950'),
+      ),
+    ).toBe(true);
+  });
 });

@@ -37,7 +37,10 @@ export function AgentOfficeShell({
       : model.nodes.find((node) => node.id === selectedNodeId) ?? null;
 
   return (
-    <div className="min-h-screen min-w-[1080px] overflow-hidden bg-slate-950 text-white">
+    <div
+      data-testid="agent-office-theme-root"
+      className="min-h-screen min-w-[1080px] overflow-hidden bg-slate-50 text-slate-900"
+    >
       <div className="flex h-screen flex-col gap-3 p-3">
         <AgentOfficeHeader
           totals={model.totals}
@@ -63,7 +66,7 @@ export function AgentOfficeShell({
 
           <div
             data-testid="agent-office-viewport"
-            className="min-h-0 overflow-hidden rounded-lg border border-slate-300 bg-slate-100 shadow-2xl shadow-black/25"
+            className="min-h-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-100 shadow-sm"
           >
             <AgentOfficeMap
               className="h-full min-h-0"

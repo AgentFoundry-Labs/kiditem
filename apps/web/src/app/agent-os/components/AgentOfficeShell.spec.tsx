@@ -107,12 +107,20 @@ describe('AgentOfficeShell', () => {
     fireEvent.click(
       screen.getByRole('button', { name: '시스템 활동 기록 열기' }),
     );
-    expect(
-      screen.getByRole('region', { name: '시스템 활동 기록' }),
-    ).toHaveTextContent('codex-local 42µ');
-    expect(detailRail).toContainElement(
-      screen.getByRole('region', { name: '시스템 활동 기록' }),
-    );
+    const themeRoot = screen.getByTestId('agent-office-theme-root');
+    const activity = screen.getByRole('region', {
+      name: '시스템 활동 기록',
+    });
+    const commandDock = screen.getByRole('region', {
+      name: '선택 직원 업무 지시',
+    });
+
+    expect(activity).toHaveTextContent('codex-local 42µ');
+    expect(detailRail).toContainElement(activity);
+    expect(themeRoot.className).toContain('bg-slate-50');
+    expect(themeRoot.className).toContain('text-slate-900');
+    expect(activity.className).toContain('bg-white');
+    expect(commandDock.className).toContain('bg-white');
   });
 
   it('preserves a null selection without falling back to the first node', () => {
