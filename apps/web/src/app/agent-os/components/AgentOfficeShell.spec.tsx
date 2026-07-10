@@ -77,6 +77,23 @@ describe('AgentOfficeShell', () => {
     expect(
       screen.getByRole('region', { name: '선택 직원 업무 지시' }),
     ).toHaveTextContent('운영 총괄');
+    const workspace = screen.getByTestId('agent-office-workspace');
+    const staffRail = screen.getByTestId('agent-office-staff-rail');
+    const viewport = screen.getByTestId('agent-office-viewport');
+    const detailRail = screen.getByTestId('agent-office-detail-rail');
+    const commandRow = screen.getByTestId('agent-office-command-row');
+    const canvas = screen.getByTestId('agent-office-canvas');
+
+    expect(workspace.className).toContain(
+      'grid-cols-[240px_minmax(480px,1fr)_300px]',
+    );
+    expect(viewport).toContainElement(canvas);
+    expect(staffRail).not.toContainElement(canvas);
+    expect(detailRail).not.toContainElement(canvas);
+    expect(commandRow).not.toContainElement(canvas);
+    expect(
+      screen.queryByRole('button', { name: /확대|축소|전체 보기/ }),
+    ).toBeNull();
     expect(
       screen.queryByRole('region', { name: '시스템 활동 기록' }),
     ).not.toBeInTheDocument();
@@ -93,6 +110,9 @@ describe('AgentOfficeShell', () => {
     expect(
       screen.getByRole('region', { name: '시스템 활동 기록' }),
     ).toHaveTextContent('codex-local 42µ');
+    expect(detailRail).toContainElement(
+      screen.getByRole('region', { name: '시스템 활동 기록' }),
+    );
   });
 
   it('preserves a null selection without falling back to the first node', () => {

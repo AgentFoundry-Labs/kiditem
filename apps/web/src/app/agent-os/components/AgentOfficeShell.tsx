@@ -38,7 +38,7 @@ export function AgentOfficeShell({
 
   return (
     <div className="min-h-screen min-w-[1080px] overflow-hidden bg-slate-950 text-white">
-      <div className="flex min-h-screen flex-col gap-3 p-3">
+      <div className="flex h-screen flex-col gap-3 p-3">
         <AgentOfficeHeader
           totals={model.totals}
           refreshing={refreshing}
@@ -46,30 +46,48 @@ export function AgentOfficeShell({
           onRefresh={onRefresh}
           onToggleActivity={() => setActivityOpen((open) => !open)}
         />
-        <main className="relative min-h-[calc(100vh-80px)] flex-1 overflow-hidden rounded-lg border border-white/20 bg-slate-100 shadow-2xl shadow-black/25">
-          <AgentOfficeMap
-            className="absolute inset-0 min-h-full"
-            nodes={model.nodes}
-            activities={model.activities}
-            selectedNodeId={selectedNodeId}
-            onSelectNode={onSelectNode}
-          />
-          <div className="absolute left-4 top-4 z-20 w-[240px] xl:w-[272px]">
+        <main
+          data-testid="agent-office-workspace"
+          className="grid min-h-0 flex-1 grid-cols-[240px_minmax(480px,1fr)_300px] grid-rows-[minmax(0,1fr)_auto] gap-3 overflow-hidden"
+        >
+          <div
+            data-testid="agent-office-staff-rail"
+            className="row-span-2 min-h-0 overflow-y-auto"
+          >
             <AgentStaffPanel
               model={model}
               selectedNodeId={selectedNodeId}
               onSelectNode={onSelectNode}
             />
           </div>
-          <div className="absolute right-4 top-4 z-20 w-[300px] xl:w-[340px]">
-            <AgentInspector node={selectedNode} />
+
+          <div
+            data-testid="agent-office-viewport"
+            className="min-h-0 overflow-hidden rounded-lg border border-slate-300 bg-slate-100 shadow-2xl shadow-black/25"
+          >
+            <AgentOfficeMap
+              className="h-full min-h-0"
+              nodes={model.nodes}
+              activities={model.activities}
+              selectedNodeId={selectedNodeId}
+              onSelectNode={onSelectNode}
+            />
           </div>
-          {activityOpen ? (
-            <div className="absolute left-[272px] right-[316px] top-4 z-30 xl:left-[304px] xl:right-[356px]">
+
+          <div
+            data-testid="agent-office-detail-rail"
+            className="row-span-2 flex min-h-0 flex-col gap-3 overflow-y-auto"
+          >
+            <AgentInspector node={selectedNode} />
+            {activityOpen ? (
               <AgentActivityDrawer activities={model.activities} />
-            </div>
-          ) : null}
-          <div className="absolute bottom-4 left-1/2 z-20 w-[680px] -translate-x-1/2">
+            ) : null}
+          </div>
+
+          <div
+            data-testid="agent-office-command-row"
+            className="min-w-0"
+          >
             <AgentCommandDock
               node={selectedNode}
               value={command}
