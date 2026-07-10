@@ -55,6 +55,9 @@ describe('integration test runtime contract', () => {
     expect(jobSource).toContain('cache: npm');
     expect(jobSource).toContain('run: npm ci --ignore-scripts');
     expect(jobSource).toContain('run: npx prisma generate');
+    expect(jobSource).toContain(
+      'run: npm exec --workspace=apps/server vitest -- run src/test-helpers/__tests__/postgres-global-setup.spec.ts src/test-helpers/__tests__/real-prisma.spec.ts',
+    );
     expect(jobSource).toContain('run: npm run test:integration');
   });
 

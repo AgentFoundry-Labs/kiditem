@@ -35,7 +35,14 @@ export function createPostgresGlobalSetup(
       await dependencies.pushSchema(databaseUrl);
       project.provide('databaseUrl', databaseUrl);
     } catch (error) {
-      await container.stop();
+      try {
+        await container.stop();
+      } catch (cleanupError) {
+        throw new AggregateError(
+          [error, cleanupError],
+          'Postgres integration setup and cleanup both failed',
+        );
+      }
       throw error;
     }
 

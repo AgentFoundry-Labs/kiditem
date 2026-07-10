@@ -24,6 +24,9 @@ describe('makeTestPrisma database identity guard', () => {
 
   it.each([
     ['wrong username', 'postgresql://other:secret@localhost:6543/kiditem_test'],
+    ['username query override', 'postgresql://kiditem_test:secret@localhost:6543/kiditem_test?user=other'],
+    ['host query override', 'postgresql://kiditem_test:secret@localhost:6543/kiditem_test?host=production-db'],
+    ['non-Postgres scheme', 'mysql://kiditem_test:secret@localhost:6543/kiditem_test'],
     ['test name in password', 'postgresql://other:kiditem_test@localhost:6543/production'],
     [
       'test name in query',
@@ -38,6 +41,22 @@ describe('makeTestPrisma database identity guard', () => {
 
     expect(() => makeTestPrisma()).toThrow(
       'Refusing to use non-test DATABASE_URL for integration tests.',
+    );
+  });
+
+  it('does not expose authority or query-string passwords in refusal errors', () => {
+    process.env.DATABASE_URL =
+      'postgresql://kiditem_test:authority-secret@localhost:6543/kiditem_test?password=query-secret';
+
+    expect(() => makeTestPrisma()).toThrowError(
+      expect.objectContaining({
+        message: expect.not.stringContaining('authority-secret'),
+      }),
+    );
+    expect(() => makeTestPrisma()).toThrowError(
+      expect.objectContaining({
+        message: expect.not.stringContaining('query-secret'),
+      }),
     );
   });
 });

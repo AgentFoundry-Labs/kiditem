@@ -58,6 +58,36 @@ describe('Postgres integration global setup orchestration', () => {
     expect(provide).not.toHaveBeenCalled();
   });
 
+  it('preserves schema setup and cleanup errors when both operations fail', async () => {
+    const databaseUrl = 'postgresql://kiditem_test:secret@localhost:6543/kiditem_test';
+    const { container } = createStartedPostgres(databaseUrl);
+    const setupError = new Error('schema push failed');
+    const cleanupError = new Error('container stop failed');
+    const stop = vi.fn(async () => {
+      throw cleanupError;
+    });
+    container.stop = stop;
+    const provide = vi.fn();
+    const setup = createPostgresGlobalSetup({
+      startPostgres: vi.fn(async () => container),
+      pushSchema: vi.fn(async () => {
+        throw setupError;
+      }),
+    });
+
+    let thrown: unknown;
+    try {
+      await setup({ provide });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect((thrown as AggregateError).errors).toEqual([setupError, cleanupError]);
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(provide).not.toHaveBeenCalled();
+  });
+
   it('returns a teardown that stops the started container', async () => {
     const { container, stop } = createStartedPostgres(
       'postgresql://kiditem_test:secret@localhost:6543/kiditem_test',

@@ -35,14 +35,36 @@ function assertTestDbUrl(): string {
     // The shared refusal below keeps malformed URLs on the same safe path.
   }
 
+  const connectionOverrideParams = new Set([
+    'user',
+    'host',
+    'port',
+    'password',
+    'database',
+    'db',
+    'dbname',
+  ]);
+  const connectionOverrides = parsedUrl
+    ? [...parsedUrl.searchParams.keys()].filter((key) =>
+      connectionOverrideParams.has(key.toLowerCase()))
+    : [];
+
   if (
+    (parsedUrl?.protocol !== 'postgres:' && parsedUrl?.protocol !== 'postgresql:') ||
     parsedUrl?.username !== 'kiditem_test' ||
-    parsedUrl.pathname !== '/kiditem_test'
+    parsedUrl.pathname !== '/kiditem_test' ||
+    connectionOverrides.length > 0
   ) {
+    const receivedIdentity = parsedUrl
+      ? `protocol "${parsedUrl.protocol}", username "${parsedUrl.username || '<missing>'}", ` +
+        `db name "${parsedUrl.pathname.slice(1) || '<missing>'}", ` +
+        `connection overrides [${connectionOverrides.join(', ')}]`
+      : 'malformed URL';
+
     throw new Error(
       `Refusing to use non-test DATABASE_URL for integration tests. ` +
-        `Expected username "kiditem_test" and db name "kiditem_test", got: ` +
-        url.replace(/:[^:@]+@/, ':***@'),
+        `Expected a Postgres URL with username "kiditem_test", db name "kiditem_test", ` +
+        `and no connection overrides; got ${receivedIdentity}`,
     );
   }
   return url;
