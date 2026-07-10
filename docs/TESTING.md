@@ -198,8 +198,9 @@ npm run test:integration -- src/inventory/__tests__/inventory-flow.pg.integratio
 
 ### 안전장치
 
-- `test-helpers/real-prisma.ts::assertTestDbUrl` — DATABASE_URL 에 `kiditem_test` 가
-  포함되지 않으면 throw. dev/prod DB 에 TRUNCATE 실수 방지.
+- `test-helpers/real-prisma.ts::assertTestDbUrl` — 파싱한 DATABASE_URL 의 username 과
+  database pathname 이 모두 정확히 `kiditem_test` 가 아니면 throw. dev/prod DB 에
+  TRUNCATE 실수 방지.
 - `vitest.config.integration.ts` — `fileParallelism: false` + `isolate: false` 로 단일 fork serial 실행 (테스트 사이 reset 만 하면 충분).
 
 ## CI 통합

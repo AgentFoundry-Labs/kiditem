@@ -1,7 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
-import type { TestProject } from 'vitest/node';
 
 declare module 'vitest' {
   export interface ProvidedContext {
@@ -11,15 +10,48 @@ declare module 'vitest' {
 
 const repoRoot = path.resolve(__dirname, '../../../..');
 
-export default async function setup(project: TestProject) {
-  const container = await new PostgreSqlContainer('postgres:17')
+interface StartedPostgres {
+  getConnectionUri(): string;
+  stop(): Promise<unknown>;
+}
+
+interface DatabaseUrlProvider {
+  provide(key: 'databaseUrl', value: string): void;
+}
+
+export interface PostgresGlobalSetupDependencies {
+  startPostgres(): Promise<StartedPostgres>;
+  pushSchema(databaseUrl: string): void | Promise<void>;
+}
+
+export function createPostgresGlobalSetup(
+  dependencies: PostgresGlobalSetupDependencies,
+) {
+  return async function setup(project: DatabaseUrlProvider) {
+    const container = await dependencies.startPostgres();
+
+    try {
+      const databaseUrl = container.getConnectionUri();
+      await dependencies.pushSchema(databaseUrl);
+      project.provide('databaseUrl', databaseUrl);
+    } catch (error) {
+      await container.stop();
+      throw error;
+    }
+
+    return async () => {
+      await container.stop();
+    };
+  };
+}
+
+const setup = createPostgresGlobalSetup({
+  startPostgres: () => new PostgreSqlContainer('postgres:17')
     .withDatabase('kiditem_test')
     .withUsername('kiditem_test')
     .withPassword('kiditem_test')
-    .start();
-
-  try {
-    const databaseUrl = container.getConnectionUri();
+    .start(),
+  pushSchema: (databaseUrl) => {
     const prismaArgs = ['db', 'push', '--accept-data-loss'];
 
     execFileSync(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['prisma', ...prismaArgs], {
@@ -30,14 +62,7 @@ export default async function setup(project: TestProject) {
       },
       stdio: 'inherit',
     });
+  },
+});
 
-    project.provide('databaseUrl', databaseUrl);
-  } catch (error) {
-    await container.stop();
-    throw error;
-  }
-
-  return async () => {
-    await container.stop();
-  };
-}
+export default setup;

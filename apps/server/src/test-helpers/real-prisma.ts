@@ -27,10 +27,22 @@ import { PrismaPg } from '@prisma/adapter-pg';
  */
 function assertTestDbUrl(): string {
   const url = process.env.DATABASE_URL ?? '';
-  if (!url.includes('kiditem_test')) {
+  let parsedUrl: URL | undefined;
+
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    // The shared refusal below keeps malformed URLs on the same safe path.
+  }
+
+  if (
+    parsedUrl?.username !== 'kiditem_test' ||
+    parsedUrl.pathname !== '/kiditem_test'
+  ) {
     throw new Error(
       `Refusing to use non-test DATABASE_URL for integration tests. ` +
-        `Expected db name "kiditem_test", got: ${url.replace(/:[^:@]+@/, ':***@')}`,
+        `Expected username "kiditem_test" and db name "kiditem_test", got: ` +
+        url.replace(/:[^:@]+@/, ':***@'),
     );
   }
   return url;

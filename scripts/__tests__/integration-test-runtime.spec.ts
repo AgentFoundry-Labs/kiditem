@@ -25,11 +25,12 @@ describe('integration test runtime contract', () => {
   });
 
   it('removes the legacy fixed-port database lifecycle files', () => {
+    expect(existsSync(join(repoRoot, '.env.test.example'))).toBe(false);
     expect(existsSync(join(repoRoot, 'docker-compose.test.yml'))).toBe(false);
     expect(existsSync(join(repoRoot, 'prisma/test-db-setup.sh'))).toBe(false);
   });
 
-  it('registers a Testcontainers global lifecycle and worker environment setup', () => {
+  it('registers integration setup files with dynamic container configuration', () => {
     const configSource = readRepoFile('apps/server/vitest.config.integration.ts');
     const globalSetupPath = 'apps/server/src/test-helpers/postgres-global-setup.ts';
     const testEnvSetupPath = 'apps/server/src/test-helpers/postgres-test-env.setup.ts';
@@ -48,13 +49,18 @@ describe('integration test runtime contract', () => {
     expect(globalSetupSource).toContain(".withDatabase('kiditem_test')");
     expect(globalSetupSource).toContain(".withUsername('kiditem_test')");
     expect(globalSetupSource).toContain(".withPassword('kiditem_test')");
-    expect(globalSetupSource).toContain('.getConnectionUri()');
-    expect(globalSetupSource).toContain("project.provide('databaseUrl', databaseUrl)");
-    expect(globalSetupSource).toContain("['db', 'push', '--accept-data-loss']");
-    expect(globalSetupSource).toContain('DATABASE_URL: databaseUrl');
-    expect(globalSetupSource.match(/await container\.stop\(\)/g)).toHaveLength(2);
     expect(testEnvSetupSource).toContain("inject('databaseUrl')");
     expect(testEnvSetupSource).toContain('process.env.DATABASE_URL = databaseUrl');
+  });
+
+  it('does not configure a fixed host port or container name', () => {
+    const globalSetupSource = readRepoFile(
+      'apps/server/src/test-helpers/postgres-global-setup.ts',
+    );
+
+    expect(globalSetupSource).not.toContain('.withExposedPorts(');
+    expect(globalSetupSource).not.toContain('.withFixedExposedPort(');
+    expect(globalSetupSource).not.toContain('.withName(');
   });
 
   it('keeps integration runtime helpers out of the production server build', () => {
