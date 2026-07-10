@@ -93,6 +93,8 @@ async function ensureInstance(
         organization: { connect: { id: organizationId } },
         type: definition.type,
         name: definition.name,
+        role: definition.defaultInstanceRole,
+        title: definition.defaultInstanceTitle,
         adapterType: definition.defaultAdapterType,
       },
       select: { id: true },

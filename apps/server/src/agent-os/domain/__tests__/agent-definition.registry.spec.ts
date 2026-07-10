@@ -123,7 +123,54 @@ describe('agent definition registry', () => {
     expect(
       definitions
         .filter((definition) => definition.type !== 'manager')
-        .every((definition) => definition.delegationRole === 'leaf'),
+      .every((definition) => definition.delegationRole === 'leaf'),
     ).toBe(true);
+  });
+
+  it('classifies code-owned Agent OS definitions as employees or capabilities', () => {
+    const definitionsByType = new Map(
+      listAgentDefinitions().map((definition) => [definition.type, definition]),
+    );
+
+    expect(definitionsByType.get('manager')).toMatchObject({
+      defaultInstanceRole: 'employee',
+      defaultInstanceTitle: '운영 총괄',
+    });
+    expect(definitionsByType.get('sourcing')).toMatchObject({
+      defaultInstanceRole: 'employee',
+      defaultInstanceTitle: '소싱 담당',
+    });
+    expect(definitionsByType.get('listing')).toMatchObject({
+      defaultInstanceRole: 'employee',
+      defaultInstanceTitle: '상품 등록 담당',
+    });
+    expect(definitionsByType.get('order')).toMatchObject({
+      defaultInstanceRole: 'employee',
+      defaultInstanceTitle: '발주 담당',
+    });
+    expect(definitionsByType.get('channel_registration')).toMatchObject({
+      defaultInstanceRole: 'employee',
+      defaultInstanceTitle: '채널 등록 담당',
+    });
+    expect(definitionsByType.get('ad_strategy')).toMatchObject({
+      defaultInstanceRole: 'employee',
+      defaultInstanceTitle: '광고 전략 담당',
+    });
+    expect(definitionsByType.get('chat')).toMatchObject({
+      defaultInstanceRole: 'employee',
+      defaultInstanceTitle: '고객/운영 응대 담당',
+    });
+    expect(definitionsByType.get('rules_evaluation')).toMatchObject({
+      defaultInstanceRole: 'capability',
+      defaultInstanceTitle: '룰 평가 능력',
+    });
+    expect(definitionsByType.get('rules_suggest')).toMatchObject({
+      defaultInstanceRole: 'capability',
+      defaultInstanceTitle: '임계값 제안 능력',
+    });
+    expect(definitionsByType.get('thumbnail_analyst')).toMatchObject({
+      defaultInstanceRole: 'capability',
+      defaultInstanceTitle: '썸네일 분석 능력',
+    });
   });
 });

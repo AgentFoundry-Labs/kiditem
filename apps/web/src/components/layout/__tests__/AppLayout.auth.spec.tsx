@@ -126,6 +126,25 @@ describe('AppLayout auth gate', () => {
     expect(generationWatcherMock).not.toHaveBeenCalled();
   });
 
+  it('renders the canonical Agent OS fullscreen route outside the protected shell gate', () => {
+    usePathnameMock.mockReturnValue('/agent-os');
+    window.history.pushState({}, '', '/agent-os');
+    useAuthMock.mockReturnValue({
+      status: 'loading',
+      user: null,
+      isLoading: true,
+      logout: vi.fn(),
+    });
+
+    renderLayout();
+
+    expect(screen.getByTestId('protected-child')).toBeInTheDocument();
+    expect(screen.queryByTestId('sidebar')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('page-skeleton')).not.toBeInTheDocument();
+    expect(replaceMock).not.toHaveBeenCalled();
+    expect(usePanelStreamMock).not.toHaveBeenCalled();
+  });
+
   it('mounts protected children and background runtime once KidItem identity is ready', () => {
     useAuthMock.mockReturnValue({
       status: 'ready',

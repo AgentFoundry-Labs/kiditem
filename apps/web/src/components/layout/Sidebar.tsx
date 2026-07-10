@@ -177,9 +177,8 @@ export const menuSections: MenuSection[] = [
     label: '',
     collapsible: false,
     items: [
-      // `/agent-os` is the user-facing Agent OS surface. The `/agents`
-      // operations console remains addressable by direct URL for run/request
-      // debugging, but should not be the main user navigation target.
+      // `/agent-os` is the canonical Agent OS HQ. `/agents` remains a
+      // redirect-only compatibility URL.
       { href: '/agent-os', label: 'Agent OS', icon: Bot },
       { href: '/settings', label: '설정', icon: Settings },
     ],
@@ -188,7 +187,6 @@ export const menuSections: MenuSection[] = [
 
 function isItemActive(href: string, pathname: string): boolean {
   if (href === '/dashboard') return pathname === '/dashboard';
-  if (href === '/agents') return pathname.startsWith('/agents') || pathname.startsWith('/workflows') || pathname.startsWith('/marketplace');
   if (href === '/agent-os') return pathname.startsWith('/agent-os');
   const matchesRoute = pathname === href || pathname.startsWith(href + '/');
   if (!matchesRoute) return false;

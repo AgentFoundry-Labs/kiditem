@@ -141,6 +141,16 @@ describe('useAgentOffice', () => {
     });
   });
 
+  it('selects the first staff member after the office model loads', async () => {
+    const { result } = renderHook(() => useAgentOffice(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.isPending).toBe(false);
+    });
+
+    expect(result.current.selectedNodeId).toBe('agent-manager');
+  });
+
   it('reuses the most recent active conversation when returning with no local conversation state', async () => {
     listConversationsMock.mockResolvedValue({
       items: [
@@ -190,6 +200,65 @@ describe('useAgentOffice', () => {
     });
 
     expect(createConversationMock).not.toHaveBeenCalled();
+  });
+
+  it('sends the selected employee as a delegation hint through Operator', async () => {
+    listInstancesMock.mockResolvedValue([
+      {
+        id: 'agent-manager',
+        organizationId: 'org-1',
+        type: 'manager',
+        name: 'Operator',
+        role: 'ceo',
+        title: '대표실',
+        icon: null,
+        reportsToId: null,
+        lifecycleStatus: 'active',
+        pauseReason: null,
+        trustLevel: 5,
+        adapterType: 'operator',
+        modelOverride: null,
+        effectiveModel: 'gpt-5.4',
+      },
+      {
+        id: 'agent-sourcing',
+        organizationId: 'org-1',
+        type: 'sourcing',
+        name: 'Sourcing',
+        role: 'specialist',
+        title: '소싱 담당',
+        icon: null,
+        reportsToId: 'agent-manager',
+        lifecycleStatus: 'active',
+        pauseReason: null,
+        trustLevel: 2,
+        adapterType: 'hermes_local',
+        modelOverride: null,
+        effectiveModel: 'gpt-5.4',
+      },
+    ]);
+
+    const { result } = renderHook(() => useAgentOffice(), { wrapper });
+
+    await waitFor(() => expect(result.current.isPending).toBe(false));
+
+    act(() => {
+      result.current.setSelectedNodeId('agent-sourcing');
+      result.current.setCommand('신규 상품 후보를 정리해줘');
+    });
+    act(() => result.current.submitCommand());
+
+    await waitFor(() => {
+      expect(createConversationMock).toHaveBeenCalledWith({
+        content: [
+          '[Agent OS 업무 배정 요청]',
+          '대상 직원: 소싱 담당',
+          '대상 직원 유형: sourcing',
+          '대상 직원 ID: agent-sourcing',
+          '업무: 신규 상품 후보를 정리해줘',
+        ].join('\n'),
+      });
+    });
   });
 
   it('stays pending until all HQ model queries finish their initial load', async () => {

@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextRequest } from 'next/server';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { proxy } from '../proxy';
+import { config, proxy } from '../proxy';
 
 vi.mock('@supabase/ssr', () => ({
   createServerClient: vi.fn(),
@@ -43,6 +43,12 @@ function expectRedirectPath(response: Response, pathname: string, next: string) 
   const url = new URL(location ?? '');
   expect(url.pathname).toBe(pathname);
   expect(url.searchParams.get('next')).toBe(next);
+}
+
+function matchesProxyMatcher(path: string): boolean {
+  const [matcher] = config.matcher;
+  const source = matcher.startsWith('/') ? matcher.slice(1) : matcher;
+  return new RegExp(`^/${source}$`).test(path);
 }
 
 describe('proxy auth redirect', () => {
@@ -87,6 +93,13 @@ describe('proxy auth redirect', () => {
 
     expect(response.status).toBe(200);
     expect(createServerClient).not.toHaveBeenCalled();
+  });
+
+  it('excludes all Next internal routes from the auth proxy matcher', () => {
+    expect(matchesProxyMatcher('/_next/static/chunks/main-app.js')).toBe(false);
+    expect(matchesProxyMatcher('/_next/image')).toBe(false);
+    expect(matchesProxyMatcher('/_next/webpack-hmr')).toBe(false);
+    expect(matchesProxyMatcher('/dashboard')).toBe(true);
   });
 
   it('uses the publishable key and redirects protected routes when Supabase has no claims', async () => {

@@ -21,6 +21,9 @@ import {
 import {
   normalizeSellpiaRecommendedSnapshotItems,
 } from '../data-migrations/v0.1.7/002_normalize_sellpia_recommended_snapshot_items';
+import {
+  classifyAgentOsInstances,
+} from '../data-migrations/v0.1.7/003_classify_agent_os_instances';
 
 const repoRoot = join(__dirname, '..', '..');
 
@@ -45,6 +48,7 @@ describe('data migration registry', () => {
       'v0.1.6:001_record_rocket_read_model_release',
       'v0.1.7:001_record_sellpia_rocket_inventory_sync_release',
       'v0.1.7:002_normalize_sellpia_recommended_snapshot_items',
+      'v0.1.7:003_classify_agent_os_instances',
     ]);
   });
 
@@ -89,6 +93,41 @@ describe('Sellpia recommended snapshot item migration', () => {
       affectedRows: 3,
       details: {
         normalizedStatus: 'recommended -> needs_review',
+      },
+    });
+  });
+});
+
+describe('Agent OS instance classification migration', () => {
+  it('classifies persisted Agent OS instances as employees or capabilities', async () => {
+    const tx = {
+      $executeRaw: vi.fn(async () => 9),
+    };
+
+    const result = await classifyAgentOsInstances.run(tx as never);
+    const [statement] = tx.$executeRaw.mock.calls[0] as [TemplateStringsArray];
+    const sql = String.raw(statement);
+
+    expect(sql).toContain('UPDATE agent_instances');
+    expect(sql).toContain("WHEN type = 'manager' THEN 'employee'");
+    expect(sql).toContain("WHEN type = 'rules_evaluation' THEN 'capability'");
+    expect(sql).toContain("WHEN type = 'thumbnail_analyst' THEN 'capability'");
+    expect(sql).toContain("WHEN type = 'listing' THEN '상품 등록 담당'");
+    expect(result).toEqual({
+      affectedRows: 9,
+      details: {
+        classifiedRoles: {
+          employee: [
+            'manager',
+            'sourcing',
+            'listing',
+            'order',
+            'channel_registration',
+            'ad_strategy',
+            'chat',
+          ],
+          capability: ['rules_evaluation', 'rules_suggest', 'thumbnail_analyst'],
+        },
       },
     });
   });

@@ -143,6 +143,8 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     defaultCapabilities: {},
     runtimeKind: 'coordinator',
     delegationRole: 'orchestrator',
+    defaultInstanceRole: 'employee',
+    defaultInstanceTitle: '운영 총괄',
     defaultToolPolicies: MANAGER_TOOL_POLICIES,
   },
   {
@@ -155,6 +157,8 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     defaultRuntimeConfig: {},
     defaultCapabilities: {},
     runtimeKind: 'tool_wrapper',
+    defaultInstanceRole: 'capability',
+    defaultInstanceTitle: '룰 평가 능력',
   },
   {
     type: 'rules_suggest',
@@ -166,6 +170,8 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     defaultRuntimeConfig: {},
     defaultCapabilities: {},
     runtimeKind: 'tool_wrapper',
+    defaultInstanceRole: 'capability',
+    defaultInstanceTitle: '임계값 제안 능력',
   },
   {
     type: 'ad_strategy',
@@ -177,6 +183,8 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     defaultRuntimeConfig: {},
     defaultCapabilities: {},
     runtimeKind: 'tool_wrapper',
+    defaultInstanceRole: 'employee',
+    defaultInstanceTitle: '광고 전략 담당',
   },
   {
     type: 'sourcing',
@@ -189,6 +197,8 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     defaultCapabilities: {},
     defaultSkillKeys: ['sourcing.magic_scraper'],
     runtimeKind: 'tool_wrapper',
+    defaultInstanceRole: 'employee',
+    defaultInstanceTitle: '소싱 담당',
     defaultToolPolicies: SOURCING_DISCOVERY_TOOL_POLICIES,
   },
   {
@@ -202,6 +212,8 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     defaultRuntimeConfig: {},
     defaultCapabilities: {},
     runtimeKind: 'agent',
+    defaultInstanceRole: 'employee',
+    defaultInstanceTitle: '상품 등록 담당',
     defaultToolPolicies: LISTING_TOOL_POLICIES,
   },
   {
@@ -215,6 +227,8 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     defaultRuntimeConfig: {},
     defaultCapabilities: {},
     runtimeKind: 'agent',
+    defaultInstanceRole: 'employee',
+    defaultInstanceTitle: '발주 담당',
     defaultToolPolicies: ORDER_TOOL_POLICIES,
   },
   {
@@ -228,6 +242,8 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     defaultRuntimeConfig: {},
     defaultCapabilities: {},
     runtimeKind: 'agent',
+    defaultInstanceRole: 'employee',
+    defaultInstanceTitle: '채널 등록 담당',
     defaultToolPolicies: CHANNEL_REGISTRATION_TOOL_POLICIES,
   },
   {
@@ -240,6 +256,8 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     defaultRuntimeConfig: {},
     defaultCapabilities: {},
     runtimeKind: 'tool_wrapper',
+    defaultInstanceRole: 'capability',
+    defaultInstanceTitle: '썸네일 분석 능력',
   },
   {
     type: 'chat',
@@ -251,6 +269,8 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     defaultRuntimeConfig: {},
     defaultCapabilities: {},
     runtimeKind: 'agent',
+    defaultInstanceRole: 'employee',
+    defaultInstanceTitle: '고객/운영 응대 담당',
   },
 ] as const;
 

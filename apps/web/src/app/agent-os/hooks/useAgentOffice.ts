@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { agentOsApi } from '../lib/agent-os-api';
@@ -8,12 +8,19 @@ import {
   buildAgentOfficeModel,
   type AgentOfficeViewModel,
 } from '../lib/agent-office-model';
+import {
+  buildOperatorCommand,
+  commandTargetFromNode,
+} from '../lib/agent-command-presets';
 
 const EMPTY_MODEL: AgentOfficeViewModel = {
   nodes: [],
+  capabilities: [],
   activities: [],
   totals: {
     agents: 0,
+    employees: 0,
+    capabilities: 0,
     working: 0,
     waiting: 0,
     blocked: 0,
@@ -169,13 +176,43 @@ export function useAgentOffice() {
     runsQuery.data,
   ]);
 
+  const selectedNode = useMemo(
+    () =>
+      selectedNodeId === null
+        ? null
+        : model.nodes.find((node) => node.id === selectedNodeId) ?? null,
+    [model.nodes, selectedNodeId],
+  );
+
+  useEffect(() => {
+    const firstNodeId = model.nodes[0]?.id ?? null;
+
+    if (selectedNodeId === null) {
+      if (firstNodeId !== null) {
+        setSelectedNodeId(firstNodeId);
+      }
+      return;
+    }
+
+    const selectedNodeStillExists = model.nodes.some(
+      (node) => node.id === selectedNodeId,
+    );
+
+    if (!selectedNodeStillExists) {
+      setSelectedNodeId(firstNodeId);
+    }
+  }, [model.nodes, selectedNodeId]);
+
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.agents.hq() });
     void queryClient.invalidateQueries({ queryKey: queryKeys.agents.list() });
   };
 
   const submitCommand = () => {
-    const content = command.trim();
+    const content = buildOperatorCommand({
+      content: command,
+      target: commandTargetFromNode(selectedNode),
+    });
     if (!content) return;
 
     if (resolvedConversationId) {

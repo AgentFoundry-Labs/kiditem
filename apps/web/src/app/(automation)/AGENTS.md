@@ -2,14 +2,15 @@ Consult this document first instead of relying on memorized knowledge.
 
 # web/automation - Workflows, Agents, Marketplace, Action Board
 
-`app/(automation)/` owns workflow management UI, agent runtime lists, workflow
-and agent marketplace screens, and the action board. It presents backend-owned
+`app/(automation)/` owns workflow management UI, workflow and agent
+marketplace screens, the action board, and the `/agents` compatibility
+redirect. It presents backend-owned
 automation state; deterministic workflow execution remains in the backend.
 
 ## Owned Surfaces
 
 - Workflow list, activation, deletion, and run navigation
-- Agent OS instance/run/request read screens
+- `/agents` redirect to the canonical `/agent-os` HQ
 - Marketplace install/uninstall for workflows and agents
 - Action task claim, note, execute, and status updates
 
@@ -18,7 +19,6 @@ automation state; deterministic workflow execution remains in the backend.
 ```text
 React Query + route-local hooks
   -> /api/workflows, /api/workflow-runs
-  -> /api/agent-os/*
   -> /api/marketplace/*
   -> /api/action-tasks
 ```

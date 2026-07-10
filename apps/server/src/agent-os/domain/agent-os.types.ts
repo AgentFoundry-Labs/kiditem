@@ -101,6 +101,13 @@ export const AGENT_DEFINITION_DELEGATION_ROLES = [
 export type AgentDefinitionDelegationRole =
   (typeof AGENT_DEFINITION_DELEGATION_ROLES)[number];
 
+export const AGENT_INSTANCE_OPERATIONAL_ROLES = [
+  'employee',
+  'capability',
+] as const;
+export type AgentInstanceOperationalRole =
+  (typeof AGENT_INSTANCE_OPERATIONAL_ROLES)[number];
+
 export interface AgentDefinitionToolPolicyRecord {
   toolKey: string;
   effect: AgentToolPolicyEffect;
@@ -160,6 +167,8 @@ export interface AgentDefinitionRecord {
   marketplaceId: string | null;
   runtimeKind: AgentDefinitionRuntimeKind;
   delegationRole: AgentDefinitionDelegationRole;
+  defaultInstanceRole: AgentInstanceOperationalRole;
+  defaultInstanceTitle: string;
   defaultToolPolicies: AgentDefinitionToolPolicyRecord[];
 }
 

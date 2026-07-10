@@ -107,7 +107,9 @@ function redirectToLogin(req: NextRequest, nextPath: string) {
 
 export const config = {
   matcher: [
-    // _next, 정적 자원, favicon, 파일 확장자가 있는 경로 제외.
-    '/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)',
+    // _next 내부 경로, 정적 자원, favicon, 파일 확장자가 있는 경로 제외.
+    // Next dev 의 `/_next/webpack-hmr` WebSocket 까지 보호 라우트로 잡으면
+    // client runtime 이 HTML redirect 를 받아 dev bootstrap 이 깨진다.
+    '/((?!_next/|favicon.ico|.*\\..*).*)',
   ],
 };

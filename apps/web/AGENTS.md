@@ -102,8 +102,9 @@ contents and keep local maps only when they encode ownership or exceptions.
 
 ## Local Exceptions
 
-- `app/agent-os/` owns `/agent-os` and `/agent-os/network`, fullscreen
-  visualization surfaces with intentionally hard-coded dark/cyan styling.
+- `app/agent-os/` owns the canonical fullscreen Agent OS HQ surface at
+  `/agent-os`; `/agents` is a legacy redirect and must not grow a second
+  implementation.
 - `components/panel/` owns the live slide-out panel and SSE store.
 - `app/(inventory)/inventory/lib/barcode-print.ts` may use browser print APIs.
 - `app/settings/` may contain operational uploads, printer settings, and health

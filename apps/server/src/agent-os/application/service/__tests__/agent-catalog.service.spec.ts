@@ -80,6 +80,48 @@ describe('AgentCatalogService', () => {
     expect(repository.createInstanceWithRuntimeState).not.toHaveBeenCalled();
   });
 
+  it('uses definition employee defaults when creating an instance without explicit role or title', async () => {
+    vi.stubEnv('AGENT_DEFAULT_MODEL', 'gemini-text-agent');
+    const repository = {
+      createInstanceWithRuntimeState: vi.fn(async (input) => ({
+        id: 'agent-listing',
+        organizationId: input.organizationId,
+        type: input.type,
+        name: input.name,
+        role: input.role,
+        title: input.title,
+        icon: null,
+        reportsToId: null,
+        lifecycleStatus: 'active',
+        pauseReason: null,
+        trustLevel: input.trustLevel ?? 0,
+        adapterType: input.adapterType,
+        modelOverride: input.modelOverride ?? null,
+        adapterConfig: input.adapterConfig ?? {},
+        runtimeConfig: input.runtimeConfig ?? {},
+        promptPathOverride: input.promptPathOverride ?? null,
+      })),
+    };
+    const service = new AgentCatalogService(repository as never, {} as never);
+
+    const created = await service.createInstance({
+      organizationId: ORG,
+      type: 'listing',
+      name: 'Listing Agent',
+    });
+
+    expect(repository.createInstanceWithRuntimeState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: 'employee',
+        title: '상품 등록 담당',
+      }),
+    );
+    expect(created).toMatchObject({
+      role: 'employee',
+      title: '상품 등록 담당',
+    });
+  });
+
   it('lists effective tool policies with instance overrides ahead of definition defaults', async () => {
     const repository = {
       findInstanceById: vi.fn().mockResolvedValue(instance('sourcing', 'agent-sourcing-1')),
