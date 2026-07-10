@@ -73,6 +73,10 @@ to the adapted scene component.
 - show status, selection, approval, and active-work feedback in the scene;
 - preserve the current staff panel, inspector, command dock, activity drawer,
   refresh action, and dashboard navigation;
+- dock the staff panel, inspector, activity record, and command dock outside
+  the movable scene viewport;
+- support bounded empty-floor drag and wheel or trackpad-pinch zoom;
+- keep all default employee and status destinations collision-free;
 - support the current desktop-only minimum width.
 
 ### Out of Scope
@@ -85,6 +89,8 @@ to the adapted scene component.
 - no collaboration line without a structured employee-to-employee relation;
 - no user-authored layout editor or persisted scene geometry;
 - no drag-to-reassign behavior;
+- no infinite canvas, camera rotation, minimap, visible camera toolbar, camera
+  reset command, or persisted camera position;
 - no OpenClaw header, navigation, analytics, chat, or console clone;
 - no mobile or touch-specific layout work.
 
@@ -128,9 +134,17 @@ the scene manifest and semantic controls rendered above it.
 
 ### Scene Integration
 
-Keep the existing shell panels visually above the scene. The scene must remain
-readable in the unobstructed center area between the staff panel, inspector,
-activity drawer, and command dock.
+Lay out the desktop shell as three non-overlapping columns using approximately
+`240px minmax(480px, 1fr) 300px`: staff panel, clipped office viewport, and
+profile/activity rail. Place the command dock in a dedicated row below the
+office viewport. The activity record expands below the profile inside the
+scrollable right rail. Fixed operational controls never occupy the scene's hit
+area, and employees cannot be hidden underneath them.
+
+The central viewport clips one 8:5 office world. Its initial state frames the
+full office. The user may move and zoom only that world; the header, panels,
+activity record, and command dock remain fixed. Do not add explanatory copy or
+visible camera controls.
 
 Use KidItem design tokens for controls and state:
 
@@ -187,8 +201,8 @@ type OfficeZone = {
 ```
 
 All coordinates are normalized to the scene's intrinsic dimensions. Resizing
-the page scales the SVG floor and every overlay together without changing the
-business model.
+the page scales the SVG floor and every scene entity together without changing
+the business model.
 
 Unknown future employee types use deterministic overflow seats. They must not
 overlap an existing employee or silently disappear.
@@ -197,8 +211,22 @@ overlap an existing employee or silently disappear.
 
 ### `AgentOfficeMap`
 
-Remains the public scene boundary used by `AgentOfficeShell`. It owns the
-aspect-ratio container and composes the scene layers.
+Remains the public scene boundary used by `AgentOfficeShell`. It composes the
+floor and employee layers inside the camera world but does not own shell panel
+placement.
+
+### `AgentOfficeCanvas`
+
+Owns the clipped viewport, pointer capture, drag threshold, wheel/pinch zoom,
+and the transform applied to the complete office world. It ignores pointer
+starts from employees, desks, zone labels, and other controls so selection is
+never mistaken for camera movement.
+
+### `agent-office-camera.ts`
+
+Contains pure fit, focal-point zoom, and translation-bound calculations. It
+has no React or DOM dependency and uses viewport and world dimensions supplied
+by the canvas component.
 
 ### `AgentOfficeFloor`
 
@@ -264,8 +292,37 @@ input/output, or secrets.
 
 ### Scene Navigation
 
-V1 keeps the full office framed in the available desktop canvas. It does not
-add free camera rotation, pan, or zoom.
+The initial view frames the full office. On empty floor, primary-button drag
+moves the office world after a small movement threshold. Wheel and trackpad
+pinch zoom around the pointer position. Zoom is bounded from the initial fit
+scale to 1.8 times that scale. Translation is bounded so a meaningful portion
+of the office always remains inside the viewport.
+
+There is no visible camera toolbar, minimap, automatic whole-office command,
+keyboard reset, or explicit reset interaction. Camera state is local to the
+mounted page and is not persisted. Cursor feedback changes between grab and
+grabbing; no instructional text is added.
+
+The centered full-office transform is applied only on initial mount. Reaching
+the minimum scale clamps scale only and does not recenter, fit, or otherwise
+replace the current allowed translation.
+
+Employee, desk, zone-label, panel, and command interactions retain their
+existing click behavior and never start a drag. Camera movement is immediate
+and does not use decorative easing.
+
+### Collision And Visibility Rules
+
+- staff, profile, activity, and command surfaces remain outside the clipped
+  canvas at every supported desktop width;
+- assigned desks and every status destination use unique slots sized for the
+  avatar, status badge, and two-line label footprint;
+- the default fitted view shows all seven employees and labels without
+  employee-to-employee or employee-to-control overlap;
+- intentional user camera movement may move scene content outside the clipped
+  viewport, but it can never place content underneath a fixed panel because
+  the panels are not part of the viewport;
+- selecting or moving an employee does not alter the camera transform.
 
 ## Data Flow
 
@@ -275,6 +332,7 @@ Nest Agent OS APIs
   -> buildAgentOfficeModel
   -> employee business view model
   -> AgentOfficeMap
+  -> AgentOfficeCanvas camera transform
   -> scene layout + status destination
   -> avatar, desk, bubble, and connection layers
 ```
@@ -285,6 +343,9 @@ source of truth.
 
 No new polling interval, WebSocket, SSE stream, or backend endpoint is required
 for this scene redesign.
+
+Camera state is presentation-only local state. Agent OS records remain the
+only input to employee placement and status movement.
 
 ## Loading And Error States
 
@@ -298,6 +359,10 @@ for this scene redesign.
 - If there are no employee instances, show the empty office with the existing
   operational empty state instead of mock employees.
 - A failed query must not animate employees or reset the current selection.
+- Losing pointer capture or receiving `pointercancel` ends camera dragging
+  without changing selection.
+- A viewport resize recomputes fit dimensions and clamps the current transform
+  into the new bounds without persisting it.
 
 ## Accessibility
 
@@ -309,6 +374,9 @@ for this scene redesign.
 - Keyboard selection follows the same behavior as pointer selection.
 - Decorative floor and furniture are hidden from assistive technology.
 - Motion respects `prefers-reduced-motion`.
+- Camera manipulation is progressive enhancement; all employees and commands
+  remain reachable through the fixed staff panel without manipulating the
+  camera.
 
 ## Testing
 
@@ -319,6 +387,12 @@ for this scene redesign.
 - unchanged status does not create a new movement transition;
 - reduced-motion mode resolves directly to the destination;
 - scene layout coordinates remain independent of the business view model;
+- focal-point zoom preserves the world point under the cursor;
+- camera scale and translation remain inside their bounds;
+- reaching minimum scale preserves the allowed translation and does not
+  recenter the office;
+- all seven desk, idle, waiting, blocked, and offline footprints are
+  collision-free in the fitted view;
 - employee status never creates speculative collaboration lines.
 
 ### Component Tests
@@ -328,6 +402,9 @@ for this scene redesign.
 - selecting an employee updates the inspector and command target;
 - each status renders its text and non-color indicator;
 - an avatar-load failure keeps employee controls usable;
+- empty-floor drag moves the world while employee and desk clicks do not;
+- wheel/pinch input zooms the floor and employees as one world;
+- pointer cancellation ends dragging cleanly;
 - empty employee data does not create mock avatars.
 
 ### Regression Gates
@@ -347,6 +424,8 @@ Confirm:
 - the scene is recognizably grounded in the reference's light 2D office style;
 - every employee is visibly associated with a desk or status destination;
 - labels and panels do not overlap employees;
+- the panels and command dock remain fixed while the office pans and zooms;
+- empty-floor drag and pointer-centered zoom remain bounded;
 - selected, working, waiting, blocked, idle, and offline states are distinct;
 - the command dock, staff panel, inspector, activity drawer, refresh action,
   and dashboard navigation remain usable;
@@ -373,5 +452,7 @@ The redesign is complete when:
    work from existing Agent OS data;
 5. no random or fabricated activity is displayed;
 6. existing Agent OS controls and backend contracts continue to work;
-7. route tests and the web production build pass;
-8. desktop visual comparison confirms the reference alignment.
+7. the bounded camera works without visible camera controls or reset behavior;
+8. the fitted view contains no employee, label, or fixed-control overlap;
+9. route tests and the web production build pass;
+10. desktop visual comparison confirms the reference alignment.
