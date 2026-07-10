@@ -1,0 +1,96 @@
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { AgentInspector } from './AgentInspector';
+import { AgentOfficeHeader } from './AgentOfficeHeader';
+import { AgentStaffPanel } from './AgentStaffPanel';
+import type {
+  AgentOfficeNode,
+  AgentOfficeViewModel,
+} from '../lib/agent-office-model';
+
+const node: AgentOfficeNode = {
+  id: 'agent-manager',
+  name: 'Operator',
+  agentType: 'manager',
+  title: '대표실',
+  displayName: '운영 총괄',
+  responsibility: '운영 우선순위, 위임, 승인 흐름을 총괄한다.',
+  status: 'working',
+  activeRunCount: 1,
+  pendingApprovalCount: 1,
+  lastActivityAt: '2026-07-09T00:00:00.000Z',
+  trustLevel: 5,
+  adapterType: 'hermes_local',
+  effectiveModel: 'gpt-5.4',
+  capabilities: [],
+};
+
+const totals: AgentOfficeViewModel['totals'] = {
+  agents: 1,
+  employees: 1,
+  capabilities: 0,
+  working: 1,
+  waiting: 0,
+  blocked: 0,
+  pendingApprovals: 1,
+  runningRuns: 1,
+  totalCostMicros: '0',
+};
+
+describe('Agent OS office panels', () => {
+  it('exposes real header actions and dashboard navigation', () => {
+    const onToggleActivity = vi.fn();
+    render(
+      <AgentOfficeHeader
+        totals={totals}
+        refreshing={false}
+        activityOpen={false}
+        onRefresh={vi.fn()}
+        onToggleActivity={onToggleActivity}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '시스템 활동 기록 열기' }));
+    expect(onToggleActivity).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('link', { name: '대시보드' })).toHaveAttribute(
+      'href',
+      '/dashboard',
+    );
+  });
+
+  it('labels the left panel as staffing and changes selection', () => {
+    const onSelectNode = vi.fn();
+    render(
+      <AgentStaffPanel
+        model={{ nodes: [node], capabilities: [], activities: [], totals }}
+        selectedNodeId={null}
+        onSelectNode={onSelectNode}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /운영 총괄/ }));
+    expect(onSelectNode).toHaveBeenCalledWith('agent-manager');
+    expect(
+      screen.getByRole('complementary', { name: '인력 배치' }),
+    ).toBeInTheDocument();
+  });
+
+  it('shows only runtime values that really exist', () => {
+    render(<AgentInspector node={node} />);
+
+    expect(screen.getByText('gpt-5.4')).toBeInTheDocument();
+    expect(screen.getByText('hermes_local')).toBeInTheDocument();
+    expect(screen.getByText('신뢰 단계 5')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /모델 변경/ })).not.toBeInTheDocument();
+  });
+
+  it('makes missing runtime configuration explicit', () => {
+    render(
+      <AgentInspector
+        node={{ ...node, effectiveModel: '', adapterType: '' }}
+      />,
+    );
+
+    expect(screen.getAllByText('미지정')).toHaveLength(2);
+  });
+});
