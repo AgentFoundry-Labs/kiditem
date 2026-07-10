@@ -1,11 +1,11 @@
 /**
- * Real Prisma client for integration tests against docker-compose.test.yml Postgres.
+ * Real Prisma client for integration tests against Testcontainers Postgres.
  *
  * Prisma v7 은 constructor 에서 URL override 를 받지 않으므로, **환경변수 DATABASE_URL**
  * 을 테스트 DB 로 미리 세팅하고 PrismaClient 를 기본 생성자로 사용한다.
  *
- * 루트 `npm run test:integration` 스크립트가 DATABASE_URL 을 5434 포트로 덮어쓰고
- * vitest 를 실행하므로 테스트 파일에서는 별도 처리 불필요.
+ * Vitest setup file 이 Testcontainers 의 동적 DATABASE_URL 을 test module import 전에
+ * 주입하므로 테스트 파일에서는 별도 처리 불필요.
  *
  * Usage:
  *   import { makeTestPrisma, resetDb, seedBaseFixture } from '../test-helpers/real-prisma';
@@ -27,10 +27,10 @@ import { PrismaPg } from '@prisma/adapter-pg';
  */
 function assertTestDbUrl(): string {
   const url = process.env.DATABASE_URL ?? '';
-  if (!url.includes('5434') && !url.includes('kiditem_test')) {
+  if (!url.includes('kiditem_test')) {
     throw new Error(
       `Refusing to use non-test DATABASE_URL for integration tests. ` +
-        `Expected :5434 or db name "kiditem_test", got: ${url.replace(/:[^:@]+@/, ':***@')}`,
+        `Expected db name "kiditem_test", got: ${url.replace(/:[^:@]+@/, ':***@')}`,
     );
   }
   return url;

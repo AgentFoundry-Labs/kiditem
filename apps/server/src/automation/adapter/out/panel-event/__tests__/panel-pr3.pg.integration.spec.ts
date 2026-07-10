@@ -11,7 +11,7 @@
  *   - 레이스 후에도 DB 상태가 일관적 (actionTask 하나만 존재, alert.actionTaskId 매칭)
  *
  * 실행:
- *   npm run db:test:up && npm run db:test:prepare && npm run test:integration
+ *   npm run test:integration -- src/automation/adapter/out/panel-event/__tests__/panel-pr3.pg.integration.spec.ts
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';

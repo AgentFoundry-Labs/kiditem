@@ -14,7 +14,7 @@
  *
  * Race / IDOR scenarios moved out: 실제 동시 트랜잭션은 sibling spec
  * `panel-pr3.pg.integration.spec.ts` + `action-board-claim.pg.integration.spec.ts`
- * (real Postgres via docker-compose.test.yml) 가 커버. 구버전의 Scenario
+ * (real Postgres via Testcontainers) 가 커버. 구버전의 Scenario
  * 2/2b/4/4b (mock count=0 시뮬레이션) 는 대체됐으므로 제거.
  *
  * Mock boundary: PrismaService only.
