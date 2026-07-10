@@ -29,8 +29,8 @@ a second image build.
 
 ## CI/CD Gates
 
-- PR checks run workflow lint, deploy shell lint, app lint, app builds, and
-  reconstruction/release/convention scanners.
+- PR checks run workflow lint, deploy shell lint, app lint, app builds, real
+  Postgres integration tests, and reconstruction/release/convention scanners.
 - Image builds are centralized in `.github/workflows/build-image.yml`.
 - Staging deploy pushes `:staging` as a convenience tag but deploys the digest
   reference emitted by the build job.

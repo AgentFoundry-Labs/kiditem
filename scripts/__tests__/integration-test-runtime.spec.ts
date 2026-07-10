@@ -8,6 +8,22 @@ function readRepoFile(relativePath: string): string {
   return readFileSync(join(repoRoot, relativePath), 'utf8');
 }
 
+function readWorkflowJobSource(workflowSource: string, jobName: string): string {
+  const lines = workflowSource.split('\n');
+  const jobStart = lines.indexOf(`  ${jobName}:`);
+
+  if (jobStart === -1) return '';
+
+  const nextJobOffset = lines
+    .slice(jobStart + 1)
+    .findIndex((line) => /^  [\w-]+:$/.test(line));
+  const jobEnd = nextJobOffset === -1
+    ? lines.length
+    : jobStart + nextJobOffset + 1;
+
+  return lines.slice(jobStart, jobEnd).join('\n');
+}
+
 describe('integration test runtime contract', () => {
   it('delegates focused integration runs without manual database scripts', () => {
     const packageJson = JSON.parse(readRepoFile('package.json')) as {
@@ -22,6 +38,24 @@ describe('integration test runtime contract', () => {
       'npm run test:integration --workspace=apps/server --',
     );
     expect(packageJson.devDependencies).toHaveProperty('@testcontainers/postgresql');
+  });
+
+  it('runs the real Postgres suite in a dedicated PR job', () => {
+    const workflowSource = readRepoFile('.github/workflows/pr-checks.yml');
+    const jobSource = readWorkflowJobSource(workflowSource, 'postgres-integration');
+
+    expect(jobSource).not.toBe('');
+    expect(jobSource).toContain('runs-on: ubuntu-latest');
+    expect(jobSource).toContain('timeout-minutes: 15');
+    expect(jobSource).toContain('contents: read');
+    expect(jobSource).toContain(
+      'DATABASE_URL: postgresql://kiditem_ci:kiditem_ci@localhost:5432/kiditem_ci',
+    );
+    expect(jobSource).toContain('node-version: 22');
+    expect(jobSource).toContain('cache: npm');
+    expect(jobSource).toContain('run: npm ci --ignore-scripts');
+    expect(jobSource).toContain('run: npx prisma generate');
+    expect(jobSource).toContain('run: npm run test:integration');
   });
 
   it('removes the legacy fixed-port database lifecycle files', () => {

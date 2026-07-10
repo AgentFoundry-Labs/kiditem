@@ -156,6 +156,33 @@ jobs:
       - name: Run build
         run: npm run build --workspace=${{ matrix.workspace }}
 
+  postgres-integration:
+    name: PostgreSQL integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      DATABASE_URL: postgresql://kiditem_ci:kiditem_ci@localhost:5432/kiditem_ci
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Run PostgreSQL integration tests
+        run: npm run test:integration
+
   review-guardrails:
     name: PR review guardrails
     runs-on: ubuntu-latest
