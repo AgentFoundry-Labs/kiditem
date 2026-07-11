@@ -99,8 +99,11 @@ Rules:
 
 - keep unique `(organizationId, sellpiaProductCode)`;
 - keep non-unique barcode behavior;
-- map the Prisma field to physical column `current_stock`;
-- rename the existing `reported_stock` column without losing values;
+- expose the Prisma/API property as `currentStock` while mapping it to the
+  existing physical `reported_stock` column during this cutover;
+- retain that physical column name as an internal blue-green compatibility
+  detail so the previous runtime and rollback image continue to work while the
+  database-first deployment is in progress;
 - current stock and non-null prices are non-negative;
 - `lastImportRunId` identifies the import that last updated or zeroed the row;
 - no ProductOption, reservation, warehouse balance, or reorder relation is
@@ -117,9 +120,12 @@ Reuse names only when meaning remains the same:
 | Keep as new source identity | `sellpiaProductCode`, `lastImportRunId`, `rawJson` |
 | Retire | `optionId`, `reservedStock`, `safetyStock`, `reorderPoint`, `reorderQuantity`, `dailySalesAvg`, `warehouseLocation`, `lastRestockedAt` |
 
-The legacy `Inventory` model is not repurposed. Its ProductOption identity,
-mutation semantics, and foreign keys would make the new model appear to support
-behaviors that no longer exist.
+The physical column name is not part of the public domain contract. Renaming it
+in place before the application image switch would break the previous runtime,
+so a physical rename is intentionally not required. The legacy `Inventory`
+model is not repurposed. Its ProductOption identity, mutation semantics, and
+foreign keys would make the new model appear to support behaviors that no
+longer exist.
 
 ### Channel Availability Projection
 
@@ -281,7 +287,8 @@ final cross-phase review, rather than many overlapping micro-reviews.
 
 ### Phase 1: Owner Contract and Current Snapshot
 
-- rename InventorySku stock field and physical column without data loss;
+- rename the InventorySku Prisma/API property to `currentStock` without moving
+  or rewriting the physical `reported_stock` values;
 - add shared current-snapshot and import-run read contracts;
 - add tenant-scoped paginated Inventory reads;
 - add mapping-aware channel availability projection;
@@ -295,14 +302,20 @@ final cross-phase review, rather than many overlapping micro-reviews.
 - remove all UI mutation controls and invalidate projections after import;
 - retain routes and navigation destinations.
 
-### Phase 3: Contract and Schema Removal
+### Phase 3: Runtime Contract Removal
 
 - prove the legacy consumer count is zero;
 - remove legacy services, controllers, ports, policies, shared schemas, and
   frontend code;
 - migrate or remove legacy foreign keys;
-- drop retired tables and columns through the release migration path;
 - update architecture, ERD, runbooks, and schema guards.
+
+Compatibility-only Prisma models and physical tables may remain through this
+release when the database-first blue-green deployment or rollback image still
+references them. They have no registered controller, provider, exported port,
+or production consumer. A later contract deployment may drop them only after
+the immediately previous runtime also has zero references; it must not perform
+an in-place rename or drop that breaks the live old image.
 
 The release migration must preserve Sellpia InventorySku identities,
 ChannelSkuComponent recipes, current quantities, source import runs, and
@@ -326,15 +339,17 @@ historical business records selected for retention.
 
 ### Contract and Database
 
-- existing `reported_stock` values survive the `current_stock` rename;
+- existing physical `reported_stock` values are exposed unchanged through the
+  `currentStock` Prisma/API property;
 - one valid Sellpia code remains one InventorySku;
 - importing the approved workbook produces 1,964 current snapshot rows in a
   clean organization;
 - absent known codes become zero without deleting component recipes;
 - no non-import path can update `InventorySku.currentStock`;
 - every single-resource and list read is organization-scoped;
-- legacy inventory tables are dropped only after the consumer guard reaches
-  zero.
+- legacy runtime code is deleted after the consumer guard reaches zero, while
+  physical drops additionally require a blue-green compatibility check against
+  the immediately previous runtime.
 
 ### Availability
 
