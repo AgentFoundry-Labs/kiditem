@@ -23,6 +23,7 @@ export default defineConfig({
     'src/channel-dashboard.ts',
     'src/channel-reconciliation.ts',
     'src/channel-account.ts',
+    'src/channel-sku-matching.ts',
     'src/source-import.ts',
     'src/agent-os.ts',
     'src/workflow.ts',
