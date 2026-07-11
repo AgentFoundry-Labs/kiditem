@@ -10,7 +10,6 @@ describe('agent command presets', () => {
       buildOperatorCommand({
         content: '신규 상품 후보를 정리해줘',
         target: {
-          id: 'agent-sourcing',
           agentType: 'sourcing',
           displayName: '소싱 담당',
         },
@@ -20,7 +19,6 @@ describe('agent command presets', () => {
         '[Agent OS 업무 배정 요청]',
         '대상 직원: 소싱 담당',
         '대상 직원 유형: sourcing',
-        '대상 직원 ID: agent-sourcing',
         '업무: 신규 상품 후보를 정리해줘',
       ].join('\n'),
     );
@@ -31,7 +29,6 @@ describe('agent command presets', () => {
       buildOperatorCommand({
         content: ' 승인 대기 업무를 정리해줘 ',
         target: {
-          id: 'agent-manager',
           agentType: 'manager',
           displayName: '운영 총괄',
         },
@@ -44,7 +41,6 @@ describe('agent command presets', () => {
       buildOperatorCommand({
         content: '   ',
         target: {
-          id: 'agent-sourcing',
           agentType: 'sourcing',
           displayName: '소싱 담당',
         },

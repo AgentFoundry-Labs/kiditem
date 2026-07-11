@@ -8,7 +8,7 @@ import type {
   AgentAuthorizationEventSummary,
   AgentConversationSummary,
   AgentCostEventSummary,
-  AgentInstanceSummary,
+  AgentRosterResponse,
   AgentMessage,
   AgentRunGraph,
   AgentRunRequestSummary,
@@ -27,8 +27,8 @@ export interface AgentApprovalResolutionResponse {
 // All endpoints are scoped on the backend via `@CurrentOrganization()`. The
 // client must NOT send `organizationId` — it is dropped by the controller DTO.
 export const agentOsApi = {
-  listInstances: () =>
-    apiClient.get<AgentInstanceSummary[]>('/api/agent-os/instances'),
+  listRoster: () =>
+    apiClient.get<AgentRosterResponse>('/api/agent-os/roster'),
 
   listConversations: () =>
     apiClient.get<{ items: AgentConversationSummary[] }>(

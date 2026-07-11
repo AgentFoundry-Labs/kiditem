@@ -14,15 +14,21 @@ import type {
   AgentOfficeNode,
 } from '../lib/agent-office-model';
 
-function latestActivityLabels(activities: AgentOfficeActivity[]) {
+function latestActivityLabels(
+  activities: AgentOfficeActivity[],
+  nodeIdByInstanceId: Map<string, string>,
+) {
   const latestByEmployee = new Map<string, AgentOfficeActivity>();
 
   for (const activity of activities) {
     if (!activity.agentInstanceId) continue;
 
-    const previous = latestByEmployee.get(activity.agentInstanceId);
+    const nodeId = nodeIdByInstanceId.get(activity.agentInstanceId);
+    if (!nodeId) continue;
+
+    const previous = latestByEmployee.get(nodeId);
     if (!previous || activity.occurredAt > previous.occurredAt) {
-      latestByEmployee.set(activity.agentInstanceId, activity);
+      latestByEmployee.set(nodeId, activity);
     }
   }
 
@@ -55,9 +61,18 @@ export function AgentOfficeMap({
       })),
     [nodes],
   );
+  const nodeIdByInstanceId = useMemo(
+    () =>
+      new Map(
+        nodes.flatMap((node) =>
+          node.instanceId ? [[node.instanceId, node.id] as const] : [],
+        ),
+      ),
+    [nodes],
+  );
   const activityLabels = useMemo(
-    () => latestActivityLabels(activities),
-    [activities],
+    () => latestActivityLabels(activities, nodeIdByInstanceId),
+    [activities, nodeIdByInstanceId],
   );
 
   return (

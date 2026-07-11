@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const listInstancesMock = vi.hoisted(() => vi.fn());
+const listRosterMock = vi.hoisted(() => vi.fn());
 const listRunsMock = vi.hoisted(() => vi.fn());
 const listRequestsMock = vi.hoisted(() => vi.fn());
 const listApprovalsMock = vi.hoisted(() => vi.fn());
@@ -12,10 +12,15 @@ const listCostEventsMock = vi.hoisted(() => vi.fn());
 const listAuthorizationEventsMock = vi.hoisted(() => vi.fn());
 const createConversationMock = vi.hoisted(() => vi.fn());
 const sendMessageMock = vi.hoisted(() => vi.fn());
+const toastErrorMock = vi.hoisted(() => vi.fn());
+
+vi.mock('sonner', () => ({
+  toast: { error: (...args: unknown[]) => toastErrorMock(...args) },
+}));
 
 vi.mock('../lib/agent-os-api', () => ({
   agentOsApi: {
-    listInstances: (...args: unknown[]) => listInstancesMock(...args),
+    listRoster: (...args: unknown[]) => listRosterMock(...args),
     listRuns: (...args: unknown[]) => listRunsMock(...args),
     listRequests: (...args: unknown[]) => listRequestsMock(...args),
     listApprovals: (...args: unknown[]) => listApprovalsMock(...args),
@@ -28,6 +33,7 @@ vi.mock('../lib/agent-os-api', () => ({
   },
 }));
 
+import { makeAgentRosterItem } from '../test-utils/agent-office-fixtures';
 import { useAgentOffice } from './useAgentOffice';
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -55,7 +61,7 @@ function deferred<T>() {
 
 describe('useAgentOffice', () => {
   beforeEach(() => {
-    listInstancesMock.mockReset();
+    listRosterMock.mockReset();
     listRunsMock.mockReset();
     listRequestsMock.mockReset();
     listApprovalsMock.mockReset();
@@ -64,25 +70,9 @@ describe('useAgentOffice', () => {
     listAuthorizationEventsMock.mockReset();
     createConversationMock.mockReset();
     sendMessageMock.mockReset();
+    toastErrorMock.mockReset();
 
-    listInstancesMock.mockResolvedValue([
-      {
-        id: 'agent-manager',
-        organizationId: 'org-1',
-        type: 'manager',
-        name: 'Operator',
-        role: 'ceo',
-        title: '대표실',
-        icon: null,
-        reportsToId: null,
-        lifecycleStatus: 'active',
-        pauseReason: null,
-        trustLevel: 5,
-        adapterType: 'operator',
-        modelOverride: null,
-        effectiveModel: 'gpt-5.4',
-      },
-    ]);
+    listRosterMock.mockResolvedValue({ items: [makeAgentRosterItem()] });
     listRunsMock.mockResolvedValue({ items: [] });
     listRequestsMock.mockResolvedValue({ items: [] });
     listApprovalsMock.mockResolvedValue({ items: [] });
@@ -148,7 +138,7 @@ describe('useAgentOffice', () => {
       expect(result.current.isPending).toBe(false);
     });
 
-    expect(result.current.selectedNodeId).toBe('agent-manager');
+    expect(result.current.selectedNodeId).toBe('manager');
   });
 
   it('reuses the most recent active conversation when returning with no local conversation state', async () => {
@@ -203,47 +193,31 @@ describe('useAgentOffice', () => {
   });
 
   it('sends the selected employee as a delegation hint through Operator', async () => {
-    listInstancesMock.mockResolvedValue([
-      {
-        id: 'agent-manager',
-        organizationId: 'org-1',
-        type: 'manager',
-        name: 'Operator',
-        role: 'ceo',
-        title: '대표실',
-        icon: null,
-        reportsToId: null,
-        lifecycleStatus: 'active',
-        pauseReason: null,
-        trustLevel: 5,
-        adapterType: 'operator',
-        modelOverride: null,
-        effectiveModel: 'gpt-5.4',
-      },
-      {
-        id: 'agent-sourcing',
-        organizationId: 'org-1',
-        type: 'sourcing',
-        name: 'Sourcing',
-        role: 'specialist',
-        title: '소싱 담당',
-        icon: null,
-        reportsToId: 'agent-manager',
-        lifecycleStatus: 'active',
-        pauseReason: null,
-        trustLevel: 2,
-        adapterType: 'hermes_local',
-        modelOverride: null,
-        effectiveModel: 'gpt-5.4',
-      },
-    ]);
+    listRosterMock.mockResolvedValue({
+      items: [
+        makeAgentRosterItem(),
+        makeAgentRosterItem({
+          definition: {
+            type: 'sourcing',
+            name: 'Sourcing',
+            displayName: '소싱 담당',
+            responsibility: '상품 후보를 선별한다.',
+            officeOrder: 400,
+          },
+          runtime: {
+            ...makeAgentRosterItem().runtime!,
+            instanceId: 'agent-sourcing',
+          },
+        }),
+      ],
+    });
 
     const { result } = renderHook(() => useAgentOffice(), { wrapper });
 
     await waitFor(() => expect(result.current.isPending).toBe(false));
 
     act(() => {
-      result.current.setSelectedNodeId('agent-sourcing');
+      result.current.setSelectedNodeId('sourcing');
       result.current.setCommand('신규 상품 후보를 정리해줘');
     });
     act(() => result.current.submitCommand());
@@ -254,7 +228,6 @@ describe('useAgentOffice', () => {
           '[Agent OS 업무 배정 요청]',
           '대상 직원: 소싱 담당',
           '대상 직원 유형: sourcing',
-          '대상 직원 ID: agent-sourcing',
           '업무: 신규 상품 후보를 정리해줘',
         ].join('\n'),
       });
@@ -279,7 +252,7 @@ describe('useAgentOffice', () => {
     const { result } = renderHook(() => useAgentOffice(), { wrapper });
 
     await waitFor(() => {
-      expect(listInstancesMock).toHaveBeenCalled();
+      expect(listRosterMock).toHaveBeenCalled();
     });
 
     await waitFor(() => {
@@ -297,6 +270,72 @@ describe('useAgentOffice', () => {
 
     await waitFor(() => {
       expect(result.current.isPending).toBe(false);
+    });
+  });
+
+  it('does not submit when Operator runtime is missing', async () => {
+    listRosterMock.mockResolvedValue({
+      items: [
+        makeAgentRosterItem({
+          runtime: null,
+          configurationStatus: 'instance_missing',
+        }),
+      ],
+    });
+    const { result } = renderHook(() => useAgentOffice(), { wrapper });
+    await waitFor(() => expect(result.current.isPending).toBe(false));
+
+    act(() => result.current.setCommand('운영 현황을 정리해줘'));
+    act(() => result.current.submitCommand());
+
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(sendMessageMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      '운영 총괄의 실행 설정이 필요합니다.',
+    );
+  });
+
+  it('does not submit to an unconfigured selected employee', async () => {
+    listRosterMock.mockResolvedValue({
+      items: [
+        makeAgentRosterItem(),
+        makeAgentRosterItem({
+          definition: {
+            type: 'sourcing',
+            name: 'Sourcing',
+            displayName: '소싱 담당',
+            responsibility: '상품 후보를 선별한다.',
+            officeOrder: 400,
+          },
+          runtime: null,
+          configurationStatus: 'instance_missing',
+        }),
+      ],
+    });
+    const { result } = renderHook(() => useAgentOffice(), { wrapper });
+    await waitFor(() => expect(result.current.isPending).toBe(false));
+
+    act(() => {
+      result.current.setSelectedNodeId('sourcing');
+      result.current.setCommand('신규 상품 후보를 정리해줘');
+    });
+    act(() => result.current.submitCommand());
+
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(sendMessageMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      '소싱 담당의 실행 설정이 필요합니다.',
+    );
+  });
+
+  it('surfaces a roster request failure through the hook error contract', async () => {
+    listRosterMock.mockRejectedValue(new Error('roster unavailable'));
+    const { result } = renderHook(() => useAgentOffice(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.error).toMatchObject({
+        message: 'roster unavailable',
+      });
     });
   });
 });

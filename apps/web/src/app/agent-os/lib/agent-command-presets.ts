@@ -1,7 +1,6 @@
 import type { AgentOfficeNode } from './agent-office-model';
 
 export interface AgentCommandTarget {
-  id: string;
   agentType: string;
   displayName: string;
 }
@@ -56,7 +55,6 @@ export function commandTargetFromNode(
   if (!node) return null;
 
   return {
-    id: node.id,
     agentType: node.agentType,
     displayName: node.displayName,
   };
@@ -74,7 +72,6 @@ export function buildOperatorCommand(input: {
     '[Agent OS 업무 배정 요청]',
     `대상 직원: ${input.target.displayName}`,
     `대상 직원 유형: ${input.target.agentType}`,
-    `대상 직원 ID: ${input.target.id}`,
     `업무: ${content}`,
   ].join('\n');
 }

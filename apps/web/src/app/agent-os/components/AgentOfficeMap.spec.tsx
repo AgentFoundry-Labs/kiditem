@@ -9,11 +9,13 @@ import type {
 const nodes: AgentOfficeNode[] = [
   {
     id: 'agent-manager',
+    instanceId: 'agent-manager',
     name: 'Operator',
     agentType: 'manager',
     title: '대표실',
     displayName: '운영 총괄',
     responsibility: '운영 우선순위, 위임, 승인 흐름을 총괄한다.',
+    configurationStatus: 'ready',
     status: 'working',
     activeRunCount: 1,
     pendingApprovalCount: 0,
@@ -25,11 +27,13 @@ const nodes: AgentOfficeNode[] = [
   },
   {
     id: 'agent-ad-strategy',
+    instanceId: 'agent-ad-strategy',
     name: 'Ad Strategy',
     agentType: 'ad_strategy',
     title: '광고 전략실',
     displayName: '광고 전략 담당',
     responsibility: '광고 성과 신호를 분석하고 운영 전략을 제안한다.',
+    configurationStatus: 'ready',
     status: 'idle',
     activeRunCount: 0,
     pendingApprovalCount: 0,
@@ -98,6 +102,54 @@ describe('AgentOfficeMap', () => {
     expect(
       screen.getByRole('button', { name: '광고 전략 담당, 준비됨' }),
     ).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('assigns the latest runtime activity label to its stable manager node', () => {
+    const { rerender } = render(
+      <AgentOfficeMap
+        nodes={[
+          {
+            ...nodes[0],
+            id: 'manager',
+            instanceId: 'agent-manager',
+            status: 'idle',
+          },
+        ]}
+        activities={[
+          {
+            ...activities[0],
+            agentInstanceId: 'agent-manager',
+            label: '최신 운영 활동',
+          },
+        ]}
+        selectedNodeId={null}
+        onSelectNode={vi.fn()}
+      />,
+    );
+
+    rerender(
+      <AgentOfficeMap
+        nodes={[
+          {
+            ...nodes[0],
+            id: 'manager',
+            instanceId: 'agent-manager',
+            status: 'working',
+          },
+        ]}
+        activities={[
+          {
+            ...activities[0],
+            agentInstanceId: 'agent-manager',
+            label: '최신 운영 활동',
+          },
+        ]}
+        selectedNodeId={null}
+        onSelectNode={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent('최신 운영 활동');
   });
 
   it('renders an empty office without inventing employee avatars', () => {

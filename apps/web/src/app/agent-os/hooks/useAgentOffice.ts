@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { queryKeys } from '@/lib/query-keys';
 import { agentOsApi } from '../lib/agent-os-api';
 import {
@@ -71,9 +72,9 @@ export function useAgentOffice() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [command, setCommand] = useState('');
 
-  const instancesQuery = useQuery({
-    queryKey: queryKeys.agents.list(),
-    queryFn: () => agentOsApi.listInstances(),
+  const rosterQuery = useQuery({
+    queryKey: [...queryKeys.agents.hq(), 'roster'],
+    queryFn: () => agentOsApi.listRoster(),
     staleTime: 60_000,
   });
 
@@ -154,10 +155,10 @@ export function useAgentOffice() {
   );
 
   const model = useMemo(() => {
-    if (!instancesQuery.data) return EMPTY_MODEL;
+    if (!rosterQuery.data) return EMPTY_MODEL;
 
     return buildAgentOfficeModel({
-      instances: instancesQuery.data,
+      roster: rosterQuery.data.items,
       runs: runsQuery.data?.items ?? [],
       requests: requestsQuery.data?.items ?? [],
       approvals: approvalsQuery.data?.items ?? [],
@@ -171,7 +172,7 @@ export function useAgentOffice() {
     authorizationQuery.data,
     conversationsQuery.data,
     costQuery.data,
-    instancesQuery.data,
+    rosterQuery.data,
     requestsQuery.data,
     runsQuery.data,
   ]);
@@ -205,7 +206,6 @@ export function useAgentOffice() {
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.agents.hq() });
-    void queryClient.invalidateQueries({ queryKey: queryKeys.agents.list() });
   };
 
   const submitCommand = () => {
@@ -214,6 +214,19 @@ export function useAgentOffice() {
       target: commandTargetFromNode(selectedNode),
     });
     if (!content) return;
+
+    const operator =
+      model.nodes.find((node) => node.agentType === 'manager') ?? null;
+
+    if (!operator || operator.configurationStatus !== 'ready') {
+      toast.error('운영 총괄의 실행 설정이 필요합니다.');
+      return;
+    }
+
+    if (selectedNode && selectedNode.configurationStatus !== 'ready') {
+      toast.error(`${selectedNode.displayName}의 실행 설정이 필요합니다.`);
+      return;
+    }
 
     if (resolvedConversationId) {
       sendMessage.mutate({ conversationId: resolvedConversationId, content });
@@ -224,7 +237,7 @@ export function useAgentOffice() {
   };
 
   const initialQueries = [
-    instancesQuery,
+    rosterQuery,
     runsQuery,
     requestsQuery,
     approvalsQuery,
@@ -247,7 +260,7 @@ export function useAgentOffice() {
     commandPending: createConversation.isPending || sendMessage.isPending,
     isPending: isInitialLoadPending,
     isFetching:
-      instancesQuery.isFetching ||
+      rosterQuery.isFetching ||
       runsQuery.isFetching ||
       requestsQuery.isFetching ||
       approvalsQuery.isFetching ||
@@ -255,7 +268,7 @@ export function useAgentOffice() {
       costQuery.isFetching ||
       authorizationQuery.isFetching,
     error:
-      instancesQuery.error ??
+      rosterQuery.error ??
       runsQuery.error ??
       requestsQuery.error ??
       approvalsQuery.error ??
