@@ -18,7 +18,7 @@ import { useThumbnailSyncFeedback } from './hooks/useThumbnailSyncFeedback';
 import { InspectionDrawer } from './components/InspectionDrawer';
 import { ThumbnailHeader } from './components/ThumbnailHeader';
 import { BatchProgressBanner } from './components/BatchProgressBanner';
-import { UnmatchedReconciliationBanner } from './components/UnmatchedReconciliationBanner';
+import { UnmatchedImageRowsBanner } from './components/UnmatchedImageRowsBanner';
 import { PipelineVisualization, type PipelineTab } from './components/PipelineVisualization';
 import { ThumbnailMainTabs, type MainTabKey } from './components/ThumbnailMainTabs';
 import { ThumbnailDetailModalHost } from './components/workspace/ThumbnailDetailModalHost';
@@ -290,7 +290,7 @@ function ThumbnailsPageContent() {
       )}
 
       {unmatchedBanner && (
-        <UnmatchedReconciliationBanner
+        <UnmatchedImageRowsBanner
           unmatchedCount={unmatchedBanner.count}
           onDismiss={dismissUnmatchedBanner}
         />

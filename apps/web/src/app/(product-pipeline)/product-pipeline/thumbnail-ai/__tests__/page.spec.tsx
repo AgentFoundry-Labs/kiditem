@@ -124,7 +124,7 @@ vi.mock('@/components/ui/ConfirmDialog', () => ({
 
 vi.mock('../components/ThumbnailHeader', () => ({ ThumbnailHeader: () => <div /> }));
 vi.mock('../components/BatchProgressBanner', () => ({ BatchProgressBanner: () => <div /> }));
-vi.mock('../components/UnmatchedReconciliationBanner', () => ({ UnmatchedReconciliationBanner: () => <div /> }));
+vi.mock('../components/UnmatchedImageRowsBanner', () => ({ UnmatchedImageRowsBanner: () => <div /> }));
 vi.mock('../components/GradeDistributionDonut', () => ({ GradeDistributionDonut: () => <div /> }));
 vi.mock('../components/AiActionCenter', () => ({ AiActionCenter: () => <div /> }));
 vi.mock('../components/ComplianceCard', () => ({ ComplianceCard: () => <div /> }));
