@@ -106,14 +106,15 @@ export const ReplaceChannelSkuComponentsInputSchema = z.object({
 }).strict().superRefine((value, ctx) => {
   const seen = new Set<string>();
   value.components.forEach((component, index) => {
-    if (seen.has(component.inventorySkuId)) {
+    const comparisonKey = component.inventorySkuId.toLowerCase();
+    if (seen.has(comparisonKey)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['components', index, 'inventorySkuId'],
         message: 'duplicate inventorySkuId',
       });
     }
-    seen.add(component.inventorySkuId);
+    seen.add(comparisonKey);
   });
 });
 export type ReplaceChannelSkuComponentsInput = z.infer<

@@ -145,6 +145,15 @@ describe('channel SKU matching contracts', () => {
     expect(ReplaceChannelSkuComponentsInputSchema.parse({ components: [] })).toEqual({ components: [] });
   });
 
+  it('rejects duplicate InventorySku IDs that differ only by UUID casing', () => {
+    expect(() => ReplaceChannelSkuComponentsInputSchema.parse({
+      components: [
+        { inventorySkuId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', quantity: 1 },
+        { inventorySkuId: 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA', quantity: 2 },
+      ],
+    })).toThrow(/duplicate/i);
+  });
+
   it.each([0, -1, 1.5])('rejects invalid component quantity %s', (quantity) => {
     expect(() => ReplaceChannelSkuComponentsInputSchema.parse({
       components: [{ inventorySkuId, quantity }],
