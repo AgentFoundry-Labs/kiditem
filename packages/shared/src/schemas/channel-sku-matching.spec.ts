@@ -6,6 +6,7 @@ import {
   ChannelSkuMatchCandidateListResponseSchema,
   ChannelSkuMatchCandidateReasonSchema,
   MAX_CHANNEL_SKU_COMPONENTS,
+  MAX_CHANNEL_SKU_COMPONENT_QUANTITY,
   RefreshChannelSkuMappingStatusInputSchema,
   RefreshChannelSkuMappingStatusResponseSchema,
   ReplaceChannelSkuComponentsInputSchema,
@@ -132,6 +133,35 @@ describe('channel SKU matching contracts', () => {
     }));
 
     expect(() => ReplaceChannelSkuComponentsInputSchema.parse({ components })).toThrow();
+  });
+
+  it('exports the PostgreSQL Int quantity ceiling and rejects overflow', () => {
+    expect(MAX_CHANNEL_SKU_COMPONENT_QUANTITY).toBe(2_147_483_647);
+    expect(ReplaceChannelSkuComponentsInputSchema.parse({
+      components: [{
+        inventorySkuId,
+        quantity: MAX_CHANNEL_SKU_COMPONENT_QUANTITY,
+      }],
+    }).components[0]?.quantity).toBe(MAX_CHANNEL_SKU_COMPONENT_QUANTITY);
+    expect(() => ReplaceChannelSkuComponentsInputSchema.parse({
+      components: [{
+        inventorySkuId,
+        quantity: MAX_CHANNEL_SKU_COMPONENT_QUANTITY + 1,
+      }],
+    })).toThrow();
+    expect(() => ChannelSkuMappingListResponseSchema.parse({
+      items: [{
+        ...listItem,
+        components: [{
+          ...component,
+          quantity: MAX_CHANNEL_SKU_COMPONENT_QUANTITY + 1,
+        }],
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+      counts: { all: 1, unmatched: 0, needsReview: 0, matched: 1 },
+    })).toThrow();
   });
 
   it('accepts explicit unmapping and rejects duplicate InventorySku IDs', () => {

@@ -234,7 +234,10 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
         { inventorySkuId: y.id, quantity: 2 },
       ],
     });
-    expect(await componentState(target.sku.id)).toEqual([[x.id, 1], [y.id, 2]]);
+    expect(await componentState(target.sku.id)).toEqual(sortedRecipe([
+      [x.id, 1],
+      [y.id, 2],
+    ]));
 
     await service.replaceComponents(TEST_ORGANIZATION_ID, TEST_USER_ID, target.sku.id, {
       components: [{ inventorySkuId: y.id, quantity: 3 }],
@@ -327,7 +330,7 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     const final = await componentState(target.sku.id);
     expect([
       JSON.stringify([[a.id, 1]]),
-      JSON.stringify([[b.id, 2], [c.id, 3]]),
+      JSON.stringify(sortedRecipe([[b.id, 2], [c.id, 3]])),
     ]).toContain(JSON.stringify(final));
   });
 
@@ -348,6 +351,42 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     expect(await prisma.channelListingOption.findUniqueOrThrow({
       where: { id: target.sku.id },
     })).toMatchObject({ mappingStatus: 'matched' });
+  });
+
+  it('does not rewrite already-correct advisory rows during grouped refresh', async () => {
+    const alreadyUnmatched = await createQueueSku({ mappingStatus: 'unmatched' });
+    const alreadyReview = await createQueueSku({ mappingStatus: 'needs_review' });
+    const changing = await createQueueSku({ mappingStatus: 'unmatched' });
+    const sentinel = new Date('2020-01-01T00:00:00.000Z');
+    await prisma.channelListingOption.updateMany({
+      where: {
+        id: { in: [alreadyUnmatched.sku.id, alreadyReview.sku.id, changing.sku.id] },
+      },
+      data: { updatedAt: sentinel },
+    });
+
+    await repository.updateUnmappedStatuses(TEST_ORGANIZATION_ID, [
+      { channelSkuId: alreadyUnmatched.sku.id, mappingStatus: 'unmatched' },
+      { channelSkuId: alreadyReview.sku.id, mappingStatus: 'needs_review' },
+      { channelSkuId: changing.sku.id, mappingStatus: 'needs_review' },
+    ]);
+
+    const rows = await prisma.channelListingOption.findMany({
+      where: {
+        id: { in: [alreadyUnmatched.sku.id, alreadyReview.sku.id, changing.sku.id] },
+      },
+    });
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    expect(byId.get(alreadyUnmatched.sku.id)).toMatchObject({
+      mappingStatus: 'unmatched',
+      updatedAt: sentinel,
+    });
+    expect(byId.get(alreadyReview.sku.id)).toMatchObject({
+      mappingStatus: 'needs_review',
+      updatedAt: sentinel,
+    });
+    expect(byId.get(changing.sku.id)?.mappingStatus).toBe('needs_review');
+    expect(byId.get(changing.sku.id)?.updatedAt.getTime()).toBeGreaterThan(sentinel.getTime());
   });
 
   it('preserves component identity/quantity across a Sellpia metadata re-import', async () => {
@@ -510,5 +549,9 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
       orderBy: { inventorySkuId: 'asc' },
     });
     return rows.map((row) => [row.inventorySkuId, row.quantity]);
+  }
+
+  function sortedRecipe(rows: Array<[string, number]>): Array<[string, number]> {
+    return [...rows].sort(([left], [right]) => left.localeCompare(right));
   }
 });

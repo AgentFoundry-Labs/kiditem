@@ -2,7 +2,6 @@ import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { AgentOsModule } from '../../agent-os/agent-os.module';
 import { AutomationModule } from '../../automation/automation.module';
-import { ChannelsModule } from '../../channels/channels.module';
 import { AiModule } from '../ai.module';
 import { AiWingRegistrationCapabilityAdapter } from '../adapter/in/agent/ai-wing-registration-capability.adapter';
 import { DetailPageContentGenerationSinkAdapter } from '../adapter/out/direct-output/detail-page-content-generation-sink.adapter';
@@ -88,7 +87,7 @@ describe('AiModule hexagonal wiring contract', () => {
   it('imports owner modules only at the Nest module boundary', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, AiModule) ?? [];
 
-    expect(imports).toEqual([ChannelsModule, AutomationModule, AgentOsModule]);
+    expect(imports).toEqual([AutomationModule, AgentOsModule]);
   });
 
   it('binds AI-domain ports that keep PR 2A application services off Prisma', () => {

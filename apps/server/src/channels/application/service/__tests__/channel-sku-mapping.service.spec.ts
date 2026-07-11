@@ -161,6 +161,7 @@ describe('ChannelSkuMappingService', () => {
       { inventorySkuId, quantity: 2 },
     ] }],
     [{ components: [{ inventorySkuId, quantity: 0 }] }],
+    [{ components: [{ inventorySkuId, quantity: 2_147_483_648 }] }],
   ])('rejects invalid complete replacements before any repository mutation', async (input) => {
     const repository = makeRepository();
     const service = new ChannelSkuMappingService(repository, makeInventory());

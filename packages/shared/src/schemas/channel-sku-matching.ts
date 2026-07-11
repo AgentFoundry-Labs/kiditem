@@ -8,6 +8,9 @@ export const ChannelSkuMappingStatusSchema = z.enum([
 ]);
 export type ChannelSkuMappingStatus = z.infer<typeof ChannelSkuMappingStatusSchema>;
 
+export const MAX_CHANNEL_SKU_COMPONENTS = 50;
+export const MAX_CHANNEL_SKU_COMPONENT_QUANTITY = 2_147_483_647;
+
 export const ChannelSkuMappingComponentSchema = z.object({
   inventorySkuId: z.string().uuid(),
   sellpiaProductCode: z.string().min(1),
@@ -15,7 +18,7 @@ export const ChannelSkuMappingComponentSchema = z.object({
   optionName: z.string().nullable(),
   barcode: z.string().nullable(),
   reportedStock: z.number().int().nonnegative(),
-  quantity: z.number().int().positive(),
+  quantity: z.number().int().positive().max(MAX_CHANNEL_SKU_COMPONENT_QUANTITY),
   mappingSource: z.string().nullable(),
 });
 export type ChannelSkuMappingComponent = z.infer<typeof ChannelSkuMappingComponentSchema>;
@@ -96,12 +99,10 @@ export type ChannelSkuMatchCandidateListResponse = z.infer<
   typeof ChannelSkuMatchCandidateListResponseSchema
 >;
 
-export const MAX_CHANNEL_SKU_COMPONENTS = 50;
-
 export const ReplaceChannelSkuComponentsInputSchema = z.object({
   components: z.array(z.object({
     inventorySkuId: z.string().uuid(),
-    quantity: z.number().int().positive(),
+    quantity: z.number().int().positive().max(MAX_CHANNEL_SKU_COMPONENT_QUANTITY),
   }).strict()).max(MAX_CHANNEL_SKU_COMPONENTS),
 }).strict().superRefine((value, ctx) => {
   const seen = new Set<string>();

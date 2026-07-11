@@ -145,15 +145,28 @@ implements ChannelSkuMappingRepositoryPort {
     }>,
   ): Promise<void> {
     if (updates.length === 0) return;
-    await this.prisma.$transaction(updates.map((update) =>
-      this.prisma.channelListingOption.updateMany({
+    const targetById = new Map<string, 'unmatched' | 'needs_review'>();
+    for (const update of updates) {
+      targetById.set(update.channelSkuId, update.mappingStatus);
+    }
+    const groups = (['unmatched', 'needs_review'] as const).map((mappingStatus) => ({
+      mappingStatus,
+      ids: [...targetById]
+        .filter(([, target]) => target === mappingStatus)
+        .map(([channelSkuId]) => channelSkuId),
+    }));
+    const operations = groups
+      .filter(({ ids }) => ids.length > 0)
+      .map(({ ids, mappingStatus }) => this.prisma.channelListingOption.updateMany({
         where: {
           ...queueWhere(organizationId),
-          id: update.channelSkuId,
+          id: { in: ids },
           components: { none: { organizationId } },
+          mappingStatus: { not: mappingStatus },
         },
-        data: { mappingStatus: update.mappingStatus },
-      })));
+        data: { mappingStatus },
+      }));
+    await this.prisma.$transaction(operations);
   }
 
   async replaceComponents(

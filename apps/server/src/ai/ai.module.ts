@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { StorageService } from '../common/storage/storage.service';
 import { AgentOsModule } from '../agent-os/agent-os.module';
-import { ChannelsModule } from '../channels/channels.module';
 import { AutomationModule } from '../automation/automation.module';
 
 // adapter/in/http
@@ -157,7 +156,7 @@ import {
 import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
 
 @Module({
-  imports: [ChannelsModule, AutomationModule, AgentOsModule],
+  imports: [AutomationModule, AgentOsModule],
   controllers: [
     ContentArchiveController,
     ContentArchiveLinkageController,
