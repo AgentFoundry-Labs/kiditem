@@ -3,27 +3,17 @@ import { describe, expect, it, vi } from 'vitest';
 import { AgentInspector } from './AgentInspector';
 import { AgentOfficeHeader } from './AgentOfficeHeader';
 import { AgentStaffPanel } from './AgentStaffPanel';
-import type {
-  AgentOfficeNode,
-  AgentOfficeViewModel,
-} from '../lib/agent-office-model';
+import type { AgentOfficeViewModel } from '../lib/agent-office-model';
+import { makeAgentOfficeNode } from '../test-utils/agent-office-fixtures';
 
-const node: AgentOfficeNode = {
+const node = makeAgentOfficeNode({
   id: 'agent-manager',
-  name: 'Operator',
-  agentType: 'manager',
-  title: '대표실',
-  displayName: '운영 총괄',
-  responsibility: '운영 우선순위, 위임, 승인 흐름을 총괄한다.',
   status: 'working',
   activeRunCount: 1,
   pendingApprovalCount: 1,
   lastActivityAt: '2026-07-09T00:00:00.000Z',
   trustLevel: 5,
-  adapterType: 'hermes_local',
-  effectiveModel: 'gpt-5.4',
-  capabilities: [],
-};
+});
 
 const totals: AgentOfficeViewModel['totals'] = {
   agents: 1,
@@ -92,6 +82,42 @@ describe('Agent OS office panels', () => {
     );
 
     expect(screen.getAllByText('미지정')).toHaveLength(2);
+  });
+
+  it('keeps an uninstalled employee visible and labels the missing setup', () => {
+    const uninstalled = makeAgentOfficeNode({
+      id: 'sourcing',
+      instanceId: null,
+      name: 'Sourcing',
+      agentType: 'sourcing',
+      displayName: '소싱 담당',
+      responsibility: '상품 후보와 공급처 신호를 수집한다.',
+      configurationStatus: 'instance_missing',
+      status: 'offline',
+      trustLevel: null,
+      adapterType: null,
+      effectiveModel: null,
+    });
+
+    render(
+      <>
+        <AgentStaffPanel
+          model={{
+            nodes: [uninstalled],
+            capabilities: [],
+            activities: [],
+            totals: { ...totals, working: 0 },
+          }}
+          selectedNodeId="sourcing"
+          onSelectNode={vi.fn()}
+        />
+        <AgentInspector node={uninstalled} />
+      </>,
+    );
+
+    expect(screen.getAllByText('설정 필요').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByRole('button', { name: /소싱 담당/ })).toBeInTheDocument();
+    expect(screen.getAllByText('미지정').length).toBeGreaterThanOrEqual(2);
   });
 
   it('uses Dashboard light surfaces and purple staff selection', () => {

@@ -2,24 +2,17 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { getOfficeSeat } from '../lib/agent-office-layout';
 import { AgentOfficeFloor } from './AgentOfficeFloor';
-import type { AgentOfficeNode } from '../lib/agent-office-model';
+import { makeAgentOfficeNode } from '../test-utils/agent-office-fixtures';
 
-const manager: AgentOfficeNode = {
+const manager = makeAgentOfficeNode({
   id: 'agent-manager',
-  name: 'Operator',
-  agentType: 'manager',
-  title: '대표실',
-  displayName: '운영 총괄',
-  responsibility: '운영 우선순위, 위임, 승인 흐름을 총괄한다.',
   status: 'working',
   activeRunCount: 1,
   pendingApprovalCount: 0,
   lastActivityAt: '2026-07-09T00:00:00.000Z',
   trustLevel: 1,
-  adapterType: 'hermes_local',
   effectiveModel: 'gpt-5.1-codex',
-  capabilities: [],
-};
+});
 
 describe('AgentOfficeFloor', () => {
   it('renders the code-driven floor and selectable zones', () => {

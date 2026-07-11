@@ -2,27 +2,25 @@ import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import AgentOsPage from '../page';
 
-vi.mock('../hooks/useAgentOffice', () => ({
-  useAgentOffice: () => ({
-    model: {
-      nodes: [
-        {
-          id: 'agent-manager',
-          name: 'Operator',
-          agentType: 'manager',
-          title: '대표실',
-          displayName: '운영 총괄',
-          responsibility: '운영 우선순위, 위임, 승인 흐름을 총괄한다.',
-          status: 'idle',
-          activeRunCount: 0,
-          pendingApprovalCount: 0,
-          lastActivityAt: null,
-          trustLevel: 1,
-          adapterType: 'hermes_local',
-          effectiveModel: 'gpt-5.1-codex',
-          capabilities: [],
-        },
-      ],
+vi.mock('../hooks/useAgentOffice', async () => {
+  const { makeAgentOfficeNode } = await import(
+    '../test-utils/agent-office-fixtures'
+  );
+
+  return {
+    useAgentOffice: () => ({
+      model: {
+        nodes: [
+          makeAgentOfficeNode({
+            id: 'agent-manager',
+            status: 'idle',
+            activeRunCount: 0,
+            pendingApprovalCount: 0,
+            lastActivityAt: null,
+            trustLevel: 1,
+            effectiveModel: 'gpt-5.1-codex',
+          }),
+        ],
       capabilities: [],
       activities: [],
       totals: {
@@ -36,19 +34,20 @@ vi.mock('../hooks/useAgentOffice', () => ({
         runningRuns: 0,
         totalCostMicros: '0',
       },
-    },
-    selectedNodeId: 'agent-manager',
-    setSelectedNodeId: vi.fn(),
-    command: '',
-    setCommand: vi.fn(),
-    submitCommand: vi.fn(),
-    commandPending: false,
-    isPending: false,
-    isFetching: false,
-    error: null,
-    refresh: vi.fn(),
-  }),
-}));
+      },
+      selectedNodeId: 'agent-manager',
+      setSelectedNodeId: vi.fn(),
+      command: '',
+      setCommand: vi.fn(),
+      submitCommand: vi.fn(),
+      commandPending: false,
+      isPending: false,
+      isFetching: false,
+      error: null,
+      refresh: vi.fn(),
+    }),
+  };
+});
 
 describe('Agent OS canonical page', () => {
   it('renders the virtual office HQ shell at /agent-os', () => {

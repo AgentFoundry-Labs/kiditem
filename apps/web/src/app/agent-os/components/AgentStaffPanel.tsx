@@ -64,9 +64,15 @@ export function AgentStaffPanel({
                 {node.responsibility}
               </span>
             </span>
-            <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">
-              {node.activeRunCount + node.pendingApprovalCount}
-            </span>
+            {node.configurationStatus === 'ready' ? (
+              <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">
+                {node.activeRunCount + node.pendingApprovalCount}
+              </span>
+            ) : (
+              <span className="rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                설정 필요
+              </span>
+            )}
           </button>
         ))}
       </div>

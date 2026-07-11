@@ -1,13 +1,12 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { AgentCommandDock } from './AgentCommandDock';
-import type { AgentOfficeNode } from '../lib/agent-office-model';
+import { makeAgentOfficeNode } from '../test-utils/agent-office-fixtures';
 
-const node: AgentOfficeNode = {
+const node = makeAgentOfficeNode({
   id: 'agent-sourcing',
   name: 'Sourcing',
   agentType: 'sourcing',
-  title: '소싱실',
   displayName: '소싱 담당',
   responsibility: '상품 후보와 공급처 신호를 수집한다.',
   status: 'idle',
@@ -15,10 +14,8 @@ const node: AgentOfficeNode = {
   pendingApprovalCount: 0,
   lastActivityAt: null,
   trustLevel: 2,
-  adapterType: 'hermes_local',
   effectiveModel: 'gpt-5.4',
-  capabilities: [],
-};
+});
 
 describe('AgentCommandDock', () => {
   it('shows selected employee context and fills a clicked quick command', () => {

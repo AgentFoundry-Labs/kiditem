@@ -37,6 +37,9 @@ export function AgentInspector({ node }: { node: AgentOfficeNode | null }) {
     );
   }
 
+  const profileStatus =
+    node.configurationStatus === 'ready' ? STATUS_LABEL[node.status] : '설정 필요';
+
   return (
     <aside
       aria-label="직원 프로필"
@@ -53,7 +56,7 @@ export function AgentInspector({ node }: { node: AgentOfficeNode | null }) {
           </p>
         </div>
         <span className="shrink-0 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700">
-          {STATUS_LABEL[node.status]}
+          {profileStatus}
         </span>
       </div>
 
@@ -83,7 +86,7 @@ export function AgentInspector({ node }: { node: AgentOfficeNode | null }) {
               <ShieldCheck size={13} /> 권한
             </dt>
             <dd className="mt-1 font-medium text-slate-900">
-              신뢰 단계 {node.trustLevel}
+              {node.trustLevel === null ? '미지정' : `신뢰 단계 ${node.trustLevel}`}
             </dd>
           </div>
           <div>
