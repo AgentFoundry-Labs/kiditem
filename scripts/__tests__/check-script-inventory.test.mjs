@@ -7,6 +7,7 @@ test('accepts complete script inventory metadata', () => {
     actualFiles: SCRIPT_INVENTORY,
     readme: SCRIPT_INVENTORY.map((file) => `\`scripts/${file}\``).join('\n'),
     packageScripts: {
+      'check:channel-sku-identity': 'tsx scripts/check-channel-sku-identity.ts',
       'check:scripts-inventory': 'node scripts/check-script-inventory.mjs',
       'check:schema-artifact-sync': 'node scripts/check-schema-artifact-sync.mjs',
       'check:pr-release-contract': 'node scripts/check-pr-release-contract.mjs',
@@ -34,6 +35,7 @@ test('reports unregistered scripts and missing hooks', () => {
   assert.ok(result.missing.includes('check-script-inventory.mjs'));
   assert.ok(result.undocumented.includes('check-script-inventory.mjs'));
   assert.deepEqual(result.missingPackageHooks, [
+    'check:channel-sku-identity',
     'check:scripts-inventory',
     'check:schema-artifact-sync',
     'check:pr-release-contract',

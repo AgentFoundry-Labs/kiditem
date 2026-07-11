@@ -10,6 +10,7 @@
 | Model | Table | Description |
 |---|---|---|
 | Inventory | `inventory` | ProductOption 에 1:1. Bundle option 은 inventory 미생성 (availableStock 계산값 사용). |
+| InventorySku | `inventory_skus` | Sellpia 상품코드 한 행에 대응하는 물리 재고 SKU. reportedStock 은 완료된 Sellpia 전체 스냅샷만 교체한다. |
 | PickingItem | `picking_items` | - |
 | PickingList | `picking_lists` | - |
 | ReturnTransfer | `return_transfers` | - |
@@ -40,6 +41,21 @@ erDiagram
     Decimal dailySalesAvg
     String warehouseLocation
     DateTime lastRestockedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  InventorySku {
+    String id PK
+    String organizationId FK
+    String sellpiaProductCode
+    String name
+    String optionName
+    String barcode
+    Int reportedStock
+    Int purchasePrice
+    Int salePrice
+    Json rawJson
+    String lastImportRunId FK
     DateTime createdAt
     DateTime updatedAt
   }
@@ -273,6 +289,9 @@ erDiagram
 |---|---|---|---|---|
 | Inventory | option | references external | Core | ProductOption |
 | Inventory | organization | references external | Core | Organization |
+| InventorySku | inventorySku | referenced by external | Channels | ChannelSkuComponent |
+| InventorySku | lastImportRun | references external | Core | SourceImportRun |
+| InventorySku | organization | references external | Core | Organization |
 | PickingItem | option | references external | Core | ProductOption |
 | PickingList | organization | references external | Core | Organization |
 | ReturnTransfer | option | references external | Core | ProductOption |

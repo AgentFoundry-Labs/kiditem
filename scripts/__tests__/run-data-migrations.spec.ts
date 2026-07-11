@@ -12,6 +12,7 @@ import {
 import {
   APPLY_DATA_MIGRATIONS_CONFIRMATION,
   assertApplyDataMigrationsConfirmation,
+  assertMutatingTarget,
   dataMigrationTransactionTimeoutMs,
   DEFAULT_DATA_MIGRATION_TRANSACTION_TIMEOUT_MS,
   isDefinitelyProductionDatabaseUrl,
@@ -21,6 +22,9 @@ import {
 import {
   normalizeSellpiaRecommendedSnapshotItems,
 } from '../data-migrations/v0.1.7/002_normalize_sellpia_recommended_snapshot_items';
+import {
+  backfillChannelSkuAccounts,
+} from '../data-migrations/v0.1.8/001_backfill_channel_sku_accounts';
 
 const repoRoot = join(__dirname, '..', '..');
 
@@ -45,6 +49,7 @@ describe('data migration registry', () => {
       'v0.1.6:001_record_rocket_read_model_release',
       'v0.1.7:001_record_sellpia_rocket_inventory_sync_release',
       'v0.1.7:002_normalize_sellpia_recommended_snapshot_items',
+      'v0.1.8:001_backfill_channel_sku_accounts',
     ]);
   });
 
@@ -67,6 +72,9 @@ describe('data migration registry', () => {
     ]);
     expect(selectDataMigrationsForPhase(dataMigrations, 'post-schema').map((m) => m.id)).toContain(
       'v0.1.2:001_backfill_channel_listing_accounts',
+    );
+    expect(selectDataMigrationsForPhase(dataMigrations, 'post-schema').map((m) => m.id)).toContain(
+      'v0.1.8:001_backfill_channel_sku_accounts',
     );
     expect(selectDataMigrationsForPhase(dataMigrations, 'post-schema').map((m) => m.id)).not.toContain(
       'v0.1.2:002_rename_registration_workspaces_to_content_workspaces',
@@ -91,6 +99,43 @@ describe('Sellpia recommended snapshot item migration', () => {
         normalizedStatus: 'recommended -> needs_review',
       },
     });
+  });
+});
+
+describe('Channel SKU account data migration', () => {
+  it('is post-schema and copies only same-organization parent accounts into null child accounts', async () => {
+    const tx = {
+      $executeRaw: vi.fn(async () => 3),
+      $queryRaw: vi.fn(async () => []),
+    };
+
+    const result = await backfillChannelSkuAccounts.run(tx as never);
+    const [statement] = tx.$executeRaw.mock.calls[0] as [TemplateStringsArray];
+    const sql = statement.join('$value');
+
+    expect(backfillChannelSkuAccounts.phase ?? 'post-schema').toBe('post-schema');
+    expect(sql).toContain('UPDATE channel_listing_options AS sku');
+    expect(sql).toContain('SET channel_account_id = product.channel_account_id');
+    expect(sql).toContain('sku.listing_id = product.id');
+    expect(sql).toContain('sku.organization_id = product.organization_id');
+    expect(sql).toContain('sku.channel_account_id IS NULL');
+    expect(sql).toContain('product.channel_account_id IS NOT NULL');
+    expect(sql).not.toMatch(/option_id|bundle_components|channel_reconciliation|docs\/references|\.xlsx?|\.xls\b/i);
+    expect(result).toEqual({
+      affectedRows: 3,
+      details: { backfilledChannelSkuAccounts: 3 },
+    });
+  });
+
+  it('fails after the update when a populated child account differs from its parent', async () => {
+    const tx = {
+      $executeRaw: vi.fn(async () => 0),
+      $queryRaw: vi.fn(async () => [{ channelSkuId: 'sku-1' }]),
+    };
+
+    await expect(backfillChannelSkuAccounts.run(tx as never)).rejects.toThrow(
+      /channel SKU account differs from its parent/i,
+    );
   });
 });
 
@@ -187,6 +232,39 @@ describe('data migration CLI guardrails', () => {
     );
     expect(isDefinitelyProductionDatabaseUrl('postgresql://u:p@staging-db.example.com/app')).toBe(
       false,
+    );
+  });
+
+  it('keeps local and staging targets away from production-looking URLs', () => {
+    const productionUrl = 'postgresql://u:p@prod-db.example.com/app';
+
+    expect(() => assertMutatingTarget('local', productionUrl, {})).toThrow(/production/i);
+    expect(() => assertMutatingTarget('staging', productionUrl, {})).toThrow(/production/i);
+  });
+
+  it('allows production only in GitHub Actions with the independent production confirmation', () => {
+    const productionUrl = 'postgresql://u:p@prod-db.example.com/app';
+
+    expect(() => assertMutatingTarget('production', productionUrl, {})).toThrow(/GitHub Actions/i);
+    expect(() => assertMutatingTarget('production', productionUrl, {
+      GITHUB_ACTIONS: 'true',
+    })).toThrow(/DATA_MIGRATION_PRODUCTION_CONFIRM/i);
+    expect(() => assertMutatingTarget('production', productionUrl, {
+      GITHUB_ACTIONS: 'true',
+      DATA_MIGRATION_PRODUCTION_CONFIRM: 'wrong',
+    })).toThrow(/DATA_MIGRATION_PRODUCTION_CONFIRM/i);
+    expect(() => assertMutatingTarget('production', productionUrl, {
+      GITHUB_ACTIONS: 'true',
+      DATA_MIGRATION_PRODUCTION_CONFIRM: 'DEPLOY_PRODUCTION',
+    })).not.toThrow();
+    expect(() => assertApplyDataMigrationsConfirmation(undefined)).toThrow(
+      APPLY_DATA_MIGRATIONS_CONFIRMATION,
+    );
+  });
+
+  it('rejects unknown mutation targets', () => {
+    expect(() => assertMutatingTarget('development', 'postgresql://localhost/app', {})).toThrow(
+      /local, staging, or production/i,
     );
   });
 

@@ -3,7 +3,9 @@
 Production deploy is manual through `.github/workflows/production-deploy.yml`.
 It shares the same GHCR image build and blue-green remote deploy model as
 staging, but requires explicit confirmation strings and never auto-accepts
-destructive Prisma schema changes.
+destructive Prisma schema changes. The only warning-accepted schema rerun is
+the exact, read-only-preflight-covered channel identity transition described
+below.
 
 ## Human Prerequisites
 
@@ -66,10 +68,31 @@ confirm: DEPLOY_PRODUCTION
 allow_downtime_for_space: false
 ```
 
-The workflow builds API and web images, runs pre-schema data migrations, runs
-`npx prisma db push`, runs post-schema data migrations, renders production env
-files, uploads compose assets, deploys the digest refs to the inactive slot,
-switches nginx, and verifies the public URL.
+The protected `production` job passes two independent data-migration
+confirmations: `DATA_MIGRATION_CONFIRM=APPLY_DATA_MIGRATIONS` and
+`DATA_MIGRATION_PRODUCTION_CONFIRM=DEPLOY_PRODUCTION` from the validated
+workflow input. The runner additionally requires `GITHUB_ACTIONS=true`; a
+local shell cannot authorize `--target production` with the ordinary
+confirmation alone.
+
+The database transition is strictly ordered:
+
+1. run pre-schema data migrations;
+2. run the read-only `npm run check:channel-sku-identity` and set the job-local
+   marker only after exit `0`;
+3. capture an ordinary `npx prisma db push` log;
+4. on warning-only refusal, accept only a non-empty subset of
+   `channel_listings_org_account_external_id_key`,
+   `channel_listings_id_org_account_key`,
+   `channel_listing_options_id_org_key`, and
+   `channel_listing_options_org_account_external_option_key`;
+5. generate the Prisma client;
+6. run post-schema data migrations.
+
+A drop, extra warning, unrecognized constraint, missing marker, or non-warning
+failure stops the production deployment. Release `0.1.8` then backfills only
+null child accounts from same-organization parents and verifies that populated
+child accounts equal their parent account before images are deployed.
 
 ## Rollback
 
@@ -97,7 +120,11 @@ refs, compose status, and local smoke endpoint status from the production host.
 
 - `confirm` is missing or wrong.
 - `PRODUCTION_DATABASE_URL` is not the intended production DB.
-- `npx prisma db push` requests destructive changes.
+- Either data-migration confirmation is missing, the runner is outside GitHub
+  Actions, or the production target guard rejects the run.
+- The repeatable channel SKU identity report contains any violation.
+- `npx prisma db push` requests a destructive or unrecognized change rather
+  than only the four preflight-covered unique additions.
 - Candidate API/web health fails.
 - Worker service exits during candidate validation.
 - Public `/login` or `/api/auth/me` smoke fails after nginx switch.

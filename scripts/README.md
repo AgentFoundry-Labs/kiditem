@@ -21,6 +21,8 @@ npm run test:scripts
 | path | owner / purpose | entrypoint |
 |---|---|---|
 | `scripts/check-agents-hygiene.mjs` | AGENTS/CLAUDE instruction hygiene gate | `npm run check:agents-hygiene` |
+| `scripts/check-channel-sku-db-push-warning.mjs` | exact Prisma warning allowlist used only after the repeatable channel SKU identity preflight | staging and production deploy workflows |
+| `scripts/check-channel-sku-identity.ts` | read-only, repeatable pre-schema account/identity safety report for ChannelListing and ChannelListingOption | `npm run check:channel-sku-identity`, staging and production deploy workflows |
 | `scripts/check-directory-architecture.mjs` | docs/ARCHITECTURE directory map drift gate | `npm run check:directory-architecture` |
 | `scripts/check-frontend-db-boundary.sh` | frontend must not import DB/Prisma clients | `npm run check:web-db-boundary` |
 | `scripts/check-pr-reconstruction-contract.mjs` | high-risk reconstruction PR body gate | `npm run check:pr-reconstruction` |

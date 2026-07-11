@@ -157,10 +157,20 @@ jobs:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
           DATA_MIGRATION_TARGET: production
           DATA_MIGRATION_CONFIRM: APPLY_DATA_MIGRATIONS
+          DATA_MIGRATION_PRODUCTION_CONFIRM: ${{ inputs.confirm }}
         run: |
           set -euo pipefail
           : "${DATABASE_URL:?Set production secret PRODUCTION_DATABASE_URL}"
           npm run data:migrate -- up --phase pre-schema
+
+      - name: Check channel SKU identity preflight
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?Set production secret PRODUCTION_DATABASE_URL}"
+          npm run check:channel-sku-identity
+          echo "CHANNEL_SKU_IDENTITY_PREFLIGHT=passed" >> "$GITHUB_ENV"
 
       - name: Apply production Prisma schema
         env:
@@ -168,7 +178,25 @@ jobs:
         run: |
           set -euo pipefail
           : "${DATABASE_URL:?Set production secret PRODUCTION_DATABASE_URL}"
-          npx prisma db push
+          db_push_log="$(mktemp)"
+          trap 'rm -f "$db_push_log"' EXIT
+          if npx prisma db push 2>&1 | tee "$db_push_log"; then
+            echo "Prisma schema is already safe to apply without warning acceptance."
+          elif CHANNEL_SKU_IDENTITY_PREFLIGHT="${CHANNEL_SKU_IDENTITY_PREFLIGHT:-}" \
+            node scripts/check-channel-sku-db-push-warning.mjs "$db_push_log"; then
+            echo "::warning::Accepting only the preflight-covered channel identity unique additions."
+            npx prisma db push --accept-data-loss
+          else
+            echo "::error::Prisma db push contains an unapproved warning or non-warning failure." >&2
+            exit 1
+          fi
+
+      - name: Generate Prisma client after schema push
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?Set production secret PRODUCTION_DATABASE_URL}"
           npx prisma generate
 
       - name: Run post-schema data migrations
@@ -176,6 +204,7 @@ jobs:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
           DATA_MIGRATION_TARGET: production
           DATA_MIGRATION_CONFIRM: APPLY_DATA_MIGRATIONS
+          DATA_MIGRATION_PRODUCTION_CONFIRM: ${{ inputs.confirm }}
         run: |
           set -euo pipefail
           : "${DATABASE_URL:?Set production secret PRODUCTION_DATABASE_URL}"

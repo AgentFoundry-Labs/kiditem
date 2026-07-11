@@ -21,6 +21,7 @@
 | Organization | `organizations` | - |
 | OrganizationMembership | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
 | ProductOption | `product_options` | 물리 SKU. 바코드 1:1. 재고/매입/창고 단위. isBundle 이면 구성품 기반 계산. |
+| SourceImportRun | `source_import_runs` | 원본 파일의 idempotency와 provenance만 저장하는 import 실행 행. |
 | User | `users` | human(직원) / agent(AI, agentInstanceId 연결) / system(챗봇). 조직 소속은 OrganizationMembership 이 source of truth. |
 
 ## Mermaid ER Diagram
@@ -70,6 +71,12 @@ erDiagram
     String externalId
     String channelName
     Int channelPrice
+    String displayName
+    String category
+    String brand
+    String manufacturer
+    Json rawJson
+    String lastImportRunId FK
     String status
     String exposureStatus
     String deliveryChargeType
@@ -86,9 +93,17 @@ erDiagram
     String listingId FK
     String optionId FK
     String organizationId FK
+    String channelAccountId FK
     String externalOptionId
     String itemName
     Int salePrice
+    String sellerSku
+    String barcode
+    String modelNumber
+    String status
+    String mappingStatus
+    Json rawJson
+    String lastImportRunId FK
     Boolean isActive
     Boolean isUnmatched
     DateTime createdAt
@@ -215,6 +230,21 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SourceImportRun {
+    String id PK
+    String organizationId FK
+    String sourceType
+    String channelAccountId FK
+    String fileName
+    String fileHash
+    String status
+    Int rowCount
+    DateTime importedAt
+    String createdBy
+    String attemptToken
+    DateTime createdAt
+    DateTime updatedAt
+  }
   User {
     String id PK
     String email UK
@@ -231,8 +261,11 @@ erDiagram
     DateTime updatedAt
   }
   ChannelAccount o|--o{ ChannelListing : "channelAccount"
+  ChannelAccount o|--o{ ChannelListingOption : "channelAccount"
+  ChannelAccount o|--o{ SourceImportRun : "channelAccount"
   ChannelListing ||--o{ ChannelListingOption : "listing"
-  MasterProduct ||--o{ ChannelListing : "master"
+  ChannelListing o|--o{ ChannelListingOption : "scopedProduct"
+  MasterProduct o|--o{ ChannelListing : "master"
   MasterProduct ||--o{ MasterProductImage : "master"
   MasterProduct ||--|| ProductOption : "master"
   Organization ||--o{ BundleComponent : "organization"
@@ -245,9 +278,12 @@ erDiagram
   Organization ||--o{ MasterProductImage : "organization"
   Organization ||--o{ OrganizationMembership : "organization"
   Organization ||--o{ ProductOption : "organization"
+  Organization ||--o{ SourceImportRun : "organization"
   ProductOption ||--o{ BundleComponent : "bundleOption"
   ProductOption ||--o{ BundleComponent : "componentOption"
   ProductOption o|--o{ ChannelListingOption : "option"
+  SourceImportRun o|--o{ ChannelListing : "lastImportRun"
+  SourceImportRun o|--o{ ChannelListingOption : "lastImportRun"
   User o|--o{ OrganizationMembership : "invitedBy"
   User ||--o{ OrganizationMembership : "user"
 ```
@@ -269,6 +305,7 @@ erDiagram
 | ChannelListing | listing | referenced by external | Orders | Review |
 | ChannelListing | listing | referenced by external | Orders | Shipment |
 | ChannelListing | listing | referenced by external | Orders | UnshippedItem |
+| ChannelListingOption | channelSku | referenced by external | Channels | ChannelSkuComponent |
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelListingOptionDailySnapshot |
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelScrapeSnapshot |
@@ -328,6 +365,7 @@ erDiagram
 | Organization | organization | referenced by external | Channels | ChannelReconciliationRun |
 | Organization | organization | referenced by external | Channels | ChannelScrapeRun |
 | Organization | organization | referenced by external | Channels | ChannelScrapeSnapshot |
+| Organization | organization | referenced by external | Channels | ChannelSkuComponent |
 | Organization | organization | referenced by external | Channels | RocketPurchaseOrder |
 | Organization | organization | referenced by external | Channels | RocketSupplyDailySnapshot |
 | Organization | organization | referenced by external | Finance | GradeHistory |
@@ -336,6 +374,7 @@ erDiagram
 | Organization | organization | referenced by external | Finance | ProfitLoss |
 | Organization | organization | referenced by external | Finance | SalesPlan |
 | Organization | organization | referenced by external | Inventory | Inventory |
+| Organization | organization | referenced by external | Inventory | InventorySku |
 | Organization | organization | referenced by external | Inventory | PickingList |
 | Organization | organization | referenced by external | Inventory | ReturnTransfer |
 | Organization | organization | referenced by external | Inventory | RocketInventoryLedger |
@@ -384,6 +423,7 @@ erDiagram
 | ProductOption | option | referenced by external | Supply | PurchaseOrderItem |
 | ProductOption | option | referenced by external | Supply | SupplierProduct |
 | ProductOption | resolvedOption | referenced by external | Inventory | SellpiaNewProductCandidate |
+| SourceImportRun | lastImportRun | referenced by external | Inventory | InventorySku |
 | User | actor | referenced by external | AI | ThumbnailGenerationEvent |
 | User | actorUser | referenced by external | System | Alert |
 | User | agentInstance | references external | AgentOS | AgentInstance |

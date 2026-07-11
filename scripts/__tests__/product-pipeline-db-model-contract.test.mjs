@@ -45,14 +45,21 @@ describe('product pipeline DB model contract', () => {
 
   it('preflights ChannelListing duplicate safety before accepting staging data loss', () => {
     const workflow = readModelFile('.github/workflows/staging-deploy.yml');
-    const preflight = workflow.indexOf('Check staging data-loss preflight');
+    const preflightScript = readModelFile('scripts/check-channel-sku-identity.ts');
+    const preflight = workflow.indexOf('Check channel SKU identity preflight');
+    const warningGuard = workflow.indexOf('check-channel-sku-db-push-warning.mjs');
     const acceptDataLoss = workflow.indexOf('npx prisma db push --accept-data-loss');
 
     assert.ok(preflight !== -1, 'expected staging deploy to preflight reviewed data-loss gates');
+    assert.ok(preflight < warningGuard, 'identity preflight must run before the exact warning guard');
+    assert.ok(warningGuard < acceptDataLoss, 'exact warning guard must run before --accept-data-loss');
     assert.ok(preflight < acceptDataLoss, 'data-loss preflight must run before --accept-data-loss');
-    assert.match(workflow, /channel_listings_org_account_external_id_key/);
-    assert.match(workflow, /GROUP BY organization_id,\s*channel_account_id,\s*external_id/);
-    assert.match(workflow, /HAVING count\(\*\) > 1/);
+    assert.match(workflow, /CHANNEL_SKU_IDENTITY_PREFLIGHT=passed/);
+    assert.match(
+      preflightScript,
+      /GROUP BY product\.organization_id,\s*product\.channel_account_id,\s*product\.external_id/,
+    );
+    assert.match(preflightScript, /HAVING COUNT\(\*\) > 1/);
   });
 
   it('verifies the public staging URL after EC2 deploy', () => {

@@ -27,10 +27,10 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Advertising](erd/advertising.md) | 5 |
 | [AgentOS](erd/agentos.md) | 17 |
 | [AI](erd/ai.md) | 18 |
-| [Channels](erd/channels.md) | 10 |
-| [Core](erd/core.md) | 13 |
+| [Channels](erd/channels.md) | 11 |
+| [Core](erd/core.md) | 14 |
 | [Finance](erd/finance.md) | 5 |
-| [Inventory](erd/inventory.md) | 13 |
+| [Inventory](erd/inventory.md) | 14 |
 | [Orders](erd/orders.md) | 9 |
 | [Sourcing](erd/sourcing.md) | 3 |
 | [Supply](erd/supply.md) | 6 |
@@ -88,6 +88,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ChannelReconciliationRun | Channels | `channel_reconciliation_runs` | 채널-KidItem 상품 매칭 스캔 실행 이력. 실제 연결 source of truth 는 ChannelListing / ChannelListingOption. |
 | ChannelScrapeRun | Channels | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
 | ChannelScrapeSnapshot | Channels | `channel_scrape_snapshots` | 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존. |
+| ChannelSkuComponent | Channels | `channel_sku_components` | 채널 판매 SKU가 소비하는 Sellpia InventorySku 구성과 수량. 확정 매칭의 유일한 source of truth. |
 | RocketPurchaseOrder | Channels | `rocket_purchase_orders` | 쿠팡 로켓 발주 단건(per-PO) 상세 — 매출분석 드릴다운(일자→발주→품목)용. items 는 발주서 품목(SKU) 라인 JSON(표시 전용). |
 | RocketSupplyDailySnapshot | Channels | `rocket_supply_daily_snapshots` | 쿠팡 로켓(공급사 발주) 일별 매출 fact. po-web 발주리스트의 발주금액(공급가)을 입고예정일(KST) 기준으로 집계한 값으로, 윙 매출과 분리된 로켓 매출 소스. |
 | BundleComponent | Core | `bundle_components` | 세트 옵션의 구성품 관계. bundleOption(isBundle=true) ↔ componentOption. Cross-master 허용, cross-organization 금지. |
@@ -102,6 +103,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Organization | Core | `organizations` | - |
 | OrganizationMembership | Core | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
 | ProductOption | Core | `product_options` | 물리 SKU. 바코드 1:1. 재고/매입/창고 단위. isBundle 이면 구성품 기반 계산. |
+| SourceImportRun | Core | `source_import_runs` | 원본 파일의 idempotency와 provenance만 저장하는 import 실행 행. |
 | User | Core | `users` | human(직원) / agent(AI, agentInstanceId 연결) / system(챗봇). 조직 소속은 OrganizationMembership 이 source of truth. |
 | GradeHistory | Finance | `grade_histories` | ABC 등급 변경 추적. |
 | ManualLedger | Finance | `manual_ledgers` | 자동 집계 외 수기 수입/지출. |
@@ -109,6 +111,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ProfitLoss | Finance | `profit_loss` | 월간 손익. organizationId+listingId+year+month unique. |
 | SalesPlan | Finance | `sales_plans` | - |
 | Inventory | Inventory | `inventory` | ProductOption 에 1:1. Bundle option 은 inventory 미생성 (availableStock 계산값 사용). |
+| InventorySku | Inventory | `inventory_skus` | Sellpia 상품코드 한 행에 대응하는 물리 재고 SKU. reportedStock 은 완료된 Sellpia 전체 스냅샷만 교체한다. |
 | PickingItem | Inventory | `picking_items` | - |
 | PickingList | Inventory | `picking_lists` | - |
 | ReturnTransfer | Inventory | `return_transfers` | - |
@@ -672,6 +675,12 @@ erDiagram
     String externalId
     String channelName
     Int channelPrice
+    String displayName
+    String category
+    String brand
+    String manufacturer
+    Json rawJson
+    String lastImportRunId FK
     String status
     String exposureStatus
     String deliveryChargeType
@@ -743,9 +752,17 @@ erDiagram
     String listingId FK
     String optionId FK
     String organizationId FK
+    String channelAccountId FK
     String externalOptionId
     String itemName
     Int salePrice
+    String sellerSku
+    String barcode
+    String modelNumber
+    String status
+    String mappingStatus
+    Json rawJson
+    String lastImportRunId FK
     Boolean isActive
     Boolean isUnmatched
     DateTime createdAt
@@ -877,6 +894,17 @@ erDiagram
     Json rawJson
     Json normalizedJson
     DateTime createdAt
+  }
+  ChannelSkuComponent {
+    String id PK
+    String organizationId FK
+    String channelSkuId FK
+    String inventorySkuId FK
+    Int quantity
+    String mappingSource
+    String createdBy
+    DateTime createdAt
+    DateTime updatedAt
   }
   ContentAsset {
     String id PK
@@ -1109,6 +1137,21 @@ erDiagram
     Decimal dailySalesAvg
     String warehouseLocation
     DateTime lastRestockedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  InventorySku {
+    String id PK
+    String organizationId FK
+    String sellpiaProductCode
+    String name
+    String optionName
+    String barcode
+    Int reportedStock
+    Int purchasePrice
+    Int salePrice
+    Json rawJson
+    String lastImportRunId FK
     DateTime createdAt
     DateTime updatedAt
   }
@@ -1709,6 +1752,21 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SourceImportRun {
+    String id PK
+    String organizationId FK
+    String sourceType
+    String channelAccountId FK
+    String fileName
+    String fileHash
+    String status
+    Int rowCount
+    DateTime importedAt
+    String createdBy
+    String attemptToken
+    DateTime createdAt
+    DateTime updatedAt
+  }
   SourcingCandidate {
     String id PK
     String organizationId FK
@@ -2116,11 +2174,14 @@ erDiagram
   AgentToolInvocation o|--o{ AgentArtifact : "toolInvocation"
   CandidateImage o|--o{ ThumbnailGenerationInputImage : "candidateImage"
   ChannelAccount o|--o{ ChannelListing : "channelAccount"
+  ChannelAccount o|--o{ ChannelListingOption : "channelAccount"
+  ChannelAccount o|--o{ SourceImportRun : "channelAccount"
   ChannelAdTargetDailySnapshot o|--o{ AdAction : "adTargetDaily"
   ChannelListing o|--o{ AdAction : "listing"
   ChannelListing o|--o{ ChannelAdTargetDailySnapshot : "listing"
   ChannelListing ||--o{ ChannelListingDailySnapshot : "listing"
   ChannelListing ||--o{ ChannelListingOption : "listing"
+  ChannelListing o|--o{ ChannelListingOption : "scopedProduct"
   ChannelListing ||--o{ ChannelListingOptionDailySnapshot : "listing"
   ChannelListing o|--o{ ChannelScrapeSnapshot : "listing"
   ChannelListing o|--o{ CSRecord : "listing"
@@ -2134,6 +2195,7 @@ erDiagram
   ChannelListingOption o|--o{ ChannelAdTargetDailySnapshot : "listingOption"
   ChannelListingOption ||--o{ ChannelListingOptionDailySnapshot : "listingOption"
   ChannelListingOption o|--o{ ChannelScrapeSnapshot : "listingOption"
+  ChannelListingOption ||--o{ ChannelSkuComponent : "channelSku"
   ChannelListingOption o|--o{ OrderLineItem : "listingOption"
   ChannelReconciliationRun o|--o{ ChannelReconciliationItem : "lastSeenRun"
   ChannelScrapeRun o|--o{ ChannelScrapeSnapshot : "scrapeRun"
@@ -2168,8 +2230,9 @@ erDiagram
   Inventory ||--o{ RocketInventoryLedger : "inventory"
   Inventory o|--o{ SellpiaNewProductCandidate : "createdInventory"
   Inventory o|--o{ SellpiaStockSnapshotItem : "inventory"
+  InventorySku ||--o{ ChannelSkuComponent : "inventorySku"
   Marketplace o|--o{ WorkflowTemplate : "marketplace"
-  MasterProduct ||--o{ ChannelListing : "master"
+  MasterProduct o|--o{ ChannelListing : "master"
   MasterProduct o|--o{ ContentGenerationGroup : "targetMaster"
   MasterProduct o|--o{ ContentWorkspace : "targetMaster"
   MasterProduct o|--o{ DetailPageArtifact : "targetMaster"
@@ -2223,6 +2286,7 @@ erDiagram
   Organization ||--o{ ChannelReconciliationRun : "organization"
   Organization ||--o{ ChannelScrapeRun : "organization"
   Organization ||--o{ ChannelScrapeSnapshot : "organization"
+  Organization ||--o{ ChannelSkuComponent : "organization"
   Organization ||--o{ ContentAsset : "organization"
   Organization ||--o{ ContentGeneration : "organization"
   Organization ||--o{ ContentGenerationAssetUsage : "organization"
@@ -2235,6 +2299,7 @@ erDiagram
   Organization ||--o{ ExecutionWorker : "organization"
   Organization ||--o{ GradeHistory : "organization"
   Organization ||--o{ Inventory : "organization"
+  Organization ||--o{ InventorySku : "organization"
   Organization ||--o{ LegalEntity : "organization"
   Organization ||--o{ ManualLedger : "organization"
   Organization ||--o{ MasterProduct : "organization"
@@ -2263,6 +2328,7 @@ erDiagram
   Organization ||--o{ SellpiaStockSnapshotItem : "organization"
   Organization ||--o{ Settlement : "organization"
   Organization ||--o{ Shipment : "organization"
+  Organization ||--o{ SourceImportRun : "organization"
   Organization ||--o{ SourcingCandidate : "organization"
   Organization ||--o{ SourcingWorkspaceSnapshot : "organization"
   Organization ||--o{ StockAudit : "organization"
@@ -2308,6 +2374,9 @@ erDiagram
   PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"
   SellpiaStockSnapshot ||--o{ SellpiaStockSnapshotItem : "snapshot"
   SellpiaStockSnapshotItem ||--|| SellpiaNewProductCandidate : "snapshotItem"
+  SourceImportRun o|--o{ ChannelListing : "lastImportRun"
+  SourceImportRun o|--o{ ChannelListingOption : "lastImportRun"
+  SourceImportRun o|--o{ InventorySku : "lastImportRun"
   SourcingCandidate ||--o{ CandidateImage : "candidate"
   SourcingCandidate o|--o{ ContentGeneration : "sourceCandidate"
   SourcingCandidate o|--o{ ContentGenerationSource : "sourceCandidate"

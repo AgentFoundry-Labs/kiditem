@@ -17,6 +17,7 @@
 | ChannelReconciliationRun | `channel_reconciliation_runs` | 채널-KidItem 상품 매칭 스캔 실행 이력. 실제 연결 source of truth 는 ChannelListing / ChannelListingOption. |
 | ChannelScrapeRun | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
 | ChannelScrapeSnapshot | `channel_scrape_snapshots` | 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존. |
+| ChannelSkuComponent | `channel_sku_components` | 채널 판매 SKU가 소비하는 Sellpia InventorySku 구성과 수량. 확정 매칭의 유일한 source of truth. |
 | RocketPurchaseOrder | `rocket_purchase_orders` | 쿠팡 로켓 발주 단건(per-PO) 상세 — 매출분석 드릴다운(일자→발주→품목)용. items 는 발주서 품목(SKU) 라인 JSON(표시 전용). |
 | RocketSupplyDailySnapshot | `rocket_supply_daily_snapshots` | 쿠팡 로켓(공급사 발주) 일별 매출 fact. po-web 발주리스트의 발주금액(공급가)을 입고예정일(KST) 기준으로 집계한 값으로, 윙 매출과 분리된 로켓 매출 소스. |
 
@@ -261,6 +262,17 @@ erDiagram
     Json normalizedJson
     DateTime createdAt
   }
+  ChannelSkuComponent {
+    String id PK
+    String organizationId FK
+    String channelSkuId FK
+    String inventorySkuId FK
+    Int quantity
+    String mappingSource
+    String createdBy
+    DateTime createdAt
+    DateTime updatedAt
+  }
   RocketPurchaseOrder {
     String id PK
     String organizationId FK
@@ -321,5 +333,8 @@ erDiagram
 | ChannelScrapeSnapshot | listingOption | references external | Core | ChannelListingOption |
 | ChannelScrapeSnapshot | option | references external | Core | ProductOption |
 | ChannelScrapeSnapshot | organization | references external | Core | Organization |
+| ChannelSkuComponent | channelSku | references external | Core | ChannelListingOption |
+| ChannelSkuComponent | inventorySku | references external | Inventory | InventorySku |
+| ChannelSkuComponent | organization | references external | Core | Organization |
 | RocketPurchaseOrder | organization | references external | Core | Organization |
 | RocketSupplyDailySnapshot | organization | references external | Core | Organization |

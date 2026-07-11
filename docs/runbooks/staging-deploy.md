@@ -380,14 +380,36 @@ npm run data:migrate -- up --phase pre-schema
 ```
 
 with `DATA_MIGRATION_TARGET=staging` and
-`DATA_MIGRATION_CONFIRM=APPLY_DATA_MIGRATIONS`. It then applies the Prisma
-schema to the staging Supabase database with `npx prisma db push`. The default
-workflow input keeps `accept_data_loss=false`, so destructive Prisma changes
-still block the deploy. A reviewed contract-cleanup deploy may set
-`accept_data_loss=true`, which runs `npx prisma db push --accept-data-loss` only
-for that manual staging run. Use it only after the expand/backfill release has a
-succeeded `data_migration_runs` ledger row and the PR explicitly calls out the
-columns or tables being dropped.
+`DATA_MIGRATION_CONFIRM=APPLY_DATA_MIGRATIONS`. Immediately afterward, and on
+every deployment rather than once per migration ledger, it runs the read-only
+identity gate:
+
+```bash
+npm run check:channel-sku-identity
+```
+
+The gate emits a bounded JSON report and stops on active parent identity
+duplicates, child/parent organization mismatch, parent/account organization
+mismatch, an existing child account that differs from its parent, or projected
+child identity duplicates. Only a successful run writes the job-local
+`CHANNEL_SKU_IDENTITY_PREFLIGHT=passed` marker.
+
+The workflow then captures an ordinary `npx prisma db push` log. If Prisma
+requires warning acceptance, `scripts/check-channel-sku-db-push-warning.mjs`
+permits a rerun with `--accept-data-loss` only when every warning is a non-empty
+subset of these preflight-covered unique additions:
+
+- `channel_listings_org_account_external_id_key`;
+- `channel_listings_id_org_account_key`;
+- `channel_listing_options_id_org_key`;
+- `channel_listing_options_org_account_external_option_key`.
+
+Any missing marker, drop warning, extra warning, or unrecognized constraint
+stops the deployment. The existing `accept_data_loss` workflow input remains
+as the explicit reviewed-cleanup declaration for unrelated releases, but it
+never authorizes `--accept-data-loss` by itself and cannot bypass this identity
+gate. An unrelated cleanup must add its own tested exact-warning preflight in
+the release that needs it.
 
 After schema push, the workflow runs post-schema data migrations before the image
 swap so new application code starts with any required backfill already present:
@@ -395,6 +417,12 @@ swap so new application code starts with any required backfill already present:
 ```bash
 npm run data:migrate -- up --phase post-schema
 ```
+
+For release `0.1.8`, this phase copies a parent `channel_account_id` only into
+a null ChannelListingOption account when child and parent share the same
+organization, then fails if any populated child account differs from its
+parent. It does not infer ProductOption mappings, bundle components,
+reconciliation rows, or workbook-derived mappings.
 
 Each durable data migration is grouped by the application release in root
 [`VERSION`](../../VERSION) that requires it, for example
@@ -537,6 +565,7 @@ curl -I http://<ec2-public-ip>/login
 curl -I https://<real-staging-domain>/login
 curl -I https://<real-staging-domain>/api/auth/me
 npm run data:migrate -- status --database-url "$STAGING_DATABASE_URL"
+npm run check:channel-sku-identity
 ```
 
 Expected results:
@@ -555,9 +584,9 @@ Expected results:
   at `/product-pipeline/detail-pages/:generationId/editor`, with
   `sourceCandidateId` and `returnTo` query params when the source is a collected
   product.
-- Contract-cleanup deploys that intentionally dropped columns were run with
-  `accept_data_loss=true`, and the workflow log shows the explicit warning
-  before Prisma schema apply.
+- The workflow log shows the repeatable identity JSON report immediately before
+  schema apply; any warning-accepted rerun lists only the exact covered unique
+  additions above.
 
 ## Blocker Criteria
 
@@ -572,10 +601,11 @@ Stop and report instead of guessing if:
     then be fixed or rerun from GitHub Actions so the file bind mount cannot
     keep a stale config inode.
 - Supabase connection errors mention the production project.
-- `npx prisma db push` reports destructive changes or asks for
-  `--accept-data-loss` during a normal deploy. Stop unless the PR is a reviewed
-  contract cleanup with confirmed backfill ledger rows; in that case rerun the
-  manual staging deploy with `accept_data_loss=true`.
+- `npm run check:channel-sku-identity` reports any example or does not set its
+  job-local marker.
+- `npx prisma db push` reports a drop, extra warning, unrecognized constraint,
+  or any failure other than the four covered unique-addition warnings. Setting
+  `accept_data_loss=true` does not override this blocker.
 - `npm run data:migrate -- up` fails or writes a `failed` ledger row.
 - Any seed/import/baseline step would target production by accident.
 - DB baseline export/restore would use the public app asset bucket instead of

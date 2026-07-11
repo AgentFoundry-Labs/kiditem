@@ -17,7 +17,7 @@ on:
         required: false
         type: string
       accept_data_loss:
-        description: Allow Prisma db push --accept-data-loss for reviewed contract cleanup deploys.
+        description: Declare reviewed cleanup intent; the exact-warning guard still controls --accept-data-loss.
         required: false
         type: boolean
         default: false
@@ -174,54 +174,14 @@ jobs:
           : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
           npm run data:migrate -- up --phase pre-schema
 
-      - name: Check staging data-loss preflight
+      - name: Check channel SKU identity preflight
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
         run: |
           set -euo pipefail
           : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
-          echo "Checking channel_listings_org_account_external_id_key duplicate groups"
-          node <<'NODE'
-          const fs = require('node:fs');
-          const { Client } = require('pg');
-
-          const client = new Client({ connectionString: process.env.DATABASE_URL });
-
-          (async () => {
-            await client.connect();
-            const result = await client.query(`
-              WITH duplicate_groups AS (
-                SELECT organization_id,
-                       channel_account_id,
-                       external_id,
-                       count(*)::int AS row_count
-                FROM channel_listings
-                WHERE is_deleted = false
-                  AND channel_account_id IS NOT NULL
-                GROUP BY organization_id,
-                         channel_account_id,
-                         external_id
-                HAVING count(*) > 1
-              )
-              SELECT count(*)::int AS duplicate_groups,
-                     COALESCE(sum(row_count - 1), 0)::int AS duplicate_rows
-              FROM duplicate_groups
-            `);
-            const row = result.rows[0] ?? { duplicate_groups: 0, duplicate_rows: 0 };
-            const duplicateGroups = Number(row.duplicate_groups);
-            const duplicateRows = Number(row.duplicate_rows);
-            if (duplicateGroups > 0 || duplicateRows > 0) {
-              throw new Error(
-                `channel_listings_org_account_external_id_key is unsafe: ${duplicateGroups} duplicate group(s), ${duplicateRows} extra row(s).`,
-              );
-            }
-            fs.appendFileSync(process.env.GITHUB_ENV, 'CHANNEL_LISTING_ACCOUNT_UNIQUE_PREFLIGHT=ok\n');
-            console.log('channel_listings_org_account_external_id_key preflight passed: no duplicate groups.');
-          })().finally(() => client.end()).catch((error) => {
-            console.error(error instanceof Error ? error.message : String(error));
-            process.exit(1);
-          });
-          NODE
+          npm run check:channel-sku-identity
+          echo "CHANNEL_SKU_IDENTITY_PREFLIGHT=passed" >> "$GITHUB_ENV"
 
       - name: Apply staging Prisma schema
         env:
@@ -243,37 +203,27 @@ jobs:
           }
           NODE
           db_push_log="$(mktemp)"
+          trap 'rm -f "$db_push_log"' EXIT
           if npx prisma db push 2>&1 | tee "$db_push_log"; then
-            rm -f "$db_push_log"
-          elif [ "${ACCEPT_DATA_LOSS}" = "true" ]; then
-            echo "::warning::Running Prisma db push with --accept-data-loss for a reviewed staging contract cleanup."
+            echo "Prisma schema is already safe to apply without warning acceptance."
+          elif CHANNEL_SKU_IDENTITY_PREFLIGHT="${CHANNEL_SKU_IDENTITY_PREFLIGHT:-}" \
+            node scripts/check-channel-sku-db-push-warning.mjs "$db_push_log"; then
+            echo "::warning::Accepting only the preflight-covered channel identity unique additions."
             npx prisma db push --accept-data-loss
           else
-            if CHANNEL_LISTING_ACCOUNT_UNIQUE_PREFLIGHT="${CHANNEL_LISTING_ACCOUNT_UNIQUE_PREFLIGHT:-}" node - "$db_push_log" <<'NODE'
-          const fs = require('node:fs');
-          const logPath = process.argv[2];
-          const text = fs.readFileSync(logPath, 'utf8');
-          const bullet = String.fromCharCode(0x2022);
-          const warnings = text
-            .split('\n')
-            .map((line) => line.trim())
-            .filter((line) => line.startsWith(bullet));
-          const knownWarning = 'A unique constraint covering the columns `[organization_id,channel_account_id,external_id]` on the table `channel_listings` will be added.';
-          const safeKnownWarning =
-            process.env.CHANNEL_LISTING_ACCOUNT_UNIQUE_PREFLIGHT === 'ok'
-            && warnings.length === 1
-            && warnings[0].includes(knownWarning);
-          process.exit(safeKnownWarning ? 0 : 1);
-          NODE
-            then
-              echo "::warning::Auto-accepting reviewed staging unique constraint after duplicate preflight."
-              npx prisma db push --accept-data-loss
-            else
-              echo "::error::Prisma db push requires reviewed data-loss handling." >&2
-              exit 1
+            if [ "${ACCEPT_DATA_LOSS}" = "true" ]; then
+              echo "::error::accept_data_loss cannot bypass the exact-warning guard; add a reviewed warning signature for an unrelated cleanup release." >&2
             fi
-            rm -f "$db_push_log"
+            echo "::error::Prisma db push contains an unapproved warning or non-warning failure." >&2
+            exit 1
           fi
+
+      - name: Generate Prisma client after schema push
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
           npx prisma generate
 
       - name: Run post-schema data migrations

@@ -40,6 +40,32 @@ a second image build.
   installation, and Elastic IP allocation. Shell scripts under `bin/` must not
   become an alternate deploy path.
 
+## Schema Transition Gate
+
+Staging and production share one ordered database release boundary before the
+blue-green image switch:
+
+```text
+pre-schema ledger migrations
+  -> repeatable read-only channel SKU identity preflight
+  -> ordinary Prisma db push with exact-warning guard
+  -> Prisma client generation
+  -> post-schema ledger migrations
+```
+
+The identity preflight runs on every deployment immediately before schema push
+and writes no schema, row, workbook, or migration-ledger state. Its job-local
+marker is set only after exit `0`. Prisma remains schema truth: the workflow
+does not install SQL overlay indexes. A warning-accepted rerun is possible only
+when the captured log contains a non-empty subset of the four mapped channel
+identity unique additions and no drop, extra warning, unrecognized constraint,
+or non-warning failure.
+
+Local and staging ledger mutation targets still reject production-looking
+URLs. The production ledger target is restricted to GitHub Actions and needs
+both `APPLY_DATA_MIGRATIONS` and `DEPLOY_PRODUCTION` confirmations inside the
+protected `production` Environment job.
+
 ## Blue-Green Switch
 
 1. Read the active color from `deployments/current.json`; fall back to
