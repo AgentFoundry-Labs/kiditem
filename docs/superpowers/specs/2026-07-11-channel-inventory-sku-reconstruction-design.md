@@ -1,1178 +1,614 @@
-# Channel and Inventory SKU Reconstruction Design
+# Sellpia Snapshot and Channel SKU Reconstruction Design
 
 ## Status
 
-Approved for implementation on 2026-07-11.
+Approved on 2026-07-11.
 
-This design supersedes the stock-ownership, matching, and bundle assumptions in
+This design supersedes the stock-ownership, reconciliation, and bundle
+assumptions in
 [`2026-06-28-sellpia-rocket-inventory-sync-design.md`](./2026-06-28-sellpia-rocket-inventory-sync-design.md).
-Historical Sellpia import and Rocket stock-event audit data from that release
-must still be preserved during reconstruction.
+It also replaces the earlier revision of this document that treated KidItem as
+the inventory ledger.
 
 ## Purpose
 
-KidItem must become the inventory system of record while keeping sales-channel
-identities and external inventory-service identities outside the physical SKU
-model.
+KidItem imports a complete Sellpia inventory workbook, stores that workbook as
+the current physical-stock snapshot, maps marketplace sellable units to the
+physical SKUs in the snapshot, and calculates the quantity to upload to each
+channel.
 
-The reconstruction must support:
+Sellpia is the only inventory source of truth. KidItem is a snapshot,
+identity-mapping, bundle-conversion, and channel-upload system. It is not a
+second stock ledger.
 
-- physical inventory at an independent SKU granularity;
-- Coupang Wing and Coupang Rocket as separate channel accounts;
-- Sellpia as an external inventory-management provider, not a sales channel;
-- one channel SKU consuming one or more physical inventory SKUs;
-- same-SKU multipacks, mixed bundles, and normal one-unit sales through the same
-  component model;
-- reservation-aware stock export to Sellpia;
-- immutable order-component snapshots so later mapping changes do not corrupt
-  shipment, cancellation, or return behavior;
-- deterministic imports and explicit review for ambiguous mappings;
-- preservation of all existing inventory and reconciliation audit history.
+The target flow is:
 
-This is a platform-boundary reconstruction across Products, Inventory,
-Channels, Orders, shared contracts, Prisma, and the operator UI. It is not a
-rename-only change.
+```text
+shopping-mall activity
+  -> Sellpia calculates the final inventory
+  -> operator exports the complete Sellpia workbook
+  -> KidItem atomically replaces its inventory snapshot
+  -> KidItem converts physical quantities through ChannelSku components
+  -> KidItem uploads the calculated quantity to Wing, Rocket, and later channels
+```
 
 ## Approved Business Decisions
 
-1. KidItem owns the inventory ledger and is the source of truth.
-2. Sellpia is an external inventory-management provider.
-3. Coupang Wing and Coupang Rocket are distinct channels.
-4. Marketplace options belong to the channel layer, not the KidItem physical
-   inventory model.
-5. Every stock-bearing unit is an `InventorySku`.
-6. A bundle has no inventory row of its own.
-7. A channel SKU always consumes inventory through component rows, including a
-   normal one-to-one sale with quantity `1`.
-8. A four-pack channel SKU consumes four units of its component SKU. An order
-   quantity of two therefore reserves and later issues eight physical units.
-9. Sellpia receives KidItem saleable stock, not raw physical current stock.
-10. Emergency Sellpia edits are reconciled through a reviewed KidItem import;
-    they do not silently overwrite the ledger.
-11. The first outbound Sellpia integration is an operator-uploaded Excel file.
-12. All valid Wing options are imported, including stopped options. Inactive
-    options retain mappings but do not participate in active stock sync.
-13. Unknown Sellpia product codes create independent Inventory SKUs only after
-    import preview approval.
-14. Pre-cutover bundle orders without provable component history are routed to
-    manual review for return or reshipment.
+1. The complete Sellpia workbook is authoritative for every physical stock
+   quantity in KidItem.
+2. A successful import replaces the whole organization snapshot. It is not a
+   partial update or reconciliation proposal.
+3. A previously known Sellpia product code missing from the new workbook gets
+   stock `0`; its identity and channel mappings are retained.
+4. A valid, previously unknown Sellpia product code automatically creates a new
+   independent physical `InventorySku` and its Sellpia identity mapping.
+5. KidItem does not calculate differences, request stock-adjustment approval,
+   apply order deltas, maintain Rocket compensation, or add ledger values to the
+   Sellpia quantity.
+6. KidItem does not reserve, issue, release, or receive physical stock in
+   response to marketplace orders. Those effects are reflected by Sellpia and
+   arrive in the next complete workbook.
+7. Sellpia is an inventory-management service, not a `ChannelAccount`.
+8. Coupang Wing and Coupang Rocket are distinct channels.
+9. A marketplace option or Rocket item is a `ChannelSku`, not an internal
+   inventory option.
+10. A bundle has no independent inventory balance. Its available quantity is
+    calculated from one or more `InventorySku` component rows.
+11. A normal one-unit sale uses one component with quantity `1`; a same-SKU
+    four-pack uses one component with quantity `4`.
+12. A Rocket order quantity of two for a four-pack represents eight fulfillment
+    units, but it does not subtract eight from KidItem's imported snapshot.
+13. The latest imported snapshot remains in effect until the next import.
+    Post-snapshot overlays and cross-import order compensation are out of scope.
+14. Matching review applies only to marketplace `ChannelSku` composition. It
+    does not apply to Sellpia stock quantities.
 
-## Evidence From Current Data
+## Evidence From Current Files
 
-The 2026-07-11 operator-supplied Wing workbook contains:
+The operator-supplied Wing workbook contains:
 
 - 2,241 rows with a valid `vendorItemId`;
-- 1,225 `sellerProductId` values among those valid rows;
+- 1,225 `sellerProductId` values among those rows;
 - 137 seller products with more than one option row;
-- 773 active and 1,468 stopped channel-option rows;
+- 773 active and 1,468 stopped option rows;
 - only 26 nonblank barcode cells;
 - 44 seller products whose exposed `productId` is not one-to-one with the
   seller product.
 
-Consequences:
+Therefore:
 
-- `vendorItemId` is the stable Wing channel-SKU identity.
-- `sellerProductId` is the Wing channel-product identity.
-- exposed `productId` and barcodes are aliases or diagnostics, not primary join
-  keys.
-- names and option text cannot safely drive automatic matching.
+- Wing `sellerProductId` is the channel-product identity;
+- Wing `vendorItemId` is the channel-SKU identity;
+- exposed `productId`, barcode, model number, name, and option text are aliases
+  or matching evidence only;
+- names and barcodes cannot be universal automatic join keys.
 
-The latest inspected Sellpia export contains 1,963 unique product codes. Source
-barcodes are not unique: multiple product codes may share a barcode. A Sellpia
-product code therefore remains a provider-scoped external identity and must not
-be collapsed by barcode automatically.
+The inspected Sellpia export contains 1,963 unique product codes. Barcodes and
+names are not unique, so Sellpia `상품코드` is the only automatic identity for
+snapshot replacement.
 
-The inspected Rocket PO identifies a four-pack with a Rocket barcode not found
-in either Sellpia or Wing. Its physical component is the Sellpia-managed base
-SKU. This proves that a Rocket barcode is a channel identifier and that bundle
-quantity must be explicit.
+The inspected Rocket PO contains a four-pack whose Rocket barcode does not
+exist in the Sellpia or Wing files. Its component is a Sellpia-managed base SKU.
+This confirms that Rocket identity and physical inventory identity must remain
+separate and that component quantity must be explicit.
 
 ## Domain Boundaries
 
 ```text
 Products
-  MasterProduct
-      |
-      +-- MasterProductInventorySku -- InventorySku
+  MasterProduct -- MasterProductInventorySku -- InventorySku
 
 Inventory
-  InventorySku -- Inventory -- StockTransaction
-       |
-       +-- ExternalInventoryItem -- InventoryProvider (Sellpia)
-       +-- InventoryProviderImport / Observation / Review / Export
+  SellpiaInventoryItem -- InventorySku -- Inventory
+  SellpiaImportRun -- SellpiaImportRow
 
 Channels
-  ChannelAccount (Coupang Wing or Coupang Rocket)
-       |
-       +-- ChannelProduct (optional parent)
-       +-- ChannelSku -- ChannelSkuIdentifier
-                      -- ChannelSkuComponent -- InventorySku
+  ChannelAccount (Wing or Rocket)
+    -> ChannelProduct
+    -> ChannelSku -- ChannelSkuIdentifier
+                  -- ChannelSkuComponent -- InventorySku
 
-Orders
-  OrderLine -- OrderLineInventoryComponent -- InventorySku
+Orders / Fulfillment
+  OrderLine -- OrderLineInventoryComponentSnapshot -- InventorySku
 ```
 
 ### Products
 
-Products owns merchandising, content, and family-level planning.
-`MasterProduct` remains a product family and does not own stock. It may be
-associated with multiple physical SKUs through a relation, but that relation is
-not a marketplace option state.
+`MasterProduct` owns merchandising, content, and family-level planning. It may
+be associated with physical SKUs, but that association is not marketplace
+option state and does not own stock.
 
 ### Inventory
 
-Inventory owns physical SKUs, balances, reservations, stock transactions,
-external inventory providers, reconciliation, and export generation. All stock
-writes go through Inventory-owned services and ports.
+Inventory owns physical SKU identity and the latest Sellpia quantity
+projection. It accepts stock writes only from the complete Sellpia snapshot
+importer. Import history is audit evidence only; it is never a reconciliation
+queue or a second balance calculation.
 
 ### Channels
 
-Channels owns marketplace or fulfillment-account identities, external product
-and SKU identifiers, channel state, channel pricing, and the mutable recipe
-that maps a channel SKU to physical Inventory SKUs.
+Channels owns marketplace product/SKU identity, status, aliases, and the
+component recipe that converts a physical snapshot into a channel quantity.
+Wing and Rocket use the same component model through separate channel accounts.
 
-### Orders
+### Orders and Fulfillment
 
-Orders owns the immutable snapshot of the channel recipe used for each accepted
-or confirmed order line. Inventory consumes that snapshot; it must never look
-up the current mutable channel recipe when reversing an old order.
+An order or Rocket PO may snapshot the component recipe for picking, labels,
+returns, and audit. That snapshot records required physical units but never
+mutates the imported inventory quantity.
 
 ## Target Data Model
 
-All provider and status values remain validated strings rather than native
-PostgreSQL enums.
+All provider, channel, and status fields remain validated strings rather than
+native PostgreSQL enums.
 
 ### InventorySku
 
-`InventorySku` is a physical stock, purchase, scanner, and warehouse unit.
+`InventorySku` is one physical stock, purchase, scanner, and warehouse unit.
 
 Core fields:
 
 - `id`
 - `organizationId`
-- `sku`
+- internal `sku`
 - `name`
-- `barcode`
-- `costPrice`
-- `otherCost`
-- `status`
-- `isTemporary`
-- `temporaryReason`
-- `isDeleted`
+- nullable barcode and cost metadata
+- physical status
 - timestamps
 
 Rules:
 
 - unique `(organizationId, sku)`;
-- barcode is not a universal identity and is not globally unique;
-- no `masterId` ownership requirement;
-- no `legacyCode` provider identity;
-- no `optionName` or option status;
-- no `isBundle` or materialized bundle stock;
-- an SKU may exist before it is associated with a MasterProduct or channel;
-- retired SKUs remain referentially available for historical ledger rows.
+- no `masterId`, marketplace option name/status, or channel identifier;
+- no `isBundle` or materialized bundle capacity;
+- no Sellpia product code embedded as the internal identity;
+- an SKU remains addressable after it disappears from a snapshot;
+- a missing SKU's stock becomes zero rather than deleting the SKU.
 
 ### MasterProductInventorySku
 
-This relation associates a merchandising family with a physical SKU without
-making the SKU an internal marketplace option.
-
-Fields:
-
-- `id`
-- `organizationId`
-- `masterProductId`
-- `inventorySkuId`
-- `displayName`
-- `sortOrder`
-- `isPrimary`
-- catalog-association visibility
-- legacy reference sell price, commission rate, and shipping cost
-- timestamps
+This relation associates a merchandising family with a physical SKU.
 
 Rules:
 
 - unique `(masterProductId, inventorySkuId)`;
-- both sides must belong to the same organization;
-- removing an association does not delete the Inventory SKU;
-- stock and cost are never duplicated on the relation;
-- existing option display text may be migrated into `displayName`, but it has
-  no channel availability or activation meaning;
-- legacy commercial values remain durable planning references on the relation
-  when no unambiguous channel destination exists; real channel pricing and fees
-  belong to ChannelProduct or ChannelSku.
+- both records belong to the same organization;
+- removing the relation never deletes the physical SKU or Sellpia identity;
+- display text and sort order may live on the relation;
+- stock and channel option state do not live on the relation.
 
 ### Inventory
 
-`Inventory` remains one-to-one with a physical SKU.
+`Inventory` remains one-to-one with `InventorySku` during the reconstruction.
+Its authoritative quantity is:
 
-The existing balances remain:
+```text
+Inventory.currentStock = latest complete Sellpia workbook row 재고
+```
 
-- `currentStock`: physical on-hand stock;
-- `reservedStock`: committed but not yet issued stock;
-- `safetyStock`: withheld from sale;
-- monotonic `balanceVersion`: concurrency token for every balance or safety
-  mutation;
-- reorder and warehouse planning fields.
+Rules:
 
-The foreign key becomes `inventorySkuId`. No bundle receives an Inventory row.
-Every current, reserved, or safety-stock mutation increments `balanceVersion`
-atomically. Numeric balances or timestamps alone are not sufficient because a
-balance can change and later return to the same value.
+- channel availability reads `currentStock` directly;
+- `reservedStock`, `safetyStock`, Rocket ledger values, and order deltas do not
+  reduce or increase the channel quantity;
+- the first cutover snapshot clears legacy reserved/safety projections to zero;
+- Sellpia import does not create `StockTransaction` adjustments;
+- existing transaction and Rocket-ledger rows remain immutable history but are
+  not read for current stock;
+- runtime stock-mutation APIs cannot change Sellpia-managed current stock.
 
-### InventoryProvider
+A later cleanup may replace legacy balance fields with a narrower snapshot
+quantity field. The user-visible switch does not depend on that physical column
+rename.
 
-An organization-scoped external inventory-management account.
+### SellpiaInventoryItem
 
-Fields include:
+This is the current external identity mapping for the inventory service.
 
-- `id`
-- `organizationId`
-- `providerType`, initially `sellpia`
-- `name`
-- `externalAccountId`
-- `status`
-- `config`
-- verified, versioned `reportedQuantitySemantics`, such as `on_hand` or
-  `saleable`, which every import/export run snapshots immutably
-- timestamps
-
-Legacy data can prove only one Sellpia provider per organization. The migration
-must create one legacy provider for each organization with Sellpia history; it
-must not invent multiple accounts.
-
-### ExternalInventoryItem
-
-The current provider-scoped identity and mapping.
-
-Fields include:
+Core fields:
 
 - `id`
 - `organizationId`
-- `inventoryProviderId`
-- `externalItemCode`
-- `displayName`
-- source barcode and model-name diagnostics
-- nullable `inventorySkuId`
-- mapping status and review metadata
-- `stockSyncEnabled`
-- latest observed metadata
+- `sellpiaProductCode`
+- `inventorySkuId`
+- latest name, barcode, model number, and source metadata
+- `lastSeenImportId`
 - timestamps
 
 Rules:
 
-- unique `(inventoryProviderId, externalItemCode)`;
-- one external code has at most one current Inventory SKU mapping;
-- historical or diagnostic external items may reference the same Inventory SKU,
-  but only one active Sellpia item per provider may have stock sync enabled for
-  that Inventory SKU;
-- enforce the active stock-sync rule with a partial unique constraint over
-  `(inventoryProviderId, inventorySkuId)` when `stockSyncEnabled = true`;
-- exporting the full saleable quantity to two Sellpia codes for the same
-  Inventory SKU is forbidden because it would duplicate availability;
-- mapping changes do not rewrite historical import observations;
-- rejected rows without an external code remain valid historical observations
-  with a nullable external-item reference.
+- unique `(organizationId, sellpiaProductCode)`;
+- exactly one physical SKU per Sellpia product code;
+- exactly one active Sellpia product code per physical InventorySku;
+- Sellpia code is matched exactly as text and never by name or barcode;
+- a missing code remains mapped and receives stock zero;
+- duplicate codes in one workbook reject the entire import;
+- an unknown valid code creates both the mapping and its InventorySku in the
+  same transaction using the organization-scoped internal SKU allocator;
+- a legacy conflict in which multiple Sellpia codes point to one InventorySku
+  blocks cutover until each code has an independent physical target.
 
-### Provider Import and Export History
+### SellpiaImportRun and SellpiaImportRow
 
-`ExternalInventoryItem` stores current identity only. It must not absorb the
-immutable Sellpia history.
+Each uploaded workbook records immutable audit data:
 
-The generic provider history must preserve:
+- organization, actor, file name, SHA-256, imported time, row count, and status;
+- every validated source row's product code, stock, metadata, and raw row;
+- counts of created SKUs, updated SKUs, and zeroed missing SKUs.
 
-- import file name, SHA-256, effective export time, actor, and run counts;
-- immutable calculation `policyVersion`;
-- every raw observation row, including rejected and duplicate rows;
-- source stock, safety stock, barcodes, model name, and raw JSON;
-- the mapping, Inventory row, and policy inputs observed at import time;
-- calculated target, difference, warning, and blocking reasons;
-- operator target, stock-at-apply, decision, note, actor, and time;
-- applied `StockTransaction` IDs;
-- candidate-resolution decisions and initial receive transaction IDs;
-- outbound export batches, template version, file status, and upload actor.
-
-Existing identifiers referenced by `StockTransaction.relatedId` must remain
-traceable. A migration may rename the provider-specific tables, but it must
-preserve row IDs and audit cardinality.
-
-Migrated runs use `legacy_sellpia_plus_rocket_v1` and retain every stored input
-and result verbatim. New runs use `kiditem_saleable_v2`. Migration never
-recalculates a historical observation under a newer policy.
+The rows prove what was imported but do not store targets, differences,
+recommendations, approvals, Rocket compensation, or applied transactions.
+Re-uploading the same completed file hash for the same organization is
+idempotent and returns the prior result.
 
 ### ChannelProduct
 
-The channel's parent product identity. It replaces the domain meaning of
-`ChannelListing` while preserving listing analytics and content relations.
+The channel parent identity.
 
-Core ownership includes a nullable `masterProductId`. Existing
-`ChannelListing.masterId` values are preserved exactly. A future Rocket-only
-product may remain unlinked until an operator associates it with a merchandising
-family. Component mappings never infer or rewrite MasterProduct ownership.
-
-Core identity fields are `id`, `organizationId`, `channelAccountId`,
-`masterProductId`, `externalId`, name, channel status, metadata, and timestamps.
-The database enforces unique `(channelAccountId, externalId)` so concurrent
-imports cannot create duplicate parents.
-
-ChannelProduct, MasterProduct, and ChannelAccount must belong to the same
-organization. Deleting a MasterProduct association does not delete the channel
-identity or its historical orders.
-
-For Wing:
-
-- canonical external ID: `sellerProductId`;
-- exposed `productId`: alias or metadata only.
-
-Rocket may omit a parent when the available feed exposes only an operational
-`productNo`.
+- Wing canonical external ID: `sellerProductId`.
+- Wing exposed `productId`: alias or metadata only.
+- Rocket may omit a parent when a feed exposes only `productNo`.
+- unique `(channelAccountId, externalId)` when a parent exists.
 
 ### ChannelSku
 
-The channel-specific sellable, fulfillment, or PO item.
+The channel-specific sellable or fulfillment unit.
 
-Fields include:
-
-- `id`
-- `organizationId`
-- `channelAccountId`
-- nullable `channelProductId`
-- `externalId`
-- `itemName`
-- `salePrice`
-- `status`
-- `mappingStatus`
-- integer `mappingVersion`
-- metadata
-- timestamps
-
-Canonical external IDs:
-
-- Wing: `vendorItemId`;
-- Rocket: `productNo`.
-
-Rules:
-
-- unique `(channelAccountId, externalId)`;
-- a `matched` SKU has at least one component;
-- an `unmatched` SKU has no operational stock effect and blocks order or stock
-  sync;
-- no direct `inventorySkuId` shortcut exists: a normal sale uses one component
-  with quantity `1`;
-- every atomic component-set replacement increments `mappingVersion`;
-- order acceptance locks the ChannelSku row or performs a compare-and-swap on
-  `mappingVersion`, then snapshots that exact version and reserves stock in the
-  same transaction.
+- Wing canonical external ID: `vendorItemId`.
+- Rocket canonical external ID: `productNo`.
+- unique `(channelAccountId, externalId)`.
+- status and aliases belong to the channel, not to `InventorySku`.
+- no direct `inventorySkuId` shortcut exists.
+- `matched` requires at least one valid component; `unmatched` blocks upload.
 
 ### ChannelSkuIdentifier
 
-Provider-specific aliases such as barcode, exposed product ID, model number, or
-legacy identifier.
-
-Aliases aid search and candidate generation. They do not bypass an explicit
-component mapping and must tolerate non-unique source values.
+Stores barcode, exposed product ID, model number, and legacy identifiers for
+search and matching evidence. An alias never bypasses the approved component
+mapping and need not be globally unique.
 
 ### ChannelSkuComponent
 
-The current mutable recipe for one channel SKU.
+The current channel recipe.
 
-Fields:
+Core fields:
 
-- `id`
-- `organizationId`
 - `channelSkuId`
 - `inventorySkuId`
-- `quantity`
+- positive integer `quantity`
 - timestamps
 
 Rules:
 
-- quantity is a positive integer;
 - unique `(channelSkuId, inventorySkuId)`;
-- channel SKU and Inventory SKU must have the same organization;
-- nested bundles do not exist;
-- changing a recipe affects only future order snapshots;
-- delete of an Inventory SKU referenced by a component is restricted.
+- channel and inventory SKU belong to the same organization;
+- nested bundles and bundle inventory do not exist;
+- recipe replacement is atomic;
+- changes affect future calculations and future fulfillment snapshots only.
 
 Examples:
 
 ```text
-Wing single item
-  ChannelSku(vendorItemId=A) -> InventorySku(base), quantity=1
+Wing single
+  vendorItemId=A -> Sellpia base SKU × 1
 
 Rocket four-pack
-  ChannelSku(productNo=B) -> InventorySku(base), quantity=4
+  productNo=B -> Sellpia base SKU × 4
 
 Mixed set
-  ChannelSku(externalId=C) -> InventorySku(red),  quantity=1
-                           -> InventorySku(blue), quantity=2
+  externalId=C -> red SKU × 1
+               -> blue SKU × 2
 ```
 
-### OrderLineInventoryComponent
+### OrderLineInventoryComponentSnapshot
 
-An immutable snapshot created when an order line is accepted for inventory
-handling. For Rocket this occurs when the operator confirms the PO quantity and
-reservation.
+When a Rocket PO or marketplace order needs fulfillment support, KidItem may
+store the recipe used at acceptance:
 
-Fields include:
+- channel SKU and mapping version;
+- physical InventorySku;
+- quantity per sellable unit;
+- accepted sellable quantity;
+- total fulfillment quantity.
 
-- `id`
-- `organizationId`
-- `orderLineId`
-- `channelSkuId`
-- `inventorySkuId`
-- `quantityPerUnit`
-- accepted order quantity
-- `totalQuantity`
-- source mapping version or snapshot metadata
-- immutable allocation revision ID and revision number
-- revision kind, order-quantity delta, and nullable reversed-revision ID
-- timestamps
-
-`totalQuantity = acceptedOrderQuantity * quantityPerUnit`.
-
-Reservation, picking, issue, cancellation, and return operate on these rows.
-They never re-read current `ChannelSkuComponent` rows for an existing order.
-
-`acceptedOrderQuantity`, `quantityPerUnit`, and `totalQuantity` are immutable
-after creation and constrained so the total equals their product.
-
-Order-line inventory state is append-only by allocation revision. The initial
-acceptance creates revision `1`. Amendments never edit an existing component
-row:
-
-- a decrease appends a reversal revision for the still-open quantity;
-- a quantity-only increase appends a positive delta revision by copying the
-  original acceptance component vector and mapping version;
-- a pre-issue SKU remap releases the old open reservation and snapshots/reserves
-  the new recipe in one command;
-- issued quantities are never remapped.
-
-Picking and mutation limits are calculated from the sum of active revisions and
-their prior effects, while every original revision remains auditable.
-Quantity-only increase or decrease never reads current ChannelSkuComponent
-rows. Explicit pre-issue SKU remap is the only amendment allowed to lock and
-snapshot the currently approved recipe.
-
-### InventoryMutationCommand and Component Effect
-
-A multi-component business action needs one aggregate idempotency record rather
-than one unrelated idempotency row per component.
-
-`InventoryMutationCommand` stores:
-
-- organization, source type, source action ID, and event type;
-- canonical component-vector hash;
-- command status and serialized result reference;
-- actor, reason, and timestamps.
-
-It is unique by `(organizationId, sourceType, sourceActionId, eventType)`.
-Component-effect children are unique by
-`(inventoryMutationCommandId, orderLineInventoryComponentId)` and record every
-current/reserved delta and resulting ledger reference.
-
-All children commit in the same transaction. Replaying the same command and
-hash returns the stored result. Reusing the key with a different component
-vector or quantity is a conflict, not a partial retry.
-
-Every open reservation must be owned by command effects. A separate explicit
-non-order reservation-hold record may own a proven manual or migration hold,
-with source, actor, quantity, reason, and release history. Unattributed
-`reservedStock` is a cutover blocker.
-
-### Picking Projection
-
-Each picking allocation references:
-
-- `inventorySkuId`;
-- `orderLineInventoryComponentId`;
-- `orderLineId`;
-- fulfillment attempt identity;
-- required, picked, and issued quantities.
-
-`fulfillmentAttemptId` is not a timestamp-generated list ID. It is a stable
-provider shipment/fulfillment segment identity or a persisted attempt aggregate
-that is idempotently obtained before allocation. The generator claims only
-eligible snapshot revisions without an allocation for that fulfillment segment,
-inside a transaction. A uniqueness constraint on snapshot revision and segment
-prevents duplicate picking across process restarts and repeated list generation.
-Partial fulfillment assigns only the remaining quantity to a new stable
-segment. Physical pick instructions may aggregate the same Inventory SKU, but
-allocation children keep the order/component trace needed for partial issue,
-cancellation, and return.
-
-Before allocating any segment, the generator locks the snapshot revision or a
-dedicated allocation aggregate, re-reads allocations for all segments, and
-computes remaining quantity. Different segment keys therefore serialize on the
-same revision. The database/service invariant is that summed active allocation
-quantity never exceeds the active revision total.
-
-Blocked or manual-review orders never enter automatic picking and expose their
-exclusion reason to the operator.
-
-### LegacyProductOptionTombstone
-
-Only legacy bundle identities that cannot become physical Inventory SKUs use a
-read-only tombstone. It preserves the old ProductOption UUID, organization,
-MasterProduct, SKU, barcode, legacy code, option label, commercial fields,
-materialized capacity, raw migration metadata, archive reason, and timestamps.
-
-Pre-cutover order, picking, transfer, Rocket-ledger, and reconciliation history
-that referred to such a bundle is redirected to an explicit nullable tombstone
-reference or preserved scalar snapshot. No active stock mutation may target the
-tombstone.
+The snapshot is immutable and supports picking and return evidence. It creates
+no reservation, issue, release, receive, or adjustment in Inventory.
 
 ## Stock Calculations
 
-### Physical and Saleable Stock
+### Physical Snapshot Quantity
 
 ```text
-physicalCurrentStock = Inventory.currentStock
-
-rawSaleableStock =
-  Inventory.currentStock
-  - Inventory.reservedStock
-  - Inventory.safetyStock
-
-saleableStock = max(0, rawSaleableStock)
+physicalQuantity(inventorySku) = latest Sellpia-imported currentStock
 ```
 
-Sellpia receives `saleableStock` for each stock-sync-enabled external item.
-`currentStock` and `reservedStock` must remain non-negative, and a reservation
-must not make `reservedStock` exceed `currentStock`. Safety stock may make raw
-saleable stock negative; the exported value is clamped to zero.
+No KidItem field or ledger is added to or subtracted from this value.
 
 ### Channel Availability
 
-For a matched channel SKU:
+For a matched ChannelSku:
 
 ```text
 channelAvailable = min(
-  floor(component.saleableStock / component.quantity)
+  floor(physicalQuantity(component.inventorySku) / component.quantity)
   for every component
 )
 ```
 
-Missing Inventory, zero components, invalid quantities, or an unmatched mapping
-produce blocked availability rather than an assumed zero-to-one fallback.
+Missing Inventory, no components, invalid quantities, or an unmatched mapping
+blocks the upload. Stopped channel SKUs remain stored but are excluded from
+active upload.
 
-### Four-Pack Example
-
-Starting state:
-
-```text
-currentStock = 100
-reservedStock = 0
-safetyStock = 0
-Sellpia saleable stock = 100
-```
-
-Confirming two Rocket four-packs:
+Example:
 
 ```text
-required units = 2 * 4 = 8
-currentStock = 100
-reservedStock = 8
-Sellpia saleable stock = 92
+Sellpia base stock = 80
+Wing single quantity = 80
+Rocket four-pack quantity = floor(80 / 4) = 20
 ```
 
-Completing outbound:
-
-```text
-currentStock = 92
-reservedStock = 0
-Sellpia saleable stock = 92
-```
-
-Cancellation before outbound releases eight reserved units. A completed return
-receives the proven component quantity back into physical current stock.
+If a Rocket PO requests two four-packs, the fulfillment snapshot records eight
+base units. `Inventory.currentStock` remains 80 until a newer Sellpia workbook
+replaces it.
 
 ## Workflows
 
-### Initial Sellpia Bootstrap
+### Complete Sellpia Snapshot Import
 
-1. Upload the latest Sellpia stock export.
-2. Parse and preserve every raw observation.
-3. Match exact, provenance-backed legacy Sellpia codes first. Valid provenance
-   is limited to an immutable snapshot match, a terminal candidate-resolution
-   decision, or a reviewed baseline explicitly identified as Sellpia.
-4. Use exact unique barcode candidates only when the barcode occurs once among
-   active source rows and once among eligible non-deleted Inventory SKUs in the
-   organization.
-5. Never merge duplicate source barcodes automatically.
-6. For each still-unmatched code, preview exactly one resolution:
-   `link_existing_inventory_sku`, `create_inventory_sku`, or `ignore`. The
-   default for an approved unmatched code is `create_inventory_sku`, as agreed,
-   but the operator may replace it with link or ignore before approval.
-7. Create or update `ExternalInventoryItem` mappings.
-8. Preview the resulting Inventory adjustments.
-9. On approval, create explicit stock transactions that reconcile KidItem to
-   the Sellpia cutover snapshot.
-10. Record actor, before/after quantities, source row, and transaction IDs.
+1. Parse XLS, XLSX, CSV, or supported Sellpia text export.
+2. Require `상품코드` and `재고` and normalize Excel text formulas.
+3. Reject blank/duplicate product codes, negative stock, non-integer stock, an
+   empty file, or a file above the configured row limit.
+4. Acquire one organization-scoped import lock.
+5. Create an import run and immutable row records.
+6. Resolve exact existing Sellpia codes.
+7. Auto-create InventorySku, Inventory, and SellpiaInventoryItem for every new
+   valid code.
+8. Set every represented Inventory quantity exactly to the workbook value.
+9. Set every organization Inventory quantity not represented by the current
+   complete Sellpia snapshot to zero.
+10. Update current source metadata and last-seen import IDs.
+11. Commit all rows, zeroing, and the completed import result atomically.
 
-Uploading a file never mutates stock or creates SKUs before approval.
-Approved Inventory SKU creation, Inventory creation, external mapping, opening
-adjustment, and terminal review state commit atomically. Linking an existing SKU
-does not create a separate opening receive; it follows the reviewed adjustment
-path for that existing Inventory balance.
-
-The source Sellpia safety-stock column is preserved as an observation. It does
-not overwrite `Inventory.safetyStock` unless the operator separately approves a
-safety-stock change.
-
-The provider adapter stores raw reported stock and provider safety stock
-separately, then derives `normalizedSaleableStock` according to the immutable
-run policy and verified `reportedQuantitySemantics`. Cutover is blocked until
-the actual Sellpia export and upload template semantics are verified. Inbound
-normalization and outbound generation are exact inverses and never add or
-subtract provider safety stock twice.
-
-### Ongoing Sellpia Reconciliation
-
-1. A Sellpia export creates a new immutable import run.
-2. Current mappings resolve external items to Inventory SKUs.
-3. KidItem and Sellpia saleable quantities are compared.
-4. Differences become review proposals.
-5. KidItem is not overwritten automatically.
-6. An approved emergency Sellpia edit becomes an explicit KidItem adjustment.
-7. The next outbound Excel export is generated from KidItem saleable stock.
-
-The old `targetCurrentStock = sellpiaStock + rocketLedgerNet` formula is
-retired. Rocket reservations and issues are already represented in KidItem
-balances and must not be added a second time.
-
-When an operator explicitly accepts a Sellpia-side quantity as the corrected
-saleable quantity, the Inventory adjustment target is calculated at apply time:
-
-```text
-targetCurrentStock =
-  acceptedSellpiaSaleableStock
-  + lockedReservedStock
-  + lockedSafetyStock
-```
-
-The apply transaction re-locks Inventory and revalidates events that occurred
-after the source export time. This avoids treating a saleable value as raw
-physical current stock and avoids overwriting a concurrent reservation.
-
-Each proposal stores `observedBalanceVersion`. Approval locks Inventory and
-requires an exact version match before calculating the target and mutation.
-
-Legacy migrated runs are audit-only and cannot be approved under the new
-policy. The cutover creates a fresh `kiditem_saleable_v2` run. Approval fails as
-stale when current, reserved, safety, or balance version changed after proposal
-calculation; there is no blanket file-level stock mutation.
-
-### Sellpia Outbound Excel
-
-The first outbound adapter generates an operator-downloadable Excel file with
-Sellpia product codes and KidItem saleable stock. The system records:
-
-- generation source and time;
-- included external items;
-- stock value at generation;
-- template version and file hash;
-- operator upload confirmation.
-
-Legacy receipt-upload batches migrate only fields that existed. Unknown file
-hashes, included-item observations, and generated stock values remain null with
-`historyCompleteness = legacy_batch_only`; they are never reconstructed from
-current balances. Every post-cutover export requires immutable item/value rows
-and a file hash before entering `pending_upload`.
-
-Direct Sellpia API upload is out of scope.
-
-The adapter must verify how the target Sellpia template applies provider-side
-safety stock. It translates KidItem's saleable target so the effective Sellpia
-saleable quantity equals the exported value and must not subtract safety stock a
-second time.
+No preview approval, per-row approval, difference threshold, safety-stock
+normalization, Rocket correction, or stock ledger entry exists. A failure in
+any row rolls back the entire replacement and leaves the previous snapshot
+active.
 
 ### Wing Catalog Import
 
-1. Upsert `ChannelProduct` by Wing account and `sellerProductId`.
-2. Upsert `ChannelSku` by Wing account and `vendorItemId`.
-3. Preserve `productId`, barcode, names, and option text as aliases or metadata.
-4. Import all valid rows, including stopped items.
-5. Keep stopped items inactive without deleting their component mapping.
-6. Apply only deterministic component matches automatically.
-7. Route multi-option, duplicate-barcode, fuzzy-name, and bundle candidates to
-   review.
+1. Upsert ChannelProduct by Wing account and `sellerProductId`.
+2. Upsert ChannelSku by Wing account and `vendorItemId`.
+3. Preserve exposed product ID, barcode, names, and option text as aliases or
+   metadata.
+4. Import all valid active and stopped rows.
+5. Retain stopped rows and approved components but exclude them from upload.
+6. Apply only deterministic one-to-one bootstrap mappings automatically.
+7. Route ambiguous multi-option, duplicate-barcode, and bundle composition to
+   the channel-mapping UI.
 
-The import is idempotent. A repeated workbook updates channel metadata without
-duplicating identities or clearing approved components.
+Repeated imports update metadata and status without duplicating identities or
+clearing approved components.
 
-### Rocket PO
+### Rocket Catalog and PO
 
-1. Upsert or resolve the Rocket `ChannelSku` by `productNo`.
-2. Preserve the Rocket barcode as a channel alias.
-3. Block confirmation when the channel SKU has no approved components.
-4. Calculate all component requirements from the operator-confirmed PO
-   quantity.
-5. Lock every affected Inventory row in deterministic order.
-6. Validate total saleable stock.
-7. Create immutable order-line component snapshots and reservations in one
-   transaction.
-8. Generate the confirmation artifact only for the committed reservation, with
-   an idempotency key derived from the PO and line identity.
-9. Issue the snapshots on outbound, release them on cancellation, and receive
-   them on a proven return.
+1. Use a separate Rocket ChannelAccount.
+2. Upsert or resolve ChannelSku by `productNo`.
+3. Store Rocket barcode as an alias, never as a physical-SKU foreign key.
+4. Require approved component rows before calculating stock or confirming a
+   fulfillment quantity.
+5. Calculate Rocket availability from the latest Sellpia snapshot and component
+   quantities.
+6. When needed, persist the immutable fulfillment recipe and generated artifact
+   idempotently.
+7. Do not mutate Inventory for confirmation, outbound, cancellation, or return.
 
-No partial component reservation is allowed.
+A single calculation batch may use an in-memory remaining quantity so two lines
+in the same artifact do not allocate the same snapshot units twice. No persisted
+overlay is carried to another batch or the next import.
 
-### General Channel Orders
+### Channel Inventory Upload
 
-Wing and future channels use the same snapshot and inventory-mutation rules.
-Channel-specific ingestion may differ, but inventory semantics do not.
+For every active matched ChannelSku:
 
-The inventory lifecycle is:
+1. read the latest Sellpia-backed component quantities;
+2. calculate `channelAvailable`;
+3. render the channel-specific stock request or workbook;
+4. record upload/result idempotency without changing physical stock.
 
-```text
-ingested or unmatched (no stock effect)
-  -> accepted (snapshot + reservation once)
-  -> partially_issued | issued | cancelled
-  -> partially_returned | returned, when applicable
-```
-
-Before acceptance, external upserts may update quantity and ChannelSku identity.
-After acceptance, the original snapshots are immutable. A changed external
-quantity or SKU requires an explicit append-only allocation-revision command:
-
-- before issue, a decrease appends a reversal revision and an increase appends a
-  delta revision, changing only the open reservation delta;
-- a pre-issue SKU remap releases the old open revision and creates a new
-  recipe-version snapshot plus reservation atomically;
-- after partial issue, cancellation may release only the still-reserved amount;
-- issued quantity cannot be reduced or remapped automatically;
-- return quantity cannot exceed issued minus already returned;
-- release cannot exceed the open reservation;
-- out-of-order, conflicting, or unsupported amendments enter manual review.
-
-Acceptance and every amendment have separate source-scoped idempotency keys.
+Each channel receives the calculated quantity from the same Sellpia snapshot.
+KidItem does not split inventory into channel-owned pools or anticipate orders
+that Sellpia has not yet reflected.
 
 ## Matching Policy
 
-Automatic matching is allowed only when evidence is deterministic.
+### Sellpia to InventorySku
 
-Allowed:
+- exact Sellpia product code is authoritative;
+- an existing proven legacy mapping is preserved;
+- otherwise a new independent InventorySku is created;
+- barcode and product name never merge two Sellpia codes automatically;
+- stock values require no operator review.
 
-- exact Sellpia product code backed by an immutable snapshot match, terminal
-  candidate resolution, or reviewed Sellpia baseline;
-- an already approved current mapping;
-- exact barcode with cardinality one on both the active provider-import side and
-  the eligible organization Inventory-SKU side;
-- a legacy channel mapping whose source and target cardinality are one-to-one.
+### ChannelSku to InventorySku
 
-Not allowed for automatic acceptance:
+Automatic bootstrap is allowed only for deterministic one-to-one evidence.
+The following require review:
 
-- name containment or fuzzy name score;
-- exposed Coupang `productId` as a seller-product key;
+- fuzzy or name-only candidates;
 - duplicate barcodes;
-- seller-product-only mappings for multi-option products;
-- Rocket barcode directly to Inventory SKU without an approved channel recipe.
+- seller-product-only matches for multi-option products;
+- same-SKU multipacks whose quantity is not explicit;
+- mixed bundles;
+- Rocket barcode without an approved `productNo` recipe.
 
-Every review decision records the actor, evidence, source identity, target SKU,
-component quantity, note, and timestamp.
+Every approved mapping stores the source channel identity, components,
+quantities, actor, evidence, and time.
 
-`ProductOption.legacyCode` alone is never mapping evidence. Conflicting proven
-sources create one unmapped `ExternalInventoryItem` with
-`mappingStatus = conflict`; recency does not resolve the conflict automatically.
+## Legacy Migration and Cutover
 
-## Legacy ProductOption and Bundle Migration
+The user-visible reconstruction release is `0.1.8`; destructive legacy schema
+cleanup is `0.1.9`.
 
-### Non-Bundle Rows
+### Release 0.1.8: Expand, Backfill, and Switch
 
-- Copy each non-bundle `ProductOption` to `InventorySku` with the same UUID.
-- Create one `MasterProductInventorySku` relation from the old `masterId`.
-- Move Inventory and operational foreign keys to `inventorySkuId` while
-  retaining the UUID.
-- Move `costPrice` and physical SKU fields to InventorySku.
-- Move option display text and sort order to the MasterProduct relation.
-- Seed channel price fields from old selling fields only where the target
-  channel row is unambiguous; otherwise preserve the value in the catalog
-  relation reference field and migration review report.
+- create InventorySku and MasterProductInventorySku;
+- preserve non-bundle ProductOption UUIDs where they represent physical units;
+- create SellpiaInventoryItem mappings from proven Sellpia codes;
+- create ChannelProduct, ChannelSku, identifiers, and component rows;
+- convert normal direct mappings to component quantity `1`;
+- expand legacy bundles into ChannelSkuComponent rows without creating bundle
+  inventory;
+- import the first complete Sellpia snapshot and replace every current quantity;
+- clear legacy reserved and safety projections;
+- switch channel availability and Rocket calculations to direct snapshot
+  quantity;
+- stop all runtime ProductOption stock mutation, Rocket ledger compensation,
+  Sellpia reconciliation approval, and Sellpia outbound export paths;
+- retain legacy transactions and old Sellpia/Rocket records as read-only audit.
 
-The durable field destinations are:
+The first complete snapshot is the cutover boundary. After it commits, no old
+balance is authoritative and no dual write is allowed.
 
-| Legacy ProductOption field | Destination |
-|---|---|
-| `id`, `sku`, `barcode`, cost and physical status | `InventorySku` with the same ID and SKU |
-| `masterId`, `optionName`, `sortOrder`, catalog visibility | `MasterProductInventorySku` |
-| `sellPrice` | ChannelSku when unambiguous; otherwise relation reference value |
-| `commissionRate`, `shippingCost` | ChannelProduct/ChannelSku when unambiguous; otherwise relation reference values |
-| `otherCost` | InventorySku cost metadata |
-| `legacyCode` | ExternalInventoryItem only with provider provenance; otherwise migration identifier history |
-| `isBundle`, `availableStock` | no InventorySku field; channel components and computed channel availability |
-| temporary/deleted timestamps | physical SKU status plus catalog-association visibility, without deleting history |
+### Release 0.1.9: Contract Cleanup
 
-Existing internal SKU strings never change. New independent SKU strings come
-from a transaction-safe organization-scoped Inventory SKU allocator and are not
-derived from a MasterProduct code or Sellpia product code.
+After production evidence confirms the new paths:
 
-`ProductOption.legacyCode` cannot be assumed to mean Sellpia globally. Only
-codes supported by Sellpia snapshot or candidate provenance become
-`ExternalInventoryItem` mappings. Other legacy-code consumers must be converted
-before the column is removed.
-
-Historical Sellpia foreign keys are converted explicitly:
-
-- snapshot `productOptionId` becomes `observedInventorySkuId` with the preserved
-  non-bundle UUID;
-- candidate `resolvedProductOptionId` becomes `resolvedInventorySkuId`;
-- snapshot and candidate row IDs remain unchanged;
-- polymorphic StockTransaction related IDs continue to resolve through the
-  retained generic history row; any `relatedType` rename and lookup registry
-  change is atomic and verified in both directions.
-
-### Direct Channel Mappings
-
-An existing direct `ChannelListingOption.optionId` mapping to a non-bundle SKU
-becomes one `ChannelSkuComponent` with quantity `1`.
-
-Whenever possible, `ChannelListing.id` is preserved as `ChannelProduct.id` and
-`ChannelListingOption.id` as `ChannelSku.id`. If preservation is impossible, a
-durable old-to-new mapping rewrites every order, analytics, content, and market
-snapshot foreign key, followed by keyed non-null/cardinality verification.
-
-A preflight scanner blocks duplicate `(channelAccountId, externalId)` values
-that the stronger ChannelSku identity would collapse. New component and
-snapshot relations enforce organization equality with database keys in addition
-to service checks.
-
-### Bundle Rows
-
-For every active or inactive channel option linked to a legacy bundle:
-
-- create a `ChannelSku` identity;
-- copy every legacy `BundleComponent` into that channel SKU's component rows;
-- preserve component quantities;
-- duplicate the recipe when one legacy bundle was linked to multiple channel
-  SKUs, because the recipes may diverge after cutover;
-- clear the old direct option mapping only after the new component cardinality
-  is verified.
-
-Automatic migration is blocked for:
-
-- a bundle with no linked channel SKU;
-- a bundle with no components;
-- a deleted or missing component;
-- cross-organization ownership;
-- invalid or duplicate component quantities;
-- a channel SKU whose existing mapping conflicts with the bundle recipe.
-
-Operators must explicitly link, archive, or correct blocked rows before the
-legacy contract is removed.
-
-The preflight scanner must also classify every legacy `isBundle = true` row
-that has an Inventory, non-zero balance, StockTransaction, Rocket ledger,
-PickingItem, return transfer, or stock transfer. Only zero-balance bundles with
-no immutable stock history can be removed automatically. A tombstone may own
-identity and immutable history only; it never owns a balance.
-
-Any non-zero bundle current, reserved, or safety balance blocks contract removal
-until an operator approves an audited transfer, allocation, or write-off to
-proven physical Inventory SKUs and the legacy Inventory reaches zero. A
-ledger-only reference may then be redirected to a tombstone without changing
-historical values. Only after these distinct balance and history conditions are
-resolved may keyed zero-difference verification run.
-
-### Historical Bundle Orders
-
-The legacy model has no immutable bundle version. Past recipe changes cannot be
-reconstructed reliably from current rows.
-
-Therefore:
-
-- existing bundle identity and relevant raw metadata are preserved as a
-  read-only migration tombstone;
-- affected pre-cutover orders are marked `manual_inventory_review`;
-- automated return, reshipment, or exchange is blocked for those orders;
-- an operator records the proven physical component adjustment explicitly;
-- all orders accepted after cutover receive immutable component snapshots.
-
-No legacy bundle row is treated as a physical Inventory SKU.
-
-## Versioned Cutover
-
-The release version becomes `0.1.8`.
-
-The user-visible transition is a hard cutover, but the implementation follows
-an expand/backfill/switch/contract sequence within the release. There is no
-long-lived dual source of truth.
-
-### 1. Preflight
-
-- pause Sellpia approvals and channel inventory mutations for a bounded
-  maintenance window;
-- capture a database backup and the latest Sellpia export;
-- run scanners for orphan, cross-organization, duplicate, bundle, and historical
-  reference conflicts;
-- classify every legacy bundle Inventory, balance, transaction, picking,
-  transfer, and Rocket-ledger reference;
-- require an explicit resolution for every blocking result.
-
-### 2. Expand
-
-- add the new models and nullable transition foreign keys;
-- add new shared contracts, owner ports, and regression scanners;
-- keep all old reads intact until backfill verification succeeds.
-
-### 3. Backfill
-
-- preserve non-bundle UUIDs;
-- create MasterProduct associations;
-- migrate operational references and direct channel mappings;
-- expand legacy bundles into channel components;
-- create quantity-`1` component snapshots for open non-bundle order lines;
-- attribute every open non-bundle reservation to migrated
-  OrderLineInventoryComponent revisions and InventoryMutationCommand effects
-  using the old source action, without writing a second balance delta;
-- place proven non-order holds in explicit reservation-hold rows and block every
-  unattributed remainder;
-- route open legacy bundle order lines and their picking work to manual review;
-- create one legacy Sellpia provider per organization;
-- create external-item mappings only from proven Sellpia history;
-- migrate provider import/export history without changing IDs or decisions and
-  label its policy/completeness explicitly;
-- do not create any stock transaction solely because of schema backfill.
-
-### 4. Verify
-
-Required zero-difference checks:
-
-- keyed Inventory equality by preserved non-bundle UUID, including
-  organization, current/reserved/safety, planning, and warehouse fields;
-- keyed StockTransaction equality by transaction ID, including organization,
-  Inventory SKU target, type, quantity, related ID/type, actor, note, and
-  timestamp;
-- aggregate Inventory and transaction totals as supplemental checks only;
-- non-bundle ProductOption to InventorySku cardinality;
-- operational foreign-key completeness;
-- provider import run and observation cardinality;
-- provider-history field equality keyed by preserved run, observation,
-  candidate, and export-batch IDs, including file identity/times, actor,
-  metadata, row number, raw values, raw JSON checksum, observed mappings,
-  policy version, calculation inputs/results, reasons, decisions, and
-  transaction references;
-- bidirectional provider-history orphan count and field-level mismatch count of
-  zero, with cardinality checks treated as supplemental;
-- direct and bundle channel-mapping cardinality;
-- keyed ChannelListing/ChannelListingOption identity and downstream foreign-key
-  preservation;
-- organization equality across every new relation;
-- no matched channel SKU with zero components;
-- no blocked bundle migration issue.
-- no duplicate picking allocation for any snapshot component and fulfillment
-  attempt.
-- keyed equality for every Inventory SKU between `reservedStock` and the sum of
-  open snapshot-owned reservations plus explicit non-order reservation holds.
-
-### 5. Switch
-
-- deploy the new Inventory, Channels, Orders, Products, API, and UI reads and
-  writes together;
-- make order and PO processing consume immutable component snapshots;
-- generate Sellpia stock from saleable inventory;
-- create and explicitly approve selected rows from a fresh
-  `kiditem_saleable_v2` Sellpia cutover run;
-- resume channel processing after smoke verification.
-
-### 6. Contract
-
-After regression gates pass:
-
-- remove `ProductOption`, `BundleComponent`, bundle-stock materialization, and
-  their APIs;
-- remove direct channel-option-to-product-option mapping;
-- remove Sellpia reads and writes of `legacyCode`;
-- remove the old Rocket correction formula and any duplicate Rocket ledger
-  compensation;
-- retain existing Rocket ledger rows as immutable history, but stop using them
-  as a second balance source;
-- keep only explicit historical tombstones and immutable audit records, not
-  compatibility write paths.
-
-The durable data migration lives under
-`scripts/data-migrations/v0.1.8/` and is registered in the migration index.
+- verify every active channel mapping and physical reference has migrated;
+- remove ProductOption-owned stock and BundleComponent-owned stock semantics;
+- remove Sellpia reconciliation/review/export models and APIs that have no
+  historical retention requirement;
+- archive or retain immutable legacy audit rows that must remain traceable;
+- remove active RocketInventoryLedger reads and writes;
+- remove reservation/safety calculations from channel availability;
+- physically drop obsolete schema only behind reviewed data-loss controls.
 
 ## Error Handling and Idempotency
 
-- Missing component mappings block order, PO, and stock sync with an actionable
-  reason.
-- Invalid component data fails before any Inventory row is mutated.
-- All component Inventory rows are locked in deterministic ID order.
-- Reservation, issue, cancellation, return, import approval, and export
-  generation use source-scoped idempotency keys.
-- Replayed external events return the prior result without duplicating stock
-  effects.
-- A multi-component mutation commits completely or rolls back completely.
-- Negative `currentStock` or `reservedStock` transitions and reservations above
-  physical current stock are rejected unless an existing explicit override
-  policy applies with actor and reason. Safety stock may reduce raw saleable
-  stock below zero; external availability remains clamped to zero.
-- Organization identity is derived from authentication and verified across all
-  related rows; DTOs never supply it as trusted input.
-- Import parse failures preserve the run and raw error evidence without stock
-  mutation.
+- one invalid Sellpia row rejects the whole import;
+- a transaction failure preserves the previous complete snapshot;
+- concurrent imports for one organization serialize;
+- a completed file hash is idempotent;
+- organization identity comes from authentication, never a trusted DTO field;
+- cross-organization channel components are rejected;
+- missing or invalid channel components block only that ChannelSku's upload;
+- channel upload retries reuse source-scoped idempotency keys;
+- the system reports the age of the latest Sellpia snapshot because it does not
+  maintain a post-import overlay.
 
 ## Operator Surfaces
 
-Inventory Hub is divided into:
+Inventory Hub has three relevant surfaces:
 
-1. `실물 SKU`
-   - Inventory SKU search, balance, reservations, identifiers, and linked
-     MasterProducts.
-2. `Sellpia 재고 대조`
-   - upload preview, mapping candidates, differences, approval, and export
-     batches.
+1. `Sellpia 재고 가져오기`
+   - upload a complete file;
+   - show structural validation, row count, created/updated/zeroed counts, file
+     hash, result, and latest snapshot age;
+   - no difference table or per-row stock approval.
+2. `실물 SKU`
+   - show the latest imported quantity, Sellpia product code, source metadata,
+     and MasterProduct associations;
+   - quantity is read-only.
 3. `채널 SKU 매칭`
-   - account, external IDs, status, aliases, components, quantities, and
-     calculated availability.
-4. `처리 차단 주문`
-   - unmatched current orders and manual-review legacy bundle orders.
+   - show Wing/Rocket identities, status, aliases, components, quantities, and
+     calculated upload availability;
+   - this is the only mapping-review surface.
 
-The Product Hub shows MasterProduct-to-InventorySku associations but no longer
-labels them as marketplace option state. Bundle composition editing moves to
-the Channel SKU surface.
+Product Hub shows MasterProduct-to-InventorySku associations without presenting
+them as marketplace option state. Bundle composition editing belongs to the
+Channel SKU surface.
 
 ## Verification Plan
 
-### Domain Tests
+### Sellpia Import Tests
 
-- physical SKU has no bundle or channel-option state;
-- saleable-stock calculation includes reservations and safety stock;
-- channel capacity uses the minimum component quotient;
-- quantity multiplication for same-SKU and mixed bundles;
-- component mapping requires same organization and positive quantity;
-- mapping changes do not change an existing order snapshot;
-- concurrent mapping replacement and order acceptance resolves to exactly one
-  recorded mapping version;
-- no partially committed component set within one reservation or issue command;
-- deterministic locking and idempotent replay;
-- same command key with a different component hash is rejected.
-
-### Sellpia Tests
-
-- source encoding and Excel-text formula normalization;
-- duplicate and blank product codes preserve raw rows;
-- exact mapping and ambiguous barcode review;
-- preview creates no SKU or stock mutation;
-- approved unmatched rows create independent Inventory SKUs;
-- approval creates audited adjustment transactions;
-- future imports propose differences instead of overwriting stock;
-- exported value is `current - reserved - safety`;
-- existing snapshot, candidate, review, and transaction audit is preserved.
+- valid workbook atomically replaces every represented quantity;
+- an unknown code creates exactly one InventorySku, Inventory, and source item;
+- a previously present code omitted from the next file becomes zero;
+- an unrelated legacy SKU not represented in the complete snapshot becomes
+  zero;
+- duplicate, blank, negative, non-integer, empty, or oversized input rolls back
+  the entire import;
+- retrying the same hash returns the prior completed result;
+- concurrent imports serialize and expose only one complete final snapshot;
+- import creates no stock adjustment or Rocket-ledger entry;
+- latest import age and created/updated/zeroed counts are accurate.
 
 ### Channel Tests
 
-- Wing parent/SKU identity and idempotent upsert;
-- stopped options retain mappings but do not actively sync;
-- exposed product ID and barcode remain aliases;
-- Rocket `productNo` is canonical and barcode is not a physical-SKU fallback;
-- unmatched channel SKU blocks processing;
-- one legacy bundle linked to multiple channel SKUs expands correctly;
-- ChannelProduct/ChannelSku UUIDs and downstream analytics references survive
-  migration.
+- Wing identity is `sellerProductId -> ChannelProduct` and
+  `vendorItemId -> ChannelSku`;
+- stopped Wing options remain stored but are not uploaded;
+- Rocket identity is `productNo -> ChannelSku` and barcode remains an alias;
+- a single component quantity `1` exposes the Sellpia quantity;
+- an 80-unit base SKU exposes 20 Rocket four-packs;
+- mixed-component availability uses the minimum quotient;
+- unmatched or invalid component mappings block upload;
+- no name or duplicate barcode is auto-accepted.
 
-### Order and Inventory Tests
+### Rocket and Fulfillment Tests
 
-- two Rocket four-packs reserve and issue eight physical units;
-- cancellation releases eight units;
-- return receives the snapshot quantity;
-- mixed components are aggregated by Inventory SKU before locking;
-- recipe mutation after confirmation does not change picking or return;
-- accepted quantity amendments change only the permitted open reservation;
-- increase, decrease, and pre-issue remap amendments produce the correct
-  append-only revision total and pick quantity;
-- quantity increase after a channel recipe change still copies the original
-  acceptance recipe unless the action is an explicit pre-issue remap;
-- partial issue, cancellation, and return cannot exceed their snapshot-derived
-  limits;
-- picking generation replay, including a new process and a new list-generation
-  call for the same fulfillment segment, creates no duplicate allocation;
-- concurrent allocation for two different fulfillment segments serializes on
-  the revision and never exceeds the remaining quantity;
-- physical pick aggregation retains order-component allocation children;
-- pre-cutover bundle orders route to manual review;
-- stock event references remain auditable after migration.
+- two four-packs produce a fulfillment requirement of eight units;
+- confirmation, outbound, cancellation, and return do not mutate Inventory;
+- recipe edits do not rewrite an existing fulfillment snapshot;
+- repeated artifact generation is idempotent;
+- a single batch does not allocate the same snapshot quantity twice.
 
 ### Migration Tests
 
-- migration is idempotent;
-- row counts and stock totals are unchanged by schema backfill;
-- historical Sellpia IDs and transaction references remain valid;
-- orphan, cross-organization, invalid bundle, and conflicting mappings block
-  contract removal;
-- a legacy bundle with Inventory or immutable stock references blocks automatic
-  deletion until an approved allocation or tombstone redirect is verified;
-- every migrated reserved unit is attributed to an open snapshot effect or an
-  explicit non-order hold without writing a duplicate reserve delta;
-- legacy removal scanner passes before old tables or fields are dropped.
+- physical SKU identity and proven Sellpia codes survive migration;
+- bundle options receive no Inventory row;
+- direct options become quantity-`1` components;
+- bundle component quantities survive exactly;
+- the first cutover import makes every current quantity equal to the workbook
+  or zero when absent;
+- historical stock transactions and Sellpia/Rocket audit rows remain readable;
+- no production read uses legacy reconciliation, Rocket compensation, reserved
+  stock, or safety stock for channel availability.
 
 ### Required Repository Gates
 
-- `npm run db:push -- --accept-data-loss` only when the reviewed contract phase
-  intentionally drops legacy schema;
+- `npm run db:push` for additive schema work;
 - `npx prisma generate`;
 - `cd packages/shared && npm run build`;
-- focused unit and PostgreSQL integration tests for every changed domain;
-- `npm run dev:server` and confirmed NestJS boot;
+- focused unit and PostgreSQL integration tests for Inventory, Channels,
+  Products, Orders, and Rocket;
+- `npm run dev:server` with confirmed NestJS boot;
 - `npm run build --workspace=apps/web`;
-- release-contract and reconstruction PR guards.
-
-## Rollback Policy
-
-Before the switch, a failed migration leaves old reads and writes authoritative
-and can be retried after correction.
-
-After the switch accepts new stock events, rollback must not restore an old
-database snapshot over newer operations. Recovery uses a forward fix and the
-immutable stock/audit records. The maintenance window must therefore include
-smoke checks for:
-
-- one single-SKU reservation and release;
-- one four-pack reservation and release;
-- one Sellpia reconciliation preview;
-- one Sellpia outbound export preview;
-- one unmatched-channel block.
+- reconstruction and release-contract PR guards;
+- `db:push --accept-data-loss` only during reviewed `0.1.9` cleanup.
 
 ## Out of Scope
 
-- direct Sellpia API upload;
-- automatic fuzzy-name acceptance;
-- automatic merge of duplicate barcodes;
-- marketplace-specific option state on InventorySku;
+- KidItem-owned inventory ledger or manual stock adjustments;
+- Sellpia difference/reconciliation approval;
+- exporting KidItem stock back to Sellpia;
+- adding Rocket or order deltas to an imported quantity;
+- persisted reservations, safety-stock subtraction, or channel stock pools;
+- a post-snapshot order overlay;
+- direct Sellpia API integration;
+- fuzzy-name or duplicate-barcode auto matching;
 - inventory rows for bundles;
-- automatic reconstruction of unprovable pre-cutover bundle order recipes;
-- a second physical stock pool for Rocket;
-- marketplace stock API push beyond the explicitly designed adapters.
+- automatic reconstruction of unprovable historical bundle recipes.
 
 ## External Pattern Validation
 
-This design follows established inventory-boundary patterns rather than making
-channel variants the stock owner:
+The physical-SKU and channel-recipe separation follows established inventory
+patterns:
 
-- Medusa separates inventory items from product variants and supports variants
-  consuming reusable inventory-item kits:
+- Medusa inventory kits allow channel/product variants to consume reusable
+  inventory items:
   <https://docs.medusajs.com/resources/commerce-modules/inventory/inventory-kit>
-- Medusa stores ProductVariant-to-InventoryItem relations separately:
+- Medusa keeps ProductVariant-to-InventoryItem relations separate:
   <https://docs.medusajs.com/resources/commerce-modules/inventory/links-to-other-modules>
-- ERPNext models a product bundle as a non-stock parent whose child item
-  quantities drive stock deduction:
+- ERPNext models a bundle as a non-stock parent whose child quantities drive
+  availability:
   <https://docs.frappe.io/erpnext/product-bundle>
 
-## Implementation Preconditions
-
-The business design is closed, but implementation must not switch production
-until these evidence gates pass:
-
-- a Sellpia export and outbound template fixture proves the provider's reported
-  stock and safety-stock semantics and the inverse transformation;
-- legacy bundle balance/history scanners have no unresolved result;
-- channel identity collision scanners pass;
-- every existing reservation has a proven owner;
-- keyed migration verification and required smoke checks pass.
+These patterns support the component model. Sellpia's authority and the
+complete-snapshot overwrite policy are project-specific business decisions.
 
 ## Open Business Decisions
 
-None. All material domain, stock, matching, cutover, and historical-order
-policies in this document were approved in the design conversation.
+None. The accepted behavior is complete atomic replacement from Sellpia,
+zero-on-absence, no KidItem stock mutation, and channel-only component mapping.
