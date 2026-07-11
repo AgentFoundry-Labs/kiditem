@@ -1,254 +1,245 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Loader2, RefreshCw, ScanLine } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Loader2, RefreshCw, Search, Upload } from 'lucide-react';
 import { toast } from 'sonner';
+import type { ChannelSkuMappingCounts, ChannelSkuMappingListItem } from '@kiditem/shared/channel-sku-matching';
 import { friendlyError } from '@/lib/api-error';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { formatDateTime, formatNumber } from '@/lib/utils';
-import { SummaryCards } from './components/SummaryCards';
-import { StatusTabs } from './components/StatusTabs';
-import { ItemsTable } from './components/ItemsTable';
-import { LinkProductOptionModal } from './components/LinkProductOptionModal';
+import { ChannelSkuComponentDialog } from './components/ChannelSkuComponentDialog';
+import { ChannelSkuMappingTable } from './components/ChannelSkuMappingTable';
+import { CoupangWingCatalogImportDialog } from './components/CoupangWingCatalogImportDialog';
 import {
-  type ReconciliationStatusFilter,
-  useReconciliationSummary,
-  useReconciliationItems,
-  useSyncReconciliationImageListings,
-  useLinkReconciliationItem,
-  useIgnoreReconciliationItem,
-} from './hooks/useReconciliation';
-import type { ReconciliationItem } from '@kiditem/shared/channel-reconciliation';
+  MappingStatusTabs,
+  type MappingStatusFilter,
+} from './components/MappingStatusTabs';
+import {
+  useChannelAccounts,
+  useChannelSkuMappings,
+  useRefreshChannelSkuMappingStatuses,
+} from './hooks/useChannelSkuMappings';
 
 const PAGE_LIMIT = 50;
+const SEARCH_DEBOUNCE_MS = 300;
+const EMPTY_COUNTS: ChannelSkuMappingCounts = {
+  all: 0,
+  unmatched: 0,
+  needsReview: 0,
+  matched: 0,
+};
 
 export default function MatchingPage() {
-  const [statusFilter, setStatusFilter] =
-    useState<ReconciliationStatusFilter>('needs_review');
+  const [selectedAccountId, setSelectedAccountId] = useState('');
+  const [mappingStatus, setMappingStatus] = useState<MappingStatusFilter>('all');
+  const [searchText, setSearchText] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [importOpen, setImportOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<ChannelSkuMappingListItem | null>(null);
 
-  const summaryQuery = useReconciliationSummary();
-  const itemsQuery = useReconciliationItems({
-    statusFilter,
+  const accountsQuery = useChannelAccounts();
+  const wingAccounts = useMemo(
+    () =>
+      [...(accountsQuery.data ?? [])]
+        .filter((account) => account.channel === 'coupang')
+        .sort((left, right) => {
+          if (left.isPrimary !== right.isPrimary) return left.isPrimary ? -1 : 1;
+          const nameOrder = left.name.localeCompare(right.name, 'ko');
+          return nameOrder !== 0 ? nameOrder : left.id.localeCompare(right.id);
+        }),
+    [accountsQuery.data],
+  );
+  const selectedAccount =
+    wingAccounts.find((account) => account.id === selectedAccountId) ??
+    wingAccounts[0] ??
+    null;
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedSearch(searchText.trim());
+    }, SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timeout);
+  }, [searchText]);
+
+  const mappingsQuery = useChannelSkuMappings({
+    accountMode: 'selected',
+    channelAccountId: selectedAccount?.id,
+    mappingStatus,
+    search: debouncedSearch,
     page,
     limit: PAGE_LIMIT,
   });
+  const refreshStatuses = useRefreshChannelSkuMappingStatuses();
+  const lastAutoRefreshAccountId = useRef<string | null>(null);
 
-  const syncImageListings = useSyncReconciliationImageListings();
-  const linkMutation = useLinkReconciliationItem();
-  const ignoreMutation = useIgnoreReconciliationItem();
-
-  const [linkTarget, setLinkTarget] = useState<ReconciliationItem | null>(null);
-  const [ignoreTarget, setIgnoreTarget] = useState<ReconciliationItem | null>(null);
-
-  const summary = summaryQuery.data;
-  const counts = useMemo(
-    () => ({
-      autoLinked: summary?.autoLinked ?? 0,
-      needsReview: summary?.needsReview ?? 0,
-      conflict: summary?.conflict ?? 0,
-      linked: summary?.linked ?? 0,
-      ignored: summary?.ignored ?? 0,
-    }),
-    [summary],
-  );
-
-  // Keep a defensive client-side slice for the auto-linked tab; the backend also
-  // receives `resolutionSource=auto_legacy_code` so pagination stays accurate.
-  const tableItems = useMemo(() => {
-    const rows = itemsQuery.data?.items ?? [];
-    if (statusFilter === 'auto_linked') {
-      return rows.filter((r) => r.resolutionSource === 'auto_legacy_code');
+  useEffect(() => {
+    if (!selectedAccount?.id || lastAutoRefreshAccountId.current === selectedAccount.id) {
+      return;
     }
-    return rows;
-  }, [itemsQuery.data, statusFilter]);
+    lastAutoRefreshAccountId.current = selectedAccount.id;
+    refreshStatuses.mutate({ channelAccountId: selectedAccount.id });
+  }, [refreshStatuses.mutate, selectedAccount?.id]);
 
-  const handleScan = async () => {
+  const handleManualRefresh = async () => {
+    if (!selectedAccount) return;
     try {
-      const result = await syncImageListings.mutateAsync();
-      toast.success(
-        `점검 완료 — 기존연결 ${formatNumber(result.alreadyLinkedCount)} / 자동 ${formatNumber(
-          result.autoLinkedCount,
-        )} / 확인 ${formatNumber(
-          result.needsReviewCount,
-        )} / 옵션연결 ${formatNumber(result.optionLinkedCount)} / 충돌 ${formatNumber(
-          result.conflictCount,
-        )} 건`,
-      );
-      setPage(1);
+      await refreshStatuses.mutateAsync({ channelAccountId: selectedAccount.id });
+      await mappingsQuery.refetch();
+      toast.success('매칭 상태를 새로고침했습니다.');
     } catch (error) {
-      toast.error(friendlyError(error) ?? '이미지 동기화 데이터 점검 실패');
+      toast.error(friendlyError(error) ?? '매칭 상태 새로고침에 실패했습니다.');
     }
   };
 
-  const handleLinkConfirm = async (productOptionId: string) => {
-    if (!linkTarget) return;
-    try {
-      await linkMutation.mutateAsync({ id: linkTarget.id, productOptionId });
-      toast.success('연결 완료');
-      setLinkTarget(null);
-    } catch (error) {
-      toast.error(friendlyError(error) ?? '연결 실패');
-      throw error;
-    }
-  };
-
-  const handleIgnoreConfirm = async () => {
-    if (!ignoreTarget) return;
-    try {
-      await ignoreMutation.mutateAsync({ id: ignoreTarget.id });
-      toast.success('제외 처리 완료');
-      setIgnoreTarget(null);
-    } catch (error) {
-      toast.error(friendlyError(error) ?? '제외 실패');
-    }
-  };
-
-  const lastRunLabel = summary?.lastRun?.finishedAt
-    ? `마지막 스캔 ${formatDateTime(summary.lastRun.finishedAt)}`
-    : summary?.lastRun
-      ? '스캔 진행 중'
-      : '스캔 이력 없음';
-
-  const pendingActionId =
-    linkMutation.variables?.id && linkMutation.isPending
-      ? linkMutation.variables.id
-      : ignoreMutation.variables?.id && ignoreMutation.isPending
-        ? ignoreMutation.variables.id
-        : null;
-  const isItemsRefreshing = itemsQuery.isFetching && !itemsQuery.isLoading;
-
-  const ignoreLabel = ignoreTarget
-    ? ignoreTarget.itemType === 'kiditem_option'
-      ? ignoreTarget.linked.productOptionName ??
-        ignoreTarget.linked.productOptionSku ??
-        ignoreTarget.linked.masterProductName ??
-        ''
-      : ignoreTarget.channelProductName ?? ignoreTarget.externalId ?? ''
-    : '';
+  const data = mappingsQuery.data;
+  const counts = data?.counts ?? EMPTY_COUNTS;
+  const emptyMessage =
+    counts.all === 0
+      ? '아직 가져온 Wing 상품 카탈로그가 없습니다.'
+      : '현재 필터에 맞는 채널 SKU가 없습니다.';
+  const isRefreshing = mappingsQuery.isFetching && !mappingsQuery.isLoading;
 
   return (
-    <div className="space-y-6 animate-in pb-12">
-      <div className="flex items-start justify-between gap-4">
+    <main className="space-y-6 pb-12">
+      <header className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">상품 매칭 센터</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            쿠팡 상품과 KidItem 상품·재고 옵션의 연결 상태를 점검합니다. 자동 매칭은 legacyCode 정확 일치만 적용되며, 충돌·미매칭은 수동 검토가 필요합니다.
+          <h1 className="text-2xl font-bold text-[var(--text-primary,#0f172a)]">
+            상품 매칭 센터
+          </h1>
+          <p className="mt-1 text-sm text-[var(--text-secondary,#475569)]">
+            쇼핑몰 옵션 SKU마다 어떤 Sellpia 상품을 몇 개 사용하는지 관리합니다.
+          </p>
+          <p className="mt-1 text-sm text-[var(--text-secondary,#475569)]">
+            상품명과 가격은 참고 정보이며, 저장된 구성품이 실제 매칭 기준입니다.
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-xs text-slate-400 hidden md:inline">{lastRunLabel}</span>
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => {
-              summaryQuery.refetch();
-              itemsQuery.refetch();
-            }}
-            disabled={
-              itemsQuery.isFetching ||
-              syncImageListings.isPending
-            }
-            className="px-3 py-2 rounded-lg text-sm border border-slate-200 text-slate-600 hover:bg-slate-50 inline-flex items-center gap-1.5 disabled:opacity-50"
+            onClick={handleManualRefresh}
+            disabled={!selectedAccount || refreshStatuses.isPending}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border,#cbd5e1)] bg-[var(--surface,#fff)] px-3 py-2 text-sm font-semibold text-[var(--text-secondary,#475569)] hover:bg-[var(--surface-sunken,#f8fafc)] disabled:opacity-50"
           >
-            <RefreshCw size={14} className={itemsQuery.isFetching ? 'animate-spin' : ''} />
-            새로고침
+            <RefreshCw
+              size={15}
+              className={refreshStatuses.isPending ? 'animate-spin' : ''}
+            />
+            상태 새로고침
           </button>
           <button
             type="button"
-            onClick={handleScan}
-            disabled={syncImageListings.isPending}
-            className="px-3 py-2 rounded-lg text-sm bg-purple-600 text-white hover:bg-purple-700 inline-flex items-center gap-1.5 disabled:opacity-50"
+            onClick={() => setImportOpen(true)}
+            disabled={!selectedAccount}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary,#7048e8)] px-3 py-2 text-sm font-bold text-white hover:opacity-90 disabled:opacity-50"
           >
-            {syncImageListings.isPending ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <ScanLine size={14} />
-            )}
-            이미지 동기화 데이터 점검
+            <Upload size={15} />
+            Wing 상품 가져오기
           </button>
         </div>
-      </div>
+      </header>
 
-      <SummaryCards summary={summary} loading={summaryQuery.isLoading} />
+      <section aria-label="채널 SKU 필터" className="space-y-4 rounded-2xl border border-[var(--border,#e2e8f0)] bg-[var(--surface,#fff)] p-4">
+        <div className="grid gap-3 lg:grid-cols-[minmax(240px,360px)_minmax(280px,1fr)]">
+          <label className="space-y-1.5 text-xs font-semibold text-[var(--text-secondary,#475569)]">
+            <span>Wing 채널 계정</span>
+            <select
+              aria-label="Wing 채널 계정"
+              value={selectedAccount?.id ?? ''}
+              onChange={(event) => {
+                setSelectedAccountId(event.target.value);
+                setPage(1);
+              }}
+              disabled={accountsQuery.isLoading || wingAccounts.length === 0}
+              className="w-full rounded-lg border border-[var(--border,#cbd5e1)] bg-[var(--surface,#fff)] px-3 py-2 text-sm font-normal text-[var(--text-primary,#0f172a)] outline-none focus:border-[var(--primary,#7048e8)] disabled:opacity-50"
+            >
+              {wingAccounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
+            </select>
+          </label>
 
-      <div className="space-y-3">
-        <StatusTabs
-          active={statusFilter}
-          onChange={(next) => {
-            setStatusFilter(next);
+          <label className="space-y-1.5 text-xs font-semibold text-[var(--text-secondary,#475569)]">
+            <span>채널 SKU 검색</span>
+            <span className="relative block">
+              <Search
+                size={15}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary,#94a3b8)]"
+              />
+              <input
+                aria-label="채널 SKU 검색"
+                value={searchText}
+                onChange={(event) => {
+                  setSearchText(event.target.value);
+                  setPage(1);
+                }}
+                placeholder="상품명, 외부 상품 ID, SKU, 바코드, 모델번호"
+                className="w-full rounded-lg border border-[var(--border,#cbd5e1)] bg-[var(--surface,#fff)] py-2 pl-9 pr-3 text-sm font-normal text-[var(--text-primary,#0f172a)] outline-none focus:border-[var(--primary,#7048e8)]"
+              />
+            </span>
+          </label>
+        </div>
+
+        <MappingStatusTabs
+          active={mappingStatus}
+          counts={counts}
+          onChange={(status) => {
+            setMappingStatus(status);
             setPage(1);
           }}
-          counts={counts}
         />
+      </section>
 
-        {isItemsRefreshing && (
-          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
-            <Loader2 size={14} className="animate-spin text-purple-600" />
-            매칭 목록을 최신 조건으로 갱신하는 중입니다.
-          </div>
-        )}
+      {accountsQuery.error ? (
+        <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {friendlyError(accountsQuery.error)}
+        </p>
+      ) : null}
+      {!accountsQuery.isLoading && wingAccounts.length === 0 ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          활성화된 coupang 채널 계정이 없습니다. 계정 설정을 먼저 확인해 주세요.
+        </p>
+      ) : null}
+      {mappingsQuery.error ? (
+        <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {friendlyError(mappingsQuery.error)}
+        </p>
+      ) : null}
+      {isRefreshing ? (
+        <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border,#e2e8f0)] bg-[var(--surface,#fff)] px-3 py-1.5 text-xs text-[var(--text-secondary,#64748b)]">
+          <Loader2 size={13} className="animate-spin text-[var(--primary,#7048e8)]" />
+          목록 갱신 중
+        </div>
+      ) : null}
 
-        <ItemsTable
-          items={tableItems}
-          total={
-            statusFilter === 'auto_linked'
-              ? counts.autoLinked
-              : itemsQuery.data?.total ?? 0
-          }
-          page={page}
-          limit={PAGE_LIMIT}
-          loading={itemsQuery.isLoading && !itemsQuery.data}
-          emptyMessage={emptyMessageFor(statusFilter)}
-          pendingActionId={pendingActionId}
-          onPageChange={setPage}
-          onLink={setLinkTarget}
-          onIgnore={setIgnoreTarget}
-        />
-      </div>
-
-      <LinkProductOptionModal
-        open={!!linkTarget}
-        item={linkTarget}
-        isSubmitting={linkMutation.isPending}
-        onClose={() => setLinkTarget(null)}
-        onConfirm={handleLinkConfirm}
+      <ChannelSkuMappingTable
+        items={data?.items ?? []}
+        total={data?.total ?? 0}
+        page={page}
+        limit={PAGE_LIMIT}
+        loading={mappingsQuery.isLoading && !data}
+        emptyMessage={emptyMessage}
+        onPageChange={setPage}
+        onEdit={setEditTarget}
       />
 
-      <ConfirmDialog
-        open={!!ignoreTarget}
-        onOpenChange={(open) => {
-          if (!open) setIgnoreTarget(null);
-        }}
-        title="이 row 를 매칭 대상에서 제외할까요?"
-        description={
-          <>
-            <span className="font-medium text-slate-700">
-              {ignoreLabel}
-            </span>{' '}
-            를 향후 점검에서도 자동으로 무시합니다.
-          </>
-        }
-        confirmText="제외"
-        cancelText="취소"
-        onConfirm={handleIgnoreConfirm}
+      <CoupangWingCatalogImportDialog
+        open={importOpen}
+        account={selectedAccount}
+        onOpenChange={setImportOpen}
+        onSuccess={() => setPage(1)}
       />
-    </div>
+
+      {editTarget ? (
+        <ChannelSkuComponentDialog
+          key={editTarget.sku.id}
+          open
+          item={editTarget}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) setEditTarget(null);
+          }}
+        />
+      ) : null}
+    </main>
   );
-}
-
-function emptyMessageFor(filter: ReconciliationStatusFilter): string {
-  switch (filter) {
-    case 'auto_linked':
-      return '자동으로 연결된 row 가 없습니다.';
-    case 'needs_review':
-      return '확인이 필요한 row 가 없습니다.';
-    case 'conflict':
-      return '충돌 row 가 없습니다.';
-    case 'linked':
-      return '처리 완료된 row 가 없습니다.';
-    case 'ignored':
-      return '제외된 row 가 없습니다.';
-    default:
-      return '아직 매칭 row 가 없습니다. 썸네일 AI의 쿠팡 이미지 동기화 또는 이미지 동기화 데이터 점검으로 시작하세요.';
-  }
 }

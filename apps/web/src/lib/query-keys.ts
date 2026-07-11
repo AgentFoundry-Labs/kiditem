@@ -165,11 +165,22 @@ export const queryKeys = {
     current: () => [...queryKeys.coupangImageSync.all, 'current'] as const,
     job: (jobId: string) => [...queryKeys.coupangImageSync.all, 'job', jobId] as const,
   },
-  channelReconciliation: {
-    all: ['channelReconciliation'] as const,
-    summary: () => [...queryKeys.channelReconciliation.all, 'summary'] as const,
-    items: (params: Record<string, string>) =>
-      [...queryKeys.channelReconciliation.all, 'items', params] as const,
+  channelAccounts: {
+    all: ['channelAccounts'] as const,
+    active: () => [...queryKeys.channelAccounts.all, 'active'] as const,
+  },
+  channelSkuMappings: {
+    all: ['channelSkuMappings'] as const,
+    lists: () => [...queryKeys.channelSkuMappings.all, 'list'] as const,
+    list: (params: Record<string, string>) =>
+      [...queryKeys.channelSkuMappings.lists(), params] as const,
+    candidates: (channelSkuId: string, params: Record<string, string>) =>
+      [
+        ...queryKeys.channelSkuMappings.all,
+        'candidates',
+        channelSkuId,
+        params,
+      ] as const,
   },
   coupangAccount: {
     all: ['coupangAccount'] as const,
