@@ -64,49 +64,54 @@ async function ensureInstance(
   organizationId: string,
   definition: AgentDefinitionRecord,
 ) {
-  const existing = await prisma.agentInstance.findFirst({
-    where: { organizationId, type: definition.type },
-    select: { id: true },
-  });
-  if (existing) {
-    await prisma.agentInstance.update({
-      where: { id: existing.id },
-      data: {
-        name: definition.name,
-        adapterType: definition.defaultAdapterType,
-      },
-    });
-    // Ensure runtime state row exists (1:1 with instance).
-    await prisma.agentRuntimeState.upsert({
-      where: { agentInstanceId: existing.id },
-      create: {
-        organization: { connect: { id: organizationId } },
-        agentInstance: { connect: { id: existing.id } },
-      },
-      update: {},
-    });
-    return existing;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const instance = await tx.agentInstance.upsert({
+          where: {
+            organizationId_type: {
+              organizationId,
+              type: definition.type,
+            },
+          },
+          update: {},
+          create: {
+            organizationId,
+            type: definition.type,
+            name: definition.name,
+            role: definition.defaultInstanceRole,
+            title: definition.defaultInstanceTitle,
+            adapterType: definition.defaultAdapterType,
+          },
+          select: { id: true },
+        });
+
+        await tx.agentRuntimeState.upsert({
+          where: { agentInstanceId: instance.id },
+          create: {
+            organizationId,
+            agentInstanceId: instance.id,
+          },
+          update: {},
+        });
+
+        return instance;
+      });
+    } catch (error) {
+      const isUniqueConflict =
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === 'P2002';
+      if (!isUniqueConflict || attempt === 1) {
+        throw error;
+      }
+    }
   }
-  return prisma.$transaction(async (tx) => {
-    const instance = await tx.agentInstance.create({
-      data: {
-        organization: { connect: { id: organizationId } },
-        type: definition.type,
-        name: definition.name,
-        role: definition.defaultInstanceRole,
-        title: definition.defaultInstanceTitle,
-        adapterType: definition.defaultAdapterType,
-      },
-      select: { id: true },
-    });
-    await tx.agentRuntimeState.create({
-      data: {
-        organization: { connect: { id: organizationId } },
-        agentInstance: { connect: { id: instance.id } },
-      },
-    });
-    return instance;
-  });
+
+  throw new Error(
+    `Failed to ensure Agent OS instance ${definition.type} for ${organizationId}.`,
+  );
 }
 
 export async function seedAgentOs(prisma: PrismaClient): Promise<AgentOsSeedResult> {

@@ -74,6 +74,15 @@ tools. `agent_os_create_task` is denied for every non-Operator agent.
 
 Normal Hermes sessions do not expose `kiditem_capability_invoke`.
 
+## Roster and Runtime State
+
+- The Agent Definition Registry is the shipped Hermes organization roster.
+- `GET /api/agent-os/roster` always returns every active definition in canonical order.
+- `AgentInstance` is organization-owned runtime state and may be absent or unconfigured.
+- Missing instances remain visible as `instance_missing`; unresolved models remain visible as `model_plan_incomplete`.
+- `npm run seed:agent-os` creates missing runtime rows with compound upserts but never overwrites existing organization runtime settings.
+- Git pull and `db:push` do not install runtime instances. Run the seed explicitly when a runnable local environment is required.
+
 ## Expected Flow
 
 First live validation:

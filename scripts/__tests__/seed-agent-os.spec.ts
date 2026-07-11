@@ -51,35 +51,50 @@ describe('Agent OS seed catalog', () => {
     expect(definitions.has('detail_page_generate')).toBe(false);
   });
 
-  it('preserves existing instance-owned role and title when refreshing seed rows', async () => {
-    vi.stubEnv('AGENT_DEFAULT_MODEL', 'gpt-5.1-codex');
-    const updates: Array<{ data: Record<string, unknown> }> = [];
+  it('uses compound upserts without updating existing runtime configuration', async () => {
+    vi.stubEnv('AGENT_DEFAULT_MODEL', 'gpt-5.4');
+    const instanceUpsert = vi.fn(async () => ({ id: 'agent-existing' }));
+    const runtimeUpsert = vi.fn(async () => ({}));
+    const tx = {
+      agentInstance: { upsert: instanceUpsert },
+      agentRuntimeState: { upsert: runtimeUpsert },
+    };
     const prisma = {
       organization: {
         findMany: vi.fn(async () => [{ id: 'org-1' }]),
       },
-      agentInstance: {
-        findFirst: vi.fn(async (_input) => ({ id: 'agent-existing' })),
-        update: vi.fn(async (input) => {
-          updates.push(input);
-          return { id: input.where.id };
-        }),
-      },
-      agentRuntimeState: {
-        upsert: vi.fn(async () => ({})),
-      },
+      $transaction: vi.fn(async (operation) => operation(tx)),
     };
 
     await seedAgentOs(prisma as never);
 
-    expect(updates).toHaveLength(listAgentDefinitions().length);
-    for (const update of updates) {
-      expect(update.data).toMatchObject({
-        name: expect.any(String),
-        adapterType: expect.any(String),
-      });
-      expect(update.data).not.toHaveProperty('role');
-      expect(update.data).not.toHaveProperty('title');
-    }
+    expect(instanceUpsert).toHaveBeenCalledTimes(listAgentDefinitions().length);
+    expect(instanceUpsert).toHaveBeenCalledWith({
+      where: {
+        organizationId_type: {
+          organizationId: 'org-1',
+          type: 'manager',
+        },
+      },
+      update: {},
+      create: {
+        organizationId: 'org-1',
+        type: 'manager',
+        name: 'Operator',
+        role: 'employee',
+        title: '운영 총괄',
+        adapterType: 'claude_local',
+      },
+      select: { id: true },
+    });
+    expect(runtimeUpsert).toHaveBeenCalledTimes(listAgentDefinitions().length);
+    expect(runtimeUpsert).toHaveBeenCalledWith({
+      where: { agentInstanceId: 'agent-existing' },
+      create: {
+        organizationId: 'org-1',
+        agentInstanceId: 'agent-existing',
+      },
+      update: {},
+    });
   });
 });
