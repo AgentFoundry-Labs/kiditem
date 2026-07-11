@@ -173,4 +173,38 @@ describe('agent definition registry', () => {
       defaultInstanceTitle: '썸네일 분석 능력',
     });
   });
+
+  it('owns the complete deterministic office roster', () => {
+    const definitions = listAgentDefinitions()
+      .filter((definition) => definition.catalogStatus === 'active')
+      .sort((left, right) => left.officeOrder - right.officeOrder);
+
+    expect(definitions.map((definition) => definition.type)).toEqual([
+      'manager',
+      'rules_evaluation',
+      'rules_suggest',
+      'ad_strategy',
+      'chat',
+      'sourcing',
+      'listing',
+      'thumbnail_analyst',
+      'order',
+      'channel_registration',
+    ]);
+    expect(new Set(definitions.map((definition) => definition.officeOrder)).size).toBe(
+      definitions.length,
+    );
+
+    const definitionsByType = new Map(
+      definitions.map((definition) => [definition.type, definition]),
+    );
+    for (const definition of definitions) {
+      if (definition.defaultInstanceRole === 'employee') {
+        expect(definition.officeOwnerAgentType).toBeNull();
+        continue;
+      }
+      const owner = definitionsByType.get(definition.officeOwnerAgentType ?? '');
+      expect(owner?.defaultInstanceRole).toBe('employee');
+    }
+  });
 });

@@ -12,6 +12,7 @@ import {
   AgentRunGraphSchema,
   AgentRunRequestStatusSchema,
   AgentRunStatusSchema,
+  AgentRosterResponseSchema,
   AgentInstanceToolPolicySummarySchema,
   AgentToolInvocationSummarySchema,
   AgentToolPolicyEffectSchema,
@@ -20,6 +21,7 @@ import {
   ResolveAgentApprovalSchema,
   SendAgentMessageSchema,
 } from './agent-os';
+import type { AgentRosterResponse } from './agent-os';
 
 describe('agent-os schemas', () => {
   it('defaults taskKey to default at the API boundary', () => {
@@ -62,6 +64,60 @@ describe('agent-os schemas', () => {
       'disabled',
     );
     expect(() => AgentInstanceLifecycleStatusSchema.parse('idle')).toThrow();
+  });
+
+  it('parses a roster with a nullable focused runtime projection', () => {
+    const response: AgentRosterResponse = {
+      items: [
+        {
+          definition: {
+            type: 'manager',
+            name: 'Operator',
+            displayName: '운영 총괄',
+            operationalRole: 'employee',
+            responsibility: '운영 우선순위, 위임, 승인 흐름을 총괄한다.',
+            ownerAgentType: null,
+            officeOrder: 100,
+          },
+          runtime: null,
+          configurationStatus: 'instance_missing',
+        },
+      ],
+    };
+
+    expect(AgentRosterResponseSchema.parse(response)).toEqual(response);
+  });
+
+  it('allows an installed runtime whose effective model is unresolved', () => {
+    const parsed = AgentRosterResponseSchema.parse({
+      items: [
+        {
+          definition: {
+            type: 'sourcing',
+            name: 'Sourcing',
+            displayName: '소싱 담당',
+            operationalRole: 'employee',
+            responsibility: '상품 후보와 공급처 신호를 수집하고 기회를 선별한다.',
+            ownerAgentType: null,
+            officeOrder: 400,
+          },
+          runtime: {
+            instanceId: 'agent-sourcing',
+            lifecycleStatus: 'active',
+            pauseReason: null,
+            trustLevel: 0,
+            adapterType: 'claude_local',
+            modelOverride: null,
+            effectiveModel: null,
+          },
+          configurationStatus: 'model_plan_incomplete',
+        },
+      ],
+    });
+
+    expect(parsed.items[0].runtime?.effectiveModel).toBeNull();
+    expect(parsed.items[0].runtime).not.toHaveProperty('title');
+    expect(parsed.items[0].runtime).not.toHaveProperty('role');
   });
 
   it('captures three tool policy effects', () => {

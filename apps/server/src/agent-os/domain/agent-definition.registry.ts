@@ -145,6 +145,9 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     delegationRole: 'orchestrator',
     defaultInstanceRole: 'employee',
     defaultInstanceTitle: '운영 총괄',
+    officeResponsibility: '운영 우선순위, 위임, 승인 흐름을 총괄한다.',
+    officeOwnerAgentType: null,
+    officeOrder: 100,
     defaultToolPolicies: MANAGER_TOOL_POLICIES,
   },
   {
@@ -159,6 +162,9 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     runtimeKind: 'tool_wrapper',
     defaultInstanceRole: 'capability',
     defaultInstanceTitle: '룰 평가 능력',
+    officeResponsibility: '운영 룰을 데이터에 적용해 통과/보류 판단을 만든다.',
+    officeOwnerAgentType: 'manager',
+    officeOrder: 110,
   },
   {
     type: 'rules_suggest',
@@ -172,6 +178,9 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     runtimeKind: 'tool_wrapper',
     defaultInstanceRole: 'capability',
     defaultInstanceTitle: '임계값 제안 능력',
+    officeResponsibility: '성과 분포를 바탕으로 운영 룰 임계값 후보를 제안한다.',
+    officeOwnerAgentType: 'manager',
+    officeOrder: 120,
   },
   {
     type: 'ad_strategy',
@@ -185,6 +194,9 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     runtimeKind: 'tool_wrapper',
     defaultInstanceRole: 'employee',
     defaultInstanceTitle: '광고 전략 담당',
+    officeResponsibility: '광고 성과 신호를 분석하고 조정안을 제안한다.',
+    officeOwnerAgentType: null,
+    officeOrder: 200,
   },
   {
     type: 'sourcing',
@@ -199,6 +211,9 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     runtimeKind: 'tool_wrapper',
     defaultInstanceRole: 'employee',
     defaultInstanceTitle: '소싱 담당',
+    officeResponsibility: '상품 후보와 공급처 신호를 수집하고 기회를 선별한다.',
+    officeOwnerAgentType: null,
+    officeOrder: 400,
     defaultToolPolicies: SOURCING_DISCOVERY_TOOL_POLICIES,
   },
   {
@@ -214,6 +229,9 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     runtimeKind: 'agent',
     defaultInstanceRole: 'employee',
     defaultInstanceTitle: '상품 등록 담당',
+    officeResponsibility: '상세페이지, 썸네일, 마켓 등록 초안 패키지를 만든다.',
+    officeOwnerAgentType: null,
+    officeOrder: 500,
     defaultToolPolicies: LISTING_TOOL_POLICIES,
   },
   {
@@ -229,6 +247,9 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     runtimeKind: 'agent',
     defaultInstanceRole: 'employee',
     defaultInstanceTitle: '발주 담당',
+    officeResponsibility: '승인된 상품의 발주 초안과 공급 실행 단계를 관리한다.',
+    officeOwnerAgentType: null,
+    officeOrder: 600,
     defaultToolPolicies: ORDER_TOOL_POLICIES,
   },
   {
@@ -244,6 +265,9 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     runtimeKind: 'agent',
     defaultInstanceRole: 'employee',
     defaultInstanceTitle: '채널 등록 담당',
+    officeResponsibility: '마켓별 상품 등록 상태와 외부 채널 식별자를 관리한다.',
+    officeOwnerAgentType: null,
+    officeOrder: 700,
     defaultToolPolicies: CHANNEL_REGISTRATION_TOOL_POLICIES,
   },
   {
@@ -258,6 +282,9 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     runtimeKind: 'tool_wrapper',
     defaultInstanceRole: 'capability',
     defaultInstanceTitle: '썸네일 분석 능력',
+    officeResponsibility: '썸네일 품질과 컴플라이언스 리스크를 분석한다.',
+    officeOwnerAgentType: 'listing',
+    officeOrder: 510,
   },
   {
     type: 'chat',
@@ -271,6 +298,9 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
     runtimeKind: 'agent',
     defaultInstanceRole: 'employee',
     defaultInstanceTitle: '고객/운영 응대 담당',
+    officeResponsibility: '운영자가 묻는 내용을 맥락화하고 대화형 응답을 제공한다.',
+    officeOwnerAgentType: null,
+    officeOrder: 300,
   },
 ] as const;
 

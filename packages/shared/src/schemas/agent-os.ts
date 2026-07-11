@@ -255,7 +255,43 @@ export const AgentInstanceSummarySchema = z.object({
   trustLevel: z.number().int(),
   adapterType: z.string(),
   modelOverride: z.string().nullable(),
-  effectiveModel: z.string(),
+  effectiveModel: z.string().nullable(),
+});
+
+export const AgentRosterConfigurationStatusSchema = z.enum([
+  'ready',
+  'instance_missing',
+  'model_plan_incomplete',
+]);
+
+export const AgentRosterDefinitionSchema = z.object({
+  type: z.string(),
+  name: z.string(),
+  displayName: z.string(),
+  operationalRole: z.enum(['employee', 'capability']),
+  responsibility: z.string(),
+  ownerAgentType: z.string().nullable(),
+  officeOrder: z.number().int().nonnegative(),
+});
+
+export const AgentRosterRuntimeSchema = z.object({
+  instanceId: z.string(),
+  lifecycleStatus: AgentInstanceLifecycleStatusSchema,
+  pauseReason: z.string().nullable(),
+  trustLevel: z.number().int(),
+  adapterType: z.string(),
+  modelOverride: z.string().nullable(),
+  effectiveModel: z.string().nullable(),
+});
+
+export const AgentRosterItemSchema = z.object({
+  definition: AgentRosterDefinitionSchema,
+  runtime: AgentRosterRuntimeSchema.nullable(),
+  configurationStatus: AgentRosterConfigurationStatusSchema,
+});
+
+export const AgentRosterResponseSchema = z.object({
+  items: z.array(AgentRosterItemSchema),
 });
 
 export const AgentInstanceToolPolicySummarySchema = z.object({
@@ -543,6 +579,13 @@ export type AgentRunnerResult = z.infer<typeof AgentRunnerResultSchema>;
 export type AgentDefinitionSummary = z.infer<typeof AgentDefinitionSummarySchema>;
 export type AgentSkillSummary = z.infer<typeof AgentSkillSummarySchema>;
 export type AgentInstanceSummary = z.infer<typeof AgentInstanceSummarySchema>;
+export type AgentRosterConfigurationStatus = z.infer<
+  typeof AgentRosterConfigurationStatusSchema
+>;
+export type AgentRosterDefinition = z.infer<typeof AgentRosterDefinitionSchema>;
+export type AgentRosterRuntime = z.infer<typeof AgentRosterRuntimeSchema>;
+export type AgentRosterItem = z.infer<typeof AgentRosterItemSchema>;
+export type AgentRosterResponse = z.infer<typeof AgentRosterResponseSchema>;
 export type AgentInstanceToolPolicySummary = z.infer<typeof AgentInstanceToolPolicySummarySchema>;
 export type AgentRunRequestSummary = z.infer<typeof AgentRunRequestSummarySchema>;
 export type AgentRunSummary = z.infer<typeof AgentRunSummarySchema>;

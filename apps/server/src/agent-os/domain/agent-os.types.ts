@@ -169,6 +169,9 @@ export interface AgentDefinitionRecord {
   delegationRole: AgentDefinitionDelegationRole;
   defaultInstanceRole: AgentInstanceOperationalRole;
   defaultInstanceTitle: string;
+  officeResponsibility: string;
+  officeOwnerAgentType: string | null;
+  officeOrder: number;
   defaultToolPolicies: AgentDefinitionToolPolicyRecord[];
 }
 
