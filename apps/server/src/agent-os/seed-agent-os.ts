@@ -7,7 +7,7 @@
  */
 import { config } from 'dotenv';
 import { resolve } from 'node:path';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import {
   listAgentDefinitions,
@@ -59,6 +59,43 @@ function resolveDefaultModel(definition: AgentDefinitionRecord): string {
   return value;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function hasExactFields(value: unknown, expected: string[]): boolean {
+  if (!Array.isArray(value) || value.length !== expected.length) {
+    return false;
+  }
+  return expected.every((field) => value.includes(field));
+}
+
+function isSeedUniqueConflict(error: unknown): boolean {
+  if (
+    !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+    error.code !== 'P2002' ||
+    !isRecord(error.meta)
+  ) {
+    return false;
+  }
+
+  const driverAdapterError = error.meta.driverAdapterError;
+  if (!isRecord(driverAdapterError) || !isRecord(driverAdapterError.cause)) {
+    return false;
+  }
+  const constraint = driverAdapterError.cause.constraint;
+  if (!isRecord(constraint)) {
+    return false;
+  }
+
+  return (
+    (error.meta.modelName === 'AgentInstance' &&
+      hasExactFields(constraint.fields, ['organization_id', 'type'])) ||
+    (error.meta.modelName === 'AgentRuntimeState' &&
+      hasExactFields(constraint.fields, ['agent_instance_id']))
+  );
+}
+
 async function ensureInstance(
   prisma: PrismaClient,
   organizationId: string,
@@ -98,12 +135,7 @@ async function ensureInstance(
         return instance;
       });
     } catch (error) {
-      const isUniqueConflict =
-        typeof error === 'object' &&
-        error !== null &&
-        'code' in error &&
-        error.code === 'P2002';
-      if (!isUniqueConflict || attempt === 1) {
+      if (!isSeedUniqueConflict(error) || attempt === 1) {
         throw error;
       }
     }

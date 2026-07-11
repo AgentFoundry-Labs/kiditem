@@ -1,12 +1,45 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { Prisma } from '@prisma/client';
 import { listAgentDefinitions } from '../../apps/server/src/agent-os/domain/agent-definition.registry';
 import { seedAgentOs } from '../../apps/server/src/agent-os/seed-agent-os';
 
 const repoRoot = join(__dirname, '..', '..');
 const seedPath = join(repoRoot, 'scripts/seed-agent-os.ts');
 const serverSeedPath = join(repoRoot, 'apps/server/src/agent-os/seed-agent-os.ts');
+
+function prismaError(
+  code: string,
+  modelName: string,
+  fields: string[],
+): Prisma.PrismaClientKnownRequestError {
+  return new Prisma.PrismaClientKnownRequestError('Database constraint error', {
+    code,
+    clientVersion: '7.7.0',
+    meta: {
+      modelName,
+      driverAdapterError: {
+        name: 'DriverAdapterError',
+        cause: {
+          originalCode: code === 'P2002' ? '23505' : '23503',
+          originalMessage: 'test constraint error',
+          kind: code === 'P2002' ? 'UniqueConstraintViolation' : 'ForeignKeyConstraintViolation',
+          constraint: { fields },
+        },
+      },
+    },
+  });
+}
+
+function seedTransactionFixture() {
+  const tx = {
+    agentInstance: { upsert: vi.fn(async () => ({ id: 'agent-existing' })) },
+    agentRuntimeState: { upsert: vi.fn(async () => ({})) },
+  };
+  const runTransaction = async (operation: (client: typeof tx) => Promise<unknown>) => operation(tx);
+  return { tx, runTransaction };
+}
 
 describe('Agent OS seed catalog', () => {
   afterEach(() => {
@@ -96,5 +129,80 @@ describe('Agent OS seed catalog', () => {
       },
       update: {},
     });
+  });
+
+  it('retries an AgentInstance organization and type conflict once', async () => {
+    vi.stubEnv('AGENT_DEFAULT_MODEL', 'gpt-5.4');
+    const conflict = prismaError('P2002', 'AgentInstance', ['organization_id', 'type']);
+    const { runTransaction } = seedTransactionFixture();
+    const transaction = vi.fn()
+      .mockRejectedValueOnce(conflict)
+      .mockImplementation(runTransaction);
+    const prisma = {
+      organization: { findMany: vi.fn(async () => [{ id: 'org-1' }]) },
+      $transaction: transaction,
+    };
+
+    await expect(seedAgentOs(prisma as never)).resolves.toMatchObject({
+      instancesEnsured: listAgentDefinitions().length,
+    });
+    expect(transaction).toHaveBeenCalledTimes(listAgentDefinitions().length + 1);
+  });
+
+  it('retries an AgentRuntimeState agent instance conflict once', async () => {
+    vi.stubEnv('AGENT_DEFAULT_MODEL', 'gpt-5.4');
+    const conflict = prismaError('P2002', 'AgentRuntimeState', ['agent_instance_id']);
+    const { runTransaction } = seedTransactionFixture();
+    const transaction = vi.fn()
+      .mockRejectedValueOnce(conflict)
+      .mockImplementation(runTransaction);
+    const prisma = {
+      organization: { findMany: vi.fn(async () => [{ id: 'org-1' }]) },
+      $transaction: transaction,
+    };
+
+    await expect(seedAgentOs(prisma as never)).resolves.toMatchObject({
+      instancesEnsured: listAgentDefinitions().length,
+    });
+    expect(transaction).toHaveBeenCalledTimes(listAgentDefinitions().length + 1);
+  });
+
+  it('does not retry an unrelated P2002 target', async () => {
+    vi.stubEnv('AGENT_DEFAULT_MODEL', 'gpt-5.4');
+    const conflict = prismaError('P2002', 'AgentInstance', ['organization_id', 'name']);
+    const transaction = vi.fn().mockRejectedValueOnce(conflict);
+    const prisma = {
+      organization: { findMany: vi.fn(async () => [{ id: 'org-1' }]) },
+      $transaction: transaction,
+    };
+
+    await expect(seedAgentOs(prisma as never)).rejects.toBe(conflict);
+    expect(transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry a non-P2002 Prisma error', async () => {
+    vi.stubEnv('AGENT_DEFAULT_MODEL', 'gpt-5.4');
+    const conflict = prismaError('P2003', 'AgentRuntimeState', ['organization_id']);
+    const transaction = vi.fn().mockRejectedValueOnce(conflict);
+    const prisma = {
+      organization: { findMany: vi.fn(async () => [{ id: 'org-1' }]) },
+      $transaction: transaction,
+    };
+
+    await expect(seedAgentOs(prisma as never)).rejects.toBe(conflict);
+    expect(transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an expected conflict after both allowed attempts', async () => {
+    vi.stubEnv('AGENT_DEFAULT_MODEL', 'gpt-5.4');
+    const conflict = prismaError('P2002', 'AgentInstance', ['organization_id', 'type']);
+    const transaction = vi.fn().mockRejectedValue(conflict);
+    const prisma = {
+      organization: { findMany: vi.fn(async () => [{ id: 'org-1' }]) },
+      $transaction: transaction,
+    };
+
+    await expect(seedAgentOs(prisma as never)).rejects.toBe(conflict);
+    expect(transaction).toHaveBeenCalledTimes(2);
   });
 });
