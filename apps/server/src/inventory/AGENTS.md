@@ -38,6 +38,8 @@ inventory/
 - Stock transfers: `/api/stock-transfers/*`
 - Stock audits: `/api/stock-audits/*`
 - Picking: `/api/picking/*`
+- Sellpia source-stock snapshot: `POST /api/inventory/sellpia-sync/import`
+- Sellpia receipt batches: `/api/inventory/sellpia-receipt-batches/*`
 
 Route shape is frozen.
 
@@ -45,6 +47,8 @@ Route shape is frozen.
 
 - `Inventory` owns current and reserved stock.
 - `StockTransaction` is the stock ledger.
+- `InventorySku` is one Sellpia product-code row of read-only source-stock
+  metadata. It is not a `ProductOption` or an `Inventory` balance.
 - `Warehouse`, `StockTransfer`, `StockAudit`, and picking rows model adjacent
   inventory operations.
 - `BundleComponent` is read for bundle fan-out; products owns bundle
@@ -63,6 +67,20 @@ INVENTORY_PORT.receive/issue/adjust
 
 Direct `prisma.inventory.update({ currentStock })` or direct
 `prisma.stockTransaction.create()` outside the repository adapter is forbidden.
+
+## Sellpia Inventory Snapshot
+
+`POST /api/inventory/sellpia-sync/import` is a pure, organization-scoped full
+snapshot replacement. One valid workbook row maps to one `InventorySku`, and a
+completed import sets absent Sellpia codes' `reportedStock` to zero without
+deleting their identity or channel-component references.
+
+The replacement is atomic and fenced by its `SourceImportRun` attempt token.
+It may update only `InventorySku` source metadata and import provenance. Never
+translate Sellpia import rows or stock differences into `ProductOption`,
+`Inventory`, `StockTransaction`, bundle-stock, or Rocket-ledger mutations.
+Receipt-batch create/list/mark-uploaded behavior is a separate capability and
+must not depend on the snapshot importer or stock mutation ports.
 
 ## Cross-Domain Ports
 
