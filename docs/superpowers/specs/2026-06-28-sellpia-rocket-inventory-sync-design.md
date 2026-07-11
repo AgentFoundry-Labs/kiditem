@@ -1,5 +1,12 @@
 # Sellpia and Coupang Rocket Inventory Sync Design
 
+> Superseded on 2026-07-11 by
+> [`2026-07-11-channel-inventory-sku-reconstruction-design.md`](./2026-07-11-channel-inventory-sku-reconstruction-design.md).
+> This document remains historical implementation context only. The replacement
+> makes KidItem the inventory system of record, treats Sellpia as an external
+> inventory provider and Rocket as a channel, and removes bundle inventory
+> identity from `ProductOption`.
+
 ## Purpose
 
 KidItem will use Sellpia as the operational inventory reference for non-Rocket
