@@ -24,22 +24,18 @@ export const SourceImportRunSchema = z.object({
 });
 export type SourceImportRun = z.infer<typeof SourceImportRunSchema>;
 
-export const SellpiaInventoryImportResponseSchema = z.object({
-  run: SourceImportRunSchema.superRefine((value, ctx) => {
-    if (value.sourceType !== 'sellpia_inventory' || value.channelAccountId !== null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'Sellpia run must not have a channel account',
-      });
-    }
-  }),
-  duplicate: z.boolean(),
-  changes: z.object({
-    createdSkuCount: z.number().int().nonnegative(),
-    updatedSkuCount: z.number().int().nonnegative(),
-    zeroedSkuCount: z.number().int().nonnegative(),
-  }),
-}).superRefine((value, ctx) => {
+type ImportChanges = Record<string, number>;
+
+type SuccessfulImportResponse<TChanges extends ImportChanges> = {
+  run: SourceImportRun;
+  duplicate: boolean;
+  changes: TChanges;
+};
+
+function refineSuccessfulImportResponse<TChanges extends ImportChanges>(
+  value: SuccessfulImportResponse<TChanges>,
+  ctx: z.RefinementCtx,
+): void {
   if (value.run.status !== 'completed') {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -61,16 +57,49 @@ export const SellpiaInventoryImportResponseSchema = z.object({
       message: 'Duplicate imports must not report changes',
     });
   }
-});
+}
+
+export const SellpiaInventoryImportResponseSchema = z.object({
+  run: SourceImportRunSchema.superRefine((value, ctx) => {
+    if (value.sourceType !== 'sellpia_inventory') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['sourceType'],
+        message: 'Sellpia run must use sourceType sellpia_inventory',
+      });
+    }
+    if (value.channelAccountId !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['channelAccountId'],
+        message: 'Sellpia run must not have a channel account',
+      });
+    }
+  }),
+  duplicate: z.boolean(),
+  changes: z.object({
+    createdSkuCount: z.number().int().nonnegative(),
+    updatedSkuCount: z.number().int().nonnegative(),
+    zeroedSkuCount: z.number().int().nonnegative(),
+  }),
+}).superRefine(refineSuccessfulImportResponse);
 export type SellpiaInventoryImportResponse = z.infer<
   typeof SellpiaInventoryImportResponseSchema
 >;
 
 export const CoupangWingCatalogImportResponseSchema = z.object({
   run: SourceImportRunSchema.superRefine((value, ctx) => {
-    if (value.sourceType !== 'coupang_wing_catalog' || value.channelAccountId === null) {
+    if (value.sourceType !== 'coupang_wing_catalog') {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
+        path: ['sourceType'],
+        message: 'Wing run must use sourceType coupang_wing_catalog',
+      });
+    }
+    if (value.channelAccountId === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['channelAccountId'],
         message: 'Wing run requires a channel account',
       });
     }
@@ -83,29 +112,7 @@ export const CoupangWingCatalogImportResponseSchema = z.object({
     updatedSkuCount: z.number().int().nonnegative(),
     skippedRowCount: z.number().int().nonnegative(),
   }),
-}).superRefine((value, ctx) => {
-  if (value.run.status !== 'completed') {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['run', 'status'],
-      message: 'Successful import responses require a completed run',
-    });
-  }
-  if (value.run.importedAt === null) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['run', 'importedAt'],
-      message: 'Successful import responses require an import timestamp',
-    });
-  }
-  if (value.duplicate && Object.values(value.changes).some((count) => count !== 0)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['changes'],
-      message: 'Duplicate imports must not report changes',
-    });
-  }
-});
+}).superRefine(refineSuccessfulImportResponse);
 export type CoupangWingCatalogImportResponse = z.infer<
   typeof CoupangWingCatalogImportResponseSchema
 >;
