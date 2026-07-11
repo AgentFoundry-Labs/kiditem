@@ -1,3 +1,4 @@
+import { ServiceUnavailableException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentRunnerPort } from '../../port/in/agent-runner.port';
 import type { AgentOsRepositoryPort } from '../../port/out/repository/agent-os-repository.port';
@@ -177,6 +178,72 @@ describe('AgentConversationService', () => {
     expect(result.conversation.id).toBe('conversation-1');
     expect(result.message.id).toBe('message-2');
     expect(result.rootRequestId).toBe('request-operator-2');
+  });
+
+  it('returns 503 when a new conversation cannot enqueue Operator', async () => {
+    const repository = {
+      createConversation: vi.fn().mockResolvedValue({ id: 'conversation-1' }),
+      createMessage: vi.fn().mockResolvedValue({ id: 'message-1' }),
+      updateConversationRootRequest: vi.fn(),
+    } as unknown as AgentOsRepositoryPort;
+    const runner = {
+      runByType: vi.fn().mockResolvedValue({
+        ok: false,
+        agentType: 'manager',
+        reason: 'agent_instance_not_found',
+      }),
+    } as unknown as AgentRunnerPort;
+    const service = new AgentConversationService(
+      repository,
+      runner,
+      { delegate: vi.fn() } as unknown as AgentTaskDelegationService,
+    );
+
+    const error = await service.startConversation({
+      organizationId: 'org-1',
+      userId: 'user-1',
+      content: '상품 후보를 찾아줘',
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ServiceUnavailableException);
+    expect((error as ServiceUnavailableException).getStatus()).toBe(503);
+    expect((error as ServiceUnavailableException).getResponse()).toMatchObject({
+      code: 'agent_operator_unavailable',
+      reason: 'agent_instance_not_found',
+    });
+    expect(repository.updateConversationRootRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns 503 when an existing conversation cannot enqueue Operator', async () => {
+    const repository = {
+      findConversationById: vi.fn().mockResolvedValue({ id: 'conversation-1' }),
+      createMessage: vi.fn().mockResolvedValue({ id: 'message-2' }),
+    } as unknown as AgentOsRepositoryPort;
+    const runner = {
+      runByType: vi.fn().mockResolvedValue({
+        ok: false,
+        agentType: 'manager',
+        reason: 'agent_instance_paused',
+      }),
+    } as unknown as AgentRunnerPort;
+    const service = new AgentConversationService(
+      repository,
+      runner,
+      { delegate: vi.fn() } as unknown as AgentTaskDelegationService,
+    );
+
+    const error = await service.sendMessage({
+      organizationId: 'org-1',
+      userId: 'user-1',
+      conversationId: 'conversation-1',
+      content: '계속 진행해줘',
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ServiceUnavailableException);
+    expect((error as ServiceUnavailableException).getResponse()).toMatchObject({
+      code: 'agent_operator_unavailable',
+      reason: 'agent_instance_paused',
+    });
   });
 
   it('enqueues Order Agent when a recommendation artifact is selected', async () => {

@@ -38,6 +38,11 @@ export class AgentCatalogController {
     return this.catalog.listInstances({ organizationId });
   }
 
+  @Get('roster')
+  listRoster(@CurrentOrganization() organizationId: string) {
+    return this.catalog.listRoster({ organizationId });
+  }
+
   @Get('instances/:id/tool-policies')
   async listInstanceToolPolicies(
     @CurrentOrganization() organizationId: string,

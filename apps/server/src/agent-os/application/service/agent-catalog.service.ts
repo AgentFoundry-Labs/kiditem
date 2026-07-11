@@ -1,5 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { AgentInstanceToolPolicySummary } from '@kiditem/shared/agent-os';
+import type {
+  AgentInstanceSummary,
+  AgentInstanceToolPolicySummary,
+  AgentRosterResponse,
+  AgentRosterRuntime,
+} from '@kiditem/shared/agent-os';
 import {
   AGENT_OS_REPOSITORY_PORT,
   type AgentOsRepositoryPort,
@@ -23,6 +28,53 @@ import {
 } from '../../domain/agent-definition.registry';
 import { listAgentSkills } from '../../domain/agent-skill.registry';
 
+function effectiveModelFor(
+  instance: AgentInstanceRecord,
+  definition: AgentDefinitionRecord,
+): string | null {
+  return resolveEffectiveModel({
+    definitionDefault: resolveDefinitionDefaultModel(definition),
+    instanceOverride: instance.modelOverride,
+  });
+}
+
+function projectInstanceSummary(
+  instance: AgentInstanceRecord,
+  definition: AgentDefinitionRecord,
+): AgentInstanceSummary {
+  return {
+    id: instance.id,
+    organizationId: instance.organizationId,
+    type: instance.type,
+    name: instance.name,
+    role: instance.role,
+    title: instance.title,
+    icon: instance.icon,
+    reportsToId: instance.reportsToId,
+    lifecycleStatus: instance.lifecycleStatus,
+    pauseReason: instance.pauseReason,
+    trustLevel: instance.trustLevel,
+    adapterType: instance.adapterType,
+    modelOverride: instance.modelOverride,
+    effectiveModel: effectiveModelFor(instance, definition),
+  } satisfies AgentInstanceSummary;
+}
+
+function projectRosterRuntime(
+  instance: AgentInstanceRecord,
+  definition: AgentDefinitionRecord,
+): AgentRosterRuntime {
+  return {
+    instanceId: instance.id,
+    lifecycleStatus: instance.lifecycleStatus,
+    pauseReason: instance.pauseReason,
+    trustLevel: instance.trustLevel,
+    adapterType: instance.adapterType,
+    modelOverride: instance.modelOverride,
+    effectiveModel: effectiveModelFor(instance, definition),
+  } satisfies AgentRosterRuntime;
+}
+
 @Injectable()
 export class AgentCatalogService {
   constructor(
@@ -39,13 +91,59 @@ export class AgentCatalogService {
     return listAgentSkills();
   }
 
-  async listInstances(input: { organizationId: string }): Promise<AgentInstanceRecord[]> {
+  async listInstances(input: { organizationId: string }): Promise<AgentInstanceSummary[]> {
     const instances = await this.repository.listInstances(input);
-    const registeredTypes = new Set(
-      listAgentDefinitions().map((definition) => definition.type),
+    const definitionsByType = new Map(
+      listAgentDefinitions().map((definition) => [definition.type, definition]),
     );
 
-    return instances.filter((instance) => registeredTypes.has(instance.type));
+    return instances.flatMap((instance) => {
+      const definition = definitionsByType.get(instance.type);
+      return definition ? [projectInstanceSummary(instance, definition)] : [];
+    });
+  }
+
+  async listRoster(input: {
+    organizationId: string;
+  }): Promise<AgentRosterResponse> {
+    const instances = await this.repository.listInstances(input);
+    const instancesByType = new Map(
+      instances.map((instance) => [instance.type, instance]),
+    );
+    const definitions = listAgentDefinitions()
+      .filter((definition) => definition.catalogStatus === 'active')
+      .sort((left, right) => left.officeOrder - right.officeOrder);
+
+    return {
+      items: definitions.map((definition) => {
+        const instance = instancesByType.get(definition.type) ?? null;
+        const runtime = instance
+          ? projectRosterRuntime(instance, definition)
+          : null;
+        const modelPlan = runtime?.effectiveModel
+          ? resolveDefinitionModelPlan(definition, runtime.effectiveModel)
+          : { modelPlan: null };
+        const configurationStatus = runtime === null
+          ? 'instance_missing'
+          : modelPlan.modelPlan === null
+            ? 'model_plan_incomplete'
+            : 'ready';
+
+        return {
+          definition: {
+            type: definition.type,
+            name: definition.name,
+            displayName: definition.defaultInstanceTitle,
+            operationalRole: definition.defaultInstanceRole,
+            responsibility: definition.officeResponsibility,
+            ownerAgentType: definition.officeOwnerAgentType,
+            officeOrder: definition.officeOrder,
+          },
+          runtime,
+          configurationStatus,
+        };
+      }),
+    } satisfies AgentRosterResponse;
   }
 
   async createInstance(input: {

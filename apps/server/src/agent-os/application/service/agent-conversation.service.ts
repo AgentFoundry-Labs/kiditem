@@ -3,11 +3,13 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { AgentArtifactHandoffSummarySchema } from '@kiditem/shared/agent-os';
 import {
   AGENT_RUNNER_PORT,
   type AgentRunnerPort,
+  type AgentRunnerResult,
 } from '../port/in/agent-runner.port';
 import {
   AGENT_OS_REPOSITORY_PORT,
@@ -49,6 +51,16 @@ function optionalPositiveIntegerField(value: unknown): number | undefined {
     value > 0
     ? value
     : undefined;
+}
+
+function requireOperatorRequestId(result: AgentRunnerResult): string {
+  if (result.ok && result.requestId) return result.requestId;
+
+  throw new ServiceUnavailableException({
+    code: 'agent_operator_unavailable',
+    message: 'Operator is not configured for this organization.',
+    reason: result.reason ?? 'operator_request_not_created',
+  });
 }
 
 function orderDraftPayloadFromSummary(
@@ -124,15 +136,14 @@ export class AgentConversationService {
       },
     });
 
-    if (root.requestId) {
-      await this.repository.updateConversationRootRequest({
-        organizationId: input.organizationId,
-        conversationId: conversation.id,
-        rootRequestId: root.requestId,
-      });
-    }
+    const rootRequestId = requireOperatorRequestId(root);
+    await this.repository.updateConversationRootRequest({
+      organizationId: input.organizationId,
+      conversationId: conversation.id,
+      rootRequestId,
+    });
 
-    return { conversation, message, rootRequestId: root.requestId ?? null };
+    return { conversation, message, rootRequestId };
   }
 
   async listConversations(input: { organizationId: string }) {
@@ -188,7 +199,9 @@ export class AgentConversationService {
       },
     });
 
-    return { conversation, message, rootRequestId: root.requestId ?? null };
+    const rootRequestId = requireOperatorRequestId(root);
+
+    return { conversation, message, rootRequestId };
   }
 
   async createOrderDraftFromRecommendation(input: {
