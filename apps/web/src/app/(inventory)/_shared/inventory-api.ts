@@ -7,14 +7,9 @@ import {
   ReceiveStockInputSchema,
   RocketInventoryEventInputSchema,
   RocketInventoryEventResultSchema,
-  SellpiaApprovalInputSchema,
-  SellpiaCandidateResolutionInputSchema,
-  SellpiaNewProductCandidateSchema,
   SellpiaReceiptBatchCreateInputSchema,
   SellpiaReceiptBatchMarkUploadedInputSchema,
   SellpiaReceiptUploadBatchSchema,
-  SellpiaReviewNoteInputSchema,
-  SellpiaSnapshotImportResponseSchema,
   StockOperationResultSchema,
   TransactionListResponseSchema,
   UpdateInventoryMetadataInputSchema,
@@ -32,14 +27,9 @@ import type {
   ReceiveStockInput,
   RocketInventoryEventInput,
   RocketInventoryEventResult,
-  SellpiaApprovalInput,
-  SellpiaCandidateResolutionInput,
-  SellpiaNewProductCandidate,
   SellpiaReceiptBatchCreateInput,
   SellpiaReceiptBatchMarkUploadedInput,
   SellpiaReceiptUploadBatch,
-  SellpiaReviewNoteInput,
-  SellpiaSnapshotImportResponse,
   StockOperationResult,
   TransactionListItem,
   TransactionListResponse,
@@ -153,125 +143,6 @@ export async function adjustStock(id: string, input: AdjustStockInput): Promise<
   const body = AdjustStockInputSchema.parse(input);
   const raw = await apiClient.post<unknown>(`/api/inventory/${id}/adjust`, body);
   return StockOperationResultSchema.parse(raw);
-}
-
-export async function importSellpiaWorkbook(input: {
-  file: File;
-  effectiveExportedAt: string;
-}): Promise<SellpiaSnapshotImportResponse> {
-  const form = new FormData();
-  form.append('file', input.file);
-  form.append('effectiveExportedAt', input.effectiveExportedAt);
-  return apiClient.uploadParsed(
-    '/api/inventory/sellpia-sync/import',
-    SellpiaSnapshotImportResponseSchema,
-    form,
-  );
-}
-
-export function importSellpiaInventoryFile(
-  file: File,
-  effectiveExportedAt: string,
-): Promise<SellpiaSnapshotImportResponse> {
-  return importSellpiaWorkbook({ file, effectiveExportedAt });
-}
-
-export async function approveSellpiaItem(
-  itemId: string,
-  input: SellpiaApprovalInput,
-): Promise<void> {
-  const body = SellpiaApprovalInputSchema.parse(input);
-  await apiClient.post<unknown>(`/api/inventory/sellpia-sync/items/${itemId}/approve`, body);
-}
-
-export function approveSellpiaSnapshotItem(
-  itemId: string,
-  input: SellpiaApprovalInput,
-): Promise<void> {
-  return approveSellpiaItem(itemId, input);
-}
-
-export async function ignoreSellpiaItem(
-  itemId: string,
-  input: SellpiaReviewNoteInput,
-): Promise<void> {
-  const body = SellpiaReviewNoteInputSchema.parse(input);
-  await apiClient.post<unknown>(`/api/inventory/sellpia-sync/items/${itemId}/ignore`, body);
-}
-
-export type SellpiaBulkApprovalRequest = {
-  itemId: string;
-  targetCurrentStock: number;
-  reason?: string;
-};
-
-export type SellpiaBulkIgnoreRequest = {
-  itemId: string;
-  reason?: string;
-};
-
-export type SellpiaBulkOperationResult = {
-  itemId: string;
-  ok: boolean;
-  skipped?: boolean;
-  error?: string;
-};
-
-const SELLPIA_BULK_BATCH_SIZE = 5;
-
-export async function approveSellpiaSnapshotItems(
-  items: SellpiaBulkApprovalRequest[],
-): Promise<SellpiaBulkOperationResult[]> {
-  const results: SellpiaBulkOperationResult[] = [];
-  for (let start = 0; start < items.length; start += SELLPIA_BULK_BATCH_SIZE) {
-    const chunk = items.slice(start, start + SELLPIA_BULK_BATCH_SIZE);
-    const settled = await Promise.allSettled(
-      chunk.map((item) => approveSellpiaSnapshotItem(item.itemId, {
-        targetCurrentStock: item.targetCurrentStock,
-        reason: item.reason,
-      })),
-    );
-    results.push(...settled.map((result, index) => ({
-      itemId: chunk[index].itemId,
-      ok: result.status === 'fulfilled',
-      error: result.status === 'rejected' ? errorMessage(result.reason) : undefined,
-    })));
-  }
-  return results;
-}
-
-export async function ignoreSellpiaSnapshotItems(
-  items: SellpiaBulkIgnoreRequest[],
-): Promise<SellpiaBulkOperationResult[]> {
-  const results: SellpiaBulkOperationResult[] = [];
-  for (let start = 0; start < items.length; start += SELLPIA_BULK_BATCH_SIZE) {
-    const chunk = items.slice(start, start + SELLPIA_BULK_BATCH_SIZE);
-    const settled = await Promise.allSettled(
-      chunk.map((item) => ignoreSellpiaItem(item.itemId, { reason: item.reason })),
-    );
-    results.push(...settled.map((result, index) => ({
-      itemId: chunk[index].itemId,
-      ok: result.status === 'fulfilled',
-      error: result.status === 'rejected' ? errorMessage(result.reason) : undefined,
-    })));
-  }
-  return results;
-}
-
-function errorMessage(reason: unknown): string {
-  return reason instanceof Error ? reason.message : '처리 실패';
-}
-
-export async function resolveSellpiaCandidate(
-  candidateId: string,
-  input: SellpiaCandidateResolutionInput,
-): Promise<SellpiaNewProductCandidate> {
-  const body = SellpiaCandidateResolutionInputSchema.parse(input);
-  const raw = await apiClient.post<unknown>(
-    `/api/inventory/sellpia-sync/candidates/${candidateId}/resolve`,
-    body,
-  );
-  return SellpiaNewProductCandidateSchema.parse(raw);
 }
 
 const SellpiaReceiptUploadBatchListSchema = z.array(SellpiaReceiptUploadBatchSchema);

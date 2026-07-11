@@ -1,13 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import {
-  approveSellpiaSnapshotItems,
-  approveSellpiaSnapshotItem,
   fetchAllInventoryItems,
   fetchAllTransactionsInWindow,
   fetchInventoryAssetReport,
-  ignoreSellpiaSnapshotItems,
-  importSellpiaInventoryFile,
   postRocketInventoryEvent,
 } from './inventory-api';
 import type {
@@ -17,7 +13,6 @@ import type {
   TransactionListItem,
   TransactionListResponse,
 } from '@kiditem/shared/inventory';
-import { SellpiaSnapshotImportResponseSchema } from '@kiditem/shared/inventory';
 
 function makeTx(suffix: string): TransactionListItem {
   return {
@@ -194,71 +189,7 @@ describe('fetchInventoryAssetReport', () => {
   });
 });
 
-describe('Sellpia and Rocket inventory API helpers', () => {
-  it('uploads Sellpia XLSX through multipart import endpoint', async () => {
-    const upload = vi.spyOn(apiClient, 'uploadParsed').mockResolvedValueOnce({ ok: true } as never);
-    const file = new File(['xlsx'], 'exported-list.xlsx', {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    });
-
-    await importSellpiaInventoryFile(file, '2026-06-29T00:00:00.000Z');
-
-    expect(upload).toHaveBeenCalledWith(
-      '/api/inventory/sellpia-sync/import',
-      SellpiaSnapshotImportResponseSchema,
-      expect.any(FormData),
-    );
-  });
-
-  it('approves a Sellpia item with operator-confirmed target quantity', async () => {
-    const post = vi.spyOn(apiClient, 'post').mockResolvedValueOnce(undefined as never);
-
-    await approveSellpiaSnapshotItem('item-1', {
-      targetCurrentStock: 12,
-      reason: 'count checked',
-    });
-
-    expect(post).toHaveBeenCalledWith('/api/inventory/sellpia-sync/items/item-1/approve', {
-      targetCurrentStock: 12,
-      reason: 'count checked',
-    });
-  });
-
-  it('bulk approves Sellpia items through row-scoped approve endpoints', async () => {
-    const post = vi.spyOn(apiClient, 'post')
-      .mockResolvedValueOnce(undefined as never)
-      .mockRejectedValueOnce(new Error('already applied'));
-
-    const result = await approveSellpiaSnapshotItems([
-      { itemId: 'item-1', targetCurrentStock: 10, reason: '실사' },
-      { itemId: 'item-2', targetCurrentStock: 7, reason: '실사' },
-    ]);
-
-    expect(post).toHaveBeenCalledWith('/api/inventory/sellpia-sync/items/item-1/approve', {
-      targetCurrentStock: 10,
-      reason: '실사',
-    });
-    expect(result).toEqual([
-      { itemId: 'item-1', ok: true },
-      { itemId: 'item-2', ok: false, error: 'already applied' },
-    ]);
-  });
-
-  it('bulk ignores Sellpia items through row-scoped ignore endpoints', async () => {
-    const post = vi.spyOn(apiClient, 'post').mockResolvedValue(undefined as never);
-
-    const result = await ignoreSellpiaSnapshotItems([
-      { itemId: 'item-1', reason: '제외' },
-      { itemId: 'item-2', reason: '제외' },
-    ]);
-
-    expect(post).toHaveBeenCalledWith('/api/inventory/sellpia-sync/items/item-1/ignore', { reason: '제외' });
-    expect(result).toEqual([
-      { itemId: 'item-1', ok: true },
-      { itemId: 'item-2', ok: true },
-    ]);
-  });
-
+describe('Rocket inventory API helpers', () => {
   it('posts Rocket manual inventory events to the inventory endpoint', async () => {
     const post = vi.spyOn(apiClient, 'post').mockResolvedValueOnce({
       ledgerId: '00000000-0000-4000-8000-000000000010',
