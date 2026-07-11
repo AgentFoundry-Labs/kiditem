@@ -3,9 +3,8 @@
 > Superseded on 2026-07-11 by
 > [`2026-07-11-channel-inventory-sku-reconstruction-design.md`](./2026-07-11-channel-inventory-sku-reconstruction-design.md).
 > This document remains historical implementation context only. The replacement
-> makes KidItem the inventory system of record, treats Sellpia as an external
-> inventory provider and Rocket as a channel, and removes bundle inventory
-> identity from `ProductOption`.
+> stores Sellpia-reported stock without KidItem mutation, keeps marketplace
+> metadata independent, and owns confirmed composition on the marketplace SKU.
 
 ## Purpose
 
