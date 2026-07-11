@@ -171,12 +171,14 @@ export function ChannelSkuComponentDialog({
                     <input
                       id="sellpia-candidate-search"
                       value={searchText}
+                      disabled={candidatesQuery.isFetching}
                       onChange={(event) => setSearchText(event.target.value)}
                       placeholder="상품코드, 이름, 바코드"
                       className="min-w-0 flex-1 rounded-lg border border-[var(--border,#cbd5e1)] bg-[var(--surface,#fff)] px-3 py-2 text-sm outline-none focus:border-[var(--primary,#7048e8)] sm:w-64"
                     />
                     <button
                       type="submit"
+                      disabled={candidatesQuery.isFetching}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border,#cbd5e1)] px-3 py-2 text-sm font-semibold text-[var(--text-secondary,#475569)] hover:bg-[var(--surface-sunken,#f8fafc)]"
                     >
                       <Search size={15} />
@@ -186,9 +188,12 @@ export function ChannelSkuComponentDialog({
                 </div>
 
                 <div className="grid gap-2 lg:grid-cols-2">
-                  {candidatesQuery.isLoading ? (
+                  {candidatesQuery.isLoading || candidatesQuery.isFetching ? (
                     <div className="col-span-full flex items-center gap-2 rounded-xl border border-[var(--border,#e2e8f0)] p-4 text-sm text-[var(--text-secondary,#475569)]">
-                      <Loader2 size={16} className="animate-spin" /> 후보를 찾는 중입니다.
+                      <Loader2 size={16} className="animate-spin" />{' '}
+                      {candidatesQuery.isLoading
+                        ? '후보를 찾는 중입니다.'
+                        : 'Sellpia 후보를 최신 상태로 다시 확인 중입니다.'}
                     </div>
                   ) : candidatesQuery.error ? (
                     <div role="alert" className="col-span-full flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
