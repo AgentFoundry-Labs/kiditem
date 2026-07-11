@@ -22,10 +22,6 @@ import {
   MASTER_CATALOG_PORT,
   type MasterCatalogPort,
 } from '../port/out/cross-domain/master-catalog.port';
-import {
-  COUPANG_IMAGE_RECONCILIATION_PORT,
-  type CoupangImageReconciliationPort,
-} from '../port/out/cross-domain/coupang-image-reconciliation.port';
 import { assertPublicHttpUrl } from '../../../common/security/public-url';
 import type { CoupangImageSyncCapabilities } from '@kiditem/shared/ai';
 
@@ -83,8 +79,6 @@ export class CoupangImageSyncService implements OnModuleInit {
     private readonly scraper: CoupangInventoryScrapePort,
     @Inject(MASTER_CATALOG_PORT)
     private readonly catalog: MasterCatalogPort,
-    @Inject(COUPANG_IMAGE_RECONCILIATION_PORT)
-    private readonly reconciliation: CoupangImageReconciliationPort,
     @Inject(AI_OPERATION_ALERT_PORT)
     private readonly operationAlerts: OperationAlertPort,
   ) {}
@@ -246,7 +240,6 @@ export class CoupangImageSyncService implements OnModuleInit {
     const { organizationId } = job;
     job.source = source;
     const uniqueRows = dedupeRows(rows, source);
-    await this.reconciliation.recordRows({ organizationId, rows: uniqueRows });
     const targets = await this.filterRowsNeedingImage(organizationId, uniqueRows);
 
     job.total = targets.length;

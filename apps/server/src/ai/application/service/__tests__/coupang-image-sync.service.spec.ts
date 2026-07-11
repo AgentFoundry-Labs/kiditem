@@ -1,4 +1,5 @@
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
   COUPANG_IMAGE_SYNC_ALERT_START_TIMEOUT_MS,
@@ -10,7 +11,6 @@ import type {
   CoupangInventoryRow,
   CoupangInventoryScrapePort,
 } from '../../port/out/provider/coupang-inventory-scrape.port';
-import type { CoupangImageReconciliationPort } from '../../port/out/cross-domain/coupang-image-reconciliation.port';
 import type {
   AttachPrimaryImageInput,
   CoupangListingHandle,
@@ -63,6 +63,15 @@ describe('coupang-image-sync helpers', () => {
 });
 
 describe('CoupangImageSyncService — orchestration via ports', () => {
+  it('has no legacy reconciliation recording dependency', () => {
+    expect(CoupangImageSyncService.length).toBe(3);
+    const source = readFileSync(
+      __filename.replace(/__tests__\/[^/]+$/, 'coupang-image-sync.service.ts'),
+      'utf8',
+    );
+    expect(source).not.toMatch(/recordRows|IMAGE_RECONCILIATION|reconciliation/);
+  });
+
   type ExistingListing = {
     externalId: string;
     master: {
@@ -139,9 +148,6 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
       extForMime: vi.fn(() => 'jpg'),
     };
 
-    const reconciliation: CoupangImageReconciliationPort = {
-      recordRows: vi.fn(async () => undefined),
-    };
     const operationAlerts = {
       start: vi.fn(async () => ({ id: 'alert-1' })),
       progress: vi.fn(async () => null),
@@ -153,7 +159,6 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     const service = new CoupangImageSyncService(
       scraper,
       catalog,
-      reconciliation,
       operationAlerts as any,
     );
     return {
@@ -162,7 +167,6 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
       catalog,
       storage,
       imageFetcher,
-      reconciliation,
       operationAlerts,
       ensureCalls,
       attachCalls,
@@ -285,37 +289,6 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     expect(catalog.findCoupangMaster).toHaveBeenCalledWith(
       expect.objectContaining({ inventoryId: 'EXT-1', organizationId: ORG_A }),
     );
-  });
-
-  it('records extension rows in the matching queue for image-sync reconciliation', async () => {
-    const { service, reconciliation } = buildService();
-
-    const { jobId } = service.startFromRows(ORG_A, [
-      { inventoryId: 'EXT-1', name: 'Extension P1', url: 'https://wing.coupang.com/img/ext-1.jpg' },
-      { inventoryId: 'EXT-1', name: 'Duplicate', url: 'https://wing.coupang.com/img/ext-1b.jpg' },
-      { inventoryId: 'EXT-2', legacyCode: 'LC-2', name: 'Extension P2', url: 'https://wing.coupang.com/img/ext-2.jpg' },
-    ]);
-    await waitForJob();
-
-    expect(service.getStatus(jobId, ORG_A).status).toBe('done');
-    expect(reconciliation.recordRows).toHaveBeenCalledWith({
-      organizationId: ORG_A,
-      rows: [
-        {
-          inventoryId: 'EXT-1',
-          name: 'Extension P1',
-          url: 'https://wing.coupang.com/img/ext-1.jpg',
-          source: 'extension',
-        },
-        {
-          inventoryId: 'EXT-2',
-          legacyCode: 'LC-2',
-          name: 'Extension P2',
-          url: 'https://wing.coupang.com/img/ext-2.jpg',
-          source: 'extension',
-        },
-      ],
-    });
   });
 
   it('rejects non-public source image URLs without attaching metadata', async () => {
@@ -475,9 +448,6 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
       findCoupangMaster: vi.fn(async () => null as unknown as CoupangListingHandle),
       attachPrimaryImage: vi.fn(async () => true),
     };
-    const reconciliation: CoupangImageReconciliationPort = {
-      recordRows: vi.fn(async () => undefined),
-    };
     const operationAlerts = {
       start: vi.fn(async () => ({ id: 'alert-1' })),
       progress: vi.fn(async () => null),
@@ -489,7 +459,6 @@ describe('CoupangImageSyncService — orchestration via ports', () => {
     const service = new CoupangImageSyncService(
       scraper,
       catalog,
-      reconciliation,
       operationAlerts as any,
     );
 

@@ -6,7 +6,6 @@ import { InventoryModule } from '../inventory/inventory.module';
 import { ChannelRegistrationCapabilityAdapter } from './adapter/in/agent/channel-registration-capability.adapter';
 import { ChannelSyncController } from './adapter/in/http/channel-sync.controller';
 import { ChannelDashboardController } from './adapter/in/http/channel-dashboard.controller';
-import { ChannelReconciliationController } from './adapter/in/http/channel-reconciliation.controller';
 import { ChannelAccountController } from './adapter/in/http/channel-account.controller';
 import { ChannelAccountListController } from './adapter/in/http/channel-account-list.controller';
 import { ChannelListingController } from './adapter/in/http/channel-listing.controller';
@@ -20,10 +19,6 @@ import { MarketplaceRegistrationRepositoryAdapter } from './adapter/out/reposito
 import { ChannelsProductMasterBarcodeAdapter } from './adapter/out/products/product-master-barcode.adapter';
 import { ChannelRegistrationRuntimeHandler } from './adapter/out/runtime/channel-registration-runtime.handler';
 import { ChannelSyncRepositoryAdapter } from './adapter/out/repository/channel-sync.repository.adapter';
-import { ChannelReconciliationMatcherRepositoryAdapter } from './adapter/out/repository/channel-reconciliation-matcher.repository.adapter';
-import { ChannelReconciliationQueryRepositoryAdapter } from './adapter/out/repository/channel-reconciliation-query.repository.adapter';
-import { ChannelReconciliationResolutionRepositoryAdapter } from './adapter/out/repository/channel-reconciliation-resolution.repository.adapter';
-import { ChannelReconciliationScanRepositoryAdapter } from './adapter/out/repository/channel-reconciliation-scan.repository.adapter';
 import { ChannelCatalogImportRepositoryAdapter } from './adapter/out/repository/channel-catalog-import.repository.adapter';
 import { ChannelSkuMappingRepositoryAdapter } from './adapter/out/repository/channel-sku-mapping.repository.adapter';
 import { ChannelsInventorySkuReadAdapter } from './adapter/out/inventory/inventory-sku-read.adapter';
@@ -32,11 +27,6 @@ import { ChannelDashboardService } from './application/service/channel-dashboard
 import { ChannelListingQueryService } from './application/service/channel-listing-query.service';
 import { ChannelAccountQueryService } from './application/service/channel-account-query.service';
 import { MarketplaceRegistrationService } from './application/service/marketplace-registration.service';
-import { ChannelReconciliationMatcherService } from './application/service/channel-reconciliation-matcher.service';
-import { ChannelReconciliationQueryService } from './application/service/channel-reconciliation-query.service';
-import { ChannelReconciliationResolutionService } from './application/service/channel-reconciliation-resolution.service';
-import { ChannelReconciliationScanService } from './application/service/channel-reconciliation-scan.service';
-import { ChannelReconciliationService } from './application/service/channel-reconciliation.service';
 import { ChannelAccountService } from './application/service/channel-account.service';
 import { ChannelCatalogImportService } from './application/service/channel-catalog-import.service';
 import { ChannelSkuMappingService } from './application/service/channel-sku-mapping.service';
@@ -56,12 +46,6 @@ import {
   MARKETPLACE_REGISTRATION_REPOSITORY_PORT,
 } from './application/port/out/repository/channel-listing.repository.port';
 import { CHANNEL_SYNC_REPOSITORY_PORT } from './application/port/out/repository/channel-sync.repository.port';
-import {
-  CHANNEL_RECONCILIATION_MATCHER_PORT,
-  CHANNEL_RECONCILIATION_QUERY_REPOSITORY_PORT,
-  CHANNEL_RECONCILIATION_RESOLUTION_REPOSITORY_PORT,
-  CHANNEL_RECONCILIATION_SCAN_REPOSITORY_PORT,
-} from './application/port/out/repository/channel-reconciliation.repository.port';
 import { CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT } from './application/port/out/repository/channel-catalog-import.repository.port';
 import { CHANNEL_SKU_MAPPING_REPOSITORY_PORT } from './application/port/out/repository/channel-sku-mapping.repository.port';
 import { CHANNELS_INVENTORY_SKU_READ_PORT } from './application/port/out/cross-domain/inventory-sku-read.port';
@@ -71,7 +55,6 @@ import { CHANNELS_INVENTORY_SKU_READ_PORT } from './application/port/out/cross-d
   controllers: [
     ChannelSyncController,
     ChannelDashboardController,
-    ChannelReconciliationController,
     ChannelAccountController,
     ChannelAccountListController,
     ChannelListingController,
@@ -84,11 +67,6 @@ import { CHANNELS_INVENTORY_SKU_READ_PORT } from './application/port/out/cross-d
     ChannelListingQueryService,
     ChannelAccountQueryService,
     MarketplaceRegistrationService,
-    ChannelReconciliationMatcherService,
-    ChannelReconciliationQueryService,
-    ChannelReconciliationResolutionService,
-    ChannelReconciliationScanService,
-    ChannelReconciliationService,
     ChannelAccountService,
     ChannelCatalogImportService,
     ChannelSkuMappingService,
@@ -102,10 +80,6 @@ import { CHANNELS_INVENTORY_SKU_READ_PORT } from './application/port/out/cross-d
     ChannelListingRepositoryAdapter,
     MarketplaceRegistrationRepositoryAdapter,
     ChannelSyncRepositoryAdapter,
-    ChannelReconciliationMatcherRepositoryAdapter,
-    ChannelReconciliationQueryRepositoryAdapter,
-    ChannelReconciliationResolutionRepositoryAdapter,
-    ChannelReconciliationScanRepositoryAdapter,
     ChannelCatalogImportRepositoryAdapter,
     ChannelSkuMappingRepositoryAdapter,
     ChannelsInventorySkuReadAdapter,
@@ -129,22 +103,6 @@ import { CHANNELS_INVENTORY_SKU_READ_PORT } from './application/port/out/cross-d
     },
     { provide: CHANNEL_SYNC_REPOSITORY_PORT, useExisting: ChannelSyncRepositoryAdapter },
     {
-      provide: CHANNEL_RECONCILIATION_MATCHER_PORT,
-      useExisting: ChannelReconciliationMatcherRepositoryAdapter,
-    },
-    {
-      provide: CHANNEL_RECONCILIATION_QUERY_REPOSITORY_PORT,
-      useExisting: ChannelReconciliationQueryRepositoryAdapter,
-    },
-    {
-      provide: CHANNEL_RECONCILIATION_RESOLUTION_REPOSITORY_PORT,
-      useExisting: ChannelReconciliationResolutionRepositoryAdapter,
-    },
-    {
-      provide: CHANNEL_RECONCILIATION_SCAN_REPOSITORY_PORT,
-      useExisting: ChannelReconciliationScanRepositoryAdapter,
-    },
-    {
       provide: CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT,
       useExisting: ChannelCatalogImportRepositoryAdapter,
     },
@@ -161,6 +119,6 @@ import { CHANNELS_INVENTORY_SKU_READ_PORT } from './application/port/out/cross-d
       useExisting: ChannelsInventorySkuReadAdapter,
     },
   ],
-  exports: [ChannelReconciliationService, COUPANG_PROVIDER_PORT],
+  exports: [COUPANG_PROVIDER_PORT],
 })
 export class ChannelsModule {}

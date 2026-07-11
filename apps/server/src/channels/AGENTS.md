@@ -1,9 +1,9 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# channels — Marketplace Sync + Reconciliation
+# channels — Marketplace Sync + SKU Matching
 
 `src/channels/` owns marketplace account settings, Coupang product/order/return
-sync, listing reconciliation, and channel dashboard reads. Provider calls are
+sync, Sellpia component matching, and channel dashboard reads. Provider calls are
 isolated behind the Coupang provider adapter.
 
 ## Folder Map
@@ -11,14 +11,14 @@ isolated behind the Coupang provider adapter.
 ```text
 channels/
 ├── channels.module.ts
-├── adapter/in/http/          # listing/account, sync, dashboard, reconciliation controllers
+├── adapter/in/http/          # listing/account, sync, dashboard, SKU-matching controllers
 ├── adapter/out/
 │   ├── automation/           # operation-alert adapter
 │   ├── coupang/              # HMAC client, provider APIs, provider adapter
 │   └── repository/           # Prisma/raw-SQL repository adapters
 ├── application/
 │   ├── port/out/             # provider, operation-alert, repository ports
-│   └── service/              # sync/reconcile orchestration
+│   └── service/              # sync/matching orchestration
 ├── domain/                   # pure credential and normalization helpers
 └── adapters/coupang/         # compatibility shims only
 ```
@@ -28,21 +28,22 @@ channels/
 - Channel account/listing APIs under `/api/channels/*`
 - Coupang product, order, return, and inventory sync entrypoints
 - Registered-product listing read model: `/api/channels/listings`
-- Reconciliation APIs under `/api/channels/reconciliation/*`
+- Channel SKU component matching: `/api/channels/sku-mappings/*`
 - Channel dashboard read APIs
 
 ## Main Data Models
 
 - `ChannelAccount` is the marketplace/store identity.
 - `ChannelListing` connects marketplace products to `MasterProduct`.
-- `ChannelListingOption` connects marketplace option rows to `ProductOption`.
+- `ChannelListingOption` stores marketplace SKU metadata and advisory matching
+  status; its legacy `optionId` is not matching truth.
 - `ChannelSkuComponent` is the confirmed mapping from one marketplace SKU to
   one or more Sellpia `InventorySku` rows and quantities.
 - Channel daily snapshots and scrape audit rows support dashboard/reporting
   reads.
 - Orders and returns sync into the channel-agnostic orders spine.
 
-## Sync + Reconciliation Flow
+## Sync + Matching Flow
 
 ```text
 Coupang provider
@@ -50,12 +51,10 @@ Coupang provider
   -> sync application service
   -> channel repository ports
   -> ChannelListing / ChannelListingOption / Order / Return rows
-  -> reconciliation service links unresolved rows to products/options
+  -> completed catalog SKU queue
+  -> live InventorySku evidence/candidate reads
+  -> operator-confirmed ChannelSkuComponent recipe
 ```
-
-Reconciliation never auto-creates `MasterProduct`. User-approved links create
-the missing `ChannelListing`/option association through the reconciliation
-flow.
 
 Sellpia component matching reads only completed `coupang_wing_catalog` rows.
 Channels owns candidate ranking and atomic component replacement; Inventory
@@ -80,7 +79,7 @@ suggestions only and are never persisted or auto-confirmed.
 - Organization-specific Coupang credentials come from primary
   `ChannelAccount(channel='coupang')`; server env must not be a credential
   fallback.
-- New sync/reconciliation paths must carry `channelAccountId` and must not
+- New sync/matching paths must carry `channelAccountId` and must not
   create accountless `ChannelListing` rows.
 - Dashboard SQL uses Prisma tagged templates and binds organization predicates
   on every tenant-owned table in the join path.

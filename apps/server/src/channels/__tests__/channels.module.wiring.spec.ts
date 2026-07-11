@@ -1,4 +1,6 @@
 import 'reflect-metadata';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AgentOsModule } from '../../agent-os/agent-os.module';
 import { AutomationModule } from '../../automation/automation.module';
@@ -9,10 +11,6 @@ import { ChannelRegistrationCapabilityAdapter } from '../adapter/in/agent/channe
 import { ChannelAccountRepositoryAdapter } from '../adapter/out/repository/channel-account.repository.adapter';
 import { ChannelDashboardRepositoryAdapter } from '../adapter/out/repository/channel-dashboard.repository.adapter';
 import { ChannelListingRepositoryAdapter } from '../adapter/out/repository/channel-listing.repository.adapter';
-import { ChannelReconciliationMatcherRepositoryAdapter } from '../adapter/out/repository/channel-reconciliation-matcher.repository.adapter';
-import { ChannelReconciliationQueryRepositoryAdapter } from '../adapter/out/repository/channel-reconciliation-query.repository.adapter';
-import { ChannelReconciliationResolutionRepositoryAdapter } from '../adapter/out/repository/channel-reconciliation-resolution.repository.adapter';
-import { ChannelReconciliationScanRepositoryAdapter } from '../adapter/out/repository/channel-reconciliation-scan.repository.adapter';
 import { ChannelSyncRepositoryAdapter } from '../adapter/out/repository/channel-sync.repository.adapter';
 import { MarketplaceRegistrationRepositoryAdapter } from '../adapter/out/repository/marketplace-registration.repository.adapter';
 import { ChannelsProductMasterBarcodeAdapter } from '../adapter/out/products/product-master-barcode.adapter';
@@ -29,12 +27,6 @@ import {
   CHANNEL_LISTING_REPOSITORY_PORT,
   MARKETPLACE_REGISTRATION_REPOSITORY_PORT,
 } from '../application/port/out/repository/channel-listing.repository.port';
-import {
-  CHANNEL_RECONCILIATION_MATCHER_PORT,
-  CHANNEL_RECONCILIATION_QUERY_REPOSITORY_PORT,
-  CHANNEL_RECONCILIATION_RESOLUTION_REPOSITORY_PORT,
-  CHANNEL_RECONCILIATION_SCAN_REPOSITORY_PORT,
-} from '../application/port/out/repository/channel-reconciliation.repository.port';
 import { CHANNEL_SYNC_REPOSITORY_PORT } from '../application/port/out/repository/channel-sync.repository.port';
 import { COUPANG_PROVIDER_PORT } from '../application/port/out/provider/coupang-provider.port';
 import { CHANNELS_OPERATION_ALERT_PORT } from '../application/port/out/cross-domain/operation-alert.port';
@@ -71,6 +63,33 @@ function expectBinding(
 }
 
 describe('ChannelsModule canonical owner wiring', () => {
+  it('retires active legacy reconciliation wiring while retaining expand-release tables', () => {
+    const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, ChannelsModule) ?? [];
+    const controllers: unknown[] = Reflect.getMetadata(CONTROLLERS_KEY, ChannelsModule) ?? [];
+    const exports_: unknown[] = Reflect.getMetadata('exports', ChannelsModule) ?? [];
+    const wiredNames = [...providers, ...controllers, ...exports_].map((value) =>
+      typeof value === 'function' ? value.name : String(value));
+    expect(wiredNames.join('\n')).not.toMatch(/ChannelReconciliation|RECONCILIATION/);
+    expect(exports_).toEqual([COUPANG_PROVIDER_PORT]);
+
+    const channelsRoot = path.resolve(__dirname, '..');
+    expect(existsSync(path.join(
+      channelsRoot,
+      'adapter/in/http/channel-reconciliation.controller.ts',
+    ))).toBe(false);
+    expect(existsSync(path.join(
+      channelsRoot,
+      'application/service/channel-reconciliation.service.ts',
+    ))).toBe(false);
+
+    const schema = readFileSync(
+      path.resolve(__dirname, '../../../../../prisma/models/channels.prisma'),
+      'utf8',
+    );
+    expect(schema).toContain('model ChannelReconciliationRun');
+    expect(schema).toContain('model ChannelReconciliationItem');
+  });
+
   it('imports owner modules for consumer adapters', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, ChannelsModule) ?? [];
     expect(imports).toContain(AgentOsModule);
@@ -87,10 +106,6 @@ describe('ChannelsModule canonical owner wiring', () => {
     expect(providers).toContain(ChannelListingRepositoryAdapter);
     expect(providers).toContain(MarketplaceRegistrationRepositoryAdapter);
     expect(providers).toContain(ChannelSyncRepositoryAdapter);
-    expect(providers).toContain(ChannelReconciliationMatcherRepositoryAdapter);
-    expect(providers).toContain(ChannelReconciliationQueryRepositoryAdapter);
-    expect(providers).toContain(ChannelReconciliationResolutionRepositoryAdapter);
-    expect(providers).toContain(ChannelReconciliationScanRepositoryAdapter);
     expect(providers).toContain(CoupangProviderAdapter);
     expect(providers).toContain(ChannelsOperationAlertAdapter);
     expect(providers).toContain(ChannelsProductMasterBarcodeAdapter);
@@ -112,26 +127,6 @@ describe('ChannelsModule canonical owner wiring', () => {
       MarketplaceRegistrationRepositoryAdapter,
     );
     expectBinding(providers, CHANNEL_SYNC_REPOSITORY_PORT, ChannelSyncRepositoryAdapter);
-    expectBinding(
-      providers,
-      CHANNEL_RECONCILIATION_MATCHER_PORT,
-      ChannelReconciliationMatcherRepositoryAdapter,
-    );
-    expectBinding(
-      providers,
-      CHANNEL_RECONCILIATION_QUERY_REPOSITORY_PORT,
-      ChannelReconciliationQueryRepositoryAdapter,
-    );
-    expectBinding(
-      providers,
-      CHANNEL_RECONCILIATION_RESOLUTION_REPOSITORY_PORT,
-      ChannelReconciliationResolutionRepositoryAdapter,
-    );
-    expectBinding(
-      providers,
-      CHANNEL_RECONCILIATION_SCAN_REPOSITORY_PORT,
-      ChannelReconciliationScanRepositoryAdapter,
-    );
     expectBinding(providers, COUPANG_PROVIDER_PORT, CoupangProviderAdapter);
     expectBinding(providers, CHANNELS_OPERATION_ALERT_PORT, ChannelsOperationAlertAdapter);
     expectBinding(

@@ -1,9 +1,7 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChannelListingRepositoryAdapter as ChannelListingQueryService } from '../../../adapter/out/repository/channel-listing.repository.adapter';
 import { MarketplaceRegistrationRepositoryAdapter } from '../../../adapter/out/repository/marketplace-registration.repository.adapter';
-import { ChannelReconciliationScanRepositoryAdapter } from '../../../adapter/out/repository/channel-reconciliation-scan.repository.adapter';
-import { ChannelReconciliationMatcherRepositoryAdapter } from '../../../adapter/out/repository/channel-reconciliation-matcher.repository.adapter';
 
 function makePrisma() {
   return {
@@ -479,80 +477,4 @@ describe('nullable ChannelProduct compatibility boundaries', () => {
     });
   });
 
-  it('ignores an imported unlinked ChannelProduct during the legacy image reconciliation scan', async () => {
-    const prisma = {
-      channelListing: {
-        findMany: vi.fn().mockResolvedValue([
-          {
-            id: 'imported-listing-1',
-            masterId: null,
-            externalId: 'imported-product-1',
-            channelName: 'Wing import only',
-            status: 'active',
-            lastImportRunId: 'wing-import-1',
-            master: null,
-          },
-        ]),
-      },
-      channelListingOption: {
-        findMany: vi.fn().mockResolvedValue([]),
-      },
-      productOption: {
-        findMany: vi.fn().mockResolvedValue([]),
-      },
-    };
-    const repository = new ChannelReconciliationScanRepositoryAdapter(
-      prisma as never,
-      {} as never,
-    );
-
-    await expect(
-      repository.syncFromImageSyncedListings('org-1'),
-    ).rejects.toEqual(new BadRequestException('coupang image-synced listings not found'));
-    expect(prisma.channelListing.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ masterId: { not: null } }),
-      }),
-    );
-  });
-
-  it('does not treat an unlinked ChannelProduct as a reconciled listing match', async () => {
-    const tx = {
-      channelListing: {
-        findMany: vi.fn().mockResolvedValue([
-          {
-            id: 'imported-listing-1',
-            masterId: null,
-            channelAccountId: 'account-1',
-          },
-        ]),
-      },
-      channelListingOption: {
-        findFirst: vi.fn().mockResolvedValue(null),
-      },
-      productOption: {
-        findMany: vi.fn().mockResolvedValue([]),
-      },
-    };
-    const repository = new ChannelReconciliationMatcherRepositoryAdapter();
-
-    const result = await repository.evaluateRow(
-      tx as never,
-      'org-1',
-      'imported-product-1',
-      null,
-      null,
-    );
-
-    expect(tx.channelListing.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ masterId: { not: null } }),
-      }),
-    );
-    expect(result).toEqual(expect.objectContaining({
-      status: 'needs_review',
-      linkedListingId: null,
-      linkedMasterProductId: null,
-    }));
-  });
 });

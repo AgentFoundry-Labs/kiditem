@@ -34,7 +34,6 @@ import { ThumbnailGenerationSinkAdapter } from './adapter/out/direct-output/thum
 import { AiOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { CoupangInventoryScrapeAdapter } from './adapter/out/coupang/coupang-inventory-scrape.adapter';
 import { CoupangProductSalesScrapeAdapter } from './adapter/out/coupang/coupang-product-sales-scrape.adapter';
-import { CoupangImageReconciliationAdapter } from './adapter/out/channels/coupang-image-reconciliation.adapter';
 import { DetailPageGeminiMediaAdapter } from './adapter/out/gemini/detail-page-gemini-media.adapter';
 import { GeminiTextCompletionAdapter } from './adapter/out/gemini/gemini-text-completion.adapter';
 import { GeminiThumbnailVisionAdapter } from './adapter/out/gemini/gemini-thumbnail-vision.adapter';
@@ -119,7 +118,6 @@ import { AI_WORKSPACE_ARCHIVE_PORT } from './application/port/in/workspace';
 // application/port — out
 import {
   AI_OPERATION_ALERT_PORT,
-  COUPANG_IMAGE_RECONCILIATION_PORT,
   MASTER_CATALOG_PORT,
 } from './application/port/out/cross-domain';
 import { THUMBNAIL_GENERATION_EVENT_PORT } from './application/port/out/event';
@@ -233,7 +231,6 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     DetailPageContentGenerationSinkAdapter,
     DetailPageGeminiMediaAdapter,
     ThumbnailGenerationSinkAdapter,
-    CoupangImageReconciliationAdapter,
     CoupangInventoryScrapeAdapter,
     CoupangProductSalesScrapeAdapter,
     GeminiTextCompletionAdapter,
@@ -264,7 +261,6 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
 
     // port bindings
     { provide: WING_AUTOMATION_PORT, useExisting: WingAutomationRunner },
-    { provide: COUPANG_IMAGE_RECONCILIATION_PORT, useExisting: CoupangImageReconciliationAdapter },
     { provide: COUPANG_INVENTORY_SCRAPE_PORT, useExisting: CoupangInventoryScrapeAdapter },
     { provide: COUPANG_PRODUCT_SALES_SCRAPE_PORT, useExisting: CoupangProductSalesScrapeAdapter },
     {
