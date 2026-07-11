@@ -1,4 +1,5 @@
 import {
+  MAX_CHANNEL_SKU_COMPONENT_QUANTITY,
   MAX_CHANNEL_SKU_COMPONENTS,
   ReplaceChannelSkuComponentsInputSchema,
   type ChannelSkuMappingComponent,
@@ -23,7 +24,11 @@ export type ComponentDraftResult = {
 
 export type ComponentDraftSerialization =
   | { ok: true; input: ReplaceChannelSkuComponentsInput }
-  | { ok: false; error: string };
+  | {
+      ok: false;
+      code: 'empty_components' | 'invalid_quantity' | 'invalid_components';
+      error: string;
+    };
 
 export function initializeComponentDraft(
   components: ChannelSkuMappingComponent[],
@@ -93,21 +98,43 @@ export function serializeComponentDraft(
   if (draft.length === 0) {
     return {
       ok: false,
+      code: 'empty_components',
       error: '매칭할 Sellpia 구성품을 하나 이상 추가해 주세요.',
     };
   }
 
   if (draft.some((row) => !/^[1-9]\d*$/.test(row.quantityText))) {
-    return { ok: false, error: '수량은 1 이상의 정수여야 합니다.' };
+    return {
+      ok: false,
+      code: 'invalid_quantity',
+      error: '수량은 1 이상의 정수여야 합니다.',
+    };
   }
 
-  const input = ReplaceChannelSkuComponentsInputSchema.parse({
-    components: draft.map((row) => ({
+  const maxQuantity = BigInt(MAX_CHANNEL_SKU_COMPONENT_QUANTITY);
+  const quantities = draft.map((row) => BigInt(row.quantityText));
+  if (quantities.some((quantity) => quantity > maxQuantity)) {
+    return {
+      ok: false,
+      code: 'invalid_quantity',
+      error: `수량은 1 이상 ${MAX_CHANNEL_SKU_COMPONENT_QUANTITY} 이하의 정수여야 합니다.`,
+    };
+  }
+
+  const parsed = ReplaceChannelSkuComponentsInputSchema.safeParse({
+    components: draft.map((row, index) => ({
       inventorySkuId: row.inventorySkuId,
-      quantity: Number(row.quantityText),
+      quantity: Number(quantities[index]),
     })),
   });
-  return { ok: true, input };
+  if (!parsed.success) {
+    return {
+      ok: false,
+      code: 'invalid_components',
+      error: '구성 정보가 올바르지 않습니다.',
+    };
+  }
+  return { ok: true, input: parsed.data };
 }
 
 export function createUnmapInput(): ReplaceChannelSkuComponentsInput {

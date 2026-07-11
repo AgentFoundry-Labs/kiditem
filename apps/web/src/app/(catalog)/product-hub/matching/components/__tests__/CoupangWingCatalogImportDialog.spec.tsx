@@ -76,7 +76,10 @@ function renderDialog(
 describe('CoupangWingCatalogImportDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mutateAsync.mockResolvedValue(response());
+    mutateAsync.mockResolvedValue({
+      response: response(),
+      statusRefreshFailed: false,
+    });
     vi.mocked(useImportCoupangWingCatalog).mockReturnValue({
       mutateAsync,
       isPending: false,
@@ -131,16 +134,19 @@ describe('CoupangWingCatalogImportDialog', () => {
 
   it('clearly reports an identical duplicate as a no-op', async () => {
     mutateAsync.mockResolvedValueOnce(
-      response({
-        duplicate: true,
-        changes: {
-          createdProductCount: 0,
-          updatedProductCount: 0,
-          createdSkuCount: 0,
-          updatedSkuCount: 0,
-          skippedRowCount: 0,
-        },
-      }),
+      {
+        response: response({
+          duplicate: true,
+          changes: {
+            createdProductCount: 0,
+            updatedProductCount: 0,
+            createdSkuCount: 0,
+            updatedSkuCount: 0,
+            skippedRowCount: 0,
+          },
+        }),
+        statusRefreshFailed: false,
+      },
     );
     const user = userEvent.setup();
     renderDialog();
@@ -189,6 +195,35 @@ describe('CoupangWingCatalogImportDialog', () => {
     await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
     expect(mutateAsync.mock.invocationCallOrder[0]).toBeLessThan(
       onSuccess.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('keeps import counters and shows manual recovery when follow-up status refresh fails', async () => {
+    mutateAsync.mockResolvedValueOnce({
+      response: response(),
+      statusRefreshFailed: true,
+    });
+    const user = userEvent.setup();
+    const { onSuccess } = renderDialog();
+
+    await user.upload(
+      screen.getByLabelText('쿠팡 Wing 상품 파일'),
+      new File(['wing'], 'wing.xlsx'),
+    );
+    await user.click(screen.getByRole('button', { name: '상품 메타데이터 가져오기' }));
+
+    expect(await screen.findByText('상품 메타데이터 가져오기를 완료했습니다.')).toBeInTheDocument();
+    expect(screen.getByText('부모 상품 생성 10')).toBeInTheDocument();
+    expect(screen.getByText('옵션 SKU 생성 30')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "매칭 상태만 새로고치지 못했습니다. 목록 상태가 오래되었을 수 있으니 창을 닫고 '상태 새로고침'을 눌러 주세요.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/파일을 다시.*가져/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Wing 상품 파일을 가져오지 못했습니다/)).not.toBeInTheDocument();
+    expect(onSuccess).toHaveBeenCalledWith(
+      expect.objectContaining({ duplicate: false }),
     );
   });
 });

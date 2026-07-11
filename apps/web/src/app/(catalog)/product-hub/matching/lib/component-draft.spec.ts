@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MAX_CHANNEL_SKU_COMPONENT_QUANTITY,
   MAX_CHANNEL_SKU_COMPONENTS,
   type ChannelSkuMappingComponent,
   type ChannelSkuMatchCandidate,
@@ -127,6 +128,7 @@ describe('channel SKU component draft', () => {
 
       expect(serializeComponentDraft(draft)).toEqual({
         ok: false,
+        code: 'invalid_quantity',
         error: '수량은 1 이상의 정수여야 합니다.',
       });
     },
@@ -176,8 +178,60 @@ describe('channel SKU component draft', () => {
   it('rejects an empty normal save but exposes a distinct explicit unmap input', () => {
     expect(serializeComponentDraft([])).toEqual({
       ok: false,
+      code: 'empty_components',
       error: '매칭할 Sellpia 구성품을 하나 이상 추가해 주세요.',
     });
     expect(createUnmapInput()).toEqual({ components: [] });
+  });
+
+  it('accepts the shared database-safe maximum quantity exactly', () => {
+    const draft = updateDraftQuantity(
+      initializeComponentDraft([component()]),
+      firstId,
+      String(MAX_CHANNEL_SKU_COMPONENT_QUANTITY),
+    );
+
+    expect(serializeComponentDraft(draft)).toEqual({
+      ok: true,
+      input: {
+        components: [
+          {
+            inventorySkuId: firstId,
+            quantity: MAX_CHANNEL_SKU_COMPONENT_QUANTITY,
+          },
+        ],
+      },
+    });
+  });
+
+  it.each([
+    String(MAX_CHANNEL_SKU_COMPONENT_QUANTITY + 1),
+    '9007199254740993',
+    '99999999999999999999999999999999999999999999999999',
+  ])('rejects over-limit quantity %s before Number conversion', (quantityText) => {
+    const draft = updateDraftQuantity(
+      initializeComponentDraft([component()]),
+      firstId,
+      quantityText,
+    );
+
+    expect(serializeComponentDraft(draft)).toEqual({
+      ok: false,
+      code: 'invalid_quantity',
+      error: `수량은 1 이상 ${MAX_CHANNEL_SKU_COMPONENT_QUANTITY} 이하의 정수여야 합니다.`,
+    });
+  });
+
+  it('returns a tagged inline error instead of throwing when shared schema validation fails', () => {
+    const draft = initializeComponentDraft([
+      component({ inventorySkuId: 'not-a-uuid' }),
+    ]);
+
+    expect(() => serializeComponentDraft(draft)).not.toThrow();
+    expect(serializeComponentDraft(draft)).toEqual({
+      ok: false,
+      code: 'invalid_components',
+      error: '구성 정보가 올바르지 않습니다.',
+    });
   });
 });

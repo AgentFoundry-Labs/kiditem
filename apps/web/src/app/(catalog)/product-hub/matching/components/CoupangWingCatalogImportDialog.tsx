@@ -24,6 +24,7 @@ export function CoupangWingCatalogImportDialog({
 }: CoupangWingCatalogImportDialogProps) {
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<CoupangWingCatalogImportResponse | null>(null);
+  const [statusRefreshFailed, setStatusRefreshFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const importMutation = useImportCoupangWingCatalog();
 
@@ -37,6 +38,7 @@ export function CoupangWingCatalogImportDialog({
     if (importMutation.isPending) return;
     setFile(null);
     setResult(null);
+    setStatusRefreshFailed(false);
     setError(null);
     onOpenChange(false);
   };
@@ -45,13 +47,15 @@ export function CoupangWingCatalogImportDialog({
     if (!account || account.channel !== 'coupang' || !file) return;
     setError(null);
     setResult(null);
+    setStatusRefreshFailed(false);
     try {
-      const response = await importMutation.mutateAsync({
+      const outcome = await importMutation.mutateAsync({
         channelAccountId: account.id,
         file,
       });
-      setResult(response);
-      onSuccess(response);
+      setResult(outcome.response);
+      setStatusRefreshFailed(outcome.statusRefreshFailed);
+      onSuccess(outcome.response);
     } catch (uploadError) {
       setError(friendlyError(uploadError) ?? 'Wing 상품 파일을 가져오지 못했습니다.');
     }
@@ -108,6 +112,7 @@ export function CoupangWingCatalogImportDialog({
                 onChange={(event) => {
                   setFile(event.target.files?.[0] ?? null);
                   setResult(null);
+                  setStatusRefreshFailed(false);
                   setError(null);
                 }}
                 className="block w-full rounded-xl border border-[var(--border,#cbd5e1)] bg-[var(--surface-sunken,#f8fafc)] p-3 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-[var(--primary,#7048e8)] file:px-3 file:py-2 file:font-semibold file:text-white"
@@ -124,6 +129,12 @@ export function CoupangWingCatalogImportDialog({
             {error ? (
               <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
                 {error}
+              </p>
+            ) : null}
+
+            {statusRefreshFailed ? (
+              <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+                매칭 상태만 새로고치지 못했습니다. 목록 상태가 오래되었을 수 있으니 창을 닫고 &apos;상태 새로고침&apos;을 눌러 주세요.
               </p>
             ) : null}
 

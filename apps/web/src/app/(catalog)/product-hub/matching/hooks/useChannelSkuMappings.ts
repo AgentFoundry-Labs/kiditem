@@ -19,6 +19,7 @@ import type {
   RefreshChannelSkuMappingStatusInput,
   ReplaceChannelSkuComponentsInput,
 } from '@kiditem/shared/channel-sku-matching';
+import type { CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
 
 type UseChannelSkuMappingsParams = {
   accountMode: 'selected' | 'all';
@@ -38,6 +39,16 @@ type ImportCoupangWingCatalogVariables = {
   channelAccountId: string;
   file: File;
 };
+
+export type CoupangWingCatalogImportOutcome = {
+  response: CoupangWingCatalogImportResponse;
+  statusRefreshFailed: boolean;
+};
+
+const channelSkuCandidateFamilyKey = [
+  ...queryKeys.channelSkuMappings.all,
+  'candidates',
+] as const;
 
 function isStringRecord(value: unknown): value is Record<string, string> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -107,6 +118,8 @@ export function useChannelSkuCandidates(
         search: normalizedSearch,
       }),
     enabled: enabled && Boolean(channelSkuId),
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 }
 
@@ -116,9 +129,14 @@ export function useRefreshChannelSkuMappingStatuses() {
     mutationFn: (input: RefreshChannelSkuMappingStatusInput) =>
       refreshChannelSkuMappingStatuses(input),
     onSuccess: () =>
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.channelSkuMappings.lists(),
-      }),
+      Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.channelSkuMappings.lists(),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: channelSkuCandidateFamilyKey,
+        }),
+      ]),
   });
 }
 
@@ -146,15 +164,27 @@ export function useReplaceChannelSkuComponents() {
 export function useImportCoupangWingCatalog() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ channelAccountId, file }: ImportCoupangWingCatalogVariables) =>
-      importCoupangWingCatalog(channelAccountId, file),
-    onSuccess: async (_data, variables) => {
-      await refreshChannelSkuMappingStatuses({
-        channelAccountId: variables.channelAccountId,
-      });
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.channelSkuMappings.lists(),
-      });
+    mutationFn: async ({
+      channelAccountId,
+      file,
+    }: ImportCoupangWingCatalogVariables): Promise<CoupangWingCatalogImportOutcome> => {
+      const response = await importCoupangWingCatalog(channelAccountId, file);
+      let statusRefreshFailed = false;
+      try {
+        await refreshChannelSkuMappingStatuses({ channelAccountId });
+      } catch {
+        statusRefreshFailed = true;
+      } finally {
+        await Promise.allSettled([
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.channelSkuMappings.lists(),
+          }),
+          queryClient.invalidateQueries({
+            queryKey: channelSkuCandidateFamilyKey,
+          }),
+        ]);
+      }
+      return { response, statusRefreshFailed };
     },
   });
 }

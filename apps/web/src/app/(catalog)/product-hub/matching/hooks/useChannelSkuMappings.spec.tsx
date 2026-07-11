@@ -206,6 +206,31 @@ describe('channel SKU matching hooks', () => {
     expect(listChannelSkuCandidates).not.toHaveBeenCalled();
   });
 
+  it('always refetches actionable candidate evidence when a dialog remounts', async () => {
+    vi.mocked(listChannelSkuCandidates).mockResolvedValue({ items: [] });
+    const client = createClient({
+      defaultOptions: {
+        queries: { retry: false, staleTime: 60_000 },
+        mutations: { retry: false },
+      },
+    });
+
+    const first = renderHook(
+      () => useChannelSkuCandidates(CHANNEL_SKU_ID, '', true),
+      { wrapper: wrapper(client) },
+    );
+    await waitFor(() => expect(first.result.current.isSuccess).toBe(true));
+    first.unmount();
+
+    const second = renderHook(
+      () => useChannelSkuCandidates(CHANNEL_SKU_ID, '', true),
+      { wrapper: wrapper(client) },
+    );
+    await waitFor(() => expect(second.result.current.isSuccess).toBe(true));
+
+    expect(listChannelSkuCandidates).toHaveBeenCalledTimes(2);
+  });
+
   it('invalidates mapping lists and only the replaced SKU candidate family', async () => {
     vi.mocked(replaceChannelSkuComponents).mockResolvedValue({} as never);
     const client = createClient();
@@ -231,7 +256,7 @@ describe('channel SKU matching hooks', () => {
     });
   });
 
-  it('invalidates mapping lists after status refresh', async () => {
+  it('invalidates mapping lists and all actionable candidates after status refresh', async () => {
     vi.mocked(refreshChannelSkuMappingStatuses).mockResolvedValue(
       emptyResponse.counts,
     );
@@ -249,10 +274,14 @@ describe('channel SKU matching hooks', () => {
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: queryKeys.channelSkuMappings.lists(),
     });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ['channelSkuMappings', 'candidates'],
+    });
   });
 
-  it('refreshes imported-account statuses before invalidating mapping lists', async () => {
-    vi.mocked(importCoupangWingCatalog).mockResolvedValue({} as never);
+  it('refreshes imported-account statuses before invalidating lists and candidates', async () => {
+    const imported = { duplicate: false } as never;
+    vi.mocked(importCoupangWingCatalog).mockResolvedValue(imported);
     vi.mocked(refreshChannelSkuMappingStatuses).mockResolvedValue(
       emptyResponse.counts,
     );
@@ -263,10 +292,10 @@ describe('channel SKU matching hooks', () => {
     });
 
     await act(async () => {
-      await result.current.mutateAsync({
+      await expect(result.current.mutateAsync({
         channelAccountId: ACCOUNT_ID,
         file: new File(['wing'], 'wing.xlsx'),
-      });
+      })).resolves.toEqual({ response: imported, statusRefreshFailed: false });
     });
 
     expect(refreshChannelSkuMappingStatuses).toHaveBeenCalledWith({
@@ -275,9 +304,40 @@ describe('channel SKU matching hooks', () => {
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: queryKeys.channelSkuMappings.lists(),
     });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ['channelSkuMappings', 'candidates'],
+    });
     expect(
       vi.mocked(refreshChannelSkuMappingStatuses).mock.invocationCallOrder[0],
     ).toBeLessThan(invalidate.mock.invocationCallOrder[0] ?? Infinity);
+  });
+
+  it('keeps a successful Wing upload successful when status refresh fails and invalidates in finally', async () => {
+    const imported = { duplicate: false, changes: { createdSkuCount: 3 } } as never;
+    vi.mocked(importCoupangWingCatalog).mockResolvedValue(imported);
+    vi.mocked(refreshChannelSkuMappingStatuses).mockRejectedValue(
+      new Error('status refresh failed'),
+    );
+    const client = createClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const { result } = renderHook(() => useImportCoupangWingCatalog(), {
+      wrapper: wrapper(client),
+    });
+
+    await expect(
+      act(() =>
+        result.current.mutateAsync({
+          channelAccountId: ACCOUNT_ID,
+          file: new File(['wing'], 'wing.xlsx'),
+        }),
+      ),
+    ).resolves.toEqual({ response: imported, statusRefreshFailed: true });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: queryKeys.channelSkuMappings.lists(),
+    });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ['channelSkuMappings', 'candidates'],
+    });
   });
 
   it('does not optimistically write imported mapping rows or components', async () => {

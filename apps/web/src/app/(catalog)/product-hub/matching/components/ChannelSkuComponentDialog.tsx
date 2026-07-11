@@ -190,6 +190,17 @@ export function ChannelSkuComponentDialog({
                     <div className="col-span-full flex items-center gap-2 rounded-xl border border-[var(--border,#e2e8f0)] p-4 text-sm text-[var(--text-secondary,#475569)]">
                       <Loader2 size={16} className="animate-spin" /> 후보를 찾는 중입니다.
                     </div>
+                  ) : candidatesQuery.error ? (
+                    <div role="alert" className="col-span-full flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                      <span>{friendlyError(candidatesQuery.error) ?? 'Sellpia 후보를 불러오지 못했습니다.'}</span>
+                      <button
+                        type="button"
+                        onClick={() => void candidatesQuery.refetch()}
+                        className="rounded-lg border border-rose-300 px-3 py-1.5 text-xs font-semibold hover:bg-rose-100"
+                      >
+                        후보 다시 불러오기
+                      </button>
+                    </div>
                   ) : (candidatesQuery.data?.items.length ?? 0) === 0 ? (
                     <div className="col-span-full rounded-xl border border-dashed border-[var(--border,#cbd5e1)] p-4 text-sm text-[var(--text-secondary,#64748b)]">
                       표시할 후보가 없습니다. Sellpia 상품코드나 이름으로 검색해 주세요.

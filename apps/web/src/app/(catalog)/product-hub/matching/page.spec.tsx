@@ -195,7 +195,7 @@ describe('/product-hub/matching', () => {
     expect(screen.queryByRole('option', { name: '스마트스토어' })).not.toBeInTheDocument();
     expect(screen.queryByRole('option', { name: '쿠팡 Wing 로켓' })).not.toBeInTheDocument();
     await waitFor(() =>
-      expect(refreshMutate).toHaveBeenCalledWith({ channelAccountId: ACCOUNT_A }),
+      expect(refreshMutateAsync).toHaveBeenCalledWith({ channelAccountId: ACCOUNT_A }),
     );
   });
 
@@ -214,7 +214,20 @@ describe('/product-hub/matching', () => {
     await user.click(screen.getByRole('button', { name: '상태 새로고침' }));
 
     expect(refreshMutateAsync).toHaveBeenCalledWith({ channelAccountId: ACCOUNT_A });
-    expect(refetchList).toHaveBeenCalled();
+    expect(refetchList).not.toHaveBeenCalled();
+  });
+
+  it('shows a persistent stale-status warning when initial refresh fails and tries once per account', async () => {
+    refreshMutateAsync.mockRejectedValue(new Error('status refresh failed'));
+    const { rerender } = render(<MatchingPage />);
+
+    expect(
+      await screen.findByText(
+        "매칭 상태를 새로고치지 못했습니다. 목록 상태가 오래되었을 수 있습니다. '상태 새로고침'을 눌러 다시 시도해 주세요.",
+      ),
+    ).toBeInTheDocument();
+    rerender(<MatchingPage />);
+    await waitFor(() => expect(refreshMutateAsync).toHaveBeenCalledTimes(1));
   });
 
   it('resets page for account/status changes and debounces server-side search', async () => {
@@ -274,6 +287,40 @@ describe('/product-hub/matching', () => {
     } as ReturnType<typeof useChannelSkuMappings>);
     rerender(<MatchingPage />);
     expect(screen.getByText('현재 필터에 맞는 채널 SKU가 없습니다.')).toBeInTheDocument();
+  });
+
+  it('prioritizes active status/search filters over zero all-count when showing an empty result', async () => {
+    vi.useFakeTimers();
+    vi.mocked(useChannelSkuMappings).mockReturnValue({
+      data: {
+        ...listResponse,
+        items: [],
+        total: 0,
+        counts: { all: 0, unmatched: 0, needsReview: 0, matched: 0 },
+      },
+      isLoading: false,
+      isFetching: false,
+      error: null,
+      refetch: refetchList,
+    } as ReturnType<typeof useChannelSkuMappings>);
+    render(<MatchingPage />);
+
+    expect(screen.getByText('아직 가져온 Wing 상품 카탈로그가 없습니다.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'status needs_review' }));
+    expect(screen.getByText('현재 필터에 맞는 채널 SKU가 없습니다.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'status all' }));
+    fireEvent.change(screen.getByLabelText('채널 SKU 검색'), {
+      target: { value: '  없는-SKU  ' },
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(vi.mocked(useChannelSkuMappings).mock.lastCall?.[0]).toEqual(
+      expect.objectContaining({ search: '없는-SKU' }),
+    );
+    expect(screen.getByText('현재 필터에 맞는 채널 SKU가 없습니다.')).toBeInTheDocument();
+    expect(screen.queryByText('아직 가져온 Wing 상품 카탈로그가 없습니다.')).not.toBeInTheDocument();
   });
 
   it('passes the selected account to Wing import and opens component editing', async () => {

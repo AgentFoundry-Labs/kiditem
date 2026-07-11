@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MAX_CHANNEL_SKU_COMPONENT_QUANTITY } from '@kiditem/shared/channel-sku-matching';
 import {
   useChannelSkuCandidates,
   useReplaceChannelSkuComponents,
@@ -164,6 +165,27 @@ describe('ChannelSkuComponentDialog', () => {
     expect(screen.getByText('검색 결과')).toBeInTheDocument();
   });
 
+  it('shows candidate query failure with retry before the empty state', async () => {
+    const refetch = vi.fn();
+    vi.mocked(useChannelSkuCandidates).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isFetching: false,
+      error: new Error('후보 조회 실패'),
+      refetch,
+    } as ReturnType<typeof useChannelSkuCandidates>);
+    const user = userEvent.setup();
+
+    renderDialog();
+
+    expect(screen.getByRole('alert')).toHaveTextContent('후보 조회 실패');
+    expect(
+      screen.queryByText('표시할 후보가 없습니다. Sellpia 상품코드나 이름으로 검색해 주세요.'),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '후보 다시 불러오기' }));
+    expect(refetch).toHaveBeenCalledTimes(1);
+  });
+
   it('shows reported stock only as text and never exposes a stock input', () => {
     renderDialog();
 
@@ -268,6 +290,23 @@ describe('ChannelSkuComponentDialog', () => {
       expect(mutateAsync).not.toHaveBeenCalled();
     },
   );
+
+  it('shows the shared database quantity maximum inline without throwing', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    fireEvent.change(screen.getByLabelText('SP-001 수량'), {
+      target: { value: String(MAX_CHANNEL_SKU_COMPONENT_QUANTITY + 1) },
+    });
+
+    await user.click(screen.getByRole('button', { name: '구성 저장' }));
+
+    expect(
+      screen.getByText(
+        `수량은 1 이상 ${MAX_CHANNEL_SKU_COMPONENT_QUANTITY} 이하의 정수여야 합니다.`,
+      ),
+    ).toBeInTheDocument();
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
 
   it('disables normal save for an empty draft', () => {
     renderDialog(item({ components: [] }));

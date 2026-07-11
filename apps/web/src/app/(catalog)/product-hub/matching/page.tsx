@@ -20,6 +20,8 @@ import type { ChannelSkuMappingCounts, ChannelSkuMappingListItem } from '@kidite
 
 const PAGE_LIMIT = 50;
 const SEARCH_DEBOUNCE_MS = 300;
+const STALE_STATUS_WARNING =
+  "매칭 상태를 새로고치지 못했습니다. 목록 상태가 오래되었을 수 있습니다. '상태 새로고침'을 눌러 다시 시도해 주세요.";
 const EMPTY_COUNTS: ChannelSkuMappingCounts = {
   all: 0,
   unmatched: 0,
@@ -35,6 +37,7 @@ export default function MatchingPage() {
   const [page, setPage] = useState(1);
   const [importOpen, setImportOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<ChannelSkuMappingListItem | null>(null);
+  const [statusRefreshWarning, setStatusRefreshWarning] = useState<string | null>(null);
 
   const accountsQuery = useChannelAccounts();
   const wingAccounts = useMemo(
@@ -75,25 +78,39 @@ export default function MatchingPage() {
     if (!selectedAccount?.id || lastAutoRefreshAccountId.current === selectedAccount.id) {
       return;
     }
-    lastAutoRefreshAccountId.current = selectedAccount.id;
-    refreshStatuses.mutate({ channelAccountId: selectedAccount.id });
-  }, [refreshStatuses.mutate, selectedAccount?.id]);
+    const channelAccountId = selectedAccount.id;
+    lastAutoRefreshAccountId.current = channelAccountId;
+    void refreshStatuses
+      .mutateAsync({ channelAccountId })
+      .then(() => {
+        if (lastAutoRefreshAccountId.current === channelAccountId) {
+          setStatusRefreshWarning(null);
+        }
+      })
+      .catch(() => {
+        if (lastAutoRefreshAccountId.current === channelAccountId) {
+          setStatusRefreshWarning(STALE_STATUS_WARNING);
+        }
+      });
+  }, [refreshStatuses.mutateAsync, selectedAccount?.id]);
 
   const handleManualRefresh = async () => {
     if (!selectedAccount) return;
     try {
       await refreshStatuses.mutateAsync({ channelAccountId: selectedAccount.id });
-      await mappingsQuery.refetch();
+      setStatusRefreshWarning(null);
       toast.success('매칭 상태를 새로고침했습니다.');
     } catch (error) {
+      setStatusRefreshWarning(STALE_STATUS_WARNING);
       toast.error(friendlyError(error) ?? '매칭 상태 새로고침에 실패했습니다.');
     }
   };
 
   const data = mappingsQuery.data;
   const counts = data?.counts ?? EMPTY_COUNTS;
+  const hasActiveFilter = mappingStatus !== 'all' || debouncedSearch.length > 0;
   const emptyMessage =
-    counts.all === 0
+    !hasActiveFilter && counts.all === 0
       ? '아직 가져온 Wing 상품 카탈로그가 없습니다.'
       : '현재 필터에 맞는 채널 SKU가 없습니다.';
   const isRefreshing = mappingsQuery.isFetching && !mappingsQuery.isLoading;
@@ -203,6 +220,11 @@ export default function MatchingPage() {
       {mappingsQuery.error ? (
         <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {friendlyError(mappingsQuery.error)}
+        </p>
+      ) : null}
+      {statusRefreshWarning ? (
+        <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+          {statusRefreshWarning}
         </p>
       ) : null}
       {isRefreshing ? (
