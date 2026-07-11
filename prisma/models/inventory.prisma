@@ -1,6 +1,35 @@
 // inventory.prisma — Inventory domain
 
 /// @namespace Inventory
+/// @describe Sellpia 상품코드 한 행에 대응하는 물리 재고 SKU. reportedStock 은 완료된 Sellpia 전체 스냅샷만 교체한다.
+model InventorySku {
+  id                 String  @id @default(uuid()) @db.Uuid
+  organizationId     String  @map("organization_id") @db.Uuid
+  sellpiaProductCode String  @map("sellpia_product_code")
+  name               String
+  optionName         String? @map("option_name")
+  barcode            String?
+  reportedStock      Int     @default(0) @map("reported_stock")
+  purchasePrice      Int?    @map("purchase_price")
+  salePrice          Int?    @map("sale_price")
+  rawJson            Json?   @map("raw_json")
+  lastImportRunId    String? @map("last_import_run_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lastImportRun SourceImportRun?      @relation(fields: [lastImportRunId], references: [id], onDelete: SetNull)
+  components    ChannelSkuComponent[]
+
+  @@unique([organizationId, sellpiaProductCode])
+  @@unique([id, organizationId])
+  @@index([organizationId, barcode])
+  @@index([lastImportRunId])
+  @@map("inventory_skus")
+}
+
+/// @namespace Inventory
 /// @describe ProductOption 에 1:1. Bundle option 은 inventory 미생성 (availableStock 계산값 사용).
 model Inventory {
   id             String @id @default(uuid()) @db.Uuid

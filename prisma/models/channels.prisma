@@ -10,6 +10,31 @@
 // C3 daily upserts, C4 strategy reads) wire ingestion paths.
 
 /// @namespace Channels
+/// @describe 채널 판매 SKU가 소비하는 Sellpia InventorySku 구성과 수량. 확정 매칭의 유일한 source of truth.
+model ChannelSkuComponent {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  channelSkuId   String  @map("channel_sku_id") @db.Uuid
+  inventorySkuId String  @map("inventory_sku_id") @db.Uuid
+  quantity       Int
+  mappingSource  String? @map("mapping_source")
+  createdBy      String? @map("created_by")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelSku   ChannelListingOption @relation(fields: [channelSkuId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  inventorySku InventorySku         @relation(fields: [inventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([channelSkuId, inventorySkuId])
+  @@index([organizationId])
+  @@index([channelSkuId])
+  @@index([inventorySkuId])
+  @@map("channel_sku_components")
+}
+
+/// @namespace Channels
 /// @describe 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장.
 model ChannelScrapeRun {
   id             String @id @default(uuid()) @db.Uuid

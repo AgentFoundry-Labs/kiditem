@@ -13,6 +13,7 @@ model Organization {
   memberships                     OrganizationMembership[]
   legalEntities                   LegalEntity[]
   channelAccounts                 ChannelAccount[]
+  sourceImportRuns                SourceImportRun[]
   orders                          Order[]
   purchaseOrders                  PurchaseOrder[]
   profitLoss                      ProfitLoss[]
@@ -123,6 +124,8 @@ model Organization {
   channelListingOptions ChannelListingOption[]
   bundleComponents      BundleComponent[]
   inventory             Inventory[]
+  inventorySkus         InventorySku[]
+  channelSkuComponents  ChannelSkuComponent[]
 
   // Channels — market-data snapshots (Wave C0)
   channelScrapeRuns                  ChannelScrapeRun[]
@@ -259,13 +262,46 @@ model ChannelAccount {
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  listings     ChannelListing[]
+  organization     Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  listings         ChannelListing[]
+  listingOptions   ChannelListingOption[]
+  sourceImportRuns SourceImportRun[]
 
   @@unique([organizationId, channel, externalAccountId])
   @@index([organizationId, channel])
   @@index([organizationId, isPrimary])
   @@map("channel_accounts")
+}
+
+/// @namespace Core
+/// @describe 원본 파일의 idempotency와 provenance만 저장하는 import 실행 행.
+model SourceImportRun {
+  id               String    @id @default(uuid()) @db.Uuid
+  organizationId   String    @map("organization_id") @db.Uuid
+  sourceType       String    @map("source_type")
+  channelAccountId String?   @map("channel_account_id") @db.Uuid
+  fileName         String    @map("file_name")
+  fileHash         String    @map("file_hash")
+  status           String    @default("running")
+  rowCount         Int       @default(0) @map("row_count")
+  importedAt       DateTime? @map("imported_at") @db.Timestamptz
+  createdBy        String?   @map("created_by")
+  attemptToken     String    @default(uuid()) @map("attempt_token") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization    Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount  ChannelAccount?        @relation(fields: [channelAccountId], references: [id], onDelete: SetNull)
+  inventorySkus   InventorySku[]
+  channelProducts ChannelListing[]       @relation("ChannelProductLastImport")
+  channelSkus     ChannelListingOption[] @relation("ChannelSkuLastImport")
+
+  @@unique([organizationId, sourceType, channelAccountId, fileHash], map: "source_import_runs_org_source_account_hash_key", where: raw("channel_account_id IS NOT NULL"))
+  @@unique([organizationId, sourceType, fileHash], map: "source_import_runs_org_source_hash_null_account_key", where: raw("channel_account_id IS NULL"))
+  @@index([organizationId, sourceType, status, createdAt])
+  @@index([channelAccountId])
+  @@map("source_import_runs")
 }
 
 /// @namespace Core
@@ -497,15 +533,21 @@ model ProductOption {
 /// @describe 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등.
 model ChannelListing {
   id               String  @id @default(uuid()) @db.Uuid
-  masterId         String  @map("master_id") @db.Uuid
+  masterId         String? @map("master_id") @db.Uuid
   organizationId   String  @map("organization_id") @db.Uuid
   channelAccountId String? @map("channel_account_id") @db.Uuid
 
   channel    String
   externalId String @map("external_id")
 
-  channelName  String? @map("channel_name")
-  channelPrice Int?    @map("channel_price")
+  channelName     String? @map("channel_name")
+  channelPrice    Int?    @map("channel_price")
+  displayName     String? @map("display_name")
+  category        String?
+  brand           String?
+  manufacturer    String?
+  rawJson         Json?   @map("raw_json")
+  lastImportRunId String? @map("last_import_run_id") @db.Uuid
 
   status         String?
   exposureStatus String? @map("exposure_status")
@@ -521,10 +563,12 @@ model ChannelListing {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  master         MasterProduct          @relation(fields: [masterId], references: [id], onDelete: Restrict)
+  master         MasterProduct?         @relation(fields: [masterId], references: [id], onDelete: Restrict)
   organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   channelAccount ChannelAccount?        @relation(fields: [channelAccountId], references: [id], onDelete: SetNull)
+  lastImportRun  SourceImportRun?       @relation("ChannelProductLastImport", fields: [lastImportRunId], references: [id], onDelete: SetNull)
   options        ChannelListingOption[]
+  scopedSkus     ChannelListingOption[] @relation("ChannelSkuScopedProduct")
 
   reviews            Review[]
   thumbnails         Thumbnail[]
@@ -545,9 +589,11 @@ model ChannelListing {
   channelAdTargetDailySnapshots ChannelAdTargetDailySnapshot[]
 
   @@unique([organizationId, channelAccountId, externalId], map: "channel_listings_org_account_external_id_key", where: raw("is_deleted = false AND channel_account_id IS NOT NULL"))
+  @@unique([id, organizationId, channelAccountId], map: "channel_listings_id_org_account_key")
   @@index([organizationId])
   @@index([masterId])
   @@index([channelAccountId])
+  @@index([lastImportRunId])
   @@index([channel, isDeleted])
   @@index([masterId, isDeleted])
   @@index([organizationId, channelAccountId, isDeleted])
@@ -561,14 +607,22 @@ model ChannelListing {
 /// @namespace Core
 /// @describe 채널 listing 내 옵션 externalOptionId 와 내부 ProductOption 매핑.
 model ChannelListingOption {
-  id             String  @id @default(uuid()) @db.Uuid
-  listingId      String  @map("listing_id") @db.Uuid
-  optionId       String? @map("option_id") @db.Uuid
-  organizationId String  @map("organization_id") @db.Uuid
+  id               String  @id @default(uuid()) @db.Uuid
+  listingId        String  @map("listing_id") @db.Uuid
+  optionId         String? @map("option_id") @db.Uuid
+  organizationId   String  @map("organization_id") @db.Uuid
+  channelAccountId String? @map("channel_account_id") @db.Uuid
 
   externalOptionId String  @map("external_option_id") @db.VarChar(60)
   itemName         String? @map("item_name")
   salePrice        Int?    @map("sale_price")
+  sellerSku        String? @map("seller_sku")
+  barcode          String?
+  modelNumber      String? @map("model_number")
+  status           String?
+  mappingStatus    String  @default("unmatched") @map("mapping_status")
+  rawJson          Json?   @map("raw_json")
+  lastImportRunId  String? @map("last_import_run_id") @db.Uuid
 
   isActive    Boolean @default(true) @map("is_active")
   isUnmatched Boolean @default(false) @map("is_unmatched")
@@ -577,8 +631,12 @@ model ChannelListingOption {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   listing        ChannelListing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  option         ProductOption?  @relation(fields: [optionId], references: [id], onDelete: SetNull)
-  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scopedProduct ChannelListing? @relation("ChannelSkuScopedProduct", fields: [listingId, organizationId, channelAccountId], references: [id, organizationId, channelAccountId], onDelete: Cascade)
+  option         ProductOption?       @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount ChannelAccount?      @relation(fields: [channelAccountId], references: [id], onDelete: SetNull)
+  lastImportRun  SourceImportRun?     @relation("ChannelSkuLastImport", fields: [lastImportRunId], references: [id], onDelete: SetNull)
+  components     ChannelSkuComponent[]
   orderLineItems OrderLineItem[]
 
   // Channels — market-data snapshots (Wave C0)
@@ -589,10 +647,15 @@ model ChannelListingOption {
   channelAdTargetDailySnapshots ChannelAdTargetDailySnapshot[]
 
   @@unique([listingId, externalOptionId])
+  @@unique([id, organizationId], map: "channel_listing_options_id_org_key")
+  @@unique([organizationId, channelAccountId, externalOptionId], map: "channel_listing_options_org_account_external_option_key")
   @@index([organizationId, externalOptionId])
   @@index([optionId])
   @@index([externalOptionId])
   @@index([organizationId, isUnmatched])
+  @@index([channelAccountId])
+  @@index([organizationId, channelAccountId, mappingStatus])
+  @@index([lastImportRunId])
   @@map("channel_listing_options")
 }
 
