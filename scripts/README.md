@@ -39,8 +39,6 @@ npm run test:scripts
 | `scripts/dev-data.ts` | dev data bundle CLI | `npm run data:dev:*` |
 | `scripts/generate-prisma-erd.mjs` | Prisma ERD markdown generator | `npm run db:erd` |
 | `scripts/generate-schema-graphify.py` | Graphify schema export generator | `npm run graphify:schema` |
-| `scripts/import-baseline-planner.ts` | pure planner used by product baseline import | `scripts/import-product-baseline.ts` |
-| `scripts/import-product-baseline.ts` | Drive reference workbook import | `npm run import:product-baseline` |
 | `scripts/prepare-coupang-extension.mjs` | staging browser-extension setup helper | `docs/runbooks/staging-deploy.md` |
 | `scripts/run-data-migrations.ts` | durable data migration runner; migration units live under root `VERSION` release folders such as `scripts/data-migrations/v0.1.0/` and record `data_migration_runs` ledger rows | `npm run data:migrate`, `docs/runbooks/staging-deploy.md` |
 | `scripts/seed-agent-os.ts` | local/dev Agent OS runtime seed wrapper | `npm run seed:agent-os` |
@@ -61,6 +59,8 @@ npm run test:scripts
 ## Retired
 
 The old marketplace SQL seed, Langfuse DB init SQL, ad/traffic market-data
-seeds, and agent prompt SQL migrations are intentionally not present. If a
-workflow needs one again, add it back as a named package script or runbook step
-and update this inventory in the same PR.
+seeds, agent prompt SQL migrations, and matched-workbook database importer are
+intentionally not present. Reference files may remain in dev-data bundles, but
+owner runtime upload endpoints are the source-of-truth import paths. If a
+workflow needs a durable script again, add it back as a named package script or
+runbook step and update this inventory in the same PR.

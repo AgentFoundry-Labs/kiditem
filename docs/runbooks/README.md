@@ -42,8 +42,9 @@ Current runbooks:
   image sync and Wing thumbnail registration.
 - [Google Drive Dev Data](google-drive-dev-data.md) — set up `KidItem Dev Data`
   through Google Drive Desktop for profile sync and Coupang bundle replay.
-- [Import Drive Reference Data](import-drive-reference-data.md) — load Drive
-  `references/kiditem_list.xlsx` and `references/wing-inventory-matched.xlsx`
-  into local DB baseline tables.
 - [Coupang Scraper Publish](coupang-scraper-publish.md) — export scraper output
   JSON files into a replayable bundle and publish it to Google Drive.
+
+Dev-data bundles may still carry reference workbooks for inspection and replay.
+Database source imports run through their owner runtime upload endpoints rather
+than a standalone workbook importer.
