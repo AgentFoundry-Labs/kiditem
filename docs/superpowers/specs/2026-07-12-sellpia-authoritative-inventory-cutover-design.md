@@ -99,11 +99,9 @@ Rules:
 
 - keep unique `(organizationId, sellpiaProductCode)`;
 - keep non-unique barcode behavior;
-- expose the Prisma/API property as `currentStock` while mapping it to the
-  existing physical `reported_stock` column during this cutover;
-- retain that physical column name as an internal blue-green compatibility
-  detail so the previous runtime and rollback image continue to work while the
-  database-first deployment is in progress;
+- map the Prisma property to physical column `current_stock`;
+- rebuild the development database from the target schema instead of carrying
+  forward the temporary `reported_stock` compatibility column;
 - current stock and non-null prices are non-negative;
 - `lastImportRunId` identifies the import that last updated or zeroed the row;
 - no ProductOption, reservation, warehouse balance, or reorder relation is
@@ -120,12 +118,9 @@ Reuse names only when meaning remains the same:
 | Keep as new source identity | `sellpiaProductCode`, `lastImportRunId`, `rawJson` |
 | Retire | `optionId`, `reservedStock`, `safetyStock`, `reorderPoint`, `reorderQuantity`, `dailySalesAvg`, `warehouseLocation`, `lastRestockedAt` |
 
-The physical column name is not part of the public domain contract. Renaming it
-in place before the application image switch would break the previous runtime,
-so a physical rename is intentionally not required. The legacy `Inventory`
-model is not repurposed. Its ProductOption identity, mutation semantics, and
-foreign keys would make the new model appear to support behaviors that no
-longer exist.
+The legacy `Inventory` model is not repurposed. Its ProductOption identity,
+mutation semantics, and foreign keys would make the new model appear to support
+behaviors that no longer exist.
 
 ### Channel Availability Projection
 
@@ -287,8 +282,8 @@ final cross-phase review, rather than many overlapping micro-reviews.
 
 ### Phase 1: Owner Contract and Current Snapshot
 
-- rename the InventorySku Prisma/API property to `currentStock` without moving
-  or rewriting the physical `reported_stock` values;
+- rename the InventorySku Prisma/API property and physical column to
+  `currentStock` / `current_stock`;
 - add shared current-snapshot and import-run read contracts;
 - add tenant-scoped paginated Inventory reads;
 - add mapping-aware channel availability projection;
@@ -302,20 +297,15 @@ final cross-phase review, rather than many overlapping micro-reviews.
 - remove all UI mutation controls and invalidate projections after import;
 - retain routes and navigation destinations.
 
-### Phase 3: Runtime Contract Removal
+### Phase 3: Contract and Schema Removal
 
 - prove the legacy consumer count is zero;
 - remove legacy services, controllers, ports, policies, shared schemas, and
   frontend code;
 - migrate or remove legacy foreign keys;
+- remove the retired models, tables, and columns from the target development
+  schema;
 - update architecture, ERD, runbooks, and schema guards.
-
-Compatibility-only Prisma models and physical tables may remain through this
-release when the database-first blue-green deployment or rollback image still
-references them. They have no registered controller, provider, exported port,
-or production consumer. A later contract deployment may drop them only after
-the immediately previous runtime also has zero references; it must not perform
-an in-place rename or drop that breaks the live old image.
 
 The release migration must preserve Sellpia InventorySku identities,
 ChannelSkuComponent recipes, current quantities, source import runs, and
@@ -339,17 +329,15 @@ historical business records selected for retention.
 
 ### Contract and Database
 
-- existing physical `reported_stock` values are exposed unchanged through the
-  `currentStock` Prisma/API property;
+- the clean target schema contains `inventory_skus.current_stock` and does not
+  contain `inventory_skus.reported_stock`;
 - one valid Sellpia code remains one InventorySku;
 - importing the approved workbook produces 1,964 current snapshot rows in a
   clean organization;
 - absent known codes become zero without deleting component recipes;
 - no non-import path can update `InventorySku.currentStock`;
 - every single-resource and list read is organization-scoped;
-- legacy runtime code is deleted after the consumer guard reaches zero, while
-  physical drops additionally require a blue-green compatibility check against
-  the immediately previous runtime.
+- legacy inventory models and tables are absent after the development reset.
 
 ### Availability
 
@@ -390,3 +378,23 @@ historical business records selected for retention.
   decision remains in this cutover.
 - No historical movement model is introduced merely to imitate the old
   receipt/issue screens.
+
+## Development Database Reset
+
+This cutover targets a disposable development database. It deliberately uses a
+clean database rebuild instead of a backward-compatible production migration.
+
+Safety requirements:
+
+- inspect the effective `DATABASE_URL` immediately before reset;
+- refuse hosts or database names that look like staging or production;
+- reset only the explicitly confirmed local/development database;
+- never use `git reset --hard`; this decision concerns database data only;
+- preserve the source workbook files outside the database;
+- after schema creation, import the approved Sellpia and Coupang workbooks
+  through the real application import paths;
+- verify expected counts and the rendered screens after import.
+
+If this work is later promoted to a persistent shared environment, it requires
+a separate deployment design. The destructive development reset is not a
+production migration procedure.
