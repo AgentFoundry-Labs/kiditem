@@ -208,6 +208,7 @@ describe('AgentConversationService', () => {
     expect(error).toBeInstanceOf(ServiceUnavailableException);
     expect((error as ServiceUnavailableException).getStatus()).toBe(503);
     expect((error as ServiceUnavailableException).getResponse()).toMatchObject({
+      error: 'agent_operator_unavailable',
       code: 'agent_operator_unavailable',
       reason: 'agent_instance_not_found',
     });
@@ -241,6 +242,7 @@ describe('AgentConversationService', () => {
 
     expect(error).toBeInstanceOf(ServiceUnavailableException);
     expect((error as ServiceUnavailableException).getResponse()).toMatchObject({
+      error: 'agent_operator_unavailable',
       code: 'agent_operator_unavailable',
       reason: 'agent_instance_paused',
     });

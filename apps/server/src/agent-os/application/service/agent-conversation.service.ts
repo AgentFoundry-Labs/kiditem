@@ -57,6 +57,7 @@ function requireOperatorRequestId(result: AgentRunnerResult): string {
   if (result.ok && result.requestId) return result.requestId;
 
   throw new ServiceUnavailableException({
+    error: 'agent_operator_unavailable',
     code: 'agent_operator_unavailable',
     message: 'Operator is not configured for this organization.',
     reason: result.reason ?? 'operator_request_not_created',
