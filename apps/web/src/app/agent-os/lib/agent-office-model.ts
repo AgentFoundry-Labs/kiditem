@@ -3,48 +3,44 @@ import type {
   AgentAuthorizationEventSummary,
   AgentConversationSummary,
   AgentCostEventSummary,
-  AgentInstanceSummary,
+  AgentRosterConfigurationStatus,
+  AgentRosterItem,
+  AgentRosterRuntime,
   AgentRunRequestSummary,
   AgentRunSummary,
-} from '@kiditem/shared/agent-os';
-import {
-  resolveAgentUnitTaxonomy,
-  type AgentUnitOperationalRole,
-} from './agent-unit-taxonomy';
+} from "@kiditem/shared/agent-os";
 
 export type AgentOfficeNodeStatus =
-  | 'working'
-  | 'waiting'
-  | 'blocked'
-  | 'idle'
-  | 'offline';
+  "working" | "waiting" | "blocked" | "idle" | "offline";
 
 export interface AgentOfficeNode {
   id: string;
+  instanceId: string | null;
   name: string;
   agentType: string;
-  title: string | null;
   displayName: string;
   responsibility: string;
+  configurationStatus: AgentRosterConfigurationStatus;
   status: AgentOfficeNodeStatus;
   activeRunCount: number;
   pendingApprovalCount: number;
   lastActivityAt: string | null;
-  trustLevel: number;
-  adapterType: string;
-  effectiveModel: string;
+  trustLevel: number | null;
+  adapterType: string | null;
+  effectiveModel: string | null;
   capabilities: AgentOfficeCapability[];
 }
 
 export interface AgentOfficeCapability {
   id: string;
+  instanceId: string | null;
   name: string;
   agentType: string;
-  title: string | null;
   displayName: string;
   responsibility: string;
   ownerAgentType: string | null;
   ownerNodeId: string | null;
+  configurationStatus: AgentRosterConfigurationStatus;
   status: AgentOfficeNodeStatus;
   activeRunCount: number;
   pendingApprovalCount: number;
@@ -54,12 +50,7 @@ export interface AgentOfficeCapability {
 export interface AgentOfficeActivity {
   id: string;
   kind:
-    | 'run'
-    | 'request'
-    | 'approval'
-    | 'cost'
-    | 'authorization'
-    | 'conversation';
+    "run" | "request" | "approval" | "cost" | "authorization" | "conversation";
   label: string;
   status: string;
   occurredAt: string;
@@ -84,7 +75,7 @@ export interface AgentOfficeViewModel {
 }
 
 export interface BuildAgentOfficeModelInput {
-  instances: AgentInstanceSummary[];
+  roster: AgentRosterItem[];
   runs: AgentRunSummary[];
   requests: AgentRunRequestSummary[];
   approvals: AgentApprovalRequestSummary[];
@@ -96,14 +87,15 @@ export interface BuildAgentOfficeModelInput {
 
 interface AgentOfficeUnit {
   id: string;
+  instanceId: string | null;
   name: string;
   agentType: string;
-  title: string | null;
   displayName: string;
   responsibility: string;
-  role: AgentUnitOperationalRole;
+  role: "employee" | "capability";
   ownerAgentType: string | null;
-  instance: AgentInstanceSummary;
+  configurationStatus: AgentRosterConfigurationStatus;
+  runtime: AgentRosterRuntime | null;
   activeRunCount: number;
   waitingRequestCount: number;
   pendingApprovalCount: number;
@@ -113,23 +105,28 @@ interface AgentOfficeUnit {
 
 function latestDate(values: Array<string | null | undefined>): string | null {
   const sorted = values
-    .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    .filter(
+      (value): value is string => typeof value === "string" && value.length > 0,
+    )
     .sort((a, b) => Date.parse(b) - Date.parse(a));
 
   return sorted[0] ?? null;
 }
 
-function statusFor(input: {
-  instance: AgentInstanceSummary;
+export function resolveAgentOfficeNodeStatus(input: {
+  runtime: AgentRosterRuntime | null;
+  configurationStatus: AgentRosterConfigurationStatus;
   activeRunCount: number;
   waitingRequestCount: number;
   pendingApprovalCount: number;
 }): AgentOfficeNodeStatus {
-  if (input.instance.lifecycleStatus !== 'active') return 'offline';
-  if (input.pendingApprovalCount > 0) return 'blocked';
-  if (input.activeRunCount > 0) return 'working';
-  if (input.waitingRequestCount > 0) return 'waiting';
-  return 'idle';
+  if (input.runtime === null) return "offline";
+  if (input.configurationStatus !== "ready") return "offline";
+  if (input.runtime.lifecycleStatus !== "active") return "offline";
+  if (input.pendingApprovalCount > 0) return "blocked";
+  if (input.activeRunCount > 0) return "working";
+  if (input.waitingRequestCount > 0) return "waiting";
+  return "idle";
 }
 
 function activityTime(activity: AgentOfficeActivity): number {
@@ -165,79 +162,89 @@ export function buildAgentOfficeModel(
     ]);
   }
 
-  const units: AgentOfficeUnit[] = input.instances.map((instance) => {
-    const runs = runsByAgent.get(instance.id) ?? [];
-    const requests = requestsByAgent.get(instance.id) ?? [];
-    const approvals = approvalsByAgent.get(instance.id) ?? [];
-    const taxonomy = resolveAgentUnitTaxonomy({
-      type: instance.type,
-      name: instance.name,
-      role: instance.role,
-      title: instance.title,
-    });
-    const runningRunCount = runs.filter((run) => run.status === 'running').length;
-    const claimedRequestCount = requests.filter(
-      (request) => request.status === 'claimed',
-    ).length;
-    const activeRunCount =
-      runningRunCount > 0 ? runningRunCount : claimedRequestCount;
-    const waitingRequestCount = requests.filter(
-      (request) => request.status === 'pending',
-    ).length;
-    const pendingApprovalCount = approvals.filter(
-      (approval) => approval.status === 'pending',
-    ).length;
+  const units: AgentOfficeUnit[] = [...input.roster]
+    .sort(
+      (left, right) =>
+        left.definition.officeOrder - right.definition.officeOrder,
+    )
+    .map((item) => {
+      const { definition, runtime } = item;
+      const instanceId = runtime?.instanceId ?? null;
+      const runs = instanceId ? (runsByAgent.get(instanceId) ?? []) : [];
+      const requests = instanceId
+        ? (requestsByAgent.get(instanceId) ?? [])
+        : [];
+      const approvals = instanceId
+        ? (approvalsByAgent.get(instanceId) ?? [])
+        : [];
+      const runningRunCount = runs.filter(
+        (run) => run.status === "running",
+      ).length;
+      const claimedRequestCount = requests.filter(
+        (request) => request.status === "claimed",
+      ).length;
+      const activeRunCount =
+        runningRunCount > 0 ? runningRunCount : claimedRequestCount;
+      const waitingRequestCount = requests.filter(
+        (request) => request.status === "pending",
+      ).length;
+      const pendingApprovalCount = approvals.filter(
+        (approval) => approval.status === "pending",
+      ).length;
 
-    return {
-      id: instance.id,
-      name: instance.name,
-      agentType: instance.type,
-      title: instance.title,
-      displayName: taxonomy.displayName,
-      responsibility: taxonomy.responsibility,
-      role: taxonomy.role,
-      ownerAgentType: taxonomy.ownerAgentType,
-      instance,
-      status: statusFor({
-        instance,
+      return {
+        id: definition.type,
+        instanceId,
+        name: definition.name,
+        agentType: definition.type,
+        displayName: definition.displayName,
+        responsibility: definition.responsibility,
+        role: definition.operationalRole,
+        ownerAgentType: definition.ownerAgentType,
+        configurationStatus: item.configurationStatus,
+        runtime,
         activeRunCount,
         waitingRequestCount,
         pendingApprovalCount,
-      }),
-      activeRunCount,
-      waitingRequestCount,
-      pendingApprovalCount,
-      lastActivityAt: latestDate([
-        ...runs.map((run) => run.finishedAt ?? run.startedAt),
-        ...requests.map(
-          (request) =>
-            request.finishedAt ??
-            request.claimedAt ??
-            request.scheduledFor ??
-            request.createdAt,
-        ),
-        ...approvals.map((approval) => approval.updatedAt),
-      ]),
-    };
-  });
+        lastActivityAt: latestDate([
+          ...runs.map((run) => run.finishedAt ?? run.startedAt),
+          ...requests.map(
+            (request) =>
+              request.finishedAt ??
+              request.claimedAt ??
+              request.scheduledFor ??
+              request.createdAt,
+          ),
+          ...approvals.map((approval) => approval.updatedAt),
+        ]),
+        status: resolveAgentOfficeNodeStatus({
+          runtime,
+          configurationStatus: item.configurationStatus,
+          activeRunCount,
+          waitingRequestCount,
+          pendingApprovalCount,
+        }),
+      };
+    });
 
-  const employeeUnits = units.filter((unit) => unit.role === 'employee');
-  const capabilityUnits = units.filter((unit) => unit.role === 'capability');
+  const employeeUnits = units.filter((unit) => unit.role === "employee");
+  const capabilityUnits = units.filter((unit) => unit.role === "capability");
   const nodeIdByAgentType = new Map(
     employeeUnits.map((unit) => [unit.agentType, unit.id]),
   );
 
   const capabilities: AgentOfficeCapability[] = capabilityUnits.map((unit) => ({
     id: unit.id,
+    instanceId: unit.instanceId,
     name: unit.name,
     agentType: unit.agentType,
-    title: unit.title,
     displayName: unit.displayName,
     responsibility: unit.responsibility,
     ownerAgentType: unit.ownerAgentType,
     ownerNodeId: unit.ownerAgentType
-      ? nodeIdByAgentType.get(unit.ownerAgentType) ?? null
+      ? (nodeIdByAgentType.get(unit.ownerAgentType) ?? null)
       : null,
+    configurationStatus: unit.configurationStatus,
     status: unit.status,
     activeRunCount: unit.activeRunCount,
     pendingApprovalCount: unit.pendingApprovalCount,
@@ -253,7 +260,7 @@ export function buildAgentOfficeModel(
     ]);
   }
 
-  const nodes = employeeUnits.map((unit) => {
+  const nodes: AgentOfficeNode[] = employeeUnits.map((unit) => {
     const ownedCapabilities = capabilitiesByOwnerNodeId.get(unit.id) ?? [];
     const activeRunCount =
       unit.activeRunCount +
@@ -268,22 +275,20 @@ export function buildAgentOfficeModel(
         0,
       );
     const capabilityWaitingCount = capabilityUnits
-      .filter(
-        (capability) =>
-          capability.ownerAgentType === unit.agentType &&
-          nodeIdByAgentType.get(capability.ownerAgentType) === unit.id,
-      )
+      .filter((capability) => capability.ownerAgentType === unit.agentType)
       .reduce((sum, capability) => sum + capability.waitingRequestCount, 0);
 
     return {
       id: unit.id,
+      instanceId: unit.instanceId,
       name: unit.name,
       agentType: unit.agentType,
-      title: unit.title,
       displayName: unit.displayName,
       responsibility: unit.responsibility,
-      status: statusFor({
-        instance: unit.instance,
+      configurationStatus: unit.configurationStatus,
+      status: resolveAgentOfficeNodeStatus({
+        runtime: unit.runtime,
+        configurationStatus: unit.configurationStatus,
         activeRunCount,
         waitingRequestCount: unit.waitingRequestCount + capabilityWaitingCount,
         pendingApprovalCount,
@@ -294,9 +299,9 @@ export function buildAgentOfficeModel(
         unit.lastActivityAt,
         ...ownedCapabilities.map((capability) => capability.lastActivityAt),
       ]),
-      trustLevel: unit.instance.trustLevel,
-      adapterType: unit.instance.adapterType,
-      effectiveModel: unit.instance.effectiveModel,
+      trustLevel: unit.runtime?.trustLevel ?? null,
+      adapterType: unit.runtime?.adapterType ?? null,
+      effectiveModel: unit.runtime?.effectiveModel ?? null,
       capabilities: ownedCapabilities,
     };
   });
@@ -304,7 +309,7 @@ export function buildAgentOfficeModel(
   const activities: AgentOfficeActivity[] = [
     ...input.runs.map((run) => ({
       id: run.id,
-      kind: 'run' as const,
+      kind: "run" as const,
       label: `실행 ${run.status}`,
       status: run.status,
       occurredAt: run.finishedAt ?? run.startedAt,
@@ -312,7 +317,7 @@ export function buildAgentOfficeModel(
     })),
     ...input.requests.map((request) => ({
       id: request.id,
-      kind: 'request' as const,
+      kind: "request" as const,
       label: `요청 ${request.status}`,
       status: request.status,
       occurredAt:
@@ -324,15 +329,15 @@ export function buildAgentOfficeModel(
     })),
     ...input.approvals.map((approval) => ({
       id: approval.id,
-      kind: 'approval' as const,
-      label: approval.reason ?? approval.reasonCode ?? '승인 요청',
+      kind: "approval" as const,
+      label: approval.reason ?? approval.reasonCode ?? "승인 요청",
       status: approval.status,
       occurredAt: approval.updatedAt,
       agentInstanceId: approval.agentInstanceId,
     })),
     ...input.costEvents.map((event) => ({
       id: event.id,
-      kind: 'cost' as const,
+      kind: "cost" as const,
       label: `${event.provider} ${event.costMicros}µ`,
       status: event.model,
       occurredAt: event.occurredAt,
@@ -340,7 +345,7 @@ export function buildAgentOfficeModel(
     })),
     ...input.authorizationEvents.map((event) => ({
       id: event.id,
-      kind: 'authorization' as const,
+      kind: "authorization" as const,
       label: event.reason ?? event.action,
       status: event.decision,
       occurredAt: event.createdAt,
@@ -348,7 +353,7 @@ export function buildAgentOfficeModel(
     })),
     ...input.conversations.map((conversation) => ({
       id: conversation.id,
-      kind: 'conversation' as const,
+      kind: "conversation" as const,
       label: conversation.title,
       status: conversation.status,
       occurredAt: conversation.lastMessageAt ?? conversation.updatedAt,
@@ -364,13 +369,13 @@ export function buildAgentOfficeModel(
       agents: nodes.length,
       employees: nodes.length,
       capabilities: capabilities.length,
-      working: nodes.filter((node) => node.status === 'working').length,
-      waiting: nodes.filter((node) => node.status === 'waiting').length,
-      blocked: nodes.filter((node) => node.status === 'blocked').length,
+      working: nodes.filter((node) => node.status === "working").length,
+      waiting: nodes.filter((node) => node.status === "waiting").length,
+      blocked: nodes.filter((node) => node.status === "blocked").length,
       pendingApprovals: input.approvals.filter(
-        (approval) => approval.status === 'pending',
+        (approval) => approval.status === "pending",
       ).length,
-      runningRuns: input.runs.filter((run) => run.status === 'running').length,
+      runningRuns: input.runs.filter((run) => run.status === "running").length,
       totalCostMicros: input.totalCostMicros,
     },
   };
