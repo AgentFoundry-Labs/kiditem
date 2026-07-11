@@ -23,8 +23,7 @@ describe('BundleComponentsService tenant boundary internals', () => {
       lockBundleOptionRow: vi.fn().mockResolvedValue(undefined),
       updateBundleComponentQty: vi.fn().mockResolvedValue(1),
     };
-    const bundleStock = { recompute: vi.fn().mockResolvedValue(undefined) };
-    const svc = new BundleComponentsService(bundles as any, makeTransactions(tx) as any, bundleStock as any);
+    const svc = new BundleComponentsService(bundles as any, makeTransactions(tx) as any);
 
     await svc.update('organization-1', 'bc-1', { qty: 5 });
 
@@ -33,7 +32,6 @@ describe('BundleComponentsService tenant boundary internals', () => {
     expect(bundles.lockBundleOptionRow.mock.invocationCallOrder[0]).toBeLessThan(
       bundles.updateBundleComponentQty.mock.invocationCallOrder[0],
     );
-    expect(bundleStock.recompute).toHaveBeenCalledWith('organization-1', 'bundle-1', tx);
   });
 
   it('keeps the parent row lock before a scoped deleteMany mutation', async () => {
@@ -50,8 +48,7 @@ describe('BundleComponentsService tenant boundary internals', () => {
       lockBundleOptionRow: vi.fn().mockResolvedValue(undefined),
       deleteBundleComponentScoped: vi.fn().mockResolvedValue(1),
     };
-    const bundleStock = { recompute: vi.fn().mockResolvedValue(undefined) };
-    const svc = new BundleComponentsService(bundles as any, makeTransactions(tx) as any, bundleStock as any);
+    const svc = new BundleComponentsService(bundles as any, makeTransactions(tx) as any);
 
     await svc.delete('organization-1', 'bc-1');
 
@@ -60,6 +57,5 @@ describe('BundleComponentsService tenant boundary internals', () => {
     expect(bundles.lockBundleOptionRow.mock.invocationCallOrder[0]).toBeLessThan(
       bundles.deleteBundleComponentScoped.mock.invocationCallOrder[0],
     );
-    expect(bundleStock.recompute).toHaveBeenCalledWith('organization-1', 'bundle-1', tx);
   });
 });

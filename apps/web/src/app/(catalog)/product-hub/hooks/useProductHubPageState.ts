@@ -33,9 +33,8 @@ export function useProductHubPageState() {
   const [gradeFilter, setGradeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [adFilter, setAdFilter] = useState('all');
-  const [stockFilter, setStockFilter] = useState('all');
   const [, setActiveSegment] = useState<ProductSegment>('all');
-  const [sortKey, setSortKey] = useState<string>('stock');
+  const [sortKey, setSortKey] = useState<string>('revenue');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [period, setPeriod] = useState(14);
   const [page, setPage] = useState(1);
@@ -57,12 +56,11 @@ export function useProductHubPageState() {
       gradeFilter,
       statusFilter,
       adFilter,
-      stockFilter,
       submittedSearch,
       selectedCategory,
       selectedCategoryGroup,
     }),
-    [page, period, gradeFilter, statusFilter, adFilter, stockFilter, submittedSearch, selectedCategory, selectedCategoryGroup],
+    [page, period, gradeFilter, statusFilter, adFilter, submittedSearch, selectedCategory, selectedCategoryGroup],
   );
 
   useEffect(() => {
@@ -150,13 +148,10 @@ export function useProductHubPageState() {
     setStatusFilter('all');
     setGradeFilter('all');
     setAdFilter('all');
-    setStockFilter('all');
 
     if (segment === 'core') setGradeFilter('A');
     if (segment === 'loss') setGradeFilter('minus');
     if (segment === 'low-margin') setGradeFilter('low');
-    if (segment === 'zero-stock') setStockFilter('zero');
-    if (segment === 'stock-risk') setStockFilter('risk');
   };
 
   const handleCategoryTabClick = (key: string) => {
@@ -321,13 +316,11 @@ export function useProductHubPageState() {
     setShowModal,
     setShowUploadModal,
     setStatusFilter,
-    setStockFilter,
     showModal,
     showUploadModal,
     sortDir,
     sortKey,
     statusFilter,
-    stockFilter,
     toggleGroup,
     toggleSort,
     totalCount,

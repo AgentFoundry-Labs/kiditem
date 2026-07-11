@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ProductCommandCenter } from './ProductCommandCenter';
 import type { PipelineCounts } from '../lib/product-types';
@@ -21,9 +21,6 @@ const counts: PipelineCounts = {
   unknown: 1,
   minus: 0,
   low: 1,
-  zeroStock: 0,
-  lowStock: 1,
-  stockRisk: 1,
   adLoss: 0,
   gradeChangeA: 0,
   gradeChangeB: 0,
@@ -56,7 +53,7 @@ describe('ProductCommandCenter', () => {
     expect(screen.getByText('채널 미연결')).toBeInTheDocument();
   });
 
-  it('keeps stock actions channel-neutral and filters zero-stock products in-app', () => {
+  it('keeps catalog operations free of inventory and purchase-order decisions', () => {
     const onSelectSegment = vi.fn();
     render(
       <ProductCommandCenter
@@ -67,11 +64,9 @@ describe('ProductCommandCenter', () => {
       />,
     );
 
-    expect(screen.getByText('품절 상품')).toBeInTheDocument();
-    expect(screen.queryByText('쿠팡 품절')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByText('품절 상품'));
-
-    expect(onSelectSegment).toHaveBeenCalledWith('zero-stock');
+    expect(screen.queryByText('품절 상품')).not.toBeInTheDocument();
+    expect(screen.queryByText('발주하기')).not.toBeInTheDocument();
+    expect(screen.queryByText('재고위험')).not.toBeInTheDocument();
+    expect(onSelectSegment).not.toHaveBeenCalled();
   });
 });

@@ -14,7 +14,6 @@ import {
   assertNoBundleComponents,
   assertNotUsedAsComponent,
   createOptionWithSku,
-  findBundleIdsUsingComponent,
   findCurrentOption,
   incrementMasterOptionCounter,
   restoreOptionRow,
@@ -145,11 +144,4 @@ export class ProductOptionRepositoryAdapter implements ProductOptionRepositoryPo
     return restoreOptionRow(repositoryTx ? tx(repositoryTx) : this.prisma, organizationId, id);
   }
 
-  findBundleIdsUsingComponent(
-    repositoryTx: ProductsRepositoryTransaction,
-    organizationId: string,
-    componentOptionId: string,
-  ): Promise<string[]> {
-    return findBundleIdsUsingComponent(tx(repositoryTx), organizationId, componentOptionId);
-  }
 }

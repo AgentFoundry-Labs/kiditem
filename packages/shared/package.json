@@ -110,6 +110,11 @@
       "import": "./dist/channel-sku-matching.js",
       "require": "./dist/channel-sku-matching.cjs"
     },
+    "./channel-sku-availability": {
+      "types": "./dist/channel-sku-availability.d.ts",
+      "import": "./dist/channel-sku-availability.js",
+      "require": "./dist/channel-sku-availability.cjs"
+    },
     "./source-import": {
       "types": "./dist/source-import.d.ts",
       "import": "./dist/source-import.js",
@@ -206,6 +211,7 @@
       "channel-dashboard": ["dist/channel-dashboard.d.ts"],
       "channel-account": ["dist/channel-account.d.ts"],
       "channel-sku-matching": ["dist/channel-sku-matching.d.ts"],
+      "channel-sku-availability": ["dist/channel-sku-availability.d.ts"],
       "source-import": ["dist/source-import.d.ts"],
       "agent-os": ["dist/agent-os.d.ts"],
       "workflow": ["dist/workflow.d.ts"],

@@ -12,11 +12,10 @@ import type { GradeRulesInput, AdIssuesInput, HydratedListing } from '../../../d
 const listingBase = (
   overrides: Partial<HydratedListing['masterProduct']> = {},
   option: HydratedListing['primaryOption'] = {
-    id: 'O1',
     listingOptionId: 'LO1',
-    availableStock: 100,
-    costPrice: 5000,
-    sellPrice: 20000,
+    sellableStock: 100,
+    purchaseCost: 5000,
+    salePrice: 20000,
     commissionRate: 0.1,
     shippingCost: 2500,
   },
@@ -137,16 +136,34 @@ describe('AdGradeRulesService.calcActions', () => {
   });
 
   describe('긴급 규칙', () => {
+    it('매칭되지 않은 sellableStock=null은 재고 0 광고 중단으로 판단하지 않는다', () => {
+      const unknownStockOption = {
+        listingOptionId: 'LO1',
+        sellableStock: null,
+        purchaseCost: 5000,
+        salePrice: 20000,
+        commissionRate: 0.1,
+        shippingCost: 2500,
+      } as unknown as HydratedListing['primaryOption'];
+      const result = service.calcActions(buildInput(
+        [adGroup({ spend: 10000, revenue: 50000 })],
+        [listingBase({}, unknownStockOption)],
+        'A',
+      ));
+
+      expect(result[0]).toMatchObject({ priority: 'high', actionType: 'increase' });
+      expect(result[0]?.reason).not.toContain('재고 없음');
+    });
+
     it('재고 0 + adTier 존재 + spend>0 → urgent (stop actionType)', () => {
       const input = buildInput(
         [adGroup({ spend: 10000, revenue: 50000 })],
         [
           listingBase({}, {
-            id: 'O1',
             listingOptionId: 'LO1',
-            availableStock: 0,
-            costPrice: 5000,
-            sellPrice: 20000,
+            sellableStock: 0,
+            purchaseCost: 5000,
+            salePrice: 20000,
             commissionRate: 0.1,
             shippingCost: 2500,
           }),
@@ -163,11 +180,10 @@ describe('AdGradeRulesService.calcActions', () => {
         [adGroup({ spend: 10000, revenue: 50000 })],
         [
           listingBase({ adTier: null }, {
-            id: 'O1',
             listingOptionId: 'LO1',
-            availableStock: 0,
-            costPrice: 5000,
-            sellPrice: 20000,
+            sellableStock: 0,
+            purchaseCost: 5000,
+            salePrice: 20000,
             commissionRate: 0.1,
             shippingCost: 2500,
           }),
@@ -351,29 +367,26 @@ describe('AdGradeRulesService.calcActions', () => {
       // A urgent (재고0) + B high (roas 480) + B low (roas 300)
       const listings = [
         listingBase({}, {
-          id: 'Oa',
           listingOptionId: 'LOa',
-          availableStock: 0,
-          costPrice: 5000,
-          sellPrice: 20000,
+          sellableStock: 0,
+          purchaseCost: 5000,
+          salePrice: 20000,
           commissionRate: 0.1,
           shippingCost: 2500,
         }),
         { ...listingBase({}, {
-          id: 'Ob',
           listingOptionId: 'LOb',
-          availableStock: 100,
-          costPrice: 5000,
-          sellPrice: 20000,
+          sellableStock: 100,
+          purchaseCost: 5000,
+          salePrice: 20000,
           commissionRate: 0.1,
           shippingCost: 2500,
         }), id: 'L2' },
         { ...listingBase({}, {
-          id: 'Oc',
           listingOptionId: 'LOc',
-          availableStock: 100,
-          costPrice: 5000,
-          sellPrice: 20000,
+          sellableStock: 100,
+          purchaseCost: 5000,
+          salePrice: 20000,
           commissionRate: 0.1,
           shippingCost: 2500,
         }), id: 'L3' },

@@ -15,7 +15,6 @@ import {
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { RocketConfirmPanel } from './components/RocketConfirmPanel';
 import { RocketConfirmFileList } from './components/RocketConfirmFileList';
 import { RocketWeekCalendar, type RocketCalDay } from './components/RocketWeekCalendar';
 import { RocketMonthCalendar, type MonthDayData } from './components/RocketMonthCalendar';
@@ -42,7 +41,7 @@ const EMPTY_ROCKET_POS: RocketPoSummary[] = [];
 // 워크플로 단계 (로켓 물류 발주)
 const STAGES = [
   { icon: Rocket, label: '신규 주문', desc: '거래확인서요청 발주' },
-  { icon: PackageCheck, label: '납품물량 확정', desc: '업체 납품가능 수량 확정' },
+  { icon: PackageCheck, label: '납품 판단 대기', desc: '재고 매핑 기반 판단은 추후 연동' },
   { icon: Truck, label: '쉽먼트 / 밀크런', desc: '9박스 이하 택배 · 초과 밀크런' },
   { icon: FileText, label: '송장 · 출력', desc: '송장 입력 → 부착/동봉 문서 출력' },
 ];
@@ -94,7 +93,6 @@ export default function RocketOrdersPage() {
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [view, setView] = useState<'week' | 'month' | 'chart'>('week');
   const [openPo, setOpenPo] = useState<number | null>(null);
-  const [fileRefreshKey, setFileRefreshKey] = useState(0);
 
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: queryKeys.orders.rocketPoList({ from, to, status }),
@@ -234,25 +232,7 @@ export default function RocketOrdersPage() {
         {open && (
           <div className="border-b border-slate-200 bg-slate-50/60 px-4 py-3 pl-9">
             <div className="text-[11px] text-slate-400">
-              품목 {formatNumber(po.skuCount)}종 · 품목 상세는 위{' '}
-              <b className="text-purple-500">발주리스트에서 양식 만들기</b> 에서 확인하세요.
-            </div>
-            {/* 워크플로 액션 (다음 단계 — 쿠팡 쓰기 동작 연동 예정) */}
-            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3">
-              <span className="text-[11px] text-slate-400">처리:</span>
-              <button disabled className="cursor-not-allowed rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-400">
-                납품물량 확정
-              </button>
-              <button disabled className="cursor-not-allowed rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-400">
-                쉽먼트/밀크런
-              </button>
-              <button disabled className="cursor-not-allowed rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-400">
-                송장 입력
-              </button>
-              <button disabled className="cursor-not-allowed rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-400">
-                문서 출력
-              </button>
-              <span className="text-[10px] text-slate-300">연동 예정</span>
+              품목 {formatNumber(po.skuCount)}종 · 납품 가능 수량 판단은 추후 연동합니다.
             </div>
           </div>
         )}
@@ -301,8 +281,10 @@ export default function RocketOrdersPage() {
         })}
       </div>
 
-      {/* 발주확정 양식 생성 + 편집 미리보기 (입고예정일 다음 7일 기준) */}
-      <RocketConfirmPanel onSaved={() => setFileRefreshKey((k) => k + 1)} />
+      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        현재는 주문수집 확장에서 가져온 로켓 PO 목록과 기존 생성 파일 이력만 조회합니다.
+        납품 수량 판단은 추후 연동합니다.
+      </div>
 
       {/* 필터 (입고예정일 기준) */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3">
@@ -459,8 +441,8 @@ export default function RocketOrdersPage() {
           );
         })}
 
-      {/* 생성한 발주확정 파일 관리 (목록 · 재다운로드 · 삭제) */}
-      <RocketConfirmFileList refreshKey={fileRefreshKey} />
+      {/* 기존 생성 파일 이력 (목록 · 재다운로드 · 삭제) */}
+      <RocketConfirmFileList refreshKey={0} />
     </div>
   );
 }

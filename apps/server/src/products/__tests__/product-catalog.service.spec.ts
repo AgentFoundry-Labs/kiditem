@@ -11,7 +11,7 @@ function makeService(rows: any[]) {
 }
 
 describe('ProductCatalogService', () => {
-  it('maps active options into ranges and total stock', async () => {
+  it('maps active options into commercial ranges without aggregate stock', async () => {
     const { service } = makeService([{
       id: 'm1',
       organizationId: 'c1',
@@ -52,7 +52,7 @@ describe('ProductCatalogService', () => {
     expect(result.items[0].representativeSku).toBe('M-1-01');
     expect(result.items[0].priceRange).toEqual({ min: 2000, max: 5000 });
     expect(result.items[0].costRange).toEqual({ min: 1000, max: 3000 });
-    expect(result.items[0].totalAvailableStock).toBe(6);
+    expect(result.items[0]).not.toHaveProperty('totalAvailableStock');
   });
 
   it('scopes nested option reads by organization in catalog detail', async () => {

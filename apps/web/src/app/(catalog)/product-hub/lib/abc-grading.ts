@@ -63,15 +63,13 @@ export function computeGradeMap(products: Product[]): GradeMap {
     else if (p.profitRate >= 7) profitScore = 7;
     else if (p.profitRate >= 3) profitScore = 4;
     let total = revScore + convScore + interestScore + profitScore;
-    if (isNewProduct && (p.t14?.revenue || 0) <= 0 && p.stockStatus !== 'out') {
+    if (isNewProduct && (p.t14?.revenue || 0) <= 0) {
       total = Math.max(total, (p.t14?.views || 0) > 0 || (p.t14?.cartAdds || 0) > 0 ? 42 : 35);
     }
-    if (p.stockStatus === 'out') total = Math.min(total, 39);
-    if (p.stockStatus === 'low') total = Math.min(total, 69);
     total = Math.max(0, Math.min(100, Math.round(total)));
     let grade = 'C';
-    if (total >= 70 && (p.t14?.revenue || 0) > 0 && p.stockStatus === 'healthy') grade = 'A';
-    else if (total >= 40 || (isNewProduct && total >= 35 && p.stockStatus !== 'out')) grade = 'B';
+    if (total >= 70 && (p.t14?.revenue || 0) > 0) grade = 'A';
+    else if (total >= 40 || (isNewProduct && total >= 35)) grade = 'B';
     return { id: p.id, score: total, grade, revScore };
   });
 

@@ -13,42 +13,12 @@ export interface BundleComponentRow {
   [key: string]: unknown;
 }
 
-export interface ActiveBundleComponentRow {
-  id: string;
-  qty: number;
-  componentOption: {
-    isDeleted: boolean;
-    inventory: { currentStock: number } | null;
-  };
-}
-
 export interface ProductBundleRepositoryPort {
   lockBundleOptionRow(
     tx: ProductsRepositoryTransaction,
     bundleOptionId: string,
     organizationId: string,
   ): Promise<void>;
-  findBundleOptionId(
-    tx: ProductsRepositoryTransaction,
-    bundleOptionId: string,
-    organizationId: string,
-  ): Promise<{ id: string } | null>;
-  listActiveBundleComponentsWithStock(
-    tx: ProductsRepositoryTransaction,
-    bundleOptionId: string,
-    organizationId: string,
-  ): Promise<ActiveBundleComponentRow[]>;
-  writeBundleAvailableStock(
-    tx: ProductsRepositoryTransaction,
-    bundleOptionId: string,
-    organizationId: string,
-    capacity: number,
-  ): Promise<number>;
-  listBundlesUsingComponent(
-    tx: ProductsRepositoryTransaction,
-    componentOptionId: string,
-    organizationId: string,
-  ): Promise<{ bundleOptionId: string }[]>;
   findBundleRuleOptions(input: {
     organizationId: string;
     bundleOptionId: string;

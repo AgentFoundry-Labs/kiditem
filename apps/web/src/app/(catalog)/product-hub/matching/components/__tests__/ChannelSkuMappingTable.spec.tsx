@@ -28,6 +28,7 @@ const item: ChannelSkuMappingListItem = {
     salePrice: null,
     status: '판매중',
     mappingStatus: 'matched',
+    sellableStock: 2,
     updatedAt: '2026-07-11T00:00:00.000Z',
   },
   components: [
@@ -37,9 +38,12 @@ const item: ChannelSkuMappingListItem = {
       name: '셀피아 상품',
       optionName: '분홍',
       barcode: '8801234567890',
-      reportedStock: 8,
+      currentStock: 8,
+      purchasePrice: 1500,
       quantity: 4,
       mappingSource: 'manual',
+      componentCapacity: 2,
+      isBottleneck: true,
     },
   ],
 };
@@ -105,7 +109,11 @@ describe('ChannelSkuMappingTable', () => {
     expect(screen.getByText('가격 없음')).toBeInTheDocument();
     const dataRow = screen.getAllByRole('row')[1];
     expect(dataRow).toHaveTextContent('SP-001 · 셀피아 상품 · 분홍 × 4');
-    expect(dataRow).toHaveTextContent('보고 재고 8');
+    expect(dataRow).toHaveTextContent('현재 재고 8');
+    expect(dataRow).toHaveTextContent('판매 가능 2');
+    expect(dataRow).toHaveTextContent('매입가 1,500원');
+    expect(dataRow).toHaveTextContent('구성 가능 2');
+    expect(dataRow).toHaveTextContent('병목');
     expect(screen.getByText('매칭 완료')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'sku-20 Sellpia 구성 편집' }));

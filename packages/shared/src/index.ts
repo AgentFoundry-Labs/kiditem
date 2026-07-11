@@ -84,42 +84,6 @@ export type {
   OrderPipelineResponse,
 } from './schemas/order.js';
 
-// Inventory
-export {
-  InventorySchema,
-  InventoryStatusSchema,
-  InventoryListItemSchema,
-  InventorySummarySchema,
-  InventoryListResponseSchema,
-  StockTransactionTypeSchema,
-  StockTransactionSchema,
-  StockOperationResultSchema,
-  TransactionListItemSchema,
-  TransactionListResponseSchema,
-  TransactionSummarySchema,
-  ReceiveStockInputSchema,
-  IssueStockInputSchema,
-  AdjustStockInputSchema,
-  UpdateInventoryMetadataInputSchema,
-} from './schemas/inventory.js';
-export type {
-  Inventory,
-  InventoryStatus,
-  InventoryListItem,
-  InventorySummary,
-  InventoryListResponse,
-  StockTransactionType,
-  StockTransaction,
-  StockOperationResult,
-  TransactionListItem,
-  TransactionListResponse,
-  TransactionSummary,
-  ReceiveStockInput,
-  IssueStockInput,
-  AdjustStockInput,
-  UpdateInventoryMetadataInput,
-} from './schemas/inventory.js';
-
 // Workflow
 export { WorkflowTemplateSchema, WorkflowRunSchema, WorkflowStepRunSchema } from './schemas/workflow.js';
 export type { WorkflowTemplate, WorkflowRun, WorkflowStepRun } from './schemas/workflow.js';

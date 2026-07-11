@@ -13,13 +13,6 @@ export const AD_FILTERS = [
   { key: 'noad', label: '광고없음' },
 ];
 
-export const STOCK_FILTERS = [
-  { key: 'all', label: '전체 재고' },
-  { key: 'risk', label: '재고위험' },
-  { key: 'zero', label: '품절' },
-  { key: 'ok', label: '재고 OK' },
-];
-
 export const CATEGORY_GROUPS = [
   {
     key: 'season',

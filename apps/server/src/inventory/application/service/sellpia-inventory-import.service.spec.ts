@@ -41,7 +41,7 @@ const input: ImportSellpiaInventoryInput = {
       name: '상품',
       optionName: null,
       barcode: null,
-      reportedStock: 4,
+      currentStock: 4,
       purchasePrice: null,
       salePrice: null,
       rawJson: { 상품코드: 'SP-001', 재고: '4' },

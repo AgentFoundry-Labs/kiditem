@@ -7,7 +7,6 @@ import {
   NotFoundException,
   Inject,
 } from '@nestjs/common';
-import { BundleStockService } from './bundle-stock.service';
 import { CreateBundleComponentDto } from '../../dto/create-bundle-component.dto';
 import { UpdateBundleComponentDto } from '../../dto/update-bundle-component.dto';
 import { ListBundleComponentsQuery } from '../../dto/list-bundle-components.query';
@@ -73,14 +72,14 @@ function ensureBundleAndComponentInvariantsForHttp(
  *
  * Ownership / isolation invariants (products/AGENTS.md) are enforced by the
  * pure helpers in `domain/bundle-component-rules.ts`. The row-lock + scoped
- * write/delete + recompute chain runs through `persistence/`. This service
+ * write/delete chain runs through `persistence/`. This service
  * stitches them together inside one transaction so the bundle option lock
- * is held for the entire validate→mutate→recompute window.
+ * is held for the entire validate→mutate window.
  *
  * Each mutating method accepts an optional `outerTx?` so Plan B2 sourcing /
  * supplier-sync flows can wrap CRUD + other writes in a single transaction.
  * Callers must pass `{ timeout: >= 15000 }` on the outer `$transaction` so
- * the lock + recompute chain has headroom beyond Prisma's 5 s default.
+ * the locked mutation has headroom beyond Prisma's 5 s default.
  */
 @Injectable()
 export class BundleComponentsService {
@@ -89,7 +88,6 @@ export class BundleComponentsService {
     private readonly bundles: ProductBundleRepositoryPort,
     @Inject(PRODUCTS_TRANSACTION_PORT)
     private readonly transactions: ProductsTransactionPort,
-    private readonly bundleStock: BundleStockService,
   ) {}
 
   async create(
@@ -119,7 +117,6 @@ export class BundleComponentsService {
           // 3-way invariant: derive from bundle, not auth organizationId.
           organizationId: bundleOpt.organizationId,
         });
-        await this.bundleStock.recompute(organizationId, dto.bundleOptionId, tx);
         return bc;
       } catch (e) {
         // mapPrismaError returns `never` — TS narrows the try-block happy path.
@@ -159,7 +156,6 @@ export class BundleComponentsService {
         if (!updated) {
           throw new NotFoundException('bundle-component not found');
         }
-        await this.bundleStock.recompute(organizationId, row.bundleOptionId, tx);
         return updated;
       } catch (e) {
         mapPrismaError(e, 'bundle-component update');
@@ -187,7 +183,6 @@ export class BundleComponentsService {
       } catch (e) {
         mapPrismaError(e, 'bundle-component delete');
       }
-      await this.bundleStock.recompute(organizationId, row.bundleOptionId, tx);
     };
     await (outerTx
       ? exec(outerTx)

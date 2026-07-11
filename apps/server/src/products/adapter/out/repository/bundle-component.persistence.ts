@@ -2,11 +2,21 @@
 import { BundleComponent, Prisma } from '@prisma/client';
 
 /**
- * Tenant-scoped persistence helpers for `BundleComponent` rows. The row-lock
- * helper lives in `bundle-stock.persistence.ts` and is re-exported here for
- * ergonomic import in the component CRUD orchestration.
+ * Tenant-scoped persistence helpers for `BundleComponent` rows.
  */
-export { lockBundleOptionRow } from './bundle-stock.persistence';
+
+export async function lockBundleOptionRow(
+  tx: Prisma.TransactionClient,
+  bundleOptionId: string,
+  organizationId: string,
+): Promise<void> {
+  await tx.$queryRaw`
+    SELECT id FROM product_options
+    WHERE id = ${bundleOptionId}::uuid
+      AND organization_id = ${organizationId}::uuid
+    FOR UPDATE
+  `;
+}
 
 export async function findBundleComponentForTenant(
   tx: Prisma.TransactionClient,

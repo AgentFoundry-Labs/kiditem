@@ -136,6 +136,9 @@ export function useRefreshChannelSkuMappingStatuses() {
         queryClient.invalidateQueries({
           queryKey: channelSkuCandidateFamilyKey,
         }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.channelSkuAvailability.all,
+        }),
       ]),
   });
 }
@@ -156,6 +159,9 @@ export function useReplaceChannelSkuComponents() {
             'candidates',
             variables.channelSkuId,
           ],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.channelSkuAvailability.all,
         }),
       ]),
   });
@@ -181,6 +187,9 @@ export function useImportCoupangWingCatalog() {
           }),
           queryClient.invalidateQueries({
             queryKey: channelSkuCandidateFamilyKey,
+          }),
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.channelSkuAvailability.all,
           }),
         ]);
       }

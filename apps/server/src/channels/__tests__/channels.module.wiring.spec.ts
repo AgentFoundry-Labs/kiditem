@@ -42,6 +42,11 @@ import { ChannelSkuMappingRepositoryAdapter } from '../adapter/out/repository/ch
 import { ChannelSkuMappingService } from '../application/service/channel-sku-mapping.service';
 import { CHANNELS_INVENTORY_SKU_READ_PORT } from '../application/port/out/cross-domain/inventory-sku-read.port';
 import { CHANNEL_SKU_MAPPING_REPOSITORY_PORT } from '../application/port/out/repository/channel-sku-mapping.repository.port';
+import { ChannelSkuAvailabilityController } from '../adapter/in/http/channel-sku-availability.controller';
+import {
+  CHANNEL_SKU_AVAILABILITY_PORT,
+} from '../application/port/in/channel-sku-availability.port';
+import { ChannelSkuAvailabilityService } from '../application/service/channel-sku-availability.service';
 
 const IMPORTS_KEY = 'imports';
 const CONTROLLERS_KEY = 'controllers';
@@ -70,7 +75,7 @@ describe('ChannelsModule canonical owner wiring', () => {
     const wiredNames = [...providers, ...controllers, ...exports_].map((value) =>
       typeof value === 'function' ? value.name : String(value));
     expect(wiredNames.join('\n')).not.toMatch(/ChannelReconciliation|RECONCILIATION/);
-    expect(exports_).toEqual([COUPANG_PROVIDER_PORT]);
+    expect(exports_).toEqual([COUPANG_PROVIDER_PORT, CHANNEL_SKU_AVAILABILITY_PORT]);
 
     const channelsRoot = path.resolve(__dirname, '..');
     expect(existsSync(path.join(
@@ -114,6 +119,7 @@ describe('ChannelsModule canonical owner wiring', () => {
     expect(providers).toContain(ChannelCatalogImportService);
     expect(providers).toContain(ChannelCatalogImportRepositoryAdapter);
     expect(providers).toContain(ChannelSkuMappingService);
+    expect(providers).toContain(ChannelSkuAvailabilityService);
     expect(providers).toContain(ChannelsInventorySkuReadAdapter);
     expect(providers).toContain(ChannelSkuMappingRepositoryAdapter);
 
@@ -159,6 +165,11 @@ describe('ChannelsModule canonical owner wiring', () => {
       CHANNEL_SKU_MAPPING_REPOSITORY_PORT,
       ChannelSkuMappingRepositoryAdapter,
     );
+    expectBinding(
+      providers,
+      CHANNEL_SKU_AVAILABILITY_PORT,
+      ChannelSkuAvailabilityService,
+    );
   });
 
   it('registers the account-scoped Wing catalog import controller', () => {
@@ -167,11 +178,13 @@ describe('ChannelsModule canonical owner wiring', () => {
 
     expect(controllers).toContain(ChannelCatalogImportController);
     expect(controllers).toContain(ChannelSkuMappingController);
+    expect(controllers).toContain(ChannelSkuAvailabilityController);
   });
 
   it('does not export the mapping repository implementation', () => {
     const exports_: unknown[] = Reflect.getMetadata('exports', ChannelsModule) ?? [];
     expect(exports_).not.toContain(ChannelSkuMappingRepositoryAdapter);
     expect(exports_).not.toContain(CHANNEL_SKU_MAPPING_REPOSITORY_PORT);
+    expect(exports_).not.toContain(ChannelSkuAvailabilityService);
   });
 });

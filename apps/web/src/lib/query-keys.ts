@@ -46,13 +46,16 @@ export const queryKeys = {
   },
   inventory: {
     all: ['inventory'] as const,
-    list: (params: Record<string, string>) => [...queryKeys.inventory.all, 'list', params] as const,
-    detail: (id: string) => [...queryKeys.inventory.all, 'detail', id] as const,
-    byMaster: (masterId: string) => [...queryKeys.inventory.all, 'byMaster', masterId] as const,
-    transactions: (params: Record<string, string>) =>
-      [...queryKeys.inventory.all, 'transactions', params] as const,
-    transactionSummary: (params: Record<string, string>) =>
-      [...queryKeys.inventory.all, 'transactionSummary', params] as const,
+    snapshots: () => [...queryKeys.inventory.all, 'sellpia-skus'] as const,
+    snapshot: (params: Record<string, string>) =>
+      [...queryKeys.inventory.snapshots(), params] as const,
+    assets: () => [...queryKeys.inventory.all, 'sellpia-assets'] as const,
+    assetList: (params: Record<string, string>) =>
+      [...queryKeys.inventory.assets(), params] as const,
+    importRuns: () => [...queryKeys.inventory.all, 'sellpia-import-runs'] as const,
+    importRunList: (params: Record<string, string>) =>
+      [...queryKeys.inventory.importRuns(), params] as const,
+    receiptBatches: () => [...queryKeys.inventory.all, 'sellpia-receipt-batches'] as const,
   },
   dashboard: {
     all: ['dashboard'] as const,
@@ -182,6 +185,12 @@ export const queryKeys = {
         params,
       ] as const,
   },
+  channelSkuAvailability: {
+    all: ['channelSkuAvailability'] as const,
+    lists: () => [...queryKeys.channelSkuAvailability.all, 'list'] as const,
+    list: (params: Record<string, string>) =>
+      [...queryKeys.channelSkuAvailability.lists(), params] as const,
+  },
   coupangAccount: {
     all: ['coupangAccount'] as const,
     settings: () => [...queryKeys.coupangAccount.all, 'settings'] as const,
@@ -268,10 +277,6 @@ export const queryKeys = {
   suppliers: {
     all: ['suppliers'] as const,
     list: () => [...queryKeys.suppliers.all, 'list'] as const,
-  },
-  stockAudits: {
-    all: ['stockAudits'] as const,
-    list: () => [...queryKeys.stockAudits.all, 'list'] as const,
   },
   stockTransfers: {
     all: ['stockTransfers'] as const,

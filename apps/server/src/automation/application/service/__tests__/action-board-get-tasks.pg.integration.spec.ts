@@ -87,6 +87,22 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
       optionId: ownOption.id,
       externalOptionId: 'ACT-NEG-VI',
     });
+    const ownAccount = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Own account',
+        externalAccountId: 'ACT-OWN',
+      },
+    });
+    await prisma.channelListing.update({
+      where: { id: ownListing.listingId },
+      data: { channelAccountId: ownAccount.id },
+    });
+    await prisma.channelListingOption.update({
+      where: { id: ownListing.listingOptionId },
+      data: { channelAccountId: ownAccount.id },
+    });
     await seedOrderWithLineItems(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       externalOrderId: 'ACT-NEG-ORD',
@@ -107,12 +123,12 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
       date: currentMonthIso(5),
       spend: 5_000,
     });
-    await prisma.inventory.create({
+    await prisma.inventorySku.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        optionId: ownOption.id,
-        currentStock: 2,
-        reorderPoint: 5,
+        sellpiaProductCode: 'ACT-OWN-ZERO',
+        name: 'Own zero stock',
+        currentStock: 0,
       },
     });
 
@@ -136,6 +152,30 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
       channelName: 'Foreign Negative Listing',
       optionId: foreignOption.id,
       externalOptionId: 'ACT-FGN-VI',
+    });
+    const foreignAccount = await prisma.channelAccount.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Foreign account',
+        externalAccountId: 'ACT-FGN',
+      },
+    });
+    await prisma.channelListing.update({
+      where: { id: foreignListing.listingId },
+      data: { channelAccountId: foreignAccount.id },
+    });
+    await prisma.channelListingOption.update({
+      where: { id: foreignListing.listingOptionId },
+      data: { channelAccountId: foreignAccount.id },
+    });
+    await prisma.inventorySku.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        sellpiaProductCode: 'ACT-FGN-ZERO',
+        name: 'Foreign zero stock',
+        currentStock: 0,
+      },
     });
     await seedOrderWithLineItems(prisma, {
       organizationId: OTHER_ORGANIZATION_ID,
@@ -164,16 +204,17 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
     expect(taskKeys).toEqual(expect.arrayContaining([
       'h-minus-ad-stop',
       'h-ad-bid',
-      'h-reorder',
+      'h-zero-stock',
+      'h-mapping-attention',
       'h-ad-rate',
       'analyze-deficit',
       'analyze-ad',
-      'analyze-stock',
     ]));
 
     const minusTask = result.find((task) => task.taskKey === 'h-minus-ad-stop');
     const highAdTask = result.find((task) => task.taskKey === 'h-ad-bid');
-    const reorderTask = result.find((task) => task.taskKey === 'h-reorder');
+    const zeroStockTask = result.find((task) => task.taskKey === 'h-zero-stock');
+    const mappingTask = result.find((task) => task.taskKey === 'h-mapping-attention');
 
     expect(minusTask?.relatedProducts).toEqual([
       {
@@ -191,14 +232,8 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
         value: '50%',
       },
     ]);
-    expect(reorderTask?.relatedProducts).toEqual([
-      {
-        id: ownMaster.id,
-        name: 'Own Negative',
-        metric: '재고',
-        value: '2개 (기준 5)',
-      },
-    ]);
+    expect(zeroStockTask?.relatedProducts).toEqual([]);
+    expect(mappingTask?.relatedProducts).toEqual([]);
 
     const allRelatedNames = result.flatMap((task) => task.relatedProducts.map((row) => row.name));
     expect(allRelatedNames).toContain('Own Negative');
@@ -214,23 +249,13 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
     expect(foreignStoredCount).toBe(0);
   });
 
-  it('keeps reorder task seeding and related products when the live metrics array is empty', async () => {
-    const stockOnlyMaster = await setupMaster(prisma, {
-      organizationId: TEST_ORGANIZATION_ID,
-      code: 'ACT-STOCK',
-      name: 'Stock Only',
-    });
-    const stockOnlyOption = await setupProductOption(prisma, {
-      organizationId: TEST_ORGANIZATION_ID,
-      masterId: stockOnlyMaster.id,
-      sku: 'ACT-STOCK-SKU',
-    });
-    await prisma.inventory.create({
+  it('keeps the zero-stock review link when the live metrics array is empty', async () => {
+    await prisma.inventorySku.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        optionId: stockOnlyOption.id,
-        currentStock: 1,
-        reorderPoint: 3,
+        sellpiaProductCode: 'ACT-STOCK-ONLY',
+        name: 'Stock Only',
+        currentStock: 0,
       },
     });
 
@@ -238,8 +263,7 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
 
     const taskKeys = result.map((task) => task.taskKey);
     expect(taskKeys).toEqual(expect.arrayContaining([
-      'h-reorder',
-      'analyze-stock',
+      'h-zero-stock',
       'h-ad-csv',
       'recalc-grade',
       'analyze-ad-rules',
@@ -248,14 +272,7 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
     expect(taskKeys).not.toContain('h-minus-ad-stop');
     expect(taskKeys).not.toContain('h-ad-bid');
 
-    const reorderTask = result.find((task) => task.taskKey === 'h-reorder');
-    expect(reorderTask?.relatedProducts).toEqual([
-      {
-        id: stockOnlyMaster.id,
-        name: 'Stock Only',
-        metric: '재고',
-        value: '1개 (기준 3)',
-      },
-    ]);
+    expect(result.find((task) => task.taskKey === 'h-zero-stock')?.relatedProducts).toEqual([]);
+    expect(taskKeys).not.toEqual(expect.arrayContaining(['h-reorder', 'analyze-stock']));
   });
 });

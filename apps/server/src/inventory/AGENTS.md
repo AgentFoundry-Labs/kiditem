@@ -1,94 +1,80 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# inventory — Stock, Warehouses, Transfers, Picking
+# inventory — Sellpia Snapshot, Warehouses, Operation Records
 
-`src/inventory/` owns stock state, unshipped reads, warehouses, stock transfers,
-stock audits, and picking. These are capabilities inside one owner domain, not
-standalone backend domains.
+`src/inventory/` owns the Sellpia-authoritative `InventorySku` snapshot and
+adjacent warehouse, transfer, picking, receipt, unshipped, and shipment-file
+capabilities. KidItem does not maintain a second mutable stock balance.
 
 ## Folder Map
 
 ```text
 inventory/
 ├── inventory.module.ts
-├── adapter/in/http/          # inventory, warehouse, transfer, audit, picking DTO/controllers
+├── adapter/in/http/          # snapshot/import, warehouse, transfer, picking controllers
 ├── adapter/out/
-│   ├── products/             # bundle-stock adapter consuming products port
-│   └── repository/           # the only PrismaService import lane
+│   ├── repository/           # the only PrismaService import lane
+│   └── storage/              # generated shipment-file storage
 ├── application/
 │   ├── port/in/              # exported use-case ports
-│   ├── port/out/             # repository/query/cross-domain ports
+│   ├── port/out/             # repository/cross-domain/storage ports
 │   └── service/              # orchestration; no Prisma/adapter imports
-├── domain/policy/            # pure stock/status/transfer/picking rules
-├── mapper/                   # Prisma row -> shared contract mapping
+├── domain/policy/            # pure transfer/picking rules
 └── __tests__/                # wiring, architecture, integration specs
 ```
 
 `application/port/in/` is capability-grouped:
 
-- `stock/`: inventory state, stock mutation, transaction, and audit use cases.
+- `stock/`: Sellpia import, snapshot/history reads, matching reads, and receipt
+  batch records.
 - `warehouse/`: warehouse and stock-transfer use cases.
 - `fulfillment/`: unshipped and picking use cases.
 
 ## Owned Surfaces
 
-- Inventory and stock transactions: `/api/inventory/*`
+- Sellpia source-stock snapshot: `POST /api/inventory/sellpia-sync/import`
+- Sellpia current-stock snapshot read: `GET /api/inventory/sellpia-skus`
+- Sellpia import-run history: `GET /api/inventory/sellpia-sync/import-runs`
+- Sellpia receipt batches: `/api/inventory/sellpia-receipt-batches/*`
 - Unshipped reads: `/api/unshipped/*`
 - Warehouses: `/api/warehouses/*`
-- Stock transfers: `/api/stock-transfers/*`
-- Stock audits: `/api/stock-audits/*`
-- Picking: `/api/picking/*`
-- Sellpia source-stock snapshot: `POST /api/inventory/sellpia-sync/import`
-- Sellpia receipt batches: `/api/inventory/sellpia-receipt-batches/*`
+- Record-only stock transfers: `/api/stock-transfers/*`
+- Record-only picking: `/api/picking/*`
+- Coupang shipment files: `/api/coupang-shipments/*`
 
 Route shape is frozen.
 
 ## Main Data Models
 
-- `Inventory` owns current and reserved stock.
-- `StockTransaction` is the stock ledger.
-- `InventorySku` is one Sellpia product-code row of read-only source-stock
-  metadata. It is not a `ProductOption` or an `Inventory` balance.
-- `Warehouse`, `StockTransfer`, `StockAudit`, and picking rows model adjacent
-  inventory operations.
-- `BundleComponent` is read for bundle fan-out; products owns bundle
-  composition and materialized bundle stock.
-
-## Stock Mutation Flow
-
-```text
-INVENTORY_PORT.receive/issue/adjust
-  -> InventoryRepositoryAdapter.runInventoryStockMutation(...)
-  -> transaction + tenant-scoped row lock
-  -> domain stock policy
-  -> Inventory update + StockTransaction append
-  -> BundleStockPort.recomputeForComponent
-```
-
-Direct `prisma.inventory.update({ currentStock })` or direct
-`prisma.stockTransaction.create()` outside the repository adapter is forbidden.
+- `InventorySku` is one Sellpia product-code row and owns the current physical
+  quantity in `currentStock`.
+- `SourceImportRun` records workbook provenance, idempotency, and attempt
+  fencing.
+- `Warehouse` is warehouse metadata.
+- `StockTransfer`, `PickingItem`, and `ReturnTransfer` reference
+  `InventorySku`; they record operations and never adjust `currentStock`.
+- `SellpiaReceiptUploadBatch` records receipt-upload workflow state separately
+  from the stock snapshot.
 
 ## Sellpia Inventory Snapshot
 
-`POST /api/inventory/sellpia-sync/import` is a pure, organization-scoped full
-snapshot replacement. One valid workbook row maps to one `InventorySku`, and a
-completed import sets absent Sellpia codes' `reportedStock` to zero without
-deleting their identity or channel-component references.
+`POST /api/inventory/sellpia-sync/import` is the only writer of
+`InventorySku.currentStock`. It is an organization-scoped full snapshot
+replacement: one valid workbook row maps to one `InventorySku`, and a completed
+import sets absent known Sellpia codes to zero without deleting their identity
+or `ChannelSkuComponent` references.
 
 The replacement is atomic and fenced by its `SourceImportRun` attempt token.
-It may update only `InventorySku` source metadata and import provenance. Never
-translate Sellpia import rows or stock differences into `ProductOption`,
-`Inventory`, `StockTransaction`, bundle-stock, or Rocket-ledger mutations.
-Receipt-batch create/list/mark-uploaded behavior is a separate capability and
-must not depend on the snapshot importer or stock mutation ports.
+It may update only `InventorySku` source metadata, `currentStock`, and import
+provenance. Never translate workbook differences into product, channel,
+transfer, picking, return, purchase-order, or Rocket writes. Receipt-batch
+create/list/mark-uploaded behavior is separate and does not change stock.
 
 ## Cross-Domain Ports
 
-- `InventoryModule` exports `INVENTORY_PORT` and the read-only
-  `INVENTORY_SKU_READ_PORT` matching capability only.
-- Bundle stock fan-out goes through local `BundleStockPort`, whose adapter
-  consumes products' owner-side bundle stock port.
-- External domains do not inject warehouse, transfer, audit, or picking
+- `InventoryModule` exports only the read-only `INVENTORY_SKU_READ_PORT` for
+  matching and channel-capacity consumers.
+- External domains do not inject warehouse, transfer, or picking
   services directly.
 
 ## Boundary Rules
@@ -101,8 +87,10 @@ must not depend on the snapshot importer or stock mutation ports.
 - Every single-resource read/write includes `organizationId`; DTOs do not carry
   organization id.
 - Route declaration order keeps static paths before `/:id`.
-- Stock transfers are record-only on create and do not change stock.
-- Do not filter `BundleComponent` by `isDeleted`; it is hard-delete.
+- No controller or service may expose receive, issue, adjust, reserve, release,
+  restock, stock-ledger, or Rocket stock-event mutations.
+- Transfer, picking, and return completion updates operational record fields
+  only; they do not write `InventorySku.currentStock`.
 
 ## Transitional Exceptions
 

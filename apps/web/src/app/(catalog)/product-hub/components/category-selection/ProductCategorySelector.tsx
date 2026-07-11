@@ -1,7 +1,7 @@
 'use client';
 
 import { CalendarDays, ChevronDown, Package, RotateCcw, Search, Tags } from 'lucide-react';
-import { cn, formatDate, formatNumber } from '@/lib/utils';
+import { cn, formatDate } from '@/lib/utils';
 import type { ProductListItem as Product } from '../../lib/product-types';
 
 interface CategoryGroup {
@@ -186,7 +186,7 @@ export function ProductCategorySelector({
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-xs font-extrabold text-[var(--text-primary)]">{product.name}</p>
                       <p className="mt-0.5 text-[11px] font-medium text-[var(--text-muted)]">
-                        {product.createdAt ? formatDate(product.createdAt) : '등록일 없음'} · 재고 {formatNumber(product.availableStock)}
+                        {product.createdAt ? formatDate(product.createdAt) : '등록일 없음'}
                       </p>
                     </div>
                   </button>

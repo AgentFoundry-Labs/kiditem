@@ -12,7 +12,8 @@ const INVENTORY_SKU_READ_SELECT = {
   name: true,
   optionName: true,
   barcode: true,
-  reportedStock: true,
+  currentStock: true,
+  purchasePrice: true,
 } as const;
 
 @Injectable()

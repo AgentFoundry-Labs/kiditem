@@ -36,9 +36,12 @@ function component(
     name: '첫 Sellpia 상품',
     optionName: '분홍',
     barcode: '8801234567890',
-    reportedStock: 8,
+    currentStock: 8,
+    purchasePrice: 1500,
     quantity: 1,
     mappingSource: 'manual',
+    componentCapacity: 8,
+    isBottleneck: true,
     ...overrides,
   };
 }
@@ -52,7 +55,7 @@ function candidate(
     name: '둘째 Sellpia 상품',
     optionName: '파랑',
     barcode: '8809999999999',
-    reportedStock: 11,
+    currentStock: 11,
     reason: 'manual_search',
     rank: 0,
     ...overrides,
@@ -85,6 +88,7 @@ function item(
       salePrice: 12000,
       status: '판매중',
       mappingStatus: 'matched',
+      sellableStock: 2,
       updatedAt: '2026-07-11T00:00:00.000Z',
     },
     components: [component({ quantity: 4 })],
@@ -186,13 +190,16 @@ describe('ChannelSkuComponentDialog', () => {
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 
-  it('shows reported stock only as text and never exposes a stock input', () => {
+  it('shows authoritative current stock only as text and never exposes a stock input', () => {
     renderDialog();
 
     const recipeSection = screen
       .getByRole('heading', { name: '저장할 Sellpia 구성' })
       .closest('section');
-    expect(recipeSection).toHaveTextContent('보고 재고 8');
+    expect(recipeSection).toHaveTextContent('현재 재고 8');
+    expect(recipeSection).toHaveTextContent('매입가 1,500원');
+    expect(recipeSection).toHaveTextContent('구성 가능 8');
+    expect(recipeSection).toHaveTextContent('병목');
     expect(screen.queryByLabelText(/재고.*수정/)).not.toBeInTheDocument();
   });
 

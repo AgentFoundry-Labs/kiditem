@@ -66,7 +66,7 @@ describe('parseSellpiaInventoryWorkbook', () => {
         name: 'TEST',
         optionName: null,
         barcode: null,
-        reportedStock: 39,
+        currentStock: 39,
         purchasePrice: null,
         salePrice: null,
         rawJson: {
@@ -95,7 +95,7 @@ describe('parseSellpiaInventoryWorkbook', () => {
         name: '테스트',
         optionName: '블루',
         barcode: null,
-        reportedStock: 1_234,
+        currentStock: 1_234,
         purchasePrice: 10_000,
         salePrice: 20_000,
         rawJson: {
@@ -122,7 +122,7 @@ describe('parseSellpiaInventoryWorkbook', () => {
       name: 'SP-NAMELESS',
       optionName: null,
       barcode: null,
-      reportedStock: 7,
+      currentStock: 7,
       purchasePrice: null,
       salePrice: 12_300,
       rawJson: {
@@ -185,6 +185,35 @@ describe('parseSellpiaInventoryWorkbook', () => {
     expect(message).toContain('재고');
     expect(message).toContain('매입가');
     expect(message).toContain('판매가');
+  });
+
+  it('accepts the PostgreSQL integer maximum for every persisted integer field', () => {
+    const max = 2_147_483_647;
+    const parsed = parseSellpiaInventoryWorkbook(workbookBuffer([
+      ['상품코드', '재고', '매입가', '판매가'],
+      ['SP-INT-MAX', max, max, max],
+    ]));
+
+    expect(parsed.rows[0]).toMatchObject({
+      currentStock: max,
+      purchasePrice: max,
+      salePrice: max,
+    });
+  });
+
+  it('rejects values above the PostgreSQL integer maximum for every persisted integer field', () => {
+    const aboveMax = '2147483648';
+    const message = errorMessage(() => parseSellpiaInventoryWorkbook(workbookBuffer([
+      ['상품코드', '재고', '매입가', '판매가'],
+      ['SP-STOCK-OVERFLOW', aboveMax, '', ''],
+      ['SP-PURCHASE-OVERFLOW', '0', aboveMax, ''],
+      ['SP-SALE-OVERFLOW', '0', '', aboveMax],
+    ])));
+
+    expect(message).toContain('2행 재고');
+    expect(message).toContain('3행 매입가');
+    expect(message).toContain('4행 판매가');
+    expect(message).toContain('2,147,483,647');
   });
 
   it('rejects empty, no-sheet, missing-column, and over-limit workbooks', () => {

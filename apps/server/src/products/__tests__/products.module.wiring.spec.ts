@@ -15,11 +15,9 @@ import { PRODUCT_BUNDLE_REPOSITORY_PORT } from '../application/port/out/reposito
 import { PRODUCT_CATALOG_REPOSITORY_PORT } from '../application/port/out/repository/product-catalog.repository.port';
 import { PRODUCT_MANAGEMENT_REPOSITORY_PORT } from '../application/port/out/repository/product-management.repository.port';
 import { PRODUCTS_TRANSACTION_PORT } from '../application/port/out/transaction/products-transaction.port';
-import { PRODUCT_BUNDLE_STOCK_PORT } from '../application/port/in/bundle-stock.port';
 import { PRODUCT_MASTER_BARCODE_PORT } from '../application/port/in/master-barcode.port';
 import { PRODUCT_MASTER_PROMOTION_PORT } from '../application/port/in/master-promotion.port';
 import { PRODUCT_OPTION_PROVISION_PORT } from '../application/port/in/product-option-provision.port';
-import { BundleStockService } from '../application/service/bundle-stock.service';
 import { MasterBarcodeService } from '../application/service/master-barcode.service';
 import { MasterPromotionService } from '../application/service/master-promotion.service';
 import { ProductOptionProvisionService } from '../application/service/product-option-provision.service';
@@ -63,7 +61,6 @@ describe('ProductsModule canonical owner wiring', () => {
 
     expectBinding(providers, PRODUCT_MASTER_PROMOTION_PORT, MasterPromotionService);
     expectBinding(providers, PRODUCT_OPTION_PROVISION_PORT, ProductOptionProvisionService);
-    expectBinding(providers, PRODUCT_BUNDLE_STOCK_PORT, BundleStockService);
     expectBinding(providers, PRODUCT_MASTER_BARCODE_PORT, MasterBarcodeService);
   });
 });

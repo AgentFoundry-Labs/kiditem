@@ -92,7 +92,6 @@ export function buildMockAdActionRepo(): MockAdActionRepo {
   return {
     findAdActionsForReview: vi.fn(),
     findLatestTargetRows: vi.fn(),
-    findLatestListingOptionStockById: vi.fn(),
     findExistingInflightActions: vi.fn(),
     createAdActionsFromCandidates: vi.fn(),
     approveAdActions: vi.fn(),
@@ -127,9 +126,7 @@ export function buildMockAdStrategyContextRepo(): MockAdStrategyContextRepo {
   return {
     loadStrategyContext: vi.fn(),
     loadChannelStateByListing: vi.fn(),
-    loadLeadTimeByListing: vi.fn(),
     hydrateListings: vi.fn(),
-    getInventorySnapshot: vi.fn(),
     loadExposureAnalysisContext: vi.fn(),
     loadAllTimeAdAggregates: vi.fn(),
   };

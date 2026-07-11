@@ -1,8 +1,6 @@
 'use client';
-import Link from 'next/link';
-import { Loader2, CheckCircle, RotateCcw } from 'lucide-react';
+import { Loader2, CheckCircle } from 'lucide-react';
 import { cn, formatKRW } from '@/lib/utils';
-import { buildRocketEventDraftHref } from '@/app/(inventory)/inventory-hub/lib/rocket-event-draft';
 
 interface ReturnLineItem {
   id: string;
@@ -126,23 +124,6 @@ export function ReturnsTable({ returns, processing, onApprove }: ReturnsTablePro
                         승인
                       </button>
                       )}
-                      {r.lineItems?.map((item) => (
-                        <Link
-                          key={item.id}
-                          href={buildRocketEventDraftHref({
-                            eventType: 'return_restock',
-                            quantity: item.cancelCount || item.purchaseCount || 1,
-                            sourceRef: `return-${r.receiptId}-line-${item.id}`,
-                            note: r.orderId
-                              ? `쿠팡 반품 ${r.orderId} ${item.vendorItemName ?? item.sellerProductName ?? item.id}`
-                              : undefined,
-                          })}
-                          className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                        >
-                          <RotateCcw size={12} />
-                          재고 처리 초안
-                        </Link>
-                      ))}
                     </div>
                   </td>
                 </tr>

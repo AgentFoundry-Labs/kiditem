@@ -1,7 +1,7 @@
 // Inventory-side read model for the dashboard. Encapsulates the Prisma
 // reads behind the inventory tile: grade counts, unread alerts, active
 // product counts, per-listing profit metrics (shared helper), inventory
-// stock rows for the JS-side needReorder count, last-7d grade history,
+// Sellpia zero-stock and channel-SKU mapping-attention counts, last-7d grade history,
 // low-CTR thumbnail count, and A-grade master products with their
 // channel-listing review counts.
 //
@@ -16,7 +16,6 @@ import type {
   DashboardInventoryRepositoryPort,
   DashboardPerListingMetrics,
   GradeCountRow,
-  InventoryStockRow,
   GradeChangeRow,
   AGradeReviewRow,
 } from '../../../application/port/out/repository/dashboard-inventory.repository.port';
@@ -99,12 +98,21 @@ export class DashboardInventoryRepositoryAdapter
     return buildPerListingMetrics(this.prisma, organizationId, monthStart, monthEnd);
   }
 
-  async findInventoryStockRows(
-    organizationId: string,
-  ): Promise<InventoryStockRow[]> {
-    return this.prisma.inventory.findMany({
-      where: { organizationId, currentStock: { gt: 0 } },
-      select: { currentStock: true, reorderPoint: true },
+  countOutOfStockInventorySkus(organizationId: string): Promise<number> {
+    return this.prisma.inventorySku.count({
+      where: { organizationId, currentStock: 0 },
+    });
+  }
+
+  countMappingAttentionChannelSkus(organizationId: string): Promise<number> {
+    return this.prisma.channelListingOption.count({
+      where: {
+        organizationId,
+        isActive: true,
+        components: { none: {} },
+        channelAccount: { is: { organizationId } },
+        listing: { is: { organizationId, isDeleted: false } },
+      },
     });
   }
 

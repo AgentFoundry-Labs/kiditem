@@ -77,9 +77,4 @@ export interface ProductOptionRepositoryPort {
     id: string,
     tx?: ProductsRepositoryTransaction,
   ): Promise<void>;
-  findBundleIdsUsingComponent(
-    tx: ProductsRepositoryTransaction,
-    organizationId: string,
-    componentOptionId: string,
-  ): Promise<string[]>;
 }

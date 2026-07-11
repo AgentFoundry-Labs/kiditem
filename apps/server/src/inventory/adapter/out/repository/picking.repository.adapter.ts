@@ -9,7 +9,10 @@ import type {
   PickingRepositoryPort,
 } from '../../../application/port/out/repository/picking.repository.port';
 
-const LIST_WITH_ITEMS_INCLUDE = { items: true } as const;
+const INVENTORY_SKU_INCLUDE = { inventorySku: true } as const;
+const LIST_WITH_ITEMS_INCLUDE = {
+  items: { include: INVENTORY_SKU_INCLUDE },
+} as const;
 
 @Injectable()
 export class PickingRepositoryAdapter implements PickingRepositoryPort {
@@ -36,7 +39,7 @@ export class PickingRepositoryAdapter implements PickingRepositoryPort {
         items: {
           create: items.map((it) => ({
             orderId: it.orderId,
-            optionId: it.optionId,
+            inventorySkuId: it.inventorySkuId,
             productName: it.productName,
             sku: it.sku ?? undefined,
             quantity: it.quantity,
@@ -61,6 +64,7 @@ export class PickingRepositoryAdapter implements PickingRepositoryPort {
   ): Promise<PickingItemRow | null> {
     return this.prisma.pickingItem.findFirst({
       where: { id: itemId, pickingListId: listId },
+      include: INVENTORY_SKU_INCLUDE,
     });
   }
 
@@ -69,7 +73,11 @@ export class PickingRepositoryAdapter implements PickingRepositoryPort {
     data: PickingItemUpdateData,
   ): Promise<PickingItemRow> {
     const prismaData: Prisma.PickingItemUpdateInput = data;
-    return this.prisma.pickingItem.update({ where: { id: itemId }, data: prismaData });
+    return this.prisma.pickingItem.update({
+      where: { id: itemId },
+      data: prismaData,
+      include: INVENTORY_SKU_INCLUDE,
+    });
   }
 
   countPickedItems(listId: string): Promise<number> {

@@ -40,11 +40,10 @@ function SortButton({
 export function ProductsColumnHeader({ sortKey, sortDir, onToggleSort }: Props) {
   return (
     <div
-      className="grid grid-cols-[minmax(420px,1.45fr)_repeat(8,minmax(76px,.42fr))_72px] items-center gap-4 px-6 py-3 text-[12px] font-semibold"
+      className="grid grid-cols-[minmax(420px,1.45fr)_repeat(7,minmax(76px,.42fr))_72px] items-center gap-4 px-6 py-3 text-[12px] font-semibold"
       style={{ color: 'var(--text-quaternary)' }}
     >
       <div>상품</div>
-      <SortButton active={sortKey === 'stock'} dir={sortDir} label="재고" onClick={() => onToggleSort('stock')} />
       <SortButton active={sortKey === 'visitors'} dir={sortDir} label="방문" onClick={() => onToggleSort('visitors')} />
       <SortButton active={sortKey === 'views'} dir={sortDir} label="조회" onClick={() => onToggleSort('views')} />
       <SortButton active={sortKey === 'cartAdds'} dir={sortDir} label="장바구니" onClick={() => onToggleSort('cartAdds')} />

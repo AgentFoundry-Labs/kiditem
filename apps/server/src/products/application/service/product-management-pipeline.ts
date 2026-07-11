@@ -19,9 +19,6 @@ export function emptyPipelineCounts(): ProductManagementPipelineCounts {
     unknown: 0,
     minus: 0,
     low: 0,
-    zeroStock: 0,
-    lowStock: 0,
-    stockRisk: 0,
     adLoss: 0,
     gradeChangeA: 0,
     gradeChangeB: 0,
@@ -44,14 +41,12 @@ export function buildPipelineCounts(params: {
   gradeByMaster: Map<string, ProductManagementGradeInfo>;
   facts: ManagementFacts;
   channelLinkedMasterIds: Set<string>;
-  emptyInventory: () => ManagementFacts['inventoryByMaster'] extends Map<string, infer T> ? T : never;
 }): ProductManagementPipelineCounts {
   const {
     masterIds,
     gradeByMaster,
     facts,
     channelLinkedMasterIds,
-    emptyInventory,
   } = params;
   const counts = emptyPipelineCounts();
   counts.total = masterIds.length;
@@ -67,11 +62,6 @@ export function buildPipelineCounts(params: {
 
     const status = facts.statusByMaster.get(masterId) ?? 'unknown';
     counts[status] += 1;
-
-    const inventory = facts.inventoryByMaster.get(masterId) ?? emptyInventory();
-    if (inventory.stockStatus === 'out') counts.zeroStock += 1;
-    if (inventory.stockStatus === 'low') counts.lowStock += 1;
-    if (inventory.stockStatus !== 'healthy') counts.stockRisk += 1;
 
     const metrics = facts.periodMetricsByMaster.get(masterId) ?? EMPTY_METRICS;
     const profit = facts.profitByMaster.get(masterId) ?? {

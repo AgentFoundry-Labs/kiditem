@@ -3,22 +3,15 @@ import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { ListBundleComponentsQuery } from '../../../dto/list-bundle-components.query';
 import type {
-  ActiveBundleComponentRow,
   BundleComponentRow,
   ProductBundleRepositoryPort,
 } from '../../../application/port/out/repository/product-bundle.repository.port';
 import type { ProductsRepositoryTransaction } from '../../../application/port/out/transaction/products-transaction.port';
 import {
-  findBundleOptionId,
-  listActiveBundleComponentsWithStock,
-  listBundlesUsingComponent,
-  lockBundleOptionRow,
-  writeBundleAvailableStock,
-} from './bundle-stock.persistence';
-import {
   createBundleComponent,
   deleteBundleComponentScoped,
   findBundleComponentForTenant,
+  lockBundleOptionRow,
   updateBundleComponentQty,
 } from './bundle-component.persistence';
 import { listBundleComponentsForTenant } from './bundle-component.query';
@@ -37,39 +30,6 @@ export class BundleRepositoryAdapter implements ProductBundleRepositoryPort {
     organizationId: string,
   ): Promise<void> {
     return lockBundleOptionRow(tx(repositoryTx), bundleOptionId, organizationId);
-  }
-
-  findBundleOptionId(
-    repositoryTx: ProductsRepositoryTransaction,
-    bundleOptionId: string,
-    organizationId: string,
-  ): Promise<{ id: string } | null> {
-    return findBundleOptionId(tx(repositoryTx), bundleOptionId, organizationId);
-  }
-
-  listActiveBundleComponentsWithStock(
-    repositoryTx: ProductsRepositoryTransaction,
-    bundleOptionId: string,
-    organizationId: string,
-  ): Promise<ActiveBundleComponentRow[]> {
-    return listActiveBundleComponentsWithStock(tx(repositoryTx), bundleOptionId, organizationId);
-  }
-
-  writeBundleAvailableStock(
-    repositoryTx: ProductsRepositoryTransaction,
-    bundleOptionId: string,
-    organizationId: string,
-    capacity: number,
-  ): Promise<number> {
-    return writeBundleAvailableStock(tx(repositoryTx), bundleOptionId, organizationId, capacity);
-  }
-
-  listBundlesUsingComponent(
-    repositoryTx: ProductsRepositoryTransaction,
-    componentOptionId: string,
-    organizationId: string,
-  ): Promise<{ bundleOptionId: string }[]> {
-    return listBundlesUsingComponent(tx(repositoryTx), componentOptionId, organizationId);
   }
 
   async findBundleRuleOptions(input: {

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const SCRIPT_INVENTORY = Object.freeze([
+  'bootstrap-authoritative-inventory-dev.ts',
   'check-agents-hygiene.mjs',
   'check-channel-sku-db-push-warning.mjs',
   'check-channel-sku-identity.ts',

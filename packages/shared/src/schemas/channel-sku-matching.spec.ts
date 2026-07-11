@@ -24,9 +24,12 @@ const component = {
   name: '실리콘 식판',
   optionName: '핑크',
   barcode: '8801234567890',
-  reportedStock: 17,
+  currentStock: 17,
+  purchasePrice: 1_500,
   quantity: 1,
   mappingSource: 'exact_sellpia_code',
+  componentCapacity: 17,
+  isBottleneck: true,
 };
 
 const listItem = {
@@ -52,6 +55,7 @@ const listItem = {
     salePrice: 24_900,
     status: 'active',
     mappingStatus: 'matched',
+    sellableStock: 17,
     updatedAt: '2026-07-11T00:00:00.000Z',
   },
   components: [component],
@@ -79,8 +83,20 @@ describe('channel SKU matching contracts', () => {
     expect(parsed.items[0]).toMatchObject({
       channelAccount: { id: channelAccountId, channel: 'coupang', name: '쿠팡 메인' },
       product: { id: productId, externalProductId: 'CP-PRODUCT-1' },
-      sku: { id: channelSkuId, externalSkuId: 'CP-SKU-1', mappingStatus: 'matched' },
-      components: [{ inventorySkuId, sellpiaProductCode: 'SP-001', reportedStock: 17 }],
+      sku: {
+        id: channelSkuId,
+        externalSkuId: 'CP-SKU-1',
+        mappingStatus: 'matched',
+        sellableStock: 17,
+      },
+      components: [{
+        inventorySkuId,
+        sellpiaProductCode: 'SP-001',
+        currentStock: 17,
+        purchasePrice: 1_500,
+        componentCapacity: 17,
+        isBottleneck: true,
+      }],
     });
   });
 
@@ -96,17 +112,17 @@ describe('channel SKU matching contracts', () => {
     })).toMatchObject({ id: channelAccountId, isPrimary: true });
   });
 
-  it('keeps reported stock in responses and rejects it from replacement input', () => {
+  it('keeps current stock in responses and rejects it from replacement input', () => {
     expect(ChannelSkuMappingListResponseSchema.parse({
       items: [listItem],
       total: 1,
       page: 1,
       limit: 20,
       counts: { all: 1, unmatched: 0, needsReview: 0, matched: 1 },
-    }).items[0]?.components[0]?.reportedStock).toBe(17);
+    }).items[0]?.components[0]?.currentStock).toBe(17);
 
     expect(() => ReplaceChannelSkuComponentsInputSchema.parse({
-      components: [{ inventorySkuId, quantity: 1, reportedStock: 17 }],
+      components: [{ inventorySkuId, quantity: 1, currentStock: 17 }],
     })).toThrow();
   });
 
@@ -226,7 +242,7 @@ describe('channel SKU matching contracts', () => {
         name: '실리콘 식판',
         optionName: '핑크',
         barcode: '8801234567890',
-        reportedStock: 17,
+        currentStock: 17,
         reason: 'unique_barcode',
         rank: 0,
       }],

@@ -9,6 +9,133 @@ const ids = Array.from(
 );
 
 describe('ChannelSkuMappingRepositoryAdapter status refresh', () => {
+  it('bounds availability filtering, capacity, counts, and pagination in tenant SQL', async () => {
+    const queryRaw = vi.fn().mockResolvedValue([{
+      rowIds: [],
+      total: 2,
+      summaryTotal: 5,
+      inStock: 2,
+      outOfStock: 1,
+      unmatched: 1,
+      needsReview: 1,
+    }]);
+    const findMany = vi.fn();
+    const repository = new ChannelSkuMappingRepositoryAdapter({
+      $queryRaw: queryRaw,
+      channelListingOption: { findMany },
+    } as unknown as PrismaService);
+
+    const result = await repository.listAvailabilityPage(organizationId, {
+      channelAccountId: ids[0],
+      status: 'out_of_stock',
+      hasBottleneck: true,
+      search: 'bear',
+      page: 3,
+      limit: 25,
+    });
+
+    expect(result).toEqual({
+      rows: [],
+      total: 2,
+      summary: {
+        total: 5,
+        inStock: 2,
+        outOfStock: 1,
+        unmatched: 1,
+        needsReview: 1,
+      },
+    });
+    expect(findMany).not.toHaveBeenCalled();
+    const statement = queryRaw.mock.calls[0]?.[0];
+    expect(statement.text).toContain('WITH scoped AS');
+    expect(statement.text).toContain('MIN(FLOOR');
+    expect(statement.text).toContain('inventory.organization_id = component.organization_id');
+    expect(statement.text).toContain('component_count > 0');
+    expect(statement.text).toContain('sellable_stock = 0');
+    expect(statement.text).toContain('OFFSET');
+    expect(statement.text).toContain('LIMIT');
+    expect(statement.values).toEqual(expect.arrayContaining([
+      organizationId,
+      ids[0],
+      '%bear%',
+      50,
+      25,
+    ]));
+  });
+
+  it('hydrates only page IDs returned by SQL and preserves their order', async () => {
+    const queryRaw = vi.fn().mockResolvedValue([{
+      rowIds: [ids[1], ids[0]],
+      total: 4,
+      summaryTotal: 6,
+      inStock: 4,
+      outOfStock: 0,
+      unmatched: 1,
+      needsReview: 1,
+    }]);
+    const findMany = vi.fn().mockResolvedValue([
+      selectedRow(ids[0]!),
+      selectedRow(ids[1]!),
+    ]);
+    const repository = new ChannelSkuMappingRepositoryAdapter({
+      $queryRaw: queryRaw,
+      channelListingOption: { findMany },
+    } as unknown as PrismaService);
+
+    const result = await repository.listAvailabilityPage(organizationId, {
+      status: 'in_stock',
+      page: 2,
+      limit: 2,
+    });
+
+    expect(findMany).toHaveBeenCalledTimes(1);
+    expect(findMany.mock.calls[0]?.[0]).toMatchObject({
+      where: {
+        organizationId,
+        id: { in: [ids[1], ids[0]] },
+      },
+    });
+    expect(findMany.mock.calls[0]?.[0]).not.toHaveProperty('skip');
+    expect(findMany.mock.calls[0]?.[0]).not.toHaveProperty('take');
+    expect(result.rows.map((row) => row.sku.id)).toEqual([ids[1], ids[0]]);
+    expect(result.rows).toHaveLength(2);
+  });
+
+  it('tenant-scopes exact SKU/listing ID hydration reads', async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const repository = new ChannelSkuMappingRepositoryAdapter({
+      channelListingOption: { findMany },
+    } as unknown as PrismaService);
+
+    await repository.findByChannelSkuIds(organizationId, [ids[1], ids[2]]);
+    await repository.findByListingIds(organizationId, [ids[3], ids[4]]);
+
+    expect(findMany).toHaveBeenCalledTimes(2);
+    for (const [call] of findMany.mock.calls) {
+      expect(call.where).toMatchObject({
+        organizationId,
+        channelAccount: { is: { organizationId } },
+        lastImportRun: { is: {
+          organizationId,
+          sourceType: 'coupang_wing_catalog',
+          status: 'completed',
+        } },
+        listing: { is: {
+          organizationId,
+          isDeleted: false,
+          channelAccount: { is: { organizationId } },
+        } },
+      });
+      expect(call.select.components.where).toEqual({ organizationId });
+    }
+    expect(findMany.mock.calls[0]?.[0].where).toMatchObject({
+      id: { in: [ids[1], ids[2]] },
+    });
+    expect(findMany.mock.calls[1]?.[0].where).toMatchObject({
+      listingId: { in: [ids[3], ids[4]] },
+    });
+  });
+
   it('groups advisory updates into at most two guarded statements and skips correct statuses', async () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const transaction = vi.fn(async (operations: Array<Promise<unknown>>) =>
@@ -57,3 +184,27 @@ describe('ChannelSkuMappingRepositoryAdapter status refresh', () => {
     }));
   });
 });
+
+function selectedRow(id: string) {
+  return {
+    channelAccount: { id: ids[5], channel: 'coupang', name: 'Wing' },
+    listing: {
+      id: ids[4],
+      externalId: `P-${id}`,
+      channelName: 'Registered',
+      displayName: 'Display',
+      status: 'approved',
+    },
+    id,
+    externalOptionId: `S-${id}`,
+    sellerSku: null,
+    itemName: null,
+    barcode: null,
+    modelNumber: null,
+    salePrice: 10_000,
+    status: 'on_sale',
+    mappingStatus: 'matched',
+    updatedAt: new Date('2026-07-12T00:00:00.000Z'),
+    components: [],
+  };
+}

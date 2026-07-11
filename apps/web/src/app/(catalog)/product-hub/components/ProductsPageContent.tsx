@@ -4,7 +4,7 @@ import { BarChart3, Download, Package, Search, Upload } from 'lucide-react';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { cn } from '@/lib/utils';
 import { useProductHubPageState } from '../hooks/useProductHubPageState';
-import { AD_FILTERS, CATEGORY_TABS, PAGE_SIZE, PERIOD_OPTIONS, STOCK_FILTERS } from '../lib/product-page-config';
+import { AD_FILTERS, CATEGORY_TABS, PAGE_SIZE, PERIOD_OPTIONS } from '../lib/product-page-config';
 import AddProductModal from './AddProductModal';
 import ExcelUploadModal from './ExcelUploadModal';
 import { ProductCategorySelector } from './category-selection/ProductCategorySelector';
@@ -12,6 +12,7 @@ import { ProductGroupRow } from './ProductGroupRow';
 import { ProductRowCard } from './ProductRowCard';
 import { ProductsColumnHeader } from './ProductsColumnHeader';
 import { ProductCommandCenter } from './ProductCommandCenter';
+import { ChannelSkuInventorySummary } from './ChannelSkuInventorySummary';
 
 export default function ProductsPageContent() {
   const state = useProductHubPageState();
@@ -38,7 +39,7 @@ export default function ProductsPageContent() {
           <div className="flex items-baseline gap-2">
             <h1 className="text-2xl font-extrabold tracking-tight" style={{ color: 'var(--text-primary)' }}>상품 운영 센터</h1>
             <span className="text-[13px] font-semibold" style={{ color: 'var(--text-tertiary)' }}>
-              매출 · 광고 · 재고 · 수익성 통합 관리
+              매출 · 광고 · 수익성 통합 관리
             </span>
           </div>
         </div>
@@ -97,6 +98,8 @@ export default function ProductsPageContent() {
         onSelectSegment={state.applySegment}
       />
 
+      <ChannelSkuInventorySummary />
+
       <ProductCategorySelector
         categoryTabs={CATEGORY_TABS}
         activeCategoryTab={state.activeCategoryTab}
@@ -152,16 +155,6 @@ export default function ProductsPageContent() {
           ))}
         </div>
         <select
-          value={state.stockFilter}
-          onChange={(event) => { state.setStockFilter(event.target.value); state.setPage(1); }}
-          className="h-10 px-3 rounded-xl text-[14px] font-medium"
-          style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}
-        >
-          {STOCK_FILTERS.map((filter) => (
-            <option key={filter.key} value={filter.key}>{filter.label}</option>
-          ))}
-        </select>
-        <select
           value={state.gradeFilter}
           onChange={(event) => { state.setGradeFilter(event.target.value); state.setPage(1); }}
           className="h-10 px-3 rounded-xl text-[14px] font-medium"
@@ -212,7 +205,6 @@ export default function ProductsPageContent() {
                     product={group[0]}
                     gradeMap={state.gradeMap}
                     gradeChange={state.gradeChangesByProductId.get(group[0].id)}
-                    periodDays={state.period}
                   />
                 );
               }
@@ -222,7 +214,6 @@ export default function ProductsPageContent() {
                   group={group}
                   gradeMap={state.gradeMap}
                   gradeChangesByProductId={state.gradeChangesByProductId}
-                  periodDays={state.period}
                   isExpanded={state.expandedGroups.has(group[0].name)}
                   onToggle={() => state.toggleGroup(group[0].name)}
                 />

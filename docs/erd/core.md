@@ -20,7 +20,7 @@
 | MasterProductImage | `master_product_images` | MasterProduct 이미지 갤러리. Source of truth 이며 MasterProduct.imageUrl 은 대표 이미지 캐시로만 동기화된다. |
 | Organization | `organizations` | - |
 | OrganizationMembership | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
-| ProductOption | `product_options` | 물리 SKU. 바코드 1:1. 재고/매입/창고 단위. isBundle 이면 구성품 기반 계산. |
+| ProductOption | `product_options` | KidItem 카탈로그의 판매 옵션과 가격 메타데이터. Sellpia 재고 잔액은 InventorySku 가 소유한다. |
 | SourceImportRun | `source_import_runs` | 원본 파일의 idempotency와 provenance만 저장하는 import 실행 행. |
 | User | `users` | human(직원) / agent(AI, agentInstanceId 연결) / system(챗봇). 조직 소속은 OrganizationMembership 이 source of truth. |
 
@@ -221,7 +221,6 @@ erDiagram
     Int shippingCost
     Int otherCost
     Boolean isBundle
-    Int availableStock
     Boolean isDeleted
     DateTime deletedAt
     Boolean isTemporary
@@ -373,17 +372,10 @@ erDiagram
 | Organization | organization | referenced by external | Finance | ProcessingCost |
 | Organization | organization | referenced by external | Finance | ProfitLoss |
 | Organization | organization | referenced by external | Finance | SalesPlan |
-| Organization | organization | referenced by external | Inventory | Inventory |
 | Organization | organization | referenced by external | Inventory | InventorySku |
 | Organization | organization | referenced by external | Inventory | PickingList |
 | Organization | organization | referenced by external | Inventory | ReturnTransfer |
-| Organization | organization | referenced by external | Inventory | RocketInventoryLedger |
-| Organization | organization | referenced by external | Inventory | SellpiaNewProductCandidate |
 | Organization | organization | referenced by external | Inventory | SellpiaReceiptUploadBatch |
-| Organization | organization | referenced by external | Inventory | SellpiaStockSnapshot |
-| Organization | organization | referenced by external | Inventory | SellpiaStockSnapshotItem |
-| Organization | organization | referenced by external | Inventory | StockAudit |
-| Organization | organization | referenced by external | Inventory | StockTransaction |
 | Organization | organization | referenced by external | Inventory | StockTransfer |
 | Organization | organization | referenced by external | Inventory | Warehouse |
 | Organization | organization | referenced by external | Orders | CSRecord |
@@ -409,20 +401,12 @@ erDiagram
 | ProductOption | option | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | ProductOption | option | referenced by external | Channels | ChannelListingOptionDailySnapshot |
 | ProductOption | option | referenced by external | Channels | ChannelScrapeSnapshot |
-| ProductOption | option | referenced by external | Inventory | Inventory |
-| ProductOption | option | referenced by external | Inventory | PickingItem |
-| ProductOption | option | referenced by external | Inventory | ReturnTransfer |
-| ProductOption | option | referenced by external | Inventory | RocketInventoryLedger |
-| ProductOption | option | referenced by external | Inventory | SellpiaStockSnapshotItem |
-| ProductOption | option | referenced by external | Inventory | StockTransaction |
-| ProductOption | option | referenced by external | Inventory | StockTransfer |
 | ProductOption | option | referenced by external | Orders | OrderLineItem |
 | ProductOption | option | referenced by external | Orders | OrderReturnLineItem |
 | ProductOption | option | referenced by external | Orders | Shipment |
 | ProductOption | option | referenced by external | Orders | UnshippedItem |
 | ProductOption | option | referenced by external | Supply | PurchaseOrderItem |
 | ProductOption | option | referenced by external | Supply | SupplierProduct |
-| ProductOption | resolvedOption | referenced by external | Inventory | SellpiaNewProductCandidate |
 | SourceImportRun | lastImportRun | referenced by external | Inventory | InventorySku |
 | User | actor | referenced by external | AI | ThumbnailGenerationEvent |
 | User | actorUser | referenced by external | System | Alert |

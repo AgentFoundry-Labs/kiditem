@@ -46,6 +46,7 @@
     "data:dev:pack": "tsx scripts/dev-data.ts pack",
     "data:dev:publish": "tsx scripts/dev-data.ts publish",
     "data:migrate": "tsx scripts/run-data-migrations.ts",
+    "inventory:bootstrap:dev": "tsx scripts/bootstrap-authoritative-inventory-dev.ts",
     "storage:cache-control": "tsx scripts/storage-cache-control.ts",
     "staging:db": "tsx scripts/staging-db-baseline.ts",
     "seed:agent-os": "tsx scripts/seed-agent-os.ts",

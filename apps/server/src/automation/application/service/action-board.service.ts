@@ -38,10 +38,17 @@ export class ActionBoardService {
   async getTasks(organizationId: string) {
     const { today, from, to } = this.resolveTodayContext();
 
-    const [metrics, inventoryRows, lowCtrCount, aGradeReviewRows] =
+    const [
+      metrics,
+      outOfStockSkus,
+      mappingAttentionSkus,
+      lowCtrCount,
+      aGradeReviewRows,
+    ] =
       await Promise.all([
         this.repository.fetchPerListingMetrics(organizationId, from, to),
-        this.repository.findInventoryStockRows(organizationId),
+        this.repository.countOutOfStockInventorySkus(organizationId),
+        this.repository.countMappingAttentionChannelSkus(organizationId),
         this.repository.countLowCtrThumbnails(organizationId),
         this.repository.findAGradeReviewCounts(organizationId),
       ]);
@@ -60,10 +67,6 @@ export class ActionBoardService {
         metric.adCost > 0 &&
         (metric.adCost / metric.revenue) * 100 > 15,
     ).length;
-    const needReorder = inventoryRows.filter(
-      (inv) => inv.reorderPoint > 0 && inv.currentStock <= inv.reorderPoint,
-    ).length;
-
     const totalRevenue = metrics.reduce((sum, metric) => sum + metric.revenue, 0);
     const totalAdCost = metrics.reduce((sum, metric) => sum + metric.adCost, 0);
     const adRate = totalRevenue > 0 ? (totalAdCost / totalRevenue) * 100 : 0;
@@ -72,7 +75,8 @@ export class ActionBoardService {
       minusProducts,
       lowProfitProducts,
       highAdProducts,
-      needReorder,
+      outOfStockSkus,
+      mappingAttentionSkus,
       adRate,
       lowCtrProducts: lowCtrCount,
       lowReviewProducts: lowReviewCount,
@@ -100,7 +104,7 @@ export class ActionBoardService {
       (priorityWeight[a.priority] ?? 9) - (priorityWeight[b.priority] ?? 9),
     );
 
-    const relatedMap = await this.getRelatedProducts(organizationId, metrics);
+    const relatedMap = this.getRelatedProducts(metrics);
 
     return tasks.map((t) => ({
       ...t,
@@ -253,10 +257,9 @@ export class ActionBoardService {
 
   // ── Private helpers ──
 
-  private async getRelatedProducts(
-    organizationId: string,
+  private getRelatedProducts(
     metrics: ActionBoardPerListingMetrics[],
-  ): Promise<Record<string, RelatedProduct[]>> {
+  ): Record<string, RelatedProduct[]> {
     const map: Record<string, RelatedProduct[]> = {};
     const highAdRows = metrics
       .filter(
@@ -288,22 +291,6 @@ export class ActionBoardService {
     map['h-minus-price'] = minusProducts;
     map['h-price-reset'] = minusProducts;
     map['analyze-deficit'] = minusProducts;
-
-    // Reorder products — Inventory → option → master (2-hop)
-    const candidates = await this.repository.findInventoryReorderCandidates(
-      organizationId,
-    );
-    const reorderRows = candidates
-      .filter((c) => c.currentStock <= c.reorderPoint)
-      .slice(0, 20)
-      .map((c) => ({
-        id: c.masterId,
-        name: c.masterName,
-        metric: '재고',
-        value: `${c.currentStock}개 (기준 ${c.reorderPoint})`,
-      })) satisfies ActionTaskRelatedProduct[];
-    map['h-reorder'] = reorderRows;
-    map['analyze-stock'] = reorderRows;
 
     return map;
   }

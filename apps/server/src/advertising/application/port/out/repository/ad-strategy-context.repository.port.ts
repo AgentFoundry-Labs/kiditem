@@ -12,7 +12,6 @@ import type {
   AdAggregateRow,
   AdsConfig,
   HydratedListing,
-  InventoryRow,
 } from '../../../../domain/model/strategy-types';
 import type { ChannelStateSignal } from '@kiditem/shared/advertising';
 
@@ -81,20 +80,10 @@ export interface AdStrategyContextRepositoryPort {
     listings: HydratedListing[],
   ): Promise<Map<string, ChannelStateSignal>>;
 
-  loadLeadTimeByListing(
-    organizationId: string,
-    listingIds: string[],
-  ): Promise<Map<string, number | null>>;
-
   hydrateListings(
     organizationId: string,
     listingIds: string[],
   ): Promise<HydratedListing[]>;
-
-  getInventorySnapshot(
-    organizationId: string,
-    listingIds: string[],
-  ): Promise<Map<string, InventoryRow>>;
 
   /**
    * Bundle of reads exclusively used by `AdStrategyService.getExposureAnalysis`:

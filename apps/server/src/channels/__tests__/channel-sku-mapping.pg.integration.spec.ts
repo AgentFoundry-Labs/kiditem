@@ -19,6 +19,7 @@ import { SellpiaInventoryImportService } from '../../inventory/application/servi
 import { ChannelsInventorySkuReadAdapter } from '../adapter/out/inventory/inventory-sku-read.adapter';
 import { ChannelSkuMappingRepositoryAdapter } from '../adapter/out/repository/channel-sku-mapping.repository.adapter';
 import { ChannelSkuMappingService } from '../application/service/channel-sku-mapping.service';
+import { ChannelSkuAvailabilityService } from '../application/service/channel-sku-availability.service';
 
 const ACCOUNT_A = '11111111-1111-4111-8111-111111111111';
 const ACCOUNT_B = '22222222-2222-4222-8222-222222222222';
@@ -28,6 +29,7 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
   let prisma: PrismaClient;
   let repository: ChannelSkuMappingRepositoryAdapter;
   let service: ChannelSkuMappingService;
+  let availability: ChannelSkuAvailabilityService;
   let inventoryImport: SellpiaInventoryImportService;
   let runA: string;
   let runB: string;
@@ -42,6 +44,10 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
       new InventorySkuReadRepositoryAdapter(prismaService),
     );
     service = new ChannelSkuMappingService(
+      repository,
+      new ChannelsInventorySkuReadAdapter(inventoryOwner),
+    );
+    availability = new ChannelSkuAvailabilityService(
       repository,
       new ChannelsInventorySkuReadAdapter(inventoryOwner),
     );
@@ -215,7 +221,7 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     const y = await createInventorySku('SP-Y', '8801234567891', 29);
     const stockBefore = new Map((await prisma.inventorySku.findMany()).map((row) => [
       row.id,
-      row.reportedStock,
+      row.currentStock,
     ]));
 
     await service.replaceComponents(TEST_ORGANIZATION_ID, TEST_USER_ID, target.sku.id, {
@@ -255,9 +261,152 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     expect(await componentState(target.sku.id)).toEqual([]);
     const stockAfter = new Map((await prisma.inventorySku.findMany()).map((row) => [
       row.id,
-      row.reportedStock,
+      row.currentStock,
     ]));
     expect(stockAfter).toEqual(stockBefore);
+  });
+
+  it('projects tenant-scoped sellable capacity for list, SKU IDs, and listing IDs without stock writes', async () => {
+    const mixed = await createQueueSku({ externalSkuId: 'S-MIXED' });
+    const outOfStock = await createQueueSku({ externalSkuId: 'S-OUT' });
+    const unmatched = await createQueueSku({ externalSkuId: 'S-UNMATCHED' });
+    const foreign = await createQueueSku({
+      organizationId: OTHER_ORGANIZATION_ID,
+      channelAccountId: OTHER_ACCOUNT,
+      runId: otherRun,
+      externalSkuId: 'S-FOREIGN',
+    });
+    const x = await createInventorySku(
+      'SP-CAP-X',
+      null,
+      12,
+      TEST_ORGANIZATION_ID,
+      1_000,
+    );
+    const y = await createInventorySku(
+      'SP-CAP-Y',
+      null,
+      9,
+      TEST_ORGANIZATION_ID,
+      2_000,
+    );
+    const z = await createInventorySku('SP-CAP-Z', null, 0);
+    await prisma.channelSkuComponent.createMany({
+      data: [
+        component(mixed.sku.id, x.id, 1),
+        component(mixed.sku.id, y.id, 2),
+        component(outOfStock.sku.id, z.id, 8),
+      ],
+    });
+    const stockBefore = new Map((await prisma.inventorySku.findMany()).map((row) => [
+      row.id,
+      row.currentStock,
+    ]));
+
+    const inStock = await availability.list(TEST_ORGANIZATION_ID, {
+      status: 'in_stock',
+      page: 1,
+      limit: 50,
+    });
+    const out = await availability.list(TEST_ORGANIZATION_ID, {
+      status: 'out_of_stock',
+      page: 1,
+      limit: 50,
+    });
+    const bottleneckPageOne = await availability.list(TEST_ORGANIZATION_ID, {
+      channelAccountId: ACCOUNT_A,
+      status: 'all',
+      hasBottleneck: true,
+      search: 'S-',
+      page: 1,
+      limit: 1,
+    });
+    const bottleneckPageTwo = await availability.list(TEST_ORGANIZATION_ID, {
+      channelAccountId: ACCOUNT_A,
+      status: 'all',
+      hasBottleneck: true,
+      search: 'S-',
+      page: 2,
+      limit: 1,
+    });
+    const emptyBottleneckPage = await availability.list(TEST_ORGANIZATION_ID, {
+      channelAccountId: ACCOUNT_A,
+      status: 'all',
+      hasBottleneck: true,
+      search: 'S-',
+      page: 3,
+      limit: 1,
+    });
+    const bySku = await availability.findByChannelSkuIds(TEST_ORGANIZATION_ID, [
+      mixed.sku.id,
+      foreign.sku.id,
+    ]);
+    const byListing = await availability.findByListingIds(TEST_ORGANIZATION_ID, [
+      mixed.listing.id,
+      foreign.listing.id,
+    ]);
+
+    expect(inStock.items).toHaveLength(1);
+    expect(inStock.items[0]?.sku).toMatchObject({
+      id: mixed.sku.id,
+      sellableStock: 4,
+    });
+    expect(inStock.items[0]?.components).toEqual([
+      expect.objectContaining({
+        inventorySkuId: x.id,
+        purchasePrice: 1_000,
+        componentCapacity: 12,
+        isBottleneck: false,
+      }),
+      expect.objectContaining({
+        inventorySkuId: y.id,
+        purchasePrice: 2_000,
+        componentCapacity: 4,
+        isBottleneck: true,
+      }),
+    ]);
+    expect(inStock.summary).toMatchObject({
+      inStock: 1,
+      outOfStock: 1,
+      unmatched: 1,
+    });
+    expect(out.items.map((item) => item.sku.id)).toEqual([outOfStock.sku.id]);
+    expect([
+      ...bottleneckPageOne.items,
+      ...bottleneckPageTwo.items,
+    ].map((item) => item.sku.id).sort()).toEqual([
+      mixed.sku.id,
+      outOfStock.sku.id,
+    ].sort());
+    expect(bottleneckPageOne).toMatchObject({
+      total: 2,
+      page: 1,
+      limit: 1,
+      summary: {
+        total: 2,
+        inStock: 1,
+        outOfStock: 1,
+        unmatched: 0,
+        needsReview: 0,
+      },
+    });
+    expect(emptyBottleneckPage).toMatchObject({
+      items: [],
+      total: 2,
+      page: 3,
+      limit: 1,
+      summary: bottleneckPageOne.summary,
+    });
+    expect(bySku.map((item) => item.sku.id)).toEqual([mixed.sku.id]);
+    expect(byListing.map((item) => item.product.id)).toEqual([mixed.listing.id]);
+    expect((await availability.findByChannelSkuIds(
+      OTHER_ORGANIZATION_ID,
+      [mixed.sku.id],
+    ))).toEqual([]);
+    expect(new Map((await prisma.inventorySku.findMany()).map((row) => [
+      row.id,
+      row.currentStock,
+    ]))).toEqual(stockBefore);
   });
 
   it('validates the full request and tenant InventorySku ownership before deletion', async () => {
@@ -408,7 +557,7 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
         name: 'Updated metadata',
         optionName: 'Updated option',
         barcode: '001234567890',
-        reportedStock: 99,
+        currentStock: 99,
         purchasePrice: 100,
         salePrice: 200,
         rawJson: { revision: 2 },
@@ -517,8 +666,9 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
   async function createInventorySku(
     sellpiaProductCode: string,
     barcode: string | null = null,
-    reportedStock = 1,
+    currentStock = 1,
     organizationId = TEST_ORGANIZATION_ID,
+    purchasePrice: number | null = null,
   ) {
     return prisma.inventorySku.create({
       data: {
@@ -527,7 +677,8 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
         name: `${sellpiaProductCode} item`,
         optionName: null,
         barcode,
-        reportedStock,
+        currentStock,
+        purchasePrice,
       },
     });
   }

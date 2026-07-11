@@ -28,6 +28,7 @@ React Query + apiClient
   -> /api/channels/accounts
   -> /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing
   -> /api/channels/sku-mappings/*
+  -> /api/channels/sku-availability
   -> queryKeys.products, productOptions, channelAccounts, channelSkuMappings
 ```
 
@@ -40,6 +41,9 @@ React Query + apiClient
   contracts and never sends `organizationId`.
 - Candidate rows are computed suggestions. Only an explicitly saved
   `ChannelSkuComponent` recipe is matching truth.
+- Product list/detail may show the organization-wide channel SKU mapping and
+  sellable-capacity summary, but must label it as independent from catalog
+  products and link operators to `/product-hub/matching`.
 
 ## Boundary Rules
 
@@ -50,6 +54,6 @@ React Query + apiClient
 - Workflow runs shown on product pages are context actions; workflow engine
   behavior remains backend/automation-owned.
 - Traffic uploads must stay aligned with backend upload contracts.
-- Do not edit Sellpia reported stock or channel prices from the matching route.
+- Do not edit Sellpia current stock or channel prices from the matching route.
 - Coupang image synchronization is separate from ChannelSku matching.
 - Rocket catalog, purchase-order, and order behavior is outside this route.

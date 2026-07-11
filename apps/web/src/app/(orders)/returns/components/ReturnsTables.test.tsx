@@ -2,8 +2,8 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ReturnsTable } from './ReturnsTables';
 
-describe('ReturnsTable Rocket stock link', () => {
-  it('links a return row to the Rocket return restock draft', () => {
+describe('ReturnsTable inventory boundary', () => {
+  it('does not create a KidItem inventory mutation draft from a return row', () => {
     render(
       <ReturnsTable
         returns={[{
@@ -35,9 +35,7 @@ describe('ReturnsTable Rocket stock link', () => {
       />,
     );
 
-    expect(screen.getByRole('link', { name: '재고 처리 초안' })).toHaveAttribute(
-      'href',
-      '/inventory-hub?tab=rocket-events&eventType=return_restock&quantity=1&sourceRef=return-12345-line-item-1&note=%EC%BF%A0%ED%8C%A1+%EB%B0%98%ED%92%88+ORDER-1+%EC%83%81%ED%92%88',
-    );
+    expect(screen.queryByRole('link', { name: '재고 처리 초안' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/재고 처리 초안/)).not.toBeInTheDocument();
   });
 });

@@ -54,8 +54,8 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
   }
 
   /**
-   * Seed a basic 2-master + 1-inventory + 1-alert layout for TEST,
-   * and 5-master + 5-inventory + 3-alert for OTHER (no order data).
+   * Seed a basic 2-master + 1-Sellpia-SKU + 1-alert layout for TEST,
+   * and 5-master + 5-Sellpia-SKU + 3-alert for OTHER (no order data).
    * Used by T1/T2/T3 (IDOR cases that don't touch warnings).
    */
   async function seedBaseStructure() {
@@ -65,11 +65,13 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     const masterT2 = await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID, code: 'M-T-2', name: 'Master T2', abcGrade: 'B',
     });
-    const optionT1 = await setupProductOption(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, masterId: masterT1.id, sku: 'SKU-T-1',
-    });
-    await prisma.inventory.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, optionId: optionT1.id, currentStock: 10, reorderPoint: 5 },
+    await prisma.inventorySku.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sellpiaProductCode: 'SP-T-1',
+        name: 'Sellpia T1',
+        currentStock: 10,
+      },
     });
     await prisma.alert.create({
       data: {
@@ -84,11 +86,13 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
         organizationId: OTHER_ORGANIZATION_ID, code: `M-O-${i}`, name: `Master O${i}`,
         abcGrade: i <= 3 ? 'A' : 'B',
       });
-      const optionO = await setupProductOption(prisma, {
-        organizationId: OTHER_ORGANIZATION_ID, masterId: masterO.id, sku: `SKU-O-${i}`,
-      });
-      await prisma.inventory.create({
-        data: { organizationId: OTHER_ORGANIZATION_ID, optionId: optionO.id, currentStock: 1, reorderPoint: 100 },
+      await prisma.inventorySku.create({
+        data: {
+          organizationId: OTHER_ORGANIZATION_ID,
+          sellpiaProductCode: `SP-O-${i}`,
+          name: `Sellpia O${i}`,
+          currentStock: 1,
+        },
       });
     }
     for (let i = 1; i <= 3; i++) {
@@ -177,7 +181,8 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     expect(result.warnings.minusProducts).toBe(0);
     expect(result.warnings.lowProfitProducts).toBe(0);
     expect(result.warnings.highAdProducts).toBe(0);
-    expect(result.warnings.needReorder).toBe(0);
+    expect(result.warnings.outOfStockSkus).toBe(0);
+    expect(result.warnings.mappingAttentionSkus).toBe(0);
   });
 
   it('T4: minusProduct — seeded loss order surfaces in warnings.minusProducts', async () => {

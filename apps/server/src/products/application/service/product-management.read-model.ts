@@ -23,24 +23,6 @@ export interface ProductManagementGradeInfo {
 }
 
 export interface ManagementFacts {
-  stockByMaster: Map<string, number>;
-  inventoryByMaster: Map<string, {
-    inventoryId: string | null;
-    optionId: string | null;
-    currentStock: number;
-    reservedStock: number;
-    availableStock: number;
-    safetyStock: number;
-    reorderPoint: number;
-    reorderQuantity: number;
-    leadTimeDays: number | null;
-    dailySalesAvg: number;
-    optimalStock: number;
-    recommendedOrderQty: number;
-    daysUntilStockout: number | null;
-    stockStatus: ProductManagementListItem['stockStatus'];
-    stockAction: ProductManagementListItem['stockAction'];
-  }>;
   statusByMaster: Map<string, ProductManagementListItem['status']>;
   activeAdMasterIds: Set<string>;
   optionByMaster: Map<string, {

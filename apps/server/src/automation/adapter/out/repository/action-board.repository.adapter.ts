@@ -21,8 +21,6 @@ import type {
   ActionTaskSourceAlert,
   ActionTaskUpdateData,
   AGradeReviewRow,
-  InventoryReorderCandidate,
-  InventoryStockRow,
   UpsertActionTaskSeed,
 } from '../../../application/port/out/repository/action-board.repository.port';
 import type { JsonValue } from '../../../application/port/persistence-records';
@@ -50,12 +48,21 @@ export class ActionBoardRepositoryAdapter
     );
   }
 
-  findInventoryStockRows(
-    organizationId: string,
-  ): Promise<InventoryStockRow[]> {
-    return this.prisma.inventory.findMany({
-      where: { organizationId, currentStock: { gt: 0 } },
-      select: { currentStock: true, reorderPoint: true },
+  countOutOfStockInventorySkus(organizationId: string): Promise<number> {
+    return this.prisma.inventorySku.count({
+      where: { organizationId, currentStock: 0 },
+    });
+  }
+
+  countMappingAttentionChannelSkus(organizationId: string): Promise<number> {
+    return this.prisma.channelListingOption.count({
+      where: {
+        organizationId,
+        isActive: true,
+        components: { none: {} },
+        channelAccount: { is: { organizationId } },
+        listing: { is: { organizationId, isDeleted: false } },
+      },
     });
   }
 
@@ -85,32 +92,6 @@ export class ActionBoardRepositoryAdapter
         0,
       ),
     } satisfies AGradeReviewRow));
-  }
-
-  async findInventoryReorderCandidates(
-    organizationId: string,
-  ): Promise<InventoryReorderCandidate[]> {
-    const rows = await this.prisma.inventory.findMany({
-      where: {
-        organizationId,
-        currentStock: { gt: 0 },
-        reorderPoint: { gt: 0 },
-      },
-      include: {
-        option: {
-          include: {
-            master: { select: { id: true, name: true } },
-          },
-        },
-      },
-    });
-    return rows.map((inv) => ({
-      masterId: inv.option?.master.id ?? inv.optionId,
-      masterName: inv.option?.master.name ?? 'N/A',
-      optionId: inv.optionId,
-      currentStock: inv.currentStock,
-      reorderPoint: inv.reorderPoint,
-    } satisfies InventoryReorderCandidate));
   }
 
   async upsertActionTaskSeed(seed: UpsertActionTaskSeed): Promise<void> {

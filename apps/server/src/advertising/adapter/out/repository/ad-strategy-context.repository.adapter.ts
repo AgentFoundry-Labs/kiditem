@@ -12,7 +12,6 @@ import type { ChannelStateSignal } from '@kiditem/shared/advertising';
 import type {
   AdsConfig,
   HydratedListing,
-  InventoryRow,
 } from '../../../domain/model/strategy-types';
 import {
   buildGradeMap,
@@ -288,46 +287,6 @@ export class AdStrategyContextRepositoryAdapter
     return map;
   }
 
-  async loadLeadTimeByListing(
-    organizationId: string,
-    listingIds: string[],
-  ): Promise<Map<string, number | null>> {
-    const map = new Map<string, number | null>();
-    if (listingIds.length === 0) return map;
-    const rows = await this.prisma.channelListingOption.findMany({
-      where: {
-        organizationId,
-        listingId: { in: listingIds },
-        isActive: true,
-      },
-      select: { listingId: true, optionId: true },
-    });
-    const optionIds = Array.from(
-      new Set(
-        rows.map((row) => row.optionId).filter((id): id is string => id != null),
-      ),
-    );
-    const inventories =
-      optionIds.length > 0
-        ? await this.prisma.inventory.findMany({
-            where: { optionId: { in: optionIds }, organizationId },
-            select: { optionId: true, leadTimeDays: true },
-          })
-        : [];
-    const inventoryMap = new Map(
-      inventories.map((inventory) => [inventory.optionId, inventory]),
-    );
-    for (const r of rows) {
-      const lt = r.optionId
-        ? inventoryMap.get(r.optionId)?.leadTimeDays ?? null
-        : null;
-      const cur = map.get(r.listingId) ?? null;
-      if (lt != null && (cur == null || lt < cur)) map.set(r.listingId, lt);
-      else if (!map.has(r.listingId)) map.set(r.listingId, cur);
-    }
-    return map;
-  }
-
   async hydrateListings(
     organizationId: string,
     listingIds: string[],
@@ -387,9 +346,6 @@ export class AdStrategyContextRepositoryAdapter
             where: { id: { in: optionIds }, organizationId },
             select: {
               id: true,
-              availableStock: true,
-              costPrice: true,
-              sellPrice: true,
               commissionRate: true,
               shippingCost: true,
             },
@@ -403,10 +359,7 @@ export class AdStrategyContextRepositoryAdapter
         if (!r.masterId) return null;
         const master = masterMap.get(r.masterId);
         if (!master) return null;
-        const firstClo =
-          r.options.find(
-            (clo) => clo.optionId != null && optionMap.has(clo.optionId),
-          ) ?? null;
+        const firstClo = r.options[0] ?? null;
         const firstOption = firstClo?.optionId
           ? optionMap.get(firstClo.optionId) ?? null
           : null;
@@ -422,18 +375,16 @@ export class AdStrategyContextRepositoryAdapter
             adTier: master.adTier,
             healthScore: master.healthScore,
           },
-          primaryOption:
-            firstClo && firstOption
-              ? {
-                  id: firstOption.id,
-                  listingOptionId: firstClo.id,
-                  availableStock: firstOption.availableStock,
-                  costPrice: firstOption.costPrice,
-                  sellPrice: firstOption.sellPrice,
-                  commissionRate: firstOption.commissionRate,
-                  shippingCost: firstOption.shippingCost,
-                }
-              : null,
+          primaryOption: firstClo
+            ? {
+                listingOptionId: firstClo.id,
+                sellableStock: null,
+                purchaseCost: null,
+                salePrice: null,
+                commissionRate: firstOption?.commissionRate ?? null,
+                shippingCost: firstOption?.shippingCost ?? null,
+              }
+            : null,
         };
       })
       .filter((listing): listing is HydratedListing => listing !== null);
@@ -545,54 +496,4 @@ export class AdStrategyContextRepositoryAdapter
     };
   }
 
-  async getInventorySnapshot(
-    organizationId: string,
-    listingIds: string[],
-  ): Promise<Map<string, InventoryRow>> {
-    if (listingIds.length === 0) return new Map();
-    const options = await this.prisma.channelListingOption.findMany({
-      where: {
-        organizationId,
-        listingId: { in: listingIds },
-        isActive: true,
-        optionId: { not: null },
-      },
-      select: { optionId: true, listingId: true },
-    });
-    const optionIds = Array.from(
-      new Set(
-        options
-          .map((option) => option.optionId)
-          .filter((id): id is string => id != null),
-      ),
-    );
-    const productOptions =
-      optionIds.length > 0
-        ? await this.prisma.productOption.findMany({
-            where: { id: { in: optionIds }, organizationId },
-            select: {
-              id: true,
-              availableStock: true,
-              costPrice: true,
-              sellPrice: true,
-              commissionRate: true,
-            },
-          })
-        : [];
-    const optionMap = new Map(productOptions.map((option) => [option.id, option]));
-    const map = new Map<string, InventoryRow>();
-    for (const o of options) {
-      const option = o.optionId ? optionMap.get(o.optionId) : null;
-      if (!o.optionId || !option) continue;
-      map.set(o.optionId, {
-        optionId: o.optionId,
-        listingId: o.listingId,
-        availableStock: option.availableStock ?? 0,
-        costPrice: option.costPrice,
-        sellPrice: option.sellPrice,
-        commissionRate: option.commissionRate,
-      });
-    }
-    return map;
-  }
 }

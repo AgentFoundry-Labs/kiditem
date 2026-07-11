@@ -1,10 +1,12 @@
 'use client';
 
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, FileSpreadsheet, Loader2, Upload } from 'lucide-react';
 import { SELLPIA_WORKBOOK_ACCEPT } from '@kiditem/shared/inventory';
 import { formatNumber } from '@/lib/utils';
 import { importSellpiaInventory } from '../lib/sellpia-inventory-import-api';
+import { invalidateSellpiaInventory } from '../../_shared/invalidate-sellpia-inventory';
 import type { SellpiaInventoryImportResponse } from '@kiditem/shared/source-import';
 
 export const SELLPIA_INVENTORY_FILE_ACCEPT = [
@@ -31,6 +33,7 @@ function ImportCounter({ label, value }: ImportCounterProps) {
 }
 
 export default function SellpiaInventoryImport() {
+  const queryClient = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<SellpiaInventoryImportResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -43,7 +46,9 @@ export default function SellpiaInventoryImport() {
     setError(null);
     setResult(null);
     try {
-      setResult(await importSellpiaInventory(file));
+      const response = await importSellpiaInventory(file);
+      await invalidateSellpiaInventory(queryClient);
+      setResult(response);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Sellpia 재고를 가져오지 못했습니다.');
     } finally {

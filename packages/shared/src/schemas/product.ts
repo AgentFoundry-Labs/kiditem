@@ -111,7 +111,6 @@ export const ProductOptionSchema = z.object({
   shippingCost: z.number().int().nullable(),
   otherCost: z.number().int().nullable(),
   isBundle: z.boolean(),
-  availableStock: z.number().int().nullable(),
   isDeleted: z.boolean(),
   deletedAt: zIsoDate.nullable(),
   isTemporary: z.boolean(),
@@ -154,7 +153,6 @@ export const ProductCatalogListItemSchema = MasterSchema.extend({
   representativeSku: z.string().nullable(),
   priceRange: MoneyRangeSchema.nullable(),
   costRange: MoneyRangeSchema.nullable(),
-  totalAvailableStock: z.number().int().nonnegative(),
 });
 export type ProductCatalogListItem = z.infer<typeof ProductCatalogListItemSchema>;
 
@@ -226,21 +224,7 @@ export const ProductManagementListItemSchema = z.object({
   adTier: z.string().nullable(),
   isAdvertising: z.boolean(),
   isCostMissing: z.boolean(),
-  inventoryId: z.string().uuid().nullable(),
   optionId: z.string().uuid().nullable(),
-  currentStock: z.number(),
-  reservedStock: z.number(),
-  availableStock: z.number(),
-  safetyStock: z.number(),
-  reorderPoint: z.number(),
-  reorderQuantity: z.number(),
-  leadTimeDays: z.number().nullable(),
-  dailySalesAvg: z.number(),
-  optimalStock: z.number(),
-  recommendedOrderQty: z.number(),
-  daysUntilStockout: z.number().nullable(),
-  stockStatus: z.enum(['healthy', 'low', 'out']),
-  stockAction: z.enum(['sold_out_required', 'reorder_required', 'monitor']),
   status: z.enum(['active', 'inactive', 'cleanup', 'unknown']),
   abcGrade: z.string().nullable(),
   gradeScore: z.number().nullable(),
@@ -254,7 +238,7 @@ export const ProductManagementListItemSchema = z.object({
   traffic: ProductManagementTrafficSnapshotSchema,
   t14: ProductManagementTrafficSnapshotSchema,
   t14prev: ProductManagementTrafficSnapshotSchema,
-});
+}).strict();
 export type ProductManagementListItem = z.infer<typeof ProductManagementListItemSchema>;
 
 export const ProductManagementPipelineCountsSchema = z.object({
@@ -270,9 +254,6 @@ export const ProductManagementPipelineCountsSchema = z.object({
   unknown: z.number().int().nonnegative(),
   minus: z.number().int().nonnegative(),
   low: z.number().int().nonnegative(),
-  zeroStock: z.number().int().nonnegative(),
-  lowStock: z.number().int().nonnegative(),
-  stockRisk: z.number().int().nonnegative(),
   adLoss: z.number().int().nonnegative(),
   gradeChangeA: z.number().int().nonnegative(),
   gradeChangeB: z.number().int().nonnegative(),

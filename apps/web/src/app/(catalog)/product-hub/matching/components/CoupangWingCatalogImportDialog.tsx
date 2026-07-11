@@ -74,7 +74,7 @@ export function CoupangWingCatalogImportDialog({
           <header className="flex items-start justify-between gap-4 border-b border-[var(--border,#e2e8f0)] px-6 py-5">
             <div>
               <Dialog.Title className="text-lg font-bold text-[var(--text-primary,#0f172a)]">
-                쿠팡 Wing 상품 가져오기
+                쿠팡 Wing 상품 엑셀 가져오기
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-sm text-[var(--text-secondary,#475569)]">
                 {account ? `${account.name} 계정에 상품·옵션 SKU 메타데이터를 갱신합니다.` : '가져올 계정을 선택해 주세요.'}

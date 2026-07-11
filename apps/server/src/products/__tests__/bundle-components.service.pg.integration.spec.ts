@@ -3,7 +3,6 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { MastersService } from '../application/service/masters.service';
 import { OptionsService } from '../application/service/options.service';
-import { BundleStockService } from '../application/service/bundle-stock.service';
 import { BundleComponentsService } from '../application/service/bundle-components.service';
 import { createProductsTestServices } from './products-test-services';
 import {
@@ -15,7 +14,6 @@ describe('BundleComponentsService integration', () => {
   let prisma: PrismaClient;
   let mastersSvc: MastersService;
   let optionsSvc: OptionsService;
-  let bundleStockSvc: BundleStockService;
   let svc: BundleComponentsService;
 
   beforeAll(async () => {
@@ -23,7 +21,6 @@ describe('BundleComponentsService integration', () => {
     await prisma.$connect();
     const services = createProductsTestServices(prisma);
     mastersSvc = services.mastersSvc;
-    bundleStockSvc = services.bundleStockSvc;
     optionsSvc = services.optionsSvc;
     svc = services.bundleComponentsSvc;
   });
@@ -46,17 +43,14 @@ describe('BundleComponentsService integration', () => {
     return { master: m, bundle, comp };
   }
 
-  it('creates a bundle component and triggers recompute', async () => {
+  it('creates and lists a bundle component recipe', async () => {
     const { bundle, comp } = await setup(TEST_ORGANIZATION_ID);
-    await prisma.inventory.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, optionId: comp.id, currentStock: 20 },
-    });
     const bc = await svc.create(TEST_ORGANIZATION_ID, {
       bundleOptionId: bundle.id, componentOptionId: comp.id, qty: 2,
     });
     expect(bc.organizationId).toBe(TEST_ORGANIZATION_ID);
-    const updated = await prisma.productOption.findUniqueOrThrow({ where: { id: bundle.id } });
-    expect(updated.availableStock).toBe(10);
+    await expect(svc.list(TEST_ORGANIZATION_ID, { bundleOptionId: bundle.id }))
+      .resolves.toEqual([expect.objectContaining({ id: bc.id, qty: 2 })]);
   });
 
   it('rejects when bundleOption.isBundle=false', async () => {
@@ -134,43 +128,34 @@ describe('BundleComponentsService integration', () => {
     ).rejects.toMatchObject({ status: 404 });
   });
 
-  it('updates qty and re-recomputes', async () => {
+  it('updates recipe quantity', async () => {
     const { bundle, comp } = await setup(TEST_ORGANIZATION_ID);
-    await prisma.inventory.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, optionId: comp.id, currentStock: 20 },
-    });
     const bc = await svc.create(TEST_ORGANIZATION_ID, {
       bundleOptionId: bundle.id, componentOptionId: comp.id, qty: 2,
     });
-    await svc.update(TEST_ORGANIZATION_ID, bc.id, { qty: 5 });
-    const bundleAfter = await prisma.productOption.findUniqueOrThrow({ where: { id: bundle.id } });
-    expect(bundleAfter.availableStock).toBe(4);
+    const updated = await svc.update(TEST_ORGANIZATION_ID, bc.id, { qty: 5 });
+    expect(updated.qty).toBe(5);
   });
 
-  it('hard-deletes and re-recomputes', async () => {
+  it('hard-deletes a recipe row', async () => {
     const { bundle, comp } = await setup(TEST_ORGANIZATION_ID);
-    await prisma.inventory.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, optionId: comp.id, currentStock: 20 },
-    });
     const bc = await svc.create(TEST_ORGANIZATION_ID, {
       bundleOptionId: bundle.id, componentOptionId: comp.id, qty: 2,
     });
     await svc.delete(TEST_ORGANIZATION_ID, bc.id);
-    const bundleAfter = await prisma.productOption.findUniqueOrThrow({ where: { id: bundle.id } });
-    expect(bundleAfter.availableStock).toBe(0);
+    await expect(svc.list(TEST_ORGANIZATION_ID, { bundleOptionId: bundle.id }))
+      .resolves.toEqual([]);
   });
 
-  it('concurrent recompute — final availableStock deterministic', async () => {
+  it('serializes concurrent recipe additions for one bundle', async () => {
     const { bundle, comp: c1 } = await setup(TEST_ORGANIZATION_ID);
     const m2 = await mastersSvc.create(TEST_ORGANIZATION_ID, { name: 'N' } as any);
     const c2 = await optionsSvc.create(TEST_ORGANIZATION_ID, { masterId: m2.id, optionName: 'C2' } as any);
-    await prisma.inventory.create({ data: { organizationId: TEST_ORGANIZATION_ID, optionId: c1.id, currentStock: 20 } });
-    await prisma.inventory.create({ data: { organizationId: TEST_ORGANIZATION_ID, optionId: c2.id, currentStock: 30 } });
     await Promise.all([
       svc.create(TEST_ORGANIZATION_ID, { bundleOptionId: bundle.id, componentOptionId: c1.id, qty: 2 }),
       svc.create(TEST_ORGANIZATION_ID, { bundleOptionId: bundle.id, componentOptionId: c2.id, qty: 3 }),
     ]);
-    const bundleAfter = await prisma.productOption.findUniqueOrThrow({ where: { id: bundle.id } });
-    expect(bundleAfter.availableStock).toBe(10);
+    await expect(svc.list(TEST_ORGANIZATION_ID, { bundleOptionId: bundle.id }))
+      .resolves.toHaveLength(2);
   });
 });

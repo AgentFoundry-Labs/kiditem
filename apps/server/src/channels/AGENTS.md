@@ -2,9 +2,10 @@ Consult this document first instead of relying on memorized knowledge.
 
 # channels — Marketplace Sync + SKU Matching
 
-`src/channels/` owns marketplace account settings, Coupang product/order/return
-sync, Sellpia component matching, and channel dashboard reads. Provider calls are
-isolated behind the Coupang provider adapter.
+`src/channels/` owns marketplace account settings, marketplace product/SKU
+metadata, Coupang order/return sync, Sellpia component matching, channel SKU
+sellable-capacity projections, and channel dashboard reads. Provider calls are
+isolated behind provider adapters.
 
 ## Folder Map
 
@@ -26,22 +27,23 @@ channels/
 ## Owned Surfaces
 
 - Channel account/listing APIs under `/api/channels/*`
-- Coupang product, order, return, and inventory sync entrypoints
+- Coupang product, order, and return sync entrypoints
 - Registered-product listing read model: `/api/channels/listings`
 - Channel SKU component matching: `/api/channels/sku-mappings/*`
+- Channel SKU availability: `GET /api/channels/sku-availability`
 - Channel dashboard read APIs
 
 ## Main Data Models
 
 - `ChannelAccount` is the marketplace/store identity.
-- In release `0.1.8`, logical `ChannelProduct` keeps the Prisma compatibility
-  name `ChannelListing` and physical table `channel_listings`.
-- In release `0.1.8`, logical `ChannelSku` keeps the Prisma compatibility name
-  `ChannelListingOption` and physical table `channel_listing_options`. It
-  stores marketplace SKU metadata and advisory matching status; its legacy
-  `optionId` is not matching truth.
+- Logical `ChannelProduct` uses the existing Prisma name `ChannelListing` and
+  physical table `channel_listings`.
+- Logical `ChannelSku` uses the existing Prisma name `ChannelListingOption` and
+  physical table `channel_listing_options`. It stores independent metadata for
+  one SKU in one `ChannelAccount`; `optionId` is not inventory matching truth.
 - `ChannelSkuComponent` is the confirmed mapping from one marketplace SKU to
-  one or more Sellpia `InventorySku` rows and quantities.
+  one or more Sellpia `InventorySku` rows with the exact positive quantity
+  consumed by one sale.
 - Channel daily snapshots and scrape audit rows support dashboard/reporting
   reads.
 - Orders and returns sync into the channel-agnostic orders spine.
@@ -57,12 +59,19 @@ Coupang provider
   -> completed catalog SKU queue
   -> live InventorySku evidence/candidate reads
   -> operator-confirmed ChannelSkuComponent recipe
+  -> sellableStock = min(floor(component.currentStock / component.quantity))
 ```
 
 Sellpia component matching reads only completed `coupang_wing_catalog` rows.
 Channels owns candidate ranking and atomic component replacement; Inventory
 owns the exported read-only `INVENTORY_SKU_READ_PORT`. Candidate rows are live
 suggestions only and are never persisted or auto-confirmed.
+
+A confirmed recipe is the only capacity input. An unmapped or review-required
+SKU has `sellableStock = null`; zero is reserved for a mapped recipe whose
+current Sellpia component capacity is zero. Mixed recipes expose all component
+capacities and bottlenecks. Capacity is a read projection and never reserves or
+deducts stock.
 
 ## Fixed Import + Matching APIs
 
@@ -71,6 +80,7 @@ suggestions only and are never persisted or auto-confirmed.
 - `POST /api/channels/sku-mappings/status-refresh`
 - `GET /api/channels/sku-mappings/:channelSkuId/candidates`
 - `PUT /api/channels/sku-mappings/:channelSkuId/components`
+- `GET /api/channels/sku-availability`
 
 `PUT .../components` replaces the complete recipe. A nonempty recipe is
 confirmed truth; an empty recipe is the explicit unmap operation. See the
@@ -87,6 +97,8 @@ the supported workflow and verification counts.
   from orders services.
 - Sellpia candidate reads use the Channels-local
   `CHANNELS_INVENTORY_SKU_READ_PORT` bridge to Inventory's owner port.
+- `ChannelsModule` exports `CHANNEL_SKU_AVAILABILITY_PORT` for server consumers
+  that need the same nullable capacity projection.
 
 ## Boundary Rules
 
@@ -105,15 +117,16 @@ the supported workflow and verification counts.
   result errors.
 - Confirmed ChannelSku component replacement validates tenant ownership before
   deletion, then locks, deletes, recreates, and updates status atomically. It
-  never writes `InventorySku.reportedStock` or legacy inventory balances.
+  never writes `InventorySku.currentStock`.
 - Coupang image synchronization is a separate media workflow. It does not
   create, refresh, or confirm ChannelSku matching rows.
-- Rocket catalog ingestion, purchase-order decisions, and order processing are
-  outside the `0.1.8` matching surface. A future Rocket account uses
-  `channel='rocket'`; never infer Wing or Rocket from the account name.
+- Wing and Rocket are separate `ChannelAccount` rows (`channel='coupang'` and
+  `channel='rocket'`). Never infer the channel from an account display name.
+- Rocket purchase-order quantity decisions are deferred. Do not add Rocket
+  reservation, confirmation, inventory mutation, or special stock tables to
+  this module; future Rocket SKU metadata uses the same account-scoped
+  `ChannelProduct`/`ChannelSku`/`ChannelSkuComponent` model.
 
 ## Transitional Exceptions
 
 - `adapters/coupang/` exists only for compatibility shims.
-- `syncInventory()` remains a stub until the inventory single-writer flow is
-  explicitly designed.

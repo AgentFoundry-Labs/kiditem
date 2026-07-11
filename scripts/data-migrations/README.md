@@ -23,7 +23,9 @@ not release boundaries. Each migration exports a `DataMigration` with:
 - `name`: human-readable purpose
 - `phase`: optional `pre-schema` or `post-schema`; omitted migrations default to
   `post-schema`
-- `run(tx)`: idempotent Prisma transaction body
+- `run(tx, context)`: idempotent Prisma transaction body. `context.target` is
+  the already validated CLI target (`local`, `staging`, or `production`), so a
+  migration never has to infer its target from ambient environment variables.
 
 The runner records each execution in `data_migration_runs` with git SHA,
 Prisma schema hash, affected rows, details, and failure text.
@@ -49,3 +51,11 @@ one-shot ledger. Deploy workflows run `npm run check:channel-sku-identity`
 immediately before every schema push, while
 `v0.1.8:001_backfill_channel_sku_accounts` runs once in the default
 post-schema phase.
+
+Release `0.1.9` has a pre-schema local-only gate. It records a zero-row ledger
+entry for `DATA_MIGRATION_TARGET=local`, but fails before Prisma schema push for
+`staging`, `production`, or an unset target. Its inventory reconstruction is
+supported only as a verified local development reset followed by the approved
+Sellpia and Coupang workbook imports. A separately reviewed, backward-compatible
+persistent-data migration must replace this gate before any shared-environment
+deployment.

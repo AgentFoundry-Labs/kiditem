@@ -49,7 +49,8 @@ export class ChannelsInventorySkuReadAdapter implements ChannelsInventorySkuRead
       name: row.name,
       optionName: row.optionName,
       barcode: row.barcode,
-      reportedStock: row.reportedStock,
+      currentStock: row.currentStock,
+      purchasePrice: row.purchasePrice,
     }));
   }
 }

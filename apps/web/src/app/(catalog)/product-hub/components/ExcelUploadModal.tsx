@@ -29,7 +29,7 @@ interface ParsedFile {
 }
 
 const REQUIRED_COLUMNS = ['상품명'];
-const TEMPLATE_COLUMNS = ['상품명', 'SKU', '카테고리', '회사', '공급가(원)', '원가(원)', '판매가', '수수료율(%)', '배송비', '관리등급', '상태', '현재고', '1월', '2월', '3월', '비고'];
+const TEMPLATE_COLUMNS = ['상품명', 'SKU', '카테고리', '회사', '공급가(원)', '원가(원)', '판매가', '수수료율(%)', '배송비', '관리등급', '상태', '1월', '2월', '3월', '비고'];
 
 interface Props {
   onClose: () => void;
@@ -93,7 +93,7 @@ export default function ExcelUploadModal({ onClose, onComplete }: Props) {
     import('xlsx').then((XLSX) => {
       const ws = XLSX.utils.aoa_to_sheet([
         TEMPLATE_COLUMNS,
-        ['샘플상품A', 'SKU-001', '생활용품', '회사A', 9600, 7000, 12000, 10, 3000, '핵심', '판매중', 100, 120, 80, 95, ''],
+        ['샘플상품A', 'SKU-001', '생활용품', '회사A', 9600, 7000, 12000, 10, 3000, '핵심', '판매중', 120, 80, 95, ''],
       ]);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, '상품등록양식');

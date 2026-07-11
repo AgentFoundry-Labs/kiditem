@@ -39,12 +39,6 @@ export async function downloadProductsExcel(
       순이익: p.netProfit,
       이익률: p.profitRate,
       광고비율: p.adRate,
-      현재재고: p.currentStock,
-      가용재고: p.availableStock,
-      안전재고: p.safetyStock,
-      발주점: p.reorderPoint,
-      적정재고: p.optimalStock,
-      권장발주수량: p.recommendedOrderQty,
       상태: p.status === 'active' ? '판매중' : p.status === 'inactive' ? '중지' : p.status === 'unknown' ? '상태미수집' : '정리',
     })),
   );

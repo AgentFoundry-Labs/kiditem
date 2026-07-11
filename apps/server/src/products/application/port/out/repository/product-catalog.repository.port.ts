@@ -17,7 +17,6 @@ export type CatalogOptionRow = {
   shippingCost: number | null;
   otherCost: number | null;
   isBundle: boolean;
-  availableStock: number | null;
   isDeleted: boolean;
   deletedAt: Date | null;
   isTemporary: boolean;
@@ -25,7 +24,6 @@ export type CatalogOptionRow = {
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
-  inventory?: { currentStock: number } | null;
 };
 
 export type CatalogMasterRow = {

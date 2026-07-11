@@ -8,27 +8,18 @@ import {
 
 describe('PRODUCT_OPTION_SYSTEM_FIELDS', () => {
   it('lists every field that OptionsService.update must NOT accept from the client', () => {
-    // apps/server/src/products/AGENTS.md "BundleStockService is the
-    // sole `availableStock` writer" + "code 생성: MasterCodeService" + "sku
-    // 생성: incrementMasterOptionCounter ... TOCTOU 차단" rules collapse into
-    // the single strip list below. If you ever need to PATCH any of these,
-    // you almost certainly meant to call a system-owned lifecycle service
-    // (BundleStockService, OptionsService SKU counter, soft-delete) instead.
+    // SKU generation, organization scope, re-parenting, and soft-delete rules
+    // collapse into the single strip list below.
     expect(PRODUCT_OPTION_SYSTEM_FIELDS).toEqual([
       'id',
       'sku',
       'organizationId',
       'masterId',
-      'availableStock',
       'isDeleted',
       'deletedAt',
       'createdAt',
       'updatedAt',
     ]);
-  });
-
-  it('contains availableStock — guards the BundleStockService single-writer invariant', () => {
-    expect(PRODUCT_OPTION_SYSTEM_FIELDS).toContain('availableStock');
   });
 
   it('contains masterId — guards against IDOR re-parent via PATCH', () => {
@@ -51,7 +42,6 @@ describe('stripProductOptionSystemFields', () => {
       sku: 'M-00000001-01',
       organizationId: 'org-1',
       masterId: 'master-evil',
-      availableStock: 99999,
       isDeleted: true,
       deletedAt: new Date('2026-01-01'),
       createdAt: new Date('2026-01-01'),
@@ -84,7 +74,7 @@ describe('stripProductOptionSystemFields', () => {
   });
 
   it('returns an empty object when only system fields are present', () => {
-    const dto = { sku: 'M-1-01', availableStock: 10, organizationId: 'org-1' };
+    const dto = { sku: 'M-1-01', organizationId: 'org-1' };
     expect(stripProductOptionSystemFields(dto)).toEqual({});
   });
 

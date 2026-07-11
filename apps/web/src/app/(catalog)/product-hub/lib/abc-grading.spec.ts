@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { gradeOf, rankOf, scoreOf, strategyOf, type GradeMap } from './abc-grading';
+import { computeGradeMap, gradeOf, rankOf, scoreOf, strategyOf, type GradeMap } from './abc-grading';
 import type { ProductListItem } from './product-types';
 
 function product(overrides: Partial<ProductListItem>): ProductListItem {
@@ -25,21 +25,7 @@ function product(overrides: Partial<ProductListItem>): ProductListItem {
     adTier: null,
     isAdvertising: false,
     isCostMissing: true,
-    inventoryId: null,
     optionId: null,
-    currentStock: 0,
-    reservedStock: 0,
-    availableStock: 0,
-    safetyStock: 0,
-    reorderPoint: 0,
-    reorderQuantity: 0,
-    leadTimeDays: null,
-    dailySalesAvg: 0,
-    optimalStock: 0,
-    recommendedOrderQty: 0,
-    daysUntilStockout: null,
-    stockStatus: 'out',
-    stockAction: 'sold_out_required',
     status: 'unknown',
     abcGrade: null,
     gradeScore: null,
@@ -92,5 +78,36 @@ describe('abc grading display helpers', () => {
     expect(scoreOf(unlinked, gradeMap)).toBe(0);
     expect(rankOf(unlinked, gradeMap)).toBe(0);
     expect(strategyOf(unlinked, gradeMap)).toBe('채널 연결 후 성과 평가 가능');
+  });
+
+  it('grades linked products from commercial performance without stock metadata', () => {
+    const strong = product({
+      profitRate: 20,
+      t14: {
+        visitors: 100,
+        views: 100,
+        cartAdds: 10,
+        orders: 10,
+        salesQty: 10,
+        revenue: 100_000,
+        conversionRate: 10,
+      },
+    });
+
+    const weaker = product({
+      id: 'product-2',
+      listingId: 'listing-2',
+      t14: {
+        visitors: 100,
+        views: 100,
+        cartAdds: 1,
+        orders: 1,
+        salesQty: 1,
+        revenue: 50_000,
+        conversionRate: 1,
+      },
+    });
+
+    expect(computeGradeMap([strong, weaker]).get(strong.id)?.grade).toBe('A');
   });
 });

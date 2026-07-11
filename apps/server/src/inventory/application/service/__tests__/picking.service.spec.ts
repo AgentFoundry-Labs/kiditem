@@ -50,28 +50,24 @@ describe('PickingService — confirmed orders → picking → verification', () 
           id: 'order-1',
           lineItems: [
             {
-              optionId: 'opt-1',
-              productName: 'Widget',
-              sku: 'WDG-001',
+              productName: 'Widget 2-pack',
               quantity: 2,
-              option: { sku: 'WDG-001' },
-            },
-          ],
-        },
-        {
-          id: 'order-2',
-          lineItems: [
-            {
-              optionId: 'opt-2',
-              productName: 'Gadget',
-              sku: 'GDG-001',
-              quantity: 5,
-              option: { sku: 'GDG-001' },
+              listingOption: {
+                components: [{
+                  inventorySkuId: 'inventory-sku-1',
+                  quantity: 2,
+                  inventorySku: {
+                    sellpiaProductCode: 'SELLPIA-001',
+                    name: 'Widget',
+                    optionName: null,
+                  },
+                }],
+              },
             },
           ],
         },
       ]);
-      const created = { id: 'pl-1', listNumber: 'PK-1', totalItems: 2, items: [] };
+      const created = { id: 'pl-1', listNumber: 'PK-1', totalItems: 1, items: [] };
       repository.createPickingList.mockResolvedValue(created);
 
       const result = await service.generate('c-1');
@@ -81,19 +77,23 @@ describe('PickingService — confirmed orders → picking → verification', () 
         'c-1',
         expect.stringMatching(/^PK-\d+$/),
         [
-          expect.objectContaining({ orderId: 'order-1', optionId: 'opt-1', quantity: 2, sku: 'WDG-001' }),
-          expect.objectContaining({ orderId: 'order-2', optionId: 'opt-2', quantity: 5, sku: 'GDG-001' }),
+          expect.objectContaining({
+            orderId: 'order-1',
+            inventorySkuId: 'inventory-sku-1',
+            quantity: 4,
+            sku: 'SELLPIA-001',
+          }),
         ],
       );
       expect(result).toBe(created);
     });
 
-    it('skips line items without optionId; throws BadRequest when all skipped', async () => {
+    it('skips lines without a confirmed ChannelSku recipe; throws when all skipped', async () => {
       confirmedOrders.findConfirmedOrdersForPicking.mockResolvedValue([
         {
           id: 'order-1',
           lineItems: [
-            { optionId: null, productName: 'Mystery', sku: null, quantity: 1, option: null },
+            { productName: 'Mystery', quantity: 1, listingOption: null },
           ],
         },
       ]);

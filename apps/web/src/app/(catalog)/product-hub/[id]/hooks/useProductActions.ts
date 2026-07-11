@@ -155,8 +155,6 @@ export function useProductActions({ productId, product, workflows }: UseProductA
       // in this slice. Keep UI triggers rendered but non-mutating until canonical
       // product write endpoints own master-level and option-level actions.
       toast.info(`${action.label}: 기능 준비 중`, { duration: 3000 });
-    } else if (type === "inventory.create_purchase_order") {
-      window.location.href = `/purchase-orders/new?productId=${actionParams.productId}&quantity=${actionParams.quantity ?? ""}`;
     } else if (type === "report.export_excel") {
       toast.loading("엑셀 다운로드 준비 중...");
     }

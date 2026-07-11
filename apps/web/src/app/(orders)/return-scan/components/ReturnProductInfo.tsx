@@ -1,12 +1,11 @@
 'use client';
 
-import { PackagePlus, Loader2 } from 'lucide-react';
+import { ClipboardCheck, Loader2 } from 'lucide-react';
 
 interface ProductInfo {
   id: string;
   name: string;
   sku: string | null;
-  currentStock: number;
 }
 
 interface Props {
@@ -28,7 +27,7 @@ export default function ReturnProductInfo({
         </h3>
       </div>
       <div className="p-4">
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+        <div className="mb-4 grid grid-cols-2 gap-4">
           <div>
             <div className="card-label">상품명</div>
             <div className="text-sm font-medium">{product.name}</div>
@@ -37,11 +36,10 @@ export default function ReturnProductInfo({
             <div className="card-label">SKU</div>
             <div className="text-sm font-mono">{product.sku || '-'}</div>
           </div>
-          <div>
-            <div className="card-label">현재 재고</div>
-            <div className="text-sm">{product.currentStock}개</div>
-          </div>
         </div>
+        <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Sellpia 재고 반영은 별도 처리해야 합니다.
+        </p>
         <button
           onClick={onRecovery}
           disabled={processing}
@@ -50,9 +48,9 @@ export default function ReturnProductInfo({
           {processing ? (
             <Loader2 size={16} className="animate-spin" />
           ) : (
-            <PackagePlus size={16} />
+            <ClipboardCheck size={16} />
           )}
-          회수 완료 (재고 +1)
+          회수 기록 추가
         </button>
       </div>
     </div>

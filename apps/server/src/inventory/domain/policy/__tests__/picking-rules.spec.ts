@@ -6,50 +6,69 @@ describe('picking-rules — extractPickableItems', () => {
     expect(extractPickableItems([])).toEqual({ items: [], skippedCount: 0 });
   });
 
-  it('skips line items with optionId=null and reports the count', () => {
+  it('expands every confirmed ChannelSku component by ordered quantity', () => {
     const result = extractPickableItems([
       {
         id: 'order-1',
         lineItems: [
-          { optionId: null, productName: 'A', sku: null, quantity: 1, option: null },
-          { optionId: 'opt-2', productName: 'B', sku: 'B-SKU', quantity: 2, option: null },
+          {
+            productName: '묶음 상품',
+            quantity: 3,
+            listingOption: {
+              components: [
+                {
+                  inventorySkuId: 'inventory-a',
+                  quantity: 2,
+                  inventorySku: {
+                    sellpiaProductCode: 'SELLPIA-A',
+                    name: '구성품 A',
+                    optionName: '빨강',
+                  },
+                },
+                {
+                  inventorySkuId: 'inventory-b',
+                  quantity: 1,
+                  inventorySku: {
+                    sellpiaProductCode: 'SELLPIA-B',
+                    name: '구성품 B',
+                    optionName: null,
+                  },
+                },
+              ],
+            },
+          },
         ],
       },
     ]);
-    expect(result.skippedCount).toBe(1);
+    expect(result.skippedCount).toBe(0);
     expect(result.items).toEqual([
-      { orderId: 'order-1', optionId: 'opt-2', productName: 'B', sku: 'B-SKU', quantity: 2 },
+      {
+        orderId: 'order-1',
+        inventorySkuId: 'inventory-a',
+        productName: '구성품 A',
+        sku: 'SELLPIA-A',
+        quantity: 6,
+      },
+      {
+        orderId: 'order-1',
+        inventorySkuId: 'inventory-b',
+        productName: '구성품 B',
+        sku: 'SELLPIA-B',
+        quantity: 3,
+      },
     ]);
   });
 
-  it('falls back to option.sku when lineItem.sku is null', () => {
+  it('skips and counts each order line without a confirmed component recipe', () => {
     const result = extractPickableItems([
       {
         id: 'order-1',
         lineItems: [
-          { optionId: 'opt-1', productName: 'A', sku: null, quantity: 1, option: { sku: 'OPT-A' } },
+          { productName: '미매칭 A', quantity: 1, listingOption: null },
+          { productName: '미매칭 B', quantity: 2, listingOption: { components: [] } },
         ],
       },
     ]);
-    expect(result.items[0].sku).toBe('OPT-A');
-  });
-
-  it('preserves order of orders + line items', () => {
-    const result = extractPickableItems([
-      {
-        id: 'order-1',
-        lineItems: [
-          { optionId: 'a', productName: 'A', sku: 'A', quantity: 1, option: null },
-          { optionId: 'b', productName: 'B', sku: 'B', quantity: 1, option: null },
-        ],
-      },
-      {
-        id: 'order-2',
-        lineItems: [
-          { optionId: 'c', productName: 'C', sku: 'C', quantity: 1, option: null },
-        ],
-      },
-    ]);
-    expect(result.items.map((i) => i.optionId)).toEqual(['a', 'b', 'c']);
+    expect(result).toEqual({ items: [], skippedCount: 2 });
   });
 });

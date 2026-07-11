@@ -20,13 +20,42 @@ describe('AdAction flow (PG integration)', () => {
   async function seedListingWithOption(params: {
     organizationId: string;
     abcGrade?: string | null;
-    availableStock?: number | null;
+    sellableStock?: number | null;
     costPrice?: number | null;
     sellPrice?: number | null;
     commissionRate?: number | null;
     externalIdSuffix?: string;
   }) {
     const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const channelAccount =
+      (await prisma.channelAccount.findFirst({
+        where: {
+          organizationId: params.organizationId,
+          channel: 'coupang',
+          externalAccountId: 'advertising-pg',
+        },
+      })) ??
+      (await prisma.channelAccount.create({
+        data: {
+          organizationId: params.organizationId,
+          channel: 'coupang',
+          name: 'Advertising PG Coupang',
+          externalAccountId: 'advertising-pg',
+          isPrimary: true,
+        },
+      }));
+    const importRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: params.organizationId,
+        sourceType: 'coupang_wing_catalog',
+        channelAccountId: channelAccount.id,
+        fileName: 'advertising-pg.xlsx',
+        fileHash: `advertising-pg-${unique}`,
+        status: 'completed',
+        rowCount: 1,
+        importedAt: new Date(),
+      },
+    });
     const master = await prisma.masterProduct.create({
       data: {
         organizationId: params.organizationId,
@@ -42,7 +71,6 @@ describe('AdAction flow (PG integration)', () => {
         masterId: master.id,
         sku: `SKU-${unique}`,
         optionName: `Option ${unique}`,
-        availableStock: params.availableStock ?? null,
         costPrice: params.costPrice ?? null,
         sellPrice: params.sellPrice ?? null,
         commissionRate: params.commissionRate ?? null,
@@ -52,8 +80,10 @@ describe('AdAction flow (PG integration)', () => {
       data: {
         organizationId: params.organizationId,
         masterId: master.id,
+        channelAccountId: channelAccount.id,
         channel: 'coupang',
         externalId: `EXT-${unique}${params.externalIdSuffix ?? ''}`,
+        lastImportRunId: importRun.id,
       },
     });
     // H3 — AdAction's $queryRaw joins target-daily → channel_listing_options
@@ -63,11 +93,35 @@ describe('AdAction flow (PG integration)', () => {
       data: {
         organizationId: params.organizationId,
         listingId: listing.id,
+        channelAccountId: channelAccount.id,
         optionId: option.id,
         externalOptionId: `VID-${unique}`,
+        salePrice: params.sellPrice ?? null,
+        mappingStatus: params.sellableStock == null ? 'unmatched' : 'matched',
+        lastImportRunId: importRun.id,
         isActive: true,
       },
     });
+    if (params.sellableStock != null) {
+      const inventorySku = await prisma.inventorySku.create({
+        data: {
+          organizationId: params.organizationId,
+          sellpiaProductCode: `SP-${unique}`,
+          name: `Sellpia ${unique}`,
+          currentStock: params.sellableStock,
+          purchasePrice: params.costPrice ?? null,
+        },
+      });
+      await prisma.channelSkuComponent.create({
+        data: {
+          organizationId: params.organizationId,
+          channelSkuId: listingOption.id,
+          inventorySkuId: inventorySku.id,
+          quantity: 1,
+          mappingSource: 'test',
+        },
+      });
+    }
     return { master, option, listing, listingOption };
   }
 
@@ -176,7 +230,7 @@ describe('AdAction flow (PG integration)', () => {
       const { listing, option, listingOption } = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
-        availableStock: 0,
+        sellableStock: 0,
       });
       await seedSnapshot({
         organizationId: TEST_ORGANIZATION_ID,
@@ -288,7 +342,7 @@ describe('AdAction flow (PG integration)', () => {
       const { listing, option, listingOption } = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
-        availableStock: 100,
+        sellableStock: 100,
       });
       await seedSnapshot({
         organizationId: TEST_ORGANIZATION_ID,
@@ -318,7 +372,7 @@ describe('AdAction flow (PG integration)', () => {
       const { listing, option, listingOption } = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'C',
-        availableStock: 50,
+        sellableStock: 50,
       });
       await seedSnapshot({
         organizationId: TEST_ORGANIZATION_ID,
@@ -349,7 +403,7 @@ describe('AdAction flow (PG integration)', () => {
       const { listing, option, listingOption } = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
-        availableStock: 0,
+        sellableStock: 0,
       });
       await seedSnapshot({
         organizationId: TEST_ORGANIZATION_ID,
@@ -384,7 +438,7 @@ describe('AdAction flow (PG integration)', () => {
       const { listing, option, listingOption } = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
-        availableStock: 0,
+        sellableStock: 0,
       });
       await seedSnapshot({
         organizationId: TEST_ORGANIZATION_ID,
@@ -428,7 +482,7 @@ describe('AdAction flow (PG integration)', () => {
       const { listing, option, listingOption } = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
-        availableStock: 0,
+        sellableStock: 0,
       });
       await seedSnapshot({
         organizationId: TEST_ORGANIZATION_ID,
@@ -458,7 +512,7 @@ describe('AdAction flow (PG integration)', () => {
       const { listing, option, listingOption } = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
-        availableStock: 0,
+        sellableStock: 0,
       });
       await seedSnapshot({
         organizationId: TEST_ORGANIZATION_ID,
@@ -490,7 +544,7 @@ describe('AdAction flow (PG integration)', () => {
       const mine = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
-        availableStock: 0,
+        sellableStock: 0,
       });
       await seedSnapshot({
         organizationId: TEST_ORGANIZATION_ID,
@@ -506,7 +560,7 @@ describe('AdAction flow (PG integration)', () => {
       const other = await seedListingWithOption({
         organizationId: OTHER_ORGANIZATION_ID,
         abcGrade: 'B',
-        availableStock: 0,
+        sellableStock: 0,
         externalIdSuffix: '-other',
       });
       await seedSnapshot({
@@ -560,7 +614,7 @@ describe('AdAction flow (PG integration)', () => {
       const other = await seedListingWithOption({
         organizationId: OTHER_ORGANIZATION_ID,
         abcGrade: 'B',
-        availableStock: 0,
+        sellableStock: 0,
       });
       await seedSnapshot({
         organizationId: OTHER_ORGANIZATION_ID,

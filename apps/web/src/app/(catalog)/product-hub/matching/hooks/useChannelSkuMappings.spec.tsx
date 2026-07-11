@@ -254,6 +254,29 @@ describe('channel SKU matching hooks', () => {
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: ['channelSkuMappings', 'candidates', CHANNEL_SKU_ID],
     });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: queryKeys.channelSkuAvailability.all,
+    });
+  });
+
+  it('invalidates live channel availability after an explicit unmap', async () => {
+    vi.mocked(replaceChannelSkuComponents).mockResolvedValue({} as never);
+    const client = createClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const { result } = renderHook(() => useReplaceChannelSkuComponents(), {
+      wrapper: wrapper(client),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        channelSkuId: CHANNEL_SKU_ID,
+        input: { components: [] },
+      });
+    });
+
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: queryKeys.channelSkuAvailability.all,
+    });
   });
 
   it('invalidates mapping lists and all actionable candidates after status refresh', async () => {
@@ -276,6 +299,9 @@ describe('channel SKU matching hooks', () => {
     });
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: ['channelSkuMappings', 'candidates'],
+    });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: queryKeys.channelSkuAvailability.all,
     });
   });
 
@@ -307,6 +333,9 @@ describe('channel SKU matching hooks', () => {
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: ['channelSkuMappings', 'candidates'],
     });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: queryKeys.channelSkuAvailability.all,
+    });
     expect(
       vi.mocked(refreshChannelSkuMappingStatuses).mock.invocationCallOrder[0],
     ).toBeLessThan(invalidate.mock.invocationCallOrder[0] ?? Infinity);
@@ -337,6 +366,9 @@ describe('channel SKU matching hooks', () => {
     });
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: ['channelSkuMappings', 'candidates'],
+    });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: queryKeys.channelSkuAvailability.all,
     });
   });
 

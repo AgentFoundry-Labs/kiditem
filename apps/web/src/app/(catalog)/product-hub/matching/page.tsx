@@ -116,7 +116,7 @@ export default function MatchingPage() {
   const isRefreshing = mappingsQuery.isFetching && !mappingsQuery.isLoading;
 
   return (
-    <main className="space-y-6 pb-12">
+    <div className="space-y-6 pb-12">
       <header className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[var(--text-primary,#0f172a)]">
@@ -149,7 +149,7 @@ export default function MatchingPage() {
             className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary,#7048e8)] px-3 py-2 text-sm font-bold text-white hover:opacity-90 disabled:opacity-50"
           >
             <Upload size={15} />
-            Wing 상품 가져오기
+            쿠팡 Wing 상품 엑셀 가져오기
           </button>
         </div>
       </header>
@@ -262,6 +262,6 @@ export default function MatchingPage() {
           }}
         />
       ) : null}
-    </main>
+    </div>
   );
 }

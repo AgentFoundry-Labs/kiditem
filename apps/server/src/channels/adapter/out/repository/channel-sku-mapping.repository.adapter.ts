@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
+  ChannelSkuAvailabilityRepositoryQuery,
+  ChannelSkuAvailabilityRepositorySummary,
   ChannelSkuMappingListQuery,
   ChannelSkuMappingRepositoryPort,
   ChannelSkuMappingRow,
@@ -13,41 +15,54 @@ import type {
 const QUEUE_SOURCE_TYPE = 'coupang_wing_catalog';
 const REPLACEMENT_TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
-const MAPPING_ROW_SELECT = {
-  channelAccount: {
-    select: { id: true, channel: true, name: true },
-  },
-  listing: {
-    select: {
-      id: true,
-      externalId: true,
-      channelName: true,
-      displayName: true,
-      status: true,
+function mappingRowSelect(organizationId: string) {
+  return {
+    channelAccount: {
+      select: { id: true, channel: true, name: true },
     },
-  },
-  id: true,
-  externalOptionId: true,
-  sellerSku: true,
-  itemName: true,
-  barcode: true,
-  modelNumber: true,
-  salePrice: true,
-  status: true,
-  mappingStatus: true,
-  updatedAt: true,
-  components: {
-    select: {
-      inventorySkuId: true,
-      quantity: true,
-      mappingSource: true,
+    listing: {
+      select: {
+        id: true,
+        externalId: true,
+        channelName: true,
+        displayName: true,
+        status: true,
+      },
     },
-  },
-} as const;
+    id: true,
+    externalOptionId: true,
+    sellerSku: true,
+    itemName: true,
+    barcode: true,
+    modelNumber: true,
+    salePrice: true,
+    status: true,
+    mappingStatus: true,
+    updatedAt: true,
+    components: {
+      where: { organizationId },
+      select: {
+        inventorySkuId: true,
+        quantity: true,
+        mappingSource: true,
+      },
+    },
+  } as const;
+}
 
 type SelectedMappingRow = Prisma.ChannelListingOptionGetPayload<{
-  select: typeof MAPPING_ROW_SELECT;
+  select: ReturnType<typeof mappingRowSelect>;
 }>;
+
+type AvailabilityPageMetaRow = {
+  rowIds: string[];
+  total: number;
+  summaryTotal: number;
+  inStock: number;
+  outOfStock: number;
+  unmatched: number;
+  needsReview: number;
+};
 
 @Injectable()
 export class ChannelSkuMappingRepositoryAdapter
@@ -61,10 +76,11 @@ implements ChannelSkuMappingRepositoryPort {
       query.search,
     );
     const selectedWhere = withStatus(baseWhere, query.mappingStatus);
+    const select = mappingRowSelect(organizationId);
     const [rows, total, all, unmatched, needsReview, matched] = await Promise.all([
       this.prisma.channelListingOption.findMany({
         where: selectedWhere,
-        select: MAPPING_ROW_SELECT,
+        select,
         orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
         skip: (query.page - 1) * query.limit,
         take: query.limit,
@@ -82,13 +98,180 @@ implements ChannelSkuMappingRepositoryPort {
     };
   }
 
+  async listAvailabilityPage(
+    organizationId: string,
+    query: ChannelSkuAvailabilityRepositoryQuery,
+  ) {
+    const search = query.search?.trim();
+    const pageRows = await this.prisma.$queryRaw<AvailabilityPageMetaRow[]>(Prisma.sql`
+      WITH scoped AS (
+        SELECT
+          sku.id,
+          sku.updated_at,
+          sku.mapping_status,
+          COUNT(component.id)::int AS component_count,
+          CASE
+            WHEN COUNT(component.id) = 0 THEN NULL
+            ELSE MIN(FLOOR(
+              inventory.current_stock::numeric / component.quantity::numeric
+            ))::int
+          END AS sellable_stock
+        FROM channel_listing_options AS sku
+        INNER JOIN channel_accounts AS account
+          ON account.id = sku.channel_account_id
+         AND account.organization_id = sku.organization_id
+        INNER JOIN channel_listings AS listing
+          ON listing.id = sku.listing_id
+         AND listing.organization_id = sku.organization_id
+         AND listing.channel_account_id = sku.channel_account_id
+        INNER JOIN source_import_runs AS import_run
+          ON import_run.id = sku.last_import_run_id
+         AND import_run.organization_id = sku.organization_id
+         AND import_run.channel_account_id = sku.channel_account_id
+        LEFT JOIN channel_sku_components AS component
+          ON component.channel_sku_id = sku.id
+         AND component.organization_id = sku.organization_id
+         AND component.organization_id = ${organizationId}::uuid
+        LEFT JOIN inventory_skus AS inventory
+          ON inventory.id = component.inventory_sku_id
+         AND inventory.organization_id = component.organization_id
+         AND inventory.organization_id = ${organizationId}::uuid
+        WHERE sku.organization_id = ${organizationId}::uuid
+          AND account.organization_id = ${organizationId}::uuid
+          AND listing.organization_id = ${organizationId}::uuid
+          AND import_run.organization_id = ${organizationId}::uuid
+          AND listing.is_deleted = FALSE
+          AND import_run.source_type = ${QUEUE_SOURCE_TYPE}
+          AND import_run.status = 'completed'
+          ${query.channelAccountId
+            ? Prisma.sql`AND sku.channel_account_id = ${query.channelAccountId}::uuid`
+            : Prisma.empty}
+          ${search
+            ? Prisma.sql`AND (
+                listing.external_id ILIKE ${`%${search}%`}
+                OR listing.channel_name ILIKE ${`%${search}%`}
+                OR listing.display_name ILIKE ${`%${search}%`}
+                OR sku.external_option_id ILIKE ${`%${search}%`}
+                OR sku.seller_sku ILIKE ${`%${search}%`}
+                OR sku.item_name ILIKE ${`%${search}%`}
+                OR sku.barcode ILIKE ${`%${search}%`}
+                OR sku.model_number ILIKE ${`%${search}%`}
+              )`
+            : Prisma.empty}
+        GROUP BY sku.id, sku.updated_at, sku.mapping_status
+      ),
+      available AS (
+        SELECT *
+        FROM scoped
+        ${query.hasBottleneck
+          ? Prisma.sql`WHERE component_count > 0`
+          : Prisma.empty}
+      ),
+      summary AS (
+        SELECT
+          COUNT(*)::int AS "summaryTotal",
+          (COUNT(*) FILTER (WHERE sellable_stock > 0))::int AS "inStock",
+          (COUNT(*) FILTER (WHERE sellable_stock = 0))::int AS "outOfStock",
+          (COUNT(*) FILTER (
+            WHERE component_count = 0 AND mapping_status <> 'needs_review'
+          ))::int AS unmatched,
+          (COUNT(*) FILTER (
+            WHERE component_count = 0 AND mapping_status = 'needs_review'
+          ))::int AS "needsReview"
+        FROM available
+      ),
+      selected AS (
+        SELECT *
+        FROM available
+        ${availabilityStatusSql(query.status)}
+      )
+      SELECT
+        ARRAY(
+          SELECT id
+          FROM selected
+          ORDER BY updated_at DESC, id ASC
+          OFFSET ${(query.page - 1) * query.limit}
+          LIMIT ${query.limit}
+        ) AS "rowIds",
+        (SELECT COUNT(*)::int FROM selected) AS total,
+        summary."summaryTotal",
+        summary."inStock",
+        summary."outOfStock",
+        summary.unmatched,
+        summary."needsReview"
+      FROM summary
+    `);
+    const meta = pageRows[0] ?? emptyAvailabilityPageMeta();
+    const summary = {
+      total: meta.summaryTotal,
+      inStock: meta.inStock,
+      outOfStock: meta.outOfStock,
+      unmatched: meta.unmatched,
+      needsReview: meta.needsReview,
+    } satisfies ChannelSkuAvailabilityRepositorySummary;
+    if (meta.rowIds.length === 0) {
+      return { rows: [], total: meta.total, summary };
+    }
+
+    const rows = await this.prisma.channelListingOption.findMany({
+      where: {
+        ...queueWhere(organizationId, query.channelAccountId, search),
+        id: { in: meta.rowIds },
+      },
+      select: mappingRowSelect(organizationId),
+    });
+    const rowById = new Map(rows.map((row) => [row.id, row]));
+    return {
+      rows: meta.rowIds
+        .map((id) => rowById.get(id))
+        .filter((row): row is SelectedMappingRow => row !== undefined)
+        .map(toMappingRow),
+      total: meta.total,
+      summary,
+    };
+  }
+
+  async findByChannelSkuIds(
+    organizationId: string,
+    ids: string[],
+  ): Promise<ChannelSkuMappingRow[]> {
+    const distinctIds = [...new Set(ids)];
+    if (distinctIds.length === 0) return [];
+    const rows = await this.prisma.channelListingOption.findMany({
+      where: {
+        ...queueWhere(organizationId),
+        id: { in: distinctIds },
+      },
+      select: mappingRowSelect(organizationId),
+      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+    });
+    return rows.map(toMappingRow);
+  }
+
+  async findByListingIds(
+    organizationId: string,
+    ids: string[],
+  ): Promise<ChannelSkuMappingRow[]> {
+    const distinctIds = [...new Set(ids)];
+    if (distinctIds.length === 0) return [];
+    const rows = await this.prisma.channelListingOption.findMany({
+      where: {
+        ...queueWhere(organizationId),
+        listingId: { in: distinctIds },
+      },
+      select: mappingRowSelect(organizationId),
+      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+    });
+    return rows.map(toMappingRow);
+  }
+
   async findOne(
     organizationId: string,
     channelSkuId: string,
   ): Promise<ChannelSkuMappingRow | null> {
     const row = await this.prisma.channelListingOption.findFirst({
       where: { ...queueWhere(organizationId), id: channelSkuId },
-      select: MAPPING_ROW_SELECT,
+      select: mappingRowSelect(organizationId),
     });
     return row ? toMappingRow(row) : null;
   }
@@ -296,6 +479,32 @@ function withStatus(
       { components: { none: {} } },
       { mappingStatus: { not: 'needs_review' } },
     ],
+  };
+}
+
+function availabilityStatusSql(
+  status: ChannelSkuAvailabilityRepositoryQuery['status'],
+): Prisma.Sql {
+  if (status === 'in_stock') return Prisma.sql`WHERE sellable_stock > 0`;
+  if (status === 'out_of_stock') return Prisma.sql`WHERE sellable_stock = 0`;
+  if (status === 'needs_review') {
+    return Prisma.sql`WHERE component_count = 0 AND mapping_status = 'needs_review'`;
+  }
+  if (status === 'unmatched') {
+    return Prisma.sql`WHERE component_count = 0 AND mapping_status <> 'needs_review'`;
+  }
+  return Prisma.empty;
+}
+
+function emptyAvailabilityPageMeta(): AvailabilityPageMetaRow {
+  return {
+    rowIds: [],
+    total: 0,
+    summaryTotal: 0,
+    inStock: 0,
+    outOfStock: 0,
+    unmatched: 0,
+    needsReview: 0,
   };
 }
 

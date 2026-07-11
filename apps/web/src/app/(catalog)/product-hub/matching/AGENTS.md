@@ -9,7 +9,7 @@ Sellpia `InventorySku` rows one channel SKU consumes.
 ## Owned Surfaces
 
 - Active ChannelAccount selector; only `channel === 'coupang'` accounts can
-  receive a Wing workbook in release `0.1.8`
+  receive a Wing workbook in release `0.1.9`
 - Coupang Wing catalog upload
 - Server-paged all/unmatched/needs-review/matched queue
 - Live Sellpia candidate search and multi-component recipe editor
@@ -40,7 +40,9 @@ React Query + apiClient
   a nonempty recipe; the separate confirmed `매칭 해제` action sends
   `{ components: [] }`.
 - A successful Wing import refreshes the imported account's advisory statuses,
-  then invalidates server-paged matching lists.
+  then invalidates server-paged matching lists and channel availability.
+- Component replacement, confirmed unmap, and explicit status refresh also
+  invalidate channel availability immediately.
 
 ## Cross-Domain Dependencies
 
@@ -55,7 +57,7 @@ React Query + apiClient
 - Do not send `organizationId`; backend session scope owns it.
 - Do not load the complete queue into browser memory; use server page, search,
   status, and account parameters.
-- Do not expose raw JSON or inputs for Sellpia reported stock, Sellpia prices,
+- Do not expose raw JSON or inputs for Sellpia current stock, Sellpia prices,
   or channel prices. Component quantity is the only editable number.
 - Do not infer component quantity from option or bundle text.
 - Coupang image synchronization is unrelated and must not create or refresh

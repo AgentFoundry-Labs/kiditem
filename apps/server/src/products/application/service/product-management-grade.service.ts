@@ -1,5 +1,4 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { ProductManagementListItem } from '@kiditem/shared/product';
 import { ProductManagementFactsService } from './product-management-facts.service';
 import {
   PRODUCT_MANAGEMENT_REPOSITORY_PORT,
@@ -72,7 +71,6 @@ export class ProductManagementGradeService {
         profitRate: 0,
         orderCount: metrics.orders,
       };
-      const inventory = facts.inventoryByMaster.get(master.id) ?? this.facts.emptyInventory();
       const isAdvertising = facts.activeAdMasterIds.has(master.id);
       const ageDays = Math.floor((now - master.createdAt.getTime()) / (24 * 60 * 60 * 1000));
       const isNewProduct = ageDays <= 30;
@@ -101,23 +99,20 @@ export class ProductManagementGradeService {
 
       let score = revenueScore + conversionScore + interestScore + profitScore;
       if (isAdvertising && metrics.revenue <= 0 && metrics.adSpend > 0) score -= 10;
-      if (isNewProduct && metrics.revenue <= 0 && inventory.stockStatus !== 'out') {
+      if (isNewProduct && metrics.revenue <= 0) {
         score = Math.max(score, metrics.views > 0 || metrics.cartAdds > 0 || metrics.orders > 0 ? 42 : 35);
       }
-      if (inventory.stockStatus === 'out') score = Math.min(score, 39);
-      if (inventory.stockStatus === 'low') score = Math.min(score, 69);
       score = Math.max(0, Math.min(100, Math.round(score)));
 
       let grade: ProductManagementGradeInfo['grade'] = 'C';
-      if (score >= 70 && metrics.revenue > 0 && inventory.stockStatus === 'healthy') grade = 'A';
-      else if (score >= 40 || (isNewProduct && score >= 35 && inventory.stockStatus !== 'out')) grade = 'B';
+      if (score >= 70 && metrics.revenue > 0) grade = 'A';
+      else if (score >= 40 || (isNewProduct && score >= 35)) grade = 'B';
 
       return {
         id: master.id,
         revenue: metrics.revenue,
         score,
         grade,
-        stockStatus: inventory.stockStatus,
         profitRate: profit.profitRate,
         isAdvertising,
         isNewProduct,
@@ -194,15 +189,12 @@ export class ProductManagementGradeService {
     grade: 'A' | 'B' | 'C';
     revenue: number;
     profitRate: number;
-    stockStatus: ProductManagementListItem['stockStatus'];
     isAdvertising: boolean;
     isNewProduct: boolean;
     adSpend: number;
   }): string {
-    if (row.stockStatus === 'out') return '품절 처리 또는 재고 보충을 먼저 진행';
-    if (row.stockStatus === 'low') return '재고 부족 — 발주 후 광고와 노출을 유지';
     if (row.profitRate < 0) return '손익 점검 — 원가, 광고비, 판매가를 먼저 조정';
-    if (row.grade === 'A' && row.isAdvertising) return '핵심 매출 상품 — 광고 유지, 재고 방어';
+    if (row.grade === 'A' && row.isAdvertising) return '핵심 매출 상품 — 광고 효율 유지';
     if (row.grade === 'A') return '자연매출 우수 — 광고 테스트 후보';
     if (row.isNewProduct && row.revenue <= 0) return '신상품 관찰 — 초기 노출과 CTR 확보';
     if (row.grade === 'B' && row.revenue > 0) return '성장 후보 — CTR, 전환율 개선 시 A등급 승격';

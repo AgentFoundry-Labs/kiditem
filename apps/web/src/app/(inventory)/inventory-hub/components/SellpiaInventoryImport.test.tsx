@@ -1,16 +1,33 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import SellpiaInventoryImport, {
   SELLPIA_INVENTORY_FILE_ACCEPT,
 } from './SellpiaInventoryImport';
 import type { SellpiaInventoryImportResponse } from '@kiditem/shared/source-import';
 
 const importSellpiaInventory = vi.hoisted(() => vi.fn());
+const invalidateSellpiaInventory = vi.hoisted(() => vi.fn());
 
 vi.mock('../lib/sellpia-inventory-import-api', () => ({
   importSellpiaInventory,
 }));
+
+vi.mock('../../_shared/invalidate-sellpia-inventory', () => ({
+  invalidateSellpiaInventory,
+}));
+
+function renderImport() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <SellpiaInventoryImport />
+    </QueryClientProvider>,
+  );
+}
 
 function importResponse(
   patch: Partial<SellpiaInventoryImportResponse> = {},
@@ -53,17 +70,19 @@ async function chooseFile(
 beforeEach(() => {
   importSellpiaInventory.mockReset();
   importSellpiaInventory.mockResolvedValue(importResponse());
+  invalidateSellpiaInventory.mockReset();
+  invalidateSellpiaInventory.mockResolvedValue(undefined);
 });
 
 describe('SellpiaInventoryImport', () => {
   it('keeps import disabled until an operator selects a file', () => {
-    render(<SellpiaInventoryImport />);
+    renderImport();
 
     expect(screen.getByRole('button', { name: '재고 가져오기' })).toBeDisabled();
   });
 
   it('accepts Excel, CSV, and tabular text files supported by the parser', () => {
-    render(<SellpiaInventoryImport />);
+    renderImport();
 
     expect(SELLPIA_INVENTORY_FILE_ACCEPT).toBe(
       '.xls,.xlsx,.csv,text/csv,text/plain,text/tab-separated-values',
@@ -76,7 +95,7 @@ describe('SellpiaInventoryImport', () => {
 
   it('renders the completed run and replacement counts after import', async () => {
     const user = userEvent.setup();
-    render(<SellpiaInventoryImport />);
+    renderImport();
 
     await chooseFile(user);
     await user.click(screen.getByRole('button', { name: '재고 가져오기' }));
@@ -88,6 +107,7 @@ describe('SellpiaInventoryImport', () => {
     expect(screen.getByText('1,800')).toBeInTheDocument();
     expect(screen.getByText('44')).toBeInTheDocument();
     expect(importSellpiaInventory).toHaveBeenCalledTimes(1);
+    expect(invalidateSellpiaInventory).toHaveBeenCalledTimes(1);
   });
 
   it('explains duplicate imports and shows zero changes', async () => {
@@ -100,7 +120,7 @@ describe('SellpiaInventoryImport', () => {
         zeroedSkuCount: 0,
       },
     }));
-    render(<SellpiaInventoryImport />);
+    renderImport();
 
     await chooseFile(user);
     await user.click(screen.getByRole('button', { name: '재고 가져오기' }));
@@ -112,7 +132,7 @@ describe('SellpiaInventoryImport', () => {
   it('shows an import error without exposing review controls', async () => {
     const user = userEvent.setup();
     importSellpiaInventory.mockRejectedValueOnce(new Error('필수 컬럼이 없습니다'));
-    render(<SellpiaInventoryImport />);
+    renderImport();
 
     await chooseFile(user);
     await user.click(screen.getByRole('button', { name: '재고 가져오기' }));
@@ -126,7 +146,7 @@ describe('SellpiaInventoryImport', () => {
   });
 
   it('states that the snapshot is copied without stock adjustment or channel-row updates', () => {
-    render(<SellpiaInventoryImport />);
+    renderImport();
 
     expect(screen.getByText(
       'Sellpia 재고를 보고 재고로 그대로 복사하며, KidItem에서는 수량을 조정하지 않습니다.',

@@ -48,6 +48,14 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
 
   it('imports the representative 1,225-parent/2,241-SKU shape with three skips and no stock mutation', async () => {
     const rows = representativeRows();
+    const inventoryBefore = await prisma.inventorySku.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sellpiaProductCode: 'SP-STOCK-SENTINEL',
+        name: 'Sellpia stock sentinel',
+        currentStock: 37,
+      },
+    });
 
     const result = await importCatalog(
       rows,
@@ -60,8 +68,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       ],
     );
 
-    const [products, skus, inventory, stockTransactions, rocketLedger] =
-      await Promise.all([
+    const [products, skus, inventoryAfter] = await Promise.all([
         prisma.channelListing.findMany({
           where: {
             organizationId: TEST_ORGANIZATION_ID,
@@ -75,9 +82,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
             channelAccountId: WING_ACCOUNT_ID,
           },
         }),
-        prisma.inventory.count({ where: { organizationId: TEST_ORGANIZATION_ID } }),
-        prisma.stockTransaction.count({ where: { organizationId: TEST_ORGANIZATION_ID } }),
-        prisma.rocketInventoryLedger.count({ where: { organizationId: TEST_ORGANIZATION_ID } }),
+        prisma.inventorySku.findUniqueOrThrow({ where: { id: inventoryBefore.id } }),
       ]);
 
     expect(products).toHaveLength(1_225);
@@ -95,11 +100,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       skippedRowCount: 3,
     });
     expect(result.run.rowCount).toBe(2_241);
-    expect({ inventory, stockTransactions, rocketLedger }).toEqual({
-      inventory: 0,
-      stockTransactions: 0,
-      rocketLedger: 0,
-    });
+    expect(inventoryAfter).toEqual(inventoryBefore);
   });
 
   it('requires an active account in the organization and rejects non-Wing channels before claiming', async () => {
@@ -220,7 +221,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         sellpiaProductCode: `SP-COMPONENT-${index}`,
         name: `component ${index}`,
-        reportedStock: index,
+        currentStock: index,
       })),
     });
     const skuByExternalId = new Map(

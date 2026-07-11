@@ -19,7 +19,7 @@ function baseTask() {
   return {
     id: 'task-1',
     organizationId: 'c-1',
-    taskKey: 'h-reorder',
+    taskKey: 'h-zero-stock',
     status: 'pending',
     priority: 'high',
     activityLog: [],
@@ -273,7 +273,7 @@ describe('ActionTaskSchema — getTasks wire format drift assertion', () => {
     const taskLike = {
       id: 'task-1',
       organizationId: 'c-1',
-      taskKey: 'h-reorder',
+      taskKey: 'h-zero-stock',
       type: 'human',
       label: '재고 부족',
       detail: null,

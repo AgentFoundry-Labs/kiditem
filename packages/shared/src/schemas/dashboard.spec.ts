@@ -13,12 +13,16 @@ describe('dashboard schemas', () => {
         minusProducts: 0,
         lowProfitProducts: 0,
         highAdProducts: 0,
-        needReorder: 0,
+        outOfStockSkus: 4,
+        mappingAttentionSkus: 2,
       },
     });
 
     expect(summary.channelLinkedProducts).toBe(3);
     expect(summary.channelUnlinkedProducts).toBe(2);
+    expect(summary.warnings.outOfStockSkus).toBe(4);
+    expect(summary.warnings.mappingAttentionSkus).toBe(2);
+    expect(summary.warnings).not.toHaveProperty('needReorder');
   });
 
   it('parses dashboard operation alerts with deep links', () => {
@@ -48,7 +52,8 @@ describe('dashboard schemas', () => {
         minusProducts: 0,
         lowProfitProducts: 0,
         highAdProducts: 0,
-        needReorder: 0,
+        outOfStockSkus: 0,
+        mappingAttentionSkus: 0,
       },
     });
 

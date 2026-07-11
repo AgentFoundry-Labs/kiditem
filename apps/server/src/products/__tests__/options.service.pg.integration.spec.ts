@@ -2,7 +2,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { MastersService } from '../application/service/masters.service';
-import { BundleStockService } from '../application/service/bundle-stock.service';
 import { OptionsService } from '../application/service/options.service';
 import { createProductsTestServices } from './products-test-services';
 import {
@@ -12,7 +11,6 @@ import {
 describe('OptionsService integration', () => {
   let prisma: PrismaClient;
   let mastersSvc: MastersService;
-  let bundleStockSvc: BundleStockService;
   let svc: OptionsService;
 
   beforeAll(async () => {
@@ -20,7 +18,6 @@ describe('OptionsService integration', () => {
     await prisma.$connect();
     const services = createProductsTestServices(prisma);
     mastersSvc = services.mastersSvc;
-    bundleStockSvc = services.bundleStockSvc;
     svc = services.optionsSvc;
   });
 
@@ -35,7 +32,6 @@ describe('OptionsService integration', () => {
     const m = await mastersSvc.create(TEST_ORGANIZATION_ID, { name: 'M1' } as any);
     const opt = await svc.create(TEST_ORGANIZATION_ID, { masterId: m.id, optionName: 'Red' } as any);
     expect(opt.sku).toBe(`${m.code}-01`);
-    expect(opt.availableStock).toBeNull();
     expect(opt.isBundle).toBe(false);
   });
 
@@ -201,29 +197,4 @@ describe('OptionsService integration', () => {
     });
   });
 
-  it('triggers recompute on bundles when component option is soft-deleted', async () => {
-    const m = await mastersSvc.create(TEST_ORGANIZATION_ID, { name: 'M7' } as any);
-    const bundle = await svc.create(TEST_ORGANIZATION_ID, {
-      masterId: m.id, optionName: 'B', isBundle: true,
-    } as any);
-    const comp = await svc.create(TEST_ORGANIZATION_ID, { masterId: m.id, optionName: 'C' } as any);
-    await prisma.inventory.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, optionId: comp.id, currentStock: 10 },
-    });
-    await prisma.bundleComponent.create({
-      data: {
-        bundleOptionId: bundle.id,
-        componentOptionId: comp.id,
-        organizationId: TEST_ORGANIZATION_ID,
-        qty: 2,
-      },
-    });
-    await bundleStockSvc.recompute(TEST_ORGANIZATION_ID, bundle.id);
-    const before = await prisma.productOption.findUniqueOrThrow({ where: { id: bundle.id } });
-    expect(before.availableStock).toBe(5);
-
-    await svc.softDelete(TEST_ORGANIZATION_ID, comp.id);
-    const after = await prisma.productOption.findUniqueOrThrow({ where: { id: bundle.id } });
-    expect(after.availableStock).toBe(0);
-  });
 });

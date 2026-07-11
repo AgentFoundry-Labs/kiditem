@@ -55,7 +55,7 @@ export class ProductManagementService {
 
   async pipelineStats(
     organizationId: string,
-    q: Pick<ListMastersQuery, 'status' | 'period' | 'grade' | 'ad' | 'stock' | 'category' | 'categoryGroup' | 'search'>,
+    q: Pick<ListMastersQuery, 'status' | 'period' | 'grade' | 'ad' | 'category' | 'categoryGroup' | 'search'>,
   ): Promise<ProductManagementPipelineCounts> {
     const period = q.period ?? 14;
     const gradeByMaster = await this.gradeByMaster(organizationId, period);
@@ -82,7 +82,6 @@ export class ProductManagementService {
       gradeByMaster,
       facts,
       channelLinkedMasterIds,
-      emptyInventory: () => this.emptyInventory(),
     });
   }
 
@@ -95,13 +94,8 @@ export class ProductManagementService {
     const candidates = await this.management.findManagementCandidates(whereInput);
     if (candidates.length === 0) return [];
 
-    const inventory = await this.facts.inventoryByMaster(organizationId, candidates.map((row) => row.id));
     const orderedIds = candidates
-      .sort((a, b) => {
-        const stockDiff = (inventory.get(b.id)?.currentStock ?? 0) - (inventory.get(a.id)?.currentStock ?? 0);
-        if (stockDiff !== 0) return stockDiff;
-        return b.createdAt.getTime() - a.createdAt.getTime();
-      })
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       .slice((page - 1) * limit, page * limit)
       .map((row) => row.id);
 
@@ -126,17 +120,6 @@ export class ProductManagementService {
       const ads = await this.facts.currentAdvertisingState(organizationId);
       const allIds = await this.facts.allMasterIds(organizationId);
       sets.push(q.ad === 'ad' ? ads.masterIds : new Set(allIds.filter((id) => !ads.masterIds.has(id))));
-    }
-
-    if (q.stock) {
-      const allIds = await this.facts.allMasterIds(organizationId);
-      const stock = await this.facts.inventoryByMaster(organizationId, allIds);
-      sets.push(new Set(allIds.filter((id) => {
-        const current = stock.get(id) ?? this.emptyInventory();
-        if (q.stock === 'zero') return current.stockStatus === 'out';
-        if (q.stock === 'risk') return current.stockStatus !== 'healthy';
-        return current.stockStatus === 'healthy';
-      })));
     }
 
     if (q.status) {
@@ -205,10 +188,6 @@ export class ProductManagementService {
     period: number = 14,
   ): Promise<Map<string, { revenue: number; netProfit: number; profitRate: number; orderCount: number }>> {
     return this.facts.profitByMaster(organizationId, masterIds, period);
-  }
-
-  private emptyInventory(): ManagementFacts['inventoryByMaster'] extends Map<string, infer T> ? T : never {
-    return this.facts.emptyInventory();
   }
 
   private emptyPipelineCounts(): ProductManagementPipelineCounts {

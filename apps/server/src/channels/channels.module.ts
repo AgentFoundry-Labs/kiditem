@@ -11,6 +11,7 @@ import { ChannelAccountListController } from './adapter/in/http/channel-account-
 import { ChannelListingController } from './adapter/in/http/channel-listing.controller';
 import { ChannelCatalogImportController } from './adapter/in/http/channel-catalog-import.controller';
 import { ChannelSkuMappingController } from './adapter/in/http/channel-sku-mapping.controller';
+import { ChannelSkuAvailabilityController } from './adapter/in/http/channel-sku-availability.controller';
 import { CoupangProviderAdapter } from './adapter/out/coupang/coupang-provider.adapter';
 import { ChannelAccountRepositoryAdapter } from './adapter/out/repository/channel-account.repository.adapter';
 import { ChannelDashboardRepositoryAdapter } from './adapter/out/repository/channel-dashboard.repository.adapter';
@@ -30,6 +31,7 @@ import { MarketplaceRegistrationService } from './application/service/marketplac
 import { ChannelAccountService } from './application/service/channel-account.service';
 import { ChannelCatalogImportService } from './application/service/channel-catalog-import.service';
 import { ChannelSkuMappingService } from './application/service/channel-sku-mapping.service';
+import { ChannelSkuAvailabilityService } from './application/service/channel-sku-availability.service';
 import { COUPANG_PROVIDER_PORT } from './application/port/out/provider/coupang-provider.port';
 import { ChannelsOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { CHANNELS_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
@@ -49,6 +51,7 @@ import { CHANNEL_SYNC_REPOSITORY_PORT } from './application/port/out/repository/
 import { CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT } from './application/port/out/repository/channel-catalog-import.repository.port';
 import { CHANNEL_SKU_MAPPING_REPOSITORY_PORT } from './application/port/out/repository/channel-sku-mapping.repository.port';
 import { CHANNELS_INVENTORY_SKU_READ_PORT } from './application/port/out/cross-domain/inventory-sku-read.port';
+import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku-availability.port';
 
 @Module({
   imports: [AgentOsModule, AutomationModule, ProductsModule, InventoryModule],
@@ -60,6 +63,7 @@ import { CHANNELS_INVENTORY_SKU_READ_PORT } from './application/port/out/cross-d
     ChannelListingController,
     ChannelCatalogImportController,
     ChannelSkuMappingController,
+    ChannelSkuAvailabilityController,
   ],
   providers: [
     ChannelSyncService,
@@ -70,6 +74,7 @@ import { CHANNELS_INVENTORY_SKU_READ_PORT } from './application/port/out/cross-d
     ChannelAccountService,
     ChannelCatalogImportService,
     ChannelSkuMappingService,
+    ChannelSkuAvailabilityService,
     ChannelRegistrationCapabilityAdapter,
     ChannelRegistrationRuntimeHandler,
     CoupangProviderAdapter,
@@ -118,7 +123,11 @@ import { CHANNELS_INVENTORY_SKU_READ_PORT } from './application/port/out/cross-d
       provide: CHANNELS_INVENTORY_SKU_READ_PORT,
       useExisting: ChannelsInventorySkuReadAdapter,
     },
+    {
+      provide: CHANNEL_SKU_AVAILABILITY_PORT,
+      useExisting: ChannelSkuAvailabilityService,
+    },
   ],
-  exports: [COUPANG_PROVIDER_PORT],
+  exports: [COUPANG_PROVIDER_PORT, CHANNEL_SKU_AVAILABILITY_PORT],
 })
 export class ChannelsModule {}

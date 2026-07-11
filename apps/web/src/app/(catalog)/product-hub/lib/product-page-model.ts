@@ -18,9 +18,6 @@ export const DEFAULT_PIPELINE_COUNTS: PipelineCounts = {
   gradeChangeA: 0,
   gradeChangeB: 0,
   gradeChangeC: 0,
-  zeroStock: 0,
-  lowStock: 0,
-  stockRisk: 0,
   adLoss: 0,
   adCount: 0,
   noAdCount: 0,
@@ -41,7 +38,6 @@ export interface ProductListQueryInput {
   gradeFilter: string;
   statusFilter: string;
   adFilter: string;
-  stockFilter: string;
   submittedSearch: string;
   selectedCategory: string | null;
   selectedCategoryGroup: string | null;
@@ -88,8 +84,6 @@ export function trafficSortVal(product: Product, key: string): number {
       return product.profitRate;
     case 'adRate':
       return product.adRate;
-    case 'stock':
-      return product.currentStock;
     default:
       return 0;
   }
@@ -124,7 +118,6 @@ export function buildProductListQueryParams(input: ProductListQueryInput): Recor
     ...(input.gradeFilter !== 'all' && { grade: input.gradeFilter }),
     ...(input.statusFilter !== 'all' && { status: input.statusFilter }),
     ...(input.adFilter !== 'all' && { ad: input.adFilter }),
-    ...(input.stockFilter !== 'all' && { stock: input.stockFilter }),
     ...(input.submittedSearch && { search: input.submittedSearch }),
     ...(input.selectedCategory && { category: input.selectedCategory }),
     ...(input.selectedCategoryGroup && { categoryGroup: input.selectedCategoryGroup }),

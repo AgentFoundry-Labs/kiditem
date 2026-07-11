@@ -17,9 +17,12 @@ export const ChannelSkuMappingComponentSchema = z.object({
   name: z.string().min(1),
   optionName: z.string().nullable(),
   barcode: z.string().nullable(),
-  reportedStock: z.number().int().nonnegative(),
+  currentStock: z.number().int().nonnegative(),
+  purchasePrice: z.number().int().nonnegative().nullable(),
   quantity: z.number().int().positive().max(MAX_CHANNEL_SKU_COMPONENT_QUANTITY),
   mappingSource: z.string().nullable(),
+  componentCapacity: z.number().int().nonnegative(),
+  isBottleneck: z.boolean(),
 });
 export type ChannelSkuMappingComponent = z.infer<typeof ChannelSkuMappingComponentSchema>;
 
@@ -46,6 +49,7 @@ export const ChannelSkuMappingListItemSchema = z.object({
     salePrice: z.number().int().nonnegative().nullable(),
     status: z.string().nullable(),
     mappingStatus: ChannelSkuMappingStatusSchema,
+    sellableStock: z.number().int().nonnegative().nullable(),
     updatedAt: zIsoDate,
   }),
   components: z.array(ChannelSkuMappingComponentSchema),
@@ -86,7 +90,7 @@ export const ChannelSkuMatchCandidateSchema = z.object({
   name: z.string().min(1),
   optionName: z.string().nullable(),
   barcode: z.string().nullable(),
-  reportedStock: z.number().int().nonnegative(),
+  currentStock: z.number().int().nonnegative(),
   reason: ChannelSkuMatchCandidateReasonSchema,
   rank: z.number().int().nonnegative(),
 });

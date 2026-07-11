@@ -23,8 +23,6 @@ describe('ProductManagementService.pipelineStats', () => {
       ['master-inventory-only', { grade: 'B', score: 50, rank: 2, prevRank: null, strategy: 'watch' }],
     ]);
     const facts: ManagementFacts = {
-      stockByMaster: new Map(),
-      inventoryByMaster: new Map(),
       statusByMaster: new Map(),
       activeAdMasterIds: new Set(),
       optionByMaster: new Map(),
@@ -65,8 +63,6 @@ describe('ProductManagementService.pipelineStats', () => {
       ['master-inventory-only-low', { grade: 'A', score: 80, rank: 3, prevRank: null, strategy: 'keep' }],
     ]);
     const facts: ManagementFacts = {
-      stockByMaster: new Map(),
-      inventoryByMaster: new Map(),
       statusByMaster: new Map(),
       activeAdMasterIds: new Set(),
       optionByMaster: new Map(),
@@ -107,8 +103,6 @@ describe('ProductManagementService.pipelineStats', () => {
     };
     const service = createService(management);
     const facts: ManagementFacts = {
-      stockByMaster: new Map(),
-      inventoryByMaster: new Map(),
       statusByMaster: new Map(),
       activeAdMasterIds: new Set(),
       optionByMaster: new Map(),

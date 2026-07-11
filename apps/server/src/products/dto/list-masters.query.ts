@@ -30,9 +30,6 @@ export class ListMastersQuery {
   @IsOptional() @IsIn(['ad', 'noad'])
   ad?: 'ad' | 'noad';
 
-  @IsOptional() @IsIn(['risk', 'zero', 'ok'])
-  stock?: 'risk' | 'zero' | 'ok';
-
   // Phase 5 (#192): API surface for master lifecycle. Replaces the legacy
   // `pipelineStep` filter. Allowed values mirror PRODUCT_LIFECYCLE_STATES.
   @IsOptional() @IsIn(['active', 'paused', 'discontinued'])

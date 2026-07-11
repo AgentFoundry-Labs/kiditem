@@ -2,10 +2,9 @@ Consult this document first instead of relying on memorized knowledge.
 
 # products — Catalog, Options, Bundles
 
-`src/products/` owns catalog families, physical SKU options, bundle
-composition, product content reads, and the `/api/categories` compatibility
-capability. It is the owner for `MasterProduct`, `ProductOption`, and bundle
-stock materialization.
+`src/products/` owns catalog families, catalog options, bundle composition,
+product content reads, and the `/api/categories` compatibility capability. It
+does not own stock or marketplace SKU availability.
 
 ## Folder Map
 
@@ -31,7 +30,7 @@ products/
 
 - Product catalog and option APIs under `/api/products/*`
 - Product content card/preview/editor compatibility APIs
-- Bundle component and bundle stock behavior
+- Catalog bundle component behavior
 - `/api/categories` compatibility capability
 
 ## Main Data Models
@@ -39,10 +38,12 @@ products/
 - `MasterProduct` is the family/planned product and operating/ads/strategy
   unit. Codes use `MasterCodeCounter('master_product')` and `M-00000001`
   format.
-- `ProductOption` is the physical SKU/barcode/inventory unit. SKU format is
-  `{master.code}-{NN}`.
-- `BundleComponent` stores option composition; cross-master is allowed, but
-  cross-organization and nested bundles are forbidden.
+- `ProductOption` is an internal catalog option and barcode identity. SKU
+  format is `{master.code}-{NN}`; it has no current, reserved, safety, reorder,
+  or available-stock field.
+- `BundleComponent` stores internal catalog composition. It does not produce a
+  bundle stock balance and is distinct from a marketplace
+  `ChannelSkuComponent` recipe.
 - `ProductPreparation` captures selected registration inputs after sourcing
   promotion.
 
@@ -50,17 +51,13 @@ products/
 
 - `MASTER_CODE_PORT.generate(tx)` is the only master code issuer.
 - `OptionsService.create` generates option SKUs inside the transaction.
-- `BundleStockService.recompute` is the only writer of materialized
-  `availableStock`.
-- Bundle component CRUD recomputes stock inline inside the transaction.
+- Bundle component CRUD validates and persists composition only.
 - Master and option rows use soft delete. `BundleComponent` uses hard delete.
 
 ## Cross-Domain Ports
 
 - Products publishes `PRODUCT_MASTER_PROMOTION_PORT` for sourcing candidate
   promotion.
-- Products publishes `PRODUCT_BUNDLE_STOCK_PORT` for inventory stock-mutation
-  fan-out.
 - Cross-owner modules consume products through local `adapter/out/products/`
   bridges, not by injecting products services directly.
 
@@ -78,6 +75,9 @@ products/
   products code must not select, filter on, or echo them.
 - `lifecycleState` is the master lifecycle API field and uses
   `@kiditem/shared/product` validation.
+- Product DTOs and read models must not recreate stock, reorder, stockout,
+  lead-time, or bundle-capacity fields. Marketplace sellable capacity belongs
+  to Channels and Sellpia physical quantity belongs to Inventory.
 
 ## Transitional Exceptions
 

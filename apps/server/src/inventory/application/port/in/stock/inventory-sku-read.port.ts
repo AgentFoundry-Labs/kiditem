@@ -6,7 +6,8 @@ export type InventorySkuReadModel = {
   name: string;
   optionName: string | null;
   barcode: string | null;
-  reportedStock: number;
+  currentStock: number;
+  purchasePrice: number | null;
 };
 
 export interface InventorySkuReadPort {

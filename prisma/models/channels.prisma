@@ -405,7 +405,7 @@ model RocketPurchaseOrder {
 }
 
 /// @namespace Channels
-/// @describe 채널-KidItem 상품 매칭 스캔 실행 이력. 실제 연결 source of truth 는 ChannelListing / ChannelListingOption.
+/// @describe 확장-릴리스 호환을 위한 비활성 스캔 이력. 현재 controller/service wiring 과 운영 매칭 흐름은 이 모델을 사용하지 않는다.
 model ChannelReconciliationRun {
   id             String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
@@ -441,7 +441,7 @@ model ChannelReconciliationRun {
 }
 
 /// @namespace Channels
-/// @describe 사용자가 처리하는 채널-내부 상품 매칭 queue. MasterProduct 자동 생성 없이 기존 ProductOption/ChannelListing 연결만 추적.
+/// @describe 확장-릴리스 호환을 위한 비활성 이력 테이블. 현재 운영 queue 는 없으며 ChannelSkuComponent 가 매칭 source of truth 다.
 model ChannelReconciliationItem {
   id             String  @id @default(uuid()) @db.Uuid
   organizationId String  @map("organization_id") @db.Uuid

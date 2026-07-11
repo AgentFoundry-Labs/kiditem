@@ -20,7 +20,6 @@ const option: ProductOption = {
   shippingCost: null,
   otherCost: 0,
   isBundle: false,
-  availableStock: null,
   isDeleted: false,
   deletedAt: null,
   isTemporary: false,

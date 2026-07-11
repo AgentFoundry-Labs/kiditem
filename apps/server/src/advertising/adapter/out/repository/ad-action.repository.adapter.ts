@@ -160,9 +160,6 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           latest.clicks,
           latest.conversions,
           mp.abc_grade                 AS "abcGrade",
-          po.available_stock           AS "optionAvailableStock",
-          po.cost_price                AS "optionCostPrice",
-          po.sell_price                AS "optionSellPrice",
           po.commission_rate           AS "optionCommissionRate",
           mp.name                      AS "productName"
         FROM latest
@@ -182,33 +179,6 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
               AND po.organization_id = ${organizationId}::uuid
       `,
     );
-  }
-
-  async findLatestListingOptionStockById(
-    organizationId: string,
-    listingOptionIds: string[],
-  ): Promise<Map<string, number | null>> {
-    const ids = Array.from(new Set(listingOptionIds));
-    if (ids.length === 0) return new Map();
-
-    const rows = await this.prisma.$queryRaw<
-      { listingOptionId: string; stockQty: number | null }[]
-    >(Prisma.sql`
-      SELECT DISTINCT ON (listing_option_id)
-        listing_option_id AS "listingOptionId",
-        stock_qty         AS "stockQty"
-      FROM channel_listing_option_daily_snapshots
-      WHERE organization_id = ${organizationId}::uuid
-        AND listing_option_id = ANY(${ids}::uuid[])
-      ORDER BY
-        listing_option_id,
-        business_date DESC,
-        last_observed_at DESC NULLS LAST,
-        updated_at DESC NULLS LAST,
-        id DESC
-    `);
-
-    return new Map(rows.map((row) => [row.listingOptionId, row.stockQty]));
   }
 
   async findExistingInflightActions(

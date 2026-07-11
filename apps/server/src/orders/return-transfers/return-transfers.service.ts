@@ -20,17 +20,17 @@ export class ReturnTransfersService {
 
     return this.prisma.returnTransfer.findMany({
       where,
-      include: { option: true },
+      include: { inventorySku: true },
       orderBy: { createdAt: 'desc' },
     });
   }
 
   async create(organizationId: string, dto: CreateReturnTransferDto) {
-    const option = await this.prisma.productOption.findFirst({
-      where: { id: dto.optionId, organizationId, isDeleted: false },
+    const inventorySku = await this.prisma.inventorySku.findFirst({
+      where: { id: dto.inventorySkuId, organizationId },
       select: { optionName: true },
     });
-    if (!option) throw new NotFoundException('Option not found');
+    if (!inventorySku) throw new NotFoundException('InventorySku not found');
 
     const rtNumber = this.generateRtNumber();
 
@@ -39,13 +39,13 @@ export class ReturnTransfersService {
         organizationId,
         rtNumber,
         orderId: dto.orderId,
-        optionId: dto.optionId,
-        optionName: option.optionName,
+        inventorySkuId: dto.inventorySkuId,
+        optionName: inventorySku.optionName,
         quantity: dto.quantity,
         condition: dto.condition ?? 'good',
         notes: dto.notes,
       },
-      include: { option: true },
+      include: { inventorySku: true },
     });
   }
 
@@ -64,7 +64,7 @@ export class ReturnTransfersService {
         ...(dto.disposedQty !== undefined && { disposedQty: dto.disposedQty }),
         ...(dto.processedBy !== undefined && { processedBy: dto.processedBy }),
       },
-      include: { option: true },
+      include: { inventorySku: true },
     });
   }
 }

@@ -6,6 +6,7 @@ import {
   MasterSchema,
   ProductCatalogDetailSchema,
   ProductCatalogListItemSchema,
+  ProductManagementListItemSchema,
   ProductManagementPipelineCountsSchema,
   ProductOptionListItemSchema,
   ProductOptionSchema,
@@ -134,7 +135,7 @@ describe('product schemas', () => {
       totalAvailableStock: 0,
     });
     expect(row.optionCount).toBe(0);
-    expect(row.totalAvailableStock).toBe(0);
+    expect(row).not.toHaveProperty('totalAvailableStock');
     expect(row.priceRange).toBeNull();
   });
 
@@ -214,6 +215,118 @@ describe('product schemas', () => {
 
     expect(counts.channelLinkedProducts).toBe(3);
     expect(counts.channelUnlinkedProducts).toBe(2);
+    expect(counts).not.toHaveProperty('zeroStock');
+    expect(counts).not.toHaveProperty('lowStock');
+    expect(counts).not.toHaveProperty('stockRisk');
+  });
+
+  it('does not expose materialized stock on product options', () => {
+    const row = ProductOptionSchema.parse({
+      id: '11111111-1111-4111-8111-111111111111',
+      masterId: '22222222-2222-4222-8222-222222222222',
+      organizationId: '33333333-3333-4333-8333-333333333333',
+      sku: 'M-00000001-01',
+      barcode: null,
+      legacyCode: null,
+      optionName: '블루',
+      sortOrder: 0,
+      costPrice: 1000,
+      sellPrice: 2000,
+      commissionRate: null,
+      shippingCost: null,
+      otherCost: null,
+      isBundle: true,
+      availableStock: 12,
+      isDeleted: false,
+      deletedAt: null,
+      isTemporary: false,
+      temporaryReason: null,
+      isActive: true,
+      createdAt: iso,
+      updatedAt: iso,
+    });
+
+    expect(row).not.toHaveProperty('availableStock');
+  });
+
+  it('rejects legacy stock and reorder claims on product management rows', () => {
+    const result = ProductManagementListItemSchema.safeParse({
+      id: '11111111-1111-4111-8111-111111111111',
+      name: '아동 우산',
+      sku: 'M-00000001-01',
+      category: null,
+      company: null,
+      listingId: null,
+      coupangProductId: null,
+      thumbnailUrl: null,
+      imageUrl: null,
+      createdAt: iso,
+      costPrice: 1000,
+      sellPrice: 2000,
+      commissionRate: 10,
+      shippingCost: 0,
+      revenue: 0,
+      netProfit: 0,
+      profitRate: 0,
+      adRate: 0,
+      adTier: null,
+      isAdvertising: false,
+      isCostMissing: false,
+      optionId: '22222222-2222-4222-8222-222222222222',
+      status: 'active',
+      abcGrade: 'B',
+      gradeScore: 50,
+      gradeRank: 1,
+      prevGradeRank: null,
+      gradeStrategy: '관찰',
+      healthScore: null,
+      reviewCount: 0,
+      orderCount: 0,
+      thumbnailCTR: 0,
+      traffic: {
+        visitors: 0,
+        views: 0,
+        cartAdds: 0,
+        orders: 0,
+        salesQty: 0,
+        revenue: 0,
+        conversionRate: 0,
+      },
+      t14: {
+        visitors: 0,
+        views: 0,
+        cartAdds: 0,
+        orders: 0,
+        salesQty: 0,
+        revenue: 0,
+        conversionRate: 0,
+      },
+      t14prev: {
+        visitors: 0,
+        views: 0,
+        cartAdds: 0,
+        orders: 0,
+        salesQty: 0,
+        revenue: 0,
+        conversionRate: 0,
+      },
+      inventoryId: '44444444-4444-4444-8444-444444444444',
+      currentStock: 10,
+      reservedStock: 1,
+      availableStock: 9,
+      safetyStock: 2,
+      reorderPoint: 3,
+      reorderQuantity: 5,
+      leadTimeDays: 7,
+      dailySalesAvg: 1,
+      optimalStock: 10,
+      recommendedOrderQty: 5,
+      daysUntilStockout: 9,
+      stockStatus: 'healthy',
+      stockAction: 'monitor',
+    });
+
+    expect(result.success).toBe(false);
   });
 });
 

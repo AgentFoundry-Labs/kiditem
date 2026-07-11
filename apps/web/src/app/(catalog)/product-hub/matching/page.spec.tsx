@@ -124,6 +124,7 @@ const mappingItem: ChannelSkuMappingListItem = {
     salePrice: null,
     status: '판매중',
     mappingStatus: 'unmatched',
+    sellableStock: null,
     updatedAt: '2026-07-11T00:00:00.000Z',
   },
   components: [],
@@ -171,6 +172,15 @@ describe('/product-hub/matching', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('leaves the shared app shell as the only main landmark', () => {
+    const { container } = render(<MatchingPage />);
+
+    expect(container.querySelector('main')).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: '상품 매칭 센터' }),
+    ).toBeInTheDocument();
   });
 
   it('offers only coupang accounts and deterministically picks primary, name, then ID', async () => {
@@ -327,7 +337,7 @@ describe('/product-hub/matching', () => {
     const user = userEvent.setup();
     render(<MatchingPage />);
 
-    await user.click(screen.getByRole('button', { name: 'Wing 상품 가져오기' }));
+    await user.click(screen.getByRole('button', { name: '쿠팡 Wing 상품 엑셀 가져오기' }));
     expect(screen.getByText('import dialog account 가 Wing')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'finish import' }));
     expect(vi.mocked(useChannelSkuMappings).mock.lastCall?.[0]).toEqual(

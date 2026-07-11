@@ -10,7 +10,7 @@ export type ParsedSellpiaInventoryRow = {
   name: string;
   optionName: string | null;
   barcode: string | null;
-  reportedStock: number;
+  currentStock: number;
   purchasePrice: number | null;
   salePrice: number | null;
   rawJson: Record<string, unknown>;
@@ -25,6 +25,7 @@ export const MAX_SELLPIA_INVENTORY_IMPORT_ROWS = 20_000;
 
 const REQUIRED_HEADERS = ['상품코드', '재고'];
 const HEADER_SCAN_ROW_LIMIT = 20;
+const POSTGRES_INTEGER_MAX = 2_147_483_647;
 const HEADER_ALIASES = new Map([
   ['상품코드', '상품코드'],
   ['상품명', '상품명'],
@@ -205,7 +206,7 @@ function normalizeRow(
     validationErrors.push(`${rowNumber}행 상품코드가 비어 있습니다`);
   }
 
-  const reportedStock = requiredNonnegativeInteger(
+  const currentStock = requiredNonnegativeInteger(
     rawJson['재고'],
     rowNumber,
     '재고',
@@ -230,7 +231,7 @@ function normalizeRow(
     name: nullableCellText(rawJson['상품명']) ?? sellpiaProductCode,
     optionName: nullableCellText(rawJson['옵션명']),
     barcode: matchingIdentifier(rawJson),
-    reportedStock: reportedStock ?? 0,
+    currentStock: currentStock ?? 0,
     purchasePrice,
     salePrice,
     rawJson,
@@ -264,8 +265,10 @@ function requiredNonnegativeInteger(
   validationErrors: string[],
 ): number | null {
   const parsed = parseInteger(value);
-  if (parsed === null || parsed < 0) {
-    validationErrors.push(`${rowNumber}행 ${field}는 0 이상의 정수여야 합니다`);
+  if (parsed === null || parsed < 0 || parsed > POSTGRES_INTEGER_MAX) {
+    validationErrors.push(
+      `${rowNumber}행 ${field}는 0 이상 2,147,483,647 이하의 정수여야 합니다`,
+    );
     return null;
   }
   return parsed;

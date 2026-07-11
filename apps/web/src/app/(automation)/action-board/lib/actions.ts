@@ -32,13 +32,6 @@ export function parseActionResult(taskKey: string, json: any): ActionResult[] {
     results.push({ label: '광고 중단 권장', value: `${stop.length}개 (ROAS < 1)`, highlight: stop.length > 0 });
     results.push({ label: '광고 축소 검토', value: `${reduce.length}개 (ROAS 1~3)` });
     results.push({ label: '광고 유지/확대', value: `${keep.length}개 (ROAS 3+)` });
-  } else if (taskKey === 'analyze-stock') {
-    const items = (json.inventories || json.data || []).filter((i: { currentStock: number; reorderPoint: number }) => i.currentStock <= i.reorderPoint && i.reorderPoint > 0).slice(0, 15);
-    results.push({ label: '발주 필요', value: `${items.length}개`, highlight: true });
-    for (const i of items) {
-      const days = i.avgDailySales > 0 ? Math.round(i.currentStock / i.avgDailySales) : 0;
-      results.push({ label: i.productName || i.product?.name || '상품', value: `재고 ${i.currentStock}개 (${days}일분)` });
-    }
   } else if (taskKey === 'analyze-ad-rules') {
     const s = json.summary || {};
     const recs = json.recommendations || [];

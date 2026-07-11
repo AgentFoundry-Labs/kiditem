@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
+import { formatDateTime } from '@/lib/utils';
 import ReturnScanHeader from './components/ReturnScanHeader';
 import BarcodeScanInput from './components/BarcodeScanInput';
 import ReturnProductInfo from './components/ReturnProductInfo';
@@ -14,7 +15,6 @@ interface ProductInfo {
   id: string;
   name: string;
   sku: string | null;
-  currentStock: number;
 }
 
 interface ScanLog {
@@ -67,13 +67,13 @@ export default function ReturnScanPage() {
     const logEntry: ScanLog = {
       barcode: barcode || returnInfo.sku || returnInfo.id,
       productName: returnInfo.name,
-      timestamp: new Date().toLocaleString('ko-KR'),
+      timestamp: formatDateTime(new Date()),
       success: true,
-      message: '회수 완료 (재고 반영 대기)',
+      message: '회수 기록 완료 (Sellpia 재고 별도 반영)',
     };
 
     setScanLogs((prev) => [logEntry, ...prev]);
-    setSuccessMsg(`"${returnInfo.name}" 회수 기록이 등록되었습니다.`);
+    setSuccessMsg(`"${returnInfo.name}" 회수 기록을 로컬에 추가했습니다. Sellpia 재고 반영은 별도 처리해야 합니다.`);
     setReturnInfo(null);
     setBarcode('');
     setSubmitted('');

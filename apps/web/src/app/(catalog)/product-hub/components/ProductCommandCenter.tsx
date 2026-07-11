@@ -2,9 +2,9 @@
 
 import {
   AlertTriangle,
+  BadgeDollarSign,
   Bell,
   ClipboardList,
-  PackageX,
   type LucideIcon,
 } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
@@ -17,8 +17,6 @@ export type ProductSegment =
   | 'core'
   | 'loss'
   | 'low-margin'
-  | 'zero-stock'
-  | 'stock-risk'
   | 'custom';
 
 interface ProductCommandCenterProps {
@@ -115,15 +113,11 @@ export function ProductCommandCenter({
   onSelectSegment,
 }: ProductCommandCenterProps) {
   const setPanelOpen = usePanelStore((state) => state.setOpen);
-  const zeroStock = pipelineCounts.zeroStock ?? 0;
-  const lowStock = pipelineCounts.lowStock ?? 0;
-  const stockRisk = pipelineCounts.stockRisk ?? zeroStock;
   const channelLinkedProducts = pipelineCounts.channelLinkedProducts ?? 0;
   const channelUnlinkedProducts = pipelineCounts.channelUnlinkedProducts ?? Math.max(pipelineCounts.total - channelLinkedProducts, 0);
   const profitRisk = pipelineCounts.minus + pipelineCounts.low;
   const urgentAlerts = productAlerts.filter((alert) => alert.severity === 'critical' || alert.severity === 'error').length;
   const warningAlerts = productAlerts.filter((alert) => alert.severity === 'warning').length;
-  const stockAlerts = productAlerts.filter((alert) => isStockAlert(alert)).length;
   const latestAlert = productAlerts[0];
 
   return (
@@ -161,43 +155,41 @@ export function ProductCommandCenter({
         <article className="min-h-[270px] min-w-0 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] shadow-sm">
           <div className="flex h-full flex-col divide-y divide-[var(--border-subtle)]">
             <QuickActionButton
-              icon={PackageX}
-              label="품절 상품"
-              count={zeroStock}
-              tone="blue"
-              onClick={() => onSelectSegment('zero-stock')}
-            />
-            <QuickActionButton
               icon={ClipboardList}
-              label="발주하기"
-              count={stockRisk}
-              tone="purple"
-              onClick={() => {
-                window.location.href = '/purchase-orders';
-              }}
+              label="핵심상품"
+              count={pipelineCounts.gradeA}
+              tone="blue"
+              onClick={() => onSelectSegment('core')}
             />
             <QuickActionButton
               icon={AlertTriangle}
-              label="재고위험"
-              count={stockRisk}
+              label="적자상품"
+              count={pipelineCounts.minus}
+              tone="purple"
+              onClick={() => onSelectSegment('loss')}
+            />
+            <QuickActionButton
+              icon={BadgeDollarSign}
+              label="저마진상품"
+              count={pipelineCounts.low}
               tone="orange"
-              onClick={() => onSelectSegment('stock-risk')}
+              onClick={() => onSelectSegment('low-margin')}
             />
           </div>
         </article>
 
         <article className="flex min-h-[270px] min-w-0 flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-5 pb-2.5 pt-5 shadow-sm">
           <div>
-            <p className="text-xs font-bold text-[var(--text-tertiary)]">재고관리</p>
+            <p className="text-xs font-bold text-[var(--text-tertiary)]">상품 상태</p>
             <p className="mt-2 text-3xl font-extrabold tabular-nums tracking-tight text-teal-700">
-                {formatNumber(stockRisk)}
+                {formatNumber(pipelineCounts.active)}
             </p>
           </div>
           <div className="mt-auto">
-            <BreakdownItem label="재고위험" value={stockRisk} tone="text-teal-700" />
-            <BreakdownItem label="품절" value={zeroStock} tone="text-rose-600" />
-            <BreakdownItem label="임박 재고" value={lowStock} tone="text-amber-600" />
-            <BreakdownItem label="발주 필요" value={stockRisk} tone="text-[var(--primary)]" />
+            <BreakdownItem label="판매중" value={pipelineCounts.active} tone="text-teal-700" />
+            <BreakdownItem label="판매중지" value={pipelineCounts.inactive} tone="text-amber-600" />
+            <BreakdownItem label="정리 대상" value={pipelineCounts.cleanup} tone="text-rose-600" />
+            <BreakdownItem label="상태미수집" value={pipelineCounts.unknown} tone="text-[var(--primary)]" />
           </div>
         </article>
 
@@ -234,7 +226,7 @@ export function ProductCommandCenter({
           <div className="mt-auto">
             <BreakdownItem label="긴급" value={urgentAlerts} tone={urgentAlerts > 0 ? 'text-rose-600' : 'text-[var(--text-primary)]'} />
             <BreakdownItem label="경고" value={warningAlerts} tone={warningAlerts > 0 ? 'text-amber-600' : 'text-[var(--text-primary)]'} />
-            <BreakdownItem label="재고/상품" value={stockAlerts} tone={stockAlerts > 0 ? 'text-teal-700' : 'text-[var(--text-primary)]'} />
+            <BreakdownItem label="상품 관련" value={productAlerts.length} tone={productAlerts.length > 0 ? 'text-teal-700' : 'text-[var(--text-primary)]'} />
             <button
               type="button"
               onClick={() => setPanelOpen(true)}
@@ -251,18 +243,5 @@ export function ProductCommandCenter({
         </article>
       </div>
     </section>
-  );
-}
-
-function isStockAlert(alert: AlertItem): boolean {
-  const text = `${alert.type} ${alert.title} ${alert.message ?? ''}`.toLowerCase();
-  return (
-    alert.targetType === 'master' ||
-    alert.targetType === 'product' ||
-    text.includes('stock') ||
-    text.includes('inventory') ||
-    text.includes('재고') ||
-    text.includes('상품') ||
-    text.includes('품절')
   );
 }

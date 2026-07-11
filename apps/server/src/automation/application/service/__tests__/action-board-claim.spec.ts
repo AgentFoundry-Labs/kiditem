@@ -19,7 +19,7 @@ function baseTask(overrides: Record<string, unknown> = {}) {
   return {
     id: 'task-1',
     organizationId: 'c-1',
-    taskKey: 'h-reorder',
+    taskKey: 'h-zero-stock',
     status: 'pending',
     priority: 'high',
     date: new Date('2026-04-16'),

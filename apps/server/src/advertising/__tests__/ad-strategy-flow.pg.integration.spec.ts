@@ -25,13 +25,43 @@ describe('AdStrategy flow (PG integration)', () => {
     abcGrade: 'A' | 'B' | 'C';
     adTier?: string | null;
     healthScore?: number | null;
-    availableStock?: number | null;
+    sellableStock?: number | null;
     costPrice?: number | null;
     sellPrice?: number | null;
     commissionRate?: number | null;
     shippingCost?: number | null;
     suffix: string;
   }) {
+    const channelAccount =
+      (await prisma.channelAccount.findFirst({
+        where: {
+          organizationId: params.organizationId,
+          channel: 'coupang',
+          externalAccountId: 'advertising-strategy-pg',
+        },
+      })) ??
+      (await prisma.channelAccount.create({
+        data: {
+          organizationId: params.organizationId,
+          channel: 'coupang',
+          name: 'Advertising Strategy PG Coupang',
+          externalAccountId: 'advertising-strategy-pg',
+          isPrimary: true,
+        },
+      }));
+    const importRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: params.organizationId,
+        sourceType: 'coupang_wing_catalog',
+        channelAccountId: channelAccount.id,
+        fileName: 'advertising-strategy-pg.xlsx',
+        fileHash: `advertising-strategy-pg-${params.suffix}`,
+        status: 'completed',
+        rowCount: 1,
+        importedAt: new Date(),
+      },
+    });
+    const sellableStock = params.sellableStock ?? 100;
     const master = await prisma.masterProduct.create({
       data: {
         organizationId: params.organizationId,
@@ -49,7 +79,6 @@ describe('AdStrategy flow (PG integration)', () => {
         masterId: master.id,
         sku: `SKU-${params.suffix}`,
         optionName: `Option ${params.suffix}`,
-        availableStock: params.availableStock ?? 100,
         costPrice: params.costPrice ?? 5000,
         sellPrice: params.sellPrice ?? 20000,
         commissionRate: params.commissionRate ?? 0.1,
@@ -60,18 +89,42 @@ describe('AdStrategy flow (PG integration)', () => {
       data: {
         organizationId: params.organizationId,
         masterId: master.id,
+        channelAccountId: channelAccount.id,
         channel: 'coupang',
         externalId: `EXT-${params.suffix}`,
         channelName: `Channel ${params.suffix}`,
+        lastImportRunId: importRun.id,
       },
     });
     const listingOption = await prisma.channelListingOption.create({
       data: {
         organizationId: params.organizationId,
         listingId: listing.id,
+        channelAccountId: channelAccount.id,
         optionId: option.id,
         externalOptionId: `VI-${params.suffix}`,
+        salePrice: params.sellPrice ?? 20000,
+        mappingStatus: 'matched',
+        lastImportRunId: importRun.id,
         isActive: true,
+      },
+    });
+    const inventorySku = await prisma.inventorySku.create({
+      data: {
+        organizationId: params.organizationId,
+        sellpiaProductCode: `SP-${params.suffix}`,
+        name: `Sellpia ${params.suffix}`,
+        currentStock: sellableStock,
+        purchasePrice: params.costPrice ?? 5000,
+      },
+    });
+    await prisma.channelSkuComponent.create({
+      data: {
+        organizationId: params.organizationId,
+        channelSkuId: listingOption.id,
+        inventorySkuId: inventorySku.id,
+        quantity: 1,
+        mappingSource: 'test',
       },
     });
     return { master, option, listing, listingOption };
@@ -206,7 +259,7 @@ describe('AdStrategy flow (PG integration)', () => {
       const c = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'C',
-        availableStock: 0,
+        sellableStock: 0,
         adTier: '2차',
         suffix: 'C-URGENT',
       });
@@ -321,7 +374,7 @@ describe('AdStrategy flow (PG integration)', () => {
       const c = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'C',
-        availableStock: 0,
+        sellableStock: 0,
         adTier: '3차',
         suffix: 'C-URGENT',
       });
@@ -467,7 +520,7 @@ describe('AdStrategy flow (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'C',
         healthScore: 10,
-        availableStock: 0,
+        sellableStock: 0,
         costPrice: 10000,
         sellPrice: 12000,
         commissionRate: 0.1,
@@ -812,7 +865,6 @@ describe('AdStrategy flow (PG integration)', () => {
           masterId: a.master.id,
           sku: 'SKU-C4-MULTI-EARLY',
           optionName: 'Option C4-MULTI EARLY',
-          availableStock: 100,
           costPrice: 5000,
           sellPrice: 20000,
           commissionRate: 0.1,
@@ -823,10 +875,32 @@ describe('AdStrategy flow (PG integration)', () => {
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           listingId: a.listing.id,
+          channelAccountId: a.listing.channelAccountId,
           optionId: earlierOption.id,
           externalOptionId: 'VI-C4-MULTI-EARLY',
+          salePrice: 20000,
+          mappingStatus: 'matched',
+          lastImportRunId: a.listing.lastImportRunId,
           isActive: true,
           createdAt: new Date('2026-04-01T00:00:00.000Z'),
+        },
+      });
+      const earlierInventorySku = await prisma.inventorySku.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sellpiaProductCode: 'SP-C4-MULTI-EARLY',
+          name: 'Sellpia C4 MULTI EARLY',
+          currentStock: 100,
+          purchasePrice: 5000,
+        },
+      });
+      await prisma.channelSkuComponent.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelSkuId: earlierListingOption.id,
+          inventorySkuId: earlierInventorySku.id,
+          quantity: 1,
+          mappingSource: 'test',
         },
       });
       // H3 — bake ad metrics into the 2026-04-14 listing-daily so it remains

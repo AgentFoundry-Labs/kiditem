@@ -9,7 +9,8 @@ const select = {
   name: true,
   optionName: true,
   barcode: true,
-  reportedStock: true,
+  currentStock: true,
+  purchasePrice: true,
 };
 
 describe('InventorySkuReadRepositoryAdapter', () => {
@@ -109,7 +110,15 @@ function row(
   optionName: string | null,
   barcode: string | null,
 ) {
-  return { id, sellpiaProductCode, name, optionName, barcode, reportedStock: 0 };
+  return {
+    id,
+    sellpiaProductCode,
+    name,
+    optionName,
+    barcode,
+    currentStock: 0,
+    purchasePrice: 1_500,
+  };
 }
 
 function prismaWith(findMany: ReturnType<typeof vi.fn>): PrismaService {

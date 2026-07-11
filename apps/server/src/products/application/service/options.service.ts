@@ -1,6 +1,5 @@
 // apps/server/src/products/application/service/options.service.ts
 import { Inject, Injectable } from '@nestjs/common';
-import { BundleStockService } from './bundle-stock.service';
 import { CreateOptionDto } from '../../dto/create-option.dto';
 import { UpdateOptionDto } from '../../dto/update-option.dto';
 import { ListOptionsQuery } from '../../dto/list-options.query';
@@ -31,15 +30,9 @@ import {
  *     tenant-scoped `findFirst` reread → `productOption.create`. The race
  *     guard + TOCTOU + counter increment all live in
  *     `incrementMasterOptionCounter` so they cannot drift apart.
- *   - `availableStock` is materialized only by `BundleStockService.recompute`.
- *     Update payloads strip `availableStock` via the system-
- *     fields rule; create writes `availableStock: null` unconditionally.
  *   - `update` always routes through `productOption.updateMany` so a bare-id
  *     write never touches `product_options`. Bundle-flip relation guards run
  *     in the same transaction as the patch.
- *   - `softDelete` triggers `BundleStockService.recompute` for every bundle
- *     that references the deleted option as a component, in the same
- *     transaction as the soft-delete write.
  *   - `findBySku` and `findByBarcode` use tenant-scoped `findFirst`; cross-
  *     tenant rows never enter the SQL path.
  *
@@ -47,7 +40,7 @@ import {
  * repository transaction so Plan B2 sourcing/supplier-sync flows can wrap
  * CRUD + adjacent writes in one transaction. Caller must pass
  * `{ timeout: >= 15000 }` on the outer transaction so cold-cache writes and
- * recompute fan-out have headroom.
+ * row-lock work have headroom.
  */
 @Injectable()
 export class OptionsService {
@@ -56,7 +49,6 @@ export class OptionsService {
     private readonly options: ProductOptionRepositoryPort,
     @Inject(PRODUCTS_TRANSACTION_PORT)
     private readonly transactions: ProductsTransactionPort,
-    private readonly bundleStock: BundleStockService,
   ) {}
 
   async create(
@@ -129,10 +121,6 @@ export class OptionsService {
   ): Promise<void> {
     const exec = async (tx: ProductsRepositoryTransaction) => {
       await this.options.softDeleteOptionRow(tx, organizationId, id);
-      const bundleIds = await this.options.findBundleIdsUsingComponent(tx, organizationId, id);
-      for (const bundleId of bundleIds) {
-        await this.bundleStock.recompute(organizationId, bundleId, tx);
-      }
     };
     await (outerTx
       ? exec(outerTx)

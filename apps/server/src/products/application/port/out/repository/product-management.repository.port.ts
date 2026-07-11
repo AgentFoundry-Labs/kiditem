@@ -16,28 +16,6 @@ export interface ManagementCandidateRow {
   createdAt: Date;
 }
 
-export interface InventoryOptionRow {
-  id: string;
-  masterId: string;
-  availableStock: number | null;
-  inventory: {
-    id: string;
-    currentStock: number;
-    reservedStock: number;
-    safetyStock: number;
-    reorderPoint: number;
-    reorderQuantity: number;
-    leadTimeDays: number | null;
-    dailySalesAvg: { toString(): string } | number | null;
-  } | null;
-}
-
-export interface StockOptionRow {
-  masterId: string;
-  availableStock: number | null;
-  inventory: { currentStock: number } | null;
-}
-
 export interface StatusListingRow {
   masterId: string;
   status: string | null;
@@ -117,8 +95,6 @@ export interface ProductManagementRepositoryPort {
   findPipelineMasterIds(input: ProductManagementMasterWhereInput): Promise<string[]>;
   findAllMasterIds(organizationId: string): Promise<string[]>;
   findChannelLinkedMasterIds(organizationId: string, masterIds: string[]): Promise<string[]>;
-  findStockOptionRows(organizationId: string, masterIds?: string[]): Promise<StockOptionRow[]>;
-  findInventoryOptionRows(organizationId: string, masterIds: string[]): Promise<InventoryOptionRow[]>;
   findStatusListingRows(organizationId: string, masterIds?: string[]): Promise<StatusListingRow[]>;
   findManagementOptionRows(organizationId: string, masterIds: string[]): Promise<ManagementOptionRow[]>;
   findManagementListingRows(organizationId: string, masterIds: string[]): Promise<ManagementListingRow[]>;

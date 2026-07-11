@@ -29,9 +29,9 @@ import {
   type ChannelSkuMappingCounts,
   type ChannelSkuMappingListQuery,
   type ChannelSkuMappingRepositoryPort,
-  type ChannelSkuMappingRow,
   type UnmappedChannelSkuEvidenceRow,
 } from '../port/out/repository/channel-sku-mapping.repository.port';
+import { hydrateChannelSkuAvailabilityRows } from './channel-sku-availability.service';
 
 export type ChannelSkuCandidateQuery = { search?: string; limit?: number };
 
@@ -57,7 +57,11 @@ export class ChannelSkuMappingService {
     };
     const result = await this.repository.list(organizationId, normalizedQuery);
     return {
-      items: await this.hydrateRows(organizationId, result.rows),
+      items: await hydrateChannelSkuAvailabilityRows(
+        organizationId,
+        result.rows,
+        this.inventory,
+      ),
       total: result.total,
       page: normalizedQuery.page,
       limit: normalizedQuery.limit,
@@ -87,7 +91,7 @@ export class ChannelSkuMappingService {
         name: candidate.name,
         optionName: candidate.optionName,
         barcode: candidate.barcode,
-        reportedStock: candidate.reportedStock,
+        currentStock: candidate.currentStock,
         reason: candidate.reason,
         rank: candidate.rank,
       })),
@@ -181,7 +185,11 @@ export class ChannelSkuMappingService {
     if (!updated) {
       throw new InternalServerErrorException('Updated ChannelSku mapping could not be reloaded');
     }
-    return (await this.hydrateRows(organizationId, [updated]))[0]!;
+    return (await hydrateChannelSkuAvailabilityRows(
+      organizationId,
+      [updated],
+      this.inventory,
+    ))[0]!;
   }
 
   private async requireEvidence(
@@ -233,46 +241,6 @@ export class ChannelSkuMappingService {
     };
   }
 
-  private async hydrateRows(
-    organizationId: string,
-    rows: ChannelSkuMappingRow[],
-  ): Promise<ChannelSkuMappingListItem[]> {
-    const ids = [...new Set(rows.flatMap((row) =>
-      row.componentRefs.map(({ inventorySkuId }) => inventorySkuId)))];
-    const inventoryRows = ids.length
-      ? await this.inventory.findByIds(organizationId, ids)
-      : [];
-    const inventoryById = new Map(inventoryRows.map((row) => [row.id, row]));
-    if (ids.some((id) => !inventoryById.has(id))) {
-      throw new InternalServerErrorException('ChannelSku component references a missing InventorySku');
-    }
-    return rows.map((row) => ({
-      channelAccount: row.channelAccount,
-      product: row.product,
-      sku: {
-        ...row.sku,
-        mappingStatus: row.componentRefs.length > 0
-          ? 'matched'
-          : row.sku.mappingStatus === 'needs_review'
-            ? 'needs_review'
-            : 'unmatched',
-        updatedAt: row.sku.updatedAt.toISOString(),
-      },
-      components: row.componentRefs.map((component) => {
-        const inventorySku = inventoryById.get(component.inventorySkuId)!;
-        return {
-          inventorySkuId: inventorySku.id,
-          sellpiaProductCode: inventorySku.sellpiaProductCode,
-          name: inventorySku.name,
-          optionName: inventorySku.optionName,
-          barcode: inventorySku.barcode,
-          reportedStock: inventorySku.reportedStock,
-          quantity: component.quantity,
-          mappingSource: component.mappingSource,
-        };
-      }),
-    }));
-  }
 }
 
 function exactCodeEvidence(evidence: ChannelSkuEvidence): Array<string | null> {

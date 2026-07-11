@@ -105,7 +105,7 @@ export default function AddProductModal({ onClose, onSaved }: AddProductModalPro
             </select>
           </div>
           <div className="text-[11px] text-slate-400 bg-slate-50 rounded-lg p-2">
-            옵션·가격·재고는 등록 후 상세 페이지에서 추가할 수 있습니다.
+            옵션과 가격은 등록 후 상세 페이지에서 추가할 수 있습니다.
           </div>
           <div className="flex justify-end gap-2 pt-3">
             <button type="button" onClick={onClose} className="px-4 py-2 text-slate-600 border rounded-lg text-sm hover:bg-slate-50">취소</button>

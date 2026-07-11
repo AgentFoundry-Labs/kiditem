@@ -11,7 +11,6 @@ interface Props {
   group: Product[];
   gradeMap: GradeMap;
   gradeChangesByProductId?: Map<string, ProductGradeChange>;
-  periodDays?: number;
   isExpanded: boolean;
   onToggle: () => void;
 }
@@ -23,7 +22,7 @@ function trafficSalesQty(p: Product): number {
   return p.t14?.salesQty ?? p.traffic?.salesQty ?? 0;
 }
 
-export function ProductGroupRow({ group, gradeMap, gradeChangesByProductId, periodDays = 14, isExpanded, onToggle }: Props) {
+export function ProductGroupRow({ group, gradeMap, gradeChangesByProductId, isExpanded, onToggle }: Props) {
   const groupName = group[0].name;
   const groupRevenue = group.reduce((s, p) => s + trafficRevenue(p), 0);
   const groupQty = group.reduce((s, p) => s + trafficSalesQty(p), 0);
@@ -74,7 +73,6 @@ export function ProductGroupRow({ group, gradeMap, gradeChangesByProductId, peri
               product={p}
               gradeMap={gradeMap}
               gradeChange={gradeChangesByProductId?.get(p.id)}
-              periodDays={periodDays}
               isChild
             />
           ))}

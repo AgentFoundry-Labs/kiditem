@@ -1,187 +1,119 @@
 'use client';
 
 import { useState } from 'react';
-import { toast } from 'sonner';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
-import { z } from 'zod';
-import { ChannelDashboardSummarySchema } from '@kiditem/shared/channel-dashboard';
-import { isApiError } from '@/lib/api-error';
-import { queryKeys } from '@/lib/query-keys';
-import { apiClient } from '@/lib/api-client';
+import { toast } from 'sonner';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { InventoryToolbar } from './components/InventoryToolbar';
-import { InventorySummaryCards } from './components/InventorySummaryCards';
+import { isApiError } from '@/lib/api-error';
 import { InventoryFilterTabs } from './components/InventoryFilterTabs';
+import { InventorySummaryCards } from './components/InventorySummaryCards';
 import { InventoryTable } from './components/InventoryTable';
-import { StockOperationDialog } from './components/StockOperationDialog';
-import { printBarcodeWindow } from './lib/barcode-print';
+import { InventoryToolbar } from './components/InventoryToolbar';
 import { useInventoryList } from './hooks/useInventory';
+import { printBarcodeWindow } from './lib/barcode-print';
 import { fetchAllInventoryForExport, toInventoryExportRows } from './lib/inventory-export';
-import type { StockOperationMode } from './components/StockOperationDialog';
-import type { InventoryFilterKey } from '../_shared/inventory-api';
-import type { InventoryListItem, InventorySummary } from '@kiditem/shared/inventory';
+import type { InventorySkuStockStatus } from '@kiditem/shared/inventory';
 
-const DEFAULT_SUMMARY: InventorySummary = { total: 0, healthy: 0, low: 0, out: 0 };
+const PAGE_SIZE = 50;
 
-const SyncResponseSchema = z.object({ synced: z.number().int().optional() });
+const EMPTY_SUMMARY = {
+  totalSkus: 0,
+  inStockSkus: 0,
+  outOfStockSkus: 0,
+  totalUnits: 0,
+  pricedAssetValue: 0,
+  unpricedSkuCount: 0,
+};
 
 export default function InventoryPage() {
-  const queryClient = useQueryClient();
-  const [filter, setFilter] = useState<InventoryFilterKey>('all');
   const [page, setPage] = useState(1);
-  const [operationItem, setOperationItem] = useState<InventoryListItem | null>(null);
-  const [operationMode, setOperationMode] = useState<StockOperationMode | null>(null);
-  const PAGE_SIZE = 50;
+  const [stockStatus, setStockStatus] = useState<InventorySkuStockStatus>('all');
+  const [queryDraft, setQueryDraft] = useState('');
+  const [query, setQuery] = useState('');
+  const [exporting, setExporting] = useState(false);
 
-  const openOperation = (item: InventoryListItem, mode: StockOperationMode) => {
-    setOperationItem(item);
-    setOperationMode(mode);
-  };
-
-  const closeOperation = (open: boolean) => {
-    if (!open) {
-      setOperationItem(null);
-      setOperationMode(null);
-    }
-  };
-
-  const { data: inventoryData, isLoading: loading, isFetching, error: inventoryError } = useInventoryList({
+  const { data, isLoading, isFetching, error } = useInventoryList({
     page,
     limit: PAGE_SIZE,
-    status: filter === 'all' ? undefined : filter,
+    stockStatus,
+    query: query || undefined,
   });
-  const isRefreshing = isFetching && !loading;
-  const items = inventoryData?.items ?? [];
-  const total = inventoryData?.total ?? 0;
-  const summary = inventoryData?.summary ?? DEFAULT_SUMMARY;
-  const error = inventoryError
-    ? isApiError(inventoryError) ? inventoryError.detail : '재고 데이터를 불러오지 못했습니다.'
-    : null;
 
-  const { data: channelLastModifiedAt } = useQuery({
-    queryKey: queryKeys.coupangDashboard.kpis(),
-    queryFn: async () => {
-      try {
-        // Use the canonical `ChannelDashboardSummarySchema` (Plan B2c.dashboard R-07).
-        // Server only sends `lastModifiedAt`; the previous local schema also
-        // accepted a legacy `lastSyncedAt` field that the server never emits.
-        const raw = await apiClient.get<unknown>('/api/coupang-dashboard');
-        const data = ChannelDashboardSummarySchema.parse(raw);
-        const last = data.lastModifiedAt;
-        return last ? (typeof last === 'string' ? last : last.toISOString()) : null;
-      } catch {
-        return null;
-      }
-    },
-  });
+  const exportItems = async () => fetchAllInventoryForExport(
+    stockStatus,
+    query || undefined,
+  );
+
+  const handleBarcodePrint = async () => {
+    setExporting(true);
+    try {
+      const result = printBarcodeWindow(await exportItems());
+      if (result === 'empty') toast.warning('출력할 Sellpia SKU가 없습니다.');
+      if (result === 'popup-blocked') toast.error('팝업이 차단되어 바코드 창을 열 수 없습니다.');
+    } catch (cause) {
+      toast.error(isApiError(cause) ? cause.detail : '바코드 데이터를 불러오지 못했습니다.');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const handleExcel = async () => {
+    setExporting(true);
     try {
-      const status = filter === 'all' ? undefined : filter;
-      const data = await fetchAllInventoryForExport(status);
       const XLSX = await import('xlsx');
-      const ws = XLSX.utils.json_to_sheet(toInventoryExportRows(data));
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, '재고현황');
-      XLSX.writeFile(wb, `재고현황_${new Date().toISOString().slice(0, 10)}.xlsx`);
-    } catch (err) {
-      toast.error(isApiError(err) ? err.detail : '재고 엑셀 내보내기에 실패했습니다.');
+      const workbook = XLSX.utils.book_new();
+      const sheet = XLSX.utils.json_to_sheet(toInventoryExportRows(await exportItems()));
+      XLSX.utils.book_append_sheet(workbook, sheet, 'Sellpia 현재재고');
+      XLSX.writeFile(workbook, `Sellpia_현재재고_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch (cause) {
+      toast.error(isApiError(cause) ? cause.detail : '재고 엑셀 내보내기에 실패했습니다.');
+    } finally {
+      setExporting(false);
     }
   };
 
-  const handleStockCheck = async () => {
-    try {
-      const data = await apiClient.getParsed(
-        '/api/inventory?status=low&limit=1',
-        SyncResponseSchema.extend({ total: z.number() }),
-      );
-      toast.info(`재고 부족 상품: ${data.total}건 — 발주가 필요한 상품을 확인하세요.`);
-      if (data.total > 0) {
-        setFilter('low');
-        setPage(1);
-      }
-    } catch (err) {
-      toast.error(isApiError(err) ? err.detail : '재고 부족 체크에 실패했습니다.');
-    }
-  };
-
-  const handleReceiveStock = async () => {
-    toast.info('입고 처리는 재설계 중입니다. 상품 상세 페이지에서 옵션 선택 후 입고하세요.');
-  };
-
-  const handleBarcodePrint = () => {
-    const result = printBarcodeWindow(items);
-    if (result === 'empty') toast.warning('출력할 상품이 없습니다.');
-    if (result === 'popup-blocked') toast.error('팝업이 차단되어 바코드 출력 창을 열 수 없습니다.');
-  };
-
-  const coupangSync = useMutation({
-    mutationFn: async () => {
-      const raw = await apiClient.post<unknown>('/api/coupang-sync/products');
-      return SyncResponseSchema.parse(raw);
-    },
-    onSuccess: (data) => {
-      toast.success(`쿠팡 동기화 완료: ${data.synced ?? 0}건 동기화됨`);
-      queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.coupangDashboard.all });
-    },
-    onError: (err) => {
-      toast.error(isApiError(err) ? err.detail : '쿠팡 동기화에 실패했습니다. 설정을 확인하세요.');
-    },
-  });
-  const syncing = coupangSync.isPending;
-
-  const handleCoupangSync = () => {
-    if (syncing) return;
-    coupangSync.mutate();
-  };
-
-  if (loading) return <PageSkeleton variant="table" />;
+  if (isLoading) return <PageSkeleton variant="table" />;
 
   return (
-    <div className="space-y-6">
+    <section className="space-y-5">
       <InventoryToolbar
-        syncing={syncing}
-        channelLastModifiedAt={channelLastModifiedAt}
-        onReceiveStock={handleReceiveStock}
+        query={queryDraft}
+        latestImportAt={data?.latestImport?.importedAt ?? null}
+        busy={exporting}
+        onQueryChange={setQueryDraft}
+        onSearch={() => {
+          setQuery(queryDraft.trim());
+          setPage(1);
+        }}
         onBarcodePrint={handleBarcodePrint}
-        onStockCheck={handleStockCheck}
-        onCoupangSync={handleCoupangSync}
         onExcel={handleExcel}
       />
-      {error && <div className="text-center py-8 text-destructive">{error}</div>}
-      {isRefreshing && (
-        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm" aria-live="polite">
-          <RefreshCw size={14} className="animate-spin text-purple-600" />
-          재고 목록을 갱신 중입니다.
+      {error ? (
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          {isApiError(error) ? error.detail : 'Sellpia 재고를 불러오지 못했습니다.'}
         </div>
-      )}
-      <div className="space-y-6" aria-busy={isRefreshing}>
-      <InventorySummaryCards summary={summary} />
+      ) : null}
+      {isFetching ? (
+        <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]" aria-live="polite">
+          <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> 최신 스냅샷 조회 중
+        </div>
+      ) : null}
+      <InventorySummaryCards summary={data?.summary ?? EMPTY_SUMMARY} />
       <InventoryFilterTabs
-        filter={filter}
-        summary={summary}
-        onFilterChange={(key) => { setFilter(key); setPage(1); }}
+        filter={stockStatus}
+        summary={data?.summary ?? EMPTY_SUMMARY}
+        onFilterChange={(next) => {
+          setStockStatus(next);
+          setPage(1);
+        }}
       />
       <InventoryTable
-        items={items}
-        page={page}
-        pageSize={PAGE_SIZE}
-        total={total}
+        items={data?.items ?? []}
+        page={data?.page ?? page}
+        pageSize={data?.limit ?? PAGE_SIZE}
+        total={data?.total ?? 0}
         onPageChange={setPage}
-        onOpenOperation={openOperation}
       />
-      </div>
-      <div className="bg-blue-50 dark:bg-blue-950 rounded-xl p-4 border border-blue-200 dark:border-blue-800 text-sm text-blue-800 dark:text-blue-200">
-        다음 정기 재고 점검: <strong>2개월 주기</strong> | 적정재고 = 일평균판매량 x (리드타임 + 안전일수7일)
-      </div>
-      <StockOperationDialog
-        item={operationItem}
-        mode={operationMode}
-        open={operationItem !== null && operationMode !== null}
-        onOpenChange={closeOperation}
-      />
-    </div>
+    </section>
   );
 }

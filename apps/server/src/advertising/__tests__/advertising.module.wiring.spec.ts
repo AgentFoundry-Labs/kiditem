@@ -4,6 +4,7 @@ import { AdvertisingModule } from '../advertising.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { AgentOsModule } from '../../agent-os/agent-os.module';
 import { AutomationModule } from '../../automation/automation.module';
+import { ChannelsModule } from '../../channels/channels.module';
 
 import { AdvertisingActionsController } from '../adapter/in/http/advertising-actions.controller';
 import { AdvertisingCampaignsController } from '../adapter/in/http/advertising-campaigns.controller';
@@ -78,11 +79,11 @@ const ADS_CONTROLLERS = [
 // provider, a stray legacy controller, or an accidental route rename fails
 // at vitest time before reaching dev:server boot.
 describe('AdvertisingModule capability wiring', () => {
-  it('imports exactly Prisma, AgentOs, and Automation', () => {
+  it('imports ChannelsModule for the exported ChannelSku availability port', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, AdvertisingModule) ?? [];
-    expect(imports).toHaveLength(3);
+    expect(imports).toHaveLength(4);
     expect(new Set(imports)).toEqual(
-      new Set([PrismaModule, AgentOsModule, AutomationModule]),
+      new Set([PrismaModule, AgentOsModule, AutomationModule, ChannelsModule]),
     );
   });
 

@@ -1,17 +1,16 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# web/inventory - Stock, Warehouses, Fulfillment
+# web/inventory - Sellpia Snapshot, Warehouses, Fulfillment Records
 
-`app/(inventory)/` owns inventory list/detail operations, stock movements,
-warehouses, unshipped items, outbound views, inventory hub widgets, and
-Coupang shipment support. It consumes inventory/order read APIs and does not own
-order lifecycle decisions.
+`app/(inventory)/` owns the preserved `/inventory`, `/inventory-hub`, and
+`/stock-ops` views plus warehouses, unshipped/outbound views, and Coupang
+shipment support. The displayed stock is the latest completed Sellpia snapshot.
 
 ## Owned Surfaces
 
-- Inventory list, receive, issue, adjust, and asset reporting
-- Stock operation projections and movement summaries
-- Warehouse and stock audit views
+- Sellpia snapshot list, import history, freshness, and asset reporting
+- Channel availability, zero-stock, bottleneck, and mapping-attention views
+- Warehouse metadata and record-only transfer/picking/return views
 - Unshipped/outbound operational read views
 - Coupang shipment file helpers and browser print support
 
@@ -19,18 +18,20 @@ order lifecycle decisions.
 
 ```text
 React Query + inventory API helpers
-  -> /api/inventory/*
-  -> /api/stock-*
+  -> /api/inventory/sellpia-skus
+  -> /api/inventory/sellpia-sync/*
+  -> /api/channels/sku-availability
+  -> /api/stock-transfers
   -> /api/warehouses
   -> /api/unshipped
-  -> queryKeys.inventory and related stock keys
+  -> queryKeys.inventory and channel availability keys
 ```
 
 ## State Rules
 
 - Use `(inventory)/_shared/inventory-api.ts` for shared inventory API wrappers.
-- Inventory mutations invalidate `queryKeys.inventory.all` plus any affected
-  stock movement or order-status read keys.
+- A successful Sellpia import invalidates snapshot, import-history, asset, and
+  channel-availability query families.
 - Barcode printing may use browser print APIs only in the existing inventory
   print helper.
 - Keep projection helpers pure and covered by focused tests.
@@ -39,7 +40,11 @@ React Query + inventory API helpers
 
 - Do not mutate order status from inventory screens unless the backend exposes a
   dedicated inventory operation for it.
-- Do not duplicate stock availability math in UI components; put projections in
-  tested `lib/` helpers or backend read models.
+- Do not add receive, issue, adjust, reserve, restock, or manual current-stock
+  controls. `InventorySku.currentStock` changes only through the Sellpia import.
+- Do not compute channel capacity in UI code. Render the backend's nullable
+  `sellableStock`, component capacities, and bottleneck flags.
+- Transfer, picking, and return forms select an `InventorySku` and create or
+  update operational records only; completion does not imply a stock write.
 - Coupang shipment extension/file behavior stays inside `coupang-shipments/`
   unless another inventory route imports it.

@@ -12,7 +12,8 @@ detail, product options, and catalog-local product actions. It backs
 React Query + apiClient
   -> /api/products/*
   -> /api/products/options/*
-  -> queryKeys.products, productOptions
+  -> /api/channels/sku-availability
+  -> queryKeys.products, productOptions, channelSkuAvailability
 ```
 
 ## State Rules
@@ -22,6 +23,8 @@ React Query + apiClient
 - Put pure grading/export/page-model helpers in `lib/` and cover behavior with
   focused tests when rules change.
 - Product option mutations invalidate `queryKeys.productOptions.all`.
+- The organization-wide channel SKU availability summary is informational;
+  never infer or persist a MasterProduct-to-ChannelSku link from it.
 
 ## Boundary Rules
 

@@ -26,7 +26,6 @@ export type CatalogOptionRow = {
   shippingCost: number | null;
   otherCost: number | null;
   isBundle: boolean;
-  availableStock: number | null;
   isDeleted: boolean;
   deletedAt: Date | null;
   isTemporary: boolean;
@@ -34,7 +33,6 @@ export type CatalogOptionRow = {
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
-  inventory?: { currentStock: number } | null;
 };
 
 export type CatalogMasterRow = {
@@ -157,7 +155,29 @@ export function buildCatalogMasterSelect(organizationId: string) {
     options: {
       where: { organizationId, isDeleted: false, isActive: true },
       orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }],
-      include: { inventory: { select: { currentStock: true } } },
+      select: {
+        id: true,
+        masterId: true,
+        organizationId: true,
+        sku: true,
+        barcode: true,
+        legacyCode: true,
+        optionName: true,
+        sortOrder: true,
+        costPrice: true,
+        sellPrice: true,
+        commissionRate: true,
+        shippingCost: true,
+        otherCost: true,
+        isBundle: true,
+        isDeleted: true,
+        deletedAt: true,
+        isTemporary: true,
+        temporaryReason: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     },
   };
 }

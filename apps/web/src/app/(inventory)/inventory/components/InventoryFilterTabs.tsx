@@ -1,36 +1,43 @@
 'use client';
 
 import { cn, formatNumber } from '@/lib/utils';
-import type { InventorySummary } from '@kiditem/shared/inventory';
-import type { InventoryFilterKey } from '../../_shared/inventory-api';
+import type {
+  InventorySkuSnapshotSummary,
+  InventorySkuStockStatus,
+} from '@kiditem/shared/inventory';
 
 interface InventoryFilterTabsProps {
-  filter: InventoryFilterKey;
-  summary: InventorySummary;
-  onFilterChange: (key: InventoryFilterKey) => void;
+  filter: InventorySkuStockStatus;
+  summary: InventorySkuSnapshotSummary;
+  onFilterChange: (filter: InventorySkuStockStatus) => void;
 }
 
-export function InventoryFilterTabs({ filter, summary, onFilterChange }: InventoryFilterTabsProps) {
-  const tabs: { key: InventoryFilterKey; label: string; count: number }[] = [
-    { key: 'all', label: '전체', count: summary.total },
-    { key: 'low', label: '재고 부족', count: summary.low },
-    { key: 'out', label: '재고 없음', count: summary.out },
-  ];
+export function InventoryFilterTabs({
+  filter,
+  summary,
+  onFilterChange,
+}: InventoryFilterTabsProps) {
+  const filters = [
+    { key: 'all', label: '전체', count: summary.totalSkus },
+    { key: 'in_stock', label: '재고 있음', count: summary.inStockSkus },
+    { key: 'out_of_stock', label: '재고 0', count: summary.outOfStockSkus },
+  ] as const;
 
   return (
-    <div className="flex gap-2">
-      {tabs.map((f) => (
+    <div className="flex flex-wrap gap-2" aria-label="재고 필터">
+      {filters.map((item) => (
         <button
-          key={f.key}
-          onClick={() => onFilterChange(f.key)}
+          key={item.key}
+          type="button"
+          onClick={() => onFilterChange(item.key)}
           className={cn(
-            'px-4 py-2 rounded-lg text-sm font-medium',
-            filter === f.key
-              ? 'bg-purple-600 text-white'
-              : 'bg-card border border-border text-foreground hover:bg-muted',
+            'rounded-lg border px-4 py-2 text-sm font-medium',
+            filter === item.key
+              ? 'border-[var(--primary)] bg-[var(--primary)] text-white'
+              : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)]',
           )}
         >
-          {f.label} ({formatNumber(f.count)})
+          {item.label} ({formatNumber(item.count)})
         </button>
       ))}
     </div>

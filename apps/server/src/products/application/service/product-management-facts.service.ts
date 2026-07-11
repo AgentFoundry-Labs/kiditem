@@ -30,9 +30,7 @@ export class ProductManagementFactsService {
     masterIds: string[],
     period: number,
   ): Promise<ManagementFacts> {
-    const [stockByMaster, inventoryByMaster, statusByMaster, activeAds, optionByMaster, listingByMaster] = await Promise.all([
-      this.stockByMaster(organizationId, masterIds),
-      this.inventoryByMaster(organizationId, masterIds),
+    const [statusByMaster, activeAds, optionByMaster, listingByMaster] = await Promise.all([
       this.statusByMaster(organizationId, masterIds),
       this.currentAdvertisingState(organizationId, masterIds),
       this.optionByMaster(organizationId, masterIds),
@@ -55,8 +53,6 @@ export class ProductManagementFactsService {
     ]);
 
     return {
-      stockByMaster,
-      inventoryByMaster,
       statusByMaster,
       activeAdMasterIds: activeAds.masterIds,
       optionByMaster,
@@ -75,86 +71,6 @@ export class ProductManagementFactsService {
 
   async channelLinkedMasterIds(organizationId: string, masterIds: string[]): Promise<Set<string>> {
     return new Set(await this.management.findChannelLinkedMasterIds(organizationId, masterIds));
-  }
-
-  async stockByMaster(organizationId: string, masterIds?: string[]): Promise<Map<string, number>> {
-    const rows = await this.management.findStockOptionRows(organizationId, masterIds);
-    const map = new Map<string, number>();
-    for (const row of rows) {
-      map.set(row.masterId, (map.get(row.masterId) ?? 0) + (row.availableStock ?? row.inventory?.currentStock ?? 0));
-    }
-    return map;
-  }
-
-  emptyInventory(): ManagementFacts['inventoryByMaster'] extends Map<string, infer T> ? T : never {
-    return {
-      inventoryId: null,
-      optionId: null,
-      currentStock: 0,
-      reservedStock: 0,
-      availableStock: 0,
-      safetyStock: 0,
-      reorderPoint: 0,
-      reorderQuantity: 0,
-      leadTimeDays: null,
-      dailySalesAvg: 0,
-      optimalStock: 0,
-      recommendedOrderQty: 0,
-      daysUntilStockout: null,
-      stockStatus: 'out',
-      stockAction: 'sold_out_required',
-    };
-  }
-
-  async inventoryByMaster(
-    organizationId: string,
-    masterIds: string[],
-  ): Promise<ManagementFacts['inventoryByMaster']> {
-    const rows = await this.management.findInventoryOptionRows(organizationId, masterIds);
-
-    const map: ManagementFacts['inventoryByMaster'] = new Map();
-    for (const row of rows) {
-      const current = map.get(row.masterId) ?? this.emptyInventory();
-      const inventoryStock = row.inventory?.currentStock ?? 0;
-      const currentStock = current.currentStock + (row.availableStock ?? inventoryStock);
-      const reservedStock = current.reservedStock + (row.inventory?.reservedStock ?? 0);
-      const safetyStock = current.safetyStock + (row.inventory?.safetyStock ?? 0);
-      const reorderPoint = current.reorderPoint + (row.inventory?.reorderPoint ?? 0);
-      const reorderQuantity = current.reorderQuantity + (row.inventory?.reorderQuantity ?? 0);
-      const dailySalesAvg = current.dailySalesAvg + Number(row.inventory?.dailySalesAvg?.toString() ?? 0);
-      const leadTimeDays = row.inventory?.leadTimeDays ?? current.leadTimeDays;
-      const leadTimeDemand = Math.ceil(dailySalesAvg * (leadTimeDays ?? 0));
-      const optimalStock = Math.max(safetyStock, reorderPoint + reorderQuantity, leadTimeDemand + safetyStock);
-      const recommendedOrderQty = currentStock <= reorderPoint
-        ? Math.max(reorderQuantity, optimalStock - currentStock, 0)
-        : 0;
-      const daysUntilStockout = dailySalesAvg > 0 ? Math.floor(Math.max(currentStock - reservedStock, 0) / dailySalesAvg) : null;
-      const stockStatus = currentStock <= 0 ? 'out' : currentStock <= reorderPoint ? 'low' : 'healthy';
-      const stockAction = stockStatus === 'out'
-        ? 'sold_out_required'
-        : stockStatus === 'low'
-          ? 'reorder_required'
-          : 'monitor';
-
-      map.set(row.masterId, {
-        inventoryId: current.inventoryId ?? row.inventory?.id ?? null,
-        optionId: current.optionId ?? row.id,
-        currentStock,
-        reservedStock,
-        availableStock: Math.max(currentStock - reservedStock, 0),
-        safetyStock,
-        reorderPoint,
-        reorderQuantity,
-        leadTimeDays,
-        dailySalesAvg,
-        optimalStock,
-        recommendedOrderQty,
-        daysUntilStockout,
-        stockStatus,
-        stockAction,
-      });
-    }
-    return map;
   }
 
   async statusByMaster(

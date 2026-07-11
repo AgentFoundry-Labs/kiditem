@@ -13,7 +13,10 @@ export type ComponentDraftRow = {
   name: string;
   optionName: string | null;
   barcode: string | null;
-  reportedStock: number;
+  currentStock: number;
+  purchasePrice: number | null;
+  componentCapacity: number | null;
+  isBottleneck: boolean;
   quantityText: string;
 };
 
@@ -39,7 +42,10 @@ export function initializeComponentDraft(
     name: component.name,
     optionName: component.optionName,
     barcode: component.barcode,
-    reportedStock: component.reportedStock,
+    currentStock: component.currentStock,
+    purchasePrice: component.purchasePrice,
+    componentCapacity: component.componentCapacity,
+    isBottleneck: component.isBottleneck,
     quantityText: String(component.quantity),
   }));
 }
@@ -67,7 +73,10 @@ export function addCandidateToDraft(
         name: candidate.name,
         optionName: candidate.optionName,
         barcode: candidate.barcode,
-        reportedStock: candidate.reportedStock,
+        currentStock: candidate.currentStock,
+        purchasePrice: null,
+        componentCapacity: null,
+        isBottleneck: false,
         quantityText: '1',
       },
     ],

@@ -53,6 +53,13 @@ pre-schema ledger migrations
   -> post-schema ledger migrations
 ```
 
+Release `0.1.9` is intentionally not deployable to a persistent staging or
+production database. Its pre-schema migration accepts only
+`DATA_MIGRATION_TARGET=local` and stops the shared-environment workflow before
+Prisma can change schema. Do not bypass this gate with `--accept-data-loss` or
+by marking the ledger row complete. Replace it only with a reviewed,
+backward-compatible preservation migration and matching rollback plan.
+
 The identity preflight runs on every deployment immediately before schema push
 and writes no schema, row, workbook, or migration-ledger state. Its job-local
 marker is set only after exit `0`. Prisma remains schema truth: the workflow

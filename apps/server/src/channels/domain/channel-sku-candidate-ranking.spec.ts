@@ -177,6 +177,7 @@ function sku(
     name: `${sellpiaProductCode} name`,
     optionName: null,
     barcode,
-    reportedStock: 3,
+    currentStock: 3,
+    purchasePrice: null,
   };
 }

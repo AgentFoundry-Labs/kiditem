@@ -6,7 +6,7 @@ import { Loader2, Plus, Search, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { friendlyError } from '@/lib/api-error';
-import { cn, formatNumber } from '@/lib/utils';
+import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import {
   useChannelSkuCandidates,
   useReplaceChannelSkuComponents,
@@ -230,7 +230,7 @@ export function ChannelSkuComponentDialog({
                             {candidate.optionName ? ` · ${candidate.optionName}` : ''}
                           </p>
                           <p className="mt-1 text-xs text-[var(--text-tertiary,#64748b)]">
-                            보고 재고 {formatNumber(candidate.reportedStock)}
+                            현재 재고 {formatNumber(candidate.currentStock)}
                             {candidate.barcode ? ` · ${candidate.barcode}` : ''}
                           </p>
                         </div>
@@ -279,7 +279,16 @@ export function ChannelSkuComponentDialog({
                             {row.optionName ? ` · ${row.optionName}` : ''}
                           </p>
                           <p className="mt-1 text-xs text-[var(--text-tertiary,#64748b)]">
-                            보고 재고 {formatNumber(row.reportedStock)}
+                            현재 재고 {formatNumber(row.currentStock)}
+                            {' · '}
+                            {row.purchasePrice === null
+                              ? '매입가 없음'
+                              : `매입가 ${formatKRW(row.purchasePrice)}원`}
+                            {' · '}
+                            {row.componentCapacity === null
+                              ? '구성 가능 저장 후 계산'
+                              : `구성 가능 ${formatNumber(row.componentCapacity)}`}
+                            {row.isBottleneck ? ' · 병목' : ''}
                             {row.barcode ? ` · ${row.barcode}` : ''}
                           </p>
                         </div>

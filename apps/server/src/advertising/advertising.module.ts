@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AgentOsModule } from '../agent-os/agent-os.module';
 import { AutomationModule } from '../automation/automation.module';
+import { ChannelsModule } from '../channels/channels.module';
 
 import { AdvertisingActionsController } from './adapter/in/http/advertising-actions.controller';
 import { AdvertisingCampaignsController } from './adapter/in/http/advertising-campaigns.controller';
@@ -90,7 +91,7 @@ const REPOSITORY_PORT_BINDINGS = [
 ];
 
 @Module({
-  imports: [PrismaModule, AgentOsModule, AutomationModule],
+  imports: [PrismaModule, AgentOsModule, AutomationModule, ChannelsModule],
   controllers: [
     AdvertisingConfigController,
     AdvertisingOverviewController,

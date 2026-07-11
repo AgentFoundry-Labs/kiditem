@@ -10,7 +10,7 @@ import ProductMetrics from './components/ProductMetrics';
 import HealthDiagnosis from './components/HealthDiagnosis';
 import ActivityHistory from './components/ActivityHistory';
 import ProductSidebar from './components/ProductSidebar';
-import ProductInfoCards, { type InventoryData } from './components/ProductInfoCards';
+import ProductInfoCards from './components/ProductInfoCards';
 import { useProductActions } from './hooks/useProductActions';
 import { ProductCatalogDetailSchema } from '@kiditem/shared/product';
 
@@ -21,17 +21,6 @@ export default function ProductHubDetailPage() {
   const { data: product, isLoading: loading, error: productError } = useQuery({
     queryKey: queryKeys.products.catalog.detail(productId),
     queryFn: () => apiClient.getParsed(`/api/products/catalog/${productId}`, ProductCatalogDetailSchema),
-    enabled: !!productId,
-  });
-
-  const { data: inventory = null } = useQuery<InventoryData | null>({
-    queryKey: queryKeys.inventory.byMaster(productId),
-    queryFn: async () => {
-      const inv = await apiClient.get<InventoryData[] | InventoryData>(`/api/inventory?masterId=${productId}`).catch(() => null);
-      if (Array.isArray(inv) && inv.length > 0) return inv[0];
-      if (inv && !Array.isArray(inv)) return inv;
-      return null;
-    },
     enabled: !!productId,
   });
 
@@ -96,7 +85,7 @@ export default function ProductHubDetailPage() {
 
       <div className="flex gap-6">
         <div className="min-w-0 flex-1 space-y-6">
-          <ProductInfoCards product={product} inventory={inventory} />
+          <ProductInfoCards product={product} />
           <HealthDiagnosis product={product} violations={violations} />
           <ActivityHistory activities={activities} onAction={handleAction} />
         </div>

@@ -14,7 +14,8 @@ export interface ActionTaskSeedMetrics {
   minusProducts: number;
   lowProfitProducts: number;
   highAdProducts: number;
-  needReorder: number;
+  outOfStockSkus: number;
+  mappingAttentionSkus: number;
   adRate: number;
   lowCtrProducts: number;
   lowReviewProducts: number;
@@ -45,12 +46,20 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
       where: '쿠팡 윙', priority: 'high', role: 'finance', href: '/product-hub?tab=cleanup',
     });
   }
-  if (metrics.needReorder > 0) {
+  if (metrics.outOfStockSkus > 0) {
     seeds.push({
-      taskKey: 'h-reorder', type: 'human',
-      label: `${metrics.needReorder}개 상품 — 매입처에 발주`,
-      detail: '안전재고 이하 상품을 매입처에 발주서 전송',
-      where: '매입처/1688', priority: 'high', role: 'inventory', href: '/purchase-orders',
+      taskKey: 'h-zero-stock', type: 'human',
+      label: `셀피아 재고 0개 SKU ${metrics.outOfStockSkus}건 — 현황 확인`,
+      detail: '셀피아 최신 재고 스냅샷에서 수량이 0인 SKU 확인',
+      where: '재고 운영', priority: 'high', role: 'inventory', href: '/stock-ops?tab=sellpia-zero',
+    });
+  }
+  if (metrics.mappingAttentionSkus > 0) {
+    seeds.push({
+      taskKey: 'h-mapping-attention', type: 'human',
+      label: `채널 SKU 매칭 확인 ${metrics.mappingAttentionSkus}건`,
+      detail: '셀피아 재고 구성품이 연결되지 않은 채널 SKU 확인',
+      where: '상품 매칭', priority: 'high', role: 'inventory', href: '/product-hub/matching',
     });
   }
   if (metrics.adRate > 12) {
@@ -129,15 +138,6 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
       detail: 'ROAS/CTR 분석 → 중단/축소/유지 판단',
       priority: 'high', role: 'ad',
       apiCall: { url: '/api/products?sortBy=revenue&sortDir=desc&period=14', method: 'GET' },
-    });
-  }
-  if (metrics.needReorder > 0) {
-    seeds.push({
-      taskKey: 'analyze-stock', type: 'ai',
-      label: `재고 부족 ${metrics.needReorder}개 분석`,
-      detail: '판매속도 대비 재고일수 계산 → 발주 추천량',
-      priority: 'high', role: 'inventory',
-      apiCall: { url: '/api/inventory', method: 'GET' },
     });
   }
   if (metrics.lowCtrProducts > 0) {

@@ -57,7 +57,6 @@ export async function incrementMasterOptionCounter(
  *   - `organizationId` from `@CurrentOrganization()` (never DTO).
  *   - `masterId` from the validated DTO that was used to increment the
  *     counter (never re-derived from the create payload).
- *   - `availableStock: null` — BundleStockService is the sole writer.
  *   - `sku` from `buildOptionSku(...)` over the post-increment counter.
  *
  * `data` is the DTO already passed through `stripProductOptionSystemFields`.
@@ -76,7 +75,6 @@ export async function createOptionWithSku(
         organizationId,
         masterId,
         sku,
-        availableStock: null,
       } as Prisma.ProductOptionUncheckedCreateInput,
     });
   } catch (e) { mapPrismaError(e, 'option create'); }
@@ -195,23 +193,4 @@ export async function restoreOptionRow(
     });
     if (count === 0) throw new NotFoundException('option not found or not deleted');
   } catch (e) { mapPrismaError(e, 'option restore'); }
-}
-
-/**
- * Lookup every active bundle that references `componentOptionId` so the
- * caller can fan-out `BundleStockService.recompute` for each of them after
- * the component is soft-deleted. The fan-out itself stays in the service
- * because it composes with `BundleStockService` — this helper only owns the
- * scoped read.
- */
-export async function findBundleIdsUsingComponent(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  componentOptionId: string,
-): Promise<string[]> {
-  const affected = await tx.bundleComponent.findMany({
-    where: { organizationId, componentOptionId },
-    select: { bundleOptionId: true },
-  });
-  return affected.map((r) => r.bundleOptionId);
 }

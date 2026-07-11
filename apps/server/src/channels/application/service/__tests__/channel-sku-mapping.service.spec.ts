@@ -46,10 +46,14 @@ describe('ChannelSkuMappingService', () => {
       name: 'Sellpia item',
       optionName: 'Blue',
       barcode: '8801234567890',
-      reportedStock: 7,
+      currentStock: 7,
+      purchasePrice: 1_000,
       quantity: 2,
       mappingSource: 'manual',
+      componentCapacity: 3,
+      isBottleneck: true,
     });
+    expect(result.items[0]?.sku.sellableStock).toBe(3);
     expect(result.items[0]?.sku.updatedAt).toBe('2026-07-11T00:00:00.000Z');
   });
 
@@ -64,6 +68,21 @@ describe('ChannelSkuMappingService', () => {
 
     await expect(service.list(organizationId, { page: 1, limit: 50 }))
       .rejects.toBeInstanceOf(InternalServerErrorException);
+  });
+
+  it('keeps unmatched mapping availability nullable', async () => {
+    const repository = makeRepository();
+    repository.list.mockResolvedValue({
+      rows: [mappingRow([], channelSkuId, 'unmatched')],
+      total: 1,
+      counts: { all: 1, unmatched: 1, needsReview: 0, matched: 0 },
+    });
+    const service = new ChannelSkuMappingService(repository, makeInventory());
+
+    const result = await service.list(organizationId, { page: 1, limit: 50 });
+
+    expect(result.items[0]?.sku.sellableStock).toBeNull();
+    expect(result.items[0]?.components).toEqual([]);
   });
 
   it('loads exact, normalized identifier, full-name suggestion, and manual pools then caps results', async () => {
@@ -259,6 +278,13 @@ function makeRepository() {
     list: vi.fn<ChannelSkuMappingRepositoryPort['list']>().mockResolvedValue({
       rows: [], total: 0, counts: { all: 0, unmatched: 0, needsReview: 0, matched: 0 },
     }),
+    listAvailabilityPage: vi.fn().mockResolvedValue({
+      rows: [],
+      total: 0,
+      summary: { total: 0, inStock: 0, outOfStock: 0, unmatched: 0, needsReview: 0 },
+    }),
+    findByChannelSkuIds: vi.fn().mockResolvedValue([]),
+    findByListingIds: vi.fn().mockResolvedValue([]),
     findOne: vi.fn<ChannelSkuMappingRepositoryPort['findOne']>().mockResolvedValue(null),
     findEvidence: vi
       .fn<ChannelSkuMappingRepositoryPort['findEvidence']>()
@@ -356,6 +382,7 @@ function inventorySkuBase(id: string) {
     name: 'Sellpia item',
     optionName: 'Blue',
     barcode: '8801234567890',
-    reportedStock: 7,
+    currentStock: 7,
+    purchasePrice: 1_000,
   };
 }

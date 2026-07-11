@@ -20,6 +20,7 @@ npm run test:scripts
 
 | path | owner / purpose | entrypoint |
 |---|---|---|
+| `scripts/bootstrap-authoritative-inventory-dev.ts` | verified-local DB bootstrap for the Sellpia-authoritative inventory baseline; creates only organization and Wing/Rocket account metadata | `npm run inventory:bootstrap:dev`, `docs/runbooks/sellpia-rocket-inventory-sync.md` |
 | `scripts/check-agents-hygiene.mjs` | AGENTS/CLAUDE instruction hygiene gate | `npm run check:agents-hygiene` |
 | `scripts/check-channel-sku-db-push-warning.mjs` | exact Prisma warning allowlist used only after the repeatable channel SKU identity preflight | staging and production deploy workflows |
 | `scripts/check-channel-sku-identity.ts` | read-only, repeatable pre-schema account/identity safety report for ChannelListing and ChannelListingOption | `npm run check:channel-sku-identity`, staging and production deploy workflows |

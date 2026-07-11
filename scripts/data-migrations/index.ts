@@ -17,6 +17,7 @@ import { recordRocketReadModelRelease } from './v0.1.6/001_record_rocket_read_mo
 import { recordSellpiaRocketInventorySyncRelease } from './v0.1.7/001_record_sellpia_rocket_inventory_sync_release';
 import { normalizeSellpiaRecommendedSnapshotItems } from './v0.1.7/002_normalize_sellpia_recommended_snapshot_items';
 import { backfillChannelSkuAccounts } from './v0.1.8/001_backfill_channel_sku_accounts';
+import { blockPersistentSellpiaInventoryCutover } from './v0.1.9/001_block_persistent_sellpia_inventory_cutover';
 import type { DataMigration } from './types';
 
 export {
@@ -48,6 +49,7 @@ export const dataMigrations: readonly DataMigration[] = [
   recordSellpiaRocketInventorySyncRelease,
   normalizeSellpiaRecommendedSnapshotItems,
   backfillChannelSkuAccounts,
+  blockPersistentSellpiaInventoryCutover,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(

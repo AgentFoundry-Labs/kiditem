@@ -5,7 +5,6 @@ import { buildPerListingMetrics } from '../../../../common/per-listing-profit';
 import type {
   ActiveAdTargetRow,
   GradeMasterRow,
-  InventoryOptionRow,
   ManagementCandidateRow,
   ManagementListingRow,
   ManagementOptionRow,
@@ -15,7 +14,6 @@ import type {
   ProductManagementRepositoryPort,
   ReviewSnapshotRow,
   StatusListingRow,
-  StockOptionRow,
   StoredGradeMasterRow,
 } from '../../../application/port/out/repository/product-management.repository.port';
 import type { MasterWithImageRows } from '../../../application/port/out/repository/master-product.repository.port';
@@ -85,45 +83,6 @@ export class ProductManagementRepositoryAdapter implements ProductManagementRepo
       select: { masterId: true },
     });
     return rows.filter(hasMasterId).map((row) => row.masterId);
-  }
-
-  findStockOptionRows(organizationId: string, masterIds?: string[]): Promise<StockOptionRow[]> {
-    return this.prisma.productOption.findMany({
-      where: {
-        organizationId,
-        isDeleted: false,
-        ...(masterIds ? { masterId: { in: masterIds } } : {}),
-      },
-      select: {
-        masterId: true,
-        availableStock: true,
-        inventory: { select: { currentStock: true } },
-      },
-    });
-  }
-
-  findInventoryOptionRows(organizationId: string, masterIds: string[]): Promise<InventoryOptionRow[]> {
-    return this.prisma.productOption.findMany({
-      where: { organizationId, masterId: { in: masterIds }, isDeleted: false },
-      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-      select: {
-        id: true,
-        masterId: true,
-        availableStock: true,
-        inventory: {
-          select: {
-            id: true,
-            currentStock: true,
-            reservedStock: true,
-            safetyStock: true,
-            reorderPoint: true,
-            reorderQuantity: true,
-            leadTimeDays: true,
-            dailySalesAvg: true,
-          },
-        },
-      },
-    }) as unknown as Promise<InventoryOptionRow[]>;
   }
 
   async findStatusListingRows(organizationId: string, masterIds?: string[]): Promise<StatusListingRow[]> {

@@ -34,7 +34,8 @@ dashboard/
 - `ChannelAccountDailyKpiSnapshot` for Wing adSummary/Coupang ads daily facts.
 - `MasterProduct`, `ChannelListing`, and `ChannelListingOption` for ranking and
   grade/listing context.
-- `Inventory`, `Alert`, `GradeHistory`, and `Thumbnail` for inventory tiles.
+- `InventorySku`, `ChannelListingOption`, `Alert`, `GradeHistory`, and
+  `Thumbnail` for Sellpia zero-stock, mapping-attention, and inventory tiles.
 
 ## Source-Of-Truth Rules
 

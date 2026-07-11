@@ -122,6 +122,11 @@ export function ChannelSkuMappingTable({
                           ? '가격 없음'
                           : `${formatKRW(item.sku.salePrice)}원`}
                       </p>
+                      <p className="mt-1 font-semibold text-[var(--text-primary,#0f172a)]">
+                        {item.sku.sellableStock === null
+                          ? '판매 가능 계산 전'
+                          : `판매 가능 ${formatNumber(item.sku.sellableStock)}`}
+                      </p>
                     </td>
                     <td className="max-w-80 px-4 py-4">
                       {item.components.length === 0 ? (
@@ -139,7 +144,13 @@ export function ChannelSkuMappingTable({
                                 <span className="font-mono">{formatNumber(component.quantity)}</span>
                               </p>
                               <p className="mt-0.5 text-[var(--text-tertiary,#64748b)]">
-                                보고 재고 {formatNumber(component.reportedStock)}
+                                현재 재고 {formatNumber(component.currentStock)}
+                                {' · '}
+                                {component.purchasePrice === null
+                                  ? '매입가 없음'
+                                  : `매입가 ${formatKRW(component.purchasePrice)}원`}
+                                {' · '}구성 가능 {formatNumber(component.componentCapacity)}
+                                {component.isBottleneck ? ' · 병목' : ''}
                               </p>
                             </li>
                           ))}

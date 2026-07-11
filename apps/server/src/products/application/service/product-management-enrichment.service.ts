@@ -28,7 +28,6 @@ export class ProductManagementEnrichmentService {
     return rows.map((row) => {
       const master = withImageRows(row) as MasterWithImageRows;
       const option = facts.optionByMaster.get(row.id);
-      const inventory = facts.inventoryByMaster.get(row.id) ?? this.facts.emptyInventory();
       const listing = facts.listingByMaster.get(row.id);
       const periodMetrics = facts.periodMetricsByMaster.get(row.id) ?? EMPTY_METRICS;
       const t14 = facts.t14MetricsByMaster.get(row.id) ?? EMPTY_METRICS;
@@ -71,21 +70,7 @@ export class ProductManagementEnrichmentService {
         adTier: row.adTier,
         isAdvertising: facts.activeAdMasterIds.has(row.id),
         isCostMissing: option?.isCostMissing ?? true,
-        inventoryId: inventory.inventoryId,
-        optionId: inventory.optionId ?? option?.id ?? null,
-        currentStock: inventory.currentStock,
-        reservedStock: inventory.reservedStock,
-        availableStock: inventory.availableStock,
-        safetyStock: inventory.safetyStock,
-        reorderPoint: inventory.reorderPoint,
-        reorderQuantity: inventory.reorderQuantity,
-        leadTimeDays: inventory.leadTimeDays,
-        dailySalesAvg: inventory.dailySalesAvg,
-        optimalStock: inventory.optimalStock,
-        recommendedOrderQty: inventory.recommendedOrderQty,
-        daysUntilStockout: inventory.daysUntilStockout,
-        stockStatus: inventory.stockStatus,
-        stockAction: inventory.stockAction,
+        optionId: option?.id ?? null,
         status: facts.statusByMaster.get(row.id) ?? 'unknown',
         abcGrade: grade.grade,
         gradeScore: grade.score,

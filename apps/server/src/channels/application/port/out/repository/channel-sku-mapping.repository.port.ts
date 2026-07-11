@@ -15,6 +15,23 @@ export type ChannelSkuMappingListQuery = {
   limit: number;
 };
 
+export type ChannelSkuAvailabilityRepositoryQuery = {
+  channelAccountId?: string;
+  status: 'all' | 'in_stock' | 'out_of_stock' | 'unmatched' | 'needs_review';
+  hasBottleneck?: boolean;
+  search?: string;
+  page: number;
+  limit: number;
+};
+
+export type ChannelSkuAvailabilityRepositorySummary = {
+  total: number;
+  inStock: number;
+  outOfStock: number;
+  unmatched: number;
+  needsReview: number;
+};
+
 export type ChannelSkuMappingRow = {
   channelAccount: { id: string; channel: string; name: string };
   product: {
@@ -74,6 +91,22 @@ export interface ChannelSkuMappingRepositoryPort {
     total: number;
     counts: ChannelSkuMappingCounts;
   }>;
+  listAvailabilityPage(
+    organizationId: string,
+    query: ChannelSkuAvailabilityRepositoryQuery,
+  ): Promise<{
+    rows: ChannelSkuMappingRow[];
+    total: number;
+    summary: ChannelSkuAvailabilityRepositorySummary;
+  }>;
+  findByChannelSkuIds(
+    organizationId: string,
+    ids: string[],
+  ): Promise<ChannelSkuMappingRow[]>;
+  findByListingIds(
+    organizationId: string,
+    ids: string[],
+  ): Promise<ChannelSkuMappingRow[]>;
   findOne(
     organizationId: string,
     channelSkuId: string,

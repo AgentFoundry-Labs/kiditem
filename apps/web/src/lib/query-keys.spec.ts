@@ -49,3 +49,25 @@ describe('channel SKU matching query keys', () => {
     ]);
   });
 });
+
+describe('Sellpia authoritative inventory query keys', () => {
+  it('keeps snapshots, assets, history, and availability in independently invalidatable families', () => {
+    expect(queryKeys.inventory.snapshots()).toEqual(['inventory', 'sellpia-skus']);
+    expect(queryKeys.inventory.snapshot({ page: '2', query: 'SP-1' })).toEqual([
+      'inventory',
+      'sellpia-skus',
+      { page: '2', query: 'SP-1' },
+    ]);
+    expect(queryKeys.inventory.assets()).toEqual(['inventory', 'sellpia-assets']);
+    expect(queryKeys.inventory.assetList({ page: '2', limit: '50' })).toEqual([
+      'inventory',
+      'sellpia-assets',
+      { page: '2', limit: '50' },
+    ]);
+    expect(queryKeys.inventory.importRuns()).toEqual(['inventory', 'sellpia-import-runs']);
+    expect(queryKeys.channelSkuAvailability.lists()).toEqual([
+      'channelSkuAvailability',
+      'list',
+    ]);
+  });
+});

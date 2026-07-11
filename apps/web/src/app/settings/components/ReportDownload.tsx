@@ -6,21 +6,25 @@ import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
+import { fetchAllSellpiaInventorySkus } from '@/app/(inventory)/_shared/inventory-api';
+import type { InventorySkuSnapshotItem } from '@kiditem/shared/inventory';
 
 const REPORTS = [
   { type: 'full', title: '통합 리포트', desc: '상품 + 손익 + 재고 + 광고 전체', icon: '📊', color: 'bg-purple-600 hover:bg-purple-700' },
   { type: 'products', title: '상품 리포트', desc: '전체 상품 목록, 등급, 손익 요약', icon: '📦', color: 'bg-slate-600 hover:bg-slate-700' },
   { type: 'profitloss', title: '손익 리포트', desc: '상품별 손익 상세 (매출~순이익)', icon: '💰', color: 'bg-green-600 hover:bg-green-700' },
-  { type: 'inventory', title: '재고 리포트', desc: '재고 현황, 발주 추천, 적정 재고', icon: '🏭', color: 'bg-orange-600 hover:bg-orange-700' },
+  { type: 'inventory', title: '재고 리포트', desc: '셀피아 재고 스냅샷과 재고 자산', icon: '🏭', color: 'bg-orange-600 hover:bg-orange-700' },
   { type: 'ads', title: '광고 리포트', desc: '광고 효율, ROAS, 비용 분석', icon: '📢', color: 'bg-purple-600 hover:bg-purple-700' },
 ] as const;
 
 const API_PATHS: Record<string, string> = {
   products: '/api/products',
   profitloss: '/api/profit-loss',
-  inventory: '/api/inventory',
   ads: '/api/ads',
 };
+
+const REPORT_DATA_KEYS = ['products', 'profitloss', 'inventory', 'ads'] as const;
+type ReportDataKey = (typeof REPORT_DATA_KEYS)[number];
 
 export default function ReportDownload() {
   const [generating, setGenerating] = useState<string | null>(null);
@@ -32,11 +36,15 @@ export default function ReportDownload() {
     try {
       const XLSX = await import('xlsx');
 
-      const needed = type === 'full' ? Object.keys(API_PATHS) : [type];
+      const needed: ReportDataKey[] = type === 'full'
+        ? [...REPORT_DATA_KEYS]
+        : [type as ReportDataKey];
       const responses = await Promise.all(
         needed.map(async (k) => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const data = await apiClient.get<any>(API_PATHS[k]);
+          const data = k === 'inventory'
+            ? await fetchAllSellpiaInventorySkus()
+            : await apiClient.get<any>(API_PATHS[k]);
           return { key: k, data };
         })
       );
@@ -55,7 +63,7 @@ export default function ReportDownload() {
           등급: p.abcGrade, 상품명: p.name, SKU: p.sku, 카테고리: p.category,
           회사: p.organization, 판매가: p.sellPrice, 매입가: p.costPrice,
           매출: p.revenue, 순이익: p.netProfit, '이익률(%)': p.profitRate,
-          '광고비율(%)': p.adRate, 재고: p.currentStock, 상태: p.status,
+          '광고비율(%)': p.adRate, 상태: p.status,
         })));
         XLSX.utils.book_append_sheet(wb, ws, '상품목록');
       }
@@ -73,13 +81,19 @@ export default function ReportDownload() {
       }
 
       if (dataMap.inventory) {
-        const arr = Array.isArray(dataMap.inventory) ? dataMap.inventory : [];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const ws = XLSX.utils.json_to_sheet(arr.map((i: any) => ({
-          상품명: i.productName, SKU: i.sku, 회사: i.organization,
-          현재고: i.currentStock, 적정재고: i.optimalStock, 발주점: i.reorderPoint,
-          일평균판매: i.avgDailySales, 남은일수: i.daysRemaining,
-          추천발주량: i.recommendedOrder, 상태: i.status,
+        const arr = Array.isArray(dataMap.inventory)
+          ? dataMap.inventory as InventorySkuSnapshotItem[]
+          : [];
+        const ws = XLSX.utils.json_to_sheet(arr.map((i) => ({
+          셀피아상품코드: i.sellpiaProductCode,
+          상품명: i.name,
+          옵션: i.optionName,
+          바코드: i.barcode,
+          현재고: i.currentStock,
+          매입가: i.purchasePrice,
+          판매가: i.salePrice,
+          재고자산가치: i.stockValue,
+          최근반영: i.lastImportedAt,
         })));
         XLSX.utils.book_append_sheet(wb, ws, '재고현황');
       }

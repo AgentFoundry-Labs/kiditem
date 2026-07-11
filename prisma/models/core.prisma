@@ -72,13 +72,7 @@ model Organization {
   // Warehouse & Inventory Ops
   warehouses        Warehouse[]
   stockTransfers    StockTransfer[]
-  stockTransactions StockTransaction[]
-  stockAudits       StockAudit[]
-  sellpiaStockSnapshots       SellpiaStockSnapshot[]
-  sellpiaStockSnapshotItems   SellpiaStockSnapshotItem[]
-  sellpiaNewProductCandidates SellpiaNewProductCandidate[]
   sellpiaReceiptUploadBatches SellpiaReceiptUploadBatch[]
-  rocketInventoryLedger       RocketInventoryLedger[]
 
   // Logistics
   shipments       Shipment[]
@@ -123,7 +117,6 @@ model Organization {
   channelListings       ChannelListing[]
   channelListingOptions ChannelListingOption[]
   bundleComponents      BundleComponent[]
-  inventory             Inventory[]
   inventorySkus         InventorySku[]
   channelSkuComponents  ChannelSkuComponent[]
 
@@ -299,6 +292,7 @@ model SourceImportRun {
 
   @@unique([organizationId, sourceType, channelAccountId, fileHash], map: "source_import_runs_org_source_account_hash_key", where: raw("channel_account_id IS NOT NULL"))
   @@unique([organizationId, sourceType, fileHash], map: "source_import_runs_org_source_hash_null_account_key", where: raw("channel_account_id IS NULL"))
+  @@unique([id, organizationId])
   @@index([organizationId, sourceType, status, createdAt])
   @@index([channelAccountId])
   @@map("source_import_runs")
@@ -454,7 +448,7 @@ model MasterProductImage {
 }
 
 /// @namespace Core
-/// @describe 물리 SKU. 바코드 1:1. 재고/매입/창고 단위. isBundle 이면 구성품 기반 계산.
+/// @describe KidItem 카탈로그의 판매 옵션과 가격 메타데이터. Sellpia 재고 잔액은 InventorySku 가 소유한다.
 model ProductOption {
   id             String @id @default(uuid()) @db.Uuid
   masterId       String @map("master_id") @db.Uuid
@@ -473,7 +467,6 @@ model ProductOption {
   otherCost      Int?     @default(0) @map("other_cost")
 
   isBundle       Boolean @default(false) @map("is_bundle")
-  availableStock Int?    @map("available_stock")
 
   isDeleted       Boolean   @default(false) @map("is_deleted")
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz
@@ -486,20 +479,11 @@ model ProductOption {
 
   master       MasterProduct @relation(fields: [masterId], references: [id], onDelete: Restrict)
   organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  inventory    Inventory?
-
   components  BundleComponent[] @relation("BundleOption")
   containedIn BundleComponent[] @relation("ComponentOption")
 
   channelListingOptions ChannelListingOption[]
 
-  stockTransactions  StockTransaction[]
-  stockTransfers     StockTransfer[]
-  pickingItems       PickingItem[]
-  returnTransfers    ReturnTransfer[]
-  sellpiaStockSnapshotItems   SellpiaStockSnapshotItem[]
-  sellpiaNewProductCandidates SellpiaNewProductCandidate[]
-  rocketInventoryLedger       RocketInventoryLedger[]
   purchaseOrderItems PurchaseOrderItem[]
   supplierProducts   SupplierProduct[]
   shipments          Shipment[]

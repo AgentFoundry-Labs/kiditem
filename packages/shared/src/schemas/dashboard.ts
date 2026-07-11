@@ -101,7 +101,8 @@ export const WarningsSchema = z.object({
   minusProducts: z.number(),
   lowProfitProducts: z.number(),
   highAdProducts: z.number(),
-  needReorder: z.number(),
+  outOfStockSkus: z.number(),
+  mappingAttentionSkus: z.number(),
   lowCtrProducts: z.number().optional(),
   lowReviewProducts: z.number().optional(),
 });

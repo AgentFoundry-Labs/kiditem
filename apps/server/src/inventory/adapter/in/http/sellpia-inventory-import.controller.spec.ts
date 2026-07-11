@@ -56,7 +56,7 @@ describe('SellpiaInventoryImportController', () => {
       rows: [expect.objectContaining({
         rowNumber: 2,
         sellpiaProductCode: 'SP-001',
-        reportedStock: 5,
+        currentStock: 5,
       })],
     });
     const passed = port.importInventory.mock.calls[0]?.[0];

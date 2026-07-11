@@ -25,6 +25,9 @@ import {
 import {
   backfillChannelSkuAccounts,
 } from '../data-migrations/v0.1.8/001_backfill_channel_sku_accounts';
+import {
+  blockPersistentSellpiaInventoryCutover,
+} from '../data-migrations/v0.1.9/001_block_persistent_sellpia_inventory_cutover';
 
 const repoRoot = join(__dirname, '..', '..');
 
@@ -50,6 +53,7 @@ describe('data migration registry', () => {
       'v0.1.7:001_record_sellpia_rocket_inventory_sync_release',
       'v0.1.7:002_normalize_sellpia_recommended_snapshot_items',
       'v0.1.8:001_backfill_channel_sku_accounts',
+      'v0.1.9:001_block_persistent_sellpia_inventory_cutover',
     ]);
   });
 
@@ -69,6 +73,7 @@ describe('data migration registry', () => {
   it('runs destructive table renames before Prisma db push and post-schema backfills after it', () => {
     expect(selectDataMigrationsForPhase(dataMigrations, 'pre-schema').map((m) => m.id)).toEqual([
       'v0.1.2:002_rename_registration_workspaces_to_content_workspaces',
+      'v0.1.9:001_block_persistent_sellpia_inventory_cutover',
     ]);
     expect(selectDataMigrationsForPhase(dataMigrations, 'post-schema').map((m) => m.id)).toContain(
       'v0.1.2:001_backfill_channel_listing_accounts',
@@ -79,6 +84,32 @@ describe('data migration registry', () => {
     expect(selectDataMigrationsForPhase(dataMigrations, 'post-schema').map((m) => m.id)).not.toContain(
       'v0.1.2:002_rename_registration_workspaces_to_content_workspaces',
     );
+  });
+});
+
+describe('Sellpia-authoritative inventory release boundary', () => {
+  it.each(['staging', 'production'])('blocks the local-reset-only cutover on %s', async (target) => {
+    await expect(blockPersistentSellpiaInventoryCutover.run(
+      {} as never,
+      { target: target as 'staging' | 'production' },
+    )).rejects.toThrow(
+      /local development databases only/,
+    );
+  });
+
+  it('records the contract without mutating a local development database', async () => {
+    await expect(blockPersistentSellpiaInventoryCutover.run(
+      {} as never,
+      { target: 'local' },
+    )).resolves.toEqual({
+      affectedRows: 0,
+      details: {
+        target: 'local',
+        deployable: false,
+        note: 'Rebuild from approved Sellpia and Coupang workbooks after a verified local reset.',
+      },
+    });
+
   });
 });
 

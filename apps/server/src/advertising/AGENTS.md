@@ -61,9 +61,12 @@ snapshot preservation.
 
 - Operation-alert lifecycle writes go through advertising's local
   `operation-alert.port`, bound to automation's `OPERATION_ALERT_PORT`.
+- Sellable-stock reads go through Channels' exported read-only
+  `CHANNEL_SKU_AVAILABILITY_PORT`; Advertising never computes a second stock
+  balance or reads ProductOption stock fields.
 - Advertising intentionally reads/writes channel daily fact models because the
   scrape ingest path owns raw/fact projection traceability.
-- Advertising must not inject channels services.
+- Advertising must not inject concrete Channels services.
 
 ## Boundary Rules
 

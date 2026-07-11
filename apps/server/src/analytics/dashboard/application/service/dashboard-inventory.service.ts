@@ -40,7 +40,8 @@ export class DashboardInventoryService {
         totalActiveProducts,
         channelLinkedProducts,
         perListingMetrics,
-        inventoryRows,
+        outOfStockSkus,
+        mappingAttentionSkus,
         gradeChangesRows,
         lowCtrProducts,
         aGradeReviewRows,
@@ -54,7 +55,8 @@ export class DashboardInventoryService {
           ctx.monthStart,
           ctx.monthEnd,
         ),
-        this.repository.findInventoryStockRows(organizationId),
+        this.repository.countOutOfStockInventorySkus(organizationId),
+        this.repository.countMappingAttentionChannelSkus(organizationId),
         this.repository.findGradeHistory(organizationId, sevenDaysAgo),
         this.repository.countLowCtrThumbnails(organizationId),
         this.repository.findAGradeReviewCounts(organizationId),
@@ -65,11 +67,6 @@ export class DashboardInventoryService {
         (acc, g) => ({ ...acc, [g.abcGrade ?? 'C']: g.count }),
         {},
       );
-
-      // needReorder — JS-side comparison, not DB filter (legacy)
-      const needReorder = inventoryRows.filter(
-        (inv) => inv.currentStock <= inv.reorderPoint,
-      ).length;
 
       // lowReviewProducts — A-grade products with < 10 reviews (legacy)
       const lowReviewProducts = aGradeReviewRows.filter(
@@ -96,7 +93,8 @@ export class DashboardInventoryService {
         minusProducts,
         lowProfitProducts,
         highAdProducts,
-        needReorder,
+        outOfStockSkus,
+        mappingAttentionSkus,
         lowCtrProducts,
         lowReviewProducts,
       } satisfies Warnings;

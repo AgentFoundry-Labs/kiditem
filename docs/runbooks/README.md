@@ -16,14 +16,12 @@ Runbooks are different from concept docs:
 
 Current runbooks:
 
-- [Channel/Sellpia SKU Matching](channel-sellpia-matching.md) — import the
-  authoritative Sellpia InventorySku snapshot and Coupang Wing catalog, confirm
-  multi-component ChannelSku recipes, recover idempotent uploads, and verify the
-  `0.1.8` acceptance counts.
-- [Rocket Legacy Inventory Compatibility](sellpia-rocket-inventory-sync.md) —
-  operate the current ProductOption/Inventory barcode-based Rocket PO preview,
-  reservation, and manual stock events; it is not a Sellpia import or
-  ChannelSku-matching workflow.
+- [Sellpia/Channel SKU Matching](channel-sellpia-matching.md) — import the
+  Sellpia-authoritative InventorySku snapshot and account-scoped Wing catalog,
+  confirm exact ChannelSku component recipes, and verify the `0.1.9` baseline.
+- [Sellpia Inventory And Rocket Read-Only Boundary](sellpia-rocket-inventory-sync.md)
+  — operate the preserved inventory views and local-only reset/bootstrap while
+  keeping Rocket PO monitoring read-only and delivery decisions deferred.
 - [Environment Variables](environment-variables.md) — inventory of env vars,
   injection paths, staging verification commands, and feature-specific
   requirements for API, web, Agent OS, and Python agents.

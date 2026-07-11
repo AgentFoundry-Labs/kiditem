@@ -94,4 +94,16 @@ describe('products architecture contract', () => {
       `final products repositories live under adapter/out/repository, not adapter/out/prisma:\n${legacyFiles.join('\n')}`,
     ).toEqual([]);
   });
+
+  it('product runtime does not read, derive, or materialize stock', () => {
+    const products = productsRel();
+    const hits = rg(
+      `--type ts -n 'availableStock|totalAvailableStock|currentStock|reservedStock|safetyStock|reorderPoint|reorderQuantity|recommendedOrderQty|optimalStock|daysUntilStockout|stockStatus|stockAction|BundleStockService|PRODUCT_BUNDLE_STOCK_PORT' ${products} --glob '!**/__tests__/**'`,
+    );
+
+    expect(
+      hits,
+      `Product catalog/management must not shadow Sellpia inventory or expose reorder claims:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
 });

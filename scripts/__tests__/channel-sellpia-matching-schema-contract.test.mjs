@@ -14,6 +14,14 @@ function extractModel(schema, modelName) {
   return match[0];
 }
 
+function assertModelAbsent(schema, modelName) {
+  assert.doesNotMatch(
+    schema,
+    new RegExp(`^model ${modelName} \\{`, 'm'),
+    `Expected legacy model ${modelName} to be absent`,
+  );
+}
+
 function assertFields(model, fieldNames) {
   for (const fieldName of fieldNames) {
     assert.match(model, new RegExp(`^\\s*${fieldName}\\s+`, 'm'), `Expected field ${fieldName}`);
@@ -39,12 +47,20 @@ function compact(schema) {
 }
 
 describe('channel Sellpia matching schema contract', () => {
-  it('keeps the legacy schema available during the expand phase', () => {
+  it('removes the legacy mutable stock schema after the development reset cutover', () => {
     extractModel(coreSchema, 'ProductOption');
-    extractModel(inventorySchema, 'Inventory');
     extractModel(coreSchema, 'BundleComponent');
     extractModel(channelsSchema, 'ChannelReconciliationRun');
     extractModel(channelsSchema, 'ChannelReconciliationItem');
+    assertModelAbsent(inventorySchema, 'Inventory');
+    assertModelAbsent(inventorySchema, 'StockTransaction');
+    assertModelAbsent(inventorySchema, 'RocketInventoryLedger');
+    assertModelAbsent(inventorySchema, 'SellpiaStockSnapshot');
+    assertModelAbsent(inventorySchema, 'SellpiaStockSnapshotItem');
+    assertModelAbsent(inventorySchema, 'SellpiaNewProductCandidate');
+
+    const option = extractModel(coreSchema, 'ProductOption');
+    assertNoFields(option, ['availableStock']);
   });
 
   it('defines InventorySku as Sellpia-owned physical inventory without legacy stock mutation or channel identity', () => {
@@ -52,13 +68,14 @@ describe('channel Sellpia matching schema contract', () => {
 
     assertFields(model, [
       'sellpiaProductCode',
-      'reportedStock',
+      'currentStock',
       'purchasePrice',
       'salePrice',
       'rawJson',
       'lastImportRunId',
     ]);
     assertNoFields(model, [
+      'reportedStock',
       'masterId',
       'reservedStock',
       'safetyStock',
@@ -75,6 +92,11 @@ describe('channel Sellpia matching schema contract', () => {
       'channelProductId',
       'channelSkuId',
     ]);
+    assert.match(
+      model,
+      /^\s*currentStock\s+Int\s+@default\(0\)\s+@map\("current_stock"\)/m,
+    );
+    assert.doesNotMatch(model, /reported_stock/);
   });
 
   it('defines fenced, account-aware source import idempotency', () => {
