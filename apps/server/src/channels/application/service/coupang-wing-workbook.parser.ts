@@ -68,10 +68,10 @@ const PARENT_FIELD_BY_HEADER: Record<ParentHeader, NormalizedParentField> = {
   승인상태: 'productStatus',
 };
 
-type ParentMetadata = Record<
+type ParentMetadata = Partial<Record<
   Exclude<NormalizedParentField, 'externalProductId'>,
   { value: string; rowNumber: number } | undefined
->;
+>>;
 
 export function parseCoupangWingWorkbook(
   buffer: Buffer,
