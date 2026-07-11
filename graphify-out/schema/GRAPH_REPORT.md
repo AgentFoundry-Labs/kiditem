@@ -1,4 +1,4 @@
-# Graph Report - schema  (2026-07-11)
+# Graph Report - schema  (2026-07-12)
 
 ## Corpus Check
 - 13 files · ~22,064 words
@@ -231,7 +231,7 @@ Nodes (29): ContentGeneration.sourceCandidateId, SourcingCandidate.category, Sou
 
 ### Community 16 - "AgentOS schema"
 Cohesion: 0.07
-Nodes (28): AgentApprovalRequest.actionSnapshot, AgentApprovalRequest.agentInstance, AgentApprovalRequest.agentInstanceId, AgentApprovalRequest.approver, AgentApprovalRequest.createdAt, AgentApprovalRequest.decidedAt, AgentApprovalRequest.decidedBy, AgentApprovalRequest.decisionReason (+20 more)
+Nodes (28): AgentApprovalRequest.actionSnapshot, AgentApprovalRequest.agentInstance, AgentApprovalRequest.agentInstanceId, AgentApprovalRequest.approver, AgentApprovalRequest.approverUserId, AgentApprovalRequest.createdAt, AgentApprovalRequest.decidedAt, AgentApprovalRequest.decidedBy (+20 more)
 
 ### Community 17 - "Channels schema"
 Cohesion: 0.07
@@ -307,7 +307,7 @@ Nodes (23): ActionTask.activityLog, ActionTask.apiCall, ActionTask.assigneeUser,
 
 ### Community 35 - "Core schema"
 Cohesion: 0.09
-Nodes (23): AgentApprovalRequest.approverUserId, AgentApprovalRequest.decidedByUserId, AgentRunRequest.requestedByUserId, ContentGeneration.triggeredByUserId, ProductPreparation.createdByUserId, SourcingCandidate.rejectedByUserId, SourcingCandidate.triggeredByUserId, ThumbnailGeneration.triggeredByUserId (+15 more)
+Nodes (23): AgentApprovalRequest.decidedByUserId, AgentApprovalRequest.requestedByUserId, AgentRunRequest.requestedByUserId, ContentGeneration.triggeredByUserId, ProductPreparation.createdByUserId, SourcingCandidate.rejectedByUserId, SourcingCandidate.triggeredByUserId, ThumbnailGeneration.triggeredByUserId (+15 more)
 
 ### Community 36 - "Core schema"
 Cohesion: 0.09

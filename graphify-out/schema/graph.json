@@ -3888,7 +3888,7 @@
       "field": "requestedByUserId",
       "field_type": "String?",
       "id": "field_agentapprovalrequest_requestedbyuserid",
-      "community": 16,
+      "community": 35,
       "norm_label": "agentapprovalrequest.requestedbyuserid"
     },
     {
@@ -3900,7 +3900,7 @@
       "field": "approverUserId",
       "field_type": "String?",
       "id": "field_agentapprovalrequest_approveruserid",
-      "community": 35,
+      "community": 16,
       "norm_label": "agentapprovalrequest.approveruserid"
     },
     {
@@ -60937,5 +60937,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "8dc3950718e969402be911ffd1b52f1c9025c67b"
+  "built_at_commit": "3933376e875958d78a1f11753231b87c4b743a1f"
 }
