@@ -1,5 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import { Injectable, NotFoundException } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   CreateSellpiaSnapshotInput,
@@ -7,6 +8,7 @@ import type {
   MarkSellpiaCandidateResolvedInput,
   SellpiaCandidateResolutionRow,
   SellpiaMatchedOptionRow,
+  SellpiaSnapshotItemCreate,
   SellpiaSnapshotItemApprovalRow,
   SellpiaSyncRepositoryPort,
 } from '../../../application/port/out/repository/sellpia-sync.repository.port';
@@ -18,8 +20,22 @@ import type {
   SellpiaReceiptUploadBatch,
   SellpiaSnapshotImportResponse,
   SellpiaSnapshotItemStatus,
+  SellpiaStockSnapshotItem,
   SellpiaWarningReason,
 } from '@kiditem/shared/inventory';
+
+const SELLPIA_SNAPSHOT_WRITE_BATCH_SIZE = 500;
+
+type PreparedSellpiaCandidate = {
+  create: Prisma.SellpiaNewProductCandidateCreateManyInput;
+  response: SellpiaNewProductCandidate;
+};
+
+type PreparedSellpiaSnapshotItem = {
+  create: Prisma.SellpiaStockSnapshotItemCreateManyInput;
+  response: SellpiaStockSnapshotItem;
+  candidate: PreparedSellpiaCandidate | null;
+};
 
 @Injectable()
 export class SellpiaSyncRepositoryAdapter implements SellpiaSyncRepositoryPort {
@@ -104,99 +120,65 @@ export class SellpiaSyncRepositoryAdapter implements SellpiaSyncRepositoryPort {
   async createSnapshotWithItems(
     input: CreateSellpiaSnapshotInput,
   ): Promise<SellpiaSnapshotImportResponse> {
-    return this.prisma.$transaction(async (tx) => {
-      const snapshot = await tx.sellpiaStockSnapshot.create({
+    // Precomputed IDs make every bulk write independent, so the array transaction
+    // stays atomic without the 5-second lifetime of an interactive transaction.
+    const snapshotId = randomUUID();
+    const preparedItems = input.items.map((item) =>
+      prepareSellpiaSnapshotItem(input.organizationId, snapshotId, item));
+    const preparedCandidates = preparedItems.flatMap((item) =>
+      item.candidate ? [item.candidate] : []);
+
+    const operations: Prisma.PrismaPromise<unknown>[] = [
+      this.prisma.sellpiaStockSnapshot.create({
         data: {
+          id: snapshotId,
           organizationId: input.organizationId,
           fileName: input.fileName,
           fileHash: input.fileHash,
           rowCount: input.items.length,
           effectiveExportedAt: input.effectiveExportedAt,
+          status: 'previewed',
           createdBy: input.userId,
           metaJson: {
             ignoredColumns: input.ignoredColumns,
             headers: input.headers,
           },
         },
-      });
+      }),
+    ];
 
-      const items = [];
-      const newProductCandidates = [];
-      for (const item of input.items) {
-        const created = await tx.sellpiaStockSnapshotItem.create({
-          data: {
-            organizationId: input.organizationId,
-            snapshotId: snapshot.id,
-            rowNumber: item.rowNumber,
-            sellpiaProductCode: item.sellpiaProductCode,
-            sellpiaProductName: item.sellpiaProductName,
-            sellpiaStock: item.sellpiaStock,
-            safetyStock: item.safetyStock,
-            ownProductCode: item.ownProductCode,
-            barcode: item.barcode,
-            modelName: item.modelName,
-            productOptionId: item.productOptionId,
-            inventoryId: item.inventoryId,
-            rocketLedgerNet: item.rocketLedgerNet,
-            targetCurrentStock: item.targetCurrentStock,
-            kiditemStockBefore: item.kiditemStockBefore,
-            diff: item.diff,
-            diffRate: item.diffRate,
-            status: item.status,
-            blockingReasons: item.blockingReasons,
-            warningReasons: item.warningReasons,
-            rawJson: item.rawJson as Prisma.InputJsonValue,
-          },
-        });
-        items.push(toSnapshotItem(created));
+    for (const batch of chunks(preparedItems, SELLPIA_SNAPSHOT_WRITE_BATCH_SIZE)) {
+      operations.push(this.prisma.sellpiaStockSnapshotItem.createMany({
+        data: batch.map((item) => item.create),
+      }));
+    }
+    for (const batch of chunks(preparedCandidates, SELLPIA_SNAPSHOT_WRITE_BATCH_SIZE)) {
+      operations.push(this.prisma.sellpiaNewProductCandidate.createMany({
+        data: batch.map((candidate) => candidate.create),
+      }));
+    }
 
-        if (item.createCandidate) {
-          const candidate = await tx.sellpiaNewProductCandidate.create({
-            data: {
-              organizationId: input.organizationId,
-              snapshotItemId: created.id,
-              sellpiaProductCode: item.sellpiaProductCode,
-              sellpiaProductName: item.sellpiaProductName,
-              sellpiaStock: item.sellpiaStock,
-              safetyStock: item.safetyStock,
-              ownProductCode: item.ownProductCode,
-              barcode: item.barcode,
-              modelName: item.modelName,
-              operatorInitialStock: item.sellpiaStock,
-            },
-          });
-          newProductCandidates.push({
-            id: candidate.id,
-            snapshotItemId: candidate.snapshotItemId,
-            sellpiaProductCode: candidate.sellpiaProductCode,
-            sellpiaProductName: candidate.sellpiaProductName,
-            sellpiaStock: candidate.sellpiaStock,
-            safetyStock: candidate.safetyStock,
-            barcode: candidate.barcode,
-            status: candidate.status as never,
-            operatorInitialStock: candidate.operatorInitialStock,
-          });
-        }
-      }
+    await this.prisma.$transaction(operations);
 
-      return {
-        snapshot: {
-          id: snapshot.id,
-          fileName: snapshot.fileName,
-          rowCount: snapshot.rowCount,
-          effectiveExportedAt: snapshot.effectiveExportedAt,
-          status: snapshot.status as never,
-        },
-        summary: {
-          matchedCount: items.filter((item) => item.status === 'matched').length,
-          reviewCount: items.filter((item) => item.status === 'needs_review').length,
-          rejectedCount: items.filter((item) => item.status === 'rejected').length,
-          newProductCandidateCount: newProductCandidates.length,
-        },
-        items,
-        newProductCandidates,
-      };
-    });
+    const items = preparedItems.map((item) => item.response);
+    const newProductCandidates = preparedCandidates.map((candidate) => candidate.response);
+    return {
+      snapshot: {
+        id: snapshotId,
+        fileName: input.fileName,
+        rowCount: input.items.length,
+        effectiveExportedAt: input.effectiveExportedAt,
+        status: 'previewed',
+      },
+      summary: {
+        matchedCount: items.filter((item) => item.status === 'matched').length,
+        reviewCount: items.filter((item) => item.status === 'needs_review').length,
+        rejectedCount: items.filter((item) => item.status === 'rejected').length,
+        newProductCandidateCount: newProductCandidates.length,
+      },
+      items,
+      newProductCandidates,
+    };
   }
 
   findSnapshotItemForApproval(
@@ -442,48 +424,101 @@ function toApprovalRow(row: {
   };
 }
 
-function toSnapshotItem(row: {
-  id: string;
-  rowNumber: number;
-  sellpiaProductCode: string;
-  sellpiaProductName: string | null;
-  sellpiaStock: number;
-  safetyStock: number;
-  barcode: string | null;
-  productOptionId: string | null;
-  inventoryId: string | null;
-  rocketLedgerNet: number;
-  targetCurrentStock: number;
-  kiditemStockBefore: number;
-  diff: number;
-  diffRate: unknown;
-  status: string;
-  blockingReasons: Prisma.JsonValue;
-  warningReasons: Prisma.JsonValue;
-  operatorTargetStock: number | null;
-  reviewNote: string | null;
-}) {
-  return {
-    id: row.id,
-    rowNumber: row.rowNumber,
-    sellpiaProductCode: row.sellpiaProductCode,
-    sellpiaProductName: row.sellpiaProductName,
-    sellpiaStock: row.sellpiaStock,
-    safetyStock: row.safetyStock,
-    barcode: row.barcode,
-    productOptionId: row.productOptionId,
-    inventoryId: row.inventoryId,
-    rocketLedgerNet: row.rocketLedgerNet,
-    targetCurrentStock: row.targetCurrentStock,
-    kiditemStockBefore: row.kiditemStockBefore,
-    diff: row.diff,
-    diffRate: Number(row.diffRate),
-    status: row.status as SellpiaSnapshotItemStatus,
-    blockingReasons: jsonStringArray(row.blockingReasons) as SellpiaBlockingReason[],
-    warningReasons: jsonStringArray(row.warningReasons) as SellpiaWarningReason[],
-    operatorTargetStock: row.operatorTargetStock,
-    reviewNote: row.reviewNote,
+function prepareSellpiaSnapshotItem(
+  organizationId: string,
+  snapshotId: string,
+  item: SellpiaSnapshotItemCreate,
+): PreparedSellpiaSnapshotItem {
+  const itemId = randomUUID();
+  const diffRate = Number(new Prisma.Decimal(item.diffRate).toDecimalPlaces(4));
+  const create: Prisma.SellpiaStockSnapshotItemCreateManyInput = {
+    id: itemId,
+    organizationId,
+    snapshotId,
+    rowNumber: item.rowNumber,
+    sellpiaProductCode: item.sellpiaProductCode,
+    sellpiaProductName: item.sellpiaProductName,
+    sellpiaStock: item.sellpiaStock,
+    safetyStock: item.safetyStock,
+    ownProductCode: item.ownProductCode,
+    barcode: item.barcode,
+    modelName: item.modelName,
+    productOptionId: item.productOptionId,
+    inventoryId: item.inventoryId,
+    rocketLedgerNet: item.rocketLedgerNet,
+    targetCurrentStock: item.targetCurrentStock,
+    kiditemStockBefore: item.kiditemStockBefore,
+    diff: item.diff,
+    diffRate,
+    status: item.status,
+    blockingReasons: item.blockingReasons as Prisma.InputJsonValue,
+    warningReasons: item.warningReasons as Prisma.InputJsonValue,
+    rawJson: item.rawJson as Prisma.InputJsonValue,
   };
+  const response: SellpiaStockSnapshotItem = {
+    id: itemId,
+    rowNumber: item.rowNumber,
+    sellpiaProductCode: item.sellpiaProductCode,
+    sellpiaProductName: item.sellpiaProductName,
+    sellpiaStock: item.sellpiaStock,
+    safetyStock: item.safetyStock,
+    barcode: item.barcode,
+    productOptionId: item.productOptionId,
+    inventoryId: item.inventoryId,
+    rocketLedgerNet: item.rocketLedgerNet,
+    targetCurrentStock: item.targetCurrentStock,
+    kiditemStockBefore: item.kiditemStockBefore,
+    diff: item.diff,
+    diffRate,
+    status: item.status,
+    blockingReasons: item.blockingReasons,
+    warningReasons: item.warningReasons,
+    operatorTargetStock: null,
+    reviewNote: null,
+  };
+
+  if (!item.createCandidate) return { create, response, candidate: null };
+
+  const candidateId = randomUUID();
+  return {
+    create,
+    response,
+    candidate: {
+      create: {
+        id: candidateId,
+        organizationId,
+        snapshotItemId: itemId,
+        sellpiaProductCode: item.sellpiaProductCode,
+        sellpiaProductName: item.sellpiaProductName,
+        sellpiaStock: item.sellpiaStock,
+        safetyStock: item.safetyStock,
+        ownProductCode: item.ownProductCode,
+        barcode: item.barcode,
+        modelName: item.modelName,
+        status: 'pending',
+        operatorInitialStock: item.sellpiaStock,
+      },
+      response: {
+        id: candidateId,
+        snapshotItemId: itemId,
+        sellpiaProductCode: item.sellpiaProductCode,
+        sellpiaProductName: item.sellpiaProductName,
+        sellpiaStock: item.sellpiaStock,
+        safetyStock: item.safetyStock,
+        barcode: item.barcode,
+        status: 'pending',
+        operatorInitialStock: item.sellpiaStock,
+      },
+    },
+  };
+}
+
+function chunks<T>(values: readonly T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let start = 0; start < values.length; start += size) {
+    result.push(values.slice(start, start + size));
+  }
+  return result;
 }
 
 function toReceiptBatch(row: {
