@@ -9,6 +9,7 @@ import { ChannelReconciliationController } from './adapter/in/http/channel-recon
 import { ChannelAccountController } from './adapter/in/http/channel-account.controller';
 import { ChannelAccountListController } from './adapter/in/http/channel-account-list.controller';
 import { ChannelListingController } from './adapter/in/http/channel-listing.controller';
+import { ChannelCatalogImportController } from './adapter/in/http/channel-catalog-import.controller';
 import { CoupangProviderAdapter } from './adapter/out/coupang/coupang-provider.adapter';
 import { ChannelAccountRepositoryAdapter } from './adapter/out/repository/channel-account.repository.adapter';
 import { ChannelDashboardRepositoryAdapter } from './adapter/out/repository/channel-dashboard.repository.adapter';
@@ -21,6 +22,7 @@ import { ChannelReconciliationMatcherRepositoryAdapter } from './adapter/out/rep
 import { ChannelReconciliationQueryRepositoryAdapter } from './adapter/out/repository/channel-reconciliation-query.repository.adapter';
 import { ChannelReconciliationResolutionRepositoryAdapter } from './adapter/out/repository/channel-reconciliation-resolution.repository.adapter';
 import { ChannelReconciliationScanRepositoryAdapter } from './adapter/out/repository/channel-reconciliation-scan.repository.adapter';
+import { ChannelCatalogImportRepositoryAdapter } from './adapter/out/repository/channel-catalog-import.repository.adapter';
 import { ChannelSyncService } from './application/service/channel-sync.service';
 import { ChannelDashboardService } from './application/service/channel-dashboard.service';
 import { ChannelListingQueryService } from './application/service/channel-listing-query.service';
@@ -32,11 +34,13 @@ import { ChannelReconciliationResolutionService } from './application/service/ch
 import { ChannelReconciliationScanService } from './application/service/channel-reconciliation-scan.service';
 import { ChannelReconciliationService } from './application/service/channel-reconciliation.service';
 import { ChannelAccountService } from './application/service/channel-account.service';
+import { ChannelCatalogImportService } from './application/service/channel-catalog-import.service';
 import { COUPANG_PROVIDER_PORT } from './application/port/out/provider/coupang-provider.port';
 import { ChannelsOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { CHANNELS_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
 import { CHANNELS_PRODUCT_MASTER_BARCODE_PORT } from './application/port/out/cross-domain/product-master-barcode.port';
 import { CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT } from './application/port/in/capability/marketplace-registration.port';
+import { CHANNEL_CATALOG_IMPORT_PORT } from './application/port/in/channel-catalog-import.port';
 import {
   CHANNEL_ACCOUNT_REPOSITORY_PORT,
   COUPANG_CREDENTIALS_PORT,
@@ -53,6 +57,7 @@ import {
   CHANNEL_RECONCILIATION_RESOLUTION_REPOSITORY_PORT,
   CHANNEL_RECONCILIATION_SCAN_REPOSITORY_PORT,
 } from './application/port/out/repository/channel-reconciliation.repository.port';
+import { CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT } from './application/port/out/repository/channel-catalog-import.repository.port';
 
 @Module({
   imports: [AgentOsModule, AutomationModule, ProductsModule],
@@ -63,6 +68,7 @@ import {
     ChannelAccountController,
     ChannelAccountListController,
     ChannelListingController,
+    ChannelCatalogImportController,
   ],
   providers: [
     ChannelSyncService,
@@ -76,6 +82,7 @@ import {
     ChannelReconciliationScanService,
     ChannelReconciliationService,
     ChannelAccountService,
+    ChannelCatalogImportService,
     ChannelRegistrationCapabilityAdapter,
     ChannelRegistrationRuntimeHandler,
     CoupangProviderAdapter,
@@ -90,6 +97,7 @@ import {
     ChannelReconciliationQueryRepositoryAdapter,
     ChannelReconciliationResolutionRepositoryAdapter,
     ChannelReconciliationScanRepositoryAdapter,
+    ChannelCatalogImportRepositoryAdapter,
     { provide: COUPANG_PROVIDER_PORT, useExisting: CoupangProviderAdapter },
     { provide: CHANNELS_OPERATION_ALERT_PORT, useExisting: ChannelsOperationAlertAdapter },
     {
@@ -124,6 +132,14 @@ import {
     {
       provide: CHANNEL_RECONCILIATION_SCAN_REPOSITORY_PORT,
       useExisting: ChannelReconciliationScanRepositoryAdapter,
+    },
+    {
+      provide: CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT,
+      useExisting: ChannelCatalogImportRepositoryAdapter,
+    },
+    {
+      provide: CHANNEL_CATALOG_IMPORT_PORT,
+      useExisting: ChannelCatalogImportService,
     },
   ],
   exports: [ChannelReconciliationService, COUPANG_PROVIDER_PORT],

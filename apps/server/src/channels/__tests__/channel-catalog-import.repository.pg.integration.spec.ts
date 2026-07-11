@@ -1,0 +1,726 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import type { PrismaClient } from '@prisma/client';
+import type { PrismaService } from '../../prisma/prisma.service';
+import {
+  makeTestPrisma,
+  OTHER_ORGANIZATION_ID,
+  OTHER_USER_ID,
+  resetDb,
+  seedBaseFixture,
+  TEST_ORGANIZATION_ID,
+  TEST_USER_ID,
+} from '../../test-helpers/real-prisma';
+import { ChannelCatalogImportRepositoryAdapter } from '../adapter/out/repository/channel-catalog-import.repository.adapter';
+import { ChannelCatalogImportService } from '../application/service/channel-catalog-import.service';
+import type { ParsedWingCatalogRow } from '../application/service/coupang-wing-workbook.parser';
+
+const WING_ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
+const SECOND_WING_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
+const ROCKET_ACCOUNT_ID = '33333333-3333-4333-8333-333333333333';
+const NAVER_ACCOUNT_ID = '44444444-4444-4444-8444-444444444444';
+const OTHER_ORG_WING_ACCOUNT_ID = '55555555-5555-4555-8555-555555555555';
+
+describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
+  let prisma: PrismaClient;
+  let repository: ChannelCatalogImportRepositoryAdapter;
+  let service: ChannelCatalogImportService;
+
+  beforeAll(async () => {
+    prisma = makeTestPrisma();
+    await prisma.$connect();
+    repository = new ChannelCatalogImportRepositoryAdapter(
+      prisma as unknown as PrismaService,
+    );
+    service = new ChannelCatalogImportService(repository);
+  });
+
+  afterAll(async () => {
+    await prisma?.$disconnect();
+  });
+
+  beforeEach(async () => {
+    await resetDb(prisma);
+    await seedBaseFixture(prisma);
+    await seedAccounts();
+  });
+
+  it('imports the representative 1,225-parent/2,241-SKU shape with three skips and no stock mutation', async () => {
+    const rows = representativeRows();
+
+    const result = await importCatalog(
+      rows,
+      fileHash('representative'),
+      WING_ACCOUNT_ID,
+      [
+        { rowNumber: 56, reason: 'missing_sku_id' as const },
+        { rowNumber: 2_213, reason: 'missing_sku_id' as const },
+        { rowNumber: 2_248, reason: 'missing_sku_id' as const },
+      ],
+    );
+
+    const [products, skus, inventory, stockTransactions, rocketLedger] =
+      await Promise.all([
+        prisma.channelListing.findMany({
+          where: {
+            organizationId: TEST_ORGANIZATION_ID,
+            channelAccountId: WING_ACCOUNT_ID,
+            isDeleted: false,
+          },
+        }),
+        prisma.channelListingOption.findMany({
+          where: {
+            organizationId: TEST_ORGANIZATION_ID,
+            channelAccountId: WING_ACCOUNT_ID,
+          },
+        }),
+        prisma.inventory.count({ where: { organizationId: TEST_ORGANIZATION_ID } }),
+        prisma.stockTransaction.count({ where: { organizationId: TEST_ORGANIZATION_ID } }),
+        prisma.rocketInventoryLedger.count({ where: { organizationId: TEST_ORGANIZATION_ID } }),
+      ]);
+
+    expect(products).toHaveLength(1_225);
+    expect(skus).toHaveLength(2_241);
+    expect(new Set(products.map((row) => row.id))).toHaveLength(1_225);
+    expect(new Set(skus.map((row) => row.id))).toHaveLength(2_241);
+    expect(products.every((row) => row.channel === 'coupang')).toBe(true);
+    expect(skus.every((row) => row.mappingStatus === 'unmatched')).toBe(true);
+    expect(skus.every((row) => row.sellerSku === null && row.salePrice === null)).toBe(true);
+    expect(result.changes).toEqual({
+      createdProductCount: 1_225,
+      updatedProductCount: 0,
+      createdSkuCount: 2_241,
+      updatedSkuCount: 0,
+      skippedRowCount: 3,
+    });
+    expect(result.run.rowCount).toBe(2_241);
+    expect({ inventory, stockTransactions, rocketLedger }).toEqual({
+      inventory: 0,
+      stockTransactions: 0,
+      rocketLedger: 0,
+    });
+  });
+
+  it('requires an active account in the organization and rejects non-Wing channels before claiming', async () => {
+    await expect(service.importCoupangWing(importInput({
+      organizationId: OTHER_ORGANIZATION_ID,
+      userId: OTHER_USER_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      fileHash: fileHash('wrong-organization'),
+    }))).rejects.toBeInstanceOf(NotFoundException);
+
+    for (const channelAccountId of [ROCKET_ACCOUNT_ID, NAVER_ACCOUNT_ID]) {
+      await expect(service.importCoupangWing(importInput({
+        channelAccountId,
+        fileHash: fileHash(`wrong-channel-${channelAccountId}`),
+      }))).rejects.toBeInstanceOf(BadRequestException);
+    }
+
+    await prisma.channelAccount.update({
+      where: { id: WING_ACCOUNT_ID },
+      data: { status: 'inactive' },
+    });
+    await expect(service.importCoupangWing(importInput({
+      fileHash: fileHash('inactive-account'),
+    }))).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(await prisma.sourceImportRun.count()).toBe(0);
+  });
+
+  it('scopes product, SKU, and same-hash idempotency keys by ChannelAccount', async () => {
+    const rows = [makeRow(0, { externalProductId: 'P-SHARED', externalSkuId: 'S-SHARED' })];
+    const hash = fileHash('same-file-different-account');
+
+    const first = await importCatalog(rows, hash, WING_ACCOUNT_ID);
+    const second = await importCatalog(rows, hash, SECOND_WING_ACCOUNT_ID);
+    const [products, skus, runs] = await Promise.all([
+      prisma.channelListing.findMany({
+        where: { organizationId: TEST_ORGANIZATION_ID, externalId: 'P-SHARED' },
+        orderBy: { channelAccountId: 'asc' },
+      }),
+      prisma.channelListingOption.findMany({
+        where: { organizationId: TEST_ORGANIZATION_ID, externalOptionId: 'S-SHARED' },
+        orderBy: { channelAccountId: 'asc' },
+      }),
+      prisma.sourceImportRun.findMany({
+        where: { organizationId: TEST_ORGANIZATION_ID, fileHash: hash },
+      }),
+    ]);
+
+    expect(first.duplicate).toBe(false);
+    expect(second.duplicate).toBe(false);
+    expect(second.run.id).not.toBe(first.run.id);
+    expect(products).toHaveLength(2);
+    expect(skus).toHaveLength(2);
+    expect(new Set(products.map((row) => row.id))).toHaveLength(2);
+    expect(new Set(skus.map((row) => row.id))).toHaveLength(2);
+    expect(runs).toHaveLength(2);
+  });
+
+  it('enforces the composite organization/account parent foreign key for imported SKUs', async () => {
+    const product = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: WING_ACCOUNT_ID,
+        channel: 'coupang',
+        externalId: 'P-ACCOUNT-A',
+      },
+    });
+
+    await expect(prisma.channelListingOption.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: SECOND_WING_ACCOUNT_ID,
+        listingId: product.id,
+        externalOptionId: 'S-CROSS-ACCOUNT',
+      },
+    })).rejects.toThrow();
+  });
+
+  it('updates metadata/raw JSON while preserving stable IDs, mappings, prices, seller SKUs, and all components', async () => {
+    const initialRows = [
+      makeRow(0, { externalProductId: 'P-KEEP', externalSkuId: 'S-SINGLE' }),
+      makeRow(1, { externalProductId: 'P-KEEP', externalSkuId: 'S-FOUR' }),
+      makeRow(2, { externalProductId: 'P-KEEP', externalSkuId: 'S-MIXED' }),
+      makeRow(3, { externalProductId: 'P-KEEP', externalSkuId: 'S-ABSENT' }),
+    ];
+    const first = await importCatalog(initialRows, fileHash('metadata-first'));
+    const productBefore = await prisma.channelListing.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, externalId: 'P-KEEP' },
+    });
+    const skusBefore = await prisma.channelListingOption.findMany({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: WING_ACCOUNT_ID,
+      },
+      orderBy: { externalOptionId: 'asc' },
+    });
+    const master = await prisma.masterProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: `M-${randomUUID()}`,
+        name: 'linked master',
+      },
+    });
+    await prisma.channelListing.update({
+      where: { id: productBefore.id },
+      data: { masterId: master.id },
+    });
+    const productOption = await prisma.productOption.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        masterId: master.id,
+        sku: `SKU-${randomUUID()}`,
+        optionName: 'confirmed option',
+      },
+    });
+    const inventorySkus = await prisma.inventorySku.createManyAndReturn({
+      data: [0, 1].map((index) => ({
+        organizationId: TEST_ORGANIZATION_ID,
+        sellpiaProductCode: `SP-COMPONENT-${index}`,
+        name: `component ${index}`,
+        reportedStock: index,
+      })),
+    });
+    const skuByExternalId = new Map(
+      skusBefore.map((sku) => [sku.externalOptionId, sku]),
+    );
+    const preservation = [
+      ['S-SINGLE', 'unmatched', 'SELLER-SINGLE', 10_000, false],
+      ['S-FOUR', 'needs_review', 'SELLER-FOUR', 20_000, true],
+      ['S-MIXED', 'matched', 'SELLER-MIXED', 30_000, true],
+      ['S-ABSENT', 'matched', 'SELLER-ABSENT', 40_000, false],
+    ] as const;
+    for (const [externalOptionId, mappingStatus, sellerSku, salePrice, isUnmatched] of preservation) {
+      await prisma.channelListingOption.update({
+        where: { id: skuByExternalId.get(externalOptionId)!.id },
+        data: {
+          mappingStatus,
+          sellerSku,
+          salePrice,
+          optionId: productOption.id,
+          isUnmatched,
+          status: externalOptionId === 'S-ABSENT' ? 'absent-status' : 'old-status',
+        },
+      });
+    }
+    await prisma.channelSkuComponent.createMany({
+      data: [
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelSkuId: skuByExternalId.get('S-SINGLE')!.id,
+          inventorySkuId: inventorySkus[0].id,
+          quantity: 1,
+          mappingSource: 'manual',
+          createdBy: TEST_USER_ID,
+        },
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelSkuId: skuByExternalId.get('S-FOUR')!.id,
+          inventorySkuId: inventorySkus[0].id,
+          quantity: 4,
+          mappingSource: 'manual',
+          createdBy: TEST_USER_ID,
+        },
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelSkuId: skuByExternalId.get('S-MIXED')!.id,
+          inventorySkuId: inventorySkus[0].id,
+          quantity: 2,
+          mappingSource: 'manual',
+          createdBy: TEST_USER_ID,
+        },
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelSkuId: skuByExternalId.get('S-MIXED')!.id,
+          inventorySkuId: inventorySkus[1].id,
+          quantity: 3,
+          mappingSource: 'manual',
+          createdBy: TEST_USER_ID,
+        },
+      ],
+    });
+    const componentsBefore = await prisma.channelSkuComponent.findMany({
+      orderBy: { id: 'asc' },
+    });
+
+    const changedRows = initialRows.slice(0, 3).map((row, index) => makeRow(index, {
+      externalProductId: row.externalProductId,
+      externalSkuId: row.externalSkuId,
+      registeredName: '변경된 등록상품명',
+      displayName: '변경된 노출상품명',
+      category: '변경 카테고리',
+      manufacturer: '변경 제조사',
+      brand: '변경 브랜드',
+      productStatus: '변경 승인상태',
+      optionName: `변경 옵션 ${index}`,
+      skuStatus: `변경 판매상태 ${index}`,
+      modelNumber: `CHANGED-${index}`,
+      barcode: `00000000000${index}`,
+      rawJson: { revision: 2, externalSkuId: row.externalSkuId },
+    }));
+    const second = await importCatalog(changedRows, fileHash('metadata-second'));
+
+    const [productAfter, skusAfter, componentsAfter, absentAfter] = await Promise.all([
+      prisma.channelListing.findFirstOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID, externalId: 'P-KEEP' },
+      }),
+      prisma.channelListingOption.findMany({
+        where: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: WING_ACCOUNT_ID,
+          externalOptionId: { in: ['S-SINGLE', 'S-FOUR', 'S-MIXED'] },
+        },
+        orderBy: { externalOptionId: 'asc' },
+      }),
+      prisma.channelSkuComponent.findMany({ orderBy: { id: 'asc' } }),
+      prisma.channelListingOption.findFirstOrThrow({
+        where: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: WING_ACCOUNT_ID,
+          externalOptionId: 'S-ABSENT',
+        },
+      }),
+    ]);
+
+    expect(productAfter).toMatchObject({
+      id: productBefore.id,
+      masterId: master.id,
+      channelName: '변경된 등록상품명',
+      displayName: '변경된 노출상품명',
+      category: '변경 카테고리',
+      manufacturer: '변경 제조사',
+      brand: '변경 브랜드',
+      status: '변경 승인상태',
+      lastImportRunId: second.run.id,
+    });
+    expect(new Set(skusAfter.map((sku) => sku.id))).toEqual(
+      new Set(skusBefore.filter((sku) => sku.externalOptionId !== 'S-ABSENT').map((sku) => sku.id)),
+    );
+    for (const sku of skusAfter) {
+      const preserved = preservation.find(([externalId]) => externalId === sku.externalOptionId)!;
+      expect(sku).toMatchObject({
+        mappingStatus: preserved[1],
+        sellerSku: preserved[2],
+        salePrice: preserved[3],
+        optionId: productOption.id,
+        isUnmatched: preserved[4],
+        lastImportRunId: second.run.id,
+        rawJson: expect.objectContaining({ revision: 2 }),
+      });
+    }
+    expect(componentsAfter).toEqual(componentsBefore);
+    expect(absentAfter).toMatchObject({
+      id: skuByExternalId.get('S-ABSENT')!.id,
+      mappingStatus: 'matched',
+      sellerSku: 'SELLER-ABSENT',
+      salePrice: 40_000,
+      status: 'absent-status',
+      lastImportRunId: first.run.id,
+    });
+  });
+
+  it('rejects moving an existing external SKU to another parent and rolls back the whole import', async () => {
+    await importCatalog([
+      makeRow(0, { externalProductId: 'P-ORIGINAL', externalSkuId: 'S-STABLE' }),
+    ], fileHash('original-parent'));
+    const before = await prisma.channelListingOption.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: WING_ACCOUNT_ID,
+        externalOptionId: 'S-STABLE',
+      },
+      include: { listing: true },
+    });
+    const rejectedHash = fileHash('changed-parent');
+
+    await expect(importCatalog([
+      makeRow(1, { externalProductId: 'P-NEW', externalSkuId: 'S-STABLE' }),
+      makeRow(2, { externalProductId: 'P-ALSO-NEW', externalSkuId: 'S-NEW' }),
+    ], rejectedHash)).rejects.toThrow('different parent');
+
+    const after = await prisma.channelListingOption.findFirstOrThrow({
+      where: { id: before.id },
+      include: { listing: true },
+    });
+    expect(after.listing.externalId).toBe('P-ORIGINAL');
+    expect(await prisma.channelListing.count({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: WING_ACCOUNT_ID,
+      },
+    })).toBe(1);
+    expect(await prisma.sourceImportRun.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, fileHash: rejectedHash },
+    })).toMatchObject({ status: 'failed' });
+  });
+
+  it('returns a completed same-hash/account import as a no-op', async () => {
+    const hash = fileHash('duplicate');
+    const first = await importCatalog([makeRow(0)], hash);
+    const before = await prisma.channelListingOption.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    });
+
+    const duplicate = await importCatalog([
+      makeRow(0, { optionName: 'must not write', skuStatus: 'changed' }),
+    ], hash);
+    const after = await prisma.channelListingOption.findFirstOrThrow({
+      where: { id: before.id },
+    });
+
+    expect(duplicate).toMatchObject({ duplicate: true, changes: zeroChanges() });
+    expect(duplicate.run.id).toBe(first.run.id);
+    expect(after).toEqual(before);
+    expect(await prisma.sourceImportRun.count()).toBe(1);
+  });
+
+  it('keeps fresh runs running, reclaims stale/failed runs by CAS, and rotates tokens', async () => {
+    const hash = fileHash('stale-running');
+    const oldToken = randomUUID();
+    const run = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'coupang_wing_catalog',
+        channelAccountId: WING_ACCOUNT_ID,
+        fileName: 'wing.xlsx',
+        fileHash: hash,
+        status: 'running',
+        rowCount: 1,
+        createdBy: TEST_USER_ID,
+        attemptToken: oldToken,
+        updatedAt: new Date(Date.now() - 29 * 60 * 1_000),
+      },
+    });
+
+    expect(await claim(hash)).toEqual({ kind: 'running' });
+    await prisma.sourceImportRun.update({
+      where: { id: run.id },
+      data: { updatedAt: new Date(Date.now() - 31 * 60 * 1_000) },
+    });
+    const claims = await Promise.all([claim(hash), claim(hash)]);
+    expect(claims.map((value) => value.kind).sort()).toEqual(['running', 'started']);
+    const reclaimed = claims.find((value) => value.kind === 'started');
+    if (reclaimed?.kind !== 'started') throw new Error('expected stale claim');
+    expect(reclaimed).toMatchObject({ runId: run.id });
+    expect(reclaimed.attemptToken).not.toBe(oldToken);
+
+    const failedHash = fileHash('failed-retry');
+    const failedToken = randomUUID();
+    const failedRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'coupang_wing_catalog',
+        channelAccountId: WING_ACCOUNT_ID,
+        fileName: 'wing.xlsx',
+        fileHash: failedHash,
+        status: 'failed',
+        rowCount: 1,
+        createdBy: TEST_USER_ID,
+        attemptToken: failedToken,
+      },
+    });
+    const retry = await claim(failedHash);
+    expect(retry).toMatchObject({ kind: 'started', runId: failedRun.id });
+    if (retry.kind !== 'started') throw new Error('expected failed retry');
+    expect(retry.attemptToken).not.toBe(failedToken);
+  });
+
+  it('rejects a stale worker token on write/fail after account-scoped reclamation', async () => {
+    const hash = fileHash('fenced-worker');
+    const workerAToken = randomUUID();
+    const run = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'coupang_wing_catalog',
+        channelAccountId: WING_ACCOUNT_ID,
+        fileName: 'wing.xlsx',
+        fileHash: hash,
+        status: 'running',
+        rowCount: 1,
+        createdBy: TEST_USER_ID,
+        attemptToken: workerAToken,
+        updatedAt: new Date(Date.now() - 31 * 60 * 1_000),
+      },
+    });
+    const workerB = await claim(hash);
+    if (workerB.kind !== 'started') throw new Error('expected worker B reclaim');
+
+    await expect(repository.upsertCoupangWingCatalog({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      runId: run.id,
+      attemptToken: workerAToken,
+      rows: [makeRow(0, { externalSkuId: 'S-WORKER-A' })],
+      skippedRowCount: 0,
+    })).rejects.toThrow();
+    await repository.markImportFailed(
+      TEST_ORGANIZATION_ID,
+      WING_ACCOUNT_ID,
+      run.id,
+      workerAToken,
+    );
+    expect(await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: run.id } }))
+      .toMatchObject({ status: 'running', attemptToken: workerB.attemptToken });
+    expect(await prisma.channelListing.count()).toBe(0);
+
+    const completed = await repository.upsertCoupangWingCatalog({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      runId: run.id,
+      attemptToken: workerB.attemptToken,
+      rows: [makeRow(0, { externalSkuId: 'S-WORKER-B' })],
+      skippedRowCount: 0,
+    });
+    const lateWorkerA = await repository.upsertCoupangWingCatalog({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      runId: run.id,
+      attemptToken: workerAToken,
+      rows: [makeRow(0, { externalSkuId: 'S-WORKER-A' })],
+      skippedRowCount: 0,
+    });
+    expect(completed.duplicate).toBe(false);
+    expect(lateWorkerA).toMatchObject({ duplicate: true, changes: zeroChanges() });
+    expect(await prisma.channelListingOption.findMany({
+      select: { externalOptionId: true },
+    })).toEqual([{ externalOptionId: 'S-WORKER-B' }]);
+  });
+
+  it('rolls back mid-write failures, marks only the run failed, and never changes another organization', async () => {
+    await importCatalog([
+      makeRow(0, { externalProductId: 'P-BEFORE', externalSkuId: 'S-BEFORE' }),
+    ], fileHash('before-failure'));
+    await prisma.channelListing.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        channelAccountId: OTHER_ORG_WING_ACCOUNT_ID,
+        channel: 'coupang',
+        externalId: 'P-OTHER',
+        channelName: 'other organization sentinel',
+      },
+    });
+    const beforeProducts = await prisma.channelListing.findMany({
+      orderBy: { id: 'asc' },
+    });
+    const beforeSkus = await prisma.channelListingOption.findMany({
+      orderBy: { id: 'asc' },
+    });
+    const failingRows = Array.from({ length: 501 }, (_, index) => makeRow(index, {
+      externalProductId: `P-FAIL-${String(index).padStart(4, '0')}`,
+      externalSkuId: `S-FAIL-${String(index).padStart(4, '0')}`,
+      rawJson: index === 500 ? { cannotSerialize: BigInt(1) } : { index },
+    }));
+    const hash = fileHash('mid-write-failure');
+
+    await expect(importCatalog(failingRows, hash)).rejects.toThrow();
+
+    expect(await prisma.channelListing.findMany({ orderBy: { id: 'asc' } }))
+      .toEqual(beforeProducts);
+    expect(await prisma.channelListingOption.findMany({ orderBy: { id: 'asc' } }))
+      .toEqual(beforeSkus);
+    expect(await prisma.sourceImportRun.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: WING_ACCOUNT_ID,
+        fileHash: hash,
+      },
+    })).toMatchObject({ status: 'failed' });
+    expect(await prisma.channelListing.findFirstOrThrow({
+      where: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        channelAccountId: OTHER_ORG_WING_ACCOUNT_ID,
+        externalId: 'P-OTHER',
+      },
+    })).toMatchObject({ channelName: 'other organization sentinel' });
+  });
+
+  async function seedAccounts(): Promise<void> {
+    await prisma.channelAccount.createMany({
+      data: [
+        {
+          id: WING_ACCOUNT_ID,
+          organizationId: TEST_ORGANIZATION_ID,
+          channel: 'coupang',
+          name: 'Wing primary',
+          externalAccountId: 'wing-primary',
+          status: 'active',
+        },
+        {
+          id: SECOND_WING_ACCOUNT_ID,
+          organizationId: TEST_ORGANIZATION_ID,
+          channel: 'coupang',
+          name: 'Wing secondary',
+          externalAccountId: 'wing-secondary',
+          status: 'active',
+        },
+        {
+          id: ROCKET_ACCOUNT_ID,
+          organizationId: TEST_ORGANIZATION_ID,
+          channel: 'rocket',
+          name: 'Future Rocket',
+          externalAccountId: 'rocket-future',
+          status: 'active',
+        },
+        {
+          id: NAVER_ACCOUNT_ID,
+          organizationId: TEST_ORGANIZATION_ID,
+          channel: 'naver',
+          name: 'Naver',
+          externalAccountId: 'naver',
+          status: 'active',
+        },
+        {
+          id: OTHER_ORG_WING_ACCOUNT_ID,
+          organizationId: OTHER_ORGANIZATION_ID,
+          channel: 'coupang',
+          name: 'Other organization Wing',
+          externalAccountId: 'other-wing',
+          status: 'active',
+        },
+      ],
+    });
+  }
+
+  function importCatalog(
+    rows: ParsedWingCatalogRow[],
+    hash: string,
+    channelAccountId = WING_ACCOUNT_ID,
+    skippedRows: Array<{
+      rowNumber: number;
+      reason: 'missing_product_id' | 'missing_sku_id';
+    }> = [],
+  ) {
+    return service.importCoupangWing({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId,
+      fileName: 'wing.xlsx',
+      fileHash: hash,
+      headers: ['등록상품ID', '옵션 ID'],
+      rows,
+      skippedRows,
+    });
+  }
+
+  function claim(hash: string) {
+    return repository.claimCoupangWingImport({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      fileName: 'wing.xlsx',
+      fileHash: hash,
+      rowCount: 1,
+    });
+  }
+});
+
+function importInput(
+  overrides: Partial<Parameters<ChannelCatalogImportService['importCoupangWing']>[0]> = {},
+): Parameters<ChannelCatalogImportService['importCoupangWing']>[0] {
+  return {
+    organizationId: TEST_ORGANIZATION_ID,
+    userId: TEST_USER_ID,
+    channelAccountId: WING_ACCOUNT_ID,
+    fileName: 'wing.xlsx',
+    fileHash: fileHash('default-input'),
+    headers: ['등록상품ID', '옵션 ID'],
+    rows: [makeRow(0)],
+    skippedRows: [],
+    ...overrides,
+  };
+}
+
+function representativeRows(): ParsedWingCatalogRow[] {
+  return Array.from({ length: 2_241 }, (_, index) => {
+    const parentIndex = index < 1_225 ? index : index % 1_225;
+    return makeRow(index, {
+      externalProductId: `P-${String(parentIndex).padStart(4, '0')}`,
+      externalSkuId: `S-${String(index).padStart(5, '0')}`,
+      registeredName: `상품 ${parentIndex}`,
+      displayName: `노출 상품 ${parentIndex}`,
+      category: `카테고리 ${parentIndex % 10}`,
+      manufacturer: `제조사 ${parentIndex % 5}`,
+      brand: `브랜드 ${parentIndex % 7}`,
+      productStatus: '승인완료',
+    });
+  });
+}
+
+function makeRow(
+  index: number,
+  overrides: Partial<ParsedWingCatalogRow> = {},
+): ParsedWingCatalogRow {
+  return {
+    rowNumber: index + 5,
+    externalProductId: `P-${String(index).padStart(4, '0')}`,
+    registeredName: `상품 ${index}`,
+    displayName: `노출 상품 ${index}`,
+    category: `카테고리 ${index % 10}`,
+    manufacturer: `제조사 ${index % 5}`,
+    brand: `브랜드 ${index % 7}`,
+    productStatus: '승인완료',
+    externalSkuId: `S-${String(index).padStart(5, '0')}`,
+    optionName: `옵션 ${index}`,
+    skuStatus: '판매중',
+    modelNumber: `MODEL-${index}`,
+    barcode: `000${String(index).padStart(9, '0')}`,
+    rawJson: { index },
+    ...overrides,
+  };
+}
+
+function fileHash(label: string): string {
+  return createHash('sha256').update(label).digest('hex');
+}
+
+function zeroChanges() {
+  return {
+    createdProductCount: 0,
+    updatedProductCount: 0,
+    createdSkuCount: 0,
+    updatedSkuCount: 0,
+    skippedRowCount: 0,
+  };
+}

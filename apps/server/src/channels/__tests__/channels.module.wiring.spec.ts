@@ -38,8 +38,14 @@ import { CHANNEL_SYNC_REPOSITORY_PORT } from '../application/port/out/repository
 import { COUPANG_PROVIDER_PORT } from '../application/port/out/provider/coupang-provider.port';
 import { CHANNELS_OPERATION_ALERT_PORT } from '../application/port/out/cross-domain/operation-alert.port';
 import { CHANNELS_PRODUCT_MASTER_BARCODE_PORT } from '../application/port/out/cross-domain/product-master-barcode.port';
+import { ChannelCatalogImportController } from '../adapter/in/http/channel-catalog-import.controller';
+import { ChannelCatalogImportRepositoryAdapter } from '../adapter/out/repository/channel-catalog-import.repository.adapter';
+import { CHANNEL_CATALOG_IMPORT_PORT } from '../application/port/in/channel-catalog-import.port';
+import { CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT } from '../application/port/out/repository/channel-catalog-import.repository.port';
+import { ChannelCatalogImportService } from '../application/service/channel-catalog-import.service';
 
 const IMPORTS_KEY = 'imports';
+const CONTROLLERS_KEY = 'controllers';
 const PROVIDERS_KEY = 'providers';
 
 function expectBinding(
@@ -82,6 +88,8 @@ describe('ChannelsModule canonical owner wiring', () => {
     expect(providers).toContain(ChannelsProductMasterBarcodeAdapter);
     expect(providers).toContain(ChannelRegistrationCapabilityAdapter);
     expect(providers).toContain(ChannelRegistrationRuntimeHandler);
+    expect(providers).toContain(ChannelCatalogImportService);
+    expect(providers).toContain(ChannelCatalogImportRepositoryAdapter);
 
     expectBinding(providers, CHANNEL_ACCOUNT_REPOSITORY_PORT, ChannelAccountRepositoryAdapter);
     expectBinding(providers, COUPANG_CREDENTIALS_PORT, ChannelAccountRepositoryAdapter);
@@ -125,5 +133,22 @@ describe('ChannelsModule canonical owner wiring', () => {
       CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT,
       ChannelRegistrationCapabilityAdapter,
     );
+    expectBinding(
+      providers,
+      CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT,
+      ChannelCatalogImportRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
+      CHANNEL_CATALOG_IMPORT_PORT,
+      ChannelCatalogImportService,
+    );
+  });
+
+  it('registers the account-scoped Wing catalog import controller', () => {
+    const controllers: unknown[] =
+      Reflect.getMetadata(CONTROLLERS_KEY, ChannelsModule) ?? [];
+
+    expect(controllers).toContain(ChannelCatalogImportController);
   });
 });
