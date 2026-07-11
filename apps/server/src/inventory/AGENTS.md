@@ -84,7 +84,8 @@ must not depend on the snapshot importer or stock mutation ports.
 
 ## Cross-Domain Ports
 
-- `InventoryModule` exports `INVENTORY_PORT` only.
+- `InventoryModule` exports `INVENTORY_PORT` and the read-only
+  `INVENTORY_SKU_READ_PORT` matching capability only.
 - Bundle stock fan-out goes through local `BundleStockPort`, whose adapter
   consumes products' owner-side bundle stock port.
 - External domains do not inject warehouse, transfer, audit, or picking

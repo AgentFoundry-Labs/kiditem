@@ -17,6 +17,7 @@ import { SellpiaInventoryImportController } from './adapter/in/http/sellpia-inve
 import { InventoryQueryRepositoryAdapter } from './adapter/out/repository/inventory-query.repository.adapter';
 import { InventoryRepositoryAdapter } from './adapter/out/repository/inventory.repository.adapter';
 import { InventorySkuImportRepositoryAdapter } from './adapter/out/repository/inventory-sku-import.repository.adapter';
+import { InventorySkuReadRepositoryAdapter } from './adapter/out/repository/inventory-sku-read.repository.adapter';
 import { SellpiaReceiptBatchRepositoryAdapter } from './adapter/out/repository/sellpia-receipt-batch.repository.adapter';
 import { WarehousesRepositoryAdapter } from './adapter/out/repository/warehouses.repository.adapter';
 import { TransfersRepositoryAdapter } from './adapter/out/repository/transfers.repository.adapter';
@@ -27,6 +28,7 @@ import { LocalCoupangShipmentFilesAdapter } from './adapter/out/storage/local-co
 import { BundleStockAdapter } from './adapter/out/products/bundle-stock.adapter';
 import { CoupangShipmentsService } from './application/service/coupang-shipments.service';
 import { InventoryService } from './application/service/inventory.service';
+import { InventorySkuReadService } from './application/service/inventory-sku-read.service';
 import { SellpiaInventoryImportService } from './application/service/sellpia-inventory-import.service';
 import { SellpiaReceiptBatchService } from './application/service/sellpia-receipt-batch.service';
 import { UnshippedService } from './application/service/unshipped.service';
@@ -37,6 +39,7 @@ import { PickingService } from './application/service/picking.service';
 import {
   AUDITS_PORT,
   INVENTORY_PORT,
+  INVENTORY_SKU_READ_PORT,
   SELLPIA_INVENTORY_IMPORT_PORT,
   SELLPIA_RECEIPT_BATCH_PORT,
 } from './application/port/in/stock';
@@ -45,6 +48,7 @@ import { TRANSFERS_PORT, WAREHOUSES_PORT } from './application/port/in/warehouse
 import { INVENTORY_QUERY_REPOSITORY_PORT } from './application/port/out/repository/inventory-query.repository.port';
 import { INVENTORY_REPOSITORY_PORT } from './application/port/out/repository/inventory.repository.port';
 import { INVENTORY_SKU_IMPORT_REPOSITORY_PORT } from './application/port/out/repository/inventory-sku-import.repository.port';
+import { INVENTORY_SKU_READ_REPOSITORY_PORT } from './application/port/out/repository/inventory-sku-read.repository.port';
 import { SELLPIA_RECEIPT_BATCH_REPOSITORY_PORT } from './application/port/out/repository/sellpia-receipt-batch.repository.port';
 import { WAREHOUSES_REPOSITORY_PORT } from './application/port/out/repository/warehouses.repository.port';
 import { TRANSFERS_REPOSITORY_PORT } from './application/port/out/repository/transfers.repository.port';
@@ -61,6 +65,7 @@ const REPOSITORY_PORT_BINDINGS = [
   { provide: INVENTORY_QUERY_REPOSITORY_PORT, useExisting: InventoryQueryRepositoryAdapter },
   { provide: INVENTORY_REPOSITORY_PORT, useExisting: InventoryRepositoryAdapter },
   { provide: INVENTORY_SKU_IMPORT_REPOSITORY_PORT, useExisting: InventorySkuImportRepositoryAdapter },
+  { provide: INVENTORY_SKU_READ_REPOSITORY_PORT, useExisting: InventorySkuReadRepositoryAdapter },
   { provide: SELLPIA_RECEIPT_BATCH_REPOSITORY_PORT, useExisting: SellpiaReceiptBatchRepositoryAdapter },
   { provide: WAREHOUSES_REPOSITORY_PORT, useExisting: WarehousesRepositoryAdapter },
   { provide: TRANSFERS_REPOSITORY_PORT, useExisting: TransfersRepositoryAdapter },
@@ -73,6 +78,7 @@ const REPOSITORY_PORT_BINDINGS = [
 
 const APPLICATION_PORT_BINDINGS = [
   { provide: INVENTORY_PORT, useExisting: InventoryService },
+  { provide: INVENTORY_SKU_READ_PORT, useExisting: InventorySkuReadService },
   { provide: SELLPIA_INVENTORY_IMPORT_PORT, useExisting: SellpiaInventoryImportService },
   { provide: SELLPIA_RECEIPT_BATCH_PORT, useExisting: SellpiaReceiptBatchService },
   { provide: UNSHIPPED_PORT, useExisting: UnshippedService },
@@ -105,6 +111,7 @@ const APPLICATION_PORT_BINDINGS = [
     InventoryQueryRepositoryAdapter,
     InventoryRepositoryAdapter,
     InventorySkuImportRepositoryAdapter,
+    InventorySkuReadRepositoryAdapter,
     SellpiaReceiptBatchRepositoryAdapter,
     WarehousesRepositoryAdapter,
     TransfersRepositoryAdapter,
@@ -117,6 +124,7 @@ const APPLICATION_PORT_BINDINGS = [
     // application/service
     CoupangShipmentsService,
     InventoryService,
+    InventorySkuReadService,
     SellpiaInventoryImportService,
     SellpiaReceiptBatchService,
     UnshippedService,
@@ -128,6 +136,6 @@ const APPLICATION_PORT_BINDINGS = [
     ...REPOSITORY_PORT_BINDINGS,
     ...APPLICATION_PORT_BINDINGS,
   ],
-  exports: [INVENTORY_PORT],
+  exports: [INVENTORY_PORT, INVENTORY_SKU_READ_PORT],
 })
 export class InventoryModule {}

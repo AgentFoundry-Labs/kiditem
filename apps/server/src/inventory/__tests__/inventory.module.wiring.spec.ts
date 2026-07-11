@@ -17,6 +17,7 @@ import { RocketInventoryController } from '../adapter/in/http/rocket-inventory.c
 import { SellpiaReceiptBatchController } from '../adapter/in/http/sellpia-receipt-batch.controller';
 import { SellpiaInventoryImportController } from '../adapter/in/http/sellpia-inventory-import.controller';
 import { InventoryService } from '../application/service/inventory.service';
+import { InventorySkuReadService } from '../application/service/inventory-sku-read.service';
 import { SellpiaInventoryImportService } from '../application/service/sellpia-inventory-import.service';
 import { SellpiaReceiptBatchService } from '../application/service/sellpia-receipt-batch.service';
 import { UnshippedService } from '../application/service/unshipped.service';
@@ -27,6 +28,7 @@ import { PickingService } from '../application/service/picking.service';
 import { InventoryQueryRepositoryAdapter } from '../adapter/out/repository/inventory-query.repository.adapter';
 import { InventoryRepositoryAdapter } from '../adapter/out/repository/inventory.repository.adapter';
 import { InventorySkuImportRepositoryAdapter } from '../adapter/out/repository/inventory-sku-import.repository.adapter';
+import { InventorySkuReadRepositoryAdapter } from '../adapter/out/repository/inventory-sku-read.repository.adapter';
 import { SellpiaReceiptBatchRepositoryAdapter } from '../adapter/out/repository/sellpia-receipt-batch.repository.adapter';
 import { WarehousesRepositoryAdapter } from '../adapter/out/repository/warehouses.repository.adapter';
 import { TransfersRepositoryAdapter } from '../adapter/out/repository/transfers.repository.adapter';
@@ -35,9 +37,11 @@ import { PickingRepositoryAdapter } from '../adapter/out/repository/picking.repo
 import { ConfirmedOrdersRepositoryAdapter } from '../adapter/out/repository/confirmed-orders.repository.adapter';
 import { BundleStockAdapter } from '../adapter/out/products/bundle-stock.adapter';
 import { INVENTORY_PORT } from '../application/port/in/stock/inventory.port';
+import { INVENTORY_SKU_READ_PORT } from '../application/port/in/stock/inventory-sku-read.port';
 import { SELLPIA_INVENTORY_IMPORT_PORT } from '../application/port/in/stock/sellpia-inventory-import.port';
 import { SELLPIA_RECEIPT_BATCH_PORT } from '../application/port/in/stock/sellpia-receipt-batch.port';
 import { INVENTORY_SKU_IMPORT_REPOSITORY_PORT } from '../application/port/out/repository/inventory-sku-import.repository.port';
+import { INVENTORY_SKU_READ_REPOSITORY_PORT } from '../application/port/out/repository/inventory-sku-read.repository.port';
 import { SELLPIA_RECEIPT_BATCH_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-receipt-batch.repository.port';
 import {
   CreateSellpiaReceiptBatchDto,
@@ -141,6 +145,7 @@ describe('InventoryModule capability wiring', () => {
       PickingRepositoryAdapter,
       ConfirmedOrdersRepositoryAdapter,
       InventorySkuImportRepositoryAdapter,
+      InventorySkuReadRepositoryAdapter,
       SellpiaReceiptBatchRepositoryAdapter,
       BundleStockAdapter,
     ]) {
@@ -152,6 +157,7 @@ describe('InventoryModule capability wiring', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, InventoryModule) ?? [];
     for (const cls of [
       InventoryService,
+      InventorySkuReadService,
       SellpiaInventoryImportService,
       SellpiaReceiptBatchService,
       UnshippedService,
@@ -164,9 +170,21 @@ describe('InventoryModule capability wiring', () => {
     }
   });
 
-  it('exports only INVENTORY_PORT for cross-module consumers', () => {
+  it('exports only stock mutation and InventorySku matching read capabilities', () => {
     const exports_: unknown[] = Reflect.getMetadata(EXPORTS_KEY, InventoryModule) ?? [];
-    expect(exports_).toEqual([INVENTORY_PORT]);
+    expect(exports_).toEqual([INVENTORY_PORT, INVENTORY_SKU_READ_PORT]);
+  });
+
+  it('binds the InventorySku read capability through its owner repository', () => {
+    const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, InventoryModule) ?? [];
+    expect(providers).toContainEqual({
+      provide: INVENTORY_SKU_READ_REPOSITORY_PORT,
+      useExisting: InventorySkuReadRepositoryAdapter,
+    });
+    expect(providers).toContainEqual({
+      provide: INVENTORY_SKU_READ_PORT,
+      useExisting: InventorySkuReadService,
+    });
   });
 
   it('binds the Sellpia import and receipt ports to their isolated implementations', () => {
