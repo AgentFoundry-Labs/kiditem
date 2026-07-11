@@ -290,7 +290,7 @@ function expandMergedParentCells(
     if (isParentHeader(header)) parentColumns.set(header, offset);
   });
 
-  const continuationRows = new Set<number>();
+  const continuationRowsByColumn = new Map<number, Set<number>>();
   for (const merge of sheet['!merges'] ?? []) {
     if (merge.e.r <= merge.s.r || merge.e.r <= headerRow) continue;
     for (const column of parentColumns.values()) {
@@ -301,7 +301,9 @@ function expandMergedParentCells(
         row <= Math.min(merge.e.r, lastRow);
         row += 1
       ) {
+        const continuationRows = continuationRowsByColumn.get(column) ?? new Set();
         continuationRows.add(row);
+        continuationRowsByColumn.set(column, continuationRows);
         setBlankCellText(sheet, row, column, value);
       }
     }
@@ -313,15 +315,18 @@ function expandMergedParentCells(
     const productId = productColumn === undefined
       ? ''
       : formattedCellText(sheet, row, productColumn).trim();
+    const productContinues = productColumn !== undefined &&
+      continuationRowsByColumn.get(productColumn)?.has(row) === true;
 
     if (productId) {
       currentParent = parentValues(sheet, row, parentColumns);
-    } else if (!continuationRows.has(row)) {
+    } else if (!productContinues) {
       currentParent = null;
     }
 
-    if (!continuationRows.has(row) || !currentParent) continue;
+    if (!currentParent) continue;
     for (const [header, column] of parentColumns) {
+      if (!continuationRowsByColumn.get(column)?.has(row)) continue;
       setBlankCellText(sheet, row, column, currentParent[header] ?? '');
     }
   }

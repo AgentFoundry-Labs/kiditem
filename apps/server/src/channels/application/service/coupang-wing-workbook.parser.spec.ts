@@ -210,6 +210,35 @@ describe('parseCoupangWingWorkbook', () => {
     ]);
   });
 
+  it('does not fill a parent cell when only another parent column merge reaches that row', () => {
+    const rows = headerAndRow();
+    rows.push(
+      ['', '', '', '', '', '', '', 'S-002', '', '', '', ''],
+      ['', '', '', '', '', '', '', 'S-ORPHAN', '', '', '', ''],
+    );
+    const buffer = workbookBuffer(rows, {
+      configureTemplate: (sheet) => {
+        sheet['!merges'] = [
+          // 등록상품ID ends at worksheet row 6.
+          { s: { r: 4, c: 0 }, e: { r: 5, c: 0 } },
+          // 등록상품명 alone continues through worksheet row 7.
+          { s: { r: 4, c: 1 }, e: { r: 6, c: 1 } },
+        ];
+      },
+    });
+
+    const parsed = parseCoupangWingWorkbook(buffer);
+
+    expect(parsed.rows.map((row) => [row.rowNumber, row.externalSkuId])).toEqual([
+      [5, 'S-001'],
+      [6, 'S-002'],
+    ]);
+    expect(parsed.skippedRows).toContainEqual({
+      rowNumber: 7,
+      reason: 'missing_product_id',
+    });
+  });
+
   it('preserves all 231 source columns in rawJson', () => {
     const extraHeaders = Array.from(
       { length: 231 - REQUIRED_HEADERS.length },
