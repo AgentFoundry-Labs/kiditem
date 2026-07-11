@@ -36,6 +36,8 @@ channels/
 - `ChannelAccount` is the marketplace/store identity.
 - `ChannelListing` connects marketplace products to `MasterProduct`.
 - `ChannelListingOption` connects marketplace option rows to `ProductOption`.
+- `ChannelSkuComponent` is the confirmed mapping from one marketplace SKU to
+  one or more Sellpia `InventorySku` rows and quantities.
 - Channel daily snapshots and scrape audit rows support dashboard/reporting
   reads.
 - Orders and returns sync into the channel-agnostic orders spine.
@@ -55,6 +57,11 @@ Reconciliation never auto-creates `MasterProduct`. User-approved links create
 the missing `ChannelListing`/option association through the reconciliation
 flow.
 
+Sellpia component matching reads only completed `coupang_wing_catalog` rows.
+Channels owns candidate ranking and atomic component replacement; Inventory
+owns the exported read-only `INVENTORY_SKU_READ_PORT`. Candidate rows are live
+suggestions only and are never persisted or auto-confirmed.
+
 ## Cross-Domain Ports
 
 - Provider access goes through `COUPANG_PROVIDER_PORT`.
@@ -63,6 +70,8 @@ flow.
 - Orders/returns are written to the order spine; provider actions should be
   exposed through channels-owned ports/adapters instead of direct provider HTTP
   from orders services.
+- Sellpia candidate reads use the Channels-local
+  `CHANNELS_INVENTORY_SKU_READ_PORT` bridge to Inventory's owner port.
 
 ## Boundary Rules
 
@@ -79,6 +88,9 @@ flow.
   semantics change.
 - Per-listing sync transactions continue on individual failure and increment
   result errors.
+- Confirmed ChannelSku component replacement validates tenant ownership before
+  deletion, then locks, deletes, recreates, and updates status atomically. It
+  never writes `InventorySku.reportedStock` or legacy inventory balances.
 
 ## Transitional Exceptions
 

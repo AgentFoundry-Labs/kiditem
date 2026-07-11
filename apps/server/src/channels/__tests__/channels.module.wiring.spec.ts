@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { AgentOsModule } from '../../agent-os/agent-os.module';
 import { AutomationModule } from '../../automation/automation.module';
 import { ProductsModule } from '../../products/products.module';
+import { InventoryModule } from '../../inventory/inventory.module';
 import { ChannelsModule } from '../channels.module';
 import { ChannelRegistrationCapabilityAdapter } from '../adapter/in/agent/channel-registration-capability.adapter';
 import { ChannelAccountRepositoryAdapter } from '../adapter/out/repository/channel-account.repository.adapter';
@@ -43,6 +44,12 @@ import { ChannelCatalogImportRepositoryAdapter } from '../adapter/out/repository
 import { CHANNEL_CATALOG_IMPORT_PORT } from '../application/port/in/channel-catalog-import.port';
 import { CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT } from '../application/port/out/repository/channel-catalog-import.repository.port';
 import { ChannelCatalogImportService } from '../application/service/channel-catalog-import.service';
+import { ChannelSkuMappingController } from '../adapter/in/http/channel-sku-mapping.controller';
+import { ChannelsInventorySkuReadAdapter } from '../adapter/out/inventory/inventory-sku-read.adapter';
+import { ChannelSkuMappingRepositoryAdapter } from '../adapter/out/repository/channel-sku-mapping.repository.adapter';
+import { ChannelSkuMappingService } from '../application/service/channel-sku-mapping.service';
+import { CHANNELS_INVENTORY_SKU_READ_PORT } from '../application/port/out/cross-domain/inventory-sku-read.port';
+import { CHANNEL_SKU_MAPPING_REPOSITORY_PORT } from '../application/port/out/repository/channel-sku-mapping.repository.port';
 
 const IMPORTS_KEY = 'imports';
 const CONTROLLERS_KEY = 'controllers';
@@ -69,6 +76,7 @@ describe('ChannelsModule canonical owner wiring', () => {
     expect(imports).toContain(AgentOsModule);
     expect(imports).toContain(AutomationModule);
     expect(imports).toContain(ProductsModule);
+    expect(imports).toContain(InventoryModule);
   });
 
   it('binds every outgoing port to its local adapter', () => {
@@ -90,6 +98,9 @@ describe('ChannelsModule canonical owner wiring', () => {
     expect(providers).toContain(ChannelRegistrationRuntimeHandler);
     expect(providers).toContain(ChannelCatalogImportService);
     expect(providers).toContain(ChannelCatalogImportRepositoryAdapter);
+    expect(providers).toContain(ChannelSkuMappingService);
+    expect(providers).toContain(ChannelsInventorySkuReadAdapter);
+    expect(providers).toContain(ChannelSkuMappingRepositoryAdapter);
 
     expectBinding(providers, CHANNEL_ACCOUNT_REPOSITORY_PORT, ChannelAccountRepositoryAdapter);
     expectBinding(providers, COUPANG_CREDENTIALS_PORT, ChannelAccountRepositoryAdapter);
@@ -143,6 +154,16 @@ describe('ChannelsModule canonical owner wiring', () => {
       CHANNEL_CATALOG_IMPORT_PORT,
       ChannelCatalogImportService,
     );
+    expectBinding(
+      providers,
+      CHANNELS_INVENTORY_SKU_READ_PORT,
+      ChannelsInventorySkuReadAdapter,
+    );
+    expectBinding(
+      providers,
+      CHANNEL_SKU_MAPPING_REPOSITORY_PORT,
+      ChannelSkuMappingRepositoryAdapter,
+    );
   });
 
   it('registers the account-scoped Wing catalog import controller', () => {
@@ -150,5 +171,12 @@ describe('ChannelsModule canonical owner wiring', () => {
       Reflect.getMetadata(CONTROLLERS_KEY, ChannelsModule) ?? [];
 
     expect(controllers).toContain(ChannelCatalogImportController);
+    expect(controllers).toContain(ChannelSkuMappingController);
+  });
+
+  it('does not export the mapping repository implementation', () => {
+    const exports_: unknown[] = Reflect.getMetadata('exports', ChannelsModule) ?? [];
+    expect(exports_).not.toContain(ChannelSkuMappingRepositoryAdapter);
+    expect(exports_).not.toContain(CHANNEL_SKU_MAPPING_REPOSITORY_PORT);
   });
 });

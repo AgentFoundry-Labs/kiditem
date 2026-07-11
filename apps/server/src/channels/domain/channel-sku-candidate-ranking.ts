@@ -112,7 +112,7 @@ export function statusForUnmappedCandidates(
 export function extractExplicitOptionCodeTokens(optionName: string | null): string[] {
   if (!optionName) return [];
   const tokens = optionName.match(/[A-Za-z0-9]+(?:-[A-Za-z0-9]+)+/g) ?? [];
-  return [...new Set(tokens.filter((token) => /[A-Za-z]/.test(token) && /\d/.test(token)))];
+  return [...new Set(tokens)];
 }
 
 export function normalizeIdentifier(value: string | null): string | null {

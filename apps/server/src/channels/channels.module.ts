@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AgentOsModule } from '../agent-os/agent-os.module';
 import { AutomationModule } from '../automation/automation.module';
 import { ProductsModule } from '../products/products.module';
+import { InventoryModule } from '../inventory/inventory.module';
 import { ChannelRegistrationCapabilityAdapter } from './adapter/in/agent/channel-registration-capability.adapter';
 import { ChannelSyncController } from './adapter/in/http/channel-sync.controller';
 import { ChannelDashboardController } from './adapter/in/http/channel-dashboard.controller';
@@ -10,6 +11,7 @@ import { ChannelAccountController } from './adapter/in/http/channel-account.cont
 import { ChannelAccountListController } from './adapter/in/http/channel-account-list.controller';
 import { ChannelListingController } from './adapter/in/http/channel-listing.controller';
 import { ChannelCatalogImportController } from './adapter/in/http/channel-catalog-import.controller';
+import { ChannelSkuMappingController } from './adapter/in/http/channel-sku-mapping.controller';
 import { CoupangProviderAdapter } from './adapter/out/coupang/coupang-provider.adapter';
 import { ChannelAccountRepositoryAdapter } from './adapter/out/repository/channel-account.repository.adapter';
 import { ChannelDashboardRepositoryAdapter } from './adapter/out/repository/channel-dashboard.repository.adapter';
@@ -23,6 +25,8 @@ import { ChannelReconciliationQueryRepositoryAdapter } from './adapter/out/repos
 import { ChannelReconciliationResolutionRepositoryAdapter } from './adapter/out/repository/channel-reconciliation-resolution.repository.adapter';
 import { ChannelReconciliationScanRepositoryAdapter } from './adapter/out/repository/channel-reconciliation-scan.repository.adapter';
 import { ChannelCatalogImportRepositoryAdapter } from './adapter/out/repository/channel-catalog-import.repository.adapter';
+import { ChannelSkuMappingRepositoryAdapter } from './adapter/out/repository/channel-sku-mapping.repository.adapter';
+import { ChannelsInventorySkuReadAdapter } from './adapter/out/inventory/inventory-sku-read.adapter';
 import { ChannelSyncService } from './application/service/channel-sync.service';
 import { ChannelDashboardService } from './application/service/channel-dashboard.service';
 import { ChannelListingQueryService } from './application/service/channel-listing-query.service';
@@ -35,6 +39,7 @@ import { ChannelReconciliationScanService } from './application/service/channel-
 import { ChannelReconciliationService } from './application/service/channel-reconciliation.service';
 import { ChannelAccountService } from './application/service/channel-account.service';
 import { ChannelCatalogImportService } from './application/service/channel-catalog-import.service';
+import { ChannelSkuMappingService } from './application/service/channel-sku-mapping.service';
 import { COUPANG_PROVIDER_PORT } from './application/port/out/provider/coupang-provider.port';
 import { ChannelsOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { CHANNELS_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
@@ -58,9 +63,11 @@ import {
   CHANNEL_RECONCILIATION_SCAN_REPOSITORY_PORT,
 } from './application/port/out/repository/channel-reconciliation.repository.port';
 import { CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT } from './application/port/out/repository/channel-catalog-import.repository.port';
+import { CHANNEL_SKU_MAPPING_REPOSITORY_PORT } from './application/port/out/repository/channel-sku-mapping.repository.port';
+import { CHANNELS_INVENTORY_SKU_READ_PORT } from './application/port/out/cross-domain/inventory-sku-read.port';
 
 @Module({
-  imports: [AgentOsModule, AutomationModule, ProductsModule],
+  imports: [AgentOsModule, AutomationModule, ProductsModule, InventoryModule],
   controllers: [
     ChannelSyncController,
     ChannelDashboardController,
@@ -69,6 +76,7 @@ import { CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT } from './application/port/out/r
     ChannelAccountListController,
     ChannelListingController,
     ChannelCatalogImportController,
+    ChannelSkuMappingController,
   ],
   providers: [
     ChannelSyncService,
@@ -83,6 +91,7 @@ import { CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT } from './application/port/out/r
     ChannelReconciliationService,
     ChannelAccountService,
     ChannelCatalogImportService,
+    ChannelSkuMappingService,
     ChannelRegistrationCapabilityAdapter,
     ChannelRegistrationRuntimeHandler,
     CoupangProviderAdapter,
@@ -98,6 +107,8 @@ import { CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT } from './application/port/out/r
     ChannelReconciliationResolutionRepositoryAdapter,
     ChannelReconciliationScanRepositoryAdapter,
     ChannelCatalogImportRepositoryAdapter,
+    ChannelSkuMappingRepositoryAdapter,
+    ChannelsInventorySkuReadAdapter,
     { provide: COUPANG_PROVIDER_PORT, useExisting: CoupangProviderAdapter },
     { provide: CHANNELS_OPERATION_ALERT_PORT, useExisting: ChannelsOperationAlertAdapter },
     {
@@ -140,6 +151,14 @@ import { CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT } from './application/port/out/r
     {
       provide: CHANNEL_CATALOG_IMPORT_PORT,
       useExisting: ChannelCatalogImportService,
+    },
+    {
+      provide: CHANNEL_SKU_MAPPING_REPOSITORY_PORT,
+      useExisting: ChannelSkuMappingRepositoryAdapter,
+    },
+    {
+      provide: CHANNELS_INVENTORY_SKU_READ_PORT,
+      useExisting: ChannelsInventorySkuReadAdapter,
     },
   ],
   exports: [ChannelReconciliationService, COUPANG_PROVIDER_PORT],
