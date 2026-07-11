@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { useLayoutEffect, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const listRosterMock = vi.hoisted(() => vi.fn());
@@ -325,6 +325,95 @@ describe('useAgentOffice', () => {
     expect(sendMessageMock).not.toHaveBeenCalled();
     expect(toastErrorMock).toHaveBeenCalledWith(
       '소싱 담당의 실행 설정이 필요합니다.',
+    );
+  });
+
+  it('blocks a stale employee selection during roster refresh after non-empty content exists', async () => {
+    const rosterWithSourcing = {
+      items: [
+        makeAgentRosterItem(),
+        makeAgentRosterItem({
+          definition: {
+            type: 'sourcing',
+            name: 'Sourcing',
+            displayName: '소싱 담당',
+            responsibility: '상품 후보를 선별한다.',
+            officeOrder: 400,
+          },
+          runtime: {
+            ...makeAgentRosterItem().runtime!,
+            instanceId: 'agent-sourcing',
+          },
+        }),
+      ],
+    };
+    const rosterWithoutSourcing = { items: [makeAgentRosterItem()] };
+    let submitWhenSelectionBecomesStale = false;
+
+    listRosterMock.mockResolvedValue(rosterWithSourcing);
+    createConversationMock.mockReturnValue(new Promise(() => {}));
+
+    const { result } = renderHook(
+      () => {
+        const office = useAgentOffice();
+
+        useLayoutEffect(() => {
+          const selectionIsStale =
+            office.selectedNodeId !== null &&
+            !office.model.nodes.some(
+              (node) => node.id === office.selectedNodeId,
+            );
+
+          if (!submitWhenSelectionBecomesStale || !selectionIsStale) return;
+
+          submitWhenSelectionBecomesStale = false;
+          office.submitCommand();
+        }, [office.model.nodes, office.selectedNodeId, office.submitCommand]);
+
+        return office;
+      },
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.selectedNodeId).toBe('manager'));
+
+    act(() => result.current.setSelectedNodeId('sourcing'));
+    listRosterMock.mockResolvedValue(rosterWithoutSourcing);
+    submitWhenSelectionBecomesStale = true;
+    act(() => result.current.refresh());
+
+    await waitFor(() => {
+      expect(submitWhenSelectionBecomesStale).toBe(false);
+    });
+    expect(toastErrorMock).not.toHaveBeenCalled();
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(sendMessageMock).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(result.current.selectedNodeId).toBe('manager'));
+
+    listRosterMock.mockResolvedValue(rosterWithSourcing);
+    act(() => result.current.refresh());
+    await waitFor(() => {
+      expect(
+        result.current.model.nodes.some((node) => node.id === 'sourcing'),
+      ).toBe(true);
+    });
+
+    act(() => {
+      result.current.setSelectedNodeId('sourcing');
+      result.current.setCommand('신규 상품 후보를 정리해줘');
+    });
+    listRosterMock.mockResolvedValue(rosterWithoutSourcing);
+    submitWhenSelectionBecomesStale = true;
+    act(() => result.current.refresh());
+
+    await waitFor(() => {
+      expect(submitWhenSelectionBecomesStale).toBe(false);
+    });
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(sendMessageMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      '선택한 직원을 다시 선택해 주세요.',
     );
   });
 

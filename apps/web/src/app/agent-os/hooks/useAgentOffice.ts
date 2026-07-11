@@ -56,8 +56,11 @@ function preferredConversationId(
 
   if (active[0]) return active[0].id;
 
-  return [...conversations].sort((a, b) => conversationTime(b) - conversationTime(a))[0]
-    ?.id ?? null;
+  return (
+    [...conversations].sort(
+      (a, b) => conversationTime(b) - conversationTime(a),
+    )[0]?.id ?? null
+  );
 }
 
 function shouldPoll(statuses: string[]): boolean {
@@ -95,7 +98,13 @@ export function useAgentOffice() {
     queryKey: [...queryKeys.agents.hq(), 'requests'],
     queryFn: () =>
       agentOsApi.listRequests({
-        status: ['pending', 'claimed', 'requires_approval', 'succeeded', 'failed'],
+        status: [
+          'pending',
+          'claimed',
+          'requires_approval',
+          'succeeded',
+          'failed',
+        ],
         limit: 100,
       }),
     refetchInterval: (query) =>
@@ -106,7 +115,8 @@ export function useAgentOffice() {
 
   const approvalsQuery = useQuery({
     queryKey: [...queryKeys.agents.hq(), 'approvals'],
-    queryFn: () => agentOsApi.listApprovals({ status: ['pending'], limit: 100 }),
+    queryFn: () =>
+      agentOsApi.listApprovals({ status: ['pending'], limit: 100 }),
     refetchInterval: 45_000,
   });
 
@@ -181,7 +191,7 @@ export function useAgentOffice() {
     () =>
       selectedNodeId === null
         ? null
-        : model.nodes.find((node) => node.id === selectedNodeId) ?? null,
+        : (model.nodes.find((node) => node.id === selectedNodeId) ?? null),
     [model.nodes, selectedNodeId],
   );
 
@@ -215,6 +225,11 @@ export function useAgentOffice() {
     });
     if (!content) return;
 
+    if (selectedNodeId !== null && selectedNode === null) {
+      toast.error('선택한 직원을 다시 선택해 주세요.');
+      return;
+    }
+
     const operator =
       model.nodes.find((node) => node.agentType === 'manager') ?? null;
 
@@ -247,7 +262,8 @@ export function useAgentOffice() {
   ];
 
   const isInitialLoadPending = initialQueries.some(
-    (query) => query.isPending && query.data === undefined && query.error == null,
+    (query) =>
+      query.isPending && query.data === undefined && query.error == null,
   );
 
   return {
