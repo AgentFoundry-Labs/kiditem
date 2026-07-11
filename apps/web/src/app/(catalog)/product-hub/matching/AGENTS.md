@@ -1,51 +1,65 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# product-hub/matching — Coupang to KidItem Matching
+# product-hub/matching — Coupang ChannelSku to Sellpia Matching
 
-`app/(catalog)/product-hub/matching/` owns the UI for triaging Coupang Wing rows
-that the channels backend has not auto-linked to `MasterProduct` /
-`ProductOption`. The UI consumes `/api/channels/reconciliation/coupang/*`.
+`app/(catalog)/product-hub/matching/` owns `/product-hub/matching`, the operator
+workspace for importing Coupang Wing product/SKU metadata and confirming which
+Sellpia `InventorySku` rows one channel SKU consumes.
 
 ## Owned Surfaces
 
-- Reconciliation queue tabs
-- Manual link flow to an active `ProductOption`
-- Ignore/re-link flow
-- Image-sync-data queue rebuild button
+- Active ChannelAccount selector; only `channel === 'coupang'` accounts can
+  receive a Wing workbook in release `0.1.8`
+- Coupang Wing catalog upload
+- Server-paged all/unmatched/needs-review/matched queue
+- Live Sellpia candidate search and multi-component recipe editor
+- Explicit confirmed unmap flow
 
 ## Data Flow
 
 ```text
 React Query + apiClient
-  -> /api/channels/reconciliation/coupang/*
-  -> queue tabs and detail actions
-  -> backend creates/updates ChannelListing links
+  -> GET /api/channels/accounts
+  -> POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing
+  -> GET /api/channels/sku-mappings
+  -> POST /api/channels/sku-mappings/status-refresh
+  -> GET /api/channels/sku-mappings/:channelSkuId/candidates
+  -> PUT /api/channels/sku-mappings/:channelSkuId/components
 ```
 
 ## State Rules
 
-- Tabs map to backend status filters.
-- The `자동 연결` tab is a client-side slice over `linked` with
-  `resolutionSource = auto_legacy_code`.
-- Manual link searches active product options through
-  `/api/products/options`.
-- Ignore uses the shared `ConfirmDialog`; re-link is allowed from the ignored
-  tab.
+- React Query owns accounts, server-paged rows, candidates, status refresh,
+  catalog import, and component replacement. Do not mirror server state in
+  Zustand.
+- Candidate rows are live computed suggestions and are never auto-saved.
+- The dialog owns a local complete-recipe draft. Adding a candidate defaults
+  its quantity to `1`; saving requires one or more unique InventorySku rows
+  with positive integer quantities.
+- `PUT .../components` replaces the whole recipe atomically. Normal save sends
+  a nonempty recipe; the separate confirmed `매칭 해제` action sends
+  `{ components: [] }`.
+- A successful Wing import refreshes the imported account's advisory statuses,
+  then invalidates server-paged matching lists.
 
 ## Cross-Domain Dependencies
 
-- `@kiditem/shared/channel-reconciliation` provides item, summary, and scan
-  request/response schemas.
-- `@/app/(catalog)/product-hub/options/lib/product-options-api` provides product
-  option search.
+- `@kiditem/shared/channel-account` provides account selector metadata.
+- `@kiditem/shared/source-import` provides Wing import results.
+- `@kiditem/shared/channel-sku-matching` provides mapping rows, candidate
+  reasons, status counts, replacement input, and the 50-component limit.
 
 ## Boundary Rules
 
 - All API calls go through `apiClient` + React Query.
 - Do not send `organizationId`; backend session scope owns it.
-- The sync-from-image-listings button rebuilds only from active Coupang
-  listings with `coupang-wing` master images.
-- Do not pull ad, traffic, raw snapshot, or catalog-coverage rows into the
-  reconciliation queue.
-- Backend may create missing `ChannelListing`/option links on confirm; no
-  `MasterProduct` is ever created from a Coupang row here.
+- Do not load the complete queue into browser memory; use server page, search,
+  status, and account parameters.
+- Do not expose raw JSON or inputs for Sellpia reported stock, Sellpia prices,
+  or channel prices. Component quantity is the only editable number.
+- Do not infer component quantity from option or bundle text.
+- Coupang image synchronization is unrelated and must not create or refresh
+  ChannelSku matching rows or UI copy.
+- Rocket catalog, purchase-order, and order handling is outside this route.
+- See the [operator runbook](../../../../../../../docs/runbooks/channel-sellpia-matching.md)
+  for import order, accepted local files, recovery, and baseline counts.

@@ -87,12 +87,12 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/analytics` | Owner Read Model | Dashboard, statistics, traffic, and supplier-stats reporting. |
 | `apps/server/src/auth` | Platform Capability | Guards, decorators, middleware, and `/api/auth/me`. |
 | `apps/server/src/automation` | Platform | Workflows, alerts, action board, marketplace install, and panel projection. |
-| `apps/server/src/channels` | Owner Domain | Marketplace account, listing, order, return, sync, and reconciliation provider boundaries. |
+| `apps/server/src/channels` | Owner Domain | Marketplace account, listing, order, return, catalog import, sync, and ChannelSku-to-Sellpia component matching boundaries. |
 | `apps/server/src/chat` | Platform Capability | CopilotKit bridge and Claude CLI adapter. |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
 | `apps/server/src/finance` | Owner Domain | P&L, sales analysis, manual ledger, costs, payments, plans, settlements. |
-| `apps/server/src/inventory` | Owner Domain | Stock, unshipped, warehouses, transfers, audits, and picking. |
+| `apps/server/src/inventory` | Owner Domain | Stock, Sellpia InventorySku snapshot import/read, unshipped, warehouses, transfers, audits, and picking. |
 | `apps/server/src/orders` | Owner Domain | Orders, returns, CS, reviews, and return-transfer operations. |
 | `apps/server/src/organizations` | Platform Capability | Organization listing surface. |
 | `apps/server/src/operation-cancellation` | Platform | Cross-owner durable cancellation endpoint and orchestration. |
@@ -124,7 +124,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/analytics/supplier-stats` | Flat | supplier report service. |
 | `apps/server/src/auth` | Flat | guards/decorators/middleware/controller. |
 | `apps/server/src/automation` | Hexagonal | port/adapter lanes complete; 6 outgoing repository ports + `OPERATION_ALERT_PORT` owner-side incoming port published from `application/port/in/` for cross-domain producers; architecture + module wiring specs freeze invariants; `WorkflowRunnerService` PrismaService carve-out documented for the executor framework. |
-| `apps/server/src/channels` | Hexagonal | provider APIs use `application/port/out` plus `adapter/out/coupang`. |
+| `apps/server/src/channels` | Hexagonal | Provider APIs use `application/port/out` plus `adapter/out/coupang`; catalog import and matching use repository ports plus an Inventory-owned read-port bridge. |
 | `apps/server/src/channels/adapters` | Flat | compatibility shims only; new provider work uses `adapter/out/coupang/`. |
 | `apps/server/src/chat` | Flat | controller/service/Claude CLI adapter. |
 | `apps/server/src/feature-gate` | Flat | endpoint/config capability. |
@@ -178,7 +178,7 @@ Initial domain capability targets:
 | `ai` | Workspace/generation/detail-page read context. | OCR, image classification, image/text/detail generation, vision analysis. | Media generation jobs and post-promotion content generation. | Generation output projection, asset usage projection, workspace archive. |
 | `finance` | Margin, commission, cost, settlement, and plan lookups. | Margin/category profitability calculations, pandas-style research adapters when needed. | Reconciliation and profitability analysis runs. | Manual ledger entries, settlement/payment projections. |
 | `products` | Master product, option, bundle, preparation, and category reads. | Catalog normalization and compatibility helpers. | Candidate-to-master preparation flows when deterministic. | Master creation/update, option/bundle writes, preparation attachment. |
-| `channels` | Channel account/listing/order/status reads. | Marketplace provider calls, listing validation, Wing/Coupang browser runtime steps. | Product registration/listing sync/reconciliation flows. | Listing registration/update projection, channel order/status ingestion. |
+| `channels` | Channel account/listing/order/status reads. | Marketplace provider calls, listing validation, Wing/Coupang browser runtime steps. | Product registration/listing sync and ChannelSku component-matching flows. | Listing registration/update projection, channel order/status ingestion. |
 | `rules` | Rule set and evaluation context reads. | Rule evaluation/suggestion tools that may invoke Agent OS from rules entrypoints. | Scheduled policy sweeps when deterministic. | Rule/action recommendation projection. |
 | `advertising` | Ad account/campaign/daily fact reads. | Scrape ingest normalization, strategy metrics calculations. | Daily fact ingest and deterministic alert workflows. | Ad fact/action/strategy projections. |
 | `supply` | Supplier, supplier-product, and purchase-order reads. | Supplier matching, procurement calculation helpers. | Purchase-order preparation/approval flows. | Supplier attach, purchase-order creation/update. |
@@ -389,6 +389,61 @@ groups or ungrouped routes.
 Frontend route code must not add `app/api/**/route.ts`, import Prisma/`pg`/DB
 clients, send `organizationId` in API payloads, or call backend APIs with raw
 `fetch`.
+
+## Sellpia And Channel SKU Matching (`0.1.8`)
+
+Inventory owns the Sellpia source snapshot and read capability. Channels owns
+marketplace catalog metadata, live candidate ranking, and confirmed component
+recipes. This keeps a copied Sellpia stock number separate from marketplace
+product identity and prevents a matching action from becoming a stock write.
+
+Release `0.1.8` promotes existing channel rows without renaming their Prisma
+models or tables. Keeping those compatibility names avoids forcing unrelated
+Orders, Advertising, Supply, Review, and AI consumers through a same-release
+identity migration:
+
+| Logical contract | Prisma compatibility model | Physical table | Identity rule |
+|---|---|---|---|
+| `ChannelProduct` | `ChannelListing` | `channel_listings` | Preserve the existing UUID; import by organization + account + external product ID. |
+| `ChannelSku` | `ChannelListingOption` | `channel_listing_options` | Preserve the existing UUID; import by organization + account + external SKU ID. |
+| `InventorySku` | `InventorySku` | `inventory_skus` | One Sellpia product-code row per organization. |
+| `ChannelSkuComponent` | `ChannelSkuComponent` | `channel_sku_components` | One confirmed component row per ChannelSku + InventorySku, with a positive quantity. |
+| `SourceImportRun` | `SourceImportRun` | `source_import_runs` | File provenance and SHA-256 idempotency scoped by organization, source, and account/null account. |
+
+```text
+Sellpia complete export
+  -> POST /api/inventory/sellpia-sync/import
+  -> InventorySku full snapshot replacement
+  -> absent known Sellpia codes reportedStock = 0
+
+Coupang Wing detail export + active channel='coupang' account
+  -> POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing
+  -> ChannelProduct / ChannelSku metadata upsert
+  -> existing ChannelSkuComponent recipes preserved
+
+/product-hub/matching
+  -> GET /api/channels/sku-mappings
+  -> POST /api/channels/sku-mappings/status-refresh
+  -> GET /api/channels/sku-mappings/:channelSkuId/candidates
+  -> operator confirms a complete recipe
+  -> PUT /api/channels/sku-mappings/:channelSkuId/components
+```
+
+Candidates are computed from current ChannelSku evidence and current
+InventorySku metadata. They are suggestions, not persisted truth, and are never
+auto-confirmed. A nonempty `ChannelSkuComponent` recipe is the only confirmed
+mapping; an explicit empty replacement unmaps the SKU. Component replacement
+does not mutate `InventorySku.reportedStock`, legacy `Inventory`, stock
+transactions, bundle stock, or Rocket ledgers.
+
+Coupang image synchronization remains a separate media workflow and neither
+feeds nor refreshes the matching queue. Rocket catalog ingestion, purchase-order
+decisions, and order processing are outside the `0.1.8` matching release; the
+reserved future account code is `rocket`, distinct from Wing's `coupang`.
+
+Operational upload order, recovery rules, expected counts, and verification
+commands live in the
+[channel/Sellpia matching runbook](runbooks/channel-sellpia-matching.md).
 
 ## Data And Tenant Rules
 

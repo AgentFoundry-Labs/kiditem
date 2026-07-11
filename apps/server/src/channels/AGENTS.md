@@ -34,9 +34,12 @@ channels/
 ## Main Data Models
 
 - `ChannelAccount` is the marketplace/store identity.
-- `ChannelListing` connects marketplace products to `MasterProduct`.
-- `ChannelListingOption` stores marketplace SKU metadata and advisory matching
-  status; its legacy `optionId` is not matching truth.
+- In release `0.1.8`, logical `ChannelProduct` keeps the Prisma compatibility
+  name `ChannelListing` and physical table `channel_listings`.
+- In release `0.1.8`, logical `ChannelSku` keeps the Prisma compatibility name
+  `ChannelListingOption` and physical table `channel_listing_options`. It
+  stores marketplace SKU metadata and advisory matching status; its legacy
+  `optionId` is not matching truth.
 - `ChannelSkuComponent` is the confirmed mapping from one marketplace SKU to
   one or more Sellpia `InventorySku` rows and quantities.
 - Channel daily snapshots and scrape audit rows support dashboard/reporting
@@ -60,6 +63,19 @@ Sellpia component matching reads only completed `coupang_wing_catalog` rows.
 Channels owns candidate ranking and atomic component replacement; Inventory
 owns the exported read-only `INVENTORY_SKU_READ_PORT`. Candidate rows are live
 suggestions only and are never persisted or auto-confirmed.
+
+## Fixed Import + Matching APIs
+
+- `POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing`
+- `GET /api/channels/sku-mappings`
+- `POST /api/channels/sku-mappings/status-refresh`
+- `GET /api/channels/sku-mappings/:channelSkuId/candidates`
+- `PUT /api/channels/sku-mappings/:channelSkuId/components`
+
+`PUT .../components` replaces the complete recipe. A nonempty recipe is
+confirmed truth; an empty recipe is the explicit unmap operation. See the
+[operator runbook](../../../../docs/runbooks/channel-sellpia-matching.md) for
+the supported workflow and verification counts.
 
 ## Cross-Domain Ports
 
@@ -90,6 +106,11 @@ suggestions only and are never persisted or auto-confirmed.
 - Confirmed ChannelSku component replacement validates tenant ownership before
   deletion, then locks, deletes, recreates, and updates status atomically. It
   never writes `InventorySku.reportedStock` or legacy inventory balances.
+- Coupang image synchronization is a separate media workflow. It does not
+  create, refresh, or confirm ChannelSku matching rows.
+- Rocket catalog ingestion, purchase-order decisions, and order processing are
+  outside the `0.1.8` matching surface. A future Rocket account uses
+  `channel='rocket'`; never infer Wing or Rocket from the account name.
 
 ## Transitional Exceptions
 
