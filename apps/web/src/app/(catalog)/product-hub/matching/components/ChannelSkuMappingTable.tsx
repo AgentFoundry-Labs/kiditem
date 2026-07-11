@@ -1,12 +1,12 @@
 'use client';
 
 import { Loader2, Pencil } from 'lucide-react';
+import { Pagination } from '@/components/ui/Pagination';
+import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import type {
   ChannelSkuMappingListItem,
   ChannelSkuMappingStatus,
 } from '@kiditem/shared/channel-sku-matching';
-import { Pagination } from '@/components/ui/Pagination';
-import { cn, formatKRW, formatNumber } from '@/lib/utils';
 
 type ChannelSkuMappingTableProps = {
   items: ChannelSkuMappingListItem[];

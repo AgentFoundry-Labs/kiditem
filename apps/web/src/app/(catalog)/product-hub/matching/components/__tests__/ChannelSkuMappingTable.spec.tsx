@@ -1,9 +1,9 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import type { ChannelSkuMappingListItem } from '@kiditem/shared/channel-sku-matching';
 import { ChannelSkuMappingTable } from '../ChannelSkuMappingTable';
 import { MappingStatusTabs } from '../MappingStatusTabs';
+import type { ChannelSkuMappingListItem } from '@kiditem/shared/channel-sku-matching';
 
 const item: ChannelSkuMappingListItem = {
   channelAccount: {

@@ -1,10 +1,10 @@
 'use client';
 
+import { cn, formatNumber } from '@/lib/utils';
 import type {
   ChannelSkuMappingCounts,
   ChannelSkuMappingStatus,
 } from '@kiditem/shared/channel-sku-matching';
-import { cn, formatNumber } from '@/lib/utils';
 
 export type MappingStatusFilter = ChannelSkuMappingStatus | 'all';
 

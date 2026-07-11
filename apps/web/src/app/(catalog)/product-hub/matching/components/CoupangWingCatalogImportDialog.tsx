@@ -3,11 +3,11 @@
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { FileSpreadsheet, Loader2, X } from 'lucide-react';
-import type { ChannelAccountListItem } from '@kiditem/shared/channel-account';
-import type { CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
 import { friendlyError } from '@/lib/api-error';
 import { formatNumber } from '@/lib/utils';
 import { useImportCoupangWingCatalog } from '../hooks/useChannelSkuMappings';
+import type { CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
+import type { ChannelAccountListItem } from '@kiditem/shared/channel-account';
 
 type CoupangWingCatalogImportDialogProps = {
   open: boolean;

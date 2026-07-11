@@ -165,6 +165,35 @@ describe('channel SKU matching hooks', () => {
     await waitFor(() => expect(result.current.data?.page).toBe(2));
   });
 
+  it('does not show a previous account row while another account loads', async () => {
+    const nextAccount = deferred<typeof emptyResponse>();
+    vi.mocked(listChannelSkuMappings)
+      .mockResolvedValueOnce({ ...emptyResponse, page: 1, total: 1 })
+      .mockReturnValueOnce(nextAccount.promise);
+    const client = createClient();
+    let channelAccountId = ACCOUNT_ID;
+
+    const { result, rerender } = renderHook(
+      () =>
+        useChannelSkuMappings({
+          accountMode: 'selected',
+          channelAccountId,
+          mappingStatus: 'all',
+          search: '',
+          page: 1,
+          limit: 50,
+        }),
+      { wrapper: wrapper(client) },
+    );
+
+    await waitFor(() => expect(result.current.data?.total).toBe(1));
+    channelAccountId = '99999999-9999-4999-8999-999999999999';
+    rerender();
+
+    await waitFor(() => expect(result.current.isFetching).toBe(true));
+    expect(result.current.data).toBeUndefined();
+  });
+
   it('does not load candidates while the component dialog is closed', () => {
     const client = createClient();
 

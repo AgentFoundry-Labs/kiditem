@@ -1,14 +1,14 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ChannelAccountListItem } from '@kiditem/shared/channel-account';
-import type { ChannelSkuMappingListItem } from '@kiditem/shared/channel-sku-matching';
 import {
   useChannelAccounts,
   useChannelSkuMappings,
   useRefreshChannelSkuMappingStatuses,
 } from './hooks/useChannelSkuMappings';
 import MatchingPage from './page';
+import type { ChannelAccountListItem } from '@kiditem/shared/channel-account';
+import type { ChannelSkuMappingListItem } from '@kiditem/shared/channel-sku-matching';
 
 vi.mock('./hooks/useChannelSkuMappings', () => ({
   useChannelAccounts: vi.fn(),

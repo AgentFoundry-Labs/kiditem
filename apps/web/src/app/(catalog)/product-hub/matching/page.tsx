@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, RefreshCw, Search, Upload } from 'lucide-react';
 import { toast } from 'sonner';
-import type { ChannelSkuMappingCounts, ChannelSkuMappingListItem } from '@kiditem/shared/channel-sku-matching';
 import { friendlyError } from '@/lib/api-error';
 import { ChannelSkuComponentDialog } from './components/ChannelSkuComponentDialog';
 import { ChannelSkuMappingTable } from './components/ChannelSkuMappingTable';
@@ -17,6 +16,7 @@ import {
   useChannelSkuMappings,
   useRefreshChannelSkuMappingStatuses,
 } from './hooks/useChannelSkuMappings';
+import type { ChannelSkuMappingCounts, ChannelSkuMappingListItem } from '@kiditem/shared/channel-sku-matching';
 
 const PAGE_LIMIT = 50;
 const SEARCH_DEBOUNCE_MS = 300;

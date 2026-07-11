@@ -2,16 +2,16 @@ import { useState } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  ChannelSkuMappingComponent,
-  ChannelSkuMappingListItem,
-  ChannelSkuMatchCandidate,
-} from '@kiditem/shared/channel-sku-matching';
 import {
   useChannelSkuCandidates,
   useReplaceChannelSkuComponents,
 } from '../../hooks/useChannelSkuMappings';
 import { ChannelSkuComponentDialog } from '../ChannelSkuComponentDialog';
+import type {
+  ChannelSkuMappingComponent,
+  ChannelSkuMappingListItem,
+  ChannelSkuMatchCandidate,
+} from '@kiditem/shared/channel-sku-matching';
 
 vi.mock('../../hooks/useChannelSkuMappings', () => ({
   useChannelSkuCandidates: vi.fn(),

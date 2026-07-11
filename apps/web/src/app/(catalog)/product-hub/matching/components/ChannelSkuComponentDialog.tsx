@@ -4,10 +4,6 @@ import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Loader2, Plus, Search, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
-import type {
-  ChannelSkuMappingListItem,
-  ChannelSkuMatchCandidateReason,
-} from '@kiditem/shared/channel-sku-matching';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { friendlyError } from '@/lib/api-error';
 import { cn, formatNumber } from '@/lib/utils';
@@ -23,6 +19,10 @@ import {
   serializeComponentDraft,
   updateDraftQuantity,
 } from '../lib/component-draft';
+import type {
+  ChannelSkuMappingListItem,
+  ChannelSkuMatchCandidateReason,
+} from '@kiditem/shared/channel-sku-matching';
 
 type ChannelSkuComponentDialogProps = {
   open: boolean;

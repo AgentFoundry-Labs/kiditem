@@ -1,10 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ChannelAccountListItem } from '@kiditem/shared/channel-account';
-import type { CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
 import { useImportCoupangWingCatalog } from '../../hooks/useChannelSkuMappings';
 import { CoupangWingCatalogImportDialog } from '../CoupangWingCatalogImportDialog';
+import type { ChannelAccountListItem } from '@kiditem/shared/channel-account';
+import type { CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
 
 vi.mock('../../hooks/useChannelSkuMappings', () => ({
   useImportCoupangWingCatalog: vi.fn(),

@@ -1,16 +1,10 @@
 'use client';
 
 import {
-  keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query';
-import type {
-  ChannelSkuMappingStatus,
-  RefreshChannelSkuMappingStatusInput,
-  ReplaceChannelSkuComponentsInput,
-} from '@kiditem/shared/channel-sku-matching';
 import { queryKeys } from '@/lib/query-keys';
 import {
   importCoupangWingCatalog,
@@ -20,6 +14,11 @@ import {
   refreshChannelSkuMappingStatuses,
   replaceChannelSkuComponents,
 } from '../lib/channel-sku-matching-api';
+import type {
+  ChannelSkuMappingStatus,
+  RefreshChannelSkuMappingStatusInput,
+  ReplaceChannelSkuComponentsInput,
+} from '@kiditem/shared/channel-sku-matching';
 
 type UseChannelSkuMappingsParams = {
   accountMode: 'selected' | 'all';
@@ -39,6 +38,24 @@ type ImportCoupangWingCatalogVariables = {
   channelAccountId: string;
   file: File;
 };
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isNextPageInSameScope(
+  current: Record<string, string>,
+  previousQueryKey: readonly unknown[] | undefined,
+): boolean {
+  const previous = previousQueryKey?.[2];
+  if (!isStringRecord(previous) || previous.page === current.page) return false;
+  return (
+    previous.channelAccountId === current.channelAccountId &&
+    previous.mappingStatus === current.mappingStatus &&
+    previous.search === current.search &&
+    previous.limit === current.limit
+  );
+}
 
 export function useChannelAccounts() {
   return useQuery({
@@ -68,7 +85,10 @@ export function useChannelSkuMappings(params: UseChannelSkuMappingsParams) {
         limit: params.limit,
       }),
     enabled: params.accountMode === 'all' || Boolean(params.channelAccountId),
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData, previousQuery) =>
+      isNextPageInSameScope(keyParams, previousQuery?.queryKey)
+        ? previousData
+        : undefined,
   });
 }
 
