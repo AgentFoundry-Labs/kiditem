@@ -53,18 +53,28 @@ export class MarketplaceRegistrationRepositoryAdapter
         isDeleted: false,
         deletedAt: null,
       };
-      if (existing) {
-        return tx.channelListing.update({
-          where: { id: existing.id },
-          data,
-        });
-      }
-      return tx.channelListing.create({
-        data: {
-          organizationId,
-          ...data,
-        },
-      });
+      const listing = existing
+        ? await tx.channelListing.update({
+            where: { id: existing.id },
+            data,
+          })
+        : await tx.channelListing.create({
+            data: {
+              organizationId,
+              ...data,
+            },
+          });
+
+      return {
+        id: listing.id,
+        masterId: master.id,
+        channel: listing.channel,
+        channelAccountId: listing.channelAccountId,
+        externalId: listing.externalId,
+        channelName: listing.channelName,
+        channelPrice: listing.channelPrice,
+        status: listing.status,
+      };
     });
   }
 }

@@ -155,10 +155,19 @@ export class AdCampaignRepositoryAdapter
     if (listingIds.length === 0) return totals;
 
     const listings = await this.prisma.channelListing.findMany({
-      where: { id: { in: listingIds }, organizationId, isDeleted: false },
+      where: {
+        id: { in: listingIds },
+        organizationId,
+        isDeleted: false,
+        masterId: { not: null },
+      },
       select: { id: true, masterId: true },
     });
-    const masterIds = Array.from(new Set(listings.map((l) => l.masterId)));
+    const linkedListings = listings.filter(
+      (listing): listing is (typeof listings)[number] & { masterId: string } =>
+        listing.masterId !== null,
+    );
+    const masterIds = Array.from(new Set(linkedListings.map((l) => l.masterId)));
     const masters =
       masterIds.length > 0
         ? await this.prisma.masterProduct.findMany({
@@ -166,14 +175,13 @@ export class AdCampaignRepositoryAdapter
             select: { id: true, abcGrade: true },
           })
         : [];
-    const listingMap = new Map(listings.map((l) => [l.id, l]));
+    const listingMap = new Map(linkedListings.map((l) => [l.id, l]));
     const masterMap = new Map(masters.map((m) => [m.id, m]));
 
     for (const row of rows) {
       const listing = row.listingId ? listingMap.get(row.listingId) : null;
-      const grade = listing
-        ? masterMap.get(listing.masterId)?.abcGrade
-        : null;
+      if (!listing?.masterId) continue;
+      const grade = masterMap.get(listing.masterId)?.abcGrade;
       if (grade === 'A' || grade === 'B' || grade === 'C') {
         totals[grade] += row.adSpend;
       }

@@ -334,7 +334,12 @@ export class AdStrategyContextRepositoryAdapter
   ): Promise<HydratedListing[]> {
     if (listingIds.length === 0) return [];
     const rows = await this.prisma.channelListing.findMany({
-      where: { id: { in: listingIds }, organizationId, isDeleted: false },
+      where: {
+        id: { in: listingIds },
+        organizationId,
+        isDeleted: false,
+        masterId: { not: null },
+      },
       select: {
         id: true,
         externalId: true,
@@ -351,10 +356,14 @@ export class AdStrategyContextRepositoryAdapter
         },
       },
     });
-    const masterIds = Array.from(new Set(rows.map((r) => r.masterId)));
+    const linkedRows = rows.filter(
+      (row): row is (typeof rows)[number] & { masterId: string } =>
+        row.masterId !== null,
+    );
+    const masterIds = Array.from(new Set(linkedRows.map((r) => r.masterId)));
     const optionIds = Array.from(
       new Set(
-        rows
+        linkedRows
           .flatMap((r) => r.options.map((option) => option.optionId))
           .filter((id): id is string => id != null),
       ),
@@ -389,8 +398,9 @@ export class AdStrategyContextRepositoryAdapter
     ]);
     const masterMap = new Map(masters.map((master) => [master.id, master]));
     const optionMap = new Map(productOptions.map((option) => [option.id, option]));
-    return rows
+    return linkedRows
       .map((r): HydratedListing | null => {
+        if (!r.masterId) return null;
         const master = masterMap.get(r.masterId);
         if (!master) return null;
         const firstClo =

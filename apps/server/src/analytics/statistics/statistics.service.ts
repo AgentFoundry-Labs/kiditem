@@ -338,11 +338,12 @@ export class StatisticsService {
 
     const masterMap = new Map<string, { productName: string; category: string | null; customers: Set<string>; orderCount: number }>();
     for (const l of lines) {
-      const mid = l.listingOption?.listing?.masterId;
-      if (!mid) continue;
+      const listing = l.listingOption?.listing;
+      if (!listing?.masterId || !listing.master) continue;
+      const mid = listing.masterId;
       const entry = masterMap.get(mid) ?? {
-        productName: l.listingOption?.listing?.master.name ?? '',
-        category: l.listingOption?.listing?.master.category ?? null,
+        productName: listing.master.name,
+        category: listing.master.category ?? null,
         customers: new Set<string>(),
         orderCount: 0,
       };

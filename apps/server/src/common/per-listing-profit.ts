@@ -131,7 +131,7 @@ export async function buildPerListingMetrics(
 
     for (const li of o.lineItems) {
       const listing = li.listingOption?.listing;
-      if (!listing) continue;
+      if (!listing?.master) continue;
       const key = listing.id;
 
       let g = groups.get(key);

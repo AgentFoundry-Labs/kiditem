@@ -397,6 +397,90 @@ describe('Statistics flow (PG integration)', () => {
     expect(result.repeatProducts.map((item) => item.masterId)).not.toContain(masterM1);
   });
 
+  it('repurchase skips order lines for an imported ChannelProduct without a MasterProduct', async () => {
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Active Wing account',
+        externalAccountId: 'WING-ACCOUNT-REPURCHASE',
+        status: 'active',
+      },
+      select: { id: true },
+    });
+    const importRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'coupang_wing_catalog',
+        channelAccountId: account.id,
+        fileName: 'wing-products-repurchase.xlsx',
+        fileHash: 'wing-products-repurchase',
+        status: 'completed',
+        rowCount: 1,
+        importedAt: new Date('2026-04-14T00:00:00.000Z'),
+      },
+      select: { id: true },
+    });
+    const listing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        masterId: null,
+        channel: 'coupang',
+        externalId: 'EXT-UNLINKED-REPURCHASE',
+        channelName: 'Wing import only',
+        status: 'active',
+        lastImportRunId: importRun.id,
+      },
+      select: { id: true },
+    });
+    const listingOption = await prisma.channelListingOption.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        listingId: listing.id,
+        optionId: null,
+        externalOptionId: 'VI-UNLINKED-REPURCHASE',
+        lastImportRunId: importRun.id,
+      },
+      select: { id: true },
+    });
+
+    for (const [index, receiverName] of ['A', 'B'].entries()) {
+      const order = await prisma.order.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          platform: 'coupang',
+          externalOrderId: `REPURCHASE-UNLINKED-${index + 1}`,
+          orderedAt: new Date(`2026-04-${15 + index}T03:00:00.000Z`),
+          status: 'accepted',
+          shippingPrice: 0,
+          totalPrice: 10_000,
+          receiverName,
+          listingId: listing.id,
+        },
+        select: { id: true },
+      });
+      await prisma.orderLineItem.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          orderId: order.id,
+          listingOptionId: listingOption.id,
+          optionId: null,
+          productName: 'Wing import only',
+          quantity: 1,
+          unitPrice: 10_000,
+          totalPrice: 10_000,
+          externalLineId: `LI-UNLINKED-REPURCHASE-${index + 1}`,
+        },
+      });
+    }
+
+    const result = await service.repurchase(TEST_ORGANIZATION_ID, '2026-04');
+
+    expect(result.repeatProducts).toEqual([]);
+  });
+
   it('never leaks other-organization live metrics into the requested tenant', async () => {
     await seedStatisticsFixture(TEST_ORGANIZATION_ID);
     const other = await seedStatisticsFixture(OTHER_ORGANIZATION_ID);

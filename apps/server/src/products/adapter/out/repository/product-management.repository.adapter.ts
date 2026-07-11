@@ -22,6 +22,12 @@ import type { MasterWithImageRows } from '../../../application/port/out/reposito
 import { MASTER_WITH_IMAGES } from './master-product.query';
 import { buildProductManagementMasterWhere } from './product-management.filters';
 
+function hasMasterId<T extends { masterId: string | null }>(
+  row: T,
+): row is T & { masterId: string } {
+  return row.masterId !== null;
+}
+
 @Injectable()
 export class ProductManagementRepositoryAdapter implements ProductManagementRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
@@ -71,10 +77,14 @@ export class ProductManagementRepositoryAdapter implements ProductManagementRepo
   async findChannelLinkedMasterIds(organizationId: string, masterIds: string[]): Promise<string[]> {
     if (masterIds.length === 0) return [];
     const rows = await this.prisma.channelListing.findMany({
-      where: { organizationId, masterId: { in: masterIds }, isDeleted: false },
+      where: {
+        organizationId,
+        masterId: { in: masterIds, not: null },
+        isDeleted: false,
+      },
       select: { masterId: true },
     });
-    return rows.map((row) => row.masterId);
+    return rows.filter(hasMasterId).map((row) => row.masterId);
   }
 
   findStockOptionRows(organizationId: string, masterIds?: string[]): Promise<StockOptionRow[]> {
@@ -116,15 +126,18 @@ export class ProductManagementRepositoryAdapter implements ProductManagementRepo
     }) as unknown as Promise<InventoryOptionRow[]>;
   }
 
-  findStatusListingRows(organizationId: string, masterIds?: string[]): Promise<StatusListingRow[]> {
-    return this.prisma.channelListing.findMany({
+  async findStatusListingRows(organizationId: string, masterIds?: string[]): Promise<StatusListingRow[]> {
+    const rows = await this.prisma.channelListing.findMany({
       where: {
         organizationId,
         isDeleted: false,
-        ...(masterIds ? { masterId: { in: masterIds } } : {}),
+        masterId: masterIds
+          ? { in: masterIds, not: null }
+          : { not: null },
       },
       select: { masterId: true, status: true, exposureStatus: true },
     });
+    return rows.filter(hasMasterId);
   }
 
   findManagementOptionRows(organizationId: string, masterIds: string[]): Promise<ManagementOptionRow[]> {
@@ -143,9 +156,13 @@ export class ProductManagementRepositoryAdapter implements ProductManagementRepo
     }) as unknown as Promise<ManagementOptionRow[]>;
   }
 
-  findManagementListingRows(organizationId: string, masterIds: string[]): Promise<ManagementListingRow[]> {
-    return this.prisma.channelListing.findMany({
-      where: { organizationId, masterId: { in: masterIds }, isDeleted: false },
+  async findManagementListingRows(organizationId: string, masterIds: string[]): Promise<ManagementListingRow[]> {
+    const rows = await this.prisma.channelListing.findMany({
+      where: {
+        organizationId,
+        masterId: { in: masterIds, not: null },
+        isDeleted: false,
+      },
       orderBy: [{ createdAt: 'asc' }],
       select: {
         id: true,
@@ -155,6 +172,7 @@ export class ProductManagementRepositoryAdapter implements ProductManagementRepo
         channelPrice: true,
       },
     });
+    return rows.filter(hasMasterId);
   }
 
   async groupMetricsByListing(
@@ -281,11 +299,13 @@ export class ProductManagementRepositoryAdapter implements ProductManagementRepo
         organizationId,
         id: { in: listingIds },
         isDeleted: false,
-        ...(masterIds ? { masterId: { in: masterIds } } : {}),
+        masterId: masterIds
+          ? { in: masterIds, not: null }
+          : { not: null },
       },
       select: { masterId: true },
     });
-    return listings.map((listing) => listing.masterId);
+    return listings.filter(hasMasterId).map((listing) => listing.masterId);
   }
 
   async findMasterIdsForOptions(

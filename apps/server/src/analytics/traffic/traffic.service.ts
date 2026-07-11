@@ -182,7 +182,7 @@ export class TrafficService {
 
         const listing = listingMap.get(row.listingId);
         if (!listing) continue;
-        const option = listing.master.options[0];
+        const option = listing.master?.options[0];
         if (!option) continue;
 
         const resolved = resolvePricing({ option });
@@ -285,7 +285,7 @@ export class TrafficService {
       if (salesQty === 0) continue;
       const listing = listingMap.get(row.listingId);
       if (!listing) continue;
-      const option = listing.master.options[0];
+      const option = listing.master?.options[0];
       if (!option) continue;
       const resolved = resolvePricing({ option });
       const commRate = resolved.commissionRate || 0.108;

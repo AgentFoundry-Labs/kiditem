@@ -54,6 +54,34 @@ describe('MasterCatalogAdapter', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
+  it('ignores an imported ChannelProduct without a MasterProduct in master lookup', async () => {
+    const { adapter, prisma } = buildAdapter();
+    prisma.channelListing.findMany.mockResolvedValueOnce([
+      {
+        id: 'imported-listing-1',
+        externalId: 'WING-UNLINKED',
+        channelAccountId: 'account-1',
+        masterId: null,
+        master: null,
+        lastImportRunId: 'wing-import-1',
+      },
+    ] as never);
+
+    const handle = await adapter.findCoupangMaster({
+      organizationId: '00000000-0000-0000-0000-0000000c0001',
+      inventoryId: 'WING-UNLINKED',
+      name: 'Wing import only',
+    });
+
+    expect(prisma.channelListing.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ masterId: { not: null } }),
+      }),
+    );
+    expect(prisma.channelListing.updateMany).not.toHaveBeenCalled();
+    expect(handle).toBeNull();
+  });
+
   it('connects an unmatched Coupang listing to the active account when legacyCode matches', async () => {
     const { adapter, prisma } = buildAdapter();
     prisma.channelAccount.findFirst.mockResolvedValueOnce({ id: 'account-1' });
@@ -196,6 +224,33 @@ describe('MasterCatalogAdapter', () => {
       inventoryIds: ['WING-123'],
     });
 
+    expect(states).toEqual([]);
+  });
+
+  it('omits image state for an imported ChannelProduct without a MasterProduct', async () => {
+    const { adapter, prisma } = buildAdapter();
+    prisma.channelListing.findMany.mockResolvedValueOnce([
+      {
+        id: 'imported-listing-1',
+        externalId: 'WING-UNLINKED',
+        channelAccountId: 'account-1',
+        masterId: null,
+        master: null,
+        lastImportRunId: 'wing-import-1',
+      },
+    ] as never);
+
+    const states = await adapter.findCoupangListingImageStates({
+      organizationId: '00000000-0000-0000-0000-0000000c0001',
+      inventoryIds: ['WING-UNLINKED'],
+    });
+
+    expect(prisma.channelListing.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ masterId: { not: null } }),
+        select: expect.objectContaining({ masterId: true }),
+      }),
+    );
     expect(states).toEqual([]);
   });
 

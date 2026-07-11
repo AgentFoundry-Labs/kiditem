@@ -141,6 +141,7 @@ export class ChannelReconciliationScanRepositoryAdapter
         organizationId,
         channel: RECONCILIATION_CHANNEL,
         isDeleted: false,
+        masterId: { not: null },
         master: {
           isDeleted: false,
           images: {
@@ -177,13 +178,21 @@ export class ChannelReconciliationScanRepositoryAdapter
       },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     });
+    const linkedListings = listings.flatMap((listing) => {
+      if (!listing.master || !listing.masterId) return [];
+      return [{
+        ...listing,
+        masterId: listing.masterId,
+        master: listing.master,
+      }];
+    });
 
     const optionBackfill = await this.backfillListingOptionLinksFromSingleInventoryOption(
       organizationId,
-      listings.map((listing) => ({ id: listing.id, masterId: listing.masterId })),
+      linkedListings.map((listing) => ({ id: listing.id, masterId: listing.masterId })),
     );
 
-    const rows: ReconciliationRowInput[] = listings
+    const rows: ReconciliationRowInput[] = linkedListings
       .filter((listing) => listing.externalId.trim())
       .map((listing) => ({
         externalId: listing.externalId,
@@ -191,9 +200,9 @@ export class ChannelReconciliationScanRepositoryAdapter
         channelProductName: listing.channelName ?? listing.master.name,
         channelImageUrl: listing.master.images[0]?.url ?? null,
         channelStatus: listing.status,
-      }));
+    }));
     const unresolvedOptionRows =
-      await this.buildUnresolvedImageSyncedListingOptionRows(organizationId, listings);
+      await this.buildUnresolvedImageSyncedListingOptionRows(organizationId, linkedListings);
     rows.push(...unresolvedOptionRows);
 
     if (rows.length === 0) {

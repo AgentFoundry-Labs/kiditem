@@ -36,6 +36,7 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
     const where: Prisma.ChannelListingWhereInput = {
       organizationId,
       isDeleted: includeDeleted,
+      masterId: { not: null },
       ...(query.channel ? { channel: query.channel } : {}),
       ...(query.channelAccountId ? { channelAccountId: query.channelAccountId } : {}),
       ...(createdSince ? { createdAt: { gte: createdSince } } : {}),
@@ -99,7 +100,7 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
     });
     const groupedCounts = await this.prisma.channelListing.groupBy({
       by: ['channel', 'channelAccountId'],
-      where: { organizationId, isDeleted: includeDeleted },
+      where: { organizationId, isDeleted: includeDeleted, masterId: { not: null } },
       orderBy: [{ channel: 'asc' }, { channelAccountId: 'asc' }],
       _count: { id: true },
     });
@@ -117,30 +118,33 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
     });
 
     const accountById = new Map(accounts.map((account) => [account.id, account]));
+    const items: ChannelListingListResult['items'] = [];
+    for (const row of rows) {
+      if (!row.master || !row.masterId) continue;
+      const preparation = row.master.productPreparations[0] ?? null;
+      items.push({
+        id: row.id,
+        masterId: row.masterId,
+        masterCode: row.master.code,
+        masterName: row.master.name,
+        thumbnailUrl: row.master.thumbnailUrl ?? row.master.imageUrl ?? null,
+        channel: row.channel,
+        channelAccountId: row.channelAccountId,
+        channelAccountName: row.channelAccount?.name ?? null,
+        externalId: row.externalId,
+        channelName: row.channelName,
+        channelPrice: row.channelPrice,
+        sourceCandidateId: preparation?.sourceCandidateId ?? null,
+        contentWorkspaceId: preparation?.contentWorkspaceId ?? null,
+        status: row.status,
+        exposureStatus: row.exposureStatus,
+        optionCount: row._count.options,
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
+      });
+    }
     return {
-      items: rows.map((row) => {
-        const preparation = row.master.productPreparations[0] ?? null;
-        return {
-          id: row.id,
-          masterId: row.masterId,
-          masterCode: row.master.code,
-          masterName: row.master.name,
-          thumbnailUrl: row.master.thumbnailUrl ?? row.master.imageUrl ?? null,
-          channel: row.channel,
-          channelAccountId: row.channelAccountId,
-          channelAccountName: row.channelAccount?.name ?? null,
-          externalId: row.externalId,
-          channelName: row.channelName,
-          channelPrice: row.channelPrice,
-          sourceCandidateId: preparation?.sourceCandidateId ?? null,
-          contentWorkspaceId: preparation?.contentWorkspaceId ?? null,
-          status: row.status,
-          exposureStatus: row.exposureStatus,
-          optionCount: row._count.options,
-          createdAt: row.createdAt.toISOString(),
-          updatedAt: row.updatedAt.toISOString(),
-        };
-      }),
+      items,
       total,
       page,
       limit,
@@ -176,6 +180,7 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
     const listingWhere: Prisma.ChannelListingWhereInput = {
       organizationId,
       isDeleted: includeDeleted,
+      masterId: { not: null },
       ...(query.channel ? { channel: query.channel } : {}),
       ...(query.channelAccountId ? { channelAccountId: query.channelAccountId } : {}),
       ...(createdSince ? { createdAt: { gte: createdSince } } : {}),
@@ -335,6 +340,7 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
         id: listingId,
         organizationId,
         isDeleted: false,
+        masterId: { not: null },
       },
       include: {
         master: {
@@ -373,7 +379,7 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
       },
     });
 
-    if (!row) {
+    if (!row || !row.master || !row.masterId) {
       throw new NotFoundException('등록 상품을 찾을 수 없습니다.');
     }
 

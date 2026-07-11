@@ -235,13 +235,20 @@ export class ChannelReconciliationMatcherRepositoryAdapter
         channel: RECONCILIATION_CHANNEL,
         externalId,
         isDeleted: false,
+        masterId: { not: null },
       },
       select: { id: true, masterId: true, channelAccountId: true },
       orderBy: [{ channelAccountId: 'asc' }, { updatedAt: 'desc' }],
       take: 2,
     });
-    if (listings.length > 1) return { kind: 'duplicate', listings };
-    return { kind: 'single', listing: listings[0] ?? null };
+    const linkedListings = listings.filter(
+      (listing): listing is (typeof listings)[number] & { masterId: string } =>
+        listing.masterId !== null,
+    );
+    if (linkedListings.length > 1) {
+      return { kind: 'duplicate', listings: linkedListings };
+    }
+    return { kind: 'single', listing: linkedListings[0] ?? null };
   }
 
   private async findActiveOptionsByLegacyCode(

@@ -24,11 +24,20 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
     if (ids.length === 0) return new Map();
 
     const listings = await this.prisma.channelListing.findMany({
-      where: { id: { in: ids }, organizationId, isDeleted: false },
+      where: {
+        id: { in: ids },
+        organizationId,
+        isDeleted: false,
+        masterId: { not: null },
+      },
       select: { id: true, externalId: true, channelName: true, masterId: true },
     });
+    const linkedListings = listings.filter(
+      (listing): listing is (typeof listings)[number] & { masterId: string } =>
+        listing.masterId !== null,
+    );
     const masterIds = Array.from(
-      new Set(listings.map((listing) => listing.masterId)),
+      new Set(linkedListings.map((listing) => listing.masterId)),
     );
     const masters =
       masterIds.length > 0
@@ -47,7 +56,8 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
 
     const masterMap = new Map(masters.map((master) => [master.id, master]));
     const out = new Map<string, ScopedAdListingReadModel>();
-    for (const listing of listings) {
+    for (const listing of linkedListings) {
+      if (!listing.masterId) continue;
       const master = masterMap.get(listing.masterId);
       if (!master) continue;
       out.set(listing.id, {
@@ -77,10 +87,15 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
     nextTier: string | null,
   ): Promise<boolean> {
     const listing = await this.prisma.channelListing.findFirst({
-      where: { id: listingId, organizationId, isDeleted: false },
+      where: {
+        id: listingId,
+        organizationId,
+        isDeleted: false,
+        masterId: { not: null },
+      },
       select: { masterId: true },
     });
-    if (!listing) return false;
+    if (!listing?.masterId) return false;
     const updated = await this.prisma.masterProduct.updateMany({
       where: { id: listing.masterId, organizationId },
       data: { adTier: nextTier },

@@ -36,6 +36,7 @@ export class MasterCatalogAdapter implements MasterCatalogPort {
         channel: 'coupang',
         externalId: { in: inventoryIds },
         isDeleted: false,
+        masterId: { not: null },
         ...(channelAccountId
           ? {
               OR: [
@@ -47,6 +48,7 @@ export class MasterCatalogAdapter implements MasterCatalogPort {
       },
       select: {
         id: true,
+        masterId: true,
         channelAccountId: true,
         externalId: true,
         master: {
@@ -63,10 +65,16 @@ export class MasterCatalogAdapter implements MasterCatalogPort {
       },
     });
 
-    return preferAccountListings(listings, channelAccountId).map((listing) => ({
-      inventoryId: listing.externalId,
-      hasImage: hasDisplayImage(listing.master),
-    }));
+    const linkedListings = listings.flatMap((listing) => {
+      if (!listing.master || !listing.masterId) return [];
+      return [{ ...listing, masterId: listing.masterId, master: listing.master }];
+    });
+    return preferAccountListings(linkedListings, channelAccountId).map(
+      (listing) => ({
+        inventoryId: listing.externalId,
+        hasImage: hasDisplayImage(listing.master),
+      }),
+    );
   }
 
   async findCoupangMaster(input: FindCoupangMasterInput): Promise<CoupangListingHandle | null> {
@@ -79,6 +87,7 @@ export class MasterCatalogAdapter implements MasterCatalogPort {
         channel: 'coupang',
         externalId: inventoryId,
         isDeleted: false,
+        masterId: { not: null },
         ...(channelAccountId
           ? {
               OR: [
@@ -108,9 +117,17 @@ export class MasterCatalogAdapter implements MasterCatalogPort {
       orderBy: [{ channelAccountId: 'asc' }, { updatedAt: 'desc' }],
       take: channelAccountId ? 3 : 2,
     });
-    const listing = preferAccountListings(listings, channelAccountId)[0] ?? null;
+    const linkedListings = listings.flatMap((candidate) => {
+      if (!candidate.master || !candidate.masterId) return [];
+      return [{
+        ...candidate,
+        masterId: candidate.masterId,
+        master: candidate.master,
+      }];
+    });
+    const listing = preferAccountListings(linkedListings, channelAccountId)[0] ?? null;
 
-    if (listing) {
+    if (listing?.master && listing.masterId) {
       // Wing 화면에서 상품명이 바뀌었을 수 있으니 channelName 만 리프레시.
       await this.prisma.channelListing.updateMany({
         where: { id: listing.id, organizationId, isDeleted: false },

@@ -155,6 +155,104 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
     );
   });
 
+  it('skips an unlinked ChannelProduct in period profit calculations', async () => {
+    const prisma = {
+      channelListingDailySnapshot: {
+        aggregate: vi.fn()
+          .mockResolvedValueOnce({
+            _sum: {
+              trafficRevenue: 10_000,
+              trafficOrders: 1,
+              trafficSalesQty: 1,
+              trafficVisitors: 10,
+              trafficViews: 20,
+              trafficCartAdds: 1,
+            },
+          })
+          .mockResolvedValueOnce({
+            _sum: {
+              trafficRevenue: 0,
+              trafficOrders: 0,
+              trafficSalesQty: 0,
+              trafficVisitors: 0,
+            },
+          }),
+        groupBy: vi.fn().mockResolvedValue([
+          {
+            listingId: 'imported-listing-1',
+            _sum: {
+              trafficRevenue: 10_000,
+              trafficSalesQty: 1,
+              trafficOrders: 1,
+            },
+          },
+        ]),
+      },
+      channelListing: {
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'imported-listing-1', master: null },
+        ]),
+      },
+    };
+    const service = new TrafficService(prisma as never);
+
+    const result = await service.getTrafficSummary(1, ORGANIZATION_ID);
+
+    expect(result).toEqual(expect.objectContaining({
+      revenue: 10_000,
+      netProfit: 0,
+      profitRate: 0,
+      costCoverage: 0,
+    }));
+  });
+
+  it('skips an unlinked ChannelProduct in monthly profit calculations', async () => {
+    const prisma = {
+      channelListingDailySnapshot: {
+        groupBy: vi.fn()
+          .mockResolvedValueOnce([
+            {
+              businessDate: new Date('2026-05-01T00:00:00.000Z'),
+              _sum: {
+                trafficRevenue: 10_000,
+                trafficOrders: 1,
+                trafficSalesQty: 1,
+                trafficVisitors: 10,
+              },
+            },
+          ])
+          .mockResolvedValueOnce([
+            {
+              listingId: 'imported-listing-1',
+              businessDate: new Date('2026-05-01T00:00:00.000Z'),
+              _sum: {
+                trafficRevenue: 10_000,
+                trafficSalesQty: 1,
+                trafficOrders: 1,
+              },
+            },
+          ]),
+      },
+      channelListing: {
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'imported-listing-1', master: null },
+        ]),
+      },
+    };
+    const service = new TrafficService(prisma as never);
+
+    const result = await service.getMonthlyRevenue(2026, 5, ORGANIZATION_ID);
+
+    expect(result.days).toEqual([
+      expect.objectContaining({
+        date: '2026-05-01',
+        revenue: 10_000,
+        netProfit: 0,
+        profitRate: 0,
+      }),
+    ]);
+  });
+
   it('opens and closes an operation alert for product-list traffic uploads', async () => {
     const { prisma } = makePrisma();
     const operationAlerts = makeOperationAlerts();
