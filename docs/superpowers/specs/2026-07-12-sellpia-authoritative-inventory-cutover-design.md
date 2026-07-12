@@ -2,9 +2,8 @@
 
 ## Status and Authority
 
-Approved in the design conversation and independently reviewed on 2026-07-12.
-User review of the written specification is pending before implementation
-planning.
+Approved by the user in the design conversation and independently reviewed on
+2026-07-12. This is the implementation-planning authority.
 
 This document is the authoritative design for the reconstruction. It
 supersedes:
@@ -272,6 +271,12 @@ status             String?
 rawJson            Json?
 lastImportRunId    UUID?
 isActive           Boolean
+abcGrade           String?
+profitTag          String?
+adTier             String?
+adBudgetLimit      Int?
+healthScore        Int?
+healthUpdatedAt    Timestamptz?
 createdAt          Timestamptz
 updatedAt          Timestamptz
 ```
@@ -289,6 +294,9 @@ Rules:
 - `masterId` and parent-level `channelPrice` are removed;
 - `sourceCandidateId` records the sourcing origin when registration began in
   KidItem;
+- `abcGrade`, `profitTag`, `adTier`, `adBudgetLimit`, `healthScore`, and
+  `healthUpdatedAt` are KidItem-authored listing-operation fields; channel
+  collection never overwrites them;
 - one sourcing candidate may produce separate Wing and Rocket listings;
 - at most one active listing exists for
   `(organizationId, sourceCandidateId, channelAccountId)` when the source is
@@ -308,6 +316,10 @@ listingId          UUID
 externalOptionId   String
 itemName           String?
 salePrice          Int?
+costPriceOverride  Int?
+commissionRate     Decimal?
+shippingCost       Int?
+otherCost          Int?
 sellerSku          String?
 barcode            String?
 modelNumber        String?
@@ -338,6 +350,15 @@ Rules:
   spread across provider-specific columns;
 - `salePrice` remains null until a Wing API or another approved source
   supplies it;
+- `costPriceOverride`, `commissionRate`, `shippingCost`, and `otherCost` are
+  optional KidItem-authored commercial inputs owned by the sellable channel
+  SKU and are never overwritten by catalog collection;
+- the default physical cost is derived as
+  `sum(component.masterProduct.purchasePrice * component.quantity)` when all
+  component prices are known; `costPriceOverride` takes precedence only when
+  an operator or an unambiguous legacy migration supplied it;
+- a missing component price or unmatched recipe yields an unknown derived
+  cost, not zero;
 - an optionless product still creates one row.
 
 ### ChannelSkuComponent
