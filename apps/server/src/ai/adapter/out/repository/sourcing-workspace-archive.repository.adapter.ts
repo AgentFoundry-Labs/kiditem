@@ -14,12 +14,27 @@ implements SourcingWorkspaceArchiveRepositoryPort {
     scope: AiWorkspaceArchiveScope,
     input: ArchiveSourcingWorkspaceInput,
   ): Promise<ArchiveSourcingWorkspaceResult> {
+    const tx = scope as unknown as Prisma.TransactionClient;
+    await lockSourceContentWorkspaces(tx, input.organizationId, input.sourceCandidateId);
+    await scope.contentWorkspace.updateMany({
+      where: {
+        organizationId: input.organizationId,
+        sourceCandidateId: input.sourceCandidateId,
+        status: 'active',
+        isDeleted: false,
+      },
+      data: {
+        status: 'archived',
+        currentThumbnailSelectionId: null,
+        ...archiveData(input.archivedAt),
+      },
+    });
+
     const generationRows = await scope.contentGeneration.findMany({
       where: contentGenerationSourceCandidateWhere(input),
       select: { id: true },
     });
     const generationIds = generationRows.map((row) => row.id);
-    const tx = scope as unknown as Prisma.TransactionClient;
     await lockContentGenerations(tx, input.organizationId, generationIds);
     await lockThumbnailGenerations(tx, input.organizationId, input.sourceCandidateId);
 
@@ -107,6 +122,23 @@ implements SourcingWorkspaceArchiveRepositoryPort {
       archivedThumbnailGenerations: thumbnailGenerations.count,
     };
   }
+}
+
+async function lockSourceContentWorkspaces(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  sourceCandidateId: string,
+): Promise<void> {
+  await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id
+    FROM content_workspaces
+    WHERE organization_id = ${organizationId}::uuid
+      AND source_candidate_id = ${sourceCandidateId}::uuid
+      AND status = 'active'
+      AND is_deleted = false
+    ORDER BY id
+    FOR UPDATE
+  `);
 }
 
 async function lockContentGenerations(

@@ -15,13 +15,17 @@ const GENERATION_ID = '22222222-2222-4222-8222-222222222222';
 const CANDIDATE_ID = '33333333-3333-4333-8333-333333333333';
 
 function setup(status = 'succeeded') {
+  const lockedGeneration = {
+    id: GENERATION_ID,
+    status,
+    phase: status === 'succeeded' ? 'ready' : null,
+    attemptCount: 1,
+    selectedUrl: 'https://cdn.example.com/adopted.png',
+  };
   const tx = {
-    $queryRaw: vi.fn().mockResolvedValue([{
-      id: GENERATION_ID,
-      status,
-      phase: status === 'succeeded' ? 'ready' : null,
-      attemptCount: 1,
-    }]),
+    $queryRaw: vi.fn()
+      .mockResolvedValueOnce([lockedGeneration])
+      .mockResolvedValue([{ id: CANDIDATE_ID, url: lockedGeneration.selectedUrl }]),
     contentWorkspaceThumbnailSelection: {
       findFirst: vi.fn().mockResolvedValue({ id: 'selection-1' }),
     },
@@ -35,6 +39,7 @@ function setup(status = 'succeeded') {
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     thumbnailGenerationCandidate: {
+      count: vi.fn().mockResolvedValue(0),
       deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
       createMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
@@ -91,14 +96,38 @@ describe('thumbnail generation adopted provenance persistence', () => {
     await expect(removeCandidate(prisma as never, {
       id: GENERATION_ID,
       organizationId: ORGANIZATION_ID,
-      candidateId: CANDIDATE_ID,
       candidateUrl: 'https://cdn.example.com/adopted.png',
-      selectedUrl: null,
-      remainingAfterDelete: 0,
     })).rejects.toBeInstanceOf(ConflictException);
 
     expect(tx.thumbnailGenerationCandidate.deleteMany).not.toHaveBeenCalled();
     expect(tx.thumbnailGeneration.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('computes the last-candidate and selected-url decisions from locked database state', async () => {
+    const { prisma, tx } = setup();
+    tx.contentWorkspaceThumbnailSelection.findFirst.mockResolvedValueOnce(null);
+
+    await expect(removeCandidate(prisma as never, {
+      id: GENERATION_ID,
+      organizationId: ORGANIZATION_ID,
+      candidateUrl: 'https://cdn.example.com/adopted.png',
+    })).resolves.toEqual({ generationDeleted: true, remaining: 0 });
+
+    expect(tx.thumbnailGenerationCandidate.count).toHaveBeenCalledWith({
+      where: { generationId: GENERATION_ID, organizationId: ORGANIZATION_ID },
+    });
+    expect(tx.thumbnailGeneration.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: GENERATION_ID,
+        organizationId: ORGANIZATION_ID,
+        isDeleted: false,
+      },
+      data: {
+        selectedUrl: null,
+        isDeleted: true,
+        deletedAt: expect.any(Date),
+      },
+    });
   });
 
   it('rejects re-edit reset before deleting adopted candidates', async () => {

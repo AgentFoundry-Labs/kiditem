@@ -8,6 +8,12 @@ const ARCHIVED_AT = new Date('2026-05-15T08:00:00.000Z');
 describe('SourcingWorkspaceArchiveRepositoryAdapter', () => {
   it('archives candidate-bound detail-page, content asset, and thumbnail outputs without touching adopted product data', async () => {
     const scope = {
+      contentWorkspace: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      contentWorkspaceThumbnailSelection: {
+        deleteMany: vi.fn(),
+      },
       contentGeneration: {
         findMany: vi.fn().mockResolvedValue([
           { id: 'generation-1' },
@@ -54,6 +60,21 @@ describe('SourcingWorkspaceArchiveRepositoryAdapter', () => {
       },
       select: { id: true },
     });
+    expect(scope.contentWorkspace.updateMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: ORG,
+        sourceCandidateId: CANDIDATE_ID,
+        status: 'active',
+        isDeleted: false,
+      },
+      data: {
+        status: 'archived',
+        currentThumbnailSelectionId: null,
+        isDeleted: true,
+        deletedAt: ARCHIVED_AT,
+      },
+    });
+    expect(scope.contentWorkspaceThumbnailSelection.deleteMany).not.toHaveBeenCalled();
     expect(scope.detailPageArtifact.updateMany).toHaveBeenCalledWith({
       where: {
         organizationId: ORG,
@@ -94,14 +115,14 @@ describe('SourcingWorkspaceArchiveRepositoryAdapter', () => {
       },
       data: { isDeleted: true, deletedAt: ARCHIVED_AT },
     });
-    expect(scope.$queryRaw).toHaveBeenCalledTimes(3);
+    expect(scope.$queryRaw).toHaveBeenCalledTimes(4);
     expect(scope.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      scope.contentWorkspace.updateMany.mock.invocationCallOrder[0],
+    );
+    expect(scope.contentWorkspace.updateMany.mock.invocationCallOrder[0]).toBeLessThan(
       scope.$queryRaw.mock.invocationCallOrder[1],
     );
-    expect(scope.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
-      scope.$queryRaw.mock.invocationCallOrder[2],
-    );
-    expect(scope.$queryRaw.mock.invocationCallOrder[2]).toBeLessThan(
+    expect(scope.$queryRaw.mock.invocationCallOrder[3]).toBeLessThan(
       scope.contentAsset.updateMany.mock.invocationCallOrder[0],
     );
     expect(scope.contentGeneration.updateMany).toHaveBeenCalledWith({

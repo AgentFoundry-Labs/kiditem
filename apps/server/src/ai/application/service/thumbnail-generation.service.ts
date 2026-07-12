@@ -344,21 +344,15 @@ export class ThumbnailGenerationService {
     organizationId: string,
     candidateUrl: string,
   ): Promise<{ ok: true; generationDeleted: boolean; remaining: number }> {
-    const existing = await this.ledger.findGenerationWithCandidatesOrThrow(id, organizationId);
-    const target = existing.candidates.find((c) => c.url === candidateUrl);
-    if (!target) {
-      throw new NotFoundException('해당 candidate URL 을 찾을 수 없습니다');
-    }
-    const remaining = existing.candidates.length - 1;
-    await this.ledger.removeCandidate({
+    const result = await this.ledger.removeCandidate({
       id,
       organizationId,
-      candidateId: target.id,
       candidateUrl,
-      selectedUrl: existing.selectedUrl,
-      remainingAfterDelete: remaining,
     });
-    return { ok: true, generationDeleted: remaining === 0, remaining };
+    if (!result) {
+      throw new NotFoundException('해당 candidate URL 을 찾을 수 없습니다');
+    }
+    return { ok: true, ...result };
   }
 
   async createEditJobs(

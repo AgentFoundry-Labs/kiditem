@@ -38,8 +38,11 @@ describe('ContentWorkspaceThumbnailSelectionRepositoryAdapter', () => {
       where: { id: 'asset-1', organizationId: 'org-1', isDeleted: false },
       select: { id: true, url: true },
     });
-    expect(tx.$queryRaw).toHaveBeenCalledOnce();
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
     expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.contentAsset.findFirst.mock.invocationCallOrder[0],
+    );
+    expect(tx.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
       tx.contentWorkspaceThumbnailSelection.create.mock.invocationCallOrder[0],
     );
     expect(tx.contentWorkspaceThumbnailSelection.create).toHaveBeenCalledWith({
@@ -54,7 +57,12 @@ describe('ContentWorkspaceThumbnailSelectionRepositoryAdapter', () => {
       select: { id: true },
     });
     expect(tx.contentWorkspace.updateMany).toHaveBeenCalledWith({
-      where: { id: 'workspace-1', organizationId: 'org-1', isDeleted: false },
+      where: {
+        id: 'workspace-1',
+        organizationId: 'org-1',
+        status: 'active',
+        isDeleted: false,
+      },
       data: { currentThumbnailSelectionId: 'selection-1' },
     });
   });
@@ -133,14 +141,17 @@ describe('ContentWorkspaceThumbnailSelectionRepositoryAdapter', () => {
     });
 
     expect(tx.thumbnailGeneration.findFirst).not.toHaveBeenCalled();
-    expect(tx.$queryRaw).toHaveBeenCalledTimes(3);
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(4);
     expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
       tx.$queryRaw.mock.invocationCallOrder[1],
     );
     expect(tx.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
-      tx.thumbnailGenerationCandidate.findFirst.mock.invocationCallOrder[0],
+      tx.$queryRaw.mock.invocationCallOrder[2],
     );
     expect(tx.$queryRaw.mock.invocationCallOrder[2]).toBeLessThan(
+      tx.thumbnailGenerationCandidate.findFirst.mock.invocationCallOrder[0],
+    );
+    expect(tx.$queryRaw.mock.invocationCallOrder[3]).toBeLessThan(
       tx.contentWorkspaceThumbnailSelection.create.mock.invocationCallOrder[0],
     );
     expect(tx.contentWorkspaceThumbnailSelection.create).toHaveBeenCalledWith({

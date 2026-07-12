@@ -44,6 +44,7 @@ interface LockedThumbnailGeneration {
   status: string;
   phase: string | null;
   attemptCount: number;
+  selectedUrl: string | null;
 }
 
 async function lockThumbnailGeneration(
@@ -56,7 +57,8 @@ async function lockThumbnailGeneration(
       id,
       status,
       phase,
-      attempt_count AS "attemptCount"
+      attempt_count AS "attemptCount",
+      selected_url AS "selectedUrl"
     FROM thumbnail_generations
     WHERE id = ${id}::uuid
       AND organization_id = ${organizationId}::uuid
@@ -66,19 +68,21 @@ async function lockThumbnailGeneration(
   return rows[0] ?? null;
 }
 
-async function lockThumbnailCandidate(
+async function lockThumbnailCandidateByUrl(
   tx: Prisma.TransactionClient,
-  input: { id: string; generationId: string; organizationId: string },
-): Promise<boolean> {
-  const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT id
+  input: { generationId: string; organizationId: string; candidateUrl: string },
+): Promise<{ id: string; url: string } | null> {
+  const rows = await tx.$queryRaw<Array<{ id: string; url: string }>>(Prisma.sql`
+    SELECT id, url
     FROM thumbnail_generation_candidates
-    WHERE id = ${input.id}::uuid
-      AND generation_id = ${input.generationId}::uuid
+    WHERE generation_id = ${input.generationId}::uuid
       AND organization_id = ${input.organizationId}::uuid
+      AND url = ${input.candidateUrl}
+    ORDER BY id
+    LIMIT 1
     FOR UPDATE
   `);
-  return rows.length === 1;
+  return rows[0] ?? null;
 }
 
 async function assertThumbnailProvenanceMutable(
@@ -431,43 +435,44 @@ export async function removeCandidate(
   args: {
     id: string;
     organizationId: string;
-    candidateId: string;
     candidateUrl: string;
-    selectedUrl: string | null;
-    remainingAfterDelete: number;
   },
-): Promise<void> {
-  const { id, organizationId, candidateId, candidateUrl, selectedUrl, remainingAfterDelete } = args;
-  await prisma.$transaction(async (tx) => {
+): Promise<{ generationDeleted: boolean; remaining: number } | null> {
+  const { id, organizationId, candidateUrl } = args;
+  return prisma.$transaction(async (tx) => {
     const generation = await lockThumbnailGeneration(tx, id, organizationId);
-    if (!generation) return;
-    const candidateExists = await lockThumbnailCandidate(tx, {
-      id: candidateId,
+    if (!generation) return null;
+    const candidate = await lockThumbnailCandidateByUrl(tx, {
       generationId: id,
       organizationId,
+      candidateUrl,
     });
-    if (!candidateExists) return;
+    if (!candidate) return null;
     await assertThumbnailProvenanceMutable(tx, {
       organizationId,
       generationId: id,
-      candidateId,
+      candidateId: candidate.id,
     });
     await tx.thumbnailGenerationCandidate.deleteMany({
-      where: { id: candidateId, generationId: id, organizationId },
+      where: { id: candidate.id, generationId: id, organizationId },
     });
-    if (remainingAfterDelete === 0) {
+    const remaining = await tx.thumbnailGenerationCandidate.count({
+      where: { generationId: id, organizationId },
+    });
+    if (remaining === 0) {
       await tx.thumbnailGeneration.updateMany({
         where: { id, organizationId, isDeleted: false },
-        data: { isDeleted: true, deletedAt: new Date() },
+        data: { selectedUrl: null, isDeleted: true, deletedAt: new Date() },
       });
-      return;
+      return { generationDeleted: true, remaining };
     }
-    if (selectedUrl === candidateUrl) {
+    if (generation.selectedUrl === candidate.url) {
       await tx.thumbnailGeneration.updateMany({
         where: { id, organizationId, isDeleted: false },
         data: { selectedUrl: null },
       });
     }
+    return { generationDeleted: false, remaining };
   });
 }
 

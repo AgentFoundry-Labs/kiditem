@@ -417,7 +417,11 @@ describe('AI content ownership constraints (PG integration)', () => {
             return async <R>(query: Prisma.Sql): Promise<R> => {
               const rows = await tx.$queryRaw<R>(query);
               rawCallCount += 1;
-              if (rawCallCount === 1) {
+              // The selection path locks its active workspace first, then the
+              // generation whose provenance is being adopted. Pause only
+              // after both locks are held so deletion must serialize behind
+              // the adopted-provenance decision.
+              if (rawCallCount === 2) {
                 signalLocked();
                 await released;
               }

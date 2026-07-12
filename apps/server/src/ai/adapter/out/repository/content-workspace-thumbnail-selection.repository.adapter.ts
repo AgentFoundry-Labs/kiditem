@@ -41,22 +41,17 @@ export class ContentWorkspaceThumbnailSelectionRepositoryAdapter
     selection: ContentWorkspaceThumbnailSelectionSource;
   }): Promise<{ selectionId: string; contentAssetId: string; url: string }> {
     return this.prisma.$transaction(async (tx) => {
-      const workspace = await tx.contentWorkspace.findFirst({
-        where: {
-          id: input.workspaceId,
-          organizationId: input.organizationId,
-          status: 'active',
-          isDeleted: false,
-        },
-        select: { id: true },
+      const workspaceLocked = await lockActiveContentWorkspace(tx, {
+        organizationId: input.organizationId,
+        workspaceId: input.workspaceId,
       });
-      if (!workspace) throw new NotFoundException('Content workspace not found.');
+      if (!workspaceLocked) throw new NotFoundException('Content workspace not found.');
 
       const resolved = await this.resolveAsset(tx, input);
       const selection = await tx.contentWorkspaceThumbnailSelection.create({
         data: {
           organizationId: input.organizationId,
-          contentWorkspaceId: workspace.id,
+          contentWorkspaceId: input.workspaceId,
           contentAssetId: resolved.asset.id,
           sourceThumbnailGenerationId: resolved.sourceThumbnailGenerationId,
           sourceThumbnailCandidateId: resolved.sourceThumbnailCandidateId,
@@ -66,8 +61,9 @@ export class ContentWorkspaceThumbnailSelectionRepositoryAdapter
       });
       const update = await tx.contentWorkspace.updateMany({
         where: {
-          id: workspace.id,
+          id: input.workspaceId,
           organizationId: input.organizationId,
+          status: 'active',
           isDeleted: false,
         },
         data: { currentThumbnailSelectionId: selection.id },
@@ -244,6 +240,22 @@ export class ContentWorkspaceThumbnailSelectionRepositoryAdapter
       select: { id: true, url: true },
     });
   }
+}
+
+async function lockActiveContentWorkspace(
+  tx: Prisma.TransactionClient,
+  input: { organizationId: string; workspaceId: string },
+): Promise<boolean> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id
+    FROM content_workspaces
+    WHERE id = ${input.workspaceId}::uuid
+      AND organization_id = ${input.organizationId}::uuid
+      AND status = 'active'
+      AND is_deleted = false
+    FOR UPDATE
+  `);
+  return rows.length === 1;
 }
 
 function managedAssetKey(url: string): string {
