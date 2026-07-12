@@ -23,6 +23,7 @@ erDiagram
     String id PK
     String organizationId FK
     String masterId FK
+    String listingId FK
     String oldGrade
     String newGrade
     Decimal score
@@ -100,6 +101,7 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
+| GradeHistory | listing | references external | Core | ChannelListing |
 | GradeHistory | master | references external | Core | MasterProduct |
 | GradeHistory | organization | references external | Core | Organization |
 | ManualLedger | organization | references external | Core | Organization |

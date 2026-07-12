@@ -20,8 +20,8 @@
 | MasterProductImage | `master_product_images` | MasterProduct 이미지 갤러리. Source of truth 이며 MasterProduct.imageUrl 은 대표 이미지 캐시로만 동기화된다. |
 | Organization | `organizations` | - |
 | OrganizationMembership | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
-| ProductOption | `product_options` | KidItem 카탈로그의 판매 옵션과 가격 메타데이터. Sellpia 재고 잔액은 InventorySku 가 소유한다. |
-| SourceImportRun | `source_import_runs` | 원본 파일의 idempotency와 provenance만 저장하는 import 실행 행. |
+| ProductOption | `product_options` | 물리 SKU. 바코드 1:1. 재고/매입/창고 단위. isBundle 이면 구성품 기반 계산. |
+| SourceImportRun | `source_import_runs` | Durable provenance and publication fence for Sellpia and channel full-snapshot imports. |
 | User | `users` | human(직원) / agent(AI, agentInstanceId 연결) / system(챗봇). 조직 소속은 OrganizationMembership 이 source of truth. |
 
 ## Mermaid ER Diagram
@@ -67,6 +67,7 @@ erDiagram
     String masterId FK
     String organizationId FK
     String channelAccountId FK
+    String sourceCandidateId FK
     String channel
     String externalId
     String channelName
@@ -83,6 +84,13 @@ erDiagram
     Int freeShipOverAmount
     Int returnCharge
     Json deliveryInfo
+    String abcGrade
+    String profitTag
+    String adTier
+    Int adBudgetLimit
+    Int healthScore
+    DateTime healthUpdatedAt
+    Boolean isActive
     Boolean isDeleted
     DateTime deletedAt
     DateTime createdAt
@@ -97,11 +105,16 @@ erDiagram
     String externalOptionId
     String itemName
     Int salePrice
+    Int costPriceOverride
+    Decimal commissionRate
+    Int shippingCost
+    Int otherCost
     String sellerSku
     String barcode
     String modelNumber
     String status
     String mappingStatus
+    Json attributesJson
     Json rawJson
     String lastImportRunId FK
     Boolean isActive
@@ -139,6 +152,16 @@ erDiagram
     String brand
     Json tags
     Int optionCounter
+    String sellpiaProductCode
+    String sellpiaName
+    String sellpiaBarcode
+    String optionName
+    Int currentStock
+    Int purchasePrice
+    Int salePrice
+    Boolean isActive
+    Json rawJson
+    String lastImportRunId FK
     String thumbnailUrl
     String imageUrl
     String abcGrade
@@ -221,6 +244,7 @@ erDiagram
     Int shippingCost
     Int otherCost
     Boolean isBundle
+    Int availableStock
     Boolean isDeleted
     DateTime deletedAt
     Boolean isTemporary
@@ -241,6 +265,7 @@ erDiagram
     DateTime importedAt
     String createdBy
     String attemptToken
+    BigInt publicationSequence
     DateTime createdAt
     DateTime updatedAt
   }
@@ -263,7 +288,6 @@ erDiagram
   ChannelAccount o|--o{ ChannelListingOption : "channelAccount"
   ChannelAccount o|--o{ SourceImportRun : "channelAccount"
   ChannelListing ||--o{ ChannelListingOption : "listing"
-  ChannelListing o|--o{ ChannelListingOption : "scopedProduct"
   MasterProduct o|--o{ ChannelListing : "master"
   MasterProduct ||--o{ MasterProductImage : "master"
   MasterProduct ||--|| ProductOption : "master"
@@ -283,6 +307,7 @@ erDiagram
   ProductOption o|--o{ ChannelListingOption : "option"
   SourceImportRun o|--o{ ChannelListing : "lastImportRun"
   SourceImportRun o|--o{ ChannelListingOption : "lastImportRun"
+  SourceImportRun o|--o{ MasterProduct : "lastImportRun"
   User o|--o{ OrganizationMembership : "invitedBy"
   User ||--o{ OrganizationMembership : "user"
 ```
@@ -291,6 +316,13 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
+| ChannelAccount | channelAccount | referenced by external | AI | ProductPreparation |
+| ChannelAccount | channelAccount | referenced by external | Channels | ChannelAccountDailyKpiSnapshot |
+| ChannelAccount | channelAccount | referenced by external | Channels | ChannelScrapeRun |
+| ChannelAccount | channelAccount | referenced by external | Orders | Order |
+| ChannelAccount | channelAccount | referenced by external | Orders | OrderReturn |
+| ChannelListing | channelListing | referenced by external | AI | ContentWorkspace |
+| ChannelListing | channelListing | referenced by external | AI | ProductPreparation |
 | ChannelListing | listing | referenced by external | Advertising | AdAction |
 | ChannelListing | listing | referenced by external | AI | Thumbnail |
 | ChannelListing | listing | referenced by external | AI | ThumbnailTracking |
@@ -298,24 +330,38 @@ erDiagram
 | ChannelListing | listing | referenced by external | Channels | ChannelListingDailySnapshot |
 | ChannelListing | listing | referenced by external | Channels | ChannelListingOptionDailySnapshot |
 | ChannelListing | listing | referenced by external | Channels | ChannelScrapeSnapshot |
+| ChannelListing | listing | referenced by external | Finance | GradeHistory |
 | ChannelListing | listing | referenced by external | Finance | ProfitLoss |
 | ChannelListing | listing | referenced by external | Orders | CSRecord |
 | ChannelListing | listing | referenced by external | Orders | Order |
 | ChannelListing | listing | referenced by external | Orders | Review |
 | ChannelListing | listing | referenced by external | Orders | Shipment |
 | ChannelListing | listing | referenced by external | Orders | UnshippedItem |
+| ChannelListing | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | ChannelListingOption | channelSku | referenced by external | Channels | ChannelSkuComponent |
+| ChannelListingOption | listingOption | referenced by external | Advertising | AdAction |
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelListingOptionDailySnapshot |
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelScrapeSnapshot |
 | ChannelListingOption | listingOption | referenced by external | Orders | OrderLineItem |
+| ChannelListingOption | listingOption | referenced by external | Orders | OrderReturnLineItem |
 | MasterProduct | master | referenced by external | AI | ProductPreparation |
 | MasterProduct | master | referenced by external | AI | ThumbnailAnalysis |
 | MasterProduct | master | referenced by external | AI | ThumbnailGeneration |
 | MasterProduct | master | referenced by external | Finance | GradeHistory |
 | MasterProduct | master | referenced by external | Finance | ProcessingCost |
 | MasterProduct | master | referenced by external | Supply | MasterSupplierProduct |
+| MasterProduct | masterProduct | referenced by external | Channels | ChannelSkuComponent |
+| MasterProduct | masterProduct | referenced by external | Inventory | InventorySkuMasterProductMap |
+| MasterProduct | masterProduct | referenced by external | Inventory | PickingItem |
+| MasterProduct | masterProduct | referenced by external | Inventory | ReturnTransfer |
+| MasterProduct | masterProduct | referenced by external | Inventory | RocketInventoryLedger |
+| MasterProduct | masterProduct | referenced by external | Inventory | SellpiaStockSnapshotItem |
+| MasterProduct | masterProduct | referenced by external | Inventory | StockTransfer |
+| MasterProduct | masterProduct | referenced by external | Supply | PurchaseOrderItem |
+| MasterProduct | masterProduct | referenced by external | Supply | SupplierProduct |
 | MasterProduct | promotedMaster | referenced by external | Sourcing | SourcingCandidate |
+| MasterProduct | provenanceMasterProduct | referenced by external | Sourcing | SourcingCandidate |
 | MasterProduct | targetMaster | referenced by external | AI | ContentGenerationGroup |
 | MasterProduct | targetMaster | referenced by external | AI | ContentWorkspace |
 | MasterProduct | targetMaster | referenced by external | AI | DetailPageArtifact |
@@ -344,6 +390,7 @@ erDiagram
 | Organization | organization | referenced by external | AI | ContentGenerationGroup |
 | Organization | organization | referenced by external | AI | ContentGenerationSource |
 | Organization | organization | referenced by external | AI | ContentWorkspace |
+| Organization | organization | referenced by external | AI | ContentWorkspaceThumbnailSelection |
 | Organization | organization | referenced by external | AI | DetailPageArtifact |
 | Organization | organization | referenced by external | AI | DetailPageRevision |
 | Organization | organization | referenced by external | AI | ProductPreparation |
@@ -372,10 +419,19 @@ erDiagram
 | Organization | organization | referenced by external | Finance | ProcessingCost |
 | Organization | organization | referenced by external | Finance | ProfitLoss |
 | Organization | organization | referenced by external | Finance | SalesPlan |
+| Organization | organization | referenced by external | Inventory | Inventory |
 | Organization | organization | referenced by external | Inventory | InventorySku |
+| Organization | organization | referenced by external | Inventory | InventorySkuMasterProductMap |
+| Organization | organization | referenced by external | Inventory | PickingItem |
 | Organization | organization | referenced by external | Inventory | PickingList |
 | Organization | organization | referenced by external | Inventory | ReturnTransfer |
+| Organization | organization | referenced by external | Inventory | RocketInventoryLedger |
+| Organization | organization | referenced by external | Inventory | SellpiaNewProductCandidate |
 | Organization | organization | referenced by external | Inventory | SellpiaReceiptUploadBatch |
+| Organization | organization | referenced by external | Inventory | SellpiaStockSnapshot |
+| Organization | organization | referenced by external | Inventory | SellpiaStockSnapshotItem |
+| Organization | organization | referenced by external | Inventory | StockAudit |
+| Organization | organization | referenced by external | Inventory | StockTransaction |
 | Organization | organization | referenced by external | Inventory | StockTransfer |
 | Organization | organization | referenced by external | Inventory | Warehouse |
 | Organization | organization | referenced by external | Orders | CSRecord |
@@ -386,13 +442,16 @@ erDiagram
 | Organization | organization | referenced by external | Orders | Review |
 | Organization | organization | referenced by external | Orders | Settlement |
 | Organization | organization | referenced by external | Orders | Shipment |
+| Organization | organization | referenced by external | Orders | ShipmentItem |
 | Organization | organization | referenced by external | Orders | UnshippedItem |
 | Organization | organization | referenced by external | Sourcing | CandidateImage |
 | Organization | organization | referenced by external | Sourcing | SourcingCandidate |
 | Organization | organization | referenced by external | Sourcing | SourcingWorkspaceSnapshot |
 | Organization | organization | referenced by external | Supply | PurchaseOrder |
+| Organization | organization | referenced by external | Supply | PurchaseOrderItem |
 | Organization | organization | referenced by external | Supply | Supplier |
 | Organization | organization | referenced by external | Supply | SupplierPayment |
+| Organization | organization | referenced by external | Supply | SupplierProduct |
 | Organization | organization | referenced by external | System | ActionTask |
 | Organization | organization | referenced by external | System | ActivityEvent |
 | Organization | organization | referenced by external | System | Alert |
@@ -401,12 +460,20 @@ erDiagram
 | ProductOption | option | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | ProductOption | option | referenced by external | Channels | ChannelListingOptionDailySnapshot |
 | ProductOption | option | referenced by external | Channels | ChannelScrapeSnapshot |
+| ProductOption | option | referenced by external | Inventory | Inventory |
+| ProductOption | option | referenced by external | Inventory | PickingItem |
+| ProductOption | option | referenced by external | Inventory | ReturnTransfer |
+| ProductOption | option | referenced by external | Inventory | RocketInventoryLedger |
+| ProductOption | option | referenced by external | Inventory | SellpiaStockSnapshotItem |
+| ProductOption | option | referenced by external | Inventory | StockTransaction |
+| ProductOption | option | referenced by external | Inventory | StockTransfer |
 | ProductOption | option | referenced by external | Orders | OrderLineItem |
 | ProductOption | option | referenced by external | Orders | OrderReturnLineItem |
 | ProductOption | option | referenced by external | Orders | Shipment |
 | ProductOption | option | referenced by external | Orders | UnshippedItem |
 | ProductOption | option | referenced by external | Supply | PurchaseOrderItem |
 | ProductOption | option | referenced by external | Supply | SupplierProduct |
+| ProductOption | resolvedOption | referenced by external | Inventory | SellpiaNewProductCandidate |
 | SourceImportRun | lastImportRun | referenced by external | Inventory | InventorySku |
 | User | actor | referenced by external | AI | ThumbnailGenerationEvent |
 | User | actorUser | referenced by external | System | Alert |
@@ -416,6 +483,7 @@ erDiagram
 | User | createdBy | referenced by external | AgentOS | AgentConversation |
 | User | createdByUser | referenced by external | AI | ContentAsset |
 | User | createdByUser | referenced by external | AI | ContentWorkspace |
+| User | createdByUser | referenced by external | AI | ContentWorkspaceThumbnailSelection |
 | User | createdByUser | referenced by external | AI | DetailPageArtifact |
 | User | createdByUser | referenced by external | AI | DetailPageRevision |
 | User | createdByUser | referenced by external | AI | ProductPreparation |

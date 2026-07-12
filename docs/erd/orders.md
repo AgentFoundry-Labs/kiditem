@@ -17,6 +17,7 @@
 | Review | `reviews` | - |
 | Settlement | `settlements` | 월별 정산 (예상 vs 실제 비교). |
 | Shipment | `shipments` | - |
+| ShipmentItem | `shipment_items` | Order-line shipment detail staged beside retained legacy Shipment listing/option columns. |
 | UnshippedItem | `unshipped_items` | - |
 
 ## Mermaid ER Diagram
@@ -41,6 +42,7 @@ erDiagram
   Order {
     String id PK
     String organizationId FK
+    String channelAccountId FK
     String platform
     String externalOrderId
     String externalNumber
@@ -85,6 +87,7 @@ erDiagram
     String id PK
     String organizationId FK
     String orderId FK
+    String channelAccountId FK
     String platform
     String externalReturnId
     String type
@@ -107,7 +110,10 @@ erDiagram
     String returnId FK
     String orderLineItemId FK
     String optionId FK
+    String listingOptionId FK
     String productName
+    String optionName
+    String externalSku
     Int quantity
     Json metadata
     DateTime createdAt
@@ -158,13 +164,24 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  ShipmentItem {
+    String id PK
+    String organizationId FK
+    String shipmentId FK
+    String orderLineItemId FK
+    Int quantity
+    DateTime createdAt
+  }
   UnshippedItem {
     String id PK
     String organizationId FK
     String orderId FK
     String listingId FK
     String optionId FK
+    String orderLineItemId FK
     String productName
+    String optionName
+    String externalSku
     Int quantity
     DateTime orderDate
     Int delayDays
@@ -179,7 +196,10 @@ erDiagram
   Order o|--o{ Shipment : "order"
   Order ||--o{ UnshippedItem : "order"
   OrderLineItem o|--o{ OrderReturnLineItem : "orderLineItem"
+  OrderLineItem ||--o{ ShipmentItem : "orderLineItem"
+  OrderLineItem o|--o{ UnshippedItem : "orderLineItem"
   OrderReturn ||--o{ OrderReturnLineItem : "return"
+  Shipment ||--o{ ShipmentItem : "shipment"
 ```
 
 ## External References
@@ -188,12 +208,15 @@ erDiagram
 |---|---|---|---|---|
 | CSRecord | listing | references external | Core | ChannelListing |
 | CSRecord | organization | references external | Core | Organization |
+| Order | channelAccount | references external | Core | ChannelAccount |
 | Order | listing | references external | Core | ChannelListing |
 | Order | organization | references external | Core | Organization |
 | OrderLineItem | listingOption | references external | Core | ChannelListingOption |
 | OrderLineItem | option | references external | Core | ProductOption |
 | OrderLineItem | organization | references external | Core | Organization |
+| OrderReturn | channelAccount | references external | Core | ChannelAccount |
 | OrderReturn | organization | references external | Core | Organization |
+| OrderReturnLineItem | listingOption | references external | Core | ChannelListingOption |
 | OrderReturnLineItem | option | references external | Core | ProductOption |
 | OrderReturnLineItem | organization | references external | Core | Organization |
 | Review | listing | references external | Core | ChannelListing |
@@ -203,6 +226,7 @@ erDiagram
 | Shipment | option | references external | Core | ProductOption |
 | Shipment | organization | references external | Core | Organization |
 | Shipment | warehouse | references external | Inventory | Warehouse |
+| ShipmentItem | organization | references external | Core | Organization |
 | UnshippedItem | listing | references external | Core | ChannelListing |
 | UnshippedItem | option | references external | Core | ProductOption |
 | UnshippedItem | organization | references external | Core | Organization |

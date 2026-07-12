@@ -7,6 +7,7 @@ import type {
   BranchRegistrationContentWorkspaceInput,
   EnsureCandidateContentWorkspaceInput,
   RegistrationContentWorkspacePort,
+  ResolvedRegistrationContentSelections,
   ValidateRegistrationContentSelectionsInput,
 } from '../../../application/port/out/cross-domain/registration-content-workspace.port';
 import type { SourcingRepositoryTransaction } from '../../../application/port/out/transaction/repository-transaction';
@@ -19,6 +20,13 @@ export class RegistrationContentWorkspaceAdapter
     @Inject(AI_REGISTRATION_CONTENT_WORKSPACE_PORT)
     private readonly workspaces: AiRegistrationContentWorkspacePort,
   ) {}
+
+  resolveSourceSelections(
+    transaction: SourcingRepositoryTransaction,
+    input: ValidateRegistrationContentSelectionsInput,
+  ): Promise<ResolvedRegistrationContentSelections> {
+    return this.workspaces.resolveSourceSelections(transaction, input);
+  }
 
   validateSourceSelections(
     input: ValidateRegistrationContentSelectionsInput,

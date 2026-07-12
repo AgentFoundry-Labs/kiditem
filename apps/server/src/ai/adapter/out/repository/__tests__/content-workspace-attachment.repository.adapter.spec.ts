@@ -28,6 +28,10 @@ describe('ContentWorkspaceAttachmentRepositoryAdapter', () => {
 
   it('moves generations and merges duplicate assets into an existing product workspace', async () => {
     const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([
+        { id: 'asset-existing', isDeleted: false },
+        { id: 'asset-old', isDeleted: false },
+      ]),
       contentGeneration: {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
@@ -47,6 +51,9 @@ describe('ContentWorkspaceAttachmentRepositoryAdapter', () => {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       contentGenerationSource: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      contentWorkspaceThumbnailSelection: {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
     };
@@ -74,6 +81,17 @@ describe('ContentWorkspaceAttachmentRepositoryAdapter', () => {
       where: { organizationId: 'org-1', contentAssetId: 'asset-old' },
       data: { contentAssetId: 'asset-existing' },
     });
+    expect(tx.contentWorkspaceThumbnailSelection.updateMany).toHaveBeenCalledWith({
+      where: { organizationId: 'org-1', contentAssetId: 'asset-old' },
+      data: { contentAssetId: 'asset-existing' },
+    });
+    expect(tx.$queryRaw).toHaveBeenCalledOnce();
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.contentWorkspaceThumbnailSelection.updateMany.mock.invocationCallOrder[0],
+    );
+    expect(
+      tx.contentWorkspaceThumbnailSelection.updateMany.mock.invocationCallOrder[0],
+    ).toBeLessThan(tx.contentAsset.deleteMany.mock.invocationCallOrder[0]);
     expect(tx.contentAsset.deleteMany).toHaveBeenCalledWith({
       where: { organizationId: 'org-1', id: 'asset-old' },
     });

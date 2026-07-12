@@ -42,6 +42,7 @@ interface ProductEditHeaderProps {
   basicInfo?: ProductBasics | null;
   costCny?: number | null;
   selectedThumbnailUrl?: string | null;
+  selectedThumbnailGenerationId?: string | null;
   selectedThumbnailGenerationCandidateId?: string | null;
   selectedDetailPageGenerationId?: string | null;
   detailGenerationContentWorkspaceId?: string | null;
@@ -62,6 +63,7 @@ export default function ProductEditHeader({
   productPreparation = null,
   basicInfo = null,
   selectedThumbnailUrl = null,
+  selectedThumbnailGenerationId = null,
   selectedThumbnailGenerationCandidateId = null,
   selectedDetailPageGenerationId = null,
   detailGenerationContentWorkspaceId = null,
@@ -98,6 +100,7 @@ export default function ProductEditHeader({
         displayName: productName,
         registrationInput: preparationRegistrationInput(productName, basicInfo),
         selectedThumbnailUrl,
+        selectedThumbnailGenerationId,
         selectedThumbnailGenerationCandidateId,
         selectedDetailPageGenerationId,
         selectedDetailPageArtifactId: basicInfo?.selectedDetailPageArtifactId ?? null,
@@ -384,6 +387,7 @@ function preparationRegistrationInput(
   if (!basicInfo) return { name: productName };
   const {
     selectedThumbnailUrl: _selectedThumbnailUrl,
+    selectedThumbnailGenerationId: _selectedThumbnailGenerationId,
     selectedThumbnailGenerationCandidateId: _selectedThumbnailGenerationCandidateId,
     selectedDetailPageGenerationId: _selectedDetailPageGenerationId,
     selectedDetailPageArtifactId: _selectedDetailPageArtifactId,

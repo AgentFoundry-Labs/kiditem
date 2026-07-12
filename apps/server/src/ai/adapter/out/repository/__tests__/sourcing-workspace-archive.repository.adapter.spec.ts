@@ -101,6 +101,18 @@ describe('SourcingWorkspaceArchiveRepositoryAdapter', () => {
         organizationId: ORG,
         sourceCandidateId: CANDIDATE_ID,
         isDeleted: false,
+        thumbnailSelections: {
+          none: {
+            currentForWorkspace: {
+              is: {
+                organizationId: ORG,
+                ownerType: 'channel_listing',
+                status: 'active',
+                isDeleted: false,
+              },
+            },
+          },
+        },
       },
       data: { isDeleted: true, deletedAt: ARCHIVED_AT },
     });

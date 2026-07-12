@@ -6,6 +6,37 @@ import type { RegistrationContentWorkspaceRepositoryPort } from '../port/out/rep
 const TX = { opaque: true };
 
 describe('RegistrationContentWorkspaceService', () => {
+  it('resolves exact source selections through the caller transaction', async () => {
+    const resolved = {
+      selectedThumbnailUrl: null,
+      selectedThumbnailGenerationId: null,
+      selectedThumbnailGenerationCandidateId: null,
+      selectedDetailPageArtifactId: 'artifact-1',
+      selectedDetailPageRevisionId: 'revision-1',
+      selectedDetailPageGenerationId: 'generation-1',
+    };
+    const repository = {
+      ensureCandidateWorkspace: vi.fn(),
+      branchToListing: vi.fn(),
+      validateSourceSelections: vi.fn(),
+      resolveSourceSelections: vi.fn().mockResolvedValue(resolved),
+    } as unknown as RegistrationContentWorkspaceRepositoryPort;
+    const service = new RegistrationContentWorkspaceService(repository);
+    const input = {
+      organizationId: 'org-1',
+      sourceWorkspaceId: 'source-workspace-1',
+      selectedThumbnailUrl: null,
+      selectedThumbnailGenerationId: null,
+      selectedThumbnailGenerationCandidateId: null,
+      selectedDetailPageArtifactId: null,
+      selectedDetailPageRevisionId: null,
+      selectedDetailPageGenerationId: 'generation-1',
+    };
+
+    await expect(service.resolveSourceSelections(TX, input)).resolves.toEqual(resolved);
+    expect(repository.resolveSourceSelections).toHaveBeenCalledWith(TX, input);
+  });
+
   it('ensures the source-candidate workspace in the caller transaction', async () => {
     const repository = {
       ensureCandidateWorkspace: vi.fn().mockResolvedValue({ workspaceId: 'source-workspace-1' }),

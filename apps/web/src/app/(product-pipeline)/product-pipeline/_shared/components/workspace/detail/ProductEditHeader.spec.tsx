@@ -78,6 +78,7 @@ const basicInfo: ProductBasics = {
   rocketUnitCost: 9000,
   thumbnailUrls: ['https://cdn.example.com/source.png'],
   selectedThumbnailUrl: 'https://cdn.example.com/generated-thumb.png',
+  selectedThumbnailGenerationId: '22222222-2222-4222-8222-222222222222',
   selectedThumbnailGenerationCandidateId: '33333333-3333-4333-8333-333333333333',
   selectedDetailPageGenerationId: '44444444-4444-4444-8444-444444444444',
   selectedDetailPageArtifactId: '55555555-5555-4555-8555-555555555555',
@@ -110,6 +111,7 @@ function renderHeader(productPreparation: ProductPreparationSelection | null = n
       productPreparation={productPreparation}
       basicInfo={basicInfo}
       selectedThumbnailUrl={basicInfo.selectedThumbnailUrl}
+      selectedThumbnailGenerationId={basicInfo.selectedThumbnailGenerationId}
       selectedThumbnailGenerationCandidateId={basicInfo.selectedThumbnailGenerationCandidateId}
       selectedDetailPageGenerationId={basicInfo.selectedDetailPageGenerationId}
       isEditComplete={false}
@@ -172,6 +174,7 @@ describe('ProductEditHeader preparation draft action', () => {
           salePrice: 21900,
         }),
         selectedThumbnailUrl: 'https://cdn.example.com/generated-thumb.png',
+        selectedThumbnailGenerationId: '22222222-2222-4222-8222-222222222222',
         selectedThumbnailGenerationCandidateId: '33333333-3333-4333-8333-333333333333',
         selectedDetailPageGenerationId: '44444444-4444-4444-8444-444444444444',
         selectedDetailPageArtifactId: '55555555-5555-4555-8555-555555555555',
@@ -179,6 +182,7 @@ describe('ProductEditHeader preparation draft action', () => {
       }),
     ));
     const request = createPreparationDraftMock.mock.calls[0]?.[1];
+    expect(request?.registrationInput).not.toHaveProperty('selectedThumbnailGenerationId');
     expect(request).not.toHaveProperty('options');
     expect(request).not.toHaveProperty('skipPostPromotionHooks');
     expect(request).not.toHaveProperty('masterId');
@@ -207,6 +211,7 @@ describe('ProductEditHeader preparation draft action', () => {
       listingId: '99999999-9999-4999-8999-999999999999',
       status: 'registered',
       selectedThumbnailUrl: null,
+      selectedThumbnailGenerationId: null,
       selectedThumbnailGenerationCandidateId: null,
       selectedDetailPageGenerationId: null,
       selectedDetailPageArtifactId: null,
@@ -227,6 +232,7 @@ describe('ProductEditHeader preparation draft action', () => {
       listingId: null,
       status: 'draft',
       selectedThumbnailUrl: null,
+      selectedThumbnailGenerationId: null,
       selectedThumbnailGenerationCandidateId: null,
       selectedDetailPageGenerationId: null,
       selectedDetailPageArtifactId: null,

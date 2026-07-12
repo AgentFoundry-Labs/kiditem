@@ -172,6 +172,9 @@ describe('Sellpia Master expand release contract', () => {
       ['registrationResult', 'Json\\?'],
       ['submissionPayloadJson', 'Json\\?'],
       ['submissionPayloadHash', 'String\\?'],
+      ['providerOutcome', 'String\\?'],
+      ['submissionLeaseToken', 'String\\?'],
+      ['submissionLeaseClaimedAt', 'DateTime\\?'],
     ]);
     assert.doesNotMatch(
       preparation,
@@ -188,6 +191,58 @@ describe('Sellpia Master expand release contract', () => {
       ['currentThumbnailSelectionId', 'String\\?'],
     ]);
     modelBlock(ai, 'ContentWorkspaceThumbnailSelection');
+
+    for (const [relation, field] of [
+      ['sourceCandidate', 'sourceCandidateId'],
+      ['targetMaster', 'targetMasterId'],
+      ['channelListing', 'channelListingId'],
+      ['originWorkspace', 'originWorkspaceId'],
+      ['currentDetailPageArtifact', 'currentDetailPageArtifactId'],
+      ['currentDetailPageRevision', 'currentDetailPageRevisionId'],
+      ['currentThumbnailSelection', 'currentThumbnailSelectionId'],
+    ]) {
+      assert.match(
+        workspace,
+        new RegExp(`${relation}\\s+[^\\n]*fields:\\s*\\[${field}, organizationId\\][^\\n]*references:\\s*\\[id, organizationId\\]`),
+        `Expected tenant-safe ContentWorkspace.${relation}`,
+      );
+    }
+
+    for (const [relation, field] of [
+      ['sourceCandidate', 'sourceCandidateId'],
+      ['master', 'masterId'],
+      ['contentWorkspace', 'contentWorkspaceId'],
+      ['channelAccount', 'channelAccountId'],
+      ['sourceContentWorkspace', 'sourceContentWorkspaceId'],
+      ['channelListing', 'channelListingId'],
+      ['selectedDetailPageArtifact', 'selectedDetailPageArtifactId'],
+      ['selectedDetailPageRevision', 'selectedDetailPageRevisionId'],
+      ['selectedDetailPageGeneration', 'selectedDetailPageGenerationId'],
+      ['selectedThumbnailGeneration', 'selectedThumbnailGenerationId'],
+      ['selectedThumbnailGenerationCandidate', 'selectedThumbnailGenerationCandidateId'],
+    ]) {
+      assert.match(
+        preparation,
+        new RegExp(`${relation}\\s+[^\\n]*fields:\\s*\\[${field}, organizationId\\][^\\n]*references:\\s*\\[id, organizationId\\]`),
+        `Expected tenant-safe ProductPreparation.${relation}`,
+      );
+    }
+
+    for (const model of [
+      'ContentGeneration',
+      'DetailPageArtifact',
+      'DetailPageRevision',
+      'ContentWorkspace',
+      'ContentWorkspaceThumbnailSelection',
+      'ThumbnailGeneration',
+      'ThumbnailGenerationCandidate',
+    ]) {
+      assert.match(
+        modelBlock(ai, model),
+        /@@unique\(\[id, organizationId\]/,
+        `Expected tenant-safe identity for ${model}`,
+      );
+    }
 
     assertFields(modelBlock(ai, 'ContentGenerationGroup'), [
       ['targetMasterId', 'String\\?'],

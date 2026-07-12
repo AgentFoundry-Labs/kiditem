@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { groupUrlAssetKey } from '../../../domain/content-asset-key';
 import type {
@@ -85,6 +86,7 @@ implements ContentWorkspaceAttachmentRepositoryPort {
 
   private async moveAssetsToWorkspace(
     tx: {
+      $queryRaw<T>(query: Prisma.Sql): Promise<T>;
       contentAsset: {
         findMany(args: any): Promise<Array<{ id: string; url: string }>>;
         findFirst(args: any): Promise<{ id: string; isDeleted: boolean } | null>;
@@ -98,6 +100,9 @@ implements ContentWorkspaceAttachmentRepositoryPort {
         updateMany(args: any): Promise<unknown>;
       };
       contentGenerationSource: {
+        updateMany(args: any): Promise<unknown>;
+      };
+      contentWorkspaceThumbnailSelection: {
         updateMany(args: any): Promise<unknown>;
       };
     },
@@ -126,7 +131,28 @@ implements ContentWorkspaceAttachmentRepositoryPort {
         continue;
       }
 
-      if (existing.isDeleted) {
+      const lockedIds = [asset.id, existing.id].sort();
+      const locked = await tx.$queryRaw<Array<{ id: string; isDeleted: boolean }>>(Prisma.sql`
+        SELECT id, is_deleted AS "isDeleted"
+        FROM content_assets
+        WHERE organization_id = ${organizationId}::uuid
+          AND id IN (${Prisma.join(lockedIds.map((id) => Prisma.sql`${id}::uuid`))})
+        ORDER BY id
+        FOR UPDATE
+      `);
+      if (locked.length !== lockedIds.length) {
+        throw new ConflictException(
+          'Content assets changed while the workspace merge was in progress.',
+        );
+      }
+      const lockedTarget = locked.find(({ id }) => id === existing.id);
+      if (!lockedTarget) {
+        throw new ConflictException(
+          'Content asset target changed while the workspace merge was in progress.',
+        );
+      }
+
+      if (lockedTarget.isDeleted) {
         await tx.contentAsset.updateMany({
           where: { organizationId, id: existing.id },
           data: { isDeleted: false, deletedAt: null },
@@ -159,6 +185,10 @@ implements ContentWorkspaceAttachmentRepositoryPort {
       }
 
       await tx.contentGenerationSource.updateMany({
+        where: { organizationId, contentAssetId: asset.id },
+        data: { contentAssetId: existing.id },
+      });
+      await tx.contentWorkspaceThumbnailSelection.updateMany({
         where: { organizationId, contentAssetId: asset.id },
         data: { contentAssetId: existing.id },
       });

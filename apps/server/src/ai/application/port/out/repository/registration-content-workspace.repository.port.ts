@@ -2,6 +2,7 @@ import type {
   BranchRegistrationWorkspaceToListingInput,
   EnsureRegistrationCandidateWorkspaceInput,
   RegistrationContentSelectionInput,
+  ResolvedRegistrationContentSelections,
 } from '../../in/workspace/registration-content-workspace.port';
 
 export const REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT = Symbol(
@@ -14,6 +15,10 @@ export interface RegistrationContentWorkspaceOwnerInput {
 }
 
 export interface RegistrationContentWorkspaceRepositoryPort {
+  resolveSourceSelections(
+    transaction: object,
+    input: RegistrationContentSelectionInput,
+  ): Promise<ResolvedRegistrationContentSelections>;
   validateSourceSelections(
     transaction: object | null,
     input: RegistrationContentSelectionInput,

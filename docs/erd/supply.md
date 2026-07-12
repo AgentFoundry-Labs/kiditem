@@ -57,8 +57,10 @@ erDiagram
   }
   PurchaseOrderItem {
     String id PK
+    String organizationId FK
     String orderId FK
     String optionId FK
+    String masterProductId FK
     String productName
     Int quantity
     Decimal unitPriceCny
@@ -96,18 +98,24 @@ erDiagram
   }
   SupplierProduct {
     String id PK
+    String organizationId FK
     String supplierId FK
     String optionId FK
+    String masterProductId FK,UK
     Int supplyPrice
     Int minOrderQty
+    Boolean isPrimary
+    String memo
     DateTime createdAt
     DateTime updatedAt
   }
   PurchaseOrder ||--o{ PurchaseOrderItem : "order"
+  PurchaseOrder o|--o{ PurchaseOrderItem : "scopedOrder"
   PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"
   Supplier ||--o{ MasterSupplierProduct : "supplier"
   Supplier o|--o{ PurchaseOrder : "supplier"
   Supplier ||--o{ SupplierPayment : "supplier"
+  Supplier o|--o{ SupplierProduct : "scopedSupplier"
   Supplier ||--o{ SupplierProduct : "supplier"
 ```
 
@@ -117,7 +125,11 @@ erDiagram
 |---|---|---|---|---|
 | MasterSupplierProduct | master | references external | Core | MasterProduct |
 | PurchaseOrder | organization | references external | Core | Organization |
+| PurchaseOrderItem | masterProduct | references external | Core | MasterProduct |
 | PurchaseOrderItem | option | references external | Core | ProductOption |
+| PurchaseOrderItem | organization | references external | Core | Organization |
 | Supplier | organization | references external | Core | Organization |
 | SupplierPayment | organization | references external | Core | Organization |
+| SupplierProduct | masterProduct | references external | Core | MasterProduct |
 | SupplierProduct | option | references external | Core | ProductOption |
+| SupplierProduct | organization | references external | Core | Organization |

@@ -82,6 +82,18 @@ implements SourcingWorkspaceArchiveRepositoryPort {
         organizationId: input.organizationId,
         sourceCandidateId: input.sourceCandidateId,
         isDeleted: false,
+        thumbnailSelections: {
+          none: {
+            currentForWorkspace: {
+              is: {
+                organizationId: input.organizationId,
+                ownerType: 'channel_listing',
+                status: 'active',
+                isDeleted: false,
+              },
+            },
+          },
+        },
       },
       data: archiveData(input.archivedAt),
     });

@@ -13,11 +13,11 @@
 | ChannelAdTargetDailySnapshot | `channel_ad_target_daily_snapshots` | 채널 광고 타겟(캠페인/키워드/상품)의 일별 정규화 fact. 기간 view 는 SUM 으로 derive. |
 | ChannelListingDailySnapshot | `channel_listing_daily_snapshots` | 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert. |
 | ChannelListingOptionDailySnapshot | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
-| ChannelReconciliationItem | `channel_reconciliation_items` | 확장-릴리스 호환을 위한 비활성 이력 테이블. 현재 운영 queue 는 없으며 ChannelSkuComponent 가 매칭 source of truth 다. |
-| ChannelReconciliationRun | `channel_reconciliation_runs` | 확장-릴리스 호환을 위한 비활성 스캔 이력. 현재 controller/service wiring 과 운영 매칭 흐름은 이 모델을 사용하지 않는다. |
+| ChannelReconciliationItem | `channel_reconciliation_items` | 사용자가 처리하는 채널-내부 상품 매칭 queue. MasterProduct 자동 생성 없이 기존 ProductOption/ChannelListing 연결만 추적. |
+| ChannelReconciliationRun | `channel_reconciliation_runs` | 채널-KidItem 상품 매칭 스캔 실행 이력. 실제 연결 source of truth 는 ChannelListing / ChannelListingOption. |
 | ChannelScrapeRun | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
 | ChannelScrapeSnapshot | `channel_scrape_snapshots` | 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존. |
-| ChannelSkuComponent | `channel_sku_components` | 채널 판매 SKU가 소비하는 Sellpia InventorySku 구성과 수량. 확정 매칭의 유일한 source of truth. |
+| ChannelSkuComponent | `channel_sku_components` | Confirmed channel-SKU recipe. InventorySku remains the rollback owner while masterProductId is staged. |
 | RocketPurchaseOrder | `rocket_purchase_orders` | 쿠팡 로켓 발주 단건(per-PO) 상세 — 매출분석 드릴다운(일자→발주→품목)용. items 는 발주서 품목(SKU) 라인 JSON(표시 전용). |
 | RocketSupplyDailySnapshot | `rocket_supply_daily_snapshots` | 쿠팡 로켓(공급사 발주) 일별 매출 fact. po-web 발주리스트의 발주금액(공급가)을 입고예정일(KST) 기준으로 집계한 값으로, 윙 매출과 분리된 로켓 매출 소스. |
 
@@ -28,6 +28,7 @@ erDiagram
   ChannelAccountDailyKpiSnapshot {
     String id PK
     String organizationId FK
+    String channelAccountId FK
     String channel
     String source
     String kpiType
@@ -220,6 +221,7 @@ erDiagram
   ChannelScrapeRun {
     String id PK
     String organizationId FK
+    String channelAccountId FK
     String channel
     String source
     String pageType
@@ -267,6 +269,7 @@ erDiagram
     String organizationId FK
     String channelSkuId FK
     String inventorySkuId FK
+    String masterProductId FK
     Int quantity
     String mappingSource
     String createdBy
@@ -314,6 +317,7 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
+| ChannelAccountDailyKpiSnapshot | channelAccount | references external | Core | ChannelAccount |
 | ChannelAccountDailyKpiSnapshot | organization | references external | Core | Organization |
 | ChannelAdTargetDailySnapshot | adTargetDaily | referenced by external | Advertising | AdAction |
 | ChannelAdTargetDailySnapshot | listing | references external | Core | ChannelListing |
@@ -328,6 +332,7 @@ erDiagram
 | ChannelListingOptionDailySnapshot | organization | references external | Core | Organization |
 | ChannelReconciliationItem | organization | references external | Core | Organization |
 | ChannelReconciliationRun | organization | references external | Core | Organization |
+| ChannelScrapeRun | channelAccount | references external | Core | ChannelAccount |
 | ChannelScrapeRun | organization | references external | Core | Organization |
 | ChannelScrapeSnapshot | listing | references external | Core | ChannelListing |
 | ChannelScrapeSnapshot | listingOption | references external | Core | ChannelListingOption |
@@ -335,6 +340,7 @@ erDiagram
 | ChannelScrapeSnapshot | organization | references external | Core | Organization |
 | ChannelSkuComponent | channelSku | references external | Core | ChannelListingOption |
 | ChannelSkuComponent | inventorySku | references external | Inventory | InventorySku |
+| ChannelSkuComponent | masterProduct | references external | Core | MasterProduct |
 | ChannelSkuComponent | organization | references external | Core | Organization |
 | RocketPurchaseOrder | organization | references external | Core | Organization |
 | RocketSupplyDailySnapshot | organization | references external | Core | Organization |

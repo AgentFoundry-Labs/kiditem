@@ -55,7 +55,14 @@ export default function ThumbnailSourcePicker({
   const selectedOption = useMemo(
     () =>
       availableOptions.find((option) => option.url === selectedUrl) ??
-      (selectedUrl ? { url: selectedUrl, kind: 'source' as const, generatedCandidateId: null } : null),
+      (selectedUrl
+        ? {
+            url: selectedUrl,
+            kind: 'source' as const,
+            generatedGenerationId: null,
+            generatedCandidateId: null,
+          }
+        : null),
     [availableOptions, selectedUrl],
   );
   const selectedAlreadySaved = Boolean(selectedUrl && selectedUrl === savedRepresentativeUrl);

@@ -23,6 +23,7 @@ erDiagram
     String id PK
     String organizationId FK
     String listingId FK
+    String listingOptionId FK
     String adTargetDailyId FK
     String actionType
     String targetType
@@ -100,6 +101,7 @@ erDiagram
 |---|---|---|---|---|
 | AdAction | adTargetDaily | references external | Channels | ChannelAdTargetDailySnapshot |
 | AdAction | listing | references external | Core | ChannelListing |
+| AdAction | listingOption | references external | Core | ChannelListingOption |
 | AdAction | organization | references external | Core | Organization |
 | ExecutionWorker | organization | references external | Core | Organization |
 | ScrapeTarget | organization | references external | Core | Organization |

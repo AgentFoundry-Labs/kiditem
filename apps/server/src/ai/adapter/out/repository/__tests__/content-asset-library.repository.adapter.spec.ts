@@ -8,6 +8,10 @@ const USER_ID = '99999999-9999-9999-9999-999999999999';
 
 function makePrisma() {
   const tx = {
+    $queryRaw: vi.fn().mockResolvedValue([
+      { id: 'asset-1' },
+      { id: 'asset-2' },
+    ]),
     contentAsset: {
       createMany: vi.fn().mockResolvedValue({ count: 2 }),
       findMany: vi.fn().mockResolvedValue([
@@ -130,6 +134,10 @@ describe('ContentAssetLibraryRepositoryAdapter', () => {
       imageUrls: ['https://example.com/a.jpg', 'https://example.com/b.jpg'],
     });
 
+    expect(tx.$queryRaw).toHaveBeenCalledOnce();
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.contentGenerationAssetUsage.deleteMany.mock.invocationCallOrder[0],
+    );
     expect(tx.contentGenerationAssetUsage.deleteMany).toHaveBeenCalledWith({
       where: { organizationId: ORG, contentGenerationId: GENERATION_ID },
     });
@@ -140,6 +148,23 @@ describe('ContentAssetLibraryRepositoryAdapter', () => {
         { organizationId: ORG, contentGenerationId: GENERATION_ID, contentAssetId: 'asset-2' },
       ],
     });
+  });
+
+  it('rejects usage replacement when an asset cannot be locked as active', async () => {
+    const { prisma, tx } = makePrisma();
+    tx.$queryRaw.mockResolvedValueOnce([{ id: 'asset-1' }]);
+    const repository = new ContentAssetLibraryRepositoryAdapter(prisma as never);
+
+    await expect(repository.syncGenerationImageUsages({
+      organizationId: ORG,
+      generationGroupId: GROUP_ID,
+      contentGenerationId: GENERATION_ID,
+      createdByUserId: USER_ID,
+      imageUrls: ['https://example.com/a.jpg', 'https://example.com/b.jpg'],
+    })).rejects.toThrow('Content asset selection changed while usages were being updated.');
+
+    expect(tx.contentGenerationAssetUsage.deleteMany).not.toHaveBeenCalled();
+    expect(tx.contentGenerationAssetUsage.createMany).not.toHaveBeenCalled();
   });
 
   it('lists assets through product and generation filters', async () => {

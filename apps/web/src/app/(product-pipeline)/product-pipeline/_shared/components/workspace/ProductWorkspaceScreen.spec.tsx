@@ -75,8 +75,9 @@ vi.mock('./ProductTabContent', () => ({
       thumbnailUrls: string[];
       selectedThumbnail: {
         url: string;
-        kind: 'source';
-        generatedCandidateId: null;
+        kind: 'generated';
+        generatedGenerationId: string;
+        generatedCandidateId: string;
       };
     }) => void;
     onCommitBasicInfo?: (input: {
@@ -98,11 +99,12 @@ vi.mock('./ProductTabContent', () => ({
         type="button"
         onClick={() =>
           onSaveThumbnailConfiguration?.({
-            thumbnailUrls: ['https://cdn.example.com/source.jpg'],
+            thumbnailUrls: ['https://cdn.example.com/generated.jpg'],
             selectedThumbnail: {
-              url: 'https://cdn.example.com/source.jpg',
-              kind: 'source',
-              generatedCandidateId: null,
+              url: 'https://cdn.example.com/generated.jpg',
+              kind: 'generated',
+              generatedGenerationId: 'thumbnail-generation-1',
+              generatedCandidateId: 'thumbnail-candidate-1',
             },
           })
         }
@@ -224,6 +226,7 @@ describe('ProductWorkspaceScreen', () => {
           listingId: 'listing-1',
           status: 'registered',
           selectedThumbnailUrl: 'https://cdn.example.com/generated-thumb.png',
+          selectedThumbnailGenerationId: 'thumb-generation-1',
           selectedThumbnailGenerationCandidateId: 'thumb-candidate-1',
           selectedDetailPageGenerationId: 'detail-generation-1',
           selectedDetailPageArtifactId: 'artifact-1',
@@ -253,6 +256,9 @@ describe('ProductWorkspaceScreen', () => {
       selectedWorkspaceData.product.productPreparation,
     );
     expect(productEditHeaderProps.at(-1)?.detailGenerationContentWorkspaceId).toBe('workspace-1');
+    expect(productEditHeaderProps.at(-1)?.selectedThumbnailGenerationId).toBe(
+      'thumb-generation-1',
+    );
     expect(productEditHeaderProps.at(-1)).not.toHaveProperty('promotedMasterId');
   });
 
@@ -270,6 +276,7 @@ describe('ProductWorkspaceScreen', () => {
             listingId: null,
             status: 'draft',
             selectedThumbnailUrl: null,
+            selectedThumbnailGenerationId: null,
             selectedThumbnailGenerationCandidateId: null,
             selectedDetailPageGenerationId: null,
             selectedDetailPageArtifactId: null,
@@ -317,6 +324,7 @@ describe('ProductWorkspaceScreen', () => {
             listingId: null,
             status: 'draft',
             selectedThumbnailUrl: null,
+            selectedThumbnailGenerationId: null,
             selectedThumbnailGenerationCandidateId: null,
             selectedDetailPageGenerationId: null,
             selectedDetailPageArtifactId: null,
@@ -384,6 +392,7 @@ describe('ProductWorkspaceScreen', () => {
             listingId: null,
             status: 'draft',
             selectedThumbnailUrl: null,
+            selectedThumbnailGenerationId: null,
             selectedThumbnailGenerationCandidateId: null,
             selectedDetailPageGenerationId: 'detail-generation-1',
             selectedDetailPageArtifactId: 'artifact-1',
@@ -439,6 +448,7 @@ describe('ProductWorkspaceScreen', () => {
             listingId: null,
             status: 'draft',
             selectedThumbnailUrl: null,
+            selectedThumbnailGenerationId: null,
             selectedThumbnailGenerationCandidateId: null,
             selectedDetailPageGenerationId: 'detail-generation-1',
             selectedDetailPageArtifactId: 'artifact-1',
@@ -541,5 +551,10 @@ describe('ProductWorkspaceScreen', () => {
       expect(apiClientPatchMock).toHaveBeenCalledTimes(2);
     });
     expect(apiClientPatchMock.mock.calls[1][0]).toContain('/preparation/thumbnail');
+    expect(apiClientPatchMock.mock.calls[1][1]).toEqual({
+      selectedThumbnailUrl: 'https://cdn.example.com/generated.jpg',
+      selectedThumbnailGenerationId: 'thumbnail-generation-1',
+      selectedThumbnailGenerationCandidateId: 'thumbnail-candidate-1',
+    });
   });
 });

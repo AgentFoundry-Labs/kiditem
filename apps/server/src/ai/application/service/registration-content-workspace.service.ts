@@ -5,6 +5,7 @@ import {
   type EnsureRegistrationCandidateWorkspaceInput,
   type RegistrationContentSelectionInput,
   type RegistrationContentWorkspacePort,
+  type ResolvedRegistrationContentSelections,
 } from '../port/in/workspace/registration-content-workspace.port';
 import {
   REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT,
@@ -22,6 +23,13 @@ export class RegistrationContentWorkspaceService
     @Inject(REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT)
     private readonly repository: RegistrationContentWorkspaceRepositoryPort,
   ) {}
+
+  resolveSourceSelections(
+    transaction: object,
+    input: RegistrationContentSelectionInput,
+  ): Promise<ResolvedRegistrationContentSelections> {
+    return this.repository.resolveSourceSelections(transaction, input);
+  }
 
   validateSourceSelections(
     transaction: object | null,

@@ -30,6 +30,18 @@ const allowed = [
     name: 'content_workspaces_candidate_active_key',
     text: 'A unique constraint covering the columns `[organization_id,source_candidate_id]` on the table `content_workspaces` will be added. If there are existing duplicate values, this will fail.',
   },
+  {
+    name: 'content_generations_id_org_key',
+    text: 'A unique constraint covering the columns `[id,organization_id]` on the table `content_generations` will be added. If there are existing duplicate values, this will fail.',
+  },
+  {
+    name: 'detail_page_artifacts_id_org_key',
+    text: 'A unique constraint covering the columns `[id,organization_id]` on the table `detail_page_artifacts` will be added. If there are existing duplicate values, this will fail.',
+  },
+  {
+    name: 'detail_page_revisions_id_org_key',
+    text: 'A unique constraint covering the columns `[id,organization_id]` on the table `detail_page_revisions` will be added. If there are existing duplicate values, this will fail.',
+  },
 ];
 
 function warningLog(warnings) {

@@ -310,6 +310,7 @@ describe('ThumbnailWorkspaceTab', () => {
       selectedThumbnail: {
         url: 'https://cdn.example.com/source.jpg',
         kind: 'source',
+        generatedGenerationId: null,
         generatedCandidateId: null,
       },
     });
@@ -359,6 +360,7 @@ describe('ThumbnailWorkspaceTab', () => {
       selectedThumbnail: {
         url: 'https://cdn.example.com/other.jpg',
         kind: 'source',
+        generatedGenerationId: null,
         generatedCandidateId: null,
       },
     });

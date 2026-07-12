@@ -371,6 +371,7 @@ model ContentGeneration {
   detailPageRevisions            DetailPageRevision[]          @relation("DetailPageRevisionContentGeneration")
   selectedForProductPreparations ProductPreparation[]          @relation("ProductPreparationSelectedDetailPageGeneration")
 
+  @@unique([id, organizationId], map: "content_generations_id_org_key")
   @@index([organizationId])
   @@index([generationGroupId])
   @@index([contentWorkspaceId])
@@ -423,6 +424,7 @@ model DetailPageArtifact {
   currentForContentWorkspaces    ContentWorkspace[]   @relation("ContentWorkspaceCurrentArtifact")
   selectedForProductPreparations ProductPreparation[] @relation("ProductPreparationSelectedDetailPageArtifact")
 
+  @@unique([id, organizationId], map: "detail_page_artifacts_id_org_key")
   @@index([organizationId])
   @@index([contentWorkspaceId])
   @@index([sourceCandidateId])
@@ -463,13 +465,13 @@ model ContentWorkspace {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization              Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceCandidate           SourcingCandidate?    @relation("ContentWorkspaceSourcingCandidate", fields: [sourceCandidateId], references: [id], onDelete: SetNull)
-  targetMaster              MasterProduct?        @relation("ContentWorkspaceTargetMaster", fields: [targetMasterId], references: [id], onDelete: SetNull)
+  sourceCandidate           SourcingCandidate?    @relation("ContentWorkspaceSourcingCandidate", fields: [sourceCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  targetMaster              MasterProduct?        @relation("ContentWorkspaceTargetMaster", fields: [targetMasterId, organizationId], references: [id, organizationId], onDelete: Restrict)
   channelListing            ChannelListing?       @relation(fields: [channelListingId, organizationId], references: [id, organizationId], onDelete: Restrict)
   originWorkspace           ContentWorkspace?     @relation("ContentWorkspaceBranches", fields: [originWorkspaceId, organizationId], references: [id, organizationId], onDelete: Restrict)
   derivedWorkspaces         ContentWorkspace[]     @relation("ContentWorkspaceBranches")
-  currentDetailPageArtifact DetailPageArtifact?   @relation("ContentWorkspaceCurrentArtifact", fields: [currentDetailPageArtifactId], references: [id], onDelete: SetNull)
-  currentDetailPageRevision DetailPageRevision?   @relation("ContentWorkspaceCurrentRevision", fields: [currentDetailPageRevisionId], references: [id], onDelete: SetNull)
+  currentDetailPageArtifact DetailPageArtifact?   @relation("ContentWorkspaceCurrentArtifact", fields: [currentDetailPageArtifactId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  currentDetailPageRevision DetailPageRevision?   @relation("ContentWorkspaceCurrentRevision", fields: [currentDetailPageRevisionId, organizationId], references: [id, organizationId], onDelete: Restrict)
   currentThumbnailSelection ContentWorkspaceThumbnailSelection? @relation("ContentWorkspaceCurrentThumbnail", fields: [currentThumbnailSelectionId, organizationId], references: [id, organizationId], onDelete: Restrict)
   createdByUser             User?                 @relation("ContentWorkspaceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   contentGenerations        ContentGeneration[]   @relation("ContentGenerationContentWorkspace")
@@ -565,6 +567,9 @@ model ProductPreparation {
   registrationResult   Json?   @map("registration_result")
   submissionPayloadJson Json?  @map("submission_payload_json")
   submissionPayloadHash String? @map("submission_payload_hash")
+  providerOutcome        String? @map("provider_outcome")
+  submissionLeaseToken   String? @map("submission_lease_token") @db.Uuid
+  submissionLeaseClaimedAt DateTime? @map("submission_lease_claimed_at") @db.Timestamptz
 
   createdByUserId String?   @map("created_by_user_id") @db.Uuid
   isDeleted       Boolean   @default(false) @map("is_deleted")
@@ -573,17 +578,17 @@ model ProductPreparation {
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization                         Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceCandidate                      SourcingCandidate?            @relation(fields: [sourceCandidateId], references: [id], onDelete: SetNull)
-  master                               MasterProduct?                @relation(fields: [masterId], references: [id], onDelete: SetNull)
-  contentWorkspace                     ContentWorkspace?             @relation("ProductPreparationContentWorkspace", fields: [contentWorkspaceId], references: [id], onDelete: SetNull)
+  sourceCandidate                      SourcingCandidate?            @relation(fields: [sourceCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  master                               MasterProduct?                @relation(fields: [masterId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  contentWorkspace                     ContentWorkspace?             @relation("ProductPreparationContentWorkspace", fields: [contentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Restrict)
   channelAccount                       ChannelAccount?                @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   sourceContentWorkspace               ContentWorkspace?             @relation("ProductPreparationSourceContentWorkspace", fields: [sourceContentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Restrict)
   channelListing                       ChannelListing?                @relation(fields: [channelListingId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  selectedDetailPageArtifact           DetailPageArtifact?           @relation("ProductPreparationSelectedDetailPageArtifact", fields: [selectedDetailPageArtifactId], references: [id], onDelete: SetNull)
-  selectedDetailPageRevision           DetailPageRevision?           @relation("ProductPreparationSelectedDetailPageRevision", fields: [selectedDetailPageRevisionId], references: [id], onDelete: SetNull)
-  selectedDetailPageGeneration         ContentGeneration?            @relation("ProductPreparationSelectedDetailPageGeneration", fields: [selectedDetailPageGenerationId], references: [id], onDelete: SetNull)
-  selectedThumbnailGeneration          ThumbnailGeneration?          @relation("ProductPreparationSelectedThumbnailGeneration", fields: [selectedThumbnailGenerationId], references: [id], onDelete: SetNull)
-  selectedThumbnailGenerationCandidate ThumbnailGenerationCandidate? @relation("ProductPreparationSelectedThumbnailGenerationCandidate", fields: [selectedThumbnailGenerationCandidateId], references: [id], onDelete: SetNull)
+  selectedDetailPageArtifact           DetailPageArtifact?           @relation("ProductPreparationSelectedDetailPageArtifact", fields: [selectedDetailPageArtifactId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  selectedDetailPageRevision           DetailPageRevision?           @relation("ProductPreparationSelectedDetailPageRevision", fields: [selectedDetailPageRevisionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  selectedDetailPageGeneration         ContentGeneration?            @relation("ProductPreparationSelectedDetailPageGeneration", fields: [selectedDetailPageGenerationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  selectedThumbnailGeneration          ThumbnailGeneration?          @relation("ProductPreparationSelectedThumbnailGeneration", fields: [selectedThumbnailGenerationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  selectedThumbnailGenerationCandidate ThumbnailGenerationCandidate? @relation("ProductPreparationSelectedThumbnailGenerationCandidate", fields: [selectedThumbnailGenerationCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
   createdByUser                        User?                         @relation("ProductPreparationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, sourceCandidateId], map: "product_preparations_org_source_candidate_active_key", where: raw("source_candidate_id IS NOT NULL AND is_deleted = false"))
@@ -631,6 +636,7 @@ model DetailPageRevision {
   currentForContentWorkspaces    ContentWorkspace[]   @relation("ContentWorkspaceCurrentRevision")
   selectedForProductPreparations ProductPreparation[] @relation("ProductPreparationSelectedDetailPageRevision")
 
+  @@unique([id, organizationId], map: "detail_page_revisions_id_org_key")
   @@index([organizationId])
   @@index([artifactId])
   @@index([contentGenerationId])

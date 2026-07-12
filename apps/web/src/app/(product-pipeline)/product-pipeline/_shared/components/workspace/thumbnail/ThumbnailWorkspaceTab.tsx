@@ -201,6 +201,7 @@ export default function ThumbnailWorkspaceTab({
     ({
       url,
       kind: 'source',
+      generatedGenerationId: null,
       generatedCandidateId: null,
     } satisfies RegistrationThumbnailOption);
 

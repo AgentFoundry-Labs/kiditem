@@ -6,6 +6,14 @@ describe('RegistrationContentWorkspaceAdapter', () => {
     const capability = {
       ensureCandidateWorkspace: vi.fn().mockResolvedValue({ workspaceId: 'source-workspace-1' }),
       branchToListing: vi.fn().mockResolvedValue({ workspaceId: 'listing-workspace-1' }),
+      resolveSourceSelections: vi.fn().mockResolvedValue({
+        selectedThumbnailUrl: null,
+        selectedThumbnailGenerationId: null,
+        selectedThumbnailGenerationCandidateId: null,
+        selectedDetailPageArtifactId: null,
+        selectedDetailPageRevisionId: null,
+        selectedDetailPageGenerationId: null,
+      }),
     };
     const adapter = new RegistrationContentWorkspaceAdapter(capability as never);
     const tx = { opaque: true } as never;
@@ -29,6 +37,16 @@ describe('RegistrationContentWorkspaceAdapter', () => {
       selectedDetailPageRevisionId: null,
       selectedDetailPageGenerationId: null,
     });
+    await adapter.resolveSourceSelections(tx, {
+      organizationId: 'org-1',
+      sourceWorkspaceId: 'source-workspace-1',
+      selectedThumbnailUrl: null,
+      selectedThumbnailGenerationId: null,
+      selectedThumbnailGenerationCandidateId: null,
+      selectedDetailPageArtifactId: null,
+      selectedDetailPageRevisionId: null,
+      selectedDetailPageGenerationId: null,
+    });
 
     expect(capability.ensureCandidateWorkspace).toHaveBeenCalledWith(
       tx,
@@ -37,6 +55,10 @@ describe('RegistrationContentWorkspaceAdapter', () => {
     expect(capability.branchToListing).toHaveBeenCalledWith(
       tx,
       expect.objectContaining({ listingId: 'listing-1' }),
+    );
+    expect(capability.resolveSourceSelections).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({ sourceWorkspaceId: 'source-workspace-1' }),
     );
   });
 });

@@ -20,6 +20,16 @@ export interface RegistrationContentSelectionInput {
   selectedDetailPageGenerationId: string | null;
 }
 
+export type ResolvedRegistrationContentSelections = Pick<
+  RegistrationContentSelectionInput,
+  | 'selectedThumbnailUrl'
+  | 'selectedThumbnailGenerationId'
+  | 'selectedThumbnailGenerationCandidateId'
+  | 'selectedDetailPageArtifactId'
+  | 'selectedDetailPageRevisionId'
+  | 'selectedDetailPageGenerationId'
+>;
+
 export interface BranchRegistrationWorkspaceToListingInput
   extends RegistrationContentSelectionInput {
   listingId: string;
@@ -28,6 +38,10 @@ export interface BranchRegistrationWorkspaceToListingInput
 }
 
 export interface RegistrationContentWorkspacePort {
+  resolveSourceSelections(
+    transaction: object,
+    input: RegistrationContentSelectionInput,
+  ): Promise<ResolvedRegistrationContentSelections>;
   validateSourceSelections(
     transaction: object | null,
     input: RegistrationContentSelectionInput,

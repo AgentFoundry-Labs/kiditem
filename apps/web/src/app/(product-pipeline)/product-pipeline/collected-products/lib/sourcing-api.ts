@@ -101,6 +101,7 @@ export interface ProductBasics {
   thumbnailUrls: string[];
   thumbnailPreviewUrls?: string[];
   selectedThumbnailUrl: string | null;
+  selectedThumbnailGenerationId: string | null;
   selectedThumbnailGenerationCandidateId: string | null;
   selectedDetailPageGenerationId: string | null;
   selectedDetailPageArtifactId: string | null;
@@ -143,6 +144,7 @@ export interface ProductPreparationSelection {
   listingId: string | null;
   status: ProductPreparationStatus;
   selectedThumbnailUrl: string | null;
+  selectedThumbnailGenerationId: string | null;
   selectedThumbnailGenerationCandidateId: string | null;
   selectedDetailPageGenerationId: string | null;
   selectedDetailPageArtifactId: string | null;
@@ -286,6 +288,9 @@ function normalizeProductPreparation(value: unknown): ProductPreparationSelectio
         : null,
     status: ProductPreparationStatusSchema.parse(prep.status),
     selectedThumbnailUrl: normalizeImageUrl(prep.selectedThumbnailUrl),
+    selectedThumbnailGenerationId: typeof prep.selectedThumbnailGenerationId === 'string'
+      ? prep.selectedThumbnailGenerationId
+      : null,
     selectedThumbnailGenerationCandidateId: typeof prep.selectedThumbnailGenerationCandidateId === 'string'
       ? prep.selectedThumbnailGenerationCandidateId
       : null,
@@ -352,6 +357,10 @@ function normalizeProductBasics(
     thumbnailUrls,
     thumbnailPreviewUrls: explicitThumbnailUrls,
     selectedThumbnailUrl: normalizeImageUrl(basics.selectedThumbnailUrl) ?? fallback.preparation?.selectedThumbnailUrl ?? null,
+    selectedThumbnailGenerationId:
+      typeof basics.selectedThumbnailGenerationId === 'string'
+        ? basics.selectedThumbnailGenerationId
+        : fallback.preparation?.selectedThumbnailGenerationId ?? null,
     selectedThumbnailGenerationCandidateId:
       typeof basics.selectedThumbnailGenerationCandidateId === 'string'
         ? basics.selectedThumbnailGenerationCandidateId
@@ -659,6 +668,7 @@ export const candidatesApi = {
     id: string,
     body: {
       selectedThumbnailUrl: string;
+      selectedThumbnailGenerationId?: string | null;
       selectedThumbnailGenerationCandidateId?: string | null;
     },
   ) =>

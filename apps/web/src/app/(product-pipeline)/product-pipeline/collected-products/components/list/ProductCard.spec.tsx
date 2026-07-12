@@ -69,6 +69,7 @@ describe('ProductCard quick processing action', () => {
             listingId: 'listing-1',
             status: 'registered',
             selectedThumbnailUrl: null,
+            selectedThumbnailGenerationId: null,
             selectedThumbnailGenerationCandidateId: null,
             selectedDetailPageGenerationId: null,
             selectedDetailPageArtifactId: null,

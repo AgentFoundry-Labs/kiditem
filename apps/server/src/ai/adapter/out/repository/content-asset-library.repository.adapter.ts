@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { groupUrlAssetKey, hashContentAssetUrl } from '../../../domain/content-asset-key';
@@ -253,13 +253,32 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
       contentAssetIds: string[];
     },
   ): Promise<void> {
+    const uniqueAssetIds = [...new Set(input.contentAssetIds)].sort();
+    if (uniqueAssetIds.length > 0) {
+      const rawScope = scope as ContentAssetLibraryWriteScope & {
+        $queryRaw<T>(query: Prisma.Sql): Promise<T>;
+      };
+      const locked = await rawScope.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id
+        FROM content_assets
+        WHERE organization_id = ${input.organizationId}::uuid
+          AND id IN (${Prisma.join(uniqueAssetIds)})
+          AND is_deleted = false
+        ORDER BY id
+        FOR UPDATE
+      `);
+      if (locked.length !== uniqueAssetIds.length) {
+        throw new ConflictException(
+          'Content asset selection changed while usages were being updated.',
+        );
+      }
+    }
     await scope.contentGenerationAssetUsage.deleteMany({
       where: {
         organizationId: input.organizationId,
         contentGenerationId: input.contentGenerationId,
       },
     });
-    const uniqueAssetIds = [...new Set(input.contentAssetIds)];
     if (uniqueAssetIds.length === 0) return;
     await scope.contentGenerationAssetUsage.createMany({
       skipDuplicates: true,

@@ -175,6 +175,7 @@ describe('sourcing candidate API', () => {
       listingId: '77777777-7777-4777-8777-777777777777',
       status: 'registered',
       selectedThumbnailUrl: 'https://cdn.example.com/generated-thumb.png',
+      selectedThumbnailGenerationId: '88888888-8888-4888-8888-888888888888',
       selectedThumbnailGenerationCandidateId: '22222222-2222-4222-8222-222222222222',
       selectedDetailPageGenerationId: '33333333-3333-4333-8333-333333333333',
       selectedDetailPageArtifactId: '99999999-9999-4999-8999-999999999999',

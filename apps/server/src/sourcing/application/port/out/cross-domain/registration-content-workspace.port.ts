@@ -30,7 +30,21 @@ export type ValidateRegistrationContentSelectionsInput = Omit<
   'listingId' | 'displayName' | 'createdByUserId'
 >;
 
+export type ResolvedRegistrationContentSelections = Pick<
+  ValidateRegistrationContentSelectionsInput,
+  | 'selectedThumbnailUrl'
+  | 'selectedThumbnailGenerationId'
+  | 'selectedThumbnailGenerationCandidateId'
+  | 'selectedDetailPageArtifactId'
+  | 'selectedDetailPageRevisionId'
+  | 'selectedDetailPageGenerationId'
+>;
+
 export interface RegistrationContentWorkspacePort {
+  resolveSourceSelections(
+    tx: SourcingRepositoryTransaction,
+    input: ValidateRegistrationContentSelectionsInput,
+  ): Promise<ResolvedRegistrationContentSelections>;
   validateSourceSelections(
     input: ValidateRegistrationContentSelectionsInput,
   ): Promise<void>;

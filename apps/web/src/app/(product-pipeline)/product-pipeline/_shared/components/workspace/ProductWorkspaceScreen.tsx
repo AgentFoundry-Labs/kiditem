@@ -23,9 +23,6 @@ import {
   buildDetailGenerationEntryHtml,
   buildGenerationHistoryHtml,
 } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/generated-detail-html';
-import {
-  selectedThumbnailGenerationCandidateId as resolveSelectedThumbnailGenerationCandidateId,
-} from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
 import type { RegistrationThumbnailOption } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
 import {
   candidatesApi,
@@ -104,6 +101,8 @@ export function ProductWorkspaceScreen({
   const [selectedBoldVerticalId, setSelectedBoldVerticalId] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [selectedRegistrationThumbnailUrl, setSelectedRegistrationThumbnailUrl] = useState<string | null>(null);
+  const [selectedThumbnailGenerationId, setSelectedThumbnailGenerationId] = useState<string | null>(null);
+  const [selectedThumbnailGenerationCandidateId, setSelectedThumbnailGenerationCandidateId] = useState<string | null>(null);
   const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string | null>(null);
   const [thumbnailPreviewImages, setThumbnailPreviewImages] = useState<string[]>([]);
   const [detailWorkspacePreviewHtml, setDetailWorkspacePreviewHtml] = useState<string | null>(null);
@@ -202,12 +201,6 @@ export function ProductWorkspaceScreen({
     sourceCandidateId: effectiveThumbnailSourceCandidateId,
     contentWorkspaceId: effectiveContentWorkspaceId,
   });
-  const selectedThumbnailGenerationCandidateId = useMemo(() => {
-    return resolveSelectedThumbnailGenerationCandidateId(
-      selectedRegistrationThumbnailUrl,
-      thumbnailGenerations.data ?? [],
-    );
-  }, [selectedRegistrationThumbnailUrl, thumbnailGenerations.data]);
   const loadError = queryError
     ? isApiError(queryError)
       ? queryError.detail
@@ -219,6 +212,7 @@ export function ProductWorkspaceScreen({
       if (!selectionCandidateId) return Promise.resolve(null);
       return candidatesApi.selectThumbnail(selectionCandidateId, {
         selectedThumbnailUrl: option.url,
+        selectedThumbnailGenerationId: option.generatedGenerationId ?? null,
         selectedThumbnailGenerationCandidateId: option.generatedCandidateId ?? null,
       });
     },
@@ -266,6 +260,8 @@ export function ProductWorkspaceScreen({
     setSelectedBoldVerticalId(null);
     setSelectedAgentId(null);
     setSelectedRegistrationThumbnailUrl(null);
+    setSelectedThumbnailGenerationId(null);
+    setSelectedThumbnailGenerationCandidateId(null);
     setThumbnailPreviewUrl(null);
     setThumbnailPreviewImages([]);
     setDetailWorkspacePreviewHtml(null);
@@ -310,6 +306,12 @@ export function ProductWorkspaceScreen({
     setThumbnailPreviewImages(thumbnailUrls);
     if (input.selectedThumbnail) {
       setSelectedRegistrationThumbnailUrl(input.selectedThumbnail.url);
+      setSelectedThumbnailGenerationId(
+        input.selectedThumbnail.generatedGenerationId ?? null,
+      );
+      setSelectedThumbnailGenerationCandidateId(
+        input.selectedThumbnail.generatedCandidateId ?? null,
+      );
     }
     try {
       await updateBasicInfoMutation.mutateAsync({ thumbnailUrls });
@@ -362,6 +364,16 @@ export function ProductWorkspaceScreen({
       nextEditData.thumbnails[0] ??
       null,
     );
+    setSelectedThumbnailGenerationId(
+      basicInfo?.selectedThumbnailGenerationId
+      ?? fetchedData.product.productPreparation?.selectedThumbnailGenerationId
+      ?? null,
+    );
+    setSelectedThumbnailGenerationCandidateId(
+      basicInfo?.selectedThumbnailGenerationCandidateId
+      ?? fetchedData.product.productPreparation?.selectedThumbnailGenerationCandidateId
+      ?? null,
+    );
     setThumbnailPreviewImages(
       basicInfo?.thumbnailPreviewUrls && basicInfo.thumbnailPreviewUrls.length > 0
         ? basicInfo.thumbnailPreviewUrls
@@ -382,9 +394,12 @@ export function ProductWorkspaceScreen({
     setEditData((prev) => ({ ...prev, [field]: value }));
     if (field === 'thumbnails') {
       const next = value as string[];
-      setSelectedRegistrationThumbnailUrl((selected) =>
-        selected && !next.includes(selected) ? null : selected,
-      );
+      if (selectedRegistrationThumbnailUrl
+        && !next.includes(selectedRegistrationThumbnailUrl)) {
+        setSelectedRegistrationThumbnailUrl(null);
+        setSelectedThumbnailGenerationId(null);
+        setSelectedThumbnailGenerationCandidateId(null);
+      }
     }
   };
 
@@ -524,6 +539,7 @@ export function ProductWorkspaceScreen({
         isEditComplete={isEditComplete}
         isLocked={isLocked}
         selectedThumbnailUrl={selectedRegistrationThumbnailUrl}
+        selectedThumbnailGenerationId={selectedThumbnailGenerationId}
         selectedThumbnailGenerationCandidateId={selectedThumbnailGenerationCandidateId}
         selectedDetailPageGenerationId={effectiveSavedDetailPageGenerationId}
         detailGenerationContentWorkspaceId={detailGenerationContentWorkspaceId}

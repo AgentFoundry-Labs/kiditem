@@ -2,19 +2,375 @@ import { describe, expect, it, vi } from 'vitest';
 import { RegistrationContentWorkspaceRepositoryAdapter } from './registration-content-workspace.repository.adapter';
 
 describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
+  it('resolves generation-backed detail content to exact IDs before payload freeze', async () => {
+    const tx = {
+      contentWorkspace: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'source-workspace-1',
+          currentDetailPageArtifactId: 'artifact-unselected',
+          currentDetailPageRevisionId: 'revision-unselected',
+        }),
+      },
+      contentGeneration: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'detail-generation-1',
+          detailPageArtifactId: 'artifact-1',
+        }),
+      },
+      detailPageArtifact: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'artifact-1',
+          currentRevisionId: 'revision-1',
+        }),
+      },
+      detailPageRevision: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'revision-1' }),
+      },
+    };
+    const repository = new RegistrationContentWorkspaceRepositoryAdapter({} as never);
+
+    await expect(repository.resolveSourceSelections(tx, {
+      organizationId: 'org-1',
+      sourceWorkspaceId: 'source-workspace-1',
+      selectedThumbnailUrl: null,
+      selectedThumbnailGenerationId: null,
+      selectedThumbnailGenerationCandidateId: null,
+      selectedDetailPageArtifactId: null,
+      selectedDetailPageRevisionId: null,
+      selectedDetailPageGenerationId: 'detail-generation-1',
+    })).resolves.toEqual({
+      selectedThumbnailUrl: null,
+      selectedThumbnailGenerationId: null,
+      selectedThumbnailGenerationCandidateId: null,
+      selectedDetailPageArtifactId: 'artifact-1',
+      selectedDetailPageRevisionId: 'revision-1',
+      selectedDetailPageGenerationId: 'detail-generation-1',
+    });
+  });
+
+  it('treats null frozen detail IDs as no selection even when the source current pointer changes', async () => {
+    const tx = {
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{
+          id: 'listing-1',
+          sourceCandidateId: 'candidate-1',
+        }])
+        .mockResolvedValueOnce([]),
+      contentWorkspace: {
+        findFirst: vi.fn()
+          .mockResolvedValueOnce({
+            id: 'source-workspace-1',
+            sourceCandidateId: 'candidate-1',
+            currentDetailPageArtifactId: 'artifact-current',
+            currentDetailPageRevisionId: 'revision-current',
+          })
+          .mockResolvedValueOnce(null),
+        create: vi.fn().mockResolvedValue({ id: 'listing-workspace-1' }),
+        updateMany: vi.fn(),
+      },
+      channelListing: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'listing-1',
+          sourceCandidateId: 'candidate-1',
+        }),
+      },
+      detailPageArtifact: {
+        findFirst: vi.fn(),
+        create: vi.fn(),
+      },
+      contentWorkspaceThumbnailSelection: { create: vi.fn() },
+    };
+    const repository = new RegistrationContentWorkspaceRepositoryAdapter({} as never);
+
+    await expect(repository.branchToListing(tx, {
+      organizationId: 'org-1',
+      sourceWorkspaceId: 'source-workspace-1',
+      listingId: 'listing-1',
+      displayName: 'Kids rain boots',
+      normalizedTitle: 'kidsrainboots',
+      createdByUserId: 'user-1',
+      selectedThumbnailUrl: null,
+      selectedThumbnailGenerationId: null,
+      selectedThumbnailGenerationCandidateId: null,
+      selectedDetailPageArtifactId: null,
+      selectedDetailPageRevisionId: null,
+      selectedDetailPageGenerationId: null,
+    })).resolves.toEqual({ workspaceId: 'listing-workspace-1' });
+
+    expect(tx.detailPageArtifact.findFirst).not.toHaveBeenCalled();
+    expect(tx.detailPageArtifact.create).not.toHaveBeenCalled();
+    expect(tx.contentWorkspace.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('populates an existing empty listing workspace tied to the same source', async () => {
+    const tx = {
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{
+          id: 'listing-1',
+          sourceCandidateId: 'candidate-1',
+        }])
+        .mockResolvedValueOnce([{
+          id: 'listing-workspace-1',
+          originWorkspaceId: 'source-workspace-1',
+          currentDetailPageArtifactId: null,
+          currentDetailPageRevisionId: null,
+          currentThumbnailSelectionId: null,
+        }]),
+      contentWorkspace: {
+        findFirst: vi.fn()
+          .mockResolvedValueOnce({
+            id: 'source-workspace-1',
+            sourceCandidateId: 'candidate-1',
+          })
+          .mockResolvedValueOnce({
+            id: 'listing-workspace-1',
+            originWorkspaceId: 'source-workspace-1',
+            currentDetailPageArtifactId: null,
+            currentDetailPageRevisionId: null,
+            currentThumbnailSelectionId: null,
+          }),
+        create: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      channelListing: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'listing-1',
+          sourceCandidateId: 'candidate-1',
+        }),
+      },
+      detailPageArtifact: {
+        findFirst: vi.fn()
+          .mockResolvedValueOnce({ id: 'artifact-1' })
+          .mockResolvedValueOnce({
+            id: 'artifact-1',
+            title: 'Kids rain boots detail',
+            status: 'draft',
+            metadata: {},
+          }),
+        create: vi.fn().mockResolvedValue({ id: 'listing-artifact-1' }),
+      },
+      contentWorkspaceThumbnailSelection: { create: vi.fn() },
+    };
+    const repository = new RegistrationContentWorkspaceRepositoryAdapter({} as never);
+
+    await expect(repository.branchToListing(tx, {
+      organizationId: 'org-1',
+      sourceWorkspaceId: 'source-workspace-1',
+      listingId: 'listing-1',
+      displayName: 'Kids rain boots',
+      normalizedTitle: 'kidsrainboots',
+      createdByUserId: 'user-1',
+      selectedThumbnailUrl: null,
+      selectedThumbnailGenerationId: null,
+      selectedThumbnailGenerationCandidateId: null,
+      selectedDetailPageArtifactId: 'artifact-1',
+      selectedDetailPageRevisionId: null,
+      selectedDetailPageGenerationId: null,
+    })).resolves.toEqual({ workspaceId: 'listing-workspace-1' });
+
+    expect(tx.contentWorkspace.create).not.toHaveBeenCalled();
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(tx.detailPageArtifact.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        contentWorkspaceId: 'listing-workspace-1',
+      }),
+      select: { id: true },
+    });
+    expect(tx.contentWorkspace.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'listing-workspace-1',
+        organizationId: 'org-1',
+        isDeleted: false,
+      },
+      data: {
+        currentDetailPageArtifactId: 'listing-artifact-1',
+        currentDetailPageRevisionId: null,
+      },
+    });
+  });
+
+  it('rejects listing completion when the locked workspace pointer update is lost', async () => {
+    const tx = {
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{
+          id: 'listing-1',
+          sourceCandidateId: 'candidate-1',
+        }])
+        .mockResolvedValueOnce([{
+          id: 'listing-workspace-1',
+          originWorkspaceId: 'source-workspace-1',
+          currentDetailPageArtifactId: null,
+          currentDetailPageRevisionId: null,
+          currentThumbnailSelectionId: null,
+        }]),
+      contentWorkspace: {
+        findFirst: vi.fn()
+          .mockResolvedValueOnce({
+            id: 'source-workspace-1',
+            sourceCandidateId: 'candidate-1',
+          })
+          .mockResolvedValueOnce({
+            id: 'listing-workspace-1',
+            originWorkspaceId: 'source-workspace-1',
+            currentDetailPageArtifactId: null,
+            currentDetailPageRevisionId: null,
+            currentThumbnailSelectionId: null,
+          }),
+        create: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+      channelListing: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'listing-1',
+          sourceCandidateId: 'candidate-1',
+        }),
+      },
+      detailPageArtifact: {
+        findFirst: vi.fn()
+          .mockResolvedValueOnce({ id: 'artifact-1' })
+          .mockResolvedValueOnce({
+            id: 'artifact-1',
+            title: 'Kids rain boots detail',
+            status: 'draft',
+            metadata: {},
+          }),
+        create: vi.fn().mockResolvedValue({ id: 'listing-artifact-1' }),
+      },
+      contentWorkspaceThumbnailSelection: { create: vi.fn() },
+    };
+    const repository = new RegistrationContentWorkspaceRepositoryAdapter({} as never);
+
+    await expect(repository.branchToListing(tx, {
+      organizationId: 'org-1',
+      sourceWorkspaceId: 'source-workspace-1',
+      listingId: 'listing-1',
+      displayName: 'Kids rain boots',
+      normalizedTitle: 'kidsrainboots',
+      createdByUserId: 'user-1',
+      selectedThumbnailUrl: null,
+      selectedThumbnailGenerationId: null,
+      selectedThumbnailGenerationCandidateId: null,
+      selectedDetailPageArtifactId: 'artifact-1',
+      selectedDetailPageRevisionId: null,
+      selectedDetailPageGenerationId: null,
+    })).rejects.toThrow('Listing workspace changed before selected content was assigned.');
+  });
+
+  it('rejects an existing listing workspace tied to a different source', async () => {
+    const tx = {
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{
+          id: 'listing-1',
+          sourceCandidateId: 'candidate-1',
+        }])
+        .mockResolvedValueOnce([{
+          id: 'listing-workspace-1',
+          originWorkspaceId: 'source-workspace-other',
+          currentDetailPageArtifactId: null,
+          currentDetailPageRevisionId: null,
+          currentThumbnailSelectionId: null,
+        }]),
+      contentWorkspace: {
+        findFirst: vi.fn()
+          .mockResolvedValueOnce({
+            id: 'source-workspace-1',
+            sourceCandidateId: 'candidate-1',
+          })
+          .mockResolvedValueOnce({
+            id: 'listing-workspace-1',
+            originWorkspaceId: 'source-workspace-other',
+            currentDetailPageArtifactId: null,
+            currentDetailPageRevisionId: null,
+            currentThumbnailSelectionId: null,
+          }),
+        create: vi.fn(),
+      },
+      channelListing: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'listing-1',
+          sourceCandidateId: 'candidate-1',
+        }),
+      },
+    };
+    const repository = new RegistrationContentWorkspaceRepositoryAdapter({} as never);
+
+    await expect(repository.branchToListing(tx, {
+      organizationId: 'org-1',
+      sourceWorkspaceId: 'source-workspace-1',
+      listingId: 'listing-1',
+      displayName: 'Kids rain boots',
+      normalizedTitle: 'kidsrainboots',
+      createdByUserId: 'user-1',
+      selectedThumbnailUrl: null,
+      selectedThumbnailGenerationId: null,
+      selectedThumbnailGenerationCandidateId: null,
+      selectedDetailPageArtifactId: null,
+      selectedDetailPageRevisionId: null,
+      selectedDetailPageGenerationId: null,
+    })).rejects.toThrow('Listing workspace belongs to a different source workspace.');
+
+    expect(tx.contentWorkspace.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a listing sourced from a different candidate', async () => {
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValueOnce([{
+        id: 'listing-1',
+        sourceCandidateId: 'candidate-other',
+      }]),
+      contentWorkspace: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'source-workspace-1',
+          sourceCandidateId: 'candidate-1',
+        }),
+        create: vi.fn(),
+      },
+      channelListing: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'listing-1',
+          sourceCandidateId: 'candidate-other',
+        }),
+      },
+    };
+    const repository = new RegistrationContentWorkspaceRepositoryAdapter({} as never);
+
+    await expect(repository.branchToListing(tx, {
+      organizationId: 'org-1',
+      sourceWorkspaceId: 'source-workspace-1',
+      listingId: 'listing-1',
+      displayName: 'Kids rain boots',
+      normalizedTitle: 'kidsrainboots',
+      createdByUserId: 'user-1',
+      selectedThumbnailUrl: null,
+      selectedThumbnailGenerationId: null,
+      selectedThumbnailGenerationCandidateId: null,
+      selectedDetailPageArtifactId: null,
+      selectedDetailPageRevisionId: null,
+      selectedDetailPageGenerationId: null,
+    })).rejects.toThrow('Channel listing and source workspace have different candidates.');
+
+    expect(tx.contentWorkspace.create).not.toHaveBeenCalled();
+  });
+
   it('rejects an unmanaged raw thumbnail URL that is not selected by the source workspace', async () => {
     const tx = {
       contentWorkspace: {
         findFirst: vi.fn()
           .mockResolvedValueOnce({
             id: 'source-workspace-1',
+            sourceCandidateId: 'candidate-1',
             currentDetailPageArtifactId: null,
             currentDetailPageRevisionId: null,
           })
           .mockResolvedValueOnce(null),
         create: vi.fn().mockResolvedValue({ id: 'listing-workspace-1' }),
       },
-      channelListing: { findFirst: vi.fn().mockResolvedValue({ id: 'listing-1' }) },
+      channelListing: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'listing-1',
+          sourceCandidateId: 'candidate-1',
+        }),
+      },
       contentAsset: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn() },
       contentGenerationGroup: {
         findFirst: vi.fn().mockResolvedValue({ id: 'group-1' }),
@@ -147,7 +503,10 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
         findFirst: vi.fn().mockResolvedValue({ id: 'candidate-1' }),
       },
       channelListing: {
-        findFirst: vi.fn().mockResolvedValue({ id: 'listing-1' }),
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'listing-1',
+          sourceCandidateId: 'candidate-1',
+        }),
       },
       contentWorkspace: {
         findFirst: vi.fn()
@@ -204,7 +563,13 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
           url: 'https://cdn.example.com/thumb.png',
         }),
       },
-      $queryRaw: vi.fn().mockResolvedValue([{ id: 'asset-1' }]),
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{
+          id: 'listing-1',
+          sourceCandidateId: 'candidate-1',
+        }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: 'asset-1' }]),
       contentWorkspaceThumbnailSelection: {
         create: vi.fn().mockResolvedValue({ id: 'listing-selection-1' }),
       },
