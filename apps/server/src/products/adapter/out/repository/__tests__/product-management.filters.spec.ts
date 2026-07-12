@@ -4,11 +4,27 @@ import { ProductManagementRepositoryAdapter } from '../product-management.reposi
 
 describe('buildProductManagementMasterWhere', () => {
   it('limits product management to registered channel listings', () => {
-    const where = buildProductManagementMasterWhere('organization-1', {}, null);
+    const where = buildProductManagementMasterWhere(
+      'organization-1',
+      { search: 'scope collision regression' },
+      null,
+    );
 
     expect(where).toMatchObject({
       organizationId: 'organization-1',
       isDeleted: false,
+      OR: [
+        {
+          sellpiaProductCode: null,
+          temporaryReason: null,
+          lifecycleState: { not: 'inventory_staged' },
+        },
+        {
+          sellpiaProductCode: null,
+          temporaryReason: { not: 'sellpia_master_cutover' },
+          lifecycleState: { not: 'inventory_staged' },
+        },
+      ],
       listings: {
         some: {
           organizationId: 'organization-1',
@@ -16,7 +32,7 @@ describe('buildProductManagementMasterWhere', () => {
         },
       },
     });
-    expect(where).not.toHaveProperty('OR');
+    expect(where).toHaveProperty('AND');
   });
 
   it('keeps search filters while requiring a registered listing', () => {

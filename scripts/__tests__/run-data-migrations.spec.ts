@@ -92,24 +92,43 @@ describe('data migration registry', () => {
 });
 
 describe('promoted candidate status normalization migration', () => {
-  it('idempotently rewrites only promoted candidates to sourced', async () => {
-    const tx = { $executeRaw: vi.fn(async () => 3) };
+  it('idempotently rewrites candidates and archives only proven legacy preparations', async () => {
+    const tx = {
+      $executeRaw: vi.fn()
+        .mockResolvedValueOnce(3)
+        .mockResolvedValueOnce(2),
+    };
 
     await expect(normalizePromotedCandidateStatus.run(tx as never)).resolves.toEqual({
-      affectedRows: 3,
-      details: { normalizedPromotedCandidates: 3 },
+      affectedRows: 5,
+      details: {
+        normalizedPromotedCandidates: 3,
+        archivedLegacyProductPreparations: 2,
+      },
     });
-    const [statement] = tx.$executeRaw.mock.calls[0] as [TemplateStringsArray];
-    const sql = statement.join('$value');
-    expect(sql).toContain("SET status = 'sourced'");
-    expect(sql).toContain("WHERE status = 'promoted'");
+    const [candidateStatement] = tx.$executeRaw.mock.calls[0] as [TemplateStringsArray];
+    const [preparationStatement] = tx.$executeRaw.mock.calls[1] as [TemplateStringsArray];
+    const candidateSql = candidateStatement.join('$value');
+    const preparationSql = preparationStatement.join('$value');
+    expect(candidateSql).toContain("SET status = 'sourced'");
+    expect(candidateSql).toContain("WHERE status = 'promoted'");
+    expect(preparationSql).toContain("status = 'cancelled'");
+    expect(preparationSql).toContain('is_deleted = TRUE');
+    expect(preparationSql).toContain('deleted_at = COALESCE(deleted_at, NOW())');
+    expect(preparationSql).toContain('is_current_for_master = FALSE');
+    expect(preparationSql).toContain("status = 'product_registered'");
+    expect(preparationSql).toContain('channel_account_id IS NULL');
+    expect(preparationSql).toContain('is_deleted = FALSE');
   });
 });
 
 describe('operational channel account normalization migration', () => {
   it('uses deterministic evidence order and repoints every incoming account FK before merging', async () => {
     const tx = {
-      $queryRaw: vi.fn(async () => []),
+      $queryRaw: vi.fn(async (statement: TemplateStringsArray) =>
+        statement.join('').includes("to_regclass('public.source_import_runs')")
+          ? [{ exists: true }]
+          : []),
       $executeRaw: vi.fn(async () => 2),
     };
 
@@ -143,7 +162,14 @@ describe('operational channel account normalization migration', () => {
     expect(sql).toContain("NULLIF(BTRIM(account.seller_id), '')");
     expect(sql).toContain("NULLIF(BTRIM(account.vendor_id), '')");
     expect(sql.match(/listing\.is_deleted = false/g)?.length ?? 0).toBeGreaterThanOrEqual(4);
-    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(sql).toContain('sellpia_import_run_merge_map');
+    expect(sql).toContain("WHEN run.status = 'completed' THEN 0");
+    expect(sql).toContain('publication_sequence DESC NULLS LAST');
+    expect(sql).toContain('last_import_run_id = run_merge.winner_run_id');
+    expect(sql).toContain('DELETE FROM source_import_runs');
+    expect(sql.indexOf('last_import_run_id = run_merge.winner_run_id'))
+      .toBeLessThan(sql.indexOf('DELETE FROM source_import_runs'));
+    expect(tx.$queryRaw.mock.calls.length).toBeGreaterThanOrEqual(2);
     for (const table of [
       'channel_listings',
       'channel_listing_options',
@@ -181,6 +207,7 @@ describe('operational channel account normalization migration', () => {
     const tx = {
       $queryRaw: vi.fn()
         .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ exists: false }])
         .mockResolvedValueOnce([{ issueCode: 'accountless_listing_after_normalization', rowId: 'row-1' }]),
       $executeRaw: vi.fn(async () => 0),
     };

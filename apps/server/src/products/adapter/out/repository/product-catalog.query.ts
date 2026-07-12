@@ -10,6 +10,7 @@ import type { Prisma } from '@prisma/client';
 import { PRODUCT_LIFECYCLE_STATES } from '@kiditem/shared/product';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 import type { ListProductCatalogQuery } from '../../../dto/list-product-catalog.query';
+import { PRODUCTS_OWNED_MASTER_SCOPE } from './master-product-scope';
 
 export type CatalogOptionRow = {
   id: string;
@@ -105,6 +106,7 @@ export function buildCatalogWhere(
       ? q.lifecycleState
       : undefined;
   return {
+    ...PRODUCTS_OWNED_MASTER_SCOPE,
     organizationId,
     isDeleted: false,
     ...(q.grade ? { abcGrade: q.grade } : {}),
@@ -209,7 +211,7 @@ export async function findCatalogDetail(
   id: string,
 ): Promise<CatalogMasterRow | null> {
   const row = await prisma.masterProduct.findFirst({
-    where: { id, organizationId, isDeleted: false },
+    where: { ...PRODUCTS_OWNED_MASTER_SCOPE, id, organizationId, isDeleted: false },
     select: buildCatalogMasterSelect(organizationId),
   });
   return (row as unknown as CatalogMasterRow | null) ?? null;

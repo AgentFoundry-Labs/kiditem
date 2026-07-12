@@ -361,6 +361,38 @@ describe('InventorySkuImportRepositoryAdapter (PG integration)', () => {
     expect(runs.map((run) => run.publicationSequence)).toEqual([1n, 2n, 3n]);
   });
 
+  it('heals legacy soft-delete residue when a staged Sellpia Master reappears', async () => {
+    await importSnapshot(
+      [makeRow(0, { sellpiaProductCode: 'SP-SOFT-DELETED', currentStock: 5 })],
+      fileHash('soft-delete-first'),
+    );
+    const masterBefore = await prisma.masterProduct.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sellpiaProductCode: 'SP-SOFT-DELETED',
+      },
+    });
+    const deletedAt = new Date('2026-07-01T00:00:00.000Z');
+    await prisma.masterProduct.update({
+      where: { id: masterBefore.id },
+      data: { isDeleted: true, deletedAt, isActive: false },
+    });
+
+    await importSnapshot(
+      [makeRow(1, { sellpiaProductCode: 'SP-SOFT-DELETED', currentStock: 9 })],
+      fileHash('soft-delete-return'),
+    );
+
+    expect(await prisma.masterProduct.findUniqueOrThrow({ where: { id: masterBefore.id } }))
+      .toMatchObject({
+        id: masterBefore.id,
+        currentStock: 9,
+        isActive: true,
+        isDeleted: false,
+        deletedAt: null,
+      });
+  });
+
   it('serializes concurrent completed publications within the organization/source lane', async () => {
     await Promise.all([
       importSnapshot(

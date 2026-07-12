@@ -56,9 +56,24 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     });
 
     const result = await importCatalog(rows, fileHash('representative'), WING_ACCOUNT_ID, [
-        { rowNumber: 56, reason: 'missing_sku_id' as const },
-        { rowNumber: 2_213, reason: 'missing_sku_id' as const },
-        { rowNumber: 2_248, reason: 'missing_sku_id' as const },
+        {
+          rowNumber: 56,
+          reason: 'missing_sku_id' as const,
+          externalProductId: 'P-0005',
+          externalSkuId: null,
+        },
+        {
+          rowNumber: 2_213,
+          reason: 'missing_sku_id' as const,
+          externalProductId: 'P-1191',
+          externalSkuId: null,
+        },
+        {
+          rowNumber: 2_248,
+          reason: 'missing_sku_id' as const,
+          externalProductId: 'P-0000',
+          externalSkuId: null,
+        },
     ]);
 
     const [products, skus, inventoryAfter] = await Promise.all([
@@ -289,6 +304,85 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       isActive: true,
       itemName: '다시 들어온 옵션',
       lastImportRunId: returnedPublication.run.id,
+    });
+  });
+
+  it('uses recoverable skipped identities without deactivating an incomplete snapshot dimension', async () => {
+    const completeRows = [
+      makeRow(0, {
+        externalProductId: 'P-VALID',
+        externalSkuId: 'S-VALID',
+      }),
+      makeRow(1, {
+        externalProductId: 'P-PRODUCT-RECOVERED',
+        externalSkuId: 'S-PRODUCT-RECOVERED',
+      }),
+      makeRow(2, {
+        externalProductId: 'P-SKU-PARENT',
+        externalSkuId: 'S-SKU-RECOVERED',
+      }),
+      makeRow(3, {
+        externalProductId: 'P-UNSEEN',
+        externalSkuId: 'S-UNSEEN',
+      }),
+    ];
+    await importCatalog(completeRows, fileHash('partial-skip-seed'));
+
+    const missingSkuPublication = await importCatalog(
+      [completeRows[0]],
+      fileHash('partial-skip-product-identity'),
+      WING_ACCOUNT_ID,
+      [{
+        rowNumber: 6,
+        reason: 'missing_sku_id',
+        externalProductId: 'P-PRODUCT-RECOVERED',
+        externalSkuId: null,
+      }],
+    );
+    const productsAfterMissingSku = await activeProductsByExternalId();
+    const skusAfterMissingSku = await activeSkusByExternalId();
+
+    expect(missingSkuPublication.changes.skippedRowCount).toBe(1);
+    expect(productsAfterMissingSku).toEqual({
+      'P-PRODUCT-RECOVERED': true,
+      'P-SKU-PARENT': false,
+      'P-UNSEEN': false,
+      'P-VALID': true,
+    });
+    expect(skusAfterMissingSku).toEqual({
+      'S-PRODUCT-RECOVERED': true,
+      'S-SKU-RECOVERED': true,
+      'S-UNSEEN': true,
+      'S-VALID': true,
+    });
+
+    await importCatalog(completeRows, fileHash('partial-skip-reactivate'));
+    const missingProductPublication = await importCatalog(
+      [completeRows[0]],
+      fileHash('partial-skip-sku-identity'),
+      WING_ACCOUNT_ID,
+      [{
+        rowNumber: 7,
+        reason: 'missing_product_id',
+        externalProductId: null,
+        externalSkuId: 'S-SKU-RECOVERED',
+      }],
+    );
+    const productsAfterMissingProduct = await activeProductsByExternalId();
+    const skusAfterMissingProduct = await activeSkusByExternalId();
+
+    expect(missingProductPublication.changes.skippedRowCount).toBe(1);
+    expect(productsAfterMissingProduct).toEqual({
+      'P-PRODUCT-RECOVERED': true,
+      'P-SKU-PARENT': true,
+      'P-UNSEEN': true,
+      'P-VALID': true,
+    });
+    expect(skusAfterMissingProduct).toEqual({
+      'S-PRODUCT-RECOVERED': false,
+      'S-SKU-RECOVERED': true,
+      'S-UNSEEN': false,
+      'S-VALID': true,
     });
   });
 
@@ -735,7 +829,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       runId: run.id,
       attemptToken: workerAToken,
       rows: [makeRow(0, { externalSkuId: 'S-WORKER-A' })],
-      skippedRowCount: 0,
+      skippedRows: [],
       }),
     ).rejects.toThrow();
     await repository.markImportFailed(TEST_ORGANIZATION_ID, WING_ACCOUNT_ID, run.id, workerAToken);
@@ -750,7 +844,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       runId: run.id,
       attemptToken: workerB.attemptToken,
       rows: [makeRow(0, { externalSkuId: 'S-WORKER-B' })],
-      skippedRowCount: 0,
+      skippedRows: [],
     });
     const lateWorkerA = await repository.upsertCoupangWingCatalog({
       organizationId: TEST_ORGANIZATION_ID,
@@ -758,7 +852,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       runId: run.id,
       attemptToken: workerAToken,
       rows: [makeRow(0, { externalSkuId: 'S-WORKER-A' })],
-      skippedRowCount: 0,
+      skippedRows: [],
     });
     expect(completed.duplicate).toBe(false);
     expect(lateWorkerA).toMatchObject({
@@ -888,6 +982,8 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     skippedRows: Array<{
       rowNumber: number;
       reason: 'missing_product_id' | 'missing_sku_id';
+      externalProductId: string | null;
+      externalSkuId: string | null;
     }> = [],
   ) {
     return service.importCoupangWing({
@@ -911,6 +1007,32 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       fileHash: hash,
       rowCount: 1,
     });
+  }
+
+  async function activeProductsByExternalId(): Promise<Record<string, boolean>> {
+    const rows = await prisma.channelListing.findMany({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: WING_ACCOUNT_ID,
+      },
+      select: { externalId: true, isActive: true },
+      orderBy: { externalId: 'asc' },
+    });
+    return Object.fromEntries(rows.map((row) => [row.externalId, row.isActive]));
+  }
+
+  async function activeSkusByExternalId(): Promise<Record<string, boolean>> {
+    const rows = await prisma.channelListingOption.findMany({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: WING_ACCOUNT_ID,
+      },
+      select: { externalOptionId: true, isActive: true },
+      orderBy: { externalOptionId: 'asc' },
+    });
+    return Object.fromEntries(
+      rows.map((row) => [row.externalOptionId, row.isActive]),
+    );
   }
 });
 

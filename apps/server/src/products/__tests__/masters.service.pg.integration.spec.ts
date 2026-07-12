@@ -3,6 +3,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { MastersService } from '../application/service/masters.service';
 import { MasterCodeRepositoryAdapter } from '../adapter/out/repository/master-code.repository.adapter';
+import { MastersController } from '../adapter/in/http/masters.controller';
 import { createProductsTestServices } from './products-test-services';
 import {
   makeTestPrisma, resetDb, seedBaseFixture,
@@ -13,6 +14,7 @@ describe('MastersService integration', () => {
   let prisma: PrismaClient;
   let codeSvc: MasterCodeRepositoryAdapter;
   let svc: MastersService;
+  let controller: MastersController;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -20,6 +22,11 @@ describe('MastersService integration', () => {
     const services = createProductsTestServices(prisma);
     codeSvc = services.codeRepo;
     svc = services.mastersSvc;
+    controller = new MastersController(
+      services.mastersSvc,
+      services.optionsSvc,
+      {} as never,
+    );
   });
 
   beforeEach(async () => {
@@ -43,6 +50,100 @@ describe('MastersService integration', () => {
     const { items } = await svc.list(TEST_ORGANIZATION_ID, {});
     expect(items).toHaveLength(1);
     expect(items[0].name).toBe('A');
+  });
+
+  it('keeps staged physical identities out of ordinary controller reads without hiding legacy temporary families', async () => {
+    const legacyFamily = await prisma.masterProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'M-LEGACY-TEMP',
+        name: 'Legacy temporary family',
+        isTemporary: true,
+        temporaryReason: 'sourcing_candidate',
+        lifecycleState: 'active',
+      },
+    });
+    const staged = await prisma.masterProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'SELLPIA-STAGED',
+        name: 'Sellpia staged identity',
+        sellpiaProductCode: 'SP-STAGED',
+        isTemporary: true,
+        temporaryReason: 'sellpia_master_cutover',
+        lifecycleState: 'inventory_staged',
+      },
+    });
+    await prisma.masterProduct.createMany({
+      data: [
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          code: 'M-CUTOVER-MARKER',
+          name: 'Cutover marker only',
+          temporaryReason: 'sellpia_master_cutover',
+        },
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          code: 'M-STAGED-LIFECYCLE',
+          name: 'Staged lifecycle only',
+          lifecycleState: 'inventory_staged',
+        },
+      ],
+    });
+
+    const listed = await controller.list(TEST_ORGANIZATION_ID, {});
+
+    expect(listed.items).toHaveLength(1);
+    expect(listed.items[0]).toMatchObject({ id: legacyFamily.id, name: 'Legacy temporary family' });
+    await expect(controller.findById(TEST_ORGANIZATION_ID, staged.id, 'true'))
+      .rejects.toMatchObject({ status: 404 });
+    await expect(controller.findByCode(TEST_ORGANIZATION_ID, staged.code))
+      .rejects.toMatchObject({ status: 404 });
+  });
+
+  it('rejects ordinary update and delete commands for a staged physical identity', async () => {
+    const staged = await prisma.masterProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'SELLPIA-MUTATION',
+        name: 'Original Sellpia name',
+        sellpiaProductCode: 'SP-MUTATION',
+        isTemporary: true,
+        temporaryReason: 'sellpia_master_cutover',
+        lifecycleState: 'inventory_staged',
+      },
+    });
+
+    await expect(controller.update(
+      TEST_ORGANIZATION_ID,
+      staged.id,
+      { name: 'Forbidden edit' },
+    )).rejects.toMatchObject({ status: 404 });
+    await expect(controller.softDelete(TEST_ORGANIZATION_ID, staged.id))
+      .rejects.toMatchObject({ status: 404 });
+    expect(await prisma.masterProduct.findUniqueOrThrow({ where: { id: staged.id } }))
+      .toMatchObject({ name: 'Original Sellpia name', isDeleted: false, deletedAt: null });
+  });
+
+  it('rejects ordinary restore for a soft-deleted staged physical identity', async () => {
+    const staged = await prisma.masterProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'SELLPIA-RESTORE',
+        name: 'Deleted staged identity',
+        sellpiaProductCode: 'SP-RESTORE',
+        isTemporary: true,
+        temporaryReason: 'sellpia_master_cutover',
+        lifecycleState: 'inventory_staged',
+        isDeleted: true,
+        deletedAt: new Date('2026-07-01T00:00:00.000Z'),
+      },
+    });
+
+    await expect(controller.restore(TEST_ORGANIZATION_ID, staged.id))
+      .rejects.toMatchObject({ status: 404 });
+    expect((await prisma.masterProduct.findUniqueOrThrow({ where: { id: staged.id } })).isDeleted)
+      .toBe(true);
   });
 
   it('returns 404 for cross-tenant by-code lookup', async () => {

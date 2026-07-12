@@ -9,6 +9,7 @@ import type { MasterProduct, MasterProductImage, Prisma } from '@prisma/client';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 import type { ListMastersQuery } from '../../../dto/list-masters.query';
 import { decodeCursor, encodeCursor } from '../../../util/cursor';
+import { PRODUCTS_OWNED_MASTER_SCOPE } from './master-product-scope';
 
 export const MASTER_WITH_IMAGES: Prisma.MasterProductInclude = {
   images: {
@@ -27,6 +28,7 @@ export async function findMasterById(
 ): Promise<MasterWithImageRows | null> {
   return prisma.masterProduct.findFirst({
     where: {
+      ...PRODUCTS_OWNED_MASTER_SCOPE,
       id, organizationId,
       ...(opts.includeDeleted ? {} : { isDeleted: false }),
     },
@@ -40,7 +42,7 @@ export async function findMasterByCode(
   code: string,
 ): Promise<MasterWithImageRows | null> {
   return prisma.masterProduct.findFirst({
-    where: { code, organizationId, isDeleted: false },
+    where: { ...PRODUCTS_OWNED_MASTER_SCOPE, code, organizationId, isDeleted: false },
     include: MASTER_WITH_IMAGES,
   }) as Promise<MasterWithImageRows | null>;
 }
@@ -51,7 +53,7 @@ export async function findMasterByLegacy(
   legacyCode: string,
 ): Promise<MasterWithImageRows | null> {
   return prisma.masterProduct.findFirst({
-    where: { organizationId, legacyCode, isDeleted: false },
+    where: { ...PRODUCTS_OWNED_MASTER_SCOPE, organizationId, legacyCode, isDeleted: false },
     include: MASTER_WITH_IMAGES,
   }) as Promise<MasterWithImageRows | null>;
 }
@@ -62,7 +64,12 @@ export async function findMasterImageRows(
   masterId: string,
 ): Promise<MasterProductImage[]> {
   return prisma.masterProductImage.findMany({
-    where: { organizationId, masterId, isDeleted: false },
+    where: {
+      organizationId,
+      masterId,
+      isDeleted: false,
+      master: PRODUCTS_OWNED_MASTER_SCOPE,
+    },
     orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
   });
 }
@@ -105,6 +112,7 @@ export async function findMasterListPage(
   }
 
   const where: Prisma.MasterProductWhereInput = {
+    ...PRODUCTS_OWNED_MASTER_SCOPE,
     organizationId,
     ...(q.includeDeleted ? {} : { isDeleted: false }),
     ...(q.isDeleted !== undefined ? { isDeleted: q.isDeleted } : {}),

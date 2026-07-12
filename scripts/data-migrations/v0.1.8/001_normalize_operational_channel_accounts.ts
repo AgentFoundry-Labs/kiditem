@@ -250,6 +250,179 @@ export const normalizeOperationalChannelAccounts: DataMigration = {
         AND identity_rank > 1
     `;
 
+    let repointedSourceImportRunReferences = 0;
+    let mergedSourceImportRuns = 0;
+    let repointedSourceImportRunAccounts = 0;
+    const sourceImportRunTable = await tx.$queryRaw<Array<{ exists: boolean }>>`
+      SELECT to_regclass('public.source_import_runs') IS NOT NULL AS exists
+    `;
+    if (sourceImportRunTable[0]?.exists) {
+      const runningImportRunCollisions = await tx.$queryRaw<AccountNormalizationBlocker[]>`
+      WITH prospective_runs AS (
+        SELECT run.id,
+               run.organization_id,
+               run.source_type,
+               run.file_hash,
+               run.status,
+               COALESCE(merge.canonical_account_id, run.channel_account_id) AS canonical_account_id
+        FROM source_import_runs AS run
+        LEFT JOIN sellpia_account_merge_map AS merge
+          ON merge.duplicate_account_id = run.channel_account_id
+         AND merge.organization_id = run.organization_id
+        WHERE run.channel_account_id IS NOT NULL
+      ),
+      collision_keys AS (
+        SELECT organization_id,
+               source_type,
+               canonical_account_id,
+               file_hash
+        FROM prospective_runs
+        GROUP BY organization_id, source_type, canonical_account_id, file_hash
+        HAVING COUNT(*) > 1
+      )
+      SELECT 'running_source_import_run_collision'::text AS "issueCode",
+             run.id::text AS "rowId",
+             jsonb_build_object(
+               'organizationId', run.organization_id,
+               'sourceType', run.source_type,
+               'canonicalAccountId', run.canonical_account_id,
+               'fileHash', run.file_hash
+             ) AS details
+      FROM prospective_runs AS run
+      JOIN collision_keys AS collision
+        ON collision.organization_id = run.organization_id
+       AND collision.source_type = run.source_type
+       AND collision.canonical_account_id = run.canonical_account_id
+       AND collision.file_hash = run.file_hash
+      WHERE run.status = 'running'
+      ORDER BY run.organization_id, run.id
+      LIMIT 20
+      `;
+      if (runningImportRunCollisions.length > 0) {
+        throw new Error(
+          `Running SourceImportRun collision blocks account normalization: ${JSON.stringify(runningImportRunCollisions)}`,
+        );
+      }
+
+      await tx.$executeRaw`
+      CREATE TEMP TABLE sellpia_import_run_merge_map ON COMMIT DROP AS
+      WITH prospective_runs AS (
+        SELECT run.id,
+               run.organization_id,
+               run.source_type,
+               run.file_hash,
+               run.status,
+               NULLIF(to_jsonb(run) ->> 'publication_sequence', '')::bigint AS publication_sequence,
+               run.imported_at,
+               run.updated_at,
+               run.created_at,
+               COALESCE(merge.canonical_account_id, run.channel_account_id) AS canonical_account_id
+        FROM source_import_runs AS run
+        LEFT JOIN sellpia_account_merge_map AS merge
+          ON merge.duplicate_account_id = run.channel_account_id
+         AND merge.organization_id = run.organization_id
+        WHERE run.channel_account_id IS NOT NULL
+      ),
+      ranked AS (
+        SELECT run.*,
+               FIRST_VALUE(run.id) OVER (
+                 PARTITION BY run.organization_id,
+                              run.source_type,
+                              run.canonical_account_id,
+                              run.file_hash
+                 ORDER BY CASE
+                            WHEN run.status = 'completed' THEN 0
+                            WHEN run.status = 'failed' THEN 1
+                            ELSE 2
+                          END,
+                          run.publication_sequence DESC NULLS LAST,
+                          run.imported_at DESC NULLS LAST,
+                          run.updated_at DESC,
+                          run.created_at,
+                          run.id
+               ) AS winner_run_id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY run.organization_id,
+                              run.source_type,
+                              run.canonical_account_id,
+                              run.file_hash
+                 ORDER BY CASE
+                            WHEN run.status = 'completed' THEN 0
+                            WHEN run.status = 'failed' THEN 1
+                            ELSE 2
+                          END,
+                          run.publication_sequence DESC NULLS LAST,
+                          run.imported_at DESC NULLS LAST,
+                          run.updated_at DESC,
+                          run.created_at,
+                          run.id
+               ) AS run_rank,
+               COUNT(*) OVER (
+                 PARTITION BY run.organization_id,
+                              run.source_type,
+                              run.canonical_account_id,
+                              run.file_hash
+               ) AS collision_count
+        FROM prospective_runs AS run
+      )
+      SELECT id AS loser_run_id,
+             winner_run_id,
+             organization_id,
+             canonical_account_id
+      FROM ranked
+      WHERE collision_count > 1
+        AND run_rank > 1
+      `;
+
+      repointedSourceImportRunReferences = await tx.$executeRaw`
+      DO $$
+      DECLARE
+        target_table text;
+      BEGIN
+        FOREACH target_table IN ARRAY ARRAY[
+          'inventory_skus',
+          'master_products',
+          'channel_listings',
+          'channel_listing_options'
+        ]
+        LOOP
+          IF to_regclass('public.' || target_table) IS NOT NULL
+             AND EXISTS (
+               SELECT 1
+               FROM information_schema.columns
+               WHERE table_schema = 'public'
+                 AND table_name = target_table
+                 AND column_name = 'last_import_run_id'
+             ) THEN
+            EXECUTE format(
+              'UPDATE %I AS consumer
+               SET last_import_run_id = run_merge.winner_run_id
+               FROM sellpia_import_run_merge_map AS run_merge
+               WHERE consumer.last_import_run_id = run_merge.loser_run_id
+                 AND consumer.organization_id = run_merge.organization_id',
+              target_table
+            );
+          END IF;
+        END LOOP;
+      END $$
+      `;
+
+      mergedSourceImportRuns = await tx.$executeRaw`
+      DELETE FROM source_import_runs AS run
+      USING sellpia_import_run_merge_map AS run_merge
+      WHERE run.id = run_merge.loser_run_id
+        AND run.organization_id = run_merge.organization_id
+      `;
+
+      repointedSourceImportRunAccounts = await tx.$executeRaw`
+      UPDATE source_import_runs AS run
+      SET channel_account_id = merge.canonical_account_id
+      FROM sellpia_account_merge_map AS merge
+      WHERE run.channel_account_id = merge.duplicate_account_id
+        AND run.organization_id = merge.organization_id
+      `;
+    }
+
     const backfilledOperationalAccounts = await tx.$executeRaw`
       WITH normalized_accounts AS (
         SELECT account.*,
@@ -374,7 +547,6 @@ export const normalizeOperationalChannelAccounts: DataMigration = {
         FOREACH target_table IN ARRAY ARRAY[
           'channel_listings',
           'channel_listing_options',
-          'source_import_runs',
           'orders',
           'order_returns',
           'product_preparations',
@@ -453,12 +625,18 @@ export const normalizeOperationalChannelAccounts: DataMigration = {
     return {
       affectedRows:
         backfilledOperationalAccounts
+        + repointedSourceImportRunReferences
+        + mergedSourceImportRuns
+        + repointedSourceImportRunAccounts
         + repointedAccountReferences
         + mergedDuplicateAccounts
         + normalizedExternalAccountIds,
       details: {
         evidenceOrder: [...EVIDENCE_ORDER],
         backfilledOperationalAccounts,
+        repointedSourceImportRunReferences,
+        mergedSourceImportRuns,
+        repointedSourceImportRunAccounts,
         repointedAccountReferences,
         mergedDuplicateAccounts,
         normalizedExternalAccountIds,

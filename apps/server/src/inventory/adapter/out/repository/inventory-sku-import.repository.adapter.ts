@@ -232,6 +232,8 @@ implements InventorySkuImportRepositoryPort {
             is_temporary = TRUE,
             temporary_reason = 'sellpia_master_cutover',
             lifecycle_state = 'inventory_staged',
+            is_deleted = FALSE,
+            deleted_at = NULL,
             updated_at = NOW()
         `;
 

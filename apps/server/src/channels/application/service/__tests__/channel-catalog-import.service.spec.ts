@@ -32,7 +32,12 @@ const input: ImportCoupangWingCatalogInput = {
     barcode: '001234567890',
     rawJson: { 등록상품ID: 'P-001', '옵션 ID': 'S-001' },
   }],
-  skippedRows: [{ rowNumber: 6, reason: 'missing_sku_id' }],
+  skippedRows: [{
+    rowNumber: 6,
+    reason: 'missing_sku_id',
+    externalProductId: 'P-002',
+    externalSkuId: null,
+  }],
 };
 
 const response: CoupangWingCatalogImportResponse = {
@@ -66,7 +71,20 @@ describe('ChannelCatalogImportService', () => {
     await expect(service.importCoupangWing({
       ...input,
       rows: [],
-      skippedRows: [{ rowNumber: 5, reason: 'missing_product_id' }],
+      skippedRows: [
+        {
+          rowNumber: 5,
+          reason: 'missing_product_id',
+          externalProductId: null,
+          externalSkuId: 'S-RECOVERABLE',
+        },
+        {
+          rowNumber: 6,
+          reason: 'missing_sku_id',
+          externalProductId: 'P-RECOVERABLE',
+          externalSkuId: null,
+        },
+      ],
     })).rejects.toBeInstanceOf(BadRequestException);
     expect(repository.claimCoupangWingImport).not.toHaveBeenCalled();
     expect(repository.upsertCoupangWingCatalog).not.toHaveBeenCalled();
@@ -121,7 +139,7 @@ describe('ChannelCatalogImportService', () => {
       runId,
       attemptToken,
       rows: input.rows,
-      skippedRowCount: 1,
+      skippedRows: input.skippedRows,
     });
     expect(result).toBe(response);
   });

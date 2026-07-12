@@ -1,5 +1,8 @@
 import type { CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
-import type { ParsedWingCatalogRow } from '../../../service/coupang-wing-workbook.parser';
+import type {
+  ParsedWingCatalogRow,
+  ParsedWingCatalogSkippedRow,
+} from '../../../service/coupang-wing-workbook.parser';
 
 export type ChannelCatalogImportClaim =
   | { kind: 'started'; runId: string; attemptToken: string }
@@ -22,7 +25,7 @@ export interface ChannelCatalogImportRepositoryPort {
     runId: string;
     attemptToken: string;
     rows: ParsedWingCatalogRow[];
-    skippedRowCount: number;
+    skippedRows: ParsedWingCatalogSkippedRow[];
   }): Promise<CoupangWingCatalogImportResponse>;
 
   markImportFailed(

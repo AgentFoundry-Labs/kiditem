@@ -13,6 +13,7 @@ import type {
   ChannelCatalogImportRepositoryPort,
 } from '../../../application/port/out/repository/channel-catalog-import.repository.port';
 import type { ParsedWingCatalogRow } from '../../../application/service/coupang-wing-workbook.parser';
+import { buildCoupangWingSnapshotCoverage } from './coupang-wing-snapshot';
 
 const SOURCE_TYPE = 'coupang_wing_catalog';
 const CHANNEL = 'coupang';
@@ -177,6 +178,10 @@ implements ChannelCatalogImportRepositoryPort {
       }
 
       const canonicalParents = canonicalParentRows(input.rows);
+      const snapshotCoverage = buildCoupangWingSnapshotCoverage(
+        input.rows,
+        input.skippedRows,
+      );
       const externalProductIds = canonicalParents.map(
         (row) => row.externalProductId,
       );
@@ -380,28 +385,32 @@ implements ChannelCatalogImportRepositoryPort {
         `;
       }
 
-      await tx.channelListingOption.updateMany({
-        where: {
-          organizationId: input.organizationId,
-          channelAccountId: input.channelAccountId,
-          externalOptionId: { notIn: externalSkuIds },
-        },
-        data: {
-          isActive: false,
-          lastImportRunId: input.runId,
-        },
-      });
-      await tx.channelListing.updateMany({
-        where: {
-          organizationId: input.organizationId,
-          channelAccountId: input.channelAccountId,
-          externalId: { notIn: externalProductIds },
-        },
-        data: {
-          isActive: false,
-          lastImportRunId: input.runId,
-        },
-      });
+      if (snapshotCoverage.canDeactivateUnseenSkus) {
+        await tx.channelListingOption.updateMany({
+          where: {
+            organizationId: input.organizationId,
+            channelAccountId: input.channelAccountId,
+            externalOptionId: { notIn: snapshotCoverage.externalSkuIds },
+          },
+          data: {
+            isActive: false,
+            lastImportRunId: input.runId,
+          },
+        });
+      }
+      if (snapshotCoverage.canDeactivateUnseenProducts) {
+        await tx.channelListing.updateMany({
+          where: {
+            organizationId: input.organizationId,
+            channelAccountId: input.channelAccountId,
+            externalId: { notIn: snapshotCoverage.externalProductIds },
+          },
+          data: {
+            isActive: false,
+            lastImportRunId: input.runId,
+          },
+        });
+      }
 
       const publicationSequence = await nextPublicationSequence(tx, input.organizationId);
 
@@ -443,7 +452,7 @@ implements ChannelCatalogImportRepositoryPort {
         updatedProductCount,
         createdSkuCount,
         updatedSkuCount,
-        skippedRowCount: input.skippedRowCount,
+        skippedRowCount: input.skippedRows.length,
       });
     }, TRANSACTION_OPTIONS);
   }

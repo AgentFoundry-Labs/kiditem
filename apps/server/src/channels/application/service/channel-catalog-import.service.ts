@@ -47,7 +47,7 @@ export class ChannelCatalogImportService implements ChannelCatalogImportPort {
         runId: claim.runId,
         attemptToken: claim.attemptToken,
         rows: input.rows,
-        skippedRowCount: input.skippedRows.length,
+        skippedRows: input.skippedRows,
       });
     } catch (error) {
       try {

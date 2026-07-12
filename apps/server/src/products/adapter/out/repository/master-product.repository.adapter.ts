@@ -24,6 +24,7 @@ import {
   representativeImageUrl,
 } from '../../../domain/service/master-image-normalizer';
 import type { ListMastersQuery } from '../../../dto/list-masters.query';
+import { PRODUCTS_OWNED_MASTER_SCOPE } from './master-product-scope';
 
 function tx(value: ProductsRepositoryTransaction): Prisma.TransactionClient {
   return value as Prisma.TransactionClient;
@@ -98,6 +99,7 @@ export class MasterProductRepositoryAdapter implements MasterProductRepositoryPo
     const client = tx(input.tx);
     return client.masterProduct.findMany({
       where: {
+        ...PRODUCTS_OWNED_MASTER_SCOPE,
         organizationId: input.organizationId,
         barcode: input.barcode,
         isDeleted: false,
@@ -115,7 +117,12 @@ export class MasterProductRepositoryAdapter implements MasterProductRepositoryPo
   }): Promise<MasterWithImageRows> {
     const client = tx(input.tx);
     const { count } = await client.masterProduct.updateMany({
-      where: { id: input.id, organizationId: input.organizationId, isDeleted: false },
+      where: {
+        ...PRODUCTS_OWNED_MASTER_SCOPE,
+        id: input.id,
+        organizationId: input.organizationId,
+        isDeleted: false,
+      },
       data: input.data as Prisma.MasterProductUncheckedUpdateInput,
     });
     if (count === 0) throw new NotFoundException('master not found or deleted');
@@ -123,7 +130,12 @@ export class MasterProductRepositoryAdapter implements MasterProductRepositoryPo
       await this.replaceImagesTx(client, input.organizationId, input.id, input.images);
     }
     const updated = await client.masterProduct.findFirst({
-      where: { id: input.id, organizationId: input.organizationId, isDeleted: false },
+      where: {
+        ...PRODUCTS_OWNED_MASTER_SCOPE,
+        id: input.id,
+        organizationId: input.organizationId,
+        isDeleted: false,
+      },
       include: MASTER_WITH_IMAGES,
     }) as MasterWithImageRows | null;
     if (!updated) throw new NotFoundException('master not found or deleted');
@@ -142,13 +154,23 @@ export class MasterProductRepositoryAdapter implements MasterProductRepositoryPo
     return this.prisma.$transaction(async (client) => {
       const normalized = normalizeImagesForWrite(input.images);
       const { count } = await client.masterProduct.updateMany({
-        where: { id: input.id, organizationId: input.organizationId, isDeleted: false },
+        where: {
+          ...PRODUCTS_OWNED_MASTER_SCOPE,
+          id: input.id,
+          organizationId: input.organizationId,
+          isDeleted: false,
+        },
         data: { imageUrl: representativeImageUrl(normalized) },
       });
       if (count === 0) throw new NotFoundException('master not found or deleted');
       await this.replaceImagesTx(client, input.organizationId, input.id, normalized);
       const updated = await client.masterProduct.findFirst({
-        where: { id: input.id, organizationId: input.organizationId, isDeleted: false },
+        where: {
+          ...PRODUCTS_OWNED_MASTER_SCOPE,
+          id: input.id,
+          organizationId: input.organizationId,
+          isDeleted: false,
+        },
         include: MASTER_WITH_IMAGES,
       }) as MasterWithImageRows | null;
       if (!updated) throw new NotFoundException('master not found or deleted');
@@ -165,6 +187,16 @@ export class MasterProductRepositoryAdapter implements MasterProductRepositoryPo
     fileSize: number;
   }): Promise<MasterProductImageRow> {
     return this.prisma.$transaction(async (client) => {
+      const master = await client.masterProduct.findFirst({
+        where: {
+          ...PRODUCTS_OWNED_MASTER_SCOPE,
+          id: input.masterId,
+          organizationId: input.organizationId,
+          isDeleted: false,
+        },
+        select: { id: true },
+      });
+      if (!master) throw new NotFoundException('master not found');
       const existingCount = await client.masterProductImage.count({
         where: { organizationId: input.organizationId, masterId: input.masterId, isDeleted: false },
       });
@@ -185,7 +217,12 @@ export class MasterProductRepositoryAdapter implements MasterProductRepositoryPo
       });
       if (existingCount === 0) {
         await client.masterProduct.updateMany({
-          where: { id: input.masterId, organizationId: input.organizationId, isDeleted: false },
+          where: {
+            ...PRODUCTS_OWNED_MASTER_SCOPE,
+            id: input.masterId,
+            organizationId: input.organizationId,
+            isDeleted: false,
+          },
           data: { imageUrl: input.url },
         });
       }
@@ -198,21 +235,21 @@ export class MasterProductRepositoryAdapter implements MasterProductRepositoryPo
     id: string,
   ): Promise<{ processedData: unknown; draftContent: unknown } | null> {
     return this.prisma.masterProduct.findFirst({
-      where: { id, organizationId, isDeleted: false },
+      where: { ...PRODUCTS_OWNED_MASTER_SCOPE, id, organizationId, isDeleted: false },
       select: { processedData: true, draftContent: true },
     });
   }
 
   findDraftContent(organizationId: string, id: string): Promise<{ draftContent: unknown } | null> {
     return this.prisma.masterProduct.findFirst({
-      where: { id, organizationId, isDeleted: false },
+      where: { ...PRODUCTS_OWNED_MASTER_SCOPE, id, organizationId, isDeleted: false },
       select: { draftContent: true },
     });
   }
 
   async saveDraftContent(organizationId: string, id: string, draftContent: unknown): Promise<number> {
     const { count } = await this.prisma.masterProduct.updateMany({
-      where: { id, organizationId, isDeleted: false },
+      where: { ...PRODUCTS_OWNED_MASTER_SCOPE, id, organizationId, isDeleted: false },
       data: { draftContent: draftContent as Prisma.InputJsonValue },
     });
     return count;
@@ -231,7 +268,7 @@ export class MasterProductRepositoryAdapter implements MasterProductRepositoryPo
       templateId: { in: [...input.templateIds] },
       generationGroup: {
         targetMasterId: input.productId ?? { not: null },
-        targetMaster: { isDeleted: false },
+        targetMaster: { ...PRODUCTS_OWNED_MASTER_SCOPE, isDeleted: false },
       },
     };
 
@@ -285,7 +322,10 @@ export class MasterProductRepositoryAdapter implements MasterProductRepositoryPo
     return this.prisma.contentGeneration.findMany({
       where: {
         organizationId: input.organizationId,
-        generationGroup: { targetMasterId: input.masterId },
+        generationGroup: {
+          targetMasterId: input.masterId,
+          targetMaster: PRODUCTS_OWNED_MASTER_SCOPE,
+        },
         NOT: { contentType: 'detail_page' },
       },
       orderBy: { createdAt: 'desc' },
@@ -310,7 +350,10 @@ export class MasterProductRepositoryAdapter implements MasterProductRepositoryPo
       where: {
         id: input.generationId,
         organizationId: input.organizationId,
-        generationGroup: { targetMasterId: input.masterId },
+        generationGroup: {
+          targetMasterId: input.masterId,
+          targetMaster: PRODUCTS_OWNED_MASTER_SCOPE,
+        },
       },
     });
     return count;
@@ -323,7 +366,7 @@ export class MasterProductRepositoryAdapter implements MasterProductRepositoryPo
   ): Promise<number> {
     const client = repositoryTx ? tx(repositoryTx) : this.prisma;
     const { count } = await client.masterProduct.updateMany({
-      where: { id, organizationId, isDeleted: false },
+      where: { ...PRODUCTS_OWNED_MASTER_SCOPE, id, organizationId, isDeleted: false },
       data: { isDeleted: true, deletedAt: new Date() },
     });
     return count;
@@ -336,7 +379,7 @@ export class MasterProductRepositoryAdapter implements MasterProductRepositoryPo
   ): Promise<number> {
     const client = repositoryTx ? tx(repositoryTx) : this.prisma;
     const { count } = await client.masterProduct.updateMany({
-      where: { id, organizationId, isDeleted: true },
+      where: { ...PRODUCTS_OWNED_MASTER_SCOPE, id, organizationId, isDeleted: true },
       data: { isDeleted: false, deletedAt: null },
     });
     return count;

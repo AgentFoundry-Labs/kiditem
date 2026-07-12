@@ -4,6 +4,7 @@ import {
 import { Prisma, type ProductOption } from '@prisma/client';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 import { mapPrismaError } from '../../../util/prisma-error';
+import { PRODUCTS_OWNED_MASTER_SCOPE } from './master-product-scope';
 
 /**
  * Tenant-scoped Prisma writers + intra-transaction reads for `ProductOption`.
@@ -39,12 +40,22 @@ export async function incrementMasterOptionCounter(
   masterId: string,
 ): Promise<{ code: string; optionCounter: number }> {
   const { count } = await tx.masterProduct.updateMany({
-    where: { id: masterId, organizationId, isDeleted: false },
+    where: {
+      ...PRODUCTS_OWNED_MASTER_SCOPE,
+      id: masterId,
+      organizationId,
+      isDeleted: false,
+    },
     data: { optionCounter: { increment: 1 } },
   });
   if (count === 0) throw new NotFoundException('master not found or deleted');
   const master = await tx.masterProduct.findFirst({
-    where: { id: masterId, organizationId, isDeleted: false },
+    where: {
+      ...PRODUCTS_OWNED_MASTER_SCOPE,
+      id: masterId,
+      organizationId,
+      isDeleted: false,
+    },
     select: { code: true, optionCounter: true },
   });
   if (!master) throw new NotFoundException('master not found or deleted');

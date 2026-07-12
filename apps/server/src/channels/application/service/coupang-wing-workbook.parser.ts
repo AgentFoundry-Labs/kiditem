@@ -18,12 +18,16 @@ export type ParsedWingCatalogRow = {
   rawJson: Record<string, unknown>;
 };
 
+export type ParsedWingCatalogSkippedRow = {
+  rowNumber: number;
+  reason: 'missing_product_id' | 'missing_sku_id';
+  externalProductId: string | null;
+  externalSkuId: string | null;
+};
+
 export type ParsedWingCatalogWorkbook = {
   rows: ParsedWingCatalogRow[];
-  skippedRows: Array<{
-    rowNumber: number;
-    reason: 'missing_product_id' | 'missing_sku_id';
-  }>;
+  skippedRows: ParsedWingCatalogSkippedRow[];
   headers: string[];
 };
 
@@ -121,7 +125,12 @@ export function parseCoupangWingWorkbook(
     const externalSkuId = cellText(rawJson['옵션 ID']).trim();
 
     if (!externalProductId) {
-      skippedRows.push({ rowNumber, reason: 'missing_product_id' });
+      skippedRows.push({
+        rowNumber,
+        reason: 'missing_product_id',
+        externalProductId: null,
+        externalSkuId: externalSkuId || null,
+      });
       continue;
     }
 
@@ -134,7 +143,12 @@ export function parseCoupangWingWorkbook(
     );
 
     if (!externalSkuId) {
-      skippedRows.push({ rowNumber, reason: 'missing_sku_id' });
+      skippedRows.push({
+        rowNumber,
+        reason: 'missing_sku_id',
+        externalProductId,
+        externalSkuId: null,
+      });
       continue;
     }
 

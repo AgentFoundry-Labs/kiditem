@@ -19,6 +19,7 @@ import type {
 import type { MasterWithImageRows } from '../../../application/port/out/repository/master-product.repository.port';
 import { MASTER_WITH_IMAGES } from './master-product.query';
 import { buildProductManagementMasterWhere } from './product-management.filters';
+import { PRODUCTS_OWNED_MASTER_SCOPE } from './master-product-scope';
 
 function hasMasterId<T extends { masterId: string | null }>(
   row: T,
@@ -45,7 +46,7 @@ export class ProductManagementRepositoryAdapter implements ProductManagementRepo
   async findMastersByIds(organizationId: string, orderedIds: string[]): Promise<MasterWithImageRows[]> {
     if (orderedIds.length === 0) return [];
     const rows = await this.prisma.masterProduct.findMany({
-      where: { organizationId, id: { in: orderedIds } },
+      where: { ...PRODUCTS_OWNED_MASTER_SCOPE, organizationId, id: { in: orderedIds } },
       include: MASTER_WITH_IMAGES,
     }) as MasterWithImageRows[];
     const order = new Map(orderedIds.map((id, index) => [id, index]));
@@ -63,6 +64,7 @@ export class ProductManagementRepositoryAdapter implements ProductManagementRepo
   async findAllMasterIds(organizationId: string): Promise<string[]> {
     const rows = await this.prisma.masterProduct.findMany({
       where: {
+        ...PRODUCTS_OWNED_MASTER_SCOPE,
         organizationId,
         isDeleted: false,
         listings: { some: { organizationId, isDeleted: false } },
@@ -302,6 +304,7 @@ export class ProductManagementRepositoryAdapter implements ProductManagementRepo
   findGradeMasterRows(organizationId: string): Promise<GradeMasterRow[]> {
     return this.prisma.masterProduct.findMany({
       where: {
+        ...PRODUCTS_OWNED_MASTER_SCOPE,
         organizationId,
         isDeleted: false,
         listings: { some: { organizationId, isDeleted: false } },
@@ -312,7 +315,12 @@ export class ProductManagementRepositoryAdapter implements ProductManagementRepo
 
   findStoredGradeMasters(organizationId: string, masterIds: string[]): Promise<StoredGradeMasterRow[]> {
     return this.prisma.masterProduct.findMany({
-      where: { organizationId, id: { in: masterIds }, isDeleted: false },
+      where: {
+        ...PRODUCTS_OWNED_MASTER_SCOPE,
+        organizationId,
+        id: { in: masterIds },
+        isDeleted: false,
+      },
       select: { id: true, name: true, abcGrade: true },
     });
   }
@@ -324,7 +332,12 @@ export class ProductManagementRepositoryAdapter implements ProductManagementRepo
     nextGrade: 'A' | 'B' | 'C';
   }): Promise<number> {
     const updated = await this.prisma.masterProduct.updateMany({
-      where: { id: input.masterId, organizationId: input.organizationId, abcGrade: input.currentGrade },
+      where: {
+        ...PRODUCTS_OWNED_MASTER_SCOPE,
+        id: input.masterId,
+        organizationId: input.organizationId,
+        abcGrade: input.currentGrade,
+      },
       data: { abcGrade: input.nextGrade },
     });
     return updated.count;
@@ -341,6 +354,7 @@ export class ProductManagementRepositoryAdapter implements ProductManagementRepo
     await this.prisma.$transaction(async (client) => {
       const updated = await client.masterProduct.updateMany({
         where: {
+          ...PRODUCTS_OWNED_MASTER_SCOPE,
           id: input.masterId,
           organizationId: input.organizationId,
           abcGrade: input.currentGrade,

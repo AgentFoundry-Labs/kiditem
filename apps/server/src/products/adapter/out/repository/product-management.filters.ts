@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { ListMastersQuery } from '../../../dto/list-masters.query';
+import { PRODUCTS_OWNED_MASTER_SCOPE } from './master-product-scope';
 
 type CategoryGroupKey = NonNullable<ListMastersQuery['categoryGroup']>;
 
@@ -45,6 +46,7 @@ export function buildProductManagementMasterWhere(
   }
 
   return {
+    ...PRODUCTS_OWNED_MASTER_SCOPE,
     organizationId,
     ...(q.includeDeleted ? {} : { isDeleted: false }),
     listings: { some: { organizationId, isDeleted: false } },

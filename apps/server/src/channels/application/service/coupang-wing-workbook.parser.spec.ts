@@ -205,8 +205,18 @@ describe('parseCoupangWingWorkbook', () => {
       barcode: null,
     });
     expect(parsed.skippedRows).toEqual([
-      { rowNumber: 7, reason: 'missing_sku_id' },
-      { rowNumber: 8, reason: 'missing_product_id' },
+      {
+        rowNumber: 7,
+        reason: 'missing_sku_id',
+        externalProductId: 'P-001',
+        externalSkuId: null,
+      },
+      {
+        rowNumber: 8,
+        reason: 'missing_product_id',
+        externalProductId: null,
+        externalSkuId: 'S-ORPHAN',
+      },
     ]);
   });
 
@@ -236,6 +246,8 @@ describe('parseCoupangWingWorkbook', () => {
     expect(parsed.skippedRows).toContainEqual({
       rowNumber: 7,
       reason: 'missing_product_id',
+      externalProductId: null,
+      externalSkuId: 'S-ORPHAN',
     });
   });
 
@@ -269,14 +281,31 @@ describe('parseCoupangWingWorkbook', () => {
     rows.push(
       REQUIRED_HEADERS.map((header) => header === '등록상품ID' ? '' : header === '옵션 ID' ? 'S-NO-PARENT' : ''),
       REQUIRED_HEADERS.map((header) => header === '등록상품ID' ? 'P-NO-SKU' : ''),
+      REQUIRED_HEADERS.map((header) => header === '등록상품명' ? 'identity-less malformed row' : ''),
     );
 
     const parsed = parseCoupangWingWorkbook(workbookBuffer(rows));
 
     expect(parsed.rows).toHaveLength(1);
     expect(parsed.skippedRows).toEqual([
-      { rowNumber: 6, reason: 'missing_product_id' },
-      { rowNumber: 7, reason: 'missing_sku_id' },
+      {
+        rowNumber: 6,
+        reason: 'missing_product_id',
+        externalProductId: null,
+        externalSkuId: 'S-NO-PARENT',
+      },
+      {
+        rowNumber: 7,
+        reason: 'missing_sku_id',
+        externalProductId: 'P-NO-SKU',
+        externalSkuId: null,
+      },
+      {
+        rowNumber: 8,
+        reason: 'missing_product_id',
+        externalProductId: null,
+        externalSkuId: null,
+      },
     ]);
   });
 
@@ -344,9 +373,24 @@ describe('parseCoupangWingWorkbook', () => {
     expect(parsed.rows).toHaveLength(2_241);
     expect(new Set(parsed.rows.map((row) => row.externalProductId))).toHaveLength(1_225);
     expect(parsed.skippedRows).toEqual([
-      { rowNumber: 56, reason: 'missing_sku_id' },
-      { rowNumber: 2_213, reason: 'missing_sku_id' },
-      { rowNumber: 2_248, reason: 'missing_sku_id' },
+      {
+        rowNumber: 56,
+        reason: 'missing_sku_id',
+        externalProductId: 'P-0005',
+        externalSkuId: null,
+      },
+      {
+        rowNumber: 2_213,
+        reason: 'missing_sku_id',
+        externalProductId: 'P-1191',
+        externalSkuId: null,
+      },
+      {
+        rowNumber: 2_248,
+        reason: 'missing_sku_id',
+        externalProductId: 'P-0000',
+        externalSkuId: null,
+      },
     ]);
     expect(merges).toHaveLength(137 * PARENT_COLUMN_INDEXES.length);
   });
