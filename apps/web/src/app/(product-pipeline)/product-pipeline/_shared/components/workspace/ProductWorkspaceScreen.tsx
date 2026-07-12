@@ -64,6 +64,7 @@ interface ProductWorkspaceScreenProps {
   hasSavedDetailPage?: boolean;
   savedDetailPageGenerationId?: string | null;
   thumbnailSourceCandidateId?: string | null;
+  detailGenerationEnabled?: boolean;
   onOpenDetailTemplateGeneration?: () => void;
 }
 
@@ -79,6 +80,7 @@ export function ProductWorkspaceScreen({
   hasSavedDetailPage,
   savedDetailPageGenerationId = null,
   thumbnailSourceCandidateId,
+  detailGenerationEnabled = true,
   onOpenDetailTemplateGeneration,
 }: ProductWorkspaceScreenProps) {
   const router = useRouter();
@@ -131,23 +133,18 @@ export function ProductWorkspaceScreen({
   const queryError = initialWorkspaceData ? null : productDetailQuery.error;
 
   const product = fetchedData?.product ?? null;
-  const promotedMasterId =
-    (product as { promoted_master_id?: string | null; promotedMasterId?: string | null } | null)
-      ?.promoted_master_id ??
-    (product as { promotedMasterId?: string | null } | null)?.promotedMasterId ??
-    null;
-  const detailGenerationProductId = promotedMasterId ?? productId;
-  const detailGenerationContentWorkspaceId = contentWorkspaceId ?? null;
-  const detailGenerationSourceCandidateId =
-    detailGenerationContentWorkspaceId || promotedMasterId ? null : productId;
   const productPreparation = product?.productPreparation ?? null;
+  const detailGenerationProductId = productId;
+  const detailGenerationContentWorkspaceId =
+    contentWorkspaceId ?? productPreparation?.contentWorkspaceId ?? null;
+  const detailGenerationSourceCandidateId =
+    detailGenerationContentWorkspaceId ? null : productId;
   const [basicPreparationBaseUpdatedAt, setBasicPreparationBaseUpdatedAt] =
     useState<string | null | undefined>(undefined);
   useEffect(() => {
     setBasicPreparationBaseUpdatedAt(productPreparation?.updatedAt ?? null);
   }, [productPreparation?.updatedAt]);
-  const effectiveContentWorkspaceId =
-    contentWorkspaceId ?? productPreparation?.contentWorkspaceId ?? null;
+  const effectiveContentWorkspaceId = detailGenerationContentWorkspaceId;
   const effectiveSavedDetailPageGenerationId =
     savedDetailPageGenerationId ?? productPreparation?.selectedDetailPageGenerationId ?? null;
   const detailPageData = fetchedData?.detailPageData ?? placeholderDetailPageData;
@@ -521,7 +518,7 @@ export function ProductWorkspaceScreen({
         productName={editData.name || '(상품명 없음)'}
         productId={productId}
         status={product?.status}
-        promotedMasterId={promotedMasterId}
+        productPreparation={productPreparation}
         basicInfo={product?.basicInfo ?? null}
         costCny={product?.cost_cny ?? null}
         isEditComplete={isEditComplete}
@@ -530,6 +527,7 @@ export function ProductWorkspaceScreen({
         selectedThumbnailGenerationCandidateId={selectedThumbnailGenerationCandidateId}
         selectedDetailPageGenerationId={effectiveSavedDetailPageGenerationId}
         detailGenerationContentWorkspaceId={detailGenerationContentWorkspaceId}
+        detailGenerationEnabled={detailGenerationEnabled}
         showCandidateActions={showCandidateActions}
         onOpenDetailTemplateGeneration={onOpenDetailTemplateGeneration}
         onToggleEditComplete={() => setIsEditComplete((v) => !v)}
@@ -571,7 +569,6 @@ export function ProductWorkspaceScreen({
               onCommitBasicInfo={handleCommitBasicInfo}
               nameLength={nameLength}
               productId={productId}
-              promotedMasterId={promotedMasterId}
               detailPreviewHtml={detailPreviewHtml}
               editedHtml={editedHtml}
               templateCss={templateCss}

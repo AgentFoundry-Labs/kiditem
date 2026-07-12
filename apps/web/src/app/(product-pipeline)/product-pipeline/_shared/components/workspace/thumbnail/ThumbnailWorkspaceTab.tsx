@@ -20,7 +20,6 @@ import type { ProductEditState } from '../../../lib/product-workspace-types';
 interface ThumbnailWorkspaceTabProps {
   editData: ProductEditState;
   productId: string;
-  promotedMasterId: string | null;
   contentWorkspaceId?: string | null;
   thumbnailUrl?: string | null;
   thumbnailSourceCandidateId?: string | null;
@@ -37,7 +36,6 @@ interface ThumbnailWorkspaceTabProps {
 
 export default function ThumbnailWorkspaceTab({
   editData,
-  promotedMasterId,
   contentWorkspaceId = null,
   thumbnailUrl = null,
   thumbnailSourceCandidateId = null,
@@ -61,8 +59,7 @@ export default function ThumbnailWorkspaceTab({
       null,
   );
   const thumbnailGenerations = useSourcingThumbnailGenerations({
-    productId: promotedMasterId,
-    sourceCandidateId: promotedMasterId ? null : thumbnailSourceCandidateId,
+    sourceCandidateId: thumbnailSourceCandidateId,
     contentWorkspaceId,
   });
   const sourceOptions = useMemo(
@@ -138,8 +135,7 @@ export default function ThumbnailWorkspaceTab({
       productDescription: editData.name,
       extraParams: {
         uploadKey,
-        productId: promotedMasterId,
-        sourceCandidateId: promotedMasterId ? null : thumbnailSourceCandidateId,
+        sourceCandidateId: thumbnailSourceCandidateId,
         contentWorkspaceId,
         fullPage: '1',
       },

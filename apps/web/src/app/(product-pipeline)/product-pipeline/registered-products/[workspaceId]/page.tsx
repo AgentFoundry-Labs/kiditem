@@ -83,7 +83,16 @@ export default function RegisteredWorkspaceDetailPage() {
         initialAgentHistory={[]}
         generationHistoryQueryEnabled={false}
         showCandidateActions={false}
+        contentWorkspaceId={listing.contentWorkspaceId}
+        detailGenerationEnabled={Boolean(listing.contentWorkspaceId)}
         thumbnailSourceCandidateId={null}
+        onOpenDetailTemplateGeneration={listing.contentWorkspaceId
+          ? () => router.push(detailTemplateGenerationHref({
+              contentWorkspaceId: listing.contentWorkspaceId,
+              title: listing.channelName || listing.masterName,
+              returnTo: selfHref,
+            }))
+          : undefined}
       />
     );
   }
@@ -136,8 +145,6 @@ function contentWorkspaceToProductWorkspaceData(
     id: workspace.id,
     name: title,
     status: 'sourced',
-    promotedMasterId: workspace.targetMasterId,
-    promoted_master_id: workspace.targetMasterId,
     sourcePlatform: 'content_workspace',
     source_platform: 'content_workspace',
     source_url: null,
@@ -208,9 +215,7 @@ function channelListingToProductWorkspaceData(
   const product: ProductDetailResponse = {
     id: listing.id,
     name: title,
-    status: 'promoted',
-    promotedMasterId: listing.masterId,
-    promoted_master_id: listing.masterId,
+    status: 'sourced',
     sourcePlatform: `channel_listing:${listing.channel}`,
     source_platform: `channel_listing:${listing.channel}`,
     source_url: null,

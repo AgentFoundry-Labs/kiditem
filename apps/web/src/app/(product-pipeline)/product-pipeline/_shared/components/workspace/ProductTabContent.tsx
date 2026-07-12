@@ -32,7 +32,6 @@ interface Props {
   onCommitBasicInfo?: (input: UpdateProductBasicsInput) => Promise<void> | void;
   nameLength: number;
   productId: string;
-  promotedMasterId: string | null;
   detailPreviewHtml: string;
   editedHtml: string | null;
   templateCss: string;
@@ -87,7 +86,6 @@ export default function ProductTabContent({
   onCommitBasicInfo,
   nameLength,
   productId,
-  promotedMasterId,
   detailPreviewHtml,
   editedHtml,
   templateCss,
@@ -261,7 +259,6 @@ export default function ProductTabContent({
         <ThumbnailWorkspaceTab
           editData={editData}
           productId={productId}
-          promotedMasterId={promotedMasterId}
           contentWorkspaceId={contentWorkspaceId}
           thumbnailUrl={thumbnailUrl}
           thumbnailSourceCandidateId={effectiveThumbnailSourceCandidateId}

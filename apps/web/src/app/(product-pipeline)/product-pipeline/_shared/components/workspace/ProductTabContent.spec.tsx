@@ -88,7 +88,6 @@ const baseProps = {
   onSelectBoldVertical: vi.fn(),
   onSelectKidsPlayful: vi.fn(),
   productId: 'candidate-1',
-  promotedMasterId: null,
   rawData: null,
   selectedAgentId: null,
   selectedBoldVerticalId: null,

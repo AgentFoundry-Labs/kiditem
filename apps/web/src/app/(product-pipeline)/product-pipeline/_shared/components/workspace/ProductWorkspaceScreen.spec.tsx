@@ -7,9 +7,16 @@ import { ProductWorkspaceScreen } from './ProductWorkspaceScreen';
 import type { ProductWorkspaceData } from '../../hooks/useProductDetail';
 import { PLACEHOLDER_DATA } from '../../lib/product-workspace-types';
 
-const { apiClientPatchMock, mobilePreviewProps, useGenerationHistoryMock, useProductDetailMock } = vi.hoisted(() => ({
+const {
+  apiClientPatchMock,
+  mobilePreviewProps,
+  productEditHeaderProps,
+  useGenerationHistoryMock,
+  useProductDetailMock,
+} = vi.hoisted(() => ({
   apiClientPatchMock: vi.fn(),
   mobilePreviewProps: [] as Array<{ detailHtml?: string | null }>,
+  productEditHeaderProps: [] as Array<Record<string, unknown>>,
   useGenerationHistoryMock: vi.fn(),
   useProductDetailMock: vi.fn(),
 }));
@@ -50,7 +57,10 @@ vi.mock(
 );
 
 vi.mock('./detail/ProductEditHeader', () => ({
-  default: () => <div data-testid="product-edit-header" />,
+  default: (props: Record<string, unknown>) => {
+    productEditHeaderProps.push(props);
+    return <div data-testid="product-edit-header" />;
+  },
 }));
 
 vi.mock('./ProductTabContent', () => ({
@@ -143,7 +153,7 @@ const workspaceData: ProductWorkspaceData = {
     raw_data: null,
     image_urls: [],
     thumbnail_url: null,
-    status: 'collected',
+    status: 'sourced',
   } as ProductWorkspaceData['product'],
   detailPageData: placeholderDetailPageData,
   editedHtml: null,
@@ -159,6 +169,7 @@ describe('ProductWorkspaceScreen', () => {
   beforeEach(() => {
     apiClientPatchMock.mockReset();
     mobilePreviewProps.length = 0;
+    productEditHeaderProps.length = 0;
     useGenerationHistoryMock.mockReturnValue({ data: [] });
     useProductDetailMock.mockReset();
   });
@@ -208,9 +219,10 @@ describe('ProductWorkspaceScreen', () => {
         productPreparation: {
           id: 'prep-1',
           sourceCandidateId: 'candidate-1',
-          masterId: 'master-1',
+          channelAccountId: 'account-1',
           contentWorkspaceId: 'workspace-1',
-          status: 'product_registered',
+          listingId: 'listing-1',
+          status: 'registered',
           selectedThumbnailUrl: 'https://cdn.example.com/generated-thumb.png',
           selectedThumbnailGenerationCandidateId: 'thumb-candidate-1',
           selectedDetailPageGenerationId: 'detail-generation-1',
@@ -237,6 +249,11 @@ describe('ProductWorkspaceScreen', () => {
     const tab = await screen.findByTestId('product-tab-content');
     expect(tab).toHaveAttribute('data-selected-thumbnail', 'https://cdn.example.com/generated-thumb.png');
     expect(tab).toHaveAttribute('data-selected-detail-generation', 'detail-generation-1');
+    expect(productEditHeaderProps.at(-1)?.productPreparation).toBe(
+      selectedWorkspaceData.product.productPreparation,
+    );
+    expect(productEditHeaderProps.at(-1)?.detailGenerationContentWorkspaceId).toBe('workspace-1');
+    expect(productEditHeaderProps.at(-1)).not.toHaveProperty('promotedMasterId');
   });
 
   it('sends the current preparation timestamp when saving basic information', async () => {
@@ -248,8 +265,9 @@ describe('ProductWorkspaceScreen', () => {
           productPreparation: {
             id: 'prep-1',
             sourceCandidateId: 'candidate-1',
-            masterId: null,
+            channelAccountId: null,
             contentWorkspaceId: null,
+            listingId: null,
             status: 'draft',
             selectedThumbnailUrl: null,
             selectedThumbnailGenerationCandidateId: null,
@@ -294,8 +312,9 @@ describe('ProductWorkspaceScreen', () => {
           productPreparation: {
             id: 'prep-1',
             sourceCandidateId: 'candidate-1',
-            masterId: null,
+            channelAccountId: null,
             contentWorkspaceId: null,
+            listingId: null,
             status: 'draft',
             selectedThumbnailUrl: null,
             selectedThumbnailGenerationCandidateId: null,
@@ -360,8 +379,9 @@ describe('ProductWorkspaceScreen', () => {
           productPreparation: {
             id: 'prep-1',
             sourceCandidateId: 'candidate-1',
-            masterId: null,
+            channelAccountId: null,
             contentWorkspaceId: 'workspace-1',
+            listingId: null,
             status: 'draft',
             selectedThumbnailUrl: null,
             selectedThumbnailGenerationCandidateId: null,
@@ -414,8 +434,9 @@ describe('ProductWorkspaceScreen', () => {
           productPreparation: {
             id: 'prep-1',
             sourceCandidateId: 'candidate-1',
-            masterId: null,
+            channelAccountId: null,
             contentWorkspaceId: 'workspace-1',
+            listingId: null,
             status: 'draft',
             selectedThumbnailUrl: null,
             selectedThumbnailGenerationCandidateId: null,

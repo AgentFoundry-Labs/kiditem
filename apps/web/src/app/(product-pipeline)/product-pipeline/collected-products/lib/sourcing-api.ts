@@ -1,6 +1,14 @@
 import { apiClient } from '@/lib/api-client';
 import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
-import type { SourcingCandidateStatus } from '@kiditem/shared/product-content';
+import {
+  CreateProductPreparationInputSchema,
+  ProductPreparationCommandResultSchema,
+  ProductPreparationStatusSchema,
+  SourcingCandidateStatusSchema,
+  type CreateProductPreparationInput,
+  type ProductPreparationStatus,
+  type SourcingCandidateStatus,
+} from '@kiditem/shared/sourcing';
 
 export type ProductStatus = SourcingCandidateStatus;
 
@@ -22,7 +30,6 @@ export interface SourcedProduct {
   images?: Array<{ id?: string; url: string; sortOrder?: number | null; isPrimary?: boolean | null }>;
   productPreparation?: ProductPreparationSelection | null;
   thumbnailPreviewUrls?: string[];
-  promotedMasterId: string | null;
   rejectedAt?: string | null;
   rejectedReason?: string | null;
   triggeredByUserId?: string | null;
@@ -50,8 +57,6 @@ export interface ProductDetailResponse {
   id: string;
   name: string;
   status: ProductStatus;
-  promotedMasterId: string | null;
-  promoted_master_id: string | null;
   sourcePlatform: string;
   source_platform: string;
   source_url: string | null;
@@ -133,9 +138,10 @@ export type UpdateProductBasicsInput = Partial<Pick<
 export interface ProductPreparationSelection {
   id: string;
   sourceCandidateId: string | null;
-  masterId: string | null;
+  channelAccountId: string | null;
   contentWorkspaceId: string | null;
-  status: string;
+  listingId: string | null;
+  status: ProductPreparationStatus;
   selectedThumbnailUrl: string | null;
   selectedThumbnailGenerationCandidateId: string | null;
   selectedDetailPageGenerationId: string | null;
@@ -267,9 +273,18 @@ function normalizeProductPreparation(value: unknown): ProductPreparationSelectio
   return {
     id,
     sourceCandidateId: typeof prep.sourceCandidateId === 'string' ? prep.sourceCandidateId : null,
-    masterId: typeof prep.masterId === 'string' ? prep.masterId : null,
-    contentWorkspaceId: typeof prep.contentWorkspaceId === 'string' ? prep.contentWorkspaceId : null,
-    status: typeof prep.status === 'string' ? prep.status : '',
+    channelAccountId: typeof prep.channelAccountId === 'string' ? prep.channelAccountId : null,
+    contentWorkspaceId: typeof prep.sourceContentWorkspaceId === 'string'
+      ? prep.sourceContentWorkspaceId
+      : typeof prep.contentWorkspaceId === 'string'
+        ? prep.contentWorkspaceId
+        : null,
+    listingId: typeof prep.channelListingId === 'string'
+      ? prep.channelListingId
+      : typeof prep.listingId === 'string'
+        ? prep.listingId
+        : null,
+    status: ProductPreparationStatusSchema.parse(prep.status),
     selectedThumbnailUrl: normalizeImageUrl(prep.selectedThumbnailUrl),
     selectedThumbnailGenerationCandidateId: typeof prep.selectedThumbnailGenerationCandidateId === 'string'
       ? prep.selectedThumbnailGenerationCandidateId
@@ -460,7 +475,7 @@ export const productsApi = {
         id: p.id,
         organizationId: p.organizationId,
         name: p.name || rawData.title || '',
-        status: (p.status ?? 'sourced') as ProductStatus,
+        status: SourcingCandidateStatusSchema.parse(p.status),
         sourcePlatform,
         source_platform: sourcePlatform,
         sourceUrl: p.sourceUrl ?? null,
@@ -471,7 +486,6 @@ export const productsApi = {
         images: Array.isArray(p.images) ? p.images : [],
         productPreparation,
         thumbnailPreviewUrls,
-        promotedMasterId: p.promotedMasterId ?? null,
         rejectedAt: p.rejectedAt ?? null,
         rejectedReason: p.rejectedReason ?? null,
         triggeredByUserId: p.triggeredByUserId ?? null,
@@ -500,7 +514,6 @@ export const productsApi = {
     const hydratedRawData = rawDataWithImageFallback(rawData, images);
     const thumbnailUrl = selectBestThumbnailImage(hydratedRawData, images, p.thumbnailUrl || p.imageUrl || null);
     const sourcePlatform = p.sourcePlatform || (rawData.source_platform as string) || '';
-    const promotedMasterId = p.promotedMasterId ?? null;
     const productPreparation = normalizeProductPreparation(p.productPreparation);
     const basicInfo = normalizeProductBasics(p.basicInfo, {
       name: p.name || rawData.title || '',
@@ -514,9 +527,7 @@ export const productsApi = {
     return {
       id: p.id,
       name: p.name || rawData.title || '',
-      status: (p.status ?? 'sourced') as ProductStatus,
-      promotedMasterId,
-      promoted_master_id: promotedMasterId,
+      status: SourcingCandidateStatusSchema.parse(p.status),
       sourcePlatform,
       source_platform: sourcePlatform,
       source_url: p.sourceUrl || rawData.source_url || null,
@@ -600,22 +611,11 @@ export const productThumbnailGenerationApi = {
   },
 };
 
-export interface PromoteCandidateInput {
-  options: Array<{ optionName: string; legacyCode?: string; barcode?: string }>;
-  selectedThumbnailUrl?: string | null;
-  selectedThumbnailGenerationCandidateId?: string | null;
-  selectedDetailPageGenerationId?: string | null;
-  selectedDetailPageArtifactId?: string | null;
-  selectedDetailPageRevisionId?: string | null;
-  skipPostPromotionHooks?: boolean;
-}
+export type CreatePreparationDraftInput = CreateProductPreparationInput;
 
-export interface PromoteCandidateResponse {
-  masterId: string;
-  masterCode?: string;
-  selectedThumbnailUrl?: string | null;
-  selectedDetailPageArtifactId?: string | null;
-  selectedDetailPageRevisionId?: string | null;
+export interface CreatePreparationDraftResponse {
+  preparationId: string;
+  status: 'draft';
 }
 
 export interface RejectCandidateResponse {
@@ -635,8 +635,19 @@ export interface QuickProcessCandidateResponse {
 export type QuickProcessTask = 'all' | 'detail' | 'thumbnail';
 
 export const candidatesApi = {
-  promote: (id: string, body: PromoteCandidateInput) =>
-    apiClient.post<PromoteCandidateResponse>(`/api/sourcing/candidates/${id}/promote`, body),
+  async createPreparationDraft(
+    id: string,
+    body: CreatePreparationDraftInput,
+  ): Promise<CreatePreparationDraftResponse> {
+    const input = CreateProductPreparationInputSchema.parse(body);
+    const result = ProductPreparationCommandResultSchema.parse(
+      await apiClient.post<unknown>(`/api/sourcing/candidates/${id}/promote`, input),
+    );
+    if (result.status !== 'draft' || result.listingId !== undefined) {
+      throw new Error('Preparation draft creation returned an invalid result.');
+    }
+    return { preparationId: result.preparationId, status: result.status };
+  },
   quickProcess: (id: string, task: QuickProcessTask = 'all') =>
     apiClient.post<QuickProcessCandidateResponse>(`/api/sourcing/candidates/${id}/quick-process`, { task }),
   updateBasicInfo: (id: string, body: UpdateProductBasicsInput) =>
