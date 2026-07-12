@@ -6,8 +6,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, type SourceImportRun } from '@prisma/client';
-import type { CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import type { CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
 import type {
   ChannelCatalogImportClaim,
   ChannelCatalogImportRepositoryPort,
@@ -101,9 +101,13 @@ implements ChannelCatalogImportRepositoryPort {
   async upsertCoupangWingCatalog(
     input: UpsertInput,
   ): Promise<CoupangWingCatalogImportResponse> {
+    if (input.rows.length === 0) {
+      throw new BadRequestException(
+        'Coupang Wing catalog publication requires at least one valid row.',
+      );
+    }
     return this.prisma.$transaction(async (tx) => {
-      const lockKey =
-        `channel-catalog-import:${input.organizationId}:${input.channelAccountId}:${SOURCE_TYPE}`;
+      const lockKey = `channel-catalog-import:${input.organizationId}:${SOURCE_TYPE}`;
       await tx.$queryRaw`
         SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
       `;
@@ -183,7 +187,6 @@ implements ChannelCatalogImportRepositoryPort {
             organizationId: input.organizationId,
             channelAccountId: input.channelAccountId,
             externalId: { in: externalProductIds },
-            isDeleted: false,
           },
           select: { id: true, externalId: true },
         }),
@@ -235,6 +238,8 @@ implements ChannelCatalogImportRepositoryPort {
             status,
             raw_json,
             last_import_run_id,
+            is_active,
+            is_deleted,
             created_at,
             updated_at
           )
@@ -252,11 +257,13 @@ implements ChannelCatalogImportRepositoryPort {
             record->>'productStatus',
             record->'rawJson',
             ${input.runId}::uuid,
+            TRUE,
+            FALSE,
             NOW(),
             NOW()
           FROM jsonb_array_elements(${payload}::jsonb) AS record
           ON CONFLICT (organization_id, channel_account_id, external_id)
-            WHERE is_deleted = false AND channel_account_id IS NOT NULL
+            WHERE channel_account_id IS NOT NULL
           DO UPDATE SET
             channel = EXCLUDED.channel,
             channel_name = EXCLUDED.channel_name,
@@ -267,6 +274,9 @@ implements ChannelCatalogImportRepositoryPort {
             status = EXCLUDED.status,
             raw_json = EXCLUDED.raw_json,
             last_import_run_id = EXCLUDED.last_import_run_id,
+            is_active = TRUE,
+            is_deleted = FALSE,
+            deleted_at = NULL,
             updated_at = NOW()
         `;
       }
@@ -276,7 +286,6 @@ implements ChannelCatalogImportRepositoryPort {
           organizationId: input.organizationId,
           channelAccountId: input.channelAccountId,
           externalId: { in: externalProductIds },
-          isDeleted: false,
         },
         select: { id: true, externalId: true },
       });
@@ -305,16 +314,18 @@ implements ChannelCatalogImportRepositoryPort {
 
       for (let offset = 0; offset < input.rows.length; offset += UPSERT_BATCH_SIZE) {
         const batch = input.rows.slice(offset, offset + UPSERT_BATCH_SIZE);
-        const payload = JSON.stringify(batch.map((row) => ({
-          id: randomUUID(),
-          listingId: productIdByExternalId.get(row.externalProductId),
-          externalSkuId: row.externalSkuId,
-          optionName: row.optionName,
-          skuStatus: row.skuStatus,
-          modelNumber: row.modelNumber,
-          barcode: row.barcode,
-          rawJson: row.rawJson,
-        })));
+        const payload = JSON.stringify(
+          batch.map((row) => ({
+            id: randomUUID(),
+            listingId: productIdByExternalId.get(row.externalProductId),
+            externalSkuId: row.externalSkuId,
+            optionName: row.optionName,
+            skuStatus: row.skuStatus,
+            modelNumber: row.modelNumber,
+            barcode: row.barcode,
+            rawJson: row.rawJson,
+          })),
+        );
         await tx.$executeRaw`
           INSERT INTO channel_listing_options (
             id,
@@ -331,6 +342,7 @@ implements ChannelCatalogImportRepositoryPort {
             mapping_status,
             raw_json,
             last_import_run_id,
+            is_active,
             created_at,
             updated_at
           )
@@ -349,10 +361,12 @@ implements ChannelCatalogImportRepositoryPort {
             'unmatched',
             record->'rawJson',
             ${input.runId}::uuid,
+            TRUE,
             NOW(),
             NOW()
           FROM jsonb_array_elements(${payload}::jsonb) AS record
           ON CONFLICT (organization_id, channel_account_id, external_option_id)
+            WHERE channel_account_id IS NOT NULL
           DO UPDATE SET
             listing_id = EXCLUDED.listing_id,
             item_name = EXCLUDED.item_name,
@@ -361,9 +375,35 @@ implements ChannelCatalogImportRepositoryPort {
             status = EXCLUDED.status,
             raw_json = EXCLUDED.raw_json,
             last_import_run_id = EXCLUDED.last_import_run_id,
+            is_active = TRUE,
             updated_at = NOW()
         `;
       }
+
+      await tx.channelListingOption.updateMany({
+        where: {
+          organizationId: input.organizationId,
+          channelAccountId: input.channelAccountId,
+          externalOptionId: { notIn: externalSkuIds },
+        },
+        data: {
+          isActive: false,
+          lastImportRunId: input.runId,
+        },
+      });
+      await tx.channelListing.updateMany({
+        where: {
+          organizationId: input.organizationId,
+          channelAccountId: input.channelAccountId,
+          externalId: { notIn: externalProductIds },
+        },
+        data: {
+          isActive: false,
+          lastImportRunId: input.runId,
+        },
+      });
+
+      const publicationSequence = await nextPublicationSequence(tx, input.organizationId);
 
       const importedAt = new Date();
       const completion = await tx.sourceImportRun.updateMany({
@@ -379,6 +419,7 @@ implements ChannelCatalogImportRepositoryPort {
           status: 'completed',
           rowCount: input.rows.length,
           importedAt,
+          publicationSequence,
         },
       });
       if (completion.count !== 1) {
@@ -573,6 +614,23 @@ function canonicalParentRows(rows: ParsedWingCatalogRow[]): CanonicalParent[] {
 
 function isUniqueConstraintError(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+}
+
+async function nextPublicationSequence(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+): Promise<bigint> {
+  const rows = await tx.$queryRaw<Array<{ publicationSequence: bigint }>>`
+    SELECT COALESCE(MAX(publication_sequence), 0::bigint) + 1 AS "publicationSequence"
+    FROM source_import_runs
+    WHERE organization_id = ${organizationId}::uuid
+      AND source_type = ${SOURCE_TYPE}
+  `;
+  const publicationSequence = rows[0]?.publicationSequence;
+  if (publicationSequence === undefined) {
+    throw new ConflictException('Could not allocate channel catalog publication sequence');
+  }
+  return publicationSequence;
 }
 
 function zeroChanges(): CoupangWingCatalogImportResponse['changes'] {

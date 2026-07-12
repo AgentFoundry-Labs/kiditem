@@ -4,8 +4,8 @@ Consult this document first instead of relying on memorized knowledge.
 
 `src/channels/` owns marketplace account settings, marketplace product/SKU
 metadata, Coupang order/return sync, Sellpia component matching, channel SKU
-sellable-capacity projections, and channel dashboard reads. Provider calls are
-isolated behind provider adapters.
+sellable-capacity projections, account-scoped product registration, and channel
+dashboard reads. Provider calls are isolated behind provider adapters.
 
 ## Folder Map
 
@@ -32,6 +32,8 @@ channels/
 - Channel SKU component matching: `/api/channels/sku-mappings/*`
 - Channel SKU availability: `GET /api/channels/sku-availability`
 - Channel dashboard read APIs
+- The `CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT` consumed by Sourcing
+  for account-scoped submission, reconciliation, and listing resolution
 
 ## Main Data Models
 
@@ -46,6 +48,27 @@ channels/
   consumed by one sale.
 - Channel daily snapshots and scrape audit rows support dashboard/reporting
   reads.
+- A registration-created `ChannelListing.sourceCandidateId` is immutable
+  provenance. Registration resolves identity by organization, account, and
+  external listing ID without creating a `MasterProduct`.
+
+## Product Registration Flow
+
+```text
+frozen ProductPreparation submission
+  -> account-specific provider credentials
+  -> reconcile recorded provider result before create
+  -> provider call outside the database transaction
+  -> resolve/reactivate ChannelListing in the sourcing finalization transaction
+  -> preserve recipe/content metadata and attach immutable sourceCandidateId
+```
+
+Missing or inactive `ChannelAccount` is an explicit error. Provider calls and
+listing identity are scoped to the selected account; primary-account lookup is
+only for legacy callers that omit an account.
+For Coupang, the frozen submission key is the first item's
+`externalVendorSku`; retries query the provider by that key and never issue a
+second create while the prior outcome is uncertain.
 - Orders and returns sync into the channel-agnostic orders spine.
 
 ## Sync + Matching Flow
@@ -99,6 +122,9 @@ the supported workflow and verification counts.
   `CHANNELS_INVENTORY_SKU_READ_PORT` bridge to Inventory's owner port.
 - `ChannelsModule` exports `CHANNEL_SKU_AVAILABILITY_PORT` for server consumers
   that need the same nullable capacity projection.
+- `ChannelsModule` exports
+  `CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT`; consumers must use that
+  incoming capability instead of importing the registration service.
 
 ## Boundary Rules
 
@@ -109,6 +135,9 @@ the supported workflow and verification counts.
   fallback.
 - New sync/matching paths must carry `channelAccountId` and must not
   create accountless `ChannelListing` rows.
+- Registration retries reconcile recorded provider identity/submission result
+  before create, and listing resolution must run inside the caller-supplied
+  finalization transaction.
 - Dashboard SQL uses Prisma tagged templates and binds organization predicates
   on every tenant-owned table in the join path.
 - Status mapping lives in `domain/coupang-normalization.ts`; add tests when

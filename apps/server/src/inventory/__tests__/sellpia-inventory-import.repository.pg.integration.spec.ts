@@ -25,9 +25,7 @@ describe('InventorySkuImportRepositoryAdapter (PG integration)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    repository = new InventorySkuImportRepositoryAdapter(
-      prisma as unknown as PrismaService,
-    );
+    repository = new InventorySkuImportRepositoryAdapter(prisma as unknown as PrismaService);
     service = new SellpiaInventoryImportService(repository);
   });
 
@@ -40,7 +38,7 @@ describe('InventorySkuImportRepositoryAdapter (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
-  it('imports 1,964 Sellpia codes as distinct InventorySku rows despite duplicate names/barcodes', async () => {
+  it('publishes 1,964 Sellpia codes to legacy SKUs, staged Masters, and the identity ledger', async () => {
     const rows = makeRows(REPRESENTATIVE_ROW_COUNT);
     rows[0] = makeRow(0, {
       sellpiaProductCode: 'SP-DUP-A',
@@ -54,8 +52,19 @@ describe('InventorySkuImportRepositoryAdapter (PG integration)', () => {
     });
 
     const result = await importSnapshot(rows, fileHash('representative'));
-    const [count, duplicateMetadataRows] = await Promise.all([
-      prisma.inventorySku.count({ where: { organizationId: TEST_ORGANIZATION_ID } }),
+    const [count, masterCount, ledgerCount, duplicateMetadataRows, run] = await Promise.all([
+      prisma.inventorySku.count({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+      }),
+      prisma.masterProduct.count({
+        where: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sellpiaProductCode: { not: null },
+        },
+      }),
+      prisma.inventorySkuMasterProductMap.count({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+      }),
       prisma.inventorySku.findMany({
         where: {
           organizationId: TEST_ORGANIZATION_ID,
@@ -63,9 +72,14 @@ describe('InventorySkuImportRepositoryAdapter (PG integration)', () => {
         },
         orderBy: { sellpiaProductCode: 'asc' },
       }),
+      prisma.sourceImportRun.findUniqueOrThrow({
+        where: { id: result.run.id },
+      }),
     ]);
 
     expect(count).toBe(REPRESENTATIVE_ROW_COUNT);
+    expect(masterCount).toBe(REPRESENTATIVE_ROW_COUNT);
+    expect(ledgerCount).toBe(REPRESENTATIVE_ROW_COUNT);
     expect(duplicateMetadataRows).toHaveLength(2);
     expect(new Set(duplicateMetadataRows.map((row) => row.id))).toHaveLength(2);
     expect(result.changes).toEqual({
@@ -73,17 +87,91 @@ describe('InventorySkuImportRepositoryAdapter (PG integration)', () => {
       updatedSkuCount: 0,
       zeroedSkuCount: 0,
     });
+    expect(run.publicationSequence).toBe(1n);
+  });
+
+  it('writes identical source fields to the legacy SKU and deterministic staged Master', async () => {
+    const row = makeRow(7, {
+      sellpiaProductCode: 'SP-SOURCE-FIELDS',
+      name: '소스 상품명',
+      optionName: '블루',
+      barcode: '001234567890',
+      currentStock: 17,
+      purchasePrice: 1_200,
+      salePrice: 2_300,
+      rawJson: { source: 'sellpia' },
+    });
+
+    const result = await importSnapshot([row], fileHash('source-fields'));
+    const inventorySku = await prisma.inventorySku.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sellpiaProductCode: row.sellpiaProductCode,
+      },
+    });
+    const masterProduct = await prisma.masterProduct.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sellpiaProductCode: row.sellpiaProductCode,
+      },
+    });
+    const identity = await prisma.inventorySkuMasterProductMap.findUniqueOrThrow({
+      where: { inventorySkuId: inventorySku.id },
+    });
+
+    expect(inventorySku).toMatchObject({
+      name: row.name,
+      optionName: row.optionName,
+      barcode: row.barcode,
+      currentStock: row.currentStock,
+      purchasePrice: row.purchasePrice,
+      salePrice: row.salePrice,
+      isActive: true,
+      rawJson: row.rawJson,
+      lastImportRunId: result.run.id,
+    });
+    expect(masterProduct).toMatchObject({
+      code: stagedMasterCode(row.sellpiaProductCode),
+      name: row.name,
+      sellpiaProductCode: row.sellpiaProductCode,
+      sellpiaName: row.name,
+      sellpiaBarcode: row.barcode,
+      optionName: row.optionName,
+      currentStock: row.currentStock,
+      purchasePrice: row.purchasePrice,
+      salePrice: row.salePrice,
+      isActive: true,
+      rawJson: row.rawJson,
+      lastImportRunId: result.run.id,
+      isTemporary: true,
+      temporaryReason: 'sellpia_master_cutover',
+      lifecycleState: 'inventory_staged',
+    });
+    expect(identity).toMatchObject({
+      organizationId: TEST_ORGANIZATION_ID,
+      inventorySkuId: inventorySku.id,
+      masterProductId: masterProduct.id,
+    });
   });
 
   it('atomically replaces metadata, zeroes absent codes, and preserves IDs/references', async () => {
-    const first = await importSnapshot([
+    const first = await importSnapshot(
+      [
       makeRow(0, { sellpiaProductCode: 'SP-KEEP', currentStock: 2 }),
       makeRow(1, { sellpiaProductCode: 'SP-ABSENT', currentStock: 8 }),
       makeRow(2, { sellpiaProductCode: 'SP-ALSO-ABSENT', currentStock: 3 }),
-    ], fileHash('snapshot-one'));
+      ],
+      fileHash('snapshot-one'),
+    );
     expect(first.duplicate).toBe(false);
 
     const absentBefore = await prisma.inventorySku.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sellpiaProductCode: 'SP-ABSENT',
+      },
+    });
+    const absentMasterBefore = await prisma.masterProduct.findFirstOrThrow({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
         sellpiaProductCode: 'SP-ABSENT',
@@ -113,16 +201,38 @@ describe('InventorySkuImportRepositoryAdapter (PG integration)', () => {
     ];
     const result = await importSnapshot(secondRows, fileHash('snapshot-two'));
 
-    const [keep, absentAfter, componentAfter, otherOrganization] = await Promise.all([
+    const [keep, keepMaster, absentAfter, absentMasterAfter, componentAfter, otherOrganization] =
+      await Promise.all([
       prisma.inventorySku.findFirstOrThrow({
-        where: { organizationId: TEST_ORGANIZATION_ID, sellpiaProductCode: 'SP-KEEP' },
+          where: {
+            organizationId: TEST_ORGANIZATION_ID,
+            sellpiaProductCode: 'SP-KEEP',
+          },
+        }),
+        prisma.masterProduct.findFirstOrThrow({
+          where: {
+            organizationId: TEST_ORGANIZATION_ID,
+            sellpiaProductCode: 'SP-KEEP',
+          },
       }),
       prisma.inventorySku.findFirstOrThrow({
-        where: { organizationId: TEST_ORGANIZATION_ID, sellpiaProductCode: 'SP-ABSENT' },
+          where: {
+            organizationId: TEST_ORGANIZATION_ID,
+            sellpiaProductCode: 'SP-ABSENT',
+          },
+        }),
+        prisma.masterProduct.findFirstOrThrow({
+          where: {
+            organizationId: TEST_ORGANIZATION_ID,
+            sellpiaProductCode: 'SP-ABSENT',
+          },
       }),
       prisma.channelSkuComponent.findUnique({ where: { id: component.id } }),
       prisma.inventorySku.findFirstOrThrow({
-        where: { organizationId: OTHER_ORGANIZATION_ID, sellpiaProductCode: 'SP-KEEP' },
+          where: {
+            organizationId: OTHER_ORGANIZATION_ID,
+            sellpiaProductCode: 'SP-KEEP',
+          },
       }),
     ]);
 
@@ -135,10 +245,29 @@ describe('InventorySkuImportRepositoryAdapter (PG integration)', () => {
       salePrice: 2_300,
       rawJson: { source: 'second snapshot' },
       lastImportRunId: result.run.id,
+      isActive: true,
+    });
+    expect(keepMaster).toMatchObject({
+      sellpiaName: '변경된 이름',
+      optionName: '변경된 옵션',
+      sellpiaBarcode: '000011112222',
+      currentStock: 22,
+      purchasePrice: 1_200,
+      salePrice: 2_300,
+      rawJson: { source: 'second snapshot' },
+      lastImportRunId: result.run.id,
+      isActive: true,
     });
     expect(absentAfter).toMatchObject({
       id: absentBefore.id,
       currentStock: 0,
+      isActive: false,
+      lastImportRunId: result.run.id,
+    });
+    expect(absentMasterAfter).toMatchObject({
+      id: absentMasterBefore.id,
+      currentStock: 0,
+      isActive: false,
       lastImportRunId: result.run.id,
     });
     expect(componentAfter).toMatchObject({
@@ -153,6 +282,116 @@ describe('InventorySkuImportRepositoryAdapter (PG integration)', () => {
     });
   });
 
+  it('reactivates a reappearing Sellpia code with the same SKU, Master, and ledger identities', async () => {
+    await importSnapshot(
+      [makeRow(0, { sellpiaProductCode: 'SP-RETURN', currentStock: 5 })],
+      fileHash('reappearance-first'),
+    );
+    const inventoryBefore = await prisma.inventorySku.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sellpiaProductCode: 'SP-RETURN',
+      },
+    });
+    const masterBefore = await prisma.masterProduct.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sellpiaProductCode: 'SP-RETURN',
+      },
+    });
+    const identityBefore = await prisma.inventorySkuMasterProductMap.findUniqueOrThrow({
+      where: { inventorySkuId: inventoryBefore.id },
+    });
+
+    await importSnapshot(
+      [makeRow(1, { sellpiaProductCode: 'SP-OTHER', currentStock: 8 })],
+      fileHash('reappearance-absent'),
+    );
+    await importSnapshot(
+      [
+        makeRow(2, {
+          sellpiaProductCode: 'SP-RETURN',
+          name: '다시 들어온 상품',
+          currentStock: 13,
+        }),
+      ],
+      fileHash('reappearance-returned'),
+    );
+
+    const [inventoryAfter, masterAfter, identityAfter, runs] = await Promise.all([
+      prisma.inventorySku.findFirstOrThrow({
+        where: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sellpiaProductCode: 'SP-RETURN',
+        },
+      }),
+      prisma.masterProduct.findFirstOrThrow({
+        where: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sellpiaProductCode: 'SP-RETURN',
+        },
+      }),
+      prisma.inventorySkuMasterProductMap.findUniqueOrThrow({
+        where: { inventorySkuId: inventoryBefore.id },
+      }),
+      prisma.sourceImportRun.findMany({
+        where: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sourceType: 'sellpia_inventory',
+          status: 'completed',
+        },
+        orderBy: { publicationSequence: 'asc' },
+        select: { publicationSequence: true },
+      }),
+    ]);
+
+    expect(inventoryAfter).toMatchObject({
+      id: inventoryBefore.id,
+      name: '다시 들어온 상품',
+      currentStock: 13,
+      isActive: true,
+    });
+    expect(masterAfter).toMatchObject({
+      id: masterBefore.id,
+      sellpiaName: '다시 들어온 상품',
+      currentStock: 13,
+      isActive: true,
+    });
+    expect(identityAfter).toEqual(identityBefore);
+    expect(runs.map((run) => run.publicationSequence)).toEqual([1n, 2n, 3n]);
+  });
+
+  it('serializes concurrent completed publications within the organization/source lane', async () => {
+    await Promise.all([
+      importSnapshot(
+        [makeRow(0, { sellpiaProductCode: 'SP-CONCURRENT-A' })],
+        fileHash('concurrent-a'),
+      ),
+      importSnapshot(
+        [makeRow(1, { sellpiaProductCode: 'SP-CONCURRENT-B' })],
+        fileHash('concurrent-b'),
+      ),
+    ]);
+
+    const [runs, activeCount] = await Promise.all([
+      prisma.sourceImportRun.findMany({
+        where: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sourceType: 'sellpia_inventory',
+          status: 'completed',
+        },
+        orderBy: { publicationSequence: 'asc' },
+        select: { publicationSequence: true },
+      }),
+      prisma.inventorySku.count({
+        where: { organizationId: TEST_ORGANIZATION_ID, isActive: true },
+      }),
+    ]);
+
+    expect(runs.map((run) => run.publicationSequence)).toEqual([1n, 2n]);
+    expect(activeCount).toBe(1);
+  });
+
   it('returns a completed same-hash import as a duplicate with zero writes', async () => {
     const hash = fileHash('same-hash');
     const first = await importSnapshot([makeRow(0)], hash);
@@ -160,10 +399,13 @@ describe('InventorySkuImportRepositoryAdapter (PG integration)', () => {
       where: { organizationId: TEST_ORGANIZATION_ID },
     });
 
-    const duplicate = await importSnapshot([
-      makeRow(0, { name: 'must not be written', currentStock: 999 }),
-    ], hash);
-    const after = await prisma.inventorySku.findFirstOrThrow({ where: { id: before.id } });
+    const duplicate = await importSnapshot(
+      [makeRow(0, { name: 'must not be written', currentStock: 999 })],
+      hash,
+    );
+    const after = await prisma.inventorySku.findFirstOrThrow({
+      where: { id: before.id },
+    });
 
     expect(duplicate).toMatchObject({
       duplicate: true,
@@ -217,10 +459,7 @@ describe('InventorySkuImportRepositoryAdapter (PG integration)', () => {
       data: { updatedAt: new Date(Date.now() - 31 * 60 * 1_000) },
     });
 
-    const claims = await Promise.all([
-      claim(hash),
-      claim(hash),
-    ]);
+    const claims = await Promise.all([claim(hash), claim(hash)]);
     expect(claims.map((value) => value.kind).sort()).toEqual(['running', 'started']);
     const started = claims.find((value) => value.kind === 'started');
     expect(started).toMatchObject({ kind: 'started', runId: run.id });
@@ -273,16 +512,25 @@ describe('InventorySkuImportRepositoryAdapter (PG integration)', () => {
     const workerB = await claim(hash);
     if (workerB.kind !== 'started') throw new Error('Expected worker B to reclaim the run');
 
-    await expect(repository.replaceSellpiaSnapshot({
+    await expect(
+      repository.replaceSellpiaSnapshot({
       organizationId: TEST_ORGANIZATION_ID,
       runId: run.id,
       attemptToken: workerAToken,
       rows: [makeRow(0, { sellpiaProductCode: 'SP-WORKER-A' })],
-    })).rejects.toThrow();
+      }),
+    ).rejects.toThrow();
     await repository.markImportFailed(TEST_ORGANIZATION_ID, run.id, workerAToken);
-    expect(await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: run.id } }))
-      .toMatchObject({ status: 'running', attemptToken: workerB.attemptToken });
+    expect(await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: run.id } })).toMatchObject(
+      { status: 'running', attemptToken: workerB.attemptToken },
+    );
     expect(await prisma.inventorySku.count()).toBe(0);
+    expect(
+      await prisma.masterProduct.count({
+        where: { sellpiaProductCode: { not: null } },
+      }),
+    ).toBe(0);
+    expect(await prisma.inventorySkuMasterProductMap.count()).toBe(0);
 
     const workerBResult = await repository.replaceSellpiaSnapshot({
       organizationId: TEST_ORGANIZATION_ID,
@@ -300,11 +548,24 @@ describe('InventorySkuImportRepositoryAdapter (PG integration)', () => {
 
     expect(workerBResult.duplicate).toBe(false);
     expect(lateWorkerAResult.duplicate).toBe(true);
-    expect(await prisma.inventorySku.findMany({
+    expect(
+      await prisma.inventorySku.findMany({
+        select: { sellpiaProductCode: true, currentStock: true },
+      }),
+    ).toEqual([{ sellpiaProductCode: 'SP-WORKER-B', currentStock: 12 }]);
+    expect(
+      await prisma.masterProduct.findMany({
+        where: { sellpiaProductCode: { not: null } },
       select: { sellpiaProductCode: true, currentStock: true },
-    })).toEqual([{ sellpiaProductCode: 'SP-WORKER-B', currentStock: 12 }]);
-    expect(await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: run.id } }))
-      .toMatchObject({ status: 'completed', attemptToken: workerB.attemptToken });
+      }),
+    ).toEqual([{ sellpiaProductCode: 'SP-WORKER-B', currentStock: 12 }]);
+    expect(await prisma.inventorySkuMasterProductMap.count()).toBe(1);
+    expect(await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: run.id } })).toMatchObject(
+      {
+        status: 'completed',
+        attemptToken: workerB.attemptToken,
+      },
+    );
   });
 
   it('rolls back the first upsert batch and marks the fenced run failed after service handling', async () => {
@@ -324,18 +585,28 @@ describe('InventorySkuImportRepositoryAdapter (PG integration)', () => {
 
     await expect(importSnapshot(rows, hash)).rejects.toThrow();
 
-    expect(await prisma.inventorySku.findMany({
+    expect(
+      await prisma.inventorySku.findMany({
       select: { sellpiaProductCode: true, name: true, currentStock: true },
-    })).toEqual([
+      }),
+    ).toEqual([
       {
         sellpiaProductCode: 'SP-00000',
         name: 'before failure',
         currentStock: 9,
       },
     ]);
-    expect(await prisma.sourceImportRun.findFirstOrThrow({
+    expect(
+      await prisma.sourceImportRun.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID, fileHash: hash },
-    })).toMatchObject({ status: 'failed' });
+      }),
+    ).toMatchObject({ status: 'failed' });
+    expect(
+      await prisma.masterProduct.count({
+        where: { sellpiaProductCode: { not: null } },
+      }),
+    ).toBe(0);
+    expect(await prisma.inventorySkuMasterProductMap.count()).toBe(0);
   });
 
   async function importSnapshot(rows: ParsedSellpiaInventoryRow[], hash: string) {
@@ -387,7 +658,6 @@ describe('InventorySkuImportRepositoryAdapter (PG integration)', () => {
       },
     });
   }
-
 });
 
 function makeRows(count: number): ParsedSellpiaInventoryRow[] {
@@ -414,4 +684,9 @@ function makeRow(
 
 function fileHash(label: string): string {
   return createHash('sha256').update(label).digest('hex');
+}
+
+function stagedMasterCode(sellpiaProductCode: string): string {
+  const digest = createHash('sha256').update(sellpiaProductCode).digest('hex').slice(0, 24);
+  return `SELLPIA::${TEST_ORGANIZATION_ID}::${digest}`;
 }

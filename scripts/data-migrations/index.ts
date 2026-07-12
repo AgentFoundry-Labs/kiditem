@@ -18,6 +18,7 @@ import { recordSellpiaRocketInventorySyncRelease } from './v0.1.7/001_record_sel
 import { normalizeSellpiaRecommendedSnapshotItems } from './v0.1.7/002_normalize_sellpia_recommended_snapshot_items';
 import { normalizeOperationalChannelAccounts } from './v0.1.8/001_normalize_operational_channel_accounts';
 import { backfillChannelSkuAccounts } from './v0.1.8/002_backfill_channel_sku_accounts';
+import { normalizePromotedCandidateStatus } from './v0.1.8/003_normalize_promoted_candidate_status';
 import type { DataMigration } from './types';
 
 export {
@@ -50,6 +51,7 @@ export const dataMigrations: readonly DataMigration[] = [
   normalizeSellpiaRecommendedSnapshotItems,
   normalizeOperationalChannelAccounts,
   backfillChannelSkuAccounts,
+  normalizePromotedCandidateStatus,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(

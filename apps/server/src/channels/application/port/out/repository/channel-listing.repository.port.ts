@@ -108,6 +108,26 @@ export interface ChannelListingRepositoryPort {
 }
 
 export interface MarketplaceRegistrationRepositoryPort {
+  assertActiveRegistrationAccount(input: {
+    organizationId: string;
+    channelAccountId: string;
+  }): Promise<{ channel: string }>;
+  resolveProductRegistration(
+    transaction: object,
+    input: {
+      organizationId: string;
+      sourceCandidateId: string;
+      channelAccountId: string;
+      externalListingId: string;
+      displayName: string;
+    },
+  ): Promise<{
+    listingId: string;
+    channelAccountId: string;
+    channel: string;
+    externalId: string;
+    status: string | null;
+  }>;
   registerConfirmedListing(
     organizationId: string,
     input: RegisterConfirmedListingInput,

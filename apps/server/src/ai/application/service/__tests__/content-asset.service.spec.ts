@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type { ContentAssetLibraryRepositoryPort } from '../../port/out/repository/content-asset-library.repository.port';
 import { ContentAssetService } from '../content-asset.service';
@@ -16,11 +17,26 @@ function repository(
     syncGenerationImageUsages: vi.fn(),
     syncGenerationImageUsagesInScope: vi.fn(),
     listAssets: vi.fn(),
+    deleteAsset: vi.fn(),
     ...overrides,
   } as ContentAssetLibraryRepositoryPort;
 }
 
 describe('ContentAssetService', () => {
+  it('blocks deletion while an active generation usage or thumbnail selection references the asset', async () => {
+    const repo = repository({
+      deleteAsset: vi.fn().mockResolvedValue({ status: 'in_use' }),
+    });
+    const service = new ContentAssetService(repo);
+
+    await expect(service.deleteAsset(ORG, 'asset-1')).rejects.toBeInstanceOf(ConflictException);
+    expect(repo.deleteAsset).toHaveBeenCalledWith({
+      organizationId: ORG,
+      contentAssetId: 'asset-1',
+      deletedAt: expect.any(Date),
+    });
+  });
+
   it('delegates detail-page input asset recording to the asset library repository', async () => {
     const assets = [{
       id: 'asset-1',

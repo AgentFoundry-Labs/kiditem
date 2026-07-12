@@ -28,14 +28,32 @@ export class TransfersRepositoryAdapter implements TransfersRepositoryPort {
     });
   }
 
-  findInventorySkuForTransfer(
+  async findInventorySkuForTransfer(
     inventorySkuId: string,
     organizationId: string,
-  ): Promise<{ optionName: string | null } | null> {
-    return this.prisma.inventorySku.findFirst({
+  ): Promise<{ optionName: string | null; legacyOptionId: string } | null> {
+    const inventorySku = await this.prisma.inventorySku.findFirst({
       where: { id: inventorySkuId, organizationId },
-      select: { optionName: true },
+      select: { optionName: true, sellpiaProductCode: true },
     });
+    if (!inventorySku) return null;
+    const option = await this.prisma.productOption.findFirst({
+      where: {
+        organizationId,
+        isDeleted: false,
+        legacyCode: inventorySku.sellpiaProductCode,
+      },
+      select: { id: true },
+    }) ?? await this.prisma.productOption.findFirst({
+      where: {
+        organizationId,
+        isDeleted: false,
+        sku: inventorySku.sellpiaProductCode,
+      },
+      select: { id: true },
+    });
+    if (!option) return null;
+    return { optionName: inventorySku.optionName, legacyOptionId: option.id };
   }
 
   async findWarehouseIdsForTransfer(

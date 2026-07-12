@@ -30,11 +30,15 @@ function workspace(overrides: Record<string, unknown> = {}) {
     ownerType: 'direct_detail_page',
     sourceCandidateId: null,
     targetMasterId: null,
+    channelListingId: null,
+    originWorkspaceId: null,
     displayName: '키즈 텀블러',
     normalizedTitle: '키즈텀블러',
     status: 'active',
     currentDetailPageArtifactId: ARTIFACT_ID,
     currentDetailPageRevisionId: REVISION_ID,
+    currentThumbnailSelectionId: null,
+    currentThumbnailSelection: null,
     createdByUserId: null,
     isDeleted: false,
     deletedAt: null,
@@ -85,6 +89,56 @@ function generation(overrides: Record<string, unknown> = {}) {
 }
 
 describe('ContentWorkspaceService', () => {
+  it('creates a channel-listing workspace owner and projects its branch provenance', async () => {
+    const repo = repository({
+      ensureActiveWorkspace: vi.fn().mockResolvedValue({
+        id: WORKSPACE_ID,
+        displayName: 'Kids rain boots',
+        normalizedTitle: 'kidsrainboots',
+      }),
+      getById: vi.fn().mockResolvedValue(workspace({
+        ownerType: 'channel_listing',
+        channelListingId: 'listing-1',
+        originWorkspaceId: 'source-workspace-1',
+        currentThumbnailSelectionId: 'selection-1',
+        currentThumbnailSelection: {
+          id: 'selection-1',
+          contentAsset: { id: 'asset-1', url: 'https://cdn.example.com/thumb.png' },
+        },
+      })),
+    });
+    const service = new ContentWorkspaceService(repo);
+
+    await service.createWorkspace({
+      organizationId: ORG,
+      triggeredByUserId: 'user-1',
+      rawTitle: 'Kids rain boots',
+      sourceCandidateId: null,
+      targetMasterId: null,
+      channelListingId: null,
+      originWorkspaceId: null,
+      channelListingId: 'listing-1',
+      originWorkspaceId: 'source-workspace-1',
+    });
+
+    expect(repo.ensureActiveWorkspace).toHaveBeenCalledWith(expect.objectContaining({
+      ownerType: 'channel_listing',
+      sourceCandidateId: null,
+      targetMasterId: null,
+      channelListingId: 'listing-1',
+      originWorkspaceId: 'source-workspace-1',
+    }));
+    await expect(service.get(ORG, WORKSPACE_ID)).resolves.toMatchObject({
+      channelListingId: 'listing-1',
+      originWorkspaceId: 'source-workspace-1',
+      currentThumbnailSelection: {
+        id: 'selection-1',
+        contentAssetId: 'asset-1',
+        url: 'https://cdn.example.com/thumb.png',
+      },
+    });
+  });
+
   it('normalizes a direct detail-page workspace before delegating creation to the lifecycle repository', async () => {
     const repo = repository({
       ensureActiveWorkspace: vi.fn().mockResolvedValue({
@@ -112,6 +166,8 @@ describe('ContentWorkspaceService', () => {
       ownerType: 'direct_detail_page',
       sourceCandidateId: null,
       targetMasterId: null,
+      channelListingId: null,
+      originWorkspaceId: null,
       displayName: '키즈 터치등',
       normalizedTitle: '키즈터치등',
       createdByUserId: 'user-1',

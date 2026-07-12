@@ -49,7 +49,9 @@ these independent boundaries hold:
 Release `0.1.8` normalizes operational channel accounts before the schema push
 with `v0.1.8:001_normalize_operational_channel_accounts`, then fills and checks
 the additive child account column after the push with
-`v0.1.8:002_backfill_channel_sku_accounts`. The first migration resolves
+`v0.1.8:002_backfill_channel_sku_accounts`, then normalizes the retired
+candidate `promoted` status to `sourced` with
+`v0.1.8:003_normalize_promoted_candidate_status`. The first migration resolves
 evidence in this fixed order: provider seller/vendor identity, linked listing
 option/listing, legacy parent listing, then the sole active platform account.
 Ambiguous, missing, or conflicting identity stops the release; exact canonical

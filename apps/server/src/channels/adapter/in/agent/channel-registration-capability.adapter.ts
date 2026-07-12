@@ -9,7 +9,13 @@ import {
   type RegisterConfirmedMarketplaceListingCapabilityResult,
   type SubmitCoupangMarketplaceListingCapabilityInput,
   type SubmitCoupangMarketplaceListingCapabilityResult,
+  type ProductRegistrationSubmissionCapabilityInput,
+  type ResolveProductRegistrationCapabilityInput,
 } from '../../../application/port/in/capability/marketplace-registration.port';
+import type {
+  ChannelListingRegistrationResult,
+  MarketplaceSubmissionResult,
+} from '@kiditem/shared/channel-listing';
 import { MarketplaceRegistrationService } from '../../../application/service/marketplace-registration.service';
 
 const CHANNEL_CONFIRMED_LISTING_REGISTRATION_KEY =
@@ -104,6 +110,25 @@ export class ChannelRegistrationCapabilityAdapter
     private readonly registry: AgentCapabilityRegistry,
     private readonly marketplaceRegistration: MarketplaceRegistrationService,
   ) {}
+
+  reconcileProductRegistration(
+    input: ProductRegistrationSubmissionCapabilityInput,
+  ): Promise<MarketplaceSubmissionResult | null> {
+    return this.marketplaceRegistration.reconcileProductRegistration(input);
+  }
+
+  submitProductRegistration(
+    input: ProductRegistrationSubmissionCapabilityInput,
+  ): Promise<MarketplaceSubmissionResult> {
+    return this.marketplaceRegistration.submitProductRegistration(input);
+  }
+
+  resolveProductRegistration(
+    transaction: object,
+    input: ResolveProductRegistrationCapabilityInput,
+  ): Promise<ChannelListingRegistrationResult> {
+    return this.marketplaceRegistration.resolveProductRegistration(transaction, input);
+  }
 
   onModuleInit(): void {
     this.registry.register(this.confirmedListingHandler());

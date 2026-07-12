@@ -6,13 +6,15 @@ import { SourcingPromotionService } from '../../../application/service/sourcing-
 import { SourcingService } from '../../../application/service/sourcing.service';
 import { SourcingWorkspaceArchiveService } from '../../../application/service/sourcing-workspace-archive.service';
 import { ProductPreparationSelectionService } from '../../../application/service/product-preparation-selection.service';
+import { ProductRegistrationService } from '../../../application/service/product-registration.service';
 import {
-  PromoteCandidateBodyDto,
+  CreateProductPreparationDto,
   QuickProcessCandidateDto,
   RejectCandidateBodyDto,
   SelectPreparationDetailDto,
   SelectPreparationThumbnailDto,
   UpdateProductBasicsDto,
+  UpdateProductPreparationDto,
 } from './dto';
 
 @Controller('sourcing')
@@ -22,6 +24,7 @@ export class SourcingCandidateWorkspaceController {
     private readonly promotionSvc: SourcingPromotionService,
     private readonly workspaceArchive: SourcingWorkspaceArchiveService,
     private readonly preparationSelection: ProductPreparationSelectionService,
+    private readonly productRegistration: ProductRegistrationService,
   ) {}
 
   @Get(':id')
@@ -35,10 +38,49 @@ export class SourcingCandidateWorkspaceController {
   @Post('candidates/:id/promote')
   async promote(
     @Param('id') id: string,
-    @Body() body: PromoteCandidateBodyDto,
+    @Body() body: CreateProductPreparationDto,
     @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.promotionSvc.promote(id, organizationId, body);
+    return this.productRegistration.createDraft(organizationId, id, user.id ?? null, body);
+  }
+
+  @Post('candidates/:id/preparations')
+  createPreparation(
+    @Param('id') id: string,
+    @Body() body: CreateProductPreparationDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.createDraft(organizationId, id, user.id ?? null, body);
+  }
+
+  @Patch('preparations/:id')
+  updatePreparation(
+    @Param('id') id: string,
+    @Body() body: UpdateProductPreparationDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.updateDraft(organizationId, id, user.id ?? null, body);
+  }
+
+  @Post('preparations/:id/submit')
+  submitPreparation(
+    @Param('id') id: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.submit(organizationId, id, user.id ?? null);
+  }
+
+  @Post('preparations/:id/cancel')
+  cancelPreparation(
+    @Param('id') id: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.cancel(organizationId, id, user.id ?? null);
   }
 
   @Post('candidates/:id/reject')

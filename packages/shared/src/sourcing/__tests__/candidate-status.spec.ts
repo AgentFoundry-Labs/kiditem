@@ -11,11 +11,12 @@ describe('SourcingCandidateStatusSchema', () => {
   it('rejects unknown status', () => {
     expect(() => SourcingCandidateStatusSchema.parse('approved')).toThrow();
     expect(() => SourcingCandidateStatusSchema.parse('drafting')).toThrow();
+    expect(() => SourcingCandidateStatusSchema.parse('promoted')).toThrow();
     expect(() => SourcingCandidateStatusSchema.parse('')).toThrow();
   });
 
   it('exposes union type', () => {
-    const v: 'sourced' | 'promoted' | 'rejected' = 'sourced';
+    const v: 'sourced' | 'rejected' = 'sourced';
     expect(SourcingCandidateStatusSchema.parse(v)).toBe('sourced');
   });
 });

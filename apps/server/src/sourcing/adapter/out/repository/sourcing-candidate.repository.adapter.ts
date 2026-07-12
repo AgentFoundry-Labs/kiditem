@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
@@ -802,18 +802,42 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
         sourceCandidateId: input.candidate.id,
         isDeleted: false,
       },
-      select: { id: true },
+      select: { id: true, status: true },
     });
-    const updatePreparation = async (id: string) => {
-      const updated = await this.prisma.productPreparation.update({
-        where: { id },
+    const updatePreparation = async (current: { id: string; status: string }) => {
+      if (current.status !== 'draft') {
+        throw new ConflictException(
+          `Preparation cannot be changed from '${current.status}'.`,
+        );
+      }
+      const result = await this.prisma.productPreparation.updateMany({
+        where: {
+          id: current.id,
+          organizationId: input.organizationId,
+          sourceCandidateId: input.candidate.id,
+          status: 'draft',
+          isDeleted: false,
+        },
         data: input.data as Prisma.ProductPreparationUncheckedUpdateInput,
       });
+      if (result.count !== 1) {
+        throw new ConflictException('Preparation changed while applying the selection.');
+      }
+      const updated = await this.prisma.productPreparation.findFirst({
+        where: {
+          id: current.id,
+          organizationId: input.organizationId,
+          sourceCandidateId: input.candidate.id,
+          status: 'draft',
+          isDeleted: false,
+        },
+      });
+      if (!updated) throw new ConflictException('Preparation changed while applying the selection.');
       return toProductPreparationRow(updated);
     };
     const existing = await findActivePreparation();
     if (existing) {
-      return updatePreparation(existing.id);
+      return updatePreparation(existing);
     }
     try {
       const created = await this.prisma.productPreparation.create({
@@ -824,7 +848,7 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       if (!isUniqueConstraintError(err)) throw err;
       const racedPreparation = await findActivePreparation();
       if (!racedPreparation) throw err;
-      return updatePreparation(racedPreparation.id);
+      return updatePreparation(racedPreparation);
     }
   }
 
@@ -868,7 +892,7 @@ function toRow(r: any): CandidateRow {
     thumbnailUrl: r.thumbnailUrl,
     imageUrl: r.imageUrl,
     costCny: r.costCny,
-    status: r.status,
+    status: r.status === 'promoted' ? 'sourced' : r.status,
     promotedMasterId: r.promotedMasterId,
     rejectedReason: r.rejectedReason,
     rejectedAt: r.rejectedAt,

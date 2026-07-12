@@ -5,6 +5,7 @@ import type {
   CoupangSellerProductPayload,
   SellerProductListResponse,
   SellerProductDetailResponse,
+  SellerProductExternalSkuResponse,
   OrderSheetResponse,
 } from '../../../application/port/out/provider/coupang-provider.port';
 import {
@@ -15,6 +16,7 @@ import {
   createSellerProduct,
   getSellerProducts,
   getSellerProduct,
+  getSellerProductsByExternalVendorSku,
 } from './products';
 import {
   getOrderSheets,
@@ -44,8 +46,11 @@ export class CoupangProviderAdapter implements CoupangProviderPort {
   async createSellerProduct(
     organizationId: string,
     payload: CoupangSellerProductPayload,
+    channelAccountId?: string,
   ): Promise<CoupangCreateSellerProductResponse> {
-    const credentials = await this.credentials.resolveCoupangCredentials(organizationId);
+    const credentials = channelAccountId
+      ? await this.credentials.resolveCoupangCredentials(organizationId, channelAccountId)
+      : await this.credentials.resolveCoupangCredentials(organizationId);
     return createSellerProduct(
       credentials,
       payload,
@@ -64,9 +69,26 @@ export class CoupangProviderAdapter implements CoupangProviderPort {
   async getSellerProduct(
     organizationId: string,
     sellerProductId: string,
+    channelAccountId?: string,
   ): Promise<SellerProductDetailResponse> {
-    const credentials = await this.credentials.resolveCoupangCredentials(organizationId);
+    const credentials = channelAccountId
+      ? await this.credentials.resolveCoupangCredentials(organizationId, channelAccountId)
+      : await this.credentials.resolveCoupangCredentials(organizationId);
     return getSellerProduct(credentials, sellerProductId) as Promise<SellerProductDetailResponse>;
+  }
+
+  async getSellerProductsByExternalVendorSku(
+    organizationId: string,
+    externalVendorSkuCode: string,
+    channelAccountId?: string,
+  ): Promise<SellerProductExternalSkuResponse> {
+    const credentials = channelAccountId
+      ? await this.credentials.resolveCoupangCredentials(organizationId, channelAccountId)
+      : await this.credentials.resolveCoupangCredentials(organizationId);
+    return getSellerProductsByExternalVendorSku(
+      credentials,
+      externalVendorSkuCode,
+    ) as Promise<SellerProductExternalSkuResponse>;
   }
 
   async getOrderSheets(organizationId: string, params: {

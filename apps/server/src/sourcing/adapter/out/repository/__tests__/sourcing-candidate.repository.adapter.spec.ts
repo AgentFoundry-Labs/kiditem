@@ -87,7 +87,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     expect(row).toMatchObject({ id: 'candidate-1', sourceUrl: 'https://1688.com/item/1' });
   });
 
-  it('findActiveBySourceUrl returns a non-deleted sourced or promoted candidate for duplicate-scrape preflight', async () => {
+  it('normalizes a rolling-deploy promoted row to the public sourced status', async () => {
     const row = {
       id: 'candidate-1',
       organizationId: 'org-1',
@@ -135,7 +135,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     });
     expect(result).toMatchObject({
       id: 'candidate-1',
-      status: 'promoted',
+      status: 'sourced',
     });
   });
 
@@ -163,14 +163,15 @@ describe('SourcingCandidateRepositoryAdapter', () => {
       productPreparation: {
         findFirst: vi.fn()
           .mockResolvedValueOnce(null)
-          .mockResolvedValueOnce({ id: 'prep-1' }),
+          .mockResolvedValueOnce({ id: 'prep-1', status: 'draft' })
+          .mockResolvedValueOnce(updatedPreparation),
         create: vi.fn().mockRejectedValueOnce({
           code: 'P2002',
           meta: {
             target: ['organizationId', 'sourceCandidateId', 'isDeleted'],
           },
         }),
-        update: vi.fn().mockResolvedValue(updatedPreparation),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
     };
     const repository = new SourcingCandidateRepositoryAdapter(prisma as never);
@@ -193,8 +194,14 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     });
 
     expect(prisma.productPreparation.create).toHaveBeenCalledTimes(1);
-    expect(prisma.productPreparation.update).toHaveBeenCalledWith({
-      where: { id: 'prep-1' },
+    expect(prisma.productPreparation.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'prep-1',
+        organizationId: 'org-1',
+        sourceCandidateId: 'candidate-1',
+        status: 'draft',
+        isDeleted: false,
+      },
       data: {
         displayName: '새 상품명',
         registrationInput: { name: '새 상품명' },

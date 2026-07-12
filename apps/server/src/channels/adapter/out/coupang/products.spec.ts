@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createSellerProduct } from './products';
+import {
+  createSellerProduct,
+  getSellerProductsByExternalVendorSku,
+} from './products';
 
 describe('Coupang product API helpers', () => {
   afterEach(() => {
@@ -79,6 +82,31 @@ describe('Coupang product API helpers', () => {
           requested: true,
         }),
       }),
+    );
+  });
+
+  it('queries uncertain product creation by the encoded external vendor SKU', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: {
+        get: (name: string) => (name === 'content-type' ? 'application/json' : ''),
+      },
+      json: async () => ({ code: 'SUCCESS', message: '', data: [] }),
+    });
+    vi.stubGlobal('fetch', fetch);
+
+    await getSellerProductsByExternalVendorSku(
+      {
+        vendorId: 'A00012345',
+        accessKey: 'access-key',
+        secretKey: 'secret-key',
+      },
+      'submission:key/1',
+    );
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api-gateway.coupang.com/v2/providers/seller_api/apis/api/v1/marketplace/seller-products/external-vendor-sku-codes/submission%3Akey%2F1',
+      expect.objectContaining({ method: 'GET' }),
     );
   });
 });

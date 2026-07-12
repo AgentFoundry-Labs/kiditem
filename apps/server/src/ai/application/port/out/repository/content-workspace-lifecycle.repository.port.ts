@@ -4,9 +4,11 @@ export const CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT = Symbol(
 
 export interface EnsureContentWorkspaceInput {
   organizationId: string;
-  ownerType: string;
+  ownerType: 'sourcing_candidate' | 'channel_listing' | 'direct_detail_page';
   sourceCandidateId: string | null;
   targetMasterId: string | null;
+  channelListingId: string | null;
+  originWorkspaceId: string | null;
   displayName: string;
   normalizedTitle: string;
   createdByUserId: string | null;
@@ -43,11 +45,18 @@ export interface ContentWorkspaceSnapshot {
   ownerType: string;
   sourceCandidateId: string | null;
   targetMasterId: string | null;
+  channelListingId: string | null;
+  originWorkspaceId: string | null;
   displayName: string;
   normalizedTitle: string;
   status: string;
   currentDetailPageArtifactId: string | null;
   currentDetailPageRevisionId: string | null;
+  currentThumbnailSelectionId: string | null;
+  currentThumbnailSelection: {
+    id: string;
+    contentAsset: { id: string; url: string };
+  } | null;
   currentDetailPageArtifact: ContentWorkspaceArtifactSnapshot | null;
   createdAt: Date;
   updatedAt: Date;

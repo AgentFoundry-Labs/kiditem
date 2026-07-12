@@ -83,11 +83,11 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/activity-events` | Owner Capability | Activity event read endpoint. |
 | `apps/server/src/advertising` | Owner Domain | Coupang ad operations, scrape ingest, daily facts, strategy/action generation. |
 | `apps/server/src/agent-os` | Platform | Agent catalog, queue, runtime, policy, cost, and observability. |
-| `apps/server/src/ai` | Owner Domain | Image/text/detail-page/thumbnail AI provider and Agent OS output boundaries. |
+| `apps/server/src/ai` | Owner Domain | Image/text/detail-page/thumbnail AI provider, content-workspace ownership/branching, and Agent OS output boundaries. |
 | `apps/server/src/analytics` | Owner Read Model | Dashboard, statistics, traffic, and supplier-stats reporting. |
 | `apps/server/src/auth` | Platform Capability | Guards, decorators, middleware, and `/api/auth/me`. |
 | `apps/server/src/automation` | Platform | Workflows, alerts, action board, marketplace install, and panel projection. |
-| `apps/server/src/channels` | Owner Domain | Marketplace account, listing, order, return, catalog import, ChannelSku-to-Sellpia component matching, and sellable-capacity projection boundaries. |
+| `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped registration/listing, order, return, catalog import, ChannelSku-to-Sellpia component matching, and sellable-capacity projection boundaries. |
 | `apps/server/src/chat` | Platform Capability | CopilotKit bridge and Claude CLI adapter. |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
@@ -100,7 +100,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/products` | Owner Domain | Catalog families/options, stock-free bundle composition, and categories compatibility. |
 | `apps/server/src/readiness` | Platform Capability | Readiness checks and health-style operational surface. |
 | `apps/server/src/rules` | Owner Domain | Business rules HTTP orchestration and Agent OS delegation. |
-| `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery (scraper ingest, SourcingCandidate inbox, candidate→master promotion). |
+| `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery (scraper ingest and SourcingCandidate inbox) plus the account-scoped ProductPreparation registration state machine. |
 | `apps/server/src/supply` | Owner Domain | Supplier registry, master-supplier policy, purchase-order procurement. Extracted from sourcing/ during issue #192 follow-up Track A PR 1. |
 | `apps/server/src/test-helpers` | Test Support | Test-only Prisma and seed helpers. |
 | `apps/server/src/types` | Platform Support | Ambient/server TypeScript types. |
@@ -174,10 +174,10 @@ Initial domain capability targets:
 
 | Owner | Resources | Tools | Workflows | Sinks |
 |---|---|---|---|---|
-| `sourcing` | Duplicate URL/candidate lookup, candidate read context. | Product URL scrape through browser/runtime, search result scrape. | Duplicate-check → scrape → candidate ingest → alert/detail routing. | Candidate ingest, candidate rejection, candidate promotion handoff. |
-| `ai` | Workspace/generation/detail-page read context. | OCR, image classification, image/text/detail generation, vision analysis. | Media generation jobs and post-promotion content generation. | Generation output projection, asset usage projection, workspace archive. |
+| `sourcing` | Duplicate URL/candidate/preparation lookup and read context. | Product URL scrape through browser/runtime, search result scrape. | Duplicate-check → scrape → candidate ingest → preparation → account registration. | Candidate ingest/rejection and preparation lifecycle/finalization. |
+| `ai` | Workspace/generation/detail-page read context. | OCR, image classification, image/text/detail generation, vision analysis. | Media generation jobs and candidate-to-listing content branching. | Generation output, asset usage, current-thumbnail, and workspace archive projections. |
 | `finance` | Margin, commission, cost, settlement, and plan lookups. | Margin/category profitability calculations, pandas-style research adapters when needed. | Reconciliation and profitability analysis runs. | Manual ledger entries, settlement/payment projections. |
-| `products` | Master product, catalog option, bundle composition, preparation, and category reads. | Catalog normalization and compatibility helpers. | Candidate-to-master preparation flows when deterministic. | Master creation/update, option/bundle writes, preparation attachment; never stock writes. |
+| `products` | Master product, catalog option, bundle composition, and category reads. | Catalog normalization and compatibility helpers. | Catalog normalization flows when deterministic. | Master creation/update and option/bundle writes; never stock or registration-state writes. |
 | `channels` | Channel account/listing/order/status and nullable SKU-availability reads. | Marketplace provider calls, listing validation, Wing/Coupang browser runtime steps, component-capacity calculation. | Product registration/listing sync and ChannelSku component-matching flows. | Listing registration/update projection, channel order/status ingestion. |
 | `rules` | Rule set and evaluation context reads. | Rule evaluation/suggestion tools that may invoke Agent OS from rules entrypoints. | Scheduled policy sweeps when deterministic. | Rule/action recommendation projection. |
 | `advertising` | Ad account/campaign/daily fact reads. | Scrape ingest normalization, strategy metrics calculations. | Daily fact ingest and deterministic alert workflows. | Ad fact/action/strategy projections. |
@@ -324,9 +324,9 @@ Notable route subtrees:
 - `apps/web/src/app/(product-pipeline)/product-pipeline/registered-products`
   owns `/product-pipeline/registered-products`, the marketplace registered
   product management surface backed by active `ChannelListing` rows with
-  `ChannelAccount` and `MasterProduct` context. Generated content history lives
-  in `ContentWorkspace`; source-candidate workspaces are reached from collected
-  product detail instead of this list.
+  `ChannelAccount` and immutable source-candidate provenance. Generated content
+  history lives in listing-owned `ContentWorkspace` rows; source-candidate
+  workspaces are reached from collected product detail instead of this list.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/productgenerate`
   owns `/product-pipeline/productgenerate`, the sidebar product registration
   entrypoint. This is the only product-pipeline route that creates collected
@@ -389,6 +389,44 @@ groups or ungrouped routes.
 Frontend route code must not add `app/api/**/route.ts`, import Prisma/`pg`/DB
 clients, send `organizationId` in API payloads, or call backend APIs with raw
 `fetch`.
+
+## Account-Scoped Registration And Content Ownership (`0.1.8`)
+
+Sourcing owns registration intent and state in `ProductPreparation`; Channels
+owns the selected marketplace account, provider submission, and resulting
+`ChannelListing`; AI owns candidate/listing content workspaces. Registration no
+longer promotes a candidate into `MasterProduct`.
+
+```text
+SourcingCandidate (status: sourced | rejected)
+  -> ProductPreparation draft for a selected ChannelAccount
+  -> canonical payload JSON + SHA-256 + stable submission key are frozen
+  -> persist the key as Coupang externalVendorSku and reconcile by key/provider ID
+  -> call provider outside the DB tx only when reconciliation proves this is new
+  -> one final DB tx resolves/reactivates the account-scoped ChannelListing
+     + branches selected content into a listing-owned ContentWorkspace
+     + marks ProductPreparation registered
+```
+
+The canonical APIs are candidate preparation create, preparation update,
+submit, and cancel. In 0.1.8, `POST /api/sourcing/candidates/:id/promote` is a
+deprecated alias for draft creation and returns only
+`{ preparationId, status: 'draft' }`. The 0.1.8 database retains the old
+candidate-wide active-preparation uniqueness for rollback compatibility, so a
+second-account draft reports a deterministic conflict until that legacy
+constraint is removed in 0.1.9.
+
+The release data-migration chain rewrites only legacy `promoted` candidate rows
+to `sourced`; rolling-deploy read projections perform the same normalization
+until every environment has recorded the migration.
+
+`ContentWorkspace.ownerType` is `sourcing_candidate`, `channel_listing`, or
+`direct_detail_page`. Registration branches selected artifact/revision metadata
+and HTML, reuses storage URLs and the same managed thumbnail asset, and does not
+clone generation jobs/candidates. Current-thumbnail selection may adopt an
+existing content asset, a succeeded generation candidate, or an external URL
+that first passes the guarded fetch/storage boundary. Asset deletion and GC
+must reject active generation usage or any thumbnail selection.
 
 ## Sellpia-Authoritative Inventory And Channel Capacity (`0.1.9`)
 

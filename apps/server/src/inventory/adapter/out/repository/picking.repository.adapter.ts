@@ -26,28 +26,78 @@ export class PickingRepositoryAdapter implements PickingRepositoryPort {
     });
   }
 
-  createPickingList(
+  async createPickingList(
     organizationId: string,
     listNumber: string,
     items: PickableItem[],
   ): Promise<PickingListRow> {
-    return this.prisma.pickingList.create({
-      data: {
-        organizationId,
-        listNumber,
-        totalItems: items.length,
-        items: {
-          create: items.map((it) => ({
-            orderId: it.orderId,
-            inventorySkuId: it.inventorySkuId,
-            productName: it.productName,
-            sku: it.sku ?? undefined,
-            quantity: it.quantity,
-            location: undefined,
-          })),
+    return this.prisma.$transaction(async (tx) => {
+      const inventoryIds = [...new Set(items.map((item) => item.inventorySkuId))];
+      const inventorySkus = await tx.inventorySku.findMany({
+        where: { id: { in: inventoryIds }, organizationId },
+        select: { id: true, sellpiaProductCode: true },
+      });
+      if (inventorySkus.length !== inventoryIds.length) {
+        throw new NotFoundException('InventorySku not found');
+      }
+      const codes = [...new Set(inventorySkus.map((row) => row.sellpiaProductCode))];
+      const legacyOptions = await tx.productOption.findMany({
+        where: {
+          organizationId,
+          isDeleted: false,
+          legacyCode: { in: codes },
         },
-      },
-      include: LIST_WITH_ITEMS_INCLUDE,
+        select: { id: true, legacyCode: true, sku: true },
+      });
+      const optionByCode = new Map<string, string>();
+      for (const option of legacyOptions) {
+        if (option.legacyCode) {
+          optionByCode.set(option.legacyCode, option.id);
+        }
+      }
+      const fallbackCodes = codes.filter((code) => !optionByCode.has(code));
+      if (fallbackCodes.length > 0) {
+        const skuOptions = await tx.productOption.findMany({
+          where: {
+            organizationId,
+            isDeleted: false,
+            sku: { in: fallbackCodes },
+          },
+          select: { id: true, sku: true },
+        });
+        for (const option of skuOptions) {
+          optionByCode.set(option.sku, option.id);
+        }
+      }
+      const inventoryById = new Map(inventorySkus.map((row) => [row.id, row]));
+      const rows = items.map((item) => {
+        const inventory = inventoryById.get(item.inventorySkuId)!;
+        const optionId = optionByCode.get(inventory.sellpiaProductCode);
+        if (!optionId) {
+          throw new NotFoundException(
+            `Legacy ProductOption mapping not found for ${inventory.sellpiaProductCode}`,
+          );
+        }
+        return {
+          organizationId,
+          orderId: item.orderId,
+          optionId,
+          inventorySkuId: item.inventorySkuId,
+          productName: item.productName,
+          sku: item.sku ?? undefined,
+          quantity: item.quantity,
+          location: undefined,
+        };
+      });
+      return tx.pickingList.create({
+        data: {
+          organizationId,
+          listNumber,
+          totalItems: items.length,
+          items: { create: rows },
+        },
+        include: LIST_WITH_ITEMS_INCLUDE,
+      });
     });
   }
 

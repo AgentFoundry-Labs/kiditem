@@ -46,6 +46,8 @@ import { ContentArchiveRepositoryAdapter } from './adapter/out/repository/conten
 import { ContentAssetLibraryRepositoryAdapter } from './adapter/out/repository/content-asset-library.repository.adapter';
 import { ContentWorkspaceAttachmentRepositoryAdapter } from './adapter/out/repository/content-workspace-attachment.repository.adapter';
 import { ContentWorkspaceLifecycleRepositoryAdapter } from './adapter/out/repository/content-workspace-lifecycle.repository.adapter';
+import { ContentWorkspaceThumbnailSelectionRepositoryAdapter } from './adapter/out/repository/content-workspace-thumbnail-selection.repository.adapter';
+import { RegistrationContentWorkspaceRepositoryAdapter } from './adapter/out/repository/registration-content-workspace.repository.adapter';
 import { DetailPageGenerationRepositoryAdapter } from './adapter/out/repository/detail-page-generation.repository.adapter';
 import { DetailPageQueryRepositoryAdapter } from './adapter/out/repository/detail-page-query.repository.adapter';
 import { PostPromotionGenerationRepositoryAdapter } from './adapter/out/repository/post-promotion-generation.repository.adapter';
@@ -102,6 +104,8 @@ import { ContentArchiveService } from './application/service/content-archive.ser
 import { ContentGenerationRerunService } from './application/service/content-generation-rerun.service';
 import { ContentWorkspaceAttachmentService } from './application/service/content-workspace-attachment.service';
 import { ContentWorkspaceService } from './application/service/content-workspace.service';
+import { ContentWorkspaceThumbnailSelectionService } from './application/service/content-workspace-thumbnail-selection.service';
+import { RegistrationContentWorkspaceService } from './application/service/registration-content-workspace.service';
 import { SourcingWorkspaceArchiveService } from './application/service/sourcing-workspace-archive.service';
 import { AiGenerationCancellationService } from './application/service/ai-generation-cancellation.service';
 
@@ -112,7 +116,10 @@ import {
   POST_PROMOTION_AI_TRIGGER_PORT,
   PRODUCT_GENERATION_AI_TRIGGER_PORT,
 } from './application/port/in/generation';
-import { AI_WORKSPACE_ARCHIVE_PORT } from './application/port/in/workspace';
+import {
+  AI_WORKSPACE_ARCHIVE_PORT,
+  REGISTRATION_CONTENT_WORKSPACE_PORT,
+} from './application/port/in/workspace';
 
 // application/port — out
 import {
@@ -136,12 +143,14 @@ import {
   CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
   CONTENT_WORKSPACE_ATTACHMENT_REPOSITORY_PORT,
   CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
+  CONTENT_WORKSPACE_THUMBNAIL_SELECTION_REPOSITORY_PORT,
   DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
   DETAIL_PAGE_QUERY_REPOSITORY_PORT,
   POST_PROMOTION_GENERATION_REPOSITORY_PORT,
   PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT,
   PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
   PRODUCT_WORKSPACE_GROUP_REPOSITORY_PORT,
+  REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT,
   SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT,
   THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
   THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
@@ -194,6 +203,8 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     ContentGenerationRerunService,
     ContentWorkspaceAttachmentService,
     ContentWorkspaceService,
+    ContentWorkspaceThumbnailSelectionService,
+    RegistrationContentWorkspaceService,
     SourcingWorkspaceArchiveService,
     DetailPageDirectGenerationExecutorService,
     DetailPageDirectGenerationJobService,
@@ -241,6 +252,8 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     ContentAssetLibraryRepositoryAdapter,
     ContentWorkspaceAttachmentRepositoryAdapter,
     ContentWorkspaceLifecycleRepositoryAdapter,
+    ContentWorkspaceThumbnailSelectionRepositoryAdapter,
+    RegistrationContentWorkspaceRepositoryAdapter,
     DetailPageGenerationRepositoryAdapter,
     DetailPageQueryRepositoryAdapter,
     PostPromotionGenerationRepositoryAdapter,
@@ -301,6 +314,10 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
       useExisting: ContentWorkspaceLifecycleRepositoryAdapter,
     },
     {
+      provide: CONTENT_WORKSPACE_THUMBNAIL_SELECTION_REPOSITORY_PORT,
+      useExisting: ContentWorkspaceThumbnailSelectionRepositoryAdapter,
+    },
+    {
       provide: DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
       useExisting: DetailPageGenerationRepositoryAdapter,
     },
@@ -315,6 +332,10 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     {
       provide: PRODUCT_WORKSPACE_GROUP_REPOSITORY_PORT,
       useExisting: ProductWorkspaceGroupRepositoryAdapter,
+    },
+    {
+      provide: REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT,
+      useExisting: RegistrationContentWorkspaceRepositoryAdapter,
     },
     {
       provide: PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT,
@@ -358,12 +379,17 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     { provide: PRODUCT_GENERATION_AI_TRIGGER_PORT, useExisting: ProductGenerationAiService },
     { provide: AI_WORKSPACE_ARCHIVE_PORT, useExisting: SourcingWorkspaceArchiveService },
     { provide: AI_GENERATION_CANCELLATION_PORT, useExisting: AiGenerationCancellationService },
+    {
+      provide: REGISTRATION_CONTENT_WORKSPACE_PORT,
+      useExisting: RegistrationContentWorkspaceService,
+    },
   ],
   exports: [
     POST_PROMOTION_AI_TRIGGER_PORT,
     PRODUCT_GENERATION_AI_TRIGGER_PORT,
     AI_WORKSPACE_ARCHIVE_PORT,
     AI_GENERATION_CANCELLATION_PORT,
+    REGISTRATION_CONTENT_WORKSPACE_PORT,
   ],
 })
 export class AiModule {}

@@ -6,7 +6,10 @@ describe('TransfersService', () => {
   it('creates a record-only transfer for an organization-owned InventorySku', async () => {
     const created = { id: 'transfer-1', inventorySkuId: 'inventory-sku-1' };
     const repository = {
-      findInventorySkuForTransfer: vi.fn().mockResolvedValue({ optionName: '파랑' }),
+      findInventorySkuForTransfer: vi.fn().mockResolvedValue({
+        optionName: '파랑',
+        legacyOptionId: 'option-1',
+      }),
       findWarehouseIdsForTransfer: vi
         .fn()
         .mockResolvedValue(['warehouse-a', 'warehouse-b']),
@@ -32,6 +35,7 @@ describe('TransfersService', () => {
     );
     expect(repository.createStockTransfer).toHaveBeenCalledWith('org-1', {
       inventorySkuId: 'inventory-sku-1',
+      optionId: 'option-1',
       optionName: '파랑',
       fromWarehouseId: 'warehouse-a',
       toWarehouseId: 'warehouse-b',
@@ -59,7 +63,10 @@ describe('TransfersService', () => {
 
   it('rejects a transfer when either warehouse is outside the organization', async () => {
     const repository = {
-      findInventorySkuForTransfer: vi.fn().mockResolvedValue({ optionName: null }),
+      findInventorySkuForTransfer: vi.fn().mockResolvedValue({
+        optionName: null,
+        legacyOptionId: 'option-1',
+      }),
       findWarehouseIdsForTransfer: vi.fn().mockResolvedValue(['warehouse-a']),
       createStockTransfer: vi.fn(),
     };

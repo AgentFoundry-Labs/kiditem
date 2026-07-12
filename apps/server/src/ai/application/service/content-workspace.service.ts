@@ -21,6 +21,8 @@ export interface CreateContentWorkspaceInput {
   rawTitle: string;
   sourceCandidateId: string | null;
   targetMasterId: string | null;
+  channelListingId?: string | null;
+  originWorkspaceId?: string | null;
 }
 
 export interface ContentWorkspaceSummary {
@@ -28,6 +30,8 @@ export interface ContentWorkspaceSummary {
   ownerType: string;
   sourceCandidateId: string | null;
   targetMasterId: string | null;
+  channelListingId: string | null;
+  originWorkspaceId: string | null;
   displayName: string;
   normalizedTitle: string;
   status: string;
@@ -37,6 +41,11 @@ export interface ContentWorkspaceSummary {
   latestStatus: string | null;
   currentDetailPageArtifactId: string | null;
   currentDetailPageRevisionId: string | null;
+  currentThumbnailSelection: {
+    id: string;
+    contentAssetId: string;
+    url: string;
+  } | null;
   currentDetailPageGenerationId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -70,6 +79,8 @@ export class ContentWorkspaceService {
     rawTitle: string;
     sourceCandidateId: string | null;
     targetMasterId: string | null;
+    channelListingId?: string | null;
+    originWorkspaceId?: string | null;
   }): Promise<{ id: string; displayName: string; normalizedTitle: string }> {
     return this.ensureWorkspace(input);
   }
@@ -92,6 +103,8 @@ export class ContentWorkspaceService {
       ownerType,
       sourceCandidateId: input.sourceCandidateId,
       targetMasterId: input.targetMasterId,
+      channelListingId: input.channelListingId ?? null,
+      originWorkspaceId: input.originWorkspaceId ?? null,
       displayName,
       normalizedTitle,
       createdByUserId: input.triggeredByUserId,
@@ -201,6 +214,8 @@ export class ContentWorkspaceService {
       ownerType: row.ownerType,
       sourceCandidateId: row.sourceCandidateId,
       targetMasterId: row.targetMasterId,
+      channelListingId: row.channelListingId,
+      originWorkspaceId: row.originWorkspaceId,
       displayName: row.displayName,
       normalizedTitle: row.normalizedTitle,
       status: row.status,
@@ -210,6 +225,13 @@ export class ContentWorkspaceService {
       latestStatus: latest?.status ?? null,
       currentDetailPageArtifactId: row.currentDetailPageArtifactId,
       currentDetailPageRevisionId: row.currentDetailPageRevisionId,
+      currentThumbnailSelection: row.currentThumbnailSelection
+        ? {
+            id: row.currentThumbnailSelection.id,
+            contentAssetId: row.currentThumbnailSelection.contentAsset.id,
+            url: row.currentThumbnailSelection.contentAsset.url,
+          }
+        : null,
       currentDetailPageGenerationId,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
@@ -295,11 +317,17 @@ function toDuplicateSummary(row: {
   ownerType: string;
   sourceCandidateId: string | null;
   targetMasterId: string | null;
+  channelListingId: string | null;
+  originWorkspaceId: string | null;
   displayName: string;
   normalizedTitle: string;
   status: string;
   currentDetailPageArtifactId: string | null;
   currentDetailPageRevisionId: string | null;
+  currentThumbnailSelection: {
+    id: string;
+    contentAsset: { id: string; url: string };
+  } | null;
   currentDetailPageArtifact: { sourceContentGenerationId: string | null } | null;
   createdAt: Date;
   updatedAt: Date;
@@ -310,6 +338,8 @@ function toDuplicateSummary(row: {
     ownerType: row.ownerType,
     sourceCandidateId: row.sourceCandidateId,
     targetMasterId: row.targetMasterId,
+    channelListingId: row.channelListingId,
+    originWorkspaceId: row.originWorkspaceId,
     displayName: row.displayName,
     normalizedTitle: row.normalizedTitle,
     status: row.status,
@@ -319,6 +349,13 @@ function toDuplicateSummary(row: {
     latestStatus: null,
     currentDetailPageArtifactId: row.currentDetailPageArtifactId,
     currentDetailPageRevisionId: row.currentDetailPageRevisionId,
+    currentThumbnailSelection: row.currentThumbnailSelection
+      ? {
+          id: row.currentThumbnailSelection.id,
+          contentAssetId: row.currentThumbnailSelection.contentAsset.id,
+          url: row.currentThumbnailSelection.contentAsset.url,
+        }
+      : null,
     currentDetailPageGenerationId: row.currentDetailPageArtifact?.sourceContentGenerationId ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -333,8 +370,10 @@ function displayTitle(value: string): string {
 function ownerTypeFor(input: {
   sourceCandidateId: string | null;
   targetMasterId: string | null;
-}): string {
-  if (input.targetMasterId) return 'master_product';
+  channelListingId?: string | null;
+}): 'sourcing_candidate' | 'channel_listing' | 'direct_detail_page' {
+  if (input.channelListingId) return 'channel_listing';
+  if (input.targetMasterId) return 'direct_detail_page';
   if (input.sourceCandidateId) return 'sourcing_candidate';
   return 'direct_detail_page';
 }

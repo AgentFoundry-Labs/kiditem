@@ -28,9 +28,25 @@ export class ReturnTransfersService {
   async create(organizationId: string, dto: CreateReturnTransferDto) {
     const inventorySku = await this.prisma.inventorySku.findFirst({
       where: { id: dto.inventorySkuId, organizationId },
-      select: { optionName: true },
+      select: { optionName: true, sellpiaProductCode: true },
     });
     if (!inventorySku) throw new NotFoundException('InventorySku not found');
+    const legacyOption = await this.prisma.productOption.findFirst({
+      where: {
+        organizationId,
+        isDeleted: false,
+        legacyCode: inventorySku.sellpiaProductCode,
+      },
+      select: { id: true },
+    }) ?? await this.prisma.productOption.findFirst({
+      where: {
+        organizationId,
+        isDeleted: false,
+        sku: inventorySku.sellpiaProductCode,
+      },
+      select: { id: true },
+    });
+    if (!legacyOption) throw new NotFoundException('Legacy ProductOption mapping not found');
 
     const rtNumber = this.generateRtNumber();
 
@@ -40,6 +56,7 @@ export class ReturnTransfersService {
         rtNumber,
         orderId: dto.orderId,
         inventorySkuId: dto.inventorySkuId,
+        optionId: legacyOption.id,
         optionName: inventorySku.optionName,
         quantity: dto.quantity,
         condition: dto.condition ?? 'good',

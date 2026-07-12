@@ -69,6 +69,11 @@ export interface SyncGenerationImageUsagesInput {
 }
 
 export interface ContentAssetLibraryRepositoryPort {
+  deleteAsset(input: {
+    organizationId: string;
+    contentAssetId: string;
+    deletedAt: Date;
+  }): Promise<{ status: 'deleted' | 'in_use' | 'not_found' }>;
   recordDetailPageInputAssets(
     input: RecordDetailPageInputAssetsInput,
   ): Promise<PersistedContentAssetRef[]>;

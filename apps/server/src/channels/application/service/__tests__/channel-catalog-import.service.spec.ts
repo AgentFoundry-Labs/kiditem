@@ -59,6 +59,19 @@ const response: CoupangWingCatalogImportResponse = {
 };
 
 describe('ChannelCatalogImportService', () => {
+  it('rejects an all-skipped full publication before claiming or deactivating account rows', async () => {
+    const repository = makeRepository();
+    const service = new ChannelCatalogImportService(repository);
+
+    await expect(service.importCoupangWing({
+      ...input,
+      rows: [],
+      skippedRows: [{ rowNumber: 5, reason: 'missing_product_id' }],
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(repository.claimCoupangWingImport).not.toHaveBeenCalled();
+    expect(repository.upsertCoupangWingCatalog).not.toHaveBeenCalled();
+  });
+
   it('returns a completed account-scoped duplicate without writing catalog rows', async () => {
     const repository = makeRepository();
     repository.claimCoupangWingImport.mockResolvedValue({

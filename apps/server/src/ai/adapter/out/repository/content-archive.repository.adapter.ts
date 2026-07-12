@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   ContentArchiveDeleteGroupResult,
@@ -286,23 +286,28 @@ async function deleteGenerationRows(
   generationIds: string[],
 ): Promise<{ deletedGenerations: number; deletedAssets: number }> {
   const archivedAt = new Date();
-  const assets = await tx.contentAsset.updateMany({
-    where: {
-      organizationId,
-      isDeleted: false,
-      usages: {
-        some: { contentGenerationId: { in: generationIds } },
-        none: {
-          contentGeneration: {
-            organizationId,
-            isDeleted: false,
-            id: { notIn: generationIds },
-          },
+  const assetWhere = {
+    organizationId,
+    isDeleted: false,
+    usages: {
+      some: { contentGenerationId: { in: generationIds } },
+      none: {
+        contentGeneration: {
+          organizationId,
+          isDeleted: false,
+          id: { notIn: generationIds },
         },
       },
     },
-    data: { isDeleted: true, deletedAt: archivedAt },
-  });
+    thumbnailSelections: { none: {} },
+  } satisfies Prisma.ContentAssetWhereInput;
+  const lockedAssetIds = await lockContentAssets(tx, organizationId, assetWhere);
+  const assets = lockedAssetIds.length > 0
+    ? await tx.contentAsset.updateMany({
+        where: { ...assetWhere, id: { in: lockedAssetIds } },
+        data: { isDeleted: true, deletedAt: archivedAt },
+      })
+    : { count: 0 };
   const generationResult = await tx.contentGeneration.updateMany({
     where: { organizationId, id: { in: generationIds }, isDeleted: false },
     data: { isDeleted: true, deletedAt: archivedAt },
@@ -311,4 +316,27 @@ async function deleteGenerationRows(
     deletedGenerations: generationResult.count,
     deletedAssets: assets.count,
   };
+}
+
+async function lockContentAssets(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  where: Prisma.ContentAssetWhereInput,
+): Promise<string[]> {
+  const candidates = await tx.contentAsset.findMany({
+    where,
+    orderBy: { id: 'asc' },
+    select: { id: true },
+  });
+  if (candidates.length === 0) return [];
+  const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id
+    FROM content_assets
+    WHERE organization_id = ${organizationId}::uuid
+      AND id IN (${Prisma.join(candidates.map(({ id }) => Prisma.sql`${id}::uuid`))})
+      AND is_deleted = false
+    ORDER BY id
+    FOR UPDATE
+  `);
+  return rows.map(({ id }) => id);
 }

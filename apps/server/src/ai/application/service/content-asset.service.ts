@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
   CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
   type ContentAssetLibraryRepositoryPort,
@@ -22,6 +22,24 @@ export class ContentAssetService {
     @Inject(CONTENT_ASSET_LIBRARY_REPOSITORY_PORT)
     private readonly repository: ContentAssetLibraryRepositoryPort,
   ) {}
+
+  async deleteAsset(
+    organizationId: string,
+    contentAssetId: string,
+  ): Promise<{ ok: true }> {
+    const result = await this.repository.deleteAsset({
+      organizationId,
+      contentAssetId,
+      deletedAt: new Date(),
+    });
+    if (result.status === 'not_found') throw new NotFoundException('Content asset not found.');
+    if (result.status === 'in_use') {
+      throw new ConflictException(
+        'Content asset is still used by an active generation or thumbnail selection.',
+      );
+    }
+    return { ok: true };
+  }
 
   recordDetailPageInputAssets(input: {
     organizationId: string;

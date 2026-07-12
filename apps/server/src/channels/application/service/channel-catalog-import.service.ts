@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import type { CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
 import {
   type ChannelCatalogImportPort,
@@ -19,6 +19,11 @@ export class ChannelCatalogImportService implements ChannelCatalogImportPort {
   async importCoupangWing(
     input: ImportCoupangWingCatalogInput,
   ): Promise<CoupangWingCatalogImportResponse> {
+    if (input.rows.length === 0) {
+      throw new BadRequestException(
+        'Coupang Wing catalog import contains no valid product/SKU rows.',
+      );
+    }
     const claim = await this.repository.claimCoupangWingImport({
       organizationId: input.organizationId,
       userId: input.userId,

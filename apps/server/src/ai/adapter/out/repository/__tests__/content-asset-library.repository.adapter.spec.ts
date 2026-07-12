@@ -44,6 +44,34 @@ function makePrisma() {
 }
 
 describe('ContentAssetLibraryRepositoryAdapter', () => {
+  it('does not soft-delete an asset with active usages or thumbnail selections', async () => {
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'asset-1' }]),
+      contentAsset: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'asset-1',
+          _count: { usages: 1, thumbnailSelections: 1 },
+        }),
+        updateMany: vi.fn(),
+      },
+    };
+    const prisma = {
+      $transaction: vi.fn((operation: (scope: typeof tx) => unknown) => operation(tx)),
+    };
+    const repository = new ContentAssetLibraryRepositoryAdapter(prisma as never);
+
+    await expect(repository.deleteAsset({
+      organizationId: ORG,
+      contentAssetId: 'asset-1',
+      deletedAt: new Date('2026-07-12T00:00:00.000Z'),
+    })).resolves.toEqual({ status: 'in_use' });
+    expect(tx.$queryRaw).toHaveBeenCalledOnce();
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.contentAsset.findFirst.mock.invocationCallOrder[0],
+    );
+    expect(tx.contentAsset.updateMany).not.toHaveBeenCalled();
+  });
+
   it('dedupes detail-page input image URLs into group-scoped content assets', async () => {
     const { prisma, tx } = makePrisma();
     const storage = {

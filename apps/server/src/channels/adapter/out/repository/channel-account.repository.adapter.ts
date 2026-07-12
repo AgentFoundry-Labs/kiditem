@@ -212,13 +212,16 @@ export class ChannelAccountRepositoryAdapter
     return this.getCoupangSettings(organizationId);
   }
 
-  async resolveCoupangCredentials(organizationId: string): Promise<CoupangCredentials> {
+  async resolveCoupangCredentials(
+    organizationId: string,
+    channelAccountId?: string,
+  ): Promise<CoupangCredentials> {
     const account = await this.prisma.channelAccount.findFirst({
       where: {
         organizationId,
         channel: 'coupang',
-        isPrimary: true,
         status: 'active',
+        ...(channelAccountId ? { id: channelAccountId } : { isPrimary: true }),
       },
       orderBy: { updatedAt: 'desc' },
     });

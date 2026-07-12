@@ -16,6 +16,16 @@ export interface SellerProductListResponse {
   };
 }
 
+export interface SellerProductExternalSkuResponse {
+  code: string;
+  message: string;
+  data?: Array<{
+    sellerProductId: number;
+    sellerProductName: string;
+    statusName?: string;
+  }>;
+}
+
 /** Coupang Wing API — seller product detail (undocumented response shape) */
 export interface SellerProductDetailResponse {
   code: string;
@@ -120,13 +130,23 @@ export interface CoupangProviderPort {
   createSellerProduct(
     organizationId: string,
     payload: CoupangSellerProductPayload,
+    channelAccountId?: string,
   ): Promise<CoupangCreateSellerProductResponse>;
   getSellerProducts(organizationId: string, params: {
     nextToken?: string;
     maxPerPage?: number;
     status?: string;
   }): Promise<SellerProductListResponse>;
-  getSellerProduct(organizationId: string, sellerProductId: string): Promise<SellerProductDetailResponse>;
+  getSellerProduct(
+    organizationId: string,
+    sellerProductId: string,
+    channelAccountId?: string,
+  ): Promise<SellerProductDetailResponse>;
+  getSellerProductsByExternalVendorSku(
+    organizationId: string,
+    externalVendorSkuCode: string,
+    channelAccountId?: string,
+  ): Promise<SellerProductExternalSkuResponse>;
   getOrderSheets(organizationId: string, params: {
     createdAtFrom: string;
     createdAtTo: string;

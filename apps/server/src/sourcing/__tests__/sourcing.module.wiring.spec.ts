@@ -50,6 +50,14 @@ import { SOURCING_PRODUCTS_CATALOG_PORT } from '../application/port/out/cross-do
 import { SOURCING_CANDIDATE_REPOSITORY_PORT } from '../application/port/out/repository/sourcing-candidate.repository.port';
 import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from '../application/port/out/repository/sourcing-workspace-snapshot.repository.port';
 import { AutomationModule } from '../../automation/automation.module';
+import { ChannelsModule } from '../../channels/channels.module';
+import { ProductRegistrationService } from '../application/service/product-registration.service';
+import { ProductPreparationRepositoryAdapter } from '../adapter/out/repository/product-preparation.repository.adapter';
+import { ChannelProductRegistrationAdapter } from '../adapter/out/channels/channel-product-registration.adapter';
+import { RegistrationContentWorkspaceAdapter } from '../adapter/out/ai/registration-content-workspace.adapter';
+import { PRODUCT_PREPARATION_REPOSITORY_PORT } from '../application/port/out/repository/product-preparation.repository.port';
+import { CHANNEL_PRODUCT_REGISTRATION_PORT } from '../application/port/out/cross-domain/channel-product-registration.port';
+import { REGISTRATION_CONTENT_WORKSPACE_PORT } from '../application/port/out/cross-domain/registration-content-workspace.port';
 
 // NestJS @Module / @Controller metadata keys (stable across Nest 10/11).
 const IMPORTS_KEY = 'imports';
@@ -92,6 +100,7 @@ describe('SourcingModule canonical owner wiring', () => {
     expect(providers).toContain(SourcingWorkspaceSnapshotService);
     expect(providers).toContain(SourcingMarketDiscoveryService);
     expect(providers).toContain(ProductPreparationSelectionService);
+    expect(providers).toContain(ProductRegistrationService);
   });
 
   it('binds outgoing ports to their adapters', () => {
@@ -113,6 +122,9 @@ describe('SourcingModule canonical owner wiring', () => {
     expect(providers).toContain(Direct1688ImageSearchAdapter);
     expect(providers).toContain(Direct1688KeywordSearchAdapter);
     expect(providers).toContain(SourcingRuntimeHandler);
+    expect(providers).toContain(ProductPreparationRepositoryAdapter);
+    expect(providers).toContain(ChannelProductRegistrationAdapter);
+    expect(providers).toContain(RegistrationContentWorkspaceAdapter);
     expect(
       providers.some((provider) =>
         typeof provider === 'function' && provider.name === 'SourcingPythonRuntimeHandler',
@@ -208,6 +220,21 @@ describe('SourcingModule canonical owner wiring', () => {
     );
     expect(naverAutocompleteKeywordBinding).toBeDefined();
     expect(naverAutocompleteKeywordBinding!.useExisting).toBe(NaverAutocompleteKeywordAdapter);
+    const preparationBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === 'object' && p !== null && (p as any).provide === PRODUCT_PREPARATION_REPOSITORY_PORT,
+    );
+    expect(preparationBinding?.useExisting).toBe(ProductPreparationRepositoryAdapter);
+    const channelRegistrationBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === 'object' && p !== null && (p as any).provide === CHANNEL_PRODUCT_REGISTRATION_PORT,
+    );
+    expect(channelRegistrationBinding?.useExisting).toBe(ChannelProductRegistrationAdapter);
+    const contentRegistrationBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === 'object' && p !== null && (p as any).provide === REGISTRATION_CONTENT_WORKSPACE_PORT,
+    );
+    expect(contentRegistrationBinding?.useExisting).toBe(RegistrationContentWorkspaceAdapter);
   });
 
   it('imports the Agent OS runtime so the gateway adapter can resolve AGENT_RUNNER_PORT', () => {
@@ -220,6 +247,7 @@ describe('SourcingModule canonical owner wiring', () => {
   it('imports AutomationModule so its operation-alert adapter can resolve the owner-side port', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, SourcingModule) ?? [];
     expect(imports).toContain(AutomationModule);
+    expect(imports).toContain(ChannelsModule);
   });
 
   it('keeps public /api route prefix on every route-family controller', () => {

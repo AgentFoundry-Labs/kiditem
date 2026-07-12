@@ -6,7 +6,7 @@ export type PickingItemRow = {
   id: string;
   pickingListId: string;
   orderId: string | null;
-  inventorySkuId: string;
+  inventorySkuId: string | null;
   productName: string;
   sku: string | null;
   quantity: number;
@@ -22,7 +22,7 @@ export type PickingItemRow = {
     name: string;
     optionName: string | null;
     barcode: string | null;
-  };
+  } | null;
 };
 
 export type PickingListRow = {

@@ -19,8 +19,10 @@ describe('SourcingWorkspaceArchiveRepositoryAdapter', () => {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       contentAsset: {
+        findMany: vi.fn().mockResolvedValue([{ id: 'asset-1' }, { id: 'asset-2' }]),
         updateMany: vi.fn().mockResolvedValue({ count: 3 }),
       },
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'asset-1' }, { id: 'asset-2' }]),
       thumbnailGeneration: {
         updateMany: vi.fn().mockResolvedValue({ count: 4 }),
       },
@@ -63,6 +65,29 @@ describe('SourcingWorkspaceArchiveRepositoryAdapter', () => {
       },
       data: { isDeleted: true, deletedAt: ARCHIVED_AT },
     });
+    expect(scope.contentAsset.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: { in: ['asset-1', 'asset-2'] },
+        organizationId: ORG,
+        isDeleted: false,
+        usages: {
+          some: { contentGenerationId: { in: ['generation-1', 'generation-2'] } },
+          none: {
+            contentGeneration: {
+              organizationId: ORG,
+              isDeleted: false,
+              id: { notIn: ['generation-1', 'generation-2'] },
+            },
+          },
+        },
+        thumbnailSelections: { none: {} },
+      },
+      data: { isDeleted: true, deletedAt: ARCHIVED_AT },
+    });
+    expect(scope.$queryRaw).toHaveBeenCalledOnce();
+    expect(scope.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      scope.contentAsset.updateMany.mock.invocationCallOrder[0],
+    );
     expect(scope.contentGeneration.updateMany).toHaveBeenCalledWith({
       where: {
         organizationId: ORG,

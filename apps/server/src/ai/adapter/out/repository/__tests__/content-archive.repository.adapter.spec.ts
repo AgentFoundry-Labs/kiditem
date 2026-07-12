@@ -107,8 +107,10 @@ describe('ContentArchiveRepositoryAdapter', () => {
         updateMany: vi.fn().mockResolvedValue({ count: 2 }),
       },
       contentAsset: {
+        findMany: vi.fn().mockResolvedValue([{ id: 'asset-1' }]),
         updateMany: vi.fn().mockResolvedValue({ count: 0 }),
       },
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'asset-1' }]),
     };
     const prisma = {
       $transaction: vi.fn((callback: (txArg: typeof tx) => unknown) => callback(tx)),
@@ -130,6 +132,7 @@ describe('ContentArchiveRepositoryAdapter', () => {
     });
     expect(tx.contentAsset.updateMany).toHaveBeenCalledWith({
       where: {
+        id: { in: ['asset-1'] },
         organizationId: ORG,
         isDeleted: false,
         usages: {
@@ -142,9 +145,14 @@ describe('ContentArchiveRepositoryAdapter', () => {
             },
           },
         },
+        thumbnailSelections: { none: {} },
       },
       data: expect.objectContaining({ isDeleted: true }),
     });
+    expect(tx.$queryRaw).toHaveBeenCalledOnce();
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.contentAsset.updateMany.mock.invocationCallOrder[0],
+    );
     expect(tx.contentGeneration.updateMany).toHaveBeenCalledWith({
       where: {
         organizationId: ORG,

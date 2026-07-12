@@ -28,6 +28,9 @@ import {
 import {
   backfillChannelSkuAccounts,
 } from '../data-migrations/v0.1.8/002_backfill_channel_sku_accounts';
+import {
+  normalizePromotedCandidateStatus,
+} from '../data-migrations/v0.1.8/003_normalize_promoted_candidate_status';
 
 const repoRoot = join(__dirname, '..', '..');
 
@@ -54,6 +57,7 @@ describe('data migration registry', () => {
       'v0.1.7:002_normalize_sellpia_recommended_snapshot_items',
       'v0.1.8:001_normalize_operational_channel_accounts',
       'v0.1.8:002_backfill_channel_sku_accounts',
+      'v0.1.8:003_normalize_promoted_candidate_status',
     ]);
   });
 
@@ -84,6 +88,21 @@ describe('data migration registry', () => {
     expect(selectDataMigrationsForPhase(dataMigrations, 'post-schema').map((m) => m.id)).not.toContain(
       'v0.1.2:002_rename_registration_workspaces_to_content_workspaces',
     );
+  });
+});
+
+describe('promoted candidate status normalization migration', () => {
+  it('idempotently rewrites only promoted candidates to sourced', async () => {
+    const tx = { $executeRaw: vi.fn(async () => 3) };
+
+    await expect(normalizePromotedCandidateStatus.run(tx as never)).resolves.toEqual({
+      affectedRows: 3,
+      details: { normalizedPromotedCandidates: 3 },
+    });
+    const [statement] = tx.$executeRaw.mock.calls[0] as [TemplateStringsArray];
+    const sql = statement.join('$value');
+    expect(sql).toContain("SET status = 'sourced'");
+    expect(sql).toContain("WHERE status = 'promoted'");
   });
 });
 

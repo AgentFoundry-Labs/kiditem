@@ -52,6 +52,7 @@ export class TransfersService implements TransfersPort {
 
     return this.repository.createStockTransfer(organizationId, {
       inventorySkuId: dto.inventorySkuId,
+      optionId: inventorySku.legacyOptionId,
       optionName: inventorySku.optionName,
       fromWarehouseId: dto.fromWarehouseId,
       toWarehouseId: dto.toWarehouseId,

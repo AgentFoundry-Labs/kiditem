@@ -3,16 +3,21 @@ import { CurrentOrganization } from '../../../../auth/decorators/current-organiz
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
 import { ContentWorkspaceService } from '../../../application/service/content-workspace.service';
+import { ContentWorkspaceThumbnailSelectionService } from '../../../application/service/content-workspace-thumbnail-selection.service';
 import {
   CreateContentWorkspaceDto,
   DuplicateContentWorkspaceQueryDto,
   ListContentWorkspacesQueryDto,
   SelectContentWorkspaceDetailPageDto,
+  SelectContentWorkspaceThumbnailDto,
 } from './dto/content-workspace.dto';
 
 @Controller('ai/content-workspaces')
 export class ContentWorkspaceController {
-  constructor(private readonly contentWorkspaces: ContentWorkspaceService) {}
+  constructor(
+    private readonly contentWorkspaces: ContentWorkspaceService,
+    private readonly thumbnailSelections: ContentWorkspaceThumbnailSelectionService,
+  ) {}
 
   @Get()
   list(
@@ -68,6 +73,30 @@ export class ContentWorkspaceController {
       organizationId,
       workspaceId,
       contentGenerationId: body.contentGenerationId,
+    });
+  }
+
+  @Patch(':workspaceId/current-thumbnail')
+  selectCurrentThumbnail(
+    @CurrentOrganization() organizationId: string,
+    @Param('workspaceId', new ParseUUIDPipe()) workspaceId: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body: SelectContentWorkspaceThumbnailDto,
+  ) {
+    return this.thumbnailSelections.setCurrent({
+      organizationId,
+      workspaceId,
+      userId: user.id ?? null,
+      selection: {
+        ...(body.contentAssetId ? { contentAssetId: body.contentAssetId } : {}),
+        ...(body.sourceThumbnailGenerationId
+          ? { sourceThumbnailGenerationId: body.sourceThumbnailGenerationId }
+          : {}),
+        ...(body.sourceThumbnailCandidateId
+          ? { sourceThumbnailCandidateId: body.sourceThumbnailCandidateId }
+          : {}),
+        ...(body.externalUrl ? { externalUrl: body.externalUrl } : {}),
+      },
     });
   }
 

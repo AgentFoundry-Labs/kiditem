@@ -128,6 +128,10 @@ import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku
       useExisting: ChannelSkuAvailabilityService,
     },
   ],
-  exports: [COUPANG_PROVIDER_PORT, CHANNEL_SKU_AVAILABILITY_PORT],
+  exports: [
+    COUPANG_PROVIDER_PORT,
+    CHANNEL_SKU_AVAILABILITY_PORT,
+    CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT,
+  ],
 })
 export class ChannelsModule {}

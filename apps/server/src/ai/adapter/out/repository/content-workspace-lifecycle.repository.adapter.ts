@@ -35,6 +35,8 @@ implements ContentWorkspaceLifecycleRepositoryPort {
           ownerType: input.ownerType,
           sourceCandidateId: input.sourceCandidateId,
           targetMasterId: input.targetMasterId,
+          channelListingId: input.channelListingId,
+          originWorkspaceId: input.originWorkspaceId,
           displayName: input.displayName,
           normalizedTitle: input.normalizedTitle,
           status: 'active',
@@ -79,16 +81,25 @@ implements ContentWorkspaceLifecycleRepositoryPort {
         ownerType: true,
         sourceCandidateId: true,
         targetMasterId: true,
+        channelListingId: true,
+        originWorkspaceId: true,
         displayName: true,
         normalizedTitle: true,
         status: true,
         currentDetailPageArtifactId: true,
         currentDetailPageRevisionId: true,
+        currentThumbnailSelectionId: true,
         createdAt: true,
         updatedAt: true,
         _count: { select: { contentGenerations: true } },
         currentDetailPageArtifact: {
           select: { sourceContentGenerationId: true },
+        },
+        currentThumbnailSelection: {
+          select: {
+            id: true,
+            contentAsset: { select: { id: true, url: true } },
+          },
         },
       },
     }) as Promise<ContentWorkspaceSnapshot | null>;
@@ -204,15 +215,21 @@ implements ContentWorkspaceLifecycleRepositoryPort {
 function activeWorkspaceWhere(input: EnsureContentWorkspaceInput): Prisma.ContentWorkspaceWhereInput {
   return {
     organizationId: input.organizationId,
-    ownerType: input.ownerType,
+    ownerType: input.ownerType === 'direct_detail_page' && input.targetMasterId
+      ? { in: ['direct_detail_page', 'master_product'] }
+      : input.ownerType,
     normalizedTitle: input.normalizedTitle,
     status: 'active',
     isDeleted: false,
     ...(input.ownerType === 'sourcing_candidate'
       ? { sourceCandidateId: input.sourceCandidateId }
-      : input.ownerType === 'master_product'
-        ? { targetMasterId: input.targetMasterId }
-        : { sourceCandidateId: null, targetMasterId: null }),
+      : input.ownerType === 'channel_listing'
+        ? { channelListingId: input.channelListingId }
+        : {
+            sourceCandidateId: null,
+            channelListingId: null,
+            targetMasterId: input.targetMasterId,
+          }),
   };
 }
 
@@ -228,6 +245,12 @@ function workspaceInclude() {
     },
     currentDetailPageRevision: {
       select: { id: true, revisionType: true, createdAt: true },
+    },
+    currentThumbnailSelection: {
+      select: {
+        id: true,
+        contentAsset: { select: { id: true, url: true } },
+      },
     },
     _count: { select: { contentGenerations: true } },
     contentGenerations: {

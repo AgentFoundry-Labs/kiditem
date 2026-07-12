@@ -1,4 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { groupUrlAssetKey, hashContentAssetUrl } from '../../../domain/content-asset-key';
 import {
@@ -23,6 +24,60 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
     @Inject(IMAGE_STORAGE_PORT)
     private readonly imageStorage?: ImageStoragePort,
   ) {}
+
+  async deleteAsset(input: {
+    organizationId: string;
+    contentAssetId: string;
+    deletedAt: Date;
+  }): Promise<{ status: 'deleted' | 'in_use' | 'not_found' }> {
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id
+        FROM content_assets
+        WHERE id = ${input.contentAssetId}::uuid
+          AND organization_id = ${input.organizationId}::uuid
+          AND is_deleted = false
+        FOR UPDATE
+      `);
+      if (locked.length !== 1) return { status: 'not_found' as const };
+      const asset = await tx.contentAsset.findFirst({
+        where: {
+          id: input.contentAssetId,
+          organizationId: input.organizationId,
+          isDeleted: false,
+        },
+        select: {
+          id: true,
+          _count: {
+            select: {
+              usages: {
+                where: {
+                  contentGeneration: {
+                    organizationId: input.organizationId,
+                    isDeleted: false,
+                  },
+                },
+              },
+              thumbnailSelections: true,
+            },
+          },
+        },
+      });
+      if (!asset) return { status: 'not_found' as const };
+      if (asset._count.usages > 0 || asset._count.thumbnailSelections > 0) {
+        return { status: 'in_use' as const };
+      }
+      const deleted = await tx.contentAsset.updateMany({
+        where: {
+          id: asset.id,
+          organizationId: input.organizationId,
+          isDeleted: false,
+        },
+        data: { isDeleted: true, deletedAt: input.deletedAt },
+      });
+      return { status: deleted.count === 1 ? 'deleted' as const : 'not_found' as const };
+    });
+  }
 
   recordDetailPageInputAssets(
     input: RecordDetailPageInputAssetsInput,

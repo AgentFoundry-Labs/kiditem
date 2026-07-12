@@ -2,6 +2,195 @@ import { describe, expect, it, vi } from 'vitest';
 import { MarketplaceRegistrationService } from '../marketplace-registration.service';
 
 describe('MarketplaceRegistrationService application orchestration', () => {
+  it('submits a frozen preparation through the selected account without a Master identity', async () => {
+    const repository = {
+      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
+    };
+    const productBarcodes = {};
+    const coupang = {
+      createSellerProduct: vi.fn().mockResolvedValue({
+        code: '200',
+        message: '',
+        data: { code: 'SUCCESS', data: 427011919 },
+      }),
+    };
+    const service = new MarketplaceRegistrationService(
+      repository as never,
+      productBarcodes as never,
+      coupang as never,
+    );
+
+    await expect(service.submitProductRegistration({
+      organizationId: 'org-1',
+      preparationId: 'preparation-1',
+      sourceCandidateId: 'candidate-1',
+      channelAccountId: 'account-1',
+      submissionKey: 'submission-key-1',
+      submissionPayloadHash: 'hash-1',
+      submissionPayloadJson: {
+        registrationInput: {
+          listingPayload: {
+            sellerProductName: 'Kids rain boots',
+            items: [{ itemName: 'Blue', salePrice: 12900 }],
+          },
+        },
+      },
+      providerSubmissionId: null,
+      registrationResult: null,
+      isRetry: false,
+    })).resolves.toMatchObject({
+      providerSubmissionId: '427011919',
+      externalListingId: '427011919',
+      channel: 'coupang',
+    });
+    expect(coupang.createSellerProduct).toHaveBeenCalledWith(
+      'org-1',
+      {
+        sellerProductName: 'Kids rain boots',
+        items: [{
+          itemName: 'Blue',
+          salePrice: 12900,
+          externalVendorSku: 'submission-key-1',
+        }],
+      },
+      'account-1',
+    );
+  });
+
+  it('reconciles an uncertain create timeout by the durable submission key', async () => {
+    const repository = {
+      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
+    };
+    const coupang = {
+      getSellerProductsByExternalVendorSku: vi.fn().mockResolvedValue({
+        code: 'SUCCESS',
+        message: '',
+        data: [{ sellerProductId: 427011919, sellerProductName: 'Kids rain boots' }],
+      }),
+    };
+    const service = new MarketplaceRegistrationService(
+      repository as never,
+      {} as never,
+      coupang as never,
+    );
+
+    await expect(service.reconcileProductRegistration({
+      organizationId: 'org-1',
+      preparationId: 'preparation-1',
+      sourceCandidateId: 'candidate-1',
+      channelAccountId: 'account-1',
+      submissionKey: 'submission-key-1',
+      submissionPayloadHash: 'hash-1',
+      submissionPayloadJson: {},
+      providerSubmissionId: null,
+      registrationResult: null,
+      isRetry: true,
+    })).resolves.toMatchObject({
+      providerSubmissionId: '427011919',
+      externalListingId: '427011919',
+    });
+    expect(coupang.getSellerProductsByExternalVendorSku).toHaveBeenCalledWith(
+      'org-1',
+      'submission-key-1',
+      'account-1',
+    );
+  });
+
+  it('does not create a second listing when retry reconciliation has no result yet', async () => {
+    const repository = {
+      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
+    };
+    const coupang = {
+      createSellerProduct: vi.fn(),
+    };
+    const service = new MarketplaceRegistrationService(
+      repository as never,
+      {} as never,
+      coupang as never,
+    );
+
+    await expect(service.submitProductRegistration({
+      organizationId: 'org-1',
+      preparationId: 'preparation-1',
+      sourceCandidateId: 'candidate-1',
+      channelAccountId: 'account-1',
+      submissionKey: 'submission-key-1',
+      submissionPayloadHash: 'hash-1',
+      submissionPayloadJson: {},
+      providerSubmissionId: null,
+      registrationResult: null,
+      isRetry: true,
+    })).rejects.toThrow(
+      'Provider outcome is still uncertain; automatic retry will not create a duplicate listing.',
+    );
+    expect(coupang.createSellerProduct).not.toHaveBeenCalled();
+  });
+
+  it('reconciles recorded provider identity through the same channel account before create', async () => {
+    const repository = {
+      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
+    };
+    const coupang = {
+      getSellerProduct: vi.fn().mockResolvedValue({
+        code: '200',
+        message: '',
+        data: { sellerProductId: 427011919, sellerProductName: 'Kids rain boots' },
+      }),
+    };
+    const service = new MarketplaceRegistrationService(
+      repository as never,
+      {} as never,
+      coupang as never,
+    );
+
+    await expect(service.reconcileProductRegistration({
+      organizationId: 'org-1',
+      preparationId: 'preparation-1',
+      sourceCandidateId: 'candidate-1',
+      channelAccountId: 'account-1',
+      submissionKey: 'submission-key-1',
+      submissionPayloadHash: 'hash-1',
+      submissionPayloadJson: {},
+      providerSubmissionId: '427011919',
+      registrationResult: null,
+    })).resolves.toMatchObject({ externalListingId: '427011919' });
+    expect(coupang.getSellerProduct).toHaveBeenCalledWith(
+      'org-1',
+      '427011919',
+      'account-1',
+    );
+  });
+
+  it('resolves the account-scoped listing inside the caller transaction', async () => {
+    const tx = { opaque: true };
+    const repository = {
+      resolveProductRegistration: vi.fn().mockResolvedValue({
+        listingId: 'listing-1',
+        channelAccountId: 'account-1',
+        channel: 'coupang',
+        externalId: '427011919',
+        status: 'active',
+      }),
+    };
+    const service = new MarketplaceRegistrationService(repository as never, {} as never);
+    const input = {
+      organizationId: 'org-1',
+      preparationId: 'preparation-1',
+      sourceCandidateId: 'candidate-1',
+      channelAccountId: 'account-1',
+      submissionKey: 'submission-key-1',
+      submissionPayloadHash: 'hash-1',
+      submissionPayloadJson: {},
+      providerSubmissionId: '427011919',
+      registrationResult: null,
+      externalListingId: '427011919',
+      displayName: 'Kids rain boots',
+    };
+
+    await service.resolveProductRegistration(tx, input);
+    expect(repository.resolveProductRegistration).toHaveBeenCalledWith(tx, input);
+  });
+
   it('stores channel listing identity and product barcode through separate ports', async () => {
     const repository = {
       registerConfirmedListing: vi.fn().mockResolvedValue({ id: 'listing-1' }),
@@ -132,7 +321,7 @@ describe('MarketplaceRegistrationService application orchestration', () => {
       sellerProductName: '쿠팡 판매명',
       requested: true,
       items: [{ itemName: '단품', salePrice: 12900 }],
-    });
+    }, 'account-1');
     expect(repository.registerConfirmedListing).toHaveBeenCalledWith('org-1', {
       masterId: 'master-1',
       channelAccountId: 'account-1',

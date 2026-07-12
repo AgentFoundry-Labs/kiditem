@@ -48,3 +48,14 @@ export async function getSellerProduct(credentials: CoupangCredentials, sellerPr
     path: `${SELLER_PRODUCTS_PATH}/${sellerProductId}`,
   });
 }
+
+export async function getSellerProductsByExternalVendorSku(
+  credentials: CoupangCredentials,
+  externalVendorSkuCode: string,
+) {
+  return coupangRequest({
+    method: 'GET',
+    credentials,
+    path: `${SELLER_PRODUCTS_PATH}/external-vendor-sku-codes/${encodeURIComponent(externalVendorSkuCode)}`,
+  });
+}
