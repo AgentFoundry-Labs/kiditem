@@ -984,6 +984,22 @@ describe('ThumbnailGenerationService normalized persistence', () => {
 
   it('processEditJob feeds stored recompose kind and edit suggestions into prompt', async () => {
     const tx = {
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{
+          id: GENERATION_ID,
+          status: 'pending',
+          phase: null,
+          attemptCount: 0,
+        }])
+        .mockResolvedValue([{
+          id: GENERATION_ID,
+          status: 'running',
+          phase: null,
+          attemptCount: 1,
+        }]),
+      contentWorkspaceThumbnailSelection: {
+        findFirst: vi.fn(async () => null),
+      },
       thumbnailGeneration: {
         findFirst: vi.fn(async () => ({ id: GENERATION_ID })),
         updateMany: vi.fn(async () => ({ count: 1 })),

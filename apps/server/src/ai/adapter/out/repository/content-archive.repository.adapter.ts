@@ -286,6 +286,7 @@ async function deleteGenerationRows(
   generationIds: string[],
 ): Promise<{ deletedGenerations: number; deletedAssets: number }> {
   const archivedAt = new Date();
+  await lockContentGenerations(tx, organizationId, generationIds);
   const assetWhere = {
     organizationId,
     isDeleted: false,
@@ -299,7 +300,17 @@ async function deleteGenerationRows(
         },
       },
     },
-    thumbnailSelections: { none: {} },
+    thumbnailSelections: {
+      none: {
+        currentForWorkspace: {
+          is: {
+            organizationId,
+            status: 'active',
+            isDeleted: false,
+          },
+        },
+      },
+    },
   } satisfies Prisma.ContentAssetWhereInput;
   const lockedAssetIds = await lockContentAssets(tx, organizationId, assetWhere);
   const assets = lockedAssetIds.length > 0
@@ -316,6 +327,23 @@ async function deleteGenerationRows(
     deletedGenerations: generationResult.count,
     deletedAssets: assets.count,
   };
+}
+
+async function lockContentGenerations(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  generationIds: string[],
+): Promise<void> {
+  if (generationIds.length === 0) return;
+  await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id
+    FROM content_generations
+    WHERE organization_id = ${organizationId}::uuid
+      AND id IN (${Prisma.join(generationIds.map((id) => Prisma.sql`${id}::uuid`))})
+      AND is_deleted = false
+    ORDER BY id
+    FOR UPDATE
+  `);
 }
 
 async function lockContentAssets(

@@ -8,10 +8,12 @@ const USER_ID = '99999999-9999-9999-9999-999999999999';
 
 function makePrisma() {
   const tx = {
-    $queryRaw: vi.fn().mockResolvedValue([
-      { id: 'asset-1' },
-      { id: 'asset-2' },
-    ]),
+    $queryRaw: vi.fn()
+      .mockResolvedValueOnce([{ id: GENERATION_ID }])
+      .mockResolvedValue([
+        { id: 'asset-1' },
+        { id: 'asset-2' },
+      ]),
     contentAsset: {
       createMany: vi.fn().mockResolvedValue({ count: 2 }),
       findMany: vi.fn().mockResolvedValue([
@@ -48,7 +50,7 @@ function makePrisma() {
 }
 
 describe('ContentAssetLibraryRepositoryAdapter', () => {
-  it('does not soft-delete an asset with active usages or thumbnail selections', async () => {
+  it('does not soft-delete an asset with active usages or a current active-workspace selection', async () => {
     const tx = {
       $queryRaw: vi.fn().mockResolvedValue([{ id: 'asset-1' }]),
       contentAsset: {
@@ -73,6 +75,39 @@ describe('ContentAssetLibraryRepositoryAdapter', () => {
     expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
       tx.contentAsset.findFirst.mock.invocationCallOrder[0],
     );
+    expect(tx.contentAsset.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'asset-1',
+        organizationId: ORG,
+        isDeleted: false,
+      },
+      select: {
+        id: true,
+        _count: {
+          select: {
+            usages: {
+              where: {
+                contentGeneration: {
+                  organizationId: ORG,
+                  isDeleted: false,
+                },
+              },
+            },
+            thumbnailSelections: {
+              where: {
+                currentForWorkspace: {
+                  is: {
+                    organizationId: ORG,
+                    status: 'active',
+                    isDeleted: false,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
     expect(tx.contentAsset.updateMany).not.toHaveBeenCalled();
   });
 
@@ -134,8 +169,11 @@ describe('ContentAssetLibraryRepositoryAdapter', () => {
       imageUrls: ['https://example.com/a.jpg', 'https://example.com/b.jpg'],
     });
 
-    expect(tx.$queryRaw).toHaveBeenCalledOnce();
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
     expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.$queryRaw.mock.invocationCallOrder[1],
+    );
+    expect(tx.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
       tx.contentGenerationAssetUsage.deleteMany.mock.invocationCallOrder[0],
     );
     expect(tx.contentGenerationAssetUsage.deleteMany).toHaveBeenCalledWith({

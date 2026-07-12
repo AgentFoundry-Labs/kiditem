@@ -80,12 +80,28 @@ describe('SourcingWorkspaceArchiveRepositoryAdapter', () => {
             },
           },
         },
-        thumbnailSelections: { none: {} },
+        thumbnailSelections: {
+          none: {
+            currentForWorkspace: {
+              is: {
+                organizationId: ORG,
+                status: 'active',
+                isDeleted: false,
+              },
+            },
+          },
+        },
       },
       data: { isDeleted: true, deletedAt: ARCHIVED_AT },
     });
-    expect(scope.$queryRaw).toHaveBeenCalledOnce();
+    expect(scope.$queryRaw).toHaveBeenCalledTimes(3);
     expect(scope.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      scope.$queryRaw.mock.invocationCallOrder[1],
+    );
+    expect(scope.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
+      scope.$queryRaw.mock.invocationCallOrder[2],
+    );
+    expect(scope.$queryRaw.mock.invocationCallOrder[2]).toBeLessThan(
       scope.contentAsset.updateMany.mock.invocationCallOrder[0],
     );
     expect(scope.contentGeneration.updateMany).toHaveBeenCalledWith({
@@ -101,18 +117,7 @@ describe('SourcingWorkspaceArchiveRepositoryAdapter', () => {
         organizationId: ORG,
         sourceCandidateId: CANDIDATE_ID,
         isDeleted: false,
-        thumbnailSelections: {
-          none: {
-            currentForWorkspace: {
-              is: {
-                organizationId: ORG,
-                ownerType: 'channel_listing',
-                status: 'active',
-                isDeleted: false,
-              },
-            },
-          },
-        },
+        thumbnailSelections: { none: {} },
       },
       data: { isDeleted: true, deletedAt: ARCHIVED_AT },
     });

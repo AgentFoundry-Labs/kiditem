@@ -145,12 +145,25 @@ describe('ContentArchiveRepositoryAdapter', () => {
             },
           },
         },
-        thumbnailSelections: { none: {} },
+        thumbnailSelections: {
+          none: {
+            currentForWorkspace: {
+              is: {
+                organizationId: ORG,
+                status: 'active',
+                isDeleted: false,
+              },
+            },
+          },
+        },
       },
       data: expect.objectContaining({ isDeleted: true }),
     });
-    expect(tx.$queryRaw).toHaveBeenCalledOnce();
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
     expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.$queryRaw.mock.invocationCallOrder[1],
+    );
+    expect(tx.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
       tx.contentAsset.updateMany.mock.invocationCallOrder[0],
     );
     expect(tx.contentGeneration.updateMany).toHaveBeenCalledWith({

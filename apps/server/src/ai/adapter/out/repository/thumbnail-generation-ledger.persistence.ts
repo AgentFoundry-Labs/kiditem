@@ -1,11 +1,12 @@
+import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { PrismaService } from '../../../../prisma/prisma.service';
+import { generationInclude } from './thumbnail-generation-ledger.query';
 import type { EditAnalysisResult } from '@kiditem/shared/ai';
+import type { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   ThumbnailEditorCandidate,
   ThumbnailEditorInputImage,
 } from '../../../domain/model/thumbnail-editor';
-import { generationInclude } from './thumbnail-generation-ledger.query';
 import type { GenerationRow } from '../../../mapper/thumbnail-generation.mapper';
 
 /**
@@ -36,6 +37,73 @@ function normalizeInputSource(source: string | null | undefined): string {
   if (source === 'prev-gen' || source === 're-edit') return 'prev_gen';
   if (source === 'master_image') return 'hub';
   return source ?? 'upload';
+}
+
+interface LockedThumbnailGeneration {
+  id: string;
+  status: string;
+  phase: string | null;
+  attemptCount: number;
+}
+
+async function lockThumbnailGeneration(
+  tx: Prisma.TransactionClient,
+  id: string,
+  organizationId: string,
+): Promise<LockedThumbnailGeneration | null> {
+  const rows = await tx.$queryRaw<LockedThumbnailGeneration[]>(Prisma.sql`
+    SELECT
+      id,
+      status,
+      phase,
+      attempt_count AS "attemptCount"
+    FROM thumbnail_generations
+    WHERE id = ${id}::uuid
+      AND organization_id = ${organizationId}::uuid
+      AND is_deleted = false
+    FOR UPDATE
+  `);
+  return rows[0] ?? null;
+}
+
+async function lockThumbnailCandidate(
+  tx: Prisma.TransactionClient,
+  input: { id: string; generationId: string; organizationId: string },
+): Promise<boolean> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id
+    FROM thumbnail_generation_candidates
+    WHERE id = ${input.id}::uuid
+      AND generation_id = ${input.generationId}::uuid
+      AND organization_id = ${input.organizationId}::uuid
+    FOR UPDATE
+  `);
+  return rows.length === 1;
+}
+
+async function assertThumbnailProvenanceMutable(
+  tx: Prisma.TransactionClient,
+  input: { organizationId: string; generationId: string; candidateId?: string },
+): Promise<void> {
+  const adopted = await tx.contentWorkspaceThumbnailSelection.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      ...(input.candidateId
+        ? { sourceThumbnailCandidateId: input.candidateId }
+        : {
+            OR: [
+              { sourceThumbnailGenerationId: input.generationId },
+              { sourceCandidate: { is: { generationId: input.generationId } } },
+            ],
+          }),
+    },
+    select: { id: true },
+  });
+  if (adopted) {
+    throw new ConflictException(
+      'Adopted thumbnail provenance cannot be changed.',
+    );
+  }
 }
 
 export async function saveEditorResult(
@@ -339,9 +407,17 @@ export async function deleteGeneration(
   id: string,
   organizationId: string,
 ): Promise<void> {
-  await prisma.thumbnailGeneration.updateMany({
-    where: { id, organizationId, isDeleted: false },
-    data: { isDeleted: true, deletedAt: new Date() },
+  await prisma.$transaction(async (tx) => {
+    const current = await lockThumbnailGeneration(tx, id, organizationId);
+    if (!current) return;
+    await assertThumbnailProvenanceMutable(tx, {
+      organizationId,
+      generationId: id,
+    });
+    await tx.thumbnailGeneration.updateMany({
+      where: { id, organizationId, isDeleted: false },
+      data: { isDeleted: true, deletedAt: new Date() },
+    });
   });
 }
 
@@ -363,7 +439,22 @@ export async function removeCandidate(
 ): Promise<void> {
   const { id, organizationId, candidateId, candidateUrl, selectedUrl, remainingAfterDelete } = args;
   await prisma.$transaction(async (tx) => {
-    await tx.thumbnailGenerationCandidate.deleteMany({ where: { id: candidateId, organizationId } });
+    const generation = await lockThumbnailGeneration(tx, id, organizationId);
+    if (!generation) return;
+    const candidateExists = await lockThumbnailCandidate(tx, {
+      id: candidateId,
+      generationId: id,
+      organizationId,
+    });
+    if (!candidateExists) return;
+    await assertThumbnailProvenanceMutable(tx, {
+      organizationId,
+      generationId: id,
+      candidateId,
+    });
+    await tx.thumbnailGenerationCandidate.deleteMany({
+      where: { id: candidateId, generationId: id, organizationId },
+    });
     if (remainingAfterDelete === 0) {
       await tx.thumbnailGeneration.updateMany({
         where: { id, organizationId, isDeleted: false },
@@ -397,11 +488,12 @@ export async function resetGenerationForReEdit(
 ): Promise<{ fromStatus: string; fromPhase: string | null } | null> {
   const { id, organizationId, purpose, variantKey } = args;
   return prisma.$transaction(async (tx) => {
-    const current = await tx.thumbnailGeneration.findFirst({
-      where: { id, organizationId, isDeleted: false },
-      select: { status: true, phase: true },
-    });
+    const current = await lockThumbnailGeneration(tx, id, organizationId);
     if (!current) return null;
+    await assertThumbnailProvenanceMutable(tx, {
+      organizationId,
+      generationId: id,
+    });
     await tx.thumbnailGenerationCandidate.deleteMany({
       where: { generationId: id, organizationId },
     });
@@ -439,11 +531,13 @@ export async function lockGenerationForProcessing(
   attemptNumber: number;
 } | null> {
   return prisma.$transaction(async (tx) => {
-    const current = await tx.thumbnailGeneration.findFirst({
-      where: { id, organizationId, isDeleted: false, status: { in: ['pending', 'running'] } },
-      select: { status: true, phase: true, attemptCount: true },
-    });
+    const current = await lockThumbnailGeneration(tx, id, organizationId);
     if (!current) return null;
+    if (!['pending', 'running'].includes(current.status)) return null;
+    await assertThumbnailProvenanceMutable(tx, {
+      organizationId,
+      generationId: id,
+    });
     const locked = await tx.thumbnailGeneration.updateMany({
       where: { id, organizationId, isDeleted: false, status: current.status },
       data: {
@@ -484,11 +578,13 @@ export async function replaceGenerationResult(
 } | null> {
   const { generationId, organizationId, candidates, inputImages, inputMeta, editAnalysis } = args;
   return prisma.$transaction(async (tx) => {
-    const current = await tx.thumbnailGeneration.findFirst({
-      where: { id: generationId, organizationId, isDeleted: false, status: 'running' },
-      select: { id: true, status: true, phase: true, attemptCount: true },
-    });
+    const current = await lockThumbnailGeneration(tx, generationId, organizationId);
     if (!current) return null;
+    if (current.status !== 'running') return null;
+    await assertThumbnailProvenanceMutable(tx, {
+      organizationId,
+      generationId,
+    });
     await tx.thumbnailGenerationCandidate.deleteMany({ where: { generationId, organizationId } });
     await tx.thumbnailGenerationInputImage.deleteMany({ where: { generationId, organizationId } });
     if (candidates.length > 0) {
@@ -575,11 +671,13 @@ export async function applyDirectSuccessResult(
 } | null> {
   const { generationId, organizationId, candidates, inputMeta } = args;
   return prisma.$transaction(async (tx) => {
-    const current = await tx.thumbnailGeneration.findFirst({
-      where: { id: generationId, organizationId, isDeleted: false, status: 'running' },
-      select: { id: true, status: true, phase: true, attemptCount: true },
-    });
+    const current = await lockThumbnailGeneration(tx, generationId, organizationId);
     if (!current) return null;
+    if (current.status !== 'running') return null;
+    await assertThumbnailProvenanceMutable(tx, {
+      organizationId,
+      generationId,
+    });
     await tx.thumbnailGenerationCandidate.deleteMany({ where: { generationId, organizationId } });
     if (candidates.length > 0) {
       await tx.thumbnailGenerationCandidate.createMany({
@@ -662,11 +760,13 @@ export async function markGenerationFailed(
   attemptNumber: number;
 } | null> {
   return prisma.$transaction(async (tx) => {
-    const current = await tx.thumbnailGeneration.findFirst({
-      where: { id, organizationId, isDeleted: false, status: 'running' },
-      select: { status: true, phase: true, attemptCount: true },
-    });
+    const current = await lockThumbnailGeneration(tx, id, organizationId);
     if (!current) return null;
+    if (current.status !== 'running') return null;
+    await assertThumbnailProvenanceMutable(tx, {
+      organizationId,
+      generationId: id,
+    });
     const updated = await tx.thumbnailGeneration.updateMany({
       where: { id, organizationId, isDeleted: false, status: 'running' },
       data: { status: 'failed', phase: null, errorMessage: message },
@@ -677,5 +777,5 @@ export async function markGenerationFailed(
       fromPhase: current.phase,
       attemptNumber: current.attemptCount,
     };
-  }).catch(() => null);
+  });
 }

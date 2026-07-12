@@ -113,35 +113,41 @@ export class ContentWorkspaceThumbnailSelectionRepositoryAdapter
     }
 
     if (input.selection.kind === 'generation_candidate') {
-      const [generation, candidate] = await Promise.all([
-        tx.thumbnailGeneration.findFirst({
-          where: {
-            id: input.selection.sourceThumbnailGenerationId,
-            organizationId: input.organizationId,
-            contentWorkspaceId: input.workspaceId,
-            status: 'succeeded',
-            isDeleted: false,
-          },
-          select: { id: true },
-        }),
-        tx.thumbnailGenerationCandidate.findFirst({
-          where: {
-            id: input.selection.sourceThumbnailCandidateId,
-            organizationId: input.organizationId,
-            generationId: input.selection.sourceThumbnailGenerationId,
-          },
-          select: {
-            id: true,
-            url: true,
-            storageKey: true,
-            mimeType: true,
-            width: true,
-            height: true,
-            fileSize: true,
-          },
-        }),
-      ]);
-      if (!generation || !candidate) {
+      const generationId = input.selection.sourceThumbnailGenerationId;
+      const candidateId = input.selection.sourceThumbnailCandidateId;
+      const generationLocked = await lockSuccessfulThumbnailGeneration(tx, {
+        organizationId: input.organizationId,
+        workspaceId: input.workspaceId,
+        generationId,
+      });
+      if (!generationLocked) {
+        throw new BadRequestException('Thumbnail candidate is not a successful workspace generation.');
+      }
+      const candidateLocked = await lockThumbnailGenerationCandidate(tx, {
+        organizationId: input.organizationId,
+        generationId,
+        candidateId,
+      });
+      if (!candidateLocked) {
+        throw new BadRequestException('Thumbnail candidate is not a successful workspace generation.');
+      }
+      const candidate = await tx.thumbnailGenerationCandidate.findFirst({
+        where: {
+          id: candidateId,
+          organizationId: input.organizationId,
+          generationId,
+        },
+        select: {
+          id: true,
+          url: true,
+          storageKey: true,
+          mimeType: true,
+          width: true,
+          height: true,
+          fileSize: true,
+        },
+      });
+      if (!candidate) {
         throw new BadRequestException('Thumbnail candidate is not a successful workspace generation.');
       }
       const asset = await this.ensureAsset(tx, {
@@ -158,7 +164,7 @@ export class ContentWorkspaceThumbnailSelectionRepositoryAdapter
       await lockActiveContentAsset(tx, input.organizationId, asset.id);
       return {
         asset,
-        sourceThumbnailGenerationId: generation.id,
+        sourceThumbnailGenerationId: generationId,
         sourceThumbnailCandidateId: candidate.id,
       };
     }
@@ -260,4 +266,36 @@ async function lockActiveContentAsset(
   if (rows.length !== 1) {
     throw new NotFoundException('Managed content asset not found.');
   }
+}
+
+async function lockSuccessfulThumbnailGeneration(
+  tx: Prisma.TransactionClient,
+  input: { organizationId: string; workspaceId: string; generationId: string },
+): Promise<boolean> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id
+    FROM thumbnail_generations
+    WHERE id = ${input.generationId}::uuid
+      AND organization_id = ${input.organizationId}::uuid
+      AND content_workspace_id = ${input.workspaceId}::uuid
+      AND status = 'succeeded'
+      AND is_deleted = false
+    FOR UPDATE
+  `);
+  return rows.length === 1;
+}
+
+async function lockThumbnailGenerationCandidate(
+  tx: Prisma.TransactionClient,
+  input: { organizationId: string; generationId: string; candidateId: string },
+): Promise<boolean> {
+  const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id
+    FROM thumbnail_generation_candidates
+    WHERE id = ${input.candidateId}::uuid
+      AND organization_id = ${input.organizationId}::uuid
+      AND generation_id = ${input.generationId}::uuid
+    FOR UPDATE
+  `);
+  return rows.length === 1;
 }

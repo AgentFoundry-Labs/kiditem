@@ -58,7 +58,17 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
                   },
                 },
               },
-              thumbnailSelections: true,
+              thumbnailSelections: {
+                where: {
+                  currentForWorkspace: {
+                    is: {
+                      organizationId: input.organizationId,
+                      status: 'active',
+                      isDeleted: false,
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -254,10 +264,23 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
     },
   ): Promise<void> {
     const uniqueAssetIds = [...new Set(input.contentAssetIds)].sort();
+    const rawScope = scope as ContentAssetLibraryWriteScope & {
+      $queryRaw<T>(query: Prisma.Sql): Promise<T>;
+    };
+    const lockedGeneration = await rawScope.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id
+      FROM content_generations
+      WHERE id = ${input.contentGenerationId}::uuid
+        AND organization_id = ${input.organizationId}::uuid
+        AND is_deleted = false
+      FOR UPDATE
+    `);
+    if (lockedGeneration.length !== 1) {
+      throw new ConflictException(
+        'Content generation changed while usages were being updated.',
+      );
+    }
     if (uniqueAssetIds.length > 0) {
-      const rawScope = scope as ContentAssetLibraryWriteScope & {
-        $queryRaw<T>(query: Prisma.Sql): Promise<T>;
-      };
       const locked = await rawScope.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         SELECT id
         FROM content_assets

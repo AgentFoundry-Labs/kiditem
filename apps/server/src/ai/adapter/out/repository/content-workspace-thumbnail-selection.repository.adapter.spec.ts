@@ -132,16 +132,17 @@ describe('ContentWorkspaceThumbnailSelectionRepositoryAdapter', () => {
       },
     });
 
-    expect(tx.thumbnailGeneration.findFirst).toHaveBeenCalledWith({
-      where: {
-        id: 'generation-1',
-        organizationId: 'org-1',
-        contentWorkspaceId: 'workspace-1',
-        status: 'succeeded',
-        isDeleted: false,
-      },
-      select: { id: true },
-    });
+    expect(tx.thumbnailGeneration.findFirst).not.toHaveBeenCalled();
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(3);
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.$queryRaw.mock.invocationCallOrder[1],
+    );
+    expect(tx.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
+      tx.thumbnailGenerationCandidate.findFirst.mock.invocationCallOrder[0],
+    );
+    expect(tx.$queryRaw.mock.invocationCallOrder[2]).toBeLessThan(
+      tx.contentWorkspaceThumbnailSelection.create.mock.invocationCallOrder[0],
+    );
     expect(tx.contentWorkspaceThumbnailSelection.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         contentAssetId: 'asset-1',

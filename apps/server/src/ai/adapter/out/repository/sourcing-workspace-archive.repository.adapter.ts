@@ -19,6 +19,9 @@ implements SourcingWorkspaceArchiveRepositoryPort {
       select: { id: true },
     });
     const generationIds = generationRows.map((row) => row.id);
+    const tx = scope as unknown as Prisma.TransactionClient;
+    await lockContentGenerations(tx, input.organizationId, generationIds);
+    await lockThumbnailGenerations(tx, input.organizationId, input.sourceCandidateId);
 
     const detailPageArtifacts = await scope.detailPageArtifact.updateMany({
       where: {
@@ -47,11 +50,21 @@ implements SourcingWorkspaceArchiveRepositoryPort {
           },
         },
       },
-      thumbnailSelections: { none: {} },
+      thumbnailSelections: {
+        none: {
+          currentForWorkspace: {
+            is: {
+              organizationId: input.organizationId,
+              status: 'active',
+              isDeleted: false,
+            },
+          },
+        },
+      },
     } satisfies Prisma.ContentAssetWhereInput;
     const lockedAssetIds = generationIds.length > 0
       ? await lockContentAssets(
-          scope as unknown as Prisma.TransactionClient,
+          tx,
           input.organizationId,
           assetWhere,
         )
@@ -82,18 +95,7 @@ implements SourcingWorkspaceArchiveRepositoryPort {
         organizationId: input.organizationId,
         sourceCandidateId: input.sourceCandidateId,
         isDeleted: false,
-        thumbnailSelections: {
-          none: {
-            currentForWorkspace: {
-              is: {
-                organizationId: input.organizationId,
-                ownerType: 'channel_listing',
-                status: 'active',
-                isDeleted: false,
-              },
-            },
-          },
-        },
+        thumbnailSelections: { none: {} },
       },
       data: archiveData(input.archivedAt),
     });
@@ -105,6 +107,39 @@ implements SourcingWorkspaceArchiveRepositoryPort {
       archivedThumbnailGenerations: thumbnailGenerations.count,
     };
   }
+}
+
+async function lockContentGenerations(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  generationIds: string[],
+): Promise<void> {
+  if (generationIds.length === 0) return;
+  await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id
+    FROM content_generations
+    WHERE organization_id = ${organizationId}::uuid
+      AND id IN (${Prisma.join(generationIds.map((id) => Prisma.sql`${id}::uuid`))})
+      AND is_deleted = false
+    ORDER BY id
+    FOR UPDATE
+  `);
+}
+
+async function lockThumbnailGenerations(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  sourceCandidateId: string,
+): Promise<void> {
+  await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id
+    FROM thumbnail_generations
+    WHERE organization_id = ${organizationId}::uuid
+      AND source_candidate_id = ${sourceCandidateId}::uuid
+      AND is_deleted = false
+    ORDER BY id
+    FOR UPDATE
+  `);
 }
 
 function contentGenerationSourceCandidateWhere(input: ArchiveSourcingWorkspaceInput) {
