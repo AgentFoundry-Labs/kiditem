@@ -102,16 +102,18 @@ export class ProductRegistrationService {
         if (!canStartProviderCreate(submission.providerOutcome)) {
           throw new Error('Provider outcome remains uncertain after reconciliation.');
         }
-        await this.preparations.markProviderAttemptStarted(
-          organizationId,
-          preparationId,
-          submissionLeaseToken,
+        providerResult = await this.channels.submit(
+          this.toSubmissionInput(
+            organizationId,
+            submission,
+            { providerOutcome: 'uncertain', providerCreateAllowed: true },
+          ),
+          () => this.preparations.markProviderAttemptStarted(
+            organizationId,
+            preparationId,
+            submissionLeaseToken,
+          ),
         );
-        providerResult = await this.channels.submit(this.toSubmissionInput(
-          organizationId,
-          submission,
-          { providerOutcome: 'uncertain', providerCreateAllowed: true },
-        ));
       }
       await this.preparations.recordProviderResult(
         organizationId,

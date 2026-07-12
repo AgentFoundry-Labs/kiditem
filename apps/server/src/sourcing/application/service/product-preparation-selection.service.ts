@@ -4,6 +4,7 @@ import {
   type CandidateForPreparationRow,
   type SourcingCandidateRepositoryPort,
 } from '../port/out/repository/sourcing-candidate.repository.port';
+import type { SourcingRepositoryTransaction } from '../port/out/transaction/repository-transaction';
 
 export interface UpdateProductBasicsInput {
   name?: string;
@@ -46,18 +47,19 @@ export class ProductPreparationSelectionService {
     organizationId: string,
     candidateId: string,
   ) {
-    const candidate = await this.findCandidate(organizationId, candidateId);
-    const existing = await this.candidates.findActivePreparation({
-      organizationId,
-      sourceCandidateId: candidate.id,
-    });
-    if (existing) {
-      return existing;
-    }
-    return this.candidates.upsertPreparation({
-      organizationId,
-      candidate,
-      data: {},
+    return this.withLockedCandidate(organizationId, candidateId, async (tx, candidate) => {
+      const existing = await this.candidates.findActivePreparation(tx, {
+        organizationId,
+        sourceCandidateId: candidate.id,
+      });
+      if (existing) {
+        return existing;
+      }
+      return this.candidates.upsertPreparation(tx, {
+        organizationId,
+        candidate,
+        data: {},
+      });
     });
   }
 
@@ -66,23 +68,24 @@ export class ProductPreparationSelectionService {
     candidateId: string,
     input: UpdateProductBasicsInput,
   ) {
-    const candidate = await this.findCandidate(organizationId, candidateId);
-    const existing = await this.candidates.findActivePreparation({
-      organizationId,
-      sourceCandidateId: candidate.id,
-    });
-    if (Object.prototype.hasOwnProperty.call(input, 'basePreparationUpdatedAt')) {
-      this.assertPreparationFresh(existing, input.basePreparationUpdatedAt ?? null);
-    }
-    const registrationInput = this.mergeRegistrationInput(
-      this.registrationInputFromCandidate(candidate),
-      jsonRecord(existing?.registrationInput),
-      input,
-    );
+    return this.withLockedCandidate(organizationId, candidateId, async (tx, candidate) => {
+      const existing = await this.candidates.findActivePreparation(tx, {
+        organizationId,
+        sourceCandidateId: candidate.id,
+      });
+      if (Object.prototype.hasOwnProperty.call(input, 'basePreparationUpdatedAt')) {
+        this.assertPreparationFresh(existing, input.basePreparationUpdatedAt ?? null);
+      }
+      const registrationInput = this.mergeRegistrationInput(
+        this.registrationInputFromCandidate(candidate),
+        jsonRecord(existing?.registrationInput),
+        input,
+      );
 
-    return this.upsertPreparation(organizationId, candidate, {
-      displayName: stringOr(registrationInput.name) ?? candidate.name,
-      registrationInput,
+      return this.upsertPreparation(tx, organizationId, candidate, {
+        displayName: stringOr(registrationInput.name) ?? candidate.name,
+        registrationInput,
+      });
     });
   }
 
@@ -99,19 +102,20 @@ export class ProductPreparationSelectionService {
       throw new BadRequestException('등록 대표 썸네일 URL을 확인하세요.');
     }
 
-    const candidate = await this.findCandidate(organizationId, candidateId);
-    const selectedThumbnail = input.selectedThumbnailGenerationCandidateId
-      ? await this.resolveThumbnailCandidate(organizationId, candidate, {
-          url: thumbnailUrl,
-          generatedCandidateId: input.selectedThumbnailGenerationCandidateId,
-        })
-      : null;
+    return this.withLockedCandidate(organizationId, candidateId, async (tx, candidate) => {
+      const selectedThumbnail = input.selectedThumbnailGenerationCandidateId
+        ? await this.resolveThumbnailCandidate(tx, organizationId, candidate, {
+            url: thumbnailUrl,
+            generatedCandidateId: input.selectedThumbnailGenerationCandidateId,
+          })
+        : null;
 
-    return this.upsertPreparation(organizationId, candidate, {
-      contentWorkspaceId: selectedThumbnail?.contentWorkspaceId ?? undefined,
-      selectedThumbnailUrl: thumbnailUrl,
-      selectedThumbnailGenerationId: selectedThumbnail?.generationId ?? null,
-      selectedThumbnailGenerationCandidateId: selectedThumbnail?.id ?? null,
+      return this.upsertPreparation(tx, organizationId, candidate, {
+        contentWorkspaceId: selectedThumbnail?.contentWorkspaceId ?? undefined,
+        selectedThumbnailUrl: thumbnailUrl,
+        selectedThumbnailGenerationId: selectedThumbnail?.generationId ?? null,
+        selectedThumbnailGenerationCandidateId: selectedThumbnail?.id ?? null,
+      });
     });
   }
 
@@ -124,21 +128,28 @@ export class ProductPreparationSelectionService {
       selectedDetailPageRevisionId?: string | null;
     },
   ) {
-    const candidate = await this.findCandidate(organizationId, candidateId);
-    const detailPage = await this.resolveDetailPageGeneration(organizationId, candidate, input);
-    return this.upsertPreparation(organizationId, candidate, {
-      contentWorkspaceId: detailPage.contentWorkspaceId ?? undefined,
-      selectedDetailPageGenerationId: detailPage.id,
-      selectedDetailPageArtifactId: detailPage.artifactId,
-      selectedDetailPageRevisionId: detailPage.revisionId,
+    return this.withLockedCandidate(organizationId, candidateId, async (tx, candidate) => {
+      const detailPage = await this.resolveDetailPageGeneration(
+        tx,
+        organizationId,
+        candidate,
+        input,
+      );
+      return this.upsertPreparation(tx, organizationId, candidate, {
+        contentWorkspaceId: detailPage.contentWorkspaceId ?? undefined,
+        selectedDetailPageGenerationId: detailPage.id,
+        selectedDetailPageArtifactId: detailPage.artifactId,
+        selectedDetailPageRevisionId: detailPage.revisionId,
+      });
     });
   }
 
   private async findCandidate(
+    tx: SourcingRepositoryTransaction,
     organizationId: string,
     candidateId: string,
   ): Promise<CandidateForPreparationRow> {
-    const candidate = await this.candidates.findCandidateForPreparation({
+    const candidate = await this.candidates.findCandidateForPreparation(tx, {
       organizationId,
       candidateId,
     });
@@ -147,11 +158,12 @@ export class ProductPreparationSelectionService {
   }
 
   private async resolveThumbnailCandidate(
+    tx: SourcingRepositoryTransaction,
     organizationId: string,
     candidate: CandidateForPreparationRow,
     input: { url: string; generatedCandidateId: string },
   ) {
-    const generated = await this.candidates.findPreparationThumbnailCandidate({
+    const generated = await this.candidates.findPreparationThumbnailCandidate(tx, {
       organizationId,
       candidate,
       generatedCandidateId: input.generatedCandidateId,
@@ -170,6 +182,7 @@ export class ProductPreparationSelectionService {
   }
 
   private async resolveDetailPageGeneration(
+    tx: SourcingRepositoryTransaction,
     organizationId: string,
     candidate: CandidateForPreparationRow,
     input: {
@@ -178,7 +191,7 @@ export class ProductPreparationSelectionService {
       selectedDetailPageRevisionId?: string | null;
     },
   ) {
-    const generation = await this.candidates.findPreparationDetailPageGeneration({
+    const generation = await this.candidates.findPreparationDetailPageGeneration(tx, {
       organizationId,
       candidate,
       contentGenerationId: input.selectedDetailPageGenerationId,
@@ -193,7 +206,7 @@ export class ProductPreparationSelectionService {
     }
     const revisionId = input.selectedDetailPageRevisionId ?? generation.revisionId ?? null;
     if (input.selectedDetailPageRevisionId) {
-      const revision = await this.candidates.findPreparationDetailPageRevision({
+      const revision = await this.candidates.findPreparationDetailPageRevision(tx, {
         organizationId,
         artifactId,
         revisionId: input.selectedDetailPageRevisionId,
@@ -211,14 +224,33 @@ export class ProductPreparationSelectionService {
   }
 
   private async upsertPreparation(
+    tx: SourcingRepositoryTransaction,
     organizationId: string,
     candidate: CandidateForPreparationRow,
     data: Record<string, unknown>,
   ) {
-    return this.candidates.upsertPreparation({
+    return this.candidates.upsertPreparation(tx, {
       organizationId,
       candidate,
       data,
+    });
+  }
+
+  private withLockedCandidate<T>(
+    organizationId: string,
+    candidateId: string,
+    operation: (
+      tx: SourcingRepositoryTransaction,
+      candidate: CandidateForPreparationRow,
+    ) => Promise<T>,
+  ): Promise<T> {
+    return this.candidates.runInTransaction(async (tx) => {
+      await this.candidates.lockCandidate(tx, {
+        id: candidateId,
+        organizationId,
+      });
+      const candidate = await this.findCandidate(tx, organizationId, candidateId);
+      return operation(tx, candidate);
     });
   }
 

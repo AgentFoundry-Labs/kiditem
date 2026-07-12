@@ -6,7 +6,7 @@ import {
   ProductPreparationStatusSchema,
   SourcingCandidateStatusSchema,
   type CreateProductPreparationInput,
-  type ProductPreparationStatus,
+  type ProductPreparationProjection,
   type SourcingCandidateStatus,
 } from '@kiditem/shared/sourcing';
 
@@ -136,21 +136,12 @@ export type UpdateProductBasicsInput = Partial<Pick<
   basePreparationUpdatedAt?: string | null;
 };
 
-export interface ProductPreparationSelection {
-  id: string;
-  sourceCandidateId: string | null;
-  channelAccountId: string | null;
-  contentWorkspaceId: string | null;
-  listingId: string | null;
-  status: ProductPreparationStatus;
-  selectedThumbnailUrl: string | null;
-  selectedThumbnailGenerationId: string | null;
-  selectedThumbnailGenerationCandidateId: string | null;
-  selectedDetailPageGenerationId: string | null;
-  selectedDetailPageArtifactId: string | null;
-  selectedDetailPageRevisionId: string | null;
+export type ProductPreparationSelection = Omit<
+  ProductPreparationProjection,
+  'updatedAt'
+> & {
   updatedAt: string | null;
-}
+};
 
 interface StatusResponse {
   id: string;
@@ -276,12 +267,12 @@ function normalizeProductPreparation(value: unknown): ProductPreparationSelectio
     id,
     sourceCandidateId: typeof prep.sourceCandidateId === 'string' ? prep.sourceCandidateId : null,
     channelAccountId: typeof prep.channelAccountId === 'string' ? prep.channelAccountId : null,
-    contentWorkspaceId: typeof prep.sourceContentWorkspaceId === 'string'
+    sourceContentWorkspaceId: typeof prep.sourceContentWorkspaceId === 'string'
       ? prep.sourceContentWorkspaceId
       : typeof prep.contentWorkspaceId === 'string'
         ? prep.contentWorkspaceId
         : null,
-    listingId: typeof prep.channelListingId === 'string'
+    channelListingId: typeof prep.channelListingId === 'string'
       ? prep.channelListingId
       : typeof prep.listingId === 'string'
         ? prep.listingId
@@ -455,9 +446,7 @@ export const productsApi = {
     });
     if (params?.platform) qs.set('platform', params.platform);
     if (params?.sort) qs.set('sort', params.sort);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = await apiClient.get<{ items: any[]; total: number; page: number; limit: number }>(`/api/sourcing/extension/products?${qs}`);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const items: SourcedProduct[] = data.items.map((p: any) => {
       const rawData = (p.rawData as Record<string, unknown>) || {};
       const candidateImageUrls = candidateProductImageUrls(p.images);
@@ -510,7 +499,6 @@ export const productsApi = {
   },
 
   async getDetail(id: string): Promise<ProductDetailResponse> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const p = await apiClient.get<any>(`/api/sourcing/${id}`);
     const rawData = (p.rawData as Record<string, unknown>) || p.raw_data || {};
     const candidateImageUrls = candidateProductImageUrls(p.images);

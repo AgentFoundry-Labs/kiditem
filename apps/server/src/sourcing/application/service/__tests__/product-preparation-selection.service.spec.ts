@@ -12,8 +12,12 @@ const candidate = {
   promotedMasterId: null,
 };
 
+const TX = { opaque: true } as never;
+
 function makeRepo(overrides: Record<string, unknown> = {}) {
   return {
+    runInTransaction: vi.fn(async (operation: (tx: typeof TX) => Promise<unknown>) => operation(TX)),
+    lockCandidate: vi.fn().mockResolvedValue(undefined),
     findCandidateForPreparation: vi.fn().mockResolvedValue(candidate),
     findActivePreparation: vi.fn().mockResolvedValue(null),
     findPreparationThumbnailCandidate: vi.fn(),
@@ -25,6 +29,44 @@ function makeRepo(overrides: Record<string, unknown> = {}) {
 }
 
 describe('ProductPreparationSelectionService', () => {
+  it.each([
+    ['basic information', (service: ProductPreparationSelectionService) =>
+      service.updateBasics('org-1', 'candidate-1', { name: '새 상품명' })],
+    ['thumbnail selection', (service: ProductPreparationSelectionService) =>
+      service.selectThumbnail('org-1', 'candidate-1', {
+        selectedThumbnailUrl: 'https://cdn.example.com/source.jpg',
+        selectedThumbnailGenerationCandidateId: null,
+      })],
+    ['detail-page selection', (service: ProductPreparationSelectionService) =>
+      service.selectDetailPage('org-1', 'candidate-1', {
+        selectedDetailPageGenerationId: 'detail-generation-1',
+      })],
+  ])('serializes legacy %s behind the sourced candidate lock', async (_label, mutate) => {
+    const repo = makeRepo({
+      findPreparationDetailPageGeneration: vi.fn().mockResolvedValue({
+        id: 'detail-generation-1',
+        contentWorkspaceId: 'workspace-1',
+        artifactId: 'artifact-1',
+        revisionId: 'revision-1',
+      }),
+    });
+    const service = new ProductPreparationSelectionService(repo as never);
+
+    await mutate(service);
+
+    expect(repo.runInTransaction).toHaveBeenCalledTimes(1);
+    expect(repo.lockCandidate).toHaveBeenCalledWith(TX, {
+      id: 'candidate-1',
+      organizationId: 'org-1',
+    });
+    expect(repo.findCandidateForPreparation).toHaveBeenCalledWith(TX, {
+      organizationId: 'org-1',
+      candidateId: 'candidate-1',
+    });
+    expect(repo.lockCandidate.mock.invocationCallOrder[0])
+      .toBeLessThan(repo.upsertPreparation.mock.invocationCallOrder[0]);
+  });
+
   it('persists basic product information into preparation registration input', async () => {
     const repo = makeRepo({
       findActivePreparation: vi.fn().mockResolvedValue({
@@ -59,7 +101,7 @@ describe('ProductPreparationSelectionService', () => {
       ],
     });
 
-    expect(repo.upsertPreparation).toHaveBeenCalledWith({
+    expect(repo.upsertPreparation).toHaveBeenCalledWith(TX, {
       organizationId: 'org-1',
       candidate,
       data: expect.objectContaining({
@@ -119,11 +161,11 @@ describe('ProductPreparationSelectionService', () => {
       selectedThumbnailGenerationCandidateId: null,
     });
 
-    expect(repo.findCandidateForPreparation).toHaveBeenCalledWith({
+    expect(repo.findCandidateForPreparation).toHaveBeenCalledWith(TX, {
       organizationId: 'org-1',
       candidateId: 'candidate-1',
     });
-    expect(repo.upsertPreparation).toHaveBeenCalledWith({
+    expect(repo.upsertPreparation).toHaveBeenCalledWith(TX, {
       organizationId: 'org-1',
       candidate,
       data: expect.objectContaining({
@@ -147,7 +189,7 @@ describe('ProductPreparationSelectionService', () => {
       selectedDetailPageGenerationId: 'detail-generation-1',
     });
 
-    expect(repo.upsertPreparation).toHaveBeenCalledWith({
+    expect(repo.upsertPreparation).toHaveBeenCalledWith(TX, {
       organizationId: 'org-1',
       candidate,
       data: expect.objectContaining({
@@ -192,7 +234,7 @@ describe('ProductPreparationSelectionService', () => {
       selectedDetailPageGenerationId: 'detail-generation-1',
       selectedDetailPageRevisionId: 'foreign-revision',
     })).rejects.toThrow('선택한 상세페이지 버전이 이 상품에 속하지 않습니다.');
-    expect(repo.findPreparationDetailPageRevision).toHaveBeenCalledWith({
+    expect(repo.findPreparationDetailPageRevision).toHaveBeenCalledWith(TX, {
       organizationId: 'org-1',
       artifactId: 'artifact-1',
       revisionId: 'foreign-revision',

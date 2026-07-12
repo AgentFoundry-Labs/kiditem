@@ -90,7 +90,7 @@ export class RegistrationContentWorkspaceRepositoryAdapter
       }
     }
 
-    await this.validateThumbnailSelection(tx, input, source.id);
+    await this.resolveThumbnailSelection(tx, input, source);
     return {
       selectedThumbnailUrl: input.selectedThumbnailUrl,
       selectedThumbnailGenerationId: input.selectedThumbnailGenerationId,
@@ -393,7 +393,11 @@ export class RegistrationContentWorkspaceRepositoryAdapter
   private async findSourceWorkspace(
     tx: Prisma.TransactionClient,
     input: Pick<RegistrationContentSelectionInput, 'organizationId' | 'sourceWorkspaceId'>,
-  ): Promise<{ id: string; sourceCandidateId: string | null }> {
+  ): Promise<{
+    id: string;
+    sourceCandidateId: string | null;
+    createdByUserId: string | null;
+  }> {
     const source = await tx.contentWorkspace.findFirst({
       where: {
         id: input.sourceWorkspaceId,
@@ -402,10 +406,121 @@ export class RegistrationContentWorkspaceRepositoryAdapter
         status: 'active',
         isDeleted: false,
       },
-      select: { id: true, sourceCandidateId: true },
+      select: { id: true, sourceCandidateId: true, createdByUserId: true },
     });
     if (!source) throw new NotFoundException('Source content workspace not found.');
     return source;
+  }
+
+  private async resolveThumbnailSelection(
+    tx: Prisma.TransactionClient,
+    input: RegistrationContentSelectionInput,
+    source: {
+      id: string;
+      sourceCandidateId: string | null;
+      createdByUserId: string | null;
+    },
+  ): Promise<void> {
+    const hasThumbnailGeneration = Boolean(
+      input.selectedThumbnailGenerationId
+      || input.selectedThumbnailGenerationCandidateId,
+    );
+    if (!input.selectedThumbnailUrl || hasThumbnailGeneration) {
+      await this.validateThumbnailSelection(tx, input, source.id);
+      return;
+    }
+
+    const existing = await tx.contentAsset.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        url: input.selectedThumbnailUrl,
+        isDeleted: false,
+        thumbnailSelections: {
+          some: {
+            organizationId: input.organizationId,
+            contentWorkspaceId: source.id,
+          },
+        },
+      },
+      select: { id: true },
+    });
+    if (existing) return;
+    if (!source.sourceCandidateId) {
+      throw new BadRequestException(
+        'Selected thumbnail URL is not source-owned managed content.',
+      );
+    }
+
+    const candidate = await tx.sourcingCandidate.findFirst({
+      where: {
+        id: source.sourceCandidateId,
+        organizationId: input.organizationId,
+        status: 'sourced',
+        isDeleted: false,
+        OR: [
+          { thumbnailUrl: input.selectedThumbnailUrl },
+          { imageUrl: input.selectedThumbnailUrl },
+          {
+            images: {
+              some: {
+                organizationId: input.organizationId,
+                url: input.selectedThumbnailUrl,
+                isDeleted: false,
+              },
+            },
+          },
+        ],
+      },
+      select: {
+        id: true,
+        images: {
+          where: {
+            organizationId: input.organizationId,
+            url: input.selectedThumbnailUrl,
+            isDeleted: false,
+          },
+          orderBy: { sortOrder: 'asc' },
+          take: 1,
+          select: {
+            storageKey: true,
+            mimeType: true,
+            width: true,
+            height: true,
+            fileSize: true,
+          },
+        },
+      },
+    });
+    if (!candidate) {
+      throw new BadRequestException(
+        'Selected thumbnail URL is not source-owned managed content.',
+      );
+    }
+
+    const image = candidate.images[0] ?? null;
+    const asset = await this.ensureCandidateAsset(tx, {
+      organizationId: input.organizationId,
+      workspaceId: source.id,
+      url: input.selectedThumbnailUrl,
+      storageKey: image?.storageKey ?? null,
+      mimeType: image?.mimeType ?? null,
+      width: image?.width ?? null,
+      height: image?.height ?? null,
+      fileSize: image?.fileSize ?? null,
+      createdByUserId: source.createdByUserId,
+    });
+    await lockActiveContentAsset(tx, input.organizationId, asset.id);
+    await tx.contentWorkspaceThumbnailSelection.create({
+      data: {
+        organizationId: input.organizationId,
+        contentWorkspaceId: source.id,
+        contentAssetId: asset.id,
+        sourceThumbnailGenerationId: null,
+        sourceThumbnailCandidateId: null,
+        createdByUserId: source.createdByUserId,
+      },
+      select: { id: true },
+    });
   }
 
   private async validateThumbnailSelection(
@@ -589,6 +704,13 @@ export class RegistrationContentWorkspaceRepositoryAdapter
     }
     let asset: { id: string; url: string };
     if (hasGeneration) {
+      await lockActiveThumbnailGenerationSelection(tx, {
+        organizationId: input.organizationId,
+        sourceWorkspaceId: input.sourceWorkspaceId,
+        generationId: input.selectedThumbnailGenerationId!,
+        candidateId: input.selectedThumbnailGenerationCandidateId!,
+        url: input.selectedThumbnailUrl,
+      });
       const generation = await tx.thumbnailGeneration.findFirst({
         where: {
           id: input.selectedThumbnailGenerationId!,
@@ -741,5 +863,47 @@ async function lockActiveContentAsset(
   `);
   if (rows.length !== 1) {
     throw new BadRequestException('Selected thumbnail asset is no longer available.');
+  }
+}
+
+async function lockActiveThumbnailGenerationSelection(
+  tx: Prisma.TransactionClient,
+  input: {
+    organizationId: string;
+    sourceWorkspaceId: string;
+    generationId: string;
+    candidateId: string;
+    url: string;
+  },
+): Promise<void> {
+  const generations = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id
+    FROM thumbnail_generations
+    WHERE id = ${input.generationId}::uuid
+      AND organization_id = ${input.organizationId}::uuid
+      AND content_workspace_id = ${input.sourceWorkspaceId}::uuid
+      AND status = 'succeeded'
+      AND is_deleted = false
+    FOR UPDATE
+  `);
+  if (generations.length !== 1) {
+    throw new BadRequestException(
+      'Selected thumbnail generation is not successful source content.',
+    );
+  }
+
+  const candidates = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id
+    FROM thumbnail_generation_candidates
+    WHERE id = ${input.candidateId}::uuid
+      AND organization_id = ${input.organizationId}::uuid
+      AND generation_id = ${input.generationId}::uuid
+      AND url = ${input.url}
+    FOR UPDATE
+  `);
+  if (candidates.length !== 1) {
+    throw new BadRequestException(
+      'Selected thumbnail generation is not successful source content.',
+    );
   }
 }

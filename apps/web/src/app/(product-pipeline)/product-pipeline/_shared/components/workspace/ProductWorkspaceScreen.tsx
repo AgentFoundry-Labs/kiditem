@@ -135,7 +135,7 @@ export function ProductWorkspaceScreen({
   const productPreparation = product?.productPreparation ?? null;
   const detailGenerationProductId = productId;
   const detailGenerationContentWorkspaceId =
-    contentWorkspaceId ?? productPreparation?.contentWorkspaceId ?? null;
+    contentWorkspaceId ?? productPreparation?.sourceContentWorkspaceId ?? null;
   const detailGenerationSourceCandidateId =
     detailGenerationContentWorkspaceId ? null : productId;
   const [basicPreparationBaseUpdatedAt, setBasicPreparationBaseUpdatedAt] =

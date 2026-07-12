@@ -4,6 +4,84 @@ import { CoupangProviderRequestError } from '../../port/out/provider/coupang-pro
 import { MarketplaceRegistrationService } from '../marketplace-registration.service';
 
 describe('MarketplaceRegistrationService application orchestration', () => {
+  it('validates the frozen payload before marking the provider outcome uncertain', async () => {
+    const beforeProviderCreate = vi.fn();
+    const repository = {
+      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
+    };
+    const coupang = { createSellerProduct: vi.fn() };
+    const service = new MarketplaceRegistrationService(
+      repository as never,
+      {} as never,
+      coupang as never,
+    );
+
+    await expect(service.submitProductRegistration({
+      organizationId: 'org-1',
+      preparationId: 'preparation-1',
+      sourceCandidateId: 'candidate-1',
+      channelAccountId: 'account-1',
+      submissionKey: 'submission-key-1',
+      submissionPayloadHash: 'hash-1',
+      submissionPayloadJson: { registrationInput: { items: [] } },
+      providerSubmissionId: null,
+      registrationResult: null,
+      isRetry: false,
+      providerOutcome: 'not_attempted',
+      providerCreateAllowed: true,
+    }, beforeProviderCreate)).rejects.toThrow(
+      'Frozen preparation marketplace payload must contain at least one item.',
+    );
+
+    expect(beforeProviderCreate).not.toHaveBeenCalled();
+    expect(coupang.createSellerProduct).not.toHaveBeenCalled();
+  });
+
+  it('marks the provider outcome uncertain immediately before the provider POST', async () => {
+    const callOrder: string[] = [];
+    const beforeProviderCreate = vi.fn(async () => {
+      callOrder.push('mark-uncertain');
+    });
+    const repository = {
+      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
+    };
+    const coupang = {
+      createSellerProduct: vi.fn().mockImplementation(async () => {
+        callOrder.push('provider-post');
+        return {
+          code: '200',
+          message: '',
+          data: { code: 'SUCCESS', data: 427011919 },
+        };
+      }),
+    };
+    const service = new MarketplaceRegistrationService(
+      repository as never,
+      {} as never,
+      coupang as never,
+    );
+
+    await service.submitProductRegistration({
+      organizationId: 'org-1',
+      preparationId: 'preparation-1',
+      sourceCandidateId: 'candidate-1',
+      channelAccountId: 'account-1',
+      submissionKey: 'submission-key-1',
+      submissionPayloadHash: 'hash-1',
+      submissionPayloadJson: {
+        registrationInput: { items: [{ itemName: 'Blue', salePrice: 12900 }] },
+      },
+      providerSubmissionId: null,
+      registrationResult: null,
+      isRetry: false,
+      providerOutcome: 'not_attempted',
+      providerCreateAllowed: true,
+    }, beforeProviderCreate);
+
+    expect(beforeProviderCreate).toHaveBeenCalledTimes(1);
+    expect(callOrder).toEqual(['mark-uncertain', 'provider-post']);
+  });
+
   it('submits a frozen preparation through the selected account without a Master identity', async () => {
     const repository = {
       assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),

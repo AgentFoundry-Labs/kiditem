@@ -396,6 +396,145 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
     expect(tx.contentAsset.create).not.toHaveBeenCalled();
   });
 
+  it('adopts an active candidate source thumbnail as source-owned managed content', async () => {
+    const tx = {
+      contentWorkspace: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'source-workspace-1',
+          sourceCandidateId: 'candidate-1',
+          createdByUserId: 'user-1',
+        }),
+      },
+      sourcingCandidate: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'candidate-1',
+          images: [{
+            storageKey: 'candidate/source.jpg',
+            mimeType: 'image/jpeg',
+            width: 1000,
+            height: 1000,
+            fileSize: 120000,
+          }],
+        }),
+      },
+      contentAsset: {
+        findFirst: vi.fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce(null),
+        create: vi.fn().mockResolvedValue({
+          id: 'asset-1',
+          url: 'https://cdn.example.com/source.jpg',
+        }),
+      },
+      contentGenerationGroup: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'group-1' }),
+      },
+      contentWorkspaceThumbnailSelection: {
+        create: vi.fn().mockResolvedValue({ id: 'selection-1' }),
+      },
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'asset-1' }]),
+    };
+    const repository = new RegistrationContentWorkspaceRepositoryAdapter({} as never);
+
+    await expect(repository.resolveSourceSelections(tx, {
+      organizationId: 'org-1',
+      sourceWorkspaceId: 'source-workspace-1',
+      selectedThumbnailUrl: 'https://cdn.example.com/source.jpg',
+      selectedThumbnailGenerationId: null,
+      selectedThumbnailGenerationCandidateId: null,
+      selectedDetailPageArtifactId: null,
+      selectedDetailPageRevisionId: null,
+      selectedDetailPageGenerationId: null,
+    })).resolves.toMatchObject({
+      selectedThumbnailUrl: 'https://cdn.example.com/source.jpg',
+    });
+
+    expect(tx.sourcingCandidate.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'candidate-1',
+        organizationId: 'org-1',
+        status: 'sourced',
+        isDeleted: false,
+        OR: [
+          { thumbnailUrl: 'https://cdn.example.com/source.jpg' },
+          { imageUrl: 'https://cdn.example.com/source.jpg' },
+          {
+            images: {
+              some: {
+                organizationId: 'org-1',
+                url: 'https://cdn.example.com/source.jpg',
+                isDeleted: false,
+              },
+            },
+          },
+        ],
+      },
+      select: {
+        id: true,
+        images: {
+          where: {
+            organizationId: 'org-1',
+            url: 'https://cdn.example.com/source.jpg',
+            isDeleted: false,
+          },
+          orderBy: { sortOrder: 'asc' },
+          take: 1,
+          select: {
+            storageKey: true,
+            mimeType: true,
+            width: true,
+            height: true,
+            fileSize: true,
+          },
+        },
+      },
+    });
+    expect(tx.contentWorkspaceThumbnailSelection.create).toHaveBeenCalledWith({
+      data: {
+        organizationId: 'org-1',
+        contentWorkspaceId: 'source-workspace-1',
+        contentAssetId: 'asset-1',
+        sourceThumbnailGenerationId: null,
+        sourceThumbnailCandidateId: null,
+        createdByUserId: 'user-1',
+      },
+      select: { id: true },
+    });
+  });
+
+  it('does not adopt an external URL that is absent from the active candidate source', async () => {
+    const tx = {
+      contentWorkspace: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'source-workspace-1',
+          sourceCandidateId: 'candidate-1',
+          createdByUserId: 'user-1',
+        }),
+      },
+      sourcingCandidate: { findFirst: vi.fn().mockResolvedValue(null) },
+      contentAsset: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn(),
+      },
+      contentWorkspaceThumbnailSelection: { create: vi.fn() },
+    };
+    const repository = new RegistrationContentWorkspaceRepositoryAdapter({} as never);
+
+    await expect(repository.resolveSourceSelections(tx, {
+      organizationId: 'org-1',
+      sourceWorkspaceId: 'source-workspace-1',
+      selectedThumbnailUrl: 'https://untrusted.example.com/thumb.png',
+      selectedThumbnailGenerationId: null,
+      selectedThumbnailGenerationCandidateId: null,
+      selectedDetailPageArtifactId: null,
+      selectedDetailPageRevisionId: null,
+      selectedDetailPageGenerationId: null,
+    })).rejects.toThrow('Selected thumbnail URL is not source-owned managed content.');
+
+    expect(tx.contentAsset.create).not.toHaveBeenCalled();
+    expect(tx.contentWorkspaceThumbnailSelection.create).not.toHaveBeenCalled();
+  });
+
   it('validates every selected reference against the organization and source workspace', async () => {
     const tx = {
       contentWorkspace: {
@@ -569,6 +708,8 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
           sourceCandidateId: 'candidate-1',
         }])
         .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: 'thumb-generation-1' }])
+        .mockResolvedValueOnce([{ id: 'thumb-candidate-1' }])
         .mockResolvedValueOnce([{ id: 'asset-1' }]),
       contentWorkspaceThumbnailSelection: {
         create: vi.fn().mockResolvedValue({ id: 'listing-selection-1' }),
@@ -654,6 +795,18 @@ describe('RegistrationContentWorkspaceRepositoryAdapter', () => {
       },
       select: { id: true, detailPageArtifactId: true },
     });
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(5);
+    const lockSql = tx.$queryRaw.mock.calls.map(([query]) =>
+      (query as { strings?: string[] }).strings?.join(' ') ?? '',
+    );
+    expect(lockSql[2]).toContain('thumbnail_generations');
+    expect(lockSql[3]).toContain('thumbnail_generation_candidates');
+    expect(tx.$queryRaw.mock.invocationCallOrder[2]).toBeLessThan(
+      tx.$queryRaw.mock.invocationCallOrder[3],
+    );
+    expect(tx.$queryRaw.mock.invocationCallOrder[3]).toBeLessThan(
+      tx.contentWorkspaceThumbnailSelection.create.mock.invocationCallOrder[0],
+    );
     expect(tx.thumbnailGenerationCandidate).not.toHaveProperty('create');
   });
 

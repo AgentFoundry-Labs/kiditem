@@ -25,9 +25,12 @@ export class ChannelProductRegistrationAdapter
     return this.registration.reconcileProductRegistration(input);
   }
 
-  async submit(input: ChannelProductRegistrationSubmissionInput) {
+  async submit(
+    input: ChannelProductRegistrationSubmissionInput,
+    beforeProviderCreate: () => Promise<void>,
+  ) {
     try {
-      return await this.registration.submitProductRegistration(input);
+      return await this.registration.submitProductRegistration(input, beforeProviderCreate);
     } catch (error) {
       if (error instanceof DefinitiveMarketplaceRegistrationError) {
         throw new DefinitiveChannelProductRegistrationError(error.message);

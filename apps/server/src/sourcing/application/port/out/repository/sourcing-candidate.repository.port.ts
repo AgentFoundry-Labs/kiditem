@@ -54,6 +54,9 @@ export interface ProductPreparationRow {
   sourceCandidateId: string | null;
   masterId: string | null;
   contentWorkspaceId: string | null;
+  channelAccountId: string | null;
+  sourceContentWorkspaceId: string | null;
+  channelListingId: string | null;
   displayName: string;
   status: string;
   isCurrentForMaster: boolean;
@@ -339,33 +342,36 @@ export interface SourcingCandidateRepositoryPort {
     input: UpsertPromotedProductPreparationInput,
   ): Promise<void>;
 
-  findCandidateForPreparation(input: {
+  findCandidateForPreparation(tx: SourcingRepositoryTransaction, input: {
     organizationId: string;
     candidateId: string;
   }): Promise<CandidateForPreparationRow | null>;
 
-  findActivePreparation(input: {
+  findActivePreparation(tx: SourcingRepositoryTransaction, input: {
     organizationId: string;
     sourceCandidateId: string;
   }): Promise<PreparationSelectionRow | null>;
 
-  findPreparationThumbnailCandidate(input: {
+  findPreparationThumbnailCandidate(tx: SourcingRepositoryTransaction, input: {
     organizationId: string;
     candidate: CandidateForPreparationRow;
     generatedCandidateId: string;
   }): Promise<(PreparationThumbnailSelectionRow & { url: string }) | null>;
 
-  findPreparationDetailPageGeneration(input: {
+  findPreparationDetailPageGeneration(tx: SourcingRepositoryTransaction, input: {
     organizationId: string;
     candidate: CandidateForPreparationRow;
     contentGenerationId: string;
   }): Promise<PreparationDetailPageSelectionRow | null>;
 
-  findPreparationDetailPageRevision(input: {
+  findPreparationDetailPageRevision(tx: SourcingRepositoryTransaction, input: {
     organizationId: string;
     artifactId: string;
     revisionId: string;
   }): Promise<{ id: string } | null>;
 
-  upsertPreparation(input: UpsertPreparationInput): Promise<ProductPreparationRow>;
+  upsertPreparation(
+    tx: SourcingRepositoryTransaction,
+    input: UpsertPreparationInput,
+  ): Promise<ProductPreparationRow>;
 }

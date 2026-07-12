@@ -119,8 +119,12 @@ export class ChannelRegistrationCapabilityAdapter
 
   submitProductRegistration(
     input: ProductRegistrationSubmissionCapabilityInput,
+    beforeProviderCreate: () => Promise<void>,
   ): Promise<MarketplaceSubmissionResult> {
-    return this.marketplaceRegistration.submitProductRegistration(input);
+    return this.marketplaceRegistration.submitProductRegistration(
+      input,
+      beforeProviderCreate,
+    );
   }
 
   resolveProductRegistration(

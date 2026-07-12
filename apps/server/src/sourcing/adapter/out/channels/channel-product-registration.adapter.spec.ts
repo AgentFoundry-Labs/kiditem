@@ -21,9 +21,10 @@ describe('ChannelProductRegistrationAdapter', () => {
       registrationResult: null,
     };
     const tx = { opaque: true } as never;
+    const beforeProviderCreate = vi.fn().mockResolvedValue(undefined);
 
     await adapter.reconcile(submission);
-    await adapter.submit(submission);
+    await adapter.submit(submission, beforeProviderCreate);
     await adapter.resolveListing(tx, {
       ...submission,
       externalListingId: '427011919',
@@ -31,7 +32,10 @@ describe('ChannelProductRegistrationAdapter', () => {
     });
 
     expect(capability.reconcileProductRegistration).toHaveBeenCalledWith(submission);
-    expect(capability.submitProductRegistration).toHaveBeenCalledWith(submission);
+    expect(capability.submitProductRegistration).toHaveBeenCalledWith(
+      submission,
+      beforeProviderCreate,
+    );
     expect(capability.resolveProductRegistration).toHaveBeenCalledWith(
       tx,
       expect.objectContaining({ externalListingId: '427011919' }),

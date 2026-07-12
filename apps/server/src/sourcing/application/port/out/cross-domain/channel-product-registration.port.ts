@@ -43,6 +43,7 @@ export interface ChannelProductRegistrationPort {
   ): Promise<MarketplaceSubmissionResult | null>;
   submit(
     input: ChannelProductRegistrationSubmissionInput,
+    beforeProviderCreate: () => Promise<void>,
   ): Promise<MarketplaceSubmissionResult>;
   resolveListing(
     tx: SourcingRepositoryTransaction,

@@ -117,11 +117,14 @@ function setup(overrides: {
   } as ProductPreparationRepositoryPort;
   const channel = {
     reconcile: vi.fn().mockResolvedValue(null),
-    submit: vi.fn().mockResolvedValue({
-      providerSubmissionId: 'provider-1',
-      externalListingId: '427011919',
-      channel: 'coupang',
-      rawResult: { code: 'SUCCESS' },
+    submit: vi.fn().mockImplementation(async (_input, beforeProviderCreate) => {
+      await beforeProviderCreate();
+      return {
+        providerSubmissionId: 'provider-1',
+        externalListingId: '427011919',
+        channel: 'coupang',
+        rawResult: { code: 'SUCCESS' },
+      };
     }),
     resolveListing: vi.fn().mockResolvedValue({
       listingId: LISTING_ID,
@@ -371,12 +374,25 @@ describe('ProductRegistrationService', () => {
   });
 
   it('durably marks the attempt uncertain immediately before an allowed provider create', async () => {
+    const providerCreateBoundary = vi.fn();
     const { service, repository, channel } = setup({
       repository: {
         claimForSubmission: vi.fn().mockResolvedValue(frozenSubmission({
           providerOutcome: 'definitive_failure',
           isRetry: true,
         })),
+      },
+      channel: {
+        submit: vi.fn().mockImplementation(async (_input, beforeProviderCreate) => {
+          await beforeProviderCreate();
+          providerCreateBoundary();
+          return {
+            providerSubmissionId: 'provider-1',
+            externalListingId: '427011919',
+            channel: 'coupang',
+            rawResult: { code: 'SUCCESS' },
+          };
+        }),
       },
     });
 
@@ -387,12 +403,35 @@ describe('ProductRegistrationService', () => {
       PREPARATION_ID,
       '33333333-3333-4333-8333-333333333333',
     );
-    expect(channel.submit).toHaveBeenCalledWith(expect.objectContaining({
-      providerOutcome: 'uncertain',
-      providerCreateAllowed: true,
-    }));
+    expect(channel.submit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOutcome: 'uncertain',
+        providerCreateAllowed: true,
+      }),
+      expect.any(Function),
+    );
     expect(repository.markProviderAttemptStarted.mock.invocationCallOrder[0])
-      .toBeLessThan(channel.submit.mock.invocationCallOrder[0]);
+      .toBeLessThan(providerCreateBoundary.mock.invocationCallOrder[0]);
+  });
+
+  it('does not mark an attempt uncertain when local channel validation rejects before provider create', async () => {
+    const { service, repository } = setup({
+      channel: {
+        submit: vi.fn().mockRejectedValue(new Error('invalid frozen listing payload')),
+      },
+    });
+
+    await expect(service.submit(ORG_ID, PREPARATION_ID, USER_ID)).resolves.toEqual({
+      preparationId: PREPARATION_ID,
+      status: 'failed',
+    });
+    expect(repository.markProviderAttemptStarted).not.toHaveBeenCalled();
+    expect(repository.markFailed).toHaveBeenCalledWith({
+      organizationId: ORG_ID,
+      preparationId: PREPARATION_ID,
+      submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
+      error: 'invalid frozen listing payload',
+    });
   });
 
   it('records a definitive provider rejection without leaving an uncertain identity', async () => {

@@ -176,7 +176,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     };
     const repository = new SourcingCandidateRepositoryAdapter(prisma as never);
 
-    const row = await repository.upsertPreparation({
+    const row = await repository.upsertPreparation(prisma as never, {
       organizationId: 'org-1',
       candidate: {
         id: 'candidate-1',
@@ -307,6 +307,9 @@ describe('SourcingCandidateRepositoryAdapter', () => {
             sourceCandidateId: 'candidate-1',
             masterId: 'master-1',
             contentWorkspaceId: 'workspace-1',
+            channelAccountId: 'account-1',
+            sourceContentWorkspaceId: 'source-workspace-1',
+            channelListingId: 'listing-1',
             displayName: 'Toy candidate',
             status: 'product_registered',
             isCurrentForMaster: true,
@@ -354,6 +357,9 @@ describe('SourcingCandidateRepositoryAdapter', () => {
       sourceCandidateId: 'candidate-1',
       masterId: 'master-1',
       contentWorkspaceId: 'workspace-1',
+      channelAccountId: 'account-1',
+      sourceContentWorkspaceId: 'source-workspace-1',
+      channelListingId: 'listing-1',
       displayName: 'Toy candidate',
       status: 'cancelled',
       isCurrentForMaster: true,

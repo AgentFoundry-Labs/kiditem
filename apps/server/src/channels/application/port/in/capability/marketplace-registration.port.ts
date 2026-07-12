@@ -72,6 +72,7 @@ export interface ChannelsMarketplaceRegistrationCapabilityPort {
 
   submitProductRegistration(
     input: ProductRegistrationSubmissionCapabilityInput,
+    beforeProviderCreate: () => Promise<void>,
   ): Promise<MarketplaceSubmissionResult>;
 
   resolveProductRegistration(

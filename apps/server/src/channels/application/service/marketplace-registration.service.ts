@@ -146,6 +146,7 @@ export class MarketplaceRegistrationService {
 
   async submitProductRegistration(
     input: ProductRegistrationSubmissionCapabilityInput,
+    beforeProviderCreate: () => Promise<void> = async () => undefined,
   ): Promise<MarketplaceSubmissionResult> {
     const account = await this.repository.assertActiveRegistrationAccount(input);
     if (account.channel !== 'coupang') {
@@ -163,6 +164,7 @@ export class MarketplaceRegistrationService {
       input.submissionPayloadJson,
       input.submissionKey,
     );
+    await beforeProviderCreate();
     let response: CoupangCreateSellerProductResponse;
     try {
       response = await this.coupang.createSellerProduct(

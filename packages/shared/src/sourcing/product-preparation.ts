@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { zIsoDate } from '../schemas/common.js';
 
 export const PRODUCT_PREPARATION_STATUSES = [
   'draft',
@@ -9,6 +10,22 @@ export const PRODUCT_PREPARATION_STATUSES = [
 ] as const;
 
 export const ProductPreparationStatusSchema = z.enum(PRODUCT_PREPARATION_STATUSES);
+
+export const ProductPreparationProjectionSchema = z.object({
+  id: z.string().uuid(),
+  sourceCandidateId: z.string().uuid().nullable(),
+  channelAccountId: z.string().uuid().nullable(),
+  sourceContentWorkspaceId: z.string().uuid().nullable(),
+  channelListingId: z.string().uuid().nullable(),
+  status: ProductPreparationStatusSchema,
+  selectedThumbnailUrl: z.string().nullable(),
+  selectedThumbnailGenerationId: z.string().uuid().nullable(),
+  selectedThumbnailGenerationCandidateId: z.string().uuid().nullable(),
+  selectedDetailPageArtifactId: z.string().uuid().nullable(),
+  selectedDetailPageRevisionId: z.string().uuid().nullable(),
+  selectedDetailPageGenerationId: z.string().uuid().nullable(),
+  updatedAt: zIsoDate.nullable(),
+});
 
 const EditablePreparationFieldsSchema = z.object({
   displayName: z.string().trim().min(1).max(500).optional(),
@@ -39,6 +56,9 @@ export const ProductPreparationCommandResultSchema = z.object({
 }).strict();
 
 export type ProductPreparationStatus = z.infer<typeof ProductPreparationStatusSchema>;
+export type ProductPreparationProjection = z.infer<
+  typeof ProductPreparationProjectionSchema
+>;
 export type CreateProductPreparationInput = z.infer<typeof CreateProductPreparationInputSchema>;
 export type UpdateProductPreparationInput = z.infer<typeof UpdateProductPreparationInputSchema>;
 export type ProductPreparationCommandResult = z.infer<

@@ -659,12 +659,18 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
     });
   }
 
-  async findCandidateForPreparation(input: {
+  async findCandidateForPreparation(tx: SourcingRepositoryTransaction, input: {
     organizationId: string;
     candidateId: string;
   }): Promise<CandidateForPreparationRow | null> {
-    const row = await this.prisma.sourcingCandidate.findFirst({
-      where: { id: input.candidateId, organizationId: input.organizationId, isDeleted: false },
+    const prismaTx = tx as Prisma.TransactionClient;
+    const row = await prismaTx.sourcingCandidate.findFirst({
+      where: {
+        id: input.candidateId,
+        organizationId: input.organizationId,
+        status: 'sourced',
+        isDeleted: false,
+      },
       select: {
         id: true,
         name: true,
@@ -678,11 +684,12 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
     return row ? toCandidateForPreparationRow(row) : null;
   }
 
-  async findActivePreparation(input: {
+  async findActivePreparation(tx: SourcingRepositoryTransaction, input: {
     organizationId: string;
     sourceCandidateId: string;
   }): Promise<PreparationSelectionRow | null> {
-    const row = await this.prisma.productPreparation.findFirst({
+    const prismaTx = tx as Prisma.TransactionClient;
+    const row = await prismaTx.productPreparation.findFirst({
       where: {
         organizationId: input.organizationId,
         sourceCandidateId: input.sourceCandidateId,
@@ -699,12 +706,13 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       : null;
   }
 
-  async findPreparationThumbnailCandidate(input: {
+  async findPreparationThumbnailCandidate(tx: SourcingRepositoryTransaction, input: {
     organizationId: string;
     candidate: CandidateForPreparationRow;
     generatedCandidateId: string;
   }): Promise<(PreparationThumbnailSelectionRow & { url: string }) | null> {
-    const generated = await this.prisma.thumbnailGenerationCandidate.findFirst({
+    const prismaTx = tx as Prisma.TransactionClient;
+    const generated = await prismaTx.thumbnailGenerationCandidate.findFirst({
       where: {
         id: input.generatedCandidateId,
         organizationId: input.organizationId,
@@ -740,12 +748,13 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       : null;
   }
 
-  async findPreparationDetailPageGeneration(input: {
+  async findPreparationDetailPageGeneration(tx: SourcingRepositoryTransaction, input: {
     organizationId: string;
     candidate: CandidateForPreparationRow;
     contentGenerationId: string;
   }): Promise<PreparationDetailPageSelectionRow | null> {
-    const generation = await this.prisma.contentGeneration.findFirst({
+    const prismaTx = tx as Prisma.TransactionClient;
+    const generation = await prismaTx.contentGeneration.findFirst({
       where: {
         id: input.contentGenerationId,
         organizationId: input.organizationId,
@@ -780,12 +789,13 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       : null;
   }
 
-  async findPreparationDetailPageRevision(input: {
+  async findPreparationDetailPageRevision(tx: SourcingRepositoryTransaction, input: {
     organizationId: string;
     artifactId: string;
     revisionId: string;
   }): Promise<{ id: string } | null> {
-    return this.prisma.detailPageRevision.findFirst({
+    const prismaTx = tx as Prisma.TransactionClient;
+    return prismaTx.detailPageRevision.findFirst({
       where: {
         id: input.revisionId,
         organizationId: input.organizationId,
@@ -795,8 +805,12 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
     });
   }
 
-  async upsertPreparation(input: UpsertPreparationInput): Promise<ProductPreparationRow> {
-    const findActivePreparation = () => this.prisma.productPreparation.findFirst({
+  async upsertPreparation(
+    tx: SourcingRepositoryTransaction,
+    input: UpsertPreparationInput,
+  ): Promise<ProductPreparationRow> {
+    const prismaTx = tx as Prisma.TransactionClient;
+    const findActivePreparation = () => prismaTx.productPreparation.findFirst({
       where: {
         organizationId: input.organizationId,
         sourceCandidateId: input.candidate.id,
@@ -810,7 +824,7 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
           `Preparation cannot be changed from '${current.status}'.`,
         );
       }
-      const result = await this.prisma.productPreparation.updateMany({
+      const result = await prismaTx.productPreparation.updateMany({
         where: {
           id: current.id,
           organizationId: input.organizationId,
@@ -823,7 +837,7 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       if (result.count !== 1) {
         throw new ConflictException('Preparation changed while applying the selection.');
       }
-      const updated = await this.prisma.productPreparation.findFirst({
+      const updated = await prismaTx.productPreparation.findFirst({
         where: {
           id: current.id,
           organizationId: input.organizationId,
@@ -840,7 +854,7 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       return updatePreparation(existing);
     }
     try {
-      const created = await this.prisma.productPreparation.create({
+      const created = await prismaTx.productPreparation.create({
         data: createPreparationDataFromCandidate(input),
       });
       return toProductPreparationRow(created);
@@ -927,6 +941,9 @@ function toProductPreparationRow(p: any): ProductPreparationRow {
     sourceCandidateId: p.sourceCandidateId,
     masterId: p.masterId,
     contentWorkspaceId: p.contentWorkspaceId,
+    channelAccountId: p.channelAccountId,
+    sourceContentWorkspaceId: p.sourceContentWorkspaceId,
+    channelListingId: p.channelListingId,
     displayName: p.displayName,
     status: p.status === 'product_registered' ? 'cancelled' : p.status,
     isCurrentForMaster: p.isCurrentForMaster,
