@@ -14,14 +14,6 @@ function extractModel(schema, modelName) {
   return match[0];
 }
 
-function assertModelAbsent(schema, modelName) {
-  assert.doesNotMatch(
-    schema,
-    new RegExp(`^model ${modelName} \\{`, 'm'),
-    `Expected legacy model ${modelName} to be absent`,
-  );
-}
-
 function assertFields(model, fieldNames) {
   for (const fieldName of fieldNames) {
     assert.match(model, new RegExp(`^\\s*${fieldName}\\s+`, 'm'), `Expected field ${fieldName}`);
@@ -47,20 +39,20 @@ function compact(schema) {
 }
 
 describe('channel Sellpia matching schema contract', () => {
-  it('removes the legacy mutable stock schema after the development reset cutover', () => {
+  it('retains the legacy mutable stock schema through the 0.1.8 expand release', () => {
     extractModel(coreSchema, 'ProductOption');
     extractModel(coreSchema, 'BundleComponent');
     extractModel(channelsSchema, 'ChannelReconciliationRun');
     extractModel(channelsSchema, 'ChannelReconciliationItem');
-    assertModelAbsent(inventorySchema, 'Inventory');
-    assertModelAbsent(inventorySchema, 'StockTransaction');
-    assertModelAbsent(inventorySchema, 'RocketInventoryLedger');
-    assertModelAbsent(inventorySchema, 'SellpiaStockSnapshot');
-    assertModelAbsent(inventorySchema, 'SellpiaStockSnapshotItem');
-    assertModelAbsent(inventorySchema, 'SellpiaNewProductCandidate');
+    extractModel(inventorySchema, 'Inventory');
+    extractModel(inventorySchema, 'StockTransaction');
+    extractModel(inventorySchema, 'RocketInventoryLedger');
+    extractModel(inventorySchema, 'SellpiaStockSnapshot');
+    extractModel(inventorySchema, 'SellpiaStockSnapshotItem');
+    extractModel(inventorySchema, 'SellpiaNewProductCandidate');
 
     const option = extractModel(coreSchema, 'ProductOption');
-    assertNoFields(option, ['availableStock']);
+    assertFields(option, ['availableStock']);
   });
 
   it('defines InventorySku as Sellpia-owned physical inventory without legacy stock mutation or channel identity', () => {
@@ -140,13 +132,13 @@ describe('channel Sellpia matching schema contract', () => {
     ]);
     assert.ok(
       normalized.includes(
-        '@@unique([id, organizationId, channelAccountId], map: "channel_listings_id_org_account_key")',
+        '@@unique([id, organizationId], map: "channel_listings_id_org_key")',
       ),
-      'Expected the ChannelListing organization/account composite key',
+      'Expected the ChannelListing organization composite key',
     );
   });
 
-  it('promotes ChannelListingOption with account-scoped parent enforcement', () => {
+  it('promotes ChannelListingOption with tenant-scoped parent enforcement', () => {
     const model = extractModel(coreSchema, 'ChannelListingOption');
     const normalized = compact(model);
 
@@ -157,6 +149,11 @@ describe('channel Sellpia matching schema contract', () => {
       'modelNumber',
       'status',
       'mappingStatus',
+      'attributesJson',
+      'costPriceOverride',
+      'commissionRate',
+      'shippingCost',
+      'otherCost',
       'rawJson',
       'lastImportRunId',
     ]);
@@ -166,9 +163,9 @@ describe('channel Sellpia matching schema contract', () => {
     );
     assert.ok(
       normalized.includes(
-        'scopedProduct ChannelListing? @relation("ChannelSkuScopedProduct", fields: [listingId, organizationId, channelAccountId], references: [id, organizationId, channelAccountId], onDelete: Cascade)',
+        'listing ChannelListing @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Cascade)',
       ),
-      'Expected the optional account-scoped ChannelListing relation',
+      'Expected the organization-scoped ChannelListing relation',
     );
   });
 

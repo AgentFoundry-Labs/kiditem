@@ -15,7 +15,7 @@
     "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/server",
     "hooks:install": "git config core.hooksPath .githooks",
     "check:agents-hygiene": "node scripts/check-agents-hygiene.mjs",
-    "check:channel-sku-identity": "tsx scripts/check-channel-sku-identity.ts",
+    "check:sellpia-cutover-preflight": "tsx scripts/check-sellpia-cutover-preflight.ts",
     "check:pr-reconstruction": "node scripts/check-pr-reconstruction-contract.mjs",
     "check:pr-release-contract": "node scripts/check-pr-release-contract.mjs",
     "check:scripts-inventory": "node scripts/check-script-inventory.mjs",

@@ -17,12 +17,14 @@ model Supplier {
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization           Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  supplierProducts       SupplierProduct[]
+  supplierProducts       SupplierProduct[] @relation("SupplierProductLegacySupplier")
+  scopedSupplierProducts SupplierProduct[] @relation("SupplierProductScopedSupplier")
   purchaseOrders         PurchaseOrder[]
   payments               SupplierPayment[]
   masterSupplierProducts MasterSupplierProduct[]
 
   @@index([organizationId])
+  @@unique([id, organizationId], map: "suppliers_id_org_key")
   @@index([status])
   @@map("suppliers")
 }
@@ -31,18 +33,29 @@ model Supplier {
 /// @describe 공급사별 SKU(옵션) 단위 공급가 관리.
 model SupplierProduct {
   id          String   @id @default(uuid()) @db.Uuid
+  organizationId String? @map("organization_id") @db.Uuid
   supplierId  String   @map("supplier_id") @db.Uuid
   optionId    String   @map("option_id") @db.Uuid
+  masterProductId String? @map("master_product_id") @db.Uuid
   supplyPrice Int      @default(0) @map("supply_price")
   minOrderQty Int      @default(1) @map("min_order_qty")
+  isPrimary   Boolean? @default(false) @map("is_primary")
+  memo        String?
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  supplier Supplier      @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier Supplier       @relation("SupplierProductLegacySupplier", fields: [supplierId], references: [id], onDelete: Cascade)
+  scopedSupplier Supplier? @relation("SupplierProductScopedSupplier", fields: [supplierId, organizationId], references: [id, organizationId], onDelete: Cascade)
   option   ProductOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  masterProduct MasterProduct? @relation("SupplierProductMasterProduct", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([supplierId, optionId])
+  @@unique([supplierId, masterProductId], map: "supplier_products_supplier_master_key", where: raw("master_product_id IS NOT NULL"))
+  @@unique([masterProductId], map: "supplier_products_primary_master_key", where: raw("master_product_id IS NOT NULL AND is_primary = true"))
+  @@index([organizationId])
   @@index([optionId])
+  @@index([masterProductId])
   @@map("supplier_products")
 }
 
@@ -108,10 +121,12 @@ model PurchaseOrder {
 
   organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   supplier         Supplier?           @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  items            PurchaseOrderItem[]
+  items            PurchaseOrderItem[] @relation("PurchaseOrderItemLegacyOrder")
+  scopedItems      PurchaseOrderItem[] @relation("PurchaseOrderItemScopedOrder")
   supplierPayments SupplierPayment[]
 
   @@index([organizationId])
+  @@unique([id, organizationId], map: "purchase_orders_id_org_key")
   @@index([organizationId, externalOrderPlatform, externalOrderId])
   @@index([status])
   @@index([supplierId])
@@ -121,8 +136,10 @@ model PurchaseOrder {
 /// @namespace Supply
 model PurchaseOrderItem {
   id       String  @id @default(uuid()) @db.Uuid
+  organizationId String? @map("organization_id") @db.Uuid
   orderId  String  @map("order_id") @db.Uuid
   optionId String? @map("option_id") @db.Uuid
+  masterProductId String? @map("master_product_id") @db.Uuid
 
   productName  String  @map("product_name")
   quantity     Int
@@ -130,11 +147,16 @@ model PurchaseOrderItem {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  order  PurchaseOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  order  PurchaseOrder  @relation("PurchaseOrderItemLegacyOrder", fields: [orderId], references: [id], onDelete: Cascade)
+  scopedOrder PurchaseOrder? @relation("PurchaseOrderItemScopedOrder", fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
   option ProductOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  masterProduct MasterProduct? @relation("PurchaseOrderItemMasterProduct", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
+  @@index([organizationId])
   @@index([orderId])
   @@index([optionId])
+  @@index([masterProductId])
   @@map("purchase_order_items")
 }
 

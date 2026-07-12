@@ -10,27 +10,30 @@
 // C3 daily upserts, C4 strategy reads) wire ingestion paths.
 
 /// @namespace Channels
-/// @describe 채널 판매 SKU가 소비하는 Sellpia InventorySku 구성과 수량. 확정 매칭의 유일한 source of truth.
+/// @describe Confirmed channel-SKU recipe. InventorySku remains the rollback owner while masterProductId is staged.
 model ChannelSkuComponent {
-  id             String  @id @default(uuid()) @db.Uuid
-  organizationId String  @map("organization_id") @db.Uuid
-  channelSkuId   String  @map("channel_sku_id") @db.Uuid
-  inventorySkuId String  @map("inventory_sku_id") @db.Uuid
-  quantity       Int
-  mappingSource  String? @map("mapping_source")
-  createdBy      String? @map("created_by")
+  id              String  @id @default(uuid()) @db.Uuid
+  organizationId  String  @map("organization_id") @db.Uuid
+  channelSkuId    String  @map("channel_sku_id") @db.Uuid
+  inventorySkuId  String  @map("inventory_sku_id") @db.Uuid
+  masterProductId String? @map("master_product_id") @db.Uuid
+  quantity        Int
+  mappingSource   String? @map("mapping_source")
+  createdBy       String? @map("created_by")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelSku   ChannelListingOption @relation(fields: [channelSkuId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  inventorySku InventorySku         @relation(fields: [inventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization  Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelSku    ChannelListingOption @relation(fields: [channelSkuId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  inventorySku  InventorySku         @relation(fields: [inventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  masterProduct MasterProduct?       @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([channelSkuId, inventorySkuId])
+  @@unique([channelSkuId, masterProductId], map: "channel_sku_components_sku_master_key", where: raw("master_product_id IS NOT NULL"))
   @@index([organizationId])
   @@index([channelSkuId])
   @@index([inventorySkuId])
+  @@index([masterProductId])
   @@map("channel_sku_components")
 }
 
@@ -39,6 +42,7 @@ model ChannelSkuComponent {
 model ChannelScrapeRun {
   id             String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
+  channelAccountId String? @map("channel_account_id") @db.Uuid
 
   channel      String
   source       String
@@ -66,11 +70,14 @@ model ChannelScrapeRun {
   errorJson Json? @map("error_json")
 
   organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount ChannelAccount?       @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   snapshots    ChannelScrapeSnapshot[]
 
+  @@unique([id, organizationId], map: "channel_scrape_runs_id_org_key")
   @@index([organizationId, channel, source, businessDate])
   @@index([organizationId, status, startedAt])
   @@index([startedAt])
+  @@index([channelAccountId])
   @@map("channel_scrape_runs")
 }
 
@@ -103,9 +110,9 @@ model ChannelScrapeSnapshot {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   organization  Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  scrapeRun     ChannelScrapeRun?     @relation(fields: [scrapeRunId], references: [id], onDelete: SetNull)
-  listing       ChannelListing?       @relation(fields: [listingId], references: [id], onDelete: SetNull)
-  listingOption ChannelListingOption? @relation(fields: [listingOptionId], references: [id], onDelete: SetNull)
+  scrapeRun     ChannelScrapeRun?     @relation(fields: [scrapeRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  listing       ChannelListing?       @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  listingOption ChannelListingOption? @relation(fields: [listingOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
   option        ProductOption?        @relation(fields: [optionId], references: [id], onDelete: SetNull)
 
   listingDailySnapshots  ChannelListingDailySnapshot[]       @relation("ListingDailyRawSnapshot")
@@ -113,6 +120,7 @@ model ChannelScrapeSnapshot {
   adTargetDailySnapshots ChannelAdTargetDailySnapshot[]      @relation("AdTargetDailyRawSnapshot")
   accountKpiSnapshots    ChannelAccountDailyKpiSnapshot[]    @relation("AccountKpiRawSnapshot")
 
+  @@unique([id, organizationId], map: "channel_scrape_snapshots_id_org_key")
   @@index([organizationId, channel, source, businessDate])
   @@index([organizationId, channel, pageType, businessDate])
   @@index([scrapeRunId])
@@ -195,8 +203,8 @@ model ChannelListingDailySnapshot {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  listing      ChannelListing         @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  rawSnapshot  ChannelScrapeSnapshot? @relation("ListingDailyRawSnapshot", fields: [rawSnapshotId], references: [id], onDelete: SetNull)
+  listing      ChannelListing         @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  rawSnapshot  ChannelScrapeSnapshot? @relation("ListingDailyRawSnapshot", fields: [rawSnapshotId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, listingId, businessDate])
   @@index([organizationId, channel, externalId, businessDate])
@@ -243,10 +251,10 @@ model ChannelListingOptionDailySnapshot {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization  Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  listing       ChannelListing         @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  listingOption ChannelListingOption   @relation(fields: [listingOptionId], references: [id], onDelete: Cascade)
+  listing       ChannelListing         @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  listingOption ChannelListingOption   @relation(fields: [listingOptionId, organizationId], references: [id, organizationId], onDelete: Cascade)
   option        ProductOption?         @relation(fields: [optionId], references: [id], onDelete: SetNull)
-  rawSnapshot   ChannelScrapeSnapshot? @relation("OptionDailyRawSnapshot", fields: [rawSnapshotId], references: [id], onDelete: SetNull)
+  rawSnapshot   ChannelScrapeSnapshot? @relation("OptionDailyRawSnapshot", fields: [rawSnapshotId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, listingOptionId, businessDate])
   @@index([organizationId, channel, externalId, externalOptionId, businessDate])
@@ -304,13 +312,14 @@ model ChannelAdTargetDailySnapshot {
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization  Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  listing       ChannelListing?        @relation(fields: [listingId], references: [id], onDelete: SetNull)
-  listingOption ChannelListingOption?  @relation(fields: [listingOptionId], references: [id], onDelete: SetNull)
+  listing       ChannelListing?        @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  listingOption ChannelListingOption?  @relation(fields: [listingOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
   option        ProductOption?         @relation(fields: [optionId], references: [id], onDelete: SetNull)
-  rawSnapshot   ChannelScrapeSnapshot? @relation("AdTargetDailyRawSnapshot", fields: [rawSnapshotId], references: [id], onDelete: SetNull)
+  rawSnapshot   ChannelScrapeSnapshot? @relation("AdTargetDailyRawSnapshot", fields: [rawSnapshotId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   adActions AdAction[]
 
+  @@unique([id, organizationId], map: "channel_ad_target_daily_snapshots_id_org_key")
   @@unique([organizationId, channel, businessDate, targetType, targetKey])
   @@index([organizationId, channel, businessDate])
   @@index([listingId, businessDate])
@@ -326,6 +335,7 @@ model ChannelAdTargetDailySnapshot {
 model ChannelAccountDailyKpiSnapshot {
   id             String    @id @default(uuid()) @db.Uuid
   organizationId String    @map("organization_id") @db.Uuid
+  channelAccountId String?  @map("channel_account_id") @db.Uuid
   channel        String
   source         String // 'wing' | 'advertising' | ...
   kpiType        String    @map("kpi_type") // e.g. 'wing_dashboard' | 'wing_itemwinner_kpi'
@@ -344,11 +354,14 @@ model ChannelAccountDailyKpiSnapshot {
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  rawSnapshot  ChannelScrapeSnapshot? @relation("AccountKpiRawSnapshot", fields: [rawSnapshotId], references: [id], onDelete: SetNull)
+  channelAccount ChannelAccount?      @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  rawSnapshot  ChannelScrapeSnapshot? @relation("AccountKpiRawSnapshot", fields: [rawSnapshotId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, channel, source, businessDate, kpiType])
+  @@unique([organizationId, channelAccountId, source, businessDate, kpiType], map: "channel_account_daily_kpi_org_account_source_date_type_key", where: raw("channel_account_id IS NOT NULL"))
   @@index([organizationId, channel, businessDate])
   @@index([rawSnapshotId])
+  @@index([channelAccountId, businessDate])
   @@map("channel_account_daily_kpi_snapshots")
 }
 
@@ -405,7 +418,7 @@ model RocketPurchaseOrder {
 }
 
 /// @namespace Channels
-/// @describe 확장-릴리스 호환을 위한 비활성 스캔 이력. 현재 controller/service wiring 과 운영 매칭 흐름은 이 모델을 사용하지 않는다.
+/// @describe 채널-KidItem 상품 매칭 스캔 실행 이력. 실제 연결 source of truth 는 ChannelListing / ChannelListingOption.
 model ChannelReconciliationRun {
   id             String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
@@ -441,7 +454,7 @@ model ChannelReconciliationRun {
 }
 
 /// @namespace Channels
-/// @describe 확장-릴리스 호환을 위한 비활성 이력 테이블. 현재 운영 queue 는 없으며 ChannelSkuComponent 가 매칭 source of truth 다.
+/// @describe 사용자가 처리하는 채널-내부 상품 매칭 queue. MasterProduct 자동 생성 없이 기존 ProductOption/ChannelListing 연결만 추적.
 model ChannelReconciliationItem {
   id             String  @id @default(uuid()) @db.Uuid
   organizationId String  @map("organization_id") @db.Uuid

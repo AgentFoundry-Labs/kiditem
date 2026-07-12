@@ -22,8 +22,8 @@ npm run test:scripts
 |---|---|---|
 | `scripts/bootstrap-authoritative-inventory-dev.ts` | verified-local DB bootstrap for the Sellpia-authoritative inventory baseline; creates only organization and Wing/Rocket account metadata | `npm run inventory:bootstrap:dev`, `docs/runbooks/sellpia-rocket-inventory-sync.md` |
 | `scripts/check-agents-hygiene.mjs` | AGENTS/CLAUDE instruction hygiene gate | `npm run check:agents-hygiene` |
-| `scripts/check-channel-sku-db-push-warning.mjs` | exact Prisma warning allowlist used only after the repeatable channel SKU identity preflight | staging and production deploy workflows |
-| `scripts/check-channel-sku-identity.ts` | read-only, repeatable pre-schema account/identity safety report for ChannelListing and ChannelListingOption | `npm run check:channel-sku-identity`, staging and production deploy workflows |
+| `scripts/check-sellpia-cutover-preflight.ts` | read-only preservation/account/content/tenant report for the 0.1.8 Sellpia expand release; emits bounded machine-readable blockers | `npm run check:sellpia-cutover-preflight`, staging and production deploy workflows |
+| `scripts/check-sellpia-db-push-warning.mjs` | exact 0.1.8 additive/composite-key Prisma warning allowlist, usable only after the repeatable Sellpia preflight passes | staging and production deploy workflows |
 | `scripts/check-directory-architecture.mjs` | docs/ARCHITECTURE directory map drift gate | `npm run check:directory-architecture` |
 | `scripts/check-frontend-db-boundary.sh` | frontend must not import DB/Prisma clients | `npm run check:web-db-boundary` |
 | `scripts/check-pr-reconstruction-contract.mjs` | high-risk reconstruction PR body gate | `npm run check:pr-reconstruction` |

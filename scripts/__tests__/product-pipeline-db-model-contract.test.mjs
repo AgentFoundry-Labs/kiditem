@@ -43,21 +43,21 @@ describe('product pipeline DB model contract', () => {
     assert.ok(dbPush < postSchema, 'post-schema backfills must run after Prisma db push');
   });
 
-  it('preflights ChannelListing duplicate safety before accepting staging data loss', () => {
+  it('preflights Sellpia preservation before accepting the exact staging warning set', () => {
     const workflow = readModelFile('.github/workflows/staging-deploy.yml');
-    const preflightScript = readModelFile('scripts/check-channel-sku-identity.ts');
-    const preflight = workflow.indexOf('Check channel SKU identity preflight');
-    const warningGuard = workflow.indexOf('check-channel-sku-db-push-warning.mjs');
+    const preflightScript = readModelFile('scripts/check-sellpia-cutover-preflight.ts');
+    const preflight = workflow.indexOf('Check Sellpia cutover preflight');
+    const warningGuard = workflow.indexOf('check-sellpia-db-push-warning.mjs');
     const acceptDataLoss = workflow.indexOf('npx prisma db push --accept-data-loss');
 
     assert.ok(preflight !== -1, 'expected staging deploy to preflight reviewed data-loss gates');
     assert.ok(preflight < warningGuard, 'identity preflight must run before the exact warning guard');
     assert.ok(warningGuard < acceptDataLoss, 'exact warning guard must run before --accept-data-loss');
     assert.ok(preflight < acceptDataLoss, 'data-loss preflight must run before --accept-data-loss');
-    assert.match(workflow, /CHANNEL_SKU_IDENTITY_PREFLIGHT=passed/);
+    assert.match(workflow, /SELLPIA_CUTOVER_PREFLIGHT=passed/);
     assert.match(
       preflightScript,
-      /GROUP BY product\.organization_id,\s*product\.channel_account_id,\s*product\.external_id/,
+      /GROUP BY organization_id,\s*channel_account_id,\s*external_id/,
     );
     assert.match(preflightScript, /HAVING COUNT\(\*\) > 1/);
   });
@@ -254,9 +254,10 @@ describe('product pipeline DB model contract', () => {
     assert.match(listing, /channelAccountId\s+String\?\s+@map\("channel_account_id"\)\s+@db\.Uuid/);
     assert.match(
       listing,
-      /channelAccount\s+ChannelAccount\?\s+@relation\(fields:\s*\[channelAccountId\],\s*references:\s*\[id\],\s*onDelete:\s*SetNull\)/,
+      /channelAccount\s+ChannelAccount\?\s+@relation\(fields:\s*\[channelAccountId,\s*organizationId\],\s*references:\s*\[id,\s*organizationId\],\s*onDelete:\s*Restrict\)/,
     );
     assert.match(account, /listings\s+ChannelListing\[\]/);
+    assert.match(account, /@@unique\(\[id,\s*organizationId\]/);
 
     for (const index of [
       '@@index([channelAccountId])',

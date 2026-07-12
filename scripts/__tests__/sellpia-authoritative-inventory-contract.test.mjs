@@ -49,13 +49,10 @@ const inventoryImporter = join(
   repoRoot,
   'apps/server/src/inventory/adapter/out/repository/inventory-sku-import.repository.adapter.ts',
 );
-const persistentCutoverGate = join(
-  repoRoot,
-  'scripts/data-migrations/v0.1.9/001_block_persistent_sellpia_inventory_cutover.ts',
-);
+const migrationRegistry = join(repoRoot, 'scripts/data-migrations/index.ts');
 
 describe('Sellpia authoritative inventory reconstruction contract', () => {
-  it('removes the legacy mutable inventory runtime', () => {
+  it('removes the legacy mutable inventory runtime while retaining expand-schema rollback lanes', () => {
     const forbidden = [
       /\bINVENTORY_PORT\b/,
       /\bprisma\.inventory\b/,
@@ -67,14 +64,14 @@ describe('Sellpia authoritative inventory reconstruction contract', () => {
 
     for (const pattern of forbidden) {
       assert.deepEqual(
-        matchingFiles([...serverFiles, ...sharedFiles, ...prismaFiles], pattern),
+        matchingFiles([...serverFiles, ...sharedFiles], pattern),
         [],
         `Forbidden legacy inventory reference: ${pattern}`,
       );
     }
   });
 
-  it('removes stock policy fields from ProductOption and legacy inventory models', () => {
+  it('retains ProductOption stock policy fields and legacy inventory models at 0.1.8', () => {
     for (const model of [
       'Inventory',
       'StockTransaction',
@@ -83,12 +80,13 @@ describe('Sellpia authoritative inventory reconstruction contract', () => {
       'SellpiaStockSnapshotItem',
       'SellpiaNewProductCandidate',
     ]) {
-      assert.deepEqual(filesDefiningModel(model), [], `Legacy model must be absent: ${model}`);
+      assert.equal(filesDefiningModel(model).length, 1, `Legacy model must remain: ${model}`);
     }
 
     const option = extractModel('prisma/models/core.prisma', 'ProductOption');
     assert.ok(option, 'ProductOption model must remain');
-    assert.doesNotMatch(option, /^\s*availableStock\s+/m);
+    assert.match(option, /^\s*availableStock\s+/m);
+    assert.equal(readFileSync(join(repoRoot, 'VERSION'), 'utf8').trim(), '0.1.8');
   });
 
   it('keeps InventorySku currentStock writes inside the full-snapshot importer only', () => {
@@ -124,11 +122,11 @@ describe('Sellpia authoritative inventory reconstruction contract', () => {
     );
   });
 
-  it('blocks the local-reset-only schema cutover before shared-environment db push', () => {
-    const gateSource = readFileSync(persistentCutoverGate, 'utf8');
-    assert.match(gateSource, /phase:\s*'pre-schema'/);
-    assert.match(gateSource, /target !== 'local'/);
-    assert.match(gateSource, /local development databases only/);
+  it('replaces the unshipped local-only blocker with shared-environment preservation guards', () => {
+    const registry = readFileSync(migrationRegistry, 'utf8');
+    assert.doesNotMatch(registry, /blockPersistentSellpiaInventoryCutover|v0\.1\.9/);
+    assert.match(registry, /normalizeOperationalChannelAccounts/);
+    assert.match(registry, /backfillChannelSkuAccounts/);
 
     for (const workflowPath of [
       '.github/workflows/staging-deploy.yml',
@@ -136,9 +134,12 @@ describe('Sellpia authoritative inventory reconstruction contract', () => {
     ]) {
       const workflow = readFileSync(join(repoRoot, workflowPath), 'utf8');
       const preSchema = workflow.indexOf('npm run data:migrate -- up --phase pre-schema');
+      const preflight = workflow.indexOf('Check Sellpia cutover preflight');
       const dbPush = workflow.indexOf('npx prisma db push');
       assert.ok(preSchema >= 0, `${workflowPath} must run pre-schema migrations`);
-      assert.ok(dbPush > preSchema, `${workflowPath} must run the local-only gate before db push`);
+      assert.ok(preflight > preSchema, `${workflowPath} must run the repeatable preflight after normalization`);
+      assert.ok(dbPush > preflight, `${workflowPath} must run the preservation preflight before db push`);
+      assert.match(workflow, /check-sellpia-db-push-warning\.mjs/);
     }
   });
 });

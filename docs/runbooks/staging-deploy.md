@@ -382,32 +382,28 @@ npm run data:migrate -- up --phase pre-schema
 with `DATA_MIGRATION_TARGET=staging` and
 `DATA_MIGRATION_CONFIRM=APPLY_DATA_MIGRATIONS`. Immediately afterward, and on
 every deployment rather than once per migration ledger, it runs the read-only
-identity gate:
+Sellpia preservation gate:
 
 ```bash
-npm run check:channel-sku-identity
+npm run check:sellpia-cutover-preflight
 ```
 
-The gate emits a bounded JSON report and stops on active parent identity
-duplicates, child/parent organization mismatch, parent/account organization
-mismatch, an existing child account that differs from its parent, or projected
-child identity duplicates. Only a successful run writes the job-local
-`CHANNEL_SKU_IDENTITY_PREFLIGHT=passed` marker.
+The gate emits preservation-lane row counts and at most 20 examples per issue.
+It stops on null or duplicate operational accounts, active/inactive listing
+identity duplicates, child/parent account mismatch, cross-tenant foreign keys,
+projected staged unique-key collisions, ownerless retained content, or
+ambiguous ProductOption references. Only a successful run writes the job-local
+`SELLPIA_CUTOVER_PREFLIGHT=passed` marker.
 
 The workflow then captures an ordinary `npx prisma db push` log. If Prisma
-requires warning acceptance, `scripts/check-channel-sku-db-push-warning.mjs`
-permits a rerun with `--accept-data-loss` only when every warning is a non-empty
-subset of these preflight-covered unique additions:
-
-- `channel_listings_org_account_external_id_key`;
-- `channel_listings_id_org_account_key`;
-- `channel_listing_options_id_org_key`;
-- `channel_listing_options_org_account_external_option_key`.
+requires warning acceptance, `scripts/check-sellpia-db-push-warning.mjs`
+permits a rerun with `--accept-data-loss` only when every warning belongs to
+the reviewed 0.1.8 additive/composite-key allowlist encoded by the script.
 
 Any missing marker, drop warning, extra warning, or unrecognized constraint
 stops the deployment. The existing `accept_data_loss` workflow input remains
 as the explicit reviewed-cleanup declaration for unrelated releases, but it
-never authorizes `--accept-data-loss` by itself and cannot bypass this identity
+never authorizes `--accept-data-loss` by itself and cannot bypass this Sellpia
 gate. An unrelated cleanup must add its own tested exact-warning preflight in
 the release that needs it.
 

@@ -122,9 +122,9 @@ refs, compose status, and local smoke endpoint status from the production host.
 - `PRODUCTION_DATABASE_URL` is not the intended production DB.
 - Either data-migration confirmation is missing, the runner is outside GitHub
   Actions, or the production target guard rejects the run.
-- The repeatable channel SKU identity report contains any violation.
-- `npx prisma db push` requests a destructive or unrecognized change rather
-  than only the four preflight-covered unique additions.
+- The repeatable Sellpia cutover preservation report contains any blocking issue code.
+- `npx prisma db push` requests a drop, rename, recreated column, or any warning
+  outside the reviewed 0.1.8 additive/composite-key allowlist.
 - Candidate API/web health fails.
 - Worker service exits during candidate validation.
 - Public `/login` or `/api/auth/me` smoke fails after nginx switch.

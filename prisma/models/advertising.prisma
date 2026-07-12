@@ -6,6 +6,7 @@ model AdAction {
   id              String    @id @default(uuid()) @db.Uuid
   organizationId  String    @map("organization_id") @db.Uuid
   listingId       String?   @map("listing_id") @db.Uuid
+  listingOptionId String?   @map("listing_option_id") @db.Uuid
   adTargetDailyId String?   @map("ad_target_daily_id") @db.Uuid
   actionType      String    @map("action_type")
   targetType      String    @map("target_type")
@@ -26,9 +27,12 @@ model AdAction {
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   organization   Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  listing        ChannelListing?               @relation(fields: [listingId], references: [id], onDelete: SetNull)
-  adTargetDaily  ChannelAdTargetDailySnapshot? @relation(fields: [adTargetDailyId], references: [id], onDelete: SetNull)
+  listing        ChannelListing?               @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  listingOption  ChannelListingOption?         @relation(fields: [listingOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  adTargetDaily  ChannelAdTargetDailySnapshot? @relation(fields: [adTargetDailyId, organizationId], references: [id, organizationId], onDelete: Restrict)
   executionTasks ExecutionTask[]
+
+  @@index([listingOptionId])
 
   @@index([organizationId, approvalStatus])
   @@index([executeStatus])

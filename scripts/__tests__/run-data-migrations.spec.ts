@@ -23,11 +23,11 @@ import {
   normalizeSellpiaRecommendedSnapshotItems,
 } from '../data-migrations/v0.1.7/002_normalize_sellpia_recommended_snapshot_items';
 import {
-  backfillChannelSkuAccounts,
-} from '../data-migrations/v0.1.8/001_backfill_channel_sku_accounts';
+  normalizeOperationalChannelAccounts,
+} from '../data-migrations/v0.1.8/001_normalize_operational_channel_accounts';
 import {
-  blockPersistentSellpiaInventoryCutover,
-} from '../data-migrations/v0.1.9/001_block_persistent_sellpia_inventory_cutover';
+  backfillChannelSkuAccounts,
+} from '../data-migrations/v0.1.8/002_backfill_channel_sku_accounts';
 
 const repoRoot = join(__dirname, '..', '..');
 
@@ -52,8 +52,8 @@ describe('data migration registry', () => {
       'v0.1.6:001_record_rocket_read_model_release',
       'v0.1.7:001_record_sellpia_rocket_inventory_sync_release',
       'v0.1.7:002_normalize_sellpia_recommended_snapshot_items',
-      'v0.1.8:001_backfill_channel_sku_accounts',
-      'v0.1.9:001_block_persistent_sellpia_inventory_cutover',
+      'v0.1.8:001_normalize_operational_channel_accounts',
+      'v0.1.8:002_backfill_channel_sku_accounts',
     ]);
   });
 
@@ -73,13 +73,13 @@ describe('data migration registry', () => {
   it('runs destructive table renames before Prisma db push and post-schema backfills after it', () => {
     expect(selectDataMigrationsForPhase(dataMigrations, 'pre-schema').map((m) => m.id)).toEqual([
       'v0.1.2:002_rename_registration_workspaces_to_content_workspaces',
-      'v0.1.9:001_block_persistent_sellpia_inventory_cutover',
+      'v0.1.8:001_normalize_operational_channel_accounts',
     ]);
     expect(selectDataMigrationsForPhase(dataMigrations, 'post-schema').map((m) => m.id)).toContain(
       'v0.1.2:001_backfill_channel_listing_accounts',
     );
     expect(selectDataMigrationsForPhase(dataMigrations, 'post-schema').map((m) => m.id)).toContain(
-      'v0.1.8:001_backfill_channel_sku_accounts',
+      'v0.1.8:002_backfill_channel_sku_accounts',
     );
     expect(selectDataMigrationsForPhase(dataMigrations, 'post-schema').map((m) => m.id)).not.toContain(
       'v0.1.2:002_rename_registration_workspaces_to_content_workspaces',
@@ -87,29 +87,88 @@ describe('data migration registry', () => {
   });
 });
 
-describe('Sellpia-authoritative inventory release boundary', () => {
-  it.each(['staging', 'production'])('blocks the local-reset-only cutover on %s', async (target) => {
-    await expect(blockPersistentSellpiaInventoryCutover.run(
-      {} as never,
-      { target: target as 'staging' | 'production' },
-    )).rejects.toThrow(
-      /local development databases only/,
-    );
+describe('operational channel account normalization migration', () => {
+  it('uses deterministic evidence order and repoints every incoming account FK before merging', async () => {
+    const tx = {
+      $queryRaw: vi.fn(async () => []),
+      $executeRaw: vi.fn(async () => 2),
+    };
+
+    const result = await normalizeOperationalChannelAccounts.run(tx as never);
+    const [blockerStatement] = tx.$queryRaw.mock.calls[0] as [TemplateStringsArray];
+    const blockerSql = blockerStatement.join('$value');
+    const sql = tx.$executeRaw.mock.calls
+      .map(([statement]) => (statement as TemplateStringsArray).join('$value'))
+      .join('\n');
+
+    expect(normalizeOperationalChannelAccounts.phase).toBe('pre-schema');
+    expect(blockerSql).toContain('FIRST_VALUE(account.id)');
+    expect(blockerSql).toContain('MIN(id::text)');
+    expect(blockerSql).not.toContain('MIN(id)::text');
+    expect(blockerSql).toContain('COUNT(DISTINCT candidate.account_id)');
+    expect(blockerSql).toContain('COUNT(DISTINCT sole.canonical_account_id)');
+    expect(blockerSql).toContain('operational_payload_count');
+    expect(blockerSql).toContain("'name', name");
+    expect(blockerSql).toContain("'status', status");
+    expect(blockerSql).toContain("'config', config");
+    expect(blockerSql).toContain('channel_listing_options AS target_option');
+    expect(blockerSql).toContain('legacy_parent.channel_account_id');
+    expect(blockerSql).toContain('listing.is_deleted = false');
+    expect(sql.indexOf('source_seller_vendor')).toBeLessThan(sql.indexOf('linked_listing_option'));
+    expect(sql.indexOf('linked_listing_option')).toBeLessThan(sql.indexOf('legacy_parent_listing'));
+    expect(sql.indexOf('legacy_parent_listing')).toBeLessThan(sql.indexOf('sole_active_platform'));
+    expect(sql).not.toMatch(/WHERE false/);
+    expect(sql).toContain('channel_listing_options AS target_option');
+    expect(sql).toContain('legacy_parent.channel_account_id');
+    expect(sql).not.toMatch(/= account\.seller_id\b|= account\.vendor_id\b/);
+    expect(sql).toContain("NULLIF(BTRIM(account.seller_id), '')");
+    expect(sql).toContain("NULLIF(BTRIM(account.vendor_id), '')");
+    expect(sql.match(/listing\.is_deleted = false/g)?.length ?? 0).toBeGreaterThanOrEqual(4);
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
+    for (const table of [
+      'channel_listings',
+      'channel_listing_options',
+      'source_import_runs',
+      'orders',
+      'order_returns',
+      'product_preparations',
+      'channel_scrape_runs',
+      'channel_account_daily_kpi_snapshots',
+    ]) {
+      expect(sql).toContain(table);
+    }
+    expect(sql.indexOf('UPDATE')).toBeLessThan(sql.lastIndexOf('DELETE FROM channel_accounts'));
+    expect(result.details).toMatchObject({ evidenceOrder: [
+      'source_seller_vendor',
+      'linked_listing_option',
+      'legacy_parent_listing',
+      'sole_active_platform',
+    ] });
   });
 
-  it('records the contract without mutating a local development database', async () => {
-    await expect(blockPersistentSellpiaInventoryCutover.run(
-      {} as never,
-      { target: 'local' },
-    )).resolves.toEqual({
-      affectedRows: 0,
-      details: {
-        target: 'local',
-        deployable: false,
-        note: 'Rebuild from approved Sellpia and Coupang workbooks after a verified local reset.',
-      },
-    });
+  it('throws before mutation on ambiguous or missing operational identity', async () => {
+    const tx = {
+      $queryRaw: vi.fn(async () => [{ issueCode: 'ambiguous_account', rowId: 'row-1' }]),
+      $executeRaw: vi.fn(async () => 0),
+    };
 
+    await expect(normalizeOperationalChannelAccounts.run(tx as never)).rejects.toThrow(
+      /ambiguous|missing operational channel account identity/i,
+    );
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+  });
+
+  it('fails instead of recording success when an operational listing remains accountless', async () => {
+    const tx = {
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ issueCode: 'accountless_listing_after_normalization', rowId: 'row-1' }]),
+      $executeRaw: vi.fn(async () => 0),
+    };
+
+    await expect(normalizeOperationalChannelAccounts.run(tx as never)).rejects.toThrow(
+      /left unresolved operational channel accounts/i,
+    );
   });
 });
 
@@ -158,10 +217,29 @@ describe('Channel SKU account data migration', () => {
     });
   });
 
-  it('fails after the update when a populated child account differs from its parent', async () => {
+  it.each([
+    ['orphan', [{ channelSkuId: 'sku-orphan' }]],
+    ['tenant', [], [{ channelSkuId: 'sku-cross-tenant' }]],
+  ])('fails before the update on %s child ownership', async (_case, orphans, tenantMismatches = []) => {
     const tx = {
       $executeRaw: vi.fn(async () => 0),
-      $queryRaw: vi.fn(async () => [{ channelSkuId: 'sku-1' }]),
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce(orphans)
+        .mockResolvedValueOnce(tenantMismatches),
+    };
+
+    await expect(backfillChannelSkuAccounts.run(tx as never)).rejects.toThrow(/orphan|tenant/i);
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+  });
+
+  it('fails after the update when a child remains accountless or differs from its parent', async () => {
+    const tx = {
+      $executeRaw: vi.fn(async () => 0),
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ channelSkuId: 'sku-1' }]),
     };
 
     await expect(backfillChannelSkuAccounts.run(tx as never)).rejects.toThrow(

@@ -22,6 +22,7 @@ model SourcingCandidate {
 
   status           String  @default("sourced")
   promotedMasterId String? @map("promoted_master_id") @db.Uuid
+  provenanceMasterProductId String? @map("provenance_master_product_id") @db.Uuid
 
   rejectedReason   String?   @map("rejected_reason")
   rejectedAt       DateTime? @map("rejected_at") @db.Timestamptz
@@ -37,6 +38,7 @@ model SourcingCandidate {
 
   organization             Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   promotedMaster           MasterProduct?            @relation("PromotedFromCandidate", fields: [promotedMasterId], references: [id], onDelete: SetNull)
+  provenanceMasterProduct  MasterProduct?            @relation("SourcingCandidateProvenance", fields: [provenanceMasterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
   rejectedByUser           User?                     @relation("SourcingCandidateRejectedBy", fields: [rejectedByUserId], references: [id], onDelete: SetNull)
   triggeredByUser          User?                     @relation("SourcingCandidateTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
   images                   CandidateImage[]
@@ -46,12 +48,16 @@ model SourcingCandidate {
   contentWorkspaces        ContentWorkspace[]        @relation("ContentWorkspaceSourcingCandidate")
   productPreparations      ProductPreparation[]
   thumbnailGenerations     ThumbnailGeneration[]     @relation("ThumbnailGenerationSourcingCandidate")
+  channelListings          ChannelListing[]
 
   @@unique([organizationId, sourceUrl], map: "sourcing_candidates_organization_id_source_url_key", where: raw("is_deleted = false AND status = 'sourced'"))
+  @@unique([provenanceMasterProductId, organizationId], map: "sourcing_candidates_org_provenance_master_key")
+  @@unique([id, organizationId], map: "sourcing_candidates_id_org_key")
   @@index([organizationId])
   @@index([organizationId, status])
   @@index([organizationId, isDeleted])
   @@index([promotedMasterId])
+  @@index([provenanceMasterProductId])
   @@map("sourcing_candidates")
 }
 

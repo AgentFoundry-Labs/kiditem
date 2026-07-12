@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url';
 export const SCRIPT_INVENTORY = Object.freeze([
   'bootstrap-authoritative-inventory-dev.ts',
   'check-agents-hygiene.mjs',
-  'check-channel-sku-db-push-warning.mjs',
-  'check-channel-sku-identity.ts',
+  'check-sellpia-cutover-preflight.ts',
+  'check-sellpia-db-push-warning.mjs',
   'check-directory-architecture.mjs',
   'check-frontend-db-boundary.sh',
   'check-pr-reconstruction-contract.mjs',
@@ -68,8 +68,8 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   const undocumented = expected.filter((file) => !readme.includes(`scripts/${file}`));
 
   const missingPackageHooks = [];
-  if (!packageScripts['check:channel-sku-identity']) {
-    missingPackageHooks.push('check:channel-sku-identity');
+  if (!packageScripts['check:sellpia-cutover-preflight']) {
+    missingPackageHooks.push('check:sellpia-cutover-preflight');
   }
   if (!packageScripts['check:scripts-inventory']) {
     missingPackageHooks.push('check:scripts-inventory');

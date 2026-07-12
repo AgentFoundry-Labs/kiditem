@@ -46,16 +46,18 @@ these independent boundaries hold:
 - `DATA_MIGRATION_CONFIRM=APPLY_DATA_MIGRATIONS`;
 - `DATA_MIGRATION_PRODUCTION_CONFIRM=DEPLOY_PRODUCTION`.
 
-Release `0.1.8` keeps the repeatable channel SKU identity check outside this
-one-shot ledger. Deploy workflows run `npm run check:channel-sku-identity`
-immediately before every schema push, while
-`v0.1.8:001_backfill_channel_sku_accounts` runs once in the default
-post-schema phase.
+Release `0.1.8` normalizes operational channel accounts before the schema push
+with `v0.1.8:001_normalize_operational_channel_accounts`, then fills and checks
+the additive child account column after the push with
+`v0.1.8:002_backfill_channel_sku_accounts`. The first migration resolves
+evidence in this fixed order: provider seller/vendor identity, linked listing
+option/listing, legacy parent listing, then the sole active platform account.
+Ambiguous, missing, or conflicting identity stops the release; exact canonical
+duplicates are merged only after incoming foreign keys are repointed.
 
-Release `0.1.9` has a pre-schema local-only gate. It records a zero-row ledger
-entry for `DATA_MIGRATION_TARGET=local`, but fails before Prisma schema push for
-`staging`, `production`, or an unset target. Its inventory reconstruction is
-supported only as a verified local development reset followed by the approved
-Sellpia and Coupang workbook imports. A separately reviewed, backward-compatible
-persistent-data migration must replace this gate before any shared-environment
-deployment.
+The repeatable preservation gate remains outside the one-shot ledger. Deploy
+workflows run `npm run check:sellpia-cutover-preflight` immediately before each
+schema push and pass its marker to the exact 0.1.8 warning checker. The
+unshipped blanket 0.1.9 rejection is intentionally absent from the registry;
+future 0.1.9 migrations must preserve shared-environment data rather than
+rejecting staging or production unconditionally.

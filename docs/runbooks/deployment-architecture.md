@@ -47,26 +47,27 @@ blue-green image switch:
 
 ```text
 pre-schema ledger migrations
-  -> repeatable read-only channel SKU identity preflight
+  -> repeatable read-only Sellpia cutover preservation preflight
   -> ordinary Prisma db push with exact-warning guard
   -> Prisma client generation
   -> post-schema ledger migrations
 ```
 
-Release `0.1.9` is intentionally not deployable to a persistent staging or
-production database. Its pre-schema migration accepts only
-`DATA_MIGRATION_TARGET=local` and stops the shared-environment workflow before
-Prisma can change schema. Do not bypass this gate with `--accept-data-loss` or
-by marking the ledger row complete. Replace it only with a reviewed,
-backward-compatible preservation migration and matching rollback plan.
+Release `0.1.8` is an expand-only persistent-database transition. Its
+pre-schema migration normalizes operational channel-account identities and
+repoints incoming references before canonical duplicates are merged. The
+unshipped blanket `0.1.9` rejection is not registered; later releases must add
+reviewed preservation migrations instead of rejecting shared targets.
 
-The identity preflight runs on every deployment immediately before schema push
-and writes no schema, row, workbook, or migration-ledger state. Its job-local
-marker is set only after exit `0`. Prisma remains schema truth: the workflow
-does not install SQL overlay indexes. A warning-accepted rerun is possible only
-when the captured log contains a non-empty subset of the four mapped channel
-identity unique additions and no drop, extra warning, unrecognized constraint,
-or non-warning failure.
+The Sellpia preservation preflight runs on every deployment immediately before
+schema push and writes no schema, row, workbook, or migration-ledger state. It
+reports bounded samples and counts for inventory, legacy product, component,
+supply, order, content, listing, analytics, and advertising lanes. Its
+job-local marker is set only after exit `0`. Prisma remains schema truth: the
+workflow does not install SQL overlay indexes. A warning-accepted rerun is
+possible only when every captured warning matches the reviewed 0.1.8
+additive/composite-key allowlist and no drop, rename, recreated column,
+unrecognized warning, or non-warning failure is present.
 
 Local and staging ledger mutation targets still reject production-looking
 URLs. The production ledger target is restricted to GitHub Actions and needs

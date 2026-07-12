@@ -25,7 +25,7 @@ model ProfitLoss {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  listing      ChannelListing @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  listing      ChannelListing @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, listingId, year, month])
   @@index([organizationId])
@@ -40,6 +40,7 @@ model GradeHistory {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
   masterId       String   @map("master_id") @db.Uuid
+  listingId      String?  @map("listing_id") @db.Uuid
   oldGrade       String?  @map("old_grade")
   newGrade       String   @map("new_grade")
   score          Decimal  @default(0) @db.Decimal(5, 2)
@@ -50,7 +51,10 @@ model GradeHistory {
   calculatedAt   DateTime @default(now()) @map("calculated_at") @db.Timestamptz
 
   master       MasterProduct @relation(fields: [masterId], references: [id], onDelete: Cascade)
+  listing      ChannelListing? @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Restrict)
   organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
 
   @@index([masterId])
   @@index([organizationId])
