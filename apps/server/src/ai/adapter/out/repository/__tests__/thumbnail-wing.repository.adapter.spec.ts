@@ -1,7 +1,30 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ThumbnailWingRepositoryAdapter } from '../thumbnail-wing.repository.adapter';
+import { LEGACY_FAMILY_MASTER_SCOPE } from '../../../../../common/legacy-family-master-scope';
 
 describe('ThumbnailWingRepositoryAdapter', () => {
+  it('keeps staged Sellpia identities out of registrable family lookup', async () => {
+    const prisma = {
+      masterProduct: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+    };
+    const repository = new ThumbnailWingRepositoryAdapter(prisma as never);
+
+    await repository.findRegistrableMaster('master-1', 'org-1');
+
+    expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'master-1',
+          organizationId: 'org-1',
+          isDeleted: false,
+          ...LEGACY_FAMILY_MASTER_SCOPE,
+        },
+      }),
+    );
+  });
+
   it('updates registration attempts with organization and generation scope', async () => {
     const prisma = {
       thumbnailRegistrationAttempt: {

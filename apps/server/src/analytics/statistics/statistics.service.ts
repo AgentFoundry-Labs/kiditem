@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { PrismaService } from '../../prisma/prisma.service';
+import { buildPerListingMetrics } from '../../common/per-listing-profit';
+import { kstMonthStart } from '../../common/kst';
+import { LEGACY_FAMILY_MASTER_SCOPE } from '../../common/legacy-family-master-scope';
 import type {
   StatisticsOverview,
   StatisticsProductRow,
@@ -9,9 +12,7 @@ import type {
   StatisticsRepurchaseResponse,
   StatisticsDeliveryResponse,
 } from '@kiditem/shared/statistics';
-import { PrismaService } from '../../prisma/prisma.service';
-import { buildPerListingMetrics } from '../../common/per-listing-profit';
-import { kstMonthStart } from '../../common/kst';
+import type { Prisma } from '@prisma/client';
 
 const EXCLUDED_ORDER_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
 
@@ -50,7 +51,7 @@ export class StatisticsService {
     const [metrics, totalProducts, totalOrders] = await Promise.all([
       this.getListingMetrics(organizationId, period),
       this.prisma.masterProduct.count({
-        where: { organizationId, isDeleted: false },
+        where: { organizationId, isDeleted: false, ...LEGACY_FAMILY_MASTER_SCOPE },
       }),
       this.prisma.order.count({
         where: this.buildOrderWhere(organizationId, period),

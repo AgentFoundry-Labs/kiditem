@@ -1,7 +1,8 @@
 import { Prisma } from '@prisma/client';
 import { NotFoundException } from '@nestjs/common';
-import type { PrismaService } from '../../../../prisma/prisma.service';
+import { LEGACY_FAMILY_MASTER_SCOPE } from '../../../../common/legacy-family-master-scope';
 import { thumbnailMasterImageSelect } from './thumbnail-master-image-select.preset';
+import type { PrismaService } from '../../../../prisma/prisma.service';
 import type { GenerationMasterSummary, GenerationRow } from '../../../mapper/thumbnail-generation.mapper';
 import type { ThumbnailGenerationListScope } from '../../../domain/thumbnail-generation-subject';
 
@@ -108,7 +109,12 @@ export async function findProductForEditor(
   organizationId: string,
 ): Promise<EditorProductRow | null> {
   return prisma.masterProduct.findFirst({
-    where: { id: productId, organizationId, isDeleted: false },
+    where: {
+      id: productId,
+      organizationId,
+      isDeleted: false,
+      ...LEGACY_FAMILY_MASTER_SCOPE,
+    },
     select: { id: true, name: true, imageUrl: true, category: true, organizationId: true },
   });
 }
@@ -127,7 +133,12 @@ export async function findGenerationMasters(
   const ids = [...new Set(rows.map((row) => row.masterId).filter((id): id is string => Boolean(id)))];
   if (ids.length === 0) return new Map();
   const masters = await prisma.masterProduct.findMany({
-    where: { id: { in: ids }, organizationId, isDeleted: false },
+    where: {
+      id: { in: ids },
+      organizationId,
+      isDeleted: false,
+      ...LEGACY_FAMILY_MASTER_SCOPE,
+    },
     select: { id: true, name: true, imageUrl: true, category: true },
   });
   return new Map(masters.map((master) => [master.id, master]));
@@ -149,7 +160,12 @@ export async function findJobMaster(
   organizationId: string,
 ): Promise<JobMasterRow | null> {
   return prisma.masterProduct.findFirst({
-    where: { id: masterId, organizationId, isDeleted: false },
+    where: {
+      id: masterId,
+      organizationId,
+      isDeleted: false,
+      ...LEGACY_FAMILY_MASTER_SCOPE,
+    },
     select: jobMasterSelect(organizationId),
   });
 }
@@ -161,7 +177,12 @@ export async function findJobMastersByIds(
 ): Promise<Map<string, JobMasterRow>> {
   if (ids.length === 0) return new Map();
   const products = await prisma.masterProduct.findMany({
-    where: { id: { in: ids }, organizationId, isDeleted: false },
+    where: {
+      id: { in: ids },
+      organizationId,
+      isDeleted: false,
+      ...LEGACY_FAMILY_MASTER_SCOPE,
+    },
     select: jobMasterSelect(organizationId),
   });
   return new Map(products.map((p) => [p.id, p]));
@@ -289,7 +310,10 @@ export async function findAutoBatchCandidates(
       organizationId,
       abcGrade: 'A',
       isDeleted: false,
-      OR: [{ imageUrl: { not: null } }, { thumbnailUrl: { not: null } }],
+      AND: [
+        LEGACY_FAMILY_MASTER_SCOPE,
+        { OR: [{ imageUrl: { not: null } }, { thumbnailUrl: { not: null } }] },
+      ],
     },
     select: { id: true },
     orderBy: { updatedAt: 'desc' },

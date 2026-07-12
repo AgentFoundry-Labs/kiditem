@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
 import { RulesService } from '../services/rules.service';
 import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
+import { LEGACY_FAMILY_MASTER_SCOPE } from '../../common/legacy-family-master-scope';
 
 const ORGANIZATION_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const PRODUCT_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
@@ -79,6 +80,35 @@ function makeService() {
 }
 
 describe('RulesService', () => {
+  describe('getSummary', () => {
+    it('keeps staged Sellpia physical identities out of all family health queries', async () => {
+      const { service, prisma } = makeService();
+      prisma.masterProduct.count
+        .mockResolvedValueOnce(2)
+        .mockResolvedValueOnce(1)
+        .mockResolvedValueOnce(1)
+        .mockResolvedValueOnce(5);
+      prisma.masterProduct.findFirst.mockResolvedValue({ healthUpdatedAt: null });
+      prisma.masterProduct.findMany.mockResolvedValue([]);
+
+      await service.getSummary(ORGANIZATION_ID);
+
+      for (const [query] of prisma.masterProduct.count.mock.calls) {
+        expect(query.where).toEqual(expect.objectContaining(LEGACY_FAMILY_MASTER_SCOPE));
+      }
+      expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining(LEGACY_FAMILY_MASTER_SCOPE),
+        }),
+      );
+      expect(prisma.masterProduct.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining(LEGACY_FAMILY_MASTER_SCOPE),
+        }),
+      );
+    });
+  });
+
   describe('evaluateAll', () => {
     it('delegates rules_evaluation through AGENT_RUNNER_PORT and surfaces the requestId', async () => {
       const { service, agentRunner } = makeService();

@@ -1,12 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   type ThumbnailAnalysisRepositoryPort,
   type UpsertThumbnailAnalysisInput,
 } from '../../../application/port/out/repository/thumbnail-analysis.repository.port';
+import { LEGACY_FAMILY_MASTER_SCOPE } from '../../../../common/legacy-family-master-scope';
 import { upsertThumbnailAnalysis } from './thumbnail-analysis.persistence';
 import { thumbnailMasterImageSelect } from './thumbnail-master-image-select.preset';
+import type { Prisma } from '@prisma/client';
 
 const THUMBNAIL_ANALYSIS_CHANNEL = 'coupang';
 
@@ -14,6 +15,7 @@ function thumbnailAnalysisMasterWhere(organizationId: string): Prisma.MasterProd
   return {
     organizationId,
     isDeleted: false,
+    ...LEGACY_FAMILY_MASTER_SCOPE,
     listings: {
       some: {
         organizationId,
@@ -74,7 +76,12 @@ export class ThumbnailAnalysisRepositoryAdapter
 
   findMasterForAnalysis(productId: string, organizationId: string) {
     return this.prisma.masterProduct.findFirst({
-      where: { id: productId, organizationId, isDeleted: false },
+      where: {
+        id: productId,
+        organizationId,
+        isDeleted: false,
+        ...LEGACY_FAMILY_MASTER_SCOPE,
+      },
       select: {
         id: true,
         name: true,
@@ -89,7 +96,12 @@ export class ThumbnailAnalysisRepositoryAdapter
 
   findMastersForBatch(productIds: string[], organizationId: string) {
     return this.prisma.masterProduct.findMany({
-      where: { id: { in: productIds }, organizationId, isDeleted: false },
+      where: {
+        id: { in: productIds },
+        organizationId,
+        isDeleted: false,
+        ...LEGACY_FAMILY_MASTER_SCOPE,
+      },
       select: {
         id: true,
         name: true,
@@ -103,7 +115,11 @@ export class ThumbnailAnalysisRepositoryAdapter
   }
 
   findMastersForPreInspect(productIds: string[] | undefined, organizationId: string) {
-    const where: Prisma.MasterProductWhereInput = { organizationId, isDeleted: false };
+    const where: Prisma.MasterProductWhereInput = {
+      organizationId,
+      isDeleted: false,
+      ...LEGACY_FAMILY_MASTER_SCOPE,
+    };
     if (productIds?.length) where.id = { in: productIds };
     return this.prisma.masterProduct.findMany({
       where,
@@ -122,7 +138,12 @@ export class ThumbnailAnalysisRepositoryAdapter
 
   findRecomposeMaster(productId: string, organizationId: string) {
     return this.prisma.masterProduct.findFirst({
-      where: { id: productId, organizationId, isDeleted: false },
+      where: {
+        id: productId,
+        organizationId,
+        isDeleted: false,
+        ...LEGACY_FAMILY_MASTER_SCOPE,
+      },
       select: {
         name: true,
         category: true,

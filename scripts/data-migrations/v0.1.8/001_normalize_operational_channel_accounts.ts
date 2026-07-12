@@ -47,6 +47,52 @@ export const normalizeOperationalChannelAccounts: DataMigration = {
                ) AS canonical_account_id
         FROM account_identity_base AS account
       ),
+      account_reference_specs(table_name) AS (
+        VALUES
+          ('source_import_runs'),
+          ('channel_listings'),
+          ('channel_listing_options'),
+          ('orders'),
+          ('order_returns'),
+          ('product_preparations'),
+          ('channel_scrape_runs'),
+          ('channel_account_daily_kpi_snapshots')
+      ),
+      available_account_reference_specs AS (
+        SELECT spec.table_name
+        FROM account_reference_specs AS spec
+        WHERE to_regclass('public.' || spec.table_name) IS NOT NULL
+          AND EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = spec.table_name
+              AND column_name = 'channel_account_id'
+          )
+      ),
+      account_reference_results AS (
+        SELECT spec.table_name,
+               query_to_xml(
+                 format(
+                   'SELECT concat_ws(''|'', %L, channel_account_id::text) AS payload FROM %I.%I WHERE channel_account_id IS NOT NULL',
+                   spec.table_name,
+                   'public',
+                   spec.table_name
+                 ),
+                 false,
+                 false,
+                 ''
+               ) AS result_xml
+        FROM available_account_reference_specs AS spec
+      ),
+      referenced_accounts AS (
+        SELECT split_part(node::text, '|', 1) AS owner_table,
+               split_part(node::text, '|', 2) AS account_id
+        FROM account_reference_results AS result
+        CROSS JOIN LATERAL unnest(
+          xpath('/table/row/payload/text()', result.result_xml)
+        ) AS reference(node)
+      ),
       conflicting_duplicate_accounts AS (
         SELECT organization_id,
                channel,
@@ -176,14 +222,13 @@ export const normalizeOperationalChannelAccounts: DataMigration = {
         HAVING COUNT(DISTINCT candidate.account_id) <> 1
       ),
       account_identity_missing AS (
-        SELECT account.id::text AS row_id
+        SELECT account.id::text AS row_id,
+               jsonb_agg(DISTINCT reference.owner_table ORDER BY reference.owner_table) AS owner_tables
         FROM account_identity AS account
+        JOIN referenced_accounts AS reference
+          ON reference.account_id = account.id::text
         WHERE account.canonical_identity IS NULL
-          AND EXISTS (
-            SELECT 1
-            FROM channel_listings AS listing
-            WHERE listing.channel_account_id = account.id
-          )
+        GROUP BY account.id
       )
       SELECT 'conflicting_duplicate_account'::text AS "issueCode",
              duplicate.row_id AS "rowId",
@@ -198,7 +243,9 @@ export const normalizeOperationalChannelAccounts: DataMigration = {
       SELECT 'ambiguous_or_missing_listing_account', unresolved.row_id, jsonb_build_object('candidateCount', unresolved.candidate_count)
       FROM unresolved_listings AS unresolved
       UNION ALL
-      SELECT 'missing_operational_account_identity', missing.row_id, NULL::jsonb
+      SELECT 'missing_operational_account_identity',
+             missing.row_id,
+             jsonb_build_object('ownerTables', missing.owner_tables)
       FROM account_identity_missing AS missing
       ORDER BY 1, 2
       LIMIT 20
@@ -248,6 +295,14 @@ export const normalizeOperationalChannelAccounts: DataMigration = {
       FROM ranked
       WHERE canonical_identity IS NOT NULL
         AND identity_rank > 1
+    `;
+
+    await tx.$executeRaw`
+      CREATE TEMP TABLE sellpia_migration_affected_rows (
+        operation text NOT NULL,
+        owner_table text NOT NULL,
+        affected_rows bigint NOT NULL
+      ) ON COMMIT DROP
     `;
 
     let repointedSourceImportRunReferences = 0;
@@ -374,10 +429,11 @@ export const normalizeOperationalChannelAccounts: DataMigration = {
         AND run_rank > 1
       `;
 
-      repointedSourceImportRunReferences = await tx.$executeRaw`
+      await tx.$executeRaw`
       DO $$
       DECLARE
         target_table text;
+        changed_rows bigint;
       BEGIN
         FOREACH target_table IN ARRAY ARRAY[
           'inventory_skus',
@@ -402,10 +458,28 @@ export const normalizeOperationalChannelAccounts: DataMigration = {
                  AND consumer.organization_id = run_merge.organization_id',
               target_table
             );
+            GET DIAGNOSTICS changed_rows = ROW_COUNT;
+            INSERT INTO sellpia_migration_affected_rows (
+              operation,
+              owner_table,
+              affected_rows
+            ) VALUES (
+              'repoint_source_import_run_reference',
+              target_table,
+              changed_rows
+            );
           END IF;
         END LOOP;
       END $$
       `;
+      const sourceImportReferenceAudit = await tx.$queryRaw<Array<{ affectedRows: bigint }>>`
+        SELECT COALESCE(SUM(audit.affected_rows), 0)::bigint AS "affectedRows"
+        FROM sellpia_migration_affected_rows AS audit
+        WHERE audit.operation = 'repoint_source_import_run_reference'
+      `;
+      repointedSourceImportRunReferences = Number(
+        sourceImportReferenceAudit[0]?.affectedRows ?? 0,
+      );
 
       mergedSourceImportRuns = await tx.$executeRaw`
       DELETE FROM source_import_runs AS run
@@ -539,10 +613,11 @@ export const normalizeOperationalChannelAccounts: DataMigration = {
         AND listing.is_deleted = false
     `;
 
-    const repointedAccountReferences = await tx.$executeRaw`
+    await tx.$executeRaw`
       DO $$
       DECLARE
         target_table text;
+        changed_rows bigint;
       BEGIN
         FOREACH target_table IN ARRAY ARRAY[
           'channel_listings',
@@ -570,10 +645,28 @@ export const normalizeOperationalChannelAccounts: DataMigration = {
                  AND incoming.organization_id = merge.organization_id',
               target_table
             );
+            GET DIAGNOSTICS changed_rows = ROW_COUNT;
+            INSERT INTO sellpia_migration_affected_rows (
+              operation,
+              owner_table,
+              affected_rows
+            ) VALUES (
+              'repoint_channel_account_reference',
+              target_table,
+              changed_rows
+            );
           END IF;
         END LOOP;
       END $$
     `;
+    const accountReferenceAudit = await tx.$queryRaw<Array<{ affectedRows: bigint }>>`
+      SELECT COALESCE(SUM(audit.affected_rows), 0)::bigint AS "affectedRows"
+      FROM sellpia_migration_affected_rows AS audit
+      WHERE audit.operation = 'repoint_channel_account_reference'
+    `;
+    const repointedAccountReferences = Number(
+      accountReferenceAudit[0]?.affectedRows ?? 0,
+    );
 
     const mergedDuplicateAccounts = await tx.$executeRaw`
       DELETE FROM channel_accounts AS account
@@ -585,14 +678,15 @@ export const normalizeOperationalChannelAccounts: DataMigration = {
     const normalizedExternalAccountIds = await tx.$executeRaw`
       UPDATE channel_accounts AS account
       SET external_account_id = COALESCE(
+        NULLIF(BTRIM(account.external_account_id), ''),
         NULLIF(BTRIM(account.seller_id), ''),
         NULLIF(BTRIM(account.vendor_id), '')
       )
-      WHERE NULLIF(BTRIM(account.external_account_id), '') IS NULL
-        AND COALESCE(
+      WHERE account.external_account_id IS DISTINCT FROM COALESCE(
+          NULLIF(BTRIM(account.external_account_id), ''),
           NULLIF(BTRIM(account.seller_id), ''),
           NULLIF(BTRIM(account.vendor_id), '')
-        ) IS NOT NULL
+        )
     `;
 
     const residualOperationalRows = await tx.$queryRaw<AccountNormalizationBlocker[]>`

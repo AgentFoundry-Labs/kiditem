@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { LEGACY_FAMILY_MASTER_SCOPE } from '../../../../common/legacy-family-master-scope';
 import type {
   ThumbnailWingRegistrationAttemptPatch,
   ThumbnailWingRepositoryPort,
@@ -23,7 +24,12 @@ export class ThumbnailWingRepositoryAdapter implements ThumbnailWingRepositoryPo
 
   findRegistrableMaster(masterId: string, organizationId: string) {
     return this.prisma.masterProduct.findFirst({
-      where: { id: masterId, organizationId, isDeleted: false },
+      where: {
+        id: masterId,
+        organizationId,
+        isDeleted: false,
+        ...LEGACY_FAMILY_MASTER_SCOPE,
+      },
       select: {
         name: true,
         listings: {

@@ -1,4 +1,3 @@
-import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { normalizeOperationalChannelAccounts } from '../../../../scripts/data-migrations/v0.1.8/001_normalize_operational_channel_accounts';
 import { normalizePromotedCandidateStatus } from '../../../../scripts/data-migrations/v0.1.8/003_normalize_promoted_candidate_status';
@@ -9,6 +8,7 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from './real-prisma';
+import type { PrismaClient } from '@prisma/client';
 
 const CANONICAL_ACCOUNT_ID = '10000000-0000-4000-8000-000000000001';
 const DUPLICATE_ACCOUNT_ID = '10000000-0000-4000-8000-000000000002';
@@ -140,6 +140,10 @@ describe.sequential('v0.1.8 data migrations', () => {
     expect(persistedListing.channelAccountId).toBe(CANONICAL_ACCOUNT_ID);
     expect(persistedOption.channelAccountId).toBe(CANONICAL_ACCOUNT_ID);
     expect(first.details).toMatchObject({ mergedSourceImportRuns: 1 });
+    expect(first.details).toMatchObject({
+      repointedSourceImportRunReferences: 4,
+      repointedAccountReferences: 2,
+    });
 
     const snapshot = JSON.stringify({ accounts, runs }, bigintJsonReplacer);
     const second = await prisma.$transaction((tx) => normalizeOperationalChannelAccounts.run(tx));
@@ -196,6 +200,63 @@ describe.sequential('v0.1.8 data migrations', () => {
       { id: terminal.id, channelAccountId: CANONICAL_ACCOUNT_ID, status: 'failed' },
       { id: running.id, channelAccountId: DUPLICATE_ACCOUNT_ID, status: 'running' },
     ].sort((left, right) => left.id.localeCompare(right.id)));
+  });
+
+  it('blocks an identity-less account referenced outside listings before persistent mutation', async () => {
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Identity-less import account',
+      },
+    });
+    const importRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        sourceType: 'coupang_wing_catalog',
+        fileName: 'identity-less.xlsx',
+        fileHash: 'identity-less',
+        status: 'failed',
+      },
+    });
+
+    await expect(
+      prisma.$transaction((tx) => normalizeOperationalChannelAccounts.run(tx)),
+    ).rejects.toThrow(/missing operational channel account identity/i);
+
+    expect(await prisma.channelAccount.findUnique({ where: { id: account.id } })).not.toBeNull();
+    expect(await prisma.sourceImportRun.findUnique({ where: { id: importRun.id } }))
+      .toMatchObject({ channelAccountId: account.id });
+  });
+
+  it('trims a persisted nonblank external account identity and reruns idempotently', async () => {
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Whitespace account',
+        externalAccountId: '  canonical-account  ',
+      },
+    });
+    await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: account.id,
+        sourceType: 'coupang_wing_catalog',
+        fileName: 'trim.xlsx',
+        fileHash: 'trim-account',
+        status: 'failed',
+      },
+    });
+
+    const first = await prisma.$transaction((tx) => normalizeOperationalChannelAccounts.run(tx));
+    expect(await prisma.channelAccount.findUniqueOrThrow({ where: { id: account.id } }))
+      .toMatchObject({ externalAccountId: 'canonical-account' });
+    expect(first.details).toMatchObject({ normalizedExternalAccountIds: 1 });
+
+    const second = await prisma.$transaction((tx) => normalizeOperationalChannelAccounts.run(tx));
+    expect(second.details).toMatchObject({ normalizedExternalAccountIds: 0 });
   });
 
   it('archives only legacy accountless product_registered preparations and frees the active slot', async () => {
@@ -309,6 +370,43 @@ describe.sequential('v0.1.8 data migrations', () => {
     });
     expect((await prisma.productPreparation.findUniqueOrThrow({ where: { id: legacy.id } })).updatedAt)
       .toEqual(archivedUpdatedAt);
+  });
+
+  it('blocks promoted candidate source identity collisions before changing any status', async () => {
+    const sourceUrl = 'https://example.test/collision';
+    const sourced = await prisma.sourcingCandidate.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceUrl,
+        sourcePlatform: 'ALIBABA_1688',
+        rawData: {},
+        name: 'Canonical sourced candidate',
+        status: 'sourced',
+      },
+    });
+    const promoted = await prisma.sourcingCandidate.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceUrl,
+        sourcePlatform: 'ALIBABA_1688',
+        rawData: {},
+        name: 'Legacy promoted candidate',
+        status: 'promoted',
+      },
+    });
+
+    await expect(
+      prisma.$transaction((tx) => normalizePromotedCandidateStatus.run(tx)),
+    ).rejects.toThrow(/promoted candidate normalization collision/i);
+
+    expect(await prisma.sourcingCandidate.findMany({
+      where: { id: { in: [sourced.id, promoted.id] } },
+      orderBy: { id: 'asc' },
+      select: { id: true, status: true },
+    })).toEqual([
+      { id: sourced.id, status: 'sourced' },
+      { id: promoted.id, status: 'promoted' },
+    ].sort((left, right) => left.id.localeCompare(right.id)));
   });
 });
 

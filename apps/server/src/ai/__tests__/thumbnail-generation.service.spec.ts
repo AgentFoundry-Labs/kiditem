@@ -3,6 +3,7 @@ import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repos
 import { ThumbnailGenerationJobService } from '../application/service/thumbnail-generation-job.service';
 import { ThumbnailGenerationLifecycleService } from '../application/service/thumbnail-generation-lifecycle.service';
 import { ThumbnailGenerationService } from '../application/service/thumbnail-generation.service';
+import { LEGACY_FAMILY_MASTER_SCOPE } from '../../common/legacy-family-master-scope';
 import type { ThumbnailEditorInputImage } from '../domain/model/thumbnail-editor';
 import type { ProductGenerationAlertService } from '../application/service/product-generation-alert.service';
 
@@ -282,7 +283,12 @@ describe('ThumbnailGenerationService normalized persistence', () => {
     ).rejects.toThrow(`MasterProduct ${PRODUCT_ID} not found`);
 
     expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
-      where: { id: PRODUCT_ID, organizationId: ORGANIZATION_ID, isDeleted: false },
+      where: {
+        id: PRODUCT_ID,
+        organizationId: ORGANIZATION_ID,
+        isDeleted: false,
+        ...LEGACY_FAMILY_MASTER_SCOPE,
+      },
       select: { id: true, name: true, imageUrl: true, category: true, organizationId: true },
     });
     expect(prisma.thumbnailGeneration.create).not.toHaveBeenCalled();
@@ -917,7 +923,12 @@ describe('ThumbnailGenerationService normalized persistence', () => {
     const result = await service.findAll(ORGANIZATION_ID);
 
     expect(prisma.masterProduct.findMany).toHaveBeenCalledWith({
-      where: { id: { in: [PRODUCT_ID] }, organizationId: ORGANIZATION_ID, isDeleted: false },
+      where: {
+        id: { in: [PRODUCT_ID] },
+        organizationId: ORGANIZATION_ID,
+        isDeleted: false,
+        ...LEGACY_FAMILY_MASTER_SCOPE,
+      },
       select: { id: true, name: true, imageUrl: true, category: true },
     });
     expect(result.items[0].product).toMatchObject({

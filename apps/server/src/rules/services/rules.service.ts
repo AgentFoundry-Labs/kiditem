@@ -1,6 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   AGENT_RUNNER_PORT,
@@ -8,6 +8,7 @@ import {
 } from '../../agent-os/application/port/in/agent-runner.port';
 import { AgentObservabilityService } from '../../agent-os/application/service/agent-observability.service';
 import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
+import { LEGACY_FAMILY_MASTER_SCOPE } from '../../common/legacy-family-master-scope';
 import { alertPanelMapper } from '../../automation/mapper/panel-event/alert.mapper';
 import {
   RULES_OPERATION_ALERT_PORT,
@@ -271,19 +272,39 @@ export class RulesService {
   }> {
     const [healthy, warning, critical, total, lastEval] = await Promise.all([
       this.prisma.masterProduct.count({
-        where: { organizationId, isDeleted: false, healthScore: { gte: 70 } },
+        where: {
+          organizationId,
+          isDeleted: false,
+          ...LEGACY_FAMILY_MASTER_SCOPE,
+          healthScore: { gte: 70 },
+        },
       }),
       this.prisma.masterProduct.count({
-        where: { organizationId, isDeleted: false, healthScore: { gte: 40, lt: 70 } },
+        where: {
+          organizationId,
+          isDeleted: false,
+          ...LEGACY_FAMILY_MASTER_SCOPE,
+          healthScore: { gte: 40, lt: 70 },
+        },
       }),
       this.prisma.masterProduct.count({
-        where: { organizationId, isDeleted: false, healthScore: { lt: 40 } },
+        where: {
+          organizationId,
+          isDeleted: false,
+          ...LEGACY_FAMILY_MASTER_SCOPE,
+          healthScore: { lt: 40 },
+        },
       }),
       this.prisma.masterProduct.count({
-        where: { organizationId, isDeleted: false },
+        where: { organizationId, isDeleted: false, ...LEGACY_FAMILY_MASTER_SCOPE },
       }),
       this.prisma.masterProduct.findFirst({
-        where: { organizationId, isDeleted: false, healthUpdatedAt: { not: null } },
+        where: {
+          organizationId,
+          isDeleted: false,
+          ...LEGACY_FAMILY_MASTER_SCOPE,
+          healthUpdatedAt: { not: null },
+        },
         orderBy: { healthUpdatedAt: 'desc' },
         select: { healthUpdatedAt: true },
       }),
@@ -292,7 +313,12 @@ export class RulesService {
     const notEvaluated = total - healthy - warning - critical;
 
     const topCritical = await this.prisma.masterProduct.findMany({
-      where: { organizationId, isDeleted: false, healthScore: { lt: 40 } },
+      where: {
+        organizationId,
+        isDeleted: false,
+        ...LEGACY_FAMILY_MASTER_SCOPE,
+        healthScore: { lt: 40 },
+      },
       orderBy: { healthScore: 'asc' },
       take: 5,
       select: { id: true, name: true, healthScore: true, abcGrade: true },

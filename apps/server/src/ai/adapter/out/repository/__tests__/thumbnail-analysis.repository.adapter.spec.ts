@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { ThumbnailAnalysisRepositoryAdapter } from '../thumbnail-analysis.repository.adapter';
+import { LEGACY_FAMILY_MASTER_SCOPE } from '../../../../../common/legacy-family-master-scope';
 
 const helperMocks = vi.hoisted(() => ({
   upsertThumbnailAnalysis: vi.fn(),
@@ -29,6 +30,7 @@ describe('ThumbnailAnalysisRepositoryAdapter', () => {
         where: {
           organizationId: 'org-1',
           isDeleted: false,
+          ...LEGACY_FAMILY_MASTER_SCOPE,
           listings: {
             some: {
               organizationId: 'org-1',
@@ -44,6 +46,28 @@ describe('ThumbnailAnalysisRepositoryAdapter', () => {
           }),
         }),
         orderBy: { createdAt: 'desc' },
+      }),
+    );
+  });
+
+  it('keeps staged Sellpia identities out of bulk pre-inspection', async () => {
+    const prisma = {
+      masterProduct: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+    };
+    const repository = new ThumbnailAnalysisRepositoryAdapter(prisma as never);
+
+    await repository.findMastersForPreInspect(['master-1'], 'org-1');
+
+    expect(prisma.masterProduct.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          organizationId: 'org-1',
+          isDeleted: false,
+          ...LEGACY_FAMILY_MASTER_SCOPE,
+          id: { in: ['master-1'] },
+        },
       }),
     );
   });

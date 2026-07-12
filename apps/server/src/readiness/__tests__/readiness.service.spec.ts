@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ReadinessService } from '../readiness.service';
+import { LEGACY_FAMILY_MASTER_SCOPE } from '../../common/legacy-family-master-scope';
 
 const ORGANIZATION_ID = '00000000-0000-0000-0000-0000000c0001';
 
@@ -222,6 +223,22 @@ describe('ReadinessService', () => {
       lte: new Date('2026-05-01T00:00:00.000Z'),
     });
     expect(adsQuery.where.businessDate.lte).toEqual(new Date('2026-05-01T00:00:00.000Z'));
+    expect(prisma.masterProduct.count).toHaveBeenCalledWith({
+      where: {
+        organizationId: ORGANIZATION_ID,
+        isDeleted: false,
+        ...LEGACY_FAMILY_MASTER_SCOPE,
+      },
+    });
+    expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
+      where: {
+        organizationId: ORGANIZATION_ID,
+        isDeleted: false,
+        ...LEGACY_FAMILY_MASTER_SCOPE,
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: { updatedAt: true },
+    });
 
     const wingSales = status.checks.find((check) => check.key === 'wing_sales');
     const coupangAds = status.checks.find((check) => check.key === 'coupang_ads');

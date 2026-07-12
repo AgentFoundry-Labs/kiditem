@@ -94,6 +94,7 @@ describe('data migration registry', () => {
 describe('promoted candidate status normalization migration', () => {
   it('idempotently rewrites candidates and archives only proven legacy preparations', async () => {
     const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([]),
       $executeRaw: vi.fn()
         .mockResolvedValueOnce(3)
         .mockResolvedValueOnce(2),
@@ -120,15 +121,35 @@ describe('promoted candidate status normalization migration', () => {
     expect(preparationSql).toContain('channel_account_id IS NULL');
     expect(preparationSql).toContain('is_deleted = FALSE');
   });
+
+  it('blocks a promoted-to-sourced identity collision before mutating candidates', async () => {
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([
+        {
+          issueCode: 'promoted_source_url_collision',
+          rowId: 'candidate-1',
+          details: { activeCandidateCount: 2 },
+        },
+      ]),
+      $executeRaw: vi.fn(),
+    };
+
+    await expect(normalizePromotedCandidateStatus.run(tx as never)).rejects.toThrow(
+      /promoted candidate normalization collision/i,
+    );
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+  });
 });
 
 describe('operational channel account normalization migration', () => {
   it('uses deterministic evidence order and repoints every incoming account FK before merging', async () => {
     const tx = {
-      $queryRaw: vi.fn(async (statement: TemplateStringsArray) =>
-        statement.join('').includes("to_regclass('public.source_import_runs')")
-          ? [{ exists: true }]
-          : []),
+      $queryRaw: vi.fn(async (statement: TemplateStringsArray) => {
+        const sql = statement.join('');
+        if (sql.includes('SUM(audit.affected_rows)')) return [{ affectedRows: 2n }];
+        if (sql.includes("to_regclass('public.source_import_runs')")) return [{ exists: true }];
+        return [];
+      }),
       $executeRaw: vi.fn(async () => 2),
     };
 
@@ -152,6 +173,18 @@ describe('operational channel account normalization migration', () => {
     expect(blockerSql).toContain('channel_listing_options AS target_option');
     expect(blockerSql).toContain('legacy_parent.channel_account_id');
     expect(blockerSql).toContain('listing.is_deleted = false');
+    for (const owner of [
+      'source_import_runs',
+      'channel_listings',
+      'channel_listing_options',
+      'orders',
+      'order_returns',
+      'product_preparations',
+      'channel_scrape_runs',
+      'channel_account_daily_kpi_snapshots',
+    ]) {
+      expect(blockerSql).toContain(owner);
+    }
     expect(sql.indexOf('source_seller_vendor')).toBeLessThan(sql.indexOf('linked_listing_option'));
     expect(sql.indexOf('linked_listing_option')).toBeLessThan(sql.indexOf('legacy_parent_listing'));
     expect(sql.indexOf('legacy_parent_listing')).toBeLessThan(sql.indexOf('sole_active_platform'));
@@ -161,6 +194,9 @@ describe('operational channel account normalization migration', () => {
     expect(sql).not.toMatch(/= account\.seller_id\b|= account\.vendor_id\b/);
     expect(sql).toContain("NULLIF(BTRIM(account.seller_id), '')");
     expect(sql).toContain("NULLIF(BTRIM(account.vendor_id), '')");
+    expect(sql).toContain('external_account_id = COALESCE');
+    expect(sql).toContain("NULLIF(BTRIM(account.external_account_id), '')");
+    expect(sql).toContain('sellpia_migration_affected_rows');
     expect(sql.match(/listing\.is_deleted = false/g)?.length ?? 0).toBeGreaterThanOrEqual(4);
     expect(sql).toContain('sellpia_import_run_merge_map');
     expect(sql).toContain("WHEN run.status = 'completed' THEN 0");
@@ -189,6 +225,10 @@ describe('operational channel account normalization migration', () => {
       'legacy_parent_listing',
       'sole_active_platform',
     ] });
+    expect(result.details).toMatchObject({
+      repointedSourceImportRunReferences: 2,
+      repointedAccountReferences: 2,
+    });
   });
 
   it('throws before mutation on ambiguous or missing operational identity', async () => {
@@ -208,6 +248,7 @@ describe('operational channel account normalization migration', () => {
       $queryRaw: vi.fn()
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([{ exists: false }])
+        .mockResolvedValueOnce([{ affectedRows: 0n }])
         .mockResolvedValueOnce([{ issueCode: 'accountless_listing_after_normalization', rowId: 'row-1' }]),
       $executeRaw: vi.fn(async () => 0),
     };

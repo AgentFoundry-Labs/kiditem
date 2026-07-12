@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildPerListingMetrics } from '../../../common/per-listing-profit';
 import { StatisticsService } from '../statistics.service';
+import { LEGACY_FAMILY_MASTER_SCOPE } from '../../../common/legacy-family-master-scope';
 
 vi.mock('../../../common/per-listing-profit', () => ({
   buildPerListingMetrics: vi.fn(),
@@ -88,6 +89,13 @@ describe('StatisticsService', () => {
             lt: new Date('2026-04-30T15:00:00.000Z'),
           },
           status: { notIn: ['cancelled', 'returned', 'refunded'] },
+        },
+      });
+      expect(prisma.masterProduct.count).toHaveBeenCalledWith({
+        where: {
+          organizationId: 'organization-1',
+          isDeleted: false,
+          ...LEGACY_FAMILY_MASTER_SCOPE,
         },
       });
       expect(result).toEqual({

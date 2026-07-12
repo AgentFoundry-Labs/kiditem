@@ -11,6 +11,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import { buildPerListingMetrics } from '../../../../../common/per-listing-profit';
+import { LEGACY_FAMILY_MASTER_SCOPE } from '../../../../../common/legacy-family-master-scope';
 import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
 import type {
   DashboardInventoryRepositoryPort,
@@ -35,6 +36,7 @@ export class DashboardInventoryRepositoryAdapter
       where: {
         organizationId,
         isDeleted: false,
+        ...LEGACY_FAMILY_MASTER_SCOPE,
         abcGrade: { in: ['A', 'B', 'C'] },
         listings: { some: { organizationId, isDeleted: false } },
       },
@@ -76,7 +78,7 @@ export class DashboardInventoryRepositoryAdapter
 
   async countActiveProducts(organizationId: string): Promise<number> {
     return this.prisma.masterProduct.count({
-      where: { organizationId, isDeleted: false },
+      where: { organizationId, isDeleted: false, ...LEGACY_FAMILY_MASTER_SCOPE },
     });
   }
 
@@ -85,6 +87,7 @@ export class DashboardInventoryRepositoryAdapter
       where: {
         organizationId,
         isDeleted: false,
+        ...LEGACY_FAMILY_MASTER_SCOPE,
         listings: { some: { organizationId, isDeleted: false } },
       },
     });
@@ -138,7 +141,12 @@ export class DashboardInventoryRepositoryAdapter
     // 2-hop tenant scope: master.organizationId +
     // listings.organizationId on the nested filter.
     const masters = await this.prisma.masterProduct.findMany({
-      where: { organizationId, isDeleted: false, abcGrade: 'A' },
+      where: {
+        organizationId,
+        isDeleted: false,
+        ...LEGACY_FAMILY_MASTER_SCOPE,
+        abcGrade: 'A',
+      },
       include: {
         listings: {
           where: { organizationId },

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { kstDayStart } from '../common/kst';
+import { LEGACY_FAMILY_MASTER_SCOPE } from '../common/legacy-family-master-scope';
 import type {
   AgentOsLiveReadinessCheck,
   AgentOsLiveReadinessResponse,
@@ -111,9 +112,11 @@ export class ReadinessService {
         orderBy: { lastObservedAt: 'desc' },
         select: { lastObservedAt: true, businessDate: true },
       }),
-      this.prisma.masterProduct.count({ where: { organizationId, isDeleted: false } }),
+      this.prisma.masterProduct.count({
+        where: { organizationId, isDeleted: false, ...LEGACY_FAMILY_MASTER_SCOPE },
+      }),
       this.prisma.masterProduct.findFirst({
-        where: { organizationId, isDeleted: false },
+        where: { organizationId, isDeleted: false, ...LEGACY_FAMILY_MASTER_SCOPE },
         orderBy: { updatedAt: 'desc' },
         select: { updatedAt: true },
       }),

@@ -3,21 +3,9 @@ import { MasterProductRepositoryAdapter } from '../master-product.repository.ada
 import { findMasterById, findMasterListPage } from '../master-product.query';
 import { incrementMasterOptionCounter } from '../product-option.persistence';
 import { ProductManagementRepositoryAdapter } from '../product-management.repository.adapter';
+import { LEGACY_FAMILY_MASTER_SCOPE } from '../../../../../common/legacy-family-master-scope';
 
-const PRODUCTS_MASTER_SCOPE = {
-  OR: [
-    {
-      sellpiaProductCode: null,
-      temporaryReason: null,
-      lifecycleState: { not: 'inventory_staged' },
-    },
-    {
-      sellpiaProductCode: null,
-      temporaryReason: { not: 'sellpia_master_cutover' },
-      lifecycleState: { not: 'inventory_staged' },
-    },
-  ],
-};
+const PRODUCTS_MASTER_SCOPE = LEGACY_FAMILY_MASTER_SCOPE;
 
 describe('products-owned MasterProduct scope', () => {
   it('applies the physical-identity exclusion to list and id reads', async () => {
