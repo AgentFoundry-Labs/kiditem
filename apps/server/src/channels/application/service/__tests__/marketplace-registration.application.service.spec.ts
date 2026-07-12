@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { DefinitiveMarketplaceRegistrationError } from '../../port/in/capability/marketplace-registration.port';
+import { CoupangProviderRequestError } from '../../port/out/provider/coupang-provider.port';
 import { MarketplaceRegistrationService } from '../marketplace-registration.service';
 
 describe('MarketplaceRegistrationService application orchestration', () => {
@@ -38,6 +40,8 @@ describe('MarketplaceRegistrationService application orchestration', () => {
       providerSubmissionId: null,
       registrationResult: null,
       isRetry: false,
+      providerOutcome: 'uncertain',
+      providerCreateAllowed: true,
     })).resolves.toMatchObject({
       providerSubmissionId: '427011919',
       externalListingId: '427011919',
@@ -85,6 +89,8 @@ describe('MarketplaceRegistrationService application orchestration', () => {
       providerSubmissionId: null,
       registrationResult: null,
       isRetry: true,
+      providerOutcome: 'uncertain',
+      providerCreateAllowed: false,
     })).resolves.toMatchObject({
       providerSubmissionId: '427011919',
       externalListingId: '427011919',
@@ -120,10 +126,120 @@ describe('MarketplaceRegistrationService application orchestration', () => {
       providerSubmissionId: null,
       registrationResult: null,
       isRetry: true,
+      providerOutcome: 'uncertain',
+      providerCreateAllowed: false,
     })).rejects.toThrow(
       'Provider outcome is still uncertain; automatic retry will not create a duplicate listing.',
     );
     expect(coupang.createSellerProduct).not.toHaveBeenCalled();
+  });
+
+  it('allows a proven definitive non-create retry after reconciliation', async () => {
+    const repository = {
+      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
+    };
+    const coupang = {
+      createSellerProduct: vi.fn().mockResolvedValue({
+        code: '200',
+        message: '',
+        data: { code: 'SUCCESS', data: 427011919 },
+      }),
+    };
+    const service = new MarketplaceRegistrationService(
+      repository as never,
+      {} as never,
+      coupang as never,
+    );
+
+    await expect(service.submitProductRegistration({
+      organizationId: 'org-1',
+      preparationId: 'preparation-1',
+      sourceCandidateId: 'candidate-1',
+      channelAccountId: 'account-1',
+      submissionKey: 'submission-key-1',
+      submissionPayloadHash: 'hash-1',
+      submissionPayloadJson: {
+        registrationInput: { items: [{ itemName: 'Blue', salePrice: 12900 }] },
+      },
+      providerSubmissionId: null,
+      registrationResult: null,
+      isRetry: true,
+      providerOutcome: 'uncertain',
+      providerCreateAllowed: true,
+    })).resolves.toMatchObject({ externalListingId: '427011919' });
+    expect(coupang.createSellerProduct).toHaveBeenCalledTimes(1);
+  });
+
+  it('classifies an explicit provider rejection as a definitive non-create', async () => {
+    const repository = {
+      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
+    };
+    const coupang = {
+      createSellerProduct: vi.fn().mockResolvedValue({
+        code: '400',
+        message: 'invalid category',
+        data: { code: 'ERROR', message: 'invalid category', data: null },
+      }),
+    };
+    const service = new MarketplaceRegistrationService(
+      repository as never,
+      {} as never,
+      coupang as never,
+    );
+
+    await expect(service.submitProductRegistration({
+      organizationId: 'org-1',
+      preparationId: 'preparation-1',
+      sourceCandidateId: 'candidate-1',
+      channelAccountId: 'account-1',
+      submissionKey: 'submission-key-1',
+      submissionPayloadHash: 'hash-1',
+      submissionPayloadJson: {
+        registrationInput: { items: [{ itemName: 'Blue', salePrice: 12900 }] },
+      },
+      providerSubmissionId: null,
+      registrationResult: null,
+      isRetry: false,
+      providerOutcome: 'uncertain',
+      providerCreateAllowed: true,
+    })).rejects.toBeInstanceOf(DefinitiveMarketplaceRegistrationError);
+  });
+
+  it('maps a typed HTTP validation rejection to the cross-domain definitive failure', async () => {
+    const repository = {
+      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
+    };
+    const coupang = {
+      createSellerProduct: vi.fn().mockRejectedValue(
+        new CoupangProviderRequestError(
+          'Coupang API error 400: invalid category',
+          400,
+          'definitive_failure',
+        ),
+      ),
+    };
+    const service = new MarketplaceRegistrationService(
+      repository as never,
+      {} as never,
+      coupang as never,
+    );
+
+    await expect(service.submitProductRegistration({
+      organizationId: 'org-1',
+      preparationId: 'preparation-1',
+      sourceCandidateId: 'candidate-1',
+      channelAccountId: 'account-1',
+      submissionKey: 'submission-key-1',
+      submissionPayloadHash: 'hash-1',
+      submissionPayloadJson: {
+        registrationInput: { items: [{ itemName: 'Blue', salePrice: 12900 }] },
+      },
+      providerSubmissionId: null,
+      registrationResult: null,
+      isRetry: false,
+      providerOutcome: 'uncertain',
+      providerCreateAllowed: true,
+    })).rejects.toBeInstanceOf(DefinitiveMarketplaceRegistrationError);
   });
 
   it('reconciles recorded provider identity through the same channel account before create', async () => {

@@ -928,7 +928,7 @@ function toProductPreparationRow(p: any): ProductPreparationRow {
     masterId: p.masterId,
     contentWorkspaceId: p.contentWorkspaceId,
     displayName: p.displayName,
-    status: p.status,
+    status: p.status === 'product_registered' ? 'cancelled' : p.status,
     isCurrentForMaster: p.isCurrentForMaster,
     selectedThumbnailUrl: p.selectedThumbnailUrl,
     selectedThumbnailGenerationId: p.selectedThumbnailGenerationId,

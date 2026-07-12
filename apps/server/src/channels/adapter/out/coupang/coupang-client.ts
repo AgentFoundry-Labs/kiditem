@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { CoupangProviderRequestError } from '../../../application/port/out/provider/coupang-provider.port';
 
 const COUPANG_HOST = 'api-gateway.coupang.com';
 const COUPANG_BASE_URL = `https://${COUPANG_HOST}`;
@@ -81,7 +82,17 @@ export async function coupangRequest<T = unknown>({
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Coupang API error ${response.status}: ${errorText}`);
+      const providerOutcome = response.status >= 400
+        && response.status < 500
+        && response.status !== 408
+        && response.status !== 409
+        ? 'definitive_failure'
+        : 'uncertain';
+      throw new CoupangProviderRequestError(
+        `Coupang API error ${response.status}: ${errorText}`,
+        response.status,
+        providerOutcome,
+      );
     }
 
     const contentType = response.headers.get('content-type') || '';

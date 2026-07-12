@@ -1,5 +1,16 @@
 export const COUPANG_PROVIDER_PORT = Symbol('COUPANG_PROVIDER_PORT');
 
+export class CoupangProviderRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly providerOutcome: 'definitive_failure' | 'uncertain',
+  ) {
+    super(message);
+    this.name = 'CoupangProviderRequestError';
+  }
+}
+
 /** Coupang Wing API — seller product list (undocumented response shape) */
 export interface SellerProductListResponse {
   code: string;

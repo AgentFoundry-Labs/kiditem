@@ -3,6 +3,7 @@ import {
   createSellerProduct,
   getSellerProductsByExternalVendorSku,
 } from './products';
+import { CoupangProviderRequestError } from '../../../application/port/out/provider/coupang-provider.port';
 
 describe('Coupang product API helpers', () => {
   afterEach(() => {
@@ -108,5 +109,28 @@ describe('Coupang product API helpers', () => {
       'https://api-gateway.coupang.com/v2/providers/seller_api/apis/api/v1/marketplace/seller-products/external-vendor-sku-codes/submission%3Akey%2F1',
       expect.objectContaining({ method: 'GET' }),
     );
+  });
+
+  it('classifies an HTTP validation rejection as a definitive non-create', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () => 'invalid display category',
+    }));
+
+    await expect(createSellerProduct(
+      {
+        vendorId: 'A00012345',
+        accessKey: 'access-key',
+        secretKey: 'secret-key',
+      },
+      {
+        sellerProductName: '쿠팡 판매명',
+        items: [{ itemName: '단품' }],
+      },
+    )).rejects.toMatchObject<CoupangProviderRequestError>({
+      providerOutcome: 'definitive_failure',
+      status: 400,
+    });
   });
 });

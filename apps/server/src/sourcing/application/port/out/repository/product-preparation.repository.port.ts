@@ -6,6 +6,11 @@ import type {
 import type { MarketplaceSubmissionResult } from '@kiditem/shared/channel-listing';
 import type { SourcingRepositoryTransaction } from '../transaction/repository-transaction';
 import type { ProductPreparationJson } from '../../../../domain/product-preparation-payload';
+import type { ProductPreparationProviderOutcome } from '../../../../domain/product-preparation-state';
+import type {
+  ResolvedRegistrationContentSelections,
+  ValidateRegistrationContentSelectionsInput,
+} from '../cross-domain/registration-content-workspace.port';
 
 export const PRODUCT_PREPARATION_REPOSITORY_PORT = Symbol(
   'PRODUCT_PREPARATION_REPOSITORY_PORT',
@@ -40,6 +45,8 @@ export interface FrozenProductPreparationSubmission {
   submissionPayloadHash: string;
   providerSubmissionId: string | null;
   registrationResult: ProductPreparationJson | null;
+  providerOutcome: ProductPreparationProviderOutcome;
+  submissionLeaseToken: string | null;
   isRetry: boolean;
   selectedThumbnailUrl: string | null;
   selectedThumbnailGenerationId: string | null;
@@ -71,20 +78,33 @@ export interface ReplaceDraftInputRequest {
   command: ReplaceDraftInputCommand;
 }
 
+export type ResolveProductPreparationSelections = (
+  tx: SourcingRepositoryTransaction,
+  input: ValidateRegistrationContentSelectionsInput,
+) => Promise<ResolvedRegistrationContentSelections>;
+
 export interface ProductPreparationRepositoryPort {
+  assertCandidateTerminalTransitionAllowed(
+    tx: SourcingRepositoryTransaction,
+    input: { organizationId: string; sourceCandidateId: string },
+  ): Promise<void>;
+
   createOrGetActiveDraft(
     input: CreateOrGetActiveDraftInput,
     resolveSourceWorkspace: (tx: SourcingRepositoryTransaction) => Promise<string>,
+    resolveSelections: ResolveProductPreparationSelections,
   ): Promise<ProductPreparationDraftResult>;
 
   replaceDraftInput(
     input: ReplaceDraftInputRequest,
+    resolveSelections: ResolveProductPreparationSelections,
   ): Promise<ProductPreparationDraftResult | ProductPreparationCancelledResult>;
 
   claimForSubmission(
     organizationId: string,
     preparationId: string,
     userId: string | null,
+    resolveSelections: ResolveProductPreparationSelections,
   ): Promise<ProductPreparationClaimResult>;
 
   loadFrozenSubmission(
@@ -92,21 +112,31 @@ export interface ProductPreparationRepositoryPort {
     preparationId: string,
   ): Promise<FrozenProductPreparationSubmission>;
 
+  markProviderAttemptStarted(
+    organizationId: string,
+    preparationId: string,
+    submissionLeaseToken: string,
+  ): Promise<void>;
+
   recordProviderResult(
     organizationId: string,
     preparationId: string,
+    submissionLeaseToken: string,
     result: MarketplaceSubmissionResult,
   ): Promise<FrozenProductPreparationSubmission>;
 
   markFailed(input: {
     organizationId: string;
     preparationId: string;
+    submissionLeaseToken: string;
     error: string;
+    providerOutcome?: 'definitive_failure';
   }): Promise<{ preparationId: string; status: 'failed' }>;
 
   finalizeRegistered(
     organizationId: string,
     preparationId: string,
+    submissionLeaseToken: string,
     finalize: (
       tx: SourcingRepositoryTransaction,
     ) => Promise<{ listingId: string }>,

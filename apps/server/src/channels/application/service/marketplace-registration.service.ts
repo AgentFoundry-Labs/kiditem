@@ -12,6 +12,7 @@ import {
 import {
   COUPANG_PROVIDER_PORT,
   type CoupangCreateSellerProductResponse,
+  CoupangProviderRequestError,
   type CoupangProviderPort,
   type CoupangSellerProductPayload,
 } from '../port/out/provider/coupang-provider.port';
@@ -23,6 +24,7 @@ import type {
   ProductRegistrationSubmissionCapabilityInput,
   ResolveProductRegistrationCapabilityInput,
 } from '../port/in/capability/marketplace-registration.port';
+import { DefinitiveMarketplaceRegistrationError } from '../port/in/capability/marketplace-registration.port';
 
 export interface RegisterConfirmedMarketplaceListingInput
   extends RegisterConfirmedListingInput {
@@ -78,11 +80,14 @@ function sellerProductIdFromResponse(
   const sellerProductId = extractNestedSellerProductId(response.data);
   if (sellerProductId) return sellerProductId;
   const message = stringField(response.message) ?? stringField(response.details);
-  throw new Error(
+  const messageText =
     message
       ? `Coupang seller product creation did not return sellerProductId: ${message}`
-      : 'Coupang seller product creation did not return sellerProductId.',
-  );
+      : 'Coupang seller product creation did not return sellerProductId.';
+  if (isExplicitProviderRejection(response)) {
+    throw new DefinitiveMarketplaceRegistrationError(messageText);
+  }
+  throw new Error(messageText);
 }
 
 @Injectable()
@@ -149,7 +154,7 @@ export class MarketplaceRegistrationService {
     if (!this.coupang) {
       throw new Error('COUPANG_PROVIDER_PORT is required to submit Coupang listings.');
     }
-    if (input.isRetry) {
+    if (input.providerCreateAllowed !== true) {
       throw new ConflictException(
         'Provider outcome is still uncertain; automatic retry will not create a duplicate listing.',
       );
@@ -158,11 +163,22 @@ export class MarketplaceRegistrationService {
       input.submissionPayloadJson,
       input.submissionKey,
     );
-    const response = await this.coupang.createSellerProduct(
-      input.organizationId,
-      listingPayload,
-      input.channelAccountId,
-    );
+    let response: CoupangCreateSellerProductResponse;
+    try {
+      response = await this.coupang.createSellerProduct(
+        input.organizationId,
+        listingPayload,
+        input.channelAccountId,
+      );
+    } catch (error) {
+      if (
+        error instanceof CoupangProviderRequestError
+        && error.providerOutcome === 'definitive_failure'
+      ) {
+        throw new DefinitiveMarketplaceRegistrationError(error.message);
+      }
+      throw error;
+    }
     const externalListingId = sellerProductIdFromResponse(response);
     return {
       providerSubmissionId: externalListingId,
@@ -253,6 +269,20 @@ export class MarketplaceRegistrationService {
       status: listing.status,
     };
   }
+}
+
+function isExplicitProviderRejection(
+  response: CoupangCreateSellerProductResponse,
+): boolean {
+  const rawTopLevelCode = stringField(response.code);
+  const topLevelCode = rawTopLevelCode ? rawTopLevelCode.toUpperCase() : null;
+  const nested = response.data && typeof response.data === 'object'
+    ? response.data
+    : null;
+  const rawNestedCode = stringField(nested?.code);
+  const nestedCode = rawNestedCode ? rawNestedCode.toUpperCase() : null;
+  return (topLevelCode !== null && !['200', 'SUCCESS'].includes(topLevelCode))
+    || (nestedCode !== null && !['200', 'SUCCESS'].includes(nestedCode));
 }
 
 function listingPayloadFromFrozenSubmission(

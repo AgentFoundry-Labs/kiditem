@@ -355,7 +355,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
       masterId: 'master-1',
       contentWorkspaceId: 'workspace-1',
       displayName: 'Toy candidate',
-      status: 'product_registered',
+      status: 'cancelled',
       isCurrentForMaster: true,
       selectedThumbnailUrl: 'https://cdn.example.com/generated-thumb.png',
       selectedThumbnailGenerationId: 'thumb-generation-1',

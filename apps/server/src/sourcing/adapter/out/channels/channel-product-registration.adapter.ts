@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
   CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT,
+  DefinitiveMarketplaceRegistrationError,
   type ChannelsMarketplaceRegistrationCapabilityPort,
 } from '../../../../channels/application/port/in/capability/marketplace-registration.port';
 import type {
@@ -8,6 +9,7 @@ import type {
   ChannelProductRegistrationSubmissionInput,
   ResolveChannelListingInput,
 } from '../../../application/port/out/cross-domain/channel-product-registration.port';
+import { DefinitiveChannelProductRegistrationError } from '../../../application/port/out/cross-domain/channel-product-registration.port';
 import type { SourcingRepositoryTransaction } from '../../../application/port/out/transaction/repository-transaction';
 
 @Injectable()
@@ -23,8 +25,15 @@ export class ChannelProductRegistrationAdapter
     return this.registration.reconcileProductRegistration(input);
   }
 
-  submit(input: ChannelProductRegistrationSubmissionInput) {
-    return this.registration.submitProductRegistration(input);
+  async submit(input: ChannelProductRegistrationSubmissionInput) {
+    try {
+      return await this.registration.submitProductRegistration(input);
+    } catch (error) {
+      if (error instanceof DefinitiveMarketplaceRegistrationError) {
+        throw new DefinitiveChannelProductRegistrationError(error.message);
+      }
+      throw error;
+    }
   }
 
   resolveListing(

@@ -8,6 +8,13 @@ import type {
   MarketplaceSubmissionResult,
 } from '@kiditem/shared/channel-listing';
 
+export class DefinitiveMarketplaceRegistrationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DefinitiveMarketplaceRegistrationError';
+  }
+}
+
 export interface ProductRegistrationSubmissionCapabilityInput {
   organizationId: string;
   preparationId: string;
@@ -19,6 +26,8 @@ export interface ProductRegistrationSubmissionCapabilityInput {
   providerSubmissionId: string | null;
   registrationResult: unknown;
   isRetry?: boolean;
+  providerOutcome?: string;
+  providerCreateAllowed?: boolean;
 }
 
 export interface ResolveProductRegistrationCapabilityInput

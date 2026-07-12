@@ -25,6 +25,10 @@ import type {
   PromoteCandidateCommand,
   RejectCandidateCommand,
 } from '../port/in/sourcing.commands';
+import {
+  PRODUCT_PREPARATION_REPOSITORY_PORT,
+  type ProductPreparationRepositoryPort,
+} from '../port/out/repository/product-preparation.repository.port';
 
 interface SelectedThumbnailImage {
   url: string;
@@ -84,6 +88,8 @@ export class SourcingPromotionService {
     private readonly productsCatalog: SourcingProductsCatalogPort,
     @Inject(SOURCING_AGENT_GATEWAY_PORT)
     private readonly agentGateway: SourcingAgentGatewayPort,
+    @Inject(PRODUCT_PREPARATION_REPOSITORY_PORT)
+    private readonly preparations: ProductPreparationRepositoryPort,
   ) {}
 
   async promote(
@@ -279,6 +285,10 @@ export class SourcingPromotionService {
     userId: string | null,
   ): Promise<{ status: 'rejected' }> {
     return this.candidates.runInTransaction(async (tx) => {
+      await this.candidates.lockCandidate(tx, {
+        id: candidateId,
+        organizationId,
+      });
       const candidate = await this.candidates.findCandidateState(tx, {
         id: candidateId,
         organizationId,
@@ -289,6 +299,10 @@ export class SourcingPromotionService {
           `Candidate cannot be rejected from status '${candidate.status}'`,
         );
       }
+      await this.preparations.assertCandidateTerminalTransitionAllowed(tx, {
+        organizationId,
+        sourceCandidateId: candidateId,
+      });
       // tenant-scoped predicate keeps the bare-id write off the SQL path.
       const { count } = await this.candidates.rejectCandidate(tx, {
         id: candidateId,

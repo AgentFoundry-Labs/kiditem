@@ -5,6 +5,13 @@ import type {
 import type { SourcingRepositoryTransaction } from '../transaction/repository-transaction';
 import type { FrozenProductPreparationSubmission } from '../repository/product-preparation.repository.port';
 
+export class DefinitiveChannelProductRegistrationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DefinitiveChannelProductRegistrationError';
+  }
+}
+
 export const CHANNEL_PRODUCT_REGISTRATION_PORT = Symbol(
   'CHANNEL_PRODUCT_REGISTRATION_PORT',
 );
@@ -20,6 +27,8 @@ export interface ChannelProductRegistrationSubmissionInput {
   providerSubmissionId: string | null;
   registrationResult: FrozenProductPreparationSubmission['registrationResult'];
   isRetry: boolean;
+  providerOutcome: FrozenProductPreparationSubmission['providerOutcome'];
+  providerCreateAllowed: boolean;
 }
 
 export interface ResolveChannelListingInput

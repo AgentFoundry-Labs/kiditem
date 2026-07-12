@@ -3,7 +3,10 @@ import type {
   ProductPreparationRepositoryPort,
   FrozenProductPreparationSubmission,
 } from '../port/out/repository/product-preparation.repository.port';
-import type { ChannelProductRegistrationPort } from '../port/out/cross-domain/channel-product-registration.port';
+import {
+  DefinitiveChannelProductRegistrationError,
+  type ChannelProductRegistrationPort,
+} from '../port/out/cross-domain/channel-product-registration.port';
 import type { RegistrationContentWorkspacePort } from '../port/out/cross-domain/registration-content-workspace.port';
 import { ProductRegistrationService } from './product-registration.service';
 
@@ -41,6 +44,8 @@ function frozenSubmission(
     submissionPayloadHash: 'hash-1',
     providerSubmissionId: null,
     registrationResult: null,
+    providerOutcome: 'not_attempted',
+    submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
     isRetry: false,
     selectedThumbnailUrl: null,
     selectedThumbnailGenerationId: null,
@@ -58,22 +63,53 @@ function setup(overrides: {
   content?: Partial<RegistrationContentWorkspacePort>;
 } = {}) {
   const repository = {
-    createOrGetActiveDraft: vi.fn().mockImplementation(async (input, resolveWorkspace) => ({
-      preparationId: PREPARATION_ID,
-      status: 'draft' as const,
-      sourceContentWorkspaceId: await resolveWorkspace(TX),
-    })),
+    createOrGetActiveDraft: vi.fn().mockImplementation(
+      async (input, resolveWorkspace, resolveSelections) => {
+        const sourceContentWorkspaceId = await resolveWorkspace(TX);
+        await resolveSelections(TX, {
+          organizationId: input.organizationId,
+          sourceWorkspaceId: sourceContentWorkspaceId,
+          selectedThumbnailUrl: null,
+          selectedThumbnailGenerationId: null,
+          selectedThumbnailGenerationCandidateId: null,
+          selectedDetailPageArtifactId: null,
+          selectedDetailPageRevisionId: null,
+          selectedDetailPageGenerationId: null,
+        });
+        return {
+          preparationId: PREPARATION_ID,
+          status: 'draft' as const,
+          sourceContentWorkspaceId,
+        };
+      },
+    ),
     replaceDraftInput: vi.fn().mockResolvedValue({ preparationId: PREPARATION_ID, status: 'draft' }),
-    claimForSubmission: vi.fn().mockResolvedValue(frozenSubmission()),
+    claimForSubmission: vi.fn().mockImplementation(
+      async (organizationId, _preparationId, _userId, resolveSelections) => {
+        await resolveSelections(TX, {
+          organizationId,
+          sourceWorkspaceId: WORKSPACE_ID,
+          selectedThumbnailUrl: null,
+          selectedThumbnailGenerationId: null,
+          selectedThumbnailGenerationCandidateId: null,
+          selectedDetailPageArtifactId: null,
+          selectedDetailPageRevisionId: null,
+          selectedDetailPageGenerationId: null,
+        });
+        return frozenSubmission();
+      },
+    ),
     loadFrozenSubmission: vi.fn().mockResolvedValue(frozenSubmission()),
-    recordProviderResult: vi.fn().mockImplementation(async (_orgId, _id, result) =>
+    markProviderAttemptStarted: vi.fn().mockResolvedValue(undefined),
+    recordProviderResult: vi.fn().mockImplementation(async (_orgId, _id, _leaseToken, result) =>
       frozenSubmission({
         providerSubmissionId: result.providerSubmissionId,
         registrationResult: result.rawResult,
+        providerOutcome: 'succeeded',
       }),
     ),
     markFailed: vi.fn().mockResolvedValue({ preparationId: PREPARATION_ID, status: 'failed' }),
-    finalizeRegistered: vi.fn().mockImplementation(async (_orgId, _id, finalize) => {
+    finalizeRegistered: vi.fn().mockImplementation(async (_orgId, _id, _leaseToken, finalize) => {
       const result = await finalize(TX);
       return { preparationId: PREPARATION_ID, status: 'registered' as const, listingId: result.listingId };
     }),
@@ -97,7 +133,15 @@ function setup(overrides: {
     ...overrides.channel,
   } as ChannelProductRegistrationPort;
   const content = {
-    validateSourceSelections: vi.fn().mockResolvedValue(undefined),
+    resolveSourceSelections: vi.fn().mockImplementation(async (_tx, input) => ({
+      selectedThumbnailUrl: input.selectedThumbnailUrl,
+      selectedThumbnailGenerationId: input.selectedThumbnailGenerationId,
+      selectedThumbnailGenerationCandidateId:
+        input.selectedThumbnailGenerationCandidateId,
+      selectedDetailPageArtifactId: input.selectedDetailPageArtifactId,
+      selectedDetailPageRevisionId: input.selectedDetailPageRevisionId,
+      selectedDetailPageGenerationId: input.selectedDetailPageGenerationId,
+    })),
     ensureCandidateWorkspace: vi.fn().mockResolvedValue(WORKSPACE_ID),
     branchToListing: vi.fn().mockResolvedValue({ workspaceId: 'listing-workspace-1' }),
     ...overrides.content,
@@ -125,12 +169,23 @@ describe('ProductRegistrationService', () => {
         input: DRAFT_INPUT,
       }),
       expect.any(Function),
+      expect.any(Function),
     );
     expect(content.ensureCandidateWorkspace).toHaveBeenCalledWith(TX, {
       organizationId: ORG_ID,
       sourceCandidateId: CANDIDATE_ID,
       displayName: DRAFT_INPUT.displayName,
       createdByUserId: USER_ID,
+    });
+    expect(content.resolveSourceSelections).toHaveBeenCalledWith(TX, {
+      organizationId: ORG_ID,
+      sourceWorkspaceId: WORKSPACE_ID,
+      selectedThumbnailUrl: null,
+      selectedThumbnailGenerationId: null,
+      selectedThumbnailGenerationCandidateId: null,
+      selectedDetailPageArtifactId: null,
+      selectedDetailPageRevisionId: null,
+      selectedDetailPageGenerationId: null,
     });
   });
 
@@ -156,15 +211,18 @@ describe('ProductRegistrationService', () => {
         registrationInput: { listingPayload: { salePrice: 22900 } },
       }),
     ).resolves.toEqual({ preparationId: 'preparation-2', status: 'draft' });
-    expect(replaceDraftInput).toHaveBeenCalledWith({
-      organizationId: ORG_ID,
-      preparationId: PREPARATION_ID,
-      userId: USER_ID,
-      command: {
-        kind: 'replace',
-        input: { registrationInput: { listingPayload: { salePrice: 22900 } } },
+    expect(replaceDraftInput).toHaveBeenCalledWith(
+      {
+        organizationId: ORG_ID,
+        preparationId: PREPARATION_ID,
+        userId: USER_ID,
+        command: {
+          kind: 'replace',
+          input: { registrationInput: { listingPayload: { salePrice: 22900 } } },
+        },
       },
-    });
+      expect.any(Function),
+    );
   });
 
   it('marks a provider failure retriable without finalizing locally', async () => {
@@ -180,6 +238,7 @@ describe('ProductRegistrationService', () => {
     expect(repository.markFailed).toHaveBeenCalledWith({
       organizationId: ORG_ID,
       preparationId: PREPARATION_ID,
+      submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
       error: 'provider unavailable',
     });
     expect(repository.finalizeRegistered).not.toHaveBeenCalled();
@@ -189,25 +248,26 @@ describe('ProductRegistrationService', () => {
     );
   });
 
-  it('validates frozen content ownership before any provider reconciliation or create', async () => {
-    const validationError = new Error('Selected content is not source-owned.');
-    const { service, repository, channel } = setup({
-      content: {
-        validateSourceSelections: vi.fn().mockRejectedValue(validationError),
-      },
-    });
+  it('resolves source-owned selections inside the claim transaction before provider IO', async () => {
+    const { service, repository, channel, content } = setup();
 
-    await expect(service.submit(ORG_ID, PREPARATION_ID, USER_ID)).resolves.toEqual({
-      preparationId: PREPARATION_ID,
-      status: 'failed',
-    });
-    expect(channel.reconcile).not.toHaveBeenCalled();
-    expect(channel.submit).not.toHaveBeenCalled();
-    expect(repository.markFailed).toHaveBeenCalledWith({
-      organizationId: ORG_ID,
-      preparationId: PREPARATION_ID,
-      error: 'Selected content is not source-owned.',
-    });
+    await service.submit(ORG_ID, PREPARATION_ID, USER_ID);
+
+    expect(repository.claimForSubmission).toHaveBeenCalledWith(
+      ORG_ID,
+      PREPARATION_ID,
+      USER_ID,
+      expect.any(Function),
+    );
+    expect(content.resolveSourceSelections).toHaveBeenCalledWith(
+      TX,
+      expect.objectContaining({
+        organizationId: ORG_ID,
+        sourceWorkspaceId: WORKSPACE_ID,
+      }),
+    );
+    expect(content.resolveSourceSelections.mock.invocationCallOrder[0])
+      .toBeLessThan(channel.reconcile.mock.invocationCallOrder[0]);
   });
 
   it('reconciles an uncertain prior success and does not create a duplicate provider product', async () => {
@@ -219,13 +279,19 @@ describe('ProductRegistrationService', () => {
     };
     const finalizeRegistered = vi.fn()
       .mockRejectedValueOnce(new Error('local transaction failed'))
-      .mockImplementationOnce(async (_orgId, _id, finalize) => {
+      .mockImplementationOnce(async (_orgId, _id, _leaseToken, finalize) => {
         const result = await finalize(TX);
         return { preparationId: PREPARATION_ID, status: 'registered', listingId: result.listingId };
       });
     const reconcile = vi.fn().mockResolvedValue(reconciled);
     const { service, channel, repository } = setup({
-      repository: { finalizeRegistered },
+      repository: {
+        claimForSubmission: vi.fn().mockResolvedValue(frozenSubmission({
+          providerOutcome: 'uncertain',
+          isRetry: true,
+        })),
+        finalizeRegistered,
+      },
       channel: { reconcile },
     });
 
@@ -244,6 +310,7 @@ describe('ProductRegistrationService', () => {
     expect(repository.recordProviderResult).toHaveBeenCalledWith(
       ORG_ID,
       PREPARATION_ID,
+      '33333333-3333-4333-8333-333333333333',
       reconciled,
     );
   });
@@ -278,6 +345,94 @@ describe('ProductRegistrationService', () => {
     );
   });
 
+  it('never blind-creates when an uncertain attempt cannot be reconciled', async () => {
+    const { service, repository, channel } = setup({
+      repository: {
+        claimForSubmission: vi.fn().mockResolvedValue(frozenSubmission({
+          providerOutcome: 'uncertain',
+          isRetry: true,
+        })),
+      },
+      channel: { reconcile: vi.fn().mockResolvedValue(null) },
+    });
+
+    await expect(service.submit(ORG_ID, PREPARATION_ID, USER_ID)).resolves.toEqual({
+      preparationId: PREPARATION_ID,
+      status: 'failed',
+    });
+    expect(channel.submit).not.toHaveBeenCalled();
+    expect(repository.markProviderAttemptStarted).not.toHaveBeenCalled();
+    expect(repository.markFailed).toHaveBeenCalledWith({
+      organizationId: ORG_ID,
+      preparationId: PREPARATION_ID,
+      submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
+      error: 'Provider outcome remains uncertain after reconciliation.',
+    });
+  });
+
+  it('durably marks the attempt uncertain immediately before an allowed provider create', async () => {
+    const { service, repository, channel } = setup({
+      repository: {
+        claimForSubmission: vi.fn().mockResolvedValue(frozenSubmission({
+          providerOutcome: 'definitive_failure',
+          isRetry: true,
+        })),
+      },
+    });
+
+    await service.submit(ORG_ID, PREPARATION_ID, USER_ID);
+
+    expect(repository.markProviderAttemptStarted).toHaveBeenCalledWith(
+      ORG_ID,
+      PREPARATION_ID,
+      '33333333-3333-4333-8333-333333333333',
+    );
+    expect(channel.submit).toHaveBeenCalledWith(expect.objectContaining({
+      providerOutcome: 'uncertain',
+      providerCreateAllowed: true,
+    }));
+    expect(repository.markProviderAttemptStarted.mock.invocationCallOrder[0])
+      .toBeLessThan(channel.submit.mock.invocationCallOrder[0]);
+  });
+
+  it('records a definitive provider rejection without leaving an uncertain identity', async () => {
+    const rejection = new DefinitiveChannelProductRegistrationError('invalid category');
+    const { service, repository } = setup({
+      channel: { submit: vi.fn().mockRejectedValue(rejection) },
+    });
+
+    await expect(service.submit(ORG_ID, PREPARATION_ID, USER_ID)).resolves.toEqual({
+      preparationId: PREPARATION_ID,
+      status: 'failed',
+    });
+    expect(repository.markFailed).toHaveBeenCalledWith({
+      organizationId: ORG_ID,
+      preparationId: PREPARATION_ID,
+      submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
+      providerOutcome: 'definitive_failure',
+      error: 'invalid category',
+    });
+  });
+
+  it('retains succeeded provider identity when local finalization fails', async () => {
+    const { service, repository } = setup({
+      repository: {
+        finalizeRegistered: vi.fn().mockRejectedValue(new Error('local transaction failed')),
+      },
+    });
+
+    await expect(service.submit(ORG_ID, PREPARATION_ID, USER_ID)).resolves.toEqual({
+      preparationId: PREPARATION_ID,
+      status: 'failed',
+    });
+    expect(repository.markFailed).toHaveBeenLastCalledWith({
+      organizationId: ORG_ID,
+      preparationId: PREPARATION_ID,
+      submissionLeaseToken: '33333333-3333-4333-8333-333333333333',
+      error: 'local transaction failed',
+    });
+  });
+
   it('cancels through the row-locked repository command', async () => {
     const replaceDraftInput = vi.fn().mockResolvedValue({
       preparationId: PREPARATION_ID,
@@ -289,11 +444,14 @@ describe('ProductRegistrationService', () => {
       preparationId: PREPARATION_ID,
       status: 'cancelled',
     });
-    expect(replaceDraftInput).toHaveBeenCalledWith({
-      organizationId: ORG_ID,
-      preparationId: PREPARATION_ID,
-      userId: USER_ID,
-      command: { kind: 'cancel' },
-    });
+    expect(replaceDraftInput).toHaveBeenCalledWith(
+      {
+        organizationId: ORG_ID,
+        preparationId: PREPARATION_ID,
+        userId: USER_ID,
+        command: { kind: 'cancel' },
+      },
+      expect.any(Function),
+    );
   });
 });
