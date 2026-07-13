@@ -96,4 +96,44 @@ describe('guarded authoritative database rebuild workflows', () => {
     assert.match(remoteDeploy, /quiesce\)\n\s+quiesce/);
     assert.match(remoteDeploy, /resume\)\n\s+resume/);
   });
+
+  it('documents the actual destructive ordering, recovery boundary, and protected values', () => {
+    const architecture = source('docs/runbooks/deployment-architecture.md');
+    const environmentVariables = source('docs/runbooks/environment-variables.md');
+    const quiescePosition = architecture.indexOf('quiesce every API');
+    const exportPosition = architecture.indexOf('sanitized Coupang run/snapshot/daily-fact export');
+    const artifactPosition = architecture.indexOf('private workflow artifact');
+    const resetPosition = architecture.indexOf('Prisma final schema with --force-reset');
+
+    assert.ok(quiescePosition >= 0 && exportPosition > quiescePosition);
+    assert.ok(artifactPosition > exportPosition && resetPosition > artifactPosition);
+    assert.match(architecture, /before\s+the reset boundary[\s\S]*resume the previous runtime/i);
+    assert.match(architecture, /at or after\s+the\s+reset boundary[\s\S]*must not resume/i);
+
+    for (const prefix of ['STAGING', 'PRODUCTION']) {
+      for (const name of [
+        'REBUILD_EXPECTED_DATABASE_HOST',
+        'REBUILD_EXPECTED_SUPABASE_PROJECT_REF',
+        'REBUILD_ORGANIZATION_ID',
+        'REBUILD_ORGANIZATION_SLUG',
+        'REBUILD_COUPANG_ACCOUNT_ID',
+        'REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID',
+        'REBUILD_EXPECTED_API_ORIGIN',
+      ]) {
+        assert.match(environmentVariables, new RegExp(`${prefix}_${name}`));
+      }
+    }
+  });
+
+  it('describes retired Sellpia preflight helpers as manual diagnostics, not workflow steps', () => {
+    const readme = source('scripts/README.md');
+    const preflightLine = readme.split('\n').find((line) =>
+      line.includes('scripts/check-sellpia-cutover-preflight.ts')) ?? '';
+    const warningLine = readme.split('\n').find((line) =>
+      line.includes('scripts/check-sellpia-db-push-warning.mjs')) ?? '';
+
+    assert.match(preflightLine, /manual|operator|diagnostic/i);
+    assert.match(warningLine, /manual|operator|diagnostic/i);
+    assert.doesNotMatch(`${preflightLine}\n${warningLine}`, /deploy workflows/i);
+  });
 });

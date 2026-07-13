@@ -14,10 +14,12 @@ const SCHEMA_VERSION = 'kiditem.authoritative-inventory-rebuild.v2';
 const REBUILD_STATUS_KEY = 'inventory.rebuild.status';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const GIT_SHA_PATTERN = /^[0-9a-f]{40}$/i;
-const PRIVATE_REPLAY_KEY_PATTERN = /(?:auth(?:orization)?|password|passcode|secret|token|credential|cookie|session|e-?mail|phone|address|buyer|customer|receiver|recipient|memo|note|review|배송|주소|연락처|전화|이메일|수령|구매자|고객|메모|요청사항)/i;
+const PRIVATE_REPLAY_KEY_PATTERN = /(?:auth(?:orization)?|password|passcode|secret|token|credential|cookie|session|e-?mail|phone|address|street|postal|zip|buyer|customer|receiver|recipient|memo|note|review|(?:^|[_-])(?:name|full.?name|first.?name|last.?name|home)(?:[_-]|$)|이름|성명|배송|주소|연락처|전화|이메일|수령|구매자|고객|메모|요청사항)/i;
 const EMAIL_VALUE_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
 const PHONE_VALUE_PATTERN = /(?:^|\D)(?:\+?82[-.\s]?)?0?1[016789][-.\s]?\d{3,4}[-.\s]?\d{4}(?:\D|$)/;
-const KOREAN_ADDRESS_VALUE_PATTERN = /(?:서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주)(?:특별시|광역시|특별자치시|특별자치도|도)?\s+[^\s]+(?:시|군|구)\s+[^\s]+(?:로|길|동|읍|면)\b/;
+const INTERNATIONAL_PHONE_VALUE_PATTERN = /(?:^|\D)\+[1-9]\d{0,2}(?:[\s().-]*\d){7,14}(?:\D|$)/;
+const KOREAN_ADDRESS_VALUE_PATTERN = /(?:서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주)(?:특별시|광역시|특별자치시|특별자치도|도)?\s+(?:[^\s]+(?:시|군|구)\s+)?[^\s]+(?:로|길|동|읍|면)(?:\s+\d[\d-]*)?/;
+const ENGLISH_ADDRESS_VALUE_PATTERN = /(?:\bP\.?O\.?\s+Box\s+\d+\b|\b\d{1,6}\s+(?:[A-Z0-9.'-]+\s+){1,7}(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Court|Ct|Way|Parkway|Pkwy|Highway|Hwy)\b)/i;
 const BODY_KEYS = new Set([
   'type', 'source', 'data', 'normalizedRows', 'kpis', 'summary', 'adSummary',
   'campaignName', 'period', 'timestamp', 'dateFrom', 'dateTo', 'url',
@@ -72,6 +74,13 @@ const ADS_KPI_KEYS = new Set([
   '전환수', '전환 주문수', '광고 전환 주문수', '주문수', '광고 수익률',
   '광고수익률', '클릭률', '전환율', 'ad spend', 'ad gmv', 'impressions',
   'clicks', 'conversions', 'orders', 'roas', 'ctr', 'conversion rate',
+]);
+const BOOLEAN_ROW_KEYS = new Set(['isWinner', '_kpiOnly']);
+const NUMBERISH_ROW_KEYS = new Set([
+  'myPrice', 'winnerPrice', 'visitors', 'views', 'cartAdds', 'orders', 'salesQty',
+  'revenue', 'conversionRate', 'currentBid', 'dailyBudget', 'runningAdSpend',
+  'spend', 'impressions', 'clicks', 'conversions', 'roas', 'ctr',
+  'adEfficiencyTarget', 'adSpend', 'adRevenue', 'rowCount',
 ]);
 const COMMANDS = new Set([
   'guard',
@@ -320,9 +329,16 @@ export function assertProtectedSupabaseDestination(
   expectedProjectRef: string,
 ): void {
   const parsed = new URL(supabaseUrl);
+  const expectedOrigin = `https://${expectedProjectRef}.supabase.co`;
   if (
     parsed.protocol !== 'https:' ||
-    parsed.hostname !== `${expectedProjectRef}.supabase.co`
+    parsed.origin !== expectedOrigin ||
+    parsed.port !== '' ||
+    parsed.username !== '' ||
+    parsed.password !== '' ||
+    parsed.pathname !== '/' ||
+    parsed.search !== '' ||
+    parsed.hash !== ''
   ) {
     throw new Error('Supabase URL does not match the expected protected Supabase project');
   }
@@ -622,6 +638,11 @@ export function assertReplayBundle(value: unknown): asserts value is CoupangRepl
     if (!['wing', 'advertising', 'coupang_ads'].includes(source)) {
       throw new Error(`Unknown replay payload source: ${source || '<missing>'}`);
     }
+    assertOptionalScalar(body.campaignName, ['string'], 'body.campaignName');
+    assertOptionalScalar(body.period, ['string', 'number'], 'body.period');
+    for (const key of ['timestamp', 'dateFrom', 'dateTo', 'url'] as const) {
+      assertOptionalScalar(body[key], ['string'], `body.${key}`);
+    }
     const rowKeys = replayRowKeys(type, source);
     assertAllowedRows(body.data, rowKeys, 'data');
     if (body.normalizedRows !== undefined) {
@@ -664,7 +685,7 @@ function assertAllowedRecord(
   allowed: ReadonlySet<string>,
   label: string,
 ): void {
-  const record = asRecord(value);
+  const record = assertPlainRecord(value, label);
   for (const key of Object.keys(record)) {
     if (!allowed.has(key)) throw new Error(`Unknown replay ${label} key: ${key}`);
   }
@@ -677,14 +698,12 @@ function assertAllowedScalarRecord(
 ): void {
   assertAllowedRecord(value, allowed, label);
   for (const [key, entry] of Object.entries(asRecord(value))) {
-    if (entry !== null && typeof entry === 'object') {
-      throw new Error(`Replay ${label}.${key} must be a scalar aggregate`);
-    }
+    assertReplayScalar(entry, ['string', 'number'], `Replay ${label}.${key}`);
   }
 }
 
 function assertReplayKpis(value: unknown, type: string, source: string): void {
-  const record = asRecord(value);
+  const record = assertPlainRecord(value, 'kpis');
   const isTraffic = type === 'traffic';
   const isAds = source === 'advertising' || type === 'ad_campaign' || type === 'coupang_ads_daily';
   const allowed = isTraffic ? TRAFFIC_KPI_KEYS : isAds ? ADS_KPI_KEYS : WING_KPI_KEYS;
@@ -694,20 +713,61 @@ function assertReplayKpis(value: unknown, type: string, source: string): void {
       assertAllowedScalarRecord(entry, new Set(['value', 'numValue', 'change']), `kpis.${key}`);
     } else if (isAds && entry !== null && typeof entry === 'object') {
       assertAllowedScalarRecord(entry, new Set(['value', 'unit']), `kpis.${key}`);
-    } else if (entry !== null && typeof entry === 'object') {
-      throw new Error(`Replay kpis.${key} must be a scalar`);
+    } else {
+      assertReplayScalar(entry, ['string', 'number'], `Replay kpis.${key}`);
     }
   }
 }
 
 function assertAllowedRows(value: unknown, allowed: ReadonlySet<string>, label: string): void {
   if (!Array.isArray(value)) throw new Error(`Replay ${label} must be an array`);
-  for (const rowValue of value) {
-    const row = asRecord(rowValue);
-    for (const key of Object.keys(row)) {
+  for (const [index, rowValue] of value.entries()) {
+    const row = assertPlainRecord(rowValue, `${label}[${index}]`);
+    for (const [key, entry] of Object.entries(row)) {
       if (!allowed.has(key)) throw new Error(`Unknown replay ${label} key: ${key}`);
+      assertReplayScalar(
+        entry,
+        BOOLEAN_ROW_KEYS.has(key)
+          ? ['boolean']
+          : NUMBERISH_ROW_KEYS.has(key)
+            ? ['string', 'number']
+            : ['string'],
+        `Replay ${label}[${index}].${key}`,
+      );
     }
   }
+}
+
+type ReplayScalarType = 'string' | 'number' | 'boolean';
+
+function assertOptionalScalar(
+  value: unknown,
+  allowed: readonly ReplayScalarType[],
+  label: string,
+): void {
+  if (value === undefined) return;
+  assertReplayScalar(value, allowed, `Replay ${label}`);
+}
+
+function assertReplayScalar(
+  value: unknown,
+  allowed: readonly ReplayScalarType[],
+  label: string,
+): void {
+  if (value === null) return;
+  if (!allowed.includes(typeof value as ReplayScalarType)) {
+    throw new Error(`${label} must be a ${allowed.join(' or ')} scalar`);
+  }
+  if (typeof value === 'number' && !Number.isFinite(value)) {
+    throw new Error(`${label} must be a finite number scalar`);
+  }
+}
+
+function assertPlainRecord(value: unknown, label: string): JsonRecord {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`Replay ${label} must be an object with no unknown keys`);
+  }
+  return value as JsonRecord;
 }
 
 function assertNoPii(value: unknown, path: string): void {
@@ -729,7 +789,9 @@ function containsPiiValue(value: unknown): boolean {
   if (typeof value === 'string') {
     return EMAIL_VALUE_PATTERN.test(value) ||
       PHONE_VALUE_PATTERN.test(value) ||
-      KOREAN_ADDRESS_VALUE_PATTERN.test(value);
+      INTERNATIONAL_PHONE_VALUE_PATTERN.test(value) ||
+      KOREAN_ADDRESS_VALUE_PATTERN.test(value) ||
+      ENGLISH_ADDRESS_VALUE_PATTERN.test(value);
   }
   if (Array.isArray(value)) return value.some(containsPiiValue);
   if (value && typeof value === 'object') {

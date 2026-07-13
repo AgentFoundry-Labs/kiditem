@@ -8,14 +8,8 @@ import type { Request } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
 
 const REBUILD_STATUS_KEY = 'inventory.rebuild.status';
-const ALLOWED_PATHS = [
-  /^\/api\/auth(?:\/|$)/,
-  /^\/api\/health(?:\/|$)/,
-  /^\/api\/readiness(?:\/|$)/,
-  /^\/api\/inventory\/sellpia-sync(?:\/|$)/,
-  /^\/api\/channels\/accounts\/[^/]+\/catalog-imports\/coupang-wing(?:\/|$)/,
-  /^\/api\/ads\/extension\/sync\/?$/,
-];
+const REPLAY_KEY_PATTERN =
+  /^authoritative-rebuild:([1-9][0-9]*):[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class RebuildReadinessGuard implements CanActivate {
@@ -25,7 +19,8 @@ export class RebuildReadinessGuard implements CanActivate {
     if (context.getType() !== 'http') return true;
     const request = context.switchToHttp().getRequest<Request>();
     const path = request.path || request.originalUrl.split('?')[0] || '';
-    if (ALLOWED_PATHS.some((pattern) => pattern.test(path))) return true;
+    const method = request.method?.toUpperCase() ?? '';
+    if (isRebuildCriticalRequest(method, path)) return true;
 
     const organizationId = request.authUser?.organizationId;
     if (!organizationId) return true;
@@ -37,6 +32,7 @@ export class RebuildReadinessGuard implements CanActivate {
     });
     const status = toRecord(setting?.value);
     if (status.state !== 'snapshot_required') return true;
+    if (isCurrentAuthoritativeReplay(request, method, path, status)) return true;
 
     throw new ServiceUnavailableException({
       code: 'inventory_snapshot_required',
@@ -45,6 +41,32 @@ export class RebuildReadinessGuard implements CanActivate {
       originRunId: status.originRunId ?? null,
     });
   }
+}
+
+function isRebuildCriticalRequest(method: string, path: string): boolean {
+  if (/^\/api\/(?:auth|health|readiness)(?:\/|$)/.test(path)) return true;
+  if (method === 'POST' && /^\/api\/inventory\/sellpia-sync\/import\/?$/.test(path)) {
+    return true;
+  }
+  if (method === 'GET' && /^\/api\/inventory\/sellpia-sync\/import-runs\/?$/.test(path)) {
+    return true;
+  }
+  if (method === 'GET' && /^\/api\/channels\/accounts\/?$/.test(path)) return true;
+  return method === 'POST' &&
+    /^\/api\/channels\/accounts\/[^/]+\/catalog-imports\/coupang-wing\/?$/.test(path);
+}
+
+function isCurrentAuthoritativeReplay(
+  request: Request,
+  method: string,
+  path: string,
+  status: Record<string, unknown>,
+): boolean {
+  if (method !== 'POST' || !/^\/api\/ads\/extension\/sync\/?$/.test(path)) return false;
+  const body = toRecord(request.body);
+  const key = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : '';
+  const match = key.match(REPLAY_KEY_PATTERN);
+  return match?.[1] === status.originRunId;
 }
 
 function toRecord(value: unknown): Record<string, unknown> {

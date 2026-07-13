@@ -115,6 +115,21 @@ describe('authoritative inventory credential destinations', () => {
       'https://production-ref.supabase.co',
       'staging-ref',
     )).toThrow(/Supabase project/i);
+
+    for (const unsafeUrl of [
+      'https://staging-ref.supabase.co:444/',
+      'https://staging-ref.supabase.co/auth/v1',
+      'https://operator@staging-ref.supabase.co/',
+      'https://staging-ref.supabase.co/?redirect=evil',
+      'https://staging-ref.supabase.co/#credential',
+    ]) {
+      expect(() => assertProtectedSupabaseDestination(unsafeUrl, 'staging-ref'))
+        .toThrow(/Supabase project/i);
+    }
+    expect(() => assertProtectedSupabaseDestination(
+      'https://staging-ref.supabase.co/',
+      'staging-ref',
+    )).not.toThrow();
   });
 });
 
@@ -355,6 +370,115 @@ describe('authoritative inventory Coupang replay bundle', () => {
       .toThrow(/payload hash/i);
     expect(() => assertReplayBundle({ ...bundle, expectedFactDigestSha256: 'not-a-digest' }))
       .toThrow(/fact digest/i);
+  });
+
+  it('rejects non-scalar row fields including the exact nested reviewer payload', () => {
+    const bundle = buildCoupangReplayBundle({
+      target: 'staging',
+      originRunId: '12345',
+      deployedSha: '0123456789abcdef0123456789abcdef01234567',
+      organizationId,
+      channelAccountId: coupangAccountId,
+      channelAccountExternalId: 'wing-account',
+      runs: [{
+        id: '00000000-0000-4000-8000-000000000013',
+        source: 'wing',
+        pageType: 'itemwinner',
+        businessDate: new Date('2026-07-12T00:00:00.000Z'),
+        periodStart: null,
+        periodEnd: null,
+        period: null,
+        targetUrl: null,
+        metaJson: {},
+        snapshots: [{
+          rawJson: {
+            vendorItemId: 'option-1',
+            productName: '유효 상품명',
+          },
+          normalizedJson: null,
+        }],
+      }],
+      factCounts: {
+        scrapeRuns: 1,
+        rawSnapshots: 1,
+        listingDailyFacts: 1,
+        optionDailyFacts: 0,
+        adTargetFacts: 0,
+        accountKpiFacts: 1,
+      },
+      factDigestSha256: 'c'.repeat(64),
+    });
+    const unsafe = {
+      ...bundle,
+      payloads: [{
+        ...bundle.payloads[0]!,
+        body: {
+          ...bundle.payloads[0]!.body,
+          data: [{
+            vendorItemId: 'option-1',
+            productName: {
+              이름: '홍길동',
+              unknownField: '+1 415 555 1234',
+              home: '1600 Pennsylvania Ave NW',
+            },
+          }],
+        },
+      }],
+    };
+
+    expect(() => assertReplayBundle(unsafe)).toThrow(/productName.*scalar/i);
+  });
+
+  it.each([
+    '+1 415 555 1234',
+    '1600 Pennsylvania Ave NW',
+    'buyer@example.test',
+    '서울특별시 강남구 테헤란로 123',
+  ])('rejects PII-shaped productName value %s', (productName) => {
+    const bundle = buildCoupangReplayBundle({
+      target: 'staging',
+      originRunId: '12345',
+      deployedSha: '0123456789abcdef0123456789abcdef01234567',
+      organizationId,
+      channelAccountId: coupangAccountId,
+      channelAccountExternalId: 'wing-account',
+      runs: [{
+        id: '00000000-0000-4000-8000-000000000014',
+        source: 'wing',
+        pageType: 'itemwinner',
+        businessDate: new Date('2026-07-12T00:00:00.000Z'),
+        periodStart: null,
+        periodEnd: null,
+        period: null,
+        targetUrl: null,
+        metaJson: {},
+        snapshots: [{
+          rawJson: { vendorItemId: 'option-1', productName: '유효 상품명' },
+          normalizedJson: null,
+        }],
+      }],
+      factCounts: {
+        scrapeRuns: 1,
+        rawSnapshots: 1,
+        listingDailyFacts: 1,
+        optionDailyFacts: 0,
+        adTargetFacts: 0,
+        accountKpiFacts: 1,
+      },
+      factDigestSha256: 'd'.repeat(64),
+    });
+    const unsafe = {
+      ...bundle,
+      payloads: [{
+        ...bundle.payloads[0]!,
+        body: {
+          ...bundle.payloads[0]!.body,
+          data: [{ vendorItemId: 'option-1', productName }],
+        },
+      }],
+    };
+
+    expect(() => assertReplayBundle(unsafe)).toThrow(/PII/i);
   });
 
   it('changes the daily-fact digest when an approved aggregate changes', () => {

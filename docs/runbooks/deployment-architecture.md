@@ -47,9 +47,9 @@ migration. Staging and production use the same fail-closed sequence:
 
 ```text
 exact RESET_<ENVIRONMENT>_DATA input + matching GitHub Environment
+  -> quiesce every API, web, worker, and compose-nginx service
   -> sanitized Coupang run/snapshot/daily-fact export
   -> private workflow artifact (one-day retention)
-  -> quiesce every API, web, worker, and compose-nginx service
   -> Prisma final schema with --force-reset
   -> minimum organization/user/membership/channel-account baseline
   -> deploy application with inventory.rebuild.status=snapshot_required
@@ -76,6 +76,18 @@ run, or any count difference leaves the environment snapshot-required.
 The artifact expires after one day. If authenticated Sellpia and Wing imports
 cannot be completed within that window, do not improvise a database copy or
 extend the artifact with credentials; start a new guarded rebuild run.
+
+Failure recovery is split by the destructive boundary. If a step fails before
+the reset boundary, the workflow cleanup step may resume the previous runtime
+because the old database is still intact. If a step fails at or after the
+reset boundary, the workflow must not resume the previous runtime against the
+reset or partially bootstrapped database. Keep the target unavailable and
+fix-forward from the exact originating SHA and its private artifact. Do not
+blindly rerun the full destructive job after the source database has already
+been reset: the selective export can no longer be reproduced from that
+database. If the originating artifact or baseline cannot be used, stop and
+perform an explicitly approved database recovery before starting a new reset
+run.
 
 ## Blue-Green Switch
 

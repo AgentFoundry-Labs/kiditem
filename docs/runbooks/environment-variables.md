@@ -379,6 +379,7 @@ STAGING_REBUILD_ROCKET_ACCOUNT_NAME
 STAGING_REBUILD_EXPECTED_ACTIVE_MASTERS
 STAGING_REBUILD_EXPECTED_LISTINGS
 STAGING_REBUILD_EXPECTED_CHANNEL_SKUS
+STAGING_REBUILD_EXPECTED_API_ORIGIN
 STAGING_S3_BUCKET
 STAGING_S3_ENDPOINT
 STAGING_S3_PUBLIC_URL
@@ -397,6 +398,8 @@ STAGING_DATABASE_URL
 STAGING_REBUILD_USER_EMAIL
 STAGING_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID
 STAGING_REBUILD_ROCKET_EXTERNAL_ACCOUNT_ID
+STAGING_REBUILD_EXPECTED_DATABASE_HOST
+STAGING_REBUILD_EXPECTED_SUPABASE_PROJECT_REF
 STAGING_SUPABASE_SECRET_KEY
 STAGING_DB_BASELINE_S3_ACCESS_KEY
 STAGING_DB_BASELINE_S3_SECRET_KEY
@@ -424,6 +427,30 @@ its finalization. Production uses the same suffixes with the `PRODUCTION_`
 prefix. The production user email, external account IDs, and Supabase secret
 must be GitHub Environment secrets; the other baseline IDs/names and approved
 acceptance counts are Environment variables.
+
+The following protected values are mandatory and have no generic or
+cross-environment fallback. Staging and production must each define their own
+exact names in the matching GitHub Environment:
+
+| Purpose | Staging | Production | Kind |
+|---|---|---|---|
+| Database host fingerprint | `STAGING_REBUILD_EXPECTED_DATABASE_HOST` | `PRODUCTION_REBUILD_EXPECTED_DATABASE_HOST` | Secret |
+| Supabase project fingerprint and credential destination | `STAGING_REBUILD_EXPECTED_SUPABASE_PROJECT_REF` | `PRODUCTION_REBUILD_EXPECTED_SUPABASE_PROJECT_REF` | Secret |
+| Database-resident organization ID | `STAGING_REBUILD_ORGANIZATION_ID` | `PRODUCTION_REBUILD_ORGANIZATION_ID` | Variable |
+| Database-resident organization slug | `STAGING_REBUILD_ORGANIZATION_SLUG` | `PRODUCTION_REBUILD_ORGANIZATION_SLUG` | Variable |
+| Database-resident Coupang account ID | `STAGING_REBUILD_COUPANG_ACCOUNT_ID` | `PRODUCTION_REBUILD_COUPANG_ACCOUNT_ID` | Variable |
+| Database-resident Coupang external account identity | `STAGING_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID` | `PRODUCTION_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID` | Secret |
+| Exact HTTPS API origin used for replay | `STAGING_REBUILD_EXPECTED_API_ORIGIN` | `PRODUCTION_REBUILD_EXPECTED_API_ORIGIN` | Variable |
+
+The first phase also requires the target `*_DATABASE_URL`, baseline
+`*_REBUILD_ORGANIZATION_NAME`, `*_REBUILD_USER_ID`,
+`*_REBUILD_USER_EMAIL`, `*_REBUILD_USER_NAME`, and
+`*_REBUILD_COUPANG_ACCOUNT_NAME`. Finalization additionally requires the
+target `*_SUPABASE_URL`, `*_SUPABASE_SECRET_KEY`, and all three exact positive
+count variables. `*_REBUILD_USER_EMAIL`, external account IDs, database URL,
+database host/project fingerprints, and Supabase secret key are secrets; IDs,
+names, URL origins, Supabase URL, and expected counts are variables. The
+optional Rocket ID/name/external-ID trio remains all-or-none.
 
 `*_REBUILD_EXPECTED_ACTIVE_MASTERS`, `*_REBUILD_EXPECTED_LISTINGS`, and
 `*_REBUILD_EXPECTED_CHANNEL_SKUS` have no defaults. Set them from the approved
