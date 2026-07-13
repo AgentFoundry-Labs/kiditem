@@ -27,6 +27,7 @@ export default defineConfig({
     'src/channel-sku-matching.ts',
     'src/channel-sku-availability.ts',
     'src/source-import.ts',
+    'src/coupang-catalog-snapshot.ts',
     'src/agent-os.ts',
     'src/workflow.ts',
     'src/common.ts',
