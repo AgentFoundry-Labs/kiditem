@@ -59,7 +59,10 @@ export interface AdListingRepositoryPort {
    * options. Used by the extension-sync handlers to resolve incoming
    * `vendorItemId` / `externalId` payloads to internal listing rows.
    */
-  buildAdSyncListingMap(organizationId: string): Promise<AdSyncListingMap>;
+  buildAdSyncListingMap(
+    organizationId: string,
+    channelAccountId?: string,
+  ): Promise<AdSyncListingMap>;
 
   /**
    * Change the channel listing's `adTier`. Returns `false` when the listing is

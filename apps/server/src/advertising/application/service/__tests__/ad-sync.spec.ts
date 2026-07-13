@@ -135,6 +135,22 @@ describe('AdSyncService', () => {
       expect(result.externalIdMap.size).toBe(0);
       expect(listingRepo.buildAdSyncListingMap).toHaveBeenCalledWith('organization-A');
     });
+
+    it('propagates the explicit Coupang channel account to the repository', async () => {
+      const map: ListingMap = {
+        channelAccountId: 'account-2',
+        externalOptionIdMap: new Map(),
+        externalIdMap: new Map(),
+      };
+      listingRepo.buildAdSyncListingMap.mockResolvedValue(map);
+
+      await service.buildListingMap('organization-1', 'account-2');
+
+      expect(listingRepo.buildAdSyncListingMap).toHaveBeenCalledWith(
+        'organization-1',
+        'account-2',
+      );
+    });
   });
 
   describe('matchListingFromRow', () => {

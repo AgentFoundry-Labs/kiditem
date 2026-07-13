@@ -1,6 +1,18 @@
-import { IsString, IsOptional, IsArray, IsObject, IsNumber, ValidateIf } from 'class-validator';
+import {
+  IsArray,
+  IsNumber,
+  IsObject,
+  IsOptional,
+  IsString,
+  IsUUID,
+  ValidateIf,
+} from 'class-validator';
 
 export class ExtensionSyncDto {
+  @IsOptional()
+  @IsUUID()
+  channelAccountId?: string;
+
   @IsString()
   type: string;
 

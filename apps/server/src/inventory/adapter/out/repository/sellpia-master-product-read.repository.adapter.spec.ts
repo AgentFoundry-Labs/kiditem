@@ -17,15 +17,14 @@ describe('SellpiaMasterProductReadRepositoryAdapter', () => {
     expect(findMany).toHaveBeenCalledWith({
       where: {
         organizationId,
-        sellpiaProductCode: { in: ['SP-1', 'SP-2'] },
+        code: { in: ['SP-1', 'SP-2'] },
         isActive: true,
-        isDeleted: false,
       },
       select: expect.objectContaining({
         id: true,
-        sellpiaProductCode: true,
-        sellpiaName: true,
-        sellpiaBarcode: true,
+        code: true,
+        name: true,
+        barcode: true,
         currentStock: true,
         purchasePrice: true,
         isActive: true,
@@ -50,7 +49,7 @@ describe('SellpiaMasterProductReadRepositoryAdapter', () => {
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         organizationId,
-        sellpiaBarcode: { in: ['DUP'] },
+        barcode: { in: ['DUP'] },
         isActive: true,
       }),
     }));
@@ -59,16 +58,16 @@ describe('SellpiaMasterProductReadRepositoryAdapter', () => {
 
 function stagedMaster(
   id: string,
-  sellpiaProductCode: string,
-  sellpiaName: string,
-  sellpiaBarcode: string | null = null,
+  code: string,
+  name: string,
+  barcode: string | null = null,
 ) {
   return {
     id,
-    sellpiaProductCode,
-    sellpiaName,
+    code,
+    name,
     optionName: null,
-    sellpiaBarcode,
+    barcode,
     currentStock: 3,
     purchasePrice: 1_500,
     salePrice: 2_500,

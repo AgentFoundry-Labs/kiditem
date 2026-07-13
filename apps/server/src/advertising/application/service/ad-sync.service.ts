@@ -60,7 +60,10 @@ export class AdSyncService {
   ) {}
 
   async sync(payload: ExtensionSyncDto, organizationId: string) {
-    const map = await this.buildListingMap(organizationId);
+    const map = await this.buildListingMap(
+      organizationId,
+      payload.channelAccountId,
+    );
 
     switch (payload.type) {
       case 'ad_campaign':
@@ -164,8 +167,16 @@ export class AdSyncService {
     } satisfies AdExtensionStatus;
   }
 
-  async buildListingMap(organizationId: string): Promise<ListingMap> {
-    return this.listingRepo.buildAdSyncListingMap(organizationId);
+  async buildListingMap(
+    organizationId: string,
+    channelAccountId?: string,
+  ): Promise<ListingMap> {
+    return channelAccountId
+      ? this.listingRepo.buildAdSyncListingMap(
+          organizationId,
+          channelAccountId,
+        )
+      : this.listingRepo.buildAdSyncListingMap(organizationId);
   }
 
   matchListingFromRow(

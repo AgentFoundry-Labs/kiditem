@@ -20,7 +20,7 @@ describe('picking-rules — extractPickableItems', () => {
                   masterProductId: 'master-a',
                   quantity: 2,
                   masterProduct: {
-                    sellpiaProductCode: 'SELLPIA-A',
+                    code: 'SELLPIA-A',
                     name: '구성품 A',
                     optionName: '빨강',
                   },
@@ -29,7 +29,7 @@ describe('picking-rules — extractPickableItems', () => {
                   masterProductId: 'master-b',
                   quantity: 1,
                   masterProduct: {
-                    sellpiaProductCode: 'SELLPIA-B',
+                    code: 'SELLPIA-B',
                     name: '구성품 B',
                     optionName: null,
                   },

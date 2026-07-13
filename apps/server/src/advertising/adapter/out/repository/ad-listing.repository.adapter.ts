@@ -2,7 +2,11 @@
 // map. The outward read model keeps its historical `masterProduct` key, but
 // every value now comes from ChannelListing.
 
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   AdListingRepositoryPort,
@@ -86,19 +90,12 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
 
   async buildAdSyncListingMap(
     organizationId: string,
+    channelAccountId?: string,
   ): Promise<AdSyncListingMap> {
-    const account = await this.prisma.channelAccount.findFirst({
-      where: { organizationId, channel: 'coupang', status: 'active' },
-      orderBy: [
-        { isPrimary: 'desc' },
-        { updatedAt: 'desc' },
-        { id: 'asc' },
-      ],
-      select: { id: true },
-    });
-    if (!account) {
-      throw new NotFoundException('활성 쿠팡 채널 계정을 찾을 수 없습니다.');
-    }
+    const account = await this.resolveCoupangAccount(
+      organizationId,
+      channelAccountId,
+    );
 
     const [options, listings] = await Promise.all([
       this.prisma.channelListingOption.findMany({
@@ -153,5 +150,44 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
       externalOptionIdMap,
       externalIdMap,
     };
+  }
+
+  private async resolveCoupangAccount(
+    organizationId: string,
+    channelAccountId?: string,
+  ): Promise<{ id: string }> {
+    if (channelAccountId) {
+      const account = await this.prisma.channelAccount.findFirst({
+        where: {
+          id: channelAccountId,
+          organizationId,
+          channel: 'coupang',
+          status: 'active',
+        },
+        select: { id: true },
+      });
+      if (!account) {
+        throw new NotFoundException(
+          '선택한 활성 쿠팡 채널 계정을 찾을 수 없습니다.',
+        );
+      }
+      return account;
+    }
+
+    const accounts = await this.prisma.channelAccount.findMany({
+      where: { organizationId, channel: 'coupang', status: 'active' },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+      take: 2,
+      select: { id: true },
+    });
+    if (accounts.length === 0) {
+      throw new NotFoundException('활성 쿠팡 채널 계정을 찾을 수 없습니다.');
+    }
+    if (accounts.length > 1) {
+      throw new BadRequestException(
+        '활성 쿠팡 채널 계정이 여러 개입니다. channelAccountId를 지정해주세요.',
+      );
+    }
+    return accounts[0];
   }
 }

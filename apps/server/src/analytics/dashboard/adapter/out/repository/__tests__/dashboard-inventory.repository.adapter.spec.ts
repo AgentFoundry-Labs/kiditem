@@ -34,8 +34,6 @@ describe('DashboardInventoryRepositoryAdapter listing and physical inventory rea
     expect(prisma.masterProduct.count).toHaveBeenCalledWith({
       where: {
         organizationId: 'org-1',
-        sellpiaProductCode: { not: null },
-        isDeleted: false,
         isActive: true,
         currentStock: 0,
       },

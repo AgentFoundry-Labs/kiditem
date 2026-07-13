@@ -57,7 +57,7 @@ describe('PickingService — confirmed orders → picking → verification', () 
                   masterProductId: 'master-1',
                   quantity: 2,
                   masterProduct: {
-                    sellpiaProductCode: 'SELLPIA-001',
+                    code: 'SELLPIA-001',
                     name: 'Widget',
                     optionName: null,
                   },

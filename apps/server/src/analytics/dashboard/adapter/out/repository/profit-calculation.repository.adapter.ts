@@ -72,7 +72,11 @@ export class ProfitCalculationRepositoryAdapter
     const orderCount = orders.length;
 
     for (const o of orders) {
-      shippingCost += o.shippingPrice || 0;
+      // Channel ingestion stores a missing provider shipping value as 0.
+      // A positive order-level value is actual order evidence and must not be
+      // combined with the configured per-option fallback.
+      const hasOrderShippingEvidence = o.shippingPrice > 0;
+      if (hasOrderShippingEvidence) shippingCost += o.shippingPrice;
       for (const li of o.lineItems) {
         revenue += li.totalPrice || 0;
         const p = li.listingOption;
@@ -84,7 +88,9 @@ export class ProfitCalculationRepositoryAdapter
         costOfGoods += (p.costPriceOverride ?? componentCost) * li.quantity;
         commission += (li.totalPrice || 0) * Number(p.commissionRate ?? 0);
         otherCost += (p.otherCost ?? 0) * li.quantity;
-        shippingCost += (p.shippingCost ?? 0) * li.quantity;
+        if (!hasOrderShippingEvidence) {
+          shippingCost += (p.shippingCost ?? 0) * li.quantity;
+        }
       }
     }
 

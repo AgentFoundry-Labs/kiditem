@@ -93,7 +93,7 @@ function toReadModel(row: SelectedSellpiaMaster): SellpiaMasterProductReadModel 
   if (
     !row.code || !row.name
   ) {
-    throw new Error(`Physical Sellpia Master ${row.id} is missing required staged fields`);
+    throw new Error(`Physical Sellpia Master ${row.id} is missing required fields`);
   }
   return {
     id: row.id,

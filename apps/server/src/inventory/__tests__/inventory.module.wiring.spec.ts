@@ -12,7 +12,6 @@ import { UnshippedController } from '../adapter/in/http/unshipped.controller';
 import { WarehousesController } from '../adapter/in/http/warehouses.controller';
 import { ConfirmedOrdersRepositoryAdapter } from '../adapter/out/repository/confirmed-orders.repository.adapter';
 import { SellpiaMasterImportRepositoryAdapter } from '../adapter/out/repository/sellpia-master-import.repository.adapter';
-import { InventorySkuReadRepositoryAdapter } from '../adapter/out/repository/inventory-sku-read.repository.adapter';
 import { InventorySkuSnapshotListRepositoryAdapter } from '../adapter/out/repository/inventory-sku-snapshot-list.repository.adapter';
 import { SellpiaMasterProductReadRepositoryAdapter } from '../adapter/out/repository/sellpia-master-product-read.repository.adapter';
 import { PickingRepositoryAdapter } from '../adapter/out/repository/picking.repository.adapter';
@@ -20,17 +19,14 @@ import { SellpiaReceiptBatchRepositoryAdapter } from '../adapter/out/repository/
 import { TransfersRepositoryAdapter } from '../adapter/out/repository/transfers.repository.adapter';
 import { UnshippedRepositoryAdapter } from '../adapter/out/repository/unshipped.repository.adapter';
 import { WarehousesRepositoryAdapter } from '../adapter/out/repository/warehouses.repository.adapter';
-import { INVENTORY_SKU_READ_PORT } from '../application/port/in/stock/inventory-sku-read.port';
 import { INVENTORY_SKU_SNAPSHOT_LIST_PORT } from '../application/port/in/stock/inventory-sku-snapshot-list.port';
 import { SELLPIA_MASTER_PRODUCT_READ_PORT } from '../application/port/in/stock/sellpia-master-product-read.port';
 import { SELLPIA_INVENTORY_IMPORT_PORT } from '../application/port/in/stock/sellpia-inventory-import.port';
 import { SELLPIA_RECEIPT_BATCH_PORT } from '../application/port/in/stock/sellpia-receipt-batch.port';
 import { SELLPIA_MASTER_IMPORT_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-master-import.repository.port';
-import { INVENTORY_SKU_READ_REPOSITORY_PORT } from '../application/port/out/repository/inventory-sku-read.repository.port';
 import { INVENTORY_SKU_SNAPSHOT_LIST_REPOSITORY_PORT } from '../application/port/out/repository/inventory-sku-snapshot-list.repository.port';
 import { SELLPIA_MASTER_PRODUCT_READ_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-master-product-read.repository.port';
 import { SELLPIA_RECEIPT_BATCH_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-receipt-batch.repository.port';
-import { InventorySkuReadService } from '../application/service/inventory-sku-read.service';
 import { InventorySkuSnapshotListService } from '../application/service/inventory-sku-snapshot-list.service';
 import { SellpiaMasterProductReadService } from '../application/service/sellpia-master-product-read.service';
 import { PickingService } from '../application/service/picking.service';
@@ -85,7 +81,6 @@ describe('InventoryModule authoritative capability wiring', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, InventoryModule) ?? [];
     for (const provider of [
       SellpiaMasterImportRepositoryAdapter,
-      InventorySkuReadRepositoryAdapter,
       InventorySkuSnapshotListRepositoryAdapter,
       SellpiaMasterProductReadRepositoryAdapter,
       SellpiaReceiptBatchRepositoryAdapter,
@@ -94,7 +89,6 @@ describe('InventoryModule authoritative capability wiring', () => {
       TransfersRepositoryAdapter,
       PickingRepositoryAdapter,
       ConfirmedOrdersRepositoryAdapter,
-      InventorySkuReadService,
       InventorySkuSnapshotListService,
       SellpiaMasterProductReadService,
       SellpiaInventoryImportService,
@@ -110,14 +104,6 @@ describe('InventoryModule authoritative capability wiring', () => {
 
   it('binds and exports only authoritative owner reads', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, InventoryModule) ?? [];
-    expect(providers).toContainEqual({
-      provide: INVENTORY_SKU_READ_PORT,
-      useExisting: InventorySkuReadService,
-    });
-    expect(providers).toContainEqual({
-      provide: INVENTORY_SKU_READ_REPOSITORY_PORT,
-      useExisting: InventorySkuReadRepositoryAdapter,
-    });
     expect(providers).toContainEqual({
       provide: INVENTORY_SKU_SNAPSHOT_LIST_PORT,
       useExisting: InventorySkuSnapshotListService,
@@ -135,7 +121,7 @@ describe('InventoryModule authoritative capability wiring', () => {
       useExisting: SellpiaMasterProductReadRepositoryAdapter,
     });
     expect(Reflect.getMetadata(EXPORTS_KEY, InventoryModule) ?? [])
-      .toEqual([INVENTORY_SKU_READ_PORT, SELLPIA_MASTER_PRODUCT_READ_PORT]);
+      .toEqual([SELLPIA_MASTER_PRODUCT_READ_PORT]);
   });
 
   it('keeps the Sellpia importer and receipt tracker isolated', () => {

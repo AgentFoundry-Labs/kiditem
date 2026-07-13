@@ -18,8 +18,7 @@ describe('TransfersRepositoryAdapter', () => {
       where: {
         id: 'master-1',
         organizationId: 'org-1',
-        sellpiaProductCode: { not: null },
-        isDeleted: false,
+        isActive: true,
       },
       select: { optionName: true },
     });

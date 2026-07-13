@@ -11,10 +11,10 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       masterProduct: {
         findMany: vi.fn().mockResolvedValue([{
           id: SKU_ID,
-          sellpiaProductCode: 'SP-001',
-          sellpiaName: '상품',
+          code: 'SP-001',
+          name: '상품',
           optionName: null,
-          sellpiaBarcode: null,
+          barcode: null,
           currentStock: 3,
           purchasePrice: 1_000,
           salePrice: null,
