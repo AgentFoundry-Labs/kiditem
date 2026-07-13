@@ -164,13 +164,13 @@ export class MarketplaceRegistrationService {
       input.submissionPayloadJson,
       input.submissionKey,
     );
-    await beforeProviderCreate();
     let response: CoupangCreateSellerProductResponse;
     try {
       response = await this.coupang.createSellerProduct(
         input.organizationId,
         listingPayload,
         input.channelAccountId,
+        beforeProviderCreate,
       );
     } catch (error) {
       if (
@@ -201,6 +201,7 @@ export class MarketplaceRegistrationService {
     organizationId: string,
     input: RegisterConfirmedMarketplaceListingInput,
   ): Promise<RegisteredMarketplaceListingResult> {
+    await this.repository.assertLegacyFamilyMaster(organizationId, input.masterId);
     const { productBarcode, ...listingInput } = input;
     const barcode = productBarcode?.trim();
     if (barcode) {
@@ -229,6 +230,8 @@ export class MarketplaceRegistrationService {
     if (!this.coupang) {
       throw new Error('COUPANG_PROVIDER_PORT is required to submit Coupang listings.');
     }
+
+    await this.repository.assertLegacyFamilyMaster(organizationId, input.masterId);
 
     const barcode = input.productBarcode?.trim();
     if (barcode) {

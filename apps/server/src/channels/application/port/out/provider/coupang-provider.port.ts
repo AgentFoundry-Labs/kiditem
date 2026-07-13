@@ -142,6 +142,7 @@ export interface CoupangProviderPort {
     organizationId: string,
     payload: CoupangSellerProductPayload,
     channelAccountId?: string,
+    beforeDispatch?: () => Promise<void>,
   ): Promise<CoupangCreateSellerProductResponse>;
   getSellerProducts(organizationId: string, params: {
     nextToken?: string;

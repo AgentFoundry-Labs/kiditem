@@ -202,6 +202,44 @@ describe.sequential('v0.1.8 data migrations', () => {
     ].sort((left, right) => left.id.localeCompare(right.id)));
   });
 
+  it('blocks a prospective listing unique-key collision before repointing duplicate accounts', async () => {
+    await seedExactDuplicateAccounts(prisma);
+    const canonicalListing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: CANONICAL_ACCOUNT_ID,
+        channel: 'coupang',
+        externalId: 'COLLIDING-LISTING',
+        displayName: 'Canonical listing',
+      },
+    });
+    const duplicateListing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: DUPLICATE_ACCOUNT_ID,
+        channel: 'coupang',
+        externalId: 'COLLIDING-LISTING',
+        displayName: 'Duplicate listing',
+      },
+    });
+
+    await expect(
+      prisma.$transaction((tx) => normalizeOperationalChannelAccounts.run(tx)),
+    ).rejects.toThrow(/prospective channel account unique-key collision/i);
+
+    expect(await prisma.channelAccount.count({
+      where: { id: { in: [CANONICAL_ACCOUNT_ID, DUPLICATE_ACCOUNT_ID] } },
+    })).toBe(2);
+    expect(await prisma.channelListing.findMany({
+      where: { id: { in: [canonicalListing.id, duplicateListing.id] } },
+      orderBy: { id: 'asc' },
+      select: { id: true, channelAccountId: true },
+    })).toEqual([
+      { id: canonicalListing.id, channelAccountId: CANONICAL_ACCOUNT_ID },
+      { id: duplicateListing.id, channelAccountId: DUPLICATE_ACCOUNT_ID },
+    ].sort((left, right) => left.id.localeCompare(right.id)));
+  });
+
   it('blocks an identity-less account referenced outside listings before persistent mutation', async () => {
     const account = await prisma.channelAccount.create({
       data: {

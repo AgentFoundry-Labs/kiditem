@@ -7,6 +7,7 @@ const SELLER_PRODUCTS_PATH =
 export async function createSellerProduct(
   credentials: CoupangCredentials,
   payload: CoupangSellerProductPayload,
+  beforeDispatch?: () => Promise<void>,
 ) {
   return coupangRequest({
     method: 'POST',
@@ -16,6 +17,7 @@ export async function createSellerProduct(
       ...payload,
       vendorId: credentials.vendorId,
     },
+    beforeDispatch,
   });
 }
 

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { LEGACY_FAMILY_MASTER_SCOPE } from '../../../../common/legacy-family-master-scope';
 import type {
   MarketplaceRegistrationRepositoryPort,
   RegisteredMarketplaceListingResult,
@@ -17,6 +18,22 @@ export class MarketplaceRegistrationRepositoryAdapter
   implements MarketplaceRegistrationRepositoryPort
 {
   constructor(private readonly prisma: PrismaService) {}
+
+  async assertLegacyFamilyMaster(
+    organizationId: string,
+    masterId: string,
+  ): Promise<void> {
+    const master = await this.prisma.masterProduct.findFirst({
+      where: {
+        id: masterId,
+        organizationId,
+        isDeleted: false,
+        ...LEGACY_FAMILY_MASTER_SCOPE,
+      },
+      select: { id: true },
+    });
+    if (!master) throw new NotFoundException('재고 상품을 찾을 수 없습니다.');
+  }
 
   async assertActiveRegistrationAccount(input: {
     organizationId: string;
@@ -170,7 +187,12 @@ export class MarketplaceRegistrationRepositoryAdapter
           select: { id: true, channel: true },
         }),
         tx.masterProduct.findFirst({
-          where: { id: input.masterId, organizationId, isDeleted: false },
+          where: {
+            id: input.masterId,
+            organizationId,
+            isDeleted: false,
+            ...LEGACY_FAMILY_MASTER_SCOPE,
+          },
           select: { id: true, name: true },
         }),
       ]);

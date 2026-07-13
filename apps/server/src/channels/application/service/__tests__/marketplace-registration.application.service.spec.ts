@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { DefinitiveMarketplaceRegistrationError } from '../../port/in/capability/marketplace-registration.port';
 import { CoupangProviderRequestError } from '../../port/out/provider/coupang-provider.port';
@@ -46,7 +47,13 @@ describe('MarketplaceRegistrationService application orchestration', () => {
       assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
     };
     const coupang = {
-      createSellerProduct: vi.fn().mockImplementation(async () => {
+      createSellerProduct: vi.fn().mockImplementation(async (
+        _organizationId: string,
+        _payload: unknown,
+        _channelAccountId: string,
+        beforeDispatch: () => Promise<void>,
+      ) => {
+        await beforeDispatch();
         callOrder.push('provider-post');
         return {
           code: '200',
@@ -80,6 +87,40 @@ describe('MarketplaceRegistrationService application orchestration', () => {
 
     expect(beforeProviderCreate).toHaveBeenCalledTimes(1);
     expect(callOrder).toEqual(['mark-uncertain', 'provider-post']);
+  });
+
+  it('leaves the provider outcome safe when provider setup fails before dispatch', async () => {
+    const beforeProviderCreate = vi.fn();
+    const repository = {
+      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
+    };
+    const coupang = {
+      createSellerProduct: vi.fn().mockRejectedValue(new Error('missing credentials')),
+    };
+    const service = new MarketplaceRegistrationService(
+      repository as never,
+      {} as never,
+      coupang as never,
+    );
+
+    await expect(service.submitProductRegistration({
+      organizationId: 'org-1',
+      preparationId: 'preparation-1',
+      sourceCandidateId: 'candidate-1',
+      channelAccountId: 'account-1',
+      submissionKey: 'submission-key-1',
+      submissionPayloadHash: 'hash-1',
+      submissionPayloadJson: {
+        registrationInput: { items: [{ itemName: 'Blue', salePrice: 12900 }] },
+      },
+      providerSubmissionId: null,
+      registrationResult: null,
+      isRetry: false,
+      providerOutcome: 'not_attempted',
+      providerCreateAllowed: true,
+    }, beforeProviderCreate)).rejects.toThrow('missing credentials');
+
+    expect(beforeProviderCreate).not.toHaveBeenCalled();
   });
 
   it('submits a frozen preparation through the selected account without a Master identity', async () => {
@@ -136,6 +177,7 @@ describe('MarketplaceRegistrationService application orchestration', () => {
         }],
       },
       'account-1',
+      expect.any(Function),
     );
   });
 
@@ -387,6 +429,7 @@ describe('MarketplaceRegistrationService application orchestration', () => {
 
   it('stores channel listing identity and product barcode through separate ports', async () => {
     const repository = {
+      assertLegacyFamilyMaster: vi.fn().mockResolvedValue(undefined),
       registerConfirmedListing: vi.fn().mockResolvedValue({ id: 'listing-1' }),
     };
     const productBarcodes = {
@@ -431,6 +474,7 @@ describe('MarketplaceRegistrationService application orchestration', () => {
   it('does not write a channel listing when product barcode preflight rejects it', async () => {
     const error = new Error('이미 다른 상품에서 사용 중인 바코드입니다.');
     const repository = {
+      assertLegacyFamilyMaster: vi.fn().mockResolvedValue(undefined),
       registerConfirmedListing: vi.fn(),
     };
     const productBarcodes = {
@@ -452,6 +496,7 @@ describe('MarketplaceRegistrationService application orchestration', () => {
 
   it('submits a full Coupang seller product payload then stores the returned listing identity', async () => {
     const repository = {
+      assertLegacyFamilyMaster: vi.fn().mockResolvedValue(undefined),
       registerConfirmedListing: vi.fn().mockResolvedValue({
         id: 'listing-1',
         masterId: 'master-1',
@@ -528,5 +573,34 @@ describe('MarketplaceRegistrationService application orchestration', () => {
       masterId: 'master-1',
       barcode: '8806384882841',
     });
+  });
+
+  it('rejects a staged Sellpia Master before dispatching a live confirmed listing', async () => {
+    const repository = {
+      assertLegacyFamilyMaster: vi.fn().mockRejectedValue(
+        new NotFoundException('재고 상품을 찾을 수 없습니다.'),
+      ),
+      registerConfirmedListing: vi.fn(),
+    };
+    const coupang = {
+      createSellerProduct: vi.fn(),
+    };
+    const service = new MarketplaceRegistrationService(
+      repository as never,
+      {} as never,
+      coupang as never,
+    );
+
+    await expect(service.submitCoupangListing('org-1', {
+      masterId: 'staged-sellpia-master',
+      channelAccountId: 'account-1',
+      listingPayload: {
+        sellerProductName: 'Physical inventory identity',
+        items: [{ itemName: '단품', salePrice: 12900 }],
+      },
+    })).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(coupang.createSellerProduct).not.toHaveBeenCalled();
+    expect(repository.registerConfirmedListing).not.toHaveBeenCalled();
   });
 });

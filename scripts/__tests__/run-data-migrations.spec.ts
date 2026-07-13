@@ -199,6 +199,9 @@ describe('operational channel account normalization migration', () => {
     expect(sql).toContain('sellpia_migration_affected_rows');
     expect(sql.match(/listing\.is_deleted = false/g)?.length ?? 0).toBeGreaterThanOrEqual(4);
     expect(sql).toContain('sellpia_import_run_merge_map');
+    expect(sql).toContain('pg_index');
+    expect(sql).toContain('pg_get_expr');
+    expect(sql).toContain('sellpia_account_unique_collision_blockers');
     expect(sql).toContain("WHEN run.status = 'completed' THEN 0");
     expect(sql).toContain('publication_sequence DESC NULLS LAST');
     expect(sql).toContain('last_import_run_id = run_merge.winner_run_id');
@@ -231,6 +234,49 @@ describe('operational channel account normalization migration', () => {
     });
   });
 
+  it('blocks prospective owner-table unique collisions before persistent account repoints', async () => {
+    const tx = {
+      $queryRaw: vi.fn(async (statement: TemplateStringsArray) => {
+        const sql = statement.join('');
+        if (sql.includes("to_regclass('public.source_import_runs')")) return [{ exists: false }];
+        if (sql.includes('sellpia_account_unique_collision_blockers')) {
+          return [{
+            issueCode: 'prospective_channel_account_unique_collision',
+            rowId: 'listing-1',
+            details: {
+              ownerTable: 'channel_listings',
+              indexName: 'channel_listings_org_account_external_all_key',
+            },
+          }];
+        }
+        return [];
+      }),
+      $executeRaw: vi.fn(async () => 0),
+    };
+
+    await expect(normalizeOperationalChannelAccounts.run(tx as never)).rejects.toThrow(
+      /prospective channel account unique-key collision/i,
+    );
+
+    const sql = tx.$executeRaw.mock.calls
+      .map(([statement]) => (statement as TemplateStringsArray).join('$value'))
+      .join('\n');
+    for (const owner of [
+      'source_import_runs',
+      'channel_listings',
+      'channel_listing_options',
+      'orders',
+      'order_returns',
+      'product_preparations',
+      'channel_scrape_runs',
+      'channel_account_daily_kpi_snapshots',
+    ]) {
+      expect(sql).toContain(owner);
+    }
+    expect(sql).not.toContain('DELETE FROM channel_accounts AS account');
+    expect(sql).not.toContain('UPDATE source_import_runs AS run\n      SET channel_account_id');
+  });
+
   it('throws before mutation on ambiguous or missing operational identity', async () => {
     const tx = {
       $queryRaw: vi.fn(async () => [{ issueCode: 'ambiguous_account', rowId: 'row-1' }]),
@@ -245,11 +291,16 @@ describe('operational channel account normalization migration', () => {
 
   it('fails instead of recording success when an operational listing remains accountless', async () => {
     const tx = {
-      $queryRaw: vi.fn()
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([{ exists: false }])
-        .mockResolvedValueOnce([{ affectedRows: 0n }])
-        .mockResolvedValueOnce([{ issueCode: 'accountless_listing_after_normalization', rowId: 'row-1' }]),
+      $queryRaw: vi.fn(async (statement: TemplateStringsArray) => {
+        const sql = statement.join('');
+        if (sql.includes('sellpia_account_unique_collision_blockers')) return [];
+        if (sql.includes("to_regclass('public.source_import_runs')")) return [{ exists: false }];
+        if (sql.includes('SUM(audit.affected_rows)')) return [{ affectedRows: 0n }];
+        if (sql.includes("'accountless_listing_after_normalization'")) {
+          return [{ issueCode: 'accountless_listing_after_normalization', rowId: 'row-1' }];
+        }
+        return [];
+      }),
       $executeRaw: vi.fn(async () => 0),
     };
 

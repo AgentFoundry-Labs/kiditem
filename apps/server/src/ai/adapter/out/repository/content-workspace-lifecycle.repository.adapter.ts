@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { LEGACY_FAMILY_MASTER_SCOPE } from '../../../../common/legacy-family-master-scope';
 import type {
   ContentWorkspaceLifecycleRepositoryPort,
   ContentWorkspaceListInput,
@@ -260,6 +261,18 @@ async function validateOwnerReferences(
       FOR UPDATE
     `);
     if (master.length !== 1) {
+      throw new NotFoundException('Master product owner not found.');
+    }
+    const legacyFamilyMaster = await tx.masterProduct.findFirst({
+      where: {
+        id: input.targetMasterId,
+        organizationId: input.organizationId,
+        isDeleted: false,
+        ...LEGACY_FAMILY_MASTER_SCOPE,
+      },
+      select: { id: true },
+    });
+    if (!legacyFamilyMaster) {
       throw new NotFoundException('Master product owner not found.');
     }
     return;

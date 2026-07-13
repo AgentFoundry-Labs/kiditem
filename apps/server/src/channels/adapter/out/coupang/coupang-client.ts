@@ -17,6 +17,7 @@ interface CoupangRequestOptions {
   path: string;
   query?: Record<string, string>;
   body?: unknown;
+  beforeDispatch?: () => Promise<void>;
 }
 
 function generateAuthorization(
@@ -48,6 +49,7 @@ export async function coupangRequest<T = unknown>({
   path,
   query = {},
   body,
+  beforeDispatch,
 }: CoupangRequestOptions): Promise<T> {
   const queryString = new URLSearchParams(query).toString();
   const authorization = generateAuthorization(credentials, method, path, queryString);
@@ -78,6 +80,7 @@ export async function coupangRequest<T = unknown>({
   }
 
   try {
+    await beforeDispatch?.();
     const response = await fetch(url, fetchOptions);
 
     if (!response.ok) {

@@ -47,6 +47,7 @@ export class CoupangProviderAdapter implements CoupangProviderPort {
     organizationId: string,
     payload: CoupangSellerProductPayload,
     channelAccountId?: string,
+    beforeDispatch?: () => Promise<void>,
   ): Promise<CoupangCreateSellerProductResponse> {
     const credentials = channelAccountId
       ? await this.credentials.resolveCoupangCredentials(organizationId, channelAccountId)
@@ -54,6 +55,7 @@ export class CoupangProviderAdapter implements CoupangProviderPort {
     return createSellerProduct(
       credentials,
       payload,
+      beforeDispatch,
     ) as Promise<CoupangCreateSellerProductResponse>;
   }
 

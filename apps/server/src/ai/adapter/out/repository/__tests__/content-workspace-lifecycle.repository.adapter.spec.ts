@@ -1,5 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
+import { LEGACY_FAMILY_MASTER_SCOPE } from '../../../../../common/legacy-family-master-scope';
 import { ContentWorkspaceLifecycleRepositoryAdapter } from '../content-workspace-lifecycle.repository.adapter';
 
 function transactional<T extends Record<string, unknown>>(scope: T): T & {
@@ -72,6 +73,48 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
 
     expect(prisma.$transaction).toHaveBeenCalledOnce();
     expect(tx.$queryRaw).toHaveBeenCalledOnce();
+    expect(tx.contentWorkspace.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a direct detail workspace for a staged Sellpia Master after locking the owner row', async () => {
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'master-staged' }]),
+      masterProduct: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+      contentWorkspace: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn(),
+      },
+    };
+    const prisma = {
+      ...tx,
+      $transaction: vi.fn((callback: (scope: typeof tx) => unknown) => callback(tx)),
+    };
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never);
+
+    await expect(repository.ensureActiveWorkspace({
+      organizationId: 'org-1',
+      ownerType: 'direct_detail_page',
+      sourceCandidateId: null,
+      targetMasterId: 'master-staged',
+      channelListingId: null,
+      originWorkspaceId: null,
+      displayName: 'Sellpia physical row',
+      normalizedTitle: 'sellpiaphysicalrow',
+      createdByUserId: 'user-1',
+    })).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(tx.$queryRaw).toHaveBeenCalledOnce();
+    expect(tx.masterProduct.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'master-staged',
+        organizationId: 'org-1',
+        isDeleted: false,
+        ...LEGACY_FAMILY_MASTER_SCOPE,
+      },
+      select: { id: true },
+    });
     expect(tx.contentWorkspace.create).not.toHaveBeenCalled();
   });
 

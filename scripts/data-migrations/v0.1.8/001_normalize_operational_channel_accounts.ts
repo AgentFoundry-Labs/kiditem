@@ -137,7 +137,7 @@ export const normalizeOperationalChannelAccounts: DataMigration = {
         WHERE listing.channel_account_id IS NULL
           AND listing.is_deleted = false
 
-        UNION ALL
+        UNION ALL /* linked_listing_option */
 
         SELECT listing.id,
                linked_account.canonical_account_id,
@@ -162,7 +162,7 @@ export const normalizeOperationalChannelAccounts: DataMigration = {
         WHERE listing.channel_account_id IS NULL
           AND listing.is_deleted = false
 
-        UNION ALL
+        UNION ALL /* legacy_parent_listing */
 
         SELECT listing.id,
                parent_account.canonical_account_id,
@@ -181,7 +181,7 @@ export const normalizeOperationalChannelAccounts: DataMigration = {
           AND listing.master_id IS NOT NULL
           AND listing.is_deleted = false
 
-        UNION ALL
+        UNION ALL /* sole_active_platform */
 
         SELECT listing.id,
                account.canonical_account_id,
@@ -304,6 +304,280 @@ export const normalizeOperationalChannelAccounts: DataMigration = {
         affected_rows bigint NOT NULL
       ) ON COMMIT DROP
     `;
+
+    await tx.$executeRaw`
+      CREATE TEMP TABLE sellpia_listing_account_assignment ON COMMIT DROP AS
+      WITH normalized_accounts AS (
+        SELECT account.*,
+               NULLIF(BTRIM(account.seller_id), '') AS normalized_seller_id,
+               NULLIF(BTRIM(account.vendor_id), '') AS normalized_vendor_id,
+               COALESCE(
+                 NULLIF(BTRIM(account.external_account_id), ''),
+                 NULLIF(BTRIM(account.seller_id), ''),
+                 NULLIF(BTRIM(account.vendor_id), '')
+               ) AS canonical_identity
+        FROM channel_accounts AS account
+      ),
+      source_seller_vendor AS (
+        SELECT listing.id AS listing_id,
+               COALESCE(merge.canonical_account_id, account.id) AS account_id,
+               1 AS priority
+        FROM channel_listings AS listing
+        JOIN normalized_accounts AS account
+          ON account.organization_id = listing.organization_id
+         AND account.channel = listing.channel
+         AND (
+           NULLIF(BTRIM(to_jsonb(listing) -> 'raw_json' ->> 'sellerId'), '') = account.normalized_seller_id
+           OR NULLIF(BTRIM(to_jsonb(listing) -> 'raw_json' ->> 'vendorId'), '') = account.normalized_vendor_id
+           OR NULLIF(BTRIM(to_jsonb(listing) -> 'delivery_info' ->> 'sellerId'), '') = account.normalized_seller_id
+           OR NULLIF(BTRIM(to_jsonb(listing) -> 'delivery_info' ->> 'vendorId'), '') = account.normalized_vendor_id
+         )
+        LEFT JOIN sellpia_account_merge_map AS merge
+          ON merge.duplicate_account_id = account.id
+        WHERE listing.channel_account_id IS NULL
+          AND listing.is_deleted = false
+
+        UNION ALL /* linked_listing_option */
+
+        SELECT listing.id,
+               COALESCE(merge.canonical_account_id, linked_listing.channel_account_id),
+               2
+        FROM channel_listings AS listing
+        JOIN channel_listing_options AS target_option
+          ON target_option.listing_id = listing.id
+         AND target_option.organization_id = listing.organization_id
+        JOIN channel_listing_options AS linked_option
+          ON linked_option.organization_id = target_option.organization_id
+         AND linked_option.id <> target_option.id
+         AND target_option.option_id IS NOT NULL
+         AND linked_option.option_id = target_option.option_id
+        JOIN channel_listings AS linked_listing
+          ON linked_listing.id = linked_option.listing_id
+         AND linked_listing.organization_id = listing.organization_id
+         AND linked_listing.channel = listing.channel
+        LEFT JOIN sellpia_account_merge_map AS merge
+          ON merge.duplicate_account_id = linked_listing.channel_account_id
+        WHERE listing.channel_account_id IS NULL
+          AND listing.is_deleted = false
+          AND linked_listing.channel_account_id IS NOT NULL
+
+        UNION ALL /* legacy_parent_listing */
+
+        SELECT listing.id,
+               COALESCE(merge.canonical_account_id, legacy_parent.channel_account_id),
+               3
+        FROM channel_listings AS listing
+        JOIN channel_listings AS legacy_parent
+          ON legacy_parent.organization_id = listing.organization_id
+         AND legacy_parent.channel = listing.channel
+         AND legacy_parent.master_id = listing.master_id
+         AND legacy_parent.id <> listing.id
+        LEFT JOIN sellpia_account_merge_map AS merge
+          ON merge.duplicate_account_id = legacy_parent.channel_account_id
+        WHERE listing.channel_account_id IS NULL
+          AND listing.master_id IS NOT NULL
+          AND listing.is_deleted = false
+          AND legacy_parent.channel_account_id IS NOT NULL
+
+        UNION ALL /* sole_active_platform */
+
+        SELECT listing.id,
+               COALESCE(merge.canonical_account_id, account.id),
+               4
+        FROM channel_listings AS listing
+        JOIN normalized_accounts AS account
+          ON account.organization_id = listing.organization_id
+         AND account.channel = listing.channel
+         AND account.status = 'active'
+         AND account.canonical_identity IS NOT NULL
+        LEFT JOIN sellpia_account_merge_map AS merge
+          ON merge.duplicate_account_id = account.id
+        WHERE listing.channel_account_id IS NULL
+          AND listing.is_deleted = false
+          AND 1 = (
+            SELECT COUNT(DISTINCT COALESCE(sole_merge.canonical_account_id, sole.id))
+            FROM normalized_accounts AS sole
+            LEFT JOIN sellpia_account_merge_map AS sole_merge
+              ON sole_merge.duplicate_account_id = sole.id
+            WHERE sole.organization_id = listing.organization_id
+              AND sole.channel = listing.channel
+              AND sole.status = 'active'
+              AND sole.canonical_identity IS NOT NULL
+          )
+      ),
+      selected AS (
+        SELECT DISTINCT ON (listing_id) listing_id, account_id
+        FROM source_seller_vendor
+        WHERE account_id IS NOT NULL
+        ORDER BY listing_id, priority, account_id
+      )
+      SELECT listing_id, account_id
+      FROM selected
+    `;
+
+    await tx.$executeRaw`
+      CREATE TEMP TABLE sellpia_account_unique_collision_blockers (
+        issue_code text NOT NULL,
+        row_id text NOT NULL,
+        details jsonb NOT NULL
+      ) ON COMMIT DROP
+    `;
+    await tx.$executeRaw`
+      DO $$
+      DECLARE
+        owner_table text;
+        unique_index record;
+        prospective_sql text;
+      BEGIN
+        FOREACH owner_table IN ARRAY ARRAY[
+          'source_import_runs',
+          'channel_listings',
+          'channel_listing_options',
+          'orders',
+          'order_returns',
+          'product_preparations',
+          'channel_scrape_runs',
+          'channel_account_daily_kpi_snapshots'
+        ]
+        LOOP
+          IF owner_table = 'source_import_runs' THEN
+            -- Running import collisions are blocked and terminal histories are
+            -- deterministically merged by the dedicated plan below.
+            CONTINUE;
+          END IF;
+          IF to_regclass('public.' || owner_table) IS NULL
+             OR NOT EXISTS (
+               SELECT 1
+               FROM information_schema.columns
+               WHERE table_schema = 'public'
+                 AND table_name = owner_table
+                 AND column_name = 'channel_account_id'
+             ) THEN
+            CONTINUE;
+          END IF;
+
+          IF owner_table = 'channel_listings' THEN
+            prospective_sql := format(
+              'SELECT (jsonb_populate_record(
+                 NULL::%I.%I,
+                 to_jsonb(incoming) || jsonb_build_object(
+                   ''channel_account_id'',
+                   COALESCE(
+                     merge.canonical_account_id,
+                     assignment.account_id,
+                     incoming.channel_account_id
+                   )
+                 )
+               )).* 
+               FROM %I.%I AS incoming
+               LEFT JOIN sellpia_account_merge_map AS merge
+                 ON merge.duplicate_account_id = incoming.channel_account_id
+                AND merge.organization_id = incoming.organization_id
+               LEFT JOIN sellpia_listing_account_assignment AS assignment
+                 ON assignment.listing_id = incoming.id',
+              'public', owner_table, 'public', owner_table
+            );
+          ELSE
+            prospective_sql := format(
+              'SELECT (jsonb_populate_record(
+                 NULL::%I.%I,
+                 to_jsonb(incoming) || jsonb_build_object(
+                   ''channel_account_id'',
+                   COALESCE(merge.canonical_account_id, incoming.channel_account_id)
+                 )
+               )).* 
+               FROM %I.%I AS incoming
+               LEFT JOIN sellpia_account_merge_map AS merge
+                 ON merge.duplicate_account_id = incoming.channel_account_id
+                AND merge.organization_id = incoming.organization_id',
+              'public', owner_table, 'public', owner_table
+            );
+          END IF;
+
+          FOR unique_index IN
+            SELECT index_class.relname AS index_name,
+                   pg_get_expr(index_metadata.indpred, index_metadata.indrelid) AS index_predicate,
+                   index_metadata.indnullsnotdistinct AS nulls_not_distinct,
+                   string_agg(
+                     format('prospective.%I', attribute.attname),
+                     ', ' ORDER BY index_key.ordinality
+                   ) AS grouped_columns,
+                   string_agg(
+                     format('prospective.%I IS NOT NULL', attribute.attname),
+                     ' AND ' ORDER BY index_key.ordinality
+                   ) AS all_keys_non_null
+            FROM pg_index AS index_metadata
+            JOIN pg_class AS owner_class
+              ON owner_class.oid = index_metadata.indrelid
+            JOIN pg_namespace AS owner_namespace
+              ON owner_namespace.oid = owner_class.relnamespace
+            JOIN pg_class AS index_class
+              ON index_class.oid = index_metadata.indexrelid
+            CROSS JOIN LATERAL unnest(index_metadata.indkey)
+              WITH ORDINALITY AS index_key(attribute_number, ordinality)
+            JOIN pg_attribute AS attribute
+              ON attribute.attrelid = owner_class.oid
+             AND attribute.attnum = index_key.attribute_number
+            WHERE owner_namespace.nspname = 'public'
+              AND owner_class.relname = owner_table
+              AND index_metadata.indisunique
+              AND index_metadata.indexprs IS NULL
+              AND index_key.ordinality <= index_metadata.indnkeyatts
+            GROUP BY index_class.relname,
+                     index_metadata.indpred,
+                     index_metadata.indrelid,
+                     index_metadata.indnullsnotdistinct
+            HAVING BOOL_OR(attribute.attname = 'channel_account_id')
+          LOOP
+            EXECUTE format(
+              'INSERT INTO sellpia_account_unique_collision_blockers (
+                 issue_code,
+                 row_id,
+                 details
+               )
+               SELECT %L,
+                      MIN(prospective.id::text),
+                      jsonb_build_object(
+                        ''ownerTable'', %L,
+                        ''indexName'', %L,
+                        ''collisionCount'', COUNT(*)
+                      )
+               FROM (%s) AS prospective
+               WHERE (%s)
+                 AND (%s)
+               GROUP BY %s
+               HAVING COUNT(*) > 1
+               LIMIT 20',
+              'prospective_channel_account_unique_collision',
+              owner_table,
+              unique_index.index_name,
+              prospective_sql,
+              COALESCE(unique_index.index_predicate, 'true'),
+              CASE
+                WHEN unique_index.nulls_not_distinct THEN 'true'
+                ELSE unique_index.all_keys_non_null
+              END,
+              unique_index.grouped_columns
+            );
+          END LOOP;
+        END LOOP;
+      END $$
+    `;
+    const prospectiveAccountCollisions = await tx.$queryRaw<AccountNormalizationBlocker[]>`
+      SELECT blocker.issue_code AS "issueCode",
+             blocker.row_id AS "rowId",
+             blocker.details
+      FROM sellpia_account_unique_collision_blockers AS blocker
+      ORDER BY blocker.details ->> 'ownerTable',
+               blocker.details ->> 'indexName',
+               blocker.row_id
+      LIMIT 20
+    `;
+    if (prospectiveAccountCollisions.length > 0) {
+      throw new Error(
+        `Prospective channel account unique-key collision blocks account normalization: ${JSON.stringify(prospectiveAccountCollisions)}`,
+      );
+    }
 
     let repointedSourceImportRunReferences = 0;
     let mergedSourceImportRuns = 0;
@@ -498,117 +772,10 @@ export const normalizeOperationalChannelAccounts: DataMigration = {
     }
 
     const backfilledOperationalAccounts = await tx.$executeRaw`
-      WITH normalized_accounts AS (
-        SELECT account.*,
-               NULLIF(BTRIM(account.seller_id), '') AS normalized_seller_id,
-               NULLIF(BTRIM(account.vendor_id), '') AS normalized_vendor_id,
-               COALESCE(
-                 NULLIF(BTRIM(account.external_account_id), ''),
-                 NULLIF(BTRIM(account.seller_id), ''),
-                 NULLIF(BTRIM(account.vendor_id), '')
-               ) AS canonical_identity
-        FROM channel_accounts AS account
-      ),
-      source_seller_vendor AS (
-        SELECT listing.id AS listing_id,
-               COALESCE(merge.canonical_account_id, account.id) AS account_id,
-               1 AS priority
-        FROM channel_listings AS listing
-        JOIN normalized_accounts AS account
-          ON account.organization_id = listing.organization_id
-         AND account.channel = listing.channel
-         AND (
-           NULLIF(BTRIM(to_jsonb(listing) -> 'raw_json' ->> 'sellerId'), '') = account.normalized_seller_id
-           OR NULLIF(BTRIM(to_jsonb(listing) -> 'raw_json' ->> 'vendorId'), '') = account.normalized_vendor_id
-           OR NULLIF(BTRIM(to_jsonb(listing) -> 'delivery_info' ->> 'sellerId'), '') = account.normalized_seller_id
-           OR NULLIF(BTRIM(to_jsonb(listing) -> 'delivery_info' ->> 'vendorId'), '') = account.normalized_vendor_id
-         )
-        LEFT JOIN sellpia_account_merge_map AS merge
-          ON merge.duplicate_account_id = account.id
-        WHERE listing.channel_account_id IS NULL
-          AND listing.is_deleted = false
-      ),
-      linked_listing_option AS (
-        SELECT listing.id AS listing_id,
-               COALESCE(merge.canonical_account_id, linked_listing.channel_account_id) AS account_id,
-               2 AS priority
-        FROM channel_listings AS listing
-        JOIN channel_listing_options AS target_option
-          ON target_option.listing_id = listing.id
-         AND target_option.organization_id = listing.organization_id
-        JOIN channel_listing_options AS linked_option
-          ON linked_option.organization_id = target_option.organization_id
-         AND linked_option.id <> target_option.id
-         AND target_option.option_id IS NOT NULL
-         AND linked_option.option_id = target_option.option_id
-        JOIN channel_listings AS linked_listing
-          ON linked_listing.id = linked_option.listing_id
-         AND linked_listing.organization_id = listing.organization_id
-         AND linked_listing.channel = listing.channel
-        LEFT JOIN sellpia_account_merge_map AS merge
-          ON merge.duplicate_account_id = linked_listing.channel_account_id
-        WHERE listing.channel_account_id IS NULL
-          AND listing.is_deleted = false
-          AND linked_listing.channel_account_id IS NOT NULL
-      ),
-      legacy_parent_listing AS (
-        SELECT listing.id AS listing_id,
-               COALESCE(merge.canonical_account_id, legacy_parent.channel_account_id) AS account_id,
-               3 AS priority
-        FROM channel_listings AS listing
-        JOIN channel_listings AS legacy_parent
-          ON legacy_parent.organization_id = listing.organization_id
-         AND legacy_parent.channel = listing.channel
-         AND legacy_parent.master_id = listing.master_id
-         AND legacy_parent.id <> listing.id
-        LEFT JOIN sellpia_account_merge_map AS merge
-          ON merge.duplicate_account_id = legacy_parent.channel_account_id
-        WHERE listing.channel_account_id IS NULL
-          AND listing.master_id IS NOT NULL
-          AND listing.is_deleted = false
-          AND legacy_parent.channel_account_id IS NOT NULL
-      ),
-      sole_active_platform AS (
-        SELECT listing.id AS listing_id,
-               COALESCE(merge.canonical_account_id, account.id) AS account_id,
-               4 AS priority
-        FROM channel_listings AS listing
-        JOIN normalized_accounts AS account
-          ON account.organization_id = listing.organization_id
-         AND account.channel = listing.channel
-         AND account.status = 'active'
-         AND account.canonical_identity IS NOT NULL
-        LEFT JOIN sellpia_account_merge_map AS merge
-          ON merge.duplicate_account_id = account.id
-        WHERE listing.channel_account_id IS NULL
-          AND listing.is_deleted = false
-          AND 1 = (
-            SELECT COUNT(DISTINCT COALESCE(sole_merge.canonical_account_id, sole.id))
-            FROM normalized_accounts AS sole
-            LEFT JOIN sellpia_account_merge_map AS sole_merge
-              ON sole_merge.duplicate_account_id = sole.id
-            WHERE sole.organization_id = listing.organization_id
-              AND sole.channel = listing.channel
-              AND sole.status = 'active'
-              AND sole.canonical_identity IS NOT NULL
-          )
-      ),
-      candidates AS (
-        SELECT * FROM source_seller_vendor
-        UNION ALL SELECT * FROM linked_listing_option
-        UNION ALL SELECT * FROM legacy_parent_listing
-        UNION ALL SELECT * FROM sole_active_platform
-      ),
-      selected AS (
-        SELECT DISTINCT ON (listing_id) listing_id, account_id
-        FROM candidates
-        WHERE account_id IS NOT NULL
-        ORDER BY listing_id, priority, account_id
-      )
       UPDATE channel_listings AS listing
-      SET channel_account_id = selected.account_id
-      FROM selected
-      WHERE listing.id = selected.listing_id
+      SET channel_account_id = assignment.account_id
+      FROM sellpia_listing_account_assignment AS assignment
+      WHERE listing.id = assignment.listing_id
         AND listing.channel_account_id IS NULL
         AND listing.is_deleted = false
     `;

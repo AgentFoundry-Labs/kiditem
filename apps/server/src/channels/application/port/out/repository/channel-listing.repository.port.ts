@@ -108,6 +108,10 @@ export interface ChannelListingRepositoryPort {
 }
 
 export interface MarketplaceRegistrationRepositoryPort {
+  assertLegacyFamilyMaster(
+    organizationId: string,
+    masterId: string,
+  ): Promise<void>;
   assertActiveRegistrationAccount(input: {
     organizationId: string;
     channelAccountId: string;

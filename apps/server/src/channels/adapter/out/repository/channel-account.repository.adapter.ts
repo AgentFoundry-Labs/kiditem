@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
   CoupangAccountSettings,
@@ -122,14 +122,27 @@ export class ChannelAccountRepositoryAdapter
     const nextSecretKey = trimToOptional(input.secretKey);
 
     await this.prisma.$transaction(async (tx) => {
-      const primary = await tx.channelAccount.findFirst({
-        where: { organizationId, channel: 'coupang', isPrimary: true },
-        orderBy: { updatedAt: 'desc' },
-      });
       const sameVendor = await tx.channelAccount.findFirst({
-        where: { organizationId, channel: 'coupang', externalAccountId: vendorId },
+        where: {
+          organizationId,
+          channel: 'coupang',
+          OR: [
+            { externalAccountId: vendorId },
+            { vendorId },
+          ],
+        },
       });
-      const target = sameVendor ?? primary;
+      const target = sameVendor;
+      if (target) {
+        const persistedIdentities = [target.externalAccountId, target.vendorId]
+          .map((value) => value?.trim())
+          .filter((value): value is string => Boolean(value));
+        if (persistedIdentities.some((identity) => identity !== vendorId)) {
+          throw new ConflictException(
+            '쿠팡 스토어 식별자가 충돌합니다. 기존 계정의 Vendor ID는 변경할 수 없습니다.',
+          );
+        }
+      }
       const existingConfig = toJsonRecord(target?.config);
       const existingCredentials = readCredentialsConfig(existingConfig);
       const accessKey =
@@ -166,10 +179,7 @@ export class ChannelAccountRepositoryAdapter
             channel: 'coupang',
           },
           data: {
-            channel: 'coupang',
             name: target.name || '쿠팡 Wing',
-            externalAccountId: vendorId,
-            vendorId,
             status: 'active',
             isPrimary: true,
             config: nextConfig as Prisma.InputJsonObject,
