@@ -18,7 +18,14 @@ function makePrisma(overrides: {
       groupBy: vi.fn().mockResolvedValue(overrides.adGroupRows ?? []),
     },
     orderReturn: { count: vi.fn().mockResolvedValue(overrides.orphanCount ?? 0) },
-    channelListing: { findMany: vi.fn().mockResolvedValue(overrides.listings ?? []) },
+    channelListing: {
+      findMany: vi.fn().mockResolvedValue(
+        (overrides.listings ?? []).map((listing) => ({
+          id: listing.id,
+          channelAccount: { channel: listing.channel },
+        })),
+      ),
+    },
   } as any;
 }
 
@@ -28,12 +35,17 @@ const mkLineItem = (
 ) => ({
   quantity: p.quantity,
   totalPrice: p.totalPrice,
-  option: {
-    costPrice: p.costPrice,
+  listingOption: {
+    costPriceOverride: p.costPrice,
     commissionRate: p.commissionRate,
+    shippingCost: null,
     otherCost: p.otherCost,
+    components: [],
+    listing: {
+      id: listing.id,
+      channelAccount: { channel: listing.channel },
+    },
   },
-  listingOption: { listing },
 });
 
 describe('SalesAnalysisService.getAnalysis — Plan D.3', () => {
@@ -96,8 +108,8 @@ describe('SalesAnalysisService.getAnalysis — Plan D.3', () => {
     ];
     // 2 lineItem returns, SAME order → returnCount = 1 (distinct orderId)
     const returnRows = [
-      { orderLineItem: { order: { id: 'o1' }, listingOption: { listing: { channel: 'coupang' } } } },
-      { orderLineItem: { order: { id: 'o1' }, listingOption: { listing: { channel: 'coupang' } } } },
+      { orderLineItem: { order: { id: 'o1' }, listingOption: { listing: { channelAccount: { channel: 'coupang' } } } } },
+      { orderLineItem: { order: { id: 'o1' }, listingOption: { listing: { channelAccount: { channel: 'coupang' } } } } },
     ];
     const prisma = makePrisma({ orders, returnRows });
     const result = await new SalesAnalysisService(prisma).getAnalysis('cA', '2026-04');

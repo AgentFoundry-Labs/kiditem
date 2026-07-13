@@ -40,8 +40,8 @@ export class ReviewsService {
    *   (no listing) cannot be displayed in the listing/product table and are
    *   surfaced only via `summary.totalReviewCount` (not yet — also excluded
    *   for now to keep summary consistent with rows).
-   * - One row per listing. `productId = master.id ?? listingId` so the UI key
-   *   stays stable even when the listing has no master attached.
+   * - One row per listing. `productId` is the listing ID; Sellpia physical
+   *   Master rows are not registered-product identity.
    * - `recentReviews` counts reviews in the last 30 days.
    * - `orderCount` is intentionally 0 in R3. Real per-listing order counts
    *   require a `ChannelListingOption ↔ OrderLineItem` join across the order

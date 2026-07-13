@@ -21,7 +21,7 @@ import {
   spreadMetricsForCreate,
   spreadMetricsForUpdate,
 } from './daily-fact-helpers';
-import { withAdIngestRepositoryTransaction } from '../transaction/ad-ingest-transaction-context';
+import { withAdIngestRepositoryTransaction } from './ad-ingest-transaction-context';
 
 const LISTING_STATE_KEYS: ReadonlyArray<keyof ListingDailyState> = [
   'productName',

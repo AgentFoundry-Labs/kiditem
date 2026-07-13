@@ -14,7 +14,7 @@ function makePrisma() {
   return {
     activityEvent: { create: vi.fn(), createMany: vi.fn() },
     alert: { createManyAndReturn: vi.fn().mockResolvedValue([]) },
-    masterProduct: {
+    channelListing: {
       count: vi.fn(),
       findFirst: vi.fn(),
       findMany: vi.fn(),
@@ -149,7 +149,7 @@ describe('RulesService — full evaluation flow', () => {
       expect(prisma.$transaction).toHaveBeenCalledTimes(1);
       const txArg = prisma.$transaction.mock.calls[0][0];
       expect(Array.isArray(txArg)).toBe(true);
-      expect(prisma.masterProduct.updateMany).toHaveBeenCalledWith({
+      expect(prisma.channelListing.updateMany).toHaveBeenCalledWith({
         where: { id: 'p1', organizationId: 'c-1' },
         data: expect.objectContaining({ healthScore: 75 }),
       });
@@ -214,7 +214,7 @@ describe('RulesService — full evaluation flow', () => {
         {
           id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
           organizationId: 'c-1',
-          targetType: 'master',
+          targetType: 'listing',
           targetId: 'p2',
           type: 'rule_violation',
           severity: 'critical',
@@ -267,7 +267,7 @@ describe('RulesService — full evaluation flow', () => {
       expect(prisma.alert.createManyAndReturn).toHaveBeenCalledWith({
         data: [
           expect.objectContaining({
-            targetType: 'master',
+            targetType: 'listing',
             targetId: 'p2',
             severity: 'critical',
             title: '순이익률 -10%',

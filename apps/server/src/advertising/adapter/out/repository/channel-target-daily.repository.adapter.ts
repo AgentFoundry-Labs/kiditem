@@ -18,7 +18,7 @@ import {
   spreadMetricsForCreate,
   spreadMetricsForUpdate,
 } from './daily-fact-helpers';
-import { withAdIngestRepositoryTransaction } from '../transaction/ad-ingest-transaction-context';
+import { withAdIngestRepositoryTransaction } from './ad-ingest-transaction-context';
 
 const AD_TARGET_METRIC_KEYS: ReadonlyArray<keyof AdTargetDailyMetrics> = [
   'spend',

@@ -30,7 +30,7 @@ import { ChannelOptionDailyRepositoryAdapter } from './adapter/out/repository/ch
 import { ChannelTargetDailyRepositoryAdapter } from './adapter/out/repository/channel-target-daily.repository.adapter';
 // adapter/out/automation
 import { OperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
-import { AdIngestTransactionAdapter } from './adapter/out/transaction/ad-ingest-transaction.adapter';
+import { AdIngestTransactionAdapter } from './adapter/out/repository/ad-ingest-transaction.adapter';
 
 // application/service + handlers
 import { AdvertisingService } from './application/service/advertising.service';

@@ -22,8 +22,6 @@ function setup() {
   };
   const service = new SourcingPromotionService(
     candidates as never,
-    {} as never,
-    {} as never,
     preparations as never,
   );
   return { service, candidates, preparations };

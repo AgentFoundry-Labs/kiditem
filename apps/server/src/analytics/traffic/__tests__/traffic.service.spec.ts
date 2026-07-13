@@ -58,6 +58,9 @@ function makePrisma() {
     },
   };
   const prisma = {
+    channelAccount: {
+      findFirst: vi.fn(async () => ({ id: 'account-1' })),
+    },
     channelListing: {
       findMany: vi.fn(async () => [{ id: 'listing-1', externalId: 'EXT-1' }]),
     },
@@ -155,7 +158,7 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
     );
   });
 
-  it('skips an unlinked ChannelProduct in period profit calculations', async () => {
+  it('skips a ChannelProduct without an active ChannelSku in period profit calculations', async () => {
     const prisma = {
       channelListingDailySnapshot: {
         aggregate: vi.fn()
@@ -190,7 +193,7 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
       },
       channelListing: {
         findMany: vi.fn().mockResolvedValue([
-          { id: 'imported-listing-1', master: null },
+          { id: 'imported-listing-1', options: [] },
         ]),
       },
     };
@@ -206,7 +209,7 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
     }));
   });
 
-  it('skips an unlinked ChannelProduct in monthly profit calculations', async () => {
+  it('skips a ChannelProduct without an active ChannelSku in monthly profit calculations', async () => {
     const prisma = {
       channelListingDailySnapshot: {
         groupBy: vi.fn()
@@ -235,7 +238,7 @@ describe('TrafficService — scrape-run tenant-scoped writes', () => {
       },
       channelListing: {
         findMany: vi.fn().mockResolvedValue([
-          { id: 'imported-listing-1', master: null },
+          { id: 'imported-listing-1', options: [] },
         ]),
       },
     };

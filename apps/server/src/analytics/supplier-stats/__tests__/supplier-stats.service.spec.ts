@@ -25,10 +25,8 @@ function supplierProduct(params: {
     isPrimary: params.isPrimary ?? true,
     masterProduct: {
       id: params.masterId,
-      code: `LEGACY-${params.masterId}`,
-      name: `Legacy ${params.masterId}`,
-      sellpiaProductCode: `SP-${params.masterId}`,
-      sellpiaName: params.name ?? `Sellpia ${params.masterId}`,
+      code: `SP-${params.masterId}`,
+      name: params.name ?? `Sellpia ${params.masterId}`,
       optionName: null,
     },
   };

@@ -30,6 +30,7 @@ import { ChannelScrapeRepositoryAdapter } from '../adapter/out/repository/channe
 import { ChannelListingDailyRepositoryAdapter } from '../adapter/out/repository/channel-listing-daily.repository.adapter';
 import { ChannelOptionDailyRepositoryAdapter } from '../adapter/out/repository/channel-option-daily.repository.adapter';
 import { ChannelTargetDailyRepositoryAdapter } from '../adapter/out/repository/channel-target-daily.repository.adapter';
+import { AdIngestTransactionAdapter } from '../adapter/out/repository/ad-ingest-transaction.adapter';
 // adapter/out/automation
 import { OperationAlertAdapter } from '../adapter/out/automation/operation-alert.adapter';
 
@@ -110,6 +111,7 @@ describe('AdvertisingModule capability wiring', () => {
       ChannelListingDailyRepositoryAdapter,
       ChannelOptionDailyRepositoryAdapter,
       ChannelTargetDailyRepositoryAdapter,
+      AdIngestTransactionAdapter,
       OperationAlertAdapter,
     ]) {
       expect(providers).toContain(cls);
@@ -148,14 +150,15 @@ describe('AdvertisingModule capability wiring', () => {
     const providers: unknown[] =
       Reflect.getMetadata(PROVIDERS_KEY, AdvertisingModule) ?? [];
     // Token-shaped providers are objects with a `provide` field; everything
-    // else is a class provider. The 13 repository ports + OPERATION_ALERT_PORT
+    // else is a class provider. The 13 repository ports, the ingest transaction
+    // port, and OPERATION_ALERT_PORT
     // are bound via useExisting so application services depend on tokens
     // rather than concrete adapter classes.
     const tokenProviders = providers.filter(
       (p): p is { provide: unknown; useExisting?: unknown } =>
         typeof p === 'object' && p !== null && 'provide' in p,
     );
-    expect(tokenProviders).toHaveLength(14);
+    expect(tokenProviders).toHaveLength(15);
     for (const provider of tokenProviders) {
       expect(provider.useExisting).toBeDefined();
     }

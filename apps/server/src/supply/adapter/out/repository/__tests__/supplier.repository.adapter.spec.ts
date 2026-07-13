@@ -22,7 +22,6 @@ describe('SupplierRepositoryAdapter', () => {
         name: 'Supplier A',
         _count: {
           supplierProducts: 2,
-          masterSupplierProducts: 1,
           purchaseOrders: 4,
         },
       },
@@ -37,7 +36,6 @@ describe('SupplierRepositoryAdapter', () => {
         _count: {
           select: {
             supplierProducts: true,
-            masterSupplierProducts: true,
             purchaseOrders: true,
           },
         },
@@ -45,7 +43,7 @@ describe('SupplierRepositoryAdapter', () => {
       orderBy: { createdAt: 'desc' },
     });
     expect(suppliers).toEqual([
-      { id: 'supplier-1', name: 'Supplier A', productCount: 3, orderCount: 4 },
+      { id: 'supplier-1', name: 'Supplier A', productCount: 2, orderCount: 4 },
     ]);
   });
 

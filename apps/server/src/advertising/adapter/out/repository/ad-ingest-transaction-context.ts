@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Prisma, PrismaClient } from '@prisma/client';
 
-type RepositoryClient = Prisma.TransactionClient | PrismaClient;
+type AdIngestRepositoryClient = Prisma.TransactionClient | PrismaClient;
 
 const storage = new AsyncLocalStorage<Prisma.TransactionClient>();
 
@@ -12,7 +12,7 @@ export function runWithAdIngestTransaction<T>(
   return storage.run(transaction, operation);
 }
 
-export function adIngestRepositoryClient(prisma: PrismaClient): RepositoryClient {
+export function adIngestRepositoryClient(prisma: PrismaClient): AdIngestRepositoryClient {
   return storage.getStore() ?? prisma;
 }
 

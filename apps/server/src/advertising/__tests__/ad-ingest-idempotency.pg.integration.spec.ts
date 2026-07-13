@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { AdIngestTransactionAdapter } from '../adapter/out/transaction/ad-ingest-transaction.adapter';
-import { adIngestRepositoryClient } from '../adapter/out/transaction/ad-ingest-transaction-context';
+import { AdIngestTransactionAdapter } from '../adapter/out/repository/ad-ingest-transaction.adapter';
+import { adIngestRepositoryClient } from '../adapter/out/repository/ad-ingest-transaction-context';
 import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,

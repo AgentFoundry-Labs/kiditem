@@ -320,7 +320,7 @@ describe('OrdersService — order query and actions', () => {
           where: expect.objectContaining({
             organizationId: ORGANIZATION_ID,
             externalOrderId: { in: ['12345', '67890'] },
-            channelAccountId: { not: null },
+            channelAccount: { channel: 'coupang', status: 'active' },
           }),
         }),
       );
@@ -368,7 +368,7 @@ describe('OrdersService — order query and actions', () => {
           where: expect.objectContaining({
             organizationId: ORGANIZATION_ID,
             externalOrderId: { in: ['12345'] },
-            channelAccountId: { not: null },
+            channelAccount: { channel: 'coupang', status: 'active' },
           }),
         }),
       );

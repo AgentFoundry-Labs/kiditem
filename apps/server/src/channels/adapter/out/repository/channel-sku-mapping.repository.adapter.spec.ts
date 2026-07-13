@@ -114,7 +114,6 @@ describe('ChannelSkuMappingRepositoryAdapter status refresh', () => {
     for (const [call] of findMany.mock.calls) {
       expect(call.where).toMatchObject({
         organizationId,
-        channelAccount: { is: { organizationId } },
         lastImportRun: { is: {
           organizationId,
           sourceType: 'coupang_wing_catalog',
@@ -122,7 +121,7 @@ describe('ChannelSkuMappingRepositoryAdapter status refresh', () => {
         } },
         listing: { is: {
           organizationId,
-          isDeleted: false,
+          isActive: true,
           channelAccount: { is: { organizationId } },
         } },
       });
@@ -163,13 +162,16 @@ describe('ChannelSkuMappingRepositoryAdapter status refresh', () => {
         id: { in: [ids[0], ids[2], ids[4]] },
         mappingStatus: { not: 'unmatched' },
         components: { none: { organizationId } },
-        channelAccount: { is: { organizationId } },
         lastImportRun: { is: expect.objectContaining({
           organizationId,
           sourceType: 'coupang_wing_catalog',
           status: 'completed',
         }) },
-        listing: { is: expect.objectContaining({ organizationId, isDeleted: false }) },
+        listing: { is: expect.objectContaining({
+          organizationId,
+          isActive: true,
+          channelAccount: { is: { organizationId } },
+        }) },
       }),
       data: { mappingStatus: 'unmatched' },
     }));
@@ -184,19 +186,13 @@ describe('ChannelSkuMappingRepositoryAdapter status refresh', () => {
     }));
   });
 
-  it('persists both final Master identity and the transition InventorySku ledger identity', async () => {
+  it('persists only the final Sellpia Master component identity', async () => {
     const createMany = vi.fn().mockResolvedValue({ count: 1 });
     const tx = {
       $queryRaw: vi.fn().mockResolvedValue([{ id: ids[2] }]),
       channelSkuComponent: {
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
         createMany,
-      },
-      inventorySkuMasterProductMap: {
-        findMany: vi.fn().mockResolvedValue([{
-          masterProductId: ids[0],
-          inventorySkuId: ids[1],
-        }]),
       },
       channelListingOption: {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -215,18 +211,10 @@ describe('ChannelSkuMappingRepositoryAdapter status refresh', () => {
       nextStatus: 'matched',
     });
 
-    expect(tx.inventorySkuMasterProductMap.findMany).toHaveBeenCalledWith({
-      where: {
-        organizationId,
-        masterProductId: { in: [ids[0]] },
-      },
-      select: { masterProductId: true, inventorySkuId: true },
-    });
     expect(createMany).toHaveBeenCalledWith({
       data: [{
         organizationId,
         channelSkuId: ids[2],
-        inventorySkuId: ids[1],
         masterProductId: ids[0],
         quantity: 8,
         mappingSource: 'manual',
@@ -243,12 +231,6 @@ describe('ChannelSkuMappingRepositoryAdapter status refresh', () => {
       channelSkuComponent: {
         findMany: vi.fn().mockResolvedValue([{ channelSkuId: ids[1] }]),
         createMany,
-      },
-      inventorySkuMasterProductMap: {
-        findMany: vi.fn().mockResolvedValue([{
-          masterProductId: ids[2],
-          inventorySkuId: ids[3],
-        }]),
       },
       channelListingOption: { updateMany },
     };
@@ -277,7 +259,6 @@ describe('ChannelSkuMappingRepositoryAdapter status refresh', () => {
       data: [{
         organizationId,
         channelSkuId: ids[0],
-        inventorySkuId: ids[3],
         masterProductId: ids[2],
         quantity: 1,
         mappingSource: 'product_code',

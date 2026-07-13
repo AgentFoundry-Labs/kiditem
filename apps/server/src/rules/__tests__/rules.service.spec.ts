@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
 import { RulesService } from '../services/rules.service';
 import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
-import { LEGACY_FAMILY_MASTER_SCOPE } from '../../common/legacy-family-master-scope';
 
 const ORGANIZATION_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const PRODUCT_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
@@ -13,7 +12,7 @@ function makePrisma() {
   return {
     activityEvent: { create: vi.fn(), createMany: vi.fn() },
     alert: { createManyAndReturn: vi.fn() },
-    masterProduct: {
+    channelListing: {
       count: vi.fn(),
       findFirst: vi.fn(),
       findMany: vi.fn(),
@@ -81,29 +80,32 @@ function makeService() {
 
 describe('RulesService', () => {
   describe('getSummary', () => {
-    it('keeps staged Sellpia physical identities out of all family health queries', async () => {
+    it('scopes every health summary query to active channel listings', async () => {
       const { service, prisma } = makeService();
-      prisma.masterProduct.count
+      prisma.channelListing.count
         .mockResolvedValueOnce(2)
         .mockResolvedValueOnce(1)
         .mockResolvedValueOnce(1)
         .mockResolvedValueOnce(5);
-      prisma.masterProduct.findFirst.mockResolvedValue({ healthUpdatedAt: null });
-      prisma.masterProduct.findMany.mockResolvedValue([]);
+      prisma.channelListing.findFirst.mockResolvedValue({ healthUpdatedAt: null });
+      prisma.channelListing.findMany.mockResolvedValue([]);
 
       await service.getSummary(ORGANIZATION_ID);
 
-      for (const [query] of prisma.masterProduct.count.mock.calls) {
-        expect(query.where).toEqual(expect.objectContaining(LEGACY_FAMILY_MASTER_SCOPE));
+      for (const [query] of prisma.channelListing.count.mock.calls) {
+        expect(query.where).toEqual(expect.objectContaining({
+          organizationId: ORGANIZATION_ID,
+          isActive: true,
+        }));
       }
-      expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith(
+      expect(prisma.channelListing.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining(LEGACY_FAMILY_MASTER_SCOPE),
+          where: expect.objectContaining({ organizationId: ORGANIZATION_ID, isActive: true }),
         }),
       );
-      expect(prisma.masterProduct.findMany).toHaveBeenCalledWith(
+      expect(prisma.channelListing.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining(LEGACY_FAMILY_MASTER_SCOPE),
+          where: expect.objectContaining({ organizationId: ORGANIZATION_ID, isActive: true }),
         }),
       );
     });
@@ -194,7 +196,7 @@ describe('RulesService', () => {
         {
           id: '11111111-1111-1111-1111-111111111111',
           organizationId: ORGANIZATION_ID,
-          targetType: 'master',
+          targetType: 'listing',
           targetId: PRODUCT_ID,
           kind: 'signal',
           status: 'open',
@@ -259,11 +261,11 @@ describe('RulesService', () => {
 
       // healthScore bulk update — Prisma updateMany scoped by (id, organizationId), wrapped in $transaction.
       expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-      expect(prisma.masterProduct.updateMany).toHaveBeenCalledWith({
+      expect(prisma.channelListing.updateMany).toHaveBeenCalledWith({
         where: { id: 'p1', organizationId: ORGANIZATION_ID },
         data: expect.objectContaining({ healthScore: 85 }),
       });
-      expect(prisma.masterProduct.updateMany).toHaveBeenCalledWith({
+      expect(prisma.channelListing.updateMany).toHaveBeenCalledWith({
         where: { id: PRODUCT_ID, organizationId: ORGANIZATION_ID },
         data: expect.objectContaining({ healthScore: 25 }),
       });
@@ -280,7 +282,7 @@ describe('RulesService', () => {
       expect(prisma.alert.createManyAndReturn).toHaveBeenCalledWith({
         data: [
           expect.objectContaining({
-            targetType: 'master',
+            targetType: 'listing',
             targetId: PRODUCT_ID,
             severity: 'critical',
             title: '순이익률 -10%',
@@ -443,7 +445,7 @@ describe('RulesService', () => {
       const insertedAlerts = Array.from({ length: 51 }, (_, i) => ({
         id: `11111111-1111-1111-1111-${String(i).padStart(12, '0')}`,
         organizationId: ORGANIZATION_ID,
-        targetType: 'master',
+        targetType: 'listing',
         targetId: `prod-${i}`,
         kind: 'signal',
         status: 'open',
@@ -491,7 +493,7 @@ describe('RulesService', () => {
       const insertedAlert = {
         id: '11111111-1111-1111-1111-111111111111',
         organizationId: ORGANIZATION_ID,
-        targetType: 'master',
+        targetType: 'listing',
         targetId: PRODUCT_ID,
         kind: 'signal',
         status: 'open',

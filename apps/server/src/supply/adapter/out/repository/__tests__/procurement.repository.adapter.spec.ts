@@ -72,8 +72,7 @@ describe('ProcurementRepositoryAdapter', () => {
       where: {
         id: { in: ['master-1'] },
         organizationId: 'organization-1',
-        sellpiaProductCode: { not: null },
-        isDeleted: false,
+        isActive: true,
       },
       select: { id: true },
     });

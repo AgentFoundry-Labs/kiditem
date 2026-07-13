@@ -11,7 +11,6 @@ import { SourcingService } from '../application/service/sourcing.service';
 import { SourcingPromotionService } from '../application/service/sourcing-promotion.service';
 import { SourcingWorkspaceArchiveService } from '../application/service/sourcing-workspace-archive.service';
 import { SourcingWorkspaceSnapshotService } from '../application/service/sourcing-workspace-snapshot.service';
-import { ProductPreparationSelectionService } from '../application/service/product-preparation-selection.service';
 import { SourcingMarketDiscoveryService } from '../application/service/sourcing-market-discovery.service';
 import { SourcingDiscoveryCapabilityAdapter } from '../adapter/in/agent/sourcing-discovery-capability.adapter';
 import { SourcingListingPrepCapabilityAdapter } from '../adapter/in/agent/sourcing-listing-prep-capability.adapter';
@@ -23,7 +22,6 @@ import { NaverSearchAdKeywordAdapter } from '../adapter/out/naver/naver-search-a
 import { SourcingAgentGatewayAdapter } from '../adapter/out/agent/sourcing-agent.gateway.adapter';
 import { SourcingAiWorkspaceArchiveAdapter } from '../adapter/out/ai/workspace-archive.adapter';
 import { SourcingOperationAlertAdapter } from '../adapter/out/automation/operation-alert.adapter';
-import { SourcingProductsCatalogAdapter } from '../adapter/out/products/products-catalog.adapter';
 import { SourcingCandidateRepositoryAdapter } from '../adapter/out/repository/sourcing-candidate.repository.adapter';
 import { SourcingWorkspaceSnapshotRepositoryAdapter } from '../adapter/out/repository/sourcing-workspace-snapshot.repository.adapter';
 import { SourcingPlaywrightRuntimeHandler } from '../adapter/out/runtime/sourcing-playwright-runtime.handler';
@@ -46,7 +44,6 @@ import {
 import { SOURCING_AGENT_GATEWAY_PORT } from '../application/port/out/runtime/sourcing-agent.gateway.port';
 import { SOURCING_AI_WORKSPACE_ARCHIVE_PORT } from '../application/port/out/cross-domain/ai-workspace-archive.port';
 import { SOURCING_OPERATION_ALERT_PORT } from '../application/port/out/cross-domain/operation-alert.port';
-import { SOURCING_PRODUCTS_CATALOG_PORT } from '../application/port/out/cross-domain/products-catalog.port';
 import { SOURCING_CANDIDATE_REPOSITORY_PORT } from '../application/port/out/repository/sourcing-candidate.repository.port';
 import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from '../application/port/out/repository/sourcing-workspace-snapshot.repository.port';
 import { AutomationModule } from '../../automation/automation.module';
@@ -99,7 +96,6 @@ describe('SourcingModule canonical owner wiring', () => {
     expect(providers).toContain(SourcingWorkspaceArchiveService);
     expect(providers).toContain(SourcingWorkspaceSnapshotService);
     expect(providers).toContain(SourcingMarketDiscoveryService);
-    expect(providers).toContain(ProductPreparationSelectionService);
     expect(providers).toContain(ProductRegistrationService);
   });
 
@@ -112,7 +108,6 @@ describe('SourcingModule canonical owner wiring', () => {
     expect(providers).toContain(SourcingAgentGatewayAdapter);
     expect(providers).toContain(SourcingAiWorkspaceArchiveAdapter);
     expect(providers).toContain(SourcingOperationAlertAdapter);
-    expect(providers).toContain(SourcingProductsCatalogAdapter);
     expect(providers).toContain(SourcingCandidateRepositoryAdapter);
     expect(providers).toContain(SourcingWorkspaceSnapshotRepositoryAdapter);
     expect(providers).toContain(SourcingDiscoveryCapabilityAdapter);
@@ -166,12 +161,6 @@ describe('SourcingModule canonical owner wiring', () => {
     );
     expect(aiArchiveBinding).toBeDefined();
     expect(aiArchiveBinding!.useExisting).toBe(SourcingAiWorkspaceArchiveAdapter);
-    const productsBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === 'object' && p !== null && (p as any).provide === SOURCING_PRODUCTS_CATALOG_PORT,
-    );
-    expect(productsBinding).toBeDefined();
-    expect(productsBinding!.useExisting).toBe(SourcingProductsCatalogAdapter);
     const candidateRepositoryBinding = providers.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
         typeof p === 'object' && p !== null && (p as any).provide === SOURCING_CANDIDATE_REPOSITORY_PORT,

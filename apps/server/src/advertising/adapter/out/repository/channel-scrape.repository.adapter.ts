@@ -14,7 +14,7 @@ import type {
   ScrapeRunInput,
   ScrapeSnapshotInput,
 } from '../../../application/port/out/repository/channel-scrape.repository.port';
-import { adIngestRepositoryClient } from '../transaction/ad-ingest-transaction-context';
+import { adIngestRepositoryClient } from './ad-ingest-transaction-context';
 
 const logger = new Logger('ChannelScrapeRepositoryAdapter');
 

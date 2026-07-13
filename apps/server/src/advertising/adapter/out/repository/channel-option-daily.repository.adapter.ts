@@ -16,7 +16,7 @@ import {
   mergeNamespacedMetaJson,
   pickObservedFields,
 } from './daily-fact-helpers';
-import { withAdIngestRepositoryTransaction } from '../transaction/ad-ingest-transaction-context';
+import { withAdIngestRepositoryTransaction } from './ad-ingest-transaction-context';
 
 const OPTION_STATE_KEYS: ReadonlyArray<keyof ListingOptionDailyState> = [
   'optionName',

@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ReadinessService } from '../readiness.service';
-import { LEGACY_FAMILY_MASTER_SCOPE } from '../../common/legacy-family-master-scope';
 
 const ORGANIZATION_ID = '00000000-0000-0000-0000-0000000c0001';
 
@@ -226,15 +225,13 @@ describe('ReadinessService', () => {
     expect(prisma.masterProduct.count).toHaveBeenCalledWith({
       where: {
         organizationId: ORGANIZATION_ID,
-        isDeleted: false,
-        ...LEGACY_FAMILY_MASTER_SCOPE,
+        isActive: true,
       },
     });
     expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
       where: {
         organizationId: ORGANIZATION_ID,
-        isDeleted: false,
-        ...LEGACY_FAMILY_MASTER_SCOPE,
+        isActive: true,
       },
       orderBy: { updatedAt: 'desc' },
       select: { updatedAt: true },

@@ -16,7 +16,7 @@ import type {
   AdAccountKpiRepositoryPort,
   UpsertAccountKpiInput,
 } from '../../../application/port/out/repository/ad-account-kpi.repository.port';
-import { adIngestRepositoryClient } from '../transaction/ad-ingest-transaction-context';
+import { adIngestRepositoryClient } from './ad-ingest-transaction-context';
 
 @Injectable()
 export class AdAccountKpiRepositoryAdapter

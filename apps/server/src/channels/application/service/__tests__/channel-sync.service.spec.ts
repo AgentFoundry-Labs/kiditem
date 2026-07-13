@@ -132,7 +132,7 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
     } as any, 'c1');
 
     const liArgs = tx.orderLineItem.upsert.mock.calls[0][0];
-    expect(liArgs.create.optionId).toBeNull();
+    expect(liArgs.create).not.toHaveProperty('optionId');
     expect(liArgs.create.listingOptionId).toBe('lo-1');
     expect(liArgs.create.sku).toBe('SKU-1');
   });
@@ -148,7 +148,7 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
     } as any, 'c1');
 
     const liArgs = tx.orderLineItem.upsert.mock.calls[0][0];
-    expect(liArgs.create.optionId).toBeNull();
+    expect(liArgs.create).not.toHaveProperty('optionId');
     expect(liArgs.create.listingOptionId).toBeNull();
     expect(liArgs.create.sku).toBe('UNKNOWN');
   });
