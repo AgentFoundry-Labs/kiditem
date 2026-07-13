@@ -3,11 +3,10 @@
 /// @namespace Orders
 /// @describe 채널-agnostic 주문 aggregate. Coupang 등 채널별 raw payload 는 metadata Json. 라인 아이템은 OrderLineItem.
 model Order {
-  id             String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-  channelAccountId String? @map("channel_account_id") @db.Uuid
+  id               String @id @default(uuid()) @db.Uuid
+  organizationId   String @map("organization_id") @db.Uuid
+  channelAccountId String @map("channel_account_id") @db.Uuid
 
-  platform        String  @db.VarChar(20)
   externalOrderId String  @map("external_order_id") @db.VarChar(60)
   externalNumber  String? @map("external_number") @db.VarChar(60)
 
@@ -29,16 +28,13 @@ model Order {
 
   totalPrice Int @default(0) @map("total_price")
 
-  listingId String? @map("listing_id") @db.Uuid
-
   metadata Json?
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelAccount ChannelAccount? @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  listing        ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  channelAccount ChannelAccount  @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   lineItems      OrderLineItem[]
   shipments      Shipment[]
   returns        OrderReturn[]
@@ -46,13 +42,10 @@ model Order {
   csRecords      CSRecord[]
 
   @@unique([id, organizationId])
-  @@unique([organizationId, platform, externalOrderId])
-  @@unique([organizationId, channelAccountId, externalOrderId], map: "orders_org_account_external_order_key", where: raw("channel_account_id IS NOT NULL"))
+  @@unique([organizationId, channelAccountId, externalOrderId])
   @@index([organizationId])
   @@index([organizationId, status])
   @@index([organizationId, orderedAt])
-  @@index([listingId])
-  @@index([platform])
   @@index([channelAccountId])
   @@map("orders")
 }
@@ -65,7 +58,6 @@ model OrderLineItem {
   orderId        String @map("order_id") @db.Uuid
 
   listingOptionId String? @map("listing_option_id") @db.Uuid
-  optionId        String? @map("option_id") @db.Uuid
 
   productName String  @default("") @map("product_name")
   optionName  String? @map("option_name")
@@ -87,7 +79,6 @@ model OrderLineItem {
   organization    Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   order           Order                 @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
   listingOption   ChannelListingOption? @relation(fields: [listingOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  option          ProductOption?        @relation(fields: [optionId], references: [id], onDelete: SetNull)
   returnLineItems OrderReturnLineItem[]
   shipmentItems   ShipmentItem[]
   unshippedItems  UnshippedItem[]
@@ -97,19 +88,17 @@ model OrderLineItem {
   @@index([organizationId])
   @@index([orderId])
   @@index([listingOptionId])
-  @@index([optionId])
   @@map("order_line_items")
 }
 
 /// @namespace Orders
 /// @describe 채널-agnostic 반품 aggregate. 반품 item 은 OrderReturnLineItem 으로 정규화. type=RETURN/EXCHANGE 구분 first-class.
 model OrderReturn {
-  id             String  @id @default(uuid()) @db.Uuid
-  organizationId String  @map("organization_id") @db.Uuid
-  orderId        String? @map("order_id") @db.Uuid
-  channelAccountId String? @map("channel_account_id") @db.Uuid
+  id               String  @id @default(uuid()) @db.Uuid
+  organizationId   String  @map("organization_id") @db.Uuid
+  orderId          String? @map("order_id") @db.Uuid
+  channelAccountId String  @map("channel_account_id") @db.Uuid
 
-  platform         String @db.VarChar(20)
   externalReturnId String @map("external_return_id") @db.VarChar(60)
 
   type String @default("RETURN") @db.VarChar(20)
@@ -131,14 +120,13 @@ model OrderReturn {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelAccount ChannelAccount?     @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  order        Order?                @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  lineItems    OrderReturnLineItem[]
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount ChannelAccount        @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  order          Order?                @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  lineItems      OrderReturnLineItem[]
 
   @@unique([id, organizationId])
-  @@unique([organizationId, platform, externalReturnId])
-  @@unique([organizationId, channelAccountId, externalReturnId], map: "order_returns_org_account_external_return_key", where: raw("channel_account_id IS NOT NULL"))
+  @@unique([organizationId, channelAccountId, externalReturnId])
   @@index([organizationId])
   @@index([orderId])
   @@index([status])
@@ -155,7 +143,6 @@ model OrderReturnLineItem {
   organizationId  String  @map("organization_id") @db.Uuid
   returnId        String  @map("return_id") @db.Uuid
   orderLineItemId String? @map("order_line_item_id") @db.Uuid
-  optionId        String? @map("option_id") @db.Uuid
   listingOptionId String? @map("listing_option_id") @db.Uuid
 
   productName String  @default("") @map("product_name")
@@ -167,16 +154,14 @@ model OrderReturnLineItem {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  return        OrderReturn    @relation(fields: [returnId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  orderLineItem OrderLineItem? @relation(fields: [orderLineItemId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  option        ProductOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  organization  Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  return        OrderReturn           @relation(fields: [returnId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  orderLineItem OrderLineItem?        @relation(fields: [orderLineItemId, organizationId], references: [id, organizationId], onDelete: Restrict)
   listingOption ChannelListingOption? @relation(fields: [listingOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@index([organizationId])
   @@index([returnId])
   @@index([orderLineItemId])
-  @@index([optionId])
   @@index([listingOptionId])
   @@map("order_return_line_items")
 }
@@ -185,9 +170,7 @@ model OrderReturnLineItem {
 model Shipment {
   id             String    @id @default(uuid()) @db.Uuid
   organizationId String    @map("organization_id") @db.Uuid
-  orderId        String?   @map("order_id") @db.Uuid
-  listingId      String?   @map("listing_id") @db.Uuid
-  optionId       String?   @map("option_id") @db.Uuid
+  orderId        String    @map("order_id") @db.Uuid
   trackingNo     String?   @map("tracking_no")
   courierCode    String?   @map("courier_code")
   courierName    String?   @map("courier_name")
@@ -200,24 +183,20 @@ model Shipment {
   updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  order        Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  listing      ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
-  option       ProductOption?  @relation(fields: [optionId], references: [id], onDelete: SetNull)
-  warehouse    Warehouse?      @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  order        Order       @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  warehouse    Warehouse?  @relation(fields: [warehouseId, organizationId], references: [id, organizationId], onDelete: Restrict)
   items        ShipmentItem[]
 
   @@unique([id, organizationId], map: "shipments_id_org_key")
   @@index([organizationId])
   @@index([organizationId, status])
   @@index([orderId])
-  @@index([listingId])
-  @@index([optionId])
   @@index([warehouseId])
   @@map("shipments")
 }
 
 /// @namespace Orders
-/// @describe Order-line shipment detail staged beside retained legacy Shipment listing/option columns.
+/// @describe Order-line shipment detail.
 model ShipmentItem {
   id              String   @id @default(uuid()) @db.Uuid
   organizationId  String   @map("organization_id") @db.Uuid
@@ -239,35 +218,29 @@ model ShipmentItem {
 
 /// @namespace Orders
 model UnshippedItem {
-  id             String    @id @default(uuid()) @db.Uuid
-  organizationId String    @map("organization_id") @db.Uuid
-  orderId        String    @map("order_id") @db.Uuid
-  listingId      String?   @map("listing_id") @db.Uuid
-  optionId       String?   @map("option_id") @db.Uuid
-  orderLineItemId String?  @map("order_line_item_id") @db.Uuid
-  productName    String    @map("product_name")
-  optionName     String?   @map("option_name")
-  externalSku    String?   @map("external_sku")
-  quantity       Int
-  orderDate      DateTime  @map("order_date") @db.Timestamptz
-  delayDays      Int       @default(0) @map("delay_days")
-  reason         String?
-  isNotified     Boolean   @default(false) @map("is_notified")
-  notifiedAt     DateTime? @map("notified_at") @db.Timestamptz
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  id              String    @id @default(uuid()) @db.Uuid
+  organizationId  String    @map("organization_id") @db.Uuid
+  orderId         String    @map("order_id") @db.Uuid
+  orderLineItemId String    @map("order_line_item_id") @db.Uuid
+  productName     String    @map("product_name")
+  optionName      String?   @map("option_name")
+  externalSku     String?   @map("external_sku")
+  quantity        Int
+  orderDate       DateTime  @map("order_date") @db.Timestamptz
+  delayDays       Int       @default(0) @map("delay_days")
+  reason          String?
+  isNotified      Boolean   @default(false) @map("is_notified")
+  notifiedAt      DateTime? @map("notified_at") @db.Timestamptz
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  order        Order           @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  listing      ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
-  option       ProductOption?  @relation(fields: [optionId], references: [id], onDelete: SetNull)
-  orderLineItem OrderLineItem? @relation(fields: [orderLineItemId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  order         Order           @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  orderLineItem OrderLineItem   @relation(fields: [orderLineItemId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@index([organizationId])
   @@index([orderId])
   @@index([delayDays])
   @@index([isNotified])
-  @@index([listingId])
-  @@index([optionId])
   @@index([orderLineItemId])
   @@map("unshipped_items")
 }

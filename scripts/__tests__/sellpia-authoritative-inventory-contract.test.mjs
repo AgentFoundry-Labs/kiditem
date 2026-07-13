@@ -1,145 +1,98 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { extname, join, relative } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 const repoRoot = process.cwd();
-
-function productionFiles(root) {
-  const files = [];
-  const walk = (directory) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '.next') {
-        continue;
-      }
-      const absolute = join(directory, entry.name);
-      if (entry.isDirectory()) {
-        walk(absolute);
-        continue;
-      }
-      if (!['.ts', '.tsx', '.prisma'].includes(extname(entry.name))) continue;
-      if (/\.(spec|test)\.[^.]+$/.test(entry.name)) continue;
-      files.push(absolute);
-    }
-  };
-  walk(join(repoRoot, root));
-  return files;
-}
-
-function matchingFiles(files, pattern) {
-  return files
-    .filter((file) => pattern.test(readFileSync(file, 'utf8')))
-    .map((file) => relative(repoRoot, file));
-}
-
-function filesDefiningModel(modelName) {
-  const pattern = new RegExp(`^model ${modelName}\\s*\\{`, 'm');
-  return matchingFiles(prismaFiles, pattern);
-}
-
-function extractModel(file, modelName) {
-  const source = readFileSync(join(repoRoot, file), 'utf8');
-  return source.match(new RegExp(`model ${modelName}\\s*\\{[\\s\\S]*?\\n\\}`))?.[0];
-}
-
-const serverFiles = productionFiles('apps/server/src');
-const sharedFiles = productionFiles('packages/shared/src');
-const prismaFiles = productionFiles('prisma/models');
-const inventoryImporter = join(
-  repoRoot,
-  'apps/server/src/inventory/adapter/out/repository/inventory-sku-import.repository.adapter.ts',
+const schemaFiles = [
+  'prisma/models/core.prisma',
+  'prisma/models/inventory.prisma',
+  'prisma/models/channels.prisma',
+  'prisma/models/sourcing.prisma',
+  'prisma/models/ai.prisma',
+  'prisma/models/orders.prisma',
+  'prisma/models/supply.prisma',
+  'prisma/models/advertising.prisma',
+  'prisma/models/finance.prisma',
+];
+const schema = schemaFiles
+  .map((file) => readFileSync(join(repoRoot, file), 'utf8'))
+  .join('\n');
+const core = readFileSync(join(repoRoot, 'prisma/models/core.prisma'), 'utf8');
+const channels = readFileSync(join(repoRoot, 'prisma/models/channels.prisma'), 'utf8');
+const migrationRegistry = readFileSync(
+  join(repoRoot, 'scripts/data-migrations/index.ts'),
+  'utf8',
 );
-const migrationRegistry = join(repoRoot, 'scripts/data-migrations/index.ts');
 
-describe('Sellpia authoritative inventory reconstruction contract', () => {
-  it('removes the legacy mutable inventory runtime while retaining expand-schema rollback lanes', () => {
-    const forbidden = [
-      /\bINVENTORY_PORT\b/,
-      /\bprisma\.inventory\b/,
-      /\bRocketInventoryLedger\b/,
-      /\bStockTransaction\b/,
-      /\bSellpiaStockSnapshot(?:Item)?\b/,
-      /\bSellpiaNewProductCandidate\b/,
-    ];
+function modelBlock(source, modelName) {
+  const block = source.match(new RegExp(`model ${modelName}\\s*\\{[\\s\\S]*?\\n\\}`))?.[0];
+  assert.ok(block, `Expected model ${modelName}`);
+  return block;
+}
 
-    for (const pattern of forbidden) {
-      assert.deepEqual(
-        matchingFiles([...serverFiles, ...sharedFiles], pattern),
-        [],
-        `Forbidden legacy inventory reference: ${pattern}`,
-      );
-    }
-  });
-
-  it('retains ProductOption stock policy fields and legacy inventory models at 0.1.8', () => {
-    for (const model of [
-      'Inventory',
-      'StockTransaction',
-      'RocketInventoryLedger',
-      'SellpiaStockSnapshot',
-      'SellpiaStockSnapshotItem',
-      'SellpiaNewProductCandidate',
-    ]) {
-      assert.equal(filesDefiningModel(model).length, 1, `Legacy model must remain: ${model}`);
-    }
-
-    const option = extractModel('prisma/models/core.prisma', 'ProductOption');
-    assert.ok(option, 'ProductOption model must remain');
-    assert.match(option, /^\s*availableStock\s+/m);
+describe('Sellpia authoritative final-schema contract', () => {
+  it('uses one 0.1.8 rebuild release without preservation migrations', () => {
     assert.equal(readFileSync(join(repoRoot, 'VERSION'), 'utf8').trim(), '0.1.8');
-  });
+    assert.doesNotMatch(migrationRegistry, /v0\.1\.9/);
+    assert.doesNotMatch(migrationRegistry, /buildSellpiaMasterIdentityMap/);
+    assert.doesNotMatch(migrationRegistry, /repointChannelSkuComponents/);
+    assert.doesNotMatch(migrationRegistry, /backfillFinalOwnerRelations/);
+    assert.doesNotMatch(migrationRegistry, /verifyFreshSellpiaSnapshot/);
+    assert.doesNotMatch(migrationRegistry, /verifyChannelCatalogCutover/);
 
-  it('keeps InventorySku currentStock writes inside the full-snapshot importer only', () => {
-    assert.ok(existsSync(inventoryImporter), 'Sellpia InventorySku importer must remain');
-
-    const writers = serverFiles.filter((file) => {
-      const source = readFileSync(file, 'utf8');
-      return /\.inventorySku\.(?:create|createMany|update|updateMany|upsert|delete|deleteMany)\s*\(/.test(source)
-        || /(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:"?[a-z_]+"?\.)?"?inventory_skus"?/i.test(source);
-    });
-
-    const unauthorized = writers
-      .filter((file) => file !== inventoryImporter)
-      .map((file) => relative(repoRoot, file));
-    assert.deepEqual(unauthorized, [], 'Only the Sellpia importer may write currentStock');
-
-    const importerSource = readFileSync(inventoryImporter, 'utf8');
-    assert.match(importerSource, /current_stock/);
-  });
-
-  it('removes legacy inventory mutation HTTP adapters', () => {
-    const forbiddenFiles = [
-      'apps/server/src/inventory/adapter/in/http/inventory-items.controller.ts',
-      'apps/server/src/inventory/adapter/in/http/inventory-assets.controller.ts',
-      'apps/server/src/inventory/adapter/in/http/inventory-stock-mutations.controller.ts',
-      'apps/server/src/inventory/adapter/in/http/inventory-transactions.controller.ts',
-      'apps/server/src/inventory/adapter/in/http/rocket-inventory.controller.ts',
-      'apps/server/src/inventory/adapter/in/http/audits.controller.ts',
-    ];
-    assert.deepEqual(
-      forbiddenFiles.filter((file) => existsSync(join(repoRoot, file))),
-      [],
+    assert.equal(
+      existsSync(join(repoRoot, 'scripts/data-migrations/v0.1.9')),
+      false,
+      'The final rebuild must not retain a preservation-only v0.1.9 directory',
     );
   });
 
-  it('replaces the unshipped local-only blocker with shared-environment preservation guards', () => {
-    const registry = readFileSync(migrationRegistry, 'utf8');
-    assert.doesNotMatch(registry, /blockPersistentSellpiaInventoryCutover|v0\.1\.9/);
-    assert.match(registry, /normalizeOperationalChannelAccounts/);
-    assert.match(registry, /backfillChannelSkuAccounts/);
-
-    for (const workflowPath of [
-      '.github/workflows/staging-deploy.yml',
-      '.github/workflows/production-deploy.yml',
+  it('removes every duplicate legacy product and inventory owner', () => {
+    for (const model of [
+      'InventorySku',
+      'InventorySkuMasterProductMap',
+      'ProductOption',
+      'BundleComponent',
+      'MasterCodeCounter',
+      'MasterProductImage',
+      'MasterSupplierProduct',
+      'ChannelReconciliationRun',
+      'ChannelReconciliationItem',
     ]) {
-      const workflow = readFileSync(join(repoRoot, workflowPath), 'utf8');
-      const preSchema = workflow.indexOf('npm run data:migrate -- up --phase pre-schema');
-      const preflight = workflow.indexOf('Check Sellpia cutover preflight');
-      const dbPush = workflow.indexOf('npx prisma db push');
-      assert.ok(preSchema >= 0, `${workflowPath} must run pre-schema migrations`);
-      assert.ok(preflight > preSchema, `${workflowPath} must run the repeatable preflight after normalization`);
-      assert.ok(dbPush > preflight, `${workflowPath} must run the preservation preflight before db push`);
-      assert.match(workflow, /check-sellpia-db-push-warning\.mjs/);
+      assert.doesNotMatch(schema, new RegExp(`model ${model}\\b`));
     }
+
+    for (const field of [
+      'inventorySkuId',
+      'productOptionId',
+      'optionId',
+      'legacyInventorySkuId',
+      'finalMasterProductId',
+    ]) {
+      assert.doesNotMatch(schema, new RegExp(`^\\s*${field}\\s+`, 'm'));
+    }
+  });
+
+  it('defines MasterProduct as the organization-scoped Sellpia stock owner', () => {
+    const master = modelBlock(core, 'MasterProduct');
+    assert.match(master, /^\s*code\s+String\s*$/m);
+    assert.match(master, /^\s*name\s+String\s*$/m);
+    assert.match(master, /^\s*currentStock\s+Int\s+@default\(0\)\s+@map\("current_stock"\)/m);
+    assert.match(master, /^\s*isActive\s+Boolean\s+@default\(true\)\s+@map\("is_active"\)/m);
+    assert.match(master, /@@unique\(\[organizationId, code\]\)/);
+    assert.match(master, /@@unique\(\[id, organizationId\]/);
+    assert.doesNotMatch(master, /^\s*(?:legacyCode|sellpiaProductCode|sellpiaName|sellpiaBarcode)\s+/m);
+  });
+
+  it('maps each channel SKU directly to MasterProduct with final mapping sources only', () => {
+    const component = modelBlock(channels, 'ChannelSkuComponent');
+    assert.match(component, /^\s*masterProductId\s+String\s+@map\("master_product_id"\)\s+@db\.Uuid/m);
+    assert.match(component, /@@unique\(\[channelSkuId, masterProductId\]\)/);
+    assert.match(
+      component,
+      /mappingSource\s+String[^\n]*product_code \| barcode \| manual/,
+    );
+    assert.doesNotMatch(component, /legacy_migrated/);
   });
 });

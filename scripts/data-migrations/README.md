@@ -22,7 +22,7 @@ not release boundaries. Each migration exports a `DataMigration` with:
 - `releaseVersion`: the same root `VERSION` without `v`
 - `name`: human-readable purpose
 - `phase`: optional `pre-schema` or `post-schema`; omitted migrations default to
-  `post-schema`
+  `post-schema`.
 - `run(tx, context)`: idempotent Prisma transaction body. `context.target` is
   the already validated CLI target (`local`, `staging`, or `production`), so a
   migration never has to infer its target from ambient environment variables.
@@ -46,20 +46,7 @@ these independent boundaries hold:
 - `DATA_MIGRATION_CONFIRM=APPLY_DATA_MIGRATIONS`;
 - `DATA_MIGRATION_PRODUCTION_CONFIRM=DEPLOY_PRODUCTION`.
 
-Release `0.1.8` normalizes operational channel accounts before the schema push
-with `v0.1.8:001_normalize_operational_channel_accounts`, then fills and checks
-the additive child account column after the push with
-`v0.1.8:002_backfill_channel_sku_accounts`, then normalizes the retired
-candidate `promoted` status to `sourced` with
-`v0.1.8:003_normalize_promoted_candidate_status`. The first migration resolves
-evidence in this fixed order: provider seller/vendor identity, linked listing
-option/listing, legacy parent listing, then the sole active platform account.
-Ambiguous, missing, or conflicting identity stops the release; exact canonical
-duplicates are merged only after incoming foreign keys are repointed.
-
-The repeatable preservation gate remains outside the one-shot ledger. Deploy
-workflows run `npm run check:sellpia-cutover-preflight` immediately before each
-schema push and pass its marker to the exact 0.1.8 warning checker. The
-unshipped blanket 0.1.9 rejection is intentionally absent from the registry;
-future 0.1.9 migrations must preserve shared-environment data rather than
-rejecting staging or production unconditionally.
+Release `0.1.8` is a schema-only database rebuild. It deliberately has no data
+migration: legacy product, inventory, option, and identity-map rows are not
+read or transformed. The guarded reset creates the final schema, after which
+approved Sellpia and channel sources are replayed through application imports.

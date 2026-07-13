@@ -4,191 +4,48 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 const repoRoot = process.cwd();
-const coreSchema = readFileSync(join(repoRoot, 'prisma/models/core.prisma'), 'utf8');
-const inventorySchema = readFileSync(join(repoRoot, 'prisma/models/inventory.prisma'), 'utf8');
-const channelsSchema = readFileSync(join(repoRoot, 'prisma/models/channels.prisma'), 'utf8');
+const core = readFileSync(join(repoRoot, 'prisma/models/core.prisma'), 'utf8');
+const channels = readFileSync(join(repoRoot, 'prisma/models/channels.prisma'), 'utf8');
 
-function extractModel(schema, modelName) {
-  const match = schema.match(new RegExp(`model ${modelName} \\{[\\s\\S]*?\\n\\}`));
-  assert.ok(match, `Expected model ${modelName} to exist`);
-  return match[0];
+function modelBlock(source, modelName) {
+  const block = source.match(new RegExp(`model ${modelName}\\s*\\{[\\s\\S]*?\\n\\}`))?.[0];
+  assert.ok(block, `Expected model ${modelName}`);
+  return block;
 }
 
-function assertFields(model, fieldNames) {
-  for (const fieldName of fieldNames) {
-    assert.match(model, new RegExp(`^\\s*${fieldName}\\s+`, 'm'), `Expected field ${fieldName}`);
-  }
-}
-
-function assertNoFields(model, fieldNames) {
-  for (const fieldName of fieldNames) {
-    assert.doesNotMatch(
-      model,
-      new RegExp(`^\\s*${fieldName}\\s+`, 'm'),
-      `Expected field ${fieldName} to be absent`,
-    );
-  }
-}
-
-function compact(schema) {
-  return schema
-    .replace(/\s+/g, ' ')
-    .replace(/\(\s+/g, '(')
-    .replace(/\s+\)/g, ')')
-    .trim();
-}
-
-describe('channel Sellpia matching schema contract', () => {
-  it('retains the legacy mutable stock schema through the 0.1.8 expand release', () => {
-    extractModel(coreSchema, 'ProductOption');
-    extractModel(coreSchema, 'BundleComponent');
-    extractModel(channelsSchema, 'ChannelReconciliationRun');
-    extractModel(channelsSchema, 'ChannelReconciliationItem');
-    extractModel(inventorySchema, 'Inventory');
-    extractModel(inventorySchema, 'StockTransaction');
-    extractModel(inventorySchema, 'RocketInventoryLedger');
-    extractModel(inventorySchema, 'SellpiaStockSnapshot');
-    extractModel(inventorySchema, 'SellpiaStockSnapshotItem');
-    extractModel(inventorySchema, 'SellpiaNewProductCandidate');
-
-    const option = extractModel(coreSchema, 'ProductOption');
-    assertFields(option, ['availableStock']);
+describe('channel Sellpia final schema contract', () => {
+  it('requires account-owned parent listings without duplicated channel or master identity', () => {
+    const listing = modelBlock(core, 'ChannelListing');
+    assert.match(listing, /^\s*channelAccountId\s+String\s+/m);
+    assert.match(listing, /^\s*rawJson\s+Json\?/m);
+    assert.match(listing, /^\s*lastImportRunId\s+String\?/m);
+    assert.doesNotMatch(listing, /^\s*(?:masterId|channel|channelPrice)\s+/m);
+    assert.match(listing, /@@unique\(\[organizationId, channelAccountId, externalId\]\)/);
   });
 
-  it('defines InventorySku as Sellpia-owned physical inventory without legacy stock mutation or channel identity', () => {
-    const model = extractModel(inventorySchema, 'InventorySku');
-
-    assertFields(model, [
-      'sellpiaProductCode',
-      'currentStock',
-      'purchasePrice',
+  it('keeps marketplace SKU metadata independent from physical stock', () => {
+    const option = modelBlock(core, 'ChannelListingOption');
+    for (const field of [
+      'externalOptionId',
+      'itemName',
       'salePrice',
-      'rawJson',
-      'lastImportRunId',
-    ]);
-    assertNoFields(model, [
-      'reportedStock',
-      'masterId',
-      'reservedStock',
-      'safetyStock',
-      'isBundle',
-      'availableStock',
-      'channel',
-      'channelAccountId',
-      'marketplace',
-      'marketplaceId',
-      'externalId',
-      'externalProductId',
-      'externalSkuId',
-      'sellerSku',
-      'channelProductId',
-      'channelSkuId',
-    ]);
-    assert.match(
-      model,
-      /^\s*currentStock\s+Int\s+@default\(0\)\s+@map\("current_stock"\)/m,
-    );
-    assert.doesNotMatch(model, /reported_stock/);
-  });
-
-  it('defines fenced, account-aware source import idempotency', () => {
-    const model = extractModel(coreSchema, 'SourceImportRun');
-    const normalized = compact(model);
-
-    assert.match(
-      model,
-      /^\s*attemptToken\s+String\s+@default\(uuid\(\)\)\s+@map\("attempt_token"\)\s+@db\.Uuid/m,
-    );
-    assert.ok(
-      normalized.includes(
-        '@@unique([organizationId, sourceType, channelAccountId, fileHash], map: "source_import_runs_org_source_account_hash_key", where: raw("channel_account_id IS NOT NULL"))',
-      ),
-      'Expected the non-null-account partial unique index',
-    );
-    assert.ok(
-      normalized.includes(
-        '@@unique([organizationId, sourceType, fileHash], map: "source_import_runs_org_source_hash_null_account_key", where: raw("channel_account_id IS NULL"))',
-      ),
-      'Expected the null-account partial unique index',
-    );
-  });
-
-  it('promotes ChannelListing while retaining its compatibility relation', () => {
-    const model = extractModel(coreSchema, 'ChannelListing');
-    const normalized = compact(model);
-
-    assert.match(model, /^\s*masterId\s+String\?\s+@map\("master_id"\)\s+@db\.Uuid/m);
-    assert.match(
-      model,
-      /^\s*master\s+MasterProduct\?\s+@relation\(fields:\s*\[masterId\],\s*references:\s*\[id\],\s*onDelete:\s*Restrict\)/m,
-    );
-    assertFields(model, [
-      'displayName',
-      'category',
-      'brand',
-      'manufacturer',
-      'rawJson',
-      'lastImportRunId',
-    ]);
-    assert.ok(
-      normalized.includes(
-        '@@unique([id, organizationId], map: "channel_listings_id_org_key")',
-      ),
-      'Expected the ChannelListing organization composite key',
-    );
-  });
-
-  it('promotes ChannelListingOption with tenant-scoped parent enforcement', () => {
-    const model = extractModel(coreSchema, 'ChannelListingOption');
-    const normalized = compact(model);
-
-    assertFields(model, [
-      'channelAccountId',
       'sellerSku',
       'barcode',
-      'modelNumber',
-      'status',
       'mappingStatus',
       'attributesJson',
-      'costPriceOverride',
-      'commissionRate',
-      'shippingCost',
-      'otherCost',
       'rawJson',
-      'lastImportRunId',
-    ]);
-    assert.match(
-      model,
-      /^\s*mappingStatus\s+String\s+@default\("unmatched"\)\s+@map\("mapping_status"\)/m,
-    );
-    assert.ok(
-      normalized.includes(
-        'listing ChannelListing @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Cascade)',
-      ),
-      'Expected the organization-scoped ChannelListing relation',
-    );
+    ]) {
+      assert.match(option, new RegExp(`^\\s*${field}\\s+`, 'm'));
+    }
+    assert.doesNotMatch(option, /^\s*(?:optionId|channelAccountId|isUnmatched)\s+/m);
   });
 
-  it('defines ChannelSkuComponent as the organization-scoped InventorySku mapping source of truth', () => {
-    const model = extractModel(channelsSchema, 'ChannelSkuComponent');
-    const normalized = compact(model);
-
-    assertNoFields(model, ['productOptionId']);
-    assert.ok(
-      normalized.includes('@@unique([channelSkuId, inventorySkuId])'),
-      'Expected one component row per channel SKU and inventory SKU',
-    );
-    assert.ok(
-      normalized.includes(
-        'channelSku ChannelListingOption @relation(fields: [channelSkuId, organizationId], references: [id, organizationId], onDelete: Cascade)',
-      ),
-      'Expected the channel SKU relation to enforce organization scope',
-    );
-    assert.ok(
-      normalized.includes(
-        'inventorySku InventorySku @relation(fields: [inventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)',
-      ),
-      'Expected the inventory SKU relation to enforce organization scope',
-    );
+  it('stores bundle recipes only as direct MasterProduct component quantities', () => {
+    const component = modelBlock(channels, 'ChannelSkuComponent');
+    assert.match(component, /^\s*masterProductId\s+String\s+/m);
+    assert.match(component, /^\s*quantity\s+Int\s*$/m);
+    assert.match(component, /^\s*mappingSource\s+String\s+/m);
+    assert.doesNotMatch(component, /InventorySku|ProductOption|legacy_migrated/);
+    assert.match(component, /@@unique\(\[channelSkuId, masterProductId\]\)/);
   });
 });

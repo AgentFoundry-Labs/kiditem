@@ -3,7 +3,12 @@
 ## Status and Authority
 
 Approved by the user in the design conversation and independently reviewed on
-2026-07-12. This is the implementation-planning authority.
+2026-07-12. On 2026-07-13 the user approved rebuilding every environment
+instead of preserving legacy product/inventory identities in place, so the
+former expand/backfill/contract rollout is no longer authoritative. Approved
+channel/content/operations data may be selectively exported and replayed into
+final owners after the reset. This document remains the implementation-planning
+authority with the single-release rebuild strategy below.
 
 This document is the authoritative design for the reconstruction. It
 supersedes:
@@ -58,8 +63,8 @@ valid registered-product content owners.
 - Keep existing operator routes while replacing their data sources.
 - Rewire orders, supply, analytics, and record-only inventory operations to the
   correct identity.
-- Preserve project migration contracts even though the local development
-  database may be rebuilt.
+- Rebuild every environment from the final schema and the approved source
+  imports; no legacy application data is migrated forward.
 - Keep only fields required for identity, import, display, matching, and
   current operations.
 
@@ -213,10 +218,10 @@ Rules:
 
 The final field names `code`, `name`, `barcode`, `currentStock`,
 `purchasePrice`, and `salePrice` reuse established names. This is not a claim
-that the current `MasterProduct.code` has the same meaning: today it is a
-globally unique internal-family code. Persistent migration must first stage a
-separate Sellpia-code identity, validate collisions, repoint relations, and
-only then contract-rename that identity to `code` and retire its allocator.
+that the legacy `MasterProduct.code` had the same meaning: it was a globally
+unique internal-family code. Because legacy database rows are discarded, the
+final schema adopts the Sellpia meanings directly and retires the old code
+allocator without a staged identity.
 
 ### ChannelAccount
 
@@ -380,8 +385,8 @@ Rules:
 - unique `(channelSkuId, masterProductId)`;
 - both relations are composite organization-safe foreign keys;
 - `quantity > 0` is enforced by domain validation;
-- `mappingSource` is one of `product_code`, `barcode`, `manual`, or
-  `legacy_migrated`; it is required after backfill;
+- `mappingSource` is one of `product_code`, `barcode`, or `manual`; it is
+  required;
 - rows are confirmed recipes, not candidate suggestions;
 - component replacement and `mappingStatus` update occur in one transaction,
   preserving `component count > 0` if and only if status is `matched`;
@@ -448,15 +453,12 @@ The replacement HTTP contract is explicit:
 - canonical draft creation is
   `POST /api/sourcing/candidates/:id/preparations` with required
   `channelAccountId`, selected content IDs, and editable registration input;
-- during the expand release, the old
-  `POST /api/sourcing/candidates/:id/promote` route accepts that same body and
-  acts only as a deprecated draft-creation alias;
 - draft creation returns `{ preparationId, status: "draft" }`, never a
   `masterId`;
 - submission is `POST /api/sourcing/preparations/:id/submit` and returns
   `{ preparationId, status, listingId? }`;
-- after all callers migrate, the compatibility `/promote` alias is removed in
-  the contract release.
+- the legacy `POST /api/sourcing/candidates/:id/promote` compatibility route is
+  removed in the single rebuild release.
 
 The registered transition is instead:
 
@@ -776,8 +778,8 @@ Account consistency is transactional and migration-validated:
 
 ## Removed Models and Fields
 
-The final schema removes these duplicate or obsolete models after persistent
-data preservation gates pass:
+The final schema removes these duplicate or obsolete models immediately in the
+single rebuild release:
 
 ```text
 InventorySku
@@ -865,113 +867,44 @@ Existing destinations remain; their reads and actions are replaced.
 - Loading, empty, stale-import, failed-import, no-active-account, unmatched,
   and no-content states remain distinguishable in the UI.
 
-## Migration Strategy
+## Rebuild and Release Strategy
 
-### Local Development
+`develop` is at `0.1.7`. The reconstruction ships as one `0.1.8` release with
+the final schema and no legacy compatibility period. Existing local, staging,
+and production database rows are reset rather than migrated in place. Approved
+Coupang provider metadata, content, ads, reviews, and operational records are
+selectively exported and replayed into their final owners; legacy
+`InventorySku`, `ProductOption`, and identity-map rows are discarded.
 
-The currently approved local development database is disposable and may be
-hard reset after verifying the effective database target is local. The reset:
+The rebuild:
 
 - is a database operation, never `git reset --hard`;
-- preserves the source workbook files;
-- applies the final Prisma schema;
-- imports Sellpia first and Wing second through real application paths;
-- verifies counts, mappings, content empty states, and rendered routes.
+- preserves the operator workbook files outside database storage;
+- applies the final Prisma schema directly;
+- creates only the minimum organization, membership, user, and channel-account
+  metadata required to sign in and perform imports;
+- imports Sellpia first and Wing second through the real authenticated
+  application endpoints;
+- treats the new Sellpia publication as the initial current-stock truth;
+- verifies counts, mappings, content empty states, and rendered routes before
+  the environment is declared ready.
 
-This local reset is test setup, not a deployment migration.
+There are no identity-map, legacy backfill, dual-write, expand-only, or
+contract-removal data migrations. Versioned migration code may create or
+verify new baseline metadata, but it must not read legacy product, inventory,
+content, order, or analytics rows.
 
-### Persistent Shared Environments
+Shared-environment resets are executed only through the supported GitHub
+Actions release path. The workflow must require an explicit destructive-reset
+input, verify the target environment, rebuild the schema before starting the
+new application, and leave the application in a clear `snapshot required`
+state until the approved Sellpia import succeeds. Manual SSH or local deploy
+scripts are not alternate release paths.
 
-Staging and production never use the destructive reset. Because the deploy
-workflow runs pre-schema migrations, `db push`, post-schema migrations, and
-then swaps the live application, the final destructive schema cannot be pushed
-in the same deployment that needs legacy rows for backfill. Promotion therefore
-uses three sequential releases, not one large destructive deployment.
-
-As of this design, `develop` is still at `0.1.7`; the branch's `0.1.8` and
-`0.1.9` work has not shipped and may be rewritten safely.
-
-#### Release 0.1.8 — Expand
-
-- Run preflight for row counts, null account IDs, identity duplicates, content
-  owners, and every incoming legacy foreign key.
-- Merge or block duplicate/null operational account identities before adding
-  required account relations; display names are never account keys.
-- Keep `InventorySku`, legacy `MasterProduct`, `ProductOption`, and their
-  columns intact.
-- Add staged Sellpia identity fields, final composite keys, target foreign
-  keys, preparation state, and content-owner fields without destructive drops.
-- Deploy dual-compatible writers/read adapters so the still-running old app
-  cannot create rows invisible to the next backfill.
-- Because the blanket v0.1.9 rejecting migration is unshipped, omit it from
-  the 0.1.8 registry. Replace it with a version-matched expand-only scanner and
-  schema-warning gate that permits the non-destructive shared deployment while
-  rejecting any contract drop or unapproved warning.
-
-#### Release 0.1.9 — Backfill, Fresh Snapshot, and Switch
-
-- Introduce reviewed v0.1.9 pre/post-schema preservation migrations in place of
-  the discarded draft blocker; no shipped registry contains a migration that
-  always rejects shared targets.
-- Build an explicit source-to-target mapping ledger and perform the preservation
-  rules below idempotently.
-- After expansion, run a fresh serialized Sellpia full snapshot in every
-  organization. `InventorySku` cannot distinguish a present zero-stock row from
-  an absent row zeroed by the same run, so `MasterProduct.isActive` is set only
-  from membership in this newly published snapshot, never inferred from stock
-  or old provenance.
-- Backfill and validate final owner relations, then deploy application reads
-  and writes on Master/listing/workspace ownership.
-- Retain legacy tables and columns for rollback observation; do not contract in
-  this release.
-
-#### Release 0.1.10 — Contract
-
-- Prove legacy consumer and writer counts are zero in code and runtime checks.
-- Run the exact reviewed `db push` destructive-warning allowlist and reject any
-  unexpected drop or warning.
-- Remove obsolete tables, columns, APIs, services, shared contracts, and web
-  compatibility code.
-- Regenerate Prisma, ERD, Graphify, architecture documentation, and dev-data
-  bundles from the final schema.
-
-Each release has its own root `VERSION` and version-matched durable migrations.
-Schema truth remains Prisma and deploys through `db:push`. Data rewrites live
-under `scripts/data-migrations/v<VERSION>/`, are registered in the migration
-index, and record their result in `data_migration_runs`. A release is not
-collapsed into the next one merely because all code was developed locally at
-once.
-
-### Persistent Preservation Matrix
-
-| Legacy source | Final target | Required preservation policy |
-|---|---|---|
-| `InventorySku` | staged Sellpia `MasterProduct` | One target per `(organizationId, sellpiaProductCode)`; reuse the source UUID only when collision-free, otherwise stop for an explicit ledger mapping; preserve stock, prices, raw data, and import provenance. |
-| `ChannelSkuComponent.inventorySkuId` | `masterProductId` | Reject non-positive quantities; normalize null or unknown sources to `legacy_migrated` with audited counts; then repoint through the mapping ledger and preserve the canonicalized row count, quantity, source, creator, and timestamps. |
-| Legacy `MasterProduct` | no automatic physical identity | Never treat a family row as Sellpia inventory by name or barcode; every retained incoming reference needs an explicit target or the migration blocks. |
-| `ProductOption` commercial references | `ChannelListingOption` or order-line snapshot | Use an existing unique listing-option relation and row context; block one-to-many or absent identity instead of choosing arbitrarily. |
-| `ProductOption` physical references | `MasterProduct` | Use an explicit confirmed component/Sellpia mapping; bundle or ambiguous options require reviewed split/backfill instructions. |
-| `BundleComponent` | no blind copy | Convert only when a real channel SKU owns the equivalent approved recipe; otherwise retain until reviewed or block contract removal. |
-| `SupplierProduct` + `MasterSupplierProduct` | final `SupplierProduct` | Merge supply price, MOQ, primary policy, and memo by organization/supplier/target Master; conflicting convergences block automatic migration. |
-| Orders, returns, shipments, unshipped rows | account, order line, listing option, and snapshots | Repoint by provider/account and line context; preserve explicit external SKU/name snapshots for orphan rows. |
-| Master/candidate content | source or listing `ContentWorkspace` | Resolve an unambiguous owner, clone listing-owned metadata where required, preserve storage references and provenance, and block ownerless retained content. |
-| Duplicate listing identities | one canonical `ChannelListing` | Scan active and inactive rows; merge only after repointing every option, recipe, content, order, snapshot, and metric FK and recording an auditable merge count; conflicting retained data blocks. |
-
-### Account Backfill Precedence
-
-Required account relations use deterministic evidence in this order:
-
-1. provider seller/vendor account identity in the source payload;
-2. an already linked listing or listing option's account;
-3. the legacy parent listing account;
-4. the sole active account for the legacy platform, only when exactly one
-   exists.
-
-Ambiguous or missing account identity blocks the migration. `OrderReturn`
-follows its linked order when present and otherwise uses its own provider
-identity; it never guesses from a display name. Duplicate operational accounts
-with the same canonical key are merged only after all incoming references are
-repointed; conflicting accounts block.
+The source workbooks are never embedded in migrations, images, or fixtures.
+After deployment an authenticated operator uploads the approved Sellpia and
+Wing files. A failed or missing import leaves the environment visibly not
+ready rather than exposing fabricated stock or channel data.
 
 ## Verification and Acceptance
 
@@ -982,18 +915,11 @@ repointed; conflicting accounts block.
 - every final channel listing has a channel account;
 - all component, order, supply, content, and snapshot foreign keys point to the
   correct final owner;
-- persistent migration tests prove idempotency, preservation, and refusal on
-  ambiguous legacy state;
-- for every organization, target Sellpia Master count equals source
-  `InventorySku` count after the required fresh snapshot;
-- the component multiset `(channelSkuId, targetMasterId, quantity,
-  mappingSource, createdBy)` equals the pre-migration multiset after applying
-  the audited identity map and documented `legacy_migrated` source
-  canonicalization;
-- every retained physical, commercial, order, supplier, and content source row
-  is accounted for by one target row, an explicit split, or a blocking report;
-- listing deduplication reports canonical IDs, repointed-row counts, and every
-  removed duplicate;
+- reset guards reject an unapproved target or a run without the explicit
+  destructive-reset input;
+- no executable schema, service, shared contract, or web code references the
+  retired `InventorySku`, `ProductOption`, bundle-stock, grouped-listing, or
+  promotion compatibility owners;
 - release contract and migration registry checks pass.
 
 ### Source Imports
@@ -1055,5 +981,5 @@ repointed; conflicting accounts block.
 - A real `ChannelListing` creation is the registered-product transition.
 - Rocket is a channel, while Rocket PO decisions remain deferred.
 - Existing routes remain and are rewired to the final owners.
-- Local verification may rebuild its database; shared environments preserve
-  data through guarded versioned migrations.
+- Local and shared environments rebuild from the final schema; shared resets
+  require the explicit guarded GitHub Actions release path.

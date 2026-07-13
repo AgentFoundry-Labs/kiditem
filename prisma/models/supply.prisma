@@ -16,45 +16,39 @@ model Supplier {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization           Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  supplierProducts       SupplierProduct[] @relation("SupplierProductLegacySupplier")
-  scopedSupplierProducts SupplierProduct[] @relation("SupplierProductScopedSupplier")
-  purchaseOrders         PurchaseOrder[]
-  payments               SupplierPayment[]
-  masterSupplierProducts MasterSupplierProduct[]
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplierProducts SupplierProduct[]
+  purchaseOrders   PurchaseOrder[]
+  payments         SupplierPayment[]
 
-  @@index([organizationId])
   @@unique([id, organizationId], map: "suppliers_id_org_key")
+  @@index([organizationId])
   @@index([status])
   @@map("suppliers")
 }
 
 /// @namespace Supply
-/// @describe 공급사별 SKU(옵션) 단위 공급가 관리.
+/// @describe 공급사별 Sellpia 물리 상품 단위 공급가/주공급처 정책.
 model SupplierProduct {
-  id          String   @id @default(uuid()) @db.Uuid
-  organizationId String? @map("organization_id") @db.Uuid
-  supplierId  String   @map("supplier_id") @db.Uuid
-  optionId    String   @map("option_id") @db.Uuid
-  masterProductId String? @map("master_product_id") @db.Uuid
-  supplyPrice Int      @default(0) @map("supply_price")
-  minOrderQty Int      @default(1) @map("min_order_qty")
-  isPrimary   Boolean? @default(false) @map("is_primary")
-  memo        String?
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id              String  @id @default(uuid()) @db.Uuid
+  organizationId  String  @map("organization_id") @db.Uuid
+  supplierId      String   @map("supplier_id") @db.Uuid
+  masterProductId String  @map("master_product_id") @db.Uuid
+  supplyPrice     Int      @default(0) @map("supply_price")
+  minOrderQty     Int      @default(1) @map("min_order_qty")
+  isPrimary       Boolean  @default(false) @map("is_primary")
+  memo            String?
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  supplier Supplier       @relation("SupplierProductLegacySupplier", fields: [supplierId], references: [id], onDelete: Cascade)
-  scopedSupplier Supplier? @relation("SupplierProductScopedSupplier", fields: [supplierId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  option   ProductOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
-  masterProduct MasterProduct? @relation("SupplierProductMasterProduct", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier      Supplier      @relation(fields: [supplierId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  masterProduct MasterProduct @relation("SupplierProductMasterProduct", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
-  @@unique([supplierId, optionId])
-  @@unique([supplierId, masterProductId], map: "supplier_products_supplier_master_key", where: raw("master_product_id IS NOT NULL"))
-  @@unique([masterProductId], map: "supplier_products_primary_master_key", where: raw("master_product_id IS NOT NULL AND is_primary = true"))
+  @@unique([supplierId, masterProductId])
+  @@unique([masterProductId], map: "supplier_products_primary_master_key", where: raw("is_primary = true"))
   @@index([organizationId])
-  @@index([optionId])
+  @@index([supplierId])
   @@index([masterProductId])
   @@map("supplier_products")
 }
@@ -99,12 +93,12 @@ model PurchaseOrder {
   totalAmountCny  Decimal @map("total_amount_cny") @db.Decimal(12, 2)
   status          String  @default("draft")
 
-  orderDate            DateTime  @default(now()) @map("order_date") @db.Date
-  expectedDeliveryDate DateTime? @map("expected_delivery_date") @db.Date
-  trackingNumber       String?   @map("tracking_number")
-  externalOrderPlatform String?  @map("external_order_platform") @db.VarChar(40)
-  externalOrderId       String?  @map("external_order_id") @db.VarChar(120)
-  externalOrderUrl      String?  @map("external_order_url") @db.Text
+  orderDate             DateTime  @default(now()) @map("order_date") @db.Date
+  expectedDeliveryDate  DateTime? @map("expected_delivery_date") @db.Date
+  trackingNumber        String?   @map("tracking_number")
+  externalOrderPlatform String?   @map("external_order_platform") @db.VarChar(40)
+  externalOrderId       String?   @map("external_order_id") @db.VarChar(120)
+  externalOrderUrl      String?   @map("external_order_url") @db.Text
 
   // Inspection (from dashboard)
   receivedAt   DateTime? @map("received_at") @db.Timestamptz
@@ -121,12 +115,11 @@ model PurchaseOrder {
 
   organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   supplier         Supplier?           @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  items            PurchaseOrderItem[] @relation("PurchaseOrderItemLegacyOrder")
-  scopedItems      PurchaseOrderItem[] @relation("PurchaseOrderItemScopedOrder")
+  items            PurchaseOrderItem[]
   supplierPayments SupplierPayment[]
 
-  @@index([organizationId])
   @@unique([id, organizationId], map: "purchase_orders_id_org_key")
+  @@index([organizationId])
   @@index([organizationId, externalOrderPlatform, externalOrderId])
   @@index([status])
   @@index([supplierId])
@@ -135,11 +128,10 @@ model PurchaseOrder {
 
 /// @namespace Supply
 model PurchaseOrderItem {
-  id       String  @id @default(uuid()) @db.Uuid
-  organizationId String? @map("organization_id") @db.Uuid
-  orderId  String  @map("order_id") @db.Uuid
-  optionId String? @map("option_id") @db.Uuid
-  masterProductId String? @map("master_product_id") @db.Uuid
+  id              String @id @default(uuid()) @db.Uuid
+  organizationId  String @map("organization_id") @db.Uuid
+  orderId         String @map("order_id") @db.Uuid
+  masterProductId String @map("master_product_id") @db.Uuid
 
   productName  String  @map("product_name")
   quantity     Int
@@ -147,35 +139,12 @@ model PurchaseOrderItem {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  order  PurchaseOrder  @relation("PurchaseOrderItemLegacyOrder", fields: [orderId], references: [id], onDelete: Cascade)
-  scopedOrder PurchaseOrder? @relation("PurchaseOrderItemScopedOrder", fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  option ProductOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
-  masterProduct MasterProduct? @relation("PurchaseOrderItemMasterProduct", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  order         PurchaseOrder @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  masterProduct MasterProduct @relation("PurchaseOrderItemMasterProduct", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@index([organizationId])
   @@index([orderId])
-  @@index([optionId])
   @@index([masterProductId])
   @@map("purchase_order_items")
-}
-
-/// @namespace Supply
-/// @describe Master 단위 주공급처 정책. 여러 supplier 후보 중 isPrimary 가 기본.
-model MasterSupplierProduct {
-  id          String   @id @default(uuid()) @db.Uuid
-  masterId    String   @map("master_id") @db.Uuid
-  supplierId  String   @map("supplier_id") @db.Uuid
-  isPrimary   Boolean  @default(false) @map("is_primary")
-  minOrderQty Int      @default(1) @map("min_order_qty")
-  memo        String?
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  master   MasterProduct @relation(fields: [masterId], references: [id], onDelete: Cascade)
-  supplier Supplier      @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-
-  @@unique([masterId, supplierId])
-  @@index([supplierId])
-  @@map("master_supplier_products")
 }
