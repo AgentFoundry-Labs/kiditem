@@ -32,10 +32,10 @@ import { CHANNEL_CATALOG_IMPORT_PORT } from '../application/port/in/channel-cata
 import { CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT } from '../application/port/out/repository/channel-catalog-import.repository.port';
 import { ChannelCatalogImportService } from '../application/service/channel-catalog-import.service';
 import { ChannelSkuMappingController } from '../adapter/in/http/channel-sku-mapping.controller';
-import { ChannelsInventorySkuReadAdapter } from '../adapter/out/inventory/inventory-sku-read.adapter';
+import { ChannelsSellpiaMasterProductReadAdapter } from '../adapter/out/inventory/sellpia-master-product-read.adapter';
 import { ChannelSkuMappingRepositoryAdapter } from '../adapter/out/repository/channel-sku-mapping.repository.adapter';
 import { ChannelSkuMappingService } from '../application/service/channel-sku-mapping.service';
-import { CHANNELS_INVENTORY_SKU_READ_PORT } from '../application/port/out/cross-domain/inventory-sku-read.port';
+import { CHANNELS_SELLPIA_MASTER_PRODUCT_READ_PORT } from '../application/port/out/cross-domain/sellpia-master-product-read.port';
 import { CHANNEL_SKU_MAPPING_REPOSITORY_PORT } from '../application/port/out/repository/channel-sku-mapping.repository.port';
 import { ChannelSkuAvailabilityController } from '../adapter/in/http/channel-sku-availability.controller';
 import {
@@ -115,7 +115,7 @@ describe('ChannelsModule canonical owner wiring', () => {
     expect(providers).toContain(ChannelCatalogImportRepositoryAdapter);
     expect(providers).toContain(ChannelSkuMappingService);
     expect(providers).toContain(ChannelSkuAvailabilityService);
-    expect(providers).toContain(ChannelsInventorySkuReadAdapter);
+    expect(providers).toContain(ChannelsSellpiaMasterProductReadAdapter);
     expect(providers).toContain(ChannelSkuMappingRepositoryAdapter);
 
     expectBinding(providers, CHANNEL_ACCOUNT_REPOSITORY_PORT, ChannelAccountRepositoryAdapter);
@@ -147,8 +147,8 @@ describe('ChannelsModule canonical owner wiring', () => {
     );
     expectBinding(
       providers,
-      CHANNELS_INVENTORY_SKU_READ_PORT,
-      ChannelsInventorySkuReadAdapter,
+      CHANNELS_SELLPIA_MASTER_PRODUCT_READ_PORT,
+      ChannelsSellpiaMasterProductReadAdapter,
     );
     expectBinding(
       providers,

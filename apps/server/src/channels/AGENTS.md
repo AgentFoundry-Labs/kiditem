@@ -119,9 +119,8 @@ the supported workflow and verification counts.
   exposed through channels-owned ports/adapters instead of direct provider HTTP
   from orders services.
 - Sellpia candidate reads use the Channels-local
-  `CHANNELS_INVENTORY_SKU_READ_PORT` anti-corruption bridge to Inventory's
-  physical MasterProduct owner port. The local token keeps the legacy name
-  only for the `0.1.9` expand/contract release.
+  `CHANNELS_SELLPIA_MASTER_PRODUCT_READ_PORT` anti-corruption bridge to
+  Inventory's physical MasterProduct owner port.
 - `ChannelsModule` exports `CHANNEL_SKU_AVAILABILITY_PORT` for server consumers
   that need the same nullable capacity projection.
 - `ChannelsModule` exports

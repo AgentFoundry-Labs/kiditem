@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import type { ChannelsInventorySkuReadPort } from '../../port/out/cross-domain/inventory-sku-read.port';
+import type { ChannelsSellpiaMasterProductReadPort } from '../../port/out/cross-domain/sellpia-master-product-read.port';
 import type {
   ChannelSkuMappingRepositoryPort,
   ChannelSkuMappingRow,
@@ -329,14 +329,14 @@ function makeRepository() {
 
 function makeInventory() {
   return {
-    findByIds: vi.fn<ChannelsInventorySkuReadPort['findByIds']>().mockResolvedValue([]),
+    findByIds: vi.fn<ChannelsSellpiaMasterProductReadPort['findByIds']>().mockResolvedValue([]),
     findBySellpiaCodes: vi
-      .fn<ChannelsInventorySkuReadPort['findBySellpiaCodes']>()
+      .fn<ChannelsSellpiaMasterProductReadPort['findBySellpiaCodes']>()
       .mockResolvedValue([]),
     findByBarcodes: vi
-      .fn<ChannelsInventorySkuReadPort['findByBarcodes']>()
+      .fn<ChannelsSellpiaMasterProductReadPort['findByBarcodes']>()
       .mockResolvedValue([]),
-    search: vi.fn<ChannelsInventorySkuReadPort['search']>().mockResolvedValue([]),
+    search: vi.fn<ChannelsSellpiaMasterProductReadPort['search']>().mockResolvedValue([]),
   };
 }
 

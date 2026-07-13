@@ -16,7 +16,7 @@ import { SellpiaMasterProductReadRepositoryAdapter } from '../../inventory/adapt
 import { SellpiaMasterProductReadService } from '../../inventory/application/service/sellpia-master-product-read.service';
 import { SellpiaMasterImportRepositoryAdapter } from '../../inventory/adapter/out/repository/sellpia-master-import.repository.adapter';
 import { SellpiaInventoryImportService } from '../../inventory/application/service/sellpia-inventory-import.service';
-import { ChannelsInventorySkuReadAdapter } from '../adapter/out/inventory/inventory-sku-read.adapter';
+import { ChannelsSellpiaMasterProductReadAdapter } from '../adapter/out/inventory/sellpia-master-product-read.adapter';
 import { ChannelSkuMappingRepositoryAdapter } from '../adapter/out/repository/channel-sku-mapping.repository.adapter';
 import { ChannelSkuMappingService } from '../application/service/channel-sku-mapping.service';
 import { ChannelSkuAvailabilityService } from '../application/service/channel-sku-availability.service';
@@ -45,11 +45,11 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     );
     service = new ChannelSkuMappingService(
       repository,
-      new ChannelsInventorySkuReadAdapter(inventoryOwner),
+      new ChannelsSellpiaMasterProductReadAdapter(inventoryOwner),
     );
     availability = new ChannelSkuAvailabilityService(
       repository,
-      new ChannelsInventorySkuReadAdapter(inventoryOwner),
+      new ChannelsSellpiaMasterProductReadAdapter(inventoryOwner),
     );
     inventoryImport = new SellpiaInventoryImportService(
       new SellpiaMasterImportRepositoryAdapter(prismaService),

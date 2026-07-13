@@ -9,8 +9,8 @@ import type {
   ChannelSkuAvailabilityQuery,
 } from '@kiditem/shared/channel-sku-availability';
 import { projectChannelSkuSellableStock } from '../../domain/channel-sku-sellable-stock';
-import type { ChannelsInventorySkuReadPort } from '../port/out/cross-domain/inventory-sku-read.port';
-import { CHANNELS_INVENTORY_SKU_READ_PORT } from '../port/out/cross-domain/inventory-sku-read.port';
+import type { ChannelsSellpiaMasterProductReadPort } from '../port/out/cross-domain/sellpia-master-product-read.port';
+import { CHANNELS_SELLPIA_MASTER_PRODUCT_READ_PORT } from '../port/out/cross-domain/sellpia-master-product-read.port';
 import type {
   ChannelSkuMappingRepositoryPort,
   ChannelSkuMappingRow,
@@ -23,8 +23,8 @@ export class ChannelSkuAvailabilityService implements ChannelSkuAvailabilityPort
   constructor(
     @Inject(CHANNEL_SKU_MAPPING_REPOSITORY_PORT)
     private readonly repository: ChannelSkuMappingRepositoryPort,
-    @Inject(CHANNELS_INVENTORY_SKU_READ_PORT)
-    private readonly inventory: ChannelsInventorySkuReadPort,
+    @Inject(CHANNELS_SELLPIA_MASTER_PRODUCT_READ_PORT)
+    private readonly inventory: ChannelsSellpiaMasterProductReadPort,
   ) {}
 
   async list(
@@ -75,7 +75,7 @@ export class ChannelSkuAvailabilityService implements ChannelSkuAvailabilityPort
 export async function hydrateChannelSkuAvailabilityRows(
   organizationId: string,
   rows: ChannelSkuMappingRow[],
-  inventory: ChannelsInventorySkuReadPort,
+  inventory: ChannelsSellpiaMasterProductReadPort,
 ): Promise<ChannelSkuAvailabilityItem[]> {
   const masterProductIds = [...new Set(rows.flatMap((row) =>
     row.componentRefs.map(({ masterProductId }) => masterProductId)))];
@@ -91,17 +91,17 @@ export async function hydrateChannelSkuAvailabilityRows(
 
   return rows.map((row) => {
     const projectedComponents = row.componentRefs.map((component) => {
-      const inventorySku = inventoryById.get(component.masterProductId)!;
+      const masterProduct = inventoryById.get(component.masterProductId)!;
       return {
-        inventorySku,
+        masterProduct,
         component,
         componentCapacity: Math.floor(
-          inventorySku.currentStock / component.quantity,
+          masterProduct.currentStock / component.quantity,
         ),
       };
     });
     const sellableStock = projectChannelSkuSellableStock(projectedComponents.map((entry) => ({
-      currentStock: entry.inventorySku.currentStock,
+      currentStock: entry.masterProduct.currentStock,
       quantity: entry.component.quantity,
     })));
 
@@ -119,13 +119,13 @@ export async function hydrateChannelSkuAvailabilityRows(
         updatedAt: row.sku.updatedAt.toISOString(),
       },
       components: projectedComponents.map((entry) => ({
-        masterProductId: entry.inventorySku.id,
-        code: entry.inventorySku.sellpiaProductCode,
-        name: entry.inventorySku.name,
-        optionName: entry.inventorySku.optionName,
-        barcode: entry.inventorySku.barcode,
-        currentStock: entry.inventorySku.currentStock,
-        purchasePrice: entry.inventorySku.purchasePrice,
+        masterProductId: entry.masterProduct.id,
+        code: entry.masterProduct.sellpiaProductCode,
+        name: entry.masterProduct.name,
+        optionName: entry.masterProduct.optionName,
+        barcode: entry.masterProduct.barcode,
+        currentStock: entry.masterProduct.currentStock,
+        purchasePrice: entry.masterProduct.purchasePrice,
         quantity: entry.component.quantity,
         mappingSource: entry.component.mappingSource,
         componentCapacity: entry.componentCapacity,

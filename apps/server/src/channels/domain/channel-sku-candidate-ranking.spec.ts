@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  rankInventorySkuCandidates,
+  rankSellpiaMasterProductCandidates,
   statusForUnmappedCandidates,
-  type CandidateInventorySku,
+  type CandidateSellpiaMasterProduct,
   type ChannelSkuEvidence,
 } from './channel-sku-candidate-ranking';
 
@@ -14,8 +14,8 @@ const baseEvidence: ChannelSkuEvidence = {
   optionName: null,
 };
 
-describe('rankInventorySkuCandidates', () => {
-  it('prioritizes exact sellerSku before full modelNumber and deduplicates by InventorySku ID', () => {
+describe('rankSellpiaMasterProductCandidates', () => {
+  it('prioritizes exact sellerSku before full modelNumber and deduplicates by MasterProduct ID', () => {
     const seller = sku('seller', 'ZZ-SELLER');
     const model = sku('model', 'AA-MODEL');
     const results = rank({
@@ -152,12 +152,12 @@ describe('rankInventorySkuCandidates', () => {
 
 function rank(input: {
   evidence: ChannelSkuEvidence;
-  exactCodeCandidates?: CandidateInventorySku[];
-  identifierCandidates?: CandidateInventorySku[];
-  nameSuggestionCandidates?: CandidateInventorySku[];
-  manualSearchCandidates?: CandidateInventorySku[];
+  exactCodeCandidates?: CandidateSellpiaMasterProduct[];
+  identifierCandidates?: CandidateSellpiaMasterProduct[];
+  nameSuggestionCandidates?: CandidateSellpiaMasterProduct[];
+  manualSearchCandidates?: CandidateSellpiaMasterProduct[];
 }) {
-  return rankInventorySkuCandidates({
+  return rankSellpiaMasterProductCandidates({
     exactCodeCandidates: [],
     identifierCandidates: [],
     nameSuggestionCandidates: [],
@@ -170,7 +170,7 @@ function sku(
   id: string,
   sellpiaProductCode: string,
   barcode: string | null = null,
-): CandidateInventorySku {
+): CandidateSellpiaMasterProduct {
   return {
     id,
     sellpiaProductCode,

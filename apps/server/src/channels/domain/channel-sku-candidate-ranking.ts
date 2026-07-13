@@ -6,7 +6,7 @@ export type ChannelSkuEvidence = {
   optionName: string | null;
 };
 
-export type CandidateInventorySku = {
+export type CandidateSellpiaMasterProduct = {
   id: string;
   sellpiaProductCode: string;
   name: string;
@@ -16,7 +16,7 @@ export type CandidateInventorySku = {
   purchasePrice: number | null;
 };
 
-export type RankedInventorySkuCandidate = CandidateInventorySku & {
+export type RankedSellpiaMasterProductCandidate = CandidateSellpiaMasterProduct & {
   reason:
     | 'exact_sellpia_code'
     | 'unique_barcode'
@@ -26,21 +26,21 @@ export type RankedInventorySkuCandidate = CandidateInventorySku & {
   rank: number;
 };
 
-export type RankInventorySkuCandidatesInput = {
+export type RankSellpiaMasterProductCandidatesInput = {
   evidence: ChannelSkuEvidence;
-  exactCodeCandidates: CandidateInventorySku[];
-  identifierCandidates: CandidateInventorySku[];
-  nameSuggestionCandidates: CandidateInventorySku[];
-  manualSearchCandidates: CandidateInventorySku[];
+  exactCodeCandidates: CandidateSellpiaMasterProduct[];
+  identifierCandidates: CandidateSellpiaMasterProduct[];
+  nameSuggestionCandidates: CandidateSellpiaMasterProduct[];
+  manualSearchCandidates: CandidateSellpiaMasterProduct[];
 };
 
 type CandidateMatch = {
-  candidate: CandidateInventorySku;
-  reason: RankedInventorySkuCandidate['reason'];
+  candidate: CandidateSellpiaMasterProduct;
+  reason: RankedSellpiaMasterProductCandidate['reason'];
   exactSourcePriority: number;
 };
 
-const REASON_PRIORITY: Record<RankedInventorySkuCandidate['reason'], number> = {
+const REASON_PRIORITY: Record<RankedSellpiaMasterProductCandidate['reason'], number> = {
   exact_sellpia_code: 0,
   unique_barcode: 1,
   ambiguous_identifier: 2,
@@ -48,9 +48,9 @@ const REASON_PRIORITY: Record<RankedInventorySkuCandidate['reason'], number> = {
   manual_search: 4,
 };
 
-export function rankInventorySkuCandidates(
-  input: RankInventorySkuCandidatesInput,
-): RankedInventorySkuCandidate[] {
+export function rankSellpiaMasterProductCandidates(
+  input: RankSellpiaMasterProductCandidatesInput,
+): RankedSellpiaMasterProductCandidate[] {
   const matches = new Map<string, CandidateMatch>();
   const exactEvidence = exactSellpiaCodeEvidence(input.evidence);
 
@@ -100,7 +100,7 @@ export function rankInventorySkuCandidates(
 }
 
 export function statusForUnmappedCandidates(
-  candidates: RankedInventorySkuCandidate[],
+  candidates: RankedSellpiaMasterProductCandidate[],
 ): 'needs_review' | 'unmatched' {
   return candidates.some((candidate) =>
     candidate.reason === 'exact_sellpia_code'
@@ -147,7 +147,9 @@ function normalizedIdentifierEvidence(evidence: ChannelSkuEvidence): string[] {
   return [...new Set(normalized)];
 }
 
-function dedupeCandidates(candidates: CandidateInventorySku[]): CandidateInventorySku[] {
+function dedupeCandidates(
+  candidates: CandidateSellpiaMasterProduct[],
+): CandidateSellpiaMasterProduct[] {
   return [...new Map(candidates.map((candidate) => [candidate.id, candidate])).values()];
 }
 

@@ -15,16 +15,16 @@ import {
 import {
   extractExplicitOptionCodeTokens,
   normalizeIdentifier,
-  rankInventorySkuCandidates,
+  rankSellpiaMasterProductCandidates,
   statusForUnmappedCandidates,
-  type CandidateInventorySku,
+  type CandidateSellpiaMasterProduct,
   type ChannelSkuEvidence,
 } from '../../domain/channel-sku-candidate-ranking';
 import { resolveChannelSkuAutomaticMatch } from '../../domain/channel-sku-automatic-match';
 import {
-  CHANNELS_INVENTORY_SKU_READ_PORT,
-  type ChannelsInventorySkuReadPort,
-} from '../port/out/cross-domain/inventory-sku-read.port';
+  CHANNELS_SELLPIA_MASTER_PRODUCT_READ_PORT,
+  type ChannelsSellpiaMasterProductReadPort,
+} from '../port/out/cross-domain/sellpia-master-product-read.port';
 import {
   CHANNEL_SKU_MAPPING_REPOSITORY_PORT,
   type ChannelSkuMappingCounts,
@@ -41,8 +41,8 @@ export class ChannelSkuMappingService {
   constructor(
     @Inject(CHANNEL_SKU_MAPPING_REPOSITORY_PORT)
     private readonly repository: ChannelSkuMappingRepositoryPort,
-    @Inject(CHANNELS_INVENTORY_SKU_READ_PORT)
-    private readonly inventory: ChannelsInventorySkuReadPort,
+    @Inject(CHANNELS_SELLPIA_MASTER_PRODUCT_READ_PORT)
+    private readonly inventory: ChannelsSellpiaMasterProductReadPort,
   ) {}
 
   async list(
@@ -84,7 +84,7 @@ export class ChannelSkuMappingService {
       limit,
       true,
     );
-    const ranked = rankInventorySkuCandidates({ evidence, ...pools }).slice(0, limit);
+    const ranked = rankSellpiaMasterProductCandidates({ evidence, ...pools }).slice(0, limit);
     return {
       items: ranked.map((candidate) => ({
         masterProductId: candidate.id,
@@ -190,7 +190,7 @@ export class ChannelSkuMappingService {
         false,
       );
       nextStatus = statusForUnmappedCandidates(
-        rankInventorySkuCandidates({ evidence, ...pools }),
+        rankSellpiaMasterProductCandidates({ evidence, ...pools }),
       );
     }
 
@@ -229,10 +229,10 @@ export class ChannelSkuMappingService {
     manualLimit: number,
     includeSuggestions: boolean,
   ): Promise<{
-    exactCodeCandidates: CandidateInventorySku[];
-    identifierCandidates: CandidateInventorySku[];
-    nameSuggestionCandidates: CandidateInventorySku[];
-    manualSearchCandidates: CandidateInventorySku[];
+    exactCodeCandidates: CandidateSellpiaMasterProduct[];
+    identifierCandidates: CandidateSellpiaMasterProduct[];
+    nameSuggestionCandidates: CandidateSellpiaMasterProduct[];
+    manualSearchCandidates: CandidateSellpiaMasterProduct[];
   }> {
     const exactCodes = distinctTrimmed(exactCodeEvidence(evidence));
     const identifiers = distinctNormalizedIdentifiers([evidence]);
@@ -284,7 +284,9 @@ function distinctNormalizedIdentifiers(evidenceRows: ChannelSkuEvidence[]): stri
       .filter((value): value is string => value !== null)))];
 }
 
-function dedupeCandidates(candidates: CandidateInventorySku[]): CandidateInventorySku[] {
+function dedupeCandidates(
+  candidates: CandidateSellpiaMasterProduct[],
+): CandidateSellpiaMasterProduct[] {
   return [...new Map(candidates.map((candidate) => [candidate.id, candidate])).values()];
 }
 

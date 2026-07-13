@@ -18,7 +18,7 @@ import { MarketplaceRegistrationRepositoryAdapter } from './adapter/out/reposito
 import { ChannelSyncRepositoryAdapter } from './adapter/out/repository/channel-sync.repository.adapter';
 import { ChannelCatalogImportRepositoryAdapter } from './adapter/out/repository/channel-catalog-import.repository.adapter';
 import { ChannelSkuMappingRepositoryAdapter } from './adapter/out/repository/channel-sku-mapping.repository.adapter';
-import { ChannelsInventorySkuReadAdapter } from './adapter/out/inventory/inventory-sku-read.adapter';
+import { ChannelsSellpiaMasterProductReadAdapter } from './adapter/out/inventory/sellpia-master-product-read.adapter';
 import { ChannelSyncService } from './application/service/channel-sync.service';
 import { ChannelDashboardService } from './application/service/channel-dashboard.service';
 import { ChannelListingQueryService } from './application/service/channel-listing-query.service';
@@ -45,7 +45,7 @@ import {
 import { CHANNEL_SYNC_REPOSITORY_PORT } from './application/port/out/repository/channel-sync.repository.port';
 import { CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT } from './application/port/out/repository/channel-catalog-import.repository.port';
 import { CHANNEL_SKU_MAPPING_REPOSITORY_PORT } from './application/port/out/repository/channel-sku-mapping.repository.port';
-import { CHANNELS_INVENTORY_SKU_READ_PORT } from './application/port/out/cross-domain/inventory-sku-read.port';
+import { CHANNELS_SELLPIA_MASTER_PRODUCT_READ_PORT } from './application/port/out/cross-domain/sellpia-master-product-read.port';
 import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku-availability.port';
 
 @Module({
@@ -80,7 +80,7 @@ import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku
     ChannelSyncRepositoryAdapter,
     ChannelCatalogImportRepositoryAdapter,
     ChannelSkuMappingRepositoryAdapter,
-    ChannelsInventorySkuReadAdapter,
+    ChannelsSellpiaMasterProductReadAdapter,
     { provide: COUPANG_PROVIDER_PORT, useExisting: CoupangProviderAdapter },
     { provide: CHANNELS_OPERATION_ALERT_PORT, useExisting: ChannelsOperationAlertAdapter },
     { provide: CHANNEL_ACCOUNT_REPOSITORY_PORT, useExisting: ChannelAccountRepositoryAdapter },
@@ -109,8 +109,8 @@ import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku
       useExisting: ChannelSkuMappingRepositoryAdapter,
     },
     {
-      provide: CHANNELS_INVENTORY_SKU_READ_PORT,
-      useExisting: ChannelsInventorySkuReadAdapter,
+      provide: CHANNELS_SELLPIA_MASTER_PRODUCT_READ_PORT,
+      useExisting: ChannelsSellpiaMasterProductReadAdapter,
     },
     {
       provide: CHANNEL_SKU_AVAILABILITY_PORT,

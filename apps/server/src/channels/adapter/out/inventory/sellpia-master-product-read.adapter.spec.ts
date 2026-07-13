@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { SellpiaMasterProductReadPort } from '../../../../inventory/application/port/in/stock/sellpia-master-product-read.port';
-import { ChannelsInventorySkuReadAdapter } from './inventory-sku-read.adapter';
+import { ChannelsSellpiaMasterProductReadAdapter } from './sellpia-master-product-read.adapter';
 
 const organizationId = '00000000-0000-4000-8000-000000000001';
 
-describe('ChannelsInventorySkuReadAdapter', () => {
+describe('ChannelsSellpiaMasterProductReadAdapter', () => {
   it('preserves nullable purchase price as channel availability evidence', async () => {
     const owner = {
       findByIds: vi.fn().mockResolvedValue([{
@@ -20,7 +20,7 @@ describe('ChannelsInventorySkuReadAdapter', () => {
         lastImportRunId: null,
       }]),
     } as unknown as SellpiaMasterProductReadPort;
-    const adapter = new ChannelsInventorySkuReadAdapter(owner);
+    const adapter = new ChannelsSellpiaMasterProductReadAdapter(owner);
 
     const result = await adapter.findByIds(organizationId, [
       '00000000-0000-4000-8000-000000000002',

@@ -4,31 +4,35 @@ import {
   type SellpiaMasterProductReadModel,
   type SellpiaMasterProductReadPort,
 } from '../../../../inventory/application/port/in/stock/sellpia-master-product-read.port';
-import type { CandidateInventorySku } from '../../../domain/channel-sku-candidate-ranking';
-import type { ChannelsInventorySkuReadPort } from '../../../application/port/out/cross-domain/inventory-sku-read.port';
+import type { CandidateSellpiaMasterProduct } from '../../../domain/channel-sku-candidate-ranking';
+import type { ChannelsSellpiaMasterProductReadPort } from '../../../application/port/out/cross-domain/sellpia-master-product-read.port';
 
 @Injectable()
-export class ChannelsInventorySkuReadAdapter implements ChannelsInventorySkuReadPort {
+export class ChannelsSellpiaMasterProductReadAdapter
+implements ChannelsSellpiaMasterProductReadPort {
   constructor(
     @Inject(SELLPIA_MASTER_PRODUCT_READ_PORT)
     private readonly inventory: SellpiaMasterProductReadPort,
   ) {}
 
-  async findByIds(organizationId: string, ids: string[]): Promise<CandidateInventorySku[]> {
+  async findByIds(
+    organizationId: string,
+    ids: string[],
+  ): Promise<CandidateSellpiaMasterProduct[]> {
     return this.map(this.inventory.findByIds(organizationId, ids));
   }
 
   async findBySellpiaCodes(
     organizationId: string,
     codes: string[],
-  ): Promise<CandidateInventorySku[]> {
+  ): Promise<CandidateSellpiaMasterProduct[]> {
     return this.map(this.inventory.findByCodes(organizationId, codes));
   }
 
   async findByBarcodes(
     organizationId: string,
     barcodes: string[],
-  ): Promise<CandidateInventorySku[]> {
+  ): Promise<CandidateSellpiaMasterProduct[]> {
     return this.map(this.inventory.findByBarcodes(organizationId, barcodes));
   }
 
@@ -36,13 +40,13 @@ export class ChannelsInventorySkuReadAdapter implements ChannelsInventorySkuRead
     organizationId: string,
     query: string,
     limit: number,
-  ): Promise<CandidateInventorySku[]> {
+  ): Promise<CandidateSellpiaMasterProduct[]> {
     return this.map(this.inventory.search(organizationId, query, limit));
   }
 
   private async map(
     rows: Promise<SellpiaMasterProductReadModel[]>,
-  ): Promise<CandidateInventorySku[]> {
+  ): Promise<CandidateSellpiaMasterProduct[]> {
     return (await rows).map((row) => ({
       id: row.id,
       sellpiaProductCode: row.code,
