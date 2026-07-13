@@ -23,9 +23,9 @@ export class ConfirmedOrdersRepositoryAdapter implements ConfirmedOrdersPort {
                 organizationId: true,
                 components: {
                   select: {
-                    inventorySkuId: true,
+                    masterProductId: true,
                     quantity: true,
-                    inventorySku: {
+                    masterProduct: {
                       select: {
                         sellpiaProductCode: true,
                         name: true,

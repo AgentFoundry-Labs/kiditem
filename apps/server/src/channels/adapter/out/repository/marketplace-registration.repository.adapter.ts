@@ -6,34 +6,13 @@ import {
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { LEGACY_FAMILY_MASTER_SCOPE } from '../../../../common/legacy-family-master-scope';
-import type {
-  MarketplaceRegistrationRepositoryPort,
-  RegisteredMarketplaceListingResult,
-  RegisterConfirmedListingInput,
-} from '../../../application/port/out/repository/channel-listing.repository.port';
+import type { MarketplaceRegistrationRepositoryPort } from '../../../application/port/out/repository/channel-listing.repository.port';
 
 @Injectable()
 export class MarketplaceRegistrationRepositoryAdapter
   implements MarketplaceRegistrationRepositoryPort
 {
   constructor(private readonly prisma: PrismaService) {}
-
-  async assertLegacyFamilyMaster(
-    organizationId: string,
-    masterId: string,
-  ): Promise<void> {
-    const master = await this.prisma.masterProduct.findFirst({
-      where: {
-        id: masterId,
-        organizationId,
-        isDeleted: false,
-        ...LEGACY_FAMILY_MASTER_SCOPE,
-      },
-      select: { id: true },
-    });
-    if (!master) throw new NotFoundException('재고 상품을 찾을 수 없습니다.');
-  }
 
   async assertActiveRegistrationAccount(input: {
     organizationId: string;
@@ -94,8 +73,8 @@ export class MarketplaceRegistrationRepositoryAdapter
       select: {
         id: true,
         sourceCandidateId: true,
-        channel: true,
         channelAccountId: true,
+        channelAccount: { select: { channel: true } },
         externalId: true,
         status: true,
       },
@@ -107,20 +86,17 @@ export class MarketplaceRegistrationRepositoryAdapter
       const created = await tx.channelListing.create({
         data: {
           organizationId: input.organizationId,
-          masterId: null,
           sourceCandidateId: candidate.id,
           channelAccountId: account.id,
-          channel: account.channel,
           externalId,
           displayName: input.displayName,
           status: 'active',
           isActive: true,
-          isDeleted: false,
         },
         select: {
           id: true,
-          channel: true,
           channelAccountId: true,
+          channelAccount: { select: { channel: true } },
           externalId: true,
           status: true,
         },
@@ -128,7 +104,7 @@ export class MarketplaceRegistrationRepositoryAdapter
       return {
         listingId: created.id,
         channelAccountId: created.channelAccountId!,
-        channel: created.channel,
+        channel: created.channelAccount.channel,
         externalId: created.externalId,
         status: created.status,
       };
@@ -148,8 +124,6 @@ export class MarketplaceRegistrationRepositoryAdapter
         displayName: input.displayName,
         status: 'active',
         isActive: true,
-        isDeleted: false,
-        deletedAt: null,
       },
     });
     if (updated.count !== 1) throw new ConflictException('Marketplace listing changed concurrently.');
@@ -157,8 +131,8 @@ export class MarketplaceRegistrationRepositoryAdapter
       where: { id: existing.id, organizationId: input.organizationId },
       select: {
         id: true,
-        channel: true,
         channelAccountId: true,
+        channelAccount: { select: { channel: true } },
         externalId: true,
         status: true,
       },
@@ -167,80 +141,10 @@ export class MarketplaceRegistrationRepositoryAdapter
     return {
       listingId: listing.id,
       channelAccountId: listing.channelAccountId,
-      channel: listing.channel,
+      channel: listing.channelAccount.channel,
       externalId: listing.externalId,
       status: listing.status,
     };
   }
 
-  async registerConfirmedListing(
-    organizationId: string,
-    input: RegisterConfirmedListingInput,
-  ): Promise<RegisteredMarketplaceListingResult> {
-    const externalId = input.externalId.trim();
-    if (!externalId) throw new BadRequestException('마켓 상품번호를 입력하세요.');
-
-    return this.prisma.$transaction(async (tx) => {
-      const [account, master] = await Promise.all([
-        tx.channelAccount.findFirst({
-          where: { id: input.channelAccountId, organizationId, status: 'active' },
-          select: { id: true, channel: true },
-        }),
-        tx.masterProduct.findFirst({
-          where: {
-            id: input.masterId,
-            organizationId,
-            isDeleted: false,
-            ...LEGACY_FAMILY_MASTER_SCOPE,
-          },
-          select: { id: true, name: true },
-        }),
-      ]);
-      if (!account) throw new NotFoundException('마켓 계정을 찾을 수 없습니다.');
-      if (!master) throw new NotFoundException('재고 상품을 찾을 수 없습니다.');
-
-      const existing = await tx.channelListing.findFirst({
-        where: {
-          organizationId,
-          channelAccountId: account.id,
-          externalId,
-          isDeleted: false,
-        },
-        select: { id: true },
-      });
-      const data = {
-        masterId: master.id,
-        channel: account.channel,
-        channelAccountId: account.id,
-        externalId,
-        channelName: input.channelName?.trim() || master.name,
-        channelPrice: input.channelPrice ?? null,
-        status: 'active',
-        isDeleted: false,
-        deletedAt: null,
-      };
-      const listing = existing
-        ? await tx.channelListing.update({
-            where: { id: existing.id },
-            data,
-          })
-        : await tx.channelListing.create({
-            data: {
-              organizationId,
-              ...data,
-            },
-          });
-
-      return {
-        id: listing.id,
-        masterId: master.id,
-        channel: listing.channel,
-        channelAccountId: listing.channelAccountId,
-        externalId: listing.externalId,
-        channelName: listing.channelName,
-        channelPrice: listing.channelPrice,
-        status: listing.status,
-      };
-    });
-  }
 }

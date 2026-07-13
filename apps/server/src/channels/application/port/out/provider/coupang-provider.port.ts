@@ -159,21 +159,30 @@ export interface CoupangProviderPort {
     externalVendorSkuCode: string,
     channelAccountId?: string,
   ): Promise<SellerProductExternalSkuResponse>;
-  getOrderSheets(organizationId: string, params: {
+  getOrderSheets(organizationId: string, channelAccountId: string, params: {
     createdAtFrom: string;
     createdAtTo: string;
     status?: string;
     maxPerPage?: number;
     nextToken?: string;
   }): Promise<OrderSheetResponse>;
-  confirmOrderSheets(organizationId: string, shipmentBoxIds: number[]): Promise<unknown>;
+  confirmOrderSheets(
+    organizationId: string,
+    channelAccountId: string,
+    shipmentBoxIds: number[],
+  ): Promise<unknown>;
   uploadInvoice(
     organizationId: string,
+    channelAccountId: string,
     shipmentBoxId: number,
     params: {
       deliveryCompanyCode: string;
       invoiceNumber: string;
     },
   ): Promise<unknown>;
-  approveReturn(organizationId: string, receiptId: number): Promise<unknown>;
+  approveReturn(
+    organizationId: string,
+    channelAccountId: string,
+    receiptId: number,
+  ): Promise<unknown>;
 }

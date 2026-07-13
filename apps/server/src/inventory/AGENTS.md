@@ -1,10 +1,11 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# inventory — Sellpia Snapshot, Warehouses, Operation Records
+# inventory — Sellpia Master Snapshot, Warehouses, Operation Records
 
-`src/inventory/` owns the Sellpia-authoritative `InventorySku` snapshot and
-adjacent warehouse, transfer, picking, receipt, unshipped, and shipment-file
-capabilities. KidItem does not maintain a second mutable stock balance.
+`src/inventory/` owns the Sellpia-authoritative physical `MasterProduct`
+snapshot and adjacent warehouse, transfer, picking, receipt, unshipped, and
+shipment-file capabilities. KidItem does not maintain a second mutable stock
+balance.
 
 ## Folder Map
 
@@ -46,34 +47,35 @@ Route shape is frozen.
 
 ## Main Data Models
 
-- `InventorySku` is one Sellpia product-code row and owns the current physical
-  quantity in `currentStock`.
+- A physical `MasterProduct` is one Sellpia product-code row and owns the
+  current quantity in `currentStock`.
 - `SourceImportRun` records workbook provenance, idempotency, and attempt
   fencing.
 - `Warehouse` is warehouse metadata.
 - `StockTransfer`, `PickingItem`, and `ReturnTransfer` reference
-  `InventorySku`; they record operations and never adjust `currentStock`.
+  `MasterProduct`; they record operations and never adjust `currentStock`.
 - `SellpiaReceiptUploadBatch` records receipt-upload workflow state separately
   from the stock snapshot.
 
 ## Sellpia Inventory Snapshot
 
-`POST /api/inventory/sellpia-sync/import` is the only writer of
-`InventorySku.currentStock`. It is an organization-scoped full snapshot
-replacement: one valid workbook row maps to one `InventorySku`, and a completed
-import sets absent known Sellpia codes to zero without deleting their identity
-or `ChannelSkuComponent` references.
+`POST /api/inventory/sellpia-sync/import` is the only writer of physical
+`MasterProduct.currentStock`. It is an organization-scoped full snapshot
+replacement: one valid workbook row maps to one physical `MasterProduct`, and a
+completed import marks absent known Sellpia codes inactive with zero stock
+without deleting their identity or `ChannelSkuComponent` references.
 
 The replacement is atomic and fenced by its `SourceImportRun` attempt token.
-It may update only `InventorySku` source metadata, `currentStock`, and import
-provenance. Never translate workbook differences into product, channel,
-transfer, picking, return, purchase-order, or Rocket writes. Receipt-batch
-create/list/mark-uploaded behavior is separate and does not change stock.
+It may update only physical `MasterProduct` source metadata, `currentStock`,
+active state, and import provenance. Never translate workbook differences into
+channel, transfer, picking, return, purchase-order, or Rocket writes.
+Receipt-batch create/list/mark-uploaded behavior is separate and does not
+change stock.
 
 ## Cross-Domain Ports
 
-- `InventoryModule` exports only the read-only `INVENTORY_SKU_READ_PORT` for
-  matching and channel-capacity consumers.
+- `InventoryModule` exports the read-only `SELLPIA_MASTER_PRODUCT_READ_PORT`
+  for matching and channel-capacity consumers.
 - External domains do not inject warehouse, transfer, or picking
   services directly.
 
@@ -90,9 +92,11 @@ create/list/mark-uploaded behavior is separate and does not change stock.
 - No controller or service may expose receive, issue, adjust, reserve, release,
   restock, stock-ledger, or Rocket stock-event mutations.
 - Transfer, picking, and return completion updates operational record fields
-  only; they do not write `InventorySku.currentStock`.
+  only; they do not write `MasterProduct.currentStock`.
 
 ## Transitional Exceptions
 
-- None for new inventory behavior. Inventory is the reference domain for the
-  server hexagonal structure.
+- Release `0.1.9` still dual-writes the legacy `InventorySku` shadow and its
+  identity ledger so expand/contract migration and rollback evidence remain
+  valid. New reads, cross-domain references, and operational records use the
+  physical `MasterProduct`; do not add new `InventorySku` consumers.

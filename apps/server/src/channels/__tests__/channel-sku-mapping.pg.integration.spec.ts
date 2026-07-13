@@ -12,9 +12,9 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import { InventorySkuReadRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-sku-read.repository.adapter';
-import { InventorySkuReadService } from '../../inventory/application/service/inventory-sku-read.service';
-import { InventorySkuImportRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-sku-import.repository.adapter';
+import { SellpiaMasterProductReadRepositoryAdapter } from '../../inventory/adapter/out/repository/sellpia-master-product-read.repository.adapter';
+import { SellpiaMasterProductReadService } from '../../inventory/application/service/sellpia-master-product-read.service';
+import { SellpiaMasterImportRepositoryAdapter } from '../../inventory/adapter/out/repository/sellpia-master-import.repository.adapter';
 import { SellpiaInventoryImportService } from '../../inventory/application/service/sellpia-inventory-import.service';
 import { ChannelsInventorySkuReadAdapter } from '../adapter/out/inventory/inventory-sku-read.adapter';
 import { ChannelSkuMappingRepositoryAdapter } from '../adapter/out/repository/channel-sku-mapping.repository.adapter';
@@ -40,8 +40,8 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     await prisma.$connect();
     const prismaService = prisma as unknown as PrismaService;
     repository = new ChannelSkuMappingRepositoryAdapter(prismaService);
-    const inventoryOwner = new InventorySkuReadService(
-      new InventorySkuReadRepositoryAdapter(prismaService),
+    const inventoryOwner = new SellpiaMasterProductReadService(
+      new SellpiaMasterProductReadRepositoryAdapter(prismaService),
     );
     service = new ChannelSkuMappingService(
       repository,
@@ -52,7 +52,7 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
       new ChannelsInventorySkuReadAdapter(inventoryOwner),
     );
     inventoryImport = new SellpiaInventoryImportService(
-      new InventorySkuImportRepositoryAdapter(prismaService),
+      new SellpiaMasterImportRepositoryAdapter(prismaService),
     );
   });
 
@@ -195,24 +195,25 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     await createInventorySku('ordinary');
 
     const result = await service.candidates(TEST_ORGANIZATION_ID, target.sku.id, { limit: 100 });
-    const byId = new Map(result.items.map((item) => [item.inventorySkuId, item]));
+    const byId = new Map(result.items.map((item) => [item.masterProductId, item]));
 
-    expect(result.items.slice(0, 3).map((item) => item.inventorySkuId)).toEqual([
+    expect(result.items.slice(0, 3).map((item) => item.masterProductId)).toEqual([
       seller.id,
       model.id,
       option.id,
     ]);
     expect(byId.get(ambiguousA.id)?.reason).toBe('ambiguous_identifier');
     expect(byId.get(ambiguousB.id)?.reason).toBe('ambiguous_identifier');
-    expect(result.items.some((item) => item.sellpiaProductCode === 'ordinary')).toBe(false);
+    expect(result.items.some((item) => item.code === 'ordinary')).toBe(false);
     expect(result.items.some((item) =>
-      item.sellpiaProductCode === 'SP-EXTERNAL-MUST-NOT-MATCH')).toBe(false);
+      item.code === 'SP-EXTERNAL-MUST-NOT-MATCH')).toBe(false);
     expect(JSON.stringify(result)).not.toMatch(/rawJson|externalProductId|externalSkuId/);
 
     const refreshed = await service.refreshStatuses(TEST_ORGANIZATION_ID, {
       channelAccountId: ACCOUNT_A,
     });
-    expect(refreshed).toEqual({ all: 1, unmatched: 0, needsReview: 1, matched: 0 });
+    expect(refreshed).toEqual({ all: 1, unmatched: 0, needsReview: 0, matched: 1 });
+    expect(await componentState(target.sku.id)).toEqual([[seller.id, 1]]);
   });
 
   it('persists 1:1, multipack, mixed recipes, full replacement, and explicit unmapping without stock writes', async () => {
@@ -225,19 +226,19 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     ]));
 
     await service.replaceComponents(TEST_ORGANIZATION_ID, TEST_USER_ID, target.sku.id, {
-      components: [{ inventorySkuId: x.id, quantity: 1 }],
+      components: [{ masterProductId: x.id, quantity: 1 }],
     });
     expect(await componentState(target.sku.id)).toEqual([[x.id, 1]]);
 
     await service.replaceComponents(TEST_ORGANIZATION_ID, TEST_USER_ID, target.sku.id, {
-      components: [{ inventorySkuId: x.id, quantity: 4 }],
+      components: [{ masterProductId: x.id, quantity: 4 }],
     });
     expect(await componentState(target.sku.id)).toEqual([[x.id, 4]]);
 
     await service.replaceComponents(TEST_ORGANIZATION_ID, TEST_USER_ID, target.sku.id, {
       components: [
-        { inventorySkuId: x.id, quantity: 1 },
-        { inventorySkuId: y.id, quantity: 2 },
+        { masterProductId: x.id, quantity: 1 },
+        { masterProductId: y.id, quantity: 2 },
       ],
     });
     expect(await componentState(target.sku.id)).toEqual(sortedRecipe([
@@ -246,7 +247,7 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     ]));
 
     await service.replaceComponents(TEST_ORGANIZATION_ID, TEST_USER_ID, target.sku.id, {
-      components: [{ inventorySkuId: y.id, quantity: 3 }],
+      components: [{ masterProductId: y.id, quantity: 3 }],
     });
     expect(await componentState(target.sku.id)).toEqual([[y.id, 3]]);
 
@@ -353,13 +354,13 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     });
     expect(inStock.items[0]?.components).toEqual([
       expect.objectContaining({
-        inventorySkuId: x.id,
+        masterProductId: x.id,
         purchasePrice: 1_000,
         componentCapacity: 12,
         isBottleneck: false,
       }),
       expect.objectContaining({
-        inventorySkuId: y.id,
+        masterProductId: y.id,
         purchasePrice: 2_000,
         componentCapacity: 4,
         isBottleneck: true,
@@ -424,11 +425,11 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
 
     for (const input of [
       { components: [
-        { inventorySkuId: local.id, quantity: 1 },
-        { inventorySkuId: local.id, quantity: 2 },
+        { masterProductId: local.id, quantity: 1 },
+        { masterProductId: local.id, quantity: 2 },
       ] },
-      { components: [{ inventorySkuId: local.id, quantity: -1 }] },
-      { components: [{ inventorySkuId: foreign.id, quantity: 1 }] },
+      { components: [{ masterProductId: local.id, quantity: -1 }] },
+      { components: [{ masterProductId: foreign.id, quantity: 1 }] },
     ]) {
       await expect(service.replaceComponents(
         TEST_ORGANIZATION_ID,
@@ -446,7 +447,7 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
       channelSkuId: target.sku.id,
-      components: [{ inventorySkuId: foreign.id, quantity: 1 }],
+      components: [{ masterProductId: foreign.id, quantity: 1 }],
       mappingSource: 'manual',
       nextStatus: 'matched',
     })).rejects.toBeInstanceOf(BadRequestException);
@@ -458,7 +459,7 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     const a = await createInventorySku('SP-A');
     const b = await createInventorySku('SP-B');
     const c = await createInventorySku('SP-C');
-    const replace = (components: Array<{ inventorySkuId: string; quantity: number }>) =>
+    const replace = (components: Array<{ masterProductId: string; quantity: number }>) =>
       repository.replaceComponents({
         organizationId: TEST_ORGANIZATION_ID,
         userId: TEST_USER_ID,
@@ -469,10 +470,10 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
       });
 
     await Promise.all([
-      replace([{ inventorySkuId: a.id, quantity: 1 }]),
+      replace([{ masterProductId: a.id, quantity: 1 }]),
       replace([
-        { inventorySkuId: b.id, quantity: 2 },
-        { inventorySkuId: c.id, quantity: 3 },
+        { masterProductId: b.id, quantity: 2 },
+        { masterProductId: c.id, quantity: 3 },
       ]),
     ]);
 
@@ -483,7 +484,7 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     ]).toContain(JSON.stringify(final));
   });
 
-  it('does not let advisory refresh overwrite a newly confirmed mapping', async () => {
+  it('does not let automatic refresh overwrite a newly confirmed mapping', async () => {
     const target = await createQueueSku({ sellerSku: 'SP-EVIDENCE' });
     const inventory = await createInventorySku('SP-EVIDENCE');
     await prisma.channelSkuComponent.create({ data: component(target.sku.id, inventory.id, 1) });
@@ -492,10 +493,10 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
       data: { mappingStatus: 'matched' },
     });
 
-    await repository.updateUnmappedStatuses(TEST_ORGANIZATION_ID, [{
+    await expect(repository.applyAutomaticMatches(TEST_ORGANIZATION_ID, [{
       channelSkuId: target.sku.id,
       mappingStatus: 'unmatched',
-    }]);
+    }])).resolves.toEqual({ applied: 0, skippedConfirmed: 1 });
 
     expect(await prisma.channelListingOption.findUniqueOrThrow({
       where: { id: target.sku.id },
@@ -570,6 +571,7 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
       id: componentRow.id,
       channelSkuId: target.sku.id,
       inventorySkuId: inventory.id,
+      masterProductId: inventory.id,
       quantity: 5,
     });
   });
@@ -670,16 +672,46 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     organizationId = TEST_ORGANIZATION_ID,
     purchasePrice: number | null = null,
   ) {
-    return prisma.inventorySku.create({
-      data: {
-        organizationId,
-        sellpiaProductCode,
-        name: `${sellpiaProductCode} item`,
-        optionName: null,
-        barcode,
-        currentStock,
-        purchasePrice,
-      },
+    return prisma.$transaction(async (tx) => {
+      const id = randomUUID();
+      const inventory = await tx.inventorySku.create({
+        data: {
+          id,
+          organizationId,
+          sellpiaProductCode,
+          name: `${sellpiaProductCode} item`,
+          optionName: null,
+          barcode,
+          currentStock,
+          purchasePrice,
+        },
+      });
+      await tx.masterProduct.create({
+        data: {
+          id,
+          organizationId,
+          code: `SELLPIA-TEST-${randomUUID()}`,
+          name: `${sellpiaProductCode} item`,
+          sellpiaProductCode,
+          sellpiaName: `${sellpiaProductCode} item`,
+          sellpiaBarcode: barcode,
+          currentStock,
+          purchasePrice,
+          isActive: true,
+          isTemporary: true,
+          temporaryReason: 'sellpia_master_cutover',
+          lifecycleState: 'inventory_staged',
+        },
+      });
+      await tx.inventorySkuMasterProductMap.create({
+        data: {
+          organizationId,
+          inventorySkuId: id,
+          masterProductId: id,
+          resolution: 'shared_uuid',
+        },
+      });
+      return inventory;
     });
   }
 
@@ -688,6 +720,7 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       channelSkuId,
       inventorySkuId,
+      masterProductId: inventorySkuId,
       quantity,
       mappingSource: 'manual',
       createdBy: TEST_USER_ID,
@@ -697,9 +730,9 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
   async function componentState(channelSkuId: string): Promise<Array<[string, number]>> {
     const rows = await prisma.channelSkuComponent.findMany({
       where: { organizationId: TEST_ORGANIZATION_ID, channelSkuId },
-      orderBy: { inventorySkuId: 'asc' },
+      orderBy: { masterProductId: 'asc' },
     });
-    return rows.map((row) => [row.inventorySkuId, row.quantity]);
+    return rows.map((row) => [row.masterProductId!, row.quantity]);
   }
 
   function sortedRecipe(rows: Array<[string, number]>): Array<[string, number]> {

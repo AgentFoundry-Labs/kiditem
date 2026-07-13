@@ -2,9 +2,7 @@ import 'reflect-metadata';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { AgentOsModule } from '../../agent-os/agent-os.module';
 import { AutomationModule } from '../../automation/automation.module';
-import { ProductsModule } from '../../products/products.module';
 import { InventoryModule } from '../../inventory/inventory.module';
 import { ChannelsModule } from '../channels.module';
 import { ChannelRegistrationCapabilityAdapter } from '../adapter/in/agent/channel-registration-capability.adapter';
@@ -13,10 +11,8 @@ import { ChannelDashboardRepositoryAdapter } from '../adapter/out/repository/cha
 import { ChannelListingRepositoryAdapter } from '../adapter/out/repository/channel-listing.repository.adapter';
 import { ChannelSyncRepositoryAdapter } from '../adapter/out/repository/channel-sync.repository.adapter';
 import { MarketplaceRegistrationRepositoryAdapter } from '../adapter/out/repository/marketplace-registration.repository.adapter';
-import { ChannelsProductMasterBarcodeAdapter } from '../adapter/out/products/product-master-barcode.adapter';
 import { CoupangProviderAdapter } from '../adapter/out/coupang/coupang-provider.adapter';
 import { ChannelsOperationAlertAdapter } from '../adapter/out/automation/operation-alert.adapter';
-import { ChannelRegistrationRuntimeHandler } from '../adapter/out/runtime/channel-registration-runtime.handler';
 import { CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT } from '../application/port/in/capability/marketplace-registration.port';
 import {
   CHANNEL_ACCOUNT_REPOSITORY_PORT,
@@ -30,7 +26,6 @@ import {
 import { CHANNEL_SYNC_REPOSITORY_PORT } from '../application/port/out/repository/channel-sync.repository.port';
 import { COUPANG_PROVIDER_PORT } from '../application/port/out/provider/coupang-provider.port';
 import { CHANNELS_OPERATION_ALERT_PORT } from '../application/port/out/cross-domain/operation-alert.port';
-import { CHANNELS_PRODUCT_MASTER_BARCODE_PORT } from '../application/port/out/cross-domain/product-master-barcode.port';
 import { ChannelCatalogImportController } from '../adapter/in/http/channel-catalog-import.controller';
 import { ChannelCatalogImportRepositoryAdapter } from '../adapter/out/repository/channel-catalog-import.repository.adapter';
 import { CHANNEL_CATALOG_IMPORT_PORT } from '../application/port/in/channel-catalog-import.port';
@@ -68,7 +63,7 @@ function expectBinding(
 }
 
 describe('ChannelsModule canonical owner wiring', () => {
-  it('retires active legacy reconciliation wiring while retaining expand-release tables', () => {
+  it('retires legacy reconciliation wiring and schema', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, ChannelsModule) ?? [];
     const controllers: unknown[] = Reflect.getMetadata(CONTROLLERS_KEY, ChannelsModule) ?? [];
     const exports_: unknown[] = Reflect.getMetadata('exports', ChannelsModule) ?? [];
@@ -95,15 +90,13 @@ describe('ChannelsModule canonical owner wiring', () => {
       path.resolve(__dirname, '../../../../../prisma/models/channels.prisma'),
       'utf8',
     );
-    expect(schema).toContain('model ChannelReconciliationRun');
-    expect(schema).toContain('model ChannelReconciliationItem');
+    expect(schema).not.toContain('model ChannelReconciliationRun');
+    expect(schema).not.toContain('model ChannelReconciliationItem');
   });
 
   it('imports owner modules for consumer adapters', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, ChannelsModule) ?? [];
-    expect(imports).toContain(AgentOsModule);
     expect(imports).toContain(AutomationModule);
-    expect(imports).toContain(ProductsModule);
     expect(imports).toContain(InventoryModule);
   });
 
@@ -117,9 +110,7 @@ describe('ChannelsModule canonical owner wiring', () => {
     expect(providers).toContain(ChannelSyncRepositoryAdapter);
     expect(providers).toContain(CoupangProviderAdapter);
     expect(providers).toContain(ChannelsOperationAlertAdapter);
-    expect(providers).toContain(ChannelsProductMasterBarcodeAdapter);
     expect(providers).toContain(ChannelRegistrationCapabilityAdapter);
-    expect(providers).toContain(ChannelRegistrationRuntimeHandler);
     expect(providers).toContain(ChannelCatalogImportService);
     expect(providers).toContain(ChannelCatalogImportRepositoryAdapter);
     expect(providers).toContain(ChannelSkuMappingService);
@@ -139,11 +130,6 @@ describe('ChannelsModule canonical owner wiring', () => {
     expectBinding(providers, CHANNEL_SYNC_REPOSITORY_PORT, ChannelSyncRepositoryAdapter);
     expectBinding(providers, COUPANG_PROVIDER_PORT, CoupangProviderAdapter);
     expectBinding(providers, CHANNELS_OPERATION_ALERT_PORT, ChannelsOperationAlertAdapter);
-    expectBinding(
-      providers,
-      CHANNELS_PRODUCT_MASTER_BARCODE_PORT,
-      ChannelsProductMasterBarcodeAdapter,
-    );
     expectBinding(
       providers,
       CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT,

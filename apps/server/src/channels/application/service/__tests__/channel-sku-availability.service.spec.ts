@@ -84,12 +84,12 @@ describe('ChannelSkuAvailabilityService', () => {
     });
     expect(result.items[0]?.components).toEqual([
       expect.objectContaining({
-        inventorySkuId: inventoryIds[1],
+        masterProductId: inventoryIds[1],
         componentCapacity: 12,
         isBottleneck: false,
       }),
       expect.objectContaining({
-        inventorySkuId: inventoryIds[2],
+        masterProductId: inventoryIds[2],
         purchasePrice: 1_000,
         componentCapacity: 4,
         isBottleneck: true,
@@ -206,6 +206,9 @@ function makeRepository() {
     updateUnmappedStatuses: vi
       .fn<ChannelSkuMappingRepositoryPort['updateUnmappedStatuses']>()
       .mockResolvedValue(undefined),
+    applyAutomaticMatches: vi
+      .fn<ChannelSkuMappingRepositoryPort['applyAutomaticMatches']>()
+      .mockResolvedValue({ applied: 0, skippedConfirmed: 0 }),
     replaceComponents: vi
       .fn<ChannelSkuMappingRepositoryPort['replaceComponents']>()
       .mockResolvedValue(undefined),
@@ -257,8 +260,8 @@ function row(
   };
 }
 
-function component(inventorySkuId: string, quantity: number) {
-  return { inventorySkuId, quantity, mappingSource: 'manual' };
+function component(masterProductId: string, quantity: number) {
+  return { masterProductId, quantity, mappingSource: 'manual' };
 }
 
 function inventorySku(id: string, currentStock: number) {

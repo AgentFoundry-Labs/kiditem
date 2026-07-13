@@ -9,7 +9,7 @@ import type {
 } from '../../../application/port/out/repository/transfers.repository.port';
 
 const TRANSFER_INCLUDE = {
-  inventorySku: true,
+  masterProduct: true,
   fromWarehouse: true,
   toWarehouse: true,
 } as const;
@@ -28,32 +28,19 @@ export class TransfersRepositoryAdapter implements TransfersRepositoryPort {
     });
   }
 
-  async findInventorySkuForTransfer(
-    inventorySkuId: string,
+  async findMasterProductForTransfer(
+    masterProductId: string,
     organizationId: string,
-  ): Promise<{ optionName: string | null; legacyOptionId: string } | null> {
-    const inventorySku = await this.prisma.inventorySku.findFirst({
-      where: { id: inventorySkuId, organizationId },
-      select: { optionName: true, sellpiaProductCode: true },
-    });
-    if (!inventorySku) return null;
-    const option = await this.prisma.productOption.findFirst({
+  ): Promise<{ optionName: string | null } | null> {
+    return this.prisma.masterProduct.findFirst({
       where: {
+        id: masterProductId,
         organizationId,
+        sellpiaProductCode: { not: null },
         isDeleted: false,
-        legacyCode: inventorySku.sellpiaProductCode,
       },
-      select: { id: true },
-    }) ?? await this.prisma.productOption.findFirst({
-      where: {
-        organizationId,
-        isDeleted: false,
-        sku: inventorySku.sellpiaProductCode,
-      },
-      select: { id: true },
+      select: { optionName: true },
     });
-    if (!option) return null;
-    return { optionName: inventorySku.optionName, legacyOptionId: option.id };
   }
 
   async findWarehouseIdsForTransfer(

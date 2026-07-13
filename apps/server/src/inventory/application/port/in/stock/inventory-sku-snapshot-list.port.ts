@@ -1,6 +1,7 @@
 import type {
   InventorySkuSnapshotListResponse,
   InventorySkuStockStatus,
+  SellpiaMasterActiveStatus,
   SellpiaImportRunListResponse,
 } from '@kiditem/shared/inventory';
 
@@ -13,6 +14,7 @@ export type InventorySkuSnapshotListQuery = {
   limit?: number;
   query?: string;
   stockStatus?: InventorySkuStockStatus;
+  activeStatus?: SellpiaMasterActiveStatus;
 };
 
 export type SellpiaImportRunListQuery = {

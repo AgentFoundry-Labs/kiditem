@@ -15,12 +15,12 @@ import {
 const channelAccountId = '00000000-0000-4000-8000-000000000001';
 const productId = '00000000-0000-4000-8000-000000000002';
 const channelSkuId = '00000000-0000-4000-8000-000000000003';
-const inventorySkuId = '00000000-0000-4000-8000-000000000004';
-const secondInventorySkuId = '00000000-0000-4000-8000-000000000005';
+const masterProductId = '00000000-0000-4000-8000-000000000004';
+const secondMasterProductId = '00000000-0000-4000-8000-000000000005';
 
 const component = {
-  inventorySkuId,
-  sellpiaProductCode: 'SP-001',
+  masterProductId,
+  code: 'SP-001',
   name: '실리콘 식판',
   optionName: '핑크',
   barcode: '8801234567890',
@@ -90,8 +90,8 @@ describe('channel SKU matching contracts', () => {
         sellableStock: 17,
       },
       components: [{
-        inventorySkuId,
-        sellpiaProductCode: 'SP-001',
+        masterProductId,
+        code: 'SP-001',
         currentStock: 17,
         purchasePrice: 1_500,
         componentCapacity: 17,
@@ -122,21 +122,21 @@ describe('channel SKU matching contracts', () => {
     }).items[0]?.components[0]?.currentStock).toBe(17);
 
     expect(() => ReplaceChannelSkuComponentsInputSchema.parse({
-      components: [{ inventorySkuId, quantity: 1, currentStock: 17 }],
+      components: [{ masterProductId, quantity: 1, currentStock: 17 }],
     })).toThrow();
   });
 
   it('parses a same-SKU four-pack', () => {
     expect(ReplaceChannelSkuComponentsInputSchema.parse({
-      components: [{ inventorySkuId, quantity: 4 }],
-    })).toEqual({ components: [{ inventorySkuId, quantity: 4 }] });
+      components: [{ masterProductId, quantity: 4 }],
+    })).toEqual({ components: [{ masterProductId, quantity: 4 }] });
   });
 
   it('parses a mixed two-component recipe', () => {
     expect(ReplaceChannelSkuComponentsInputSchema.parse({
       components: [
-        { inventorySkuId, quantity: 1 },
-        { inventorySkuId: secondInventorySkuId, quantity: 2 },
+        { masterProductId, quantity: 1 },
+        { masterProductId: secondMasterProductId, quantity: 2 },
       ],
     }).components).toHaveLength(2);
   });
@@ -144,7 +144,7 @@ describe('channel SKU matching contracts', () => {
   it('exports the 50-component limit and rejects a 51-row replacement', () => {
     expect(MAX_CHANNEL_SKU_COMPONENTS).toBe(50);
     const components = Array.from({ length: MAX_CHANNEL_SKU_COMPONENTS + 1 }, (_, index) => ({
-      inventorySkuId: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+      masterProductId: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
       quantity: 1,
     }));
 
@@ -155,13 +155,13 @@ describe('channel SKU matching contracts', () => {
     expect(MAX_CHANNEL_SKU_COMPONENT_QUANTITY).toBe(2_147_483_647);
     expect(ReplaceChannelSkuComponentsInputSchema.parse({
       components: [{
-        inventorySkuId,
+        masterProductId,
         quantity: MAX_CHANNEL_SKU_COMPONENT_QUANTITY,
       }],
     }).components[0]?.quantity).toBe(MAX_CHANNEL_SKU_COMPONENT_QUANTITY);
     expect(() => ReplaceChannelSkuComponentsInputSchema.parse({
       components: [{
-        inventorySkuId,
+        masterProductId,
         quantity: MAX_CHANNEL_SKU_COMPONENT_QUANTITY + 1,
       }],
     })).toThrow();
@@ -183,8 +183,8 @@ describe('channel SKU matching contracts', () => {
   it('accepts explicit unmapping and rejects duplicate InventorySku IDs', () => {
     expect(() => ReplaceChannelSkuComponentsInputSchema.parse({
       components: [
-        { inventorySkuId: '00000000-0000-4000-8000-000000000001', quantity: 1 },
-        { inventorySkuId: '00000000-0000-4000-8000-000000000001', quantity: 2 },
+        { masterProductId: '00000000-0000-4000-8000-000000000001', quantity: 1 },
+        { masterProductId: '00000000-0000-4000-8000-000000000001', quantity: 2 },
       ],
     })).toThrow(/duplicate/i);
 
@@ -194,15 +194,15 @@ describe('channel SKU matching contracts', () => {
   it('rejects duplicate InventorySku IDs that differ only by UUID casing', () => {
     expect(() => ReplaceChannelSkuComponentsInputSchema.parse({
       components: [
-        { inventorySkuId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', quantity: 1 },
-        { inventorySkuId: 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA', quantity: 2 },
+        { masterProductId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', quantity: 1 },
+        { masterProductId: 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA', quantity: 2 },
       ],
     })).toThrow(/duplicate/i);
   });
 
   it.each([0, -1, 1.5])('rejects invalid component quantity %s', (quantity) => {
     expect(() => ReplaceChannelSkuComponentsInputSchema.parse({
-      components: [{ inventorySkuId, quantity }],
+      components: [{ masterProductId, quantity }],
     })).toThrow();
   });
 
@@ -213,13 +213,13 @@ describe('channel SKU matching contracts', () => {
       { organizationId: '00000000-0000-4000-8000-000000000007' },
     ]) {
       expect(() => ReplaceChannelSkuComponentsInputSchema.parse({
-        components: [{ inventorySkuId, quantity: 1 }],
+        components: [{ masterProductId, quantity: 1 }],
         ...extra,
       })).toThrow();
     }
 
     expect(() => ReplaceChannelSkuComponentsInputSchema.parse({
-      components: [{ inventorySkuId, quantity: 1, mappingSource: 'manual' }],
+      components: [{ masterProductId, quantity: 1, mappingSource: 'manual' }],
     })).toThrow();
   });
 
@@ -237,8 +237,8 @@ describe('channel SKU matching contracts', () => {
   it('parses candidate lists with display stock and reason metadata', () => {
     expect(ChannelSkuMatchCandidateListResponseSchema.parse({
       items: [{
-        inventorySkuId,
-        sellpiaProductCode: 'SP-001',
+        masterProductId,
+        code: 'SP-001',
         name: '실리콘 식판',
         optionName: '핑크',
         barcode: '8801234567890',
@@ -247,6 +247,24 @@ describe('channel SKU matching contracts', () => {
         rank: 0,
       }],
     }).items[0]?.reason).toBe('unique_barcode');
+  });
+
+  it('rejects legacy InventorySku identifiers from final 0.1.9 payloads', () => {
+    expect(() => ReplaceChannelSkuComponentsInputSchema.parse({
+      components: [{ inventorySkuId: masterProductId, quantity: 1 }],
+    })).toThrow();
+    expect(() => ChannelSkuMatchCandidateListResponseSchema.parse({
+      items: [{
+        inventorySkuId: masterProductId,
+        sellpiaProductCode: 'SP-001',
+        name: 'legacy',
+        optionName: null,
+        barcode: null,
+        currentStock: 1,
+        reason: 'manual_search',
+        rank: 0,
+      }],
+    })).toThrow();
   });
 
   it('strictly scopes refresh requests and returns mapping counts', () => {

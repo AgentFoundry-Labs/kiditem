@@ -8,6 +8,7 @@ describe('dashboard schemas', () => {
       channelLinkedProducts: 3,
       channelUnlinkedProducts: 2,
       gradeCount: { A: 1, B: 2, C: 2 },
+      mappingStatusCounts: { matched: 10, unmatched: 1, needsReview: 1 },
       alerts: [],
       warnings: {
         minusProducts: 0,
@@ -31,6 +32,7 @@ describe('dashboard schemas', () => {
       channelLinkedProducts: 3,
       channelUnlinkedProducts: 2,
       gradeCount: { A: 1, B: 2, C: 2 },
+      mappingStatusCounts: { matched: 10, unmatched: 0, needsReview: 0 },
       alerts: [{
         id: 'alert-1',
         kind: 'operation',

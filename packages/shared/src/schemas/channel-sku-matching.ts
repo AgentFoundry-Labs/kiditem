@@ -12,8 +12,8 @@ export const MAX_CHANNEL_SKU_COMPONENTS = 50;
 export const MAX_CHANNEL_SKU_COMPONENT_QUANTITY = 2_147_483_647;
 
 export const ChannelSkuMappingComponentSchema = z.object({
-  inventorySkuId: z.string().uuid(),
-  sellpiaProductCode: z.string().min(1),
+  masterProductId: z.string().uuid(),
+  code: z.string().min(1),
   name: z.string().min(1),
   optionName: z.string().nullable(),
   barcode: z.string().nullable(),
@@ -85,8 +85,8 @@ export type ChannelSkuMatchCandidateReason = z.infer<
 >;
 
 export const ChannelSkuMatchCandidateSchema = z.object({
-  inventorySkuId: z.string().uuid(),
-  sellpiaProductCode: z.string().min(1),
+  masterProductId: z.string().uuid(),
+  code: z.string().min(1),
   name: z.string().min(1),
   optionName: z.string().nullable(),
   barcode: z.string().nullable(),
@@ -105,18 +105,18 @@ export type ChannelSkuMatchCandidateListResponse = z.infer<
 
 export const ReplaceChannelSkuComponentsInputSchema = z.object({
   components: z.array(z.object({
-    inventorySkuId: z.string().uuid(),
+    masterProductId: z.string().uuid(),
     quantity: z.number().int().positive().max(MAX_CHANNEL_SKU_COMPONENT_QUANTITY),
   }).strict()).max(MAX_CHANNEL_SKU_COMPONENTS),
 }).strict().superRefine((value, ctx) => {
   const seen = new Set<string>();
   value.components.forEach((component, index) => {
-    const comparisonKey = component.inventorySkuId.toLowerCase();
+    const comparisonKey = component.masterProductId.toLowerCase();
     if (seen.has(comparisonKey)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['components', index, 'inventorySkuId'],
-        message: 'duplicate inventorySkuId',
+        path: ['components', index, 'masterProductId'],
+        message: 'duplicate masterProductId',
       });
     }
     seen.add(comparisonKey);

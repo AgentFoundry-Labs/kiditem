@@ -1,30 +1,27 @@
 import { describe, expect, it, vi } from 'vitest';
 import { TransfersRepositoryAdapter } from './transfers.repository.adapter';
 
-describe('TransfersRepositoryAdapter expand compatibility', () => {
-  it('resolves the retained ProductOption identity from the organization-owned Sellpia code', async () => {
+describe('TransfersRepositoryAdapter', () => {
+  it('resolves the organization-owned physical Master directly', async () => {
     const prisma = {
-      inventorySku: {
+      masterProduct: {
         findFirst: vi.fn().mockResolvedValue({
           optionName: '파랑',
-          sellpiaProductCode: 'SP-001',
         }),
-      },
-      productOption: {
-        findFirst: vi.fn().mockResolvedValue({ id: 'option-1' }),
       },
     };
     const repository = new TransfersRepositoryAdapter(prisma as never);
 
-    await expect(repository.findInventorySkuForTransfer('inventory-sku-1', 'org-1'))
-      .resolves.toEqual({ optionName: '파랑', legacyOptionId: 'option-1' });
-    expect(prisma.productOption.findFirst).toHaveBeenCalledWith({
+    await expect(repository.findMasterProductForTransfer('master-1', 'org-1'))
+      .resolves.toEqual({ optionName: '파랑' });
+    expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
       where: {
+        id: 'master-1',
         organizationId: 'org-1',
+        sellpiaProductCode: { not: null },
         isDeleted: false,
-        legacyCode: 'SP-001',
       },
-      select: { id: true },
+      select: { optionName: true },
     });
   });
 });

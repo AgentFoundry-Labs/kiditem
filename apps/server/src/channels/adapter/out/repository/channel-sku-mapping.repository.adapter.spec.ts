@@ -49,7 +49,7 @@ describe('ChannelSkuMappingRepositoryAdapter status refresh', () => {
     const statement = queryRaw.mock.calls[0]?.[0];
     expect(statement.text).toContain('WITH scoped AS');
     expect(statement.text).toContain('MIN(FLOOR');
-    expect(statement.text).toContain('inventory.organization_id = component.organization_id');
+    expect(statement.text).toContain('master.organization_id = component.organization_id');
     expect(statement.text).toContain('component_count > 0');
     expect(statement.text).toContain('sellable_stock = 0');
     expect(statement.text).toContain('OFFSET');
@@ -182,6 +182,112 @@ describe('ChannelSkuMappingRepositoryAdapter status refresh', () => {
       }),
       data: { mappingStatus: 'needs_review' },
     }));
+  });
+
+  it('persists both final Master identity and the transition InventorySku ledger identity', async () => {
+    const createMany = vi.fn().mockResolvedValue({ count: 1 });
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: ids[2] }]),
+      channelSkuComponent: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+        createMany,
+      },
+      inventorySkuMasterProductMap: {
+        findMany: vi.fn().mockResolvedValue([{
+          masterProductId: ids[0],
+          inventorySkuId: ids[1],
+        }]),
+      },
+      channelListingOption: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const repository = new ChannelSkuMappingRepositoryAdapter({
+      $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)),
+    } as unknown as PrismaService);
+
+    await repository.replaceComponents({
+      organizationId,
+      channelSkuId: ids[2]!,
+      userId: ids[3]!,
+      components: [{ masterProductId: ids[0]!, quantity: 8 }],
+      mappingSource: 'manual',
+      nextStatus: 'matched',
+    });
+
+    expect(tx.inventorySkuMasterProductMap.findMany).toHaveBeenCalledWith({
+      where: {
+        organizationId,
+        masterProductId: { in: [ids[0]] },
+      },
+      select: { masterProductId: true, inventorySkuId: true },
+    });
+    expect(createMany).toHaveBeenCalledWith({
+      data: [{
+        organizationId,
+        channelSkuId: ids[2],
+        inventorySkuId: ids[1],
+        masterProductId: ids[0],
+        quantity: 8,
+        mappingSource: 'manual',
+        createdBy: ids[3],
+      }],
+    });
+  });
+
+  it('locks the refresh batch and skips a SKU that gained a confirmed recipe', async () => {
+    const createMany = vi.fn().mockResolvedValue({ count: 1 });
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: ids[0] }, { id: ids[1] }]),
+      channelSkuComponent: {
+        findMany: vi.fn().mockResolvedValue([{ channelSkuId: ids[1] }]),
+        createMany,
+      },
+      inventorySkuMasterProductMap: {
+        findMany: vi.fn().mockResolvedValue([{
+          masterProductId: ids[2],
+          inventorySkuId: ids[3],
+        }]),
+      },
+      channelListingOption: { updateMany },
+    };
+    const repository = new ChannelSkuMappingRepositoryAdapter({
+      $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)),
+    } as unknown as PrismaService);
+
+    const result = await repository.applyAutomaticMatches(organizationId, [
+      {
+        channelSkuId: ids[0]!,
+        mappingStatus: 'matched',
+        component: {
+          masterProductId: ids[2]!,
+          quantity: 1,
+          mappingSource: 'product_code',
+        },
+      },
+      {
+        channelSkuId: ids[1]!,
+        mappingStatus: 'unmatched',
+      },
+    ]);
+
+    expect(result).toEqual({ applied: 1, skippedConfirmed: 1 });
+    expect(createMany).toHaveBeenCalledWith({
+      data: [{
+        organizationId,
+        channelSkuId: ids[0],
+        inventorySkuId: ids[3],
+        masterProductId: ids[2],
+        quantity: 1,
+        mappingSource: 'product_code',
+        createdBy: null,
+      }],
+    });
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { organizationId, id: { in: [ids[0]] } },
+      data: { mappingStatus: 'matched' },
+    });
   });
 });
 

@@ -15,6 +15,7 @@ export type ParsedWingCatalogRow = {
   skuStatus: string | null;
   modelNumber: string | null;
   barcode: string | null;
+  attributesJson: Array<{ type: string; value: string }>;
   rawJson: Record<string, unknown>;
 };
 
@@ -60,6 +61,7 @@ type NormalizedParentField = Exclude<keyof ParsedWingCatalogRow,
   | 'skuStatus'
   | 'modelNumber'
   | 'barcode'
+  | 'attributesJson'
   | 'rawJson'>;
 
 const PARENT_FIELD_BY_HEADER: Record<ParentHeader, NormalizedParentField> = {
@@ -181,6 +183,7 @@ export function parseCoupangWingWorkbook(
       skuStatus: nullableText(rawJson['판매상태']),
       modelNumber: nullableText(rawJson['모델번호']),
       barcode: nullableText(rawJson['바코드']),
+      attributesJson: searchAttributes(rawJson),
       rawJson,
     });
   }
@@ -200,6 +203,18 @@ export function parseCoupangWingWorkbook(
   }
 
   return { rows, skippedRows, headers };
+}
+
+function searchAttributes(
+  rawJson: Record<string, unknown>,
+): Array<{ type: string; value: string }> {
+  const attributes: Array<{ type: string; value: string }> = [];
+  for (let index = 1; index <= 100; index += 1) {
+    const type = nullableText(rawJson[`검색옵션유형${index}`]);
+    const value = nullableText(rawJson[`검색옵션값${index}`]);
+    if (type && value) attributes.push({ type, value });
+  }
+  return attributes;
 }
 
 function readWorkbook(buffer: Buffer): XLSX.WorkBook {

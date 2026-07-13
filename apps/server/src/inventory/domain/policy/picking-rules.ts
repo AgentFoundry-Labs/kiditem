@@ -1,11 +1,11 @@
 export type PickingSourceComponent = {
-  inventorySkuId: string;
+  masterProductId: string | null;
   quantity: number;
-  inventorySku: {
-    sellpiaProductCode: string;
+  masterProduct: {
+    sellpiaProductCode: string | null;
     name: string;
     optionName: string | null;
-  };
+  } | null;
 };
 
 export type PickingSourceLineItem = {
@@ -21,7 +21,7 @@ export type PickingSourceOrder = {
 
 export type PickableItem = {
   orderId: string;
-  inventorySkuId: string;
+  masterProductId: string;
   productName: string;
   sku: string | null;
   quantity: number;
@@ -40,16 +40,24 @@ export function extractPickableItems(orders: PickingSourceOrder[]): PickingExtra
   for (const order of orders) {
     for (const li of order.lineItems) {
       const components = li.listingOption?.components ?? [];
-      if (components.length === 0 || components.some((component) => component.quantity <= 0)) {
+      if (
+        components.length === 0
+        || components.some((component) => (
+          component.quantity <= 0
+          || !component.masterProductId
+          || !component.masterProduct
+        ))
+      ) {
         skippedCount += 1;
         continue;
       }
       for (const component of components) {
+        if (!component.masterProductId || !component.masterProduct) continue;
         items.push({
           orderId: order.id,
-          inventorySkuId: component.inventorySkuId,
-          productName: component.inventorySku.name,
-          sku: component.inventorySku.sellpiaProductCode,
+          masterProductId: component.masterProductId,
+          productName: component.masterProduct.name,
+          sku: component.masterProduct.sellpiaProductCode,
           quantity: li.quantity * component.quantity,
         });
       }

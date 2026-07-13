@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -51,51 +52,66 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       importedAt: new Date('2026-07-12T03:00:00.000Z'),
       createdAt: new Date('2026-07-12T03:00:00.000Z'),
     });
-    await expect(prisma.inventorySku.create({
+    await expect(prisma.masterProduct.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
+        code: `M-${randomUUID()}`,
         sellpiaProductCode: 'SP-FOREIGN-RUN',
+        sellpiaName: '타 조직 provenance',
         name: '타 조직 provenance',
         currentStock: 1,
+        isActive: true,
         lastImportRunId: crossTenantRun.id,
       },
     })).rejects.toThrow();
-    await prisma.inventorySku.createMany({
+    await prisma.masterProduct.createMany({
       data: [
         {
           organizationId: TEST_ORGANIZATION_ID,
+          code: `M-${randomUUID()}`,
           sellpiaProductCode: 'SP-002',
+          sellpiaName: '검색 상품',
           name: '검색 상품',
           optionName: '파랑',
-          barcode: '8800000000002',
+          sellpiaBarcode: '8800000000002',
           currentStock: 8,
+          isActive: true,
           purchasePrice: 1_000,
           salePrice: 2_000,
           lastImportRunId: run.id,
         },
         {
           organizationId: TEST_ORGANIZATION_ID,
+          code: `M-${randomUUID()}`,
           sellpiaProductCode: 'SP-001',
+          sellpiaName: '품절 상품',
           name: '품절 상품',
           currentStock: 0,
+          isActive: true,
           purchasePrice: null,
           lastImportRunId: null,
         },
         {
           organizationId: TEST_ORGANIZATION_ID,
+          code: `M-${randomUUID()}`,
           sellpiaProductCode: 'ZZ-001',
+          sellpiaName: '기타 상품',
           name: '기타 상품',
           optionName: '빨강',
           currentStock: 2,
+          isActive: true,
           purchasePrice: 500,
           lastImportRunId: run.id,
         },
         {
           organizationId: OTHER_ORGANIZATION_ID,
+          code: `M-${randomUUID()}`,
           sellpiaProductCode: 'SP-LEAK',
+          sellpiaName: '검색 상품 유출',
           name: '검색 상품 유출',
           optionName: '파랑',
           currentStock: 999,
+          isActive: true,
           purchasePrice: 999,
         },
       ],
@@ -108,7 +124,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       stockStatus: 'in_stock',
     });
 
-    expect(filtered.items.map(({ sellpiaProductCode }) => sellpiaProductCode)).toEqual(['SP-002']);
+    expect(filtered.items.map(({ code }) => code)).toEqual(['SP-002']);
     expect(filtered.summary).toEqual({
       totalSkus: 3,
       inStockSkus: 2,
@@ -135,12 +151,12 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       limit: 2,
       stockStatus: 'all',
     });
-    expect(firstPage.items.map(({ sellpiaProductCode }) => sellpiaProductCode))
+    expect(firstPage.items.map(({ code }) => code))
       .toEqual(['SP-001', 'SP-002']);
-    expect(secondPage.items.map(({ sellpiaProductCode }) => sellpiaProductCode))
+    expect(secondPage.items.map(({ code }) => code))
       .toEqual(['ZZ-001']);
     expect(firstPage.items[0]).toMatchObject({
-      sellpiaProductCode: 'SP-001',
+      code: 'SP-001',
       lastImportRunId: null,
       lastImportedAt: null,
     });

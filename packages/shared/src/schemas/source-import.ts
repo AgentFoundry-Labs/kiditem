@@ -78,9 +78,9 @@ export const SellpiaInventoryImportResponseSchema = z.object({
   }),
   duplicate: z.boolean(),
   changes: z.object({
-    createdSkuCount: z.number().int().nonnegative(),
-    updatedSkuCount: z.number().int().nonnegative(),
-    zeroedSkuCount: z.number().int().nonnegative(),
+    createdMasterProductCount: z.number().int().nonnegative(),
+    updatedMasterProductCount: z.number().int().nonnegative(),
+    inactivatedMasterProductCount: z.number().int().nonnegative(),
   }),
 }).superRefine(refineSuccessfulImportResponse);
 export type SellpiaInventoryImportResponse = z.infer<

@@ -138,6 +138,7 @@ describe('parseCoupangWingWorkbook', () => {
         skuStatus: '판매중',
         modelNumber: 'MODEL-1',
         barcode: '001234567890',
+        attributesJson: [],
         rawJson: {
           등록상품ID: '00001234',
           등록상품명: '등록 상품',
@@ -156,6 +157,37 @@ describe('parseCoupangWingWorkbook', () => {
     ]);
     expect(parsed.rows[0]).not.toHaveProperty('sellerSku');
     expect(parsed.rows[0]).not.toHaveProperty('salePrice');
+  });
+
+  it('normalizes ordered Wing search-option type/value pairs', () => {
+    const headers = [
+      ...REQUIRED_HEADERS,
+      '검색옵션유형1',
+      '검색옵션값1',
+      '검색옵션유형2',
+      '검색옵션값2',
+    ];
+    const row = headers.map((header) => ({
+      등록상품ID: 'P-ATTR',
+      '옵션 ID': 'S-ATTR',
+      검색옵션유형1: '색상',
+      검색옵션값1: '파랑',
+      검색옵션유형2: '재질',
+      검색옵션값2: '실리콘',
+    })[header] ?? '');
+
+    const parsed = parseCoupangWingWorkbook(workbookBuffer([
+      ['title'],
+      [],
+      [],
+      headers,
+      row,
+    ]));
+
+    expect(parsed.rows[0]?.attributesJson).toEqual([
+      { type: '색상', value: '파랑' },
+      { type: '재질', value: '실리콘' },
+    ]);
   });
 
   it('repairs stale Template !ref before parsing cells through row 2248', () => {

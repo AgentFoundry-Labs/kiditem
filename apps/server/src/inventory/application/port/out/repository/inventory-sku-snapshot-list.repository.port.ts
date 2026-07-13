@@ -1,6 +1,7 @@
 import type {
   InventorySkuSnapshotSummary,
   InventorySkuStockStatus,
+  SellpiaMasterActiveStatus,
   SellpiaImportRunSummary,
 } from '@kiditem/shared/inventory';
 
@@ -13,17 +14,19 @@ export type InventorySkuSnapshotRepositoryQuery = {
   take: number;
   query?: string;
   stockStatus: InventorySkuStockStatus;
+  activeStatus: SellpiaMasterActiveStatus;
 };
 
 export type InventorySkuSnapshotRepositoryRow = {
-  id: string;
-  sellpiaProductCode: string;
+  masterProductId: string;
+  code: string;
   name: string;
   optionName: string | null;
   barcode: string | null;
   currentStock: number;
   purchasePrice: number | null;
   salePrice: number | null;
+  isActive: boolean;
   lastImportRunId: string | null;
   lastImportedAt: Date | null;
 };

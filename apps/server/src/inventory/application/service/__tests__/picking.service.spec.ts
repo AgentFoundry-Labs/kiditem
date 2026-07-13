@@ -54,9 +54,9 @@ describe('PickingService — confirmed orders → picking → verification', () 
               quantity: 2,
               listingOption: {
                 components: [{
-                  inventorySkuId: 'inventory-sku-1',
+                  masterProductId: 'master-1',
                   quantity: 2,
-                  inventorySku: {
+                  masterProduct: {
                     sellpiaProductCode: 'SELLPIA-001',
                     name: 'Widget',
                     optionName: null,
@@ -79,7 +79,7 @@ describe('PickingService — confirmed orders → picking → verification', () 
         [
           expect.objectContaining({
             orderId: 'order-1',
-            inventorySkuId: 'inventory-sku-1',
+            masterProductId: 'master-1',
             quantity: 4,
             sku: 'SELLPIA-001',
           }),

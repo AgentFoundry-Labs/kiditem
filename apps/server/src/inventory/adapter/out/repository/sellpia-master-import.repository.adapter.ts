@@ -4,8 +4,8 @@ import { Prisma, type SourceImportRun } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   ImportClaim,
-  InventorySkuImportRepositoryPort,
-} from '../../../application/port/out/repository/inventory-sku-import.repository.port';
+  SellpiaMasterImportRepositoryPort,
+} from '../../../application/port/out/repository/sellpia-master-import.repository.port';
 import type { ParsedSellpiaInventoryRow } from '../../../application/service/sellpia-inventory-workbook.parser';
 import type { SellpiaInventoryImportResponse } from '@kiditem/shared/source-import';
 
@@ -14,8 +14,8 @@ const STALE_AFTER_MS = 30 * 60 * 1_000;
 const UPSERT_BATCH_SIZE = 500;
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 60_000 } as const;
 
-type ClaimInput = Parameters<InventorySkuImportRepositoryPort['claimSellpiaImport']>[0];
-type ReplaceInput = Parameters<InventorySkuImportRepositoryPort['replaceSellpiaSnapshot']>[0];
+type ClaimInput = Parameters<SellpiaMasterImportRepositoryPort['claimSellpiaImport']>[0];
+type ReplaceInput = Parameters<SellpiaMasterImportRepositoryPort['replaceSellpiaSnapshot']>[0];
 
 type LockedRunRow = {
   id: string;
@@ -27,8 +27,8 @@ type LockedRunRow = {
 };
 
 @Injectable()
-export class InventorySkuImportRepositoryAdapter
-implements InventorySkuImportRepositoryPort {
+export class SellpiaMasterImportRepositoryAdapter
+implements SellpiaMasterImportRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
   async claimSellpiaImport(input: ClaimInput): Promise<ImportClaim> {
@@ -111,15 +111,18 @@ implements InventorySkuImportRepositoryPort {
         throw new ConflictException('Sellpia inventory import attempt no longer owns this run');
       }
 
-      const existing = await tx.inventorySku.findMany({
-        where: { organizationId: input.organizationId },
-        select: { id: true, sellpiaProductCode: true },
+      const existing = await tx.masterProduct.findMany({
+        where: {
+          organizationId: input.organizationId,
+          sellpiaProductCode: { not: null },
+        },
+        select: { sellpiaProductCode: true },
       });
       const existingCodes = new Set(existing.map((row) => row.sellpiaProductCode));
-      const createdSkuCount = input.rows.filter(
+      const createdMasterProductCount = input.rows.filter(
         (row) => !existingCodes.has(row.sellpiaProductCode),
       ).length;
-      const updatedSkuCount = input.rows.length - createdSkuCount;
+      const updatedMasterProductCount = input.rows.length - createdMasterProductCount;
 
       for (let offset = 0; offset < input.rows.length; offset += UPSERT_BATCH_SIZE) {
         const batch = input.rows.slice(offset, offset + UPSERT_BATCH_SIZE);
@@ -310,10 +313,11 @@ implements InventorySkuImportRepositoryPort {
         organizationId: input.organizationId,
         sellpiaProductCode: { notIn: completeCodes },
       } as const;
-      const zeroedSkuCount = await tx.inventorySku.count({
+      const inactivatedMasterProductCount = await tx.masterProduct.count({
         where: {
-          ...absentSkuWhere,
-          currentStock: { not: 0 },
+          organizationId: input.organizationId,
+          sellpiaProductCode: { not: null, notIn: completeCodes },
+          isActive: true,
         },
       });
       await tx.inventorySku.updateMany({
@@ -375,9 +379,9 @@ implements InventorySkuImportRepositoryPort {
         },
       });
       return importResponse(completed, false, {
-        createdSkuCount,
-        updatedSkuCount,
-        zeroedSkuCount,
+        createdMasterProductCount,
+        updatedMasterProductCount,
+        inactivatedMasterProductCount,
       });
     }, TRANSACTION_OPTIONS);
   }
@@ -536,7 +540,11 @@ function isUniqueConstraintError(error: unknown): boolean {
 }
 
 function zeroChanges(): SellpiaInventoryImportResponse['changes'] {
-  return { createdSkuCount: 0, updatedSkuCount: 0, zeroedSkuCount: 0 };
+  return {
+    createdMasterProductCount: 0,
+    updatedMasterProductCount: 0,
+    inactivatedMasterProductCount: 0,
+  };
 }
 
 function importResponse(

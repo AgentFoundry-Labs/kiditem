@@ -8,6 +8,7 @@ import type {
   ChannelSkuMappingRepositoryPort,
   ChannelSkuMappingRow,
   ChannelSkuMappingStatus,
+  ChannelSkuAutomaticMatchUpdate,
   ReplaceChannelSkuComponentsRepositoryInput,
   UnmappedChannelSkuEvidenceRow,
 } from '../../../application/port/out/repository/channel-sku-mapping.repository.port';
@@ -42,7 +43,7 @@ function mappingRowSelect(organizationId: string) {
     components: {
       where: { organizationId },
       select: {
-        inventorySkuId: true,
+        masterProductId: true,
         quantity: true,
         mappingSource: true,
       },
@@ -113,7 +114,7 @@ implements ChannelSkuMappingRepositoryPort {
           CASE
             WHEN COUNT(component.id) = 0 THEN NULL
             ELSE MIN(FLOOR(
-              inventory.current_stock::numeric / component.quantity::numeric
+              master.current_stock::numeric / component.quantity::numeric
             ))::int
           END AS sellable_stock
         FROM channel_listing_options AS sku
@@ -132,10 +133,10 @@ implements ChannelSkuMappingRepositoryPort {
           ON component.channel_sku_id = sku.id
          AND component.organization_id = sku.organization_id
          AND component.organization_id = ${organizationId}::uuid
-        LEFT JOIN inventory_skus AS inventory
-          ON inventory.id = component.inventory_sku_id
-         AND inventory.organization_id = component.organization_id
-         AND inventory.organization_id = ${organizationId}::uuid
+        LEFT JOIN master_products AS master
+          ON master.id = component.master_product_id
+         AND master.organization_id = component.organization_id
+         AND master.organization_id = ${organizationId}::uuid
         WHERE sku.organization_id = ${organizationId}::uuid
           AND account.organization_id = ${organizationId}::uuid
           AND listing.organization_id = ${organizationId}::uuid
@@ -352,6 +353,102 @@ implements ChannelSkuMappingRepositoryPort {
     await this.prisma.$transaction(operations);
   }
 
+  async applyAutomaticMatches(
+    organizationId: string,
+    updates: ChannelSkuAutomaticMatchUpdate[],
+  ): Promise<{ applied: number; skippedConfirmed: number }> {
+    const updateById = new Map(updates.map((update) => [update.channelSkuId, update]));
+    const channelSkuIds = [...updateById.keys()];
+    if (channelSkuIds.length === 0) return { applied: 0, skippedConfirmed: 0 };
+
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT sku.id
+        FROM channel_listing_options AS sku
+        INNER JOIN channel_listings AS listing
+          ON listing.id = sku.listing_id
+         AND listing.organization_id = sku.organization_id
+         AND listing.channel_account_id = sku.channel_account_id
+        INNER JOIN channel_accounts AS account
+          ON account.id = sku.channel_account_id
+         AND account.organization_id = sku.organization_id
+        INNER JOIN source_import_runs AS import_run
+          ON import_run.id = sku.last_import_run_id
+         AND import_run.organization_id = sku.organization_id
+         AND import_run.channel_account_id = sku.channel_account_id
+        WHERE sku.organization_id = ${organizationId}::uuid
+          AND sku.id IN (${Prisma.join(
+            channelSkuIds.map((id) => Prisma.sql`${id}::uuid`),
+          )})
+          AND listing.is_deleted = FALSE
+          AND import_run.source_type = ${QUEUE_SOURCE_TYPE}
+          AND import_run.status = 'completed'
+        ORDER BY sku.id
+        FOR UPDATE OF sku
+      `);
+      const lockedIds = locked.map(({ id }) => id);
+      const confirmed = lockedIds.length === 0
+        ? []
+        : await tx.channelSkuComponent.findMany({
+          where: { organizationId, channelSkuId: { in: lockedIds } },
+          select: { channelSkuId: true },
+          distinct: ['channelSkuId'],
+        });
+      const confirmedIds = new Set(confirmed.map(({ channelSkuId }) => channelSkuId));
+      const eligible = lockedIds
+        .filter((id) => !confirmedIds.has(id))
+        .map((id) => updateById.get(id))
+        .filter((update): update is ChannelSkuAutomaticMatchUpdate => update !== undefined);
+
+      const matched = eligible.filter((update) => update.component !== undefined);
+      if (matched.length > 0) {
+        const masterIds = [...new Set(matched.map((update) =>
+          update.component!.masterProductId))];
+        const ledgers = await tx.inventorySkuMasterProductMap.findMany({
+          where: { organizationId, masterProductId: { in: masterIds } },
+          select: { masterProductId: true, inventorySkuId: true },
+        });
+        const inventorySkuIdByMasterId = new Map(
+          ledgers.map((ledger) => [ledger.masterProductId, ledger.inventorySkuId]),
+        );
+        if (masterIds.some((id) => !inventorySkuIdByMasterId.has(id))) {
+          throw new BadRequestException(
+            'Automatic match target is missing its InventorySku transition ledger',
+          );
+        }
+        await tx.channelSkuComponent.createMany({
+          data: matched.map((update) => ({
+            organizationId,
+            channelSkuId: update.channelSkuId,
+            inventorySkuId: inventorySkuIdByMasterId.get(
+              update.component!.masterProductId,
+            )!,
+            masterProductId: update.component!.masterProductId,
+            quantity: update.component!.quantity,
+            mappingSource: update.component!.mappingSource,
+            createdBy: null,
+          })),
+        });
+      }
+
+      for (const mappingStatus of ['unmatched', 'needs_review', 'matched'] as const) {
+        const ids = eligible
+          .filter((update) => update.mappingStatus === mappingStatus)
+          .map((update) => update.channelSkuId);
+        if (ids.length === 0) continue;
+        await tx.channelListingOption.updateMany({
+          where: { organizationId, id: { in: ids } },
+          data: { mappingStatus },
+        });
+      }
+
+      return {
+        applied: eligible.length,
+        skippedConfirmed: confirmedIds.size,
+      };
+    }, REPLACEMENT_TRANSACTION_OPTIONS);
+  }
+
   async replaceComponents(
     input: ReplaceChannelSkuComponentsRepositoryInput,
   ): Promise<void> {
@@ -391,11 +488,28 @@ implements ChannelSkuMappingRepositoryPort {
           },
         });
         if (input.components.length > 0) {
+          const masterIds = input.components.map(({ masterProductId }) => masterProductId);
+          const ledgers = await tx.inventorySkuMasterProductMap.findMany({
+            where: {
+              organizationId: input.organizationId,
+              masterProductId: { in: masterIds },
+            },
+            select: { masterProductId: true, inventorySkuId: true },
+          });
+          const inventorySkuIdByMasterId = new Map(
+            ledgers.map((ledger) => [ledger.masterProductId, ledger.inventorySkuId]),
+          );
+          if (masterIds.some((id) => !inventorySkuIdByMasterId.has(id))) {
+            throw new BadRequestException(
+              'MasterProduct component is missing its InventorySku transition ledger',
+            );
+          }
           await tx.channelSkuComponent.createMany({
             data: input.components.map((component) => ({
               organizationId: input.organizationId,
               channelSkuId: input.channelSkuId,
-              inventorySkuId: component.inventorySkuId,
+              inventorySkuId: inventorySkuIdByMasterId.get(component.masterProductId)!,
+              masterProductId: component.masterProductId,
               quantity: component.quantity,
               mappingSource: input.mappingSource,
               createdBy: input.userId,
@@ -412,7 +526,7 @@ implements ChannelSkuMappingRepositoryPort {
       }, REPLACEMENT_TRANSACTION_OPTIONS);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
-        throw new BadRequestException('InventorySku component is missing or belongs to another organization');
+        throw new BadRequestException('MasterProduct component is missing or belongs to another organization');
       }
       throw error;
     }
@@ -537,7 +651,16 @@ function toMappingRow(row: SelectedMappingRow): ChannelSkuMappingRow {
       mappingStatus: asMappingStatus(row.mappingStatus),
       updatedAt: row.updatedAt,
     },
-    componentRefs: row.components,
+    componentRefs: row.components.map((component) => {
+      if (!component.masterProductId) {
+        throw new Error(`ChannelSku component is missing MasterProduct identity for ${row.id}`);
+      }
+      return {
+        masterProductId: component.masterProductId,
+        quantity: component.quantity,
+        mappingSource: component.mappingSource,
+      };
+    }),
   };
 }
 

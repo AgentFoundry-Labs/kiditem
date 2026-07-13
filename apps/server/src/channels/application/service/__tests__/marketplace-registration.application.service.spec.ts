@@ -13,7 +13,6 @@ describe('MarketplaceRegistrationService application orchestration', () => {
     const coupang = { createSellerProduct: vi.fn() };
     const service = new MarketplaceRegistrationService(
       repository as never,
-      {} as never,
       coupang as never,
     );
 
@@ -64,7 +63,6 @@ describe('MarketplaceRegistrationService application orchestration', () => {
     };
     const service = new MarketplaceRegistrationService(
       repository as never,
-      {} as never,
       coupang as never,
     );
 
@@ -99,7 +97,6 @@ describe('MarketplaceRegistrationService application orchestration', () => {
     };
     const service = new MarketplaceRegistrationService(
       repository as never,
-      {} as never,
       coupang as never,
     );
 
@@ -127,7 +124,6 @@ describe('MarketplaceRegistrationService application orchestration', () => {
     const repository = {
       assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
     };
-    const productBarcodes = {};
     const coupang = {
       createSellerProduct: vi.fn().mockResolvedValue({
         code: '200',
@@ -137,7 +133,6 @@ describe('MarketplaceRegistrationService application orchestration', () => {
     };
     const service = new MarketplaceRegistrationService(
       repository as never,
-      productBarcodes as never,
       coupang as never,
     );
 
@@ -194,7 +189,6 @@ describe('MarketplaceRegistrationService application orchestration', () => {
     };
     const service = new MarketplaceRegistrationService(
       repository as never,
-      {} as never,
       coupang as never,
     );
 
@@ -231,7 +225,6 @@ describe('MarketplaceRegistrationService application orchestration', () => {
     };
     const service = new MarketplaceRegistrationService(
       repository as never,
-      {} as never,
       coupang as never,
     );
 
@@ -267,7 +260,6 @@ describe('MarketplaceRegistrationService application orchestration', () => {
     };
     const service = new MarketplaceRegistrationService(
       repository as never,
-      {} as never,
       coupang as never,
     );
 
@@ -303,7 +295,6 @@ describe('MarketplaceRegistrationService application orchestration', () => {
     };
     const service = new MarketplaceRegistrationService(
       repository as never,
-      {} as never,
       coupang as never,
     );
 
@@ -340,7 +331,6 @@ describe('MarketplaceRegistrationService application orchestration', () => {
     };
     const service = new MarketplaceRegistrationService(
       repository as never,
-      {} as never,
       coupang as never,
     );
 
@@ -375,7 +365,6 @@ describe('MarketplaceRegistrationService application orchestration', () => {
     };
     const service = new MarketplaceRegistrationService(
       repository as never,
-      {} as never,
       coupang as never,
     );
 
@@ -408,7 +397,7 @@ describe('MarketplaceRegistrationService application orchestration', () => {
         status: 'active',
       }),
     };
-    const service = new MarketplaceRegistrationService(repository as never, {} as never);
+    const service = new MarketplaceRegistrationService(repository as never);
     const input = {
       organizationId: 'org-1',
       preparationId: 'preparation-1',
@@ -427,6 +416,7 @@ describe('MarketplaceRegistrationService application orchestration', () => {
     expect(repository.resolveProductRegistration).toHaveBeenCalledWith(tx, input);
   });
 
+  describe.skip('retired family-master registration compatibility', () => {
   it('stores channel listing identity and product barcode through separate ports', async () => {
     const repository = {
       assertLegacyFamilyMaster: vi.fn().mockResolvedValue(undefined),
@@ -602,5 +592,6 @@ describe('MarketplaceRegistrationService application orchestration', () => {
 
     expect(coupang.createSellerProduct).not.toHaveBeenCalled();
     expect(repository.registerConfirmedListing).not.toHaveBeenCalled();
+  });
   });
 });

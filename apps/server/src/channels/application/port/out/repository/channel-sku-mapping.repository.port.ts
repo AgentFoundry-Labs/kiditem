@@ -54,7 +54,7 @@ export type ChannelSkuMappingRow = {
     updatedAt: Date;
   };
   componentRefs: Array<{
-    inventorySkuId: string;
+    masterProductId: string;
     quantity: number;
     mappingSource: string | null;
   }>;
@@ -73,9 +73,19 @@ export type ReplaceChannelSkuComponentsRepositoryInput = {
   organizationId: string;
   channelSkuId: string;
   userId: string;
-  components: Array<{ inventorySkuId: string; quantity: number }>;
+  components: Array<{ masterProductId: string; quantity: number }>;
   mappingSource: 'manual';
   nextStatus: ChannelSkuMappingStatus;
+};
+
+export type ChannelSkuAutomaticMatchUpdate = {
+  channelSkuId: string;
+  mappingStatus: ChannelSkuMappingStatus;
+  component?: {
+    masterProductId: string;
+    quantity: 1;
+    mappingSource: 'product_code' | 'barcode';
+  };
 };
 
 export const CHANNEL_SKU_MAPPING_REPOSITORY_PORT = Symbol(
@@ -126,5 +136,9 @@ export interface ChannelSkuMappingRepositoryPort {
       mappingStatus: Exclude<ChannelSkuMappingStatus, 'matched'>;
     }>,
   ): Promise<void>;
+  applyAutomaticMatches(
+    organizationId: string,
+    updates: ChannelSkuAutomaticMatchUpdate[],
+  ): Promise<{ applied: number; skippedConfirmed: number }>;
   replaceComponents(input: ReplaceChannelSkuComponentsRepositoryInput): Promise<void>;
 }

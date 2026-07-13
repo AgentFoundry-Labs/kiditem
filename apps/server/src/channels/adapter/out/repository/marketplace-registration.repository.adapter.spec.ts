@@ -1,6 +1,5 @@
 import { ConflictException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { LEGACY_FAMILY_MASTER_SCOPE } from '../../../../common/legacy-family-master-scope';
 import { MarketplaceRegistrationRepositoryAdapter } from './marketplace-registration.repository.adapter';
 
 describe('MarketplaceRegistrationRepositoryAdapter preparation registration', () => {
@@ -17,15 +16,15 @@ describe('MarketplaceRegistrationRepositoryAdapter preparation registration', ()
           .mockResolvedValueOnce({
             id: 'listing-1',
             sourceCandidateId: null,
-            channel: 'coupang',
             channelAccountId: 'account-1',
+            channelAccount: { channel: 'coupang' },
             externalId: '427011919',
             status: 'inactive',
           })
           .mockResolvedValueOnce({
             id: 'listing-1',
-            channel: 'coupang',
             channelAccountId: 'account-1',
+            channelAccount: { channel: 'coupang' },
             externalId: '427011919',
             status: 'active',
           }),
@@ -61,8 +60,6 @@ describe('MarketplaceRegistrationRepositoryAdapter preparation registration', ()
         displayName: 'Kids rain boots',
         status: 'active',
         isActive: true,
-        isDeleted: false,
-        deletedAt: null,
       },
     });
   });
@@ -93,49 +90,5 @@ describe('MarketplaceRegistrationRepositoryAdapter preparation registration', ()
       displayName: 'Kids rain boots',
     })).rejects.toBeInstanceOf(ConflictException);
     expect(tx.channelListing.updateMany).not.toHaveBeenCalled();
-  });
-
-  it('accepts confirmed listings only for legacy-family Masters, not staged Sellpia identities', async () => {
-    const tx = {
-      channelAccount: {
-        findFirst: vi.fn().mockResolvedValue({ id: 'account-1', channel: 'coupang' }),
-      },
-      masterProduct: {
-        findFirst: vi.fn().mockResolvedValue({ id: 'master-1', name: 'Family product' }),
-      },
-      channelListing: {
-        findFirst: vi.fn().mockResolvedValue(null),
-        create: vi.fn().mockResolvedValue({
-          id: 'listing-1',
-          masterId: 'master-1',
-          channel: 'coupang',
-          channelAccountId: 'account-1',
-          externalId: '427011919',
-          channelName: 'Family product',
-          channelPrice: null,
-          status: 'active',
-        }),
-      },
-    };
-    const prisma = {
-      $transaction: vi.fn((callback: (scope: typeof tx) => unknown) => callback(tx)),
-    };
-    const repository = new MarketplaceRegistrationRepositoryAdapter(prisma as never);
-
-    await repository.registerConfirmedListing('org-1', {
-      masterId: 'master-1',
-      channelAccountId: 'account-1',
-      externalId: '427011919',
-    });
-
-    expect(tx.masterProduct.findFirst).toHaveBeenCalledWith({
-      where: {
-        id: 'master-1',
-        organizationId: 'org-1',
-        isDeleted: false,
-        ...LEGACY_FAMILY_MASTER_SCOPE,
-      },
-      select: { id: true, name: true },
-    });
   });
 });

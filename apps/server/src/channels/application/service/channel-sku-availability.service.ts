@@ -77,21 +77,21 @@ export async function hydrateChannelSkuAvailabilityRows(
   rows: ChannelSkuMappingRow[],
   inventory: ChannelsInventorySkuReadPort,
 ): Promise<ChannelSkuAvailabilityItem[]> {
-  const inventorySkuIds = [...new Set(rows.flatMap((row) =>
-    row.componentRefs.map(({ inventorySkuId }) => inventorySkuId)))];
-  const inventoryRows = inventorySkuIds.length
-    ? await inventory.findByIds(organizationId, inventorySkuIds)
+  const masterProductIds = [...new Set(rows.flatMap((row) =>
+    row.componentRefs.map(({ masterProductId }) => masterProductId)))];
+  const inventoryRows = masterProductIds.length
+    ? await inventory.findByIds(organizationId, masterProductIds)
     : [];
   const inventoryById = new Map(inventoryRows.map((row) => [row.id, row]));
-  if (inventorySkuIds.some((id) => !inventoryById.has(id))) {
+  if (masterProductIds.some((id) => !inventoryById.has(id))) {
     throw new InternalServerErrorException(
-      'ChannelSku component references a missing InventorySku',
+      'ChannelSku component references a missing MasterProduct',
     );
   }
 
   return rows.map((row) => {
     const projectedComponents = row.componentRefs.map((component) => {
-      const inventorySku = inventoryById.get(component.inventorySkuId)!;
+      const inventorySku = inventoryById.get(component.masterProductId)!;
       return {
         inventorySku,
         component,
@@ -119,8 +119,8 @@ export async function hydrateChannelSkuAvailabilityRows(
         updatedAt: row.sku.updatedAt.toISOString(),
       },
       components: projectedComponents.map((entry) => ({
-        inventorySkuId: entry.inventorySku.id,
-        sellpiaProductCode: entry.inventorySku.sellpiaProductCode,
+        masterProductId: entry.inventorySku.id,
+        code: entry.inventorySku.sellpiaProductCode,
         name: entry.inventorySku.name,
         optionName: entry.inventorySku.optionName,
         barcode: entry.inventorySku.barcode,

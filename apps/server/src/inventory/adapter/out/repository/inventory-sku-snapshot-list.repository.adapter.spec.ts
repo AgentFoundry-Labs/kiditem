@@ -8,16 +8,17 @@ const UNVERIFIED_RUN_ID = '00000000-0000-4000-8000-000000000003';
 describe('InventorySkuSnapshotListRepositoryAdapter', () => {
   it('reads every snapshot fact in one repeatable-read transaction and nulls unverified provenance', async () => {
     const tx = {
-      inventorySku: {
+      masterProduct: {
         findMany: vi.fn().mockResolvedValue([{
           id: SKU_ID,
           sellpiaProductCode: 'SP-001',
-          name: '상품',
+          sellpiaName: '상품',
           optionName: null,
-          barcode: null,
+          sellpiaBarcode: null,
           currentStock: 3,
           purchasePrice: 1_000,
           salePrice: null,
+          isActive: true,
           lastImportRunId: UNVERIFIED_RUN_ID,
         }]),
         count: vi.fn().mockResolvedValue(1),
@@ -39,7 +40,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       throw new Error('snapshot read escaped the transaction');
     });
     const prisma = {
-      inventorySku: {
+      masterProduct: {
         findMany: outsideTransaction,
         count: outsideTransaction,
       },
@@ -56,14 +57,15 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       skip: 0,
       take: 50,
       stockStatus: 'all',
+      activeStatus: 'active',
     });
 
     expect(prisma.$transaction).toHaveBeenCalledWith(
       expect.any(Function),
       { isolationLevel: 'RepeatableRead' },
     );
-    expect(tx.inventorySku.findMany).toHaveBeenCalledOnce();
-    expect(tx.inventorySku.count).toHaveBeenCalledOnce();
+    expect(tx.masterProduct.findMany).toHaveBeenCalledOnce();
+    expect(tx.masterProduct.count).toHaveBeenCalledOnce();
     expect(tx.$queryRaw).toHaveBeenCalledOnce();
     expect(tx.sourceImportRun.findFirst).toHaveBeenCalledOnce();
     expect(tx.sourceImportRun.findMany).toHaveBeenCalledOnce();

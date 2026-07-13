@@ -9,19 +9,29 @@ export const InventorySkuStockStatusSchema = z.enum([
 ]);
 export type InventorySkuStockStatus = z.infer<typeof InventorySkuStockStatusSchema>;
 
+export const SellpiaMasterActiveStatusSchema = z.enum([
+  'all',
+  'active',
+  'inactive',
+]);
+export type SellpiaMasterActiveStatus = z.infer<
+  typeof SellpiaMasterActiveStatusSchema
+>;
+
 export const InventorySkuSnapshotItemSchema = z.object({
-  id: z.string().uuid(),
-  sellpiaProductCode: z.string().min(1),
+  masterProductId: z.string().uuid(),
+  code: z.string().min(1),
   name: z.string().min(1),
   optionName: z.string().nullable(),
   barcode: z.string().nullable(),
   currentStock: z.number().int().nonnegative(),
   purchasePrice: z.number().int().nonnegative().nullable(),
   salePrice: z.number().int().nonnegative().nullable(),
+  isActive: z.boolean(),
   stockValue: z.number().int().nonnegative().nullable(),
   lastImportRunId: z.string().uuid().nullable(),
   lastImportedAt: zIsoDate.nullable(),
-}).superRefine((value, ctx) => {
+}).strict().superRefine((value, ctx) => {
   if (value.purchasePrice === null && value.stockValue !== null) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,

@@ -6,7 +6,7 @@ export type ImportClaim =
   | { kind: 'duplicate'; response: SellpiaInventoryImportResponse }
   | { kind: 'running' };
 
-export interface InventorySkuImportRepositoryPort {
+export interface SellpiaMasterImportRepositoryPort {
   claimSellpiaImport(input: {
     organizationId: string;
     userId: string;
@@ -29,6 +29,6 @@ export interface InventorySkuImportRepositoryPort {
   ): Promise<void>;
 }
 
-export const INVENTORY_SKU_IMPORT_REPOSITORY_PORT = Symbol(
-  'INVENTORY_SKU_IMPORT_REPOSITORY_PORT',
+export const SELLPIA_MASTER_IMPORT_REPOSITORY_PORT = Symbol(
+  'SELLPIA_MASTER_IMPORT_REPOSITORY_PORT',
 );

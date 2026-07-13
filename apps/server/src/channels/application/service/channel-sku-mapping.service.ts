@@ -20,6 +20,7 @@ import {
   type CandidateInventorySku,
   type ChannelSkuEvidence,
 } from '../../domain/channel-sku-candidate-ranking';
+import { resolveChannelSkuAutomaticMatch } from '../../domain/channel-sku-automatic-match';
 import {
   CHANNELS_INVENTORY_SKU_READ_PORT,
   type ChannelsInventorySkuReadPort,
@@ -86,8 +87,8 @@ export class ChannelSkuMappingService {
     const ranked = rankInventorySkuCandidates({ evidence, ...pools }).slice(0, limit);
     return {
       items: ranked.map((candidate) => ({
-        inventorySkuId: candidate.id,
-        sellpiaProductCode: candidate.sellpiaProductCode,
+        masterProductId: candidate.id,
+        code: candidate.sellpiaProductCode,
         name: candidate.name,
         optionName: candidate.optionName,
         barcode: candidate.barcode,
@@ -116,17 +117,37 @@ export class ChannelSkuMappingService {
         ? this.inventory.findByBarcodes(organizationId, identifiers)
         : Promise.resolve([]),
     ]);
-    const updates = evidenceRows.map((evidence) => ({
-      channelSkuId: evidence.channelSkuId,
-      mappingStatus: statusForUnmappedCandidates(rankInventorySkuCandidates({
-        evidence,
-        exactCodeCandidates,
-        identifierCandidates,
-        nameSuggestionCandidates: [],
-        manualSearchCandidates: [],
-      })),
+    const automaticMasters = dedupeCandidates([
+      ...exactCodeCandidates,
+      ...identifierCandidates,
+    ]).map((candidate) => ({
+      id: candidate.id,
+      code: candidate.sellpiaProductCode,
+      barcode: candidate.barcode,
+      isActive: true,
     }));
-    await this.repository.updateUnmappedStatuses(organizationId, updates);
+    const updates = evidenceRows.map((evidence) => {
+      const match = resolveChannelSkuAutomaticMatch({
+        productCode: evidence.sellerSku,
+        barcode: evidence.barcode,
+      }, automaticMasters);
+      if (match.status !== 'matched') {
+        return {
+          channelSkuId: evidence.channelSkuId,
+          mappingStatus: match.status,
+        };
+      }
+      return {
+        channelSkuId: evidence.channelSkuId,
+        mappingStatus: match.status,
+        component: {
+          masterProductId: match.masterProductId,
+          quantity: match.quantity,
+          mappingSource: match.source,
+        },
+      };
+    });
+    await this.repository.applyAutomaticMatches(organizationId, updates);
     const current = await this.repository.list(organizationId, {
       channelAccountId: input.channelAccountId,
       mappingStatus: 'all',
@@ -153,11 +174,11 @@ export class ChannelSkuMappingService {
     const evidence = await this.requireEvidence(organizationId, channelSkuId);
     let nextStatus: 'matched' | 'needs_review' | 'unmatched';
     if (parsed.data.components.length > 0) {
-      const ids = parsed.data.components.map(({ inventorySkuId }) => inventorySkuId);
+      const ids = parsed.data.components.map(({ masterProductId }) => masterProductId);
       const owned = await this.inventory.findByIds(organizationId, ids);
       const ownedIds = new Set(owned.map(({ id }) => id.toLowerCase()));
       if (ids.some((id) => !ownedIds.has(id.toLowerCase()))) {
-        throw new BadRequestException('One or more InventorySku components do not belong to this organization');
+        throw new BadRequestException('One or more MasterProduct components do not belong to this organization');
       }
       nextStatus = 'matched';
     } else {

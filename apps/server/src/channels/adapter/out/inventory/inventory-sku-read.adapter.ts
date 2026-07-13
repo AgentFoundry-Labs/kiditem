@@ -1,17 +1,17 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
-  INVENTORY_SKU_READ_PORT,
-  type InventorySkuReadModel,
-  type InventorySkuReadPort,
-} from '../../../../inventory/application/port/in/stock/inventory-sku-read.port';
+  SELLPIA_MASTER_PRODUCT_READ_PORT,
+  type SellpiaMasterProductReadModel,
+  type SellpiaMasterProductReadPort,
+} from '../../../../inventory/application/port/in/stock/sellpia-master-product-read.port';
 import type { CandidateInventorySku } from '../../../domain/channel-sku-candidate-ranking';
 import type { ChannelsInventorySkuReadPort } from '../../../application/port/out/cross-domain/inventory-sku-read.port';
 
 @Injectable()
 export class ChannelsInventorySkuReadAdapter implements ChannelsInventorySkuReadPort {
   constructor(
-    @Inject(INVENTORY_SKU_READ_PORT)
-    private readonly inventory: InventorySkuReadPort,
+    @Inject(SELLPIA_MASTER_PRODUCT_READ_PORT)
+    private readonly inventory: SellpiaMasterProductReadPort,
   ) {}
 
   async findByIds(organizationId: string, ids: string[]): Promise<CandidateInventorySku[]> {
@@ -22,7 +22,7 @@ export class ChannelsInventorySkuReadAdapter implements ChannelsInventorySkuRead
     organizationId: string,
     codes: string[],
   ): Promise<CandidateInventorySku[]> {
-    return this.map(this.inventory.findBySellpiaCodes(organizationId, codes));
+    return this.map(this.inventory.findByCodes(organizationId, codes));
   }
 
   async findByBarcodes(
@@ -41,11 +41,11 @@ export class ChannelsInventorySkuReadAdapter implements ChannelsInventorySkuRead
   }
 
   private async map(
-    rows: Promise<InventorySkuReadModel[]>,
+    rows: Promise<SellpiaMasterProductReadModel[]>,
   ): Promise<CandidateInventorySku[]> {
     return (await rows).map((row) => ({
       id: row.id,
-      sellpiaProductCode: row.sellpiaProductCode,
+      sellpiaProductCode: row.code,
       name: row.name,
       optionName: row.optionName,
       barcode: row.barcode,

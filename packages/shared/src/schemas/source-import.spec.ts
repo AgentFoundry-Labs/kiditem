@@ -37,7 +37,11 @@ describe('source import contracts', () => {
     const parsed = SellpiaInventoryImportResponseSchema.parse({
       run,
       duplicate: false,
-      changes: { createdSkuCount: 1964, updatedSkuCount: 0, zeroedSkuCount: 0 },
+      changes: {
+        createdMasterProductCount: 1964,
+        updatedMasterProductCount: 0,
+        inactivatedMasterProductCount: 0,
+      },
     });
     expect(parsed.run.rowCount).toBe(1964);
   });
@@ -85,7 +89,11 @@ describe('source import contracts', () => {
     const result = SellpiaInventoryImportResponseSchema.safeParse({
       run: wingRun,
       duplicate: false,
-      changes: { createdSkuCount: 0, updatedSkuCount: 0, zeroedSkuCount: 0 },
+      changes: {
+        createdMasterProductCount: 0,
+        updatedMasterProductCount: 0,
+        inactivatedMasterProductCount: 0,
+      },
     });
 
     expect(result.success).toBe(false);
@@ -127,7 +135,11 @@ describe('source import contracts', () => {
     const parsed = SellpiaInventoryImportResponseSchema.parse({
       run,
       duplicate: true,
-      changes: { createdSkuCount: 0, updatedSkuCount: 0, zeroedSkuCount: 0 },
+      changes: {
+        createdMasterProductCount: 0,
+        updatedMasterProductCount: 0,
+        inactivatedMasterProductCount: 0,
+      },
     });
     expect(parsed.duplicate).toBe(true);
   });
@@ -140,12 +152,20 @@ describe('source import contracts', () => {
     expect(() => SellpiaInventoryImportResponseSchema.parse({
       run: { ...run, status: 'running', importedAt: null },
       duplicate: false,
-      changes: { createdSkuCount: 0, updatedSkuCount: 0, zeroedSkuCount: 0 },
+      changes: {
+        createdMasterProductCount: 0,
+        updatedMasterProductCount: 0,
+        inactivatedMasterProductCount: 0,
+      },
     })).toThrow();
     expect(() => SellpiaInventoryImportResponseSchema.parse({
       run,
       duplicate: true,
-      changes: { createdSkuCount: 1, updatedSkuCount: 0, zeroedSkuCount: 0 },
+      changes: {
+        createdMasterProductCount: 1,
+        updatedMasterProductCount: 0,
+        inactivatedMasterProductCount: 0,
+      },
     })).toThrow();
   });
 });

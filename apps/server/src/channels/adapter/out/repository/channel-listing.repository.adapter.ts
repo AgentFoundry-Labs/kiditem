@@ -36,7 +36,6 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
     const where: Prisma.ChannelListingWhereInput = {
       organizationId,
       isDeleted: includeDeleted,
-      masterId: { not: null },
       ...(query.channel ? { channel: query.channel } : {}),
       ...(query.channelAccountId ? { channelAccountId: query.channelAccountId } : {}),
       ...(createdSince ? { createdAt: { gte: createdSince } } : {}),
@@ -45,6 +44,7 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
             OR: [
               { externalId: { contains: search, mode: Prisma.QueryMode.insensitive } },
               { channelName: { contains: search, mode: Prisma.QueryMode.insensitive } },
+              { displayName: { contains: search, mode: Prisma.QueryMode.insensitive } },
               { master: { name: { contains: search, mode: Prisma.QueryMode.insensitive } } },
               { master: { code: { contains: search, mode: Prisma.QueryMode.insensitive } } },
             ],
@@ -53,7 +53,7 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
     };
     const orderBy: Prisma.ChannelListingOrderByWithRelationInput[] =
       query.sort === 'oldest' ? [{ updatedAt: 'asc' as const }, { id: 'asc' as const }] :
-      query.sort === 'name_asc' ? [{ master: { name: 'asc' as const } }, { updatedAt: 'desc' as const }] :
+      query.sort === 'name_asc' ? [{ displayName: 'asc' as const }, { updatedAt: 'desc' as const }] :
       [{ updatedAt: 'desc' as const }, { id: 'desc' as const }];
 
     const total = await this.prisma.channelListing.count({ where });
@@ -70,18 +70,6 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
             name: true,
             thumbnailUrl: true,
             imageUrl: true,
-            productPreparations: {
-              where: {
-                organizationId,
-                isCurrentForMaster: true,
-                isDeleted: false,
-              },
-              take: 1,
-              select: {
-                sourceCandidateId: true,
-                contentWorkspaceId: true,
-              },
-            },
           },
         },
         channelAccount: {
@@ -95,12 +83,30 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
             isPrimary: true,
           },
         },
-        _count: { select: { options: true } },
+        options: { select: { mappingStatus: true } },
+        contentWorkspaces: {
+          where: { organizationId, status: 'active', isDeleted: false },
+          take: 1,
+          select: {
+            id: true,
+            currentDetailPageArtifactId: true,
+            currentDetailPageRevisionId: true,
+            currentThumbnailSelection: {
+              select: { contentAsset: { select: { url: true } } },
+            },
+          },
+        },
+        thumbnails: {
+          where: { organizationId, status: 'active' },
+          orderBy: { updatedAt: 'desc' },
+          take: 1,
+          select: { imageUrl: true },
+        },
       },
     });
     const groupedCounts = await this.prisma.channelListing.groupBy({
       by: ['channel', 'channelAccountId'],
-      where: { organizationId, isDeleted: includeDeleted, masterId: { not: null } },
+      where: { organizationId, isDeleted: includeDeleted },
       orderBy: [{ channel: 'asc' }, { channelAccountId: 'asc' }],
       _count: { id: true },
     });
@@ -118,31 +124,37 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
     });
 
     const accountById = new Map(accounts.map((account) => [account.id, account]));
-    const items: ChannelListingListResult['items'] = [];
-    for (const row of rows) {
-      if (!row.master || !row.masterId) continue;
-      const preparation = row.master.productPreparations[0] ?? null;
-      items.push({
+    const items: ChannelListingListResult['items'] = rows.map((row) => {
+      const workspace = row.contentWorkspaces[0] ?? null;
+      return {
         id: row.id,
         masterId: row.masterId,
-        masterCode: row.master.code,
-        masterName: row.master.name,
-        thumbnailUrl: row.master.thumbnailUrl ?? row.master.imageUrl ?? null,
-        channel: row.channel,
+        masterCode: row.master?.code ?? null,
+        masterName: row.master?.name ?? null,
+        listingName: row.displayName ?? row.channelName ?? row.master?.name ?? row.externalId,
+        thumbnailUrl: workspace?.currentThumbnailSelection?.contentAsset.url
+          ?? row.thumbnails[0]?.imageUrl
+          ?? row.master?.thumbnailUrl
+          ?? row.master?.imageUrl
+          ?? null,
+        detailPageArtifactId: workspace?.currentDetailPageArtifactId ?? null,
+        detailPageRevisionId: workspace?.currentDetailPageRevisionId ?? null,
+        channel: row.channelAccount?.channel ?? row.channel,
         channelAccountId: row.channelAccountId,
         channelAccountName: row.channelAccount?.name ?? null,
         externalId: row.externalId,
         channelName: row.channelName,
         channelPrice: row.channelPrice,
-        sourceCandidateId: preparation?.sourceCandidateId ?? null,
-        contentWorkspaceId: preparation?.contentWorkspaceId ?? null,
+        sourceCandidateId: row.sourceCandidateId,
+        contentWorkspaceId: workspace?.id ?? null,
         status: row.status,
         exposureStatus: row.exposureStatus,
-        optionCount: row._count.options,
+        optionCount: row.options.length,
+        mappingStatus: aggregateMappingStatus(row.options),
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
-      });
-    }
+      };
+    });
     return {
       items,
       total,
@@ -285,7 +297,10 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
         masterId: master.id,
         masterCode: master.code,
         masterName: master.name,
+        listingName: row.channelName ?? master.name,
         thumbnailUrl: master.thumbnailUrl ?? master.imageUrl ?? null,
+        detailPageArtifactId: null,
+        detailPageRevisionId: null,
         channel: row.channel,
         channelAccountId: row.channelAccountId,
         channelAccountName: row.channelAccount?.name ?? null,
@@ -297,6 +312,7 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
         status: row.status,
         exposureStatus: row.exposureStatus,
         optionCount: row._count.options,
+        mappingStatus: 'unmatched' as const,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
       }));
@@ -340,7 +356,6 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
         id: listingId,
         organizationId,
         isDeleted: false,
-        masterId: { not: null },
       },
       include: {
         master: {
@@ -350,18 +365,6 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
             name: true,
             thumbnailUrl: true,
             imageUrl: true,
-            productPreparations: {
-              where: {
-                organizationId,
-                isCurrentForMaster: true,
-                isDeleted: false,
-              },
-              take: 1,
-              select: {
-                sourceCandidateId: true,
-                contentWorkspaceId: true,
-              },
-            },
           },
         },
         channelAccount: {
@@ -375,34 +378,69 @@ export class ChannelListingRepositoryAdapter implements ChannelListingRepository
             isPrimary: true,
           },
         },
-        _count: { select: { options: true } },
+        options: { select: { mappingStatus: true } },
+        contentWorkspaces: {
+          where: { organizationId, status: 'active', isDeleted: false },
+          take: 1,
+          select: {
+            id: true,
+            currentDetailPageArtifactId: true,
+            currentDetailPageRevisionId: true,
+            currentThumbnailSelection: {
+              select: { contentAsset: { select: { url: true } } },
+            },
+          },
+        },
+        thumbnails: {
+          where: { organizationId, status: 'active' },
+          orderBy: { updatedAt: 'desc' },
+          take: 1,
+          select: { imageUrl: true },
+        },
       },
     });
 
-    if (!row || !row.master || !row.masterId) {
+    if (!row) {
       throw new NotFoundException('등록 상품을 찾을 수 없습니다.');
     }
 
-    const preparation = row.master.productPreparations[0] ?? null;
+    const workspace = row.contentWorkspaces[0] ?? null;
     return {
       id: row.id,
       masterId: row.masterId,
-      masterCode: row.master.code,
-      masterName: row.master.name,
-      thumbnailUrl: row.master.thumbnailUrl ?? row.master.imageUrl ?? null,
-      channel: row.channel,
+      masterCode: row.master?.code ?? null,
+      masterName: row.master?.name ?? null,
+      listingName: row.displayName ?? row.channelName ?? row.master?.name ?? row.externalId,
+      thumbnailUrl: workspace?.currentThumbnailSelection?.contentAsset.url
+        ?? row.thumbnails[0]?.imageUrl
+        ?? row.master?.thumbnailUrl
+        ?? row.master?.imageUrl
+        ?? null,
+      detailPageArtifactId: workspace?.currentDetailPageArtifactId ?? null,
+      detailPageRevisionId: workspace?.currentDetailPageRevisionId ?? null,
+      channel: row.channelAccount?.channel ?? row.channel,
       channelAccountId: row.channelAccountId,
       channelAccountName: row.channelAccount?.name ?? null,
       externalId: row.externalId,
       channelName: row.channelName,
       channelPrice: row.channelPrice,
-      sourceCandidateId: preparation?.sourceCandidateId ?? null,
-      contentWorkspaceId: preparation?.contentWorkspaceId ?? null,
+      sourceCandidateId: row.sourceCandidateId,
+      contentWorkspaceId: workspace?.id ?? null,
       status: row.status,
       exposureStatus: row.exposureStatus,
-      optionCount: row._count.options,
+      optionCount: row.options.length,
+      mappingStatus: aggregateMappingStatus(row.options),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
   }
+}
+
+function aggregateMappingStatus(
+  options: Array<{ mappingStatus: string }>,
+): 'matched' | 'unmatched' | 'needs_review' {
+  if (options.length === 0) return 'unmatched';
+  if (options.some((option) => option.mappingStatus === 'needs_review')) return 'needs_review';
+  if (options.every((option) => option.mappingStatus === 'matched')) return 'matched';
+  return 'unmatched';
 }

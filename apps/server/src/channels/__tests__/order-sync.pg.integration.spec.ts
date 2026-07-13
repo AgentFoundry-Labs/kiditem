@@ -20,6 +20,8 @@ import {
 describe('Order sync (PG integration)', () => {
   let prisma: PrismaClient;
   let service: ChannelSyncService;
+  let repository: ChannelSyncRepositoryAdapter;
+  let channelAccountId: string;
   const organizationId = TEST_ORGANIZATION_ID;
 
   beforeAll(async () => {
@@ -58,6 +60,7 @@ describe('Order sync (PG integration)', () => {
       ],
     }).compile();
     service = m.get(ChannelSyncService);
+    repository = m.get(ChannelSyncRepositoryAdapter);
   });
 
   afterAll(async () => {
@@ -67,6 +70,17 @@ describe('Order sync (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId,
+        channel: 'coupang',
+        name: 'Primary Wing',
+        externalAccountId: 'ORDER-SYNC-PRIMARY',
+        isPrimary: true,
+        status: 'active',
+      },
+    });
+    channelAccountId = account.id;
   });
 
   it('first sync creates Order + OrderLineItem', async () => {
@@ -95,6 +109,7 @@ describe('Order sync (PG integration)', () => {
     });
     expect(orders).toHaveLength(1);
     expect(orders[0].platform).toBe('coupang');
+    expect(orders[0].channelAccountId).toBe(channelAccountId);
     expect(orders[0].externalOrderId).toBe('SBX-1');
     expect(orders[0].externalNumber).toBe('CO-1');
     expect(orders[0].totalPrice).toBe(200);
@@ -141,7 +156,7 @@ describe('Order sync (PG integration)', () => {
     expect(orders[0].lineItems[0].quantity).toBe(5);
   });
 
-  it('vendorItemId match → optionId + sku denormalized', async () => {
+  it('vendorItemId match links listingOption and preserves provider SKU without ProductOption ownership', async () => {
     const master = await prisma.masterProduct.create({
       data: {
         organizationId,
@@ -163,6 +178,7 @@ describe('Order sync (PG integration)', () => {
       data: {
         organizationId,
         masterId: master.id,
+        channelAccountId,
         channel: 'coupang',
         externalId: `LST-${Date.now()}`,
       },
@@ -170,10 +186,12 @@ describe('Order sync (PG integration)', () => {
     const listingOption = await prisma.channelListingOption.create({
       data: {
         organizationId,
+        channelAccountId,
         listingId: listing.id,
         optionId: option.id,
         externalOptionId: 'V_KNOWN',
         itemName: 'Red',
+        sellerSku: option.sku,
       },
     });
 
@@ -201,7 +219,7 @@ describe('Order sync (PG integration)', () => {
     });
     expect(lineItems).toHaveLength(1);
     expect(lineItems[0].listingOptionId).toBe(listingOption.id);
-    expect(lineItems[0].optionId).toBe(option.id);
+    expect(lineItems[0].optionId).toBeNull();
     expect(lineItems[0].sku).toBe(option.sku);
   });
 
@@ -258,10 +276,48 @@ describe('Order sync (PG integration)', () => {
     });
     expect(returns).toHaveLength(1);
     expect(returns[0].platform).toBe('coupang');
+    expect(returns[0].channelAccountId).toBe(channelAccountId);
     expect(returns[0].externalReturnId).toBe('RCT-1');
     expect(returns[0].type).toBe('RETURN');
     expect(returns[0].lineItems).toHaveLength(2);
     const names = returns[0].lineItems.map((li) => li.productName).sort();
     expect(names).toEqual(['Book', 'Toy']);
+  });
+
+  it('scopes identical external order IDs independently to each ChannelAccount', async () => {
+    const secondAccount = await prisma.channelAccount.create({
+      data: {
+        organizationId,
+        channel: 'coupang',
+        name: 'Secondary Wing',
+        externalAccountId: 'ORDER-SYNC-SECONDARY',
+        status: 'active',
+      },
+    });
+    const payload = {
+      shipmentBoxId: 'SBX-SHARED',
+      orderId: 'CO-SHARED',
+      status: 'ACCEPT',
+      orderedAt: '2026-04-18T00:00:00Z',
+      orderItems: [{
+        vendorItemId: 'V-SHARED',
+        sellerProductName: 'Shared external order',
+        shippingCount: 1,
+        salesPrice: 100,
+        orderPrice: 100,
+      }],
+    };
+
+    await repository.syncSingleOrder(organizationId, channelAccountId, payload as never);
+    await repository.syncSingleOrder(organizationId, secondAccount.id, payload as never);
+
+    const orders = await prisma.order.findMany({
+      where: { organizationId, externalOrderId: 'SBX-SHARED' },
+      orderBy: { channelAccountId: 'asc' },
+    });
+    expect(orders).toHaveLength(2);
+    expect(new Set(orders.map((order) => order.channelAccountId))).toEqual(
+      new Set([channelAccountId, secondAccount.id]),
+    );
   });
 });

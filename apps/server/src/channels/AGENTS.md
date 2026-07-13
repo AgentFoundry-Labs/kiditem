@@ -44,7 +44,7 @@ channels/
   physical table `channel_listing_options`. It stores independent metadata for
   one SKU in one `ChannelAccount`; `optionId` is not inventory matching truth.
 - `ChannelSkuComponent` is the confirmed mapping from one marketplace SKU to
-  one or more Sellpia `InventorySku` rows with the exact positive quantity
+  one or more physical Sellpia `MasterProduct` rows with the exact positive quantity
   consumed by one sale.
 - Channel daily snapshots and scrape audit rows support dashboard/reporting
   reads.
@@ -80,15 +80,15 @@ Coupang provider
   -> channel repository ports
   -> ChannelListing / ChannelListingOption / Order / Return rows
   -> completed catalog SKU queue
-  -> live InventorySku evidence/candidate reads
+  -> live physical MasterProduct evidence/candidate reads
   -> operator-confirmed ChannelSkuComponent recipe
   -> sellableStock = min(floor(component.currentStock / component.quantity))
 ```
 
 Sellpia component matching reads only completed `coupang_wing_catalog` rows.
 Channels owns candidate ranking and atomic component replacement; Inventory
-owns the exported read-only `INVENTORY_SKU_READ_PORT`. Candidate rows are live
-suggestions only and are never persisted or auto-confirmed.
+owns the exported read-only `SELLPIA_MASTER_PRODUCT_READ_PORT`. Candidate rows
+are live suggestions only and are never persisted or auto-confirmed.
 
 A confirmed recipe is the only capacity input. An unmapped or review-required
 SKU has `sellableStock = null`; zero is reserved for a mapped recipe whose
@@ -119,7 +119,9 @@ the supported workflow and verification counts.
   exposed through channels-owned ports/adapters instead of direct provider HTTP
   from orders services.
 - Sellpia candidate reads use the Channels-local
-  `CHANNELS_INVENTORY_SKU_READ_PORT` bridge to Inventory's owner port.
+  `CHANNELS_INVENTORY_SKU_READ_PORT` anti-corruption bridge to Inventory's
+  physical MasterProduct owner port. The local token keeps the legacy name
+  only for the `0.1.9` expand/contract release.
 - `ChannelsModule` exports `CHANNEL_SKU_AVAILABILITY_PORT` for server consumers
   that need the same nullable capacity projection.
 - `ChannelsModule` exports
@@ -146,7 +148,7 @@ the supported workflow and verification counts.
   result errors.
 - Confirmed ChannelSku component replacement validates tenant ownership before
   deletion, then locks, deletes, recreates, and updates status atomically. It
-  never writes `InventorySku.currentStock`.
+  never writes `MasterProduct.currentStock`.
 - Coupang image synchronization is a separate media workflow. It does not
   create, refresh, or confirm ChannelSku matching rows.
 - Wing and Rocket are separate `ChannelAccount` rows (`channel='coupang'` and

@@ -41,8 +41,8 @@ describe('ChannelSkuMappingService', () => {
 
     expect(inventory.findByIds).toHaveBeenCalledWith(organizationId, [inventorySkuId]);
     expect(result.items[0]?.components[0]).toEqual({
-      inventorySkuId,
-      sellpiaProductCode: 'SP-001',
+      masterProductId: inventorySkuId,
+      code: 'SP-001',
       name: 'Sellpia item',
       optionName: 'Blue',
       barcode: '8801234567890',
@@ -134,9 +134,14 @@ describe('ChannelSkuMappingService', () => {
       'exact_sellpia_code',
       'unique_barcode',
     ]);
+    expect(result.items[0]).toMatchObject({
+      masterProductId: inventorySkuId,
+      code: 'SP-001',
+    });
+    expect(result.items[0]).not.toHaveProperty('inventorySkuId');
   });
 
-  it('refreshes only unmapped advisory statuses from batched deterministic evidence', async () => {
+  it('atomically applies exact-code and unique-barcode matches to only unmapped SKUs', async () => {
     const repository = makeRepository();
     repository.listUnmappedEvidence.mockResolvedValue([
       evidence({ channelSkuId, sellerSku: 'SP-001' }),
@@ -149,13 +154,16 @@ describe('ChannelSkuMappingService', () => {
     repository.list.mockResolvedValue({ rows: [], total: 0, counts: {
       all: 2,
       unmatched: 0,
-      needsReview: 2,
-      matched: 0,
+      needsReview: 0,
+      matched: 2,
     } });
     const inventory = makeInventory();
     inventory.findBySellpiaCodes.mockResolvedValue([inventorySku(inventorySkuId)]);
     inventory.findByBarcodes.mockResolvedValue([
-      inventorySku(secondInventorySkuId, { barcode: '88012345678' }),
+      inventorySku(secondInventorySkuId, {
+        sellpiaProductCode: 'SP-BAR',
+        barcode: '88012345678',
+      }),
     ]);
     const service = new ChannelSkuMappingService(repository, inventory);
 
@@ -165,22 +173,37 @@ describe('ChannelSkuMappingService', () => {
 
     expect(inventory.findBySellpiaCodes).toHaveBeenCalledTimes(1);
     expect(inventory.findByBarcodes).toHaveBeenCalledTimes(1);
-    expect(repository.updateUnmappedStatuses).toHaveBeenCalledWith(organizationId, [
-      { channelSkuId, mappingStatus: 'needs_review' },
-      { channelSkuId: secondInventorySkuId, mappingStatus: 'needs_review' },
+    expect(repository.applyAutomaticMatches).toHaveBeenCalledWith(organizationId, [
+      {
+        channelSkuId,
+        mappingStatus: 'matched',
+        component: {
+          masterProductId: inventorySkuId,
+          quantity: 1,
+          mappingSource: 'product_code',
+        },
+      },
+      {
+        channelSkuId: secondInventorySkuId,
+        mappingStatus: 'matched',
+        component: {
+          masterProductId: secondInventorySkuId,
+          quantity: 1,
+          mappingSource: 'barcode',
+        },
+      },
     ]);
-    expect(repository.updateUnmappedStatuses.mock.calls[0]?.[1])
-      .not.toContainEqual(expect.objectContaining({ mappingStatus: 'matched' }));
-    expect(result).toEqual({ all: 2, unmatched: 0, needsReview: 2, matched: 0 });
+    expect(repository.updateUnmappedStatuses).not.toHaveBeenCalled();
+    expect(result).toEqual({ all: 2, unmatched: 0, needsReview: 0, matched: 2 });
   });
 
   it.each([
     [{ components: [
-      { inventorySkuId, quantity: 1 },
-      { inventorySkuId, quantity: 2 },
+      { masterProductId: inventorySkuId, quantity: 1 },
+      { masterProductId: inventorySkuId, quantity: 2 },
     ] }],
-    [{ components: [{ inventorySkuId, quantity: 0 }] }],
-    [{ components: [{ inventorySkuId, quantity: 2_147_483_648 }] }],
+    [{ components: [{ masterProductId: inventorySkuId, quantity: 0 }] }],
+    [{ components: [{ masterProductId: inventorySkuId, quantity: 2_147_483_648 }] }],
   ])('rejects invalid complete replacements before any repository mutation', async (input) => {
     const repository = makeRepository();
     const service = new ChannelSkuMappingService(repository, makeInventory());
@@ -204,8 +227,8 @@ describe('ChannelSkuMappingService', () => {
 
     await expect(service.replaceComponents(organizationId, userId, channelSkuId, {
       components: [
-        { inventorySkuId, quantity: 1 },
-        { inventorySkuId: secondInventorySkuId, quantity: 2 },
+        { masterProductId: inventorySkuId, quantity: 1 },
+        { masterProductId: secondInventorySkuId, quantity: 2 },
       ],
     })).rejects.toBeInstanceOf(BadRequestException);
     expect(repository.replaceComponents).not.toHaveBeenCalled();
@@ -220,14 +243,14 @@ describe('ChannelSkuMappingService', () => {
     const service = new ChannelSkuMappingService(repository, inventory);
 
     const result = await service.replaceComponents(organizationId, userId, channelSkuId, {
-      components: [{ inventorySkuId, quantity: 4 }],
+      components: [{ masterProductId: inventorySkuId, quantity: 4 }],
     });
 
     expect(repository.replaceComponents).toHaveBeenCalledWith({
       organizationId,
       userId,
       channelSkuId,
-      components: [{ inventorySkuId, quantity: 4 }],
+      components: [{ masterProductId: inventorySkuId, quantity: 4 }],
       mappingSource: 'manual',
       nextStatus: 'matched',
     });
@@ -261,7 +284,7 @@ describe('ChannelSkuMappingService', () => {
     const service = new ChannelSkuMappingService(repository, inventory);
 
     await expect(service.replaceComponents(organizationId, userId, channelSkuId, {
-      components: [{ inventorySkuId, quantity: 1 }],
+      components: [{ masterProductId: inventorySkuId, quantity: 1 }],
     })).rejects.toBe(mutationError);
     expect(repository.findOne).not.toHaveBeenCalled();
   });
@@ -295,6 +318,9 @@ function makeRepository() {
     updateUnmappedStatuses: vi
       .fn<ChannelSkuMappingRepositoryPort['updateUnmappedStatuses']>()
       .mockResolvedValue(undefined),
+    applyAutomaticMatches: vi
+      .fn<ChannelSkuMappingRepositoryPort['applyAutomaticMatches']>()
+      .mockResolvedValue({ applied: 0, skippedConfirmed: 0 }),
     replaceComponents: vi
       .fn<ChannelSkuMappingRepositoryPort['replaceComponents']>()
       .mockResolvedValue(undefined),
@@ -351,7 +377,7 @@ function mappingRow(
 }
 
 function componentRef(id: string, quantity: number) {
-  return { inventorySkuId: id, quantity, mappingSource: 'manual' };
+  return { masterProductId: id, quantity, mappingSource: 'manual' };
 }
 
 function evidence(

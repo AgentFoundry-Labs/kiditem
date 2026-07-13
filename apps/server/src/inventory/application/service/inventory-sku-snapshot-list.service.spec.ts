@@ -3,7 +3,7 @@ import type { InventorySkuSnapshotListRepositoryPort } from '../port/out/reposit
 import { InventorySkuSnapshotListService } from './inventory-sku-snapshot-list.service';
 
 const organizationId = '00000000-0000-4000-8000-000000000001';
-const inventorySkuId = '00000000-0000-4000-8000-000000000002';
+const masterProductId = '00000000-0000-4000-8000-000000000002';
 const runId = '00000000-0000-4000-8000-000000000003';
 
 describe('InventorySkuSnapshotListService', () => {
@@ -11,14 +11,15 @@ describe('InventorySkuSnapshotListService', () => {
     const repository = makeRepository();
     repository.listSnapshot.mockResolvedValueOnce({
       rows: [{
-        id: inventorySkuId,
-        sellpiaProductCode: 'SP-001',
+        masterProductId,
+        code: 'SP-001',
         name: '상품',
         optionName: '파랑',
         barcode: null,
         currentStock: 8,
         purchasePrice: 1_000,
         salePrice: null,
+        isActive: true,
         lastImportRunId: runId,
         lastImportedAt: new Date('2026-07-12T00:00:00.000Z'),
       }],
@@ -46,6 +47,7 @@ describe('InventorySkuSnapshotListService', () => {
       limit: 25,
       query: '  상품  ',
       stockStatus: 'in_stock',
+      activeStatus: 'active',
     });
 
     expect(repository.listSnapshot).toHaveBeenCalledWith(organizationId, {
@@ -53,17 +55,19 @@ describe('InventorySkuSnapshotListService', () => {
       take: 25,
       query: '상품',
       stockStatus: 'in_stock',
+      activeStatus: 'active',
     });
     expect(result).toEqual({
       items: [{
-        id: inventorySkuId,
-        sellpiaProductCode: 'SP-001',
+        masterProductId,
+        code: 'SP-001',
         name: '상품',
         optionName: '파랑',
         barcode: null,
         currentStock: 8,
         purchasePrice: 1_000,
         salePrice: null,
+        isActive: true,
         stockValue: 8_000,
         lastImportRunId: runId,
         lastImportedAt: '2026-07-12T00:00:00.000Z',
@@ -93,14 +97,15 @@ describe('InventorySkuSnapshotListService', () => {
     const repository = makeRepository();
     repository.listSnapshot.mockResolvedValueOnce({
       rows: [{
-        id: inventorySkuId,
-        sellpiaProductCode: 'SP-NULL',
+        masterProductId,
+        code: 'SP-NULL',
         name: '가격 없음',
         optionName: null,
         barcode: null,
         currentStock: 4,
         purchasePrice: null,
         salePrice: null,
+        isActive: false,
         lastImportRunId: null,
         lastImportedAt: null,
       }],
@@ -117,6 +122,7 @@ describe('InventorySkuSnapshotListService', () => {
       take: 50,
       query: undefined,
       stockStatus: 'all',
+      activeStatus: 'active',
     });
     expect(result.items[0]?.stockValue).toBeNull();
     expect(result.latestImport).toBeNull();

@@ -9,9 +9,9 @@ import type {
   PickingRepositoryPort,
 } from '../../../application/port/out/repository/picking.repository.port';
 
-const INVENTORY_SKU_INCLUDE = { inventorySku: true } as const;
+const MASTER_PRODUCT_INCLUDE = { masterProduct: true } as const;
 const LIST_WITH_ITEMS_INCLUDE = {
-  items: { include: INVENTORY_SKU_INCLUDE },
+  items: { include: MASTER_PRODUCT_INCLUDE },
 } as const;
 
 @Injectable()
@@ -32,63 +32,28 @@ export class PickingRepositoryAdapter implements PickingRepositoryPort {
     items: PickableItem[],
   ): Promise<PickingListRow> {
     return this.prisma.$transaction(async (tx) => {
-      const inventoryIds = [...new Set(items.map((item) => item.inventorySkuId))];
-      const inventorySkus = await tx.inventorySku.findMany({
-        where: { id: { in: inventoryIds }, organizationId },
-        select: { id: true, sellpiaProductCode: true },
-      });
-      if (inventorySkus.length !== inventoryIds.length) {
-        throw new NotFoundException('InventorySku not found');
-      }
-      const codes = [...new Set(inventorySkus.map((row) => row.sellpiaProductCode))];
-      const legacyOptions = await tx.productOption.findMany({
+      const masterProductIds = [...new Set(items.map((item) => item.masterProductId))];
+      const masterProducts = await tx.masterProduct.findMany({
         where: {
+          id: { in: masterProductIds },
           organizationId,
+          sellpiaProductCode: { not: null },
           isDeleted: false,
-          legacyCode: { in: codes },
         },
-        select: { id: true, legacyCode: true, sku: true },
+        select: { id: true },
       });
-      const optionByCode = new Map<string, string>();
-      for (const option of legacyOptions) {
-        if (option.legacyCode) {
-          optionByCode.set(option.legacyCode, option.id);
-        }
+      if (masterProducts.length !== masterProductIds.length) {
+        throw new NotFoundException('MasterProduct not found');
       }
-      const fallbackCodes = codes.filter((code) => !optionByCode.has(code));
-      if (fallbackCodes.length > 0) {
-        const skuOptions = await tx.productOption.findMany({
-          where: {
-            organizationId,
-            isDeleted: false,
-            sku: { in: fallbackCodes },
-          },
-          select: { id: true, sku: true },
-        });
-        for (const option of skuOptions) {
-          optionByCode.set(option.sku, option.id);
-        }
-      }
-      const inventoryById = new Map(inventorySkus.map((row) => [row.id, row]));
-      const rows = items.map((item) => {
-        const inventory = inventoryById.get(item.inventorySkuId)!;
-        const optionId = optionByCode.get(inventory.sellpiaProductCode);
-        if (!optionId) {
-          throw new NotFoundException(
-            `Legacy ProductOption mapping not found for ${inventory.sellpiaProductCode}`,
-          );
-        }
-        return {
+      const rows = items.map((item) => ({
           organizationId,
           orderId: item.orderId,
-          optionId,
-          inventorySkuId: item.inventorySkuId,
+          masterProductId: item.masterProductId,
           productName: item.productName,
           sku: item.sku ?? undefined,
           quantity: item.quantity,
           location: undefined,
-        };
-      });
+        }));
       return tx.pickingList.create({
         data: {
           organizationId,
@@ -114,7 +79,7 @@ export class PickingRepositoryAdapter implements PickingRepositoryPort {
   ): Promise<PickingItemRow | null> {
     return this.prisma.pickingItem.findFirst({
       where: { id: itemId, pickingListId: listId },
-      include: INVENTORY_SKU_INCLUDE,
+      include: MASTER_PRODUCT_INCLUDE,
     });
   }
 
@@ -126,7 +91,7 @@ export class PickingRepositoryAdapter implements PickingRepositoryPort {
     return this.prisma.pickingItem.update({
       where: { id: itemId },
       data: prismaData,
-      include: INVENTORY_SKU_INCLUDE,
+      include: MASTER_PRODUCT_INCLUDE,
     });
   }
 

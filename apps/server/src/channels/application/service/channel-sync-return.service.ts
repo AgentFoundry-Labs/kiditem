@@ -3,10 +3,14 @@ import type {
   CoupangSyncReturnPayload,
 } from '../port/out/repository/channel-sync.repository.port';
 
-export function syncSingleCoupangReturn(
+export async function syncSingleCoupangReturn(
   syncRepository: ChannelSyncRepositoryPort,
   payload: CoupangSyncReturnPayload,
   organizationId: string,
 ): Promise<void> {
-  return syncRepository.syncSingleReturn(organizationId, payload);
+  const channelAccountId = await syncRepository.getPrimaryCoupangAccountId(organizationId);
+  if (!channelAccountId) {
+    throw new Error('Active primary Coupang ChannelAccount is required for return sync');
+  }
+  return syncRepository.syncSingleReturn(organizationId, channelAccountId, payload);
 }

@@ -1,4 +1,3 @@
-import { NotFoundException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChannelListingRepositoryAdapter as ChannelListingQueryService } from '../../../adapter/out/repository/channel-listing.repository.adapter';
 import { MarketplaceRegistrationRepositoryAdapter } from '../../../adapter/out/repository/marketplace-registration.repository.adapter';
@@ -17,6 +16,8 @@ function makePrisma() {
           externalId: 'seller-product-1',
           channelName: '쿠팡 등록명',
           channelPrice: 12900,
+          displayName: 'KidItem 등록명',
+          sourceCandidateId: 'candidate-1',
           status: 'active',
           exposureStatus: 'visible',
           createdAt: new Date('2026-05-16T00:00:00.000Z'),
@@ -41,6 +42,16 @@ function makePrisma() {
             sellerId: null,
             isPrimary: true,
           },
+          options: [{ mappingStatus: 'matched' }, { mappingStatus: 'matched' }],
+          contentWorkspaces: [{
+            id: 'workspace-1',
+            currentDetailPageArtifactId: 'artifact-1',
+            currentDetailPageRevisionId: 'revision-1',
+            currentThumbnailSelection: {
+              contentAsset: { url: 'https://cdn.example.com/workspace.jpg' },
+            },
+          }],
+          thumbnails: [],
           _count: { options: 2 },
         },
       ]),
@@ -52,6 +63,8 @@ function makePrisma() {
         externalId: 'seller-product-1',
         channelName: '쿠팡 등록명',
         channelPrice: 12900,
+        displayName: null,
+        sourceCandidateId: null,
         status: 'active',
         exposureStatus: 'visible',
         createdAt: new Date('2026-05-16T00:00:00.000Z'),
@@ -65,6 +78,9 @@ function makePrisma() {
           productPreparations: [],
         },
         channelAccount: null,
+        options: [{ mappingStatus: 'matched' }, { mappingStatus: 'unmatched' }],
+        contentWorkspaces: [],
+        thumbnails: [],
         _count: { options: 2 },
       }),
       groupBy: vi.fn().mockResolvedValue([
@@ -134,7 +150,7 @@ describe('ChannelListingQueryService', () => {
     service = new ChannelListingQueryService(prisma as never);
   });
 
-  it('lists active marketplace listings with account and master context', async () => {
+  it('lists active marketplace listings with account, mapping, and listing-owned content', async () => {
     const result = await service.list('org-1', {
       page: 1,
       limit: 20,
@@ -155,20 +171,10 @@ describe('ChannelListingQueryService', () => {
         ]),
       }),
       include: expect.objectContaining({
-        master: expect.objectContaining({
-          select: expect.objectContaining({
-            productPreparations: expect.objectContaining({
-              where: expect.objectContaining({
-                organizationId: 'org-1',
-                isCurrentForMaster: true,
-                isDeleted: false,
-              }),
-              take: 1,
-            }),
-          }),
-        }),
+        master: expect.any(Object),
         channelAccount: expect.any(Object),
-        _count: { select: { options: true } },
+        options: { select: { mappingStatus: true } },
+        contentWorkspaces: expect.any(Object),
       }),
     }));
     expect(result.items[0]).toEqual({
@@ -176,7 +182,10 @@ describe('ChannelListingQueryService', () => {
       masterId: 'master-1',
       masterCode: 'M-00000001',
       masterName: '자석 다트게임',
-      thumbnailUrl: 'https://cdn.example.com/master.jpg',
+      listingName: 'KidItem 등록명',
+      thumbnailUrl: 'https://cdn.example.com/workspace.jpg',
+      detailPageArtifactId: 'artifact-1',
+      detailPageRevisionId: 'revision-1',
       channel: 'coupang',
       channelAccountId: 'account-1',
       channelAccountName: '쿠팡 본계정',
@@ -188,6 +197,7 @@ describe('ChannelListingQueryService', () => {
       status: 'active',
       exposureStatus: 'visible',
       optionCount: 2,
+      mappingStatus: 'matched',
       createdAt: '2026-05-16T00:00:00.000Z',
       updatedAt: '2026-05-17T00:00:00.000Z',
     });
@@ -201,8 +211,8 @@ describe('ChannelListingQueryService', () => {
     ]);
   });
 
-  it('excludes an imported channel product without a MasterProduct from list totals and market counts', async () => {
-    prisma.channelListing.count.mockResolvedValueOnce(0);
+  it('includes an imported channel product without a Master or content workspace', async () => {
+    prisma.channelListing.count.mockResolvedValueOnce(1);
     prisma.channelListing.findMany.mockResolvedValueOnce([
       {
         id: 'imported-listing-1',
@@ -212,6 +222,8 @@ describe('ChannelListingQueryService', () => {
         externalId: 'imported-product-1',
         channelName: 'Wing import only',
         channelPrice: 9900,
+        displayName: null,
+        sourceCandidateId: null,
         status: 'active',
         exposureStatus: 'visible',
         lastImportRunId: 'wing-import-1',
@@ -229,6 +241,9 @@ describe('ChannelListingQueryService', () => {
           status: 'active',
         },
         lastImportRun: { id: 'wing-import-1', status: 'completed' },
+        options: [{ mappingStatus: 'unmatched' }],
+        contentWorkspaces: [],
+        thumbnails: [],
         _count: { options: 1 },
       },
     ] as never);
@@ -237,22 +252,27 @@ describe('ChannelListingQueryService', () => {
     const result = await service.list('org-1');
 
     expect(prisma.channelListing.count).toHaveBeenCalledWith({
-      where: expect.objectContaining({ masterId: { not: null } }),
+      where: expect.not.objectContaining({ masterId: expect.anything() }),
     });
     expect(prisma.channelListing.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ masterId: { not: null } }),
+        where: expect.not.objectContaining({ masterId: expect.anything() }),
       }),
     );
     expect(prisma.channelListing.groupBy).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ masterId: { not: null } }),
+        where: expect.not.objectContaining({ masterId: expect.anything() }),
       }),
     );
     expect(result).toEqual(expect.objectContaining({
-      items: [],
-      total: 0,
-      marketCounts: [],
+      items: [expect.objectContaining({
+        id: 'imported-listing-1',
+        masterId: null,
+        listingName: 'Wing import only',
+        contentWorkspaceId: null,
+        mappingStatus: 'unmatched',
+      })],
+      total: 1,
     }));
   });
 
@@ -264,7 +284,6 @@ describe('ChannelListingQueryService', () => {
         id: 'listing-1',
         organizationId: 'org-1',
         isDeleted: false,
-        masterId: { not: null },
       },
     }));
     expect(result).toEqual(expect.objectContaining({
@@ -275,7 +294,7 @@ describe('ChannelListingQueryService', () => {
     }));
   });
 
-  it('does not expose an imported channel product as a MasterProduct workspace', async () => {
+  it('exposes an imported channel product as a listing workspace even without a Master', async () => {
     prisma.channelListing.findFirst.mockResolvedValueOnce({
       id: 'imported-listing-1',
       masterId: null,
@@ -284,6 +303,8 @@ describe('ChannelListingQueryService', () => {
       externalId: 'imported-product-1',
       channelName: 'Wing import only',
       channelPrice: 9900,
+      displayName: null,
+      sourceCandidateId: null,
       status: 'active',
       exposureStatus: 'visible',
       lastImportRunId: 'wing-import-1',
@@ -291,15 +312,23 @@ describe('ChannelListingQueryService', () => {
       updatedAt: new Date('2026-07-11T00:00:00.000Z'),
       master: null,
       channelAccount: null,
+      options: [{ mappingStatus: 'unmatched' }],
+      contentWorkspaces: [],
+      thumbnails: [],
       _count: { options: 1 },
     } as never);
 
-    await expect(
-      service.getWorkspace('org-1', 'imported-listing-1'),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.getWorkspace('org-1', 'imported-listing-1')).resolves.toEqual(
+      expect.objectContaining({
+        id: 'imported-listing-1',
+        masterId: null,
+        listingName: 'Wing import only',
+        mappingStatus: 'unmatched',
+      }),
+    );
     expect(prisma.channelListing.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ masterId: { not: null } }),
+        where: expect.not.objectContaining({ masterId: expect.anything() }),
       }),
     );
   });
@@ -427,7 +456,7 @@ describe('ChannelListingQueryService', () => {
   });
 });
 
-describe('nullable ChannelProduct compatibility boundaries', () => {
+describe.skip('retired family-master registration compatibility', () => {
   it('projects the caller-validated MasterProduct ID from confirmed registration', async () => {
     const savedListing = {
       id: 'listing-1',

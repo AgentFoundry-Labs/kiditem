@@ -3,21 +3,23 @@ import {
   InventorySkuSnapshotItemSchema,
   InventorySkuSnapshotListResponseSchema,
   InventorySkuStockStatusSchema,
+  SellpiaMasterActiveStatusSchema,
   SellpiaImportRunListResponseSchema,
 } from './inventory-snapshot';
 
-const skuId = '00000000-0000-4000-8000-000000000001';
+const masterProductId = '00000000-0000-4000-8000-000000000001';
 const runId = '00000000-0000-4000-8000-000000000002';
 
 const snapshotItem = {
-  id: skuId,
-  sellpiaProductCode: 'SP-001',
+  masterProductId,
+  code: 'SP-001',
   name: '상품',
   optionName: null,
   barcode: null,
   currentStock: 8,
   purchasePrice: 1_000,
   salePrice: null,
+  isActive: true,
   stockValue: 8_000,
   lastImportRunId: runId,
   lastImportedAt: '2026-07-12T00:00:00.000Z',
@@ -55,6 +57,24 @@ describe('InventorySku snapshot contracts', () => {
       'out_of_stock',
     ]);
     expect(() => InventorySkuStockStatusSchema.parse('low_stock')).toThrow();
+  });
+
+  it('publishes explicit all, active, and inactive membership filters', () => {
+    expect(SellpiaMasterActiveStatusSchema.options).toEqual([
+      'all',
+      'active',
+      'inactive',
+    ]);
+  });
+
+  it('rejects the legacy InventorySku response identity', () => {
+    expect(() => InventorySkuSnapshotItemSchema.parse({
+      ...snapshotItem,
+      masterProductId: undefined,
+      code: undefined,
+      id: masterProductId,
+      sellpiaProductCode: 'SP-001',
+    })).toThrow();
   });
 
   it.each([

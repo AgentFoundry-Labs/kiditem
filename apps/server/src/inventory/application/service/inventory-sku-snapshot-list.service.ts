@@ -33,18 +33,20 @@ export class InventorySkuSnapshotListService implements InventorySkuSnapshotList
       take: limit,
       query: query.query?.trim() || undefined,
       stockStatus: query.stockStatus ?? 'all',
+      activeStatus: query.activeStatus ?? 'active',
     });
 
     return InventorySkuSnapshotListResponseSchema.parse({
       items: result.rows.map((row) => ({
-        id: row.id,
-        sellpiaProductCode: row.sellpiaProductCode,
+        masterProductId: row.masterProductId,
+        code: row.code,
         name: row.name,
         optionName: row.optionName,
         barcode: row.barcode,
         currentStock: row.currentStock,
         purchasePrice: row.purchasePrice,
         salePrice: row.salePrice,
+        isActive: row.isActive,
         stockValue: row.purchasePrice === null
           ? null
           : row.currentStock * row.purchasePrice,

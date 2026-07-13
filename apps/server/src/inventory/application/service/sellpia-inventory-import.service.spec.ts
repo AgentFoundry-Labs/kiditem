@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { SellpiaInventoryImportService } from './sellpia-inventory-import.service';
 import type { SellpiaInventoryImportResponse } from '@kiditem/shared/source-import';
 import type { ImportSellpiaInventoryInput } from '../port/in/stock/sellpia-inventory-import.port';
-import type { InventorySkuImportRepositoryPort } from '../port/out/repository/inventory-sku-import.repository.port';
+import type { SellpiaMasterImportRepositoryPort } from '../port/out/repository/sellpia-master-import.repository.port';
 
 const runId = '00000000-0000-4000-8000-000000000001';
 const attemptToken = '00000000-0000-4000-8000-000000000002';
@@ -22,9 +22,9 @@ const response: SellpiaInventoryImportResponse = {
   },
   duplicate: false,
   changes: {
-    createdSkuCount: 1,
-    updatedSkuCount: 0,
-    zeroedSkuCount: 0,
+    createdMasterProductCount: 1,
+    updatedMasterProductCount: 0,
+    inactivatedMasterProductCount: 0,
   },
 };
 
@@ -144,16 +144,20 @@ describe('SellpiaInventoryImportService', () => {
 });
 
 function zeroChanges(): SellpiaInventoryImportResponse['changes'] {
-  return { createdSkuCount: 0, updatedSkuCount: 0, zeroedSkuCount: 0 };
+  return {
+    createdMasterProductCount: 0,
+    updatedMasterProductCount: 0,
+    inactivatedMasterProductCount: 0,
+  };
 }
 
 function makeRepository() {
   return {
-    claimSellpiaImport: vi.fn<InventorySkuImportRepositoryPort['claimSellpiaImport']>(),
+    claimSellpiaImport: vi.fn<SellpiaMasterImportRepositoryPort['claimSellpiaImport']>(),
     replaceSellpiaSnapshot:
-      vi.fn<InventorySkuImportRepositoryPort['replaceSellpiaSnapshot']>(),
+      vi.fn<SellpiaMasterImportRepositoryPort['replaceSellpiaSnapshot']>(),
     markImportFailed: vi
-      .fn<InventorySkuImportRepositoryPort['markImportFailed']>()
+      .fn<SellpiaMasterImportRepositoryPort['markImportFailed']>()
       .mockResolvedValue(undefined),
   };
 }

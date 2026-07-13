@@ -144,6 +144,7 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
 
   async syncSingleOrder(
     organizationId: string,
+    channelAccountId: string,
     payload: CoupangSyncOrderPayload,
   ): Promise<void> {
     const shipmentBoxId = String(payload.shipmentBoxId);
@@ -164,15 +165,11 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
 
     await this.prisma.$transaction(
       async (tx) => {
-        const order = await tx.order.upsert({
-          where: {
-            organizationId_platform_externalOrderId: {
-              organizationId,
-              platform: 'coupang',
-              externalOrderId: shipmentBoxId,
-            },
-          },
-          update: {
+        const existingOrder = await tx.order.findFirst({
+          where: { organizationId, channelAccountId, externalOrderId: shipmentBoxId },
+          select: { id: true },
+        });
+        const orderUpdate = {
             status: normalizeCoupangOrderStatus(payload.status),
             trackingNumber: payload.invoiceNumber ?? null,
             shippingCompany: payload.deliveryCompanyName ?? null,
@@ -183,9 +180,13 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
             receiverAddr,
             memo: payload.parcelPrintMessage ?? null,
             metadata: metadata as Prisma.InputJsonValue,
-          },
-          create: {
+            channelAccountId,
+        };
+        const order = existingOrder
+          ? await tx.order.update({ where: { id: existingOrder.id }, data: orderUpdate })
+          : await tx.order.create({ data: {
             organizationId,
+            channelAccountId,
             platform: 'coupang',
             externalOrderId: shipmentBoxId,
             externalNumber: payload.orderId ? String(payload.orderId) : null,
@@ -202,8 +203,7 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
             trackingNumber: payload.invoiceNumber ?? null,
             shippingCompany: payload.deliveryCompanyName ?? null,
             metadata: metadata as Prisma.InputJsonValue,
-          },
-        });
+          } });
 
         for (const item of orderItems) {
           if (!item.vendorItemId) {
@@ -219,18 +219,19 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
           const listingOption = await tx.channelListingOption.findFirst({
             where: {
               organizationId,
+              channelAccountId,
               externalOptionId,
               isActive: true,
               listing: {
-                channel: 'coupang',
+                channelAccountId,
                 isDeleted: false,
                 ...(sellerProductId ? { externalId: sellerProductId } : {}),
               },
             },
             select: {
               id: true,
-              optionId: true,
-              option: { select: { sku: true, optionName: true } },
+              sellerSku: true,
+              itemName: true,
             },
           });
 
@@ -251,22 +252,22 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
               unitPrice: item.salesPrice ?? 0,
               totalPrice: item.orderPrice ?? 0,
               listingOptionId: listingOption?.id ?? null,
-              optionId: listingOption?.optionId ?? null,
+              optionId: null,
               productName: item.sellerProductName ?? '',
               optionName:
-                item.vendorItemName ?? listingOption?.option?.optionName ?? null,
-              sku: listingOption?.option?.sku ?? null,
+                item.vendorItemName ?? listingOption?.itemName ?? null,
+              sku: listingOption?.sellerSku ?? externalOptionId,
               metadata: lineItemMetadata as Prisma.InputJsonValue,
             },
             create: {
               organizationId,
               orderId: order.id,
               listingOptionId: listingOption?.id ?? null,
-              optionId: listingOption?.optionId ?? null,
+              optionId: null,
               productName: item.sellerProductName ?? '',
               optionName:
-                item.vendorItemName ?? listingOption?.option?.optionName ?? null,
-              sku: listingOption?.option?.sku ?? null,
+                item.vendorItemName ?? listingOption?.itemName ?? null,
+              sku: listingOption?.sellerSku ?? externalOptionId,
               quantity: item.shippingCount ?? 1,
               unitPrice: item.salesPrice ?? 0,
               totalPrice: item.orderPrice ?? 0,
@@ -282,6 +283,7 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
 
   async syncSingleReturn(
     organizationId: string,
+    channelAccountId: string,
     payload: CoupangSyncReturnPayload,
   ): Promise<void> {
     const receiptId = String(payload.receiptId);
@@ -297,22 +299,18 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
           ? await tx.order.findFirst({
               where: {
                 organizationId,
-                platform: 'coupang',
+                channelAccountId,
                 externalNumber: String(payload.orderId),
               },
               select: { id: true },
             })
           : null;
 
-        const ret = await tx.orderReturn.upsert({
-          where: {
-            organizationId_platform_externalReturnId: {
-              organizationId,
-              platform: 'coupang',
-              externalReturnId: receiptId,
-            },
-          },
-          update: {
+        const existingReturn = await tx.orderReturn.findFirst({
+          where: { organizationId, channelAccountId, externalReturnId: receiptId },
+          select: { id: true },
+        });
+        const returnUpdate = {
             type: payload.receiptType ?? 'RETURN',
             status: payload.receiptStatus ?? 'pending',
             reason: payload.cancelReason ?? '',
@@ -326,9 +324,13 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
               : null,
             orderId: matchedOrder?.id ?? null,
             metadata: metadata as Prisma.InputJsonValue,
-          },
-          create: {
+            channelAccountId,
+        };
+        const ret = existingReturn
+          ? await tx.orderReturn.update({ where: { id: existingReturn.id }, data: returnUpdate })
+          : await tx.orderReturn.create({ data: {
             organizationId,
+            channelAccountId,
             platform: 'coupang',
             externalReturnId: receiptId,
             type: payload.receiptType ?? 'RETURN',
@@ -345,19 +347,40 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
               : null,
             orderId: matchedOrder?.id ?? null,
             metadata: metadata as Prisma.InputJsonValue,
-          },
-        });
+          } });
 
         await tx.orderReturnLineItem.deleteMany({
           where: { returnId: ret.id },
         });
         const items = Array.isArray(payload.items) ? payload.items : [];
         for (const it of items) {
+          const externalSku = it.vendorItemId == null ? null : String(it.vendorItemId);
+          const orderLineItem = matchedOrder && externalSku
+            ? await tx.orderLineItem.findFirst({
+                where: {
+                  organizationId,
+                  orderId: matchedOrder.id,
+                  externalLineId: externalSku,
+                },
+                select: {
+                  id: true,
+                  listingOptionId: true,
+                  productName: true,
+                  optionName: true,
+                  sku: true,
+                },
+              })
+            : null;
           await tx.orderReturnLineItem.create({
             data: {
               organizationId,
               returnId: ret.id,
-              productName: it.productName ?? it.vendorItemName ?? '',
+              orderLineItemId: orderLineItem?.id ?? null,
+              listingOptionId: orderLineItem?.listingOptionId ?? null,
+              optionId: null,
+              productName: it.productName ?? it.vendorItemName ?? orderLineItem?.productName ?? '',
+              optionName: orderLineItem?.optionName ?? null,
+              externalSku: externalSku ?? orderLineItem?.sku ?? null,
               quantity: it.quantity ?? 1,
               metadata: { raw: it } as Prisma.InputJsonValue,
             },

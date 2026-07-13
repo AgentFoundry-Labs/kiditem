@@ -8,7 +8,7 @@ import {
 const channelAccountId = '00000000-0000-4000-8000-000000000001';
 const productId = '00000000-0000-4000-8000-000000000002';
 const channelSkuId = '00000000-0000-4000-8000-000000000003';
-const inventorySkuId = '00000000-0000-4000-8000-000000000004';
+const masterProductId = '00000000-0000-4000-8000-000000000004';
 
 describe('channel SKU availability contracts', () => {
   it('freezes the calculated availability filters', () => {
@@ -87,8 +87,8 @@ describe('channel SKU availability contracts', () => {
           updatedAt: '2026-07-12T00:00:00.000Z',
         },
         components: [{
-          inventorySkuId,
-          sellpiaProductCode: 'SP-001',
+          masterProductId,
+          code: 'SP-001',
           name: '상품',
           optionName: null,
           barcode: null,

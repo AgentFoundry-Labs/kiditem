@@ -269,6 +269,11 @@ export const DashboardInventorySummarySchema = z.object({
   channelLinkedProducts: z.number().int().nonnegative(),
   channelUnlinkedProducts: z.number().int().nonnegative(),
   gradeCount: z.record(z.number()),
+  mappingStatusCounts: z.object({
+    matched: z.number().int().nonnegative(),
+    unmatched: z.number().int().nonnegative(),
+    needsReview: z.number().int().nonnegative(),
+  }),
   alerts: z.array(DashboardAlertItemSchema),
   warnings: WarningsSchema,
   gradeChanges: GradeChangesSchema.optional(),

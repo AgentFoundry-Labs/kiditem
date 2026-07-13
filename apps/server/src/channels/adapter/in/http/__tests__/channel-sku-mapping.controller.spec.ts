@@ -75,7 +75,7 @@ describe('ChannelSkuMappingController', () => {
       channelSkuId,
       organizationId,
       user,
-      { components: [{ inventorySkuId: channelSkuId, quantity: 2 }] },
+      { components: [{ masterProductId: channelSkuId, quantity: 2 }] },
     );
 
     expect(service.list).toHaveBeenCalledWith(organizationId, { page: 1, limit: 50 });
@@ -89,7 +89,7 @@ describe('ChannelSkuMappingController', () => {
       organizationId,
       userId,
       channelSkuId,
-      { components: [{ inventorySkuId: channelSkuId, quantity: 2 }] },
+      { components: [{ masterProductId: channelSkuId, quantity: 2 }] },
     );
   });
 

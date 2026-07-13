@@ -4,16 +4,16 @@ import {
   type SellpiaInventoryImportPort,
 } from '../port/in/stock/sellpia-inventory-import.port';
 import {
-  INVENTORY_SKU_IMPORT_REPOSITORY_PORT,
-  type InventorySkuImportRepositoryPort,
-} from '../port/out/repository/inventory-sku-import.repository.port';
+  SELLPIA_MASTER_IMPORT_REPOSITORY_PORT,
+  type SellpiaMasterImportRepositoryPort,
+} from '../port/out/repository/sellpia-master-import.repository.port';
 import type { SellpiaInventoryImportResponse } from '@kiditem/shared/source-import';
 
 @Injectable()
 export class SellpiaInventoryImportService implements SellpiaInventoryImportPort {
   constructor(
-    @Inject(INVENTORY_SKU_IMPORT_REPOSITORY_PORT)
-    private readonly repository: InventorySkuImportRepositoryPort,
+    @Inject(SELLPIA_MASTER_IMPORT_REPOSITORY_PORT)
+    private readonly repository: SellpiaMasterImportRepositoryPort,
   ) {}
 
   async importInventory(

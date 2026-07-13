@@ -19,10 +19,13 @@ export interface ChannelListingQuery {
 
 export interface ChannelListingSummary {
   id: string;
-  masterId: string;
-  masterCode: string;
-  masterName: string;
+  masterId: string | null;
+  masterCode: string | null;
+  masterName: string | null;
+  listingName: string;
   thumbnailUrl: string | null;
+  detailPageArtifactId: string | null;
+  detailPageRevisionId: string | null;
   channel: string;
   channelAccountId: string | null;
   channelAccountName: string | null;
@@ -34,6 +37,7 @@ export interface ChannelListingSummary {
   status: string | null;
   exposureStatus: string | null;
   optionCount: number;
+  mappingStatus: 'matched' | 'unmatched' | 'needs_review';
   createdAt: string;
   updatedAt: string;
 }
@@ -71,25 +75,6 @@ export interface ChannelListingGroupResult {
   marketCounts: ChannelListingMarketCount[];
 }
 
-export interface RegisterConfirmedListingInput {
-  masterId: string;
-  channelAccountId: string;
-  externalId: string;
-  channelName?: string | null;
-  channelPrice?: number | null;
-}
-
-export interface RegisteredMarketplaceListingResult {
-  id: string;
-  masterId: string;
-  channel: string;
-  channelAccountId: string | null;
-  externalId: string;
-  channelName: string | null;
-  channelPrice: number | null;
-  status: string | null;
-}
-
 export interface ChannelListingRepositoryPort {
   list(
     organizationId: string,
@@ -108,10 +93,6 @@ export interface ChannelListingRepositoryPort {
 }
 
 export interface MarketplaceRegistrationRepositoryPort {
-  assertLegacyFamilyMaster(
-    organizationId: string,
-    masterId: string,
-  ): Promise<void>;
   assertActiveRegistrationAccount(input: {
     organizationId: string;
     channelAccountId: string;
@@ -132,8 +113,4 @@ export interface MarketplaceRegistrationRepositoryPort {
     externalId: string;
     status: string | null;
   }>;
-  registerConfirmedListing(
-    organizationId: string,
-    input: RegisterConfirmedListingInput,
-  ): Promise<RegisteredMarketplaceListingResult>;
 }

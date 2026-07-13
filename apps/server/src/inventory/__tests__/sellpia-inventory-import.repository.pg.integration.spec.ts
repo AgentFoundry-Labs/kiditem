@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { InventorySkuImportRepositoryAdapter } from '../adapter/out/repository/inventory-sku-import.repository.adapter';
+import { SellpiaMasterImportRepositoryAdapter } from '../adapter/out/repository/sellpia-master-import.repository.adapter';
 import { SellpiaInventoryImportService } from '../application/service/sellpia-inventory-import.service';
 import {
   makeTestPrisma,
@@ -17,15 +17,15 @@ import type { PrismaClient } from '@prisma/client';
 
 const REPRESENTATIVE_ROW_COUNT = 1_964;
 
-describe('InventorySkuImportRepositoryAdapter (PG integration)', () => {
+describe('SellpiaMasterImportRepositoryAdapter (PG integration)', () => {
   let prisma: PrismaClient;
-  let repository: InventorySkuImportRepositoryAdapter;
+  let repository: SellpiaMasterImportRepositoryAdapter;
   let service: SellpiaInventoryImportService;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    repository = new InventorySkuImportRepositoryAdapter(prisma as unknown as PrismaService);
+    repository = new SellpiaMasterImportRepositoryAdapter(prisma as unknown as PrismaService);
     service = new SellpiaInventoryImportService(repository);
   });
 
@@ -83,9 +83,9 @@ describe('InventorySkuImportRepositoryAdapter (PG integration)', () => {
     expect(duplicateMetadataRows).toHaveLength(2);
     expect(new Set(duplicateMetadataRows.map((row) => row.id))).toHaveLength(2);
     expect(result.changes).toEqual({
-      createdSkuCount: REPRESENTATIVE_ROW_COUNT,
-      updatedSkuCount: 0,
-      zeroedSkuCount: 0,
+      createdMasterProductCount: REPRESENTATIVE_ROW_COUNT,
+      updatedMasterProductCount: 0,
+      inactivatedMasterProductCount: 0,
     });
     expect(run.publicationSequence).toBe(1n);
   });
@@ -276,9 +276,9 @@ describe('InventorySkuImportRepositoryAdapter (PG integration)', () => {
     });
     expect(otherOrganization.currentStock).toBe(777);
     expect(result.changes).toEqual({
-      createdSkuCount: 1,
-      updatedSkuCount: 1,
-      zeroedSkuCount: 2,
+      createdMasterProductCount: 1,
+      updatedMasterProductCount: 1,
+      inactivatedMasterProductCount: 2,
     });
   });
 
@@ -441,7 +441,11 @@ describe('InventorySkuImportRepositoryAdapter (PG integration)', () => {
 
     expect(duplicate).toMatchObject({
       duplicate: true,
-      changes: { createdSkuCount: 0, updatedSkuCount: 0, zeroedSkuCount: 0 },
+      changes: {
+        createdMasterProductCount: 0,
+        updatedMasterProductCount: 0,
+        inactivatedMasterProductCount: 0,
+      },
     });
     expect(duplicate.run.id).toBe(first.run.id);
     expect(after).toEqual(before);

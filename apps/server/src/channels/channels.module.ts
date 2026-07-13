@@ -1,7 +1,5 @@
 import { Module } from '@nestjs/common';
-import { AgentOsModule } from '../agent-os/agent-os.module';
 import { AutomationModule } from '../automation/automation.module';
-import { ProductsModule } from '../products/products.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { ChannelRegistrationCapabilityAdapter } from './adapter/in/agent/channel-registration-capability.adapter';
 import { ChannelSyncController } from './adapter/in/http/channel-sync.controller';
@@ -17,8 +15,6 @@ import { ChannelAccountRepositoryAdapter } from './adapter/out/repository/channe
 import { ChannelDashboardRepositoryAdapter } from './adapter/out/repository/channel-dashboard.repository.adapter';
 import { ChannelListingRepositoryAdapter } from './adapter/out/repository/channel-listing.repository.adapter';
 import { MarketplaceRegistrationRepositoryAdapter } from './adapter/out/repository/marketplace-registration.repository.adapter';
-import { ChannelsProductMasterBarcodeAdapter } from './adapter/out/products/product-master-barcode.adapter';
-import { ChannelRegistrationRuntimeHandler } from './adapter/out/runtime/channel-registration-runtime.handler';
 import { ChannelSyncRepositoryAdapter } from './adapter/out/repository/channel-sync.repository.adapter';
 import { ChannelCatalogImportRepositoryAdapter } from './adapter/out/repository/channel-catalog-import.repository.adapter';
 import { ChannelSkuMappingRepositoryAdapter } from './adapter/out/repository/channel-sku-mapping.repository.adapter';
@@ -35,7 +31,6 @@ import { ChannelSkuAvailabilityService } from './application/service/channel-sku
 import { COUPANG_PROVIDER_PORT } from './application/port/out/provider/coupang-provider.port';
 import { ChannelsOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { CHANNELS_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
-import { CHANNELS_PRODUCT_MASTER_BARCODE_PORT } from './application/port/out/cross-domain/product-master-barcode.port';
 import { CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT } from './application/port/in/capability/marketplace-registration.port';
 import { CHANNEL_CATALOG_IMPORT_PORT } from './application/port/in/channel-catalog-import.port';
 import {
@@ -54,7 +49,7 @@ import { CHANNELS_INVENTORY_SKU_READ_PORT } from './application/port/out/cross-d
 import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku-availability.port';
 
 @Module({
-  imports: [AgentOsModule, AutomationModule, ProductsModule, InventoryModule],
+  imports: [AutomationModule, InventoryModule],
   controllers: [
     ChannelSyncController,
     ChannelDashboardController,
@@ -76,10 +71,8 @@ import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku
     ChannelSkuMappingService,
     ChannelSkuAvailabilityService,
     ChannelRegistrationCapabilityAdapter,
-    ChannelRegistrationRuntimeHandler,
     CoupangProviderAdapter,
     ChannelsOperationAlertAdapter,
-    ChannelsProductMasterBarcodeAdapter,
     ChannelAccountRepositoryAdapter,
     ChannelDashboardRepositoryAdapter,
     ChannelListingRepositoryAdapter,
@@ -90,10 +83,6 @@ import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku
     ChannelsInventorySkuReadAdapter,
     { provide: COUPANG_PROVIDER_PORT, useExisting: CoupangProviderAdapter },
     { provide: CHANNELS_OPERATION_ALERT_PORT, useExisting: ChannelsOperationAlertAdapter },
-    {
-      provide: CHANNELS_PRODUCT_MASTER_BARCODE_PORT,
-      useExisting: ChannelsProductMasterBarcodeAdapter,
-    },
     { provide: CHANNEL_ACCOUNT_REPOSITORY_PORT, useExisting: ChannelAccountRepositoryAdapter },
     { provide: COUPANG_CREDENTIALS_PORT, useExisting: ChannelAccountRepositoryAdapter },
     { provide: CHANNEL_DASHBOARD_REPOSITORY_PORT, useExisting: ChannelDashboardRepositoryAdapter },

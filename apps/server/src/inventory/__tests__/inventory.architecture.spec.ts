@@ -38,16 +38,14 @@ function inventoryRel(): string {
 }
 
 describe('Inventory architecture contract', () => {
-  it('keeps 0.1.8 InventorySku and rollback ProductOption identities together', () => {
+  it('uses Sellpia MasterProduct as the sole operational inventory identity', () => {
     const schema = readFileSync(PRISMA_INVENTORY_SCHEMA, 'utf8');
     for (const modelName of ['StockTransfer', 'PickingItem', 'ReturnTransfer']) {
       const block = schema.match(new RegExp(`model ${modelName} \\{([\\s\\S]*?)\\n\\}`))?.[1] ?? '';
-      expect(block, `${modelName} must carry inventorySkuId`).toContain('inventorySkuId');
-      expect(block, `${modelName} must relate to InventorySku`).toContain('InventorySku');
-      expect(block, `${modelName} must retain rollback ProductOption identity`).toMatch(/\boptionId\b/);
-      expect(block, `${modelName} must retain rollback ProductOption relation`).toContain(
-        'ProductOption',
-      );
+      expect(block, `${modelName} must carry masterProductId`).toContain('masterProductId');
+      expect(block, `${modelName} must relate to MasterProduct`).toContain('MasterProduct');
+      expect(block).not.toContain('inventorySkuId');
+      expect(block).not.toMatch(/\boptionId\b/);
     }
   });
 

@@ -12,13 +12,14 @@ const SOURCE_TYPE = 'sellpia_inventory';
 
 const SNAPSHOT_SELECT = {
   id: true,
-  sellpiaProductCode: true,
+  code: true,
   name: true,
   optionName: true,
   barcode: true,
   currentStock: true,
   purchasePrice: true,
   salePrice: true,
+  isActive: true,
   lastImportRunId: true,
 } as const;
 
@@ -51,14 +52,14 @@ implements InventorySkuSnapshotListRepositoryPort {
     return this.prisma.$transaction(async (transaction) => {
       const where = snapshotWhere(organizationId, query);
       const [rows, total, summaryRows, latestImport] = await Promise.all([
-        transaction.inventorySku.findMany({
+        transaction.masterProduct.findMany({
           where,
           select: SNAPSHOT_SELECT,
-          orderBy: [{ sellpiaProductCode: 'asc' }, { id: 'asc' }],
+          orderBy: [{ code: 'asc' }, { id: 'asc' }],
           skip: query.skip,
           take: query.take,
         }),
-        transaction.inventorySku.count({ where }),
+        transaction.masterProduct.count({ where }),
         transaction.$queryRaw<SummaryRow[]>`
           SELECT
             COUNT(*)::bigint AS "totalSkus",
@@ -71,8 +72,9 @@ implements InventorySkuSnapshotListRepositoryPort {
               0
             )::bigint AS "pricedAssetValue",
             COUNT(*) FILTER (WHERE purchase_price IS NULL)::bigint AS "unpricedSkuCount"
-          FROM inventory_skus
+          FROM master_products
           WHERE organization_id = ${organizationId}::uuid
+            ${activeStatusSql(query.activeStatus)}
         `,
         transaction.sourceImportRun.findFirst({
           where: {
@@ -111,15 +113,19 @@ implements InventorySkuSnapshotListRepositoryPort {
             && importedAtByRunId.has(row.lastImportRunId)
             ? row.lastImportRunId
             : null;
+          if (
+            !row.code || !row.name
+          ) throw new InternalServerErrorException(`Physical Sellpia Master ${row.id} is invalid`);
           return {
-            id: row.id,
-            sellpiaProductCode: row.sellpiaProductCode,
+            masterProductId: row.id,
+            code: row.code,
             name: row.name,
             optionName: row.optionName,
             barcode: row.barcode,
             currentStock: row.currentStock,
             purchasePrice: row.purchasePrice,
             salePrice: row.salePrice,
+            isActive: row.isActive,
             lastImportRunId: verifiedImportRunId,
             lastImportedAt: verifiedImportRunId
               ? importedAtByRunId.get(verifiedImportRunId) ?? null
@@ -166,10 +172,15 @@ implements InventorySkuSnapshotListRepositoryPort {
 function snapshotWhere(
   organizationId: string,
   query: InventorySkuSnapshotRepositoryQuery,
-): Prisma.InventorySkuWhereInput {
+): Prisma.MasterProductWhereInput {
   const search = query.query?.trim();
   return {
     organizationId,
+    ...(query.activeStatus === 'active'
+      ? { isActive: true }
+      : query.activeStatus === 'inactive'
+        ? { isActive: false }
+        : {}),
     ...(query.stockStatus === 'in_stock'
       ? { currentStock: { gt: 0 } }
       : query.stockStatus === 'out_of_stock'
@@ -178,7 +189,7 @@ function snapshotWhere(
     ...(search
       ? {
           OR: [
-            { sellpiaProductCode: { contains: search, mode: 'insensitive' } },
+            { code: { contains: search, mode: 'insensitive' } },
             { name: { contains: search, mode: 'insensitive' } },
             { optionName: { contains: search, mode: 'insensitive' } },
             { barcode: { contains: search, mode: 'insensitive' } },
@@ -186,6 +197,14 @@ function snapshotWhere(
         }
       : {}),
   };
+}
+
+function activeStatusSql(
+  status: InventorySkuSnapshotRepositoryQuery['activeStatus'],
+): Prisma.Sql {
+  if (status === 'active') return Prisma.sql`AND is_active = TRUE`;
+  if (status === 'inactive') return Prisma.sql`AND is_active = FALSE`;
+  return Prisma.empty;
 }
 
 function mapImportRun(row: {
