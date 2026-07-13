@@ -31,10 +31,10 @@ export function InventoryFilterTabs({
           type="button"
           onClick={() => onFilterChange(item.key)}
           className={cn(
-            'rounded-lg px-4 py-2 text-sm font-medium',
+            'rounded-lg border px-4 py-2 text-sm font-medium',
             filter === item.key
-              ? 'bg-purple-600 text-white'
-              : 'border border-border bg-card text-foreground hover:bg-muted',
+              ? 'border-purple-600 bg-purple-600 text-white'
+              : 'border-border bg-card text-foreground hover:bg-muted',
           )}
         >
           {item.label} ({formatNumber(item.count)})

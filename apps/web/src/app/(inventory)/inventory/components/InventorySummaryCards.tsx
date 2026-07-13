@@ -6,9 +6,9 @@ type CardTone = 'slate' | 'green' | 'orange' | 'purple';
 
 const toneClasses: Record<CardTone, { card: string; label: string; value: string }> = {
   slate: {
-    card: 'border-slate-200 bg-white',
-    label: 'text-slate-500',
-    value: 'text-slate-900',
+    card: 'border-[var(--border)] bg-[var(--surface)]',
+    label: 'text-[var(--text-secondary)]',
+    value: 'text-[var(--text-primary)]',
   },
   green: {
     card: 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950',

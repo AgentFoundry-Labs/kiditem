@@ -25,14 +25,14 @@ export function InventoryTable({
 }: InventoryTableProps) {
   if (items.length === 0) {
     return (
-      <div className="rounded-xl border border-slate-200 bg-white p-12 text-center text-slate-500">
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-12 text-center text-[var(--text-secondary)]">
         조건에 맞는 Sellpia 재고가 없습니다.
       </div>
     );
   }
 
   return (
-    <div className="table-card">
+    <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1120px] table-fixed">
           <thead>
@@ -50,15 +50,18 @@ export function InventoryTable({
           </thead>
           <tbody>
             {items.map((item) => (
-              <tr key={item.masterProductId} className={cn(item.currentStock === 0 && 'bg-red-50/60')}>
-                <td className="max-w-[240px] truncate font-medium text-slate-900" title={item.name}>
+              <tr
+                key={item.masterProductId}
+                className={cn(item.currentStock === 0 && 'bg-red-50/60 dark:bg-red-950/30')}
+              >
+                <td className="max-w-[240px] truncate font-medium text-[var(--text-primary)]" title={item.name}>
                   {item.name}
                 </td>
-                <td className="truncate text-xs text-slate-500" title={item.optionName ?? undefined}>
+                <td className="truncate text-xs text-[var(--text-secondary)]" title={item.optionName ?? undefined}>
                   {item.optionName ?? '-'}
                 </td>
-                <td className="font-mono text-xs font-semibold text-slate-700">{item.code}</td>
-                <td className="font-mono text-xs text-slate-500">{item.barcode ?? '-'}</td>
+                <td className="font-mono text-xs font-semibold text-[var(--text-secondary)]">{item.code}</td>
+                <td className="font-mono text-xs text-[var(--text-secondary)]">{item.barcode ?? '-'}</td>
                 <td className={cn('text-right font-semibold', item.currentStock === 0 && 'text-red-600')}>
                   {formatNumber(item.currentStock)}
                 </td>

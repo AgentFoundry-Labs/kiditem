@@ -23,6 +23,15 @@ describe('InventorySummaryCards', () => {
     expect(screen.getByText('재고 없음')).toBeInTheDocument();
     expect(screen.getByText('평가 재고자산')).toBeInTheDocument();
   });
+
+  it('uses theme-aware semantic colors for the slate summary card', () => {
+    render(<InventorySummaryCards summary={summary} />);
+
+    expect(screen.getByText('전체 상품').closest('[data-testid="inventory-summary-card"]')).toHaveClass(
+      'border-[var(--border)]',
+      'bg-[var(--surface)]',
+    );
+  });
 });
 
 describe('InventoryFilterTabs', () => {
@@ -38,5 +47,19 @@ describe('InventoryFilterTabs', () => {
     expect(screen.getByRole('button', { name: '재고 있음 (8)' })).toHaveClass('bg-purple-600');
     expect(screen.getByRole('button', { name: '재고 없음 (4)' })).toBeInTheDocument();
     expect(screen.getAllByRole('button')).toHaveLength(3);
+  });
+
+  it('keeps the same border width across active and inactive filters', () => {
+    render(
+      <InventoryFilterTabs
+        filter="in_stock"
+        summary={summary}
+        onFilterChange={vi.fn()}
+      />,
+    );
+
+    for (const button of screen.getAllByRole('button')) {
+      expect(button).toHaveClass('border');
+    }
   });
 });
