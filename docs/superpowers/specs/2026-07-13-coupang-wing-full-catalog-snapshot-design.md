@@ -9,6 +9,32 @@ raise `VERSION` beyond `0.1.8`. The root `VERSION` file already contains
 `0.1.8`, and this design records the persisted schema and data behavior that
 must ship within that release.
 
+### 2026-07-14 current-code amendment
+
+The product goals, completeness rules, preservation rules, and failure
+semantics in this design remain authoritative. The implementation plans below
+supersede these specific staging/model details after review against the current
+code:
+
+- browser checkpoints use the existing Channels-owned `ChannelScrapeRun` plus
+  a new `ChannelScrapeChunk`; `SourceImportRun` remains only the final
+  deduplication/publication fence;
+- `SourceImportRun.fileName` stays required. A browser run stores the literal
+  provenance label `browser-extension:coupang-wing:v1` in the database column
+  `source_import_runs.file_name`; this is not a path, no snapshot file is
+  created, and raw chunk payloads remain in `channel_scrape_chunks.payload`;
+- listing media uses the existing
+  `ContentGenerationGroup(groupType='workspace_assets') -> ContentAsset` path;
+  no `ContentWorkspaceAsset` model is added;
+- the registered-products route already reads `ChannelListing`, so the UI work
+  adds account selection, import controls, progress, and invalidation rather
+  than another read-model cutover;
+- publication keeps the current organization/source sequence while the
+  advisory lock becomes account-scoped by `channelAccountId`;
+- the old backend image-sync path is already absent; only its remaining web,
+  shared-contract, and extension surfaces are removed after live replacement
+  acceptance.
+
 This document extends
 [`2026-07-12-sellpia-authoritative-inventory-cutover-design.md`](./2026-07-12-sellpia-authoritative-inventory-cutover-design.md).
 For the scope covered here, it supersedes that document's non-goal of not
@@ -135,8 +161,8 @@ The rejected alternatives were:
     listings or options.
 12. An image-copy failure cannot roll back or hide a valid catalog.
 13. Every listing has at most one active listing-owned `ContentWorkspace`.
-14. Every imported provider image is immediately available through a
-    workspace asset relation.
+14. Every imported provider image is immediately available as a `ContentAsset`
+    in the listing workspace's `workspace_assets` generation group.
 15. All persisted status values remain `String` fields constrained by shared
     Zod/domain validation rather than native PostgreSQL enums.
 
@@ -147,14 +173,14 @@ Wing authenticated tab
   -> Chrome collection adapter
   -> KidItem web bridge
   -> account-scoped NestJS import API
-  -> SourceImportRun + SourceImportChunk staging
+  -> ChannelScrapeRun + ChannelScrapeChunk staging
   -> completeness validation
   -> atomic catalog publication
        -> ChannelListing
        -> ChannelListingOption
        -> ContentWorkspace
+       -> ContentGenerationGroup(groupType=workspace_assets)
        -> ContentAsset
-       -> ContentWorkspaceAsset
        -> current thumbnail selection
   -> registered-products ChannelListing read model
   -> asynchronous ContentAsset materialization worker
@@ -164,9 +190,9 @@ The web application owns KidItem authentication and the selected channel
 account. The extension owns interaction with the authenticated Wing tab. The
 server owns durable state, validation, canonical writes, and recovery.
 
-The existing `ChannelCatalogImportService` remains the single catalog import
-application entrypoint. Workbook and Chrome adapters produce the same shared
-snapshot contract. The publisher does not branch on transport type.
+The existing `ChannelCatalogImportService` remains the workbook entrypoint.
+`ChannelCatalogCollectionService` owns resumable browser collection and hands
+the completed shared snapshot to the same canonical listing model.
 
 Because the existing channel catalog repository is already large, resumable
 run storage, pure snapshot validation, and canonical publication must remain
@@ -229,41 +255,21 @@ parents.
 
 ## Resumable Import Models
 
-### SourceImportRun
+### ChannelScrapeRun and ChannelScrapeChunk
 
-`SourceImportRun` remains the durable provenance and publication fence. It is
-generalized beyond files with these concepts:
+`ChannelScrapeRun` owns browser collection progress. Its `metaJson` stores the
+versioned manifest, browser `clientRunKey`, phase, canonical snapshot hash,
+bounded error, and completed publication summary. The database enforces one
+run per organization, account, source, and client key.
 
-- `transport`: `file` or `browser_extension`;
-- `clientRunKey`: browser-generated UUID used to resume the same collection;
-- `snapshotHash`: SHA-256 of the canonical, sorted completed snapshot;
-- `manifestJson`: versioned expected page/product/chunk counts and list
-  fingerprints;
-- `phase`: `collecting`, `validating`, or `publishing` while `status` is
-  `running`;
-- `lastErrorJson`: structured recoverable or terminal failure details;
-- existing `attemptToken` and `publicationSequence` fencing.
-
-The coarse `status` contract remains `running`, `completed`, or `failed` to
-avoid mixing durable completion state with UI progress. File-only
-`fileName`/`fileHash` fields become nullable and remain populated for workbook
-imports. Browser runs use `clientRunKey` and the final `snapshotHash` instead
-of fake filenames.
-
-The database enforces one browser run per
-`(organizationId, sourceType, channelAccountId, clientRunKey)`. A completed
-snapshot hash is idempotent for the same organization, source, and account.
-
-### SourceImportChunk
-
-`SourceImportChunk` stores collection progress without exposing partial rows
+`ChannelScrapeChunk` stores collection progress without exposing partial rows
 as live catalog data:
 
 ```text
 id
 organizationId
 runId
-kind             discovery | product_details
+kind             discovery_page | product_details | manifest_confirmation
 sequence
 checksum         SHA-256
 payload          JsonB
@@ -287,48 +293,31 @@ The initial implementation uses bounded JSONB chunks instead of normalized
 staging tables. At the observed catalog size, this keeps resume behavior
 simple while canonical publication still uses validated, batched writes.
 
+Only after validation succeeds does publication create a `SourceImportRun` as
+the durable publication and deduplication fence. Browser publication stores
+`browser-extension:coupang-wing:v1` in required `fileName` and the canonical
+snapshot hash in required `fileHash`; it does not create a file.
+
 ## Content Ownership and Media Models
 
 `ContentWorkspace` already supports a listing owner and enforces one active
 workspace per listing. Catalog publication ensures that workspace exists and
 reuses it on later imports.
 
-The current schema has no general relationship for all assets owned by a
-workspace. `ContentWorkspaceThumbnailSelection` represents only the current
-thumbnail, and generation usages represent generated content rather than
-provider input. A new `ContentWorkspaceAsset` relation is required:
-
-```text
-id
-organizationId
-contentWorkspaceId
-contentAssetId
-sourceType           coupang_catalog
-role                 primary | detail | option
-sortOrder
-externalOptionId     optional
-lastImportRunId
-isActive
-createdAt
-updatedAt
-```
-
-It enforces organization-safe foreign keys and a unique active association for
-the workspace, asset, role, and optional option identity. It preserves image
-order without pretending that a provider image is a generation output.
-
-Provider `ContentAsset` rows use a stable key derived from the normalized
-source URL. They preserve `sourceUrl` separately from the current `url`.
-Provider-imported assets use a nullable `materializationStatus`:
+Provider images reuse the existing workspace-owned
+`ContentGenerationGroup(groupType='workspace_assets')`. Provider
+`ContentAsset` rows use stable keys derived from workspace, role, optional
+external option ID, and normalized source URL. Their metadata holds
+`sourceType`, `sourceUrl`, `externalOptionId`, `lastImportRunId`, active state,
+and materialization state:
 
 - `pending`: the external URL is immediately usable and managed storage copy
   is waiting;
 - `ready`: `url` points at the managed copy and `storageKey` is populated;
 - `failed`: the external URL remains usable and the copy can be retried.
 
-Assets unrelated to provider materialization may leave this field null. This
-avoids putting existing generated or uploaded assets into the provider worker
-queue.
+Assets unrelated to provider materialization have no Coupang source metadata
+and are therefore outside the worker queue.
 
 The first active `primary` media record becomes the current workspace
 thumbnail selection during the same publication transaction. Existing manual
@@ -337,9 +326,9 @@ selection is itself the prior provider-primary selection. This preserves
 operator intent while still giving a newly imported listing an immediate
 thumbnail.
 
-If a provider URL disappears in a later complete snapshot, its
-`ContentWorkspaceAsset` association becomes inactive. The `ContentAsset` and
-historical thumbnail/content references are not hard-deleted.
+If a provider URL disappears in a later complete snapshot, its provider
+`ContentAsset` is soft-deleted and marked inactive. Historical thumbnail and
+content references are not hard-deleted.
 
 ## Chrome Collection Algorithm
 
@@ -441,7 +430,7 @@ Within the transaction the application:
    unexpectedly;
 6. upserts all options in bounded batches;
 7. ensures listing-owned content workspaces;
-8. upserts provider assets and workspace associations;
+8. upserts provider assets in each workspace's `workspace_assets` group;
 9. establishes the initial provider-primary thumbnail selection where
    appropriate;
 10. marks unseen options, listings, and provider asset associations inactive;
@@ -459,9 +448,9 @@ directly, and the AI module does not take over channel identity.
 ## Image Materialization
 
 The publication transaction inserts provider assets with the external URL and
-`materializationStatus = pending`. This is the immediate logical link: the
-registered-products UI and AI input selector can use the image as soon as the
-catalog transaction commits.
+`metadata.materializationStatus = pending`. This is the immediate logical
+link: the registered-products UI and AI input selector can use the image as
+soon as the catalog transaction commits.
 
 A deterministic server worker leases pending or retryable failed assets,
 fetches the source URL through the existing image-fetch port, validates the
@@ -470,20 +459,22 @@ sets:
 
 - `url` to the managed URL;
 - `storageKey` to the managed key;
-- `materializationStatus` to `ready`;
+- `metadata.materializationStatus` to `ready`;
 - materialization timestamps and attempt information.
 
-Failure sets `materializationStatus = failed`, records a bounded diagnostic,
-and leaves `url` on the external provider URL. Retries are per asset. A failed
-copy never changes the import run back to failed and never hides the listing.
+Failure sets `metadata.materializationStatus = failed`, records a bounded
+diagnostic and retry time, and leaves `url` on the external provider URL.
+Retries are per asset. A failed copy never changes the import run back to
+failed and never hides the listing.
 
 The asset row itself is the durable work queue. A separate external queue or
 outbox is not introduced for this release.
 
 ## Registered Products Experience
 
-The registered-products screen becomes a `ChannelListing` read model. It no
-longer depends on legacy `masterId` groups.
+The registered-products screen remains on its existing `ChannelListing` read
+model. The new work adds account-scoped import controls and invalidates that
+query immediately after publication.
 
 The primary interaction is:
 
@@ -528,8 +519,8 @@ After a complete successful snapshot:
   `isActive = false`;
 - previously known options absent from the snapshot become
   `isActive = false`;
-- provider media associations absent from the new snapshot become inactive;
-- reappearing listings, options, and media associations reuse and reactivate
+- provider assets absent from the new snapshot become inactive;
+- reappearing listings, options, and provider assets reuse and reactivate
   existing rows where identity matches.
 
 The importer preserves:
@@ -593,17 +584,16 @@ the root `VERSION` stays `0.1.8`.
 The implementation sequence is:
 
 1. add shared snapshot/chunk contracts and regression tests;
-2. add `SourceImportChunk`, generalized browser-run fields,
-   `ContentWorkspaceAsset`, and provider materialization fields;
+2. add `ChannelScrapeChunk` and browser progress fields to
+   `ChannelScrapeRun`;
 3. implement resumable run storage and completeness validation;
-4. refactor the existing catalog publisher behind the shared snapshot
-   contract;
-5. add transaction-aware listing workspace and provider asset attachment;
-6. implement provider asset materialization and retries;
+4. add atomic publication into existing channel listing and option models;
+5. attach media through existing workspace generation groups and assets;
+6. implement provider asset materialization, leases, and retries;
 7. implement the extension discovery/hydration/resume collector;
-8. cut registered-products reads and actions to the `ChannelListing` model;
-9. verify the replacement before removing the legacy registered-product
-   `/groups` and image-sync dependency;
+8. add import controls and live query invalidation to registered products;
+9. verify the replacement before removing legacy extension/image-sync
+   surfaces;
 10. run the first complete Wing snapshot against the final 0.1.8 schema.
 
 For an existing populated final-schema database, matching external product and
@@ -622,7 +612,7 @@ No automatic Sellpia mapping is performed.
 - valid parent, SKU, media, manifest, chunk, and progress payloads;
 - blank IDs, unknown versions, invalid roles, negative sort order, oversized
   payloads, duplicate SKU IDs, and parent conflicts;
-- file and browser transports mapping to the same canonical snapshot hash.
+- canonical sorting and hashing independent of collection chunk order.
 
 ### Extension fixture tests
 
@@ -707,4 +697,3 @@ No automatic Sellpia mapping is performed.
     separate catalog image-sync action.
 11. The feature ships inside `VERSION 0.1.8` without changing the version to a
     later release.
-

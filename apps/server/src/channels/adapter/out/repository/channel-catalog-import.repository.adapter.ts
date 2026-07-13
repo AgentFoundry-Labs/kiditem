@@ -108,7 +108,8 @@ implements ChannelCatalogImportRepositoryPort {
       );
     }
     return this.prisma.$transaction(async (tx) => {
-      const lockKey = `channel-catalog-import:${input.organizationId}:${SOURCE_TYPE}`;
+      const lockKey =
+        `channel-catalog-import:${input.organizationId}:${SOURCE_TYPE}:${input.channelAccountId}`;
       await tx.$queryRaw`
         SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
       `;
@@ -644,6 +645,10 @@ async function nextPublicationSequence(
   tx: Prisma.TransactionClient,
   organizationId: string,
 ): Promise<bigint> {
+  const sequenceLockKey = `channel-catalog-sequence:${organizationId}:${SOURCE_TYPE}`;
+  await tx.$queryRaw`
+    SELECT pg_advisory_xact_lock(hashtextextended(${sequenceLockKey}, 0))::text AS "lock"
+  `;
   const rows = await tx.$queryRaw<Array<{ publicationSequence: bigint }>>`
     SELECT COALESCE(MAX(publication_sequence), 0::bigint) + 1 AS "publicationSequence"
     FROM source_import_runs

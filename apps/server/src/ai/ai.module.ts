@@ -24,6 +24,7 @@ import { ThumbnailTrackingController } from './adapter/in/http/thumbnail-trackin
 
 // adapter/in/agent
 import { AiWingRegistrationCapabilityAdapter } from './adapter/in/agent/ai-wing-registration-capability.adapter';
+import { AiCatalogMediaPublicationAdapter } from './adapter/in/channels/ai-catalog-media-publication.adapter';
 
 // adapter/out
 import { DetailPageContentGenerationSinkAdapter } from './adapter/out/direct-output/detail-page-content-generation-sink.adapter';
@@ -98,6 +99,7 @@ import { ContentWorkspaceThumbnailSelectionService } from './application/service
 import { RegistrationContentWorkspaceService } from './application/service/registration-content-workspace.service';
 import { SourcingWorkspaceArchiveService } from './application/service/sourcing-workspace-archive.service';
 import { AiGenerationCancellationService } from './application/service/ai-generation-cancellation.service';
+import { CatalogMediaMaterializationWorker } from './application/service/catalog-media-materialization-worker.service';
 
 // application/port — in
 import { AI_WING_REGISTRATION_CAPABILITY_PORT } from './application/port/in/capability/wing-registration.port';
@@ -112,6 +114,7 @@ import {
 
 // application/port — out
 import { AI_OPERATION_ALERT_PORT } from './application/port/out/cross-domain';
+import { CATALOG_MEDIA_PUBLICATION_PORT } from '../channels/application/port/out/cross-domain/catalog-media-publication.port';
 import { THUMBNAIL_GENERATION_EVENT_PORT } from './application/port/out/event';
 import {
   COUPANG_PRODUCT_SALES_SCRAPE_PORT,
@@ -173,6 +176,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     ImageEditDirectGenerationExecutorService,
     ImageEditDirectGenerationJobService,
     AiGenerationCancellationService,
+    CatalogMediaMaterializationWorker,
     ImageAssetOperationService,
     DetailPageAiService,
     DetailPageGenerationService,
@@ -213,6 +217,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     ThumbnailVisionAiService,
     ThumbnailWingService,
     AiWingRegistrationCapabilityAdapter,
+    AiCatalogMediaPublicationAdapter,
 
     // outgoing adapters
     DetailPageContentGenerationSinkAdapter,
@@ -326,6 +331,10 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     { provide: TEXT_COMPLETION_PORT, useExisting: GeminiTextCompletionAdapter },
     { provide: THUMBNAIL_GENERATION_EVENT_PORT, useExisting: ThumbnailGenerationEventAdapter },
     { provide: AI_OPERATION_ALERT_PORT, useExisting: AiOperationAlertAdapter },
+    {
+      provide: CATALOG_MEDIA_PUBLICATION_PORT,
+      useExisting: AiCatalogMediaPublicationAdapter,
+    },
 
     {
       provide: AI_WING_REGISTRATION_CAPABILITY_PORT,
@@ -344,6 +353,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     AI_WORKSPACE_ARCHIVE_PORT,
     AI_GENERATION_CANCELLATION_PORT,
     REGISTRATION_CONTENT_WORKSPACE_PORT,
+    CATALOG_MEDIA_PUBLICATION_PORT,
   ],
 })
 export class AiModule {}

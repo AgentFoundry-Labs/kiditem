@@ -244,6 +244,8 @@ const runSelect = {
   rowCount: true,
   errorCount: true,
   startedAt: true,
+  createdAt: true,
+  updatedAt: true,
   finishedAt: true,
   metaJson: true,
   errorJson: true,

@@ -56,10 +56,13 @@ export const CoupangCatalogOptionV1Schema = z.object({
   externalOptionId: ExternalIdSchema,
   optionName: NullableTextSchema,
   skuStatus: NullableTextSchema,
+  salePrice: z.number().int().nonnegative().nullable(),
+  sellerSku: NullableTextSchema,
   modelNumber: NullableTextSchema,
   barcode: NullableTextSchema,
   attributes: z.array(CoupangCatalogAttributeV1Schema).max(100),
   media: z.array(CoupangCatalogMediaV1Schema).max(COUPANG_CATALOG_MAX_MEDIA_PER_OWNER),
+  raw: z.record(z.unknown()),
 }).superRefine((option, ctx) => {
   option.media.forEach((item, index) => {
     if (item.externalOptionId !== null && item.externalOptionId !== option.externalOptionId) {
@@ -70,6 +73,13 @@ export const CoupangCatalogOptionV1Schema = z.object({
       });
     }
   });
+  if (jsonBytes(option.raw) > COUPANG_CATALOG_MAX_RAW_BYTES) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['raw'],
+      message: `option raw diagnostics exceed ${COUPANG_CATALOG_MAX_RAW_BYTES} bytes`,
+    });
+  }
 });
 export type CoupangCatalogOptionV1 = z.infer<typeof CoupangCatalogOptionV1Schema>;
 
@@ -300,6 +310,9 @@ export const CoupangCatalogCollectionPhaseSchema = z.enum([
   'publishing',
   'finished',
 ]);
+export type CoupangCatalogCollectionPhase = z.infer<
+  typeof CoupangCatalogCollectionPhaseSchema
+>;
 
 export const CoupangCatalogCollectionRunSchema = z.object({
   id: z.string().uuid(),

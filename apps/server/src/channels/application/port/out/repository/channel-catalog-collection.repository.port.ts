@@ -9,6 +9,8 @@ export interface ChannelCatalogCollectionRunRecord {
   rowCount: number;
   errorCount: number;
   startedAt: Date;
+  createdAt: Date;
+  updatedAt: Date;
   finishedAt: Date | null;
   metaJson: unknown;
   errorJson: unknown;

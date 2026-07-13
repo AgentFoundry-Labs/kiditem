@@ -34,10 +34,13 @@ const product = {
       externalOptionId: '20001',
       optionName: '빨강',
       skuStatus: '판매중',
+      salePrice: 12_900,
+      sellerSku: 'SELLER-RED',
       modelNumber: null,
       barcode: null,
       attributes: [{ type: '색상', value: '빨강' }],
       media: [],
+      raw: { vendorItemId: '20001' },
     },
   ],
   media: [media],
@@ -79,6 +82,10 @@ describe('Coupang catalog snapshot contracts', () => {
       ...product,
       options: [product.options[0], product.options[0]],
     })).toThrow(/duplicate externalOptionId/i);
+    expect(() => CoupangCatalogProductV1Schema.parse({
+      ...product,
+      options: [{ ...product.options[0], salePrice: -1 }],
+    })).toThrow();
   });
 
   it('rejects media assigned to an option outside its owner', () => {
