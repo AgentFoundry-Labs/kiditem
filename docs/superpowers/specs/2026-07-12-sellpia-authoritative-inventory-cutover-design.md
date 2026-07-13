@@ -64,7 +64,12 @@ valid registered-product content owners.
 - Rewire orders, supply, analytics, and record-only inventory operations to the
   correct identity.
 - Rebuild every environment from the final schema and the approved source
-  imports; no legacy application data is migrated forward.
+  imports. Legacy `InventorySku`, `ProductOption`, inventory-family, and
+  mapping identities are discarded instead of migrated. Before reset,
+  selectively export approved Coupang `ChannelAccount`, `ChannelListing`, and
+  `ChannelListingOption` provider metadata (including `rawJson` and
+  `attributesJson`) plus channel scrape facts, then replay those records into
+  their final-schema owners after reset.
 - Keep only fields required for identity, import, display, matching, and
   current operations.
 

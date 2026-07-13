@@ -14,6 +14,13 @@ function modelBlock(source, modelName) {
 }
 
 describe('channel Sellpia final schema contract', () => {
+  it('retains channel account provider identity and collection configuration', () => {
+    const account = modelBlock(core, 'ChannelAccount');
+    for (const field of ['externalAccountId', 'sellerId', 'vendorId', 'config']) {
+      assert.match(account, new RegExp(`^\\s*${field}\\s+`, 'm'));
+    }
+  });
+
   it('requires account-owned parent listings without duplicated channel or master identity', () => {
     const listing = modelBlock(core, 'ChannelListing');
     assert.match(listing, /^\s*channelAccountId\s+String\s+/m);
@@ -47,5 +54,17 @@ describe('channel Sellpia final schema contract', () => {
     assert.match(component, /^\s*mappingSource\s+String\s+/m);
     assert.doesNotMatch(component, /InventorySku|ProductOption|legacy_migrated/);
     assert.match(component, /@@unique\(\[channelSkuId, masterProductId\]\)/);
+  });
+
+  it('retains raw channel scrape evidence for selective reset replay', () => {
+    const scrapeRun = modelBlock(channels, 'ChannelScrapeRun');
+    const scrapeSnapshot = modelBlock(channels, 'ChannelScrapeSnapshot');
+
+    assert.match(scrapeRun, /^\s*channelAccountId\s+String\s+/m);
+    assert.match(scrapeRun, /^\s*metaJson\s+Json\?/m);
+    assert.match(scrapeRun, /^\s*errorJson\s+Json\?/m);
+    assert.match(scrapeSnapshot, /^\s*scrapeRunId\s+String\?/m);
+    assert.match(scrapeSnapshot, /^\s*rawJson\s+Json\s+/m);
+    assert.match(scrapeSnapshot, /^\s*normalizedJson\s+Json\?/m);
   });
 });
