@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -261,6 +262,7 @@ export class ProductPreparationRepositoryAdapter
           'Preparation provider identity cannot be discarded or edited.',
         );
       }
+      assertPatchFresh(current, input.command.input);
       assertRegistrationIdentity(current);
       await assertActiveCandidate(tx, input.organizationId, current.sourceCandidateId);
       const resolvedSelections = await resolveSelections(
@@ -281,7 +283,7 @@ export class ProductPreparationRepositoryAdapter
             isDeleted: false,
           },
           data: {
-            ...editableUpdate(input.command.input),
+            ...editableUpdate(current, input.command.input),
             ...resolvedSelectionData(resolvedSelections),
           },
         });
@@ -846,15 +848,22 @@ function frozenNullableString(
 }
 
 function editableUpdate(
+  current: ProductPreparation,
   input: Extract<ReplaceDraftInputRequest['command'], { kind: 'replace' }>['input'],
 ): Prisma.ProductPreparationUncheckedUpdateInput;
 function editableUpdate(
+  current: ProductPreparation,
   input: Extract<ReplaceDraftInputRequest['command'], { kind: 'replace' }>['input'],
 ): Prisma.ProductPreparationUncheckedUpdateInput {
   return {
     ...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
     ...(input.registrationInput !== undefined
-      ? { registrationInput: input.registrationInput as Prisma.InputJsonValue }
+      ? {
+          registrationInput: mergeRegistrationInput(
+            current.registrationInput,
+            input.registrationInput,
+          ) as Prisma.InputJsonValue,
+        }
       : {}),
     ...(input.selectedThumbnailUrl !== undefined
       ? { selectedThumbnailUrl: input.selectedThumbnailUrl }
@@ -895,13 +904,58 @@ function replacementCreateData(
     displayName: update.displayName ?? current.displayName,
     status: 'draft',
     submissionKey: randomUUID(),
-    registrationInput: (update.registrationInput ?? current.registrationInput) as Prisma.InputJsonValue,
+    registrationInput: (update.registrationInput === undefined
+      ? current.registrationInput
+      : mergeRegistrationInput(current.registrationInput, update.registrationInput)
+    ) as Prisma.InputJsonValue,
     ...resolvedSelectionData(resolvedSelections),
     providerOutcome: 'not_attempted',
     submissionLeaseToken: null,
     submissionLeaseClaimedAt: null,
     createdByUserId: userId,
   };
+}
+
+function assertPatchFresh(
+  current: Pick<ProductPreparation, 'updatedAt'>,
+  input: Extract<ReplaceDraftInputRequest['command'], { kind: 'replace' }>['input'],
+): void {
+  if (!Object.prototype.hasOwnProperty.call(input, 'basePreparationUpdatedAt')) return;
+  const baseUpdatedAt = input.basePreparationUpdatedAt ?? null;
+  if (!baseUpdatedAt) throw stalePreparationConflict();
+  const parsed = Date.parse(baseUpdatedAt);
+  if (!Number.isFinite(parsed)) {
+    throw new BadRequestException('basePreparationUpdatedAt must be an ISO date string');
+  }
+  if (current.updatedAt.getTime() !== parsed) throw stalePreparationConflict();
+}
+
+function stalePreparationConflict(): ConflictException {
+  return new ConflictException(
+    '상품 기본정보가 다른 탭에서 먼저 변경되었습니다. 새로고침 후 다시 저장해주세요.',
+  );
+}
+
+function mergeRegistrationInput(
+  current: unknown,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const currentRecord = jsonRecord(current);
+  const merged: Record<string, unknown> = { ...currentRecord };
+  for (const [key, value] of Object.entries(patch)) {
+    merged[key] = isJsonRecord(value) && isJsonRecord(currentRecord[key])
+      ? mergeRegistrationInput(currentRecord[key], value)
+      : value;
+  }
+  return merged;
+}
+
+function jsonRecord(value: unknown): Record<string, unknown> {
+  return isJsonRecord(value) ? value : {};
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 type ResolvedSelections = Awaited<ReturnType<ResolveProductPreparationSelections>>;

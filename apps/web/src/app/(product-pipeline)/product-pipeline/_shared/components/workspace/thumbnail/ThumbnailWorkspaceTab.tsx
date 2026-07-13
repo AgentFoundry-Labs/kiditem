@@ -32,6 +32,7 @@ interface ThumbnailWorkspaceTabProps {
     selectedThumbnail: RegistrationThumbnailOption | null;
   }) => Promise<void> | void;
   thumbnailGenerationReturnHref: string;
+  canSaveConfiguration?: boolean;
 }
 
 export default function ThumbnailWorkspaceTab({
@@ -45,6 +46,7 @@ export default function ThumbnailWorkspaceTab({
   onThumbnailPreviewImagesChange,
   onSaveThumbnailConfiguration,
   thumbnailGenerationReturnHref,
+  canSaveConfiguration = true,
 }: ThumbnailWorkspaceTabProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -238,6 +240,7 @@ export default function ThumbnailWorkspaceTab({
         }}
         onEditSelectedImage={() => openEditor('edit')}
         onSaveConfiguration={handleSaveConfiguration}
+        canSaveConfiguration={canSaveConfiguration}
         onRegisterRepresentative={handleRegisterRepresentative}
         onAddImages={handleAddImages}
         onRemoveImage={handleRemovePreviewImage}

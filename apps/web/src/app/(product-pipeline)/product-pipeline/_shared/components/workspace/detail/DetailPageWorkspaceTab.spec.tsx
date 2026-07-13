@@ -7,7 +7,13 @@ import { toast } from 'sonner';
 import DetailPageWorkspaceTab from './DetailPageWorkspaceTab';
 import type { DetailGenerationRow } from './detail-generation-rows';
 
-const { deleteAgentMutate, previewProps, railProps, useGenerationHistoryMock } = vi.hoisted(() => ({
+const {
+  deleteAgentMutate,
+  previewProps,
+  railProps,
+  selectCurrentDetailPageMock,
+  useGenerationHistoryMock,
+} = vi.hoisted(() => ({
   deleteAgentMutate: vi.fn(),
   previewProps: [] as Array<{ initialAgentHistory?: unknown[] }>,
   railProps: [] as Array<{
@@ -16,7 +22,10 @@ const { deleteAgentMutate, previewProps, railProps, useGenerationHistoryMock } =
     onRename: (row: DetailGenerationRow) => void;
     onDuplicate: (row: DetailGenerationRow) => void;
     onDelete: (row: DetailGenerationRow) => void;
+    onSelect: (key: string | null) => void;
+    onApply: (row: DetailGenerationRow) => void;
   }>,
+  selectCurrentDetailPageMock: vi.fn(),
   useGenerationHistoryMock: vi.fn(),
 }));
 
@@ -50,7 +59,7 @@ vi.mock(
 
 vi.mock('../../../lib/content-workspaces-api', () => ({
   contentWorkspacesApi: {
-    selectCurrentDetailPage: vi.fn(),
+    selectCurrentDetailPage: (...args: unknown[]) => selectCurrentDetailPageMock(...args),
   },
 }));
 
@@ -61,6 +70,8 @@ vi.mock('./DetailPageVersionRail', () => ({
     onRename: (row: DetailGenerationRow) => void;
     onDuplicate: (row: DetailGenerationRow) => void;
     onDelete: (row: DetailGenerationRow) => void;
+    onSelect: (key: string | null) => void;
+    onApply: (row: DetailGenerationRow) => void;
   }) => {
     railProps.push(props);
     const firstRow = props.rows[0];
@@ -77,6 +88,12 @@ vi.mock('./DetailPageVersionRail', () => ({
             </button>
             <button type="button" onClick={() => props.onDelete(firstRow)}>
               삭제 실행
+            </button>
+            <button type="button" onClick={() => props.onSelect(firstRow.key)}>
+              버전 선택 실행
+            </button>
+            <button type="button" onClick={() => props.onApply(firstRow)}>
+              등록 적용 실행
             </button>
           </>
         ) : null}
@@ -126,6 +143,7 @@ describe('DetailPageWorkspaceTab', () => {
     vi.mocked(toast.error).mockReset();
     vi.mocked(toast.success).mockReset();
     deleteAgentMutate.mockReset();
+    selectCurrentDetailPageMock.mockReset();
     useGenerationHistoryMock.mockReset();
   });
 
@@ -237,6 +255,54 @@ describe('DetailPageWorkspaceTab', () => {
 
     expect(screen.queryByTestId('detail-generation-status-bar')).not.toBeInTheDocument();
     expect(screen.getByTestId('detail-page-preview')).toBeInTheDocument();
+  });
+
+  it('reports success after a registered workspace detail selection is persisted', async () => {
+    useGenerationHistoryMock.mockReturnValue({
+      data: [{
+        id: 'generation-1',
+        generatedTitle: '등록 상세페이지',
+        status: 'completed',
+        templateId: 'kids',
+        detailPageData: {},
+        imageUrls: [],
+        processedImages: {},
+        detailPageArtifactId: 'artifact-1',
+        detailPageRevisionId: 'revision-1',
+        errorMessage: null,
+        productId: null,
+        createdAt: '2026-05-16T01:00:00.000Z',
+      }],
+    });
+    selectCurrentDetailPageMock.mockResolvedValue({ id: 'workspace-1' });
+
+    renderWithQueryClient(
+      <DetailPageWorkspaceTab
+        productId="listing-1"
+        contentWorkspaceId="workspace-1"
+        detailPreviewHtml="<html><body>placeholder</body></html>"
+        editedHtml={null}
+        templateCss=""
+        initialAgentHistory={[]}
+        selectedKidsPlayfulId={null}
+        selectedBoldVerticalId={null}
+        selectedAgentId={null}
+        onSelectKidsPlayful={vi.fn()}
+        onSelectBoldVertical={vi.fn()}
+        onSelectAgent={vi.fn()}
+        detailEditorReturnHref="/product-pipeline/registered-products/listing-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '버전 선택 실행' }));
+    fireEvent.click(screen.getByRole('button', { name: '등록 적용 실행' }));
+
+    await waitFor(() => expect(selectCurrentDetailPageMock).toHaveBeenCalledWith(
+      'workspace-1',
+      'generation-1',
+    ));
+    expect(toast.success).toHaveBeenCalledWith('선택한 상세페이지를 등록 상세로 적용했습니다.');
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
   it('renames a generated detail page version through the detail-page API', async () => {

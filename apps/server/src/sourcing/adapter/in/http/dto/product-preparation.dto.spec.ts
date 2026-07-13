@@ -28,4 +28,17 @@ describe('product preparation DTOs', () => {
 
     expect(await validate(dto)).toHaveLength(0);
   });
+
+  it('accepts optimistic concurrency metadata only with an editable patch field', async () => {
+    const patch = plainToInstance(UpdateProductPreparationDto, {
+      registrationInput: { salePrice: 23900 },
+      basePreparationUpdatedAt: '2026-07-13T01:02:03.000Z',
+    });
+    const metadataOnly = plainToInstance(UpdateProductPreparationDto, {
+      basePreparationUpdatedAt: '2026-07-13T01:02:03.000Z',
+    });
+
+    expect(await validate(patch)).toHaveLength(0);
+    expect(await validate(metadataOnly)).not.toHaveLength(0);
+  });
 });

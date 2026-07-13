@@ -639,7 +639,7 @@ export const candidatesApi = {
   quickProcess: (id: string, task: QuickProcessTask = 'all') =>
     apiClient.post<QuickProcessCandidateResponse>(`/api/sourcing/candidates/${id}/quick-process`, { task }),
   updateBasicInfo: (preparationId: string, body: UpdateProductBasicsInput) => {
-    const { basePreparationUpdatedAt: _basePreparationUpdatedAt, ...registrationInput } = body;
+    const { basePreparationUpdatedAt, ...registrationInput } = body;
     return apiClient.patch<ProductPreparationCommandResult>(
       `/api/sourcing/preparations/${encodeURIComponent(preparationId)}`,
       {
@@ -647,6 +647,9 @@ export const candidatesApi = {
           ? { displayName: body.name.trim() }
           : {}),
         registrationInput,
+        ...(basePreparationUpdatedAt !== undefined
+          ? { basePreparationUpdatedAt }
+          : {}),
       },
     );
   },

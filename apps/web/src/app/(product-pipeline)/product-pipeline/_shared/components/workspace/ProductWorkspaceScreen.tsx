@@ -37,6 +37,7 @@ import {
 } from '../../lib/product-workspace-tabs';
 import { useGenerationHistory } from '../../hooks/useGenerationHistory';
 import { extractKcCertificationNumber } from '../../lib/kc-autofill';
+import { contentWorkspacesApi } from '../../lib/content-workspaces-api';
 import { buildProductRegistrationPreviewData } from './preview/product-registration-preview';
 import { GenerationProgressBannerStack } from './GenerationProgressBanner';
 import ProductErrorView from './ProductErrorView';
@@ -225,7 +226,10 @@ export function ProductWorkspaceScreen({
       if (!editablePreparationId) {
         throw new Error('먼저 채널 등록 준비를 만들어 주세요.');
       }
-      return candidatesApi.updateBasicInfo(editablePreparationId, input);
+      return candidatesApi.updateBasicInfo(editablePreparationId, {
+        ...input,
+        basePreparationUpdatedAt: productPreparation?.updatedAt ?? null,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
@@ -299,9 +303,25 @@ export function ProductWorkspaceScreen({
       );
     }
     try {
-      await updateBasicInfoMutation.mutateAsync({ thumbnailUrls });
-      if (input.selectedThumbnail) {
-        await selectThumbnailMutation.mutateAsync(input.selectedThumbnail);
+      if (editablePreparationId) {
+        await updateBasicInfoMutation.mutateAsync({ thumbnailUrls });
+        if (input.selectedThumbnail) {
+          await selectThumbnailMutation.mutateAsync(input.selectedThumbnail);
+        }
+      } else if (effectiveContentWorkspaceId && input.selectedThumbnail) {
+        await contentWorkspacesApi.selectCurrentThumbnail(
+          effectiveContentWorkspaceId,
+          contentWorkspaceThumbnailSelection(input.selectedThumbnail),
+        );
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.contentWorkspaces.detail(effectiveContentWorkspaceId),
+          }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.contentWorkspaces.all }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all }),
+        ]);
+      } else {
+        throw new Error('저장 가능한 썸네일 구성이 없습니다.');
       }
       toast.success('썸네일 구성을 저장했습니다.');
     } catch (err) {
@@ -567,7 +587,7 @@ export function ProductWorkspaceScreen({
               basicInfo={product?.basicInfo ?? null}
               costCny={product?.cost_cny ?? null}
               updateField={updateField}
-              onCommitBasicInfo={handleCommitBasicInfo}
+              onCommitBasicInfo={editablePreparationId ? handleCommitBasicInfo : undefined}
               nameLength={nameLength}
               productId={productId}
               detailPreviewHtml={detailPreviewHtml}
@@ -611,15 +631,16 @@ export function ProductWorkspaceScreen({
                   setSelectedBoldVerticalId(null);
                 }
               }}
-              onApplyRegistrationDetailPage={(input) =>
-                selectDetailPageMutation.mutateAsync(input).then(() => undefined)
-              }
+              onApplyRegistrationDetailPage={editablePreparationId
+                ? (input) => selectDetailPageMutation.mutateAsync(input).then(() => undefined)
+                : undefined}
               selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
               thumbnailPreviewImages={thumbnailPreviewImages}
               mobilePreviewData={mobilePreviewData}
               onPreviewThumbnail={setThumbnailPreviewUrl}
               onThumbnailPreviewImagesChange={setThumbnailPreviewImages}
               onSaveThumbnailConfiguration={handleSaveThumbnailConfiguration}
+              canSaveThumbnailConfiguration={Boolean(editablePreparationId)}
               thumbnailGenerationReturnHref={thumbnailWorkspaceReturnHref}
               selectedDetailPageSummary={selectedDetailPageSummary}
               onDetailPreviewHtmlChange={setDetailWorkspacePreviewHtml}
@@ -641,4 +662,14 @@ export function ProductWorkspaceScreen({
 
 function uniqueNonEmpty(values: Array<string | null | undefined>): string[] {
   return Array.from(new Set(values.map((value) => value?.trim()).filter(Boolean) as string[]));
+}
+
+function contentWorkspaceThumbnailSelection(option: RegistrationThumbnailOption) {
+  if (option.generatedGenerationId && option.generatedCandidateId) {
+    return {
+      sourceThumbnailGenerationId: option.generatedGenerationId,
+      sourceThumbnailCandidateId: option.generatedCandidateId,
+    };
+  }
+  return { externalUrl: option.url };
 }

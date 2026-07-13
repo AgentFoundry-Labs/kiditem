@@ -635,6 +635,7 @@ export function ThumbnailEditorWorkspace({
             mode={mode}
             editCase={editCase}
             productId={productId}
+            contentWorkspaceId={contentWorkspaceId}
             slots={slots}
             onSlotsChange={setSlots}
             fallbackProductImage={fallbackProductImage}

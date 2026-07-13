@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
 import {
+  IsISO8601,
   IsObject,
   IsOptional,
   IsString,
@@ -73,6 +74,10 @@ export class UpdateProductPreparationDto {
   @IsOptional()
   @IsUUID()
   selectedDetailPageGenerationId?: string | null;
+
+  @IsOptional()
+  @IsISO8601()
+  basePreparationUpdatedAt?: string | null;
 
   @Validate(AtLeastOneProductPreparationFieldConstraint)
   private readonly atLeastOneField?: never;

@@ -108,4 +108,20 @@ export const contentWorkspacesApi = {
       { contentGenerationId },
     );
   },
+
+  async selectCurrentThumbnail(
+    id: string,
+    selection:
+      | { contentAssetId: string }
+      | {
+          sourceThumbnailGenerationId: string;
+          sourceThumbnailCandidateId: string;
+        }
+      | { externalUrl: string },
+  ): Promise<ContentWorkspaceSummary> {
+    return apiClient.patch<ContentWorkspaceSummary>(
+      `/api/ai/content-workspaces/${encodeURIComponent(id)}/current-thumbnail`,
+      selection,
+    );
+  },
 };

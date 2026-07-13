@@ -49,8 +49,13 @@ describe('ProductPreparation shared contract', () => {
   });
 
   it('keeps the account immutable in draft updates', () => {
-    expect(UpdateProductPreparationInputSchema.parse({ registrationInput: { salePrice: 23900 } }))
-      .toEqual({ registrationInput: { salePrice: 23900 } });
+    expect(UpdateProductPreparationInputSchema.parse({
+      registrationInput: { salePrice: 23900 },
+      basePreparationUpdatedAt: '2026-07-13T01:02:03.000Z',
+    })).toEqual({
+      registrationInput: { salePrice: 23900 },
+      basePreparationUpdatedAt: '2026-07-13T01:02:03.000Z',
+    });
     expect(() =>
       UpdateProductPreparationInputSchema.parse({
         channelAccountId: ACCOUNT_ID,
@@ -66,6 +71,9 @@ describe('ProductPreparation shared contract', () => {
       }),
     ).toThrow();
     expect(() => UpdateProductPreparationInputSchema.parse({})).toThrow();
+    expect(() => UpdateProductPreparationInputSchema.parse({
+      basePreparationUpdatedAt: '2026-07-13T01:02:03.000Z',
+    })).toThrow();
   });
 
   it('projects canonical account, source-workspace, and listing identities', () => {

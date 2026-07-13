@@ -11,12 +11,14 @@ const {
   apiClientPatchMock,
   mobilePreviewProps,
   productEditHeaderProps,
+  productTabContentProps,
   useGenerationHistoryMock,
   useProductDetailMock,
 } = vi.hoisted(() => ({
   apiClientPatchMock: vi.fn(),
   mobilePreviewProps: [] as Array<{ detailHtml?: string | null }>,
   productEditHeaderProps: [] as Array<Record<string, unknown>>,
+  productTabContentProps: [] as Array<Record<string, unknown>>,
   useGenerationHistoryMock: vi.fn(),
   useProductDetailMock: vi.fn(),
 }));
@@ -67,6 +69,7 @@ vi.mock('./ProductTabContent', () => ({
   default: ({
     onSaveThumbnailConfiguration,
     onCommitBasicInfo,
+    onApplyRegistrationDetailPage,
     selectedRegistrationThumbnailUrl,
     savedDetailPageGenerationId,
     selectedDetailPageSummary,
@@ -84,11 +87,15 @@ vi.mock('./ProductTabContent', () => ({
       name?: string;
       salePrice?: number;
     }) => void;
+    onApplyRegistrationDetailPage?: (input: {
+      selectedDetailPageGenerationId: string;
+    }) => void;
     selectedRegistrationThumbnailUrl?: string | null;
     savedDetailPageGenerationId?: string | null;
     selectedDetailPageSummary?: { title?: string } | null;
-  }) => (
-    <div>
+  }) => {
+    productTabContentProps.push({ onCommitBasicInfo, onApplyRegistrationDetailPage });
+    return <div>
       <div
         data-testid="product-tab-content"
         data-selected-thumbnail={selectedRegistrationThumbnailUrl ?? ''}
@@ -117,8 +124,16 @@ vi.mock('./ProductTabContent', () => ({
       >
         mock-save-basic
       </button>
-    </div>
-  ),
+      <button
+        type="button"
+        onClick={() => onApplyRegistrationDetailPage?.({
+          selectedDetailPageGenerationId: 'detail-generation-1',
+        })}
+      >
+        mock-apply-detail
+      </button>
+    </div>;
+  },
 }));
 
 vi.mock('./preview/MobilePreview', () => ({
@@ -172,6 +187,7 @@ describe('ProductWorkspaceScreen', () => {
     apiClientPatchMock.mockReset();
     mobilePreviewProps.length = 0;
     productEditHeaderProps.length = 0;
+    productTabContentProps.length = 0;
     useGenerationHistoryMock.mockReturnValue({ data: [] });
     useProductDetailMock.mockReset();
   });
@@ -308,6 +324,7 @@ describe('ProductWorkspaceScreen', () => {
           name: '수정 상품명',
           salePrice: 13900,
         },
+        basePreparationUpdatedAt: '2026-05-20T01:02:03.000Z',
       },
     ));
   });
@@ -365,8 +382,51 @@ describe('ProductWorkspaceScreen', () => {
           name: '수정 상품명',
           salePrice: 13900,
         },
+        basePreparationUpdatedAt: '2026-05-20T01:02:03.000Z',
       },
     ]);
+  });
+
+  it('does not expose preparation-only basic or detail persistence without a preparation', async () => {
+    renderWithQueryClient(
+      <ProductWorkspaceScreen
+        productId="listing-1"
+        backHref="/product-pipeline/registered-products"
+        selfHref="/product-pipeline/registered-products/listing-1"
+        initialWorkspaceData={workspaceData}
+        contentWorkspaceId="workspace-1"
+        showCandidateActions={false}
+      />,
+    );
+
+    await screen.findByTestId('product-tab-content');
+    expect(productTabContentProps.at(-1)?.onCommitBasicInfo).toBeUndefined();
+    expect(productTabContentProps.at(-1)?.onApplyRegistrationDetailPage).toBeUndefined();
+  });
+
+  it('persists a registered representative thumbnail through the content workspace', async () => {
+    apiClientPatchMock.mockResolvedValue({ id: 'workspace-1' });
+
+    renderWithQueryClient(
+      <ProductWorkspaceScreen
+        productId="listing-1"
+        backHref="/product-pipeline/registered-products"
+        selfHref="/product-pipeline/registered-products/listing-1"
+        initialWorkspaceData={workspaceData}
+        contentWorkspaceId="workspace-1"
+        showCandidateActions={false}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'mock-save-thumbnail' }));
+
+    await waitFor(() => expect(apiClientPatchMock).toHaveBeenCalledWith(
+      '/api/ai/content-workspaces/workspace-1/current-thumbnail',
+      {
+        sourceThumbnailGenerationId: 'thumbnail-generation-1',
+        sourceThumbnailCandidateId: 'thumbnail-candidate-1',
+      },
+    ));
   });
 
   it('passes the selected detail page version summary into the basic tab content', async () => {

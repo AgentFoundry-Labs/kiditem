@@ -65,6 +65,7 @@ describe('sourcing candidate API', () => {
     expect(apiClient.patch).toHaveBeenNthCalledWith(1, '/api/sourcing/preparations/prep-1', {
       displayName: '수정 상품명',
       registrationInput: { name: '수정 상품명', salePrice: 13900 },
+      basePreparationUpdatedAt: '2026-05-20T01:02:03.000Z',
     });
     expect(apiClient.patch).toHaveBeenNthCalledWith(2, '/api/sourcing/preparations/prep-1', {
       selectedThumbnailUrl: 'https://cdn.example.com/selected.png',

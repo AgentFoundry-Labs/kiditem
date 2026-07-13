@@ -44,8 +44,10 @@ export const CreateProductPreparationInputSchema = EditablePreparationFieldsSche
   registrationInput: z.record(z.unknown()),
 }).strict();
 
-export const UpdateProductPreparationInputSchema = EditablePreparationFieldsSchema.strict().refine(
-  (value) => Object.keys(value).length > 0,
+export const UpdateProductPreparationInputSchema = EditablePreparationFieldsSchema.extend({
+  basePreparationUpdatedAt: z.string().datetime().nullable().optional(),
+}).strict().refine(
+  (value) => Object.keys(value).some((key) => key !== 'basePreparationUpdatedAt'),
   { message: 'At least one preparation field must be supplied.' },
 );
 

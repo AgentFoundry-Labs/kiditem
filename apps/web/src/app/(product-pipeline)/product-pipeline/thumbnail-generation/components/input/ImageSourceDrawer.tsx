@@ -36,6 +36,7 @@ interface Props {
   children: React.ReactNode;
   role: MasterImageRole;
   productId: string | null;
+  contentWorkspaceId?: string | null;
   hubImages: MasterImageItem[];
   hubImagesLoading: boolean;
   availableTabs?: DrawerTabKey[];
@@ -58,6 +59,7 @@ export function ImageSourceDrawer({
   children,
   role,
   productId,
+  contentWorkspaceId = null,
   hubImages,
   hubImagesLoading,
   availableTabs = ['upload', 'hub', 'recent'],
@@ -116,6 +118,7 @@ export function ImageSourceDrawer({
               <HubTab
                 role={role}
                 productId={productId}
+                contentWorkspaceId={contentWorkspaceId}
                 images={hubImages}
                 loading={hubImagesLoading}
                 onPick={(url) => handlePick({ value: url, source: 'hub' })}
@@ -235,16 +238,17 @@ function UploadTab({ multi, remainingSlots, onPickMany }: UploadTabProps) {
 interface HubTabProps {
   role: MasterImageRole;
   productId: string | null;
+  contentWorkspaceId: string | null;
   images: MasterImageItem[];
   loading: boolean;
   onPick: (url: string) => void;
 }
 
-function HubTab({ role, productId, images, loading, onPick }: HubTabProps) {
+function HubTab({ role, productId, contentWorkspaceId, images, loading, onPick }: HubTabProps) {
   const roleImages = useMemo(() => images.filter((img) => img.role === role), [images, role]);
   const roleConfig = useMemo(() => HUB_ROLE_CONFIG.find((c) => c.role === role), [role]);
 
-  if (!productId) {
+  if (!productId && !contentWorkspaceId) {
     return (
       <div className="text-center py-6 text-[11px] text-gray-500">
         상품이 지정되지 않아 허브를 불러올 수 없습니다
@@ -270,12 +274,14 @@ function HubTab({ role, productId, images, loading, onPick }: HubTabProps) {
         <div className="text-center py-6">
           <ImageIcon size={20} className="mx-auto mb-2 text-gray-300" />
           <div className="text-[11px] text-gray-500 mb-1.5">허브에 등록된 이미지 없음</div>
-          <Link
-            href={`${REGISTERED_PRODUCTS_ROOT}?masterId=${encodeURIComponent(productId)}`}
-            className="inline-flex items-center gap-1 text-[11px] text-violet-600 hover:text-violet-700"
-          >
-            <ArrowRight size={11} /> 소싱 화면에서 확인
-          </Link>
+          {productId ? (
+            <Link
+              href={`${REGISTERED_PRODUCTS_ROOT}?masterId=${encodeURIComponent(productId)}`}
+              className="inline-flex items-center gap-1 text-[11px] text-violet-600 hover:text-violet-700"
+            >
+              <ArrowRight size={11} /> 소싱 화면에서 확인
+            </Link>
+          ) : null}
         </div>
       ) : (
         <div className="grid grid-cols-3 gap-1.5 max-h-[240px] overflow-y-auto">
