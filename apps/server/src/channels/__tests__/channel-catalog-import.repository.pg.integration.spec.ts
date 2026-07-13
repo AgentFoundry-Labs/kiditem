@@ -1,5 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -46,10 +50,10 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
 
   it('imports the representative 1,225-parent/2,241-SKU shape with three skips and no stock mutation', async () => {
     const rows = representativeRows();
-    const inventoryBefore = await prisma.inventorySku.create({
+    const inventoryBefore = await prisma.masterProduct.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        sellpiaProductCode: 'SP-STOCK-SENTINEL',
+        code: 'SP-STOCK-SENTINEL',
         name: 'Sellpia stock sentinel',
         currentStock: 37,
       },
@@ -81,16 +85,17 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
           where: {
             organizationId: TEST_ORGANIZATION_ID,
             channelAccountId: WING_ACCOUNT_ID,
-            isDeleted: false,
+            isActive: true,
           },
+          include: { channelAccount: true },
         }),
         prisma.channelListingOption.findMany({
           where: {
             organizationId: TEST_ORGANIZATION_ID,
-            channelAccountId: WING_ACCOUNT_ID,
+            listing: { channelAccountId: WING_ACCOUNT_ID },
           },
         }),
-      prisma.inventorySku.findUniqueOrThrow({
+      prisma.masterProduct.findUniqueOrThrow({
         where: { id: inventoryBefore.id },
       }),
       ]);
@@ -99,7 +104,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     expect(skus).toHaveLength(2_241);
     expect(new Set(products.map((row) => row.id))).toHaveLength(1_225);
     expect(new Set(skus.map((row) => row.id))).toHaveLength(2_241);
-    expect(products.every((row) => row.channel === 'coupang')).toBe(true);
+    expect(products.every((row) => row.channelAccount.channel === 'coupang')).toBe(true);
     expect(skus.every((row) => row.mappingStatus === 'unmatched')).toBe(true);
     expect(skus.every((row) => row.sellerSku === null && row.salePrice === null)).toBe(true);
     expect(result.changes).toEqual({
@@ -151,6 +156,77 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     expect(await prisma.sourceImportRun.count()).toBe(0);
   });
 
+  it.each([null, '   '])(
+    'rejects a Coupang account whose canonical external identity is %j before claiming',
+    async (externalAccountId) => {
+      await prisma.channelAccount.update({
+        where: { id: WING_ACCOUNT_ID },
+        data: { externalAccountId },
+      });
+
+      await expect(
+        service.importCoupangWing(
+          importInput({ fileHash: fileHash(`missing-identity-${String(externalAccountId)}`) }),
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(await prisma.sourceImportRun.count()).toBe(0);
+      expect(await prisma.channelListing.count()).toBe(0);
+      expect(await prisma.channelListingOption.count()).toBe(0);
+    },
+  );
+
+  it('rejects a Coupang account whose vendorId conflicts with its canonical external identity', async () => {
+    await prisma.channelAccount.update({
+      where: { id: WING_ACCOUNT_ID },
+      data: { vendorId: 'different-vendor' },
+    });
+
+    await expect(
+      service.importCoupangWing(
+        importInput({ fileHash: fileHash('conflicting-account-identities') }),
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(await prisma.sourceImportRun.count()).toBe(0);
+    expect(await prisma.channelListing.count()).toBe(0);
+    expect(await prisma.channelListingOption.count()).toBe(0);
+  });
+
+  it('revalidates the canonical account identity when publishing a claimed import', async () => {
+    const claimed = await repository.claimCoupangWingImport({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      fileName: 'wing.xlsx',
+      fileHash: fileHash('identity-removed-after-claim'),
+      rowCount: 1,
+    });
+    if (claimed.kind !== 'started') throw new Error('expected a started import claim');
+
+    await prisma.channelAccount.update({
+      where: { id: WING_ACCOUNT_ID },
+      data: { externalAccountId: null },
+    });
+
+    await expect(
+      repository.upsertCoupangWingCatalog({
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: WING_ACCOUNT_ID,
+        runId: claimed.runId,
+        attemptToken: claimed.attemptToken,
+        rows: [makeRow(0)],
+        skippedRows: [],
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(await prisma.channelListing.count()).toBe(0);
+    expect(await prisma.channelListingOption.count()).toBe(0);
+    await expect(
+      prisma.sourceImportRun.findUniqueOrThrow({ where: { id: claimed.runId } }),
+    ).resolves.toMatchObject({ status: 'running' });
+  });
+
   it('scopes product, SKU, and same-hash idempotency keys by ChannelAccount', async () => {
     const rows = [makeRow(0, { externalProductId: 'P-SHARED', externalSkuId: 'S-SHARED' })];
     const hash = fileHash('same-file-different-account');
@@ -169,7 +245,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
           organizationId: TEST_ORGANIZATION_ID,
           externalOptionId: 'S-SHARED',
         },
-        orderBy: { channelAccountId: 'asc' },
+        orderBy: { listing: { channelAccountId: 'asc' } },
       }),
       prisma.sourceImportRun.findMany({
         where: { organizationId: TEST_ORGANIZATION_ID, fileHash: hash },
@@ -220,7 +296,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     const skuBefore = await prisma.channelListingOption.findFirstOrThrow({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: WING_ACCOUNT_ID,
+        listing: { channelAccountId: WING_ACCOUNT_ID },
         externalOptionId: 'S-RETURN',
       },
     });
@@ -253,7 +329,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       prisma.channelListingOption.findFirstOrThrow({
         where: {
           organizationId: TEST_ORGANIZATION_ID,
-          channelAccountId: SECOND_WING_ACCOUNT_ID,
+          listing: { channelAccountId: SECOND_WING_ACCOUNT_ID },
           externalOptionId: 'S-RETURN',
         },
       }),
@@ -386,55 +462,64 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     });
   });
 
-  it('rejects a pre-existing SKU whose account disagrees with its parent before publication', async () => {
-    const wrongAccountParent = await prisma.channelListing.create({
+  it('derives SKU account ownership exclusively from the parent listing during publication', async () => {
+    const firstAccountParent = await prisma.channelListing.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: WING_ACCOUNT_ID,
-        channel: 'coupang',
         externalId: 'P-ACCOUNT-A',
       },
     });
-    const malformedSku = await prisma.channelListingOption.create({
+    const firstAccountSku = await prisma.channelListingOption.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: SECOND_WING_ACCOUNT_ID,
-        listingId: wrongAccountParent.id,
+        listingId: firstAccountParent.id,
         externalOptionId: 'S-CROSS-ACCOUNT',
       },
     });
     const hash = fileHash('cross-account-parent');
 
-    await expect(
-      importCatalog(
-        [
-          makeRow(0, {
-            externalProductId: 'P-ACCOUNT-B',
-            externalSkuId: 'S-CROSS-ACCOUNT',
-          }),
-        ],
-        hash,
-        SECOND_WING_ACCOUNT_ID,
-      ),
-    ).rejects.toThrow('different parent');
+    const result = await importCatalog(
+      [
+        makeRow(0, {
+          externalProductId: 'P-ACCOUNT-B',
+          externalSkuId: 'S-CROSS-ACCOUNT',
+        }),
+      ],
+      hash,
+      SECOND_WING_ACCOUNT_ID,
+    );
 
     expect(
       await prisma.channelListingOption.findUniqueOrThrow({
-        where: { id: malformedSku.id },
+        where: { id: firstAccountSku.id },
       }),
     ).toMatchObject({
-      listingId: wrongAccountParent.id,
-      channelAccountId: SECOND_WING_ACCOUNT_ID,
+      listingId: firstAccountParent.id,
     });
-    expect(
-      await prisma.channelListing.count({
-        where: {
-          organizationId: TEST_ORGANIZATION_ID,
+    const secondAccountSku = await prisma.channelListingOption.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        externalOptionId: 'S-CROSS-ACCOUNT',
+        listing: {
           channelAccountId: SECOND_WING_ACCOUNT_ID,
           externalId: 'P-ACCOUNT-B',
         },
-      }),
-    ).toBe(0);
+      },
+      include: { listing: true },
+    });
+    expect(secondAccountSku).toMatchObject({
+      externalOptionId: 'S-CROSS-ACCOUNT',
+      listing: {
+        channelAccountId: SECOND_WING_ACCOUNT_ID,
+        externalId: 'P-ACCOUNT-B',
+      },
+    });
+    expect(secondAccountSku.id).not.toBe(firstAccountSku.id);
+    expect(result).toMatchObject({
+      duplicate: false,
+      changes: { createdProductCount: 1, createdSkuCount: 1 },
+    });
     expect(
       await prisma.sourceImportRun.findFirstOrThrow({
         where: {
@@ -443,7 +528,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
           fileHash: hash,
         },
       }),
-    ).toMatchObject({ status: 'failed', publicationSequence: null });
+    ).toMatchObject({ status: 'completed', publicationSequence: 1n });
   });
 
   it('updates metadata/raw JSON while preserving stable IDs, mappings, prices, seller SKUs, and all components', async () => {
@@ -460,21 +545,21 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     const skusBefore = await prisma.channelListingOption.findMany({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: WING_ACCOUNT_ID,
+        listing: { channelAccountId: WING_ACCOUNT_ID },
       },
       orderBy: { externalOptionId: 'asc' },
     });
-    const master = await prisma.masterProduct.create({
-      data: {
+    const masterProducts = await prisma.masterProduct.createManyAndReturn({
+      data: [0, 1].map((index) => ({
         organizationId: TEST_ORGANIZATION_ID,
-        code: `M-${randomUUID()}`,
-        name: 'linked master',
-      },
+        code: `SP-COMPONENT-${index}`,
+        name: `component ${index}`,
+        currentStock: index,
+      })),
     });
     await prisma.channelListing.update({
       where: { id: productBefore.id },
       data: {
-        masterId: master.id,
         abcGrade: 'A',
         profitTag: 'operator-authored',
         adTier: 'scale',
@@ -492,35 +577,18 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         createdByUserId: TEST_USER_ID,
       },
     });
-    const productOption = await prisma.productOption.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        masterId: master.id,
-        sku: `SKU-${randomUUID()}`,
-        optionName: 'confirmed option',
-      },
-    });
-    const inventorySkus = await prisma.inventorySku.createManyAndReturn({
-      data: [0, 1].map((index) => ({
-        organizationId: TEST_ORGANIZATION_ID,
-        sellpiaProductCode: `SP-COMPONENT-${index}`,
-        name: `component ${index}`,
-        currentStock: index,
-      })),
-    });
     const skuByExternalId = new Map(skusBefore.map((sku) => [sku.externalOptionId, sku]));
     const preservation = [
-      ['S-SINGLE', 'unmatched', 'SELLER-SINGLE', 10_000, false],
-      ['S-FOUR', 'needs_review', 'SELLER-FOUR', 20_000, true],
-      ['S-MIXED', 'matched', 'SELLER-MIXED', 30_000, true],
-      ['S-ABSENT', 'matched', 'SELLER-ABSENT', 40_000, false],
+      ['S-SINGLE', 'unmatched', 'SELLER-SINGLE', 10_000],
+      ['S-FOUR', 'needs_review', 'SELLER-FOUR', 20_000],
+      ['S-MIXED', 'matched', 'SELLER-MIXED', 30_000],
+      ['S-ABSENT', 'matched', 'SELLER-ABSENT', 40_000],
     ] as const;
     for (const [
       externalOptionId,
       mappingStatus,
       sellerSku,
       salePrice,
-      isUnmatched,
     ] of preservation) {
       await prisma.channelListingOption.update({
         where: { id: skuByExternalId.get(externalOptionId)!.id },
@@ -528,8 +596,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
           mappingStatus,
           sellerSku,
           salePrice,
-          optionId: productOption.id,
-          isUnmatched,
           status: externalOptionId === 'S-ABSENT' ? 'absent-status' : 'old-status',
         },
       });
@@ -539,7 +605,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         {
           organizationId: TEST_ORGANIZATION_ID,
           channelSkuId: skuByExternalId.get('S-SINGLE')!.id,
-          inventorySkuId: inventorySkus[0].id,
+          masterProductId: masterProducts[0].id,
           quantity: 1,
           mappingSource: 'manual',
           createdBy: TEST_USER_ID,
@@ -547,7 +613,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         {
           organizationId: TEST_ORGANIZATION_ID,
           channelSkuId: skuByExternalId.get('S-FOUR')!.id,
-          inventorySkuId: inventorySkus[0].id,
+          masterProductId: masterProducts[0].id,
           quantity: 4,
           mappingSource: 'manual',
           createdBy: TEST_USER_ID,
@@ -555,7 +621,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         {
           organizationId: TEST_ORGANIZATION_ID,
           channelSkuId: skuByExternalId.get('S-MIXED')!.id,
-          inventorySkuId: inventorySkus[0].id,
+          masterProductId: masterProducts[0].id,
           quantity: 2,
           mappingSource: 'manual',
           createdBy: TEST_USER_ID,
@@ -563,7 +629,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         {
           organizationId: TEST_ORGANIZATION_ID,
           channelSkuId: skuByExternalId.get('S-MIXED')!.id,
-          inventorySkuId: inventorySkus[1].id,
+          masterProductId: masterProducts[1].id,
           quantity: 3,
           mappingSource: 'manual',
           createdBy: TEST_USER_ID,
@@ -571,7 +637,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         {
           organizationId: TEST_ORGANIZATION_ID,
           channelSkuId: skuByExternalId.get('S-ABSENT')!.id,
-          inventorySkuId: inventorySkus[1].id,
+          masterProductId: masterProducts[1].id,
           quantity: 1,
           mappingSource: 'manual',
           createdBy: TEST_USER_ID,
@@ -609,7 +675,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       prisma.channelListingOption.findMany({
         where: {
           organizationId: TEST_ORGANIZATION_ID,
-          channelAccountId: WING_ACCOUNT_ID,
+          listing: { channelAccountId: WING_ACCOUNT_ID },
           externalOptionId: { in: ['S-SINGLE', 'S-FOUR', 'S-MIXED'] },
         },
         orderBy: { externalOptionId: 'asc' },
@@ -618,7 +684,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       prisma.channelListingOption.findFirstOrThrow({
         where: {
           organizationId: TEST_ORGANIZATION_ID,
-          channelAccountId: WING_ACCOUNT_ID,
+          listing: { channelAccountId: WING_ACCOUNT_ID },
           externalOptionId: 'S-ABSENT',
         },
       }),
@@ -630,7 +696,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
 
     expect(productAfter).toMatchObject({
       id: productBefore.id,
-      masterId: master.id,
       channelName: '변경된 등록상품명',
       displayName: '변경된 노출상품명',
       category: '변경 카테고리',
@@ -654,8 +719,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         mappingStatus: preserved[1],
         sellerSku: preserved[2],
         salePrice: preserved[3],
-        optionId: productOption.id,
-        isUnmatched: preserved[4],
         lastImportRunId: second.run.id,
         isActive: true,
         rawJson: expect.objectContaining({ revision: 2 }),
@@ -687,7 +750,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     const before = await prisma.channelListingOption.findFirstOrThrow({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: WING_ACCOUNT_ID,
+        listing: { channelAccountId: WING_ACCOUNT_ID },
         externalOptionId: 'S-STABLE',
       },
       include: { listing: true },
@@ -880,7 +943,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       data: {
         organizationId: OTHER_ORGANIZATION_ID,
         channelAccountId: OTHER_ORG_WING_ACCOUNT_ID,
-        channel: 'coupang',
         externalId: 'P-OTHER',
         channelName: 'other organization sentinel',
       },
@@ -1025,7 +1087,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     const rows = await prisma.channelListingOption.findMany({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: WING_ACCOUNT_ID,
+        listing: { channelAccountId: WING_ACCOUNT_ID },
       },
       select: { externalOptionId: true, isActive: true },
       orderBy: { externalOptionId: 'asc' },

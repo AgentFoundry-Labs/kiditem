@@ -119,7 +119,7 @@ implements ChannelCatalogImportRepositoryPort {
           organizationId: input.organizationId,
           status: 'active',
         },
-        select: { id: true, organizationId: true, channel: true },
+        select: { id: true, channel: true, externalAccountId: true, vendorId: true },
       });
       if (!account) {
         throw new NotFoundException('Active channel account not found');
@@ -129,6 +129,7 @@ implements ChannelCatalogImportRepositoryPort {
           'Coupang Wing catalog imports require a channel=coupang account',
         );
       }
+      assertCanonicalCoupangAccountIdentity(account);
 
       const lockedRows = await tx.$queryRaw<LockedRunRow[]>`
         SELECT
@@ -476,7 +477,7 @@ implements ChannelCatalogImportRepositoryPort {
   ): Promise<void> {
     const account = await this.prisma.channelAccount.findFirst({
       where: { id: channelAccountId, organizationId, status: 'active' },
-      select: { id: true, organizationId: true, channel: true },
+      select: { id: true, channel: true, externalAccountId: true, vendorId: true },
     });
     if (!account) throw new NotFoundException('Active channel account not found');
     if (account.channel !== CHANNEL) {
@@ -484,6 +485,7 @@ implements ChannelCatalogImportRepositoryPort {
         'Coupang Wing catalog imports require a channel=coupang account',
       );
     }
+    assertCanonicalCoupangAccountIdentity(account);
   }
 
   private async claimExistingRun(
@@ -585,6 +587,25 @@ implements ChannelCatalogImportRepositoryPort {
         fileHash,
       },
     });
+  }
+}
+
+function assertCanonicalCoupangAccountIdentity(account: {
+  externalAccountId: string | null;
+  vendorId: string | null;
+}): void {
+  const externalAccountId = account.externalAccountId?.trim();
+  if (!externalAccountId) {
+    throw new BadRequestException(
+      'Coupang Wing catalog imports require a nonblank external account identity',
+    );
+  }
+
+  const vendorId = account.vendorId?.trim();
+  if (vendorId && vendorId !== externalAccountId) {
+    throw new ConflictException(
+      'Coupang account vendor identity conflicts with its external account identity',
+    );
   }
 }
 

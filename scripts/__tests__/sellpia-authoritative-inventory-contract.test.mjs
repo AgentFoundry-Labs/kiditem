@@ -38,6 +38,10 @@ const migrationRegistry = readFileSync(
   join(repoRoot, 'scripts/data-migrations/index.ts'),
   'utf8',
 );
+const runtimeApiSkill = readFileSync(
+  join(repoRoot, 'apps/server/agent-config/skills/kiditem-api/SKILL.md'),
+  'utf8',
+);
 
 function modelBlock(source, modelName) {
   const block = source.match(new RegExp(`model ${modelName}\\s*\\{[\\s\\S]*?\\n\\}`))?.[0];
@@ -86,6 +90,18 @@ describe('Sellpia authoritative final-schema contract', () => {
     ]) {
       assert.doesNotMatch(schema, new RegExp(`^\\s*${field}\\s+`, 'm'));
     }
+  });
+
+  it('keeps the runtime API skill on final channel and Sellpia inventory routes', () => {
+    assert.match(runtimeApiSkill, /GET\s+\/api\/channels\/listings\b/);
+    assert.match(runtimeApiSkill, /GET\s+\/api\/inventory\/sellpia-skus\b/);
+    assert.match(
+      runtimeApiSkill,
+      /GET\s+\/api\/inventory\/sellpia-skus\/\{masterProductId\}\s/,
+    );
+    assert.doesNotMatch(runtimeApiSkill, /GET\s+\/api\/products(?:[/?{]|\s)/);
+    assert.doesNotMatch(runtimeApiSkill, /GET\s+\/api\/inventory\s/);
+    assert.doesNotMatch(runtimeApiSkill, /\/api\/inventory\/by-product\b/);
   });
 
   it('defines MasterProduct as the organization-scoped Sellpia stock owner', () => {

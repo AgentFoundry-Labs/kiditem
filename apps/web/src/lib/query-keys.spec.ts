@@ -51,6 +51,10 @@ describe('channel SKU matching query keys', () => {
 });
 
 describe('Sellpia authoritative inventory query keys', () => {
+  it('does not expose the retired internal product-option key family', () => {
+    expect(queryKeys).not.toHaveProperty('productOptions');
+  });
+
   it('keeps snapshots, assets, history, and availability in independently invalidatable families', () => {
     expect(queryKeys.inventory.snapshots()).toEqual(['inventory', 'sellpia-skus']);
     expect(queryKeys.inventory.snapshot({ page: '2', query: 'SP-1' })).toEqual([
