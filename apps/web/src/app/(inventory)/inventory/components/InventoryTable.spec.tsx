@@ -64,10 +64,9 @@ describe('InventoryTable', () => {
     );
     expect(screen.getByRole('cell', { name: '말랑이' })).toHaveClass('text-[var(--text-primary)]');
     expect(screen.getByRole('cell', { name: 'SP-1' })).toHaveClass('text-[var(--text-secondary)]');
-    expect(screen.getByRole('cell', { name: '말랑이' }).closest('tr')).toHaveClass(
-      'bg-red-50/60',
-      'dark:bg-red-950/30',
-    );
+    const zeroStockRow = screen.getByRole('cell', { name: '말랑이' }).closest('tr');
+    expect(zeroStockRow).toHaveClass('bg-red-50/60');
+    expect(zeroStockRow?.className).not.toContain('dark:');
   });
 
   it('uses semantic colors for the empty state', () => {

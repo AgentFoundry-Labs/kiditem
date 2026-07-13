@@ -11,19 +11,19 @@ const toneClasses: Record<CardTone, { card: string; label: string; value: string
     value: 'text-[var(--text-primary)]',
   },
   green: {
-    card: 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950',
-    label: 'text-green-600 dark:text-green-400',
-    value: 'text-green-700 dark:text-green-300',
+    card: 'border-green-200 bg-green-50',
+    label: 'text-green-600',
+    value: 'text-green-700',
   },
   orange: {
-    card: 'border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-950',
-    label: 'text-orange-600 dark:text-orange-400',
-    value: 'text-orange-700 dark:text-orange-300',
+    card: 'border-orange-200 bg-orange-50',
+    label: 'text-orange-600',
+    value: 'text-orange-700',
   },
   purple: {
-    card: 'border-purple-200 bg-purple-50 dark:border-purple-800 dark:bg-purple-950',
-    label: 'text-purple-600 dark:text-purple-400',
-    value: 'text-purple-700 dark:text-purple-300',
+    card: 'border-purple-200 bg-purple-50',
+    label: 'text-purple-600',
+    value: 'text-purple-700',
   },
 };
 

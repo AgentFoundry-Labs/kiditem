@@ -52,7 +52,7 @@ export function InventoryTable({
             {items.map((item) => (
               <tr
                 key={item.masterProductId}
-                className={cn(item.currentStock === 0 && 'bg-red-50/60 dark:bg-red-950/30')}
+                className={cn(item.currentStock === 0 && 'bg-red-50/60')}
               >
                 <td className="max-w-[240px] truncate font-medium text-[var(--text-primary)]" title={item.name}>
                   {item.name}

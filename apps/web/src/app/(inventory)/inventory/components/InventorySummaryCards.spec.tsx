@@ -32,6 +32,12 @@ describe('InventorySummaryCards', () => {
       'bg-[var(--surface)]',
     );
   });
+
+  it('keeps all summary tone classes light-only', () => {
+    const { container } = render(<InventorySummaryCards summary={summary} />);
+
+    expect(container.querySelectorAll('[class*="dark:"]')).toHaveLength(0);
+  });
 });
 
 describe('InventoryFilterTabs', () => {
