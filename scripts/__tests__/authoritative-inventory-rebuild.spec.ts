@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   assertProtectedApiDestination,
   assertProtectedSupabaseDestination,
@@ -10,6 +10,8 @@ import {
   buildCoupangReplayBundle,
   buildSharedBootstrapPlan,
   computeReplayFactDigest,
+  readReplayFactCounts,
+  readReplayFactDigest,
 } from '../authoritative-inventory-rebuild';
 
 const organizationId = '00000000-0000-4000-8000-000000000001';
@@ -201,6 +203,89 @@ describe('authoritative inventory shared rebuild baseline', () => {
 });
 
 describe('authoritative inventory Coupang replay bundle', () => {
+  it('scopes every exported count and digest query to the configured Coupang account', async () => {
+    const otherAccountId = '00000000-0000-4000-8000-000000000099';
+    const countModels = {
+      channelScrapeRun: { count: vi.fn().mockResolvedValue(0) },
+      channelScrapeSnapshot: { count: vi.fn().mockResolvedValue(0) },
+      channelListingDailySnapshot: { count: vi.fn().mockResolvedValue(0) },
+      channelListingOptionDailySnapshot: { count: vi.fn().mockResolvedValue(0) },
+      channelAdTargetDailySnapshot: { count: vi.fn().mockResolvedValue(0) },
+      channelAccountDailyKpiSnapshot: { count: vi.fn().mockResolvedValue(0) },
+    };
+
+    await readReplayFactCounts(countModels as never, organizationId, coupangAccountId);
+
+    expect(countModels.channelScrapeRun.count).toHaveBeenCalledWith({
+      where: { organizationId, channel: 'coupang', channelAccountId: coupangAccountId },
+    });
+    expect(countModels.channelScrapeSnapshot.count).toHaveBeenCalledWith({
+      where: {
+        organizationId,
+        channel: 'coupang',
+        scrapeRun: { is: { channelAccountId: coupangAccountId } },
+      },
+    });
+    expect(countModels.channelListingDailySnapshot.count).toHaveBeenCalledWith({
+      where: {
+        organizationId,
+        channel: 'coupang',
+        listing: { is: { channelAccountId: coupangAccountId } },
+      },
+    });
+    expect(countModels.channelListingOptionDailySnapshot.count).toHaveBeenCalledWith({
+      where: {
+        organizationId,
+        channel: 'coupang',
+        listing: { is: { channelAccountId: coupangAccountId } },
+      },
+    });
+    expect(countModels.channelAdTargetDailySnapshot.count).toHaveBeenCalledWith({
+      where: {
+        organizationId,
+        channel: 'coupang',
+        OR: [
+          {
+            rawSnapshot: {
+              is: { scrapeRun: { is: { channelAccountId: coupangAccountId } } },
+            },
+          },
+          {
+            rawSnapshotId: null,
+            listing: { is: { channelAccountId: coupangAccountId } },
+          },
+        ],
+      },
+    });
+    expect(countModels.channelAccountDailyKpiSnapshot.count).toHaveBeenCalledWith({
+      where: { organizationId, channel: 'coupang', channelAccountId: coupangAccountId },
+    });
+
+    const digestModels = {
+      channelListingDailySnapshot: { findMany: vi.fn().mockResolvedValue([]) },
+      channelListingOptionDailySnapshot: { findMany: vi.fn().mockResolvedValue([]) },
+      channelAdTargetDailySnapshot: { findMany: vi.fn().mockResolvedValue([]) },
+      channelAccountDailyKpiSnapshot: { findMany: vi.fn().mockResolvedValue([]) },
+    };
+    await readReplayFactDigest(digestModels as never, organizationId, coupangAccountId);
+
+    for (const query of [
+      digestModels.channelListingDailySnapshot.findMany,
+      digestModels.channelListingOptionDailySnapshot.findMany,
+      digestModels.channelAdTargetDailySnapshot.findMany,
+      digestModels.channelAccountDailyKpiSnapshot.findMany,
+    ]) {
+      const serializedWhere = JSON.stringify(query.mock.calls[0]?.[0]?.where);
+      expect(serializedWhere).toContain(coupangAccountId);
+      expect(serializedWhere).not.toContain(otherAccountId);
+    }
+    expect(digestModels.channelAccountDailyKpiSnapshot.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { organizationId, channel: 'coupang', channelAccountId: coupangAccountId },
+      }),
+    );
+  });
+
   it('reconstructs only replayable scrape payloads and derives acceptance counts', () => {
     const bundle = buildCoupangReplayBundle({
       target: 'staging',

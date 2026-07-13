@@ -9,6 +9,7 @@ const environments = [
   {
     name: 'staging',
     workflow: '.github/workflows/staging-deploy.yml',
+    runbook: 'docs/runbooks/staging-deploy.md',
     resetToken: 'RESET_STAGING_DATA',
     deployStep: 'Deploy images on EC2',
     deployJob: 'Deploy to staging',
@@ -16,6 +17,7 @@ const environments = [
   {
     name: 'production',
     workflow: '.github/workflows/production-deploy.yml',
+    runbook: 'docs/runbooks/production-deploy.md',
     resetToken: 'RESET_PRODUCTION_DATA',
     deployStep: 'Deploy images on production host',
     deployJob: 'Deploy to production',
@@ -86,6 +88,24 @@ describe('guarded authoritative database rebuild workflows', () => {
       assert.match(workflow, new RegExp(`deploy/${environment.name}/remote-deploy\\.sh resume`));
       assert.match(workflow, /steps\.reset_boundary\.outputs\.started != 'true'/);
       assert.doesNotMatch(workflow, /Coupang_detailinfo_260711|exported-list \(3\)|exported-list\.xlsx/);
+    });
+
+    it(`${environment.name} runbook documents the workflow's quiesce-export-artifact-reset order`, () => {
+      const runbook = source(environment.runbook);
+      const orderStart = runbook.indexOf('The destructive order is:');
+      const documentedOrder = runbook.slice(orderStart, orderStart + 600).replace(/\s+/g, ' ');
+      const quiescePosition = documentedOrder.indexOf('quiesce application traffic');
+      const exportPosition = documentedOrder.indexOf('export the selected Coupang account');
+      const artifactPosition = documentedOrder.indexOf('upload the private one-day artifact');
+      const resetPosition = documentedOrder.indexOf('cross the reset boundary');
+
+      assert.ok(orderStart >= 0, 'runbook must label the destructive order');
+      assert.ok(quiescePosition >= 0, 'runbook must document traffic quiesce');
+      assert.ok(exportPosition > quiescePosition, 'runbook must export only after quiesce');
+      assert.ok(artifactPosition > exportPosition, 'runbook must upload the artifact after export');
+      assert.ok(resetPosition > artifactPosition, 'runbook must reset only after artifact upload');
+      assert.doesNotMatch(runbook, /uploaded before traffic is quiesced/i);
+      assert.doesNotMatch(runbook, /export\/upload does not finish before traffic quiesce/i);
     });
   }
 

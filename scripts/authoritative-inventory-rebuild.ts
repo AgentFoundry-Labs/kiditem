@@ -971,10 +971,10 @@ async function exportCoupang(cli: ParsedCli, target: RebuildTarget): Promise<voi
 
   const prisma = await createPrisma();
   try {
+    const scope = buildCoupangReplayScope(organizationId, channelAccountId);
     const runs = await prisma.channelScrapeRun.findMany({
       where: {
-        organizationId,
-        channel: 'coupang',
+        ...scope.scrapeRun,
         status: 'complete',
       },
       orderBy: [{ startedAt: 'asc' }, { id: 'asc' }],
@@ -995,8 +995,8 @@ async function exportCoupang(cli: ParsedCli, target: RebuildTarget): Promise<voi
       },
     });
     const [factCounts, factDigestSha256] = await Promise.all([
-      readReplayFactCounts(prisma, organizationId),
-      readReplayFactDigest(prisma, organizationId),
+      readReplayFactCounts(prisma, organizationId, channelAccountId),
+      readReplayFactDigest(prisma, organizationId, channelAccountId),
     ]);
     if (runs.length !== factCounts.scrapeRuns) {
       throw new Error(
@@ -1250,8 +1250,8 @@ async function replayCoupang(cli: ParsedCli, target: RebuildTarget): Promise<voi
     }
 
     const [actual, factDigestSha256] = await Promise.all([
-      readReplayFactCounts(prisma, bundle.organizationId),
-      readReplayFactDigest(prisma, bundle.organizationId),
+      readReplayFactCounts(prisma, bundle.organizationId, bundle.channelAccountId),
+      readReplayFactDigest(prisma, bundle.organizationId, bundle.channelAccountId),
     ]);
     assertReplayCounts(actual, bundle.expectedReplayCounts);
     assertReplayFactDigest(factDigestSha256, bundle.expectedFactDigestSha256);
@@ -1336,8 +1336,8 @@ async function verifyReady(cli: ParsedCli, target: RebuildTarget): Promise<void>
           select: { importedAt: true, createdAt: true },
         }),
         readReadyCounts(tx, bundle.organizationId, channelAccountId),
-        readReplayFactCounts(tx, bundle.organizationId),
-        readReplayFactDigest(tx, bundle.organizationId),
+        readReplayFactCounts(tx, bundle.organizationId, channelAccountId),
+        readReplayFactDigest(tx, bundle.organizationId, channelAccountId),
       ]);
       assertReadyCounts(actual, expected);
       const sellpiaAt = sellpiaRun?.importedAt ?? sellpiaRun?.createdAt;
@@ -1426,18 +1426,63 @@ function decodeJwtSubject(token: string): string {
   return typeof payload.sub === 'string' ? payload.sub : '';
 }
 
-async function readReplayFactCounts(
+function buildCoupangReplayScope(organizationId: string, channelAccountId: string) {
+  assertUuid(organizationId, 'organizationId');
+  assertUuid(channelAccountId, 'channelAccountId');
+  const base = { organizationId, channel: 'coupang' } as const;
+
+  return {
+    scrapeRun: {
+      ...base,
+      channelAccountId,
+    } satisfies Prisma.ChannelScrapeRunWhereInput,
+    rawSnapshot: {
+      ...base,
+      scrapeRun: { is: { channelAccountId } },
+    } satisfies Prisma.ChannelScrapeSnapshotWhereInput,
+    listingDailyFact: {
+      ...base,
+      listing: { is: { channelAccountId } },
+    } satisfies Prisma.ChannelListingDailySnapshotWhereInput,
+    optionDailyFact: {
+      ...base,
+      listing: { is: { channelAccountId } },
+    } satisfies Prisma.ChannelListingOptionDailySnapshotWhereInput,
+    adTargetFact: {
+      ...base,
+      OR: [
+        {
+          rawSnapshot: {
+            is: { scrapeRun: { is: { channelAccountId } } },
+          },
+        },
+        {
+          rawSnapshotId: null,
+          listing: { is: { channelAccountId } },
+        },
+      ],
+    } satisfies Prisma.ChannelAdTargetDailySnapshotWhereInput,
+    accountKpiFact: {
+      ...base,
+      channelAccountId,
+    } satisfies Prisma.ChannelAccountDailyKpiSnapshotWhereInput,
+  };
+}
+
+export async function readReplayFactCounts(
   prisma: RebuildPrisma,
   organizationId: string,
+  channelAccountId: string,
 ): Promise<ReplayFactCounts> {
+  const scope = buildCoupangReplayScope(organizationId, channelAccountId);
   const [scrapeRuns, rawSnapshots, listingDailyFacts, optionDailyFacts, adTargetFacts, accountKpiFacts] =
     await Promise.all([
-      prisma.channelScrapeRun.count({ where: { organizationId, channel: 'coupang' } }),
-      prisma.channelScrapeSnapshot.count({ where: { organizationId, channel: 'coupang' } }),
-      prisma.channelListingDailySnapshot.count({ where: { organizationId, channel: 'coupang' } }),
-      prisma.channelListingOptionDailySnapshot.count({ where: { organizationId, channel: 'coupang' } }),
-      prisma.channelAdTargetDailySnapshot.count({ where: { organizationId, channel: 'coupang' } }),
-      prisma.channelAccountDailyKpiSnapshot.count({ where: { organizationId, channel: 'coupang' } }),
+      prisma.channelScrapeRun.count({ where: scope.scrapeRun }),
+      prisma.channelScrapeSnapshot.count({ where: scope.rawSnapshot }),
+      prisma.channelListingDailySnapshot.count({ where: scope.listingDailyFact }),
+      prisma.channelListingOptionDailySnapshot.count({ where: scope.optionDailyFact }),
+      prisma.channelAdTargetDailySnapshot.count({ where: scope.adTargetFact }),
+      prisma.channelAccountDailyKpiSnapshot.count({ where: scope.accountKpiFact }),
     ]);
   return {
     scrapeRuns,
@@ -1449,14 +1494,16 @@ async function readReplayFactCounts(
   };
 }
 
-async function readReplayFactDigest(
+export async function readReplayFactDigest(
   prisma: RebuildPrisma,
   organizationId: string,
+  channelAccountId: string,
 ): Promise<string> {
+  const scope = buildCoupangReplayScope(organizationId, channelAccountId);
   const [listingDailyFacts, optionDailyFacts, adTargetFacts, rawAccountKpiFacts] =
     await Promise.all([
       prisma.channelListingDailySnapshot.findMany({
-        where: { organizationId, channel: 'coupang' },
+        where: scope.listingDailyFact,
         orderBy: [{ externalId: 'asc' }, { businessDate: 'asc' }],
         select: {
           externalId: true,
@@ -1503,7 +1550,7 @@ async function readReplayFactDigest(
         },
       }),
       prisma.channelListingOptionDailySnapshot.findMany({
-        where: { organizationId, channel: 'coupang' },
+        where: scope.optionDailyFact,
         orderBy: [{ externalId: 'asc' }, { externalOptionId: 'asc' }, { businessDate: 'asc' }],
         select: {
           externalId: true,
@@ -1521,7 +1568,7 @@ async function readReplayFactDigest(
         },
       }),
       prisma.channelAdTargetDailySnapshot.findMany({
-        where: { organizationId, channel: 'coupang' },
+        where: scope.adTargetFact,
         orderBy: [{ businessDate: 'asc' }, { targetType: 'asc' }, { targetKey: 'asc' }],
         select: {
           businessDate: true,
@@ -1549,7 +1596,7 @@ async function readReplayFactDigest(
         },
       }),
       prisma.channelAccountDailyKpiSnapshot.findMany({
-        where: { organizationId, channel: 'coupang' },
+        where: scope.accountKpiFact,
         orderBy: [{ source: 'asc' }, { kpiType: 'asc' }, { businessDate: 'asc' }],
         select: {
           source: true,

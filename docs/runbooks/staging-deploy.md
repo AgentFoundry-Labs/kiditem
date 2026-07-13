@@ -382,13 +382,15 @@ deployment_target: staging
 destructive_reset: RESET_STAGING_DATA
 ```
 
-The workflow validates the exact token inside GitHub Environment `staging`,
-exports only sanitized Coupang replay payloads to a private one-day artifact,
-stops all application traffic, applies the final Prisma schema with
-`--force-reset`, and creates only the configured organization, Supabase user
-mirror, active membership, and channel-account baseline. It then starts the
-application with `inventory.rebuild.status=snapshot_required`. No source
-workbook is read from the repository or stored in the artifact.
+The workflow validates the exact token inside GitHub Environment `staging`.
+The destructive order is: quiesce application traffic, export the selected
+Coupang account as sanitized replay payloads, upload the private one-day
+artifact, then cross the reset boundary by applying the final Prisma schema
+with `--force-reset`. Only after that does it create the configured
+organization, Supabase user mirror, active membership, and channel-account
+baseline. It then starts the application with
+`inventory.rebuild.status=snapshot_required`. No source workbook is read from
+the repository or stored in the artifact.
 
 After the deploy finishes, an authenticated operator must:
 
@@ -593,8 +595,8 @@ Stop and report instead of guessing if:
 - Supabase connection errors mention the production project.
 - `destructive_reset` is non-empty but is not exactly `RESET_STAGING_DATA`, or
   `deployment_target` is not `staging`.
-- The private export is incomplete, contains a disallowed payload, or cannot be
-  uploaded before traffic is quiesced.
+- After traffic is quiesced, the private export is incomplete, contains a
+  disallowed payload, or cannot be uploaded before the reset boundary.
 - A finalization run cannot prove the originating run ID, protected
   Environment, Sellpia-before-Wing import order, or every configured count.
 - `npm run data:migrate -- up` fails or writes a `failed` ledger row.

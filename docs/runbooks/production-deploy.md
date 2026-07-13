@@ -104,10 +104,13 @@ confirm: DEPLOY_PRODUCTION
 ```
 
 Inside protected GitHub Environment `production`, the workflow validates the
-exact target/token, creates a sanitized private one-day Coupang artifact,
-quiesces all app services, force-rebuilds the final schema, creates only the
-configured auth/account baseline, and deploys snapshot-required state. A wrong
-token fails before export; export/upload failure occurs before quiesce/reset.
+exact target/token. The destructive order is: quiesce application traffic,
+export the selected Coupang account as sanitized replay payloads, upload the
+private one-day artifact, then cross the reset boundary by force-rebuilding the
+final schema. It next creates only the configured auth/account baseline and
+deploys snapshot-required state. A wrong token fails before quiesce; an
+export/upload failure resumes the previous runtime because it remains before
+the reset boundary.
 
 An authenticated operator then imports Sellpia at
 `/inventory-hub?tab=sellpia-sync`, followed by Wing at
@@ -158,7 +161,8 @@ refs, compose status, and local smoke endpoint status from the production host.
   Actions, or the production target guard rejects the run.
 - A non-empty reset input differs from `RESET_PRODUCTION_DATA`, the target is
   not `production`, or the job is outside protected GitHub Actions production.
-- Private export/upload does not finish before traffic quiesce.
+- After traffic is quiesced, the private export/upload does not finish before
+  the reset boundary.
 - Sellpia and Wing are not completed in that order through authenticated routes.
 - The originating run artifact, expected manifest counts, replay counts, or
   readiness record is missing or mismatched.
