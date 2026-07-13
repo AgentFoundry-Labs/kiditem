@@ -54,7 +54,7 @@ GET  /api/sales-analysis                              — 매출 분석
 
 ### 대시보드
 ```
-GET  /api/dashboard                                   — 대시보드 요약
+GET  /api/dashboard/sales                             — 매출 요약
 GET  /api/dashboard/trend                             — 추이
 ```
 

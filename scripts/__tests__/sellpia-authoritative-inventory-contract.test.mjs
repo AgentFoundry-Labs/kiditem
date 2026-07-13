@@ -102,6 +102,7 @@ describe('Sellpia authoritative final-schema contract', () => {
     assert.doesNotMatch(runtimeApiSkill, /GET\s+\/api\/products(?:[/?{]|\s)/);
     assert.doesNotMatch(runtimeApiSkill, /GET\s+\/api\/inventory\s/);
     assert.doesNotMatch(runtimeApiSkill, /\/api\/inventory\/by-product\b/);
+    assert.doesNotMatch(runtimeApiSkill, /GET\s+\/api\/dashboard\s/);
   });
 
   it('defines MasterProduct as the organization-scoped Sellpia stock owner', () => {
