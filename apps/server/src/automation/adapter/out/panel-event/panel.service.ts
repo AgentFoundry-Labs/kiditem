@@ -3,6 +3,7 @@ import type { Alert } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { PanelItem } from '@kiditem/shared/panel';
 import { workflowPanelMapper } from '../../../mapper/panel-event/workflow.mapper';
+import { imagePanelMapper } from '../../../mapper/panel-event/image.mapper';
 import { alertPanelMapper } from '../../../mapper/panel-event/alert.mapper';
 
 @Injectable()
@@ -42,6 +43,7 @@ export class PanelService {
 
     const items: Array<Omit<PanelItem, 'seq' | 'updatedAt'>> = [];
     const alertRows: Alert[] = [];
+    const alertBackedThumbnailGenerationIds = new Set<string>();
 
     for (const run of workflowRuns) {
       // steps는 JsonValue. 배열 여부 체크 후 narrowing
@@ -90,9 +92,46 @@ export class PanelService {
 
       for (const alert of alerts) {
         alertRows.push(alert);
+        if (alert.sourceType === 'thumbnail_generation' && alert.sourceId) {
+          alertBackedThumbnailGenerationIds.add(alert.sourceId);
+        }
       }
     } catch (err) {
       this.logger.warn('Alert source backfill failed', err);
+    }
+
+    // ── Image source (ThumbnailGeneration + ContentWorkspace display name) ──
+    try {
+      const thumbnailGenerations = await this.prisma.thumbnailGeneration.findMany({
+        where: {
+          organizationId,
+          isDeleted: false,
+          OR: [
+            { status: { in: ['pending', 'running'] } },
+            { updatedAt: { gte: twentyFourHoursAgo } },
+          ],
+        },
+        include: {
+          contentWorkspace: { select: { id: true, displayName: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      });
+
+      for (const generation of thumbnailGenerations) {
+        if (alertBackedThumbnailGenerationIds.has(generation.id)) continue;
+        items.push(
+          imagePanelMapper.mapToItem(
+            {
+              generation,
+              contentWorkspace: generation.contentWorkspace,
+            },
+            organizationId,
+          ),
+        );
+      }
+    } catch (err) {
+      this.logger.warn('Image source backfill failed', err);
     }
 
     for (const alert of alertRows) {

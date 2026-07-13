@@ -4,18 +4,18 @@ import type { ThumbnailGeneration } from '@prisma/client';
 import type { PanelRunMapper } from './types';
 
 /**
- * Service layer가 ThumbnailGeneration + 최소 Product shape 조인 결과를 이 shape으로 넘김.
+ * Service layer가 ThumbnailGeneration + 최소 ContentWorkspace shape 조인 결과를 이 shape으로 넘김.
  *
  * service 호출 예 (panel.service.ts):
  *   const gen = await prisma.thumbnailGeneration.findFirst({
- *     where: { id, organizationId }, include: { product: { select: { id: true, title: true } } }
+ *     where: { id, organizationId }, include: { contentWorkspace: { select: { id: true, displayName: true } } }
  *   });
- *   const input: ImageAdapterInput = { generation: gen, product: { id: gen.product.id, title: gen.product.title } };
+ *   const input: ImageAdapterInput = { generation: gen, contentWorkspace: gen.contentWorkspace };
  *   const item = imagePanelMapper.mapToItem(input, organizationId);
  */
 export interface ImageAdapterInput {
   generation: ThumbnailGeneration;
-  product: { id: string; title: string };
+  contentWorkspace: { id: string; displayName: string };
 }
 
 // shared Zod enum에서 유효 상태 집합을 파생 — 드리프트 시 tsc가 감지
@@ -24,7 +24,7 @@ const VALID_STATUS = new Set<PanelRunItemType['status']>(PanelRunItemSchema.shap
 export const imagePanelMapper: PanelRunMapper<ImageAdapterInput> = {
   source: 'image',
   mapToItem(input, _organizationId) {
-    const { generation, product } = input;
+    const { generation, contentWorkspace } = input;
 
     // No mapping table — pass-through only.
     // Drift guard: unknown status throws to catch writer regressions.
@@ -44,7 +44,7 @@ export const imagePanelMapper: PanelRunMapper<ImageAdapterInput> = {
       // Sub-state column — phase pass-through with no enum constraint.
       phase: generation.phase ?? null,
       failureType: null, // image source doesn't use failureType
-      title: product.title,
+      title: contentWorkspace.displayName,
       deepLink: `/product-pipeline/thumbnail-generation?generationId=${encodeURIComponent(generation.id)}`,
       actorUserId: generation.triggeredByUserId ?? null,
       visibility: imagePanelMapper.defaultVisibility(input),

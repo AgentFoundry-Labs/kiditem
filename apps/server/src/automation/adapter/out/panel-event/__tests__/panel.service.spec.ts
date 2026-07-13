@@ -127,7 +127,7 @@ describe('PanelService', () => {
         phase: null,
         triggeredByUserId: 'user-a',
         createdAt: now,
-        master: { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', name: 'Alert-backed product' },
+        contentWorkspace: { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', displayName: 'Alert-backed product' },
       },
       {
         id: '22222222-2222-4222-8222-222222222222',
@@ -135,7 +135,7 @@ describe('PanelService', () => {
         phase: null,
         triggeredByUserId: 'user-a',
         createdAt: now,
-        master: { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', name: 'Legacy image product' },
+        contentWorkspace: { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', displayName: 'Workspace image product' },
       },
     ]);
     prisma.alert.findMany.mockResolvedValue([

@@ -48,7 +48,7 @@ export class ActionBoardRepositoryAdapter
     );
   }
 
-  countOutOfStockInventorySkus(organizationId: string): Promise<number> {
+  countOutOfStockMasterProducts(organizationId: string): Promise<number> {
     return this.prisma.masterProduct.count({
       where: { organizationId, isActive: true, currentStock: 0 },
     });

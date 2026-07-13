@@ -47,7 +47,7 @@ export class ActionBoardService {
     ] =
       await Promise.all([
         this.repository.fetchPerListingMetrics(organizationId, from, to),
-        this.repository.countOutOfStockInventorySkus(organizationId),
+        this.repository.countOutOfStockMasterProducts(organizationId),
         this.repository.countMappingAttentionChannelSkus(organizationId),
         this.repository.countLowCtrThumbnails(organizationId),
         this.repository.findAGradeReviewCounts(organizationId),

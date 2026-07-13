@@ -72,7 +72,7 @@ export interface ActionBoardRepositoryPort {
     monthEnd: Date,
   ): Promise<ActionBoardPerListingMetrics[]>;
 
-  countOutOfStockInventorySkus(organizationId: string): Promise<number>;
+  countOutOfStockMasterProducts(organizationId: string): Promise<number>;
 
   countMappingAttentionChannelSkus(organizationId: string): Promise<number>;
 
