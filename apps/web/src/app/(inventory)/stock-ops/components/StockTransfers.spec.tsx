@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import StockTransfers from './StockTransfers';
 
-vi.mock('./InventorySkuPicker', () => ({
+vi.mock('./SellpiaMasterProductPicker', () => ({
   default: ({ onChange }: { onChange: (value: string) => void }) => (
     <button type="button" onClick={() => onChange('00000000-0000-4000-8000-000000000001')}>재고 SKU 선택</button>
   ),
@@ -13,8 +13,18 @@ vi.mock('./InventorySkuPicker', () => ({
 
 afterEach(() => vi.restoreAllMocks());
 
+function renderStockTransfers({ readOnly = false }: { readOnly?: boolean } = {}) {
+  vi.spyOn(apiClient, 'get').mockResolvedValue([] as never);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <StockTransfers readOnly={readOnly} />
+    </QueryClientProvider>,
+  );
+}
+
 describe('StockTransfers', () => {
-  it('creates a record with inventorySkuId and explains that Sellpia stock is unchanged', async () => {
+  it('creates a record with masterProductId and explains that Sellpia stock is unchanged', async () => {
     vi.spyOn(apiClient, 'get').mockImplementation(async (path) => {
       if (path === '/api/warehouses') return [
         { id: '00000000-0000-4000-8000-000000000010', name: 'A', code: 'A' },
@@ -34,8 +44,14 @@ describe('StockTransfers', () => {
     await userEvent.click(screen.getByRole('button', { name: '기록 저장' }));
 
     expect(post).toHaveBeenCalledWith('/api/stock-transfers', expect.objectContaining({
-      inventorySkuId: '00000000-0000-4000-8000-000000000001',
+      masterProductId: '00000000-0000-4000-8000-000000000001',
     }));
     expect(screen.getByText(/Sellpia 현재고는 변경하지 않습니다/)).toBeInTheDocument();
+  });
+
+  it('hides record creation when readOnly is true', () => {
+    renderStockTransfers({ readOnly: true });
+
+    expect(screen.queryByRole('button', { name: '이관 기록 추가' })).not.toBeInTheDocument();
   });
 });
