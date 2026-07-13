@@ -15,7 +15,7 @@ interface StockTransfer {
   status: string;
   notes: string | null;
   createdAt: string;
-  masterProduct: { sellpiaProductCode: string; name: string; optionName: string | null };
+  masterProduct: { sellpiaProductCode: string; name: string; optionName: string | null } | null;
   fromWarehouse: { id: string; name: string };
   toWarehouse: { id: string; name: string };
 }
@@ -41,6 +41,7 @@ export default function StockTransfers({ readOnly = false }: { readOnly?: boolea
   const { data: warehouses = [] } = useQuery({
     queryKey: queryKeys.warehouses.all,
     queryFn: () => apiClient.get<Warehouse[]>('/api/warehouses'),
+    enabled: !readOnly,
   });
   const create = useMutation({
     mutationFn: () => apiClient.post('/api/stock-transfers', form),
@@ -62,7 +63,7 @@ export default function StockTransfers({ readOnly = false }: { readOnly?: boolea
       </div>
       {isLoading ? <p className="py-10 text-center text-[var(--text-secondary)]">불러오는 중...</p> : (
         <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
-          <div className="overflow-x-auto"><table className="w-full min-w-[820px]"><thead><tr><th>Sellpia SKU</th><th>이동</th><th className="text-right">수량</th><th>상태</th><th>기록 시각</th></tr></thead><tbody>{transfers.length ? transfers.map((transfer) => <tr key={transfer.id}><td><p className="font-medium">{transfer.masterProduct.name}</p><p className="font-mono text-xs text-[var(--text-secondary)]">{transfer.masterProduct.sellpiaProductCode} · {transfer.masterProduct.optionName ?? '옵션 없음'}</p></td><td>{transfer.fromWarehouse.name} → {transfer.toWarehouse.name}</td><td className="text-right">{formatNumber(transfer.quantity)}개</td><td>{transfer.status}</td><td className="text-sm text-[var(--text-secondary)]">{formatDateTime(transfer.createdAt)}</td></tr>) : <tr><td colSpan={5} className="py-12 text-center text-[var(--text-secondary)]">이관 기록이 없습니다.</td></tr>}</tbody></table></div>
+          <div className="overflow-x-auto"><table className="w-full min-w-[820px]"><thead><tr><th>Sellpia SKU</th><th>이동</th><th className="text-right">수량</th><th>상태</th><th>기록 시각</th></tr></thead><tbody>{transfers.length ? transfers.map((transfer) => <tr key={transfer.id}><td>{transfer.masterProduct ? <><p className="font-medium">{transfer.masterProduct.name}</p><p className="font-mono text-xs text-[var(--text-secondary)]">{transfer.masterProduct.sellpiaProductCode} · {transfer.masterProduct.optionName ?? '옵션 없음'}</p></> : <><p className="font-medium">상품 연결 없음</p><p className="font-mono text-xs text-[var(--text-secondary)]">MasterProduct ID: {transfer.masterProductId}</p></>}</td><td>{transfer.fromWarehouse.name} → {transfer.toWarehouse.name}</td><td className="text-right">{formatNumber(transfer.quantity)}개</td><td>{transfer.status}</td><td className="text-sm text-[var(--text-secondary)]">{formatDateTime(transfer.createdAt)}</td></tr>) : <tr><td colSpan={5} className="py-12 text-center text-[var(--text-secondary)]">이관 기록이 없습니다.</td></tr>}</tbody></table></div>
         </div>
       )}
       {!readOnly && showForm ? (

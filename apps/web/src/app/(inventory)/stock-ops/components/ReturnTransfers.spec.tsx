@@ -45,4 +45,24 @@ describe('ReturnTransfers', () => {
 
     expect(screen.queryByRole('button', { name: '반품 기록 추가' })).not.toBeInTheDocument();
   });
+
+  it('renders a placeholder when the linked MasterProduct is missing', async () => {
+    vi.spyOn(apiClient, 'get').mockResolvedValue([{
+      id: 'return-transfer-1',
+      rtNumber: 'RT-1',
+      masterProductId: 'missing-master-product-2',
+      quantity: 2,
+      status: 'pending',
+      condition: 'good',
+      notes: null,
+      createdAt: '2026-07-13T00:00:00.000Z',
+      masterProduct: null,
+    }] as never);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(<QueryClientProvider client={client}><ReturnTransfers /></QueryClientProvider>);
+
+    expect(await screen.findByText('상품 연결 없음')).toBeInTheDocument();
+    expect(screen.getByText('MasterProduct ID: missing-master-product-2')).toBeInTheDocument();
+  });
 });

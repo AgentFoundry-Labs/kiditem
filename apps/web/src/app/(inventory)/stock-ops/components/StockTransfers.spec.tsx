@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
@@ -53,5 +53,38 @@ describe('StockTransfers', () => {
     renderStockTransfers({ readOnly: true });
 
     expect(screen.queryByRole('button', { name: '이관 기록 추가' })).not.toBeInTheDocument();
+  });
+
+  it('renders a placeholder when the linked MasterProduct is missing', async () => {
+    vi.spyOn(apiClient, 'get').mockImplementation(async (path) => {
+      if (path === '/api/stock-transfers') return [{
+        id: 'transfer-1',
+        masterProductId: 'missing-master-product-1',
+        quantity: 3,
+        status: 'pending',
+        notes: null,
+        createdAt: '2026-07-13T00:00:00.000Z',
+        masterProduct: null,
+        fromWarehouse: { id: 'warehouse-1', name: 'A 창고' },
+        toWarehouse: { id: 'warehouse-2', name: 'B 창고' },
+      }] as never;
+      return [] as never;
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(<QueryClientProvider client={client}><StockTransfers /></QueryClientProvider>);
+
+    expect(await screen.findByText('상품 연결 없음')).toBeInTheDocument();
+    expect(screen.getByText('MasterProduct ID: missing-master-product-1')).toBeInTheDocument();
+  });
+
+  it('does not request form-only warehouses when readOnly is true', async () => {
+    const get = vi.spyOn(apiClient, 'get').mockResolvedValue([] as never);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(<QueryClientProvider client={client}><StockTransfers readOnly /></QueryClientProvider>);
+
+    await waitFor(() => expect(get).toHaveBeenCalledWith('/api/stock-transfers'));
+    expect(get).not.toHaveBeenCalledWith('/api/warehouses');
   });
 });
