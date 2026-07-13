@@ -22,6 +22,7 @@ import {
   contentWorkspacesApi,
   type ContentWorkspaceSummary,
 } from '../../_shared/lib/content-workspaces-api';
+import { contentWorkspaceHistoryToGenerationHistory } from '../../_shared/lib/detail-generation-history';
 
 export default function RegisteredWorkspaceDetailPage() {
   const params = useParams();
@@ -53,6 +54,18 @@ export default function RegisteredWorkspaceDetailPage() {
   }
 
   const selfHref = registeredListingDetailHref(listing.id);
+  const initialAgentHistory = contentWorkspace
+    ? contentWorkspaceHistoryToGenerationHistory(contentWorkspace.history).map((item) => (
+        item.id === contentWorkspace.currentDetailPageGenerationId
+          ? {
+              ...item,
+              detailPageArtifactId:
+                contentWorkspace.currentDetailPageArtifactId ?? item.detailPageArtifactId,
+              detailPageRevisionId: contentWorkspace.currentDetailPageRevisionId,
+            }
+          : item
+      ))
+    : [];
 
   return (
     <ProductWorkspaceScreen
@@ -60,10 +73,12 @@ export default function RegisteredWorkspaceDetailPage() {
       backHref={REGISTERED_PRODUCTS_ROOT}
       selfHref={selfHref}
       initialWorkspaceData={listingWorkspaceData}
-      initialAgentHistory={[]}
+      initialAgentHistory={initialAgentHistory}
       generationHistoryQueryEnabled={false}
       showCandidateActions={false}
       contentWorkspaceId={listing.contentWorkspaceId}
+      hasSavedDetailPage={Boolean(contentWorkspace?.currentDetailPageGenerationId)}
+      savedDetailPageGenerationId={contentWorkspace?.currentDetailPageGenerationId ?? null}
       detailGenerationEnabled={Boolean(listing.contentWorkspaceId)}
       thumbnailSourceCandidateId={null}
       onOpenDetailTemplateGeneration={listing.contentWorkspaceId
@@ -141,6 +156,12 @@ function channelListingToProductWorkspaceData(
       description: '',
       thumbnailUrls: imageUrls,
       salePrice: price,
+      selectedDetailPageGenerationId:
+        contentWorkspace?.currentDetailPageGenerationId ?? null,
+      selectedDetailPageArtifactId:
+        contentWorkspace?.currentDetailPageArtifactId ?? null,
+      selectedDetailPageRevisionId:
+        contentWorkspace?.currentDetailPageRevisionId ?? null,
     }),
     productPreparation: null,
     created_at: listing.createdAt,
@@ -183,6 +204,9 @@ function buildFallbackBasicInfo(input: {
   description: string;
   thumbnailUrls: string[];
   salePrice?: number;
+  selectedDetailPageGenerationId?: string | null;
+  selectedDetailPageArtifactId?: string | null;
+  selectedDetailPageRevisionId?: string | null;
 }): ProductDetailResponse['basicInfo'] {
   return {
     name: input.name,
@@ -210,8 +234,8 @@ function buildFallbackBasicInfo(input: {
     selectedThumbnailUrl: null,
     selectedThumbnailGenerationId: null,
     selectedThumbnailGenerationCandidateId: null,
-    selectedDetailPageGenerationId: null,
-    selectedDetailPageArtifactId: null,
-    selectedDetailPageRevisionId: null,
+    selectedDetailPageGenerationId: input.selectedDetailPageGenerationId ?? null,
+    selectedDetailPageArtifactId: input.selectedDetailPageArtifactId ?? null,
+    selectedDetailPageRevisionId: input.selectedDetailPageRevisionId ?? null,
   };
 }

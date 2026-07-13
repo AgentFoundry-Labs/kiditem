@@ -38,4 +38,14 @@ describe('Sellpia inventory report boundary', () => {
     expect(financeReportSource).toContain("key === 'inventory'");
     expect(financeReportSource).not.toContain('const [productsRes, profitLoss, inventory, adsData]');
   });
+
+  it.each([
+    ['finance report', financeReportSource],
+    ['settings report', settingsReportSource],
+  ])('%s maps final profit-loss rows through the shared export contract', (_name, source) => {
+    expect(source).toContain('mapProfitLossReportRow');
+    expect(source).not.toContain('d.productName');
+    expect(source).not.toContain('d.organization');
+    expect(source).not.toContain('d.costOfGoods');
+  });
 });

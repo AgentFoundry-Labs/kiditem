@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { placeholderDetailPageData } from '@kiditem/templates';
 import RegisteredWorkspaceDetailPage from './page';
 import type { RegisteredChannelListing } from '../lib/channel-listings-api';
 
@@ -83,7 +84,19 @@ vi.mock('@tanstack/react-query', () => ({
 vi.mock('../../_shared/components/workspace/ProductWorkspaceScreen', () => ({
   ProductWorkspaceScreen: (props: Record<string, unknown>) => {
     productWorkspaceProps.push(props);
-    return <div data-testid="registered-listing-workspace" />;
+    const history = props.initialAgentHistory as Array<{
+      id: string;
+      detailPageData: { title?: string } | null;
+    }> | undefined;
+    const savedGenerationId = props.savedDetailPageGenerationId as string | null | undefined;
+    const savedEntry = history?.find((item) => item.id === savedGenerationId);
+    return (
+      <div data-testid="registered-listing-workspace">
+        {props.hasSavedDetailPage && savedEntry?.detailPageData?.title
+          ? savedEntry.detailPageData.title
+          : '생성된 상세페이지가 없습니다'}
+      </div>
+    );
   },
 }));
 
@@ -91,6 +104,10 @@ describe('RegisteredWorkspaceDetailPage listing projection', () => {
   beforeEach(() => {
     productWorkspaceProps.length = 0;
     routerPushMock.mockReset();
+    contentWorkspace.history[0].detailPageData = {
+      ...placeholderDetailPageData,
+      title: '저장된 자석 다트게임 상세페이지',
+    };
   });
 
   it('uses listing and content-workspace identity without a promoted candidate state', () => {
@@ -122,6 +139,29 @@ describe('RegisteredWorkspaceDetailPage listing projection', () => {
       'https://cdn.example.com/detail.png',
     ]);
     expect(initialWorkspaceData.product.thumbnailUrl).not.toBe(listing.thumbnailUrl);
+
+    expect(props).toEqual(expect.objectContaining({
+      hasSavedDetailPage: true,
+      savedDetailPageGenerationId: 'generation-1',
+      generationHistoryQueryEnabled: false,
+    }));
+    expect(props?.initialAgentHistory).toEqual([
+      expect.objectContaining({
+        id: 'generation-1',
+        detailPageArtifactId: 'artifact-1',
+        detailPageRevisionId: 'revision-1',
+        detailPageData: expect.objectContaining({
+          title: '저장된 자석 다트게임 상세페이지',
+        }),
+      }),
+    ]);
+    expect(initialWorkspaceData.product.basicInfo).toEqual(expect.objectContaining({
+      selectedDetailPageGenerationId: 'generation-1',
+      selectedDetailPageArtifactId: 'artifact-1',
+      selectedDetailPageRevisionId: 'revision-1',
+    }));
+    expect(screen.getByText('저장된 자석 다트게임 상세페이지')).toBeInTheDocument();
+    expect(screen.queryByText('생성된 상세페이지가 없습니다')).not.toBeInTheDocument();
 
     const openDetailGeneration = props?.onOpenDetailTemplateGeneration as (() => void) | undefined;
     expect(openDetailGeneration).toBeTypeOf('function');

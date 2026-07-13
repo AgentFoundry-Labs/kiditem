@@ -8,6 +8,8 @@ import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
 import { fetchAllSellpiaInventorySkus } from '@/app/(inventory)/_shared/inventory-api';
 import { fetchAllChannelListingsForReport } from '@/lib/channel-listings-report';
+import { mapProfitLossReportRow } from '@/lib/profit-loss-report';
+import type { PLData } from '@kiditem/shared/profit-loss';
 import ReportList from "./components/ReportList";
 
 const REPORT_DATA_KEYS = ['products', 'profitloss', 'inventory', 'ads'] as const;
@@ -79,13 +81,9 @@ export default function ReportsPage() {
       }
 
       if (type === "full" || type === "profitloss") {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const ws2 = XLSX.utils.json_to_sheet(profitLoss.map((d: any) => ({
-          등급: d.grade, 상품명: d.productName, 회사: d.organization,
-          매출: d.revenue, 매입원가: d.costOfGoods, 수수료: d.commission,
-          배송비: d.shippingCost, 광고비: d.adCost, 순이익: d.netProfit,
-          "이익률(%)": d.profitRate, 주문수: d.orderCount,
-        })));
+        const ws2 = XLSX.utils.json_to_sheet(
+          (profitLoss as PLData[]).map(mapProfitLossReportRow),
+        );
         XLSX.utils.book_append_sheet(wb, ws2, "손익표");
       }
 

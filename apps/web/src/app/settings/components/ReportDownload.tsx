@@ -8,7 +8,9 @@ import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import { fetchAllSellpiaInventorySkus } from '@/app/(inventory)/_shared/inventory-api';
 import { fetchAllChannelListingsForReport } from '@/lib/channel-listings-report';
+import { mapProfitLossReportRow } from '@/lib/profit-loss-report';
 import type { InventorySkuSnapshotItem } from '@kiditem/shared/inventory';
+import type { PLData } from '@kiditem/shared/profit-loss';
 
 const REPORTS = [
   { type: 'full', title: '통합 리포트', desc: '상품 + 손익 + 재고 + 광고 전체', icon: '📊', color: 'bg-purple-600 hover:bg-purple-700' },
@@ -76,14 +78,10 @@ export default function ReportDownload() {
       }
 
       if (dataMap.profitloss) {
-        const arr = Array.isArray(dataMap.profitloss) ? dataMap.profitloss : [];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const ws = XLSX.utils.json_to_sheet(arr.map((d: any) => ({
-          등급: d.grade, 상품명: d.productName, 회사: d.organization,
-          매출: d.revenue, 매입원가: d.costOfGoods, 수수료: d.commission,
-          배송비: d.shippingCost, 광고비: d.adCost, 순이익: d.netProfit,
-          '이익률(%)': d.profitRate, 주문수: d.orderCount,
-        })));
+        const arr = Array.isArray(dataMap.profitloss)
+          ? dataMap.profitloss as PLData[]
+          : [];
+        const ws = XLSX.utils.json_to_sheet(arr.map(mapProfitLossReportRow));
         XLSX.utils.book_append_sheet(wb, ws, '손익표');
       }
 
