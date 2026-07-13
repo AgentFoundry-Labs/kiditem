@@ -96,7 +96,7 @@ export class DashboardInventoryRepositoryAdapter
     return buildPerListingMetrics(this.prisma, organizationId, monthStart, monthEnd);
   }
 
-  countOutOfStockInventorySkus(organizationId: string): Promise<number> {
+  countOutOfStockMasterProducts(organizationId: string): Promise<number> {
     return this.prisma.masterProduct.count({
       where: {
         organizationId,

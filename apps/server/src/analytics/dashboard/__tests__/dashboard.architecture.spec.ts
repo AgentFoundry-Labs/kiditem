@@ -164,6 +164,17 @@ describe('analytics/dashboard architecture contract', () => {
     ).toEqual([]);
   });
 
+  it('names Sellpia stock reads after the final MasterProduct owner', () => {
+    const dash = dashboardRel();
+    const hits = rg(
+      `--type ts --files-with-matches 'OutOfStockInventorySku' ${dash} --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
+    );
+    expect(
+      hits,
+      `dashboard stock reads must not retain the retired InventorySku owner name:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
+
   it('no legacy top-level dto/, util/, helpers/, or adapter/out/prisma/ folders remain', () => {
     const dash = dashboardRel();
     const dtoHits = rg(`--type ts --files --glob '${path.join(dash, 'dto', '**', '*.ts')}'`);

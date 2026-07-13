@@ -19,7 +19,7 @@ describe('DashboardInventoryRepositoryAdapter listing and physical inventory rea
     await repository.countActiveProducts('org-1');
     await repository.countChannelLinkedProducts('org-1');
     await repository.findAGradeReviewCounts('org-1');
-    await repository.countOutOfStockInventorySkus('org-1');
+    await repository.countOutOfStockMasterProducts('org-1');
 
     expect(prisma.channelListing.groupBy).toHaveBeenCalledWith(
       expect.objectContaining({

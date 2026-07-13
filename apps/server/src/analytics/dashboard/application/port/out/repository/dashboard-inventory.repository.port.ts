@@ -45,7 +45,7 @@ export interface DashboardInventoryRepositoryPort {
     monthStart: Date,
     monthEnd: Date,
   ): Promise<DashboardPerListingMetrics[]>;
-  countOutOfStockInventorySkus(organizationId: string): Promise<number>;
+  countOutOfStockMasterProducts(organizationId: string): Promise<number>;
   countMappingAttentionChannelSkus(organizationId: string): Promise<number>;
   countChannelSkusByMappingStatus(
     organizationId: string,

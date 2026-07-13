@@ -11,7 +11,7 @@ describe('DashboardInventoryService', () => {
       countActiveProducts: vi.fn().mockResolvedValue(0),
       countChannelLinkedProducts: vi.fn().mockResolvedValue(0),
       fetchPerListingMetrics: vi.fn().mockResolvedValue([]),
-      countOutOfStockInventorySkus: vi.fn().mockResolvedValue(7),
+      countOutOfStockMasterProducts: vi.fn().mockResolvedValue(7),
       countMappingAttentionChannelSkus: vi.fn().mockResolvedValue(3),
       countChannelSkusByMappingStatus: vi.fn().mockResolvedValue([
         { mappingStatus: 'matched', count: 8 },
