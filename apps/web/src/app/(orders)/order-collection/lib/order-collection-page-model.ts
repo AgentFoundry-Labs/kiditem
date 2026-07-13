@@ -84,6 +84,7 @@ export function isBrowserCollectableMall(account: OrderCollectionMallAccount): b
   if (account.key === 'kidsnote') return true;
   if (account.key === 'kkomangse') return true;
   if (account.key === 'onch') return true;
+  if (account.key === 'kakao') return true;
   if (account.key === 'domeggook') return true;
   if (account.key === 'kidkids') return true;
   if (account.key === 'lotte-on') return true;
@@ -94,6 +95,10 @@ export function isBrowserCollectableMall(account: OrderCollectionMallAccount): b
   if (account.key === 'coupang-direct') return true;
   if (account.key === 'art09') return true;
   return account.key === ICECREAM_MALL_KEY && account.configured && account.enabled;
+}
+
+export function isAutoDetectableMall(account: OrderCollectionMallAccount): boolean {
+  return account.enabled && isBrowserCollectableMall(account);
 }
 
 export function formatMallCollectionTime(timestamp: number): string {

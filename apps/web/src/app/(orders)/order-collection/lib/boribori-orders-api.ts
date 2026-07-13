@@ -13,9 +13,11 @@ interface BoriboriCollectResponse {
 
 /**
  * order-collector 확장이 보리보리(seller-club) 출고대기 주문을 "일괄엑셀다운로드"로 언마스킹 다운로드한다.
- * 서버가 다운로드 사유="배송확인합니다"만으로 개인정보를 언마스킹해 xlsx(35컬럼) 를 반환한다 (비밀번호 불필요).
+ * 서버가 다운로드 사유="배송확인합니다"와, 사이트가 요구하는 경우 계정 비밀번호로 언마스킹 xlsx(35컬럼)를 반환한다.
  */
-export async function collectBoriboriXlsxFromExtension(): Promise<{ xlsxBase64: string; fileName: string }> {
+export async function collectBoriboriXlsxFromExtension(options?: {
+  password?: string;
+}): Promise<{ xlsxBase64: string; fileName: string }> {
   const extensionId = await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
@@ -24,7 +26,7 @@ export async function collectBoriboriXlsxFromExtension(): Promise<{ xlsxBase64: 
   }
   const res = await sendToExtension<BoriboriCollectResponse>(
     extensionId,
-    { action: 'collectBoriboriOrders' },
+    { action: 'collectBoriboriOrders', password: options?.password ?? '' },
     130000,
   );
   if (!res?.success || !res.xlsxBase64) {

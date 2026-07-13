@@ -14,6 +14,8 @@ import {
   todayYmd,
   type ConversionHistoryItem,
 } from './order-collection-page-model';
+import { saveIcecreamDeliveryIndex } from './icecream-delivery-index';
+import { addSeenOrderKeys, distinctOrderNumbers, rowKeysOf } from './order-detect';
 import type { CoupangDirectPo, CoupangTransport } from './coupang-directship-api';
 
 export interface BrowserMallCollectionResult {
@@ -452,6 +454,32 @@ export function createBrowserMallCollector({
     return rows;
   };
 
+  const generateKakaoSellpia = async (): Promise<number> => {
+    const { collectKakaoOrdersFromExtension, convertKakaoToSellpiaFile } = await import(
+      './kakao-orders-api'
+    );
+    const orders = await collectKakaoOrdersFromExtension();
+    if (orders.length === 0) {
+      toast('배송준비중인 카카오 주문이 없습니다.');
+      return 0;
+    }
+    const result = await convertKakaoToSellpiaFile(orders);
+    const rows = result.outputRows ?? 0;
+    const convertedAt = Date.now();
+    addBrowserGeneratedFile({
+      ...result,
+      id: `${convertedAt}-kakao-browser`,
+      sourceName: `카카오 배송준비중 주문 (${formatNumber(orders.length)}건)`,
+      convertedAt,
+      collectionDate: todayYmd(),
+      collectionMode: 'browser',
+      collectedRows: rows,
+      mallKey: 'kakao',
+      mallName: '카카오',
+    });
+    return rows;
+  };
+
   return async function collectBrowserMall(
     account: OrderCollectionMallAccount,
   ): Promise<BrowserMallCollectionResult> {
@@ -459,6 +487,7 @@ export function createBrowserMallCollector({
     if (account.key === 'kidsnote') return resultFor(await generateKidsnoteSellpia(), today);
     if (account.key === 'kkomangse') return resultFor(await generateKkomangseSellpia(), today);
     if (account.key === 'onch') return resultFor(await generateOnchannelSellpia(), today);
+    if (account.key === 'kakao') return resultFor(await generateKakaoSellpia(), today);
     if (account.key === 'domeggook') return resultFor(await generateDomeggookSellpia(), today);
     if (account.key === 'kidkids') return resultFor(await generateKidkidsSellpia(), today);
     if (account.key === 'lotte-on') return resultFor(await generateLotteonSellpia(), today);
@@ -474,6 +503,7 @@ export function createBrowserMallCollector({
 
     const credentials = await loadMallLoginCredentials(account);
     const collected = await collectIcecreamMallRowsFromExtension(todayYmd(), credentials);
+    saveIcecreamDeliveryIndex(collected.headers, collected.rows);
     const { convertIcecreamMallOrderRows } = await import('./order-collection-api');
     const result = await convertIcecreamMallOrderRows({
       headers: collected.headers,
@@ -491,7 +521,9 @@ export function createBrowserMallCollector({
       collectedRows: collected.rowCount,
       mallKey: account.key,
       mallName: account.name,
+      orderNumbers: distinctOrderNumbers(collected.headers, collected.rows),
     });
+    addSeenOrderKeys(account.key, rowKeysOf(collected.rows));
 
     return {
       rowCount: collected.rowCount,

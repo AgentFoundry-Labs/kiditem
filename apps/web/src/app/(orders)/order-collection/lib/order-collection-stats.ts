@@ -2,7 +2,9 @@ import {
   resolveOrderCollectionMallKey,
   resolveOrderCollectionMallName,
 } from './order-collection-malls';
+import { getHistoryOrderCount } from './order-history-count';
 import type { StoredOrderCollectionFile } from './order-generated-file-store';
+import type { OrderCollectionPipelineSummary } from '../components/OrderCollectionPipeline';
 
 export interface DailyCollectionStat {
   key: string;
@@ -22,6 +24,7 @@ export interface MallCollectionStat {
   name: string;
   files: number;
   orderRows: number;
+  newRows: number;
   productRows: number;
   latestAt: number;
 }
@@ -95,6 +98,7 @@ export function buildOrderCollectionSummary(items: StoredOrderCollectionFile[]):
         name: mallName,
         files: 0,
         orderRows: 0,
+        newRows: 0,
         productRows: 0,
         latestAt: item.convertedAt,
       };
@@ -103,6 +107,7 @@ export function buildOrderCollectionSummary(items: StoredOrderCollectionFile[]):
 
     mallStat.files += 1;
     mallStat.orderRows += orderRows;
+    if (!item.sentAt) mallStat.newRows += orderRows;
     mallStat.productRows += productRows;
     mallStat.latestAt = Math.max(mallStat.latestAt, item.convertedAt);
   }
@@ -121,6 +126,29 @@ export function buildOrderCollectionSummary(items: StoredOrderCollectionFile[]):
     latestAt,
     totals,
   };
+}
+
+export function buildOrderCollectionPipelineSummary(
+  items: StoredOrderCollectionFile[],
+  date = dayKey(Date.now()),
+): OrderCollectionPipelineSummary {
+  const summary: OrderCollectionPipelineSummary = {
+    todayOrders: 0,
+    waiting: 0,
+    sent: 0,
+    trackingSent: 0,
+    done: 0,
+  };
+
+  for (const item of items) {
+    if ((item.collectionDate ?? dayKey(item.convertedAt)) !== date) continue;
+    const orderCount = getHistoryOrderCount(item) ?? 0;
+    summary.todayOrders += orderCount;
+    if (item.sentAt) summary.sent += orderCount;
+    else summary.waiting += orderCount;
+  }
+
+  return summary;
 }
 
 export function getOrderCollectionOrderCount(result: StoredOrderCollectionFile): number {

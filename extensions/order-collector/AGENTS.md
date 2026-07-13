@@ -13,8 +13,11 @@ conversion.
 
 - Icecream Mall PO delivery inquiry grid capture.
 - Coupang supplier ASN visible-row Label/statement download triggers.
-- Supported marketplace order export file capture for KidItem order collection.
-- KidItem localhost extension-id discovery for order collection only.
+- Supported marketplace order export capture, including Kakao Shopping Seller.
+- Sellpia delivery-tracking lookup and order-file upload.
+- Domeggook and Onchannel tracking registration initiated from the KidItem
+  order-collection page.
+- KidItem localhost extension-id discovery for order operations only.
 
 ## Browser Boundary
 
@@ -30,6 +33,9 @@ conversion.
   `csvBase64`, file names, counts, and rows. Backend conversion, analysis, and
   auth remain owned by the KidItem web app and NestJS API; marketplace tokens
   must never be sent to KidItem.
+- Destructive marketplace actions such as tracking registration require an
+  explicit confirmation in the KidItem web page before the allowlisted action
+  is sent to the extension.
 - Do not send `organizationId`; backend auth/session scope owns organization
   context.
 
