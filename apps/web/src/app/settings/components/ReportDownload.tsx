@@ -10,7 +10,7 @@ import { fetchAllSellpiaInventorySkus } from '@/app/(inventory)/_shared/inventor
 import { fetchAllChannelListingsForReport } from '@/lib/channel-listings-report';
 import { mapProfitLossReportRow } from '@/lib/profit-loss-report';
 import type { InventorySkuSnapshotItem } from '@kiditem/shared/inventory';
-import type { PLData } from '@kiditem/shared/profit-loss';
+import type { PLData } from '@kiditem/shared/finance';
 
 const REPORTS = [
   { type: 'full', title: '통합 리포트', desc: '상품 + 손익 + 재고 + 광고 전체', icon: '📊', color: 'bg-purple-600 hover:bg-purple-700' },

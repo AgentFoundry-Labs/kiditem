@@ -1,4 +1,4 @@
-import type { PLData } from '@kiditem/shared/profit-loss';
+import type { PLData } from '@kiditem/shared/finance';
 
 export function mapProfitLossReportRow(row: PLData) {
   return {

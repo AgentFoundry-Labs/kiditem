@@ -9,7 +9,7 @@ import { isApiError } from "@/lib/api-error";
 import { fetchAllSellpiaInventorySkus } from '@/app/(inventory)/_shared/inventory-api';
 import { fetchAllChannelListingsForReport } from '@/lib/channel-listings-report';
 import { mapProfitLossReportRow } from '@/lib/profit-loss-report';
-import type { PLData } from '@kiditem/shared/profit-loss';
+import type { PLData } from '@kiditem/shared/finance';
 import ReportList from "./components/ReportList";
 
 const REPORT_DATA_KEYS = ['products', 'profitloss', 'inventory', 'ads'] as const;

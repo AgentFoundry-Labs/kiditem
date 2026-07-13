@@ -13,6 +13,10 @@ const settingsReportSource = readFileSync(
   resolve(webRoot, 'src/app/settings/components/ReportDownload.tsx'),
   'utf8',
 );
+const profitLossReportMapperSource = readFileSync(
+  resolve(webRoot, 'src/lib/profit-loss-report.ts'),
+  'utf8',
+);
 
 describe('Sellpia inventory report boundary', () => {
   it.each([
@@ -47,5 +51,14 @@ describe('Sellpia inventory report boundary', () => {
     expect(source).not.toContain('d.productName');
     expect(source).not.toContain('d.organization');
     expect(source).not.toContain('d.costOfGoods');
+  });
+
+  it.each([
+    ['finance report', financeReportSource],
+    ['settings report', settingsReportSource],
+    ['shared report mapper', profitLossReportMapperSource],
+  ])('%s imports PLData from the canonical finance contract', (_name, source) => {
+    expect(source).toContain("from '@kiditem/shared/finance'");
+    expect(source).not.toContain("from '@kiditem/shared/profit-loss'");
   });
 });
