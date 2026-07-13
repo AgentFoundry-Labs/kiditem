@@ -43,8 +43,9 @@ Route shape is frozen.
 - Delete is allowed only from `draft` or `pending`.
 - `/api/purchase-orders` keeps the legacy single POST action body
   (`create | updateStatus | delete`).
-- Repository adapters own Prisma details and ProductOption ownership checks;
-  application services depend on `application/port/out/*` contracts only.
+- Repository adapters own Prisma details and Sellpia `MasterProduct` ownership
+  checks; application services depend on `application/port/out/*` contracts
+  only.
 
 ## Cross-Domain Ports
 
