@@ -12,6 +12,7 @@ import { ProductPipelineStats } from '../_shared/components/inbox/ProductPipelin
 import { ProductInboxListFrame } from '../_shared/components/inbox/ProductInboxListFrame';
 import { ProductInboxToolbar } from '../_shared/components/inbox/ProductInboxToolbar';
 import { channelDisplayName, RegisteredListingCard } from './components/RegisteredListingCard';
+import { CoupangCatalogImportPanel } from './components/CoupangCatalogImportPanel';
 import {
   channelListingsApi,
   type RegisteredChannelListing,
@@ -141,6 +142,8 @@ export default function RegisteredProductsPage() {
           setPage(1);
         }}
       />
+
+      <CoupangCatalogImportPanel />
 
       <ProductPipelineStats
         draftLabel="선택 상품"

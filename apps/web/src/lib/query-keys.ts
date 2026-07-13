@@ -270,6 +270,13 @@ export const queryKeys = {
       [...queryKeys.channelListings.all, 'list', params] as const,
     detail: (id: string) => [...queryKeys.channelListings.all, 'detail', id] as const,
   },
+  coupangCatalogImports: {
+    all: ['coupangCatalogImports'] as const,
+    run: (channelAccountId: string, runId: string) =>
+      [...queryKeys.coupangCatalogImports.all, channelAccountId, runId] as const,
+    extension: (runId: string) =>
+      [...queryKeys.coupangCatalogImports.all, 'extension', runId] as const,
+  },
   organizations: {
     all: ['organizations'] as const,
     list: () => [...queryKeys.organizations.all, 'list'] as const,

@@ -1,4 +1,8 @@
 import { apiClient } from '@/lib/api-client';
+import type {
+  CoupangCatalogCollectionRun,
+  StartCoupangCatalogCollectionRequest,
+} from '@kiditem/shared/coupang-catalog-snapshot';
 
 export type RegisteredListingSort = 'newest' | 'oldest' | 'name_asc';
 
@@ -79,5 +83,24 @@ export const channelListingsApi = {
   },
   listAccounts(): Promise<ChannelAccountOption[]> {
     return apiClient.get<ChannelAccountOption[]>('/api/channels/accounts');
+  },
+  startCoupangCatalogCollection(
+    channelAccountId: string,
+    request: StartCoupangCatalogCollectionRequest,
+  ): Promise<CoupangCatalogCollectionRun> {
+    return apiClient.post<CoupangCatalogCollectionRun>(
+      `/api/channels/accounts/${encodeURIComponent(channelAccountId)}` +
+        '/catalog-imports/coupang-wing/runs',
+      request,
+    );
+  },
+  getCoupangCatalogCollection(
+    channelAccountId: string,
+    runId: string,
+  ): Promise<CoupangCatalogCollectionRun> {
+    return apiClient.get<CoupangCatalogCollectionRun>(
+      `/api/channels/accounts/${encodeURIComponent(channelAccountId)}` +
+        `/catalog-imports/coupang-wing/runs/${encodeURIComponent(runId)}`,
+    );
   },
 };
