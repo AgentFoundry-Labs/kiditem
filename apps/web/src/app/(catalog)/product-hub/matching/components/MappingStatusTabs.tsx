@@ -39,13 +39,24 @@ export function MappingStatusTabs({
           aria-pressed={active === tab.status}
           onClick={() => onChange(tab.status)}
           className={cn(
-            'rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors',
+            'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
             active === tab.status
-              ? 'border-[var(--primary,#7048e8)] bg-[var(--primary,#7048e8)] text-white'
-              : 'border-[var(--border,#e2e8f0)] bg-[var(--surface,#fff)] text-[var(--text-secondary,#475569)] hover:bg-[var(--surface-sunken,#f8fafc)]',
+              ? 'bg-purple-600 text-white'
+              : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
           )}
         >
-          {tab.label} {formatNumber(counts[tab.countKey])}
+          {tab.label}
+          {' '}
+          <span
+            className={cn(
+              'ml-2 inline-flex min-w-[20px] items-center justify-center rounded-full px-1.5 text-xs tabular-nums',
+              active === tab.status
+                ? 'bg-white/20 text-white'
+                : 'bg-slate-100 text-slate-600',
+            )}
+          >
+            {formatNumber(counts[tab.countKey])}
+          </span>
         </button>
       ))}
     </div>

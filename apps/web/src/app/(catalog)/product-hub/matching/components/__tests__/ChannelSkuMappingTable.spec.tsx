@@ -33,8 +33,8 @@ const item: ChannelSkuMappingListItem = {
   },
   components: [
     {
-      inventorySkuId: '44444444-4444-4444-8444-444444444444',
-      sellpiaProductCode: 'SP-001',
+      masterProductId: '44444444-4444-4444-8444-444444444444',
+      code: 'SP-001',
       name: '셀피아 상품',
       optionName: '분홍',
       barcode: '8801234567890',
@@ -64,6 +64,12 @@ describe('MappingStatusTabs', () => {
     expect(screen.getByRole('button', { name: '미매칭 6' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: '확인 필요 3' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '매칭 완료 1' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '미매칭 6' })).toHaveClass(
+      'px-4',
+      'py-2',
+      'rounded-lg',
+    );
+    expect(screen.getByRole('button', { name: '미매칭 6' })).not.toHaveClass('rounded-full');
 
     await user.click(screen.getByRole('button', { name: '확인 필요 3' }));
     expect(onChange).toHaveBeenCalledWith('needs_review');
@@ -74,7 +80,7 @@ describe('ChannelSkuMappingTable', () => {
   it('renders the complete channel/Sellpia read model and edit action', async () => {
     const onEdit = vi.fn();
     const user = userEvent.setup();
-    render(
+    const { container } = render(
       <ChannelSkuMappingTable
         items={[item]}
         total={1}
@@ -85,6 +91,12 @@ describe('ChannelSkuMappingTable', () => {
         onPageChange={vi.fn()}
         onEdit={onEdit}
       />,
+    );
+
+    expect(container.firstElementChild).toHaveClass(
+      'rounded-xl',
+      'border-slate-200',
+      'bg-white',
     );
 
     for (const column of [

@@ -39,7 +39,7 @@ export function ChannelSkuMappingTable({
   onEdit,
 }: ChannelSkuMappingTableProps) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-[var(--border,#e2e8f0)] bg-[var(--surface,#fff)]">
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
       <div className="overflow-x-auto">
         <table className="min-w-[1480px] w-full border-collapse text-left text-sm">
           <thead className="bg-[var(--surface-sunken,#f8fafc)] text-xs font-semibold text-[var(--text-secondary,#475569)]">
@@ -134,9 +134,9 @@ export function ChannelSkuMappingTable({
                       ) : (
                         <ul className="space-y-2">
                           {item.components.map((component) => (
-                            <li key={component.inventorySkuId} className="text-xs">
+                            <li key={component.masterProductId} className="text-xs">
                               <p className="font-medium text-[var(--text-primary,#0f172a)]">
-                                <span className="font-mono">{component.sellpiaProductCode}</span>
+                                <span className="font-mono">{component.code}</span>
                                 {' · '}
                                 {component.name}
                                 {component.optionName ? ` · ${component.optionName}` : ''}

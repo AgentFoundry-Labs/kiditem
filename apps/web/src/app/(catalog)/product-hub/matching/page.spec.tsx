@@ -16,13 +16,21 @@ vi.mock('./hooks/useChannelSkuMappings', () => ({
   useRefreshChannelSkuMappingStatuses: vi.fn(),
 }));
 
+vi.mock('./components/MappingSummaryCards', () => ({
+  MappingSummaryCards: ({ counts }: {
+    counts: { all: number; unmatched: number; needsReview: number; matched: number };
+  }) => (
+    <div>summary {counts.all}/{counts.unmatched}/{counts.needsReview}/{counts.matched}</div>
+  ),
+}));
+
 vi.mock('./components/MappingStatusTabs', () => ({
   MappingStatusTabs: ({ active, counts, onChange }: {
     active: string;
     counts: { all: number; unmatched: number; needsReview: number; matched: number };
     onChange: (status: string) => void;
   }) => (
-    <div>
+    <div role="group" aria-label="매칭 상태 필터">
       <span>counts {counts.all}/{counts.unmatched}/{counts.needsReview}/{counts.matched}</span>
       {['all', 'unmatched', 'needs_review', 'matched'].map((status) => (
         <button
@@ -183,6 +191,25 @@ describe('/product-hub/matching', () => {
     ).toBeInTheDocument();
   });
 
+  it('uses the develop matching hierarchy with current recipe actions', () => {
+    const { container } = render(<MatchingPage />);
+    const root = container.firstElementChild;
+
+    expect(root?.children[0]).toContainElement(
+      screen.getByRole('heading', { name: '상품 매칭 센터' }),
+    );
+    expect(root?.children[1]).toHaveTextContent('summary 10/6/3/1');
+    expect(root?.children[2]).toContainElement(screen.getByLabelText('Wing 채널 계정'));
+    expect(root?.children[2]).toContainElement(screen.getByLabelText('채널 SKU 검색'));
+    expect(root?.children[2]).toContainElement(
+      screen.getByRole('group', { name: '매칭 상태 필터' }),
+    );
+    expect(screen.getByRole('button', { name: '새로고침' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: '쿠팡 Wing 상품 엑셀 가져오기' }),
+    ).toBeInTheDocument();
+  });
+
   it('offers only coupang accounts and deterministically picks primary, name, then ID', async () => {
     mockQueries([
       account('99999999-9999-4999-8999-999999999999', '스마트스토어', { channel: 'smartstore', isPrimary: true }),
@@ -221,7 +248,7 @@ describe('/product-hub/matching', () => {
     render(<MatchingPage />);
 
     expect(screen.getByText('목록 갱신 중')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: '상태 새로고침' }));
+    await user.click(screen.getByRole('button', { name: '새로고침' }));
 
     expect(refreshMutateAsync).toHaveBeenCalledWith({ channelAccountId: ACCOUNT_A });
     expect(refetchList).not.toHaveBeenCalled();
@@ -351,8 +378,9 @@ describe('/product-hub/matching', () => {
   it('contains only the new component recipe workflow and fixed explanatory copy', () => {
     render(<MatchingPage />);
 
-    expect(screen.getByText('쇼핑몰 옵션 SKU마다 어떤 Sellpia 상품을 몇 개 사용하는지 관리합니다.')).toBeInTheDocument();
-    expect(screen.getByText('상품명과 가격은 참고 정보이며, 저장된 구성품이 실제 매칭 기준입니다.')).toBeInTheDocument();
+    expect(
+      screen.getByText('쇼핑몰 옵션 SKU와 Sellpia 구성품의 연결 상태를 관리합니다.'),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/자동 연결/)).not.toBeInTheDocument();
     expect(screen.queryByText(/제외 처리/)).not.toBeInTheDocument();
     expect(screen.queryByText(/ProductOption/)).not.toBeInTheDocument();

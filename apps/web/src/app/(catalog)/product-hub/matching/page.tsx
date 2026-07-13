@@ -7,6 +7,7 @@ import { friendlyError } from '@/lib/api-error';
 import { ChannelSkuComponentDialog } from './components/ChannelSkuComponentDialog';
 import { ChannelSkuMappingTable } from './components/ChannelSkuMappingTable';
 import { CoupangWingCatalogImportDialog } from './components/CoupangWingCatalogImportDialog';
+import { MappingSummaryCards } from './components/MappingSummaryCards';
 import {
   MappingStatusTabs,
   type MappingStatusFilter,
@@ -116,45 +117,45 @@ export default function MatchingPage() {
   const isRefreshing = mappingsQuery.isFetching && !mappingsQuery.isLoading;
 
   return (
-    <div className="space-y-6 pb-12">
-      <header className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+    <div className="space-y-6 animate-in pb-12">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-[var(--text-primary,#0f172a)]">
-            상품 매칭 센터
-          </h1>
-          <p className="mt-1 text-sm text-[var(--text-secondary,#475569)]">
-            쇼핑몰 옵션 SKU마다 어떤 Sellpia 상품을 몇 개 사용하는지 관리합니다.
-          </p>
-          <p className="mt-1 text-sm text-[var(--text-secondary,#475569)]">
-            상품명과 가격은 참고 정보이며, 저장된 구성품이 실제 매칭 기준입니다.
+          <h1 className="text-2xl font-bold text-slate-900">상품 매칭 센터</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            쇼핑몰 옵션 SKU와 Sellpia 구성품의 연결 상태를 관리합니다.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
             onClick={handleManualRefresh}
             disabled={!selectedAccount || refreshStatuses.isPending}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border,#cbd5e1)] bg-[var(--surface,#fff)] px-3 py-2 text-sm font-semibold text-[var(--text-secondary,#475569)] hover:bg-[var(--surface-sunken,#f8fafc)] disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50"
           >
             <RefreshCw
-              size={15}
+              size={14}
               className={refreshStatuses.isPending ? 'animate-spin' : ''}
             />
-            상태 새로고침
+            새로고침
           </button>
           <button
             type="button"
             onClick={() => setImportOpen(true)}
             disabled={!selectedAccount}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary,#7048e8)] px-3 py-2 text-sm font-bold text-white hover:opacity-90 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-purple-600 px-3 py-2 text-sm text-white hover:bg-purple-700 disabled:opacity-50"
           >
-            <Upload size={15} />
+            <Upload size={14} />
             쿠팡 Wing 상품 엑셀 가져오기
           </button>
         </div>
-      </header>
+      </div>
 
-      <section aria-label="채널 SKU 필터" className="space-y-4 rounded-2xl border border-[var(--border,#e2e8f0)] bg-[var(--surface,#fff)] p-4">
+      <MappingSummaryCards
+        counts={counts}
+        loading={mappingsQuery.isLoading && !data}
+      />
+
+      <section aria-label="채널 SKU 필터" className="space-y-4 rounded-xl border border-slate-200 bg-white p-4">
         <div className="grid gap-3 lg:grid-cols-[minmax(240px,360px)_minmax(280px,1fr)]">
           <label className="space-y-1.5 text-xs font-semibold text-[var(--text-secondary,#475569)]">
             <span>Wing 채널 계정</span>
