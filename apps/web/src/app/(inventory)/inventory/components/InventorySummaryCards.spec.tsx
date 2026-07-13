@@ -68,4 +68,18 @@ describe('InventoryFilterTabs', () => {
       expect(button).toHaveClass('border');
     }
   });
+
+  it('keeps inactive filter hover styling light-only', () => {
+    render(
+      <InventoryFilterTabs
+        filter="in_stock"
+        summary={summary}
+        onFilterChange={vi.fn()}
+      />,
+    );
+
+    const inactive = screen.getByRole('button', { name: '재고 없음 (4)' });
+    expect(inactive).toHaveClass('hover:bg-slate-50');
+    expect(inactive).not.toHaveClass('hover:bg-muted');
+  });
 });

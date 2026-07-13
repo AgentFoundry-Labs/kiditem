@@ -134,7 +134,7 @@ export function CoupangWingCatalogImportDialog({
 
             {statusRefreshFailed ? (
               <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-                매칭 상태만 새로고치지 못했습니다. 목록 상태가 오래되었을 수 있으니 창을 닫고 &apos;상태 새로고침&apos;을 눌러 주세요.
+                매칭 상태만 새로고치지 못했습니다. 목록 상태가 오래되었을 수 있으니 창을 닫고 &apos;새로고침&apos;을 눌러 주세요.
               </p>
             ) : null}
 

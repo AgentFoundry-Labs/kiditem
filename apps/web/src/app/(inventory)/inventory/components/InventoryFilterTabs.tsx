@@ -34,7 +34,7 @@ export function InventoryFilterTabs({
             'rounded-lg border px-4 py-2 text-sm font-medium',
             filter === item.key
               ? 'border-purple-600 bg-purple-600 text-white'
-              : 'border-border bg-card text-foreground hover:bg-muted',
+              : 'border-border bg-card text-foreground hover:bg-slate-50',
           )}
         >
           {item.label} ({formatNumber(item.count)})

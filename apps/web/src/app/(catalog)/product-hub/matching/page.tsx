@@ -22,7 +22,7 @@ import type { ChannelSkuMappingCounts, ChannelSkuMappingListItem } from '@kidite
 const PAGE_LIMIT = 50;
 const SEARCH_DEBOUNCE_MS = 300;
 const STALE_STATUS_WARNING =
-  "매칭 상태를 새로고치지 못했습니다. 목록 상태가 오래되었을 수 있습니다. '상태 새로고침'을 눌러 다시 시도해 주세요.";
+  "매칭 상태를 새로고치지 못했습니다. 목록 상태가 오래되었을 수 있습니다. '새로고침'을 눌러 다시 시도해 주세요.";
 const EMPTY_COUNTS: ChannelSkuMappingCounts = {
   all: 0,
   unmatched: 0,

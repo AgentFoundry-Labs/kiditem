@@ -217,7 +217,7 @@ describe('CoupangWingCatalogImportDialog', () => {
     expect(screen.getByText('옵션 SKU 생성 30')).toBeInTheDocument();
     expect(
       screen.getByText(
-        "매칭 상태만 새로고치지 못했습니다. 목록 상태가 오래되었을 수 있으니 창을 닫고 '상태 새로고침'을 눌러 주세요.",
+        "매칭 상태만 새로고치지 못했습니다. 목록 상태가 오래되었을 수 있으니 창을 닫고 '새로고침'을 눌러 주세요.",
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/파일을 다시.*가져/)).not.toBeInTheDocument();

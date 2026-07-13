@@ -260,7 +260,7 @@ describe('/product-hub/matching', () => {
 
     expect(
       await screen.findByText(
-        "매칭 상태를 새로고치지 못했습니다. 목록 상태가 오래되었을 수 있습니다. '상태 새로고침'을 눌러 다시 시도해 주세요.",
+        "매칭 상태를 새로고치지 못했습니다. 목록 상태가 오래되었을 수 있습니다. '새로고침'을 눌러 다시 시도해 주세요.",
       ),
     ).toBeInTheDocument();
     rerender(<MatchingPage />);
