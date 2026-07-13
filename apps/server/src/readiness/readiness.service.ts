@@ -6,7 +6,11 @@ import type {
   AgentOsLiveReadinessCheck,
   AgentOsLiveReadinessResponse,
 } from '@kiditem/shared/agent-os';
-import type { ReadinessCheck, ReadinessResponse } from '@kiditem/shared/readiness';
+import type {
+  ReadinessCheck,
+  ReadinessResponse,
+  RebuildReadinessResponse,
+} from '@kiditem/shared/readiness';
 
 /**
  * Readiness check for system data freshness.
@@ -29,6 +33,30 @@ export class ReadinessService {
    * 필요 시 readiness 응답을 보고 짧게 줄여도 무방.
    */
   private static readonly LOOKBACK_DAYS = 14;
+
+  async getRebuildStatus(organizationId: string): Promise<RebuildReadinessResponse> {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: {
+        organizationId_key: {
+          organizationId,
+          key: 'inventory.rebuild.status',
+        },
+      },
+      select: { value: true },
+    });
+    const value = toRecord(setting?.value);
+    if (value.state !== 'snapshot_required') {
+      return { state: 'ready', target: null, requiredImports: [] };
+    }
+    const target = value.target === 'local' || value.target === 'staging' || value.target === 'production'
+      ? value.target
+      : null;
+    return {
+      state: 'snapshot_required',
+      target,
+      requiredImports: ['sellpia', 'wing'],
+    };
+  }
 
   async getAgentOsLiveStatus(
     organizationId: string,

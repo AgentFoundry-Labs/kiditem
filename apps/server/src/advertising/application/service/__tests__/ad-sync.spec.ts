@@ -8,6 +8,7 @@ import type { AdCampaignIngestHandler } from '../ad-campaign-ingest.handler';
 import type { RawScrapeIngestHandler } from '../raw-scrape-ingest.handler';
 import type { TrafficIngestHandler } from '../traffic-ingest.handler';
 import type { CoupangAdsDailyIngestHandler } from '../coupang-ads-daily-ingest.handler';
+import type { AdIngestTransactionPort } from '../../port/out/transaction/ad-ingest-transaction.port';
 import {
   buildMockAdListingRepo,
   buildMockScrapeTargetRepo,
@@ -31,11 +32,13 @@ describe('AdSyncService', () => {
   let listingRepo: MockAdListingRepo;
   let scrapeTargetRepo: MockScrapeTargetRepo;
   let scrapeRepo: MockChannelScrapeRepo;
+  let ingestTransaction: { runIdempotent: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     listingRepo = buildMockAdListingRepo();
     scrapeTargetRepo = buildMockScrapeTargetRepo();
     scrapeRepo = buildMockChannelScrapeRepo();
+    ingestTransaction = { runIdempotent: vi.fn() };
     service = new AdSyncService(
       listingRepo as unknown as AdListingRepositoryPort,
       scrapeTargetRepo as unknown as ScrapeTargetRepositoryPort,
@@ -44,6 +47,59 @@ describe('AdSyncService', () => {
       {} as RawScrapeIngestHandler,
       {} as TrafficIngestHandler,
       {} as CoupangAdsDailyIngestHandler,
+      ingestTransaction as unknown as AdIngestTransactionPort,
+    );
+  });
+
+  it('runs an authoritative replay key once and returns the persisted response on retry', async () => {
+    const map: ListingMap = {
+      channelAccountId: 'account-1',
+      externalOptionIdMap: new Map(),
+      externalIdMap: new Map(),
+    };
+    listingRepo.buildAdSyncListingMap.mockResolvedValue(map);
+    const handler = {
+      execute: vi.fn(async () => ({
+        success: true,
+        scrapeRunId: 'run-1',
+        scrapeSnapshotCount: 2,
+      })),
+    };
+    let cached: unknown;
+    ingestTransaction.runIdempotent.mockImplementation(async (_input, operation) => {
+      if (cached !== undefined) return { value: cached, replayed: true };
+      cached = await operation();
+      return { value: cached, replayed: false };
+    });
+    service = new AdSyncService(
+      listingRepo as unknown as AdListingRepositoryPort,
+      scrapeTargetRepo as unknown as ScrapeTargetRepositoryPort,
+      scrapeRepo as unknown as ChannelScrapeRepositoryPort,
+      {} as AdCampaignIngestHandler,
+      handler as unknown as RawScrapeIngestHandler,
+      {} as TrafficIngestHandler,
+      {} as CoupangAdsDailyIngestHandler,
+      ingestTransaction as unknown as AdIngestTransactionPort,
+    );
+    const payload = {
+      type: 'raw_scrape',
+      source: 'wing',
+      idempotencyKey:
+        'authoritative-rebuild:12345:550e8400-e29b-41d4-a716-446655440000',
+    };
+
+    const first = await service.sync(payload, 'organization-1');
+    const retry = await service.sync(payload, 'organization-1');
+
+    expect(first).toMatchObject({ success: true, replayed: false });
+    expect(retry).toMatchObject({ success: true, replayed: true });
+    expect(handler.execute).toHaveBeenCalledTimes(1);
+    expect(ingestTransaction.runIdempotent).toHaveBeenCalledWith(
+      {
+        organizationId: 'organization-1',
+        idempotencyKey: payload.idempotencyKey,
+      },
+      expect.any(Function),
     );
   });
 

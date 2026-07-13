@@ -19,6 +19,7 @@ usage() {
 Usage:
   deploy/staging/remote-deploy.sh deploy
   deploy/staging/remote-deploy.sh quiesce
+  deploy/staging/remote-deploy.sh resume
   deploy/staging/remote-deploy.sh status
 
 Deploy mode requires KIDITEM_API_IMAGE and KIDITEM_WEB_IMAGE.
@@ -27,6 +28,8 @@ candidate health passes, writes deployments/current.json, and stops the
 previous slot to avoid duplicate in-process workers.
 Quiesce mode stops both application slots and nginx before a guarded database
 rebuild. It is invoked only by the environment-scoped GitHub Actions workflow.
+Resume mode restarts the previously active slot after a failure that occurred
+before the database reset boundary.
 USAGE
 }
 
@@ -701,6 +704,26 @@ quiesce() {
   compose ps
 }
 
+resume() {
+  cd "$APP_DIR"
+  require_command docker
+  require_file "$COMPOSE_FILE"
+  require_file "$DEPLOY_ENV_FILE"
+  require_file "$WEB_ENV_FILE"
+  require_file "$NGINX_TEMPLATE_FILE"
+
+  local active_color active_services
+  active_color="$(current_color)"
+  read -r -a active_services <<<"$(slot_services "$active_color")"
+  echo "Resuming previous $DEPLOY_ENVIRONMENT runtime on $active_color after pre-reset failure"
+  compose config >/dev/null
+  render_nginx_for_color "$active_color"
+  compose up -d "${active_services[@]}"
+  wait_for_candidate_health "$active_color"
+  reload_or_start_nginx
+  wait_for_public_health
+}
+
 status() {
   cd "$APP_DIR"
 
@@ -750,6 +773,9 @@ case "${1:-}" in
     ;;
   quiesce)
     quiesce
+    ;;
+  resume)
+    resume
     ;;
   status)
     status

@@ -55,10 +55,10 @@ export class DashboardSalesRepositoryAdapter
   }
 
   /**
-   * Top-N (10) product revenue ranking for the calendar month. Joins
-   * orders → line items → channel listing options → SKU components →
-   * master products. Channel listings supply the marketplace label. Each
-   * tenant-owned join guards `organization_id`.
+   * Top-N (10) listing revenue ranking for the calendar month. Revenue is
+   * grouped by ChannelListing so a bundle line is counted once regardless of
+   * how many Sellpia components its option consumes. A lateral lookup chooses
+   * one deterministic master-product label for the legacy widget shape.
    *
    * Returns the raw shape; the application service applies the documented
    * 30%-margin approximation for `netProfit`/`profitRate`.
@@ -70,8 +70,8 @@ export class DashboardSalesRepositoryAdapter
   ): Promise<TopProduct[]> {
     const rows = await this.prisma.$queryRaw<TopProductRawRow[]>`
       SELECT
-        mp.id::text AS id,
-        mp.name AS name,
+        cl.id::text AS id,
+        COALESCE(cl.display_name, representative.name, cl.channel_name, cl.external_id) AS name,
         cl.channel_name AS organization,
         cl.abc_grade AS grade,
         SUM(oli.total_price)::int AS revenue,
@@ -80,18 +80,26 @@ export class DashboardSalesRepositoryAdapter
       JOIN order_line_items oli ON oli.order_id = o.id
       JOIN channel_listing_options clo ON clo.id = oli.listing_option_id
       JOIN channel_listings cl ON cl.id = clo.listing_id
-      JOIN channel_sku_components csc ON csc.channel_sku_id = clo.id
-      JOIN master_products mp ON mp.id = csc.master_product_id
+      LEFT JOIN LATERAL (
+        SELECT mp.name
+        FROM channel_listing_options label_clo
+        JOIN channel_sku_components csc ON csc.channel_sku_id = label_clo.id
+        JOIN master_products mp ON mp.id = csc.master_product_id
+        WHERE label_clo.listing_id = cl.id
+          AND label_clo.organization_id = ${organizationId}::uuid
+          AND csc.organization_id = ${organizationId}::uuid
+          AND mp.organization_id = ${organizationId}::uuid
+        ORDER BY label_clo.external_option_id, csc.created_at, csc.id
+        LIMIT 1
+      ) representative ON TRUE
       WHERE o.organization_id = ${organizationId}::uuid
         AND oli.organization_id = ${organizationId}::uuid
         AND clo.organization_id = ${organizationId}::uuid
         AND cl.organization_id = ${organizationId}::uuid
-        AND csc.organization_id = ${organizationId}::uuid
-        AND mp.organization_id = ${organizationId}::uuid
         AND o.ordered_at >= ${monthStart}
         AND o.ordered_at < ${monthEnd}
         AND o.status NOT IN ('cancelled', 'returned', 'refunded')
-      GROUP BY mp.id, mp.name, cl.channel_name, cl.abc_grade
+      GROUP BY cl.id, cl.display_name, representative.name, cl.channel_name, cl.external_id, cl.abc_grade
       ORDER BY revenue DESC
       LIMIT 10
     `;

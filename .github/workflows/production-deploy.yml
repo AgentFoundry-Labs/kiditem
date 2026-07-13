@@ -171,11 +171,18 @@ jobs:
       - name: Validate production rebuild confirmation
         if: inputs.destructive_reset != ''
         env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
           DEPLOYMENT_TARGET: ${{ inputs.deployment_target }}
           REBUILD_TARGET: ${{ inputs.deployment_target }}
           GITHUB_ENVIRONMENT: production
           DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
           EXPECTED_RESET_CONFIRMATION: RESET_PRODUCTION_DATA
+          REBUILD_EXPECTED_DATABASE_HOST: ${{ secrets.PRODUCTION_REBUILD_EXPECTED_DATABASE_HOST }}
+          REBUILD_EXPECTED_SUPABASE_PROJECT_REF: ${{ secrets.PRODUCTION_REBUILD_EXPECTED_SUPABASE_PROJECT_REF }}
+          REBUILD_ORGANIZATION_ID: ${{ vars.PRODUCTION_REBUILD_ORGANIZATION_ID }}
+          REBUILD_ORGANIZATION_SLUG: ${{ vars.PRODUCTION_REBUILD_ORGANIZATION_SLUG }}
+          REBUILD_COUPANG_ACCOUNT_ID: ${{ vars.PRODUCTION_REBUILD_COUPANG_ACCOUNT_ID }}
+          REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID: ${{ secrets.PRODUCTION_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID }}
         run: npm run inventory:rebuild -- guard
 
       - name: Run pre-schema data migrations
@@ -189,27 +196,6 @@ jobs:
           set -euo pipefail
           : "${DATABASE_URL:?Set production secret PRODUCTION_DATABASE_URL}"
           npm run data:migrate -- up --phase pre-schema
-
-      - name: Export approved Coupang replay bundle
-        if: inputs.destructive_reset != ''
-        env:
-          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
-          REBUILD_TARGET: ${{ inputs.deployment_target }}
-          GITHUB_ENVIRONMENT: production
-          DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
-          EXPECTED_RESET_CONFIRMATION: RESET_PRODUCTION_DATA
-          REBUILD_ORGANIZATION_ID: ${{ vars.PRODUCTION_REBUILD_ORGANIZATION_ID }}
-          REBUILD_BUNDLE_PATH: ${{ runner.temp }}/authoritative-rebuild.json
-        run: npm run inventory:rebuild -- export-coupang --origin-run-id "${{ github.run_id }}"
-
-      - name: Preserve private rebuild bundle for one day
-        if: inputs.destructive_reset != ''
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: authoritative-rebuild-${{ github.run_id }}-production
-          path: ${{ runner.temp }}/authoritative-rebuild.json
-          if-no-files-found: error
-          retention-days: 1
 
       - name: Prepare SSH for guarded rebuild
         if: inputs.destructive_reset != ''
@@ -243,6 +229,7 @@ jobs:
                 "mkdir -p ${remote_dir_q}/deploy/production ${remote_dir_q}/deploy/staging && tar -xzf - -C ${remote_dir_q} && chmod +x ${remote_dir_q}/deploy/production/remote-deploy.sh ${remote_dir_q}/deploy/staging/remote-deploy.sh"
 
       - name: Quiesce production application traffic
+        id: quiesce
         if: inputs.destructive_reset != ''
         env:
           PRODUCTION_HOST: ${{ vars.PRODUCTION_HOST }}
@@ -255,6 +242,36 @@ jobs:
           q() { printf '%q' "$1"; }
           ssh -i ~/.ssh/kiditem-production "${PRODUCTION_USER}@${PRODUCTION_HOST}" \
             "cd $(q "$PRODUCTION_REMOTE_DIR") && ./deploy/production/remote-deploy.sh quiesce"
+
+      - name: Export approved Coupang replay bundle
+        if: inputs.destructive_reset != ''
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DEPLOYMENT_TARGET: ${{ inputs.deployment_target }}
+          REBUILD_TARGET: ${{ inputs.deployment_target }}
+          GITHUB_ENVIRONMENT: production
+          DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
+          EXPECTED_RESET_CONFIRMATION: RESET_PRODUCTION_DATA
+          REBUILD_DEPLOYED_SHA: ${{ needs.prepare.outputs.git_sha }}
+          REBUILD_ORGANIZATION_ID: ${{ vars.PRODUCTION_REBUILD_ORGANIZATION_ID }}
+          REBUILD_COUPANG_ACCOUNT_ID: ${{ vars.PRODUCTION_REBUILD_COUPANG_ACCOUNT_ID }}
+          REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID: ${{ secrets.PRODUCTION_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID }}
+          REBUILD_BUNDLE_PATH: ${{ runner.temp }}/authoritative-rebuild.json
+        run: npm run inventory:rebuild -- export-coupang --origin-run-id "${{ github.run_id }}"
+
+      - name: Preserve private rebuild bundle for one day
+        if: inputs.destructive_reset != ''
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: authoritative-rebuild-${{ github.run_id }}-production
+          path: ${{ runner.temp }}/authoritative-rebuild.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Cross destructive reset boundary
+        id: reset_boundary
+        if: inputs.destructive_reset != ''
+        run: echo "started=true" >> "$GITHUB_OUTPUT"
 
       - name: Rebuild production database from final schema
         env:
@@ -281,10 +298,12 @@ jobs:
         if: inputs.destructive_reset != ''
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DEPLOYMENT_TARGET: ${{ inputs.deployment_target }}
           REBUILD_TARGET: ${{ inputs.deployment_target }}
           GITHUB_ENVIRONMENT: production
           DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
           EXPECTED_RESET_CONFIRMATION: RESET_PRODUCTION_DATA
+          REBUILD_DEPLOYED_SHA: ${{ needs.prepare.outputs.git_sha }}
           REBUILD_ORGANIZATION_ID: ${{ vars.PRODUCTION_REBUILD_ORGANIZATION_ID }}
           REBUILD_ORGANIZATION_NAME: ${{ vars.PRODUCTION_REBUILD_ORGANIZATION_NAME }}
           REBUILD_ORGANIZATION_SLUG: ${{ vars.PRODUCTION_REBUILD_ORGANIZATION_SLUG }}
@@ -475,6 +494,20 @@ jobs:
           ssh -i ~/.ssh/kiditem-production "${PRODUCTION_USER}@${PRODUCTION_HOST}" \
             "cd $(q "$PRODUCTION_REMOTE_DIR") && ./deploy/production/remote-deploy.sh status"
 
+      - name: Resume previous production runtime after pre-reset failure
+        if: failure() && inputs.destructive_reset != '' && (steps.quiesce.outcome == 'success' || steps.quiesce.outcome == 'failure') && steps.reset_boundary.outputs.started != 'true'
+        env:
+          PRODUCTION_HOST: ${{ vars.PRODUCTION_HOST }}
+          PRODUCTION_USER: ${{ vars.PRODUCTION_USER }}
+          PRODUCTION_REMOTE_DIR: ${{ vars.PRODUCTION_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          PRODUCTION_USER="${PRODUCTION_USER:-ubuntu}"
+          PRODUCTION_REMOTE_DIR="${PRODUCTION_REMOTE_DIR:-/opt/kiditem}"
+          q() { printf '%q' "$1"; }
+          ssh -i ~/.ssh/kiditem-production "${PRODUCTION_USER}@${PRODUCTION_HOST}" \
+            "cd $(q "$PRODUCTION_REMOTE_DIR") && ./deploy/production/remote-deploy.sh resume"
+
       - name: Write production deployment summary
         if: always()
         env:
@@ -504,8 +537,37 @@ jobs:
       actions: read
       contents: read
     steps:
-      - name: Checkout repository
+      - name: Resolve originating rebuild run
+        id: origin
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REBUILD_RUN_ID: ${{ inputs.rebuild_run_id }}
+        run: |
+          set -euo pipefail
+          case "$REBUILD_RUN_ID" in
+            ''|*[!0-9]*) echo "rebuild_run_id must be the originating numeric workflow run ID" >&2; exit 2 ;;
+          esac
+          run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${REBUILD_RUN_ID}")"
+          workflow_path="$(jq -r '.path' <<<"$run_json")"
+          event="$(jq -r '.event' <<<"$run_json")"
+          conclusion="$(jq -r '.conclusion' <<<"$run_json")"
+          head_sha="$(jq -r '.head_sha' <<<"$run_json")"
+          [[ "$workflow_path" == ".github/workflows/production-deploy.yml" ]] || { echo "origin run belongs to $workflow_path" >&2; exit 2; }
+          [[ "$event" == "workflow_dispatch" && "$conclusion" == "success" ]] || { echo "origin run must be a successful workflow_dispatch" >&2; exit 2; }
+          [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "origin run has invalid head SHA" >&2; exit 2; }
+          jobs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${REBUILD_RUN_ID}/jobs?per_page=100")"
+          deploy_jobs="$(jq '[.jobs[] | select(.name == "Deploy to production" and .conclusion == "success")] | length' <<<"$jobs_json")"
+          [[ "$deploy_jobs" == "1" ]] || { echo "origin run did not complete exactly one production deploy job" >&2; exit 2; }
+          artifacts_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${REBUILD_RUN_ID}/artifacts?per_page=100")"
+          artifact_name="authoritative-rebuild-${REBUILD_RUN_ID}-production"
+          artifacts="$(jq --arg name "$artifact_name" '[.artifacts[] | select(.name == $name and .expired == false)] | length' <<<"$artifacts_json")"
+          [[ "$artifacts" == "1" ]] || { echo "origin run does not expose exactly one live production rebuild artifact" >&2; exit 2; }
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout originating rebuild SHA
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ steps.origin.outputs.head_sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
@@ -523,12 +585,19 @@ jobs:
 
       - name: Validate production finalization binding
         env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
           DEPLOYMENT_TARGET: ${{ inputs.deployment_target }}
           REBUILD_TARGET: ${{ inputs.deployment_target }}
           GITHUB_ENVIRONMENT: production
           DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
           EXPECTED_RESET_CONFIRMATION: RESET_PRODUCTION_DATA
           REBUILD_RUN_ID: ${{ inputs.rebuild_run_id }}
+          REBUILD_EXPECTED_DATABASE_HOST: ${{ secrets.PRODUCTION_REBUILD_EXPECTED_DATABASE_HOST }}
+          REBUILD_EXPECTED_SUPABASE_PROJECT_REF: ${{ secrets.PRODUCTION_REBUILD_EXPECTED_SUPABASE_PROJECT_REF }}
+          REBUILD_ORGANIZATION_ID: ${{ vars.PRODUCTION_REBUILD_ORGANIZATION_ID }}
+          REBUILD_ORGANIZATION_SLUG: ${{ vars.PRODUCTION_REBUILD_ORGANIZATION_SLUG }}
+          REBUILD_COUPANG_ACCOUNT_ID: ${{ vars.PRODUCTION_REBUILD_COUPANG_ACCOUNT_ID }}
+          REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID: ${{ secrets.PRODUCTION_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID }}
         run: |
           set -euo pipefail
           case "$REBUILD_RUN_ID" in
@@ -547,7 +616,9 @@ jobs:
       - name: Replay approved Coupang snapshots through authenticated endpoint
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DEPLOYMENT_TARGET: ${{ inputs.deployment_target }}
           REBUILD_TARGET: ${{ inputs.deployment_target }}
+          REBUILD_DEPLOYED_SHA: ${{ steps.origin.outputs.head_sha }}
           GITHUB_ENVIRONMENT: production
           DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
           EXPECTED_RESET_CONFIRMATION: RESET_PRODUCTION_DATA
@@ -555,8 +626,10 @@ jobs:
           REBUILD_COUPANG_ACCOUNT_ID: ${{ vars.PRODUCTION_REBUILD_COUPANG_ACCOUNT_ID }}
           REBUILD_USER_ID: ${{ vars.PRODUCTION_REBUILD_USER_ID }}
           REBUILD_USER_EMAIL: ${{ secrets.PRODUCTION_REBUILD_USER_EMAIL }}
-          REBUILD_API_URL: ${{ vars.PRODUCTION_URL }}
+          REBUILD_API_URL: ${{ vars.PRODUCTION_REBUILD_EXPECTED_API_ORIGIN }}
+          REBUILD_EXPECTED_API_ORIGIN: ${{ vars.PRODUCTION_REBUILD_EXPECTED_API_ORIGIN }}
           SUPABASE_URL: ${{ vars.PRODUCTION_SUPABASE_URL || vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
+          REBUILD_EXPECTED_SUPABASE_PROJECT_REF: ${{ secrets.PRODUCTION_REBUILD_EXPECTED_SUPABASE_PROJECT_REF }}
           SUPABASE_SECRET_KEY: ${{ secrets.PRODUCTION_SUPABASE_SECRET_KEY }}
           REBUILD_BUNDLE_PATH: ${{ runner.temp }}/authoritative-rebuild/authoritative-rebuild.json
         run: npm run inventory:rebuild -- replay-coupang --origin-run-id "${{ inputs.rebuild_run_id }}"
@@ -564,7 +637,9 @@ jobs:
       - name: Verify imported facts and mark production ready
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DEPLOYMENT_TARGET: ${{ inputs.deployment_target }}
           REBUILD_TARGET: ${{ inputs.deployment_target }}
+          REBUILD_DEPLOYED_SHA: ${{ steps.origin.outputs.head_sha }}
           GITHUB_ENVIRONMENT: production
           DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
           EXPECTED_RESET_CONFIRMATION: RESET_PRODUCTION_DATA

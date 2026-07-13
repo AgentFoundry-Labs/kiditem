@@ -11,12 +11,14 @@ const environments = [
     workflow: '.github/workflows/staging-deploy.yml',
     resetToken: 'RESET_STAGING_DATA',
     deployStep: 'Deploy images on EC2',
+    deployJob: 'Deploy to staging',
   },
   {
     name: 'production',
     workflow: '.github/workflows/production-deploy.yml',
     resetToken: 'RESET_PRODUCTION_DATA',
     deployStep: 'Deploy images on production host',
+    deployJob: 'Deploy to production',
   },
 ];
 
@@ -39,6 +41,8 @@ describe('guarded authoritative database rebuild workflows', () => {
       assert.match(workflow, /DEPLOYMENT_TARGET: \$\{\{ inputs\.deployment_target \}\}/);
       assert.match(workflow, new RegExp(`GITHUB_ENVIRONMENT: ${environment.name}\\b`));
       assert.match(workflow, /npm run inventory:rebuild -- guard/);
+      assert.match(workflow, new RegExp(`${environment.name.toUpperCase()}_REBUILD_EXPECTED_DATABASE_HOST`));
+      assert.match(workflow, new RegExp(`${environment.name.toUpperCase()}_REBUILD_EXPECTED_SUPABASE_PROJECT_REF`));
       assert.match(workflow, /inputs\.operation == 'finalize-rebuild'/);
     });
 
@@ -51,8 +55,9 @@ describe('guarded authoritative database rebuild workflows', () => {
       const deployPosition = workflow.indexOf(environment.deployStep);
 
       assert.ok(exportPosition >= 0, 'missing selective Coupang export');
-      assert.ok(quiescePosition > exportPosition, 'traffic must quiesce after the private export');
-      assert.ok(resetPosition > quiescePosition, 'schema rebuild must run after traffic is quiesced');
+      assert.ok(quiescePosition >= 0, 'missing traffic quiesce');
+      assert.ok(exportPosition > quiescePosition, 'traffic must quiesce before the private export');
+      assert.ok(resetPosition > exportPosition, 'schema rebuild must run after the quiesced export');
       assert.ok(bootstrapPosition > resetPosition, 'baseline bootstrap must follow final schema creation');
       assert.ok(deployPosition > bootstrapPosition, 'the snapshot-required app starts after bootstrap');
 
@@ -61,12 +66,25 @@ describe('guarded authoritative database rebuild workflows', () => {
       assert.match(workflow, /rebuild_run_id:/);
       assert.match(workflow, /run-id: \$\{\{ inputs\.rebuild_run_id \}\}/);
       assert.match(workflow, /--origin-run-id "\$\{\{ inputs\.rebuild_run_id \}\}"/);
+      assert.match(workflow, /Resolve originating rebuild run/);
+      assert.match(workflow, /head_sha/);
+      assert.match(workflow, new RegExp(`\.name == "${environment.deployJob}"`));
+      assert.match(
+        workflow,
+        new RegExp(`authoritative-rebuild-\\\$\\\{REBUILD_RUN_ID\\\}-${environment.name}`),
+      );
+      assert.match(workflow, /ref: \$\{\{ steps\.origin\.outputs\.head_sha \}\}/);
+      assert.match(workflow, /REBUILD_DEPLOYED_SHA: \$\{\{ steps\.origin\.outputs\.head_sha \}\}/);
+      assert.match(workflow, /REBUILD_EXPECTED_API_ORIGIN:/);
       assert.match(workflow, /POST \/api\/ads\/extension\/sync|inventory:rebuild -- replay-coupang/);
       assert.match(workflow, /inventory:rebuild -- verify-ready/);
       assert.match(
         workflow,
         new RegExp(`deploy/${environment.name}/remote-deploy\\.sh quiesce`),
       );
+      assert.match(workflow, /Resume previous .* runtime after pre-reset failure/);
+      assert.match(workflow, new RegExp(`deploy/${environment.name}/remote-deploy\\.sh resume`));
+      assert.match(workflow, /steps\.reset_boundary\.outputs\.started != 'true'/);
       assert.doesNotMatch(workflow, /Coupang_detailinfo_260711|exported-list \(3\)|exported-list\.xlsx/);
     });
   }
@@ -76,5 +94,6 @@ describe('guarded authoritative database rebuild workflows', () => {
     assert.match(remoteDeploy, /deploy\/staging\/remote-deploy\.sh quiesce/);
     assert.match(remoteDeploy, /compose stop api-blue web-blue worker-blue api-green web-green worker-green/);
     assert.match(remoteDeploy, /quiesce\)\n\s+quiesce/);
+    assert.match(remoteDeploy, /resume\)\n\s+resume/);
   });
 });

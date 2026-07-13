@@ -21,6 +21,7 @@ import {
   spreadMetricsForCreate,
   spreadMetricsForUpdate,
 } from './daily-fact-helpers';
+import { withAdIngestRepositoryTransaction } from '../transaction/ad-ingest-transaction-context';
 
 const LISTING_STATE_KEYS: ReadonlyArray<keyof ListingDailyState> = [
   'productName',
@@ -100,7 +101,7 @@ export class ChannelListingDailyRepositoryAdapter
       LISTING_TRAFFIC_METRIC_KEYS,
     );
 
-    return this.prisma.$transaction(async (tx) => {
+    return withAdIngestRepositoryTransaction(this.prisma, async (tx) => {
       const row = await tx.channelListingDailySnapshot.upsert({
         where: {
           organizationId_listingId_businessDate: {

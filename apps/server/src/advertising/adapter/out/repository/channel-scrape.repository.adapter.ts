@@ -14,6 +14,7 @@ import type {
   ScrapeRunInput,
   ScrapeSnapshotInput,
 } from '../../../application/port/out/repository/channel-scrape.repository.port';
+import { adIngestRepositoryClient } from '../transaction/ad-ingest-transaction-context';
 
 const logger = new Logger('ChannelScrapeRepositoryAdapter');
 
@@ -24,7 +25,7 @@ export class ChannelScrapeRepositoryAdapter
   constructor(private readonly prisma: PrismaService) {}
 
   async createRun(input: ScrapeRunInput): Promise<{ id: string }> {
-    return this.prisma.channelScrapeRun.create({
+    return adIngestRepositoryClient(this.prisma).channelScrapeRun.create({
       data: {
         organizationId: input.organizationId,
         channelAccountId: input.channelAccountId,
@@ -48,7 +49,7 @@ export class ChannelScrapeRepositoryAdapter
   }
 
   async appendSnapshot(input: ScrapeSnapshotInput): Promise<{ id: string }> {
-    return this.prisma.channelScrapeSnapshot.create({
+    return adIngestRepositoryClient(this.prisma).channelScrapeSnapshot.create({
       data: {
         scrapeRunId: input.scrapeRunId,
         organizationId: input.organizationId,
@@ -74,7 +75,7 @@ export class ChannelScrapeRepositoryAdapter
   }
 
   async finalizeRun(input: ScrapeRunFinalize): Promise<void> {
-    const result = await this.prisma.channelScrapeRun.updateMany({
+    const result = await adIngestRepositoryClient(this.prisma).channelScrapeRun.updateMany({
       where: { id: input.scrapeRunId, organizationId: input.organizationId },
       data: {
         status: input.status,

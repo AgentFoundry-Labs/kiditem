@@ -16,6 +16,7 @@ import type {
   AdAccountKpiRepositoryPort,
   UpsertAccountKpiInput,
 } from '../../../application/port/out/repository/ad-account-kpi.repository.port';
+import { adIngestRepositoryClient } from '../transaction/ad-ingest-transaction-context';
 
 @Injectable()
 export class AdAccountKpiRepositoryAdapter
@@ -83,7 +84,7 @@ export class AdAccountKpiRepositoryAdapter
         ? Prisma.DbNull
         : (input.rawJson as Prisma.InputJsonValue);
 
-    return this.prisma.channelAccountDailyKpiSnapshot.upsert({
+    return adIngestRepositoryClient(this.prisma).channelAccountDailyKpiSnapshot.upsert({
       where: {
         organizationId_channelAccountId_source_businessDate_kpiType: {
           organizationId: input.organizationId,

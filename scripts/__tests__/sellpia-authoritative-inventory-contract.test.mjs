@@ -120,10 +120,14 @@ describe('Sellpia authoritative final-schema contract', () => {
     assert.doesNotMatch(insert, /\bdeleted_at\b/);
   });
 
-  it('resolves dashboard top products through the final channel SKU component owner', () => {
+  it('groups dashboard revenue by listing and resolves a component label without bundle duplication', () => {
     assert.match(
       dashboardSalesRepository,
-      /JOIN channel_sku_components csc ON csc\.channel_sku_id = clo\.id/,
+      /LEFT JOIN LATERAL/,
+    );
+    assert.match(
+      dashboardSalesRepository,
+      /JOIN channel_sku_components csc ON csc\.channel_sku_id = label_clo\.id/,
     );
     assert.match(
       dashboardSalesRepository,
@@ -134,7 +138,12 @@ describe('Sellpia authoritative final-schema contract', () => {
       /AND csc\.organization_id = \$\{organizationId\}::uuid/,
     );
     assert.doesNotMatch(dashboardSalesRepository, /cl\.master_id/);
+    assert.doesNotMatch(
+      dashboardSalesRepository,
+      /JOIN channel_sku_components csc ON csc\.channel_sku_id = clo\.id/,
+    );
     assert.doesNotMatch(dashboardSalesRepository, /mp\.abc_grade/);
     assert.match(dashboardSalesRepository, /cl\.abc_grade AS grade/);
+    assert.match(dashboardSalesRepository, /GROUP BY cl\.id/);
   });
 });

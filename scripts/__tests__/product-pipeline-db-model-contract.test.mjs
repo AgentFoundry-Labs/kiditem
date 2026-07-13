@@ -52,9 +52,9 @@ describe('product pipeline DB model contract', () => {
     const bootstrap = workflow.indexOf('Bootstrap staging authentication and account baseline');
 
     assert.ok(guard !== -1, 'expected an exact shared rebuild guard');
-    assert.ok(guard < exported, 'guard must pass before approved data is exported');
-    assert.ok(exported < quiesced, 'private export must finish before traffic is quiesced');
-    assert.ok(quiesced < forceReset, 'traffic must be stopped before the force reset');
+    assert.ok(guard < quiesced, 'guard must pass before traffic is quiesced');
+    assert.ok(quiesced < exported, 'traffic must be quiesced before the consistent export');
+    assert.ok(exported < forceReset, 'private export must finish before the force reset');
     assert.ok(forceReset < bootstrap, 'minimum baseline must be created after the final schema');
     assert.doesNotMatch(workflow, /--accept-data-loss|check-sellpia-db-push-warning/);
   });

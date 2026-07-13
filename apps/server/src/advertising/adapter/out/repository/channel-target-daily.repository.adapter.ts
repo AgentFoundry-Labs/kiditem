@@ -18,6 +18,7 @@ import {
   spreadMetricsForCreate,
   spreadMetricsForUpdate,
 } from './daily-fact-helpers';
+import { withAdIngestRepositoryTransaction } from '../transaction/ad-ingest-transaction-context';
 
 const AD_TARGET_METRIC_KEYS: ReadonlyArray<keyof AdTargetDailyMetrics> = [
   'spend',
@@ -90,7 +91,7 @@ export class ChannelTargetDailyRepositoryAdapter
       AD_TARGET_DESCRIPTOR_KEYS,
     );
 
-    return this.prisma.$transaction(async (tx) => {
+    return withAdIngestRepositoryTransaction(this.prisma, async (tx) => {
       const row = await tx.channelAdTargetDailySnapshot.upsert({
         where: {
           organizationId_channel_businessDate_targetType_targetKey: {

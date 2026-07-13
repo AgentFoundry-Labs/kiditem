@@ -39,6 +39,10 @@ import { AdCampaignIngestHandler } from './ad-campaign-ingest.handler';
 import { CoupangAdsDailyIngestHandler } from './coupang-ads-daily-ingest.handler';
 import { RawScrapeIngestHandler } from './raw-scrape-ingest.handler';
 import { TrafficIngestHandler } from './traffic-ingest.handler';
+import {
+  AD_INGEST_TRANSACTION_PORT,
+  type AdIngestTransactionPort,
+} from '../port/out/transaction/ad-ingest-transaction.port';
 
 export type { ListingMap } from '../../domain/listing-match';
 
@@ -57,6 +61,8 @@ export class AdSyncService {
     private readonly rawScrapeHandler: RawScrapeIngestHandler,
     private readonly trafficHandler: TrafficIngestHandler,
     private readonly coupangAdsDailyHandler: CoupangAdsDailyIngestHandler,
+    @Inject(AD_INGEST_TRANSACTION_PORT)
+    private readonly ingestTransaction: AdIngestTransactionPort,
   ) {}
 
   async sync(payload: ExtensionSyncDto, organizationId: string) {
@@ -65,7 +71,8 @@ export class AdSyncService {
       payload.channelAccountId,
     );
 
-    switch (payload.type) {
+    const execute = async (): Promise<Record<string, unknown>> => {
+      switch (payload.type) {
       case 'ad_campaign':
         return this.adCampaignHandler.execute(payload, organizationId, map);
       case 'raw_scrape':
@@ -82,7 +89,15 @@ export class AdSyncService {
         throw new BadRequestException(
           `알 수 없는 type: ${(payload as { type?: string }).type ?? 'undefined'}`,
         );
-    }
+      }
+    };
+
+    if (!payload.idempotencyKey) return execute();
+    const result = await this.ingestTransaction.runIdempotent(
+      { organizationId, idempotencyKey: payload.idempotencyKey },
+      execute,
+    );
+    return { ...result.value, replayed: result.replayed };
   }
 
   /**

@@ -16,6 +16,7 @@ import {
   mergeNamespacedMetaJson,
   pickObservedFields,
 } from './daily-fact-helpers';
+import { withAdIngestRepositoryTransaction } from '../transaction/ad-ingest-transaction-context';
 
 const OPTION_STATE_KEYS: ReadonlyArray<keyof ListingOptionDailyState> = [
   'optionName',
@@ -42,7 +43,7 @@ export class ChannelOptionDailyRepositoryAdapter
     const observedState = pickObservedFields(input, OPTION_STATE_KEYS);
     const metaJsonForCreate = buildNamespacedMetaForCreate(input.metaJson);
 
-    return this.prisma.$transaction(async (tx) => {
+    return withAdIngestRepositoryTransaction(this.prisma, async (tx) => {
       const row = await tx.channelListingOptionDailySnapshot.upsert({
         where: {
           organizationId_listingOptionId_businessDate: {

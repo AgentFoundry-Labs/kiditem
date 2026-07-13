@@ -213,8 +213,8 @@ describe('authoritative rebuild deployment ordering', () => {
     const workflow = readFileSync(join(repoRoot, relativePath), 'utf8');
     const markers = [
       `- name: Validate ${environment} rebuild confirmation`,
-      '- name: Export approved Coupang replay bundle',
       `- name: Quiesce ${environment} application traffic`,
+      '- name: Export approved Coupang replay bundle',
       `- name: Rebuild ${environment} database from final schema`,
       '- name: Generate Prisma client after schema push',
       `- name: Bootstrap ${environment} authentication and account baseline`,
