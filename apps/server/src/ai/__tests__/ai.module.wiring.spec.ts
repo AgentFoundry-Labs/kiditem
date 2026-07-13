@@ -12,16 +12,13 @@ import { ThumbnailImageGenerationAdapter } from '../adapter/out/gemini/thumbnail
 import { ThumbnailReferenceImagesService } from '../adapter/out/gemini/thumbnail-reference-images.adapter';
 import { ContentArchiveRepositoryAdapter } from '../adapter/out/repository/content-archive.repository.adapter';
 import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
-import { ContentWorkspaceAttachmentRepositoryAdapter } from '../adapter/out/repository/content-workspace-attachment.repository.adapter';
 import { ContentWorkspaceLifecycleRepositoryAdapter } from '../adapter/out/repository/content-workspace-lifecycle.repository.adapter';
 import { ContentWorkspaceThumbnailSelectionRepositoryAdapter } from '../adapter/out/repository/content-workspace-thumbnail-selection.repository.adapter';
 import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/repository/registration-content-workspace.repository.adapter';
 import { DetailPageGenerationRepositoryAdapter } from '../adapter/out/repository/detail-page-generation.repository.adapter';
 import { DetailPageQueryRepositoryAdapter } from '../adapter/out/repository/detail-page-query.repository.adapter';
-import { PostPromotionGenerationRepositoryAdapter } from '../adapter/out/repository/post-promotion-generation.repository.adapter';
 import { ProductGenerationChildLedgerRepositoryAdapter } from '../adapter/out/repository/product-generation-child-ledger.repository.adapter';
 import { ProductGenerationContextRepositoryAdapter } from '../adapter/out/repository/product-generation-context.repository.adapter';
-import { ProductWorkspaceGroupRepositoryAdapter } from '../adapter/out/repository/product-workspace-group.repository.adapter';
 import { SourcingWorkspaceArchiveRepositoryAdapter } from '../adapter/out/repository/sourcing-workspace-archive.repository.adapter';
 import { ThumbnailAnalysisRepositoryAdapter } from '../adapter/out/repository/thumbnail-analysis.repository.adapter';
 import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
@@ -30,7 +27,6 @@ import { ThumbnailWingRepositoryAdapter } from '../adapter/out/repository/thumbn
 import { AiGenerationCancellationService } from '../application/service/ai-generation-cancellation.service';
 import { ContentWorkspaceThumbnailSelectionService } from '../application/service/content-workspace-thumbnail-selection.service';
 import { RegistrationContentWorkspaceService } from '../application/service/registration-content-workspace.service';
-import { PostPromotionAiService } from '../application/service/post-promotion-ai.service';
 import { ProductGenerationAiService } from '../application/service/product-generation-ai.service';
 import { SourcingWorkspaceArchiveService } from '../application/service/sourcing-workspace-archive.service';
 import {
@@ -38,7 +34,6 @@ import {
 } from '../application/port/in/capability/wing-registration.port';
 import {
   AI_GENERATION_CANCELLATION_PORT,
-  POST_PROMOTION_AI_TRIGGER_PORT,
   PRODUCT_GENERATION_AI_TRIGGER_PORT,
 } from '../application/port/in/generation';
 import { AI_WORKSPACE_ARCHIVE_PORT } from '../application/port/in/workspace';
@@ -52,15 +47,12 @@ import {
 import {
   CONTENT_ARCHIVE_REPOSITORY_PORT,
   CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
-  CONTENT_WORKSPACE_ATTACHMENT_REPOSITORY_PORT,
   CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
   CONTENT_WORKSPACE_THUMBNAIL_SELECTION_REPOSITORY_PORT,
   DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
   DETAIL_PAGE_QUERY_REPOSITORY_PORT,
-  POST_PROMOTION_GENERATION_REPOSITORY_PORT,
   PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT,
   PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
-  PRODUCT_WORKSPACE_GROUP_REPOSITORY_PORT,
   REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT,
   SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT,
   THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
@@ -106,15 +98,12 @@ describe('AiModule hexagonal wiring contract', () => {
       [AI_OPERATION_ALERT_PORT, AiOperationAlertAdapter],
       [CONTENT_ARCHIVE_REPOSITORY_PORT, ContentArchiveRepositoryAdapter],
       [CONTENT_ASSET_LIBRARY_REPOSITORY_PORT, ContentAssetLibraryRepositoryAdapter],
-      [CONTENT_WORKSPACE_ATTACHMENT_REPOSITORY_PORT, ContentWorkspaceAttachmentRepositoryAdapter],
       [CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT, ContentWorkspaceLifecycleRepositoryAdapter],
       [CONTENT_WORKSPACE_THUMBNAIL_SELECTION_REPOSITORY_PORT, ContentWorkspaceThumbnailSelectionRepositoryAdapter],
       [DETAIL_PAGE_GENERATION_REPOSITORY_PORT, DetailPageGenerationRepositoryAdapter],
       [DETAIL_PAGE_QUERY_REPOSITORY_PORT, DetailPageQueryRepositoryAdapter],
-      [POST_PROMOTION_GENERATION_REPOSITORY_PORT, PostPromotionGenerationRepositoryAdapter],
       [PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT, ProductGenerationChildLedgerRepositoryAdapter],
       [PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT, ProductGenerationContextRepositoryAdapter],
-      [PRODUCT_WORKSPACE_GROUP_REPOSITORY_PORT, ProductWorkspaceGroupRepositoryAdapter],
       [REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT, RegistrationContentWorkspaceRepositoryAdapter],
       [SOURCING_WORKSPACE_ARCHIVE_REPOSITORY_PORT, SourcingWorkspaceArchiveRepositoryAdapter],
       [THUMBNAIL_ANALYSIS_REPOSITORY_PORT, ThumbnailAnalysisRepositoryAdapter],
@@ -136,7 +125,6 @@ describe('AiModule hexagonal wiring contract', () => {
 
     [
       [AI_WING_REGISTRATION_CAPABILITY_PORT, AiWingRegistrationCapabilityAdapter],
-      [POST_PROMOTION_AI_TRIGGER_PORT, PostPromotionAiService],
       [PRODUCT_GENERATION_AI_TRIGGER_PORT, ProductGenerationAiService],
       [AI_WORKSPACE_ARCHIVE_PORT, SourcingWorkspaceArchiveService],
       [AI_GENERATION_CANCELLATION_PORT, AiGenerationCancellationService],
@@ -146,7 +134,6 @@ describe('AiModule hexagonal wiring contract', () => {
     });
 
     expect(exports).toEqual([
-      POST_PROMOTION_AI_TRIGGER_PORT,
       PRODUCT_GENERATION_AI_TRIGGER_PORT,
       AI_WORKSPACE_ARCHIVE_PORT,
       AI_GENERATION_CANCELLATION_PORT,

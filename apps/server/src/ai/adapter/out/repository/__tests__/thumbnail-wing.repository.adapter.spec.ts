@@ -1,11 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ThumbnailWingRepositoryAdapter } from '../thumbnail-wing.repository.adapter';
-import { LEGACY_FAMILY_MASTER_SCOPE } from '../../../../../common/legacy-family-master-scope';
 
 describe('ThumbnailWingRepositoryAdapter', () => {
-  it('keeps staged Sellpia identities out of registrable family lookup', async () => {
+  it('scopes registrable thumbnail workspaces to active Coupang listings', async () => {
     const prisma = {
-      masterProduct: {
+      contentWorkspace: {
         findFirst: vi.fn().mockResolvedValue(null),
       },
     };
@@ -13,13 +12,19 @@ describe('ThumbnailWingRepositoryAdapter', () => {
 
     await repository.findRegistrableMaster('master-1', 'org-1');
 
-    expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith(
+    expect(prisma.contentWorkspace.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
           id: 'master-1',
           organizationId: 'org-1',
           isDeleted: false,
-          ...LEGACY_FAMILY_MASTER_SCOPE,
+          status: 'active',
+          channelListing: {
+            is: {
+              isActive: true,
+              channelAccount: { is: { channel: 'coupang' } },
+            },
+          },
         },
       }),
     );

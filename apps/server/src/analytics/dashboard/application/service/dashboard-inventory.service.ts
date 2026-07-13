@@ -42,6 +42,7 @@ export class DashboardInventoryService {
         perListingMetrics,
         outOfStockSkus,
         mappingAttentionSkus,
+        mappingStatusRows,
         gradeChangesRows,
         lowCtrProducts,
         aGradeReviewRows,
@@ -57,6 +58,7 @@ export class DashboardInventoryService {
         ),
         this.repository.countOutOfStockInventorySkus(organizationId),
         this.repository.countMappingAttentionChannelSkus(organizationId),
+        this.repository.countChannelSkusByMappingStatus(organizationId),
         this.repository.findGradeHistory(organizationId, sevenDaysAgo),
         this.repository.countLowCtrThumbnails(organizationId),
         this.repository.findAGradeReviewCounts(organizationId),
@@ -113,6 +115,12 @@ export class DashboardInventoryService {
         channelLinkedProducts,
         channelUnlinkedProducts: Math.max(totalActiveProducts - channelLinkedProducts, 0),
         gradeCount,
+        mappingStatusCounts: {
+          matched: mappingStatusRows.find((row) => row.mappingStatus === 'matched')?.count ?? 0,
+          unmatched: mappingStatusRows.find((row) => row.mappingStatus === 'unmatched')?.count ?? 0,
+          needsReview:
+            mappingStatusRows.find((row) => row.mappingStatus === 'needs_review')?.count ?? 0,
+        },
         alerts: unreadAlerts,
         warnings,
         gradeChanges: this.computeGradeChanges(gradeChangesRows),

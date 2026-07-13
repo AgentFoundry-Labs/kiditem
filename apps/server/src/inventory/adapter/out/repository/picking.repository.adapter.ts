@@ -37,8 +37,7 @@ export class PickingRepositoryAdapter implements PickingRepositoryPort {
         where: {
           id: { in: masterProductIds },
           organizationId,
-          sellpiaProductCode: { not: null },
-          isDeleted: false,
+          isActive: true,
         },
         select: { id: true },
       });

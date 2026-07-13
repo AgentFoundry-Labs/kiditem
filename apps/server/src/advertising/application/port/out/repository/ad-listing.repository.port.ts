@@ -1,4 +1,4 @@
-// Outgoing port for the listing/master hydrated read model + the Coupang
+// Outgoing port for the listing-owned advertising read model + the Coupang
 // extension-sync listing map. Combines the two reads that target the
 // `ChannelListing` + `ChannelListingOption` join because they share the
 // shape and consumer set (advertising read-models + sync handlers).
@@ -31,12 +31,12 @@ export interface ScopedAdListingSummary extends AdListingSummary {
 
 /** Sync listing map keyed by Coupang external option/listing identifiers. */
 export interface AdSyncListingMap {
+  channelAccountId: string;
   externalOptionIdMap: Map<
     string,
     {
       listingId: string;
       listingOptionId: string;
-      optionId: string | null;
       externalId: string;
     }
   >;
@@ -45,8 +45,9 @@ export interface AdSyncListingMap {
 
 export interface AdListingRepositoryPort {
   /**
-   * listing-id list → tenant-scoped listing + master meta map.
-   * Soft-deleted listings are excluded; missing masters drop the row.
+   * listing-id list → tenant-scoped listing advertising metadata.
+   * The legacy `masterProduct` response key is populated from ChannelListing
+   * so public API consumers do not need an immediate response-shape migration.
    */
   findScopedAdListings(
     organizationId: string,
@@ -61,8 +62,8 @@ export interface AdListingRepositoryPort {
   buildAdSyncListingMap(organizationId: string): Promise<AdSyncListingMap>;
 
   /**
-   * Change the master product's `adTier` for the given listing id. Returns
-   * `false` when the listing/master is not tenant-scoped or missing; callers
+   * Change the channel listing's `adTier`. Returns `false` when the listing is
+   * not tenant-scoped or inactive; callers
    * throw `NotFoundException` based on the boolean. Pass `null` to OFF.
    */
   changeAdTier(
@@ -73,7 +74,7 @@ export interface AdListingRepositoryPort {
 
   /**
    * IDOR guard helper — confirm a listing id belongs to the organization and
-   * is not soft-deleted. Returns `true` only when the row exists in scope.
+   * is active. Returns `true` only when the row exists in scope.
    */
   verifyListingOwnership(
     listingId: string,

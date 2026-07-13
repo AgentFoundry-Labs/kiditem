@@ -139,7 +139,7 @@ describe('ContentAssetLibraryRepositoryAdapter', () => {
       data: [
         expect.objectContaining({
           organizationId: ORG,
-          generationGroupId: GROUP_ID,
+          originGenerationGroupId: GROUP_ID,
           createdByUserId: USER_ID,
           assetKey: expect.stringMatching(new RegExp(`^group-url:${GROUP_ID}:`)),
           url: 'http://storage.local/kiditem/detail-page-inputs/a.jpg',
@@ -147,6 +147,7 @@ describe('ContentAssetLibraryRepositoryAdapter', () => {
           assetType: 'image',
           role: 'source',
           sortOrder: 0,
+          metadata: expect.objectContaining({ urlHash: expect.any(String) }),
         }),
         expect.objectContaining({
           url: 'https://example.com/b.jpg',
@@ -205,7 +206,7 @@ describe('ContentAssetLibraryRepositoryAdapter', () => {
     expect(tx.contentGenerationAssetUsage.createMany).not.toHaveBeenCalled();
   });
 
-  it('lists assets through product and generation filters', async () => {
+  it('lists assets through workspace and generation filters', async () => {
     const prisma = {
       contentAsset: {
         count: vi.fn().mockResolvedValue(0),
@@ -218,7 +219,7 @@ describe('ContentAssetLibraryRepositoryAdapter', () => {
       organizationId: ORG,
       page: 2,
       limit: 10,
-      productId: 'master-1',
+      contentWorkspaceId: 'workspace-1',
       generationId: 'generation-1',
     });
 
@@ -226,7 +227,7 @@ describe('ContentAssetLibraryRepositoryAdapter', () => {
       where: {
         organizationId: ORG,
         isDeleted: false,
-        generationGroup: { targetMasterId: 'master-1' },
+        originGenerationGroup: { contentWorkspaceId: 'workspace-1' },
         usages: { some: { contentGenerationId: 'generation-1' } },
       },
       skip: 10,

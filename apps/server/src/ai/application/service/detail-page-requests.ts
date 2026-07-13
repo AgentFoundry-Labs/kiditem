@@ -24,7 +24,6 @@ export interface GenerateDetailPageInput {
   rawOptions: string;
   imageUrls?: string[];
   heroImageMode?: 'first' | 'llm-pick';
-  productId?: string;
   contentWorkspaceId?: string;
   templateId?: DetailPageTemplateId;
   generationMode?: 'draft' | 'image' | 'full';

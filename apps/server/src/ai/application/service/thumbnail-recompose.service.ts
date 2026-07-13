@@ -9,7 +9,6 @@ import {
   buildProductContextHeader,
   RECOMPOSE_CLASSIFY_PROMPT,
 } from '../../domain/prompts/thumbnail-prompts';
-import { resolveMasterThumbnailImage } from '../../domain/thumbnail-master-image';
 import { ThumbnailVisionAiService } from './thumbnail-vision-ai.service';
 import {
   THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
@@ -34,15 +33,12 @@ export class ThumbnailRecomposeService {
   ) {}
 
   async classify(productId: string, organizationId: string): Promise<RecomposeVariantClassification> {
-    const master = await this.repository.findRecomposeMaster(productId, organizationId);
-    if (!master) throw new NotFoundException('Product not found');
-    const imageUrl = resolveMasterThumbnailImage(master);
-    if (!imageUrl) {
-      return singleProductFallback('원본 이미지가 없습니다');
-    }
+    const workspace = await this.repository.findRecomposeWorkspace(productId, organizationId);
+    if (!workspace) throw new NotFoundException('Content workspace not found');
+    const imageUrl = workspace.imageUrl;
     return this.classifyByImage(imageUrl, {
-      productName: master.name,
-      category: master.category,
+      productName: workspace.name,
+      category: workspace.category,
     });
   }
 

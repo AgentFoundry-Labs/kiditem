@@ -136,64 +136,15 @@ export class ProductPreparationRepositoryAdapter
             input.input,
           ),
         );
-        const legacyDraft = await tx.productPreparation.findFirst({
-          where: {
-            organizationId: input.organizationId,
-            sourceCandidateId: input.sourceCandidateId,
-            channelAccountId: null,
-            status: 'draft',
-            isDeleted: false,
-          },
-        });
-        if (legacyDraft) {
-          if (!canDiscardProviderIdentity({
-            outcome: resolveProviderOutcome(legacyDraft),
-            providerSubmissionId: legacyDraft.providerSubmissionId,
-            registrationResult: legacyDraft.registrationResult,
-          })) {
-            throw new ConflictException(
-              'Legacy preparation provider identity cannot be adopted or discarded.',
-            );
-          }
-          const adopted = await tx.productPreparation.updateMany({
-            where: {
-              id: legacyDraft.id,
-              organizationId: input.organizationId,
-              sourceCandidateId: input.sourceCandidateId,
-              channelAccountId: null,
-              status: 'draft',
-              isDeleted: false,
-            },
-            data: {
-              channelAccountId: input.input.channelAccountId,
-              sourceContentWorkspaceId,
-              contentWorkspaceId: sourceContentWorkspaceId,
-              createdByUserId: input.createdByUserId,
-              ...editableUpdate(input.input),
-              ...resolvedSelectionData(resolvedSelections),
-              providerOutcome: 'not_attempted',
-              submissionLeaseToken: null,
-              submissionLeaseClaimedAt: null,
-            },
-          });
-          if (adopted.count !== 1) {
-            throw new ConflictException('Legacy preparation changed during account adoption.');
-          }
-          return {
-            preparationId: legacyDraft.id,
-            status: 'draft' as const,
-            sourceContentWorkspaceId,
-          };
-        }
         const created = await tx.productPreparation.create({
           data: {
             organizationId: input.organizationId,
             sourceCandidateId: input.sourceCandidateId,
             channelAccountId: input.input.channelAccountId,
             sourceContentWorkspaceId,
-            contentWorkspaceId: sourceContentWorkspaceId,
             displayName: input.input.displayName,
             status: 'draft',
+            submissionKey: randomUUID(),
             registrationInput: input.input.registrationInput as Prisma.InputJsonValue,
             ...resolvedSelectionData(resolvedSelections),
             providerOutcome: 'not_attempted',
@@ -675,7 +626,7 @@ export class ProductPreparationRepositoryAdapter
           organizationId,
           channelAccountId: current.channelAccountId,
           sourceCandidateId: current.sourceCandidateId,
-          isDeleted: false,
+          isActive: true,
         },
         select: { id: true },
       });
@@ -941,9 +892,9 @@ function replacementCreateData(
     sourceCandidateId: current.sourceCandidateId,
     channelAccountId: current.channelAccountId,
     sourceContentWorkspaceId: current.sourceContentWorkspaceId,
-    contentWorkspaceId: current.contentWorkspaceId,
     displayName: update.displayName ?? current.displayName,
     status: 'draft',
+    submissionKey: randomUUID(),
     registrationInput: (update.registrationInput ?? current.registrationInput) as Prisma.InputJsonValue,
     ...resolvedSelectionData(resolvedSelections),
     providerOutcome: 'not_attempted',

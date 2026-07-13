@@ -14,11 +14,62 @@ import {
   TEST_ORGANIZATION_ID,
   OTHER_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { seedOrderWithLineItems } from '../../test-helpers/finance-seeds';
 
 describe('AdStrategy flow (PG integration)', () => {
   let prisma: PrismaClient;
   let service: AdStrategyService;
+
+  async function seedOrderWithLineItems(
+    client: PrismaClient,
+    opts: {
+      organizationId: string;
+      externalOrderId: string;
+      orderedAt: string;
+      shippingPrice: number;
+      lineItems: Array<{
+        quantity: number;
+        totalPrice: number;
+        listingOptionId: string;
+        optionId?: string;
+      }>;
+    },
+  ) {
+    const account = await client.channelAccount.findFirstOrThrow({
+      where: {
+        organizationId: opts.organizationId,
+        channel: 'coupang',
+        status: 'active',
+      },
+      orderBy: { isPrimary: 'desc' },
+    });
+    const order = await client.order.create({
+      data: {
+        organizationId: opts.organizationId,
+        channelAccountId: account.id,
+        externalOrderId: opts.externalOrderId,
+        orderedAt: new Date(opts.orderedAt),
+        status: 'accepted',
+        shippingPrice: opts.shippingPrice,
+        totalPrice: opts.lineItems.reduce(
+          (sum, item) => sum + item.totalPrice,
+          0,
+        ),
+      },
+    });
+    await client.orderLineItem.createMany({
+      data: opts.lineItems.map((item, index) => ({
+        organizationId: opts.organizationId,
+        orderId: order.id,
+        listingOptionId: item.listingOptionId,
+        productName: `Product ${index + 1}`,
+        quantity: item.quantity,
+        unitPrice: Math.round(item.totalPrice / item.quantity),
+        totalPrice: item.totalPrice,
+        externalLineId: `${opts.externalOrderId}-${index + 1}`,
+      })),
+    });
+    return order;
+  }
 
   async function seedGradedListing(params: {
     organizationId: string;
@@ -67,66 +118,46 @@ describe('AdStrategy flow (PG integration)', () => {
         organizationId: params.organizationId,
         code: `M-${params.suffix}`,
         name: `Master ${params.suffix}`,
-        abcGrade: params.abcGrade,
-        adTier: params.adTier ?? null,
-        healthScore: params.healthScore ?? null,
-        optionCounter: 0,
-      },
-    });
-    const option = await prisma.productOption.create({
-      data: {
-        organizationId: params.organizationId,
-        masterId: master.id,
-        sku: `SKU-${params.suffix}`,
-        optionName: `Option ${params.suffix}`,
-        costPrice: params.costPrice ?? 5000,
-        sellPrice: params.sellPrice ?? 20000,
-        commissionRate: params.commissionRate ?? 0.1,
-        shippingCost: params.shippingCost ?? 2500,
+        currentStock: sellableStock,
+        purchasePrice: params.costPrice ?? 5000,
       },
     });
     const listing = await prisma.channelListing.create({
       data: {
         organizationId: params.organizationId,
-        masterId: master.id,
         channelAccountId: channelAccount.id,
-        channel: 'coupang',
         externalId: `EXT-${params.suffix}`,
         channelName: `Channel ${params.suffix}`,
         lastImportRunId: importRun.id,
+        abcGrade: params.abcGrade,
+        adTier: params.adTier ?? null,
+        healthScore: params.healthScore ?? null,
       },
     });
     const listingOption = await prisma.channelListingOption.create({
       data: {
         organizationId: params.organizationId,
         listingId: listing.id,
-        channelAccountId: channelAccount.id,
-        optionId: option.id,
         externalOptionId: `VI-${params.suffix}`,
         salePrice: params.sellPrice ?? 20000,
+        costPriceOverride: params.costPrice ?? 5000,
+        commissionRate: params.commissionRate ?? 0.1,
+        shippingCost: params.shippingCost ?? 2500,
         mappingStatus: 'matched',
         lastImportRunId: importRun.id,
         isActive: true,
-      },
-    });
-    const inventorySku = await prisma.inventorySku.create({
-      data: {
-        organizationId: params.organizationId,
-        sellpiaProductCode: `SP-${params.suffix}`,
-        name: `Sellpia ${params.suffix}`,
-        currentStock: sellableStock,
-        purchasePrice: params.costPrice ?? 5000,
       },
     });
     await prisma.channelSkuComponent.create({
       data: {
         organizationId: params.organizationId,
         channelSkuId: listingOption.id,
-        inventorySkuId: inventorySku.id,
+        masterProductId: master.id,
         quantity: 1,
         mappingSource: 'test',
       },
     });
+    const option = listingOption;
     return { master, option, listing, listingOption };
   }
 
@@ -591,7 +622,7 @@ describe('AdStrategy flow (PG integration)', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('#9 soft-deleted listing → NotFoundException', async () => {
+    it('#9 inactive listing → NotFoundException', async () => {
       const deleted = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
@@ -599,7 +630,7 @@ describe('AdStrategy flow (PG integration)', () => {
       });
       await prisma.channelListing.update({
         where: { id: deleted.listing.id },
-        data: { isDeleted: true },
+        data: { isActive: false },
       });
 
       await expect(
@@ -859,46 +890,35 @@ describe('AdStrategy flow (PG integration)', () => {
         adTier: '1차',
         suffix: 'C4-MULTI',
       });
-      const earlierOption = await prisma.productOption.create({
+      const earlierMaster = await prisma.masterProduct.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
-          masterId: a.master.id,
-          sku: 'SKU-C4-MULTI-EARLY',
-          optionName: 'Option C4-MULTI EARLY',
-          costPrice: 5000,
-          sellPrice: 20000,
-          commissionRate: 0.1,
-          shippingCost: 2500,
+          code: 'SP-C4-MULTI-EARLY',
+          name: 'Sellpia C4 MULTI EARLY',
+          currentStock: 100,
+          purchasePrice: 5000,
         },
       });
       const earlierListingOption = await prisma.channelListingOption.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           listingId: a.listing.id,
-          channelAccountId: a.listing.channelAccountId,
-          optionId: earlierOption.id,
           externalOptionId: 'VI-C4-MULTI-EARLY',
           salePrice: 20000,
+          costPriceOverride: 5000,
+          commissionRate: 0.1,
+          shippingCost: 2500,
           mappingStatus: 'matched',
           lastImportRunId: a.listing.lastImportRunId,
           isActive: true,
           createdAt: new Date('2026-04-01T00:00:00.000Z'),
         },
       });
-      const earlierInventorySku = await prisma.inventorySku.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          sellpiaProductCode: 'SP-C4-MULTI-EARLY',
-          name: 'Sellpia C4 MULTI EARLY',
-          currentStock: 100,
-          purchasePrice: 5000,
-        },
-      });
       await prisma.channelSkuComponent.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelSkuId: earlierListingOption.id,
-          inventorySkuId: earlierInventorySku.id,
+          masterProductId: earlierMaster.id,
           quantity: 1,
           mappingSource: 'test',
         },

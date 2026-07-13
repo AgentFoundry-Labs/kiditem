@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildPerListingMetrics } from '../../common/per-listing-profit';
 import { kstMonthStart } from '../../common/kst';
-import { LEGACY_FAMILY_MASTER_SCOPE } from '../../common/legacy-family-master-scope';
 import type {
   StatisticsOverview,
   StatisticsProductRow,
@@ -50,8 +49,8 @@ export class StatisticsService {
   async overview(organizationId: string, period?: string) {
     const [metrics, totalProducts, totalOrders] = await Promise.all([
       this.getListingMetrics(organizationId, period),
-      this.prisma.masterProduct.count({
-        where: { organizationId, isDeleted: false, ...LEGACY_FAMILY_MASTER_SCOPE },
+      this.prisma.channelListing.count({
+        where: { organizationId, isActive: true },
       }),
       this.prisma.order.count({
         where: this.buildOrderWhere(organizationId, period),
@@ -316,7 +315,7 @@ export class StatisticsService {
       select: { receiverName: true, totalPrice: true, orderedAt: true },
     });
 
-    // master-level repeat products — listingOption → listing → master 경유
+    // listing-level repeat products — channel listing is the registered-product owner.
     const lines = await this.prisma.orderLineItem.findMany({
       where: {
         order: whereOrder,
@@ -328,8 +327,11 @@ export class StatisticsService {
           select: {
             listing: {
               select: {
-                masterId: true,
-                master: { select: { name: true, category: true } },
+                id: true,
+                displayName: true,
+                channelName: true,
+                externalId: true,
+                category: true,
               },
             },
           },
@@ -340,11 +342,11 @@ export class StatisticsService {
     const masterMap = new Map<string, { productName: string; category: string | null; customers: Set<string>; orderCount: number }>();
     for (const l of lines) {
       const listing = l.listingOption?.listing;
-      if (!listing?.masterId || !listing.master) continue;
-      const mid = listing.masterId;
+      if (!listing) continue;
+      const mid = listing.id;
       const entry = masterMap.get(mid) ?? {
-        productName: listing.master.name,
-        category: listing.master.category ?? null,
+        productName: listing.displayName ?? listing.channelName ?? listing.externalId,
+        category: listing.category,
         customers: new Set<string>(),
         orderCount: 0,
       };

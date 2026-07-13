@@ -19,9 +19,6 @@ export interface ChannelListingQuery {
 
 export interface ChannelListingSummary {
   id: string;
-  masterId: string | null;
-  masterCode: string | null;
-  masterName: string | null;
   listingName: string;
   thumbnailUrl: string | null;
   detailPageArtifactId: string | null;
@@ -49,26 +46,8 @@ export interface ChannelListingMarketCount {
   count: number;
 }
 
-export interface RegisteredProductGroupSummary {
-  masterId: string;
-  masterCode: string;
-  masterName: string;
-  thumbnailUrl: string | null;
-  listingCount: number;
-  listings: ChannelListingSummary[];
-  updatedAt: string;
-}
-
 export interface ChannelListingListResult {
   items: ChannelListingSummary[];
-  total: number;
-  page: number;
-  limit: number;
-  marketCounts: ChannelListingMarketCount[];
-}
-
-export interface ChannelListingGroupResult {
-  items: RegisteredProductGroupSummary[];
   total: number;
   page: number;
   limit: number;
@@ -80,11 +59,6 @@ export interface ChannelListingRepositoryPort {
     organizationId: string,
     query?: ChannelListingQuery,
   ): Promise<ChannelListingListResult>;
-
-  listGrouped(
-    organizationId: string,
-    query?: ChannelListingQuery,
-  ): Promise<ChannelListingGroupResult>;
 
   getWorkspace(
     organizationId: string,

@@ -12,7 +12,9 @@ const TRACKING_LISTING_INCLUDE = {
   listing: {
     select: {
       id: true,
-      master: { select: { id: true, name: true } },
+      displayName: true,
+      channelName: true,
+      externalId: true,
     },
   },
 } as const;
@@ -57,11 +59,16 @@ export class ThumbnailTrackingRepositoryAdapter implements ThumbnailTrackingRepo
   }
 
   findFirstListingForMaster(masterId: string, organizationId: string) {
-    return this.prisma.channelListing.findFirst({
-      where: { masterId, organizationId, isDeleted: false },
-      select: { id: true },
-      orderBy: { createdAt: 'asc' },
-    });
+    return this.prisma.contentWorkspace.findFirst({
+      where: {
+        id: masterId,
+        organizationId,
+        status: 'active',
+        isDeleted: false,
+        channelListingId: { not: null },
+      },
+      select: { channelListing: { select: { id: true } } },
+    }).then((workspace) => workspace?.channelListing ?? null);
   }
 
   async createTracking(input: CreateThumbnailTrackingInput) {
@@ -147,7 +154,8 @@ export class ThumbnailTrackingRepositoryAdapter implements ThumbnailTrackingRepo
         listing: {
           select: {
             channelName: true,
-            master: { select: { name: true } },
+            displayName: true,
+            externalId: true,
           },
         },
       },

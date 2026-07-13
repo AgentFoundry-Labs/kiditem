@@ -240,7 +240,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     }));
   });
 
-  it('keeps promoted-but-unlisted candidates in the collected product inbox', async () => {
+  it('keeps only sourced candidates without an active listing in the collected inbox', async () => {
     const prisma = {
       sourcingCandidate: {
         count: vi.fn().mockResolvedValue(0),
@@ -260,17 +260,10 @@ describe('SourcingCandidateRepositoryAdapter', () => {
 
     expect(prisma.sourcingCandidate.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
-        status: { in: ['sourced', 'promoted'] },
-        OR: [
-          { promotedMasterId: null },
-          {
-            promotedMaster: {
-              listings: {
-                none: { organizationId: 'org-1', isDeleted: false },
-              },
-            },
-          },
-        ],
+        status: 'sourced',
+        channelListings: {
+          none: { organizationId: 'org-1', isActive: true, isDeleted: false },
+        },
       }),
     }));
   });
@@ -338,17 +331,12 @@ describe('SourcingCandidateRepositoryAdapter', () => {
           where: {
             organizationId: 'org-1',
             isDeleted: false,
-            OR: [
-              { isCurrentForMaster: true },
-              { masterId: null },
-            ],
           },
           orderBy: [
             { isCurrentForMaster: 'desc' },
             { updatedAt: 'desc' },
             { createdAt: 'desc' },
           ],
-          take: 1,
         }),
       }),
     }));
@@ -374,6 +362,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
       createdAt: new Date('2026-05-17T00:30:00.000Z'),
       updatedAt: new Date('2026-05-17T01:00:00.000Z'),
     });
+    expect(row?.productPreparations).toEqual([row?.productPreparation]);
   });
 
   it('requires active thumbnail generations for promotion selections', async () => {

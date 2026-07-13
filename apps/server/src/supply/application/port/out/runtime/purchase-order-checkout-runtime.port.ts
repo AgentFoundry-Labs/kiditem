@@ -16,7 +16,7 @@ export interface SubmitPurchaseOrderCheckoutResult {
 
 export interface PurchaseOrderCheckoutSnapshotItem {
   productName: string;
-  optionId: string | null;
+  masterProductId: string;
   quantity: number;
   unitPriceCny: string;
 }

@@ -1,6 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { LEGACY_FAMILY_MASTER_SCOPE } from '../../../../../common/legacy-family-master-scope';
 import { ContentWorkspaceLifecycleRepositoryAdapter } from '../content-workspace-lifecycle.repository.adapter';
 
 function transactional<T extends Record<string, unknown>>(scope: T): T & {
@@ -34,7 +33,6 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
       organizationId: 'org-1',
       ownerType: 'direct_detail_page',
       sourceCandidateId: 'candidate-1',
-      targetMasterId: 'master-1',
       channelListingId: null,
       originWorkspaceId: null,
       displayName: 'Kids rain boots',
@@ -63,7 +61,6 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
       organizationId: 'org-1',
       ownerType: 'sourcing_candidate',
       sourceCandidateId: 'candidate-foreign',
-      targetMasterId: null,
       channelListingId: null,
       originWorkspaceId: null,
       displayName: 'Kids rain boots',
@@ -73,48 +70,6 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
 
     expect(prisma.$transaction).toHaveBeenCalledOnce();
     expect(tx.$queryRaw).toHaveBeenCalledOnce();
-    expect(tx.contentWorkspace.create).not.toHaveBeenCalled();
-  });
-
-  it('rejects a direct detail workspace for a staged Sellpia Master after locking the owner row', async () => {
-    const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: 'master-staged' }]),
-      masterProduct: {
-        findFirst: vi.fn().mockResolvedValue(null),
-      },
-      contentWorkspace: {
-        findFirst: vi.fn().mockResolvedValue(null),
-        create: vi.fn(),
-      },
-    };
-    const prisma = {
-      ...tx,
-      $transaction: vi.fn((callback: (scope: typeof tx) => unknown) => callback(tx)),
-    };
-    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never);
-
-    await expect(repository.ensureActiveWorkspace({
-      organizationId: 'org-1',
-      ownerType: 'direct_detail_page',
-      sourceCandidateId: null,
-      targetMasterId: 'master-staged',
-      channelListingId: null,
-      originWorkspaceId: null,
-      displayName: 'Sellpia physical row',
-      normalizedTitle: 'sellpiaphysicalrow',
-      createdByUserId: 'user-1',
-    })).rejects.toBeInstanceOf(NotFoundException);
-
-    expect(tx.$queryRaw).toHaveBeenCalledOnce();
-    expect(tx.masterProduct.findFirst).toHaveBeenCalledWith({
-      where: {
-        id: 'master-staged',
-        organizationId: 'org-1',
-        isDeleted: false,
-        ...LEGACY_FAMILY_MASTER_SCOPE,
-      },
-      select: { id: true },
-    });
     expect(tx.contentWorkspace.create).not.toHaveBeenCalled();
   });
 
@@ -140,7 +95,6 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
       organizationId: 'org-1',
       ownerType: 'sourcing_candidate',
       sourceCandidateId: 'candidate-1',
-      targetMasterId: null,
       channelListingId: null,
       originWorkspaceId: null,
       displayName: 'Kids rain boots',
@@ -176,7 +130,6 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
       organizationId: 'org-1',
       ownerType: 'direct_detail_page',
       sourceCandidateId: null,
-      targetMasterId: null,
       channelListingId: null,
       originWorkspaceId: null,
       displayName: '키즈 터치등',
@@ -192,7 +145,6 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
         status: 'active',
         isDeleted: false,
         sourceCandidateId: null,
-        targetMasterId: null,
         channelListingId: null,
       },
     }));
@@ -220,7 +172,6 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
       organizationId: 'org-1',
       ownerType: 'channel_listing',
       sourceCandidateId: null,
-      targetMasterId: null,
       channelListingId: 'listing-1',
       originWorkspaceId: 'source-workspace-1',
       displayName: 'Kids rain boots',
@@ -235,45 +186,6 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
         channelListingId: 'listing-1',
       }),
     }));
-  });
-
-  it('reuses a retained master_product workspace during the 0.1.8 rollback window', async () => {
-    const existing = {
-      id: 'workspace-legacy',
-      displayName: 'Kids rain boots',
-      normalizedTitle: 'kidsrainboots',
-    };
-    const prisma = transactional({
-      masterProduct: {
-        findFirst: vi.fn().mockResolvedValue({ id: 'master-1' }),
-      },
-      contentWorkspace: {
-        findFirst: vi.fn().mockResolvedValue(existing),
-        create: vi.fn(),
-      },
-    });
-    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never);
-
-    await expect(repository.ensureActiveWorkspace({
-      organizationId: 'org-1',
-      ownerType: 'direct_detail_page',
-      sourceCandidateId: null,
-      targetMasterId: 'master-1',
-      channelListingId: null,
-      originWorkspaceId: null,
-      displayName: 'Kids rain boots',
-      normalizedTitle: 'kidsrainboots',
-      createdByUserId: 'user-1',
-    })).resolves.toEqual(existing);
-
-    expect(prisma.contentWorkspace.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        organizationId: 'org-1',
-        ownerType: { in: ['direct_detail_page', 'master_product'] },
-        targetMasterId: 'master-1',
-      }),
-    }));
-    expect(prisma.contentWorkspace.create).not.toHaveBeenCalled();
   });
 
   it('lists only registered-product workspaces, excluding sourcing candidate workspaces', async () => {

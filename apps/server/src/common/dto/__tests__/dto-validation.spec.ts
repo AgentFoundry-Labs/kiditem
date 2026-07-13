@@ -88,7 +88,12 @@ describe('PurchaseOrderActionBodyDto', () => {
     await expectValid(PurchaseOrderActionBodyDto, {
       action: 'create',
       supplierName: '광저우 무역',
-      items: [{ productName: '아동복 세트', quantity: 100, unitPriceCny: 25.5 }],
+      items: [{
+        masterProductId: UUID,
+        productName: '아동복 세트',
+        quantity: 100,
+        unitPriceCny: 25.5,
+      }],
     });
   });
 

@@ -12,7 +12,6 @@ export const DETAIL_PAGE_GENERATION_REPOSITORY_PORT = Symbol(
 export interface DetailPageContentWorkspaceSnapshot {
   id: string;
   sourceCandidateId: string | null;
-  targetMasterId: string | null;
   displayName: string;
   normalizedTitle: string;
 }
@@ -20,7 +19,6 @@ export interface DetailPageContentWorkspaceSnapshot {
 export interface DetailPageSourceCandidateSnapshot {
   id: string;
   name: string;
-  promotedMasterId: string | null;
 }
 
 export interface DetailPageSourceContentGenerationSnapshot {
@@ -44,12 +42,11 @@ export interface DetailPageImageOnlyBaseCandidateSnapshot {
 
 export interface DetailPageRerunBaseSnapshot {
   id: string;
-  generationGroupId: string | null;
-  contentWorkspaceId: string | null;
+  generationGroupId: string;
+  contentWorkspaceId: string;
   sourceCandidateId: string | null;
   generationInput: unknown;
   generationResult: unknown;
-  generationGroup: { targetMasterId: string | null };
   templateId: string | null;
   generatedTitle: string | null;
 }
@@ -61,9 +58,10 @@ export interface DetailPageCancellableGenerationSnapshot {
   generationResult: unknown;
 }
 
-export type DetailPageOpenProcessingGenerationLedgerResult =
-  | { status: 'created'; row: DetailPageGenerationSnapshot }
-  | { status: 'product_not_found' };
+export type DetailPageOpenProcessingGenerationLedgerResult = {
+  status: 'created';
+  row: DetailPageGenerationSnapshot;
+};
 
 export interface DetailPageGenerationRepositoryPort {
   findActiveContentWorkspace(input: {
@@ -74,13 +72,12 @@ export interface DetailPageGenerationRepositoryPort {
     organizationId: string;
     baseGenerationId: string;
     existingGroupId: string | null;
-    productId: string | null;
+    contentWorkspaceId: string;
     title: string;
     triggeredByUserId: string | null;
   }): Promise<string>;
   openProcessingGenerationLedger(input: {
     organizationId: string;
-    productId: string | null;
     generationGroupId?: string | null;
     contentWorkspaceId: string;
     sourceCandidateId: string | null;
@@ -118,7 +115,6 @@ export interface DetailPageGenerationRepositoryPort {
   }): Promise<DetailPageRerunBaseSnapshot | null>;
   findImageOnlyBaseCandidates(input: {
     organizationId: string;
-    productId: string | null;
     sourceCandidateId: string | null;
     contentWorkspaceId: string | null;
     templateId: DetailPageTemplateId;

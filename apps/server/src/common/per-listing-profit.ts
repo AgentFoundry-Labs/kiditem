@@ -1,5 +1,4 @@
 import type { PrismaService } from '../prisma/prisma.service';
-import { resolvePricing } from './option-pricing-resolver';
 
 /**
  * Plan F1 T1 (extracted from `finance/services/profit-loss.service.ts:findAll`).
@@ -65,27 +64,32 @@ export async function buildPerListingMetrics(
           select: {
             quantity: true,
             totalPrice: true,
-            option: {
-              select: { costPrice: true, commissionRate: true, otherCost: true },
-            },
             listingOption: {
               select: {
+                costPriceOverride: true,
+                commissionRate: true,
+                shippingCost: true,
+                otherCost: true,
+                components: {
+                  select: {
+                    quantity: true,
+                    masterProduct: { select: { purchasePrice: true } },
+                  },
+                },
                 listing: {
                   select: {
                     id: true,
                     externalId: true,
-                    channel: true,
                     channelName: true,
-                    master: {
-                      select: {
-                        id: true,
-                        code: true,
-                        legacyCode: true,
-                        name: true,
-                        category: true,
-                        abcGrade: true,
-                        thumbnailUrl: true,
-                      },
+                    displayName: true,
+                    category: true,
+                    abcGrade: true,
+                    channelAccount: { select: { channel: true } },
+                    thumbnails: {
+                      where: { status: 'active' },
+                      orderBy: { updatedAt: 'desc' },
+                      take: 1,
+                      select: { imageUrl: true },
                     },
                   },
                 },
@@ -131,7 +135,7 @@ export async function buildPerListingMetrics(
 
     for (const li of o.lineItems) {
       const listing = li.listingOption?.listing;
-      if (!listing?.master) continue;
+      if (!listing || !li.listingOption) continue;
       const key = listing.id;
 
       let g = groups.get(key);
@@ -140,13 +144,13 @@ export async function buildPerListingMetrics(
           listingId: listing.id,
           externalId: listing.externalId,
           channelName: listing.channelName ?? null,
-          channel: listing.channel,
-          masterId: listing.master.id,
-          masterCode: listing.master.legacyCode ?? listing.master.code,
-          masterName: listing.master.name,
-          category: listing.master.category ?? null,
-          grade: listing.master.abcGrade ?? null,
-          thumbnailUrl: listing.master.thumbnailUrl ?? null,
+          channel: listing.channelAccount.channel,
+          masterId: listing.id,
+          masterCode: listing.externalId,
+          masterName: listing.displayName ?? listing.channelName ?? listing.externalId,
+          category: listing.category,
+          grade: listing.abcGrade,
+          thumbnailUrl: listing.thumbnails[0]?.imageUrl ?? null,
           revenue: 0,
           costOfGoods: 0,
           commission: 0,
@@ -158,13 +162,18 @@ export async function buildPerListingMetrics(
       }
       g.orderIds.add(o.id);
 
-      const resolved = resolvePricing({ option: li.option ?? {} });
+      const option = li.listingOption;
+      const componentCost = option.components.reduce(
+        (sum, component) => sum + (component.masterProduct.purchasePrice ?? 0) * component.quantity,
+        0,
+      );
+      const costPrice = option.costPriceOverride ?? componentCost;
+      const commissionRate = Number(option.commissionRate ?? 0);
       const lineRevenue = li.totalPrice || 0;
       g.revenue += lineRevenue;
-      g.costOfGoods += resolved.costPrice * li.quantity;
-      g.commission += lineRevenue * resolved.commissionRate;
-      g.otherCost += resolved.otherCost * li.quantity;
-
+      g.costOfGoods += costPrice * li.quantity;
+      g.commission += lineRevenue * commissionRate;
+      g.otherCost += (option.otherCost ?? 0) * li.quantity;
       // Revenue-weighted shipping distribution (zero-revenue order → drop ship)
       if (orderTotalRevenue > 0 && o.shippingPrice) {
         g.shippingCost += Math.round(o.shippingPrice * (lineRevenue / orderTotalRevenue));

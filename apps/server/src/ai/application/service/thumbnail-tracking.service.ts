@@ -21,8 +21,12 @@ function toRecord(row: ThumbnailTrackingRow, nowMs: number = Date.now()): Thumbn
       : null;
   return {
     id: row.id,
-    productId: row.listing?.master?.id ?? '',
-    productName: row.listing?.master?.name ?? '',
+    productId: row.listing?.id ?? '',
+    productName:
+      row.listing?.displayName ??
+      row.listing?.channelName ??
+      row.listing?.externalId ??
+      '',
     generationId: row.generationId,
     originalGrade: row.originalGrade,
     originalScore: row.originalScore,
@@ -160,11 +164,12 @@ export class ThumbnailTrackingService {
 
     const productName =
       tracking.listing?.channelName?.trim() ||
-      tracking.listing?.master?.name?.trim() ||
+      tracking.listing?.displayName?.trim() ||
+      tracking.listing?.externalId?.trim() ||
       '';
     if (!productName) {
       throw new NotFoundException(
-        `ThumbnailTracking ${trackingId} 에 productName 을 결정할 수 없습니다 (master/listing 둘 다 비어있음).`,
+        `ThumbnailTracking ${trackingId} 에 productName 을 결정할 수 없습니다.`,
       );
     }
 

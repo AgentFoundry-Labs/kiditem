@@ -43,7 +43,6 @@ export class ContentWorkspaceController {
       triggeredByUserId: user.id,
       rawTitle: body.title,
       sourceCandidateId: body.sourceCandidateId ?? null,
-      targetMasterId: body.targetMasterId ?? null,
     });
   }
 

@@ -27,8 +27,8 @@ import {
  *
  * Also pins:
  * - `dateFrom` / `dateTo` survive `ValidationPipe({ whitelist: true })`
- * - `listingOptionId` is preserved on the match contract even when the
- *   internal `optionId` is null (so C3 daily option facts can land).
+ * - `listingOptionId` is the complete channel-option identity; no legacy
+ *   ProductOption link is required for daily option facts.
  */
 
 describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
@@ -42,31 +42,23 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     externalOptionId: string;
     optionId?: 'matched' | 'null';
   }) {
-    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    const master = await prisma.masterProduct.create({
-      data: {
-        organizationId,
-        code: `M-${stamp}`,
-        name: `Master ${stamp}`,
-        optionCounter: 0,
-      },
-    });
-    const productOption =
-      opts.optionId === 'null'
-        ? null
-        : await prisma.productOption.create({
-            data: {
-              organizationId,
-              masterId: master.id,
-              sku: `SKU-${stamp}`,
-              optionName: `Option ${stamp}`,
-            },
-          });
+    const channelAccount =
+      (await prisma.channelAccount.findFirst({
+        where: { organizationId, channel: 'coupang' },
+      })) ??
+      (await prisma.channelAccount.create({
+        data: {
+          organizationId,
+          channel: 'coupang',
+          name: 'Dual Write PG Coupang',
+          externalAccountId: 'dual-write-pg',
+          isPrimary: true,
+        },
+      }));
     const listing = await prisma.channelListing.create({
       data: {
         organizationId,
-        masterId: master.id,
-        channel: 'coupang',
+        channelAccountId: channelAccount.id,
         externalId: opts.externalId,
       },
     });
@@ -74,12 +66,11 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
       data: {
         organizationId,
         listingId: listing.id,
-        optionId: productOption?.id ?? null,
         externalOptionId: opts.externalOptionId,
         isActive: true,
       },
     });
-    return { master, productOption, listing, listingOption };
+    return { channelAccount, listing, listingOption };
   }
 
   beforeAll(async () => {
@@ -102,6 +93,15 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    await prisma.channelAccount.create({
+      data: {
+        organizationId,
+        channel: 'coupang',
+        name: 'Dual Write PG Coupang',
+        externalAccountId: 'dual-write-pg',
+        isPrimary: true,
+      },
+    });
   });
 
   it('ExtensionSyncDto preserves dateFrom/dateTo through whitelist validation', async () => {
@@ -119,6 +119,11 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
   it('ChannelScrapeRun finalization is organization-scoped', async () => {
     const run = await scrapePersistence.createRun({
       organizationId,
+      channelAccountId: (
+        await prisma.channelAccount.findFirstOrThrow({
+          where: { organizationId, channel: 'coupang' },
+        })
+      ).id,
       channel: 'coupang',
       source: 'advertising',
       pageType: 'campaign',
@@ -254,7 +259,6 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     expect(matchedSnap?.businessDate?.toISOString().slice(0, 10)).toBe('2026-04-14');
     expect(matchedSnap?.listingId).toBe(matched.listing.id);
     expect(matchedSnap?.listingOptionId).toBe(matched.listingOption.id);
-    expect(matchedSnap?.optionId).toBe(matched.productOption?.id ?? null);
     expect(matchedSnap?.rawJson).toMatchObject({ rawRowId: 'raw-vendor-a' });
     expect(matchedSnap?.normalizedJson).toMatchObject({ vendorItemId: 'VENDOR-A' });
 
@@ -269,13 +273,12 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     expect(unmatched?.listingOptionId).toBeNull();
   });
 
-  it('ChannelListingOption with null internal optionId still surfaces listingOptionId in matches', async () => {
+  it('ChannelListingOption surfaces listingOptionId without a legacy internal option id', async () => {
     const seeded = await seedListingWithOption({
       externalId: 'EXT-NULL',
       externalOptionId: 'VENDOR-NULL',
       optionId: 'null',
     });
-    expect(seeded.listingOption.optionId).toBeNull();
 
     const result = (await adSyncService.sync(
       {
@@ -302,7 +305,6 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     expect(snap?.matchStatus).toBe('matched');
     expect(snap?.listingId).toBe(seeded.listing.id);
     expect(snap?.listingOptionId).toBe(seeded.listingOption.id);
-    expect(snap?.optionId).toBeNull();
   });
 
   it('traffic creates a wing/traffic run with periodStart/periodEnd from dateFrom/dateTo and snapshots every row', async () => {
@@ -741,7 +743,6 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
       });
     expect(optionDaily).toBeDefined();
     expect(optionDaily?.externalOptionId).toBe('VENDOR-C3-A');
-    expect(optionDaily?.optionId).toBe(matched.productOption?.id ?? null);
     expect(optionDaily?.isOfferWinner).toBe(true);
     expect(optionDaily?.myPrice).toBe(12000);
     expect(optionDaily?.winnerPrice).toBe(11500);
@@ -951,13 +952,12 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     expect(optionDaily).toBeNull();
   });
 
-  it('Wave C3 — option daily fact lands even when internal optionId is null (channel option matched, ProductOption unmatched)', async () => {
+  it('Wave C3 — option daily fact lands from the channel option identity alone', async () => {
     const matched = await seedListingWithOption({
       externalId: 'EXT-C3-OPTNULL',
       externalOptionId: 'VENDOR-C3-OPTNULL',
       optionId: 'null',
     });
-    expect(matched.listingOption.optionId).toBeNull();
 
     await adSyncService.sync(
       {
@@ -983,7 +983,6 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
         where: { organizationId, listingOptionId: matched.listingOption.id },
       });
     expect(optionDaily).toBeDefined();
-    expect(optionDaily?.optionId).toBeNull();
     expect(optionDaily?.externalOptionId).toBe('VENDOR-C3-OPTNULL');
     expect(optionDaily?.myPrice).toBe(7000);
   });
@@ -1117,20 +1116,26 @@ describe('Channel scrape dual-write (PG integration, Wave C2)', () => {
     });
 
     // Set up a row in OTHER_ORGANIZATION_ID with the same external identifiers.
-    const otherStamp = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    const otherMaster = await prisma.masterProduct.create({
-      data: {
-        organizationId: OTHER_ORGANIZATION_ID,
-        code: `M-OTHER-${otherStamp}`,
-        name: `Master ${otherStamp}`,
-        optionCounter: 0,
-      },
-    });
+    const otherAccount =
+      (await prisma.channelAccount.findFirst({
+        where: {
+          organizationId: OTHER_ORGANIZATION_ID,
+          channel: 'coupang',
+        },
+      })) ??
+      (await prisma.channelAccount.create({
+        data: {
+          organizationId: OTHER_ORGANIZATION_ID,
+          channel: 'coupang',
+          name: 'Other Dual Write PG Coupang',
+          externalAccountId: 'dual-write-pg',
+          isPrimary: true,
+        },
+      }));
     const otherListing = await prisma.channelListing.create({
       data: {
         organizationId: OTHER_ORGANIZATION_ID,
-        masterId: otherMaster.id,
-        channel: 'coupang',
+        channelAccountId: otherAccount.id,
         externalId: 'EXT-C3-XT',
       },
     });

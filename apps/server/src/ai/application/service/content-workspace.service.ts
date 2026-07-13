@@ -20,7 +20,6 @@ export interface CreateContentWorkspaceInput {
   triggeredByUserId: string | null;
   rawTitle: string;
   sourceCandidateId: string | null;
-  targetMasterId: string | null;
   channelListingId?: string | null;
   originWorkspaceId?: string | null;
 }
@@ -29,7 +28,6 @@ export interface ContentWorkspaceSummary {
   id: string;
   ownerType: string;
   sourceCandidateId: string | null;
-  targetMasterId: string | null;
   channelListingId: string | null;
   originWorkspaceId: string | null;
   displayName: string;
@@ -78,7 +76,6 @@ export class ContentWorkspaceService {
     triggeredByUserId: string | null;
     rawTitle: string;
     sourceCandidateId: string | null;
-    targetMasterId: string | null;
     channelListingId?: string | null;
     originWorkspaceId?: string | null;
   }): Promise<{ id: string; displayName: string; normalizedTitle: string }> {
@@ -102,7 +99,6 @@ export class ContentWorkspaceService {
       organizationId: input.organizationId,
       ownerType,
       sourceCandidateId: input.sourceCandidateId,
-      targetMasterId: input.targetMasterId,
       channelListingId: input.channelListingId ?? null,
       originWorkspaceId: input.originWorkspaceId ?? null,
       displayName,
@@ -213,7 +209,6 @@ export class ContentWorkspaceService {
       id: row.id,
       ownerType: row.ownerType,
       sourceCandidateId: row.sourceCandidateId,
-      targetMasterId: row.targetMasterId,
       channelListingId: row.channelListingId,
       originWorkspaceId: row.originWorkspaceId,
       displayName: row.displayName,
@@ -316,7 +311,6 @@ function toDuplicateSummary(row: {
   id: string;
   ownerType: string;
   sourceCandidateId: string | null;
-  targetMasterId: string | null;
   channelListingId: string | null;
   originWorkspaceId: string | null;
   displayName: string;
@@ -337,7 +331,6 @@ function toDuplicateSummary(row: {
     id: row.id,
     ownerType: row.ownerType,
     sourceCandidateId: row.sourceCandidateId,
-    targetMasterId: row.targetMasterId,
     channelListingId: row.channelListingId,
     originWorkspaceId: row.originWorkspaceId,
     displayName: row.displayName,
@@ -369,11 +362,9 @@ function displayTitle(value: string): string {
 
 function ownerTypeFor(input: {
   sourceCandidateId: string | null;
-  targetMasterId: string | null;
   channelListingId?: string | null;
 }): 'sourcing_candidate' | 'channel_listing' | 'direct_detail_page' {
   if (input.channelListingId) return 'channel_listing';
-  if (input.targetMasterId) return 'direct_detail_page';
   if (input.sourceCandidateId) return 'sourcing_candidate';
   return 'direct_detail_page';
 }

@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import { LEGACY_FAMILY_MASTER_SCOPE } from '../../../../../../common/legacy-family-master-scope';
 import { DashboardInventoryRepositoryAdapter } from '../dashboard-inventory.repository.adapter';
 
-describe('DashboardInventoryRepositoryAdapter legacy family reads', () => {
-  it('keeps staged Sellpia physical identities out of every family summary query', async () => {
+describe('DashboardInventoryRepositoryAdapter listing and physical inventory reads', () => {
+  it('counts active listings for product tiles and active Sellpia Masters for zero stock', async () => {
     const prisma = {
       masterProduct: {
+        count: vi.fn().mockResolvedValue(0),
+      },
+      channelListing: {
         groupBy: vi.fn().mockResolvedValue([]),
         count: vi.fn().mockResolvedValue(0),
         findMany: vi.fn().mockResolvedValue([]),
@@ -17,19 +19,26 @@ describe('DashboardInventoryRepositoryAdapter legacy family reads', () => {
     await repository.countActiveProducts('org-1');
     await repository.countChannelLinkedProducts('org-1');
     await repository.findAGradeReviewCounts('org-1');
+    await repository.countOutOfStockInventorySkus('org-1');
 
-    expect(prisma.masterProduct.groupBy).toHaveBeenCalledWith(
+    expect(prisma.channelListing.groupBy).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining(LEGACY_FAMILY_MASTER_SCOPE),
+        where: expect.objectContaining({ organizationId: 'org-1', isActive: true }),
       }),
     );
-    for (const [query] of prisma.masterProduct.count.mock.calls) {
-      expect(query.where).toEqual(expect.objectContaining(LEGACY_FAMILY_MASTER_SCOPE));
-    }
-    expect(prisma.masterProduct.findMany).toHaveBeenCalledWith(
+    expect(prisma.channelListing.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining(LEGACY_FAMILY_MASTER_SCOPE),
+        where: expect.objectContaining({ organizationId: 'org-1', abcGrade: 'A' }),
       }),
     );
+    expect(prisma.masterProduct.count).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org-1',
+        sellpiaProductCode: { not: null },
+        isDeleted: false,
+        isActive: true,
+        currentStock: 0,
+      },
+    });
   });
 });

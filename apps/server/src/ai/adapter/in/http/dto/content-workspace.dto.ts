@@ -60,9 +60,6 @@ export class CreateContentWorkspaceDto {
   @IsUUID()
   sourceCandidateId?: string;
 
-  @IsOptional()
-  @IsUUID()
-  targetMasterId?: string;
 }
 
 export class SelectContentWorkspaceDetailPageDto {

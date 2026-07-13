@@ -3,7 +3,6 @@ import type { Alert } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { PanelItem } from '@kiditem/shared/panel';
 import { workflowPanelMapper } from '../../../mapper/panel-event/workflow.mapper';
-import { imagePanelMapper } from '../../../mapper/panel-event/image.mapper';
 import { alertPanelMapper } from '../../../mapper/panel-event/alert.mapper';
 
 @Injectable()
@@ -43,7 +42,6 @@ export class PanelService {
 
     const items: Array<Omit<PanelItem, 'seq' | 'updatedAt'>> = [];
     const alertRows: Alert[] = [];
-    const alertBackedThumbnailGenerationIds = new Set<string>();
 
     for (const run of workflowRuns) {
       // steps는 JsonValue. 배열 여부 체크 후 narrowing
@@ -92,45 +90,9 @@ export class PanelService {
 
       for (const alert of alerts) {
         alertRows.push(alert);
-        if (alert.sourceType === 'thumbnail_generation' && alert.sourceId) {
-          alertBackedThumbnailGenerationIds.add(alert.sourceId);
-        }
       }
     } catch (err) {
       this.logger.warn('Alert source backfill failed', err);
-    }
-
-    // ── Image source (ThumbnailGeneration + Product.title join) ──
-    try {
-      const thumbnailGens = await this.prisma.thumbnailGeneration.findMany({
-        where: {
-          organizationId,
-          masterId: { not: null },
-          OR: [
-            { status: { in: ['pending', 'running'] } },
-            { updatedAt: { gte: twentyFourHoursAgo } },
-          ],
-        },
-        include: { master: { select: { id: true, name: true } } },
-        orderBy: { createdAt: 'desc' },
-        take: 100,
-      });
-
-      for (const gen of thumbnailGens) {
-        if (!gen.master) continue;
-        // Per-generation operation alerts are the user-facing work item for
-        // thumbnail edit jobs. Keep the legacy image run projection only when
-        // there is no matching alert in the current panel window.
-        if (alertBackedThumbnailGenerationIds.has(gen.id)) continue;
-        items.push(
-          imagePanelMapper.mapToItem(
-            { generation: gen, product: { id: gen.master.id, title: gen.master.name } },
-            organizationId,
-          ),
-        );
-      }
-    } catch (err) {
-      this.logger.warn('Image source backfill failed', err);
     }
 
     for (const alert of alertRows) {

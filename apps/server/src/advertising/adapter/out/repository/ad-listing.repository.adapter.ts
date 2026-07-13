@@ -1,8 +1,8 @@
-// Listing + master hydrated read model and the Coupang extension-sync
-// listing map. Sole owner of the `ChannelListing` + `MasterProduct` join
-// shape used by hub / campaign / benchmark / action read models.
+// Listing-owned advertising metadata and the Coupang extension-sync listing
+// map. The outward read model keeps its historical `masterProduct` key, but
+// every value now comes from ChannelListing.
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   AdListingRepositoryPort,
@@ -27,44 +27,35 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
       where: {
         id: { in: ids },
         organizationId,
-        isDeleted: false,
-        masterId: { not: null },
+        isActive: true,
       },
-      select: { id: true, externalId: true, channelName: true, masterId: true },
+      select: {
+        id: true,
+        externalId: true,
+        channelName: true,
+        displayName: true,
+        abcGrade: true,
+        adTier: true,
+        healthScore: true,
+      },
     });
-    const linkedListings = listings.filter(
-      (listing): listing is (typeof listings)[number] & { masterId: string } =>
-        listing.masterId !== null,
-    );
-    const masterIds = Array.from(
-      new Set(linkedListings.map((listing) => listing.masterId)),
-    );
-    const masters =
-      masterIds.length > 0
-        ? await this.prisma.masterProduct.findMany({
-            where: { id: { in: masterIds }, organizationId },
-            select: {
-              id: true,
-              code: true,
-              name: true,
-              abcGrade: true,
-              adTier: true,
-              healthScore: true,
-            },
-          })
-        : [];
-
-    const masterMap = new Map(masters.map((master) => [master.id, master]));
     const out = new Map<string, ScopedAdListingReadModel>();
-    for (const listing of linkedListings) {
-      if (!listing.masterId) continue;
-      const master = masterMap.get(listing.masterId);
-      if (!master) continue;
+    for (const listing of listings) {
       out.set(listing.id, {
         id: listing.id,
         externalId: listing.externalId,
         channelName: listing.channelName,
-        masterProduct: master,
+        masterProduct: {
+          id: listing.id,
+          code: listing.externalId,
+          name:
+            listing.displayName ??
+            listing.channelName ??
+            listing.externalId,
+          abcGrade: listing.abcGrade,
+          adTier: listing.adTier,
+          healthScore: listing.healthScore,
+        },
       });
     }
     return out;
@@ -75,7 +66,7 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
     organizationId: string,
   ): Promise<boolean> {
     const row = await this.prisma.channelListing.findFirst({
-      where: { id: listingId, organizationId, isDeleted: false },
+      where: { id: listingId, organizationId, isActive: true },
       select: { id: true },
     });
     return row != null;
@@ -86,18 +77,8 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
     organizationId: string,
     nextTier: string | null,
   ): Promise<boolean> {
-    const listing = await this.prisma.channelListing.findFirst({
-      where: {
-        id: listingId,
-        organizationId,
-        isDeleted: false,
-        masterId: { not: null },
-      },
-      select: { masterId: true },
-    });
-    if (!listing?.masterId) return false;
-    const updated = await this.prisma.masterProduct.updateMany({
-      where: { id: listing.masterId, organizationId },
+    const updated = await this.prisma.channelListing.updateMany({
+      where: { id: listingId, organizationId, isActive: true },
       data: { adTier: nextTier },
     });
     return updated.count === 1;
@@ -106,22 +87,42 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
   async buildAdSyncListingMap(
     organizationId: string,
   ): Promise<AdSyncListingMap> {
+    const account = await this.prisma.channelAccount.findFirst({
+      where: { organizationId, channel: 'coupang', status: 'active' },
+      orderBy: [
+        { isPrimary: 'desc' },
+        { updatedAt: 'desc' },
+        { id: 'asc' },
+      ],
+      select: { id: true },
+    });
+    if (!account) {
+      throw new NotFoundException('활성 쿠팡 채널 계정을 찾을 수 없습니다.');
+    }
+
     const [options, listings] = await Promise.all([
       this.prisma.channelListingOption.findMany({
         where: {
           organizationId,
           isActive: true,
-          listing: { organizationId, channel: 'coupang', isDeleted: false },
+          listing: {
+            organizationId,
+            channelAccountId: account.id,
+            isActive: true,
+          },
         },
         select: {
           id: true,
           externalOptionId: true,
           listingId: true,
-          optionId: true,
         },
       }),
       this.prisma.channelListing.findMany({
-        where: { organizationId, isDeleted: false, channel: 'coupang' },
+        where: {
+          organizationId,
+          channelAccountId: account.id,
+          isActive: true,
+        },
         select: { id: true, externalId: true },
       }),
     ]);
@@ -138,7 +139,6 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
       externalOptionIdMap.set(option.externalOptionId, {
         listingId: option.listingId,
         listingOptionId: option.id,
-        optionId: option.optionId ?? null,
         externalId: listing.externalId,
       });
     }
@@ -148,6 +148,10 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
       externalIdMap.set(listing.externalId, { listingId: listing.id });
     }
 
-    return { externalOptionIdMap, externalIdMap };
+    return {
+      channelAccountId: account.id,
+      externalOptionIdMap,
+      externalIdMap,
+    };
   }
 }

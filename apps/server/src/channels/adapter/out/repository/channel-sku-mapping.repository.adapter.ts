@@ -18,9 +18,6 @@ const REPLACEMENT_TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as 
 
 function mappingRowSelect(organizationId: string) {
   return {
-    channelAccount: {
-      select: { id: true, channel: true, name: true },
-    },
     listing: {
       select: {
         id: true,
@@ -28,6 +25,9 @@ function mappingRowSelect(organizationId: string) {
         channelName: true,
         displayName: true,
         status: true,
+        channelAccount: {
+          select: { id: true, channel: true, name: true },
+        },
       },
     },
     id: true,
@@ -118,17 +118,16 @@ implements ChannelSkuMappingRepositoryPort {
             ))::int
           END AS sellable_stock
         FROM channel_listing_options AS sku
-        INNER JOIN channel_accounts AS account
-          ON account.id = sku.channel_account_id
-         AND account.organization_id = sku.organization_id
         INNER JOIN channel_listings AS listing
           ON listing.id = sku.listing_id
          AND listing.organization_id = sku.organization_id
-         AND listing.channel_account_id = sku.channel_account_id
+        INNER JOIN channel_accounts AS account
+          ON account.id = listing.channel_account_id
+         AND account.organization_id = listing.organization_id
         INNER JOIN source_import_runs AS import_run
           ON import_run.id = sku.last_import_run_id
          AND import_run.organization_id = sku.organization_id
-         AND import_run.channel_account_id = sku.channel_account_id
+         AND import_run.channel_account_id = listing.channel_account_id
         LEFT JOIN channel_sku_components AS component
           ON component.channel_sku_id = sku.id
          AND component.organization_id = sku.organization_id
@@ -141,11 +140,11 @@ implements ChannelSkuMappingRepositoryPort {
           AND account.organization_id = ${organizationId}::uuid
           AND listing.organization_id = ${organizationId}::uuid
           AND import_run.organization_id = ${organizationId}::uuid
-          AND listing.is_deleted = FALSE
+          AND listing.is_active = TRUE
           AND import_run.source_type = ${QUEUE_SOURCE_TYPE}
           AND import_run.status = 'completed'
           ${query.channelAccountId
-            ? Prisma.sql`AND sku.channel_account_id = ${query.channelAccountId}::uuid`
+            ? Prisma.sql`AND listing.channel_account_id = ${query.channelAccountId}::uuid`
             : Prisma.empty}
           ${search
             ? Prisma.sql`AND (
@@ -368,19 +367,18 @@ implements ChannelSkuMappingRepositoryPort {
         INNER JOIN channel_listings AS listing
           ON listing.id = sku.listing_id
          AND listing.organization_id = sku.organization_id
-         AND listing.channel_account_id = sku.channel_account_id
         INNER JOIN channel_accounts AS account
-          ON account.id = sku.channel_account_id
-         AND account.organization_id = sku.organization_id
+          ON account.id = listing.channel_account_id
+         AND account.organization_id = listing.organization_id
         INNER JOIN source_import_runs AS import_run
           ON import_run.id = sku.last_import_run_id
          AND import_run.organization_id = sku.organization_id
-         AND import_run.channel_account_id = sku.channel_account_id
+         AND import_run.channel_account_id = listing.channel_account_id
         WHERE sku.organization_id = ${organizationId}::uuid
           AND sku.id IN (${Prisma.join(
             channelSkuIds.map((id) => Prisma.sql`${id}::uuid`),
           )})
-          AND listing.is_deleted = FALSE
+          AND listing.is_active = TRUE
           AND import_run.source_type = ${QUEUE_SOURCE_TYPE}
           AND import_run.status = 'completed'
         ORDER BY sku.id
@@ -402,27 +400,10 @@ implements ChannelSkuMappingRepositoryPort {
 
       const matched = eligible.filter((update) => update.component !== undefined);
       if (matched.length > 0) {
-        const masterIds = [...new Set(matched.map((update) =>
-          update.component!.masterProductId))];
-        const ledgers = await tx.inventorySkuMasterProductMap.findMany({
-          where: { organizationId, masterProductId: { in: masterIds } },
-          select: { masterProductId: true, inventorySkuId: true },
-        });
-        const inventorySkuIdByMasterId = new Map(
-          ledgers.map((ledger) => [ledger.masterProductId, ledger.inventorySkuId]),
-        );
-        if (masterIds.some((id) => !inventorySkuIdByMasterId.has(id))) {
-          throw new BadRequestException(
-            'Automatic match target is missing its InventorySku transition ledger',
-          );
-        }
         await tx.channelSkuComponent.createMany({
           data: matched.map((update) => ({
             organizationId,
             channelSkuId: update.channelSkuId,
-            inventorySkuId: inventorySkuIdByMasterId.get(
-              update.component!.masterProductId,
-            )!,
             masterProductId: update.component!.masterProductId,
             quantity: update.component!.quantity,
             mappingSource: update.component!.mappingSource,
@@ -460,19 +441,18 @@ implements ChannelSkuMappingRepositoryPort {
           INNER JOIN channel_listings AS listing
             ON listing.id = sku.listing_id
            AND listing.organization_id = sku.organization_id
-           AND listing.channel_account_id = sku.channel_account_id
           INNER JOIN channel_accounts AS account
-            ON account.id = sku.channel_account_id
-           AND account.organization_id = sku.organization_id
+            ON account.id = listing.channel_account_id
+           AND account.organization_id = listing.organization_id
           INNER JOIN source_import_runs AS import_run
             ON import_run.id = sku.last_import_run_id
            AND import_run.organization_id = sku.organization_id
-           AND import_run.channel_account_id = sku.channel_account_id
+           AND import_run.channel_account_id = listing.channel_account_id
           WHERE sku.id = ${input.channelSkuId}::uuid
             AND sku.organization_id = ${input.organizationId}::uuid
             AND listing.organization_id = ${input.organizationId}::uuid
             AND account.organization_id = ${input.organizationId}::uuid
-            AND listing.is_deleted = FALSE
+            AND listing.is_active = TRUE
             AND import_run.source_type = ${QUEUE_SOURCE_TYPE}
             AND import_run.status = 'completed'
           FOR UPDATE OF sku
@@ -488,27 +468,10 @@ implements ChannelSkuMappingRepositoryPort {
           },
         });
         if (input.components.length > 0) {
-          const masterIds = input.components.map(({ masterProductId }) => masterProductId);
-          const ledgers = await tx.inventorySkuMasterProductMap.findMany({
-            where: {
-              organizationId: input.organizationId,
-              masterProductId: { in: masterIds },
-            },
-            select: { masterProductId: true, inventorySkuId: true },
-          });
-          const inventorySkuIdByMasterId = new Map(
-            ledgers.map((ledger) => [ledger.masterProductId, ledger.inventorySkuId]),
-          );
-          if (masterIds.some((id) => !inventorySkuIdByMasterId.has(id))) {
-            throw new BadRequestException(
-              'MasterProduct component is missing its InventorySku transition ledger',
-            );
-          }
           await tx.channelSkuComponent.createMany({
             data: input.components.map((component) => ({
               organizationId: input.organizationId,
               channelSkuId: input.channelSkuId,
-              inventorySkuId: inventorySkuIdByMasterId.get(component.masterProductId)!,
               masterProductId: component.masterProductId,
               quantity: component.quantity,
               mappingSource: input.mappingSource,
@@ -541,8 +504,6 @@ function queueWhere(
   const search = rawSearch?.trim();
   return {
     organizationId,
-    ...(channelAccountId ? { channelAccountId } : {}),
-    channelAccount: { is: { organizationId } },
     lastImportRun: {
       is: {
         organizationId,
@@ -554,7 +515,7 @@ function queueWhere(
     listing: {
       is: {
         organizationId,
-        isDeleted: false,
+        isActive: true,
         ...(channelAccountId ? { channelAccountId } : {}),
         channelAccount: { is: { organizationId } },
       },
@@ -627,11 +588,8 @@ function contains(value: string) {
 }
 
 function toMappingRow(row: SelectedMappingRow): ChannelSkuMappingRow {
-  if (!row.channelAccount) {
-    throw new Error('ChannelSku queue row is missing its ChannelAccount');
-  }
   return {
-    channelAccount: row.channelAccount,
+    channelAccount: row.listing.channelAccount,
     product: {
       id: row.listing.id,
       externalProductId: row.listing.externalId,

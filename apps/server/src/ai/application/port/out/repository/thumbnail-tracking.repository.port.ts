@@ -22,7 +22,12 @@ export interface ThumbnailTrackingRow {
   reviewsAfter: number | null;
   salesBefore: number | null;
   salesAfter: number | null;
-  listing: { id: string; master: { id: string; name: string } | null } | null;
+  listing: {
+    id: string;
+    displayName: string | null;
+    channelName: string | null;
+    externalId: string;
+  } | null;
 }
 
 export interface ThumbnailTrackingSnapshotTargetRow {
@@ -30,7 +35,8 @@ export interface ThumbnailTrackingSnapshotTargetRow {
   salesBefore: number | null;
   listing: {
     channelName: string | null;
-    master: { name: string | null } | null;
+    displayName: string | null;
+    externalId: string;
   } | null;
 }
 

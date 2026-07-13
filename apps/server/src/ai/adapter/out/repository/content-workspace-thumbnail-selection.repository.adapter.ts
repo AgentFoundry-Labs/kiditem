@@ -224,7 +224,6 @@ export class ContentWorkspaceThumbnailSelectionRepositoryAdapter
     return tx.contentAsset.create({
       data: {
         organizationId: input.organizationId,
-        generationGroupId: group.id,
         originGenerationGroupId: group.id,
         createdByUserId: input.createdByUserId,
         assetKey: managedAssetKey(input.url),

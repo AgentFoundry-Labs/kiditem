@@ -49,19 +49,17 @@ export class ActionBoardRepositoryAdapter
   }
 
   countOutOfStockInventorySkus(organizationId: string): Promise<number> {
-    return this.prisma.inventorySku.count({
-      where: { organizationId, currentStock: 0 },
+    return this.prisma.masterProduct.count({
+      where: { organizationId, isActive: true, currentStock: 0 },
     });
   }
 
   countMappingAttentionChannelSkus(organizationId: string): Promise<number> {
     return this.prisma.channelListingOption.count({
       where: {
-        organizationId,
         isActive: true,
         components: { none: {} },
-        channelAccount: { is: { organizationId } },
-        listing: { is: { organizationId, isDeleted: false } },
+        listing: { is: { organizationId, isActive: true } },
       },
     });
   }
@@ -75,22 +73,12 @@ export class ActionBoardRepositoryAdapter
   async findAGradeReviewCounts(
     organizationId: string,
   ): Promise<AGradeReviewRow[]> {
-    // 2-hop tenant scope: master.organizationId +
-    // listings.organizationId on the nested filter.
-    const masters = await this.prisma.masterProduct.findMany({
-      where: { organizationId, isDeleted: false, abcGrade: 'A' },
-      include: {
-        listings: {
-          where: { organizationId, isDeleted: false },
-          select: { _count: { select: { reviews: true } } },
-        },
-      },
+    const listings = await this.prisma.channelListing.findMany({
+      where: { organizationId, isActive: true, abcGrade: 'A' },
+      select: { _count: { select: { reviews: true } } },
     });
-    return masters.map((m) => ({
-      reviewCount: m.listings.reduce(
-        (sum, l) => sum + l._count.reviews,
-        0,
-      ),
+    return listings.map((listing) => ({
+      reviewCount: listing._count.reviews,
     } satisfies AGradeReviewRow));
   }
 

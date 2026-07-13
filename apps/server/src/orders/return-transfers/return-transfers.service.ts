@@ -20,33 +20,28 @@ export class ReturnTransfersService {
 
     return this.prisma.returnTransfer.findMany({
       where,
-      include: { inventorySku: true },
+      include: { masterProduct: true },
       orderBy: { createdAt: 'desc' },
     });
   }
 
   async create(organizationId: string, dto: CreateReturnTransferDto) {
-    const inventorySku = await this.prisma.inventorySku.findFirst({
-      where: { id: dto.inventorySkuId, organizationId },
-      select: { optionName: true, sellpiaProductCode: true },
-    });
-    if (!inventorySku) throw new NotFoundException('InventorySku not found');
-    const legacyOption = await this.prisma.productOption.findFirst({
+    const masterProduct = await this.prisma.masterProduct.findFirst({
       where: {
+        id: dto.masterProductId,
         organizationId,
-        isDeleted: false,
-        legacyCode: inventorySku.sellpiaProductCode,
+        isActive: true,
       },
-      select: { id: true },
-    }) ?? await this.prisma.productOption.findFirst({
-      where: {
-        organizationId,
-        isDeleted: false,
-        sku: inventorySku.sellpiaProductCode,
-      },
-      select: { id: true },
+      select: { optionName: true },
     });
-    if (!legacyOption) throw new NotFoundException('Legacy ProductOption mapping not found');
+    if (!masterProduct) throw new NotFoundException('MasterProduct not found');
+    if (dto.orderId) {
+      const order = await this.prisma.order.findFirst({
+        where: { id: dto.orderId, organizationId },
+        select: { id: true },
+      });
+      if (!order) throw new NotFoundException('Order not found');
+    }
 
     const rtNumber = this.generateRtNumber();
 
@@ -55,14 +50,13 @@ export class ReturnTransfersService {
         organizationId,
         rtNumber,
         orderId: dto.orderId,
-        inventorySkuId: dto.inventorySkuId,
-        optionId: legacyOption.id,
-        optionName: inventorySku.optionName,
+        masterProductId: dto.masterProductId,
+        optionName: masterProduct.optionName,
         quantity: dto.quantity,
         condition: dto.condition ?? 'good',
         notes: dto.notes,
       },
-      include: { inventorySku: true },
+      include: { masterProduct: true },
     });
   }
 
@@ -81,7 +75,7 @@ export class ReturnTransfersService {
         ...(dto.disposedQty !== undefined && { disposedQty: dto.disposedQty }),
         ...(dto.processedBy !== undefined && { processedBy: dto.processedBy }),
       },
-      include: { inventorySku: true },
+      include: { masterProduct: true },
     });
   }
 }

@@ -74,7 +74,6 @@ describe('DetailPageQueryService list', () => {
     const { service } = makeService(repository);
 
     await expect(service.list(ORG, {
-      productId: 'master-1',
       contentWorkspaceId: WORKSPACE_ID,
       sourceCandidateId: CANDIDATE_ID,
       templateId: 'kids-playful',
@@ -82,7 +81,6 @@ describe('DetailPageQueryService list', () => {
 
     expect(repository.list).toHaveBeenCalledWith({
       organizationId: ORG,
-      productId: 'master-1',
       contentWorkspaceId: WORKSPACE_ID,
       sourceCandidateId: CANDIDATE_ID,
     });

@@ -114,9 +114,6 @@ describe('ContentWorkspaceService', () => {
       triggeredByUserId: 'user-1',
       rawTitle: 'Kids rain boots',
       sourceCandidateId: null,
-      targetMasterId: null,
-      channelListingId: null,
-      originWorkspaceId: null,
       channelListingId: 'listing-1',
       originWorkspaceId: 'source-workspace-1',
     });
@@ -124,7 +121,6 @@ describe('ContentWorkspaceService', () => {
     expect(repo.ensureActiveWorkspace).toHaveBeenCalledWith(expect.objectContaining({
       ownerType: 'channel_listing',
       sourceCandidateId: null,
-      targetMasterId: null,
       channelListingId: 'listing-1',
       originWorkspaceId: 'source-workspace-1',
     }));
@@ -154,7 +150,6 @@ describe('ContentWorkspaceService', () => {
       triggeredByUserId: 'user-1',
       rawTitle: ' 키즈   터치등 ',
       sourceCandidateId: null,
-      targetMasterId: null,
     })).resolves.toEqual({
       id: WORKSPACE_ID,
       displayName: '키즈 터치등',
@@ -165,7 +160,6 @@ describe('ContentWorkspaceService', () => {
       organizationId: ORG,
       ownerType: 'direct_detail_page',
       sourceCandidateId: null,
-      targetMasterId: null,
       channelListingId: null,
       originWorkspaceId: null,
       displayName: '키즈 터치등',
@@ -200,7 +194,6 @@ describe('ContentWorkspaceService', () => {
       triggeredByUserId: 'user-1',
       rawTitle: '키즈 컵',
       sourceCandidateId: null,
-      targetMasterId: null,
     })).resolves.toMatchObject({
       id: WORKSPACE_ID,
       displayName: '키즈 컵',

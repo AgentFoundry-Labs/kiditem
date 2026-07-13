@@ -36,8 +36,7 @@ export class TransfersRepositoryAdapter implements TransfersRepositoryPort {
       where: {
         id: masterProductId,
         organizationId,
-        sellpiaProductCode: { not: null },
-        isDeleted: false,
+        isActive: true,
       },
       select: { optionName: true },
     });

@@ -1,7 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { MulterFile } from '../../common/types';
-import { resolvePricing } from '../../common/option-pricing-resolver';
 import { kstDayStart } from '../../common/kst';
 import {
   uploadTrafficStats as uploadTrafficStatsIngest,
@@ -23,28 +22,29 @@ interface DayRevenue {
 }
 
 /**
- * Pricing 원천 — ProductOption. ChannelListing.master.options[0] 을 대표 옵션으로 사용.
+ * Pricing 원천 — ChannelListingOption. Listing 의 첫 활성 SKU를 대표값으로 사용.
  * 멀티 option listing 은 listing 단위 일별 트래픽이 listing 단위 집계라
  * 첫 option 기준으로 충분.
  * option 이 0 개이면 pricing 없음 → row skip (아래 profit 루프에서 처리).
  */
 const LISTING_PRICING_SELECT = {
   id: true,
-  master: {
+  options: {
+    where: { isActive: true },
     select: {
-      options: {
-        where: { isDeleted: false },
+      costPriceOverride: true,
+      commissionRate: true,
+      shippingCost: true,
+      otherCost: true,
+      components: {
         select: {
-          costPrice: true,
-          sellPrice: true,
-          commissionRate: true,
-          shippingCost: true,
-          otherCost: true,
+          quantity: true,
+          masterProduct: { select: { purchasePrice: true } },
         },
-        orderBy: { sortOrder: 'asc' },
-        take: 1,
       },
     },
+    orderBy: { createdAt: 'asc' },
+    take: 1,
   },
 } as const;
 
@@ -167,7 +167,7 @@ export class TrafficService {
     if (listingRows.length > 0) {
       const listingIds = listingRows.map((r) => r.listingId);
       const listings = await this.prisma.channelListing.findMany({
-        where: { id: { in: listingIds }, organizationId, isDeleted: false },
+        where: { id: { in: listingIds }, organizationId, isActive: true },
         select: LISTING_PRICING_SELECT,
       });
       const listingMap = new Map(listings.map((l) => [l.id, l]));
@@ -182,10 +182,10 @@ export class TrafficService {
 
         const listing = listingMap.get(row.listingId);
         if (!listing) continue;
-        const option = listing.master?.options[0];
+        const option = listing.options[0];
         if (!option) continue;
 
-        const resolved = resolvePricing({ option });
+        const resolved = resolveListingOptionPricing(option);
         const commRate = resolved.commissionRate || 0.108;
         const ordersCount = row._sum.trafficOrders ?? salesQty;
         const rowNetProfit =
@@ -272,7 +272,7 @@ export class TrafficService {
     const listings =
       listingIds.length > 0
         ? await this.prisma.channelListing.findMany({
-            where: { id: { in: listingIds }, organizationId, isDeleted: false },
+            where: { id: { in: listingIds }, organizationId, isActive: true },
             select: LISTING_PRICING_SELECT,
           })
         : [];
@@ -285,9 +285,9 @@ export class TrafficService {
       if (salesQty === 0) continue;
       const listing = listingMap.get(row.listingId);
       if (!listing) continue;
-      const option = listing.master?.options[0];
+      const option = listing.options[0];
       if (!option) continue;
-      const resolved = resolvePricing({ option });
+      const resolved = resolveListingOptionPricing(option);
       const commRate = resolved.commissionRate || 0.108;
       const ordersCount = row._sum.trafficOrders ?? salesQty;
       const rowNetProfit =
@@ -328,4 +328,25 @@ export class TrafficService {
 
     return { year, month, days, total };
   }
+}
+
+function resolveListingOptionPricing(option: {
+  costPriceOverride: number | null;
+  commissionRate: { toString(): string } | number | null;
+  shippingCost: number | null;
+  otherCost: number | null;
+  components: Array<{ quantity: number; masterProduct: { purchasePrice: number | null } }>;
+}) {
+  const componentCost = option.components.reduce(
+    (sum, component) => sum + (component.masterProduct.purchasePrice ?? 0) * component.quantity,
+    0,
+  );
+  const costPrice = option.costPriceOverride ?? componentCost;
+  return {
+    costPrice,
+    commissionRate: Number(option.commissionRate ?? 0),
+    shippingCost: option.shippingCost ?? 0,
+    otherCost: option.otherCost ?? 0,
+    isCostMissing: option.costPriceOverride === null && componentCost === 0,
+  };
 }

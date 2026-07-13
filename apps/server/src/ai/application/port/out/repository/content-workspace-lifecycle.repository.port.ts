@@ -6,7 +6,6 @@ export interface EnsureContentWorkspaceInput {
   organizationId: string;
   ownerType: 'sourcing_candidate' | 'channel_listing' | 'direct_detail_page';
   sourceCandidateId: string | null;
-  targetMasterId: string | null;
   channelListingId: string | null;
   originWorkspaceId: string | null;
   displayName: string;
@@ -44,7 +43,6 @@ export interface ContentWorkspaceSnapshot {
   id: string;
   ownerType: string;
   sourceCandidateId: string | null;
-  targetMasterId: string | null;
   channelListingId: string | null;
   originWorkspaceId: string | null;
   displayName: string;

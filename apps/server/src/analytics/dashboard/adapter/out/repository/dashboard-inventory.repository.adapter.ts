@@ -11,7 +11,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import { buildPerListingMetrics } from '../../../../../common/per-listing-profit';
-import { LEGACY_FAMILY_MASTER_SCOPE } from '../../../../../common/legacy-family-master-scope';
 import type { DashboardAlertItem } from '@kiditem/shared/dashboard';
 import type {
   DashboardInventoryRepositoryPort,
@@ -30,20 +29,18 @@ export class DashboardInventoryRepositoryAdapter
   async countActiveProductsByGrade(
     organizationId: string,
   ): Promise<GradeCountRow[]> {
-    const rows = await this.prisma.masterProduct.groupBy({
+    const rows = await this.prisma.channelListing.groupBy({
       by: ['abcGrade'],
-      _count: true,
+      _count: { id: true },
       where: {
         organizationId,
-        isDeleted: false,
-        ...LEGACY_FAMILY_MASTER_SCOPE,
+        isActive: true,
         abcGrade: { in: ['A', 'B', 'C'] },
-        listings: { some: { organizationId, isDeleted: false } },
       },
     });
     return rows.map((r) => ({
       abcGrade: r.abcGrade,
-      count: r._count,
+      count: r._count.id,
     } satisfies GradeCountRow));
   }
 
@@ -77,18 +74,16 @@ export class DashboardInventoryRepositoryAdapter
   }
 
   async countActiveProducts(organizationId: string): Promise<number> {
-    return this.prisma.masterProduct.count({
-      where: { organizationId, isDeleted: false, ...LEGACY_FAMILY_MASTER_SCOPE },
+    return this.prisma.channelListing.count({
+      where: { organizationId, isActive: true },
     });
   }
 
   async countChannelLinkedProducts(organizationId: string): Promise<number> {
-    return this.prisma.masterProduct.count({
+    return this.prisma.channelListing.count({
       where: {
         organizationId,
-        isDeleted: false,
-        ...LEGACY_FAMILY_MASTER_SCOPE,
-        listings: { some: { organizationId, isDeleted: false } },
+        isActive: true,
       },
     });
   }
@@ -102,8 +97,12 @@ export class DashboardInventoryRepositoryAdapter
   }
 
   countOutOfStockInventorySkus(organizationId: string): Promise<number> {
-    return this.prisma.inventorySku.count({
-      where: { organizationId, currentStock: 0 },
+    return this.prisma.masterProduct.count({
+      where: {
+        organizationId,
+        isActive: true,
+        currentStock: 0,
+      },
     });
   }
 
@@ -112,11 +111,25 @@ export class DashboardInventoryRepositoryAdapter
       where: {
         organizationId,
         isActive: true,
-        components: { none: {} },
-        channelAccount: { is: { organizationId } },
-        listing: { is: { organizationId, isDeleted: false } },
+        mappingStatus: { in: ['unmatched', 'needs_review'] },
+        listing: { is: { organizationId, isActive: true } },
       },
     });
+  }
+
+  async countChannelSkusByMappingStatus(
+    organizationId: string,
+  ): Promise<Array<{ mappingStatus: string; count: number }>> {
+    const rows = await this.prisma.channelListingOption.groupBy({
+      by: ['mappingStatus'],
+      where: {
+        organizationId,
+        isActive: true,
+        listing: { is: { organizationId, isActive: true } },
+      },
+      _count: { id: true },
+    });
+    return rows.map((row) => ({ mappingStatus: row.mappingStatus, count: row._count.id }));
   }
 
   async findGradeHistory(
@@ -140,25 +153,16 @@ export class DashboardInventoryRepositoryAdapter
   ): Promise<AGradeReviewRow[]> {
     // 2-hop tenant scope: master.organizationId +
     // listings.organizationId on the nested filter.
-    const masters = await this.prisma.masterProduct.findMany({
+    const listings = await this.prisma.channelListing.findMany({
       where: {
         organizationId,
-        isDeleted: false,
-        ...LEGACY_FAMILY_MASTER_SCOPE,
+        isActive: true,
         abcGrade: 'A',
       },
-      include: {
-        listings: {
-          where: { organizationId },
-          select: { _count: { select: { reviews: true } } },
-        },
-      },
+      select: { _count: { select: { reviews: true } } },
     });
-    return masters.map((m) => ({
-      reviewCount: m.listings.reduce(
-        (sum, l) => sum + l._count.reviews,
-        0,
-      ),
+    return listings.map((listing) => ({
+      reviewCount: listing._count.reviews,
     } satisfies AGradeReviewRow));
   }
 }

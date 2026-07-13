@@ -18,11 +18,12 @@ export interface AdAccountKpiDayRow {
 /**
  * Idempotent upsert input. Mirrors the historical
  * `channel-account-kpi.persistence.UpsertAccountKpiInput` so the adapter
- * can keep `(organizationId, channel, source, businessDate, kpiType)` as
+ * can keep `(organizationId, channelAccountId, source, businessDate, kpiType)` as
  * the unique key.
  */
 export interface UpsertAccountKpiInput {
   organizationId: string;
+  channelAccountId: string;
   channel: string;
   source: string;
   kpiType: string;
@@ -48,7 +49,7 @@ export interface AdAccountKpiRepositoryPort {
   ): Promise<AdAccountKpiDayRow[]>;
 
   /**
-   * Idempotent upsert by `(organizationId, channel, source, businessDate, kpiType)`.
+   * Idempotent upsert by `(organizationId, channelAccountId, source, businessDate, kpiType)`.
    * Returns the row id so callers can audit-link snapshots.
    */
   upsertAccountKpi(input: UpsertAccountKpiInput): Promise<{ id: string }>;

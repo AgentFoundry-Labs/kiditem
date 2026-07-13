@@ -21,6 +21,7 @@ import {
   CHANNEL_SCRAPE_REPOSITORY_PORT,
   type ChannelScrapeRepositoryPort,
 } from '../port/out/repository/channel-scrape.repository.port';
+import type { ListingMap } from '../../domain/listing-match';
 
 @Injectable()
 export class CoupangAdsDailyIngestHandler {
@@ -31,11 +32,16 @@ export class CoupangAdsDailyIngestHandler {
     private readonly accountKpiRepo: AdAccountKpiRepositoryPort,
   ) {}
 
-  async execute(payload: ExtensionSyncDto, organizationId: string) {
+  async execute(
+    payload: ExtensionSyncDto,
+    organizationId: string,
+    map: ListingMap,
+  ) {
     const rows = payload.data ?? [];
 
     const scrapeRun = await this.scrapeRepo.createRun({
       organizationId,
+      channelAccountId: map.channelAccountId,
       channel: 'coupang',
       source: 'coupang_ads',
       pageType: 'dashboard_daily',
@@ -74,7 +80,6 @@ export class CoupangAdsDailyIngestHandler {
           externalOptionId: null,
           listingId: null,
           listingOptionId: null,
-          optionId: null,
           matchStatus: 'unmatched',
           matchReason: row.date
             ? 'kpi-only daily aggregate (no listing identity)'
@@ -108,6 +113,7 @@ export class CoupangAdsDailyIngestHandler {
         };
         await this.accountKpiRepo.upsertAccountKpi({
           organizationId,
+          channelAccountId: map.channelAccountId,
           channel: 'coupang',
           source: 'coupang_ads',
           kpiType: 'coupang_ads_daily',

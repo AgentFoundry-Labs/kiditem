@@ -4,9 +4,10 @@ export type UnshippedItemRow = {
   id: string;
   organizationId: string;
   orderId: string;
-  listingId: string | null;
-  optionId: string | null;
+  orderLineItemId: string;
   productName: string;
+  optionName: string | null;
+  externalSku: string | null;
   quantity: number;
   orderDate: Date;
   delayDays: number;

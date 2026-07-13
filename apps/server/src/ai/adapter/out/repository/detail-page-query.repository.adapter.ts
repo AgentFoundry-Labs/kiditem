@@ -12,26 +12,14 @@ import type {
   DetailPageQueryRepositoryPort,
 } from '../../../application/port/out/repository/detail-page-query.repository.port';
 
-const detailPageGenerationInclude = {
-  generationGroup: {
-    select: {
-      id: true,
-      targetMasterId: true,
-    },
-  },
-} satisfies Prisma.ContentGenerationInclude;
-
 interface DetailPageEditableGenerationSnapshot {
   id: string;
   generationGroupId: string;
-  contentWorkspaceId: string | null;
+  contentWorkspaceId: string;
   detailPageArtifactId: string | null;
   generatedTitle: string | null;
   sourceCandidateId: string | null;
   triggeredByUserId: string | null;
-  generationGroup: {
-    targetMasterId: string | null;
-  };
 }
 
 @Injectable()
@@ -47,9 +35,7 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
       ? { contentWorkspaceId: input.contentWorkspaceId }
       : input.sourceCandidateId
         ? { sourceCandidateId: input.sourceCandidateId }
-        : input.productId
-          ? { generationGroup: { targetMasterId: input.productId } }
-          : {};
+        : {};
     const rows = await this.prisma.contentGeneration.findMany({
       where: {
         organizationId: input.organizationId,
@@ -57,7 +43,6 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
         contentType: 'detail_page',
         ...ownershipWhere,
       },
-      include: detailPageGenerationInclude,
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
@@ -70,7 +55,6 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
   }): Promise<DetailPageGenerationSnapshot | null> {
     const row = await this.prisma.contentGeneration.findFirst({
       where: { id: input.id, organizationId: input.organizationId, isDeleted: false },
-      include: detailPageGenerationInclude,
     });
     return row as DetailPageGenerationSnapshot | null;
   }
@@ -151,17 +135,10 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
         editedHtmlSavedAt: true,
         status: true,
         triggeredByUserId: true,
-        generationGroup: {
-          select: {
-            targetMasterId: true,
-          },
-        },
         detailPageArtifact: {
           select: {
             id: true,
             title: true,
-            sourceCandidateId: true,
-            targetMasterId: true,
             currentRevision: {
               select: {
                 id: true,
@@ -191,9 +168,7 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
           generationGroupId: input.source.generationGroupId,
           contentWorkspaceId: input.source.contentWorkspaceId,
           sourceCandidateId:
-            input.source.sourceCandidateId ??
-            input.source.detailPageArtifact?.sourceCandidateId ??
-            null,
+            input.source.sourceCandidateId,
           triggeredByUserId: input.triggeredByUserId ?? input.source.triggeredByUserId,
           templateId: input.source.templateId,
           generationInput: input.source.generationInput as Prisma.InputJsonValue,
@@ -205,20 +180,12 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
           editedHtmlSavedAt: input.source.editedHtmlSavedAt,
           status: input.source.status === 'FAILED' ? 'READY' : input.source.status,
         },
-        include: detailPageGenerationInclude,
       });
 
       const artifact = await tx.detailPageArtifact.create({
         data: {
           organizationId: input.organizationId,
           contentWorkspaceId: input.source.contentWorkspaceId,
-          sourceCandidateId:
-            input.source.sourceCandidateId ??
-            input.source.detailPageArtifact?.sourceCandidateId ??
-            null,
-          targetMasterId:
-            input.source.detailPageArtifact?.targetMasterId ??
-            input.source.generationGroup.targetMasterId,
           sourceContentGenerationId: created.id,
           title: input.duplicateTitle,
           status: 'draft',
@@ -261,8 +228,7 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
 
       return tx.contentGeneration.findFirstOrThrow({
         where: { id: created.id, organizationId: input.organizationId },
-        include: detailPageGenerationInclude,
-      }) as Promise<DetailPageGenerationSnapshot>;
+      });
     });
   }
 
@@ -289,11 +255,6 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
           generatedTitle: true,
           sourceCandidateId: true,
           triggeredByUserId: true,
-          generationGroup: {
-            select: {
-              targetMasterId: true,
-            },
-          },
         },
       }) as DetailPageEditableGenerationSnapshot | null;
       if (!row) throw new NotFoundException('Detail page generation not found');
@@ -310,8 +271,6 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
         data: {
           organizationId: input.organizationId,
           contentWorkspaceId: row.contentWorkspaceId,
-          sourceCandidateId: row.sourceCandidateId,
-          targetMasterId: row.generationGroup.targetMasterId,
           sourceContentGenerationId: input.contentGenerationId,
           title: row.generatedTitle ?? '상세페이지',
           status: 'draft',
@@ -359,19 +318,17 @@ export class DetailPageQueryRepositoryAdapter implements DetailPageQueryReposito
         throw new NotFoundException('Detail page generation not found');
       }
 
-      if (row.contentWorkspaceId) {
-        await tx.contentWorkspace.updateMany({
-          where: {
-            id: row.contentWorkspaceId,
-            organizationId: input.organizationId,
-            isDeleted: false,
-          },
-          data: {
-            currentDetailPageArtifactId: artifactId,
-            currentDetailPageRevisionId: createdRevision.id,
-          },
-        });
-      }
+      await tx.contentWorkspace.updateMany({
+        where: {
+          id: row.contentWorkspaceId,
+          organizationId: input.organizationId,
+          isDeleted: false,
+        },
+        data: {
+          currentDetailPageArtifactId: artifactId,
+          currentDetailPageRevisionId: createdRevision.id,
+        },
+      });
 
       return {
         html: createdRevision.html,

@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { LEGACY_FAMILY_MASTER_SCOPE } from '../../../../common/legacy-family-master-scope';
 import type {
   ContentWorkspaceLifecycleRepositoryPort,
   ContentWorkspaceListInput,
@@ -29,7 +28,6 @@ implements ContentWorkspaceLifecycleRepositoryPort {
             organizationId: input.organizationId,
             ownerType: input.ownerType,
             sourceCandidateId: input.sourceCandidateId,
-            targetMasterId: input.targetMasterId,
             channelListingId: input.channelListingId,
             originWorkspaceId: input.originWorkspaceId,
             displayName: input.displayName,
@@ -67,7 +65,6 @@ implements ContentWorkspaceLifecycleRepositoryPort {
         id: true,
         ownerType: true,
         sourceCandidateId: true,
-        targetMasterId: true,
         channelListingId: true,
         originWorkspaceId: true,
         displayName: true,
@@ -218,13 +215,12 @@ function findActiveWorkspace(
 
 function assertValidOwnerShape(input: EnsureContentWorkspaceInput): void {
   const hasSource = input.sourceCandidateId !== null;
-  const hasMaster = input.targetMasterId !== null;
   const hasListing = input.channelListingId !== null;
   const hasOrigin = input.originWorkspaceId !== null;
   const valid = input.ownerType === 'sourcing_candidate'
-    ? hasSource && !hasMaster && !hasListing && !hasOrigin
+    ? hasSource && !hasListing && !hasOrigin
     : input.ownerType === 'channel_listing'
-      ? !hasSource && !hasMaster && hasListing
+      ? !hasSource && hasListing
       : !hasSource && !hasListing && !hasOrigin;
   if (!valid) {
     throw new BadRequestException('Content workspace owner fields do not match ownerType.');
@@ -250,33 +246,7 @@ async function validateOwnerReferences(
     return;
   }
 
-  if (input.ownerType === 'direct_detail_page') {
-    if (!input.targetMasterId) return;
-    const master = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-      SELECT id
-      FROM master_products
-      WHERE id = ${input.targetMasterId}::uuid
-        AND organization_id = ${input.organizationId}::uuid
-        AND is_deleted = false
-      FOR UPDATE
-    `);
-    if (master.length !== 1) {
-      throw new NotFoundException('Master product owner not found.');
-    }
-    const legacyFamilyMaster = await tx.masterProduct.findFirst({
-      where: {
-        id: input.targetMasterId,
-        organizationId: input.organizationId,
-        isDeleted: false,
-        ...LEGACY_FAMILY_MASTER_SCOPE,
-      },
-      select: { id: true },
-    });
-    if (!legacyFamilyMaster) {
-      throw new NotFoundException('Master product owner not found.');
-    }
-    return;
-  }
+  if (input.ownerType === 'direct_detail_page') return;
 
   const listingRows = await tx.$queryRaw<Array<{
     id: string;
@@ -286,7 +256,7 @@ async function validateOwnerReferences(
     FROM channel_listings
     WHERE id = ${input.channelListingId!}::uuid
       AND organization_id = ${input.organizationId}::uuid
-      AND is_deleted = false
+      AND is_active = true
     FOR UPDATE
   `);
   const listing = listingRows[0];
@@ -319,9 +289,7 @@ async function validateOwnerReferences(
 function activeWorkspaceWhere(input: EnsureContentWorkspaceInput): Prisma.ContentWorkspaceWhereInput {
   return {
     organizationId: input.organizationId,
-    ownerType: input.ownerType === 'direct_detail_page' && input.targetMasterId
-      ? { in: ['direct_detail_page', 'master_product'] }
-      : input.ownerType,
+    ownerType: input.ownerType,
     normalizedTitle: input.normalizedTitle,
     status: 'active',
     isDeleted: false,
@@ -332,7 +300,6 @@ function activeWorkspaceWhere(input: EnsureContentWorkspaceInput): Prisma.Conten
         : {
             sourceCandidateId: null,
             channelListingId: null,
-            targetMasterId: input.targetMasterId,
           }),
   };
 }

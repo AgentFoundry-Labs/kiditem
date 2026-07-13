@@ -78,8 +78,13 @@ export async function uploadTrafficStats({
 
     // Coupang 의 '등록상품ID' 는 ChannelListing.externalId 에 해당.
     // CSV upload 는 Coupang 전용이므로 channel='coupang' 로 제한.
+    const channelAccount = await prisma.channelAccount.findFirst({
+      where: { organizationId, channel: 'coupang', status: 'active', isPrimary: true },
+      select: { id: true },
+    });
+    if (!channelAccount) throw new NotFoundException('Active primary Coupang account not found');
     const listings = await prisma.channelListing.findMany({
-      where: { organizationId, isDeleted: false, channel: 'coupang' },
+      where: { organizationId, isActive: true, channelAccountId: channelAccount.id },
       select: { id: true, externalId: true },
     });
     const listingMap = new Map<string, string>(
@@ -105,6 +110,7 @@ export async function uploadTrafficStats({
       const run = await prisma.channelScrapeRun.create({
         data: {
           organizationId,
+          channelAccountId: channelAccount.id,
           channel: 'coupang',
           source: 'traffic_csv_upload',
           pageType: 'traffic',

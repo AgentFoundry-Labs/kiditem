@@ -15,12 +15,13 @@ function makePrisma() {
   };
 }
 
-function ownedRows(ids: number[]): Array<{ externalOrderId: string }> {
-  return ids.map((id) => ({ externalOrderId: String(id) }));
-}
-
 const ORGANIZATION_ID = 'organization-1';
 const OTHER_ORGANIZATION_ID = 'organization-2';
+const CHANNEL_ACCOUNT_ID = '00000000-0000-4000-8000-000000000010';
+
+function ownedRows(ids: number[]): Array<{ externalOrderId: string; channelAccountId: string }> {
+  return ids.map((id) => ({ externalOrderId: String(id), channelAccountId: CHANNEL_ACCOUNT_ID }));
+}
 
 function makeCoupangPort(): CoupangProviderPort {
   return {
@@ -57,6 +58,8 @@ const MOCK_ORDER = {
   deliveredAt: null,
   totalPrice: 35000,
   organizationId: ORGANIZATION_ID,
+  channelAccountId: CHANNEL_ACCOUNT_ID,
+  channelAccount: { channel: 'coupang' },
   platform: 'coupang',
   externalOrderId: '12345',
   externalNumber: 'CO-1',
@@ -311,18 +314,19 @@ describe('OrdersService — order query and actions', () => {
 
       const result = await service.confirm([12345, 67890], ORGANIZATION_ID);
 
-      // 소유권 lookup 이 organizationId + platform + externalOrderId 로 발생
+      // 소유권 lookup 이 organizationId + account + externalOrderId 로 발생
       expect(prisma.order.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
             organizationId: ORGANIZATION_ID,
-            platform: 'coupang',
             externalOrderId: { in: ['12345', '67890'] },
+            channelAccountId: { not: null },
           }),
         }),
       );
       expect(coupang.confirmOrderSheets).toHaveBeenCalledWith(
         ORGANIZATION_ID,
+        CHANNEL_ACCOUNT_ID,
         [12345, 67890],
       );
       expect(result.message).toBe('2건 승인 완료');
@@ -363,13 +367,14 @@ describe('OrdersService — order query and actions', () => {
         expect.objectContaining({
           where: expect.objectContaining({
             organizationId: ORGANIZATION_ID,
-            platform: 'coupang',
             externalOrderId: { in: ['12345'] },
+            channelAccountId: { not: null },
           }),
         }),
       );
       expect(coupang.uploadInvoice).toHaveBeenCalledWith(
         ORGANIZATION_ID,
+        CHANNEL_ACCOUNT_ID,
         12345,
         expect.objectContaining({
           deliveryCompanyCode: 'CJGLS',

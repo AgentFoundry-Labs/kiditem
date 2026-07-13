@@ -133,6 +133,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
             cad.conversions
           FROM channel_ad_target_daily_snapshots cad
           WHERE cad.organization_id = ${organizationId}::uuid
+            AND cad.channel = 'coupang'
             AND cad.target_type IN ('campaign', 'keyword', 'product')
           ORDER BY
             cad.target_key,
@@ -159,24 +160,28 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           latest.impressions,
           latest.clicks,
           latest.conversions,
-          mp.abc_grade                 AS "abcGrade",
-          po.commission_rate           AS "optionCommissionRate",
-          mp.name                      AS "productName"
+          cl.abc_grade                 AS "abcGrade",
+          clo.commission_rate          AS "optionCommissionRate",
+          COALESCE(cl.display_name, cl.channel_name, cl.external_id)
+                                       AS "productName"
         FROM latest
         LEFT JOIN channel_listings cl
-               ON cl.id = latest.listing_id
+              ON cl.id = latest.listing_id
               AND cl.organization_id = ${organizationId}::uuid
-              AND cl.is_deleted = false
-        LEFT JOIN master_products mp
-               ON mp.id = cl.master_id
-              AND mp.organization_id = ${organizationId}::uuid
+              AND cl.is_active = true
+              AND EXISTS (
+                SELECT 1
+                FROM channel_accounts account
+                WHERE account.id = cl.channel_account_id
+                  AND account.organization_id = cl.organization_id
+                  AND account.channel = 'coupang'
+                  AND account.status = 'active'
+              )
         LEFT JOIN channel_listing_options clo
-               ON clo.id = latest.listing_option_id
+              ON clo.id = latest.listing_option_id
               AND clo.organization_id = ${organizationId}::uuid
+              AND clo.listing_id = cl.id
               AND clo.is_active = true
-        LEFT JOIN product_options po
-               ON po.id = clo.option_id
-              AND po.organization_id = ${organizationId}::uuid
       `,
     );
   }

@@ -16,7 +16,8 @@ export class OrdersService {
 
   private toListItem(order: {
     id: string;
-    platform: string;
+    channelAccountId: string | null;
+    channelAccount: { channel: string } | null;
     externalOrderId: string;
     externalNumber: string | null;
     customerName: string;
@@ -57,10 +58,14 @@ export class OrdersService {
     const normalizedRaw =
       order.status === 'NONE_TRACKING' ? 'DEPARTURE' : order.status;
     const status = OrderStatusSchema.parse(normalizedRaw);
+    if (!order.channelAccountId || !order.channelAccount) {
+      throw new BadRequestException('Order is missing its ChannelAccount owner');
+    }
 
     return {
       id: order.id,
-      platform: order.platform,
+      channelAccountId: order.channelAccountId,
+      channel: order.channelAccount?.channel ?? 'unknown',
       externalOrderId: order.externalOrderId,
       externalNumber: order.externalNumber,
       displayOrderNumber: order.externalNumber ?? order.externalOrderId,
@@ -126,6 +131,7 @@ export class OrdersService {
         }),
       },
       include: {
+        channelAccount: { select: { channel: true } },
         lineItems: {
           where: { organizationId },
           orderBy: { createdAt: 'asc' },
@@ -197,14 +203,14 @@ export class OrdersService {
   /**
    * shipmentBoxId 소유권 + safe-integer 검증 — 주어진 ID 들이 모두
    *   1) Number.MAX_SAFE_INTEGER 안전 범위 안 (정수 양수)
-   *   2) organizationId 의 Coupang 주문 (organizationId + platform + externalOrderId)
+   *   2) organizationId 의 계정 귀속 주문 (organizationId + channelAccountId + externalOrderId)
    * 위 두 조건을 만족해야 외부 API 호출. DTO ValidationPipe 가 1차 방어이지만
    * 내부 caller (workflow 등) 가 DTO 우회 가능하므로 service 에서도 defensive.
    */
   private async assertOwnedShipmentBoxIds(
     shipmentBoxIds: number[],
     organizationId: string,
-  ): Promise<void> {
+  ): Promise<string> {
     const unsafe = shipmentBoxIds.filter(
       (id) => !Number.isSafeInteger(id) || id <= 0,
     );
@@ -217,10 +223,10 @@ export class OrdersService {
     const owned = await this.prisma.order.findMany({
       where: {
         organizationId,
-        platform: 'coupang',
         externalOrderId: { in: externalOrderIds },
+        channelAccount: { channel: 'coupang', status: 'active' },
       },
-      select: { externalOrderId: true },
+      select: { externalOrderId: true, channelAccountId: true },
     });
     if (owned.length !== shipmentBoxIds.length) {
       const ownedSet = new Set(owned.map((o) => o.externalOrderId));
@@ -229,14 +235,25 @@ export class OrdersService {
         `Order(s) not found for organization: ${missing.join(', ')}`,
       );
     }
+    const channelAccountIds = new Set(owned.map((order) => order.channelAccountId));
+    if (channelAccountIds.size !== 1) {
+      throw new BadRequestException('All order actions must target one ChannelAccount');
+    }
+    const channelAccountId = owned[0]?.channelAccountId;
+    if (!channelAccountId) throw new NotFoundException('Order ChannelAccount not found');
+    return channelAccountId;
   }
 
   async confirm(
     shipmentBoxIds: number[],
     organizationId: string,
   ): Promise<OrderActionResponse> {
-    await this.assertOwnedShipmentBoxIds(shipmentBoxIds, organizationId);
-    const result = await this.coupang.confirmOrderSheets(organizationId, shipmentBoxIds);
+    const channelAccountId = await this.assertOwnedShipmentBoxIds(shipmentBoxIds, organizationId);
+    const result = await this.coupang.confirmOrderSheets(
+      organizationId,
+      channelAccountId,
+      shipmentBoxIds,
+    );
     return {
       message: `${shipmentBoxIds.length}건 승인 완료`,
       data: result,
@@ -249,8 +266,11 @@ export class OrdersService {
     invoiceNumber: string,
     organizationId: string,
   ): Promise<OrderActionResponse> {
-    await this.assertOwnedShipmentBoxIds([shipmentBoxId], organizationId);
-    const result = await this.coupang.uploadInvoice(organizationId, shipmentBoxId, {
+    const channelAccountId = await this.assertOwnedShipmentBoxIds(
+      [shipmentBoxId],
+      organizationId,
+    );
+    const result = await this.coupang.uploadInvoice(organizationId, channelAccountId, shipmentBoxId, {
       deliveryCompanyCode,
       invoiceNumber,
     });

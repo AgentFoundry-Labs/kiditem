@@ -13,6 +13,11 @@ describe('DashboardInventoryService', () => {
       fetchPerListingMetrics: vi.fn().mockResolvedValue([]),
       countOutOfStockInventorySkus: vi.fn().mockResolvedValue(7),
       countMappingAttentionChannelSkus: vi.fn().mockResolvedValue(3),
+      countChannelSkusByMappingStatus: vi.fn().mockResolvedValue([
+        { mappingStatus: 'matched', count: 8 },
+        { mappingStatus: 'unmatched', count: 2 },
+        { mappingStatus: 'needs_review', count: 1 },
+      ]),
       findGradeHistory: vi.fn().mockResolvedValue([]),
       countLowCtrThumbnails: vi.fn().mockResolvedValue(0),
       findAGradeReviewCounts: vi.fn().mockResolvedValue([]),
@@ -33,5 +38,6 @@ describe('DashboardInventoryService', () => {
       mappingAttentionSkus: 3,
     });
     expect(result.warnings).not.toHaveProperty('needReorder');
+    expect(result.mappingStatusCounts).toEqual({ matched: 8, unmatched: 2, needsReview: 1 });
   });
 });

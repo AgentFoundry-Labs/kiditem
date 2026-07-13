@@ -31,27 +31,23 @@ describe('AdSync flow (PG integration, H2)', () => {
     legacySuffix?: string;
   }) {
     const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}${params.legacySuffix ?? ''}`;
-    const master = await prisma.masterProduct.create({
-      data: {
-        organizationId: params.organizationId,
-        code: `M-${unique}`,
-        name: `Master ${unique}`,
-        optionCounter: 0,
-      },
-    });
-    const option = await prisma.productOption.create({
-      data: {
-        organizationId: params.organizationId,
-        masterId: master.id,
-        sku: `SKU-${unique}`,
-        optionName: `Option ${unique}`,
-      },
-    });
+    const channelAccount =
+      (await prisma.channelAccount.findFirst({
+        where: { organizationId: params.organizationId, channel: 'coupang' },
+      })) ??
+      (await prisma.channelAccount.create({
+        data: {
+          organizationId: params.organizationId,
+          channel: 'coupang',
+          name: 'Ad Sync PG Coupang',
+          externalAccountId: 'ad-sync-pg',
+          isPrimary: true,
+        },
+      }));
     const listing = await prisma.channelListing.create({
       data: {
         organizationId: params.organizationId,
-        masterId: master.id,
-        channel: 'coupang',
+        channelAccountId: channelAccount.id,
         externalId: params.externalId,
       },
     });
@@ -59,12 +55,11 @@ describe('AdSync flow (PG integration, H2)', () => {
       data: {
         organizationId: params.organizationId,
         listingId: listing.id,
-        optionId: option.id,
         externalOptionId: params.externalOptionId,
         isActive: true,
       },
     });
-    return { master, option, listing, listingOption };
+    return { channelAccount, listing, listingOption };
   }
 
   beforeAll(async () => {
@@ -87,6 +82,15 @@ describe('AdSync flow (PG integration, H2)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Ad Sync PG Coupang',
+        externalAccountId: 'ad-sync-pg',
+        isPrimary: true,
+      },
+    });
   });
 
   describe('buildListingMap', () => {
@@ -109,9 +113,9 @@ describe('AdSync flow (PG integration, H2)', () => {
       expect(map.externalOptionIdMap.get('VENDOR-A')).toEqual({
         listingId: a.listing.id,
         listingOptionId: a.listingOption.id,
-        optionId: a.option.id,
         externalId: 'EXT-A',
       });
+      expect(map.channelAccountId).toBe(a.channelAccount.id);
       expect(map.externalIdMap.get('EXT-A')).toEqual({
         listingId: a.listing.id,
       });

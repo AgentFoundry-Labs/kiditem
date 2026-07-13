@@ -44,7 +44,6 @@ const AD_TARGET_DESCRIPTOR_KEYS: ReadonlyArray<
     | 'dailyBudget'
     | 'listingId'
     | 'listingOptionId'
-    | 'optionId'
     | 'externalId'
     | 'externalOptionId'
   >
@@ -60,7 +59,6 @@ const AD_TARGET_DESCRIPTOR_KEYS: ReadonlyArray<
   'dailyBudget',
   'listingId',
   'listingOptionId',
-  'optionId',
   'externalId',
   'externalOptionId',
 ];
@@ -111,7 +109,6 @@ export class ChannelTargetDailyRepositoryAdapter
           targetKey: input.targetKey,
           listingId: input.listingId ?? null,
           listingOptionId: input.listingOptionId ?? null,
-          optionId: input.optionId ?? null,
           externalId: input.externalId ?? null,
           externalOptionId: input.externalOptionId ?? null,
           campaignId: input.campaignId ?? null,

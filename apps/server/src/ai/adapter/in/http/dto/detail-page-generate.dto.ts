@@ -78,10 +78,6 @@ export class GenerateDetailPageBodyDto implements GenerateDetailPageInput {
 
   @IsOptional()
   @IsUUID()
-  productId?: string;
-
-  @IsOptional()
-  @IsUUID()
   contentWorkspaceId?: string;
 
   @IsOptional()

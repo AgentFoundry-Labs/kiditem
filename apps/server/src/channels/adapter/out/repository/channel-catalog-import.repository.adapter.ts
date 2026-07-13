@@ -198,7 +198,7 @@ implements ChannelCatalogImportRepositoryPort {
         tx.channelListingOption.findMany({
           where: {
             organizationId: input.organizationId,
-            channelAccountId: input.channelAccountId,
+            listing: { channelAccountId: input.channelAccountId },
             externalOptionId: { in: externalSkuIds },
           },
           select: { id: true, listingId: true, externalOptionId: true },
@@ -337,7 +337,6 @@ implements ChannelCatalogImportRepositoryPort {
             id,
             listing_id,
             organization_id,
-            channel_account_id,
             external_option_id,
             item_name,
             seller_sku,
@@ -357,7 +356,6 @@ implements ChannelCatalogImportRepositoryPort {
             (record->>'id')::uuid,
             (record->>'listingId')::uuid,
             ${input.organizationId}::uuid,
-            ${input.channelAccountId}::uuid,
             record->>'externalSkuId',
             record->>'optionName',
             NULL,
@@ -373,8 +371,7 @@ implements ChannelCatalogImportRepositoryPort {
             NOW(),
             NOW()
           FROM jsonb_array_elements(${payload}::jsonb) AS record
-          ON CONFLICT (organization_id, channel_account_id, external_option_id)
-            WHERE channel_account_id IS NOT NULL
+          ON CONFLICT (listing_id, external_option_id)
           DO UPDATE SET
             listing_id = EXCLUDED.listing_id,
             item_name = EXCLUDED.item_name,
@@ -393,7 +390,7 @@ implements ChannelCatalogImportRepositoryPort {
         await tx.channelListingOption.updateMany({
           where: {
             organizationId: input.organizationId,
-            channelAccountId: input.channelAccountId,
+            listing: { channelAccountId: input.channelAccountId },
             externalOptionId: { notIn: snapshotCoverage.externalSkuIds },
           },
           data: {

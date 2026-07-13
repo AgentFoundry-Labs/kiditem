@@ -2,7 +2,7 @@ export type PickingSourceComponent = {
   masterProductId: string | null;
   quantity: number;
   masterProduct: {
-    sellpiaProductCode: string | null;
+    code: string;
     name: string;
     optionName: string | null;
   } | null;
@@ -57,7 +57,7 @@ export function extractPickableItems(orders: PickingSourceOrder[]): PickingExtra
           orderId: order.id,
           masterProductId: component.masterProductId,
           productName: component.masterProduct.name,
-          sku: component.masterProduct.sellpiaProductCode,
+          sku: component.masterProduct.code,
           quantity: li.quantity * component.quantity,
         });
       }

@@ -14,7 +14,7 @@ import {
 
 type ListingForProductSync = {
   id: string;
-  channelAccountId: string | null;
+  channelAccountId: string;
 };
 
 @Injectable()
@@ -81,10 +81,10 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
           where: {
             id: existing.id,
             organizationId: input.organizationId,
-            channel: 'coupang',
             externalId: input.sellerProductId,
             channelAccountId: existing.channelAccountId,
-            isDeleted: false,
+            isActive: true,
+            channelAccount: { is: { channel: 'coupang' } },
           },
           data: {
             channelName: input.detail.sellerProductName ?? null,
@@ -95,9 +95,6 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
             deliveryInfo: input.detail.deliveryInfo === undefined
               ? Prisma.DbNull
               : (input.detail.deliveryInfo as Prisma.InputJsonValue),
-            ...(input.channelAccountId && existing.channelAccountId === null
-              ? { channelAccountId: input.channelAccountId }
-              : {}),
           },
         });
         if (updated.count !== 1) {
@@ -187,7 +184,6 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
           : await tx.order.create({ data: {
             organizationId,
             channelAccountId,
-            platform: 'coupang',
             externalOrderId: shipmentBoxId,
             externalNumber: payload.orderId ? String(payload.orderId) : null,
             status: normalizeCoupangOrderStatus(payload.status) ?? 'ACCEPT',
@@ -219,12 +215,11 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
           const listingOption = await tx.channelListingOption.findFirst({
             where: {
               organizationId,
-              channelAccountId,
               externalOptionId,
               isActive: true,
               listing: {
                 channelAccountId,
-                isDeleted: false,
+                isActive: true,
                 ...(sellerProductId ? { externalId: sellerProductId } : {}),
               },
             },
@@ -252,7 +247,6 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
               unitPrice: item.salesPrice ?? 0,
               totalPrice: item.orderPrice ?? 0,
               listingOptionId: listingOption?.id ?? null,
-              optionId: null,
               productName: item.sellerProductName ?? '',
               optionName:
                 item.vendorItemName ?? listingOption?.itemName ?? null,
@@ -263,7 +257,6 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
               organizationId,
               orderId: order.id,
               listingOptionId: listingOption?.id ?? null,
-              optionId: null,
               productName: item.sellerProductName ?? '',
               optionName:
                 item.vendorItemName ?? listingOption?.itemName ?? null,
@@ -331,7 +324,6 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
           : await tx.orderReturn.create({ data: {
             organizationId,
             channelAccountId,
-            platform: 'coupang',
             externalReturnId: receiptId,
             type: payload.receiptType ?? 'RETURN',
             status: payload.receiptStatus ?? 'pending',
@@ -377,7 +369,6 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
               returnId: ret.id,
               orderLineItemId: orderLineItem?.id ?? null,
               listingOptionId: orderLineItem?.listingOptionId ?? null,
-              optionId: null,
               productName: it.productName ?? it.vendorItemName ?? orderLineItem?.productName ?? '',
               optionName: orderLineItem?.optionName ?? null,
               externalSku: externalSku ?? orderLineItem?.sku ?? null,
@@ -399,17 +390,10 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
     const listings = await this.prisma.channelListing.findMany({
       where: {
         organizationId: input.organizationId,
-        channel: 'coupang',
         externalId: input.sellerProductId,
-        isDeleted: false,
-        ...(input.channelAccountId
-          ? {
-              OR: [
-                { channelAccountId: input.channelAccountId },
-                { channelAccountId: null },
-              ],
-            }
-          : {}),
+        isActive: true,
+        channelAccount: { is: { organizationId: input.organizationId, channel: 'coupang' } },
+        ...(input.channelAccountId ? { channelAccountId: input.channelAccountId } : {}),
       },
       select: { id: true, channelAccountId: true },
       orderBy: [{ channelAccountId: 'asc' }, { updatedAt: 'desc' }],
@@ -420,9 +404,6 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
         (listing) => listing.channelAccountId === input.channelAccountId,
       );
       if (accountListing) return { listing: accountListing };
-      if (listings.length === 1 && listings[0]?.channelAccountId === null) {
-        return { listing: listings[0] };
-      }
       if (listings.length > 1) {
         return {
           listing: null,
@@ -433,13 +414,10 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
       const inactive = await this.prisma.channelListing.findFirst({
         where: {
           organizationId: input.organizationId,
-          channel: 'coupang',
           externalId: input.sellerProductId,
-          isDeleted: true,
-          OR: [
-            { channelAccountId: input.channelAccountId },
-            { channelAccountId: null },
-          ],
+          isActive: false,
+          channelAccountId: input.channelAccountId,
+          channelAccount: { is: { organizationId: input.organizationId, channel: 'coupang' } },
         },
         select: { id: true },
       });
@@ -463,17 +441,10 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
     const inactive = await this.prisma.channelListing.findFirst({
       where: {
         organizationId: input.organizationId,
-        channel: 'coupang',
         externalId: input.sellerProductId,
-        isDeleted: true,
-        ...(input.channelAccountId
-          ? {
-              OR: [
-                { channelAccountId: input.channelAccountId },
-                { channelAccountId: null },
-              ],
-            }
-          : {}),
+        isActive: false,
+        channelAccount: { is: { organizationId: input.organizationId, channel: 'coupang' } },
+        ...(input.channelAccountId ? { channelAccountId: input.channelAccountId } : {}),
       },
       select: { id: true },
     });

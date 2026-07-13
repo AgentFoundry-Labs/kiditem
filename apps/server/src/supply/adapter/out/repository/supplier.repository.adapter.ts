@@ -17,7 +17,6 @@ export class SupplierRepositoryAdapter implements SupplierRepositoryPort {
         _count: {
           select: {
             supplierProducts: true,
-            masterSupplierProducts: true,
             purchaseOrders: true,
           },
         },
@@ -27,7 +26,7 @@ export class SupplierRepositoryAdapter implements SupplierRepositoryPort {
 
     return suppliers.map(({ _count, ...supplier }) => ({
       ...supplier,
-      productCount: _count.supplierProducts + _count.masterSupplierProducts,
+      productCount: _count.supplierProducts,
       orderCount: _count.purchaseOrders,
     }));
   }

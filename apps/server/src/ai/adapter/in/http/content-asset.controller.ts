@@ -15,7 +15,7 @@ export class ContentAssetController {
     return this.contentAssets.listAssets(organizationId, {
       page: query.page,
       limit: query.limit,
-      productId: query.productId ?? null,
+      contentWorkspaceId: query.contentWorkspaceId ?? null,
       generationId: query.generationId ?? null,
     });
   }

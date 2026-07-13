@@ -5,15 +5,11 @@ import type { AuthUser } from '../../../../auth/auth.types';
 import { SourcingPromotionService } from '../../../application/service/sourcing-promotion.service';
 import { SourcingService } from '../../../application/service/sourcing.service';
 import { SourcingWorkspaceArchiveService } from '../../../application/service/sourcing-workspace-archive.service';
-import { ProductPreparationSelectionService } from '../../../application/service/product-preparation-selection.service';
 import { ProductRegistrationService } from '../../../application/service/product-registration.service';
 import {
   CreateProductPreparationDto,
   QuickProcessCandidateDto,
   RejectCandidateBodyDto,
-  SelectPreparationDetailDto,
-  SelectPreparationThumbnailDto,
-  UpdateProductBasicsDto,
   UpdateProductPreparationDto,
 } from './dto';
 
@@ -23,7 +19,6 @@ export class SourcingCandidateWorkspaceController {
     private readonly sourcingService: SourcingService,
     private readonly promotionSvc: SourcingPromotionService,
     private readonly workspaceArchive: SourcingWorkspaceArchiveService,
-    private readonly preparationSelection: ProductPreparationSelectionService,
     private readonly productRegistration: ProductRegistrationService,
   ) {}
 
@@ -101,33 +96,6 @@ export class SourcingCandidateWorkspaceController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.sourcingService.quickProcessCandidate(id, organizationId, user.id ?? null, body?.task ?? 'all');
-  }
-
-  @Patch('candidates/:id/preparation/basic-info')
-  updateBasicInfo(
-    @Param('id') id: string,
-    @Body() body: UpdateProductBasicsDto,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.preparationSelection.updateBasics(organizationId, id, body);
-  }
-
-  @Patch('candidates/:id/preparation/thumbnail')
-  selectThumbnail(
-    @Param('id') id: string,
-    @Body() body: SelectPreparationThumbnailDto,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.preparationSelection.selectThumbnail(organizationId, id, body);
-  }
-
-  @Patch('candidates/:id/preparation/detail-page')
-  selectDetailPage(
-    @Param('id') id: string,
-    @Body() body: SelectPreparationDetailDto,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.preparationSelection.selectDetailPage(organizationId, id, body);
   }
 
   @Delete('candidates/:id')

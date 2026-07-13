@@ -30,7 +30,7 @@ export class ProcurementService {
     }
 
     throw new BadRequestException(
-      `발주 항목의 옵션을 찾을 수 없거나 권한이 없습니다: ${result.missingOptionIds.join(', ')}`,
+      `발주 항목의 셀피아 상품을 찾을 수 없거나 권한이 없습니다: ${result.missingMasterProductIds.join(', ')}`,
     );
   }
 

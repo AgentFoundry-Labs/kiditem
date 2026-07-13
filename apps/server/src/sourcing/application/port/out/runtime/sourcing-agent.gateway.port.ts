@@ -23,22 +23,11 @@ export interface SourcingScrapeResult {
   requestId?: string;
 }
 
-export interface SourcingNotifyPromotedRequest {
-  organizationId: string;
-  masterId: string;
-}
-
 export type SourcingStartProductGenerationRequest = ProductGenerationAiRequest;
 export type SourcingStartProductGenerationResult = ProductGenerationAiResult;
 
 export interface SourcingAgentGatewayPort {
   scrapeUrl(request: SourcingScrapeRequest): Promise<SourcingScrapeResult>;
-  /**
-   * Fire-and-forget signal that a candidate was promoted to master.
-   * Adapter delegates to ai domain's POST_PROMOTION_AI_TRIGGER_PORT.
-   * Failures raise an OperationAlert; method does not throw.
-   */
-  notifyPromoted(request: SourcingNotifyPromotedRequest): Promise<void>;
   startProductGeneration(
     request: SourcingStartProductGenerationRequest,
   ): Promise<SourcingStartProductGenerationResult>;

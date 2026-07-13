@@ -18,7 +18,6 @@ import {
 } from '../port/out/repository/detail-page-query.repository.port';
 
 export interface DetailPageListQuery {
-  productId?: string | null;
   sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
   templateId?: string | null;
@@ -38,20 +37,15 @@ export class DetailPageQueryService {
 
   async list(
     organizationId: string,
-    queryOrProductId?: DetailPageListQuery | string,
-    legacyTemplateId?: string,
+    query: DetailPageListQuery = {},
   ): Promise<DetailPageGenerationDto[]> {
-    const query = typeof queryOrProductId === 'string'
-      ? { productId: queryOrProductId, templateId: legacyTemplateId }
-      : queryOrProductId ?? {};
-    const { contentWorkspaceId, productId, sourceCandidateId, templateId } = query;
+    const { contentWorkspaceId, sourceCandidateId, templateId } = query;
     if (templateId && templateId !== 'kids-playful' && templateId !== 'bold-vertical') {
       throw new BadRequestException('invalid templateId');
     }
     const rows = await this.repository.list({
       organizationId,
       contentWorkspaceId,
-      productId,
       sourceCandidateId,
     });
     return rows
@@ -187,7 +181,6 @@ export class DetailPageQueryService {
     );
     return {
       id: row.id,
-      productId: row.generationGroup.targetMasterId,
       sourceCandidateId: row.sourceCandidateId,
       contentWorkspaceId: row.contentWorkspaceId,
       templateId: stored.templateId,

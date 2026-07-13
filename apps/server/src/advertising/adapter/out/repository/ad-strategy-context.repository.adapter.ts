@@ -296,14 +296,16 @@ export class AdStrategyContextRepositoryAdapter
       where: {
         id: { in: listingIds },
         organizationId,
-        isDeleted: false,
-        masterId: { not: null },
+        isActive: true,
       },
       select: {
         id: true,
         externalId: true,
         channelName: true,
-        masterId: true,
+        displayName: true,
+        abcGrade: true,
+        adTier: true,
+        healthScore: true,
         options: {
           where: { isActive: true },
           orderBy: [
@@ -311,83 +313,47 @@ export class AdStrategyContextRepositoryAdapter
             { externalOptionId: 'asc' },
             { id: 'asc' },
           ],
-          select: { id: true, optionId: true },
+          select: {
+            id: true,
+            salePrice: true,
+            costPriceOverride: true,
+            commissionRate: true,
+            shippingCost: true,
+          },
         },
       },
     });
-    const linkedRows = rows.filter(
-      (row): row is (typeof rows)[number] & { masterId: string } =>
-        row.masterId !== null,
-    );
-    const masterIds = Array.from(new Set(linkedRows.map((r) => r.masterId)));
-    const optionIds = Array.from(
-      new Set(
-        linkedRows
-          .flatMap((r) => r.options.map((option) => option.optionId))
-          .filter((id): id is string => id != null),
-      ),
-    );
-    const [masters, productOptions] = await Promise.all([
-      masterIds.length > 0
-        ? this.prisma.masterProduct.findMany({
-            where: { id: { in: masterIds }, organizationId },
-            select: {
-              id: true,
-              code: true,
-              name: true,
-              abcGrade: true,
-              adTier: true,
-              healthScore: true,
-            },
-          })
-        : Promise.resolve([]),
-      optionIds.length > 0
-        ? this.prisma.productOption.findMany({
-            where: { id: { in: optionIds }, organizationId },
-            select: {
-              id: true,
-              commissionRate: true,
-              shippingCost: true,
-            },
-          })
-        : Promise.resolve([]),
-    ]);
-    const masterMap = new Map(masters.map((master) => [master.id, master]));
-    const optionMap = new Map(productOptions.map((option) => [option.id, option]));
-    return linkedRows
-      .map((r): HydratedListing | null => {
-        if (!r.masterId) return null;
-        const master = masterMap.get(r.masterId);
-        if (!master) return null;
+    return rows
+      .map((r): HydratedListing => {
         const firstClo = r.options[0] ?? null;
-        const firstOption = firstClo?.optionId
-          ? optionMap.get(firstClo.optionId) ?? null
-          : null;
         return {
           id: r.id,
           externalId: r.externalId,
           channelName: r.channelName,
           masterProduct: {
-            id: master.id,
-            code: master.code,
-            name: master.name,
-            abcGrade: master.abcGrade as 'A' | 'B' | 'C' | null,
-            adTier: master.adTier,
-            healthScore: master.healthScore,
+            id: r.id,
+            code: r.externalId,
+            name: r.displayName ?? r.channelName ?? r.externalId,
+            abcGrade:
+              r.abcGrade === 'A' || r.abcGrade === 'B' || r.abcGrade === 'C'
+                ? r.abcGrade
+                : null,
+            adTier: r.adTier,
+            healthScore: r.healthScore,
           },
           primaryOption: firstClo
             ? {
                 listingOptionId: firstClo.id,
                 sellableStock: null,
-                purchaseCost: null,
-                salePrice: null,
-                commissionRate: firstOption?.commissionRate ?? null,
-                shippingCost: firstOption?.shippingCost ?? null,
+                purchaseCost: firstClo.costPriceOverride,
+                salePrice: firstClo.salePrice,
+                commissionRate: firstClo.commissionRate,
+                shippingCost: firstClo.shippingCost,
               }
             : null,
         };
       })
-      .filter((listing): listing is HydratedListing => listing !== null);
+      ;
   }
 
   async loadAllTimeAdAggregates(

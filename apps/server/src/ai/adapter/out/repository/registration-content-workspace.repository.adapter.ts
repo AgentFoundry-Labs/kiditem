@@ -149,7 +149,6 @@ export class RegistrationContentWorkspaceRepositoryAdapter
         organizationId: input.organizationId,
         ownerType: 'sourcing_candidate',
         sourceCandidateId: input.sourceCandidateId,
-        targetMasterId: null,
         channelListingId: null,
         originWorkspaceId: null,
         displayName: input.displayName,
@@ -275,7 +274,6 @@ export class RegistrationContentWorkspaceRepositoryAdapter
           organizationId: input.organizationId,
           ownerType: 'channel_listing',
           sourceCandidateId: null,
-          targetMasterId: null,
           channelListingId: input.listingId,
           originWorkspaceId: source.id,
           displayName: input.displayName,
@@ -647,8 +645,6 @@ export class RegistrationContentWorkspaceRepositoryAdapter
       data: {
         organizationId: input.organizationId,
         contentWorkspaceId: input.listingWorkspaceId,
-        sourceCandidateId: null,
-        targetMasterId: null,
         sourceContentGenerationId: null,
         title: artifact.title,
         status: artifact.status,
@@ -826,7 +822,6 @@ export class RegistrationContentWorkspaceRepositoryAdapter
     return tx.contentAsset.create({
       data: {
         organizationId: input.organizationId,
-        generationGroupId: group.id,
         originGenerationGroupId: group.id,
         createdByUserId: input.createdByUserId,
         assetKey: managedAssetKey(input.url),

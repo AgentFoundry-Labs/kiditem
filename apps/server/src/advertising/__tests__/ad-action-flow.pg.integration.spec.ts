@@ -61,67 +61,44 @@ describe('AdAction flow (PG integration)', () => {
         organizationId: params.organizationId,
         code: `M-${unique}`,
         name: `Master ${unique}`,
-        abcGrade: params.abcGrade ?? null,
-        optionCounter: 0,
-      },
-    });
-    const option = await prisma.productOption.create({
-      data: {
-        organizationId: params.organizationId,
-        masterId: master.id,
-        sku: `SKU-${unique}`,
-        optionName: `Option ${unique}`,
-        costPrice: params.costPrice ?? null,
-        sellPrice: params.sellPrice ?? null,
-        commissionRate: params.commissionRate ?? null,
+        currentStock: params.sellableStock ?? 0,
+        purchasePrice: params.costPrice ?? null,
       },
     });
     const listing = await prisma.channelListing.create({
       data: {
         organizationId: params.organizationId,
-        masterId: master.id,
         channelAccountId: channelAccount.id,
-        channel: 'coupang',
         externalId: `EXT-${unique}${params.externalIdSuffix ?? ''}`,
         lastImportRunId: importRun.id,
+        abcGrade: params.abcGrade ?? null,
       },
     });
-    // H3 — AdAction's $queryRaw joins target-daily → channel_listing_options
-    // → product_options to surface ABC grade + option pricing. Make sure the
-    // ChannelListingOption row exists so the join lands.
     const listingOption = await prisma.channelListingOption.create({
       data: {
         organizationId: params.organizationId,
         listingId: listing.id,
-        channelAccountId: channelAccount.id,
-        optionId: option.id,
         externalOptionId: `VID-${unique}`,
         salePrice: params.sellPrice ?? null,
+        costPriceOverride: params.costPrice ?? null,
+        commissionRate: params.commissionRate ?? null,
         mappingStatus: params.sellableStock == null ? 'unmatched' : 'matched',
         lastImportRunId: importRun.id,
         isActive: true,
       },
     });
     if (params.sellableStock != null) {
-      const inventorySku = await prisma.inventorySku.create({
-        data: {
-          organizationId: params.organizationId,
-          sellpiaProductCode: `SP-${unique}`,
-          name: `Sellpia ${unique}`,
-          currentStock: params.sellableStock,
-          purchasePrice: params.costPrice ?? null,
-        },
-      });
       await prisma.channelSkuComponent.create({
         data: {
           organizationId: params.organizationId,
           channelSkuId: listingOption.id,
-          inventorySkuId: inventorySku.id,
+          masterProductId: master.id,
           quantity: 1,
           mappingSource: 'test',
         },
       });
     }
+    const option = listingOption;
     return { master, option, listing, listingOption };
   }
 
@@ -185,7 +162,6 @@ describe('AdAction flow (PG integration)', () => {
         targetKey,
         listingId: params.listingId,
         listingOptionId: params.listingOptionId ?? null,
-        optionId: params.optionId ?? null,
         externalId: params.externalId,
         campaignName: params.campaignName ?? null,
         keyword: params.keyword ?? null,
@@ -583,31 +559,24 @@ describe('AdAction flow (PG integration)', () => {
       expect(otherCount).toBe(0);
     });
 
-    it('#12 generateActions does not propagate cross-tenant listing references from corrupt target rows', async () => {
+    it('#12 composite tenant FK rejects cross-tenant listing references', async () => {
       const foreign = await seedListingWithOption({
         organizationId: OTHER_ORGANIZATION_ID,
         abcGrade: 'A',
       });
-      const corruptTarget = await seedSnapshot({
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: foreign.listing.id,
-        listingOptionId: foreign.listingOption.id,
-        optionId: foreign.option.id,
-        pageType: 'keyword',
-        externalId: 'CORRUPT-KW',
-        keyword: 'corrupt keyword',
-        spend: 6000,
-        conversions: 0,
-      });
-
-      const result = await adActionService.generateActions(TEST_ORGANIZATION_ID);
-
-      expect(result.generated).toBe(1);
-      const action = await prisma.adAction.findFirstOrThrow({
-        where: { organizationId: TEST_ORGANIZATION_ID },
-      });
-      expect(action.adTargetDailyId).toBe(corruptTarget.id);
-      expect(action.listingId).toBeNull();
+      await expect(
+        seedSnapshot({
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId: foreign.listing.id,
+          listingOptionId: foreign.listingOption.id,
+          optionId: foreign.option.id,
+          pageType: 'keyword',
+          externalId: 'CORRUPT-KW',
+          keyword: 'corrupt keyword',
+          spend: 6000,
+          conversions: 0,
+        }),
+      ).rejects.toThrow(/foreign key/i);
     });
 
     it('#13 markRunning on another tenant id → NotFoundException', async () => {

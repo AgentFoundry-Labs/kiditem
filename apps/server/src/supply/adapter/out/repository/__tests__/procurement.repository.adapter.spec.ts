@@ -15,7 +15,7 @@ function makePrisma() {
     supplier: {
       findFirst: vi.fn(),
     },
-    productOption: {
+    masterProduct: {
       findMany: vi.fn(),
     },
   };
@@ -51,25 +51,30 @@ describe('ProcurementRepositoryAdapter', () => {
     });
   });
 
-  it('validates supplier and option ownership before creating purchase order', async () => {
+  it('validates supplier and physical Master ownership before creating purchase order', async () => {
     const prisma = makePrisma();
     prisma.supplier.findFirst.mockResolvedValue({ id: 'supplier-1' });
-    prisma.productOption.findMany.mockResolvedValue([{ id: 'option-1' }]);
+    prisma.masterProduct.findMany.mockResolvedValue([{ id: 'master-1' }]);
     prisma.purchaseOrder.create.mockResolvedValue({ id: 'po-1' });
     const adapter = new ProcurementRepositoryAdapter(prisma as never);
 
     await adapter.createDraft('organization-1', {
       supplierName: 'Supplier A',
       supplierId: 'supplier-1',
-      items: [{ productName: 'Widget', optionId: 'option-1', quantity: 2, unitPriceCny: 3 }],
+      items: [{ productName: 'Widget', masterProductId: 'master-1', quantity: 2, unitPriceCny: 3 }],
     });
 
     expect(prisma.supplier.findFirst).toHaveBeenCalledWith({
       where: { id: 'supplier-1', organizationId: 'organization-1' },
       select: { id: true },
     });
-    expect(prisma.productOption.findMany).toHaveBeenCalledWith({
-      where: { id: { in: ['option-1'] }, organizationId: 'organization-1', isDeleted: false },
+    expect(prisma.masterProduct.findMany).toHaveBeenCalledWith({
+      where: {
+        id: { in: ['master-1'] },
+        organizationId: 'organization-1',
+        sellpiaProductCode: { not: null },
+        isDeleted: false,
+      },
       select: { id: true },
     });
     expect(prisma.purchaseOrder.create).toHaveBeenCalledWith(
@@ -85,20 +90,24 @@ describe('ProcurementRepositoryAdapter', () => {
     );
   });
 
-  it('returns missing option ids instead of creating when ownership check fails', async () => {
+  it('returns missing Master ids instead of creating when ownership check fails', async () => {
     const prisma = makePrisma();
-    prisma.productOption.findMany.mockResolvedValue([{ id: 'option-1' }]);
+    prisma.masterProduct.findMany.mockResolvedValue([{ id: 'master-1' }]);
     const adapter = new ProcurementRepositoryAdapter(prisma as never);
 
     const result = await adapter.createDraft('organization-1', {
       supplierName: 'Supplier A',
       items: [
-        { productName: 'A', optionId: 'option-1', quantity: 1, unitPriceCny: 1 },
-        { productName: 'B', optionId: 'option-2', quantity: 1, unitPriceCny: 1 },
+        { productName: 'A', masterProductId: 'master-1', quantity: 1, unitPriceCny: 1 },
+        { productName: 'B', masterProductId: 'master-2', quantity: 1, unitPriceCny: 1 },
       ],
     });
 
-    expect(result).toEqual({ ok: false, reason: 'option_not_found', missingOptionIds: ['option-2'] });
+    expect(result).toEqual({
+      ok: false,
+      reason: 'master_product_not_found',
+      missingMasterProductIds: ['master-2'],
+    });
     expect(prisma.purchaseOrder.create).not.toHaveBeenCalled();
   });
 
@@ -129,7 +138,7 @@ describe('ProcurementRepositoryAdapter', () => {
       items: [
         {
           productName: 'Silicone plate',
-          optionId: 'option-1',
+          masterProductId: 'master-1',
           quantity: 2,
           unitPriceCny: '22.80',
         },
@@ -149,7 +158,7 @@ describe('ProcurementRepositoryAdapter', () => {
         items: {
           select: {
             productName: true,
-            optionId: true,
+            masterProductId: true,
             quantity: true,
             unitPriceCny: true,
           },
@@ -164,7 +173,7 @@ describe('ProcurementRepositoryAdapter', () => {
       items: [
         {
           productName: 'Silicone plate',
-          optionId: 'option-1',
+          masterProductId: 'master-1',
           quantity: 2,
           unitPriceCny: '22.80',
         },

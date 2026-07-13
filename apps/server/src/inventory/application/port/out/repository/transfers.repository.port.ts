@@ -21,10 +21,10 @@ export type StockTransferBareRow = {
 export type StockTransferRow = StockTransferBareRow & {
   masterProduct: {
     id: string;
-    sellpiaProductCode: string | null;
+    code: string;
     name: string;
     optionName: string | null;
-    sellpiaBarcode: string | null;
+    barcode: string | null;
   } | null;
   fromWarehouse: WarehouseRow;
   toWarehouse: WarehouseRow;

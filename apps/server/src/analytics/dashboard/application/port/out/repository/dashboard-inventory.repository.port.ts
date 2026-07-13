@@ -47,6 +47,9 @@ export interface DashboardInventoryRepositoryPort {
   ): Promise<DashboardPerListingMetrics[]>;
   countOutOfStockInventorySkus(organizationId: string): Promise<number>;
   countMappingAttentionChannelSkus(organizationId: string): Promise<number>;
+  countChannelSkusByMappingStatus(
+    organizationId: string,
+  ): Promise<Array<{ mappingStatus: string; count: number }>>;
   findGradeHistory(
     organizationId: string,
     since: Date,

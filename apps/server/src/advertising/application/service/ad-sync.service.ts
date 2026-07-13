@@ -70,7 +70,11 @@ export class AdSyncService {
       case 'traffic':
         return this.trafficHandler.execute(payload, organizationId, map);
       case 'coupang_ads_daily':
-        return this.coupangAdsDailyHandler.execute(payload, organizationId);
+        return this.coupangAdsDailyHandler.execute(
+          payload,
+          organizationId,
+          map,
+        );
       default:
         throw new BadRequestException(
           `알 수 없는 type: ${(payload as { type?: string }).type ?? 'undefined'}`,

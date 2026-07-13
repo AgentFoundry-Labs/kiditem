@@ -106,6 +106,7 @@ export function buildMockDashboardInventoryRepo(): MockDashboardInventoryRepo {
     fetchPerListingMetrics: vi.fn(),
     countOutOfStockInventorySkus: vi.fn(),
     countMappingAttentionChannelSkus: vi.fn(),
+    countChannelSkusByMappingStatus: vi.fn(),
     findGradeHistory: vi.fn(),
     countLowCtrThumbnails: vi.fn(),
     findAGradeReviewCounts: vi.fn(),

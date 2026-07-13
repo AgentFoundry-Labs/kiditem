@@ -1,4 +1,5 @@
 import { ConflictException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { generationInclude } from './thumbnail-generation-ledger.query';
 import type { EditAnalysisResult } from '@kiditem/shared/ai';
@@ -117,7 +118,7 @@ export async function saveEditorResult(
   const generation = await prisma.thumbnailGeneration.create({
     data: {
       organizationId: input.organizationId,
-      masterId: input.productId,
+      contentWorkspaceId: input.productId,
       originalUrl: input.originalUrl,
       method: input.method,
       status: 'succeeded',
@@ -150,7 +151,6 @@ export async function saveEditorResult(
               label: img.label,
               sortOrder: img.sortOrder,
               source: normalizeInputSource(img.source),
-              masterImageId: img.masterImageId ?? null,
               candidateImageId: img.candidateImageId ?? null,
               sourceThumbnailCandidateId: img.sourceThumbnailCandidateId ?? null,
               mimeType: img.mimeType,
@@ -187,10 +187,9 @@ export async function createPendingEditJob(
   const generation = await prisma.thumbnailGeneration.create({
     data: {
       organizationId: args.organizationId,
-      masterId: args.masterId,
       originalUrl: args.originalUrl,
       method: args.method,
-      contentWorkspaceId: args.contentWorkspaceId ?? null,
+      contentWorkspaceId: args.contentWorkspaceId ?? args.masterId,
       status: 'pending',
       phase: null,
       inputMeta: args.inputMeta,
@@ -222,12 +221,46 @@ export async function createPendingCandidateJob(
     triggeredByUserId?: string | null;
   },
 ): Promise<{ id: string }> {
+  let contentWorkspaceId = args.contentWorkspaceId ?? undefined;
+  if (!contentWorkspaceId) {
+    const existing = await prisma.contentWorkspace.findFirst({
+      where: {
+        organizationId: args.organizationId,
+        sourceCandidateId: args.sourceCandidateId,
+        status: 'active',
+        isDeleted: false,
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      contentWorkspaceId = existing.id;
+    } else {
+      const candidate = await prisma.sourcingCandidate.findFirstOrThrow({
+        where: {
+          id: args.sourceCandidateId,
+          organizationId: args.organizationId,
+          isDeleted: false,
+        },
+        select: { name: true },
+      });
+      const created = await prisma.contentWorkspace.create({
+        data: {
+          organizationId: args.organizationId,
+          ownerType: 'sourcing_candidate',
+          sourceCandidateId: args.sourceCandidateId,
+          displayName: candidate.name,
+          normalizedTitle: candidate.name.trim().toLowerCase(),
+        },
+        select: { id: true },
+      });
+      contentWorkspaceId = created.id;
+    }
+  }
   return prisma.thumbnailGeneration.create({
     data: {
       organizationId: args.organizationId,
-      masterId: null,
       sourceCandidateId: args.sourceCandidateId,
-      contentWorkspaceId: args.contentWorkspaceId ?? null,
+      contentWorkspaceId,
       originalUrl: args.originalUrl,
       method: args.method,
       status: 'pending',
@@ -257,12 +290,24 @@ export async function createPendingStandaloneJob(
     triggeredByUserId?: string | null;
   },
 ): Promise<{ id: string }> {
+  const contentWorkspaceId =
+    args.contentWorkspaceId ??
+    (
+      await prisma.contentWorkspace.create({
+        data: {
+          organizationId: args.organizationId,
+          ownerType: 'direct_detail_page',
+          displayName: 'Standalone thumbnail',
+          normalizedTitle: `standalone-thumbnail-${randomUUID()}`,
+        },
+        select: { id: true },
+      })
+    ).id;
   return prisma.thumbnailGeneration.create({
     data: {
       organizationId: args.organizationId,
-      masterId: null,
       sourceCandidateId: null,
-      contentWorkspaceId: args.contentWorkspaceId ?? null,
+      contentWorkspaceId,
       originalUrl: args.originalUrl,
       method: args.method,
       status: 'pending',
@@ -331,10 +376,8 @@ export interface ApplyGenerationSelected {
 }
 
 /**
- * Apply the chosen candidate as the master product's primary image. Single
- * transaction owns: write `MasterProduct.imageUrl`, demote any existing
- * primary `MasterProductImage`, insert the new primary image, and flip the
- * generation row to phase=`applied`. All writes bind `organizationId`.
+ * Adopt the chosen candidate as the content workspace's current thumbnail.
+ * The Sellpia MasterProduct is inventory-only and never receives media.
  */
 export async function applyGenerationToMaster(
   prisma: PrismaService,
@@ -348,30 +391,53 @@ export async function applyGenerationToMaster(
   const { id, organizationId, masterId, selected } = args;
   await prisma.$transaction(async (tx) => {
     if (selected) {
-      await tx.masterProduct.updateMany({
-        where: { id: masterId, organizationId, isDeleted: false },
-        data: { imageUrl: selected.url },
+      const candidate = await tx.thumbnailGenerationCandidate.findFirst({
+        where: { generationId: id, organizationId, url: selected.url },
+        select: { id: true },
       });
-      await tx.masterProductImage.updateMany({
-        where: { organizationId, masterId, isDeleted: false },
-        data: { isPrimary: false },
-      });
-      await tx.masterProductImage.create({
-        data: {
+      const assetKey = selected.storageKey ?? `thumbnail-generation:${id}:selected`;
+      const asset = await tx.contentAsset.upsert({
+        where: {
+          organizationId_assetKey: { organizationId, assetKey },
+        },
+        create: {
           organizationId,
-          masterId,
+          assetKey,
           url: selected.url,
           storageKey: selected.storageKey,
-          role: 'product',
+          role: 'thumbnail',
           label: 'AI thumbnail',
-          sortOrder: 0,
-          source: 'thumbnail_generation',
           mimeType: selected.mimeType ?? null,
           width: selected.width ?? null,
           height: selected.height ?? null,
           fileSize: selected.fileSize ?? null,
-          isPrimary: true,
+          metadata: { source: 'thumbnail_generation' },
         },
+        update: {
+          url: selected.url,
+          storageKey: selected.storageKey,
+          mimeType: selected.mimeType ?? null,
+          width: selected.width ?? null,
+          height: selected.height ?? null,
+          fileSize: selected.fileSize ?? null,
+          isDeleted: false,
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+      const selection = await tx.contentWorkspaceThumbnailSelection.create({
+        data: {
+          organizationId,
+          contentWorkspaceId: masterId,
+          contentAssetId: asset.id,
+          sourceThumbnailGenerationId: id,
+          sourceThumbnailCandidateId: candidate?.id ?? null,
+        },
+        select: { id: true },
+      });
+      await tx.contentWorkspace.updateMany({
+        where: { id: masterId, organizationId, isDeleted: false },
+        data: { currentThumbnailSelectionId: selection.id },
       });
     }
     await tx.thumbnailGeneration.updateMany({
@@ -619,7 +685,6 @@ export async function replaceGenerationResult(
           label: img.label,
           sortOrder: img.sortOrder,
           source: normalizeInputSource(img.source),
-          masterImageId: img.masterImageId ?? null,
           candidateImageId: img.candidateImageId ?? null,
           sourceThumbnailCandidateId: img.sourceThumbnailCandidateId ?? null,
           mimeType: img.mimeType,
@@ -743,7 +808,6 @@ export async function persistPendingInputImages(
       label: img.label,
       sortOrder: img.sortOrder,
       source: normalizeInputSource(img.source),
-      masterImageId: img.masterImageId ?? null,
       candidateImageId: img.candidateImageId ?? null,
       sourceThumbnailCandidateId: img.sourceThumbnailCandidateId ?? null,
       mimeType: img.mimeType,

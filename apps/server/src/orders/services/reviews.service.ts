@@ -160,14 +160,15 @@ export class ReviewsService {
   ): Promise<Map<string, ListingDisplay>> {
     if (listingIds.length === 0) return new Map();
     const rows = await this.prisma.channelListing.findMany({
-      where: { id: { in: listingIds }, organizationId, isDeleted: false },
+      where: { id: { in: listingIds }, organizationId, isActive: true },
       select: {
         id: true,
         channelName: true,
-        master: { select: { id: true, name: true, abcGrade: true } },
+        displayName: true,
+        abcGrade: true,
         options: {
-          select: { option: { select: { sku: true } } },
-          where: { option: { isDeleted: false } },
+          select: { sellerSku: true },
+          where: { isActive: true },
           orderBy: { createdAt: 'asc' },
           take: 1,
         },
@@ -177,11 +178,11 @@ export class ReviewsService {
     const map = new Map<string, ListingDisplay>();
     for (const row of rows) {
       map.set(row.id, {
-        masterId: row.master?.id ?? null,
-        productName: row.master?.name ?? row.channelName ?? null,
-        sku: row.options[0]?.option?.sku ?? null,
+        masterId: null,
+        productName: row.displayName ?? row.channelName ?? null,
+        sku: row.options[0]?.sellerSku ?? null,
         companyName: row.organization?.name ?? null,
-        grade: row.master?.abcGrade ?? null,
+        grade: row.abcGrade,
       });
     }
     return map;

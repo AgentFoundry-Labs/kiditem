@@ -22,24 +22,28 @@ describe('AdBenchmark flow (PG integration)', () => {
     suffix: string;
     channelName?: string;
   }) {
-    const master = await prisma.masterProduct.create({
-      data: {
-        organizationId: params.organizationId,
-        code: `M-${params.suffix}`,
-        name: `Master ${params.suffix}`,
-        optionCounter: 0,
-      },
-    });
+    const channelAccount =
+      (await prisma.channelAccount.findFirst({
+        where: { organizationId: params.organizationId, channel: 'coupang' },
+      })) ??
+      (await prisma.channelAccount.create({
+        data: {
+          organizationId: params.organizationId,
+          channel: 'coupang',
+          name: 'Benchmark PG Coupang',
+          externalAccountId: 'benchmark-pg',
+          isPrimary: true,
+        },
+      }));
     const listing = await prisma.channelListing.create({
       data: {
         organizationId: params.organizationId,
-        masterId: master.id,
-        channel: 'coupang',
+        channelAccountId: channelAccount.id,
         externalId: `EXT-${params.suffix}`,
         channelName: params.channelName ?? `Channel ${params.suffix}`,
       },
     });
-    return { master, listing };
+    return { listing };
   }
 
   /**
@@ -289,7 +293,7 @@ describe('AdBenchmark flow (PG integration)', () => {
       expect(l1).toBeDefined();
       expect(l1?.externalId).toBe('EXT-L1');
       expect(l1?.channelName).toBe('Listing One');
-      expect(l1?.masterProduct.code).toBe('M-L1');
+      expect(l1?.masterProduct.code).toBe('EXT-L1');
       expect(l1?.option).toBe(null);
       expect(l1?.metrics.roas).toBe(500);
       expect(l1?.metrics.spend).toBe(10000);
@@ -298,7 +302,7 @@ describe('AdBenchmark flow (PG integration)', () => {
       expect(l2?.metrics.spend).toBe(5000);
     });
 
-    it('#8 soft-deleted listing 은 listings[] 에서 제외', async () => {
+    it('#8 inactive listing 은 listings[] 에서 제외', async () => {
       const kept = await seedListing({
         organizationId: TEST_ORGANIZATION_ID,
         suffix: 'KEPT',
@@ -309,7 +313,7 @@ describe('AdBenchmark flow (PG integration)', () => {
       });
       await prisma.channelListing.update({
         where: { id: deleted.listing.id },
-        data: { isDeleted: true },
+        data: { isActive: false },
       });
 
       // 두 listing 에 Ad 생성
@@ -337,7 +341,7 @@ describe('AdBenchmark flow (PG integration)', () => {
       // ownMetrics 는 전부 포함 (Ad 수준 집계는 isDeleted 필터 없음 — service 동작 그대로 반영)
       expect(result.ownMetrics.spend).toBe(20000);
 
-      // 하지만 listings hydrate 는 isDeleted:false 필터 적용 → 1 건만
+      // 하지만 listings hydrate 는 isActive:true 필터 적용 → 1 건만
       expect(result.listings).toHaveLength(1);
       expect(result.listings[0].listingId).toBe(kept.listing.id);
     });

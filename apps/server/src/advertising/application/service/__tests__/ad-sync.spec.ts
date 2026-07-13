@@ -50,13 +50,13 @@ describe('AdSyncService', () => {
   describe('buildListingMap', () => {
     it('delegates to AdListingRepositoryPort.buildAdSyncListingMap and returns the map verbatim', async () => {
       const map: ListingMap = {
+        channelAccountId: 'account-1',
         externalOptionIdMap: new Map([
           [
             'V1',
             {
               listingId: 'L1',
               listingOptionId: 'LO1',
-              optionId: 'O1',
               externalId: 'COUPANG-1',
             },
           ],
@@ -65,7 +65,6 @@ describe('AdSyncService', () => {
             {
               listingId: 'L2',
               listingOptionId: 'LO2',
-              optionId: 'O2',
               externalId: 'COUPANG-2',
             },
           ],
@@ -82,13 +81,11 @@ describe('AdSyncService', () => {
       expect(result.externalOptionIdMap.get('V1')).toEqual({
         listingId: 'L1',
         listingOptionId: 'LO1',
-        optionId: 'O1',
         externalId: 'COUPANG-1',
       });
       expect(result.externalOptionIdMap.get('V2')).toEqual({
         listingId: 'L2',
         listingOptionId: 'LO2',
-        optionId: 'O2',
         externalId: 'COUPANG-2',
       });
       expect(result.externalIdMap.get('COUPANG-1')).toEqual({ listingId: 'L1' });
@@ -97,15 +94,15 @@ describe('AdSyncService', () => {
       expect(listingRepo.buildAdSyncListingMap).toHaveBeenCalledWith('organization-1');
     });
 
-    it('preserves externalOptionIdMap entries with null internal optionId (Wave C2)', async () => {
+    it('preserves externalOptionIdMap entries without a legacy internal option id', async () => {
       const map: ListingMap = {
+        channelAccountId: 'account-1',
         externalOptionIdMap: new Map([
           [
             'V1',
             {
               listingId: 'L1',
               listingOptionId: 'LO1',
-              optionId: null,
               externalId: 'COUPANG-NULL',
             },
           ],
@@ -116,19 +113,17 @@ describe('AdSyncService', () => {
 
       const result = await service.buildListingMap('organization-1');
 
-      // Wave C2 contract: listingOptionId 는 internal optionId 가 null 이어도
-      // 보존되어야 한다 (C3 의 option daily snapshot 이 listingOptionId 만으로
-      // upsert 가능하도록).
+      // ChannelListingOption.id alone owns the channel option identity.
       expect(result.externalOptionIdMap.get('V1')).toEqual({
         listingId: 'L1',
         listingOptionId: 'LO1',
-        optionId: null,
         externalId: 'COUPANG-NULL',
       });
     });
 
     it('cross-tenant isolation — organization B externalOptionId does not leak into organization A map', async () => {
       const empty: ListingMap = {
+        channelAccountId: 'account-a',
         externalOptionIdMap: new Map(),
         externalIdMap: new Map(),
       };
@@ -144,12 +139,12 @@ describe('AdSyncService', () => {
 
   describe('matchListingFromRow', () => {
     const map: ListingMap = {
+      channelAccountId: 'account-1',
       externalOptionIdMap: new Map<
         string,
         {
           listingId: string;
           listingOptionId: string;
-          optionId: string | null;
           externalId: string;
         }
       >([
@@ -158,7 +153,6 @@ describe('AdSyncService', () => {
           {
             listingId: 'L-V',
             listingOptionId: 'LO-V',
-            optionId: 'O-V',
             externalId: 'E-V',
           },
         ],
@@ -174,13 +168,12 @@ describe('AdSyncService', () => {
       expect(result).toEqual({
         listingId: 'L-V',
         listingOptionId: 'LO-V',
-        optionId: 'O-V',
         externalId: 'E-V',
         externalOptionId: 'V-HIT',
       });
     });
 
-    it('falls back to externalId when vendorItemId misses (listingOption + optionId null)', () => {
+    it('falls back to externalId when vendorItemId misses', () => {
       const result = service.matchListingFromRow(
         { vendorItemId: 'V-MISS', externalId: 'E-HIT' },
         map,
@@ -188,7 +181,6 @@ describe('AdSyncService', () => {
       expect(result).toEqual({
         listingId: 'L-E',
         listingOptionId: null,
-        optionId: null,
         externalId: 'E-HIT',
         externalOptionId: null,
       });
@@ -202,7 +194,6 @@ describe('AdSyncService', () => {
       expect(result).toEqual({
         listingId: null,
         listingOptionId: null,
-        optionId: null,
         externalId: null,
         externalOptionId: null,
       });
@@ -216,7 +207,6 @@ describe('AdSyncService', () => {
       expect(result).toEqual({
         listingId: null,
         listingOptionId: null,
-        optionId: null,
         externalId: null,
         externalOptionId: null,
       });

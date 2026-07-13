@@ -12,7 +12,7 @@ import { RolesGuard } from './auth/guards/roles.guard';
 import { StorageModule } from './common/storage/storage.module';
 import { OrdersModule } from './orders/orders.module';
 import { InventoryModule } from './inventory/inventory.module';
-import { ProductsModule } from './products/products.module';
+import { CategoriesModule } from './products/categories/categories.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { SourcingModule } from './sourcing/sourcing.module';
@@ -48,7 +48,7 @@ import { ReadinessModule } from './readiness/readiness.module';
     FeatureGateModule,
     OrdersModule,
     InventoryModule,
-    ProductsModule,
+    CategoriesModule,
     OrganizationsModule,
     AnalyticsModule,
     SourcingModule,

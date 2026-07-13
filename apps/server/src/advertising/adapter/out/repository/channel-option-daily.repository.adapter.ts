@@ -55,7 +55,6 @@ export class ChannelOptionDailyRepositoryAdapter
           organizationId: input.organizationId,
           listingId: input.listingId,
           listingOptionId: input.listingOptionId,
-          optionId: input.optionId ?? null,
           channel: input.channel,
           externalId: input.externalId,
           externalOptionId: input.externalOptionId,
@@ -82,9 +81,6 @@ export class ChannelOptionDailyRepositoryAdapter
             ? { rawSnapshotId: input.rawSnapshotId }
             : {}),
           ...(input.metaJson === null ? { metaJson: Prisma.DbNull } : {}),
-          ...(input.optionId !== undefined && input.optionId !== null
-            ? { optionId: input.optionId }
-            : {}),
           ...observedState,
         },
         select: { id: true },

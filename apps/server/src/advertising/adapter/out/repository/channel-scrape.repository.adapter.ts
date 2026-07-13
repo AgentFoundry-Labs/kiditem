@@ -27,6 +27,7 @@ export class ChannelScrapeRepositoryAdapter
     return this.prisma.channelScrapeRun.create({
       data: {
         organizationId: input.organizationId,
+        channelAccountId: input.channelAccountId,
         channel: input.channel,
         source: input.source,
         pageType: input.pageType,
@@ -59,7 +60,6 @@ export class ChannelScrapeRepositoryAdapter
         externalOptionId: input.externalOptionId ?? null,
         listingId: input.listingId ?? null,
         listingOptionId: input.listingOptionId ?? null,
-        optionId: input.optionId ?? null,
         matchStatus: input.matchStatus,
         matchReason: input.matchReason ?? null,
         rowHash: input.rowHash ?? null,
@@ -123,6 +123,19 @@ export class ChannelScrapeRepositoryAdapter
   async findExtensionStatusSnapshot(
     organizationId: string,
   ): Promise<ExtensionStatusSnapshot> {
+    const channelAccountId = await this.findActiveCoupangAccountId(
+      organizationId,
+    );
+    if (!channelAccountId) {
+      return {
+        listingCount: 0,
+        latestPerListing: [],
+        rawSnapshotCount: 0,
+        latestRun: null,
+        wingKpi: null,
+      };
+    }
+
     const [
       listingCount,
       latestPerListing,
@@ -131,26 +144,33 @@ export class ChannelScrapeRepositoryAdapter
       wingKpiRow,
     ] = await Promise.all([
       this.prisma.channelListing.count({
-        where: { organizationId, isDeleted: false },
+        where: { organizationId, channelAccountId, isActive: true },
       }),
       this.prisma.$queryRaw<
         { isOfferWinner: boolean | null; lastObservedAt: Date }[]
       >(Prisma.sql`
-        SELECT DISTINCT ON (listing_id)
-          is_offer_winner   AS "isOfferWinner",
-          last_observed_at  AS "lastObservedAt"
-        FROM channel_listing_daily_snapshots
-        WHERE organization_id = ${organizationId}::uuid
+        SELECT DISTINCT ON (snapshot.listing_id)
+          snapshot.is_offer_winner   AS "isOfferWinner",
+          snapshot.last_observed_at  AS "lastObservedAt"
+        FROM channel_listing_daily_snapshots snapshot
+        JOIN channel_listings listing
+          ON listing.id = snapshot.listing_id
+         AND listing.organization_id = snapshot.organization_id
+        WHERE snapshot.organization_id = ${organizationId}::uuid
+          AND listing.channel_account_id = ${channelAccountId}::uuid
+          AND listing.is_active = true
         ORDER BY
-          listing_id,
-          business_date DESC,
-          last_observed_at DESC,
-          updated_at DESC,
-          id DESC
+          snapshot.listing_id,
+          snapshot.business_date DESC,
+          snapshot.last_observed_at DESC,
+          snapshot.updated_at DESC,
+          snapshot.id DESC
       `),
-      this.prisma.channelScrapeSnapshot.count({ where: { organizationId } }),
+      this.prisma.channelScrapeSnapshot.count({
+        where: { organizationId, scrapeRun: { channelAccountId } },
+      }),
       this.prisma.channelScrapeRun.findFirst({
-        where: { organizationId },
+        where: { organizationId, channelAccountId },
         orderBy: [
           { finishedAt: 'desc' },
           { startedAt: 'desc' },
@@ -161,6 +181,7 @@ export class ChannelScrapeRepositoryAdapter
       this.prisma.channelAccountDailyKpiSnapshot.findFirst({
         where: {
           organizationId,
+          channelAccountId,
           source: 'wing',
           kpiType: 'wing_itemwinner_kpi',
         },
@@ -191,9 +212,20 @@ export class ChannelScrapeRepositoryAdapter
   async findAdCollectStatus(
     organizationId: string,
   ): Promise<AdCollectStatusSummary> {
+    const channelAccountId = await this.findActiveCoupangAccountId(
+      organizationId,
+    );
+    if (!channelAccountId) {
+      return {
+        lastCollectedAt: null,
+        campaignScrapeRunCount: 0,
+        productScrapeRunCount: 0,
+      };
+    }
+
     const [latestRun, campaignCount, productCount] = await Promise.all([
       this.prisma.channelScrapeRun.findFirst({
-        where: { organizationId },
+        where: { organizationId, channelAccountId },
         orderBy: [
           { finishedAt: 'desc' },
           { startedAt: 'desc' },
@@ -204,6 +236,7 @@ export class ChannelScrapeRepositoryAdapter
       this.prisma.channelScrapeRun.count({
         where: {
           organizationId,
+          channelAccountId,
           source: 'advertising',
           pageType: { in: ['campaign', 'keyword', 'product', 'advertising'] },
         },
@@ -211,6 +244,7 @@ export class ChannelScrapeRepositoryAdapter
       this.prisma.channelScrapeRun.count({
         where: {
           organizationId,
+          channelAccountId,
           source: 'wing',
           pageType: { in: ['itemwinner', 'traffic'] },
         },
@@ -223,6 +257,21 @@ export class ChannelScrapeRepositoryAdapter
       campaignScrapeRunCount: campaignCount,
       productScrapeRunCount: productCount,
     };
+  }
+
+  private async findActiveCoupangAccountId(
+    organizationId: string,
+  ): Promise<string | null> {
+    const account = await this.prisma.channelAccount.findFirst({
+      where: { organizationId, channel: 'coupang', status: 'active' },
+      orderBy: [
+        { isPrimary: 'desc' },
+        { updatedAt: 'desc' },
+        { id: 'asc' },
+      ],
+      select: { id: true },
+    });
+    return account?.id ?? null;
   }
 }
 

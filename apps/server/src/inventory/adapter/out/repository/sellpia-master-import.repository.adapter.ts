@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { ConflictException, Injectable } from '@nestjs/common';
 import { Prisma, type SourceImportRun } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -114,11 +114,11 @@ implements SellpiaMasterImportRepositoryPort {
       const existing = await tx.masterProduct.findMany({
         where: {
           organizationId: input.organizationId,
-          sellpiaProductCode: { not: null },
+          code: { in: input.rows.map((row) => row.sellpiaProductCode) },
         },
-        select: { sellpiaProductCode: true },
+        select: { code: true },
       });
-      const existingCodes = new Set(existing.map((row) => row.sellpiaProductCode));
+      const existingCodes = new Set(existing.map((row) => row.code));
       const createdMasterProductCount = input.rows.filter(
         (row) => !existingCodes.has(row.sellpiaProductCode),
       ).length;
@@ -127,13 +127,13 @@ implements SellpiaMasterImportRepositoryPort {
       for (let offset = 0; offset < input.rows.length; offset += UPSERT_BATCH_SIZE) {
         const batch = input.rows.slice(offset, offset + UPSERT_BATCH_SIZE);
         const payload = JSON.stringify(
-          batch.map((row) => toUpsertPayload(input.organizationId, row)),
+          batch.map(toUpsertPayload),
         );
         await tx.$executeRaw`
-          INSERT INTO inventory_skus (
+          INSERT INTO master_products (
             id,
             organization_id,
-            sellpia_product_code,
+            code,
             name,
             option_name,
             barcode,
@@ -147,9 +147,9 @@ implements SellpiaMasterImportRepositoryPort {
             updated_at
           )
           SELECT
-            (record->>'inventorySkuId')::uuid,
+            (record->>'masterProductId')::uuid,
             ${input.organizationId}::uuid,
-            record->>'sellpiaProductCode',
+            record->>'code',
             record->>'name',
             record->>'optionName',
             record->>'barcode',
@@ -162,7 +162,7 @@ implements SellpiaMasterImportRepositoryPort {
             NOW(),
             NOW()
           FROM jsonb_array_elements(${payload}::jsonb) AS record
-          ON CONFLICT (organization_id, sellpia_product_code)
+          ON CONFLICT (organization_id, code)
           DO UPDATE SET
             name = EXCLUDED.name,
             option_name = EXCLUDED.option_name,
@@ -175,168 +175,20 @@ implements SellpiaMasterImportRepositoryPort {
             last_import_run_id = EXCLUDED.last_import_run_id,
             updated_at = NOW()
         `;
-
-        await tx.$executeRaw`
-          INSERT INTO master_products (
-            id,
-            organization_id,
-            code,
-            name,
-            sellpia_product_code,
-            sellpia_name,
-            sellpia_barcode,
-            option_name,
-            current_stock,
-            purchase_price,
-            sale_price,
-            is_active,
-            raw_json,
-            last_import_run_id,
-            is_temporary,
-            temporary_reason,
-            lifecycle_state,
-            created_at,
-            updated_at
-          )
-          SELECT
-            (record->>'masterProductId')::uuid,
-            ${input.organizationId}::uuid,
-            record->>'masterCode',
-            record->>'name',
-            record->>'sellpiaProductCode',
-            record->>'name',
-            record->>'barcode',
-            record->>'optionName',
-            (record->>'currentStock')::integer,
-            (record->>'purchasePrice')::integer,
-            (record->>'salePrice')::integer,
-            TRUE,
-            record->'rawJson',
-            ${input.runId}::uuid,
-            TRUE,
-            'sellpia_master_cutover',
-            'inventory_staged',
-            NOW(),
-            NOW()
-          FROM jsonb_array_elements(${payload}::jsonb) AS record
-          ON CONFLICT (organization_id, sellpia_product_code)
-            WHERE sellpia_product_code IS NOT NULL
-          DO UPDATE SET
-            name = EXCLUDED.name,
-            sellpia_name = EXCLUDED.sellpia_name,
-            sellpia_barcode = EXCLUDED.sellpia_barcode,
-            option_name = EXCLUDED.option_name,
-            current_stock = EXCLUDED.current_stock,
-            purchase_price = EXCLUDED.purchase_price,
-            sale_price = EXCLUDED.sale_price,
-            is_active = TRUE,
-            raw_json = EXCLUDED.raw_json,
-            last_import_run_id = EXCLUDED.last_import_run_id,
-            is_temporary = TRUE,
-            temporary_reason = 'sellpia_master_cutover',
-            lifecycle_state = 'inventory_staged',
-            is_deleted = FALSE,
-            deleted_at = NULL,
-            updated_at = NOW()
-        `;
-
-        await tx.$executeRaw`
-          INSERT INTO inventory_sku_master_product_maps (
-            id,
-            organization_id,
-            inventory_sku_id,
-            master_product_id,
-            resolution,
-            details,
-            created_at,
-            updated_at
-          )
-          SELECT
-            (record->>'identityId')::uuid,
-            ${input.organizationId}::uuid,
-            inventory_sku.id,
-            master_product.id,
-            'sellpia_import',
-            jsonb_build_object(
-              'sourceType', ${SOURCE_TYPE}::text,
-              'sellpiaProductCode', record->>'sellpiaProductCode'
-            ),
-            NOW(),
-            NOW()
-          FROM jsonb_array_elements(${payload}::jsonb) AS record
-          JOIN inventory_skus AS inventory_sku
-            ON inventory_sku.organization_id = ${input.organizationId}::uuid
-           AND inventory_sku.sellpia_product_code = record->>'sellpiaProductCode'
-          JOIN master_products AS master_product
-            ON master_product.organization_id = ${input.organizationId}::uuid
-           AND master_product.sellpia_product_code = record->>'sellpiaProductCode'
-          ON CONFLICT DO NOTHING
-        `;
       }
 
       const completeCodes = input.rows.map((row) => row.sellpiaProductCode);
-      const publishedIdentities = await tx.inventorySku.findMany({
-        where: {
-          organizationId: input.organizationId,
-          sellpiaProductCode: { in: completeCodes },
-        },
-        select: {
-          sellpiaProductCode: true,
-          masterProductMap: {
-            select: {
-              organizationId: true,
-              masterProduct: {
-                select: {
-                  organizationId: true,
-                  sellpiaProductCode: true,
-                },
-              },
-            },
-          },
-        },
-      });
-      const invalidIdentity = publishedIdentities.find(
-        (inventorySku) =>
-          !inventorySku.masterProductMap ||
-          inventorySku.masterProductMap.organizationId !== input.organizationId ||
-          inventorySku.masterProductMap.masterProduct.organizationId !== input.organizationId ||
-          inventorySku.masterProductMap.masterProduct.sellpiaProductCode !==
-            inventorySku.sellpiaProductCode,
-      );
-      if (publishedIdentities.length !== completeCodes.length || invalidIdentity) {
-        throw new ConflictException(
-          'Sellpia inventory identity ledger did not resolve every published code',
-        );
-      }
-
-      const absentSkuWhere = {
-        organizationId: input.organizationId,
-        sellpiaProductCode: { notIn: completeCodes },
-      } as const;
       const inactivatedMasterProductCount = await tx.masterProduct.count({
         where: {
           organizationId: input.organizationId,
-          sellpiaProductCode: { not: null, notIn: completeCodes },
+          code: { notIn: completeCodes },
           isActive: true,
-        },
-      });
-      await tx.inventorySku.updateMany({
-        where: {
-          ...absentSkuWhere,
-        },
-        data: {
-          currentStock: 0,
-          isActive: false,
-          lastImportRunId: input.runId,
         },
       });
       await tx.masterProduct.updateMany({
         where: {
           organizationId: input.organizationId,
-          sellpiaProductCode: {
-            not: null,
-            notIn: completeCodes,
-          },
+          code: { notIn: completeCodes },
         },
         data: {
           currentStock: 0,
@@ -496,13 +348,10 @@ implements SellpiaMasterImportRepositoryPort {
   }
 }
 
-function toUpsertPayload(organizationId: string, row: ParsedSellpiaInventoryRow) {
+function toUpsertPayload(row: ParsedSellpiaInventoryRow) {
   return {
-    inventorySkuId: randomUUID(),
     masterProductId: randomUUID(),
-    identityId: randomUUID(),
-    masterCode: stagedMasterCode(organizationId, row.sellpiaProductCode),
-    sellpiaProductCode: row.sellpiaProductCode,
+    code: row.sellpiaProductCode,
     name: row.name,
     optionName: row.optionName,
     barcode: row.barcode,
@@ -528,11 +377,6 @@ async function nextPublicationSequence(
     throw new ConflictException('Could not allocate Sellpia publication sequence');
   }
   return publicationSequence;
-}
-
-function stagedMasterCode(organizationId: string, sellpiaProductCode: string): string {
-  const digest = createHash('sha256').update(sellpiaProductCode).digest('hex').slice(0, 24);
-  return `SELLPIA::${organizationId}::${digest}`;
 }
 
 function isUniqueConstraintError(error: unknown): boolean {

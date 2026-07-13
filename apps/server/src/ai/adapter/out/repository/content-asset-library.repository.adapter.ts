@@ -162,8 +162,8 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
     const where = {
       organizationId: input.organizationId,
       isDeleted: false,
-      ...(input.productId
-        ? { generationGroup: { targetMasterId: input.productId } }
+      ...(input.contentWorkspaceId
+        ? { originGenerationGroup: { contentWorkspaceId: input.contentWorkspaceId } }
         : {}),
       ...(input.generationId
         ? { usages: { some: { contentGenerationId: input.generationId } } }
@@ -178,7 +178,7 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
         take: input.limit,
         select: {
           id: true,
-          generationGroupId: true,
+          originGenerationGroupId: true,
           url: true,
           assetType: true,
           role: true,
@@ -187,14 +187,10 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
           metadata: true,
           createdAt: true,
           updatedAt: true,
-          generationGroup: {
+          originGenerationGroup: {
             select: {
-              targetMaster: {
-                select: {
-                  id: true,
-                  code: true,
-                  name: true,
-                },
+              contentWorkspace: {
+                select: { id: true, displayName: true },
               },
             },
           },
@@ -221,7 +217,7 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
       const hash = hashContentAssetUrl(url);
       return {
         organizationId: input.organizationId,
-        generationGroupId: input.generationGroupId,
+        originGenerationGroupId: input.generationGroupId,
         createdByUserId: input.createdByUserId,
         assetKey: groupUrlAssetKey(input.generationGroupId, url),
         url,
@@ -239,7 +235,7 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
     return scope.contentAsset.findMany({
       where: {
         organizationId: input.organizationId,
-        generationGroupId: input.generationGroupId,
+        originGenerationGroupId: input.generationGroupId,
         assetKey: { in: data.map((item) => item.assetKey) },
         isDeleted: false,
       },
