@@ -111,9 +111,9 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
 
   seeds.push({
     taskKey: 'recalc-grade', type: 'ai',
-    label: 'ABC 등급 재계산', detail: '14일 매출 기반 등급 재산정 + 변동 리포트',
+    label: 'ABC 등급 제안 분석', detail: '매출 Pareto 기준 현재 등급과 제안 등급 비교',
     priority: 'high', role: 'data',
-    apiCall: { url: '/api/products/calculate-grades', method: 'POST', body: {} },
+    apiCall: { url: '/api/statistics?type=pareto', method: 'GET' },
   });
   if (metrics.minusProducts > 0) {
     seeds.push({
@@ -121,7 +121,7 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
       label: `적자 상품 ${metrics.minusProducts}개 분석`,
       detail: '적자 원인 분석: 광고비 과다 / 원가 문제 / 가격 오류',
       priority: 'urgent', role: 'finance',
-      apiCall: { url: '/api/products?status=active&sortBy=profitRate&sortDir=asc&period=14', method: 'GET' },
+      apiCall: { url: '/api/profit-loss', method: 'GET' },
     });
   }
   seeds.push({
@@ -129,7 +129,7 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
     label: '광고 자동규칙 전략 분석',
     detail: 'A/B/C 등급별 광고 규칙 평가 → 수정 요청 생성',
     priority: 'urgent', role: 'ad',
-    apiCall: { url: '/api/ad-rules', method: 'GET' },
+    apiCall: { url: '/api/ads/strategy/recommend', method: 'GET' },
   });
   if (metrics.highAdProducts > 0) {
     seeds.push({
@@ -137,7 +137,7 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
       label: `광고비 초과 ${metrics.highAdProducts}개 분석`,
       detail: 'ROAS/CTR 분석 → 중단/축소/유지 판단',
       priority: 'high', role: 'ad',
-      apiCall: { url: '/api/products?sortBy=revenue&sortDir=desc&period=14', method: 'GET' },
+      apiCall: { url: '/api/ads?limit=200', method: 'GET' },
     });
   }
   if (metrics.lowCtrProducts > 0) {
@@ -146,7 +146,7 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
       label: `썸네일 CTR 분석 (${metrics.lowCtrProducts}개)`,
       detail: 'CTR 1.5% 미만 상품 → 개선 우선순위',
       priority: 'medium', role: 'data',
-      apiCall: { url: '/api/products?sortBy=revenue&sortDir=desc&period=14', method: 'GET' },
+      apiCall: { url: '/api/ads?limit=200', method: 'GET' },
     });
   }
   seeds.push({
@@ -154,7 +154,7 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
     label: '카테고리별 성과 분석',
     detail: '카테고리별 매출/이익률/ROAS 비교',
     priority: 'medium', role: 'finance',
-    apiCall: { url: '/api/coupang/category', method: 'GET' },
+    apiCall: { url: '/api/statistics?type=categories', method: 'GET' },
   });
 
   return seeds;

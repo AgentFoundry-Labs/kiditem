@@ -21,6 +21,24 @@ describe('generateActionTaskSeeds', () => {
       'analyze-ad-rules',
       'analyze-category',
     ]);
+    expect(Object.fromEntries(
+      seeds
+        .filter((seed) => seed.apiCall)
+        .map((seed) => [seed.taskKey, seed.apiCall]),
+    )).toEqual({
+      'recalc-grade': {
+        url: '/api/statistics?type=pareto',
+        method: 'GET',
+      },
+      'analyze-ad-rules': {
+        url: '/api/ads/strategy/recommend',
+        method: 'GET',
+      },
+      'analyze-category': {
+        url: '/api/statistics?type=categories',
+        method: 'GET',
+      },
+    });
   });
 
   it('adds urgent finance and ad actions when loss and ad-cost thresholds fire', () => {
@@ -43,6 +61,14 @@ describe('generateActionTaskSeeds', () => {
         expect.objectContaining({ taskKey: 'analyze-ad', priority: 'high' }),
       ]),
     );
+    expect(seeds.find((seed) => seed.taskKey === 'analyze-deficit')?.apiCall).toEqual({
+      url: '/api/profit-loss',
+      method: 'GET',
+    });
+    expect(seeds.find((seed) => seed.taskKey === 'analyze-ad')?.apiCall).toEqual({
+      url: '/api/ads?limit=200',
+      method: 'GET',
+    });
   });
 
   it('adds read-only Sellpia zero-stock and channel mapping-attention links', () => {
