@@ -233,7 +233,6 @@ implements ChannelCatalogImportRepositoryPort {
             id,
             organization_id,
             channel_account_id,
-            channel,
             external_id,
             channel_name,
             display_name,
@@ -244,7 +243,6 @@ implements ChannelCatalogImportRepositoryPort {
             raw_json,
             last_import_run_id,
             is_active,
-            is_deleted,
             created_at,
             updated_at
           )
@@ -252,7 +250,6 @@ implements ChannelCatalogImportRepositoryPort {
             (record->>'id')::uuid,
             ${input.organizationId}::uuid,
             ${input.channelAccountId}::uuid,
-            ${CHANNEL},
             record->>'externalProductId',
             record->>'registeredName',
             record->>'displayName',
@@ -263,14 +260,12 @@ implements ChannelCatalogImportRepositoryPort {
             record->'rawJson',
             ${input.runId}::uuid,
             TRUE,
-            FALSE,
             NOW(),
             NOW()
           FROM jsonb_array_elements(${payload}::jsonb) AS record
           ON CONFLICT (organization_id, channel_account_id, external_id)
             WHERE channel_account_id IS NOT NULL
           DO UPDATE SET
-            channel = EXCLUDED.channel,
             channel_name = EXCLUDED.channel_name,
             display_name = EXCLUDED.display_name,
             category = EXCLUDED.category,
@@ -280,8 +275,6 @@ implements ChannelCatalogImportRepositoryPort {
             raw_json = EXCLUDED.raw_json,
             last_import_run_id = EXCLUDED.last_import_run_id,
             is_active = TRUE,
-            is_deleted = FALSE,
-            deleted_at = NULL,
             updated_at = NOW()
         `;
       }

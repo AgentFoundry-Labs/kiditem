@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const SCRIPT_INVENTORY = Object.freeze([
+  'authoritative-inventory-rebuild.ts',
   'bootstrap-authoritative-inventory-dev.ts',
   'check-agents-hygiene.mjs',
   'check-sellpia-cutover-preflight.ts',

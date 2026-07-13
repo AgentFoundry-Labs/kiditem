@@ -92,7 +92,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
 | `apps/server/src/finance` | Owner Domain | P&L, sales analysis, manual ledger, costs, payments, plans, settlements. |
-| `apps/server/src/inventory` | Owner Domain | Sellpia-authoritative InventorySku snapshot import/read plus unshipped, warehouses, and record-only transfer/picking/receipt capabilities. |
+| `apps/server/src/inventory` | Owner Domain | Sellpia-authoritative physical MasterProduct snapshot import/read plus unshipped, warehouses, and record-only transfer/picking/receipt capabilities. |
 | `apps/server/src/orders` | Owner Domain | Orders, returns, CS, reviews, and return-transfer operations. |
 | `apps/server/src/organizations` | Platform Capability | Organization listing surface. |
 | `apps/server/src/operation-cancellation` | Platform | Cross-owner durable cancellation endpoint and orchestration. |
@@ -182,7 +182,7 @@ Initial domain capability targets:
 | `rules` | Rule set and evaluation context reads. | Rule evaluation/suggestion tools that may invoke Agent OS from rules entrypoints. | Scheduled policy sweeps when deterministic. | Rule/action recommendation projection. |
 | `advertising` | Ad account/campaign/daily fact reads. | Scrape ingest normalization, strategy metrics calculations. | Daily fact ingest and deterministic alert workflows. | Ad fact/action/strategy projections. |
 | `supply` | Supplier, supplier-product, and purchase-order reads. | Supplier matching, procurement calculation helpers. | Purchase-order preparation/approval flows. | Supplier attach, purchase-order creation/update. |
-| `inventory` | Sellpia InventorySku snapshot/history, warehouse, transfer, receipt, unshipped, and picking reads. | Workbook parsing and snapshot normalization. | Atomic Sellpia full-snapshot replacement and record-only transfer/picking flows. | A completed Sellpia import is the only `InventorySku.currentStock` writer. |
+| `inventory` | Sellpia physical MasterProduct snapshot/history, warehouse, transfer, receipt, unshipped, and picking reads. | Workbook parsing and snapshot normalization. | Atomic Sellpia full-snapshot replacement and record-only transfer/picking flows. | A completed Sellpia import is the only physical `MasterProduct.currentStock` writer. |
 | `orders` | Order, return, CS, review, and return-transfer reads. | Return/CS classification helpers, channel-agnostic order calculations. | Return and CS operational workflows. | Order/return status projections through order-owned commands. |
 
 Flat owner capabilities use this shape:
@@ -428,10 +428,11 @@ existing content asset, a succeeded generation candidate, or an external URL
 that first passes the guarded fetch/storage boundary. Asset deletion and GC
 must reject active generation usage or any thumbnail selection.
 
-## Sellpia-Authoritative Inventory And Channel Capacity (`0.1.9`)
+## Sellpia-Authoritative Inventory And Channel Capacity (`0.1.8`)
 
 Sellpia is the upstream inventory service and a completed full-workbook import
-is KidItem's only stock writer. Inventory owns `InventorySku.currentStock`;
+is KidItem's only stock writer. Inventory owns the physical Sellpia
+`MasterProduct.currentStock` snapshot;
 Channels owns each marketplace account's independent product/SKU metadata,
 explicit component recipes, and sellable-capacity projection. Products owns
 catalog data and has no stock fields or bundle-stock materialization.
@@ -443,15 +444,18 @@ are explicit:
 |---|---|---|---|
 | `ChannelProduct` | `ChannelListing` | `channel_listings` | Organization + ChannelAccount + external product ID; channel price/name metadata is account-specific. |
 | `ChannelSku` | `ChannelListingOption` | `channel_listing_options` | Organization + ChannelAccount + external SKU ID; its product-option compatibility link is not inventory truth. |
-| `InventorySku` | `InventorySku` | `inventory_skus` | One Sellpia product code per organization; `current_stock` is written only by a completed Sellpia snapshot import. |
-| `ChannelSkuComponent` | `ChannelSkuComponent` | `channel_sku_components` | Exact positive quantity of one InventorySku consumed by one sale of one ChannelSku. |
+| Physical Sellpia product | `MasterProduct` | `master_products` | Organization + Sellpia product code; `current_stock` is written only by a completed Sellpia snapshot import. |
+| `ChannelSkuComponent` | `ChannelSkuComponent` | `channel_sku_components` | Exact positive quantity of one physical MasterProduct consumed by one sale of one ChannelSku. |
 | `SourceImportRun` | `SourceImportRun` | `source_import_runs` | Workbook provenance, SHA-256 idempotency, and attempt fencing scoped by organization/source/account. |
+
+Release `0.1.8` cuts directly to this final schema. Removed legacy inventory
+owners and mapping tables are not dual-written or retained as runtime shadows.
 
 ```text
 Sellpia complete export
   -> POST /api/inventory/sellpia-sync/import
-  -> atomic InventorySku full snapshot replacement
-  -> absent known Sellpia codes currentStock = 0
+  -> atomic physical MasterProduct full snapshot replacement
+  -> absent known Sellpia codes inactive + currentStock = 0
   -> GET /api/inventory/sellpia-skus and /sellpia-sync/import-runs
 
 Marketplace catalog export + selected ChannelAccount
@@ -472,7 +476,7 @@ deducts stock.
 `ProductOption` and product bundle composition remain catalog concepts. They do
 not own current/reserved/safety/reorder/available stock, and a product bundle
 has no separately maintained stock. `StockTransfer`, `PickingItem`, and
-`ReturnTransfer` reference `InventorySku` only to record operations; their
+`ReturnTransfer` reference the physical `MasterProduct` only to record operations; their
 create/update/complete flows do not change `currentStock`.
 
 The existing `/inventory`, `/inventory-hub`, and `/stock-ops` routes are
@@ -488,15 +492,15 @@ server-side confirm/reserve/generate actions are explicitly deferred; a future
 implementation must use Rocket ChannelSku recipes and the same nullable
 Sellpia-backed capacity projection.
 
-The approved clean development baseline for release `0.1.9` imports 1,964
-Sellpia InventorySku rows and 1,225 Wing ChannelProducts / 2,241 ChannelSkus,
-with three skipped Wing rows. A destructive reset and metadata bootstrap are
-local-development-only and must use the host/name guards in
-`scripts/bootstrap-authoritative-inventory-dev.ts`; staging and production are
-never reset by this workflow. Release `0.1.9` therefore includes a pre-schema
-local-only migration gate: shared-environment deployment stops before Prisma
-schema application until a separate backward-compatible preservation
-migration is reviewed and replaces that gate.
+The approved development workbook imports 1,964 physical Sellpia
+MasterProducts and 1,225 Wing ChannelProducts / 2,241 ChannelSkus, with three
+invalid Wing rows skipped on a clean first import. Shared environments use the
+guarded `0.1.8` final-schema rebuild: exact environment-bound reset token,
+sanitized private Coupang replay artifact, traffic quiesce, minimum auth/account
+bootstrap, authenticated Sellpia-then-Wing imports, authenticated replay, and
+exact acceptance checks. The application remains `snapshot_required` until
+those checks mark the environment ready; there is no legacy inventory mapping
+backfill or warning-accepted transition path.
 
 Operational upload order, recovery rules, exact baseline counts, and local
 reset/bootstrap steps live in the

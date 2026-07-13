@@ -56,8 +56,9 @@ export class DashboardSalesRepositoryAdapter
 
   /**
    * Top-N (10) product revenue ranking for the calendar month. Joins
-   * orders → line items → channel listing options → channel listings →
-   * master products. Each tenant-owned join guards `organization_id`.
+   * orders → line items → channel listing options → SKU components →
+   * master products. Channel listings supply the marketplace label. Each
+   * tenant-owned join guards `organization_id`.
    *
    * Returns the raw shape; the application service applies the documented
    * 30%-margin approximation for `netProfit`/`profitRate`.
@@ -72,21 +73,25 @@ export class DashboardSalesRepositoryAdapter
         mp.id::text AS id,
         mp.name AS name,
         cl.channel_name AS organization,
-        mp.abc_grade AS grade,
+        cl.abc_grade AS grade,
         SUM(oli.total_price)::int AS revenue,
         SUM(oli.quantity)::int AS quantity
       FROM orders o
       JOIN order_line_items oli ON oli.order_id = o.id
       JOIN channel_listing_options clo ON clo.id = oli.listing_option_id
       JOIN channel_listings cl ON cl.id = clo.listing_id
-      JOIN master_products mp ON mp.id = cl.master_id
+      JOIN channel_sku_components csc ON csc.channel_sku_id = clo.id
+      JOIN master_products mp ON mp.id = csc.master_product_id
       WHERE o.organization_id = ${organizationId}::uuid
+        AND oli.organization_id = ${organizationId}::uuid
+        AND clo.organization_id = ${organizationId}::uuid
         AND cl.organization_id = ${organizationId}::uuid
+        AND csc.organization_id = ${organizationId}::uuid
         AND mp.organization_id = ${organizationId}::uuid
         AND o.ordered_at >= ${monthStart}
         AND o.ordered_at < ${monthEnd}
         AND o.status NOT IN ('cancelled', 'returned', 'refunded')
-      GROUP BY mp.id, mp.name, cl.channel_name, mp.abc_grade
+      GROUP BY mp.id, mp.name, cl.channel_name, cl.abc_grade
       ORDER BY revenue DESC
       LIMIT 10
     `;

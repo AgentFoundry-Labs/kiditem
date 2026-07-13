@@ -334,9 +334,9 @@ does not deploy automatically; an operator triggers the workflow manually. Do
 not create a long-lived `staging` branch; staging is a GitHub Environment, not a
 separate source branch.
 
-Only the real deploy/rollback/status jobs declare GitHub Environment `staging`.
-Build and preparation jobs intentionally avoid it so GitHub creates a single
-staging deployment record for one `operation=deploy` run.
+Only deploy/finalize-rebuild/rollback/status jobs declare GitHub Environment
+`staging`. Build and preparation jobs intentionally avoid it. The destructive
+deploy and its later finalization are separately protected staging operations.
 
 The deployable app release is recorded in root [`VERSION`](../../VERSION).
 Package-local `version` fields are package metadata and are not the staging
@@ -372,61 +372,55 @@ deploy/staging/nginx.conf
 deploy/staging/remote-deploy.sh
 ```
 
-Before the EC2 image swap, the deploy job first runs pre-schema data migrations
-that must change existing database shape before Prisma sees the new schema:
+Normal deploys keep the ordered pre-schema migration, non-destructive
+`prisma db push`, and post-schema migration path. Release `0.1.8` also exposes
+one explicit authoritative rebuild path:
 
-```bash
-npm run data:migrate -- up --phase pre-schema
+```text
+operation: deploy
+deployment_target: staging
+destructive_reset: RESET_STAGING_DATA
 ```
 
-with `DATA_MIGRATION_TARGET=staging` and
-`DATA_MIGRATION_CONFIRM=APPLY_DATA_MIGRATIONS`. Immediately afterward, and on
-every deployment rather than once per migration ledger, it runs the read-only
-Sellpia preservation gate:
+The workflow validates the exact token inside GitHub Environment `staging`,
+exports only sanitized Coupang replay payloads to a private one-day artifact,
+stops all application traffic, applies the final Prisma schema with
+`--force-reset`, and creates only the configured organization, Supabase user
+mirror, active membership, and channel-account baseline. It then starts the
+application with `inventory.rebuild.status=snapshot_required`. No source
+workbook is read from the repository or stored in the artifact.
 
-```bash
-npm run check:sellpia-cutover-preflight
-```
+After the deploy finishes, an authenticated operator must:
 
-The gate emits preservation-lane row counts and at most 20 examples per issue.
-It stops on null or duplicate operational accounts, active/inactive listing
-identity duplicates, child/parent account mismatch, cross-tenant foreign keys,
-projected staged unique-key collisions, ownerless retained content, or
-ambiguous ProductOption references. Only a successful run writes the job-local
-`SELLPIA_CUTOVER_PREFLIGHT=passed` marker.
+1. Open `/inventory-hub?tab=sellpia-sync` and import the approved Sellpia
+   workbook. Wait for a completed `sellpia_inventory` run.
+2. Open `/product-hub/matching`, choose the configured Coupang account, and
+   import the approved Wing workbook. Wait for a completed
+   `coupang_wing_catalog` run. Sellpia must complete first.
+3. Confirm the Environment variables `STAGING_REBUILD_EXPECTED_*` match the
+   approved import manifest, not a guessed or copied total.
+4. Trigger the same workflow with:
 
-The workflow then captures an ordinary `npx prisma db push` log. If Prisma
-requires warning acceptance, `scripts/check-sellpia-db-push-warning.mjs`
-permits a rerun with `--accept-data-loss` only when every warning belongs to
-the reviewed 0.1.8 additive/composite-key allowlist encoded by the script.
+   ```text
+   operation: finalize-rebuild
+   deployment_target: staging
+   destructive_reset: RESET_STAGING_DATA
+   rebuild_run_id: <originating deploy run ID>
+   ```
 
-Any missing marker, drop warning, extra warning, or unrecognized constraint
-stops the deployment. The existing `accept_data_loss` workflow input remains
-as the explicit reviewed-cleanup declaration for unrelated releases, but it
-never authorizes `--accept-data-loss` by itself and cannot bypass this Sellpia
-gate. An unrelated cleanup must add its own tested exact-warning preflight in
-the release that needs it.
-
-After schema push, the workflow runs post-schema data migrations before the image
-swap so new application code starts with any required backfill already present:
-
-```bash
-npm run data:migrate -- up --phase post-schema
-```
-
-For release `0.1.8`, this phase copies a parent `channel_account_id` only into
-a null ChannelListingOption account when child and parent share the same
-organization, then fails if any populated child account differs from its
-parent. It does not infer ProductOption mappings, bundle components,
-reconciliation rows, or workbook-derived mappings.
+Finalization downloads only that run's staging artifact, replays Coupang data
+through authenticated `POST /api/ads/extension/sync`, verifies the completed
+Sellpia/Wing import order and exact imported/replayed counts, and marks the
+environment ready. Missing credentials, imports, expected counts, artifact,
+or a target/run/count mismatch fails closed and keeps snapshot-required state.
 
 Each durable data migration is grouped by the application release in root
 [`VERSION`](../../VERSION) that requires it, for example
 `scripts/data-migrations/v0.1.0/001_<name>.ts`, and records a row in
 `data_migration_runs` with migration id, release version, status, git SHA,
 Prisma schema hash, affected rows, details, and error text when a run fails.
-After the new containers pass the EC2 smoke check, the
-workflow verifies the migration ledger with:
+After a normal non-destructive deploy passes the EC2 smoke check, the workflow
+verifies the migration ledger with:
 
 ```bash
 npm run data:migrate -- status
@@ -561,7 +555,7 @@ curl -I http://<ec2-public-ip>/login
 curl -I https://<real-staging-domain>/login
 curl -I https://<real-staging-domain>/api/auth/me
 npm run data:migrate -- status --database-url "$STAGING_DATABASE_URL"
-npm run check:channel-sku-identity
+npm run inventory:rebuild -- guard # only with the exact GitHub Actions rebuild env
 ```
 
 Expected results:
@@ -580,9 +574,9 @@ Expected results:
   at `/product-pipeline/detail-pages/:generationId/editor`, with
   `sourceCandidateId` and `returnTo` query params when the source is a collected
   product.
-- The workflow log shows the repeatable identity JSON report immediately before
-  schema apply; any warning-accepted rerun lists only the exact covered unique
-  additions above.
+- A guarded rebuild log records its origin run ID, one-day artifact, quiesce,
+  final-schema reset, minimum bootstrap, and snapshot-required state. A later
+  finalization log records exact import/replay acceptance before ready state.
 
 ## Blocker Criteria
 
@@ -597,11 +591,12 @@ Stop and report instead of guessing if:
     then be fixed or rerun from GitHub Actions so the file bind mount cannot
     keep a stale config inode.
 - Supabase connection errors mention the production project.
-- `npm run check:channel-sku-identity` reports any example or does not set its
-  job-local marker.
-- `npx prisma db push` reports a drop, extra warning, unrecognized constraint,
-  or any failure other than the four covered unique-addition warnings. Setting
-  `accept_data_loss=true` does not override this blocker.
+- `destructive_reset` is non-empty but is not exactly `RESET_STAGING_DATA`, or
+  `deployment_target` is not `staging`.
+- The private export is incomplete, contains a disallowed payload, or cannot be
+  uploaded before traffic is quiesced.
+- A finalization run cannot prove the originating run ID, protected
+  Environment, Sellpia-before-Wing import order, or every configured count.
 - `npm run data:migrate -- up` fails or writes a `failed` ledger row.
 - Any seed/import/baseline step would target production by accident.
 - DB baseline export/restore would use the public app asset bucket instead of
@@ -621,5 +616,7 @@ Report:
 - Supabase Storage bucket name used for staging.
 - DB baseline profile id and `deployments/current-db.json` state, if operated.
 - Data migration ledger statuses from `data_migration_runs`.
+- Rebuild origin run ID, snapshot-required/ready status, and exact acceptance
+  counts when the guarded rebuild path was used.
 - Compose service status.
 - Verification commands and results.

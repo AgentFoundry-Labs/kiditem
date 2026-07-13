@@ -20,6 +20,7 @@ npm run test:scripts
 
 | path | owner / purpose | entrypoint |
 |---|---|---|
+| `scripts/authoritative-inventory-rebuild.ts` | GitHub-Actions-only guard, selective Coupang scrape export/replay, minimum auth/account bootstrap, and fail-closed readiness verification for the 0.1.8 shared database rebuild | `npm run inventory:rebuild`, staging/production deploy workflows, `docs/runbooks/deployment-architecture.md` |
 | `scripts/bootstrap-authoritative-inventory-dev.ts` | verified-local DB bootstrap for the Sellpia-authoritative inventory baseline; creates only organization and Wing/Rocket account metadata | `npm run inventory:bootstrap:dev`, `docs/runbooks/sellpia-rocket-inventory-sync.md` |
 | `scripts/check-agents-hygiene.mjs` | AGENTS/CLAUDE instruction hygiene gate | `npm run check:agents-hygiene` |
 | `scripts/check-sellpia-cutover-preflight.ts` | read-only preservation/account/content/tenant report for the 0.1.8 Sellpia expand release; emits bounded machine-readable blockers | `npm run check:sellpia-cutover-preflight`, staging and production deploy workflows |
@@ -41,7 +42,7 @@ npm run test:scripts
 | `scripts/generate-prisma-erd.mjs` | Prisma ERD markdown generator | `npm run db:erd` |
 | `scripts/generate-schema-graphify.py` | Graphify schema export generator | `npm run graphify:schema` |
 | `scripts/prepare-coupang-extension.mjs` | staging browser-extension setup helper | `docs/runbooks/staging-deploy.md` |
-| `scripts/run-data-migrations.ts` | durable data migration runner; migration units live under root `VERSION` release folders such as `scripts/data-migrations/v0.1.0/` and record `data_migration_runs` ledger rows | `npm run data:migrate`, `docs/runbooks/staging-deploy.md` |
+| `scripts/run-data-migrations.ts` | durable data migration runner; migration units live under root `VERSION` release folders, record `data_migration_runs`, and support schema phases plus a manual `post-deploy` verification phase | `npm run data:migrate`, `docs/runbooks/staging-deploy.md` |
 | `scripts/seed-agent-os.ts` | local/dev Agent OS runtime seed wrapper | `npm run seed:agent-os` |
 | `scripts/staging-db-baseline.ts` | staging DB baseline export/verify/restore CLI | `npm run staging:db` |
 | `scripts/storage-cache-control.ts` | Supabase/S3 Storage cache-control inspection and staging backfill helper for public immutable image assets | `npm run storage:cache-control`, `docs/runbooks/storage-cache-control.md` |

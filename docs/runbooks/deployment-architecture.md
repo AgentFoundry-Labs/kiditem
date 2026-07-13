@@ -40,39 +40,42 @@ a second image build.
   installation, and Elastic IP allocation. Shell scripts under `bin/` must not
   become an alternate deploy path.
 
-## Schema Transition Gate
+## Guarded Authoritative Rebuild
 
-Staging and production share one ordered database release boundary before the
-blue-green image switch:
+Release `0.1.8` is a one-release reconstruction boundary, not an expand/contract
+migration. Staging and production use the same fail-closed sequence:
 
 ```text
-pre-schema ledger migrations
-  -> repeatable read-only Sellpia cutover preservation preflight
-  -> ordinary Prisma db push with exact-warning guard
-  -> Prisma client generation
-  -> post-schema ledger migrations
+exact RESET_<ENVIRONMENT>_DATA input + matching GitHub Environment
+  -> sanitized Coupang run/snapshot/daily-fact export
+  -> private workflow artifact (one-day retention)
+  -> quiesce every API, web, worker, and compose-nginx service
+  -> Prisma final schema with --force-reset
+  -> minimum organization/user/membership/channel-account baseline
+  -> deploy application with inventory.rebuild.status=snapshot_required
+  -> authenticated operator Sellpia import
+  -> authenticated operator Wing import
+  -> authenticated Coupang replay from the originating artifact
+  -> exact fact/count verification and state=ready
 ```
 
-Release `0.1.8` is an expand-only persistent-database transition. Its
-pre-schema migration normalizes operational channel-account identities and
-repoints incoming references before canonical duplicates are merged. The
-unshipped blanket `0.1.9` rejection is not registered; later releases must add
-reviewed preservation migrations instead of rejecting shared targets.
+The destructive path is disabled unless all four values agree: the selected
+deployment target, the job's fixed GitHub Environment, the workflow input, and
+the environment-specific expected token. A blank reset input keeps the normal
+non-destructive migration and `prisma db push` path. A wrong non-blank input
+fails before export or traffic changes.
 
-The Sellpia preservation preflight runs on every deployment immediately before
-schema push and writes no schema, row, workbook, or migration-ledger state. It
-reports bounded samples and counts for inventory, legacy product, component,
-supply, order, content, listing, analytics, and advertising lanes. Its
-job-local marker is set only after exit `0`. Prisma remains schema truth: the
-workflow does not install SQL overlay indexes. A warning-accepted rerun is
-possible only when every captured warning matches the reviewed 0.1.8
-additive/composite-key allowlist and no drop, rename, recreated column,
-unrecognized warning, or non-warning failure is present.
+The replay artifact is bound to the target, organization, and originating
+workflow run ID. It excludes bootstrap credentials, channel account config,
+PII-shaped fields, orders, reviews, and legacy mapping rows. Finalization must
+run in the same protected GitHub Environment, download that exact run's private
+artifact, and compare replay/import counts with the approved manifest-backed
+Environment variables. Missing imports, missing expected counts, a mismatched
+run, or any count difference leaves the environment snapshot-required.
 
-Local and staging ledger mutation targets still reject production-looking
-URLs. The production ledger target is restricted to GitHub Actions and needs
-both `APPLY_DATA_MIGRATIONS` and `DEPLOY_PRODUCTION` confirmations inside the
-protected `production` Environment job.
+The artifact expires after one day. If authenticated Sellpia and Wing imports
+cannot be completed within that window, do not improvise a database copy or
+extend the artifact with credentials; start a new guarded rebuild run.
 
 ## Blue-Green Switch
 

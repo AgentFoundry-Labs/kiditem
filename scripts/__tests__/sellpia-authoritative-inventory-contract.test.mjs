@@ -20,6 +20,20 @@ const schema = schemaFiles
   .join('\n');
 const core = readFileSync(join(repoRoot, 'prisma/models/core.prisma'), 'utf8');
 const channels = readFileSync(join(repoRoot, 'prisma/models/channels.prisma'), 'utf8');
+const wingCatalogRepository = readFileSync(
+  join(
+    repoRoot,
+    'apps/server/src/channels/adapter/out/repository/channel-catalog-import.repository.adapter.ts',
+  ),
+  'utf8',
+);
+const dashboardSalesRepository = readFileSync(
+  join(
+    repoRoot,
+    'apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-sales.repository.adapter.ts',
+  ),
+  'utf8',
+);
 const migrationRegistry = readFileSync(
   join(repoRoot, 'scripts/data-migrations/index.ts'),
   'utf8',
@@ -94,5 +108,33 @@ describe('Sellpia authoritative final-schema contract', () => {
       /mappingSource\s+String[^\n]*product_code \| barcode \| manual/,
     );
     assert.doesNotMatch(component, /legacy_migrated/);
+  });
+
+  it('keeps the Wing bulk upsert aligned with final ChannelListing columns', () => {
+    const insert = wingCatalogRepository.match(
+      /INSERT INTO channel_listings \([\s\S]*?ON CONFLICT[\s\S]*?DO UPDATE SET[\s\S]*?updated_at = NOW\(\)/,
+    )?.[0];
+    assert.ok(insert, 'Expected the Wing ChannelListing bulk upsert');
+    assert.doesNotMatch(insert, /^\s*channel,?$/m);
+    assert.doesNotMatch(insert, /^\s*is_deleted,?$/m);
+    assert.doesNotMatch(insert, /\bdeleted_at\b/);
+  });
+
+  it('resolves dashboard top products through the final channel SKU component owner', () => {
+    assert.match(
+      dashboardSalesRepository,
+      /JOIN channel_sku_components csc ON csc\.channel_sku_id = clo\.id/,
+    );
+    assert.match(
+      dashboardSalesRepository,
+      /JOIN master_products mp ON mp\.id = csc\.master_product_id/,
+    );
+    assert.match(
+      dashboardSalesRepository,
+      /AND csc\.organization_id = \$\{organizationId\}::uuid/,
+    );
+    assert.doesNotMatch(dashboardSalesRepository, /cl\.master_id/);
+    assert.doesNotMatch(dashboardSalesRepository, /mp\.abc_grade/);
+    assert.match(dashboardSalesRepository, /cl\.abc_grade AS grade/);
   });
 });

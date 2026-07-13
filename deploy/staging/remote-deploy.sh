@@ -18,12 +18,15 @@ usage() {
   cat <<'USAGE'
 Usage:
   deploy/staging/remote-deploy.sh deploy
+  deploy/staging/remote-deploy.sh quiesce
   deploy/staging/remote-deploy.sh status
 
 Deploy mode requires KIDITEM_API_IMAGE and KIDITEM_WEB_IMAGE.
 The script deploys to the inactive blue/green slot, switches nginx after
 candidate health passes, writes deployments/current.json, and stops the
 previous slot to avoid duplicate in-process workers.
+Quiesce mode stops both application slots and nginx before a guarded database
+rebuild. It is invoked only by the environment-scoped GitHub Actions workflow.
 USAGE
 }
 
@@ -685,6 +688,19 @@ deploy() {
   status
 }
 
+quiesce() {
+  cd "$APP_DIR"
+  require_command docker
+  require_file "$COMPOSE_FILE"
+  require_file "$DEPLOY_ENV_FILE"
+  require_file "$WEB_ENV_FILE"
+
+  echo "Quiescing $DEPLOY_ENVIRONMENT application traffic for guarded database rebuild"
+  compose config >/dev/null
+  compose stop api-blue web-blue worker-blue api-green web-green worker-green nginx
+  compose ps
+}
+
 status() {
   cd "$APP_DIR"
 
@@ -731,6 +747,9 @@ status() {
 case "${1:-}" in
   deploy)
     deploy
+    ;;
+  quiesce)
+    quiesce
     ;;
   status)
     status

@@ -3,9 +3,8 @@
 Production deploy is manual through `.github/workflows/production-deploy.yml`.
 It shares the same GHCR image build and blue-green remote deploy model as
 staging, but requires explicit confirmation strings and never auto-accepts
-destructive Prisma schema changes. The only warning-accepted schema rerun is
-the exact, read-only-preflight-covered channel identity transition described
-below.
+destructive Prisma schema changes. Release `0.1.8` has a separate exact-token
+rebuild operation; there is no warning-accepted `--accept-data-loss` fallback.
 
 ## Human Prerequisites
 
@@ -40,6 +39,16 @@ PRODUCTION_AI_IMAGE_ANALYSIS_MODEL
 PRODUCTION_AI_IMAGE_ANALYSIS_VERIFY_MODEL
 PRODUCTION_AGENT_RUNTIME_WORKER_ENABLED
 PRODUCTION_AGENT_DEFAULT_MODEL
+PRODUCTION_REBUILD_ORGANIZATION_ID
+PRODUCTION_REBUILD_ORGANIZATION_NAME
+PRODUCTION_REBUILD_ORGANIZATION_SLUG
+PRODUCTION_REBUILD_USER_ID
+PRODUCTION_REBUILD_USER_NAME
+PRODUCTION_REBUILD_COUPANG_ACCOUNT_ID
+PRODUCTION_REBUILD_COUPANG_ACCOUNT_NAME
+PRODUCTION_REBUILD_EXPECTED_ACTIVE_MASTERS
+PRODUCTION_REBUILD_EXPECTED_LISTINGS
+PRODUCTION_REBUILD_EXPECTED_CHANNEL_SKUS
 ```
 
 Required secrets:
@@ -53,10 +62,17 @@ PRODUCTION_S3_SECRET_KEY
 PRODUCTION_CHANNEL_CREDENTIALS_ENCRYPTION_KEY
 PRODUCTION_SOURCING_EXTENSION_TOKEN_SECRET
 PRODUCTION_GEMINI_API_KEY
+PRODUCTION_SUPABASE_SECRET_KEY
+PRODUCTION_REBUILD_USER_EMAIL
+PRODUCTION_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID
 ```
 
 Optional provider secrets and variables mirror the staging names with the
 `PRODUCTION_` prefix, for example `PRODUCTION_NAVER_SEARCHAD_API_KEY`.
+An optional Rocket baseline requires all three of
+`PRODUCTION_REBUILD_ROCKET_ACCOUNT_ID`,
+`PRODUCTION_REBUILD_ROCKET_ACCOUNT_NAME`, and secret
+`PRODUCTION_REBUILD_ROCKET_EXTERNAL_ACCOUNT_ID`.
 
 ## Deploy
 
@@ -75,24 +91,42 @@ workflow input. The runner additionally requires `GITHUB_ACTIONS=true`; a
 local shell cannot authorize `--target production` with the ordinary
 confirmation alone.
 
-The database transition is strictly ordered:
+Normal database transitions remain pre-schema migrations, non-destructive
+`prisma db push`, Prisma generation, and post-schema migrations.
 
-1. run pre-schema data migrations;
-2. run the read-only `npm run check:channel-sku-identity` and set the job-local
-   marker only after exit `0`;
-3. capture an ordinary `npx prisma db push` log;
-4. on warning-only refusal, accept only a non-empty subset of
-   `channel_listings_org_account_external_id_key`,
-   `channel_listings_id_org_account_key`,
-   `channel_listing_options_id_org_key`, and
-   `channel_listing_options_org_account_external_option_key`;
-5. generate the Prisma client;
-6. run post-schema data migrations.
+The one-release authoritative rebuild uses:
 
-A drop, extra warning, unrecognized constraint, missing marker, or non-warning
-failure stops the production deployment. Release `0.1.8` then backfills only
-null child accounts from same-organization parents and verifies that populated
-child accounts equal their parent account before images are deployed.
+```text
+operation: deploy
+deployment_target: production
+destructive_reset: RESET_PRODUCTION_DATA
+confirm: DEPLOY_PRODUCTION
+```
+
+Inside protected GitHub Environment `production`, the workflow validates the
+exact target/token, creates a sanitized private one-day Coupang artifact,
+quiesces all app services, force-rebuilds the final schema, creates only the
+configured auth/account baseline, and deploys snapshot-required state. A wrong
+token fails before export; export/upload failure occurs before quiesce/reset.
+
+An authenticated operator then imports Sellpia at
+`/inventory-hub?tab=sellpia-sync`, followed by Wing at
+`/product-hub/matching`. After both runs complete and approved manifest counts
+are present in `PRODUCTION_REBUILD_EXPECTED_*`, trigger:
+
+```text
+operation: finalize-rebuild
+deployment_target: production
+destructive_reset: RESET_PRODUCTION_DATA
+rebuild_run_id: <originating deploy run ID>
+```
+
+This downloads only the originating production artifact, creates a temporary
+operator session using the production Supabase secret, replays through
+authenticated `POST /api/ads/extension/sync`, and verifies exact imports and
+facts before marking ready. Any missing/mismatched input leaves production
+snapshot-required. The artifact expires after one day; restart the guarded
+rebuild rather than copying data or credentials outside this path.
 
 ## Rollback
 
@@ -122,9 +156,12 @@ refs, compose status, and local smoke endpoint status from the production host.
 - `PRODUCTION_DATABASE_URL` is not the intended production DB.
 - Either data-migration confirmation is missing, the runner is outside GitHub
   Actions, or the production target guard rejects the run.
-- The repeatable Sellpia cutover preservation report contains any blocking issue code.
-- `npx prisma db push` requests a drop, rename, recreated column, or any warning
-  outside the reviewed 0.1.8 additive/composite-key allowlist.
+- A non-empty reset input differs from `RESET_PRODUCTION_DATA`, the target is
+  not `production`, or the job is outside protected GitHub Actions production.
+- Private export/upload does not finish before traffic quiesce.
+- Sellpia and Wing are not completed in that order through authenticated routes.
+- The originating run artifact, expected manifest counts, replay counts, or
+  readiness record is missing or mismatched.
 - Candidate API/web health fails.
 - Worker service exits during candidate validation.
 - Public `/login` or `/api/auth/me` smoke fails after nginx switch.

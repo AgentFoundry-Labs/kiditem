@@ -51,7 +51,6 @@ erDiagram
     String imageUrl
     Decimal costCny
     String status
-    String promotedMasterId FK
     String provenanceMasterProductId FK
     String rejectedReason
     DateTime rejectedAt
@@ -81,13 +80,11 @@ erDiagram
 | CandidateImage | candidateImage | referenced by external | AI | ThumbnailGenerationInputImage |
 | CandidateImage | organization | references external | Core | Organization |
 | SourcingCandidate | organization | references external | Core | Organization |
-| SourcingCandidate | promotedMaster | references external | Core | MasterProduct |
 | SourcingCandidate | provenanceMasterProduct | references external | Core | MasterProduct |
 | SourcingCandidate | rejectedByUser | references external | Core | User |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ContentGeneration |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ContentGenerationSource |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ContentWorkspace |
-| SourcingCandidate | sourceCandidate | referenced by external | AI | DetailPageArtifact |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ProductPreparation |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ThumbnailGeneration |
 | SourcingCandidate | sourceCandidate | referenced by external | Core | ChannelListing |

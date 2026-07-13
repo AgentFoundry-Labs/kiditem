@@ -43,23 +43,20 @@ describe('product pipeline DB model contract', () => {
     assert.ok(dbPush < postSchema, 'post-schema backfills must run after Prisma db push');
   });
 
-  it('preflights Sellpia preservation before accepting the exact staging warning set', () => {
+  it('exports approved state and quiesces traffic before the guarded staging reset', () => {
     const workflow = readModelFile('.github/workflows/staging-deploy.yml');
-    const preflightScript = readModelFile('scripts/check-sellpia-cutover-preflight.ts');
-    const preflight = workflow.indexOf('Check Sellpia cutover preflight');
-    const warningGuard = workflow.indexOf('check-sellpia-db-push-warning.mjs');
-    const acceptDataLoss = workflow.indexOf('npx prisma db push --accept-data-loss');
+    const guard = workflow.indexOf('Validate staging rebuild confirmation');
+    const exported = workflow.indexOf('Export approved Coupang replay bundle');
+    const quiesced = workflow.indexOf('Quiesce staging application traffic');
+    const forceReset = workflow.indexOf('npx prisma db push --force-reset');
+    const bootstrap = workflow.indexOf('Bootstrap staging authentication and account baseline');
 
-    assert.ok(preflight !== -1, 'expected staging deploy to preflight reviewed data-loss gates');
-    assert.ok(preflight < warningGuard, 'identity preflight must run before the exact warning guard');
-    assert.ok(warningGuard < acceptDataLoss, 'exact warning guard must run before --accept-data-loss');
-    assert.ok(preflight < acceptDataLoss, 'data-loss preflight must run before --accept-data-loss');
-    assert.match(workflow, /SELLPIA_CUTOVER_PREFLIGHT=passed/);
-    assert.match(
-      preflightScript,
-      /GROUP BY organization_id,\s*channel_account_id,\s*external_id/,
-    );
-    assert.match(preflightScript, /HAVING COUNT\(\*\) > 1/);
+    assert.ok(guard !== -1, 'expected an exact shared rebuild guard');
+    assert.ok(guard < exported, 'guard must pass before approved data is exported');
+    assert.ok(exported < quiesced, 'private export must finish before traffic is quiesced');
+    assert.ok(quiesced < forceReset, 'traffic must be stopped before the force reset');
+    assert.ok(forceReset < bootstrap, 'minimum baseline must be created after the final schema');
+    assert.doesNotMatch(workflow, /--accept-data-loss|check-sellpia-db-push-warning/);
   });
 
   it('verifies the public staging URL after EC2 deploy', () => {

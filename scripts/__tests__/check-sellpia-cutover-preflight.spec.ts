@@ -202,30 +202,31 @@ describe('Sellpia cutover preflight', () => {
   });
 });
 
-describe('Sellpia expand deployment ordering', () => {
+describe('authoritative rebuild deployment ordering', () => {
   it.each([
-    ['staging', '.github/workflows/staging-deploy.yml', 'Apply staging Prisma schema'],
-    ['production', '.github/workflows/production-deploy.yml', 'Apply production Prisma schema'],
-  ])('orders the %s transition around the repeatable preservation preflight', (
-    _environment,
+    ['staging', '.github/workflows/staging-deploy.yml'],
+    ['production', '.github/workflows/production-deploy.yml'],
+  ])('orders the guarded %s rebuild and removes warning acceptance', (
+    environment,
     relativePath,
-    schemaStepName,
   ) => {
     const workflow = readFileSync(join(repoRoot, relativePath), 'utf8');
     const markers = [
-      '- name: Run pre-schema data migrations',
-      '- name: Check Sellpia cutover preflight',
-      `- name: ${schemaStepName}`,
+      `- name: Validate ${environment} rebuild confirmation`,
+      '- name: Export approved Coupang replay bundle',
+      `- name: Quiesce ${environment} application traffic`,
+      `- name: Rebuild ${environment} database from final schema`,
       '- name: Generate Prisma client after schema push',
-      '- name: Run post-schema data migrations',
+      `- name: Bootstrap ${environment} authentication and account baseline`,
     ];
     const positions = markers.map((marker) => workflow.indexOf(marker));
 
     expect(positions.every((position) => position >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((left, right) => left - right));
-    expect(workflow).toContain('SELLPIA_CUTOVER_PREFLIGHT=passed');
-    expect(workflow).toContain('check-sellpia-db-push-warning.mjs');
-    expect(workflow).not.toMatch(/check-channel-sku|CHANNEL_SKU_IDENTITY_PREFLIGHT/);
+    expect(workflow).toContain('npx prisma db push --force-reset');
+    expect(workflow).not.toContain('check-sellpia-cutover-preflight');
+    expect(workflow).not.toContain('check-sellpia-db-push-warning.mjs');
+    expect(workflow).not.toContain('--accept-data-loss');
   });
 
   it('keeps production migrations behind the independent workflow confirmation', () => {
@@ -234,9 +235,10 @@ describe('Sellpia expand deployment ordering', () => {
     expect(workflow).toContain('environment: production');
   });
 
-  it('does not let the staging cleanup input bypass the exact warning guard', () => {
+  it('uses the exact staging reset token instead of a boolean cleanup bypass', () => {
     const workflow = readFileSync(join(repoRoot, '.github/workflows/staging-deploy.yml'), 'utf8');
-    expect(workflow).toContain('accept_data_loss:');
-    expect(workflow).not.toMatch(/elif \[ "\$\{ACCEPT_DATA_LOSS\}" = "true" \]/);
+    expect(workflow).not.toContain('accept_data_loss:');
+    expect(workflow).toContain('EXPECTED_RESET_CONFIRMATION: RESET_STAGING_DATA');
+    expect(workflow).toContain('npm run inventory:rebuild -- guard');
   });
 });
