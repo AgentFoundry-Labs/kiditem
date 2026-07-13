@@ -34,8 +34,8 @@ const base: ChannelSkuAvailabilityItem = {
     updatedAt: '2026-07-12T00:00:00.000Z',
   },
   components: [{
-    inventorySkuId: '00000000-0000-4000-8000-000000000104',
-    sellpiaProductCode: 'SP-1',
+    masterProductId: '00000000-0000-4000-8000-000000000104',
+    code: 'SP-1',
     name: 'Sellpia product',
     optionName: null,
     barcode: null,

@@ -7,6 +7,7 @@ import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import { fetchAllSellpiaInventorySkus } from '@/app/(inventory)/_shared/inventory-api';
+import { fetchAllChannelListingsForReport } from '@/lib/channel-listings-report';
 import type { InventorySkuSnapshotItem } from '@kiditem/shared/inventory';
 
 const REPORTS = [
@@ -18,9 +19,8 @@ const REPORTS = [
 ] as const;
 
 const API_PATHS: Record<string, string> = {
-  products: '/api/products',
   profitloss: '/api/profit-loss',
-  ads: '/api/ads',
+  ads: '/api/ads/hub',
 };
 
 const REPORT_DATA_KEYS = ['products', 'profitloss', 'inventory', 'ads'] as const;
@@ -44,7 +44,9 @@ export default function ReportDownload() {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const data = k === 'inventory'
             ? await fetchAllSellpiaInventorySkus()
-            : await apiClient.get<any>(API_PATHS[k]);
+            : k === 'products'
+              ? await fetchAllChannelListingsForReport()
+              : await apiClient.get<any>(API_PATHS[k]);
           return { key: k, data };
         })
       );
@@ -56,14 +58,19 @@ export default function ReportDownload() {
 
       if (dataMap.products) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const raw = dataMap.products as any;
-        const arr = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
+        const arr = Array.isArray(dataMap.products) ? dataMap.products : [];
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const ws = XLSX.utils.json_to_sheet(arr.map((p: any) => ({
-          등급: p.abcGrade, 상품명: p.name, SKU: p.sku, 카테고리: p.category,
-          회사: p.organization, 판매가: p.sellPrice, 매입가: p.costPrice,
-          매출: p.revenue, 순이익: p.netProfit, '이익률(%)': p.profitRate,
-          '광고비율(%)': p.adRate, 상태: p.status,
+          마켓: p.channel,
+          계정: p.channelAccountName,
+          등록상품명: p.listingName,
+          채널상품명: p.channelName,
+          외부상품번호: p.externalId,
+          판매가: p.channelPrice,
+          상태: p.status,
+          노출상태: p.exposureStatus,
+          옵션수: p.optionCount,
+          재고매칭상태: p.mappingStatus,
         })));
         XLSX.utils.book_append_sheet(wb, ws, '상품목록');
       }
@@ -104,9 +111,15 @@ export default function ReportDownload() {
         const arr = Array.isArray(adsData?.products) ? adsData.products : [];
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const ws = XLSX.utils.json_to_sheet(arr.map((a: any) => ({
-          등급: a.grade, 광고등급: a.adTier, 상품명: a.name, 회사: a.organization,
-          광고비: a.spend, 광고매출: a.adRevenue, 'ROAS(%)': a.roas,
-          'CTR(%)': a.ctr, '전환율(%)': a.convRate, '광고비율(%)': a.adRate,
+          등급: a.grade,
+          광고등급: a.adTier,
+          상품명: a.channelName ?? a.masterProduct?.name,
+          셀피아상품코드: a.masterProduct?.code,
+          광고비: a.metrics?.spend,
+          광고매출: a.metrics?.revenue,
+          'ROAS(%)': a.metrics?.roas,
+          'CTR(%)': a.metrics?.ctr,
+          '전환율(%)': a.metrics?.cvr,
         })));
         XLSX.utils.book_append_sheet(wb, ws, '광고현황');
       }

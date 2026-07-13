@@ -3,14 +3,15 @@ import { buildBarcodePrintHtml, escapeHtml, printBarcodeWindow } from './barcode
 import type { InventorySkuSnapshotItem } from '@kiditem/shared/inventory';
 
 const item: InventorySkuSnapshotItem = {
-  id: '00000000-0000-4000-8000-000000000001',
-  sellpiaProductCode: 'SP-<script>',
+  masterProductId: '00000000-0000-4000-8000-000000000001',
+  code: 'SP-<script>',
   name: '상품 <img src=x onerror=alert(1)>',
   optionName: '빨강',
   barcode: '8801234567890',
   currentStock: 7,
   purchasePrice: 100,
   salePrice: 200,
+  isActive: true,
   stockValue: 700,
   lastImportRunId: '00000000-0000-4000-8000-000000000002',
   lastImportedAt: '2026-07-11T01:00:00.000Z',

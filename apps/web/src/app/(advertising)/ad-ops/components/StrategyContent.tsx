@@ -20,23 +20,17 @@ import { queryKeys } from "@/lib/query-keys";
 import { formatKRW, formatNumber } from "@/lib/utils";
 import { exportCampaignXlsx } from "../lib/xlsx-export";
 import type {
+  AdsListItem,
   AdStrategyAction,
   AdWeeklyPlan,
   ChannelStateSignal,
 } from "@kiditem/shared/advertising";
+import { AdsHubDataSchema } from "@kiditem/shared/advertising";
 import {
   ChannelSkuAvailabilityListResponseSchema,
   type ChannelSkuAvailabilityItem,
 } from "@kiditem/shared/channel-sku-availability";
 import type { RegisterCampaignPayload } from "../hooks/useAdOpsData";
-
-interface GradeProduct {
-  id: string;
-  name: string;
-  adTier: string | null;
-  abcGrade: string | null;
-  t14?: { revenue: number; salesQty: number; orders: number };
-}
 
 interface StrategyContentProps {
   strategy: AdWeeklyPlan | null;
@@ -309,18 +303,16 @@ function GradeCardPanel({
   const [filter, setFilter] = useState<"all" | "ad" | "noad">("all");
   const [search, setSearch] = useState("");
 
-  const { data: products = [] } = useQuery({
-    queryKey: queryKeys.products.list({ grade: cfg.grade, limit: "200" }),
-    queryFn: () =>
-      apiClient
-        .get<{ items: GradeProduct[] }>(`/api/products?grade=${cfg.grade}&limit=200`)
-        .then((r) => r.items),
+  const { data: adsHub } = useQuery({
+    queryKey: queryKeys.ads.list(),
+    queryFn: () => apiClient.getParsed('/api/ads/hub', AdsHubDataSchema),
   });
+  const products = (adsHub?.products ?? []).filter((product) => product.grade === cfg.grade);
 
   const adProducts = products.filter((p) => p.adTier);
   const noAdProducts = products.filter((p) => !p.adTier);
   const filteredProducts = (filter === "ad" ? adProducts : filter === "noad" ? noAdProducts : products)
-    .filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase()));
+    .filter((p) => !search || adsProductName(p).toLowerCase().includes(search.toLowerCase()));
   const filteredActions = filter === "noad"
     ? []
     : gradeActions.filter((a) => !search || actionName(a).toLowerCase().includes(search.toLowerCase()));
@@ -464,12 +456,12 @@ function GradeCardPanel({
               }
               const { product: p } = row;
               return (
-                <div key={p.id} className="flex items-center gap-3 px-4 py-3">
+                <div key={p.listingId} className="flex items-center gap-3 px-4 py-3">
                   <div className="min-w-0 flex-1">
-                    <div className="text-[14px] font-semibold truncate" style={{ color: "var(--text-primary)" }}>{p.name}</div>
-                    {p.t14 && p.t14.revenue > 0 && (
+                    <div className="text-[14px] font-semibold truncate" style={{ color: "var(--text-primary)" }}>{adsProductName(p)}</div>
+                    {p.metrics.revenue > 0 && (
                       <div className="text-[12px] tabular-nums mt-0.5" style={{ color: "var(--text-tertiary)" }}>
-                        14일 매출 {formatKRW(p.t14.revenue)}원
+                        광고 매출 {formatKRW(p.metrics.revenue)}원
                       </div>
                     )}
                   </div>
@@ -514,6 +506,10 @@ function GradeCardPanel({
       )}
     </div>
   );
+}
+
+function adsProductName(product: AdsListItem): string {
+  return product.channelName ?? product.masterProduct.name;
 }
 
 export default function StrategyContent({

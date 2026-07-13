@@ -21,7 +21,7 @@ export default function DeadStock() {
     .map((component) => [
       item.channelAccount.name,
       item.sku.optionName ?? item.sku.sellerSku ?? item.sku.externalSkuId,
-      component.sellpiaProductCode,
+      component.code,
       `${formatNumber(component.currentStock)}개 ÷ ${formatNumber(component.quantity)}`,
       `${formatNumber(component.componentCapacity)}개`,
     ]));

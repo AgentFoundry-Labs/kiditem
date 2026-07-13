@@ -39,8 +39,6 @@ sourcing/
 - Product preparation: `POST /api/sourcing/candidates/:id/preparations`,
   `PATCH /api/sourcing/preparations/:id`, and preparation submit/cancel routes
 - Candidate rejection and quick AI processing: `/api/sourcing/candidates/:id/*`
-- Deprecated 0.1.8 preparation alias:
-  `POST /api/sourcing/candidates/:id/promote`
 
 Route shape is frozen.
 
@@ -151,17 +149,3 @@ by importing sourcing application services directly.
 - Candidate status is only `sourced|rejected`. Registration state is derived
   from preparations/listings; concurrent active-draft losers surface as
   conflict.
-
-## Transitional Exceptions
-
-- The route shape is frozen while frontend product-pipeline screens depend on
-  it.
-- In 0.1.8, the deprecated `/promote` route aliases draft creation and returns
-  `{ preparationId, status: 'draft' }`; it must not create a master.
-- The 0.1.8 schema retains candidate-wide active-preparation uniqueness for
-  rollback compatibility. The API remains account-scoped and reports a
-  deterministic conflict for a second account until the 0.1.9 cutover removes
-  that legacy constraint.
-- `v0.1.8:003_normalize_promoted_candidate_status` converts only legacy
-  `promoted` rows to `sourced`; read projections normalize the same value during
-  rolling deploys.

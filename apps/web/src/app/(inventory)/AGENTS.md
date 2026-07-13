@@ -4,7 +4,8 @@ Consult this document first instead of relying on memorized knowledge.
 
 `app/(inventory)/` owns the preserved `/inventory`, `/inventory-hub`, and
 `/stock-ops` views plus warehouses, unshipped/outbound views, and Coupang
-shipment support. The displayed stock is the latest completed Sellpia snapshot.
+shipment support. The displayed stock is the latest completed Sellpia snapshot
+stored on physical `MasterProduct` rows.
 
 ## Owned Surfaces
 
@@ -41,10 +42,12 @@ React Query + inventory API helpers
 - Do not mutate order status from inventory screens unless the backend exposes a
   dedicated inventory operation for it.
 - Do not add receive, issue, adjust, reserve, restock, or manual current-stock
-  controls. `InventorySku.currentStock` changes only through the Sellpia import.
+  controls. Physical `MasterProduct.currentStock` changes only through the
+  Sellpia import.
 - Do not compute channel capacity in UI code. Render the backend's nullable
   `sellableStock`, component capacities, and bottleneck flags.
-- Transfer, picking, and return forms select an `InventorySku` and create or
-  update operational records only; completion does not imply a stock write.
+- Transfer, picking, and return forms select a physical Sellpia `MasterProduct`
+  and create or update operational records only; completion does not imply a
+  stock write.
 - Coupang shipment extension/file behavior stays inside `coupang-shipments/`
   unless another inventory route imports it.

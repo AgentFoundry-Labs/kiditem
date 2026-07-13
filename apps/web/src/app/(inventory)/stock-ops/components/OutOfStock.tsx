@@ -25,7 +25,7 @@ export default function OutOfStock() {
         item.product.displayName ?? item.product.registeredName ?? item.product.externalProductId,
         item.sku.optionName ?? item.sku.sellerSku ?? item.sku.externalSkuId,
         item.sku.sellableStock === null ? '계산 불가' : `${formatNumber(item.sku.sellableStock)}개`,
-        item.components.filter((component) => component.isBottleneck).map((component) => component.sellpiaProductCode).join(', ') || '-',
+        item.components.filter((component) => component.isBottleneck).map((component) => component.code).join(', ') || '-',
       ])}
       empty="판매 가능 재고가 0인 채널 SKU가 없습니다."
       pagination={{ page: data?.page ?? page, limit: data?.limit ?? 100, total: data?.total ?? 0, onPageChange: setPage }}

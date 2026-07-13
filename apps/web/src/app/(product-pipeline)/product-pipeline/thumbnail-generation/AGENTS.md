@@ -58,8 +58,9 @@ Edit mode always sends `purpose: 'compliance'`; creative sends `'quality'`.
 ## Cross-Route Dependencies
 
 - `@kiditem/shared` provides `ThumbnailGenerationItem`.
-- `apiClient` calls `/api/thumbnail-editor/generate`, `/api/products/{id}`,
-  and `/api/thumbnail-analysis/generations/*`.
+- `apiClient` calls `/api/thumbnail-editor/generate`,
+  `/api/ai/content-workspaces`, `/api/ai/content-assets`, and
+  `/api/thumbnail-analysis/generations/*`.
 - Shared thumbnail generation hooks provide select/apply/skip behavior.
 - Route helpers live in `_shared/lib/product-pipeline-routes.ts` and
   `_shared/lib/thumbnail-subject.ts`.

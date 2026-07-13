@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type {
   AdStrategyAction,
   AdWeeklyPlan,
@@ -148,5 +148,14 @@ describe('StrategyContent ChannelSku availability', () => {
     fireEvent.click(await screen.findByText('테스트 채널 상품'));
 
     expect(await screen.findByText(expected)).toBeInTheDocument();
+  });
+
+  it('loads grade cards from the listing-owned ads hub', async () => {
+    renderStrategy();
+
+    await waitFor(() => {
+      expect(apiClient.getParsed).toHaveBeenCalledWith('/api/ads/hub', expect.anything());
+    });
+    expect(apiClient.get).not.toHaveBeenCalledWith(expect.stringContaining('/api/products'));
   });
 });

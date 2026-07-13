@@ -186,8 +186,8 @@ export default function OrderInventory() {
                         ) : (
                           <ul className="space-y-1">
                             {item.components.map((component) => (
-                              <li key={component.inventorySkuId}>
-                                <span className="font-mono">{component.sellpiaProductCode}</span>
+                              <li key={component.masterProductId}>
+                                <span className="font-mono">{component.code}</span>
                                 {' × '}{formatNumber(component.quantity)} · 현재 {formatNumber(component.currentStock)}
                                 {component.isBottleneck ? <span className="ml-1 font-semibold text-amber-700">병목</span> : null}
                               </li>

@@ -262,7 +262,7 @@ describe('ProductWorkspaceScreen', () => {
     expect(productEditHeaderProps.at(-1)).not.toHaveProperty('promotedMasterId');
   });
 
-  it('sends the current preparation timestamp when saving basic information', async () => {
+  it('saves basic information through the canonical preparation endpoint', async () => {
     useProductDetailMock.mockReturnValue({
       data: {
         ...workspaceData,
@@ -301,16 +301,18 @@ describe('ProductWorkspaceScreen', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'mock-save-basic' }));
 
     await waitFor(() => expect(apiClientPatchMock).toHaveBeenCalledWith(
-      '/api/sourcing/candidates/candidate-1/preparation/basic-info',
-      expect.objectContaining({
-        name: '수정 상품명',
-        salePrice: 13900,
-        basePreparationUpdatedAt: '2026-05-20T01:02:03.000Z',
-      }),
+      '/api/sourcing/preparations/prep-1',
+      {
+        displayName: '수정 상품명',
+        registrationInput: {
+          name: '수정 상품명',
+          salePrice: 13900,
+        },
+      },
     ));
   });
 
-  it('uses the returned preparation timestamp for another immediate basic save', async () => {
+  it('keeps consecutive basic saves on the same preparation identity', async () => {
     useProductDetailMock.mockReturnValue({
       data: {
         ...workspaceData,
@@ -355,9 +357,16 @@ describe('ProductWorkspaceScreen', () => {
     fireEvent.click(saveButton);
     await waitFor(() => expect(apiClientPatchMock).toHaveBeenCalledTimes(2));
 
-    expect(apiClientPatchMock.mock.calls[1][1]).toEqual(expect.objectContaining({
-      basePreparationUpdatedAt: '2026-05-20T01:02:04.000Z',
-    }));
+    expect(apiClientPatchMock.mock.calls[1]).toEqual([
+      '/api/sourcing/preparations/prep-1',
+      {
+        displayName: '수정 상품명',
+        registrationInput: {
+          name: '수정 상품명',
+          salePrice: 13900,
+        },
+      },
+    ]);
   });
 
   it('passes the selected detail page version summary into the basic tab content', async () => {
@@ -520,12 +529,32 @@ describe('ProductWorkspaceScreen', () => {
     const basicInfoPromise = new Promise((resolve) => {
       resolveBasicInfo = resolve;
     });
-    apiClientPatchMock.mockImplementation((url: string) => {
-      if (url.includes('/preparation/basic-info')) return basicInfoPromise;
+    apiClientPatchMock.mockImplementation((_url: string, body: Record<string, unknown>) => {
+      if ('registrationInput' in body) return basicInfoPromise;
       return Promise.resolve({});
     });
     useProductDetailMock.mockReturnValue({
-      data: workspaceData,
+      data: {
+        ...workspaceData,
+        product: {
+          ...workspaceData.product,
+          productPreparation: {
+            id: 'prep-1',
+            sourceCandidateId: 'candidate-1',
+            channelAccountId: 'account-1',
+            sourceContentWorkspaceId: 'workspace-1',
+            channelListingId: null,
+            status: 'draft',
+            selectedThumbnailUrl: null,
+            selectedThumbnailGenerationId: null,
+            selectedThumbnailGenerationCandidateId: null,
+            selectedDetailPageGenerationId: null,
+            selectedDetailPageArtifactId: null,
+            selectedDetailPageRevisionId: null,
+            updatedAt: '2026-05-20T01:02:03.000Z',
+          },
+        } as ProductWorkspaceData['product'],
+      },
       error: null,
       isLoading: false,
     });
@@ -543,14 +572,17 @@ describe('ProductWorkspaceScreen', () => {
     await waitFor(() => {
       expect(apiClientPatchMock).toHaveBeenCalledTimes(1);
     });
-    expect(apiClientPatchMock.mock.calls[0][0]).toContain('/preparation/basic-info');
+    expect(apiClientPatchMock.mock.calls[0]).toEqual([
+      '/api/sourcing/preparations/prep-1',
+      expect.objectContaining({ registrationInput: expect.any(Object) }),
+    ]);
 
     resolveBasicInfo({});
 
     await waitFor(() => {
       expect(apiClientPatchMock).toHaveBeenCalledTimes(2);
     });
-    expect(apiClientPatchMock.mock.calls[1][0]).toContain('/preparation/thumbnail');
+    expect(apiClientPatchMock.mock.calls[1][0]).toBe('/api/sourcing/preparations/prep-1');
     expect(apiClientPatchMock.mock.calls[1][1]).toEqual({
       selectedThumbnailUrl: 'https://cdn.example.com/generated.jpg',
       selectedThumbnailGenerationId: 'thumbnail-generation-1',

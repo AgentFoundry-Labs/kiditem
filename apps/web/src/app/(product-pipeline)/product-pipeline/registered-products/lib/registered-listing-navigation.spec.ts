@@ -5,10 +5,10 @@ import type { RegisteredChannelListing } from './channel-listings-api';
 function listingFixture(overrides: Partial<RegisteredChannelListing> = {}): RegisteredChannelListing {
   return {
     id: 'listing-1',
-    masterId: 'master-1',
-    masterCode: 'M-00000001',
-    masterName: '자석 다트게임',
+    listingName: '자석 다트게임',
     thumbnailUrl: 'https://cdn.example.com/product.jpg',
+    detailPageArtifactId: null,
+    detailPageRevisionId: null,
     channel: 'coupang',
     channelAccountId: 'account-1',
     channelAccountName: '쿠팡 본계정',
@@ -20,6 +20,7 @@ function listingFixture(overrides: Partial<RegisteredChannelListing> = {}): Regi
     status: 'active',
     exposureStatus: 'visible',
     optionCount: 2,
+    mappingStatus: 'matched',
     createdAt: '2026-05-16T00:00:00.000Z',
     updatedAt: '2026-05-17T00:00:00.000Z',
     ...overrides,
@@ -27,23 +28,16 @@ function listingFixture(overrides: Partial<RegisteredChannelListing> = {}): Regi
 }
 
 describe('registeredListingWorkspaceHref', () => {
-  it('keeps registered listings inside the shared product workspace when possible', () => {
+  it('uses the ChannelListing id as the canonical registered-product identity', () => {
     expect(registeredListingWorkspaceHref(listingFixture())).toBe(
-      '/product-pipeline/registered-products/workspace-1',
+      '/product-pipeline/registered-products/listing-1',
     );
   });
 
-  it('falls back to the collected product workspace when only candidate lineage exists', () => {
+  it('does not fall back to source or content-workspace identities', () => {
     expect(registeredListingWorkspaceHref(listingFixture({
       contentWorkspaceId: null,
       sourceCandidateId: 'candidate-1',
-    }))).toBe('/product-pipeline/collected-products/candidate-1');
-  });
-
-  it('uses a registered listing workspace when no preparation lineage exists', () => {
-    expect(registeredListingWorkspaceHref(listingFixture({
-      contentWorkspaceId: null,
-      sourceCandidateId: null,
-    }))).toBe('/product-pipeline/registered-products/listing-1?workspace=listing');
+    }))).toBe('/product-pipeline/registered-products/listing-1');
   });
 });

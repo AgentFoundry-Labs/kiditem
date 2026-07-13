@@ -27,9 +27,9 @@ export function buildBarcodePrintHtml(
   today = new Date(),
 ): string {
   const barcodeItems = items.map((item) => {
-    const code = item.barcode ?? item.sellpiaProductCode;
+    const code = item.barcode ?? item.code;
     const safeCode = escapeHtml(code);
-    const safeSellpiaCode = escapeHtml(item.sellpiaProductCode);
+    const safeSellpiaCode = escapeHtml(item.code);
     const safeName = escapeHtml(item.name);
     const safeOption = item.optionName ? escapeHtml(item.optionName) : '';
     const bars = pseudoBars(code);

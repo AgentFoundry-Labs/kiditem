@@ -6,20 +6,19 @@ import { useQuery } from '@tanstack/react-query';
 import * as Popover from '@radix-ui/react-popover';
 import { ArrowRight, ImageIcon, Loader2, Search, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
-import {
-  GetMasterImagesResponseSchema,
-  ProductCatalogListResponseSchema,
-  type ProductCatalogListItem,
-  type MasterImageItem,
-} from '@kiditem/shared/product';
+import type { MasterImageItem } from '@kiditem/shared/product';
 import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
 import { useRecentGenerations } from '../../hooks/useRecentGenerations';
-import { apiClient } from '@/lib/api-client';
 import { HUB_ROLE_CONFIG, type MasterImageRole } from '../../../_shared/lib/hub-roles';
 import { REGISTERED_PRODUCTS_ROOT } from '../../../_shared/lib/product-pipeline-routes';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
+import {
+  contentWorkspacesApi,
+  type ContentWorkspaceSummary,
+} from '../../../_shared/lib/content-workspaces-api';
+import { useContentWorkspaceImages } from '../../../_shared/hooks/useContentWorkspaceImages';
 
 import { ImgWithSkeleton } from '../shared/ImgWithSkeleton';
 import type { SlotPick } from '../../edit/lib/slots';
@@ -131,10 +130,7 @@ export function ImageSourceDrawer({
             {tab === 'other' && (
               <OtherProductTab
                 role={role}
-                excludeProductId={productId}
-                onPick={(url, sourceProductId) =>
-                  handlePick({ value: url, source: 'other-product', sourceProductId })
-                }
+                onPick={(url) => handlePick({ value: url, source: 'other-product' })}
               />
             )}
           </div>
@@ -365,8 +361,7 @@ function RecentTab({ productId, onPick }: RecentTabProps) {
 
 interface OtherProductTabProps {
   role: MasterImageRole;
-  excludeProductId: string | null;
-  onPick: (url: string, sourceProductId: string) => void;
+  onPick: (url: string) => void;
 }
 
 interface ProductLite {
@@ -375,15 +370,15 @@ interface ProductLite {
   imageUrl: string | null;
 }
 
-function toProductLite(item: ProductCatalogListItem): ProductLite {
+function toProductLite(item: ContentWorkspaceSummary): ProductLite {
   return {
     id: item.id,
-    name: item.name,
-    imageUrl: item.imageUrl ?? item.thumbnailUrl,
+    name: item.displayName,
+    imageUrl: item.currentThumbnailSelection?.url ?? null,
   };
 }
 
-function OtherProductTab({ role, excludeProductId, onPick }: OtherProductTabProps) {
+function OtherProductTab({ role, onPick }: OtherProductTabProps) {
   const [search, setSearch] = useState('');
   const [debounced, setDebounced] = useState('');
   const [picked, setPicked] = useState<ProductLite | null>(null);
@@ -394,31 +389,19 @@ function OtherProductTab({ role, excludeProductId, onPick }: OtherProductTabProp
   }, [search]);
 
   const searchQuery = useQuery({
-    queryKey: queryKeys.products.catalog.list({ search: debounced, limit: '20' }),
+    queryKey: queryKeys.contentWorkspaces.list({ title: debounced, limit: '20' }),
     queryFn: async () => {
-      const data = await apiClient.getParsed(
-        `/api/products/catalog?search=${encodeURIComponent(debounced)}&limit=20`,
-        ProductCatalogListResponseSchema,
-      );
+      const data = await contentWorkspacesApi.list({ title: debounced, limit: 20 });
       return { items: data.items.map(toProductLite), total: data.total };
     },
     enabled: !picked,
   });
 
-  const imagesQuery = useQuery({
-    queryKey: picked ? queryKeys.products.images(picked.id) : ['products', 'images', 'other-disabled'],
-    queryFn: async () => {
-      const data = await apiClient.getParsed(
-        `/api/products/masters/${picked!.id}/images`,
-        GetMasterImagesResponseSchema,
-      );
-      return data.images;
-    },
-    enabled: !!picked,
-  });
+  const { images: workspaceImages, loading: workspaceImagesLoading } =
+    useContentWorkspaceImages(picked?.id ?? null);
 
   if (!picked) {
-    const items = (searchQuery.data?.items ?? []).filter((p) => p.id !== excludeProductId);
+    const items = searchQuery.data?.items ?? [];
     return (
       <div>
         <div className="relative mb-2">
@@ -472,8 +455,10 @@ function OtherProductTab({ role, excludeProductId, onPick }: OtherProductTabProp
     );
   }
 
-  const productImages = (imagesQuery.data ?? []).filter((img) => img.role === role);
   const fallback = picked.imageUrl ?? null;
+  const productImages = workspaceImages.filter(
+    (img) => img.role === role && img.url !== fallback,
+  );
 
   return (
     <div>
@@ -493,7 +478,7 @@ function OtherProductTab({ role, excludeProductId, onPick }: OtherProductTabProp
           {productImages.length + (fallback ? 1 : 0)}장
         </span>
       </div>
-      {imagesQuery.isLoading ? (
+      {workspaceImagesLoading ? (
         <div className="flex items-center justify-center py-6 text-gray-400">
           <Loader2 size={12} className="animate-spin" />
         </div>
@@ -506,7 +491,7 @@ function OtherProductTab({ role, excludeProductId, onPick }: OtherProductTabProp
           {fallback && (
             <button
               type="button"
-              onClick={() => onPick(fallback, picked.id)}
+              onClick={() => onPick(fallback)}
               className="relative aspect-square rounded-md overflow-hidden bg-white border border-gray-200 hover:border-violet-400 transition-colors"
               title="기본 상품 이미지"
             >
@@ -526,7 +511,7 @@ function OtherProductTab({ role, excludeProductId, onPick }: OtherProductTabProp
             <button
               key={`${img.url}-${i}`}
               type="button"
-              onClick={() => onPick(img.url, picked.id)}
+              onClick={() => onPick(img.url)}
               className="relative aspect-square rounded-md overflow-hidden bg-white border border-gray-200 hover:border-violet-400 transition-colors"
             >
               <img

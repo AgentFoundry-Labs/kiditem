@@ -53,8 +53,8 @@ export default function StockAssets() {
               {isLoading ? (
                 <tr><td colSpan={5} className="py-12 text-center text-[var(--text-secondary)]">불러오는 중...</td></tr>
               ) : data?.items.length ? data.items.map((item) => (
-                <tr key={item.id}>
-                  <td className="font-mono text-xs">{item.sellpiaProductCode}</td>
+                <tr key={item.masterProductId}>
+                  <td className="font-mono text-xs">{item.code}</td>
                   <td className="font-medium">{item.name}</td>
                   <td className="text-right">{formatNumber(item.currentStock)}</td>
                   <td className="text-right">{item.purchasePrice === null ? '가격 미등록' : `${formatNumber(item.purchasePrice)}원`}</td>

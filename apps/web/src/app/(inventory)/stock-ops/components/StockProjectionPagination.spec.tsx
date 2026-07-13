@@ -31,16 +31,17 @@ const summary = {
 function inventoryResponse(page: number, name: string) {
   return {
     items: [{
-      id: page === 1
+      masterProductId: page === 1
         ? '00000000-0000-4000-8000-000000000001'
         : '00000000-0000-4000-8000-000000000002',
-      sellpiaProductCode: page === 1 ? 'SP-PAGE-1' : 'SP-PAGE-2',
+      code: page === 1 ? 'SP-PAGE-1' : 'SP-PAGE-2',
       name,
       optionName: null,
       barcode: null,
       currentStock: 0,
       purchasePrice: 100,
       salePrice: 1000,
+      isActive: true,
       stockValue: 0,
       lastImportRunId: null,
       lastImportedAt: null,
@@ -86,8 +87,8 @@ function channelItem(
       updatedAt: '2026-07-12T00:00:00.000Z',
     },
     components: mappingStatus === 'matched' ? [{
-      inventorySkuId: '40000000-0000-4000-8000-000000000001',
-      sellpiaProductCode: 'SP-COMPONENT',
+      masterProductId: '40000000-0000-4000-8000-000000000001',
+      code: 'SP-COMPONENT',
       name: '구성품',
       optionName: null,
       barcode: null,

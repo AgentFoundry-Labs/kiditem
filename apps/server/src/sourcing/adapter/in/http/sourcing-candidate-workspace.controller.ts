@@ -30,16 +30,6 @@ export class SourcingCandidateWorkspaceController {
     return this.sourcingService.getProduct(id, organizationId);
   }
 
-  @Post('candidates/:id/promote')
-  async promote(
-    @Param('id') id: string,
-    @Body() body: CreateProductPreparationDto,
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.productRegistration.createDraft(organizationId, id, user.id ?? null, body);
-  }
-
   @Post('candidates/:id/preparations')
   createPreparation(
     @Param('id') id: string,

@@ -19,7 +19,7 @@ export default function ZeroItems() {
   return (
     <ProjectionCard title="Sellpia 현재고 0" description="마지막 완료 파일에서 현재고가 0인 물리 SKU입니다." icon={PackageX}>
       {error ? <ErrorState /> : isLoading ? <LoadingState /> : (
-        <SimpleTable headings={['Sellpia 코드', '상품명', '옵션', '바코드']} rows={(data?.items ?? []).map((item) => [item.sellpiaProductCode, item.name, item.optionName ?? '-', item.barcode ?? '-'])} empty="현재고 0인 SKU가 없습니다." pagination={{ page: data?.page ?? page, limit: data?.limit ?? 100, total: data?.total ?? 0, onPageChange: setPage }} />
+        <SimpleTable headings={['Sellpia 코드', '상품명', '옵션', '바코드']} rows={(data?.items ?? []).map((item) => [item.code, item.name, item.optionName ?? '-', item.barcode ?? '-'])} empty="현재고 0인 SKU가 없습니다." pagination={{ page: data?.page ?? page, limit: data?.limit ?? 100, total: data?.total ?? 0, onPageChange: setPage }} />
       )}
     </ProjectionCard>
   );

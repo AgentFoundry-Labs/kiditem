@@ -22,14 +22,15 @@ beforeEach(() => {
   listSellpiaInventorySkus.mockReset();
   listSellpiaInventorySkus.mockResolvedValue({
     items: [{
-      id: '00000000-0000-4000-8000-000000000001',
-      sellpiaProductCode: 'SP-1',
+      masterProductId: '00000000-0000-4000-8000-000000000001',
+      code: 'SP-1',
       name: '가격 없는 상품',
       optionName: null,
       barcode: null,
       currentStock: 4,
       purchasePrice: null,
       salePrice: 1000,
+      isActive: true,
       stockValue: null,
       lastImportRunId: null,
       lastImportedAt: null,
@@ -62,16 +63,17 @@ describe('StockAssets', () => {
   it('requests and renders the selected server page with the full result total', async () => {
     listSellpiaInventorySkus.mockImplementation(async ({ page, limit }) => ({
       items: [{
-        id: page === 1
+        masterProductId: page === 1
           ? '00000000-0000-4000-8000-000000000001'
           : '00000000-0000-4000-8000-000000000002',
-        sellpiaProductCode: page === 1 ? 'SP-PAGE-1' : 'SP-PAGE-2',
+        code: page === 1 ? 'SP-PAGE-1' : 'SP-PAGE-2',
         name: page === 1 ? '첫 페이지 상품' : '둘째 페이지 상품',
         optionName: null,
         barcode: null,
         currentStock: 4,
         purchasePrice: 100,
         salePrice: 1000,
+        isActive: true,
         stockValue: 400,
         lastImportRunId: null,
         lastImportedAt: null,

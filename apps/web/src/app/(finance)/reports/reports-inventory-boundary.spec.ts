@@ -26,6 +26,7 @@ describe('Sellpia inventory report boundary', () => {
     expect(source).toContain('stockValue');
     expect(source).toContain('lastImportedAt');
     expect(source).not.toMatch(/['"]\/api\/inventory['"]/);
+    expect(source).not.toContain('/api/products');
     expect(source).not.toMatch(
       /optimalStock|reorderPoint|avgDailySales|daysRemaining|recommendedOrder|p\.currentStock/,
     );

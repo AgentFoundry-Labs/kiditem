@@ -24,9 +24,9 @@ describe('importSellpiaInventory', () => {
       },
       duplicate: false,
       changes: {
-        createdSkuCount: 120,
-        updatedSkuCount: 1800,
-        zeroedSkuCount: 44,
+        createdMasterProductCount: 120,
+        updatedMasterProductCount: 1800,
+        inactivatedMasterProductCount: 44,
       },
     };
     const uploadParsed = vi

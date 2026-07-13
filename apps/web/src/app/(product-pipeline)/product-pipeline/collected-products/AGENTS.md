@@ -54,11 +54,11 @@ include `returnTo`.
 ## Registration Flow
 
 The product registration-preparation button requires an explicit
-`ChannelAccount` selection. In the 0.1.8 expand release it calls the deprecated
-`POST /api/sourcing/candidates/{id}/promote` compatibility route with the same
-body as canonical preparation creation: `channelAccountId`, `displayName`,
-editable `registrationInput`, and selected content IDs. The response is exactly
-`{ preparationId, status: 'draft' }`; it never returns or creates a master.
+`ChannelAccount` selection. It calls the canonical
+`POST /api/sourcing/candidates/{id}/preparations` route with
+`channelAccountId`, `displayName`, editable `registrationInput`, and selected
+content IDs. The response is exactly `{ preparationId, status: 'draft' }`; it
+never returns or creates a master.
 
 Draft creation keeps the user in the candidate workspace and renders state from
 `ProductPreparation`. A product appears in registered-products only after real

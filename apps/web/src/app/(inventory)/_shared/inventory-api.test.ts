@@ -15,14 +15,15 @@ const RUN_ID = '00000000-0000-4000-8000-000000000010';
 
 function makeSku(index: number): InventorySkuSnapshotItem {
   return {
-    id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
-    sellpiaProductCode: `SP-${index}`,
+    masterProductId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+    code: `SP-${index}`,
     name: `상품 ${index}`,
     optionName: null,
     barcode: null,
     currentStock: index,
     purchasePrice: 100,
     salePrice: 200,
+    isActive: true,
     stockValue: index * 100,
     lastImportRunId: RUN_ID,
     lastImportedAt: '2026-07-11T01:00:00.000Z',
@@ -111,8 +112,8 @@ describe('Sellpia inventory reads', () => {
     const result = await fetchAllSellpiaInventorySkus();
 
     expect(result).toHaveLength(total);
-    expect(result[0]?.sellpiaProductCode).toBe('SP-1');
-    expect(result.at(-1)?.sellpiaProductCode).toBe('SP-1964');
+    expect(result[0]?.code).toBe('SP-1');
+    expect(result.at(-1)?.code).toBe('SP-1964');
     expect(getParsed).toHaveBeenCalledTimes(10);
   });
 

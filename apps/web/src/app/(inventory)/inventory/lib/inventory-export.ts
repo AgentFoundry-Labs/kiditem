@@ -13,7 +13,7 @@ export async function fetchAllInventoryForExport(
 
 export function toInventoryExportRows(items: InventorySkuSnapshotItem[]) {
   return items.map((item) => ({
-    셀피아상품코드: item.sellpiaProductCode,
+    셀피아상품코드: item.code,
     상품명: item.name,
     옵션: item.optionName ?? '',
     바코드: item.barcode ?? '',

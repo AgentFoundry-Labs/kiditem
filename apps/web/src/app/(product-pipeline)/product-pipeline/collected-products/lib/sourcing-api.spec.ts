@@ -6,6 +6,7 @@ vi.mock('@/lib/api-client', () => ({
   apiClient: {
     delete: vi.fn(),
     get: vi.fn(),
+    patch: vi.fn(),
     post: vi.fn(),
   },
 }));
@@ -14,10 +15,11 @@ describe('sourcing candidate API', () => {
   beforeEach(() => {
     vi.mocked(apiClient.delete).mockReset();
     vi.mocked(apiClient.get).mockReset();
+    vi.mocked(apiClient.patch).mockReset();
     vi.mocked(apiClient.post).mockReset();
   });
 
-  it('creates an account-scoped preparation draft through the legacy promote alias', async () => {
+  it('creates an account-scoped preparation draft through the canonical endpoint', async () => {
     const input = {
       channelAccountId: '11111111-1111-4111-8111-111111111111',
       displayName: '자석 다트게임',
@@ -40,9 +42,33 @@ describe('sourcing candidate API', () => {
       status: 'draft',
     });
     expect(apiClient.post).toHaveBeenCalledWith(
-      '/api/sourcing/candidates/cand-1/promote',
+      '/api/sourcing/candidates/cand-1/preparations',
       input,
     );
+  });
+
+  it('updates registration input and selections through the preparation endpoint', async () => {
+    vi.mocked(apiClient.patch).mockResolvedValue({
+      preparationId: 'prep-1',
+      status: 'draft',
+    });
+
+    await candidatesApi.updateBasicInfo('prep-1', {
+      name: '수정 상품명',
+      salePrice: 13900,
+      basePreparationUpdatedAt: '2026-05-20T01:02:03.000Z',
+    });
+    await candidatesApi.selectThumbnail('prep-1', {
+      selectedThumbnailUrl: 'https://cdn.example.com/selected.png',
+    });
+
+    expect(apiClient.patch).toHaveBeenNthCalledWith(1, '/api/sourcing/preparations/prep-1', {
+      displayName: '수정 상품명',
+      registrationInput: { name: '수정 상품명', salePrice: 13900 },
+    });
+    expect(apiClient.patch).toHaveBeenNthCalledWith(2, '/api/sourcing/preparations/prep-1', {
+      selectedThumbnailUrl: 'https://cdn.example.com/selected.png',
+    });
   });
 
   it('rejects the retired master promotion response shape', async () => {

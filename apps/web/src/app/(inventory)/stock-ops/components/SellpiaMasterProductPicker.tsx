@@ -9,13 +9,13 @@ import {
   sellpiaInventoryKeyParams,
 } from '../../_shared/inventory-api';
 
-interface InventorySkuPickerProps {
+interface SellpiaMasterProductPickerProps {
   value: string;
   onChange: (value: string) => void;
   label: string;
 }
 
-export default function InventorySkuPicker({ value, onChange, label }: InventorySkuPickerProps) {
+export default function SellpiaMasterProductPicker({ value, onChange, label }: SellpiaMasterProductPickerProps) {
   const [query, setQuery] = useState('');
   const params = { page: 1, limit: 50, query: query.trim() || undefined };
   const { data, isLoading } = useQuery({
@@ -43,10 +43,10 @@ export default function InventorySkuPicker({ value, onChange, label }: Inventory
           disabled={isLoading}
           className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
         >
-          <option value="">{isLoading ? '불러오는 중...' : 'InventorySku를 선택하세요'}</option>
+          <option value="">{isLoading ? '불러오는 중...' : 'Sellpia 상품을 선택하세요'}</option>
           {(data?.items ?? []).map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.sellpiaProductCode} · {item.name} · {item.optionName ?? '옵션 없음'} · 현재고 {formatNumber(item.currentStock)}
+            <option key={item.masterProductId} value={item.masterProductId}>
+              {item.code} · {item.name} · {item.optionName ?? '옵션 없음'} · 현재고 {formatNumber(item.currentStock)}
             </option>
           ))}
         </select>

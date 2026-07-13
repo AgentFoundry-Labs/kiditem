@@ -2,9 +2,9 @@ Consult this document first instead of relying on memorized knowledge.
 
 # web/stock-ops - Sellpia And Channel Inventory Projections
 
-`stock-ops/` preserves `/stock-ops` as an operational view over Sellpia
-`InventorySku` snapshots, channel availability, and record-only transfer/return
-workflows. It is not a stock ledger or reorder planner.
+`stock-ops/` preserves `/stock-ops` as an operational view over physical
+Sellpia `MasterProduct` snapshots, channel availability, and record-only
+transfer/return workflows. It is not a stock ledger or reorder planner.
 
 ## State Rules
 
@@ -20,9 +20,9 @@ workflows. It is not a stock ledger or reorder planner.
 - Do not make order lifecycle decisions in UI projections.
 - Do not duplicate `min(floor(currentStock / quantity))` or infer bundle
   quantities from names. Render backend availability evidence.
-- Do not expose manual `InventorySku.currentStock` mutation controls.
-- Record forms use `inventorySkuId`; do not restore ProductOption-based stock
-  selectors.
+- Do not expose manual `MasterProduct.currentStock` mutation controls.
+- Record forms use `masterProductId`; do not restore `InventorySku`- or
+  `ProductOption`-based stock selectors.
 
 ## Verification
 

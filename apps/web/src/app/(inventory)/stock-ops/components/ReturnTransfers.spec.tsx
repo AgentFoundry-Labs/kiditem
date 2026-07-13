@@ -65,4 +65,29 @@ describe('ReturnTransfers', () => {
     expect(await screen.findByText('상품 연결 없음')).toBeInTheDocument();
     expect(screen.getByText('MasterProduct ID: missing-master-product-2')).toBeInTheDocument();
   });
+
+  it('renders the final MasterProduct code returned by the return API', async () => {
+    vi.spyOn(apiClient, 'get').mockResolvedValue([{
+      id: 'return-transfer-1',
+      rtNumber: 'RT-1',
+      masterProductId: 'master-product-1',
+      quantity: 2,
+      status: 'pending',
+      condition: 'good',
+      notes: null,
+      createdAt: '2026-07-13T00:00:00.000Z',
+      masterProduct: {
+        id: 'master-product-1',
+        code: 'SP-FINAL-2',
+        name: '최종 반품 상품',
+        optionName: null,
+        barcode: null,
+      },
+    }] as never);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(<QueryClientProvider client={client}><ReturnTransfers /></QueryClientProvider>);
+
+    expect(await screen.findByText('SP-FINAL-2 · 옵션 없음')).toBeInTheDocument();
+  });
 });

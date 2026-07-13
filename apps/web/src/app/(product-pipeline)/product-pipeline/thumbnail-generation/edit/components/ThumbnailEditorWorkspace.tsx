@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { MasterSchema } from '@kiditem/shared/product';
 
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
@@ -26,7 +25,7 @@ import { thumbnailSubjectFromParams } from '../../../_shared/lib/thumbnail-subje
 import { useAnalysisList } from '../../../thumbnail-ai/hooks/useThumbnailAnalysis';
 import type { RecomposeVariantKey, ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import { resolveImageUrl } from '@/lib/resolve-url';
-import { useProductImages } from '../../../_shared/hooks/useProductImages';
+import { useContentWorkspaceImages } from '../../../_shared/hooks/useContentWorkspaceImages';
 
 import { useGenerateThumbnail } from '../../hooks/useThumbnailEditor';
 import { EditorInputPanel } from '../../components/input/EditorInputPanel';
@@ -97,14 +96,7 @@ export function ThumbnailEditorWorkspace({
     return () => { mountedRef.current = false; };
   }, []);
 
-  const { data: product } = useQuery({
-    queryKey: queryKeys.products.detail(productId!),
-    queryFn: () => apiClient.getParsed(`/api/products/masters/${productId}`, MasterSchema),
-    enabled: !!productId,
-  });
-
-  const productName = product?.name ?? productNameParam;
-  const originalImageUrl = product?.imageUrl ?? null;
+  const productName = productNameParam;
 
   // 분석 결과 fetch — productId 의 recompose 분류 정보 (kind, options) 받아서 picker 노출.
   const { data: analysisList } = useAnalysisList();
@@ -208,7 +200,9 @@ export function ThumbnailEditorWorkspace({
   const [styleType, setStyleType] = useState('minimal');
   const [productDescription, setProductDescription] = useState(productDescriptionParam);
 
-  const { images: hubImages, loading: hubImagesLoading } = useProductImages(productId);
+  const { images: hubImages, loading: hubImagesLoading } =
+    useContentWorkspaceImages(contentWorkspaceId);
+  const originalImageUrl = hubImages[0]?.url ?? null;
 
   const productImage = selectProductValue(slots);
   const effectiveProductImage = productImage ?? (initialImageUrl ? null : originalImageUrl);

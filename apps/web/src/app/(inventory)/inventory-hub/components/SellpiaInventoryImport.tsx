@@ -147,9 +147,9 @@ export default function SellpiaInventoryImport() {
           </dl>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            <ImportCounter label="새로 생성" value={result.changes.createdSkuCount} />
-            <ImportCounter label="업데이트" value={result.changes.updatedSkuCount} />
-            <ImportCounter label="0으로 변경" value={result.changes.zeroedSkuCount} />
+            <ImportCounter label="새로 생성" value={result.changes.createdMasterProductCount} />
+            <ImportCounter label="업데이트" value={result.changes.updatedMasterProductCount} />
+            <ImportCounter label="비활성 전환" value={result.changes.inactivatedMasterProductCount} />
           </div>
         </div>
       ) : null}

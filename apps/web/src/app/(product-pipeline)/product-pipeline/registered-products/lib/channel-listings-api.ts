@@ -4,10 +4,10 @@ export type RegisteredListingSort = 'newest' | 'oldest' | 'name_asc';
 
 export interface RegisteredChannelListing {
   id: string;
-  masterId: string | null;
-  masterCode: string;
-  masterName: string;
+  listingName: string;
   thumbnailUrl: string | null;
+  detailPageArtifactId: string | null;
+  detailPageRevisionId: string | null;
   channel: string;
   channelAccountId: string | null;
   channelAccountName: string | null;
@@ -19,6 +19,7 @@ export interface RegisteredChannelListing {
   status: string | null;
   exposureStatus: string | null;
   optionCount: number;
+  mappingStatus: 'matched' | 'unmatched' | 'needs_review';
   createdAt: string;
   updatedAt: string;
 }
@@ -30,26 +31,8 @@ export interface RegisteredMarketCount {
   count: number;
 }
 
-export interface RegisteredProductGroup {
-  masterId: string;
-  masterCode: string;
-  masterName: string;
-  thumbnailUrl: string | null;
-  listingCount: number;
-  listings: RegisteredChannelListing[];
-  updatedAt: string;
-}
-
 export interface RegisteredChannelListingResponse {
   items: RegisteredChannelListing[];
-  total: number;
-  page: number;
-  limit: number;
-  marketCounts: RegisteredMarketCount[];
-}
-
-export interface RegisteredProductGroupResponse {
-  items: RegisteredProductGroup[];
   total: number;
   page: number;
   limit: number;
@@ -75,6 +58,7 @@ export const channelListingsApi = {
     channelAccountId?: string | null;
     search?: string | null;
     createdSince?: string | null;
+    tab?: 'registered' | 'deleted';
   }): Promise<RegisteredChannelListingResponse> {
     const qs = new URLSearchParams({
       page: String(params?.page ?? 1),
@@ -85,29 +69,8 @@ export const channelListingsApi = {
     if (params?.channelAccountId) qs.set('channelAccountId', params.channelAccountId);
     if (params?.search?.trim()) qs.set('search', params.search.trim());
     if (params?.createdSince) qs.set('createdSince', params.createdSince);
-    return apiClient.get<RegisteredChannelListingResponse>(`/api/channels/listings?${qs}`);
-  },
-  listGroups(params?: {
-    page?: number;
-    limit?: number;
-    sort?: RegisteredListingSort;
-    channel?: string | null;
-    channelAccountId?: string | null;
-    search?: string | null;
-    createdSince?: string | null;
-    tab?: 'registered' | 'deleted';
-  }): Promise<RegisteredProductGroupResponse> {
-    const qs = new URLSearchParams({
-      page: String(params?.page ?? 1),
-      limit: String(params?.limit ?? 20),
-    });
-    if (params?.sort) qs.set('sort', params.sort);
-    if (params?.channel) qs.set('channel', params.channel);
-    if (params?.channelAccountId) qs.set('channelAccountId', params.channelAccountId);
-    if (params?.search?.trim()) qs.set('search', params.search.trim());
-    if (params?.createdSince) qs.set('createdSince', params.createdSince);
     if (params?.tab) qs.set('tab', params.tab);
-    return apiClient.get<RegisteredProductGroupResponse>(`/api/channels/listings/groups?${qs}`);
+    return apiClient.get<RegisteredChannelListingResponse>(`/api/channels/listings?${qs}`);
   },
   getWorkspace(listingId: string): Promise<RegisteredChannelListing> {
     return apiClient.get<RegisteredChannelListing>(
@@ -116,15 +79,5 @@ export const channelListingsApi = {
   },
   listAccounts(): Promise<ChannelAccountOption[]> {
     return apiClient.get<ChannelAccountOption[]>('/api/channels/accounts');
-  },
-  registerConfirmed(input: {
-    masterId: string;
-    channelAccountId: string;
-    externalId: string;
-    productBarcode?: string | null;
-    channelName?: string | null;
-    channelPrice?: number | null;
-  }): Promise<RegisteredChannelListing> {
-    return apiClient.post<RegisteredChannelListing>('/api/channels/listings/confirmed', input);
   },
 };

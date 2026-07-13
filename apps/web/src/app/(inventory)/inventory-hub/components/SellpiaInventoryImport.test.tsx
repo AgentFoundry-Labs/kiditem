@@ -48,9 +48,9 @@ function importResponse(
     },
     duplicate: patch.duplicate ?? false,
     changes: {
-      createdSkuCount: 120,
-      updatedSkuCount: 1800,
-      zeroedSkuCount: 44,
+      createdMasterProductCount: 120,
+      updatedMasterProductCount: 1800,
+      inactivatedMasterProductCount: 44,
       ...patch.changes,
     },
   };
@@ -115,9 +115,9 @@ describe('SellpiaInventoryImport', () => {
     importSellpiaInventory.mockResolvedValueOnce(importResponse({
       duplicate: true,
       changes: {
-        createdSkuCount: 0,
-        updatedSkuCount: 0,
-        zeroedSkuCount: 0,
+        createdMasterProductCount: 0,
+        updatedMasterProductCount: 0,
+        inactivatedMasterProductCount: 0,
       },
     }));
     renderImport();

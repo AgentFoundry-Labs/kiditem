@@ -23,10 +23,20 @@ interface OrderItem {
   matchedProductId?: string;
 }
 
-interface Product {
+interface ListingOption {
   id: string;
   name: string;
   sku: string;
+}
+
+interface ChannelListingResponse {
+  items: Array<{
+    id: string;
+    listingName: string;
+    externalId: string;
+    channelAccountName: string | null;
+  }>;
+  total: number;
 }
 
 export default function OrderMatching() {
@@ -42,9 +52,20 @@ export default function OrderMatching() {
   });
 
   const { data: productsData, isLoading: loadingProducts } = useQuery({
-    queryKey: queryKeys.products.list({}),
-    queryFn: () =>
-      apiClient.get<{ items: Product[]; total: number }>('/api/products'),
+    queryKey: queryKeys.channelListings.list({ limit: '100' }),
+    queryFn: async () => {
+      const response = await apiClient.get<ChannelListingResponse>(
+        '/api/channels/listings?limit=100',
+      );
+      return {
+        ...response,
+        items: response.items.map((listing): ListingOption => ({
+          id: listing.id,
+          name: listing.listingName,
+          sku: [listing.channelAccountName, listing.externalId].filter(Boolean).join(' · '),
+        })),
+      };
+    },
   });
 
   const isLoading = loadingOrders || loadingProducts;

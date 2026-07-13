@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import InventorySkuPicker from './InventorySkuPicker';
+import SellpiaMasterProductPicker from './SellpiaMasterProductPicker';
 
 const listSellpiaInventorySkus = vi.hoisted(() => vi.fn());
 
@@ -15,14 +15,15 @@ beforeEach(() => {
   listSellpiaInventorySkus.mockReset();
   listSellpiaInventorySkus.mockResolvedValue({
     items: [{
-      id: '00000000-0000-4000-8000-000000000001',
-      sellpiaProductCode: 'SP-1',
+      masterProductId: '00000000-0000-4000-8000-000000000001',
+      code: 'SP-1',
       name: '말랑이',
       optionName: '파랑',
       barcode: null,
       currentStock: 8,
       purchasePrice: null,
       salePrice: null,
+      isActive: true,
       stockValue: null,
       lastImportRunId: null,
       lastImportedAt: null,
@@ -35,13 +36,13 @@ beforeEach(() => {
   });
 });
 
-describe('InventorySkuPicker', () => {
-  it('returns the selected physical Sellpia InventorySku id', async () => {
+describe('SellpiaMasterProductPicker', () => {
+  it('returns the selected physical Sellpia MasterProduct id', async () => {
     const onChange = vi.fn();
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={client}>
-        <InventorySkuPicker value="" onChange={onChange} label="Sellpia 재고 상품" />
+        <SellpiaMasterProductPicker value="" onChange={onChange} label="Sellpia 재고 상품" />
       </QueryClientProvider>,
     );
 

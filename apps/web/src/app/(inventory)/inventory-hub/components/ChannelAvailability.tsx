@@ -55,7 +55,7 @@ export default function ChannelAvailability() {
                   <td><p className="font-medium">{item.sku.optionName ?? '-'}</p><p className="font-mono text-xs text-[var(--text-secondary)]">{item.sku.sellerSku ?? item.sku.externalSkuId}</p></td>
                   <td>{item.sku.mappingStatus === 'matched' ? '매칭 완료' : item.sku.mappingStatus === 'needs_review' ? '검토 필요' : '미매칭'}</td>
                   <td className="text-right font-semibold">{item.sku.sellableStock === null ? '계산 불가' : `${formatNumber(item.sku.sellableStock)}개`}</td>
-                  <td className="text-xs text-[var(--text-secondary)]">{item.components.length ? item.components.map((component) => `${component.sellpiaProductCode} × ${component.quantity}`).join(', ') : '-'}</td>
+                  <td className="text-xs text-[var(--text-secondary)]">{item.components.length ? item.components.map((component) => `${component.code} × ${component.quantity}`).join(', ') : '-'}</td>
                 </tr>
               )) : <tr><td colSpan={6} className="py-12 text-center text-[var(--text-secondary)]">조건에 맞는 채널 SKU가 없습니다.</td></tr>}
             </tbody>

@@ -21,7 +21,6 @@ describe('SourcingCandidateWorkspaceController', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
     );
 
     await controller.quickProcess('candidate-1', undefined, 'org-1', authUser);
@@ -34,12 +33,11 @@ describe('SourcingCandidateWorkspaceController', () => {
     );
   });
 
-  it('uses the preparation state machine for canonical and deprecated draft creation routes', async () => {
+  it('uses the preparation state machine for canonical draft creation', async () => {
     const registrations = {
       createDraft: vi.fn().mockResolvedValue({ preparationId: 'preparation-1', status: 'draft' }),
     };
     const controller = new SourcingCandidateWorkspaceController(
-      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -53,17 +51,7 @@ describe('SourcingCandidateWorkspaceController', () => {
 
     await expect(controller.createPreparation('candidate-1', body, 'org-1', authUser))
       .resolves.toEqual({ preparationId: 'preparation-1', status: 'draft' });
-    await expect(controller.promote('candidate-1', body, 'org-1', authUser))
-      .resolves.toEqual({ preparationId: 'preparation-1', status: 'draft' });
-    expect(registrations.createDraft).toHaveBeenNthCalledWith(
-      1,
-      'org-1',
-      'candidate-1',
-      'user-1',
-      body,
-    );
-    expect(registrations.createDraft).toHaveBeenNthCalledWith(
-      2,
+    expect(registrations.createDraft).toHaveBeenCalledWith(
       'org-1',
       'candidate-1',
       'user-1',
@@ -82,7 +70,6 @@ describe('SourcingCandidateWorkspaceController', () => {
       cancel: vi.fn().mockResolvedValue({ preparationId: 'preparation-1', status: 'cancelled' }),
     };
     const controller = new SourcingCandidateWorkspaceController(
-      {} as never,
       {} as never,
       {} as never,
       {} as never,

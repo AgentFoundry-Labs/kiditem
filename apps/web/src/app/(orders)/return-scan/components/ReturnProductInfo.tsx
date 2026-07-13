@@ -33,7 +33,7 @@ export default function ReturnProductInfo({
             <div className="text-sm font-medium">{product.name}</div>
           </div>
           <div>
-            <div className="card-label">SKU</div>
+            <div className="card-label">셀피아 상품코드</div>
             <div className="text-sm font-mono">{product.sku || '-'}</div>
           </div>
         </div>

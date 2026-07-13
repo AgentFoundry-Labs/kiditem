@@ -6,6 +6,7 @@ import {
   ProductPreparationStatusSchema,
   SourcingCandidateStatusSchema,
   type CreateProductPreparationInput,
+  type ProductPreparationCommandResult,
   type ProductPreparationProjection,
   type SourcingCandidateStatus,
 } from '@kiditem/shared/sourcing';
@@ -549,13 +550,6 @@ export const productsApi = {
     return apiClient.delete<{ ok: boolean }>(`/api/sourcing/candidates/${id}`);
   },
 
-  async addRawDataField(
-    id: string,
-    input: { key: string; value: string },
-  ): Promise<{ rawData: Record<string, unknown> }> {
-    return apiClient.post<{ rawData: Record<string, unknown> }>(`/api/products/${id}/raw-data`, input);
-  },
-
   async process(
     id: string,
     opts?: { generation_mode?: string }
@@ -582,9 +576,6 @@ export const productsApi = {
     };
   },
 
-  async loadSample(): Promise<{ ok: boolean; message: string }> {
-    return apiClient.post<{ ok: boolean; message: string }>(`/api/products/sample`);
-  },
 };
 
 export const sourcingApi = {
@@ -638,7 +629,7 @@ export const candidatesApi = {
   ): Promise<CreatePreparationDraftResponse> {
     const input = CreateProductPreparationInputSchema.parse(body);
     const result = ProductPreparationCommandResultSchema.parse(
-      await apiClient.post<unknown>(`/api/sourcing/candidates/${id}/promote`, input),
+      await apiClient.post<unknown>(`/api/sourcing/candidates/${id}/preparations`, input),
     );
     if (result.status !== 'draft' || result.listingId !== undefined) {
       throw new Error('Preparation draft creation returned an invalid result.');
@@ -647,33 +638,40 @@ export const candidatesApi = {
   },
   quickProcess: (id: string, task: QuickProcessTask = 'all') =>
     apiClient.post<QuickProcessCandidateResponse>(`/api/sourcing/candidates/${id}/quick-process`, { task }),
-  updateBasicInfo: (id: string, body: UpdateProductBasicsInput) =>
-    apiClient.patch<ProductPreparationSelection>(
-      `/api/sourcing/candidates/${encodeURIComponent(id)}/preparation/basic-info`,
-      body,
-    ),
+  updateBasicInfo: (preparationId: string, body: UpdateProductBasicsInput) => {
+    const { basePreparationUpdatedAt: _basePreparationUpdatedAt, ...registrationInput } = body;
+    return apiClient.patch<ProductPreparationCommandResult>(
+      `/api/sourcing/preparations/${encodeURIComponent(preparationId)}`,
+      {
+        ...(typeof body.name === 'string' && body.name.trim()
+          ? { displayName: body.name.trim() }
+          : {}),
+        registrationInput,
+      },
+    );
+  },
   selectThumbnail: (
-    id: string,
+    preparationId: string,
     body: {
       selectedThumbnailUrl: string;
       selectedThumbnailGenerationId?: string | null;
       selectedThumbnailGenerationCandidateId?: string | null;
     },
   ) =>
-    apiClient.patch<ProductPreparationSelection>(
-      `/api/sourcing/candidates/${encodeURIComponent(id)}/preparation/thumbnail`,
+    apiClient.patch<ProductPreparationCommandResult>(
+      `/api/sourcing/preparations/${encodeURIComponent(preparationId)}`,
       body,
     ),
   selectDetailPage: (
-    id: string,
+    preparationId: string,
     body: {
       selectedDetailPageGenerationId: string;
       selectedDetailPageArtifactId?: string | null;
       selectedDetailPageRevisionId?: string | null;
     },
   ) =>
-    apiClient.patch<ProductPreparationSelection>(
-      `/api/sourcing/candidates/${encodeURIComponent(id)}/preparation/detail-page`,
+    apiClient.patch<ProductPreparationCommandResult>(
+      `/api/sourcing/preparations/${encodeURIComponent(preparationId)}`,
       body,
     ),
   reject: (id: string, reason?: string) =>

@@ -78,6 +78,34 @@ describe('StockTransfers', () => {
     expect(screen.getByText('MasterProduct ID: missing-master-product-1')).toBeInTheDocument();
   });
 
+  it('renders the final MasterProduct code returned by the transfer API', async () => {
+    vi.spyOn(apiClient, 'get').mockImplementation(async (path) => {
+      if (path === '/api/stock-transfers') return [{
+        id: 'transfer-1',
+        masterProductId: 'master-product-1',
+        quantity: 3,
+        status: 'pending',
+        notes: null,
+        createdAt: '2026-07-13T00:00:00.000Z',
+        masterProduct: {
+          id: 'master-product-1',
+          code: 'SP-FINAL-1',
+          name: '최종 Sellpia 상품',
+          optionName: '파랑',
+          barcode: null,
+        },
+        fromWarehouse: { id: 'warehouse-1', name: 'A 창고' },
+        toWarehouse: { id: 'warehouse-2', name: 'B 창고' },
+      }] as never;
+      return [] as never;
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(<QueryClientProvider client={client}><StockTransfers /></QueryClientProvider>);
+
+    expect(await screen.findByText('SP-FINAL-1 · 파랑')).toBeInTheDocument();
+  });
+
   it('does not request form-only warehouses when readOnly is true', async () => {
     const get = vi.spyOn(apiClient, 'get').mockResolvedValue([] as never);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

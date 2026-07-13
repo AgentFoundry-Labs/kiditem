@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle } from 'lucide-react';
+import { InventorySkuSnapshotListResponseSchema } from '@kiditem/shared/inventory';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { formatDateTime } from '@/lib/utils';
@@ -36,11 +37,20 @@ export default function ReturnScanPage() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const { data: searchData, isLoading: scanning } = useQuery({
-    queryKey: queryKeys.products.list({ search: submitted }),
-    queryFn: () =>
-      apiClient.get<{ items: ProductInfo[] }>(
-        `/api/products?search=${encodeURIComponent(submitted)}`
-      ),
+    queryKey: queryKeys.inventory.snapshot({ query: submitted, limit: '10' }),
+    queryFn: async () => {
+      const result = await apiClient.getParsed(
+        `/api/inventory/sellpia-skus?query=${encodeURIComponent(submitted)}&limit=10`,
+        InventorySkuSnapshotListResponseSchema,
+      );
+      return {
+        items: result.items.map((item): ProductInfo => ({
+          id: item.masterProductId,
+          name: item.optionName ? `${item.name} · ${item.optionName}` : item.name,
+          sku: item.code,
+        })),
+      };
+    },
     enabled: !!submitted,
   });
 

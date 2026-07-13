@@ -42,8 +42,6 @@ describe('buildGenerateThumbnailDto', () => {
     const subject: ThumbnailSubject = {
       kind: 'content-workspace',
       workspaceId: 'workspace-1',
-      targetMasterId: null,
-      sourceCandidateId: 'candidate-123',
     };
 
     const slots: Slot[] = [
@@ -74,7 +72,7 @@ describe('buildGenerateThumbnailDto', () => {
       effectiveProductImage: null,
       layout: 'auto',
     })).toMatchObject({
-      sourceCandidateId: 'candidate-123',
+      sourceCandidateId: undefined,
       contentWorkspaceId: 'workspace-1',
       productId: undefined,
     });
