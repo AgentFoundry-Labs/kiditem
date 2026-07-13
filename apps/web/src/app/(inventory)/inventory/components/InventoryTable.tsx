@@ -25,21 +25,21 @@ export function InventoryTable({
 }: InventoryTableProps) {
   if (items.length === 0) {
     return (
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-12 text-center text-[var(--text-secondary)]">
+      <div className="rounded-xl border border-slate-200 bg-white p-12 text-center text-slate-500">
         조건에 맞는 Sellpia 재고가 없습니다.
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
+    <div className="table-card">
       <div className="overflow-x-auto">
-        <table className="min-w-[1120px] w-full">
+        <table className="w-full min-w-[1120px] table-fixed">
           <thead>
             <tr>
-              <th>Sellpia 코드</th>
-              <th>상품명</th>
-              <th>옵션</th>
+              <th className="w-[240px] min-w-[180px]">상품명</th>
+              <th className="w-[160px]">옵션</th>
+              <th className="w-[140px]">Sellpia 코드</th>
               <th>바코드</th>
               <th className="text-right">현재고</th>
               <th className="text-right">매입가</th>
@@ -50,15 +50,15 @@ export function InventoryTable({
           </thead>
           <tbody>
             {items.map((item) => (
-              <tr key={item.id} className={cn(item.currentStock === 0 && 'bg-red-50/60')}>
-                <td className="font-mono text-xs font-semibold text-[var(--text-primary)]">
-                  {item.sellpiaProductCode}
-                </td>
-                <td className="max-w-[240px] truncate font-medium" title={item.name}>
+              <tr key={item.masterProductId} className={cn(item.currentStock === 0 && 'bg-red-50/60')}>
+                <td className="max-w-[240px] truncate font-medium text-slate-900" title={item.name}>
                   {item.name}
                 </td>
-                <td className="text-sm text-[var(--text-secondary)]">{item.optionName ?? '-'}</td>
-                <td className="font-mono text-xs text-[var(--text-secondary)]">{item.barcode ?? '-'}</td>
+                <td className="truncate text-xs text-slate-500" title={item.optionName ?? undefined}>
+                  {item.optionName ?? '-'}
+                </td>
+                <td className="font-mono text-xs font-semibold text-slate-700">{item.code}</td>
+                <td className="font-mono text-xs text-slate-500">{item.barcode ?? '-'}</td>
                 <td className={cn('text-right font-semibold', item.currentStock === 0 && 'text-red-600')}>
                   {formatNumber(item.currentStock)}
                 </td>
