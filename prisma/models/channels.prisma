@@ -36,9 +36,11 @@ model ChannelSkuComponent {
 /// @namespace Channels
 /// @describe 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장.
 model ChannelScrapeRun {
-  id               String  @id @default(uuid()) @db.Uuid
-  organizationId   String  @map("organization_id") @db.Uuid
-  channelAccountId String @map("channel_account_id") @db.Uuid
+  id                String  @id @default(uuid()) @db.Uuid
+  organizationId    String  @map("organization_id") @db.Uuid
+  channelAccountId  String  @map("channel_account_id") @db.Uuid
+  clientRunKey      String? @map("client_run_key") @db.Uuid
+  sourceImportRunId String? @map("source_import_run_id") @db.Uuid
 
   channel      String
   source       String
@@ -65,16 +67,45 @@ model ChannelScrapeRun {
   metaJson  Json? @map("meta_json")
   errorJson Json? @map("error_json")
 
-  organization   Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelAccount ChannelAccount          @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  snapshots      ChannelScrapeSnapshot[]
+  organization    Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount  ChannelAccount          @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceImportRun SourceImportRun?        @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  chunks          ChannelScrapeChunk[]
+  snapshots       ChannelScrapeSnapshot[]
 
   @@unique([id, organizationId], map: "channel_scrape_runs_id_org_key")
+  @@unique([organizationId, channelAccountId, source, clientRunKey], map: "channel_scrape_runs_org_account_source_client_key", where: raw("client_run_key IS NOT NULL"))
   @@index([organizationId, channel, source, businessDate])
   @@index([organizationId, status, startedAt])
   @@index([startedAt])
   @@index([channelAccountId])
+  @@index([sourceImportRunId])
   @@map("channel_scrape_runs")
+}
+
+/// @namespace Channels
+/// @describe Browser catalog collection payloads kept in JSONB until an atomic publication succeeds.
+model ChannelScrapeChunk {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  scrapeRunId    String @map("scrape_run_id") @db.Uuid
+
+  kind      String
+  sequence  Int
+  checksum  String
+  itemCount Int    @map("item_count")
+  payload   Json   @db.JsonB
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scrapeRun    ChannelScrapeRun @relation(fields: [scrapeRunId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([scrapeRunId, kind, sequence], map: "channel_scrape_chunks_run_kind_sequence_key")
+  @@index([organizationId, scrapeRunId])
+  @@index([scrapeRunId, kind])
+  @@map("channel_scrape_chunks")
 }
 
 /// @namespace Channels

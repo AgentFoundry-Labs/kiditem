@@ -124,6 +124,7 @@ model Organization {
 
   // Channels — market-data snapshots (Wave C0)
   channelScrapeRuns                  ChannelScrapeRun[]
+  channelScrapeChunks                ChannelScrapeChunk[]
   channelScrapeSnapshots             ChannelScrapeSnapshot[]
   channelListingDailySnapshots       ChannelListingDailySnapshot[]
   channelListingOptionDailySnapshots ChannelListingOptionDailySnapshot[]
@@ -290,11 +291,12 @@ model SourceImportRun {
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization    Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelAccount  ChannelAccount?        @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  masterProducts  MasterProduct[]        @relation("MasterProductLastImport")
-  channelProducts ChannelListing[]       @relation("ChannelProductLastImport")
-  channelSkus     ChannelListingOption[] @relation("ChannelSkuLastImport")
+  organization      Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount    ChannelAccount?        @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  masterProducts    MasterProduct[]        @relation("MasterProductLastImport")
+  channelProducts   ChannelListing[]       @relation("ChannelProductLastImport")
+  channelSkus       ChannelListingOption[] @relation("ChannelSkuLastImport")
+  channelScrapeRuns ChannelScrapeRun[]
 
   @@unique([organizationId, sourceType, channelAccountId, fileHash], map: "source_import_runs_org_source_account_hash_key", where: raw("channel_account_id IS NOT NULL"))
   @@unique([organizationId, sourceType, fileHash], map: "source_import_runs_org_source_hash_null_account_key", where: raw("channel_account_id IS NULL"))
