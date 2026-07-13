@@ -31,7 +31,7 @@ vi.mock('@/lib/api-client', () => ({
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const CHANNEL_SKU_ID = '22222222-2222-4222-8222-222222222222';
-const INVENTORY_SKU_ID = '33333333-3333-4333-8333-333333333333';
+const MASTER_PRODUCT_ID = '33333333-3333-4333-8333-333333333333';
 
 const account: ChannelAccountListItem = {
   id: ACCOUNT_ID,
@@ -85,8 +85,8 @@ const mappingResponse = {
 const candidateResponse = {
   items: [
     {
-      inventorySkuId: INVENTORY_SKU_ID,
-      sellpiaProductCode: 'SP-001',
+      masterProductId: MASTER_PRODUCT_ID,
+      code: 'SP-001',
       name: '셀피아 상품',
       optionName: '분홍',
       barcode: '8801234567890',
@@ -214,7 +214,7 @@ describe('channel SKU matching API', () => {
   it('parses component input before PUT and validates the unknown response', async () => {
     vi.mocked(apiClient.put).mockResolvedValueOnce(mappingResponse.items[0]);
     const input = {
-      components: [{ inventorySkuId: INVENTORY_SKU_ID, quantity: 4 }],
+      components: [{ masterProductId: MASTER_PRODUCT_ID, quantity: 4 }],
     };
 
     await expect(
@@ -230,7 +230,7 @@ describe('channel SKU matching API', () => {
   it('rejects invalid component input before making a request', async () => {
     await expect(
       replaceChannelSkuComponents(CHANNEL_SKU_ID, {
-        components: [{ inventorySkuId: INVENTORY_SKU_ID, quantity: 0 }],
+        components: [{ masterProductId: MASTER_PRODUCT_ID, quantity: 0 }],
       }),
     ).rejects.toThrow();
     expect(apiClient.put).not.toHaveBeenCalled();

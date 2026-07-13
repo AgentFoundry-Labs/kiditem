@@ -1,5 +1,6 @@
 import type {
   InventorySkuSnapshotListResponse,
+  InventorySkuSnapshotItem,
   InventorySkuStockStatus,
   SellpiaMasterActiveStatus,
   SellpiaImportRunListResponse,
@@ -27,6 +28,11 @@ export interface InventorySkuSnapshotListPort {
     organizationId: string,
     query: InventorySkuSnapshotListQuery,
   ): Promise<InventorySkuSnapshotListResponse>;
+
+  getSnapshot(
+    organizationId: string,
+    masterProductId: string,
+  ): Promise<InventorySkuSnapshotItem>;
 
   listImportRuns(
     organizationId: string,

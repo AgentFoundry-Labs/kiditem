@@ -8,8 +8,8 @@ import {
 } from '@kiditem/shared/channel-sku-matching';
 
 export type ComponentDraftRow = {
-  inventorySkuId: string;
-  sellpiaProductCode: string;
+  masterProductId: string;
+  code: string;
   name: string;
   optionName: string | null;
   barcode: string | null;
@@ -37,8 +37,8 @@ export function initializeComponentDraft(
   components: ChannelSkuMappingComponent[],
 ): ComponentDraftRow[] {
   return components.map((component) => ({
-    inventorySkuId: component.inventorySkuId,
-    sellpiaProductCode: component.sellpiaProductCode,
+    masterProductId: component.masterProductId,
+    code: component.code,
     name: component.name,
     optionName: component.optionName,
     barcode: component.barcode,
@@ -54,7 +54,7 @@ export function addCandidateToDraft(
   draft: ComponentDraftRow[],
   candidate: ChannelSkuMatchCandidate,
 ): ComponentDraftResult {
-  if (draft.some((row) => row.inventorySkuId === candidate.inventorySkuId)) {
+  if (draft.some((row) => row.masterProductId === candidate.masterProductId)) {
     return { draft, error: '이미 추가한 Sellpia 상품입니다.' };
   }
   if (draft.length >= MAX_CHANNEL_SKU_COMPONENTS) {
@@ -68,8 +68,8 @@ export function addCandidateToDraft(
     draft: [
       ...draft,
       {
-        inventorySkuId: candidate.inventorySkuId,
-        sellpiaProductCode: candidate.sellpiaProductCode,
+        masterProductId: candidate.masterProductId,
+        code: candidate.code,
         name: candidate.name,
         optionName: candidate.optionName,
         barcode: candidate.barcode,
@@ -86,19 +86,19 @@ export function addCandidateToDraft(
 
 export function updateDraftQuantity(
   draft: ComponentDraftRow[],
-  inventorySkuId: string,
+  masterProductId: string,
   quantityText: string,
 ): ComponentDraftRow[] {
   return draft.map((row) =>
-    row.inventorySkuId === inventorySkuId ? { ...row, quantityText } : row,
+    row.masterProductId === masterProductId ? { ...row, quantityText } : row,
   );
 }
 
 export function removeDraftComponent(
   draft: ComponentDraftRow[],
-  inventorySkuId: string,
+  masterProductId: string,
 ): ComponentDraftRow[] {
-  return draft.filter((row) => row.inventorySkuId !== inventorySkuId);
+  return draft.filter((row) => row.masterProductId !== masterProductId);
 }
 
 export function serializeComponentDraft(
@@ -132,7 +132,7 @@ export function serializeComponentDraft(
 
   const parsed = ReplaceChannelSkuComponentsInputSchema.safeParse({
     components: draft.map((row, index) => ({
-      inventorySkuId: row.inventorySkuId,
+      masterProductId: row.masterProductId,
       quantity: Number(quantities[index]),
     })),
   });

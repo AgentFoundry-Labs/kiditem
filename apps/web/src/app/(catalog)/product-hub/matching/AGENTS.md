@@ -4,12 +4,12 @@ Consult this document first instead of relying on memorized knowledge.
 
 `app/(catalog)/product-hub/matching/` owns `/product-hub/matching`, the operator
 workspace for importing Coupang Wing product/SKU metadata and confirming which
-Sellpia `InventorySku` rows one channel SKU consumes.
+Sellpia `MasterProduct` rows one channel SKU consumes.
 
 ## Owned Surfaces
 
 - Active ChannelAccount selector; only `channel === 'coupang'` accounts can
-  receive a Wing workbook in release `0.1.9`
+  receive a Wing workbook in release `0.1.8`
 - Coupang Wing catalog upload
 - Server-paged all/unmatched/needs-review/matched queue
 - Live Sellpia candidate search and multi-component recipe editor
@@ -34,7 +34,7 @@ React Query + apiClient
   Zustand.
 - Candidate rows are live computed suggestions and are never auto-saved.
 - The dialog owns a local complete-recipe draft. Adding a candidate defaults
-  its quantity to `1`; saving requires one or more unique InventorySku rows
+  its quantity to `1`; saving requires one or more unique MasterProduct rows
   with positive integer quantities.
 - `PUT .../components` replaces the whole recipe atomically. Normal save sends
   a nonempty recipe; the separate confirmed `매칭 해제` action sends

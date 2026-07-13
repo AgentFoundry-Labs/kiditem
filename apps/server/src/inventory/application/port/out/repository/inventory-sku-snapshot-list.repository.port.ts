@@ -49,6 +49,11 @@ export interface InventorySkuSnapshotListRepositoryPort {
     latestImport: SellpiaImportRunRepositoryRow | null;
   }>;
 
+  getSnapshot(
+    organizationId: string,
+    masterProductId: string,
+  ): Promise<InventorySkuSnapshotRepositoryRow | null>;
+
   listImportRuns(
     organizationId: string,
     query: { skip: number; take: number },

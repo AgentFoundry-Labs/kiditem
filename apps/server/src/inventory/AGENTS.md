@@ -35,6 +35,7 @@ inventory/
 
 - Sellpia source-stock snapshot: `POST /api/inventory/sellpia-sync/import`
 - Sellpia current-stock snapshot read: `GET /api/inventory/sellpia-skus`
+- Sellpia single-product snapshot read: `GET /api/inventory/sellpia-skus/:masterProductId`
 - Sellpia import-run history: `GET /api/inventory/sellpia-sync/import-runs`
 - Sellpia receipt batches: `/api/inventory/sellpia-receipt-batches/*`
 - Unshipped reads: `/api/unshipped/*`
@@ -93,10 +94,3 @@ change stock.
   restock, stock-ledger, or Rocket stock-event mutations.
 - Transfer, picking, and return completion updates operational record fields
   only; they do not write `MasterProduct.currentStock`.
-
-## Transitional Exceptions
-
-- Release `0.1.9` still dual-writes the legacy `InventorySku` shadow and its
-  identity ledger so expand/contract migration and rollback evidence remain
-  valid. New reads, cross-domain references, and operational records use the
-  physical `MasterProduct`; do not add new `InventorySku` consumers.

@@ -1,60 +1,50 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const webRoot = process.cwd().endsWith('/apps/web')
-  ? process.cwd()
-  : resolve(process.cwd(), 'apps/web');
+const productHubRoot = resolve(
+  process.cwd().endsWith('/apps/web') ? process.cwd() : resolve(process.cwd(), 'apps/web'),
+  'src/app/(catalog)/product-hub',
+);
 
-function source(relativePath: string): string {
-  return readFileSync(
-    resolve(webRoot, 'src/app/(catalog)/product-hub', relativePath),
-    'utf8',
-  );
+function productionSource(dir = productHubRoot): string {
+  return readdirSync(dir)
+    .flatMap((entry) => {
+      const path = join(dir, entry);
+      if (statSync(path).isDirectory()) {
+        if (entry === 'matching') return [];
+        return productionSource(path);
+      }
+      if (!/\.(ts|tsx)$/.test(entry) || /\.(spec|test)\./.test(entry)) return [];
+      return [readFileSync(path, 'utf8')];
+    })
+    .join('\n');
 }
 
-describe('product hub inventory ownership boundary', () => {
-  it('keeps inventory, reorder, and purchase-order decisions out of catalog production files', () => {
-    const productionSource = [
-      source('components/ProductRowCard.tsx'),
-      source('components/ProductCommandCenter.tsx'),
-      source('components/AddProductModal.tsx'),
-      source('components/ExcelUploadModal.tsx'),
-      source('components/ProductsPageContent.tsx'),
-      source('components/ProductsColumnHeader.tsx'),
-      source('components/category-selection/ProductCategorySelector.tsx'),
-      source('[id]/page.tsx'),
-      source('[id]/components/ProductInfoCards.tsx'),
-      source('[id]/hooks/useProductActions.ts'),
-      source('components/ChannelSkuInventorySummary.tsx'),
-      source('hooks/useProductHubPageState.ts'),
-      source('lib/abc-grading.ts'),
-      source('lib/product-page-config.ts'),
-      source('lib/product-page-model.ts'),
-      source('lib/products-export.ts'),
-    ].join('\n');
+describe('product hub final inventory ownership boundary', () => {
+  it('reads the Sellpia MasterProduct snapshot without any removed product API', () => {
+    const source = productionSource();
 
-    for (const forbidden of [
-      'currentStock',
-      'availableStock',
-      'safetyStock',
-      'reorderPoint',
-      'recommendedOrderQty',
-      'stockStatus',
-      'stockFilter',
-      '/api/purchase-orders',
-      '/purchase-orders/new',
-      'inventory.create_purchase_order',
-      'queryKeys.inventory',
-      '현재고',
-      '옵션·가격·재고',
-    ]) {
-      expect(productionSource, `forbidden catalog inventory token: ${forbidden}`).not.toContain(forbidden);
-    }
+    expect(source).toContain('/api/inventory/sellpia-skus');
+    expect(source).not.toContain('/api/products');
+    expect(source).not.toContain('queryKeys.products');
+    expect(source).not.toContain('ProductOption');
+  });
 
-    expect(productionSource).toContain('채널 SKU 전체 현황');
-    expect(productionSource).toContain('판매 가능');
-    expect(productionSource).toContain('/product-hub/matching');
-    expect(productionSource).toContain('카탈로그 상품에 자동 귀속하지 않습니다');
+  it('is read-only and light-only outside the dedicated matching workspace', () => {
+    const source = productionSource();
+
+    expect(source).not.toContain('AddProductModal');
+    expect(source).not.toContain('ExcelUploadModal');
+    expect(source).not.toContain('상품 추가');
+    expect(source).not.toContain('트래픽 업로드');
+    expect(source).not.toContain('dark:');
+  });
+
+  it('keeps the option URL as an alias for the existing channel SKU matching workspace', () => {
+    const source = readFileSync(join(productHubRoot, 'options/page.tsx'), 'utf8');
+
+    expect(source).toContain("from '../matching/page'");
+    expect(source).not.toContain('/api/products/options');
   });
 });

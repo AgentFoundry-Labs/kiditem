@@ -35,7 +35,7 @@ vi.mock('../lib/channel-sku-matching-api', () => ({
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const CHANNEL_SKU_ID = '22222222-2222-4222-8222-222222222222';
-const INVENTORY_SKU_ID = '33333333-3333-4333-8333-333333333333';
+const MASTER_PRODUCT_ID = '33333333-3333-4333-8333-333333333333';
 
 const emptyResponse = {
   items: [],
@@ -243,7 +243,7 @@ describe('channel SKU matching hooks', () => {
       await result.current.mutateAsync({
         channelSkuId: CHANNEL_SKU_ID,
         input: {
-          components: [{ inventorySkuId: INVENTORY_SKU_ID, quantity: 4 }],
+          components: [{ masterProductId: MASTER_PRODUCT_ID, quantity: 4 }],
         },
       });
     });

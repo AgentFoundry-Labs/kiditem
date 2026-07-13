@@ -47,8 +47,8 @@ const target: ChannelSkuMappingListItem = {
   },
   components: [
     {
-      inventorySkuId: '44444444-4444-4444-8444-444444444444',
-      sellpiaProductCode: 'SP-SAVED',
+      masterProductId: '44444444-4444-4444-8444-444444444444',
+      code: 'SP-SAVED',
       name: '저장된 구성품',
       optionName: null,
       barcode: null,
@@ -63,15 +63,15 @@ const target: ChannelSkuMappingListItem = {
 };
 
 function candidateResponse(
-  inventorySkuId: string,
-  sellpiaProductCode: string,
+  masterProductId: string,
+  code: string,
 ): ChannelSkuMatchCandidateListResponse {
   return {
     items: [
       {
-        inventorySkuId,
-        sellpiaProductCode,
-        name: `${sellpiaProductCode} 후보`,
+        masterProductId,
+        code,
+        name: `${code} 후보`,
         optionName: null,
         barcode: null,
         currentStock: 3,

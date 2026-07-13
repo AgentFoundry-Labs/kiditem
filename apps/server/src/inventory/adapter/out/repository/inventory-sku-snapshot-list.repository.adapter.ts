@@ -23,6 +23,19 @@ const SNAPSHOT_SELECT = {
   lastImportRunId: true,
 } as const;
 
+const SNAPSHOT_DETAIL_SELECT = {
+  ...SNAPSHOT_SELECT,
+  lastImportRun: {
+    select: {
+      id: true,
+      sourceType: true,
+      channelAccountId: true,
+      status: true,
+      importedAt: true,
+    },
+  },
+} as const;
+
 const IMPORT_RUN_SELECT = {
   id: true,
   fileName: true,
@@ -144,6 +157,35 @@ implements InventorySkuSnapshotListRepositoryPort {
         latestImport: latestImport ? mapImportRun(latestImport) : null,
       };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  }
+
+  async getSnapshot(organizationId: string, masterProductId: string) {
+    const row = await this.prisma.masterProduct.findFirst({
+      where: { id: masterProductId, organizationId },
+      select: SNAPSHOT_DETAIL_SELECT,
+    });
+    if (!row) return null;
+    if (!row.code || !row.name) {
+      throw new InternalServerErrorException(`Physical Sellpia Master ${row.id} is invalid`);
+    }
+    const verifiedImport = row.lastImportRun?.sourceType === SOURCE_TYPE
+      && row.lastImportRun.channelAccountId === null
+      && row.lastImportRun.status === 'completed'
+      ? row.lastImportRun
+      : null;
+    return {
+      masterProductId: row.id,
+      code: row.code,
+      name: row.name,
+      optionName: row.optionName,
+      barcode: row.barcode,
+      currentStock: row.currentStock,
+      purchasePrice: row.purchasePrice,
+      salePrice: row.salePrice,
+      isActive: row.isActive,
+      lastImportRunId: verifiedImport?.id ?? null,
+      lastImportedAt: verifiedImport?.importedAt ?? null,
+    } satisfies InventorySkuSnapshotRepositoryRow;
   }
 
   async listImportRuns(

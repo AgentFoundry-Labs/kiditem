@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type { InventorySkuSnapshotListRepositoryPort } from '../port/out/repository/inventory-sku-snapshot-list.repository.port';
 import { InventorySkuSnapshotListService } from './inventory-sku-snapshot-list.service';
@@ -161,6 +162,49 @@ describe('InventorySkuSnapshotListService', () => {
       limit: 10,
     });
   });
+
+  it('reads one Sellpia MasterProduct by tenant-scoped id', async () => {
+    const repository = makeRepository();
+    repository.getSnapshot.mockResolvedValueOnce({
+      masterProductId,
+      code: 'SP-001',
+      name: '상품',
+      optionName: '파랑',
+      barcode: '8800000000001',
+      currentStock: 8,
+      purchasePrice: 1_000,
+      salePrice: 2_000,
+      isActive: true,
+      lastImportRunId: runId,
+      lastImportedAt: new Date('2026-07-12T00:00:00.000Z'),
+    });
+    const service = new InventorySkuSnapshotListService(repository);
+
+    await expect(service.getSnapshot(organizationId, masterProductId)).resolves.toEqual({
+      masterProductId,
+      code: 'SP-001',
+      name: '상품',
+      optionName: '파랑',
+      barcode: '8800000000001',
+      currentStock: 8,
+      purchasePrice: 1_000,
+      salePrice: 2_000,
+      isActive: true,
+      stockValue: 8_000,
+      lastImportRunId: runId,
+      lastImportedAt: '2026-07-12T00:00:00.000Z',
+    });
+    expect(repository.getSnapshot).toHaveBeenCalledWith(organizationId, masterProductId);
+  });
+
+  it('returns a real 404 when the tenant-scoped Sellpia MasterProduct is absent', async () => {
+    const repository = makeRepository();
+    repository.getSnapshot.mockResolvedValueOnce(null);
+    const service = new InventorySkuSnapshotListService(repository);
+
+    await expect(service.getSnapshot(organizationId, masterProductId))
+      .rejects.toBeInstanceOf(NotFoundException);
+  });
 });
 
 function emptySummary() {
@@ -184,6 +228,9 @@ function makeRepository() {
         summary: emptySummary(),
         latestImport: null,
       }),
+    getSnapshot: vi
+      .fn<InventorySkuSnapshotListRepositoryPort['getSnapshot']>()
+      .mockResolvedValue(null),
     listImportRuns: vi
       .fn<InventorySkuSnapshotListRepositoryPort['listImportRuns']>()
       .mockResolvedValue({ rows: [], total: 0 }),

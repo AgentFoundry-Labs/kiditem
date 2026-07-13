@@ -1,286 +1,181 @@
 'use client';
 
-import { BarChart3, Download, Package, Search, Upload } from 'lucide-react';
+import Link from 'next/link';
+import { Link2, Package, RefreshCw, Search, Upload } from 'lucide-react';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { cn } from '@/lib/utils';
-import { useProductHubPageState } from '../hooks/useProductHubPageState';
-import { AD_FILTERS, CATEGORY_TABS, PAGE_SIZE, PERIOD_OPTIONS } from '../lib/product-page-config';
-import AddProductModal from './AddProductModal';
-import ExcelUploadModal from './ExcelUploadModal';
-import { ProductCategorySelector } from './category-selection/ProductCategorySelector';
-import { ProductGroupRow } from './ProductGroupRow';
+import { formatNumber } from '@/lib/utils';
+import { PAGE_SIZE, useProductHubPageState } from '../hooks/useProductHubPageState';
 import { ProductRowCard } from './ProductRowCard';
 import { ProductsColumnHeader } from './ProductsColumnHeader';
-import { ProductCommandCenter } from './ProductCommandCenter';
 import { ChannelSkuInventorySummary } from './ChannelSkuInventorySummary';
 
 export default function ProductsPageContent() {
   const state = useProductHubPageState();
+  const data = state.data;
 
-  if (state.isLoading && state.allProducts.length === 0) return <PageSkeleton variant="table" />;
+  if (state.isLoading && !data) return <PageSkeleton variant="table" />;
 
   return (
     <div className="space-y-4">
-      {state.errorMsg && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {state.errorMsg}
-        </div>
-      )}
-      {state.pipelineCountsErrorMessage && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-          {state.pipelineCountsErrorMessage}
-        </div>
-      )}
-      <div className="flex items-center justify-between">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'var(--primary)' }}>
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--primary)]">
             <Package size={20} className="text-white" />
           </div>
-          <div className="flex items-baseline gap-2">
-            <h1 className="text-2xl font-extrabold tracking-tight" style={{ color: 'var(--text-primary)' }}>상품 운영 센터</h1>
-            <span className="text-[13px] font-semibold" style={{ color: 'var(--text-tertiary)' }}>
-              매출 · 광고 · 수익성 통합 관리
-            </span>
+          <div>
+            <h1 className="text-2xl font-extrabold tracking-tight text-[var(--text-primary)]">
+              상품 카탈로그
+            </h1>
+            <p className="mt-0.5 text-xs font-medium text-[var(--text-tertiary)]">
+              Sellpia 재고 데이터 기준 · 읽기 전용
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center rounded-xl p-1" style={{ background: 'var(--surface-sunken)' }}>
-            {PERIOD_OPTIONS.map(item => (
-              <button
-                key={item.days}
-                onClick={() => { state.setPeriod(item.days); state.setPage(1); }}
-                className="px-3 py-1.5 text-[13px] font-semibold rounded-lg transition-colors"
-                style={state.period === item.days
-                  ? { background: 'var(--primary)', color: '#fff', boxShadow: 'var(--shadow-sm)' }
-                  : { color: 'var(--text-tertiary)' }}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-          <input ref={state.trafficRef} type="file" accept=".xlsx,.xls,.csv" onChange={state.handleTrafficUpload} className="hidden" />
-          <button
-            onClick={() => state.trafficRef.current?.click()}
-            className="flex items-center gap-1.5 h-9 px-4 rounded-xl text-[13px] font-semibold transition-colors"
-            style={{ background: 'var(--surface-sunken)', color: 'var(--text-secondary)' }}
+          <Link
+            href="/inventory-hub?tab=sellpia-sync"
+            className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[var(--surface-sunken)] px-4 text-[13px] font-semibold text-[var(--text-secondary)]"
           >
-            <BarChart3 size={14} /> 트래픽 업로드
-          </button>
-          {state.trafficMsg && <span className="text-[13px] font-semibold" style={{ color: 'var(--primary)' }}>{state.trafficMsg}</span>}
-          <button
-            onClick={state.handleExcelDownload}
-            className="flex items-center gap-1.5 h-9 px-4 rounded-xl text-[13px] font-semibold transition-colors"
-            style={{ background: 'var(--surface-sunken)', color: 'var(--text-secondary)' }}
+            <Upload size={14} /> Sellpia 가져오기
+          </Link>
+          <Link
+            href="/product-hub/matching"
+            className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[var(--primary)] px-4 text-[13px] font-semibold text-white"
           >
-            <Download size={14} />
-          </button>
-          <button
-            onClick={() => state.setShowUploadModal(true)}
-            className="flex items-center gap-1.5 h-9 px-4 rounded-xl text-[13px] font-semibold transition-colors"
-            style={{ background: 'var(--surface-sunken)', color: 'var(--text-secondary)' }}
-          >
-            <Upload size={14} />
-          </button>
-          <button
-            onClick={() => state.setShowModal(true)}
-            className="flex items-center gap-1.5 h-9 px-4 rounded-xl text-[13px] font-semibold text-white"
-            style={{ background: 'var(--primary)' }}
-          >
-            + 상품 추가
-          </button>
+            <Link2 size={14} /> 상품 매칭
+          </Link>
         </div>
-      </div>
+      </header>
 
-      <ProductCommandCenter
-        pipelineCounts={state.pipelineCounts}
-        newProductCount={state.newProducts.length}
-        productAlerts={state.productAlerts}
-        onSelectSegment={state.applySegment}
-      />
+      {state.errorMessage ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {state.errorMessage}
+        </div>
+      ) : null}
+
+      {data ? (
+        <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <SummaryCard label="Sellpia 상품" value={data.summary.totalSkus} />
+          <SummaryCard label="재고 있음" value={data.summary.inStockSkus} tone="emerald" />
+          <SummaryCard label="품절" value={data.summary.outOfStockSkus} tone="rose" />
+          <SummaryCard label="총 재고 수량" value={data.summary.totalUnits} />
+        </section>
+      ) : null}
 
       <ChannelSkuInventorySummary />
 
-      <ProductCategorySelector
-        categoryTabs={CATEGORY_TABS}
-        activeCategoryTab={state.activeCategoryTab}
-        isCategoryOpen={state.isCategoryOpen}
-        selectedCategory={state.selectedCategory}
-        selectedCategoryGroup={state.selectedCategoryGroup}
-        categorySearch={state.categorySearch}
-        filteredCategoryGroups={state.filteredCategoryGroups}
-        newProducts={state.newProducts}
-        onTabClick={state.handleCategoryTabClick}
-        onCategorySearchChange={state.setCategorySearch}
-        onCategoryOpenChange={state.setIsCategoryOpen}
-        onClearCategoryFilter={state.clearCategoryFilter}
-        onSelectCategoryGroup={state.selectCategoryGroup}
-        onSelectCategory={state.selectCategory}
-      />
+      <section className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--card-bg)] p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <form onSubmit={state.handleSearch} className="relative min-w-[240px] flex-1">
+            <Search
+              size={15}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-quaternary)]"
+            />
+            <input
+              value={state.search}
+              onChange={(event) => state.setSearch(event.target.value)}
+              placeholder="상품명 · Sellpia 코드 · 바코드 검색"
+              className="h-10 w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] pl-9 pr-3 text-sm text-[var(--text-primary)]"
+            />
+          </form>
+          <select
+            aria-label="재고 상태"
+            value={state.stockStatus}
+            onChange={(event) => state.setStockStatus(event.target.value as typeof state.stockStatus)}
+            className="h-10 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 text-sm text-[var(--text-secondary)]"
+          >
+            <option value="all">전체 재고</option>
+            <option value="in_stock">재고 있음</option>
+            <option value="out_of_stock">품절</option>
+          </select>
+          <select
+            aria-label="활성 상태"
+            value={state.activeStatus}
+            onChange={(event) => state.setActiveStatus(event.target.value as typeof state.activeStatus)}
+            className="h-10 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 text-sm text-[var(--text-secondary)]"
+          >
+            <option value="active">활성 상품</option>
+            <option value="inactive">비활성 상품</option>
+            <option value="all">전체 상품</option>
+          </select>
+          <span className="text-xs font-semibold tabular-nums text-[var(--text-tertiary)]">
+            {formatNumber(data?.total ?? 0)}개
+          </span>
+        </div>
+      </section>
 
-      <div className="flex items-center gap-3 rounded-2xl px-4 py-3" style={{ background: 'var(--card-bg)', border: '1px solid var(--border-subtle)' }}>
-        <form onSubmit={state.handleSearch} className="relative flex-1 max-w-sm">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-quaternary)' }} />
-          <input
-            type="text"
-            value={state.search}
-            onChange={(event) => state.setSearch(event.target.value)}
-            placeholder="상품명 · SKU 검색"
-            className="h-10 pl-9 pr-3 text-[14px] rounded-xl w-full"
-            style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }}
-          />
-        </form>
-        <select
-          value={state.statusFilter}
-          onChange={(event) => { state.setStatusFilter(event.target.value); state.setPage(1); }}
-          className="h-10 px-3 rounded-xl text-[14px] font-medium"
-          style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}
-        >
-          <option value="all">전체 상태</option>
-          <option value="active">판매중</option>
-          <option value="unknown">상태미수집</option>
-          <option value="inactive">판매중지</option>
-        </select>
-        <div className="flex items-center rounded-xl p-1" style={{ background: 'var(--surface-sunken)' }}>
-          {AD_FILTERS.map(filter => (
-            <button
-              key={filter.key}
-              onClick={() => { state.setAdFilter(filter.key); state.setPage(1); }}
-              className="px-3 py-1.5 text-[13px] font-semibold rounded-lg transition-colors"
-              style={state.adFilter === filter.key
-                ? { background: 'var(--primary)', color: '#fff' }
-                : { color: 'var(--text-tertiary)' }}
-            >
-              {filter.label}
-            </button>
+      <ProductsColumnHeader />
+
+      {state.isPlaceholderData ? (
+        <div className="flex items-center gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)]">
+          <RefreshCw size={14} className="animate-spin text-[var(--primary)]" />
+          최신 조건으로 갱신하는 중입니다.
+        </div>
+      ) : null}
+
+      {data?.items.length ? (
+        <div className="space-y-2">
+          {data.items.map((product) => (
+            <ProductRowCard key={product.masterProductId} product={product} />
           ))}
         </div>
-        <select
-          value={state.gradeFilter}
-          onChange={(event) => { state.setGradeFilter(event.target.value); state.setPage(1); }}
-          className="h-10 px-3 rounded-xl text-[14px] font-medium"
-          style={{ background: 'var(--surface-sunken)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}
-        >
-          <option value="all">전체 등급</option>
-          <option value="A">A 핵심</option>
-          <option value="B">B 성장</option>
-          <option value="C">C 정리</option>
-          <option value="minus">적자</option>
-          <option value="low">3% 이하</option>
-        </select>
-        <span className="text-[13px] font-semibold tabular-nums" style={{ color: 'var(--text-tertiary)' }}>
-          {state.visibleTotalCount}개 표시
-        </span>
-      </div>
-
-      <ProductsColumnHeader sortKey={state.sortKey} sortDir={state.sortDir} onToggleSort={state.toggleSort} />
-
-      {state.isPlaceholderData && state.allProducts.length > 0 && (
-        <div
-          className="flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-semibold"
-          style={{ background: 'var(--card-bg)', border: '1px solid var(--border-subtle)', color: 'var(--text-secondary)' }}
-        >
-          <div
-            className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin"
-            style={{ borderColor: 'var(--primary)', borderTopColor: 'transparent' }}
-          />
-          상품 목록을 최신 조건으로 갱신하는 중입니다.
+      ) : (
+        <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] p-12 text-center text-sm text-[var(--text-tertiary)]">
+          조건에 맞는 Sellpia 상품이 없습니다.
         </div>
       )}
 
-      <div>
-        {state.displayProducts.length === 0 && !state.isLoading ? (
-          <div
-            className="rounded-xl p-12 text-center"
-            style={{ background: 'var(--card-bg)', border: '1px solid var(--border-subtle)', color: 'var(--text-tertiary)' }}
-          >
-            등록된 상품이 없습니다.
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {state.productGroups.map(group => {
-              if (group.length === 1) {
-                return (
-                  <ProductRowCard
-                    key={group[0].id}
-                    product={group[0]}
-                    gradeMap={state.gradeMap}
-                    gradeChange={state.gradeChangesByProductId.get(group[0].id)}
-                  />
-                );
-              }
-              return (
-                <ProductGroupRow
-                  key={group[0].name}
-                  group={group}
-                  gradeMap={state.gradeMap}
-                  gradeChangesByProductId={state.gradeChangesByProductId}
-                  isExpanded={state.expandedGroups.has(group[0].name)}
-                  onToggle={() => state.toggleGroup(group[0].name)}
-                />
-              );
-            })}
-          </div>
-        )}
-
-        {state.totalPages > 1 && (
-          <div className="flex items-center justify-between mt-4">
-            <span className="text-xs text-gray-400 font-mono">
-              {state.totalCount}개 중 {(state.page - 1) * PAGE_SIZE + 1}-{Math.min(state.page * PAGE_SIZE, state.totalCount)}
+      {state.totalPages > 1 ? (
+        <div className="flex items-center justify-between pt-2">
+          <span className="text-xs tabular-nums text-[var(--text-tertiary)]">
+            {formatNumber(data?.total ?? 0)}개 중 {(state.page - 1) * PAGE_SIZE + 1}–
+            {Math.min(state.page * PAGE_SIZE, data?.total ?? 0)}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => state.goToPage(state.page - 1)}
+              disabled={state.page <= 1}
+              className="rounded-lg border border-[var(--border-subtle)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)] disabled:opacity-30"
+            >
+              이전
+            </button>
+            <span className="px-2 text-xs font-bold tabular-nums text-[var(--text-primary)]">
+              {state.page} / {state.totalPages}
             </span>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => state.goToPage(state.page - 1)}
-                disabled={state.page <= 1}
-                className="px-3 py-1.5 text-xs border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                이전
-              </button>
-              {Array.from({ length: Math.min(state.totalPages, 7) }, (_, i) => {
-                let pg: number;
-                if (state.totalPages <= 7) pg = i + 1;
-                else if (state.page <= 4) pg = i + 1;
-                else if (state.page >= state.totalPages - 3) pg = state.totalPages - 6 + i;
-                else pg = state.page - 3 + i;
-                return (
-                  <button
-                    key={pg}
-                    onClick={() => state.goToPage(pg)}
-                    className={cn(
-                      'w-8 h-8 text-xs rounded-md',
-                      pg === state.page
-                        ? 'bg-purple-600 text-white font-semibold'
-                        : 'border border-gray-200 hover:bg-gray-50 text-gray-600',
-                    )}
-                  >
-                    {pg}
-                  </button>
-                );
-              })}
-              <button
-                onClick={() => state.goToPage(state.page + 1)}
-                disabled={state.page >= state.totalPages}
-                className="px-3 py-1.5 text-xs border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                다음
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => state.goToPage(state.page + 1)}
+              disabled={state.page >= state.totalPages}
+              className="rounded-lg border border-[var(--border-subtle)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary)] disabled:opacity-30"
+            >
+              다음
+            </button>
           </div>
-        )}
-      </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
-      {state.showModal && (
-        <AddProductModal
-          onClose={() => state.setShowModal(false)}
-          onSaved={state.handleSavedProduct}
-        />
-      )}
-
-      {state.showUploadModal && (
-        <ExcelUploadModal
-          onClose={() => state.setShowUploadModal(false)}
-          onComplete={state.handleUploadComplete}
-        />
-      )}
+function SummaryCard({
+  label,
+  value,
+  tone = 'default',
+}: {
+  label: string;
+  value: number;
+  tone?: 'default' | 'emerald' | 'rose';
+}) {
+  const valueColor = tone === 'emerald'
+    ? 'text-emerald-700'
+    : tone === 'rose'
+      ? 'text-rose-700'
+      : 'text-[var(--text-primary)]';
+  return (
+    <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] p-4">
+      <p className="text-xs font-medium text-[var(--text-tertiary)]">{label}</p>
+      <p className={`mt-2 text-2xl font-black tabular-nums ${valueColor}`}>{formatNumber(value)}</p>
     </div>
   );
 }

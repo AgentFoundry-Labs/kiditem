@@ -14,6 +14,10 @@ describe('InventorySkuSnapshotController', () => {
   it('exposes static snapshot and import-history GET routes', () => {
     expect(Reflect.getMetadata('path', InventorySkuSnapshotController)).toBe('inventory');
     expect(route('listSnapshot')).toEqual(['sellpia-skus', RequestMethod.GET]);
+    expect(route('getSnapshot')).toEqual([
+      'sellpia-skus/:masterProductId',
+      RequestMethod.GET,
+    ]);
     expect(route('listImportRuns')).toEqual(['sellpia-sync/import-runs', RequestMethod.GET]);
   });
 
@@ -50,14 +54,16 @@ describe('InventorySkuSnapshotController', () => {
     const historyQuery = { page: 2, limit: 25 };
 
     await controller.listSnapshot(organizationId, snapshotQuery);
+    await controller.getSnapshot(organizationId, 'master-1');
     await controller.listImportRuns(organizationId, historyQuery);
 
     expect(port.listSnapshot).toHaveBeenCalledWith(organizationId, snapshotQuery);
+    expect(port.getSnapshot).toHaveBeenCalledWith(organizationId, 'master-1');
     expect(port.listImportRuns).toHaveBeenCalledWith(organizationId, historyQuery);
   });
 });
 
-function route(method: 'listSnapshot' | 'listImportRuns') {
+function route(method: 'listSnapshot' | 'getSnapshot' | 'listImportRuns') {
   const target = InventorySkuSnapshotController.prototype[method];
   return [Reflect.getMetadata('path', target), Reflect.getMetadata('method', target)];
 }
@@ -66,6 +72,9 @@ function makePort() {
   return {
     listSnapshot: vi
       .fn<InventorySkuSnapshotListPort['listSnapshot']>()
+      .mockResolvedValue({} as never),
+    getSnapshot: vi
+      .fn<InventorySkuSnapshotListPort['getSnapshot']>()
       .mockResolvedValue({} as never),
     listImportRuns: vi
       .fn<InventorySkuSnapshotListPort['listImportRuns']>()

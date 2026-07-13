@@ -22,8 +22,8 @@ function component(
   overrides: Partial<ChannelSkuMappingComponent> = {},
 ): ChannelSkuMappingComponent {
   return {
-    inventorySkuId: firstId,
-    sellpiaProductCode: 'SP-001',
+    masterProductId: firstId,
+    code: 'SP-001',
     name: '첫 상품',
     optionName: '분홍',
     barcode: '8801234567890',
@@ -41,8 +41,8 @@ function candidate(
   overrides: Partial<ChannelSkuMatchCandidate> = {},
 ): ChannelSkuMatchCandidate {
   return {
-    inventorySkuId: secondId,
-    sellpiaProductCode: 'SP-002',
+    masterProductId: secondId,
+    code: 'SP-002',
     name: '둘째 상품',
     optionName: null,
     barcode: null,
@@ -57,8 +57,8 @@ describe('channel SKU component draft', () => {
   it('initializes current component rows with exact display data and quantities', () => {
     expect(initializeComponentDraft([component()])).toEqual([
       {
-        inventorySkuId: firstId,
-        sellpiaProductCode: 'SP-001',
+        masterProductId: firstId,
+        code: 'SP-001',
         name: '첫 상품',
         optionName: '분홍',
         barcode: '8801234567890',
@@ -76,16 +76,16 @@ describe('channel SKU component draft', () => {
 
     expect(result.error).toBeNull();
     expect(result.draft).toEqual([
-      expect.objectContaining({ inventorySkuId: secondId, quantityText: '1' }),
+      expect.objectContaining({ masterProductId: secondId, quantityText: '1' }),
     ]);
   });
 
-  it('returns the unchanged draft and duplicate error for the same InventorySku', () => {
+  it('returns the unchanged draft and duplicate error for the same MasterProduct', () => {
     const draft = initializeComponentDraft([component()]);
 
     const result = addCandidateToDraft(
       draft,
-      candidate({ inventorySkuId: firstId }),
+      candidate({ masterProductId: firstId }),
     );
 
     expect(result).toEqual({
@@ -99,8 +99,8 @@ describe('channel SKU component draft', () => {
     const draft: ComponentDraftRow[] = Array.from(
       { length: MAX_CHANNEL_SKU_COMPONENTS },
       (_, index) => ({
-        inventorySkuId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
-        sellpiaProductCode: `SP-${index}`,
+        masterProductId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        code: `SP-${index}`,
         name: `상품 ${index}`,
         optionName: null,
         barcode: null,
@@ -143,13 +143,13 @@ describe('channel SKU component draft', () => {
     },
   );
 
-  it('serializes quantity 4 with only the inventory SKU ID and quantity', () => {
+  it('serializes quantity 4 with only the Master product ID and quantity', () => {
     const draft = initializeComponentDraft([component()]);
 
     expect(serializeComponentDraft(draft)).toEqual({
       ok: true,
       input: {
-        components: [{ inventorySkuId: firstId, quantity: 4 }],
+        components: [{ masterProductId: firstId, quantity: 4 }],
       },
     });
   });
@@ -166,8 +166,8 @@ describe('channel SKU component draft', () => {
       ok: true,
       input: {
         components: [
-          { inventorySkuId: firstId, quantity: 1 },
-          { inventorySkuId: secondId, quantity: 2 },
+          { masterProductId: firstId, quantity: 1 },
+          { masterProductId: secondId, quantity: 2 },
         ],
       },
     });
@@ -180,7 +180,7 @@ describe('channel SKU component draft', () => {
     ).draft;
 
     expect(removeDraftComponent(draft, firstId)).toEqual([
-      expect.objectContaining({ inventorySkuId: secondId }),
+      expect.objectContaining({ masterProductId: secondId }),
     ]);
   });
 
@@ -205,7 +205,7 @@ describe('channel SKU component draft', () => {
       input: {
         components: [
           {
-            inventorySkuId: firstId,
+            masterProductId: firstId,
             quantity: MAX_CHANNEL_SKU_COMPONENT_QUANTITY,
           },
         ],
@@ -233,7 +233,7 @@ describe('channel SKU component draft', () => {
 
   it('returns a tagged inline error instead of throwing when shared schema validation fails', () => {
     const draft = initializeComponentDraft([
-      component({ inventorySkuId: 'not-a-uuid' }),
+      component({ masterProductId: 'not-a-uuid' }),
     ]);
 
     expect(() => serializeComponentDraft(draft)).not.toThrow();

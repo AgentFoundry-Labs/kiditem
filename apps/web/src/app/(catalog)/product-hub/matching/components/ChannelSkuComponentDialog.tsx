@@ -213,13 +213,13 @@ export function ChannelSkuComponentDialog({
                   ) : (
                     candidatesQuery.data?.items.map((candidate) => (
                       <article
-                        key={candidate.inventorySkuId}
+                        key={candidate.masterProductId}
                         className="flex items-start justify-between gap-3 rounded-xl border border-[var(--border,#e2e8f0)] bg-[var(--surface-raised,#fff)] p-3"
                       >
                         <div className="min-w-0 text-sm">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="font-mono font-semibold text-[var(--text-primary,#0f172a)]">
-                              {candidate.sellpiaProductCode}
+                              {candidate.code}
                             </span>
                             <span className="rounded-full bg-[var(--primary-soft,#ede9fe)] px-2 py-0.5 text-[11px] font-semibold text-[var(--primary,#6d28d9)]">
                               {CANDIDATE_REASON_LABEL[candidate.reason]}
@@ -236,7 +236,7 @@ export function ChannelSkuComponentDialog({
                         </div>
                         <button
                           type="button"
-                          aria-label={`${candidate.sellpiaProductCode} 구성에 추가`}
+                          aria-label={`${candidate.code} 구성에 추가`}
                           onClick={() => {
                             const result = addCandidateToDraft(draft, candidate);
                             setDraft(result.draft);
@@ -270,12 +270,12 @@ export function ChannelSkuComponentDialog({
                   <div className="space-y-2">
                     {draft.map((row) => (
                       <div
-                        key={row.inventorySkuId}
+                        key={row.masterProductId}
                         className="grid items-center gap-3 rounded-xl border border-[var(--border,#e2e8f0)] p-3 sm:grid-cols-[minmax(0,1fr)_110px_40px]"
                       >
                         <div className="min-w-0 text-sm">
                           <p className="truncate font-medium text-[var(--text-primary,#0f172a)]">
-                            <span className="font-mono">{row.sellpiaProductCode}</span> · {row.name}
+                            <span className="font-mono">{row.code}</span> · {row.name}
                             {row.optionName ? ` · ${row.optionName}` : ''}
                           </p>
                           <p className="mt-1 text-xs text-[var(--text-tertiary,#64748b)]">
@@ -293,16 +293,16 @@ export function ChannelSkuComponentDialog({
                           </p>
                         </div>
                         <label className="text-xs font-semibold text-[var(--text-secondary,#475569)]">
-                          <span className="sr-only">{row.sellpiaProductCode} 수량</span>
+                          <span className="sr-only">{row.code} 수량</span>
                           <input
-                            aria-label={`${row.sellpiaProductCode} 수량`}
+                            aria-label={`${row.code} 수량`}
                             value={row.quantityText}
                             inputMode="numeric"
                             onChange={(event) => {
                               setDraft((current) =>
                                 updateDraftQuantity(
                                   current,
-                                  row.inventorySkuId,
+                                  row.masterProductId,
                                   event.target.value,
                                 ),
                               );
@@ -313,10 +313,10 @@ export function ChannelSkuComponentDialog({
                         </label>
                         <button
                           type="button"
-                          aria-label={`${row.sellpiaProductCode} 구성에서 제거`}
+                          aria-label={`${row.code} 구성에서 제거`}
                           onClick={() => {
                             setDraft((current) =>
-                              removeDraftComponent(current, row.inventorySkuId),
+                              removeDraftComponent(current, row.masterProductId),
                             );
                             setDraftError(null);
                           }}

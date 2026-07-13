@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, Query } from '@nestjs/common';
+import { Controller, Get, Inject, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import {
   INVENTORY_SKU_SNAPSHOT_LIST_PORT,
@@ -22,6 +22,14 @@ export class InventorySkuSnapshotController {
     @Query() query: ListInventorySkusQueryDto,
   ) {
     return this.snapshots.listSnapshot(organizationId, query);
+  }
+
+  @Get('sellpia-skus/:masterProductId')
+  getSnapshot(
+    @CurrentOrganization() organizationId: string,
+    @Param('masterProductId', new ParseUUIDPipe()) masterProductId: string,
+  ) {
+    return this.snapshots.getSnapshot(organizationId, masterProductId);
   }
 
   @Get('sellpia-sync/import-runs')

@@ -1,7 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
+  InventorySkuSnapshotItemSchema,
   InventorySkuSnapshotListResponseSchema,
   SellpiaImportRunListResponseSchema,
+  type InventorySkuSnapshotItem,
   type InventorySkuSnapshotListResponse,
   type SellpiaImportRunListResponse,
 } from '@kiditem/shared/inventory';
@@ -14,6 +16,7 @@ import {
   INVENTORY_SKU_SNAPSHOT_LIST_REPOSITORY_PORT,
   type InventorySkuSnapshotListRepositoryPort,
   type SellpiaImportRunRepositoryRow,
+  type InventorySkuSnapshotRepositoryRow,
 } from '../port/out/repository/inventory-sku-snapshot-list.repository.port';
 
 @Injectable()
@@ -37,28 +40,22 @@ export class InventorySkuSnapshotListService implements InventorySkuSnapshotList
     });
 
     return InventorySkuSnapshotListResponseSchema.parse({
-      items: result.rows.map((row) => ({
-        masterProductId: row.masterProductId,
-        code: row.code,
-        name: row.name,
-        optionName: row.optionName,
-        barcode: row.barcode,
-        currentStock: row.currentStock,
-        purchasePrice: row.purchasePrice,
-        salePrice: row.salePrice,
-        isActive: row.isActive,
-        stockValue: row.purchasePrice === null
-          ? null
-          : row.currentStock * row.purchasePrice,
-        lastImportRunId: row.lastImportRunId,
-        lastImportedAt: row.lastImportedAt?.toISOString() ?? null,
-      })),
+      items: result.rows.map(mapSnapshotRow),
       total: result.total,
       page,
       limit,
       summary: result.summary,
       latestImport: result.latestImport ? mapImportRun(result.latestImport) : null,
     } satisfies InventorySkuSnapshotListResponse);
+  }
+
+  async getSnapshot(
+    organizationId: string,
+    masterProductId: string,
+  ): Promise<InventorySkuSnapshotItem> {
+    const row = await this.repository.getSnapshot(organizationId, masterProductId);
+    if (!row) throw new NotFoundException('Sellpia MasterProduct not found');
+    return InventorySkuSnapshotItemSchema.parse(mapSnapshotRow(row));
   }
 
   async listImportRuns(
@@ -78,6 +75,25 @@ export class InventorySkuSnapshotListService implements InventorySkuSnapshotList
       limit,
     } satisfies SellpiaImportRunListResponse);
   }
+}
+
+function mapSnapshotRow(row: InventorySkuSnapshotRepositoryRow): InventorySkuSnapshotItem {
+  return {
+    masterProductId: row.masterProductId,
+    code: row.code,
+    name: row.name,
+    optionName: row.optionName,
+    barcode: row.barcode,
+    currentStock: row.currentStock,
+    purchasePrice: row.purchasePrice,
+    salePrice: row.salePrice,
+    isActive: row.isActive,
+    stockValue: row.purchasePrice === null
+      ? null
+      : row.currentStock * row.purchasePrice,
+    lastImportRunId: row.lastImportRunId,
+    lastImportedAt: row.lastImportedAt?.toISOString() ?? null,
+  } satisfies InventorySkuSnapshotItem;
 }
 
 function normalizePage(

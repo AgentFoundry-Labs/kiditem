@@ -24,15 +24,15 @@ vi.mock('sonner', () => ({
 }));
 
 const CHANNEL_SKU_ID = '11111111-1111-4111-8111-111111111111';
-const FIRST_INVENTORY_ID = '22222222-2222-4222-8222-222222222222';
-const SECOND_INVENTORY_ID = '33333333-3333-4333-8333-333333333333';
+const FIRST_MASTER_ID = '22222222-2222-4222-8222-222222222222';
+const SECOND_MASTER_ID = '33333333-3333-4333-8333-333333333333';
 
 function component(
   overrides: Partial<ChannelSkuMappingComponent> = {},
 ): ChannelSkuMappingComponent {
   return {
-    inventorySkuId: FIRST_INVENTORY_ID,
-    sellpiaProductCode: 'SP-001',
+    masterProductId: FIRST_MASTER_ID,
+    code: 'SP-001',
     name: '첫 Sellpia 상품',
     optionName: '분홍',
     barcode: '8801234567890',
@@ -50,8 +50,8 @@ function candidate(
   overrides: Partial<ChannelSkuMatchCandidate> = {},
 ): ChannelSkuMatchCandidate {
   return {
-    inventorySkuId: SECOND_INVENTORY_ID,
-    sellpiaProductCode: 'SP-002',
+    masterProductId: SECOND_MASTER_ID,
+    code: 'SP-002',
     name: '둘째 Sellpia 상품',
     optionName: '파랑',
     barcode: '8809999999999',
@@ -143,19 +143,19 @@ describe('ChannelSkuComponentDialog', () => {
     mockCandidates([
       candidate({ reason: 'exact_sellpia_code' }),
       candidate({
-        inventorySkuId: '00000000-0000-4000-8000-000000000002',
+        masterProductId: '00000000-0000-4000-8000-000000000002',
         reason: 'unique_barcode',
       }),
       candidate({
-        inventorySkuId: '00000000-0000-4000-8000-000000000003',
+        masterProductId: '00000000-0000-4000-8000-000000000003',
         reason: 'ambiguous_identifier',
       }),
       candidate({
-        inventorySkuId: '00000000-0000-4000-8000-000000000004',
+        masterProductId: '00000000-0000-4000-8000-000000000004',
         reason: 'name_suggestion',
       }),
       candidate({
-        inventorySkuId: '00000000-0000-4000-8000-000000000005',
+        masterProductId: '00000000-0000-4000-8000-000000000005',
         reason: 'manual_search',
       }),
     ]);
@@ -214,11 +214,11 @@ describe('ChannelSkuComponentDialog', () => {
     expect(mutateAsync).not.toHaveBeenCalled();
   });
 
-  it('prevents adding the same InventorySku twice', async () => {
+  it('prevents adding the same MasterProduct twice', async () => {
     mockCandidates([
       candidate({
-        inventorySkuId: FIRST_INVENTORY_ID,
-        sellpiaProductCode: 'SP-001',
+        masterProductId: FIRST_MASTER_ID,
+        code: 'SP-001',
       }),
     ]);
     const user = userEvent.setup();
@@ -233,8 +233,8 @@ describe('ChannelSkuComponentDialog', () => {
   it('blocks the 51st component with an inline limit message', async () => {
     const components = Array.from({ length: 50 }, (_, index) =>
       component({
-        inventorySkuId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
-        sellpiaProductCode: `SP-${index}`,
+        masterProductId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        code: `SP-${index}`,
       }),
     );
     const user = userEvent.setup();
@@ -256,7 +256,7 @@ describe('ChannelSkuComponentDialog', () => {
     expect(mutateAsync).toHaveBeenCalledWith({
       channelSkuId: CHANNEL_SKU_ID,
       input: {
-        components: [{ inventorySkuId: FIRST_INVENTORY_ID, quantity: 4 }],
+        components: [{ masterProductId: FIRST_MASTER_ID, quantity: 4 }],
       },
     });
   });
@@ -274,8 +274,8 @@ describe('ChannelSkuComponentDialog', () => {
       channelSkuId: CHANNEL_SKU_ID,
       input: {
         components: [
-          { inventorySkuId: FIRST_INVENTORY_ID, quantity: 1 },
-          { inventorySkuId: SECOND_INVENTORY_ID, quantity: 2 },
+          { masterProductId: FIRST_MASTER_ID, quantity: 1 },
+          { masterProductId: SECOND_MASTER_ID, quantity: 2 },
         ],
       },
     });

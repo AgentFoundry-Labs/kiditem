@@ -74,4 +74,40 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       lastImportedAt: null,
     });
   });
+
+  it('scopes a single snapshot read by both organization and master id', async () => {
+    const findFirst = vi.fn().mockResolvedValue({
+      id: SKU_ID,
+      code: 'SP-001',
+      name: '상품',
+      optionName: null,
+      barcode: null,
+      currentStock: 3,
+      purchasePrice: 1_000,
+      salePrice: 2_000,
+      isActive: true,
+      lastImportRunId: UNVERIFIED_RUN_ID,
+      lastImportRun: {
+        id: UNVERIFIED_RUN_ID,
+        sourceType: 'sellpia_inventory',
+        channelAccountId: null,
+        status: 'completed',
+        importedAt: new Date('2026-07-12T00:00:00.000Z'),
+      },
+    });
+    const repository = new InventorySkuSnapshotListRepositoryAdapter({
+      masterProduct: { findFirst },
+    } as never);
+
+    const result = await repository.getSnapshot(ORGANIZATION_ID, SKU_ID);
+
+    expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: SKU_ID, organizationId: ORGANIZATION_ID },
+    }));
+    expect(result).toMatchObject({
+      masterProductId: SKU_ID,
+      lastImportRunId: UNVERIFIED_RUN_ID,
+      lastImportedAt: new Date('2026-07-12T00:00:00.000Z'),
+    });
+  });
 });
