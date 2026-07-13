@@ -85,7 +85,7 @@ export default function ReportDownload() {
           ? dataMap.inventory as InventorySkuSnapshotItem[]
           : [];
         const ws = XLSX.utils.json_to_sheet(arr.map((i) => ({
-          셀피아상품코드: i.sellpiaProductCode,
+          셀피아상품코드: i.code,
           상품명: i.name,
           옵션: i.optionName,
           바코드: i.barcode,

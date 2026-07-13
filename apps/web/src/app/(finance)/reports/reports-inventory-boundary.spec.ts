@@ -20,7 +20,8 @@ describe('Sellpia inventory report boundary', () => {
     ['settings report', settingsReportSource],
   ])('%s exports the complete Sellpia snapshot instead of legacy inventory policy', (_name, source) => {
     expect(source).toContain('fetchAllSellpiaInventorySkus');
-    expect(source).toContain('sellpiaProductCode');
+    expect(source).toContain('i.code');
+    expect(source).not.toContain('sellpiaProductCode');
     expect(source).toContain('purchasePrice');
     expect(source).toContain('stockValue');
     expect(source).toContain('lastImportedAt');
