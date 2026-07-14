@@ -1,0 +1,22 @@
+{
+  "focusOwnerFiles": [
+    "extensions/coupang-ads-scraper/background/collection-session.js",
+    "extensions/coupang-ads-scraper/background/collection-window.js",
+    "extensions/coupang-ads-scraper/background/interactive-tabs.js",
+    "extensions/product-scraper/collection-session.js",
+    "extensions/product-scraper/interactive-tabs.js",
+    "extensions/order-collector/background/collection-session.js",
+    "extensions/order-collector/background/interactive-tabs.js"
+  ],
+  "legacyFocusCounts": {
+    "extensions/coupang-ads-scraper/background/service-worker.js": 16,
+    "extensions/coupang-ads-scraper/background/coupang-catalog-import.js": 4,
+    "extensions/product-scraper/1688-trend-collector.js": 1,
+    "extensions/product-scraper/live-commerce-collector.js": 1,
+    "extensions/product-scraper/background.js": 0,
+    "extensions/order-collector/background/service-worker.js": 26,
+    "apps/web/src/components/readiness/useReadinessCollection.ts": 1,
+    "apps/web/src/app/(advertising)/ad-ops/hooks/useAdSync.ts": 1,
+    "apps/web/src/app/(analytics)/dashboard/page.tsx": 1
+  }
+}
