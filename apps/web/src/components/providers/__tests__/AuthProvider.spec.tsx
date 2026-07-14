@@ -13,6 +13,7 @@ const unsubscribeMock = vi.hoisted(() => vi.fn());
 const replaceMock = vi.hoisted(() => vi.fn());
 const consumeSignOutReasonMock = vi.hoisted(() => vi.fn());
 const syncExtensionAuthMock = vi.hoisted(() => vi.fn());
+const browserCollectionEnabledMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/supabase/client', () => ({
   createSupabaseBrowserClient: () => ({
@@ -35,6 +36,19 @@ vi.mock('@/lib/extension-auth', () => ({
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: replaceMock }),
+}));
+
+vi.mock('../BrowserCollectionProvider', () => ({
+  BrowserCollectionProvider: ({
+    children,
+    enabled,
+  }: {
+    children: React.ReactNode;
+    enabled: boolean;
+  }) => {
+    browserCollectionEnabledMock(enabled);
+    return children;
+  },
 }));
 
 function renderWithProvider(ui: React.ReactNode) {
@@ -64,6 +78,7 @@ describe('AuthProvider', () => {
     replaceMock.mockReset();
     consumeSignOutReasonMock.mockReset();
     syncExtensionAuthMock.mockReset();
+    browserCollectionEnabledMock.mockReset();
 
     getSessionMock.mockResolvedValue({ data: { session: null } });
     refreshSessionMock.mockResolvedValue({ data: { session: null }, error: null });
@@ -285,5 +300,20 @@ describe('AuthProvider', () => {
 
     await waitFor(() => expect(getSessionMock).toHaveBeenCalledTimes(2));
     expect(syncExtensionAuthMock).toHaveBeenCalledWith(current);
+  });
+
+  it('enables browser collection synchronization only for an authenticated session', async () => {
+    const session = { access_token: 'abc', user: { id: 'u1' } };
+    getSessionMock.mockResolvedValue({ data: { session } });
+    renderWithProvider(<div />);
+
+    await waitFor(() => {
+      expect(browserCollectionEnabledMock).toHaveBeenLastCalledWith(true);
+    });
+
+    await act(async () => {
+      lastHandler?.('SIGNED_OUT', null);
+    });
+    expect(browserCollectionEnabledMock).toHaveBeenLastCalledWith(false);
   });
 });

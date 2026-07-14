@@ -202,6 +202,22 @@ describe('PanelAlertRow', () => {
       expect(screen.getByLabelText(`상태: ${label}`)).toBeInTheDocument();
     });
 
+    it('renders a pending browser collection as amber attention required', () => {
+      render(
+        <PanelAlertRow
+          item={makeAlert({
+            alertKind: 'operation',
+            status: 'pending',
+            sourceType: 'browser_collection_session',
+          })}
+        />,
+      );
+
+      const badge = screen.getByLabelText('상태: 확인 필요');
+      expect(badge).toHaveClass('bg-amber-50', 'text-amber-700');
+      expect(screen.queryByLabelText('상태: 대기 중')).not.toBeInTheDocument();
+    });
+
     it('skips status badge for signal alerts', () => {
       render(<PanelAlertRow item={makeAlert({ alertKind: 'signal', status: 'open' })} />);
       // No `상태: …` badge for signals.
@@ -314,6 +330,23 @@ describe('PanelAlertRow', () => {
       );
 
       expect(screen.getByRole('button', { name: '작업 중단' })).toBeInTheDocument();
+    });
+
+    it('hides server cancellation for extension-owned browser sessions', () => {
+      render(
+        <PanelAlertRow
+          item={makeAlert({
+            alertKind: 'operation',
+            status: 'pending',
+            operationKey: `browser-collection:eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee`,
+            sourceType: 'browser_collection_session',
+          })}
+        />,
+      );
+
+      expect(
+        screen.queryByRole('button', { name: '작업 중단' }),
+      ).not.toBeInTheDocument();
     });
 
     it('cancels by operation key and marks the panel item cancelled optimistically', async () => {

@@ -154,3 +154,12 @@ export async function detectOrderCollectionExtensionId(
     accepts: (response) => response.capabilities?.[requiredCapability] === true,
   });
 }
+
+export async function detectBrowserCollectionExtensionIds(): Promise<string[]> {
+  const ids = await Promise.all([
+    detectExtensionId(),
+    detectSourcingExtensionId(),
+    detectOrderCollectionExtensionId(),
+  ]);
+  return [...new Set(ids.filter((id): id is string => id !== null))];
+}

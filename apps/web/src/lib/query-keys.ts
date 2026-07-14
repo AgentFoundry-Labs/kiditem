@@ -341,6 +341,11 @@ export const queryKeys = {
   alerts: {
     all: ['alerts'] as const,
   },
+  browserCollection: {
+    all: ['browser-collection'] as const,
+    session: (runId: string) =>
+      [...queryKeys.browserCollection.all, 'session', runId] as const,
+  },
   settlements: {
     all: ['settlements'] as const,
     list: (period?: string) => [...queryKeys.settlements.all, 'list', period || 'all'] as const,

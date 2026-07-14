@@ -10,6 +10,7 @@ import {
 } from '@/lib/extension-auth';
 import { consumeSignOutReason } from '@/lib/supabase/refresh';
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
+import { BrowserCollectionProvider } from './BrowserCollectionProvider';
 
 type AuthContextValue = {
   /** 현재 Supabase 세션. null = 로그아웃 상태 또는 초기 로딩. */
@@ -147,5 +148,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return <AuthContext.Provider value={state}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={state}>
+      <BrowserCollectionProvider enabled={Boolean(state.session)}>
+        {children}
+      </BrowserCollectionProvider>
+    </AuthContext.Provider>
+  );
 }
