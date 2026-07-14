@@ -19,9 +19,9 @@ function createModelMock() {
 
 const models = [
   'user', 'organizationMembership',
-  // 3-layer product schema: MasterProduct + ProductOption + BundleComponent.
+  // Current catalog/inventory schema: Sellpia MasterProduct + channel listing/SKU recipes.
   // Legacy `product` kept for any test harness references; real Prisma schema no longer has it.
-  'product', 'masterProduct', 'productOption', 'bundleComponent',
+  'product', 'masterProduct',
   'order', 'coupangOrderItem', 'inventory', 'review',
   'organization', 'supplier', 'warehouse', 'ad', 'profitLoss',
   'workflowTemplate', 'workflowRun', 'activityEvent', 'alert',

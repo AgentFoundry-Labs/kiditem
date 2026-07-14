@@ -13,7 +13,7 @@
 ```bash
 git clone https://github.com/AgentFoundry-Labs/kiditem.git
 cd kiditem
-npm install
+npm install --legacy-peer-deps
 
 # 환경 변수
 cp .env.example .env                           # Root tooling — Prisma/dev bootstrap/dev data
@@ -37,11 +37,15 @@ export KIDITEM_DEV_ORGANIZATION_ID="<local organization uuid>"
 # 기준 파일: profiles/workspace.json -> coupang/latest.json -> bundles/kiditem-coupang-{datasetId}.zip
 # 프로젝트 reference: references/kiditem_list.xlsx, references/wing-inventory-matched.xlsx
 # 셋업 runbook: docs/runbooks/google-drive-dev-data.md
-# reference DB import runbook: docs/runbooks/import-drive-reference-data.md
+# 재고/상품 재구성: docs/runbooks/sellpia-rocket-inventory-sync.md
+# 쿠팡 Wing 수집: docs/runbooks/coupang-wing-catalog-collection.md
 npm run data:dev:setup -- --drive-root "$KIDITEM_DEV_DATA_DRIVE_DIR"
-npm run import:product-baseline -- --organization-id "$KIDITEM_DEV_ORGANIZATION_ID" --write
 npm run data:dev:sync -- --profile workspace --yes
 ```
+
+Google Drive 번들은 광고/스크래프 공유 데이터를 복원한다. Sellpia 재고와
+쿠팡 Wing 등록 상품은 각각 전용 import 흐름으로 재구성하며, 업로드한 Sellpia
+스냅샷의 `MasterProduct.currentStock`이 KidItem 재고 기준이다.
 
 ### 개별 실행
 
@@ -56,7 +60,7 @@ npm run db:studio                    # Prisma Studio (DB GUI, localhost:5555)
 
 1. `apps/server/.env`에 `GEMINI_API_KEY`와 필요한 `AGENT_*_MODEL` 설정
 2. `npm run dev:all`
-3. `localhost:3000/sourcing` → 상품 선택 → 에디터 → AI 생성 버튼
+3. `localhost:3000/product-pipeline/collected-products` → 상품 선택 → 에디터 → AI 생성 버튼
 
 ## 포트
 
@@ -79,7 +83,7 @@ prisma/              — Prisma multi-file DB 스키마 (source of truth)
 extensions/          — Chrome 익스텐션 (1688/Alibaba 스크래퍼)
 ```
 
-프론트엔드 라우트는 Next.js App Router route group으로 도메인별 배치한다. 예: `/agents`는 `apps/web/src/app/(automation)/agents/page.tsx`, `/products`는 `apps/web/src/app/(catalog)/products/page.tsx`에 있다.
+프론트엔드 라우트는 Next.js App Router route group으로 도메인별 배치한다. 예: `/agents`는 `apps/web/src/app/(automation)/agents/page.tsx`, `/product-hub`는 `apps/web/src/app/(catalog)/product-hub/page.tsx`에 있다.
 
 백엔드는 owner-domain 기준으로 정리한다. 재구성된 도메인은 `adapter/application/domain/mapper` 구조와 선택적 hexagonal ports를 사용하고, 단순 CRUD는 전환기 flat module로 남을 수 있다. 현재 계약은 [AGENTS.md](AGENTS.md), [apps/server/AGENTS.md](apps/server/AGENTS.md), [apps/web/AGENTS.md](apps/web/AGENTS.md)를 기준으로 한다.
 

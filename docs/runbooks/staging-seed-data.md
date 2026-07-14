@@ -174,8 +174,9 @@ Then log into the staging UI and verify:
 - The seeded organization is visible.
 - Seeded products/listings appear under the expected organization.
 - Mutating actions remain scoped to the current organization.
-- Coupang source images are stored as external `MasterProductImage.url`
-  references with nullable `storageKey`.
+- This historical baseline used `MasterProductImage`. In current `0.1.8`, Wing
+  provider images are external URL-backed listing `ContentAsset` rows; verify
+  them with the current catalog-collection runbook.
 - Uploaded or AI-generated assets point to the staging Supabase Storage bucket.
 
 ## Reset Policy

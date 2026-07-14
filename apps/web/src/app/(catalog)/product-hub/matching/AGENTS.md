@@ -60,8 +60,8 @@ React Query + apiClient
 - Do not expose raw JSON or inputs for Sellpia current stock, Sellpia prices,
   or channel prices. Component quantity is the only editable number.
 - Do not infer component quantity from option or bundle text.
-- Coupang image synchronization is unrelated and must not create or refresh
-  ChannelSku matching rows or UI copy.
+- Wing catalog collection may attach provider media to registered products but
+  must not create, refresh, or confirm ChannelSku component recipes here.
 - Rocket catalog, purchase-order, and order handling is outside this route.
 - See the [operator runbook](../../../../../../../docs/runbooks/channel-sellpia-matching.md)
   for import order, accepted local files, recovery, and baseline counts.

@@ -168,4 +168,6 @@ compacting the exception.
   staging area.
 - `render-image.controller.ts` still owns inline Puppeteer/filesystem
   rendering.
-- Coupang image sync keeps an in-memory job map and local Wing scrape fallback.
+- Authenticated Wing catalog collection belongs to Channels plus the browser
+  extension. AI consumes listing workspace media and must not restore a
+  separate image-sync job map or server-side Wing scrape fallback.

@@ -16,6 +16,8 @@ Shared generation hooks live in
 - Thumbnail analysis and batch analysis controls
 - Batch cancel UI
 - Candidate select/apply/skip controls reused with thumbnail generation
+- Source media comes from sourcing/listing content workspaces. This route does
+  not own a separate Wing image-sync action.
 
 ## State + Data Flow
 

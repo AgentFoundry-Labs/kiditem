@@ -2,7 +2,7 @@
 
 ## 목적
 
-`origin/develop`의 `/inventory-hub`와 `/product-hub/matching` 화면 구조와 운영자 흐름을 복원한다. 데이터 소유권은 현재 `0.1.9` 재설계를 유지한다. Sellpia 재고는 물리 `MasterProduct`가 소유하고, 쇼핑몰 옵션 SKU는 `ChannelSkuComponent` 레시피로 하나 이상의 Sellpia 상품과 차감 수량을 명시한다.
+`origin/develop`의 `/inventory-hub`와 `/product-hub/matching` 화면 구조와 운영자 흐름을 복원한다. 데이터 소유권은 현재 `0.1.8` 재설계를 유지한다. Sellpia 재고는 물리 `MasterProduct`가 소유하고, 쇼핑몰 옵션 SKU는 `ChannelSkuComponent` 레시피로 하나 이상의 Sellpia 상품과 차감 수량을 명시한다.
 
 복원은 레거시 데이터 모델이나 재고 수정 기능의 부활이 아니다. 화면의 정보 배치, 탭 구조, 요약 카드, 표 밀도, 모달 진입점을 `develop` 기준으로 되돌린 뒤 현재 NestJS API 계약을 연결하는 작업이다.
 

@@ -2,11 +2,11 @@
 
 ## Purpose
 
-This runbook defines the release `0.1.9` operating boundary after the inventory
+This runbook defines the release `0.1.8` operating boundary after the inventory
 cutover:
 
 - the latest completed Sellpia workbook is the only KidItem stock snapshot;
-- `InventorySku.currentStock` has no manual adjustment or ledger path;
+- `MasterProduct.currentStock` has no manual adjustment or ledger path;
 - each marketplace SKU has an explicit `ChannelSkuComponent` recipe;
 - channel `sellableStock` is a nullable read projection over that recipe;
 - Rocket is a `ChannelAccount`, while Rocket purchase-order quantity decisions
@@ -20,7 +20,7 @@ For the two approved workbook uploads and matching workflow, use
 ```text
 Sellpia complete workbook
   -> POST /api/inventory/sellpia-sync/import
-  -> InventorySku.currentStock full replacement
+  -> MasterProduct.currentStock full replacement
   -> /inventory, /inventory-hub, /stock-ops
 
 ChannelSku + confirmed ChannelSkuComponent recipe
@@ -33,16 +33,16 @@ Rocket order-collector extension
   -> no confirm/reserve/generate/stock action
 ```
 
-`ProductOption` has catalog identity and pricing only. It is not a stock
-balance. Product bundles have composition but no separately materialized stock.
-Channel bundles consume the exact Sellpia component quantities saved on that
-channel SKU.
+Marketplace option identity and pricing live on `ChannelListingOption`; there
+is no internal `ProductOption` stock owner. Channel bundles have no separately
+materialized stock and consume only the exact Sellpia component quantities
+saved on that channel SKU.
 
 ## Preserved Operator Screens
 
 | Route | Current responsibility |
 |---|---|
-| `/inventory` | Paginated latest Sellpia InventorySku snapshot, summary, barcode print, and export. |
+| `/inventory` | Paginated latest Sellpia MasterProduct snapshot, summary, barcode print, and export. |
 | `/inventory-hub` | Snapshot status, Sellpia import, import history, assets, channel availability, and procurement navigation. |
 | `/stock-ops` | Sellpia/channel zero stock, bottlenecks, mapping attention, assets, freshness, and operation records. |
 | `/product-hub/matching` | Account-scoped ChannelSku metadata import and exact component-recipe confirmation. |
@@ -54,11 +54,11 @@ restock, Rocket stock events, or a generic stock-ledger mutation.
 
 ## Record-Only Operations
 
-- `StockTransfer` references `inventorySkuId` and records requested warehouse
+- `StockTransfer` references `masterProductId` and records requested warehouse
   movement and status. Create/update/complete does not change currentStock.
 - `PickingItem` is expanded from the order line's ChannelSku recipe and records
   pick/verify state. It does not deduct currentStock.
-- `ReturnTransfer` references `inventorySkuId` and records condition,
+- `ReturnTransfer` references `masterProductId` and records condition,
   restocked/disposed quantities, and status. Those fields do not write the
   Sellpia snapshot.
 - Sellpia receipt-upload batches record whether an external receipt file still
@@ -96,9 +96,23 @@ This section is destructive and is permitted only for the disposable local
 development database. Never run it for staging, production, Supabase hosted
 databases, or an ambiguous `DATABASE_URL`.
 
+### After Pulling `develop`
+
+1. Run `git pull` and `npm install --legacy-peer-deps`.
+2. Confirm root `VERSION` is `0.1.8` and inspect `DATABASE_URL` with the guard
+   below.
+3. Rebuild the disposable local database with the reset/bootstrap sequence.
+4. Restore the developer's membership with `sync-supabase-user.ts`.
+5. Start KidItem, import Sellpia first, then import Wing metadata.
+6. Confirm component recipes in `/product-hub/matching`; do not invent bundle
+   quantities from product names.
+
+Pulling code alone does not update the database. Staging and production use
+the guarded GitHub Actions reconstruction workflow, never these local commands.
+
 ### Prerequisites
 
-- Root `VERSION` is `0.1.9`.
+- Root `VERSION` is `0.1.8`.
 - `DATABASE_URL` hostname is `localhost`, `127.0.0.1`, or `::1`.
 - The database name does not contain `prod`, `production`, or `staging`.
 - The approved workbook files remain outside git.
@@ -118,6 +132,7 @@ Wing and one Rocket account:
 ```bash
 rtk npx prisma db push --force-reset
 rtk npx prisma generate
+rtk npm run build --workspace=packages/shared
 rtk npm run inventory:bootstrap:dev -- \
   --organization-id <organization-uuid> \
   --organization-name "<organization-name>" \
@@ -131,6 +146,9 @@ non-local host or a database name containing production/staging markers. It
 does not create users, memberships, inventory rows, mappings, or sample stock.
 Omit either optional account-ID pair of arguments when a stable UUID is not
 needed.
+
+Release `0.1.8` has no durable data-migration script. Do not run
+`npm run data:migrate` as a substitute for this local reconstruction.
 
 Restore the authenticated user's local mirror and active membership after the
 organization exists:
@@ -147,7 +165,7 @@ baseline:
 
 | Imported data | Expected |
 |---|---:|
-| InventorySku | 1,964 |
+| MasterProduct | 1,964 |
 | ChannelProduct | 1,225 |
 | ChannelSku | 2,241 |
 | Skipped Wing rows | 3 |
@@ -164,7 +182,7 @@ does not import Rocket catalog data or enable PO decisions.
   or manual adjustment paths.
 - Do not treat transfer, picking, return, receipt-batch, shipment-file, or PO
   status changes as stock writes.
-- Do not use ProductOption stock fields or product bundle capacity; those
+- Do not restore `ProductOption` stock fields or product bundle capacity; those
   fields/behaviors are outside the current schema.
 - Do not substitute `sellableStock = 0` when a ChannelSku is unmapped. Null is
   the required result until the complete recipe is confirmed.
@@ -181,7 +199,7 @@ Check the runtime boundaries after import:
   attention;
 - an 8-unit recipe returns `floor(currentStock / 8)`;
 - a mixed recipe reports the minimum capacity and bottleneck components;
-- transfer/picking/return record changes leave InventorySku currentStock
+- transfer/picking/return record changes leave MasterProduct currentStock
   unchanged;
 - `/rocket-orders` performs extension reads only;
 - no Rocket confirm or inventory mutation controller is registered.
@@ -200,7 +218,7 @@ rtk npm run check:conventions
 Stop and report when:
 
 - the reset guard does not print the intended local database;
-- `VERSION` is not `0.1.9`;
+- `VERSION` is not `0.1.8`;
 - organization/account/user membership metadata cannot be reconstructed;
 - approved workbook counts differ from 1,964 / 1,225 / 2,241 / 3;
 - a non-Sellpia path writes currentStock;
@@ -210,10 +228,10 @@ Stop and report when:
 ## Final Report Format
 
 ```text
-Release: 0.1.9
+Release: 0.1.8
 Database reset: local <host>/<database> only
 Bootstrap: organization + coupang/rocket ChannelAccounts + membership restored
-Sellpia import: 1964 InventorySkus
+Sellpia import: 1964 MasterProducts
 Wing import: 1225 ChannelProducts / 2241 ChannelSkus / 3 skipped
 Inventory authority: completed Sellpia snapshot only
 Record-only operations verified: transfer / picking / return

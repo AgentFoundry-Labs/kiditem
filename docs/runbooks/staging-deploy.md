@@ -470,10 +470,10 @@ Use `http://<ec2-public-ip>` only for the first origin smoke test. The normal
 staging URL is the Cloudflare proxied HTTPS origin configured in
 `STAGING_URL`.
 
-If `/product-pipeline/thumbnail-generation` Coupang image sync is tested from the staging web app, the
-local Chrome extension must allow the same public origin. Do not commit the
-real staging origin into the default extension manifest; create a local-only
-copy instead:
+If authenticated Wing catalog collection is tested from staging registered
+products, the local Chrome extension must allow the same public origin. Do not
+commit the real staging origin into the default extension manifest; create a
+local-only copy instead:
 
 ```bash
 STAGING_URL="$(gh variable get STAGING_URL --env staging)" \
@@ -481,26 +481,17 @@ STAGING_URL="$(gh variable get STAGING_URL --env staging)" \
 ```
 
 Then load `.secrets/extensions/coupang-ads-scraper-staging` from
-`chrome://extensions` before testing image sync.
+`chrome://extensions`, open staging `/product-pipeline/registered-products`,
+and keep an authenticated Wing inventory tab in the same Chrome profile.
+Select the intended Coupang account and verify **Wing에서 가져오기** starts a
+resumable catalog collection. The extension must advertise
+`coupangCatalogSnapshot = true`.
 
-Server-side Coupang Wing image scraping is disabled in staging by default even
-though the API image contains browser dependencies for `/api/render-image`.
-For the Phase 3 Playwriter experiment only, add the following to the staging API
-env and redeploy:
-
-```bash
-COUPANG_IMAGE_SYNC_SERVER_SCRAPER_ENABLED=true
-```
-
-Before running `/product-pipeline/thumbnail-generation` image sync without the extension, verify:
-
-```bash
-curl -s http://127.0.0.1:8080/api/coupang-image-sync/capabilities
-```
-
-Success criteria: `serverScraper.enabled` is `true` and `preferredSource` is
-`server_scraper`. Rollback is removing the env var and redeploying; the browser
-extension path remains available.
+There is no server-side Playwriter/image-sync fallback. Do not add
+`COUPANG_IMAGE_SYNC_SERVER_SCRAPER_ENABLED` or call a
+`/api/coupang-image-sync` capability endpoint. Follow
+[Coupang Wing Catalog Collection](coupang-wing-catalog-collection.md) for the
+browser acceptance and recovery procedure.
 
 ## Host Nginx With HTTPS Domain
 

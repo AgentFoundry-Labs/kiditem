@@ -13,7 +13,7 @@ state.
 - Collected product workspace and raw-data projections
 - Content workspace tabs for product, thumbnail, and detail-page work
 - Detail-page generation, preview, editor, and history views
-- Thumbnail analysis, batch analysis, tracking, sync, and generation flows
+- Thumbnail analysis, batch analysis, tracking, and generation flows
 - Channel listing confirmation and registration handoff views
 
 ## Data Flow

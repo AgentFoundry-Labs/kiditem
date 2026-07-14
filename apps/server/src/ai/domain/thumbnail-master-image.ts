@@ -1,16 +1,16 @@
 /**
- * Pure URL precedence rules for resolving the displayable master thumbnail
- * image. Used by analysis/recompose/generation flows so that changes to the
- * fallback chain happen in exactly one place.
+ * Pure URL precedence rules for resolving a displayable thumbnail source from
+ * the content workspace context. Used by analysis/recompose/generation flows
+ * so that changes to the fallback chain happen in exactly one place.
  *
  * Precedence:
- *   master.imageUrl > primary MasterProductImage > first MasterProductImage > master.thumbnailUrl
+ *   source imageUrl > primary candidate image > first candidate image > source thumbnailUrl
  *
  * URLs are only considered displayable if they are absolute http(s) URLs or
  * relative `/generated-thumbnails/...` paths produced by StorageService.
  *
- * No Prisma/Nest dependency. The adapter layer owns the Prisma include preset
- * that produces the `images` row shape consumed here.
+ * No Prisma/Nest dependency. The adapter layer owns the workspace/candidate
+ * selection that produces the `images` row shape consumed here.
  */
 
 export type ThumbnailMasterImageRow = {

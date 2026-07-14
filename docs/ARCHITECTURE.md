@@ -97,7 +97,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/organizations` | Platform Capability | Organization listing surface. |
 | `apps/server/src/operation-cancellation` | Platform | Cross-owner durable cancellation endpoint and orchestration. |
 | `apps/server/src/prisma` | Platform Support | `PrismaModule` and `PrismaService` only. |
-| `apps/server/src/products` | Owner Domain | Catalog families/options, stock-free bundle composition, and categories compatibility. |
+| `apps/server/src/products` | Compatibility Lane | `/api/categories` compatibility CRUD only; catalog identities belong to Channels and Inventory. |
 | `apps/server/src/readiness` | Platform Capability | Readiness checks and health-style operational surface. |
 | `apps/server/src/rules` | Owner Domain | Business rules HTTP orchestration and Agent OS delegation. |
 | `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery (scraper ingest and SourcingCandidate inbox) plus the account-scoped ProductPreparation registration state machine. |
@@ -133,7 +133,6 @@ folders are intentionally absent from this map.
 | `apps/server/src/orders` | Flat | controllers/services/DTO plus folded order capabilities. |
 | `apps/server/src/organizations` | Flat | controller/service capability. |
 | `apps/server/src/operation-cancellation` | Hexagonal | HTTP endpoint plus application service; consumes Automation, Agent OS, and AI owner-side ports only. |
-| `apps/server/src/products` | Hexagonal | catalog and stock-free bundle-composition behavior uses adapter/application/domain lanes. |
 | `apps/server/src/products/categories` | Flat | `/api/categories` compatibility capability under products ownership. |
 | `apps/server/src/readiness` | Flat | readiness controller/service. |
 | `apps/server/src/rules` | Flat | HTTP orchestration delegates execution to Agent OS ports. |
@@ -177,7 +176,7 @@ Initial domain capability targets:
 | `sourcing` | Duplicate URL/candidate/preparation lookup and read context. | Product URL scrape through browser/runtime, search result scrape. | Duplicate-check → scrape → candidate ingest → preparation → account registration. | Candidate ingest/rejection and preparation lifecycle/finalization. |
 | `ai` | Workspace/generation/detail-page read context. | OCR, image classification, image/text/detail generation, vision analysis. | Media generation jobs and candidate-to-listing content branching. | Generation output, asset usage, current-thumbnail, and workspace archive projections. |
 | `finance` | Margin, commission, cost, settlement, and plan lookups. | Margin/category profitability calculations, pandas-style research adapters when needed. | Reconciliation and profitability analysis runs. | Manual ledger entries, settlement/payment projections. |
-| `products` | Master product, catalog option, bundle composition, and category reads. | Catalog normalization and compatibility helpers. | Catalog normalization flows when deterministic. | Master creation/update and option/bundle writes; never stock or registration-state writes. |
+| `products` | Category compatibility reads. | Category normalization helpers. | Category compatibility flows when deterministic. | Category compatibility writes only; never catalog identity, stock, or registration-state writes. |
 | `channels` | Channel account/listing/order/status and nullable SKU-availability reads. | Marketplace provider calls, listing validation, Wing/Coupang browser runtime steps, component-capacity calculation. | Product registration/listing sync and ChannelSku component-matching flows. | Listing registration/update projection, channel order/status ingestion. |
 | `rules` | Rule set and evaluation context reads. | Rule evaluation/suggestion tools that may invoke Agent OS from rules entrypoints. | Scheduled policy sweeps when deterministic. | Rule/action recommendation projection. |
 | `advertising` | Ad account/campaign/daily fact reads. | Scrape ingest normalization, strategy metrics calculations. | Daily fact ingest and deterministic alert workflows. | Ad fact/action/strategy projections. |
@@ -411,10 +410,10 @@ SourcingCandidate (status: sourced | rejected)
 The canonical APIs are candidate preparation create, preparation update,
 submit, and cancel. In 0.1.8, `POST /api/sourcing/candidates/:id/promote` is a
 deprecated alias for draft creation and returns only
-`{ preparationId, status: 'draft' }`. The 0.1.8 database retains the old
-candidate-wide active-preparation uniqueness for rollback compatibility, so a
-second-account draft reports a deterministic conflict until that legacy
-constraint is removed in 0.1.9.
+`{ preparationId, status: 'draft' }`. Active preparation uniqueness is scoped
+to organization, candidate, and selected channel account. The same candidate
+may therefore have one active draft per account, while duplicate active drafts
+for the same account are rejected deterministically.
 
 The release data-migration chain rewrites only legacy `promoted` candidate rows
 to `sourced`; rolling-deploy read projections perform the same normalization
@@ -434,8 +433,9 @@ Sellpia is the upstream inventory service and a completed full-workbook import
 is KidItem's only stock writer. Inventory owns the physical Sellpia
 `MasterProduct.currentStock` snapshot;
 Channels owns each marketplace account's independent product/SKU metadata,
-explicit component recipes, and sellable-capacity projection. Products owns
-catalog data and has no stock fields or bundle-stock materialization.
+explicit component recipes, and sellable-capacity projection. The Products
+module retains category compatibility only and owns neither catalog identities
+nor stock.
 
 Existing channel Prisma/table names remain stable while the logical contracts
 are explicit:
@@ -443,7 +443,7 @@ are explicit:
 | Logical contract | Prisma model | Physical table | Identity / authority |
 |---|---|---|---|
 | `ChannelProduct` | `ChannelListing` | `channel_listings` | Organization + ChannelAccount + external product ID; channel price/name metadata is account-specific. |
-| `ChannelSku` | `ChannelListingOption` | `channel_listing_options` | Organization + ChannelAccount + external SKU ID; its product-option compatibility link is not inventory truth. |
+| `ChannelSku` | `ChannelListingOption` | `channel_listing_options` | Organization + ChannelAccount + external SKU ID; marketplace option metadata is not inventory truth. |
 | Physical Sellpia product | `MasterProduct` | `master_products` | Organization + Sellpia product code; `current_stock` is written only by a completed Sellpia snapshot import. |
 | `ChannelSkuComponent` | `ChannelSkuComponent` | `channel_sku_components` | Exact positive quantity of one physical MasterProduct consumed by one sale of one ChannelSku. |
 | `SourceImportRun` | `SourceImportRun` | `source_import_runs` | Workbook provenance, SHA-256 idempotency, and attempt fencing scoped by organization/source/account. |
@@ -473,11 +473,12 @@ component capacities. Unmapped and review-required Channel SKUs return
 projection exposes component capacities and bottlenecks but never reserves or
 deducts stock.
 
-`ProductOption` and product bundle composition remain catalog concepts. They do
-not own current/reserved/safety/reorder/available stock, and a product bundle
-has no separately maintained stock. `StockTransfer`, `PickingItem`, and
-`ReturnTransfer` reference the physical `MasterProduct` only to record operations; their
-create/update/complete flows do not change `currentStock`.
+KidItem has no internal `ProductOption` or bundle-stock owner. Marketplace
+option metadata lives on `ChannelListingOption`; bundle consumption exists only
+as the exact `ChannelSkuComponent` recipe. A bundle has no separately maintained
+stock. `StockTransfer`, `PickingItem`, and `ReturnTransfer` reference the
+physical `MasterProduct` only to record operations; their create/update/complete
+flows do not change `currentStock`.
 
 The existing `/inventory`, `/inventory-hub`, and `/stock-ops` routes are
 preserved as views over Sellpia snapshots, import history, assets, channel
