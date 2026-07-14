@@ -340,7 +340,6 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
   ): Promise<number> {
     if (rows.length === 0) return 0;
     const { organizationId, keyword, businessDate } = rows[0];
-    const vendorItemIds = [...new Set(rows.map((row) => row.vendorItemId))];
 
     return this.prisma.$transaction(async (tx) => {
       await tx.coupangWingSalesRankDailySnapshot.deleteMany({
@@ -348,7 +347,6 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
           organizationId,
           keyword,
           businessDate,
-          vendorItemId: { in: vendorItemIds },
         },
       });
       const created = await tx.coupangWingSalesRankDailySnapshot.createMany({

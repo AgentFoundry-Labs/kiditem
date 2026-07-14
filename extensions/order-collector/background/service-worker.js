@@ -185,6 +185,11 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
     collectRocketPoRows({
       from: typeof msg.from === "string" ? msg.from : null,
       to: typeof msg.to === "string" ? msg.to : null,
+      status: ["RP", "PA", "RI", "CI", ""].includes(msg.status) ? msg.status : "RP",
+      dateType:
+        msg.dateType === "PURCHASE_ORDER_DATE"
+          ? "PURCHASE_ORDER_DATE"
+          : "WAREHOUSING_PLAN_DATE",
     })
       .then((result) => sendResponse(result))
       .catch((error) => {
@@ -511,7 +516,7 @@ async function clickCoupangShipmentDownloads(options) {
 }
 
 // ── 로켓 발주확정: 발주리스트(거래처확인요청) + 상세를 풀컬럼 스크래핑 ──
-async function collectRocketPoRows({ from, to }) {
+async function collectRocketPoRows({ from, to, status = "RP", dateType = "WAREHOUSING_PLAN_DATE" }) {
   const tab = await findOrCreateCoupangSupplierTab();
   if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
   await waitForTabReady(tab.id);
@@ -520,7 +525,7 @@ async function collectRocketPoRows({ from, to }) {
     chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: scrapeRocketPoRows,
-      args: [from, to],
+      args: [from, to, status, dateType],
     }),
     180000,
     "로켓 발주 수집 시간이 초과되었습니다.",
@@ -622,7 +627,7 @@ async function scrapeRocketPoList(from, to, statusCode) {
 }
 
 // supplier.coupang.com 페이지 컨텍스트에서 실행 (DOMParser + same-origin fetch + 쿠키).
-async function scrapeRocketPoRows(from, to) {
+async function scrapeRocketPoRows(from, to, statusCode, dateType) {
   try {
     const ctrl = new RegExp("[\\u0000-\\u001F]", "g");
     const clean = (s, n) => (s || "").replace(ctrl, " ").replace(/^\d{8,}\s*/, "").trim().slice(0, n || 80);
@@ -643,11 +648,15 @@ async function scrapeRocketPoRows(from, to) {
       d.setUTCHours(d.getUTCHours() + 9);
       return d.toISOString().replace("T", " ").slice(0, 19);
     };
-    // from/to = 입고예정일(KST) 범위. 발주현황=거래처확인요청(RP) 을 서버에 넘겨 조회.
+    const normalizedStatus = ["RP", "PA", "RI", "CI", ""].includes(statusCode) ? statusCode : "RP";
+    const normalizedDateType =
+      dateType === "PURCHASE_ORDER_DATE" ? "PURCHASE_ORDER_DATE" : "WAREHOUSING_PLAN_DATE";
+    const businessDateBasis =
+      normalizedDateType === "PURCHASE_ORDER_DATE" ? "ordered_at" : "expected_inbound";
     const listUrl = (p) =>
       "/po-web/app/purchase-order/list?page=" + p +
-      "&searchDateType=WAREHOUSING_PLAN_DATE&searchStartDate=" + (from || "") + "&searchEndDate=" + (to || "") +
-      "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=RP&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
+      "&searchDateType=" + normalizedDateType + "&searchStartDate=" + (from || "") + "&searchEndDate=" + (to || "") +
+      "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=" + normalizedStatus + "&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
 
     const pos = [];
     for (let p = 1; p <= 40; p++) {
@@ -672,7 +681,7 @@ async function scrapeRocketPoRows(from, to) {
       const b = j.body || {};
       const rows = b.body || [];
       for (const o of rows) {
-        // 서버가 발주현황=거래처확인요청(RP) + 입고예정일(KST) 범위로 이미 필터함.
+        // 서버가 요청한 상태 + 날짜 기준으로 이미 필터함.
         pos.push(o);
       }
       if (p >= (b.lastPageNumber || 1)) break;
@@ -699,6 +708,8 @@ async function scrapeRocketPoRows(from, to) {
             center: po.centerName || "",
             inboundType: po.transportTypeDescription || "",
             poStatus: po.purchaseOrderStatusDescription || "",
+            poStatusCode: String(po.purchaseOrderStatus || po.purchaseOrderStatusCode || normalizedStatus).toUpperCase(),
+            businessDateBasis,
             vendorName: po.vendorName || "",
             productNo: r[1] || "",
             barcode: (String(r[2]).match(/^\d{8,}/) || [""])[0],

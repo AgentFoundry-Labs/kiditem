@@ -5,7 +5,7 @@ import { SourcingExtensionAuthMiddleware } from '../middleware/sourcing-extensio
 import { SupabaseAuthMiddleware } from '../middleware/supabase-auth.middleware';
 
 describe('sourcing extension route security wiring', () => {
-  it('runs extension-token authentication on the exact 1688 trend ingest route', () => {
+  it('runs extension-token authentication on every extension trend ingest route', () => {
     const extensionForRoutes = vi.fn();
     const supabaseForRoutes = vi.fn();
     const apply = vi.fn()
@@ -19,6 +19,7 @@ describe('sourcing extension route security wiring', () => {
       { path: 'sourcing/extension/product-data', method: RequestMethod.ALL },
       { path: 'sourcing/extension/session/renew', method: RequestMethod.ALL },
       { path: 'sourcing/extension/trend/1688-results', method: RequestMethod.ALL },
+      { path: 'sourcing/extension/trend/live-commerce-results', method: RequestMethod.ALL },
     );
     expect(apply).toHaveBeenNthCalledWith(2, SupabaseAuthMiddleware);
     expect(supabaseForRoutes).toHaveBeenCalledWith('*');

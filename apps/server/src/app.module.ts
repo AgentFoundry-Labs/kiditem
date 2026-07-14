@@ -84,6 +84,7 @@ export class AppModule implements NestModule {
         { path: 'sourcing/extension/product-data', method: RequestMethod.ALL },
         { path: 'sourcing/extension/session/renew', method: RequestMethod.ALL },
         { path: 'sourcing/extension/trend/1688-results', method: RequestMethod.ALL },
+        { path: 'sourcing/extension/trend/live-commerce-results', method: RequestMethod.ALL },
       );
     // Supabase JWT 검증 — `Authorization: Bearer` 또는 Supabase SSR auth-token 쿠키.
     // SSE (`/api/panel/*`) 는 EventSource 가 헤더를 못 보내므로 쿠키 기반으로
