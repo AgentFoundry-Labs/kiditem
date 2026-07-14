@@ -19,6 +19,9 @@ code:
 - browser checkpoints use the existing Channels-owned `ChannelScrapeRun` plus
   a new `ChannelScrapeChunk`; `SourceImportRun` remains only the final
   deduplication/publication fence;
+- validated `product_details` chunks publish additively as they arrive and
+  carry a durable `publishedAt` fence; only the complete final snapshot may
+  deactivate unseen rows;
 - `SourceImportRun.fileName` stays required. A browser run stores the literal
   provenance label `browser-extension:coupang-wing:v1` in the database column
   `source_import_runs.file_name`; this is not a path, no snapshot file is
@@ -156,9 +159,11 @@ The rejected alternatives were:
 8. Re-import updates existing canonical rows in place.
 9. Channel collection never overwrites KidItem-authored operational fields,
    manually selected/generated content, or confirmed SKU component recipes.
-10. Partial collection never changes the live catalog.
+10. Discovery alone never changes the live catalog. Each validated and
+    durably stored detail chunk may add or update only the products contained
+    in that chunk.
 11. Only one successfully finalized full snapshot may deactivate unseen
-    listings or options.
+    listings, options, or provider assets.
 12. An image-copy failure cannot roll back or hide a valid catalog.
 13. Every listing has at most one active listing-owned `ContentWorkspace`.
 14. Every imported provider image is immediately available as a `ContentAsset`
@@ -174,14 +179,15 @@ Wing authenticated tab
   -> KidItem web bridge
   -> account-scoped NestJS import API
   -> ChannelScrapeRun + ChannelScrapeChunk staging
-  -> completeness validation
-  -> atomic catalog publication
+  -> per-detail-chunk validation and additive publication
        -> ChannelListing
        -> ChannelListingOption
        -> ContentWorkspace
        -> ContentGenerationGroup(groupType=workspace_assets)
        -> ContentAsset
        -> current thumbnail selection
+  -> full-snapshot completeness validation
+  -> final absence reconciliation + SourceImportRun completion
   -> registered-products ChannelListing read model
   -> asynchronous ContentAsset materialization worker
 ```
@@ -262,8 +268,8 @@ versioned manifest, browser `clientRunKey`, phase, canonical snapshot hash,
 bounded error, and completed publication summary. The database enforces one
 run per organization, account, source, and client key.
 
-`ChannelScrapeChunk` stores collection progress without exposing partial rows
-as live catalog data:
+`ChannelScrapeChunk` stores collection progress and the durable publication
+fence for each detail batch:
 
 ```text
 id
@@ -274,6 +280,7 @@ sequence
 checksum         SHA-256
 payload          JsonB
 itemCount
+publishedAt      nullable; set after canonical detail-chunk publication
 createdAt
 updatedAt
 ```
@@ -283,6 +290,8 @@ Rules:
 - unique `(runId, kind, sequence)`;
 - every chunk relation is organization-safe;
 - replaying the same key and checksum is a successful no-op;
+- replaying an unpublished detail chunk retries its idempotent canonical
+  publication;
 - replaying the same key with a different checksum returns a conflict;
 - chunks are append-only while the run is collecting;
 - completed runs reject new chunks;
@@ -290,13 +299,15 @@ Rules:
   according to an explicit retention policy without deleting canonical data.
 
 The initial implementation uses bounded JSONB chunks instead of normalized
-staging tables. At the observed catalog size, this keeps resume behavior
-simple while canonical publication still uses validated, batched writes.
+staging tables. `publishedAt` is the durable fence between “detail stored” and
+“visible in registered products.” A detail chunk is not reported as published
+until its listing, option, workspace, and provider-asset transaction commits.
 
-Only after validation succeeds does publication create a `SourceImportRun` as
-the durable publication and deduplication fence. Browser publication stores
-`browser-extension:coupang-wing:v1` in required `fileName` and the canonical
-snapshot hash in required `fileHash`; it does not create a file.
+Only during successful final reconciliation does publication create a
+`SourceImportRun` as the durable final provenance and deduplication fence.
+Browser publication stores `browser-extension:coupang-wing:v1` in required
+`fileName` and the canonical snapshot hash in required `fileHash`; it does not
+create a file.
 
 ## Content Ownership and Media Models
 
@@ -404,8 +415,10 @@ POST /channels/accounts/:channelAccountId/catalog-imports/coupang-wing/runs/:run
 The start endpoint creates or resumes a run using `clientRunKey`. The status
 endpoint returns manifest progress, missing chunk sequences, phase, error, and
 the completed change summary. The chunk endpoint validates its checksum and
-shared payload schema. The finalize endpoint performs completeness validation
-and publication.
+shared payload schema. For a `product_details` chunk it then performs
+idempotent additive publication and sets `publishedAt`. The finalize endpoint
+performs completeness validation, absence reconciliation, and final provenance
+publication.
 
 The registered-products web route invokes these authenticated APIs. It sends
 collection commands to the extension and receives progress through the
@@ -413,33 +426,63 @@ existing browser bridge. The extension never receives a database connection
 or a long-lived backend secret. A simple status poll is sufficient for the
 initial UI; no new SSE subsystem is required.
 
-## Atomic Publication
+## Publication Timing Decision
 
-Publication uses one transaction and an advisory lock scoped by
+Three approaches were considered:
+
+1. keep full-snapshot atomic publication: strongest all-or-nothing visibility,
+   but a 40–50 minute Wing hydration looks stalled and completed products are
+   unavailable;
+2. publish each validated detail chunk, then reconcile absence only after the
+   full snapshot: selected because cards and images appear progressively while
+   deletion safety remains tied to complete evidence;
+3. render staging-only preview cards: preserves full atomic publication but
+   duplicates the registered-product read model and does not make the products
+   usable elsewhere.
+
+The selected approach changes the transaction boundary, not the identity
+contract. Each detail chunk is independently atomic and idempotent. It may
+only upsert or reactivate identities present in that chunk. It may not
+deactivate anything.
+
+## Incremental Publication and Final Reconciliation
+
+Each chunk publication uses one transaction and an advisory lock scoped by
 `organizationId`, `sourceType`, and `channelAccountId`. Different Coupang
 accounts may publish independently.
 
-Within the transaction the application:
+Within a detail-chunk transaction the application:
 
 1. validates the active organization, channel account, run ownership, status,
-   and `attemptToken`;
-2. revalidates every chunk and the canonical snapshot hash;
+   checksum, and detail payload;
+2. returns successfully when the same chunk was already published;
 3. upserts parent listings in bounded batches;
 4. resolves persisted listing IDs by external product ID;
-5. verifies that an existing external SKU is not moving to a different parent
-   unexpectedly;
-6. upserts all options in bounded batches;
+5. verifies that an existing external SKU is not moving to a different parent;
+6. upserts the chunk's options in bounded batches;
 7. ensures listing-owned content workspaces;
 8. upserts provider assets in each workspace's `workspace_assets` group;
 9. establishes the initial provider-primary thumbnail selection where
    appropriate;
-10. marks unseen options, listings, and provider asset associations inactive;
-11. assigns the next account-scoped publication sequence;
-12. marks the run completed with its change summary.
+10. marks the stored chunk `publishedAt` and records cumulative created,
+    updated, option, and media counts.
 
-If any step fails, the transaction rolls back and the last completed catalog
-remains visible. External image fetching and storage are never performed in
-this transaction.
+The registered-products query is invalidated whenever `publishedProducts`
+increases, so newly created cards and updated data appear without waiting for
+the remaining catalog.
+
+Final reconciliation runs only after every discovered product has a valid
+detail record, every detail chunk has `publishedAt`, and the manifest
+confirmation and canonical snapshot hash match. It creates the final
+`SourceImportRun`, repeats the full upsert idempotently to attach final
+provenance, deactivates only identities absent from the complete snapshot,
+assigns the next account-scoped publication sequence, and marks the collection
+completed.
+
+If a chunk transaction fails, that chunk remains unpublished and is retryable;
+previously published chunks remain visible. If final reconciliation fails, no
+absence changes commit and the published chunks remain usable. External image
+fetching and storage are never performed in either transaction.
 
 The channels application service coordinates channel and AI ownership through
 transaction-aware ports. The channel repository does not write AI tables
@@ -483,14 +526,17 @@ The primary interaction is:
 3. connect to the authenticated Wing tab through the extension;
 4. display discovery, detail hydration, chunk upload, validation, publication,
    and image materialization progress;
-5. invalidate and refetch the listing query after successful publication.
+5. invalidate and refetch the listing query whenever another detail chunk is
+   published and once more after final reconciliation.
 
 Progress includes:
 
 - discovered pages over expected pages;
 - hydrated products over discovered products;
+- DB-published products over discovered products;
 - accumulated SKU count;
 - stored chunks over expected chunks;
+- latest publication time, processing rate, and estimated remaining time;
 - current phase and recoverable error;
 - created, updated, and inactivated listing/SKU counts;
 - provider image `ready`, `pending`, and `failed` counts.
@@ -505,7 +551,9 @@ The listing UI contract is:
   product ID, channel account, state, and option count;
 - external provider URL is rendered until materialization changes the same
   asset to its managed URL;
-- no manual image-sync button is required for imported catalog images.
+- no manual image-sync button is required for imported catalog images;
+- cards published by an active run show `쿠팡 동기화 중` until final
+  reconciliation completes.
 
 The extension popup may show diagnostics and the current run, but it is not
 the owner of channel-account selection, KidItem authentication, or canonical
@@ -550,17 +598,18 @@ snapshot preserves their IDs by external identity.
 | Same chunk key with different checksum | Return conflict and keep prior chunk |
 | Wing session expires | Pause with an authentication error; keep chunks |
 | List changes during discovery | Discard the unstable manifest and rediscover |
-| Product detail cannot be hydrated | Block finalize and resume that product |
-| Missing page, product, or SKU identity | Block finalize; live catalog unchanged |
-| Server exits during publication | Transaction rolls back; reclaim with a new attempt token |
-| Old worker finalizes after reclaim | Fence rejects the stale attempt |
+| Product detail cannot be hydrated | Keep prior published chunks visible; block finalize and resume that product |
+| Missing page, product, or SKU identity | Block final reconciliation; do not deactivate anything |
+| Server exits during chunk publication | Chunk transaction rolls back, `publishedAt` stays null, and replay retries it |
+| Server exits during final reconciliation | Final transaction rolls back; no absence changes commit |
 | Completed snapshot is submitted again | Return the prior completed result |
 | Provider image fetch fails | Keep external URL, mark asset failed, retry only that asset |
 | Selector or response contract drifts | Fail loudly with collector version and field diagnostics |
 
 Recoverable collection errors keep the run resumable. Terminal validation
 conflicts mark the run failed with structured diagnostics. A retry creates or
-reclaims an attempt without mutating the last completed catalog.
+reclaims an attempt without reverting detail chunks that were already
+published successfully.
 
 ## Tenancy and Security
 
@@ -587,11 +636,13 @@ The implementation sequence is:
 2. add `ChannelScrapeChunk` and browser progress fields to
    `ChannelScrapeRun`;
 3. implement resumable run storage and completeness validation;
-4. add atomic publication into existing channel listing and option models;
+4. add idempotent per-detail-chunk publication into existing channel listing
+   and option models;
 5. attach media through existing workspace generation groups and assets;
 6. implement provider asset materialization, leases, and retries;
 7. implement the extension discovery/hydration/resume collector;
-8. add import controls and live query invalidation to registered products;
+8. add import controls, stored/published progress, ETA, and per-chunk live
+   query invalidation to registered products;
 9. verify the replacement before removing legacy extension/image-sync
    surfaces;
 10. run the first complete Wing snapshot against the final 0.1.8 schema.
@@ -629,6 +680,7 @@ No automatic Sellpia mapping is performed.
 
 - start versus resume by `clientRunKey`;
 - checksum replay and conflict;
+- stored-versus-published progress and unpublished-chunk retry;
 - missing chunk reporting;
 - canonical snapshot hashing;
 - completeness validation;
@@ -640,8 +692,10 @@ No automatic Sellpia mapping is performed.
 - organization and channel-account isolation;
 - active Coupang account requirement;
 - parent and SKU upsert ID preservation;
+- detail-chunk publication exposes cards without deactivating unseen rows;
+- failed chunk publication remains retryable and idempotent;
 - existing SKU cannot silently move to a different parent;
-- full rollback from every publication phase;
+- full rollback within each chunk and final reconciliation transaction;
 - concurrent finalize serialization per account;
 - stale attempt rejection and failed-run reclaim;
 - account-scoped publication ordering;
@@ -657,7 +711,8 @@ No automatic Sellpia mapping is performed.
 
 - account selection and Wing-tab connection errors;
 - collection progress and recoverable resume state;
-- successful finalize invalidates the listing query;
+- every increase in published-product count invalidates the listing query;
+- discovery, detail-stored, DB-published, processing-rate, and ETA progress;
 - one card per listing using `listingId`;
 - active and inactive tabs;
 - external-to-managed image URL transition;
