@@ -105,6 +105,9 @@ export function useCoupangCatalogImport(channelAccountId: string | null) {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.coupangCatalogImports.run(run.channelAccountId, run.id),
       });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.coupangCatalogImports.extension(run.id),
+      });
     },
   });
 

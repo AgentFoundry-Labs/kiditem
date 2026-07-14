@@ -18,7 +18,8 @@ export function buildCoupangCatalogProgress(
   const progress = run.progress;
   const total = Math.max(run.manifest?.totalItems ?? 0, progress.discoveredProducts);
   const remaining = Math.max(0, total - progress.publishedProducts);
-  const elapsedMs = Math.max(1, nowMs - new Date(run.createdAt).getTime());
+  const publicationStartedAt = progress.firstPublishedAt ?? run.createdAt;
+  const elapsedMs = Math.max(1, nowMs - new Date(publicationStartedAt).getTime());
   const ratePerMinute = progress.publishedProducts > 0
     ? progress.publishedProducts / (elapsedMs / 60_000)
     : 0;

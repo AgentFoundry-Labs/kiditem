@@ -23,8 +23,8 @@ describe('Coupang catalog progress', () => {
       hydratedLabel: '상세 수집 80 / 1,228',
       publishedLabel: 'DB 반영 60 / 1,228',
       publicationDetailsLabel: '옵션 68개 · 이미지 120개 반영',
-      rateLabel: expect.stringContaining('개/분'),
-      etaLabel: expect.stringContaining('완료 예상'),
+      rateLabel: '처리 6.0개/분',
+      etaLabel: '완료 예상 3시간 15분',
     });
   });
 
@@ -92,7 +92,9 @@ function collectionRun(
       publishedOptionCount: overrides.publishedOptionCount ?? 0,
       publishedMediaCount: overrides.publishedMediaCount ?? 0,
       publishedChunks: 0,
-      firstPublishedAt: null,
+      firstPublishedAt: (overrides.publishedProducts ?? 0) > 0
+        ? '2026-07-14T00:50:00.000Z'
+        : null,
       lastPublishedAt: null,
     },
     missing: { discoverySequences: [], productIds: [] },
