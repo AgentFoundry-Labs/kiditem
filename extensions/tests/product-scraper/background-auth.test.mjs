@@ -356,3 +356,21 @@ test('coalesces concurrent 401 refresh signals and retries each request once', a
   assert.equal(env.fetchCalls.length, 4);
   assert.deepEqual(env.dispatchedEvents, ['kiditem:extension-auth-required']);
 });
+
+test('recovers a missing extension token from the logged-in web tab', async () => {
+  const env = loadBackground({}, [{ status: 200 }]);
+
+  const pending = env.context.sendToBackend({
+    source_url: 'https://detail.1688.com/offer/1.html',
+  });
+  await waitForCallCount(env.dispatchedEvents, 1);
+  env.storageApi.set({ kiditem_auth_token: 'restored-token' });
+  const result = await pending;
+
+  assert.equal(result.ok, true);
+  assert.equal(env.fetchCalls.length, 1);
+  assert.equal(
+    new Headers(env.fetchCalls[0].init.headers).get('authorization'),
+    'Bearer restored-token',
+  );
+});

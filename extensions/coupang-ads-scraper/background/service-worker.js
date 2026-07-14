@@ -1,6 +1,7 @@
 // KIDITEM OS — Background Service Worker
 
 importScripts(
+  "kiditem-auth.js",
   "../utils/coupang-seller-detail.js",
   "../shared/coupang-catalog-collector.js",
   "coupang-catalog-import.js",
@@ -34,34 +35,14 @@ const KEYWORD_RANK_STATUS_KEY = "kiditem_keyword_rank_check"; // 쿠팡 검색(S
 const COMPETITOR_SELLER_CATALOG_STATUS_KEY =
   "kiditem_competitor_seller_catalog_check";
 
-function getAuthToken() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get([AUTH_TOKEN_KEY], (r) =>
-      resolve(r[AUTH_TOKEN_KEY] || null),
-    );
-  });
-}
-
-async function authedFetch(path, init = {}) {
-  const token = await getAuthToken();
-  const headers = new Headers(init.headers || {});
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  // 타임아웃 없는 fetch 는 서버/네트워크 stall 시 배치를 그 키워드에서 영구 정지시킨다.
-  // 기본 타임아웃(init.timeoutMs, 기본 25s)으로 AbortController 를 걸어 stall 을
-  // per-keyword 실패로 전환한다(배치는 계속 진행).
-  const { timeoutMs = 25000, ...rest } = init;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(`${API_URL}${path}`, {
-      ...rest,
-      headers,
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timer);
-  }
-}
+const kidItemAuth = KidItemAuth.create({
+  chrome,
+  fetchFn: fetch,
+  apiUrl: API_URL,
+  tokenKey: AUTH_TOKEN_KEY,
+  webUrlPatterns: ["http://localhost:3000/*"],
+});
+const { authedFetch, getAuthToken } = kidItemAuth;
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[KIDITEM] Extension installed");

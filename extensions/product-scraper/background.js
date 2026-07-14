@@ -133,7 +133,7 @@ async function fetchKidItem(url, init = {}, allowAuthRetry = true) {
   const headers = new Headers(init.headers || {});
   if (token) headers.set("Authorization", `Bearer ${token}`);
   const response = await fetch(url, { ...init, headers });
-  if (response.status !== 401 || !allowAuthRetry || !token) return response;
+  if (response.status !== 401 || !allowAuthRetry) return response;
 
   const nextToken = await requestFreshAuthToken(token);
   if (!nextToken || nextToken === token) return response;
@@ -146,7 +146,8 @@ async function backendRequestConfig() {
     return { ok: false, error: "허용되지 않은 KidItem API 주소입니다." };
   }
   const headers = { "Content-Type": "application/json" };
-  const token = await getAuthToken();
+  let token = await getAuthToken();
+  if (!token) token = await requestFreshAuthToken(null);
   if (token) headers.Authorization = `Bearer ${token}`;
   if (!headers.Authorization) {
     return {
