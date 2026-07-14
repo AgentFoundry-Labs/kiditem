@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
 import { useCoupangCatalogImport } from '../hooks/useCoupangCatalogImport';
+import { buildCoupangCatalogProgress } from '../lib/coupang-catalog-progress';
 import { channelListingsApi } from '../lib/channel-listings-api';
 
 export function CoupangCatalogImportPanel() {
@@ -45,12 +46,7 @@ export function CoupangCatalogImportPanel() {
   const isRunning = server?.status === 'running' && extension?.status === 'running';
   const canResume = server?.status === 'running' &&
     (!extension || extension.status === 'idle' || extension.status === 'error' || extension.status === 'cancelled');
-  const progress = catalogProgress(server?.phase, {
-    currentPage: extension?.currentPage ?? server?.progress.discoveryPagesStored ?? 0,
-    totalPages: extension?.totalPages ?? server?.manifest?.expectedPages ?? 0,
-    hydrated: extension?.hydratedProducts ?? server?.progress.hydratedProducts ?? 0,
-    discovered: extension?.discoveredProducts ?? server?.progress.discoveredProducts ?? 0,
-  });
+  const progress = server ? buildCoupangCatalogProgress(server, Date.now()) : null;
   const error = extension?.error || errorMessage(catalogImport.startError) ||
     errorMessage(catalogImport.cancelError) || server?.error?.message || null;
 
@@ -93,9 +89,16 @@ export function CoupangCatalogImportPanel() {
             </p>
             {server && (
               <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-semibold text-slate-600" aria-live="polite">
-                <span>{progress.label}</span>
-                <span>상품 {formatNumber(server.progress.discoveredProducts)}개</span>
-                <span>옵션 {formatNumber(server.progress.optionCount)}개</span>
+                <span>{progress?.discoveredLabel}</span>
+                <span>{progress?.hydratedLabel}</span>
+                <span className="text-emerald-700">{progress?.publishedLabel}</span>
+                <span>{progress?.publicationDetailsLabel}</span>
+                {progress?.rateLabel && (
+                  <span>
+                    {progress.rateLabel}
+                    {progress.etaLabel ? ` · ${progress.etaLabel}` : ''}
+                  </span>
+                )}
                 {server.publication && (
                   <span>
                     이미지 준비 {formatNumber(server.publication.changes.readyImageCount ?? 0)} ·
@@ -106,7 +109,7 @@ export function CoupangCatalogImportPanel() {
                 {isComplete && <span className="text-emerald-700">DB 반영 완료</span>}
               </div>
             )}
-            {server?.status === 'running' && progress.percent > 0 && (
+            {server?.status === 'running' && progress && progress.percent > 0 && (
               <div className="mt-2 h-1.5 w-full max-w-xl overflow-hidden rounded-full bg-emerald-100">
                 <div
                   className="h-full rounded-full bg-emerald-500 transition-[width]"
@@ -165,35 +168,10 @@ export function CoupangCatalogImportPanel() {
 
 function phaseLabel(phase: string): string {
   if (phase === 'discovery') return '상품 목록 확인';
-  if (phase === 'hydration') return '상품 상세 수집';
+  if (phase === 'hydration') return '상품 상세 수집 · 카드 반영 중';
   if (phase === 'ready_to_finalize') return 'DB 반영 준비';
   if (phase === 'publishing') return 'DB 반영 중';
   return '완료';
-}
-
-function catalogProgress(
-  phase: string | undefined,
-  input: { currentPage: number; totalPages: number; hydrated: number; discovered: number },
-): { label: string; percent: number } {
-  if (phase === 'finished') return { label: '전체 수집 완료', percent: 100 };
-  if (phase === 'hydration' || phase === 'ready_to_finalize' || phase === 'publishing') {
-    const percent = input.discovered > 0
-      ? Math.min(99, 20 + Math.round((input.hydrated / input.discovered) * 75))
-      : 20;
-    return {
-      label: `상세 ${formatNumber(input.hydrated)} / ${formatNumber(input.discovered)}`,
-      percent,
-    };
-  }
-  const percent = input.totalPages > 0
-    ? Math.min(20, Math.round((input.currentPage / input.totalPages) * 20))
-    : 0;
-  return {
-    label: input.totalPages > 0
-      ? `목록 ${formatNumber(input.currentPage)} / ${formatNumber(input.totalPages)}페이지`
-      : 'Wing 상품 목록 준비 중',
-    percent,
-  };
 }
 
 function errorMessage(value: unknown): string | null {

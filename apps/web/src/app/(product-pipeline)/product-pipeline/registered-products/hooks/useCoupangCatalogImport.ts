@@ -15,6 +15,7 @@ import {
   getCoupangCatalogBrowserStatus,
   startCoupangCatalogBrowser,
 } from '../lib/coupang-catalog-import';
+import { shouldInvalidatePublishedListings } from '../lib/coupang-catalog-progress';
 import { channelListingsApi } from '../lib/channel-listings-api';
 
 const STORAGE_KEY = 'kiditem:coupang-catalog-import:active-run';
@@ -30,6 +31,10 @@ export function useCoupangCatalogImport(channelAccountId: string | null) {
   const [activeRun, setActiveRun] = useState<ActiveRun | null>(() => readActiveRun());
   const [extensionId, setExtensionId] = useState<string | null>(null);
   const completedRunRef = useRef<string | null>(null);
+  const publishedProgressRef = useRef<{
+    runId: string;
+    publishedProducts: number;
+  } | null>(null);
 
   const serverStatusQuery = useQuery({
     queryKey: activeRun
@@ -115,6 +120,25 @@ export function useCoupangCatalogImport(channelAccountId: string | null) {
 
   useEffect(() => {
     const server = serverStatusQuery.data;
+    if (!server) return;
+    const previous = publishedProgressRef.current;
+    if (
+      previous?.runId === server.id &&
+      shouldInvalidatePublishedListings(
+        previous.publishedProducts,
+        server.progress.publishedProducts,
+      )
+    ) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all });
+    }
+    publishedProgressRef.current = {
+      runId: server.id,
+      publishedProducts: server.progress.publishedProducts,
+    };
+  }, [queryClient, serverStatusQuery.data]);
+
+  useEffect(() => {
+    const server = serverStatusQuery.data;
     if (!server || server.status !== 'completed') return;
     if (completedRunRef.current === server.id) return;
     completedRunRef.current = server.id;
@@ -125,6 +149,7 @@ export function useCoupangCatalogImport(channelAccountId: string | null) {
     setActiveRun(null);
     setExtensionId(null);
     completedRunRef.current = null;
+    publishedProgressRef.current = null;
     safeStorageRemove('local', STORAGE_KEY);
     startMutation.reset();
     cancelMutation.reset();
