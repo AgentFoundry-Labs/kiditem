@@ -101,7 +101,7 @@ describe('browser collection alert synchronization', () => {
         browserCollection: true,
         runId: RUN_ID,
         producer: 'dashboard.wing_sales',
-        attempt: 1,
+        collectionAttempt: 1,
         collectionUpdatedAt: 1_700_000_001_000,
         attentionReason: null,
       },
@@ -203,7 +203,7 @@ describe('browser collection alert synchronization', () => {
     expect(metadata).not.toHaveProperty('_managedWindowId');
   });
 
-  it('includes attempt and updatedAt ordering metadata on terminal updates', async () => {
+  it('includes collection attempt and updatedAt ordering metadata on terminal updates', async () => {
     await syncBrowserCollectionAlert(
       session({
         status: 'succeeded',
@@ -217,7 +217,7 @@ describe('browser collection alert synchronization', () => {
       `browser-collection:${RUN_ID}`,
       expect.objectContaining({
         metadata: expect.objectContaining({
-          attempt: 3,
+          collectionAttempt: 3,
           collectionUpdatedAt: 1_700_000_005_000,
         }),
       }),
@@ -250,7 +250,7 @@ describe('browser collection alert synchronization', () => {
         status: 'pending',
         severity: 'warning',
         metadata: expect.objectContaining({
-          attempt: 1,
+          collectionAttempt: 1,
           collectionUpdatedAt: 1_700_000_004_000,
           attentionReason: 'extension_missing',
           inputIdentity: { trigger: 'dashboard_traffic' },

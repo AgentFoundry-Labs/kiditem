@@ -33,6 +33,23 @@ const BROWSER_BATCH_STALE_LIMIT = 100;
 const BROWSER_BATCH_STALE_MESSAGE =
   '브라우저 작업 세션이 종료되어 진행 상태를 자동 정리했습니다.';
 
+function assertBrowserCollectionOrdering(
+  metadata: Record<string, unknown> | undefined,
+): void {
+  if (
+    metadata?.browserCollection !== true ||
+    !Number.isInteger(metadata.collectionAttempt) ||
+    (metadata.collectionAttempt as number) < 1 ||
+    typeof metadata.collectionUpdatedAt !== 'number' ||
+    !Number.isFinite(metadata.collectionUpdatedAt) ||
+    metadata.collectionUpdatedAt < 0
+  ) {
+    throw new BadRequestException(
+      'valid browser collection ordering metadata is required',
+    );
+  }
+}
+
 /**
  * Frontend-facing entrypoint for `Alert.kind='operation'` lifecycle when
  * the producing work happens in the browser (extension scrapes,
@@ -65,6 +82,7 @@ export class OperationAlertLifecycleController {
     if (!producer) {
       throw new BadRequestException('unsupported operation alert producer');
     }
+    assertBrowserCollectionOrdering(dto.metadata);
 
     const existing = await this.operationAlerts.findByOperationKey(
       organizationId,
@@ -109,6 +127,7 @@ export class OperationAlertLifecycleController {
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ): Promise<AlertItem> {
+    assertBrowserCollectionOrdering(dto.metadata);
     const existing = await this.operationAlerts.findByOperationKey(
       organizationId,
       operationKey,

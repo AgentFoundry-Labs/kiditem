@@ -1,5 +1,6 @@
 'use client';
 
+import { BrowserCollectionSessionViewSchema } from '@kiditem/shared/browser-collection-session';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   findBrowserCollectionSession,
@@ -13,9 +14,11 @@ export function useBrowserCollectionSession(runId: string | null | undefined) {
     queryKey: queryKeys.browserCollection.session(runId ?? ''),
     queryFn: async () => {
       const candidate = await findBrowserCollectionSession(runId!);
-      const current = queryClient.getQueryData(
+      const cached = queryClient.getQueryData(
         queryKeys.browserCollection.session(runId!),
       );
+      const parsedCurrent = BrowserCollectionSessionViewSchema.safeParse(cached);
+      const current = parsedCurrent.success ? parsedCurrent.data : null;
       return preferBrowserCollectionSession(current, candidate);
     },
     enabled: Boolean(runId),

@@ -187,6 +187,36 @@ describe('BrowserCollectionProvider', () => {
     expect(mockSyncAlert).toHaveBeenCalledWith(current);
   });
 
+  it('retries alert synchronization for the same cached event after an API failure', async () => {
+    const current = session();
+    mockSyncAlert
+      .mockRejectedValueOnce(new Error('operation alert API unavailable'))
+      .mockResolvedValueOnce(undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { queryClient } = renderProvider();
+    await waitFor(() => expect(mockListSessions).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(BROWSER_COLLECTION_SESSION_EVENT, { detail: current }),
+      );
+    });
+    await waitFor(() => expect(mockSyncAlert).toHaveBeenCalledTimes(1));
+    expect(
+      queryClient.getQueryData(queryKeys.browserCollection.session(RUN_ID)),
+    ).toEqual(current);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(BROWSER_COLLECTION_SESSION_EVENT, { detail: current }),
+      );
+    });
+
+    await waitFor(() => expect(mockSyncAlert).toHaveBeenCalledTimes(2));
+    expect(mockSyncAlert).toHaveBeenLastCalledWith(current);
+    warn.mockRestore();
+  });
+
   it('serializes duplicate providers and ignores an older attempt with a later timestamp', async () => {
     const firstClient = new QueryClient();
     const secondClient = new QueryClient();

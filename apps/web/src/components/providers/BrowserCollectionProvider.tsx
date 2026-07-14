@@ -80,10 +80,9 @@ function serializeAcrossTabs<T>(
   operation: () => Promise<T>,
 ): Promise<T> {
   if (typeof navigator !== 'undefined' && navigator.locks) {
-    return navigator.locks.request(
-      `kiditem-browser-collection-${runId}`,
-      operation,
-    );
+    return navigator.locks
+      .request(`kiditem-browser-collection-${runId}`, operation)
+      .then((result) => result);
   }
   return enqueueRun(runId, operation);
 }
@@ -124,9 +123,7 @@ export function BrowserCollectionProvider({
       ) {
         return;
       }
-      if (!updateBrowserCollectionSessionCache(queryClient, parsed.data)) {
-        return;
-      }
+      updateBrowserCollectionSessionCache(queryClient, parsed.data);
       await synchronizeAlertOnce(parsed.data);
     };
 

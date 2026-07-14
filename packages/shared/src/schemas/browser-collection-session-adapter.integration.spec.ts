@@ -39,6 +39,15 @@ function loadManager(relativePath: string) {
   const adapter = context.KidItemCollectionSession as {
     create(options: Record<string, unknown>): {
       start(input: Record<string, unknown>): Promise<unknown>;
+      attachTab(runId: string, tab: { tabId: number; windowId: number }): Promise<unknown>;
+      progress(runId: string, progress: Record<string, unknown>): Promise<unknown>;
+      requireAttention(runId: string, attention: Record<string, unknown>): Promise<unknown>;
+      succeed(runId: string): Promise<unknown>;
+      restart(runId: string): Promise<unknown>;
+      get(runId: string): Promise<unknown>;
+      list(): Promise<unknown[]>;
+      openAttentionTab(runId: string): Promise<unknown>;
+      cancel(runId: string): Promise<unknown>;
     };
   };
   return adapter.create({
@@ -50,9 +59,9 @@ function loadManager(relativePath: string) {
 }
 
 describe('extension collection-session public contract', () => {
-  it.each(adapterPaths)('%s emits a shared-schema-compatible public view', async (adapterPath) => {
+  it.each(adapterPaths)('%s emits shared-schema-compatible views from every public lifecycle surface', async (adapterPath) => {
     const manager = loadManager(adapterPath);
-    const view = await manager.start({
+    const started = await manager.start({
       runId: RUN_ID,
       producer: 'sourcing.1688_trend',
       classification: 'background_preferred',
@@ -65,6 +74,33 @@ describe('extension collection-session public contract', () => {
       },
     });
 
-    expect(BrowserCollectionSessionViewSchema.parse(view)).toEqual(view);
+    expect(BrowserCollectionSessionViewSchema.parse(started)).toEqual(started);
+    const attached = await manager.attachTab(RUN_ID, { tabId: 7, windowId: 2 });
+    expect(BrowserCollectionSessionViewSchema.parse(attached)).toEqual(attached);
+    const progressed = await manager.progress(RUN_ID, {
+      current: 1,
+      total: 2,
+      completed: 1,
+      failed: 0,
+      label: 'collecting',
+    });
+    expect(BrowserCollectionSessionViewSchema.parse(progressed)).toEqual(progressed);
+    const attention = await manager.requireAttention(RUN_ID, {
+      reason: 'captcha',
+      message: 'Complete the challenge',
+    });
+    expect(BrowserCollectionSessionViewSchema.parse(attention)).toEqual(attention);
+    const controlled = await manager.openAttentionTab(RUN_ID);
+    expect(BrowserCollectionSessionViewSchema.parse(controlled)).toEqual(controlled);
+    const terminal = await manager.succeed(RUN_ID);
+    expect(BrowserCollectionSessionViewSchema.parse(terminal)).toEqual(terminal);
+    const restarted = await manager.restart(RUN_ID);
+    expect(BrowserCollectionSessionViewSchema.parse(restarted)).toEqual(restarted);
+    const fetched = await manager.get(RUN_ID);
+    expect(BrowserCollectionSessionViewSchema.parse(fetched)).toEqual(fetched);
+    const listed = await manager.list();
+    expect(listed.map((view) => BrowserCollectionSessionViewSchema.parse(view))).toEqual(listed);
+    const cancelled = await manager.cancel(RUN_ID);
+    expect(BrowserCollectionSessionViewSchema.parse(cancelled)).toEqual(cancelled);
   });
 });

@@ -26,6 +26,11 @@ type BrowserCollectionOrdering = {
   updatedAt: number;
 };
 
+type OperationAlertTransaction = Pick<
+  Prisma.TransactionClient,
+  'alert' | '$queryRaw'
+>;
+
 function browserCollectionOrdering(
   metadata: unknown,
 ): BrowserCollectionOrdering | null {
@@ -35,13 +40,16 @@ function browserCollectionOrdering(
   const record = metadata as Record<string, unknown>;
   if (
     record.browserCollection !== true ||
-    !Number.isInteger(record.attempt) ||
-    !Number.isInteger(record.collectionUpdatedAt)
+    !Number.isInteger(record.collectionAttempt) ||
+    (record.collectionAttempt as number) < 1 ||
+    typeof record.collectionUpdatedAt !== 'number' ||
+    !Number.isFinite(record.collectionUpdatedAt) ||
+    record.collectionUpdatedAt < 0
   ) {
     return null;
   }
   return {
-    attempt: record.attempt as number,
+    attempt: record.collectionAttempt as number,
     updatedAt: record.collectionUpdatedAt as number,
   };
 }
@@ -67,27 +75,26 @@ export class OperationAlertRepositoryAdapter
     operationKey: string,
     data: OperationAlertUpsertData,
   ): Promise<Alert> {
+    const incomingOrdering = browserCollectionOrdering(data.metadata);
+    if (incomingOrdering) {
+      return this.prisma.$transaction(async (tx) => {
+        await this.lockOperationAlert(tx, organizationId, operationKey);
+        return this.upsertOrderedBrowserCollection(
+          tx,
+          organizationId,
+          operationKey,
+          data,
+          incomingOrdering,
+        );
+      });
+    }
+
     const existing = await this.prisma.alert.findFirst({
       where: { organizationId, operationKey },
     });
 
     if (existing) {
       this.assertPersonalOwner(existing, data.actorUserId);
-      const incomingOrdering = browserCollectionOrdering(data.metadata);
-      const currentOrdering = browserCollectionOrdering(existing.metadata);
-      if (
-        incomingOrdering &&
-        currentOrdering &&
-        compareBrowserCollectionOrdering(incomingOrdering, currentOrdering) <= 0
-      ) {
-        return existing;
-      }
-      if (
-        incomingOrdering &&
-        TERMINAL_OPERATION_STATUSES.has(existing.status)
-      ) {
-        return existing;
-      }
       // Re-running an operation must not flip an already-read alert back to
       // unread; honour the existing read state regardless of `data.isRead`.
       // FK scalar (`actorUserId`) is excluded from the update path —
@@ -115,9 +122,6 @@ export class OperationAlertRepositoryAdapter
         where: {
           id: existing.id,
           organizationId,
-          ...(incomingOrdering
-            ? { status: { in: ['pending', 'running'] } }
-            : {}),
         },
         data: updateData,
       });
@@ -175,6 +179,86 @@ export class OperationAlertRepositoryAdapter
     }
   }
 
+  private async upsertOrderedBrowserCollection(
+    tx: OperationAlertTransaction,
+    organizationId: string,
+    operationKey: string,
+    data: OperationAlertUpsertData,
+    incomingOrdering: BrowserCollectionOrdering,
+  ): Promise<Alert> {
+    const existing = await tx.alert.findFirst({
+      where: { organizationId, operationKey },
+    });
+    if (!existing) {
+      return tx.alert.create({
+        data: {
+          organizationId,
+          operationKey,
+          kind: data.kind,
+          status: data.status,
+          type: data.type,
+          severity: data.severity,
+          title: data.title,
+          message: data.message,
+          sourceType: data.sourceType,
+          sourceId: data.sourceId,
+          actorUserId: data.actorUserId,
+          targetType: data.targetType,
+          targetId: data.targetId,
+          href: data.href,
+          progress: data.progress,
+          metadata: data.metadata as Prisma.InputJsonValue,
+          startedAt: data.startedAt,
+          finishedAt: data.finishedAt,
+          isRead: data.isRead,
+          readAt: data.readAt,
+        },
+      });
+    }
+
+    this.assertPersonalOwner(existing, data.actorUserId);
+    const currentOrdering = browserCollectionOrdering(existing.metadata);
+    if (TERMINAL_OPERATION_STATUSES.has(existing.status)) {
+      if (!currentOrdering || incomingOrdering.attempt <= currentOrdering.attempt) {
+        return existing;
+      }
+    } else if (
+      currentOrdering &&
+      compareBrowserCollectionOrdering(incomingOrdering, currentOrdering) <= 0
+    ) {
+      return existing;
+    }
+
+    await tx.alert.updateMany({
+      where: { id: existing.id, organizationId },
+      data: {
+        status: data.status,
+        type: data.type,
+        severity: data.severity,
+        title: data.title,
+        message: data.message,
+        sourceType: data.sourceType,
+        sourceId: data.sourceId,
+        targetType: data.targetType,
+        targetId: data.targetId,
+        href: data.href,
+        progress: data.progress,
+        metadata: data.metadata as Prisma.InputJsonValue,
+        startedAt: data.startedAt,
+        finishedAt: data.finishedAt,
+        isRead: existing.isRead,
+        readAt: existing.isRead ? existing.readAt : null,
+      },
+    });
+    const refreshed = await tx.alert.findFirst({
+      where: { id: existing.id, organizationId },
+    });
+    if (!refreshed) {
+      throw new Error('Alert vanished after update — concurrent delete?');
+    }
+    return refreshed;
+  }
+
   private assertPersonalOwner(
     alert: Pick<Alert, 'actorUserId'>,
     requestedActorUserId: string | null,
@@ -192,31 +276,25 @@ export class OperationAlertRepositoryAdapter
     operationKey: string,
     patch: OperationAlertTransitionPatch,
   ): Promise<Alert | null> {
+    const incomingOrdering = browserCollectionOrdering(patch.metadata);
+    if (incomingOrdering) {
+      return this.prisma.$transaction(async (tx) => {
+        await this.lockOperationAlert(tx, organizationId, operationKey);
+        return this.transitionOrderedBrowserCollection(
+          tx,
+          organizationId,
+          operationKey,
+          patch,
+          incomingOrdering,
+        );
+      });
+    }
+
     const existing = await this.prisma.alert.findFirst({
       where: { organizationId, operationKey, kind: 'operation' },
     });
     if (!existing) return null;
     if (TERMINAL_OPERATION_STATUSES.has(existing.status)) return existing;
-
-    const incomingOrdering = browserCollectionOrdering(patch.metadata);
-    const currentOrdering = browserCollectionOrdering(existing.metadata);
-    if (
-      incomingOrdering &&
-      currentOrdering &&
-      (() => {
-        const comparison = compareBrowserCollectionOrdering(
-          incomingOrdering,
-          currentOrdering,
-        );
-        if (comparison < 0) return true;
-        if (comparison > 0) return false;
-        return !(
-          existing.status === 'running' && patch.status !== 'running'
-        );
-      })()
-    ) {
-      return existing;
-    }
 
     const mergedMetadata =
       patch.metadata !== undefined
@@ -253,6 +331,82 @@ export class OperationAlertRepositoryAdapter
     return this.prisma.alert.findFirst({
       where: { id: existing.id, organizationId },
     });
+  }
+
+  private async transitionOrderedBrowserCollection(
+    tx: OperationAlertTransaction,
+    organizationId: string,
+    operationKey: string,
+    patch: OperationAlertTransitionPatch,
+    incomingOrdering: BrowserCollectionOrdering,
+  ): Promise<Alert | null> {
+    const existing = await tx.alert.findFirst({
+      where: { organizationId, operationKey, kind: 'operation' },
+    });
+    if (!existing) return null;
+
+    const currentOrdering = browserCollectionOrdering(existing.metadata);
+    if (TERMINAL_OPERATION_STATUSES.has(existing.status)) {
+      if (!currentOrdering || incomingOrdering.attempt <= currentOrdering.attempt) {
+        return existing;
+      }
+    } else if (currentOrdering) {
+      const comparison = compareBrowserCollectionOrdering(
+        incomingOrdering,
+        currentOrdering,
+      );
+      if (
+        comparison < 0 ||
+        (comparison === 0 &&
+          !(existing.status === 'running' && patch.status !== 'running'))
+      ) {
+        return existing;
+      }
+    }
+
+    const mergedMetadata = {
+      ...((existing.metadata as Record<string, unknown> | null) ?? {}),
+      ...(patch.metadata ?? {}),
+    } as Prisma.InputJsonValue;
+    await tx.alert.updateMany({
+      where: { id: existing.id, organizationId },
+      data: {
+        status: patch.status,
+        message: patch.message !== undefined ? patch.message : existing.message,
+        href: patch.href !== undefined ? patch.href : existing.href,
+        progress:
+          patch.progress !== undefined
+            ? patch.progress
+            : patch.progressDefault !== undefined
+              ? patch.progressDefault
+              : existing.progress,
+        severity:
+          patch.severity ?? patch.severityDefault ?? existing.severity,
+        metadata: mergedMetadata,
+        finishedAt: patch.finishedAt,
+      },
+    });
+    return tx.alert.findFirst({
+      where: { id: existing.id, organizationId },
+    });
+  }
+
+  private async lockOperationAlert(
+    tx: OperationAlertTransaction,
+    organizationId: string,
+    operationKey: string,
+  ): Promise<void> {
+    const lockKey = `operation-alert:${organizationId}:${operationKey}`;
+    await tx.$queryRaw`
+      SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
+    `;
+    await tx.$queryRaw`
+      SELECT id
+      FROM alerts
+      WHERE organization_id = ${organizationId}::uuid
+        AND operation_key = ${operationKey}
+      FOR UPDATE
+    `;
   }
 
   async findLatestBySource(

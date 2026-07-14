@@ -153,4 +153,22 @@ describe('useBrowserCollectionSession', () => {
       queryClient.getQueryData(queryKeys.browserCollection.session(RUN_ID)),
     ).toEqual(newer);
   });
+
+  it('ignores malformed cached data before comparing session ordering', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    queryClient.setQueryData(
+      queryKeys.browserCollection.session(RUN_ID),
+      { runId: RUN_ID, attempt: 'corrupt', updatedAt: Number.MAX_SAFE_INTEGER },
+    );
+    const current = session();
+    mockFindSession.mockResolvedValueOnce(current);
+
+    const { result } = renderHook(() => useBrowserCollectionSession(RUN_ID), {
+      wrapper: wrapper(queryClient),
+    });
+
+    await waitFor(() => expect(result.current.data).toEqual(current));
+  });
 });

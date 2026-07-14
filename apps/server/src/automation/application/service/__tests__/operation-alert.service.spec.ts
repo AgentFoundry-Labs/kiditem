@@ -40,7 +40,7 @@ function existingAlert(overrides: Record<string, unknown> = {}) {
 }
 
 function makePrisma() {
-  return {
+  const prisma = {
     alert: {
       findFirst: vi.fn(),
       findFirstOrThrow: vi.fn(),
@@ -48,7 +48,13 @@ function makePrisma() {
       updateMany: vi.fn(),
       create: vi.fn(),
     },
+    $queryRaw: vi.fn(),
+    $transaction: vi.fn(),
   };
+  prisma.$transaction.mockImplementation(
+    (callback: (tx: typeof prisma) => Promise<unknown>) => callback(prisma),
+  );
+  return prisma;
 }
 
 function makeEventEmitter() {
@@ -213,14 +219,14 @@ describe('OperationAlertService.start', () => {
     expect(eventEmitter.emit).not.toHaveBeenCalled();
   });
 
-  it('does not let a late browser running start reset a terminal alert', async () => {
+  it('does not let the same browser attempt reset a terminal alert at a later timestamp', async () => {
     const { service, prisma } = makeService();
     const terminal = existingAlert({
       status: 'succeeded',
       type: 'browser_collection',
       metadata: {
         browserCollection: true,
-        attempt: 1,
+        collectionAttempt: 1,
         collectionUpdatedAt: 300,
       },
       finishedAt: new Date('2026-05-07T00:05:00Z'),
@@ -235,13 +241,57 @@ describe('OperationAlertService.start', () => {
       actorUserId: ACTOR_USER_ID,
       metadata: {
         browserCollection: true,
-        attempt: 1,
-        collectionUpdatedAt: 200,
+        collectionAttempt: 1,
+        collectionUpdatedAt: 400,
       },
     });
 
     expect(result.status).toBe('succeeded');
     expect(prisma.alert.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('reopens a terminal browser alert for a strictly higher attempt inside a row-lock transaction', async () => {
+    const { service, prisma } = makeService();
+    const terminal = existingAlert({
+      status: 'failed',
+      type: 'browser_collection',
+      metadata: {
+        browserCollection: true,
+        collectionAttempt: 1,
+        collectionUpdatedAt: 900,
+      },
+      finishedAt: new Date('2026-05-07T00:05:00Z'),
+    });
+    const reopened = existingAlert({
+      type: 'browser_collection',
+      metadata: {
+        browserCollection: true,
+        collectionAttempt: 2,
+        collectionUpdatedAt: 100,
+      },
+    });
+    prisma.alert.findFirst
+      .mockResolvedValueOnce(terminal)
+      .mockResolvedValueOnce(reopened);
+    prisma.alert.updateMany.mockResolvedValueOnce({ count: 1 });
+
+    const result = await service.start({
+      organizationId: ORGANIZATION_ID,
+      operationKey: OPERATION_KEY,
+      type: 'browser_collection',
+      title: 'retry attempt',
+      actorUserId: ACTOR_USER_ID,
+      metadata: reopened.metadata,
+    });
+
+    expect(result).toEqual(reopened);
+    expect(prisma.$transaction).toHaveBeenCalledOnce();
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(prisma.alert.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: ALERT_ID, organizationId: ORGANIZATION_ID },
+      }),
+    );
   });
 
   it('does not throw when panel emit fails', async () => {
@@ -271,7 +321,7 @@ describe('OperationAlertService.succeed / fail / progress / cancel', () => {
       type: 'browser_collection',
       metadata: {
         browserCollection: true,
-        attempt: 2,
+        collectionAttempt: 2,
         collectionUpdatedAt: 300,
       },
     });
@@ -281,7 +331,7 @@ describe('OperationAlertService.succeed / fail / progress / cancel', () => {
       progress: 0.5,
       metadata: {
         browserCollection: true,
-        attempt: 1,
+        collectionAttempt: 1,
         collectionUpdatedAt: 999,
       },
     });
@@ -294,7 +344,7 @@ describe('OperationAlertService.succeed / fail / progress / cancel', () => {
     const { service, prisma } = makeService();
     const metadata = {
       browserCollection: true,
-      attempt: 1,
+      collectionAttempt: 1,
       collectionUpdatedAt: 300,
     };
     const running = existingAlert({
@@ -319,6 +369,100 @@ describe('OperationAlertService.succeed / fail / progress / cancel', () => {
     });
 
     expect(result?.status).toBe('succeeded');
+    expect(prisma.alert.updateMany).toHaveBeenCalledOnce();
+  });
+
+  it('lets a strictly higher browser attempt supersede a terminal alert under the row lock', async () => {
+    const { service, prisma } = makeService();
+    const terminal = existingAlert({
+      status: 'succeeded',
+      type: 'browser_collection',
+      metadata: {
+        browserCollection: true,
+        collectionAttempt: 1,
+        collectionUpdatedAt: 500,
+      },
+      finishedAt: new Date('2026-05-07T00:05:00Z'),
+    });
+    const pending = existingAlert({
+      status: 'pending',
+      type: 'browser_collection',
+      metadata: {
+        browserCollection: true,
+        collectionAttempt: 2,
+        collectionUpdatedAt: 100,
+      },
+    });
+    prisma.alert.findFirst
+      .mockResolvedValueOnce(terminal)
+      .mockResolvedValueOnce(pending);
+    prisma.alert.updateMany.mockResolvedValueOnce({ count: 1 });
+
+    const result = await service.attention(ORGANIZATION_ID, OPERATION_KEY, {
+      metadata: pending.metadata,
+    });
+
+    expect(result).toEqual(pending);
+    expect(prisma.$transaction).toHaveBeenCalledOnce();
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the newer browser event when concurrent updates arrive newest-first', async () => {
+    let stored = existingAlert({
+      type: 'browser_collection',
+      metadata: {
+        browserCollection: true,
+        collectionAttempt: 1,
+        collectionUpdatedAt: 100,
+      },
+    });
+    const prisma: any = {
+      alert: {
+        findFirst: vi.fn(async () => structuredClone(stored)),
+        updateMany: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          stored = { ...stored, ...data };
+          return { count: 1 };
+        }),
+        create: vi.fn(),
+      },
+      $queryRaw: vi.fn(async () => []),
+    };
+    let transactionTail: Promise<unknown> = Promise.resolve();
+    prisma.$transaction = vi.fn((callback: (tx: typeof prisma) => Promise<unknown>) => {
+      const result = transactionTail.then(() => callback(prisma));
+      transactionTail = result.then(
+        () => undefined,
+        () => undefined,
+      );
+      return result;
+    });
+    const repository = new OperationAlertRepositoryAdapter(prisma);
+    const service = new OperationAlertService(
+      repository,
+      makeEventEmitter() as any,
+    );
+
+    await Promise.all([
+      service.progress(ORGANIZATION_ID, OPERATION_KEY, {
+        progress: 0.8,
+        metadata: {
+          browserCollection: true,
+          collectionAttempt: 1,
+          collectionUpdatedAt: 300,
+        },
+      }),
+      service.progress(ORGANIZATION_ID, OPERATION_KEY, {
+        progress: 0.4,
+        metadata: {
+          browserCollection: true,
+          collectionAttempt: 1,
+          collectionUpdatedAt: 200,
+        },
+      }),
+    ]);
+
+    expect(stored.metadata).toMatchObject({ collectionUpdatedAt: 300 });
+    expect(stored.progress).toBe(0.8);
     expect(prisma.alert.updateMany).toHaveBeenCalledOnce();
   });
 

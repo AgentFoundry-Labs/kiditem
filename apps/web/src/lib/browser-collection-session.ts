@@ -44,7 +44,7 @@ function alertMetadata(session: BrowserCollectionSessionView) {
     browserCollection: true,
     runId: session.runId,
     producer: session.producer,
-    attempt: session.attempt,
+    collectionAttempt: session.attempt,
     collectionUpdatedAt: session.updatedAt,
     attentionReason: session.attention?.reason ?? null,
   };
@@ -209,7 +209,7 @@ export async function recordMissingBrowserCollection(
     browserCollection: true,
     runId,
     producer,
-    attempt: 1,
+    collectionAttempt: 1,
     collectionUpdatedAt: now,
     attentionReason: 'extension_missing',
     inputIdentity: validated.inputIdentity,

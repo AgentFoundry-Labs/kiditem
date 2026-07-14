@@ -8,6 +8,11 @@ const USER_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 const OTHER_USER_ID = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
 const COLLECTION_RUN_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const OPERATION_KEY = `browser-collection:${COLLECTION_RUN_ID}`;
+const COLLECTION_ORDERING_METADATA = {
+  browserCollection: true,
+  collectionAttempt: 1,
+  collectionUpdatedAt: 1_700_000_001_000,
+};
 
 function alertRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -73,7 +78,7 @@ describe('OperationAlertLifecycleController.start', () => {
         sourceType: 'browser_collection_session',
         sourceId: 'dashboard.wing_sales',
         href: '/settings',
-        metadata: { lookbackDays: 14 },
+        metadata: { ...COLLECTION_ORDERING_METADATA, lookbackDays: 14 },
       },
       ORGANIZATION_ID,
       { id: USER_ID } as any,
@@ -89,7 +94,7 @@ describe('OperationAlertLifecycleController.start', () => {
         sourceType: 'browser_collection_session',
         sourceId: 'dashboard.wing_sales',
         href: `/dashboard?collectionRun=${COLLECTION_RUN_ID}`,
-        metadata: { lookbackDays: 14 },
+        metadata: { ...COLLECTION_ORDERING_METADATA, lookbackDays: 14 },
       }),
     );
   });
@@ -106,6 +111,7 @@ describe('OperationAlertLifecycleController.start', () => {
         sourceType: 'browser_collection_session',
         sourceId: 'dashboard.wing_sales',
         href: '/dashboard',
+        metadata: COLLECTION_ORDERING_METADATA,
       },
       ORGANIZATION_ID,
       { id: USER_ID } as any,
@@ -131,6 +137,7 @@ describe('OperationAlertLifecycleController.start', () => {
           sourceType: 'browser_collection_session',
           sourceId: 'advertising.forged',
           href: '/settings',
+          metadata: COLLECTION_ORDERING_METADATA,
         },
         ORGANIZATION_ID,
         { id: USER_ID } as any,
@@ -150,6 +157,7 @@ describe('OperationAlertLifecycleController.start', () => {
           sourceType: 'browser_collection_session',
           sourceId: 'dashboard.wing_sales',
           href: '/dashboard',
+          metadata: COLLECTION_ORDERING_METADATA,
         },
         ORGANIZATION_ID,
         { id: USER_ID } as any,
@@ -172,6 +180,7 @@ describe('OperationAlertLifecycleController.start', () => {
           sourceType: 'browser_collection_session',
           sourceId: 'dashboard.wing_sales',
           href: '/dashboard',
+          metadata: COLLECTION_ORDERING_METADATA,
         },
         ORGANIZATION_ID,
         { id: USER_ID } as any,
@@ -194,6 +203,7 @@ describe('OperationAlertLifecycleController.start', () => {
           sourceType: 'browser_collection_session',
           sourceId: 'dashboard.wing_sales',
           href: '/dashboard',
+          metadata: COLLECTION_ORDERING_METADATA,
         },
         ORGANIZATION_ID,
         { id: USER_ID } as any,
@@ -219,6 +229,7 @@ describe('OperationAlertLifecycleController.start', () => {
           sourceType: 'browser_collection_session',
           sourceId: 'dashboard.wing_sales',
           href: '/dashboard',
+          metadata: COLLECTION_ORDERING_METADATA,
         },
         ORGANIZATION_ID,
         { id: USER_ID } as any,
@@ -244,6 +255,7 @@ describe('OperationAlertLifecycleController.start', () => {
         sourceType: 'browser_collection_session',
         sourceId: 'dashboard.rocket_sales',
         href: '/settings',
+        metadata: COLLECTION_ORDERING_METADATA,
       },
       ORGANIZATION_ID,
       { id: USER_ID } as any,
@@ -261,6 +273,33 @@ describe('OperationAlertLifecycleController.start', () => {
         href: `/sales-analysis?tab=rocket-daily&collectionRun=${COLLECTION_RUN_ID}`,
       }),
     );
+  });
+
+  it.each([
+    undefined,
+    { browserCollection: true, collectionAttempt: 0, collectionUpdatedAt: 100 },
+    { browserCollection: true, collectionAttempt: 1.5, collectionUpdatedAt: 100 },
+    { browserCollection: true, collectionAttempt: 1, collectionUpdatedAt: -1 },
+    { browserCollection: true, attempt: 1, collectionUpdatedAt: 100 },
+  ])('rejects invalid browser collection ordering metadata: %j', async (metadata) => {
+    const { controller, service } = makeController();
+
+    await expect(
+      controller.start(
+        {
+          operationKey: OPERATION_KEY,
+          type: 'browser_collection',
+          title: 'Wing 매출 수집',
+          sourceType: 'browser_collection_session',
+          sourceId: 'dashboard.wing_sales',
+          href: '/dashboard',
+          metadata,
+        },
+        ORGANIZATION_ID,
+        { id: USER_ID } as any,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.start).not.toHaveBeenCalled();
   });
 });
 
@@ -280,7 +319,10 @@ describe('OperationAlertLifecycleController.update', () => {
         status: 'pending',
         message: 'Wing 로그인이 필요합니다.',
         href: '/settings',
-        metadata: { attentionReason: 'marketplace_login' },
+        metadata: {
+          ...COLLECTION_ORDERING_METADATA,
+          attentionReason: 'marketplace_login',
+        },
       },
       ORGANIZATION_ID,
       { id: USER_ID } as any,
@@ -291,7 +333,10 @@ describe('OperationAlertLifecycleController.update', () => {
       OPERATION_KEY,
       expect.objectContaining({
         message: 'Wing 로그인이 필요합니다.',
-        metadata: { attentionReason: 'marketplace_login' },
+        metadata: {
+          ...COLLECTION_ORDERING_METADATA,
+          attentionReason: 'marketplace_login',
+        },
       }),
     );
     expect(service.attention.mock.calls[0]?.[2]).not.toHaveProperty('href');
@@ -304,7 +349,11 @@ describe('OperationAlertLifecycleController.update', () => {
 
     await controller.update(
       OPERATION_KEY,
-      { status: 'running', progress: 0.4 },
+      {
+        status: 'running',
+        progress: 0.4,
+        metadata: COLLECTION_ORDERING_METADATA,
+      },
       ORGANIZATION_ID,
       { id: USER_ID } as any,
     );
@@ -326,7 +375,11 @@ describe('OperationAlertLifecycleController.update', () => {
 
     await controller.update(
       OPERATION_KEY,
-      { status: 'succeeded', href: '/dashboard?ok=1' },
+      {
+        status: 'succeeded',
+        href: '/dashboard?ok=1',
+        metadata: COLLECTION_ORDERING_METADATA,
+      },
       ORGANIZATION_ID,
       { id: USER_ID } as any,
     );
@@ -348,7 +401,7 @@ describe('OperationAlertLifecycleController.update', () => {
       {
         status: 'failed',
         message: 'extension scrape timeout',
-        metadata: { failed: 3 },
+        metadata: { ...COLLECTION_ORDERING_METADATA, failed: 3 },
       },
       ORGANIZATION_ID,
       { id: USER_ID } as any,
@@ -359,7 +412,7 @@ describe('OperationAlertLifecycleController.update', () => {
       OPERATION_KEY,
       expect.objectContaining({
         message: 'extension scrape timeout',
-        metadata: { failed: 3 },
+        metadata: { ...COLLECTION_ORDERING_METADATA, failed: 3 },
       }),
     );
   });
@@ -371,7 +424,7 @@ describe('OperationAlertLifecycleController.update', () => {
 
     await controller.update(
       OPERATION_KEY,
-      { status: 'cancelled' },
+      { status: 'cancelled', metadata: COLLECTION_ORDERING_METADATA },
       ORGANIZATION_ID,
       { id: USER_ID } as any,
     );
@@ -390,7 +443,7 @@ describe('OperationAlertLifecycleController.update', () => {
     await expect(
       controller.update(
         OPERATION_KEY,
-        { status: 'succeeded' },
+        { status: 'succeeded', metadata: COLLECTION_ORDERING_METADATA },
         ORGANIZATION_ID,
         { id: USER_ID } as any,
       ),
@@ -406,7 +459,7 @@ describe('OperationAlertLifecycleController.update', () => {
     await expect(
       controller.update(
         OPERATION_KEY,
-        { status: 'succeeded' },
+        { status: 'succeeded', metadata: COLLECTION_ORDERING_METADATA },
         ORGANIZATION_ID,
         { id: USER_ID } as any,
       ),
@@ -423,12 +476,27 @@ describe('OperationAlertLifecycleController.update', () => {
     await expect(
       controller.update(
         OPERATION_KEY,
-        { status: 'succeeded' },
+        { status: 'succeeded', metadata: COLLECTION_ORDERING_METADATA },
         ORGANIZATION_ID,
         { id: USER_ID } as any,
       ),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(service.succeed).not.toHaveBeenCalled();
+  });
+
+  it('rejects updates without browser collection ordering metadata', async () => {
+    const { controller, service } = makeController();
+
+    await expect(
+      controller.update(
+        OPERATION_KEY,
+        { status: 'running' },
+        ORGANIZATION_ID,
+        { id: USER_ID } as any,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(service.findByOperationKey).not.toHaveBeenCalled();
+    expect(service.progress).not.toHaveBeenCalled();
   });
 });
 
