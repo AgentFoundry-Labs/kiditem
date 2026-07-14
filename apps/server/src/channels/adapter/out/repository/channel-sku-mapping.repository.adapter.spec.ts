@@ -9,6 +9,28 @@ const ids = Array.from(
 );
 
 describe('ChannelSkuMappingRepositoryAdapter status refresh', () => {
+  it('keeps the registered channel name distinct from display and option names', async () => {
+    const findFirst = vi.fn().mockResolvedValue({
+      id: ids[0],
+      sellerSku: null,
+      modelNumber: null,
+      barcode: null,
+      itemName: '파랑',
+      listing: { channelName: ' 등록 상품명 ', displayName: '노출 상품명' },
+    });
+    const repository = new ChannelSkuMappingRepositoryAdapter({
+      channelListingOption: { findFirst },
+    } as unknown as PrismaService);
+
+    const result = await repository.findEvidence(organizationId, ids[0]!);
+
+    expect(result).toMatchObject({
+      registeredName: '등록 상품명',
+      productNames: ['등록 상품명', '노출 상품명'],
+      optionName: '파랑',
+    });
+  });
+
   it('bounds availability filtering, capacity, counts, and pagination in tenant SQL', async () => {
     const queryRaw = vi.fn().mockResolvedValue([{
       rowIds: [],
