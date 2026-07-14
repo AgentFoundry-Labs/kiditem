@@ -1,17 +1,17 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# web/orders - Orders, Returns, CS, Rocket PO
+# web/orders - Orders, Returns, CS, Rocket PO Reads
 
 `app/(orders)/` owns order operations UI: order pipeline, order status hub,
-order collection, Rocket PO confirmation, returns, reviews, CS, picking, and
-return scanning. It uses NestJS order APIs and browser extension bridges where
+order collection, Rocket PO monitoring, returns, reviews, CS, picking, and
+return scanning. It uses NestJS owner APIs and browser extension bridges where
 explicitly documented.
 
 ## Owned Surfaces
 
 - Order pipeline reads and order action mutations
 - Order collection and generated-file download flows
-- Rocket PO list, preview, confirm-file generation, and local file history
+- Read-only Rocket PO list/summaries and local legacy file history
 - Returns, reviews, and CS operational screens
 - Picking/outbound widgets used by order hub screens
 
@@ -20,7 +20,8 @@ explicitly documented.
 ```text
 React Query + apiClient
   -> /api/orders, /api/returns, /api/reviews, /api/cs
-  -> /api/picking, /api/orders/collection/*, /api/orders/rocket/*
+  -> /api/picking, /api/return-transfers, /api/orders/collection/*
+  -> /api/channels/sku-availability for mapped order-line inventory evidence
   -> extensions/order-collector for browser-side collection
 ```
 
@@ -31,8 +32,8 @@ React Query + apiClient
   state.
 - Generated Excel files may use `apiClient.fetchRaw()` because they are blob
   responses.
-- Local order/rocket generated file history may use browser storage only for
-  operator convenience; it is not a durable source of truth.
+- Existing local Rocket file history may use browser storage for operator
+  convenience; it is not server truth or evidence that confirmation is active.
 
 ## Boundary Rules
 
@@ -40,5 +41,11 @@ React Query + apiClient
 - Do not write directly to marketplace pages from the web app. Use the
   documented order-collector extension bridge.
 - Do not persist return-scan logs from `return-scan/`; that route is local-only.
+- Picking and return-transfer operations reference Sellpia `MasterProduct`
+  rows and update operational records only; do not present them as direct
+  Sellpia stock changes.
+- Rocket purchase-order quantity decisions, confirmation file generation, and
+  reservation are deferred. Do not call or restore `/api/orders/rocket/*`
+  action endpoints.
 - Extension-backed queries that render local error UI may suppress the global
   React Query error toast with query meta.

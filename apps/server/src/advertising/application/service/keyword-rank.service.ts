@@ -394,7 +394,7 @@ export class KeywordRankService {
 
   /**
    * 키워드 순위 추이 — vendorItemId 별 시리즈로 그룹. `isOwn` 은 자사
-   * `CoupangProductListing` vendorItemId 포함 여부. productName 은 최신
+   * Coupang `ChannelListingOption.externalOptionId` 포함 여부. productName 은 최신
    * fact 의 이름을 우선하고, 없으면 자사 카탈로그 이름으로 보충한다.
    */
   async getHistory(keyword: string, days: number, organizationId: string) {
@@ -495,10 +495,7 @@ function targetKey(keyword: string, vendorItemId: string): string {
 
 function collapseDuplicateProductNames(
   rows: ProductKeywordRankRow[],
-  ownByVendorItemId: ReadonlyMap<
-    string,
-    { productName: string }
-  >,
+  ownByVendorItemId: ReadonlyMap<string, { productName: string }>,
 ): ProductKeywordRankRow[] {
   const groups = new Map<string, ProductKeywordRankRow[]>();
   for (const row of rows) {

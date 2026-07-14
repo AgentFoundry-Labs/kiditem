@@ -29,3 +29,12 @@ export const ReadinessResponseSchema = z.object({
   allOk: z.boolean(),
 });
 export type ReadinessResponse = z.infer<typeof ReadinessResponseSchema>;
+
+export const RebuildReadinessResponseSchema = z.object({
+  state: z.enum(['ready', 'snapshot_required']),
+  target: z.enum(['local', 'staging', 'production']).nullable(),
+  requiredImports: z.array(z.enum(['sellpia', 'wing'])),
+});
+export type RebuildReadinessResponse = z.infer<
+  typeof RebuildReadinessResponseSchema
+>;

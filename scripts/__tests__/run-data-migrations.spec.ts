@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
 import {
   DATA_MIGRATION_IDS,
   dataMigrations,
@@ -8,149 +8,99 @@ import {
   isProductContentRouteHrefRewriteNeeded,
   rewriteLegacyDetailEditorHref,
   rewriteProductContentRouteHref,
-} from '../data-migrations/index';
+} from "../data-migrations/index";
 import {
   APPLY_DATA_MIGRATIONS_CONFIRMATION,
   assertApplyDataMigrationsConfirmation,
+  assertMutatingTarget,
   dataMigrationTransactionTimeoutMs,
   DEFAULT_DATA_MIGRATION_TRANSACTION_TIMEOUT_MS,
   isDefinitelyProductionDatabaseUrl,
   normalizeReleaseVersion,
   selectDataMigrationsForPhase,
-} from '../run-data-migrations';
+} from "../run-data-migrations";
 
-const repoRoot = join(__dirname, '..', '..');
+const repoRoot = join(__dirname, "..", "..");
 
-describe('data migration registry', () => {
-  it('keeps durable data migrations in sortable versioned files', () => {
+describe("data migration registry", () => {
+  it("registers baseline metadata only", () => {
     expect(DATA_MIGRATION_IDS).toEqual([
-      'v0.1.0:001_backfill_sourcing_candidates_from_master_products',
-      'v0.1.0:002_rewrite_legacy_detail_editor_alert_hrefs',
-      'v0.1.0:003_relabel_image_edit_agent_instances_to_gemini_image',
-      'v0.1.0:004_backfill_content_archive_classification',
-      'v0.1.1:001_backfill_content_generation_workspace_assets',
-      'v0.1.1:002_backfill_detail_page_artifacts',
-      'v0.1.1:003_backfill_sourcing_candidate_images',
-      'v0.1.1:004_backfill_generated_content_candidates',
-      'v0.1.1:005_rewrite_product_content_route_hrefs',
-      'v0.1.1:006_backfill_registration_workspaces',
-      'v0.1.2:001_backfill_channel_listing_accounts',
-      'v0.1.2:002_rename_registration_workspaces_to_content_workspaces',
-      'v0.1.2:003_retire_fixed_ai_agent_os_requests',
-      'v0.1.3:001_remove_legacy_sourcing_workspace_snapshot_payloads',
-      'v0.1.4:001_record_agent_os_operator_backbone_release',
-      'v0.1.6:001_record_rocket_read_model_release',
-      'v0.1.7:001_record_sellpia_rocket_inventory_sync_release',
-      'v0.1.8:001_backfill_product_barcodes_from_sellpia',
-      'v0.1.13:001_migrate_representative_keyword_overrides',
+      "v0.1.4:001_record_agent_os_operator_backbone_release",
+      "v0.1.6:001_record_rocket_read_model_release",
+      "v0.1.7:001_record_sellpia_rocket_inventory_sync_release",
+      "v0.1.13:001_migrate_representative_keyword_overrides",
     ]);
+    expect(
+      DATA_MIGRATION_IDS.some((id) =>
+        /backfill|normalize|rewrite|repoint|verify/.test(id),
+      ),
+    ).toBe(false);
   });
 
-  it('uses semver-shaped root release versions', () => {
-    expect(normalizeReleaseVersion('0.1.0\n')).toBe('0.1.0');
-    expect(() => normalizeReleaseVersion('latest')).toThrow(/Invalid root VERSION/);
-  });
-
-  it('keeps migration ids tied to their versioned directories and includes the root app VERSION', () => {
-    const rootVersion = normalizeReleaseVersion(readFileSync(join(repoRoot, 'VERSION'), 'utf8'));
-    expect(dataMigrations.map((migration) => migration.releaseVersion)).toContain(rootVersion);
+  it("uses a schema-only 0.1.18 release without a release data migration", () => {
+    const rootVersion = normalizeReleaseVersion(
+      readFileSync(join(repoRoot, "VERSION"), "utf8"),
+    );
+    expect(rootVersion).toBe("0.1.18");
+    expect(
+      dataMigrations.map((migration) => migration.releaseVersion),
+    ).not.toContain(rootVersion);
     for (const migration of dataMigrations) {
-      expect(migration.id.startsWith(`v${migration.releaseVersion}:`)).toBe(true);
+      expect(migration.id.startsWith(`v${migration.releaseVersion}:`)).toBe(
+        true,
+      );
     }
   });
 
-  it('runs destructive table renames before Prisma db push and post-schema backfills after it', () => {
-    expect(selectDataMigrationsForPhase(dataMigrations, 'pre-schema').map((m) => m.id)).toEqual([
-      'v0.1.2:002_rename_registration_workspaces_to_content_workspaces',
-    ]);
-    expect(selectDataMigrationsForPhase(dataMigrations, 'post-schema').map((m) => m.id)).toContain(
-      'v0.1.2:001_backfill_channel_listing_accounts',
+  it("has no preservation migration in an automatic schema phase", () => {
+    expect(selectDataMigrationsForPhase(dataMigrations, "pre-schema")).toEqual(
+      [],
     );
-    expect(selectDataMigrationsForPhase(dataMigrations, 'post-schema').map((m) => m.id)).not.toContain(
-      'v0.1.2:002_rename_registration_workspaces_to_content_workspaces',
+    expect(selectDataMigrationsForPhase(dataMigrations, "post-schema")).toEqual(
+      dataMigrations,
+    );
+  });
+
+  it("rejects malformed root versions", () => {
+    expect(normalizeReleaseVersion("0.1.8\n")).toBe("0.1.8");
+    expect(() => normalizeReleaseVersion("latest")).toThrow(
+      /Invalid root VERSION/,
     );
   });
 });
 
-describe('legacy detail editor alert href migration', () => {
-  it('rewrites legacy sourcing editor hrefs to the product-content editor', () => {
+describe("persisted route rewrite helpers", () => {
+  it("rewrites retired detail-editor hrefs", () => {
     expect(
-      rewriteLegacyDetailEditorHref('/sourcing/product-123/editor?boldId=generation-456'),
-    ).toBe('/product-content/product-123/editor?generationId=generation-456');
+      rewriteLegacyDetailEditorHref(
+        "/sourcing/product-123/editor?agentId=generation-456",
+      ),
+    ).toBe("/product-content/product-123/editor?generationId=generation-456");
+    expect(isLegacyDetailEditorHref("/sourcing/product-123/editor")).toBe(true);
+    expect(isLegacyDetailEditorHref("/products/abc")).toBe(false);
   });
 
-  it('normalizes legacy agentId and generationId query keys', () => {
+  it("rewrites retired product-content routes and leaves canonical routes unchanged", () => {
     expect(
-      rewriteLegacyDetailEditorHref('/sourcing/product-123/editor?agentId=generation-456'),
-    ).toBe('/product-content/product-123/editor?generationId=generation-456');
-
+      rewriteProductContentRouteHref(
+        "/product-content/candidate-123/editor?generationId=generation-456",
+      ),
+    ).toBe(
+      "/product-pipeline/collected-products/candidate-123/editor?generationId=generation-456",
+    );
     expect(
-      rewriteLegacyDetailEditorHref('/sourcing/product-123/editor?generationId=generation-456'),
-    ).toBe('/product-content/product-123/editor?generationId=generation-456');
-  });
-
-  it('leaves unrelated hrefs unchanged', () => {
-    expect(isLegacyDetailEditorHref('/products/abc')).toBe(false);
-    expect(rewriteLegacyDetailEditorHref('/products/abc')).toBe('/products/abc');
+      isProductContentRouteHrefRewriteNeeded(
+        "/product-content/candidate-123/editor",
+      ),
+    ).toBe(true);
+    expect(rewriteProductContentRouteHref("/products/abc")).toBe(
+      "/products/abc",
+    );
   });
 });
 
-describe('product content route href migration', () => {
-  it('rewrites retired sourcing editor hrefs to product-pipeline candidate routes', () => {
-    expect(
-      rewriteProductContentRouteHref('/sourcing/product-123/editor?boldId=generation-456'),
-    ).toBe('/product-pipeline/collected-products/product-123/editor?generationId=generation-456');
-    expect(
-      rewriteProductContentRouteHref('/sourcing/product-123/editor?generationId=generation-456'),
-    ).toBe('/product-pipeline/collected-products/product-123/editor?generationId=generation-456');
-  });
-
-  it('rewrites retired sourcing detail editor hrefs to product-pipeline detail routes', () => {
-    expect(
-      rewriteProductContentRouteHref('/sourcing/detail-pages/generation-456/editor'),
-    ).toBe('/product-pipeline/registered-products/detail-pages/generation-456/editor');
-  });
-
-  it('rewrites retired product-content candidate editor hrefs to product-pipeline routes', () => {
-    expect(
-      rewriteProductContentRouteHref('/product-content/product-123/editor?agentId=generation-456'),
-    ).toBe('/product-pipeline/collected-products/product-123/editor?generationId=generation-456');
-    expect(
-      rewriteProductContentRouteHref('/product-content/candidates/product-123/editor?generationId=generation-456'),
-    ).toBe('/product-pipeline/collected-products/product-123/editor?generationId=generation-456');
-    expect(
-      rewriteProductContentRouteHref('/product-content/detail-pages/generation-456/editor'),
-    ).toBe('/product-pipeline/registered-products/detail-pages/generation-456/editor');
-  });
-
-  it('rewrites removed product AI routes to product-pipeline routes', () => {
-    expect(rewriteProductContentRouteHref('/sourcing')).toBe('/product-pipeline/collected-products');
-    expect(rewriteProductContentRouteHref('/product-content')).toBe('/product-pipeline/collected-products');
-    expect(rewriteProductContentRouteHref('/product-content?contentType=image')).toBe(
-      '/product-pipeline/registered-products?contentType=image',
-    );
-    expect(rewriteProductContentRouteHref('/generate')).toBe(
-      '/product-pipeline/detail-template-generation',
-    );
-    expect(rewriteProductContentRouteHref('/thumbnails?generationId=generation-456')).toBe(
-      '/product-pipeline/thumbnail-generation?generationId=generation-456',
-    );
-    expect(rewriteProductContentRouteHref('/thumbnail-editor/edit?generationId=generation-456')).toBe(
-      '/product-pipeline/thumbnail-generation/edit?generationId=generation-456',
-    );
-  });
-
-  it('leaves canonical and unrelated hrefs unchanged', () => {
-    expect(
-      rewriteProductContentRouteHref('/product-pipeline/collected-products/product-123/editor?generationId=generation-456'),
-    ).toBe('/product-pipeline/collected-products/product-123/editor?generationId=generation-456');
-    expect(isProductContentRouteHrefRewriteNeeded('/products/abc')).toBe(false);
-    expect(rewriteProductContentRouteHref('/products/abc')).toBe('/products/abc');
-  });
-});
-
-describe('data migration CLI guardrails', () => {
-  it('requires explicit apply confirmation', () => {
+describe("data migration CLI guardrails", () => {
+  it("requires explicit apply confirmation", () => {
     expect(() => assertApplyDataMigrationsConfirmation(undefined)).toThrow(
       APPLY_DATA_MIGRATIONS_CONFIRMATION,
     );
@@ -159,21 +109,50 @@ describe('data migration CLI guardrails', () => {
     ).not.toThrow();
   });
 
-  it('refuses obvious production database URLs', () => {
-    expect(isDefinitelyProductionDatabaseUrl('postgresql://u:p@prod-db.example.com/app')).toBe(
-      true,
+  it("keeps local and staging targets away from production-looking URLs", () => {
+    const productionUrl = "postgresql://u:p@prod-db.example.com/app";
+    expect(isDefinitelyProductionDatabaseUrl(productionUrl)).toBe(true);
+    expect(
+      isDefinitelyProductionDatabaseUrl(
+        "postgresql://u:p@staging-db.example.com/app",
+      ),
+    ).toBe(false);
+    expect(() => assertMutatingTarget("local", productionUrl, {})).toThrow(
+      /production/i,
     );
-    expect(isDefinitelyProductionDatabaseUrl('postgresql://u:p@staging-db.example.com/app')).toBe(
-      false,
+    expect(() => assertMutatingTarget("staging", productionUrl, {})).toThrow(
+      /production/i,
     );
   });
 
-  it('uses a staging-safe interactive transaction timeout', () => {
+  it("allows production only in GitHub Actions with independent confirmation", () => {
+    const productionUrl = "postgresql://u:p@prod-db.example.com/app";
+    expect(() => assertMutatingTarget("production", productionUrl, {})).toThrow(
+      /GitHub Actions/i,
+    );
+    expect(() =>
+      assertMutatingTarget("production", productionUrl, {
+        GITHUB_ACTIONS: "true",
+      }),
+    ).toThrow(/DATA_MIGRATION_PRODUCTION_CONFIRM/i);
+    expect(() =>
+      assertMutatingTarget("production", productionUrl, {
+        GITHUB_ACTIONS: "true",
+        DATA_MIGRATION_PRODUCTION_CONFIRM: "DEPLOY_PRODUCTION",
+      }),
+    ).not.toThrow();
+  });
+
+  it("rejects unknown targets and invalid transaction timeouts", () => {
+    expect(() =>
+      assertMutatingTarget("development", "postgresql://localhost/app", {}),
+    ).toThrow(/local, staging, or production/i);
     expect(dataMigrationTransactionTimeoutMs(undefined)).toBe(
       DEFAULT_DATA_MIGRATION_TRANSACTION_TIMEOUT_MS,
     );
-    expect(dataMigrationTransactionTimeoutMs('45000')).toBe(45000);
-    expect(() => dataMigrationTransactionTimeoutMs('0')).toThrow(/positive integer/);
-    expect(() => dataMigrationTransactionTimeoutMs('soon')).toThrow(/positive integer/);
+    expect(dataMigrationTransactionTimeoutMs("45000")).toBe(45000);
+    expect(() => dataMigrationTransactionTimeoutMs("0")).toThrow(
+      /positive integer/,
+    );
   });
 });

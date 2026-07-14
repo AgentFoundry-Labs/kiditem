@@ -19,19 +19,32 @@ function makePrisma(
   } as any;
 }
 
-// v2 canonical lineItem shape — option (pricing) + listingOption.listing (identity/master)
+// Final-owner lineItem shape — pricing and component cost live on ChannelSku.
 const mkLineItem = (listing: {
   id: string; externalId: string; channelName: string | null;
   master: { id: string; code: string; legacyCode: string | null; name: string; category: string | null; abcGrade: string | null; thumbnailUrl: string | null };
 }, pricing: { quantity: number; totalPrice: number; costPrice: number; commissionRate: number; otherCost: number }) => ({
   quantity: pricing.quantity,
   totalPrice: pricing.totalPrice,
-  option: {
-    costPrice: pricing.costPrice,
+  listingOption: {
+    costPriceOverride: pricing.costPrice,
     commissionRate: pricing.commissionRate,
+    shippingCost: null,
     otherCost: pricing.otherCost,
+    components: [],
+    listing: {
+      id: listing.id,
+      externalId: listing.externalId,
+      channelName: listing.channelName,
+      displayName: listing.master.name,
+      category: listing.master.category,
+      abcGrade: listing.master.abcGrade,
+      channelAccount: { channel: listing.channelName ?? 'coupang' },
+      thumbnails: listing.master.thumbnailUrl
+        ? [{ imageUrl: listing.master.thumbnailUrl }]
+        : [],
+    },
   },
-  listingOption: { listing },
 });
 
 describe('ProfitLossService.findAll (live aggregation)', () => {
@@ -91,7 +104,7 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
     expect(a.shippingCost + b.shippingCost).toBe(3000);
   });
 
-  it('PLData shape — satisfies schema fields (listingId/masterName/legacyCode fallback/netProfit)', async () => {
+  it('PLData shape — preserves compatibility field names with listing-owned values', async () => {
     const l = { id: 'l1', externalId: 'ext-1', channelName: 'coupang', master: { id: 'm1', code: 'M1', legacyCode: 'LEG-1', name: 'Product1', category: 'kids', abcGrade: 'A', thumbnailUrl: 'https://x.com/1.jpg' } };
     const orders = [{ id: 'o1', shippingPrice: 3000, lineItems: [mkLineItem(l, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.108, otherCost: 0 })] }];
     const prisma = makePrisma(orders);
@@ -101,8 +114,8 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
       listingId: 'l1',
       externalId: 'ext-1',
       channelName: 'coupang',
-      masterId: 'm1',
-      masterCode: 'LEG-1',
+      masterId: 'l1',
+      masterCode: 'ext-1',
       masterName: 'Product1',
       category: 'kids',
       grade: 'A',

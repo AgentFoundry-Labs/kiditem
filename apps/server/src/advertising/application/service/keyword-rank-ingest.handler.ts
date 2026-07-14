@@ -1,7 +1,7 @@
 // `keyword_rank` — 쿠팡 검색 SERP 캡처 ingest.
 //
 // 확장이 www.coupang.com 검색결과를 키워드별로 캡처해 보내면
-// (1) 추적 대상(트래커 명시 vendorItemIds ∪ 자사 CoupangProductListing)을
+// (1) 추적 대상(트래커 명시 vendorItemIds ∪ 자사 ChannelListingOption)을
 //     매칭해 키워드×상품×일자 rank fact 를 upsert 하고
 // (2) SERP 전체를 키워드×일자당 최신본으로 upsert 한다.
 //

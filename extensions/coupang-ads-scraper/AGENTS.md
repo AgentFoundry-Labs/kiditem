@@ -2,13 +2,14 @@ Consult this document first instead of relying on memorized knowledge.
 
 # coupang-ads-scraper — Coupang Wing + Ad-Center Extension
 
-`extensions/coupang-ads-scraper/` collects Coupang Wing, ad-center, and public
-Coupang search evidence, executes approved ad actions, and supports Wing
-image/thumbnail automation.
+`extensions/coupang-ads-scraper/` collects Coupang Wing catalog and ad-center
+data plus public Coupang search evidence, executes approved ad actions, and
+supports explicit Wing page automation.
 
 ## Owned Surfaces
 
-- Coupang Wing scrape and image/thumbnail automation
+- Resumable Coupang Wing full-catalog collection: products, sellable options,
+  and provider media
 - Coupang ad-center scrape and approved action execution
 - Public Coupang keyword SERP collection, bounded product-detail seller
   resolution, and server-selected seller-shop catalog collection
@@ -20,7 +21,9 @@ image/thumbnail automation.
 - Default KidItem API origin is `http://localhost:4000`.
 - Data sync posts to `/api/ads/extension/sync`.
 - Approved queued ad actions are fetched from `/api/ads/actions`.
-- Image sync targets are fetched from `/api/ads/scrape-targets`.
+- Full catalog collection uses the account-scoped
+  `/api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing/runs`
+  start/status/chunk/finalize contract.
 - Authorization uses `kiditem_auth_token` from `chrome.storage.local`.
 - Do not send `organizationId`; backend auth resolves organization scope.
 
@@ -37,7 +40,7 @@ image/thumbnail automation.
 
 ## Coupang Rules
 
-- Wing inventory/image sync stays on Wing inventory URLs.
+- Wing catalog collection stays on Wing inventory and product-detail URLs.
 - Ad action execution stays on `advertising.coupang.com`.
 - Public SERP collection stays on Coupang search URLs; seller enrichment may
   fetch only exact `www.coupang.com/vp/products/{id}` links discovered in that
@@ -53,16 +56,20 @@ image/thumbnail automation.
 
 - Committed manifest is for local/dev origins. Staging unpacked variants belong
   under `.secrets/extensions/`.
-- Follow `docs/runbooks/playwriter-wing-image-sync.md` when staging origins or
-  extension ids change.
+- Follow `docs/runbooks/coupang-wing-catalog-collection.md` when staging origins
+  or extension ids change.
 
 ## Verification
 
 For coupang-ads-scraper changes, run the extension syntax check:
 
 ```bash
+node --test extensions/tests/*.test.mjs
+node --check extensions/coupang-ads-scraper/background/service-worker.js
 git diff --check -- extensions/coupang-ads-scraper
 ```
 
-Action execution, image sync, auth token, host bridge, or manifest changes need
-a focused manual browser check against the relevant Coupang surface.
+Action execution, catalog collection, auth token, host bridge, or manifest
+changes need a focused manual browser check against the relevant Coupang
+surface. Catalog collection must preserve accepted chunks across service-worker
+suspension and advertise `coupangCatalogSnapshot = true` to KidItem.

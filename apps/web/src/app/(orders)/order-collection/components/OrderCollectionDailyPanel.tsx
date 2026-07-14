@@ -3,11 +3,11 @@
 import { useState } from 'react';
 import { TrendingUp } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
-import type { StoredOrderCollectionFile } from '../lib/order-generated-file-store';
 import {
   getHistoryCollectionBucket,
   getHistoryOrderCount,
 } from '../lib/order-history-count';
+import type { StoredOrderCollectionFile } from '../lib/order-generated-file-store';
 
 interface OrderCollectionDailyPanelProps {
   history: StoredOrderCollectionFile[];

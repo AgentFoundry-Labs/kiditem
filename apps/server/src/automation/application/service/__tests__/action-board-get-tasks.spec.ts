@@ -15,14 +15,17 @@ function makePrisma() {
       upsert: vi.fn(),
       findMany: vi.fn(),
     },
-    inventory: {
+    masterProduct: {
+      count: vi.fn(),
+    },
+    channelListingOption: {
+      count: vi.fn(),
+    },
+    channelListing: {
       findMany: vi.fn(),
     },
     thumbnail: {
       count: vi.fn(),
-    },
-    masterProduct: {
-      findMany: vi.fn(),
     },
   };
 }
@@ -99,27 +102,15 @@ describe('ActionBoardService.getTasks', () => {
         profitRate: 2,
       } as any,
     ]);
-    prisma.inventory.findMany
-      .mockResolvedValueOnce([{ currentStock: 2, reorderPoint: 5 }])
-      .mockResolvedValueOnce([
-        {
-          optionId: 'option-stock',
-          currentStock: 2,
-          reorderPoint: 5,
-          option: {
-            master: {
-              id: 'master-stock',
-              name: '재고 부족 상품',
-            },
-          },
-        },
-      ]);
+    prisma.masterProduct.count.mockResolvedValue(1);
+    prisma.channelListingOption.count.mockResolvedValue(2);
     prisma.thumbnail.count.mockResolvedValue(2);
-    prisma.masterProduct.findMany.mockResolvedValue([
-      { listings: [{ _count: { reviews: 3 } }] },
+    prisma.channelListing.findMany.mockResolvedValue([
+      { _count: { reviews: 3 } },
     ]);
     prisma.actionTask.findMany.mockResolvedValue([
-      makeTask('h-reorder', 'high'),
+      makeTask('h-zero-stock', 'high'),
+      makeTask('h-mapping-attention', 'high'),
       makeTask('h-ad-bid', 'urgent'),
       makeTask('h-minus-ad-stop', 'urgent'),
     ]);
@@ -132,21 +123,22 @@ describe('ActionBoardService.getTasks', () => {
       new Date('2026-03-31T15:00:00.000Z'),
       new Date('2026-04-30T15:00:00.000Z'),
     );
-    expect(prisma.inventory.findMany).toHaveBeenNthCalledWith(1, {
-      where: { organizationId: 'organization-1', currentStock: { gt: 0 } },
-      select: { currentStock: true, reorderPoint: true },
+    expect(prisma.masterProduct.count).toHaveBeenCalledWith({
+      where: { organizationId: 'organization-1', isActive: true, currentStock: 0 },
+    });
+    expect(prisma.channelListingOption.count).toHaveBeenCalledWith({
+      where: {
+        isActive: true,
+        components: { none: {} },
+        listing: { is: { organizationId: 'organization-1', isActive: true } },
+      },
     });
     expect(prisma.thumbnail.count).toHaveBeenCalledWith({
       where: { organizationId: 'organization-1', ctr: { gt: 0, lt: 1.5 } },
     });
-    expect(prisma.masterProduct.findMany).toHaveBeenCalledWith({
-      where: { organizationId: 'organization-1', isDeleted: false, abcGrade: 'A' },
-      include: {
-        listings: {
-          where: { organizationId: 'organization-1', isDeleted: false },
-          select: { _count: { select: { reviews: true } } },
-        },
-      },
+    expect(prisma.channelListing.findMany).toHaveBeenCalledWith({
+      where: { organizationId: 'organization-1', isActive: true, abcGrade: 'A' },
+      select: { _count: { select: { reviews: true } } },
     });
 
     const seededTaskKeys = prisma.actionTask.upsert.mock.calls.map(
@@ -157,7 +149,8 @@ describe('ActionBoardService.getTasks', () => {
         'h-ad-bid',
         'h-minus-ad-stop',
         'h-minus-price',
-        'h-reorder',
+        'h-zero-stock',
+        'h-mapping-attention',
         'h-ad-rate',
         'h-low-profit',
         'h-thumbnail',
@@ -165,7 +158,6 @@ describe('ActionBoardService.getTasks', () => {
         'h-price-reset',
         'analyze-deficit',
         'analyze-ad',
-        'analyze-stock',
       ]),
     );
     expect(
@@ -177,7 +169,8 @@ describe('ActionBoardService.getTasks', () => {
     expect(result.map((task) => task.taskKey)).toEqual([
       'h-ad-bid',
       'h-minus-ad-stop',
-      'h-reorder',
+      'h-zero-stock',
+      'h-mapping-attention',
     ]);
     expect(result[0].relatedProducts).toEqual([
       {
@@ -195,38 +188,19 @@ describe('ActionBoardService.getTasks', () => {
         value: '-10%',
       },
     ]);
-    expect(result[2].relatedProducts).toEqual([
-      {
-        id: 'master-stock',
-        name: '재고 부족 상품',
-        metric: '재고',
-        value: '2개 (기준 5)',
-      },
-    ]);
+    expect(result[2].relatedProducts).toEqual([]);
+    expect(result[3].relatedProducts).toEqual([]);
   });
 
-  it('keeps reorder related products even when current-month live metrics are empty', async () => {
+  it('keeps read-only inventory attention tasks when current-month live metrics are empty', async () => {
     mockedBuildPerListingMetrics.mockResolvedValue([]);
-    prisma.inventory.findMany
-      .mockResolvedValueOnce([{ currentStock: 1, reorderPoint: 3 }])
-      .mockResolvedValueOnce([
-        {
-          optionId: 'option-stock-only',
-          currentStock: 1,
-          reorderPoint: 3,
-          option: {
-            master: {
-              id: 'master-stock-only',
-              name: '재고 전용 상품',
-            },
-          },
-        },
-      ]);
+    prisma.masterProduct.count.mockResolvedValue(1);
+    prisma.channelListingOption.count.mockResolvedValue(1);
     prisma.thumbnail.count.mockResolvedValue(0);
-    prisma.masterProduct.findMany.mockResolvedValue([]);
+    prisma.channelListing.findMany.mockResolvedValue([]);
     prisma.actionTask.findMany.mockResolvedValue([
-      makeTask('analyze-stock', 'high'),
-      makeTask('h-reorder', 'high'),
+      makeTask('h-zero-stock', 'high'),
+      makeTask('h-mapping-attention', 'high'),
     ]);
 
     const result = await service.getTasks('organization-1');
@@ -236,8 +210,8 @@ describe('ActionBoardService.getTasks', () => {
     );
     expect(seededTaskKeys).toEqual(
       expect.arrayContaining([
-        'h-reorder',
-        'analyze-stock',
+        'h-zero-stock',
+        'h-mapping-attention',
         'h-ad-csv',
         'recalc-grade',
         'analyze-ad-rules',
@@ -247,17 +221,10 @@ describe('ActionBoardService.getTasks', () => {
     expect(seededTaskKeys).not.toContain('h-minus-ad-stop');
     expect(seededTaskKeys).not.toContain('h-ad-bid');
 
-    const reorderTask = result.find((task) => task.taskKey === 'h-reorder');
-    const analyzeStockTask = result.find((task) => task.taskKey === 'analyze-stock');
-
-    expect(reorderTask?.relatedProducts).toEqual([
-      {
-        id: 'master-stock-only',
-        name: '재고 전용 상품',
-        metric: '재고',
-        value: '1개 (기준 3)',
-      },
-    ]);
-    expect(analyzeStockTask?.relatedProducts).toEqual(reorderTask?.relatedProducts);
+    expect(result.find((task) => task.taskKey === 'h-zero-stock')?.relatedProducts).toEqual([]);
+    expect(result.find((task) => task.taskKey === 'h-mapping-attention')?.relatedProducts).toEqual([]);
+    expect(result.map((task) => task.taskKey)).not.toEqual(
+      expect.arrayContaining(['h-reorder', 'analyze-stock']),
+    );
   });
 });

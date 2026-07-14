@@ -16,7 +16,8 @@ state is local and no mutation is sent to the server.
 ```text
 barcode input
   -> submitted state
-  -> useQuery(queryKeys.products.list({ search: submitted }))
+  -> useQuery(queryKeys.inventory.snapshot({ query: submitted }))
+  -> GET /api/inventory/sellpia-skus?query=X
   -> first matching product auto-select
   -> product info + local scan log append
 ```
@@ -27,7 +28,7 @@ workflow.
 
 ## State Rules
 
-- Product lookup is search-only through `/api/products?search=X`.
+- Product lookup is search-only through the Sellpia MasterProduct snapshot.
 - Do not call product detail APIs by id.
 - `ScanLogTable` columns are timestamp, barcode, product name, and status.
 - Input field stays monospace for barcode readability.

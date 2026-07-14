@@ -20,24 +20,15 @@ export class ListContentArchiveQueryDto {
   contentType?: 'detail_page' | 'image';
 
   @IsOptional()
-  @IsIn(['linked', 'unlinked'])
-  linkState?: 'linked' | 'unlinked';
-
-  @IsOptional()
   @IsString()
   @MaxLength(60)
   status?: string;
 
   @IsOptional()
   @IsUUID()
-  productId?: string;
+  contentWorkspaceId?: string;
 
   @IsOptional()
   @IsUUID()
   sourceCandidateId?: string;
-}
-
-export class AttachContentGroupToProductDto {
-  @IsUUID()
-  productId!: string;
 }

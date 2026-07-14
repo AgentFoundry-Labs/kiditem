@@ -17,8 +17,8 @@ description: >
 
 ### 상품
 ```
-GET  /api/products?page=1&limit=20                    — 상품 목록
-GET  /api/products/{id}                               — 상품 상세
+GET  /api/channels/listings?page=1&limit=20                    — 채널 등록 상품 목록
+GET  /api/channels/listings/{listingId}/workspace              — 등록 상품 콘텐츠 작업공간
 ```
 
 ### 주문
@@ -29,8 +29,9 @@ GET  /api/orders/stats                                — 주문 통계
 
 ### 재고
 ```
-GET  /api/inventory                                   — 재고 현황
-GET  /api/inventory/by-product/{productId}            — 상품별 재고
+GET  /api/inventory/sellpia-skus                               — 셀피아 기준 재고 현황
+GET  /api/inventory/sellpia-skus/{masterProductId}             — 셀피아 상품별 재고
+GET  /api/inventory/sellpia-sync/import-runs                   — 셀피아 재고 Import 이력
 ```
 
 ### 광고
@@ -53,7 +54,7 @@ GET  /api/sales-analysis                              — 매출 분석
 
 ### 대시보드
 ```
-GET  /api/dashboard                                   — 대시보드 요약
+GET  /api/dashboard/sales                             — 매출 요약
 GET  /api/dashboard/trend                             — 추이
 ```
 

@@ -56,6 +56,10 @@ vi.mock('@/components/ReadinessModal', () => ({
   default: () => readinessMock(),
 }));
 
+vi.mock('@/components/RebuildReadinessBanner', () => ({
+  default: () => null,
+}));
+
 vi.mock('@/components/GenerationCompletionWatcher', () => ({
   default: () => generationWatcherMock(),
 }));

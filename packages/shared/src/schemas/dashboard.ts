@@ -101,7 +101,8 @@ export const WarningsSchema = z.object({
   minusProducts: z.number(),
   lowProfitProducts: z.number(),
   highAdProducts: z.number(),
-  needReorder: z.number(),
+  outOfStockSkus: z.number(),
+  mappingAttentionSkus: z.number(),
   lowCtrProducts: z.number().optional(),
   lowReviewProducts: z.number().optional(),
 });
@@ -268,6 +269,11 @@ export const DashboardInventorySummarySchema = z.object({
   channelLinkedProducts: z.number().int().nonnegative(),
   channelUnlinkedProducts: z.number().int().nonnegative(),
   gradeCount: z.record(z.number()),
+  mappingStatusCounts: z.object({
+    matched: z.number().int().nonnegative(),
+    unmatched: z.number().int().nonnegative(),
+    needsReview: z.number().int().nonnegative(),
+  }),
   alerts: z.array(DashboardAlertItemSchema),
   warnings: WarningsSchema,
   gradeChanges: GradeChangesSchema.optional(),

@@ -3,14 +3,15 @@ import { describe, it, expect } from 'vitest';
 import {
   calcProfitRate,
   createActionCandidate,
+  type ChannelSkuAdEvidence,
 } from '../ad-action-rules';
 import type { LatestTargetRow } from '../../application/port/out/repository/ad-action.repository.port';
 
 /**
  * Pure decision logic for the 5 `AdAction` rules. The rules consume one
  * `LatestTargetRow` (latest `ChannelAdTargetDailySnapshot` per `targetKey`)
- * and an option-stock map (latest `ChannelListingOptionDailySnapshot.stockQty`
- * per `listingOptionId`). Tested without Prisma so threshold/priority/payload
+ * and the exact component-derived ChannelSku capacity per `listingOptionId`.
+ * Tested without Prisma so threshold/priority/payload
  * regressions surface as plain unit failures.
  *
  * Lifecycle, persistence, and end-to-end orchestration are protected by the
@@ -37,9 +38,6 @@ function baseRow(overrides: Partial<LatestTargetRow> = {}): LatestTargetRow {
     clicks: 10,
     conversions: 2,
     abcGrade: 'B',
-    optionAvailableStock: 100,
-    optionCostPrice: 3000,
-    optionSellPrice: 10000,
     optionCommissionRate: 0.1,
     productName: '상품1',
     ...overrides,
@@ -48,10 +46,32 @@ function baseRow(overrides: Partial<LatestTargetRow> = {}): LatestTargetRow {
 
 describe('createActionCandidate — 5 rules', () => {
   describe('Rule 1: zero stock → change_daily_budget urgent', () => {
-    it('fires when live optionAvailableStock is 0 (proposedValue=3000, urgent)', () => {
-      const row = baseRow({ optionAvailableStock: 0 });
+    it('does not treat unknown canonical ChannelSku capacity as sold out', () => {
+      const row = baseRow();
 
-      const candidate = createActionCandidate(row, new Map());
+      const candidate = createActionCandidate(
+        row,
+        new Map<string, ChannelSkuAdEvidence>([['LO1', {
+          sellableStock: null,
+          purchaseCost: 3000,
+          salePrice: 10000,
+        }]]),
+      );
+
+      expect(candidate).toBeNull();
+    });
+
+    it('fires when canonical ChannelSku sellableStock is 0 (proposedValue=3000, urgent)', () => {
+      const row = baseRow();
+
+      const candidate = createActionCandidate(
+        row,
+        new Map<string, ChannelSkuAdEvidence>([['LO1', {
+          sellableStock: 0,
+          purchaseCost: 3000,
+          salePrice: 10000,
+        }]]),
+      );
 
       expect(candidate).toMatchObject({
         adTargetDailyId: 'TGT-1',
@@ -65,27 +85,29 @@ describe('createActionCandidate — 5 rules', () => {
       expect(candidate?.reason).toContain('재고 0개');
     });
 
-    it('fires when channel-observed daily stockQty=0 even though live stock is non-zero', () => {
-      const row = baseRow({ optionAvailableStock: 5 });
-      const observed = new Map<string, number | null>([['LO1', 0]]);
+    it('does not fire when canonical ChannelSku sellableStock is positive', () => {
+      const row = baseRow();
+      const observed = new Map<string, ChannelSkuAdEvidence>([['LO1', {
+        sellableStock: 5,
+        purchaseCost: 3000,
+        salePrice: 10000,
+      }]]);
 
       const candidate = createActionCandidate(row, observed);
 
-      expect(candidate?.actionType).toBe('change_daily_budget');
-      expect(candidate?.priority).toBe('urgent');
-      expect(candidate?.proposedValue).toBe(3000);
+      expect(candidate).toBeNull();
     });
 
     it('skips when listingOptionId is null (option stock not observable)', () => {
-      const row = baseRow({ listingOptionId: null, optionAvailableStock: 0 });
+      const row = baseRow({ listingOptionId: null });
 
       const candidate = createActionCandidate(row, new Map());
 
       expect(candidate).toBeNull();
     });
 
-    it('skips when neither live nor observed stock is zero (live=10, observed=null)', () => {
-      const row = baseRow({ optionAvailableStock: 10 });
+    it('skips when canonical capacity is not available', () => {
+      const row = baseRow();
 
       const candidate = createActionCandidate(row, new Map());
 
@@ -147,6 +169,44 @@ describe('createActionCandidate — 5 rules', () => {
   });
 
   describe('Rule 3: keyword bid down', () => {
+    it('uses exact ChannelSku sale price and component purchase cost for margin priority', () => {
+      const row = baseRow({
+        targetType: 'keyword',
+        keyword: 'K1',
+        conversions: 5,
+        spend: 10000,
+        revenue: 15000,
+        currentBid: 1000,
+        optionCommissionRate: 0.1,
+      });
+      const evidence = new Map([['LO1', {
+        sellableStock: 5,
+        purchaseCost: 12000,
+        salePrice: 10000,
+      }]]) as Map<string, ChannelSkuAdEvidence>;
+
+      expect(createActionCandidate(row, evidence)?.priority).toBe('high');
+    });
+
+    it('keeps priority neutral when exact component purchase cost is unknown', () => {
+      const row = baseRow({
+        targetType: 'keyword',
+        keyword: 'K1',
+        conversions: 5,
+        spend: 10000,
+        revenue: 15000,
+        currentBid: 1000,
+        optionCommissionRate: 0.1,
+      });
+      const evidence = new Map([['LO1', {
+        sellableStock: 5,
+        purchaseCost: null,
+        salePrice: 10000,
+      }]]) as Map<string, ChannelSkuAdEvidence>;
+
+      expect(createActionCandidate(row, evidence)?.priority).toBe('medium');
+    });
+
     it('keyword 100<=roas<200 + currentBid>0 → change_bid (currentBid * 0.85, rounded)', () => {
       const row = baseRow({
         targetType: 'keyword',
@@ -176,12 +236,14 @@ describe('createActionCandidate — 5 rules', () => {
         revenue: 15000, // ROAS = 150
         currentBid: 1000,
         // commission 100% with cost > sell → negative margin
-        optionCostPrice: 12000,
-        optionSellPrice: 10000,
         optionCommissionRate: 0.1,
       });
 
-      const candidate = createActionCandidate(row, new Map());
+      const candidate = createActionCandidate(row, new Map([['LO1', {
+        sellableStock: 5,
+        purchaseCost: 12000,
+        salePrice: 10000,
+      }]]));
 
       expect(candidate?.priority).toBe('high');
     });

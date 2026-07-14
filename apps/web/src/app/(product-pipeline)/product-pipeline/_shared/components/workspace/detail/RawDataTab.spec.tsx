@@ -43,4 +43,11 @@ describe('RawDataTab', () => {
     expect(screen.queryByText('기타 원본 데이터')).not.toBeInTheDocument();
     expect(screen.queryByText('sourceBarcode')).not.toBeInTheDocument();
   });
+
+  it('keeps provider raw data read-only', () => {
+    renderRawDataTab({ title: '수집 원본' });
+
+    expect(screen.queryByText('원본 데이터 추가')).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('항목명 예: 재질')).not.toBeInTheDocument();
+  });
 });

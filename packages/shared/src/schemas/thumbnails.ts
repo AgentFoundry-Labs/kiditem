@@ -253,39 +253,6 @@ export const ThumbnailGenerationListResponseSchema = z.object({
   total: z.number(),
 });
 
-// ─── Coupang image sync ──────────────────────────────────────────────
-
-export const COUPANG_IMAGE_SYNC_ROW_SOURCES = ['extension', 'server_scraper'] as const;
-export const CoupangImageSyncRowSourceSchema = z.enum(COUPANG_IMAGE_SYNC_ROW_SOURCES);
-
-export const CoupangImageSyncRowSchema = z.object({
-  inventoryId: z.string().min(1),
-  legacyCode: z.string().min(1).nullable().optional(),
-  name: z.string(),
-  url: z.string().min(1),
-  source: CoupangImageSyncRowSourceSchema.optional(),
-});
-
-export const CoupangImageSyncRowsRequestSchema = z.object({
-  rows: z.array(CoupangImageSyncRowSchema).max(5_000),
-});
-
-export const CoupangImageSyncSourceCapabilitySchema = z.object({
-  source: CoupangImageSyncRowSourceSchema,
-  enabled: z.boolean(),
-  reason: z.string().nullable().optional(),
-});
-
-export const CoupangImageSyncCapabilitiesSchema = z.object({
-  extensionRows: CoupangImageSyncSourceCapabilitySchema.extend({
-    source: z.literal('extension'),
-  }),
-  serverScraper: CoupangImageSyncSourceCapabilitySchema.extend({
-    source: z.literal('server_scraper'),
-  }),
-  preferredSource: CoupangImageSyncRowSourceSchema,
-});
-
 // ─── 트래킹 ──────────────────────────────────────────────
 
 export const THUMBNAIL_TRACKING_STATUSES = ['tracking', 'measured', 'inconclusive'] as const;
@@ -337,11 +304,6 @@ export type ThumbnailAnalysisSummary = z.infer<typeof ThumbnailAnalysisSummarySc
 export type ThumbnailAnalysisListResponse = z.infer<typeof ThumbnailAnalysisListResponseSchema>;
 export type ThumbnailGenerationItem = z.infer<typeof ThumbnailGenerationItemSchema>;
 export type ThumbnailGenerationListResponse = z.infer<typeof ThumbnailGenerationListResponseSchema>;
-export type CoupangImageSyncRowSource = z.infer<typeof CoupangImageSyncRowSourceSchema>;
-export type CoupangImageSyncRow = z.infer<typeof CoupangImageSyncRowSchema>;
-export type CoupangImageSyncRowsRequest = z.infer<typeof CoupangImageSyncRowsRequestSchema>;
-export type CoupangImageSyncSourceCapability = z.infer<typeof CoupangImageSyncSourceCapabilitySchema>;
-export type CoupangImageSyncCapabilities = z.infer<typeof CoupangImageSyncCapabilitiesSchema>;
 export type ThumbnailTrackingRecord = z.infer<typeof ThumbnailTrackingRecordSchema>;
 export type ThumbnailTrackingListResponse = z.infer<typeof ThumbnailTrackingListResponseSchema>;
 export type UpdateThumbnailTrackingMetrics = z.infer<typeof UpdateThumbnailTrackingMetricsSchema>;

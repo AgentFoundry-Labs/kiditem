@@ -13,7 +13,7 @@ import type {
 import { API_BASE } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
-import { useProductImages } from '@/hooks/useProductImages';
+import { useContentWorkspaceImages } from '../../_shared/hooks/useContentWorkspaceImages';
 import {
   collectedProductDetailHref,
   detailPageEditorHref,
@@ -176,7 +176,6 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
     new URLSearchParams(searchParams.toString()),
     options.ownerBindingMode ?? 'allow-url',
   );
-  const { images: savedImages, loading: imagesLoading } = useProductImages(productId);
   const detailPageMutation = useKidsPlayfulGenerate();
 
   const [rawTitle, setRawTitle] = useState(initialTitle);
@@ -207,6 +206,9 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
     workspaceId: initialContentWorkspaceId,
     workspaceTitle: initialContentWorkspaceId && initialTitle ? initialTitle : null,
   });
+  const { images: savedImages, loading: imagesLoading } = useContentWorkspaceImages(
+    duplicateWorkspace.workspaceId,
+  );
   const generationStatusQuery = useKidsPlayfulOne(
     generationDialog?.generationId ?? null,
   );

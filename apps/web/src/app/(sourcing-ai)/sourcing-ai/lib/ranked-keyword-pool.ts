@@ -1,3 +1,4 @@
+import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 import type {
   NaverDatalabPopularKeywordBoard,
   NaverDatalabPopularKeywordBoardKey,
@@ -123,10 +124,8 @@ export function extractRankedKeywordPoolEntries(
 }
 
 export function readRankedKeywordPool(): RankedKeywordPoolSnapshot | null {
-  if (typeof window === 'undefined') return null;
-
   try {
-    const raw = window.localStorage.getItem(RANKED_KEYWORD_POOL_STORAGE_KEY);
+    const raw = safeStorageGet('local', RANKED_KEYWORD_POOL_STORAGE_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
     return isRankedKeywordPoolSnapshot(parsed) ? parsed : null;
   } catch {
@@ -136,7 +135,7 @@ export function readRankedKeywordPool(): RankedKeywordPoolSnapshot | null {
 
 export function writeRankedKeywordPool(snapshot: RankedKeywordPoolSnapshot) {
   if (typeof window === 'undefined') return;
-  window.localStorage.setItem(RANKED_KEYWORD_POOL_STORAGE_KEY, JSON.stringify(snapshot));
+  safeStorageSet('local', RANKED_KEYWORD_POOL_STORAGE_KEY, JSON.stringify(snapshot));
   window.dispatchEvent(new Event(RANKED_KEYWORD_POOL_UPDATED_EVENT));
 }
 

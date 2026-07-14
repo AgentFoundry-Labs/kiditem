@@ -2,23 +2,40 @@ Consult this document first instead of relying on memorized knowledge.
 
 # order-collector — Marketplace Order Collection Extension
 
-`extensions/order-collector/` reads order tables from marketplace admin pages
-that are already open in the user's Chrome profile and sends structured rows
-back to the KidItem web app.
+`extensions/order-collector/` automates supported marketplace order collection
+from admin pages that are already open in the user's Chrome profile. It may
+read visible order tables, trigger marketplace export UI, or call supported
+marketplace export APIs from the user's active page session, then sends
+structured rows or export files back to the KidItem web app for NestJS
+conversion.
 
 ## Owned Surfaces
 
 - Icecream Mall PO delivery inquiry grid capture.
 - Coupang supplier ASN visible-row Label/statement download triggers.
-- KidItem localhost extension-id discovery for order collection only.
+- Supported marketplace order export capture, including Kakao Shopping Seller.
+- Sellpia delivery-tracking lookup and order-file upload.
+- Domeggook and Onchannel tracking registration initiated from the KidItem
+  order-collection page.
+- KidItem localhost extension-id discovery for order operations only.
 
 ## Browser Boundary
 
 - Host permissions stay exact to the supported marketplace origins.
-- The extension must not read cookies, passwords, local storage session data,
-  or browser credential stores.
-- The extension returns visible table data only; backend conversion and auth
-  remain owned by the KidItem web app and NestJS API.
+- Do not persist, log, return, forward, commit, or store marketplace session
+  tokens, cookies, passwords, or browser credential-store values.
+- A supported marketplace collector may read a marketplace session token only
+  transiently when that marketplace's export API requires it. Use the token only
+  for same-marketplace origin requests, keep it in function scope, and never
+  include it in extension responses to KidItem.
+- Extension responses to the web app and backend carry only export artifacts,
+  structured order data, and non-secret metadata such as `xlsxBase64`,
+  `csvBase64`, file names, counts, and rows. Backend conversion, analysis, and
+  auth remain owned by the KidItem web app and NestJS API; marketplace tokens
+  must never be sent to KidItem.
+- Destructive marketplace actions such as tracking registration require an
+  explicit confirmation in the KidItem web page before the allowlisted action
+  is sent to the extension.
 - Do not send `organizationId`; backend auth/session scope owns organization
   context.
 

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { paginationParams } from '../../../common/pagination';
 import {
   SOURCING_AGENT_GATEWAY_PORT,
@@ -21,7 +21,6 @@ import type {
 import type { ProductGenerationTask } from '../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
 import { detectSourcingScrapePlatform } from '../../domain/sourcing-url';
 import { buildProductBasics } from './product-basics.presenter';
-import { ProductPreparationSelectionService } from './product-preparation-selection.service';
 
 const PLATFORM_MAP: Record<string, string> = {
   '1688': 'ALIBABA_1688',
@@ -61,8 +60,6 @@ export class SourcingService {
     private readonly agentGateway: SourcingAgentGatewayPort,
     @Inject(SOURCING_OPERATION_ALERT_PORT)
     private readonly operationAlerts: OperationAlertPort,
-    @Optional()
-    private readonly preparationSelection?: ProductPreparationSelectionService,
   ) {}
 
   async receiveExtensionData(
@@ -294,7 +291,6 @@ export class SourcingService {
       ...this.stringArrayFromUnknown(candidate.tags),
     ]);
     const target = typeof rawData.target === 'string' ? rawData.target : null;
-    await this.preparationSelection?.ensureRegistrationInputFromCandidate(organizationId, candidateId);
 
     const ai = await this.agentGateway.startProductGeneration({
       organizationId,

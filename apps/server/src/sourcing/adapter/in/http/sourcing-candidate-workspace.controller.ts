@@ -5,14 +5,12 @@ import type { AuthUser } from '../../../../auth/auth.types';
 import { SourcingPromotionService } from '../../../application/service/sourcing-promotion.service';
 import { SourcingService } from '../../../application/service/sourcing.service';
 import { SourcingWorkspaceArchiveService } from '../../../application/service/sourcing-workspace-archive.service';
-import { ProductPreparationSelectionService } from '../../../application/service/product-preparation-selection.service';
+import { ProductRegistrationService } from '../../../application/service/product-registration.service';
 import {
-  PromoteCandidateBodyDto,
+  CreateProductPreparationDto,
   QuickProcessCandidateDto,
   RejectCandidateBodyDto,
-  SelectPreparationDetailDto,
-  SelectPreparationThumbnailDto,
-  UpdateProductBasicsDto,
+  UpdateProductPreparationDto,
 } from './dto';
 
 @Controller('sourcing')
@@ -21,7 +19,7 @@ export class SourcingCandidateWorkspaceController {
     private readonly sourcingService: SourcingService,
     private readonly promotionSvc: SourcingPromotionService,
     private readonly workspaceArchive: SourcingWorkspaceArchiveService,
-    private readonly preparationSelection: ProductPreparationSelectionService,
+    private readonly productRegistration: ProductRegistrationService,
   ) {}
 
   @Get(':id')
@@ -32,13 +30,42 @@ export class SourcingCandidateWorkspaceController {
     return this.sourcingService.getProduct(id, organizationId);
   }
 
-  @Post('candidates/:id/promote')
-  async promote(
+  @Post('candidates/:id/preparations')
+  createPreparation(
     @Param('id') id: string,
-    @Body() body: PromoteCandidateBodyDto,
+    @Body() body: CreateProductPreparationDto,
     @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.promotionSvc.promote(id, organizationId, body);
+    return this.productRegistration.createDraft(organizationId, id, user.id ?? null, body);
+  }
+
+  @Patch('preparations/:id')
+  updatePreparation(
+    @Param('id') id: string,
+    @Body() body: UpdateProductPreparationDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.updateDraft(organizationId, id, user.id ?? null, body);
+  }
+
+  @Post('preparations/:id/submit')
+  submitPreparation(
+    @Param('id') id: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.submit(organizationId, id, user.id ?? null);
+  }
+
+  @Post('preparations/:id/cancel')
+  cancelPreparation(
+    @Param('id') id: string,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.productRegistration.cancel(organizationId, id, user.id ?? null);
   }
 
   @Post('candidates/:id/reject')
@@ -59,33 +86,6 @@ export class SourcingCandidateWorkspaceController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.sourcingService.quickProcessCandidate(id, organizationId, user.id ?? null, body?.task ?? 'all');
-  }
-
-  @Patch('candidates/:id/preparation/basic-info')
-  updateBasicInfo(
-    @Param('id') id: string,
-    @Body() body: UpdateProductBasicsDto,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.preparationSelection.updateBasics(organizationId, id, body);
-  }
-
-  @Patch('candidates/:id/preparation/thumbnail')
-  selectThumbnail(
-    @Param('id') id: string,
-    @Body() body: SelectPreparationThumbnailDto,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.preparationSelection.selectThumbnail(organizationId, id, body);
-  }
-
-  @Patch('candidates/:id/preparation/detail-page')
-  selectDetailPage(
-    @Param('id') id: string,
-    @Body() body: SelectPreparationDetailDto,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.preparationSelection.selectDetailPage(organizationId, id, body);
   }
 
   @Delete('candidates/:id')

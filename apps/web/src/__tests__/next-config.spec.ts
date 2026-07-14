@@ -1,22 +1,33 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 interface RewriteRule {
   source: string;
   destination: string;
 }
 
-interface NextConfigShape {
-  rewrites: () => Promise<RewriteRule[]>;
-}
-
 const ORIGINAL_API_URL = process.env.NEXT_PUBLIC_API_URL;
+const webRoot = process.cwd().endsWith('/apps/web')
+  ? process.cwd()
+  : resolve(process.cwd(), 'apps/web');
+const nextConfigUrl = pathToFileURL(resolve(webRoot, 'next.config.mjs')).href;
 
 async function getRewrites(): Promise<RewriteRule[]> {
-  // next.config.mjs reads NEXT_PUBLIC_API_URL at import time, so reset the
-  // module cache before each load to pick up the env override.
-  vi.resetModules();
-  const mod = (await import('../../next.config.mjs')) as { default: NextConfigShape };
-  return mod.default.rewrites();
+  // Load the config through native Node ESM. Vitest transforms dynamic imports
+  // into data: URLs, while Next loads next.config.mjs from a file: URL and the
+  // config intentionally derives the monorepo root from import.meta.url.
+  const script = [
+    `const mod = await import(${JSON.stringify(nextConfigUrl)});`,
+    'console.log(JSON.stringify(await mod.default.rewrites()));',
+  ].join('\n');
+  const output = execFileSync(
+    process.execPath,
+    ['--input-type=module', '--eval', script],
+    { encoding: 'utf8', env: { ...process.env } },
+  );
+  return JSON.parse(output) as RewriteRule[];
 }
 
 describe('next.config rewrites — chat runtime same-origin transport', () => {

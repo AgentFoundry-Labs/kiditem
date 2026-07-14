@@ -62,7 +62,6 @@ export interface HydratedListing {
    * 옵션이 없으면 null.
    */
   primaryOption: {
-    id: string;
     /**
      * ChannelListingOption.id corresponding to the primary option. Strategy
      * uses this to fetch the option's latest daily snapshot directly
@@ -70,21 +69,16 @@ export interface HydratedListing {
      * which can attach the wrong option's stock evidence).
      */
     listingOptionId: string;
-    availableStock: number | null;
-    costPrice: number | null;
-    sellPrice: number | null;
+    sellableStock: number | null;
+    purchaseCost: number | null;
+    salePrice: number | null;
     commissionRate: DecimalLike | null;
     shippingCost: number | null;
   } | null;
 }
 
-export interface InventoryRow {
-  optionId: string;
-  listingId: string;
-  availableStock: number;
-  costPrice: number | null;
-  sellPrice: number | null;
-  commissionRate: DecimalLike | null;
+export interface ChannelSkuAvailabilityEvidence {
+  sellableStock: number | null;
 }
 
 export interface AdAggregateRow {
@@ -159,13 +153,13 @@ export interface Top20Input {
 export interface ExposureScoreInput {
   listing: HydratedListing;
   metrics: ListingMetricsRow;
-  inventory: InventoryRow | null;
+  availability: ChannelSkuAvailabilityEvidence | null;
   reviewStats: { totalReviews: number; recentReviews: number; avgRating: number } | null;
   // 기존 ad-strategy.service.ts:1218-1306 공식 보존용 추가 컨텍스트.
-  // orchestrator (T7) 가 trafficStats / inventory.leadTimeDays / option pricing 으로 사전 계산.
-  // null/0 default 로 호출하면 formula 가 baseline (low) score 로 degrade.
+  // Replenishment lead time is intentionally unknown in the Sellpia snapshot model.
+  // Exact ChannelSku capacity and price/cost evidence are supplied separately.
   trafficContext: { maxT14: number; t14Rev: number; t14PrevRev: number; t14Orders: number };
-  fulfillmentContext: { leadTime: number | null; profitRate: number };
+  fulfillmentContext: { leadTime: null; profitRate: number };
 }
 
 export interface TopIssueInput {

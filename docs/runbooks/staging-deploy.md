@@ -184,6 +184,9 @@ STAGING_NAVER_DATALAB_BASE_URL=https://openapi.naver.com
 STAGING_NAVER_DATALAB_WEB_BASE_URL=https://datalab.naver.com
 STAGING_NAVER_SEARCHAD_BASE_URL=https://api.searchad.naver.com
 STAGING_TMAPI_BASE_URL=https://api.tmapi.top
+STAGING_SOURCING_PLAYWRIGHT_CDP_ENDPOINT=<managed-browser-cdp-endpoint>
+STAGING_TAOBAO_TOP_BASE_URL=https://eco.taobao.com/router/rest
+STAGING_TAOBAO_TOP_TIMEOUT_MS=15000
 STAGING_SOURCING_EXTENSION_TOKEN_TTL_SECONDS=1800
 STAGING_SOURCING_EXTENSION_TOKEN_MAX_SECONDS=86400
 STAGING_DB_BASELINE_BUCKET=kiditem-staging-db-baselines
@@ -213,6 +216,8 @@ STAGING_NAVER_SEARCHAD_API_KEY=<naver-searchad-api-key>
 STAGING_NAVER_SEARCHAD_SECRET_KEY=<naver-searchad-secret-key>
 STAGING_NAVER_SEARCHAD_CUSTOMER_ID=<naver-searchad-customer-id>
 STAGING_TMAPI_TOKEN=<tmapi-token>
+STAGING_TAOBAO_TOP_APP_KEY=<taobao-top-app-key>
+STAGING_TAOBAO_TOP_APP_SECRET=<taobao-top-app-secret>
 STAGING_DB_BASELINE_S3_ACCESS_KEY=<private-db-baseline-s3-access-key-id>
 STAGING_DB_BASELINE_S3_SECRET_KEY=<private-db-baseline-s3-secret-access-key>
 ```
@@ -250,6 +255,9 @@ gh variable set STAGING_NAVER_DATALAB_BASE_URL --env staging --body "https://ope
 gh variable set STAGING_NAVER_DATALAB_WEB_BASE_URL --env staging --body "https://datalab.naver.com"
 gh variable set STAGING_NAVER_SEARCHAD_BASE_URL --env staging --body "https://api.searchad.naver.com"
 gh variable set STAGING_TMAPI_BASE_URL --env staging --body "https://api.tmapi.top"
+gh variable set STAGING_SOURCING_PLAYWRIGHT_CDP_ENDPOINT --env staging --body "<managed-browser-cdp-endpoint>"
+gh variable set STAGING_TAOBAO_TOP_BASE_URL --env staging --body "https://eco.taobao.com/router/rest"
+gh variable set STAGING_TAOBAO_TOP_TIMEOUT_MS --env staging --body "15000"
 gh variable set STAGING_SOURCING_EXTENSION_TOKEN_TTL_SECONDS --env staging --body "1800"
 gh variable set STAGING_SOURCING_EXTENSION_TOKEN_MAX_SECONDS --env staging --body "86400"
 gh variable set STAGING_DB_BASELINE_BUCKET --env staging --body "kiditem-staging-db-baselines"
@@ -272,6 +280,8 @@ printf '%s' '<naver-searchad-api-key>' | gh secret set STAGING_NAVER_SEARCHAD_AP
 printf '%s' '<naver-searchad-secret-key>' | gh secret set STAGING_NAVER_SEARCHAD_SECRET_KEY --env staging
 printf '%s' '<naver-searchad-customer-id>' | gh secret set STAGING_NAVER_SEARCHAD_CUSTOMER_ID --env staging
 printf '%s' '<tmapi-token>' | gh secret set STAGING_TMAPI_TOKEN --env staging
+printf '%s' '<taobao-top-app-key>' | gh secret set STAGING_TAOBAO_TOP_APP_KEY --env staging
+printf '%s' '<taobao-top-app-secret>' | gh secret set STAGING_TAOBAO_TOP_APP_SECRET --env staging
 printf '%s' '<private-db-baseline-s3-access-key-id>' | gh secret set STAGING_DB_BASELINE_S3_ACCESS_KEY --env staging
 printf '%s' '<private-db-baseline-s3-secret-access-key>' | gh secret set STAGING_DB_BASELINE_S3_SECRET_KEY --env staging
 ```
@@ -334,9 +344,9 @@ does not deploy automatically; an operator triggers the workflow manually. Do
 not create a long-lived `staging` branch; staging is a GitHub Environment, not a
 separate source branch.
 
-Only the real deploy/rollback/status jobs declare GitHub Environment `staging`.
-Build and preparation jobs intentionally avoid it so GitHub creates a single
-staging deployment record for one `operation=deploy` run.
+Only deploy/finalize-rebuild/rollback/status jobs declare GitHub Environment
+`staging`. Build and preparation jobs intentionally avoid it. The destructive
+deploy and its later finalization are separately protected staging operations.
 
 The deployable app release is recorded in root [`VERSION`](../../VERSION).
 Package-local `version` fields are package metadata and are not the staging
@@ -372,37 +382,57 @@ deploy/staging/nginx.conf
 deploy/staging/remote-deploy.sh
 ```
 
-Before the EC2 image swap, the deploy job first runs pre-schema data migrations
-that must change existing database shape before Prisma sees the new schema:
+Normal deploys keep the ordered pre-schema migration, non-destructive
+`prisma db push`, and post-schema migration path. Release `0.1.8` also exposes
+one explicit authoritative rebuild path:
 
-```bash
-npm run data:migrate -- up --phase pre-schema
+```text
+operation: deploy
+deployment_target: staging
+destructive_reset: RESET_STAGING_DATA
 ```
 
-with `DATA_MIGRATION_TARGET=staging` and
-`DATA_MIGRATION_CONFIRM=APPLY_DATA_MIGRATIONS`. It then applies the Prisma
-schema to the staging Supabase database with `npx prisma db push`. The default
-workflow input keeps `accept_data_loss=false`, so destructive Prisma changes
-still block the deploy. A reviewed contract-cleanup deploy may set
-`accept_data_loss=true`, which runs `npx prisma db push --accept-data-loss` only
-for that manual staging run. Use it only after the expand/backfill release has a
-succeeded `data_migration_runs` ledger row and the PR explicitly calls out the
-columns or tables being dropped.
+The workflow validates the exact token inside GitHub Environment `staging`.
+The destructive order is: quiesce application traffic, export the selected
+Coupang account as sanitized replay payloads, upload the private one-day
+artifact, then cross the reset boundary by applying the final Prisma schema
+with `--force-reset`. Only after that does it create the configured
+organization, Supabase user mirror, active membership, and channel-account
+baseline. It then starts the application with
+`inventory.rebuild.status=snapshot_required`. No source workbook is read from
+the repository or stored in the artifact.
 
-After schema push, the workflow runs post-schema data migrations before the image
-swap so new application code starts with any required backfill already present:
+After the deploy finishes, an authenticated operator must:
 
-```bash
-npm run data:migrate -- up --phase post-schema
-```
+1. Open `/inventory-hub?tab=sellpia-sync` and import the approved Sellpia
+   workbook. Wait for a completed `sellpia_inventory` run.
+2. Open `/product-hub/matching`, choose the configured Coupang account, and
+   import the approved Wing workbook. Wait for a completed
+   `coupang_wing_catalog` run. Sellpia must complete first.
+3. Confirm the Environment variables `STAGING_REBUILD_EXPECTED_*` match the
+   approved import manifest, not a guessed or copied total.
+4. Trigger the same workflow with:
+
+   ```text
+   operation: finalize-rebuild
+   deployment_target: staging
+   destructive_reset: RESET_STAGING_DATA
+   rebuild_run_id: <originating deploy run ID>
+   ```
+
+Finalization downloads only that run's staging artifact, replays Coupang data
+through authenticated `POST /api/ads/extension/sync`, verifies the completed
+Sellpia/Wing import order and exact imported/replayed counts, and marks the
+environment ready. Missing credentials, imports, expected counts, artifact,
+or a target/run/count mismatch fails closed and keeps snapshot-required state.
 
 Each durable data migration is grouped by the application release in root
 [`VERSION`](../../VERSION) that requires it, for example
 `scripts/data-migrations/v0.1.0/001_<name>.ts`, and records a row in
 `data_migration_runs` with migration id, release version, status, git SHA,
 Prisma schema hash, affected rows, details, and error text when a run fails.
-After the new containers pass the EC2 smoke check, the
-workflow verifies the migration ledger with:
+After a normal non-destructive deploy passes the EC2 smoke check, the workflow
+verifies the migration ledger with:
 
 ```bash
 npm run data:migrate -- status
@@ -450,10 +480,10 @@ Use `http://<ec2-public-ip>` only for the first origin smoke test. The normal
 staging URL is the Cloudflare proxied HTTPS origin configured in
 `STAGING_URL`.
 
-If `/product-pipeline/thumbnail-generation` Coupang image sync is tested from the staging web app, the
-local Chrome extension must allow the same public origin. Do not commit the
-real staging origin into the default extension manifest; create a local-only
-copy instead:
+If authenticated Wing catalog collection is tested from staging registered
+products, the local Chrome extension must allow the same public origin. Do not
+commit the real staging origin into the default extension manifest; create a
+local-only copy instead:
 
 ```bash
 STAGING_URL="$(gh variable get STAGING_URL --env staging)" \
@@ -461,26 +491,17 @@ STAGING_URL="$(gh variable get STAGING_URL --env staging)" \
 ```
 
 Then load `.secrets/extensions/coupang-ads-scraper-staging` from
-`chrome://extensions` before testing image sync.
+`chrome://extensions`, open staging `/product-pipeline/registered-products`,
+and keep an authenticated Wing inventory tab in the same Chrome profile.
+Select the intended Coupang account and verify **Wing에서 가져오기** starts a
+resumable catalog collection. The extension must advertise
+`coupangCatalogSnapshot = true`.
 
-Server-side Coupang Wing image scraping is disabled in staging by default even
-though the API image contains browser dependencies for `/api/render-image`.
-For the Phase 3 Playwriter experiment only, add the following to the staging API
-env and redeploy:
-
-```bash
-COUPANG_IMAGE_SYNC_SERVER_SCRAPER_ENABLED=true
-```
-
-Before running `/product-pipeline/thumbnail-generation` image sync without the extension, verify:
-
-```bash
-curl -s http://127.0.0.1:8080/api/coupang-image-sync/capabilities
-```
-
-Success criteria: `serverScraper.enabled` is `true` and `preferredSource` is
-`server_scraper`. Rollback is removing the env var and redeploying; the browser
-extension path remains available.
+There is no server-side Playwriter/image-sync fallback. Do not add
+`COUPANG_IMAGE_SYNC_SERVER_SCRAPER_ENABLED` or call a
+`/api/coupang-image-sync` capability endpoint. Follow
+[Coupang Wing Catalog Collection](coupang-wing-catalog-collection.md) for the
+browser acceptance and recovery procedure.
 
 ## Host Nginx With HTTPS Domain
 
@@ -537,6 +558,7 @@ curl -I http://<ec2-public-ip>/login
 curl -I https://<real-staging-domain>/login
 curl -I https://<real-staging-domain>/api/auth/me
 npm run data:migrate -- status --database-url "$STAGING_DATABASE_URL"
+npm run inventory:rebuild -- guard # only with the exact GitHub Actions rebuild env
 ```
 
 Expected results:
@@ -555,9 +577,9 @@ Expected results:
   at `/product-pipeline/detail-pages/:generationId/editor`, with
   `sourceCandidateId` and `returnTo` query params when the source is a collected
   product.
-- Contract-cleanup deploys that intentionally dropped columns were run with
-  `accept_data_loss=true`, and the workflow log shows the explicit warning
-  before Prisma schema apply.
+- A guarded rebuild log records its origin run ID, one-day artifact, quiesce,
+  final-schema reset, minimum bootstrap, and snapshot-required state. A later
+  finalization log records exact import/replay acceptance before ready state.
 
 ## Blocker Criteria
 
@@ -572,10 +594,12 @@ Stop and report instead of guessing if:
     then be fixed or rerun from GitHub Actions so the file bind mount cannot
     keep a stale config inode.
 - Supabase connection errors mention the production project.
-- `npx prisma db push` reports destructive changes or asks for
-  `--accept-data-loss` during a normal deploy. Stop unless the PR is a reviewed
-  contract cleanup with confirmed backfill ledger rows; in that case rerun the
-  manual staging deploy with `accept_data_loss=true`.
+- `destructive_reset` is non-empty but is not exactly `RESET_STAGING_DATA`, or
+  `deployment_target` is not `staging`.
+- After traffic is quiesced, the private export is incomplete, contains a
+  disallowed payload, or cannot be uploaded before the reset boundary.
+- A finalization run cannot prove the originating run ID, protected
+  Environment, Sellpia-before-Wing import order, or every configured count.
 - `npm run data:migrate -- up` fails or writes a `failed` ledger row.
 - Any seed/import/baseline step would target production by accident.
 - DB baseline export/restore would use the public app asset bucket instead of
@@ -595,5 +619,7 @@ Report:
 - Supabase Storage bucket name used for staging.
 - DB baseline profile id and `deployments/current-db.json` state, if operated.
 - Data migration ledger statuses from `data_migration_runs`.
+- Rebuild origin run ID, snapshot-required/ready status, and exact acceptance
+  counts when the guarded rebuild path was used.
 - Compose service status.
 - Verification commands and results.

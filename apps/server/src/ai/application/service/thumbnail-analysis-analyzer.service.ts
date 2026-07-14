@@ -14,7 +14,6 @@ import type {
   RecomposeVariantClassification,
 } from '@kiditem/shared/ai';
 import type { AnalysisScope } from './thumbnail-analysis-requests';
-import { resolveMasterThumbnailImage } from '../../domain/thumbnail-master-image';
 import {
   ThumbnailVisionAiService,
   type ThumbnailAiItem,
@@ -56,18 +55,15 @@ export class ThumbnailAnalysisAnalyzerService {
     scope: AnalysisScope,
     signal?: AbortSignal,
   ): Promise<ThumbnailAnalysisResult> {
-    const master = await this.repository.findMasterForAnalysis(productId, organizationId);
-    if (!master) throw new NotFoundException(`Master ${productId} not found`);
-    const imageUrl = resolveMasterThumbnailImage(master);
-    if (!imageUrl) {
-      throw new BadRequestException('master 의 표시 가능한 이미지가 없어 분석을 시작할 수 없습니다');
-    }
+    const workspace = await this.repository.findWorkspaceForAnalysis(productId, organizationId);
+    if (!workspace) throw new NotFoundException(`ContentWorkspace ${productId} not found`);
+    const imageUrl = workspace.imageUrl;
 
     const visionItem: ThumbnailAiItem = {
-      productId: master.id,
-      productName: master.name,
+      productId: workspace.id,
+      productName: workspace.name,
       imageUrl,
-      category: master.category ?? null,
+      category: workspace.category ?? null,
     };
 
     const wantsQuality = scope === 'all' || scope === 'quality';
@@ -82,11 +78,11 @@ export class ThumbnailAnalysisAnalyzerService {
       const [qmap, recomposeResult] = await Promise.all([
         this.vision.analyzeQuality([visionItem], signal),
         this.recomposeService.classifyByImage(imageUrl, {
-          productName: master.name,
-          category: master.category,
+          productName: workspace.name,
+          category: workspace.category,
         }),
       ]);
-      const q = qmap.get(master.id);
+      const q = qmap.get(workspace.id);
       if (!q) {
         throw new ServiceUnavailableException('thumbnail_ai_quality_result_missing');
       }
@@ -106,7 +102,7 @@ export class ThumbnailAnalysisAnalyzerService {
         this.vision.checkImageSpec(imageUrl),
         this.vision.checkCompliance([visionItem], signal),
       ]);
-      const c = cmap.get(master.id);
+      const c = cmap.get(workspace.id);
       if (!c) {
         throw new ServiceUnavailableException('thumbnail_ai_compliance_result_missing');
       }
@@ -118,7 +114,7 @@ export class ThumbnailAnalysisAnalyzerService {
     }
 
     const upserted = await this.repository.upsertAnalysis({
-      masterId: master.id,
+      contentWorkspaceId: workspace.id,
       organizationId,
       imageUrl,
       qualityResult,
@@ -127,7 +123,7 @@ export class ThumbnailAnalysisAnalyzerService {
       recompose,
     });
 
-    return toAnalysisResult(upserted, master);
+    return toAnalysisResult(upserted, workspace);
   }
 
   /**
@@ -234,19 +230,15 @@ export class ThumbnailAnalysisAnalyzerService {
     productIds: string[] | undefined,
     organizationId: string,
   ): Promise<{ processed: number; failed: number }> {
-    const masters = await this.repository.findMastersForPreInspect(productIds, organizationId);
+    const workspaces = await this.repository.findWorkspacesForPreInspect(productIds, organizationId);
     let processed = 0;
     let failed = 0;
-    for (const m of masters) {
-      const imageUrl = resolveMasterThumbnailImage(m);
-      if (!imageUrl) {
-        failed += 1;
-        continue;
-      }
+    for (const workspace of workspaces) {
+      const imageUrl = workspace.imageUrl;
       try {
         const spec = await this.vision.checkImageSpec(imageUrl);
         await this.repository.upsertAnalysis({
-          masterId: m.id,
+          contentWorkspaceId: workspace.id,
           organizationId,
           imageUrl,
           imageSpec: spec,
@@ -254,7 +246,7 @@ export class ThumbnailAnalysisAnalyzerService {
         processed += 1;
       } catch (err) {
         this.logger.warn(
-          `preInspect skip ${m.id}: ${err instanceof Error ? err.message : String(err)}`,
+          `preInspect skip ${workspace.id}: ${err instanceof Error ? err.message : String(err)}`,
         );
         failed += 1;
       }

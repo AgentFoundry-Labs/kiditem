@@ -28,13 +28,18 @@ import {
   type Search1688ImageResponse,
 } from '../lib/1688-image-search-api';
 import { append1688NewProductSnapshot } from '../lib/1688-new-product-snapshot';
+import {
+  clearDailyImageSearchCache,
+  loadDailyImageSearchCache,
+  saveDailyImageSearchState,
+  type CachedImageSearchState,
+} from '../lib/daily-image-search-cache';
 import { getTodaySourcingWorkspaceSnapshot } from '../lib/sourcing-workspace-snapshot-api';
 import { SellochWholesaleOfferGrid } from './SellochWholesaleOfferGrid';
 import type { TodayRecommendationRow } from '../recommendations/lib/today-recommendations';
 
 const IMAGE_SEARCH_LAUNCH_INTERVAL_MS = 500;
 const IMAGE_SEARCH_RESULT_LIMIT = 18;
-const IMAGE_SEARCH_DAILY_CACHE_PREFIX = 'kiditem:sourcing-ai:1688-image-search:daily:';
 
 type TodayRecommendationSnapshotPayload = Record<string, unknown> & {
   result?: {
@@ -51,13 +56,6 @@ type ImageSearchAvailability =
   | { status: 'checking' }
   | { status: 'ready'; configured: boolean }
   | { status: 'error'; message: string };
-
-type CachedImageSearchState = Exclude<ImageSearchState, { status: 'loading' }>;
-
-type DailyImageSearchCache = {
-  dateKey: string;
-  states: Record<string, CachedImageSearchState>;
-};
 
 export function SellochWholesaleCoupangMatches() {
   const localRows = useTodayRecommendationRows();
@@ -649,70 +647,6 @@ function imageSearchUnavailableMessage(availability: ImageSearchAvailability): s
     return '1688 직접 검색 연결을 확인한 뒤 다시 시도해 주세요.';
   }
   return '1688 직접 매칭을 실행할 수 있습니다.';
-}
-
-function loadDailyImageSearchCache(): DailyImageSearchCache {
-  const dateKey = todayLocalDateKey();
-  if (typeof window === 'undefined') return { dateKey, states: {} };
-
-  try {
-    const raw = window.localStorage.getItem(dailyImageSearchCacheKey(dateKey));
-    if (!raw) return { dateKey, states: {} };
-    const parsed = JSON.parse(raw) as Partial<DailyImageSearchCache>;
-    if (parsed.dateKey !== dateKey || !parsed.states || typeof parsed.states !== 'object') {
-      return { dateKey, states: {} };
-    }
-    return {
-      dateKey,
-      states: Object.fromEntries(
-        Object.entries(parsed.states).filter((entry): entry is [string, CachedImageSearchState] => {
-          const state = entry[1] as Partial<ImageSearchState>;
-          return state?.status === 'success' || state?.status === 'error';
-        }),
-      ),
-    };
-  } catch {
-    return { dateKey, states: {} };
-  }
-}
-
-function saveDailyImageSearchState(matchId: string, state: CachedImageSearchState) {
-  if (typeof window === 'undefined') return;
-  const cache = loadDailyImageSearchCache();
-  const nextCache: DailyImageSearchCache = {
-    ...cache,
-    states: {
-      ...cache.states,
-      [matchId]: state,
-    },
-  };
-
-  try {
-    window.localStorage.setItem(dailyImageSearchCacheKey(cache.dateKey), JSON.stringify(nextCache));
-  } catch {
-    void 0;
-  }
-}
-
-function clearDailyImageSearchCache() {
-  if (typeof window === 'undefined') return;
-  try {
-    window.localStorage.removeItem(dailyImageSearchCacheKey(todayLocalDateKey()));
-  } catch {
-    void 0;
-  }
-}
-
-function dailyImageSearchCacheKey(dateKey: string): string {
-  return `${IMAGE_SEARCH_DAILY_CACHE_PREFIX}${dateKey}`;
-}
-
-function todayLocalDateKey(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = `${now.getMonth() + 1}`.padStart(2, '0');
-  const day = `${now.getDate()}`.padStart(2, '0');
-  return `${year}-${month}-${day}`;
 }
 
 function formatImageSearchError(error: unknown): string {

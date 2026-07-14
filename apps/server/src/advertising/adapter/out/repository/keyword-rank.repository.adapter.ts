@@ -7,10 +7,10 @@
 // idempotent on `(organizationId, keyword, businessDate)` with
 // latest-capture-wins overwrite semantics.
 
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../../../prisma/prisma.service';
-import { currentBusinessDate } from '../../../domain/business-date';
+import { Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
+import { PrismaService } from "../../../../prisma/prisma.service";
+import { currentBusinessDate } from "../../../domain/business-date";
 import type {
   KeywordRankRepositoryPort,
   KeywordTrackerRow,
@@ -24,7 +24,7 @@ import type {
   UpsertRankSnapshotInput,
   UpsertSerpSnapshotInput,
   WingSalesRankSnapshotRow,
-} from '../../../application/port/out/repository/keyword-rank.repository.port';
+} from "../../../application/port/out/repository/keyword-rank.repository.port";
 
 @Injectable()
 export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
@@ -33,7 +33,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
   listTrackers(organizationId: string): Promise<KeywordTrackerRow[]> {
     return this.prisma.coupangKeywordTracker.findMany({
       where: { organizationId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
     });
   }
 
@@ -78,7 +78,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
       },
     });
     if (updated.count !== 1) {
-      throw new NotFoundException('Keyword tracker not found');
+      throw new NotFoundException("Keyword tracker not found");
     }
     return this.getTrackerOrThrow(id, organizationId);
   }
@@ -115,29 +115,43 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
   }
 
   async listOwnVendorItems(organizationId: string): Promise<OwnVendorItem[]> {
-    const rows = await this.prisma.coupangProductListing.findMany({
-      where: { organizationId, vendorItemId: { not: null } },
-      orderBy: [{ syncedAt: 'desc' }],
+    const rows = await this.prisma.channelListingOption.findMany({
+      where: {
+        organizationId,
+        isActive: true,
+        listing: {
+          isActive: true,
+          channelAccount: { channel: "coupang" },
+        },
+      },
+      orderBy: [{ updatedAt: "desc" }],
       select: {
-        vendorItemId: true,
-        skuId: true,
-        productName: true,
-        category: true,
+        externalOptionId: true,
+        sellerSku: true,
+        itemName: true,
+        listing: {
+          select: {
+            externalId: true,
+            displayName: true,
+            category: true,
+          },
+        },
       },
     });
     const byVendorItemId = new Map<string, OwnVendorItem>();
     for (const row of rows) {
-      if (!row.vendorItemId) continue;
-      const previous = byVendorItemId.get(row.vendorItemId);
+      const vendorItemId = row.externalOptionId;
+      const previous = byVendorItemId.get(vendorItemId);
       if (!previous) {
-        byVendorItemId.set(row.vendorItemId, {
-          vendorItemId: row.vendorItemId,
-          skuId: row.skuId,
-          productName: row.productName,
-          category: row.category,
+        byVendorItemId.set(vendorItemId, {
+          vendorItemId,
+          skuId: row.sellerSku ?? vendorItemId,
+          productName:
+            row.itemName ?? row.listing.displayName ?? row.listing.externalId,
+          category: row.listing.category,
         });
-      } else if (!previous.category && row.category) {
-        previous.category = row.category;
+      } else if (!previous.category && row.listing.category) {
+        previous.category = row.listing.category;
       }
     }
     return [...byVendorItemId.values()];
@@ -146,7 +160,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
   listRepresentativeKeywordOverrides(organizationId: string) {
     return this.prisma.coupangRepresentativeKeywordOverride.findMany({
       where: { organizationId },
-      orderBy: { updatedAt: 'desc' },
+      orderBy: { updatedAt: "desc" },
     });
   }
 
@@ -179,16 +193,22 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     organizationId: string,
     vendorItemId: string,
   ): Promise<boolean> {
-    const row = await this.prisma.coupangProductListing.findFirst({
-      where: { organizationId, vendorItemId },
+    const row = await this.prisma.channelListingOption.findFirst({
+      where: {
+        organizationId,
+        externalOptionId: vendorItemId,
+        isActive: true,
+        listing: {
+          isActive: true,
+          channelAccount: { channel: "coupang" },
+        },
+      },
       select: { id: true },
     });
     return Boolean(row);
   }
 
-  async upsertRankSnapshots(
-    rows: UpsertRankSnapshotInput[],
-  ): Promise<number> {
+  async upsertRankSnapshots(rows: UpsertRankSnapshotInput[]): Promise<number> {
     let count = 0;
     for (const row of rows) {
       await this.prisma.coupangKeywordRankDailySnapshot.upsert({
@@ -237,9 +257,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     return count;
   }
 
-  upsertSerpSnapshot(
-    input: UpsertSerpSnapshotInput,
-  ): Promise<{ id: string }> {
+  upsertSerpSnapshot(input: UpsertSerpSnapshotInput): Promise<{ id: string }> {
     const items = input.items as Prisma.InputJsonValue;
     return this.prisma.coupangKeywordSerpDailySnapshot.upsert({
       where: {
@@ -277,7 +295,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     since.setUTCDate(since.getUTCDate() - (days - 1));
     return this.prisma.coupangKeywordRankDailySnapshot.findMany({
       where: { organizationId, keyword, businessDate: { gte: since } },
-      orderBy: [{ vendorItemId: 'asc' }, { businessDate: 'asc' }],
+      orderBy: [{ vendorItemId: "asc" }, { businessDate: "asc" }],
       select: {
         vendorItemId: true,
         businessDate: true,
@@ -299,10 +317,10 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     return this.prisma.coupangKeywordRankDailySnapshot.findMany({
       where: { organizationId, businessDate: { gte: since } },
       orderBy: [
-        { keyword: 'asc' },
-        { vendorItemId: 'asc' },
-        { businessDate: 'asc' },
-        { capturedAt: 'asc' },
+        { keyword: "asc" },
+        { vendorItemId: "asc" },
+        { businessDate: "asc" },
+        { capturedAt: "asc" },
       ],
       select: {
         keyword: true,
@@ -372,10 +390,10 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     const rows = await this.prisma.coupangWingSalesRankDailySnapshot.findMany({
       where: { organizationId, businessDate: { gte: since } },
       orderBy: [
-        { keyword: 'asc' },
-        { vendorItemId: 'asc' },
-        { businessDate: 'asc' },
-        { capturedAt: 'asc' },
+        { keyword: "asc" },
+        { vendorItemId: "asc" },
+        { businessDate: "asc" },
+        { capturedAt: "asc" },
       ],
       select: {
         keyword: true,
@@ -401,9 +419,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     return rows.map((row) => ({
       ...row,
       conversionRate28d:
-        row.conversionRate28d === null
-          ? null
-          : Number(row.conversionRate28d),
+        row.conversionRate28d === null ? null : Number(row.conversionRate28d),
       keywordConversionRate28d:
         row.keywordConversionRate28d === null
           ? null
@@ -417,7 +433,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
   ): Promise<SerpSnapshotRow | null> {
     return this.prisma.coupangKeywordSerpDailySnapshot.findFirst({
       where: { organizationId, keyword },
-      orderBy: { businessDate: 'desc' },
+      orderBy: { businessDate: "desc" },
       select: {
         keyword: true,
         businessDate: true,
@@ -438,9 +454,9 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     return this.prisma.coupangKeywordSerpDailySnapshot.findMany({
       where: { organizationId, businessDate: { gte: since } },
       orderBy: [
-        { keyword: 'asc' },
-        { businessDate: 'asc' },
-        { capturedAt: 'asc' },
+        { keyword: "asc" },
+        { businessDate: "asc" },
+        { capturedAt: "asc" },
       ],
       select: {
         keyword: true,
@@ -460,7 +476,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     const tracker = await this.prisma.coupangKeywordTracker.findFirst({
       where: { id, organizationId },
     });
-    if (!tracker) throw new NotFoundException('Keyword tracker not found');
+    if (!tracker) throw new NotFoundException("Keyword tracker not found");
     return tracker;
   }
 }

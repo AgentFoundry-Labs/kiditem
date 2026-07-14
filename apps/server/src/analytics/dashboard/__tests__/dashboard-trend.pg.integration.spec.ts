@@ -81,13 +81,17 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       channel: 'coupang', externalId: `EXT-T-${opts.suffix}`,
       optionId, externalOptionId: `VI-T-${opts.suffix}`,
     });
+    const listing = await prisma.channelListing.findUniqueOrThrow({
+      where: { id: listingId },
+      select: { channelAccountId: true },
+    });
 
     if (opts.orderTotalPriceOverride !== undefined) {
       // Bypass helper to set Order.totalPrice independently of lineItem totals.
       const order = await prisma.order.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
-          platform: 'coupang',
+          channelAccountId: listing.channelAccountId,
           externalOrderId: `TREND-T-${opts.suffix}`,
           orderedAt: yesterday,
           status: 'paid',
@@ -100,7 +104,6 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
           organizationId: TEST_ORGANIZATION_ID,
           orderId: order.id,
           listingOptionId,
-          optionId,
           quantity: 1,
           unitPrice: opts.lineItemTotalPrice,
           totalPrice: opts.lineItemTotalPrice,
@@ -234,6 +237,10 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       optionId,
       externalOptionId: 'VI-T-WING',
     });
+    const listing = await prisma.channelListing.findUniqueOrThrow({
+      where: { id: listingId },
+      select: { channelAccountId: true },
+    });
 
     await prisma.channelListingDailySnapshot.create({
       data: {
@@ -251,6 +258,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
     await prisma.channelAccountDailyKpiSnapshot.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: listing.channelAccountId,
         channel: 'coupang',
         source: 'advertising',
         kpiType: 'coupang_ads_daily',

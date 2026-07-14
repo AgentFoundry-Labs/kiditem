@@ -16,10 +16,6 @@ import {
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { apiClient } from '@/lib/api-client';
-import PageSkeleton from '@/components/ui/PageSkeleton';
-import { queryKeys } from '@/lib/query-keys';
-import { cn, formatKRW, formatNumber, formatDateTime } from '@/lib/utils';
 import {
   DashboardSalesSummarySchema,
   DashboardAdSummarySchema,
@@ -28,6 +24,11 @@ import {
 } from '@kiditem/shared/dashboard';
 import { ActionTaskListSchema } from '@kiditem/shared/action-task';
 import { z } from 'zod';
+import { apiClient } from '@/lib/api-client';
+import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
+import PageSkeleton from '@/components/ui/PageSkeleton';
+import { queryKeys } from '@/lib/query-keys';
+import { cn, formatKRW, formatNumber, formatDateTime } from '@/lib/utils';
 import { friendlyError } from '@/lib/api-error';
 import ReadinessModal from '@/components/ReadinessModal';
 import { DashboardChartPanel } from './components/DashboardChartPanel';
@@ -157,14 +158,14 @@ export default function Dashboard() {
     const source = salesBaseline?.effectivePeriod?.revenueSource;
     if (source === 'wing' || source === 'mixed' || source === 'orders' || source === 'rocket' || source === 'wing_rocket') return;
     const COOLDOWN_KEY = 'kiditem_wing_scrape_triggered';
-    const lastTrigger = localStorage.getItem(COOLDOWN_KEY);
+    const lastTrigger = safeStorageGet('local', COOLDOWN_KEY);
     if (lastTrigger && Date.now() - Number(lastTrigger) < 30 * 60 * 1000) return; // 30분 쿨다운
     const now = new Date();
     const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
     const today = now.toISOString().slice(0, 10);
     const wingUrl = `https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date=${monthStart}&end_date=${today}`;
     window.open(wingUrl, '_blank');
-    localStorage.setItem(COOLDOWN_KEY, String(Date.now()));
+    safeStorageSet('local', COOLDOWN_KEY, String(Date.now()));
     toast.info('Wing 매출분석 페이지를 열어 데이터를 수집합니다. 잠시 후 새로고침하세요.', { duration: 8000 });
   }, [salesBaseline?.trafficKpi?.needsScrape, salesBaseline?.effectivePeriod?.revenueSource]);
 
@@ -652,7 +653,7 @@ export default function Dashboard() {
       {inventoryHasErr ? (
         <DashboardSectionError msg={friendlyError(inventoryError) ?? undefined} onRetry={refetchInventory} />
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           <Link href="/product-hub?tab=cleanup" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
             <div className="text-sm font-bold mb-1 text-slate-900">적자 상품</div>
             <div className="text-2xl font-extrabold tabular-nums text-slate-900">{inventoryData.warnings.minusProducts}<span className="text-sm ml-0.5">개</span></div>
@@ -667,6 +668,22 @@ export default function Dashboard() {
             <div className="text-sm font-bold mb-1 text-slate-900">광고비 초과</div>
             <div className="text-2xl font-extrabold tabular-nums text-slate-900">{inventoryData.warnings.highAdProducts}<span className="text-sm ml-0.5">개</span></div>
             <div className="text-xs mt-1 text-slate-400">광고비율 15% 초과</div>
+          </Link>
+          <Link href="/stock-ops?tab=sellpia-zero" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
+            <div className="text-sm font-bold mb-1 text-slate-900">셀피아 재고 0</div>
+            <div className="text-2xl font-extrabold tabular-nums text-slate-900">
+              <span data-warning-count="out-of-stock">{inventoryData.warnings.outOfStockSkus}</span>
+              <span className="text-sm ml-0.5">건</span>
+            </div>
+            <div className="text-xs mt-1 text-slate-400">최신 셀피아 스냅샷</div>
+          </Link>
+          <Link href="/product-hub/matching" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
+            <div className="text-sm font-bold mb-1 text-slate-900">매칭 확인 필요</div>
+            <div className="text-2xl font-extrabold tabular-nums text-slate-900">
+              <span data-warning-count="mapping-attention">{inventoryData.warnings.mappingAttentionSkus}</span>
+              <span className="text-sm ml-0.5">건</span>
+            </div>
+            <div className="text-xs mt-1 text-slate-400">미매칭·검토 필요 채널 SKU</div>
           </Link>
         </div>
       )}

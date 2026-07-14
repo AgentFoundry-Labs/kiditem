@@ -81,7 +81,7 @@ describe('ProcessingCostsService', () => {
         quantity: 10,
       });
       expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
-        where: { id: MASTER_ID, organizationId: COMPANY_A, isDeleted: false },
+        where: { id: MASTER_ID, organizationId: COMPANY_A, isActive: true },
         select: { id: true },
       });
       const callArg = prisma.processingCost.create.mock.calls[0][0];
@@ -104,7 +104,7 @@ describe('ProcessingCostsService', () => {
       ).rejects.toBeInstanceOf(BadRequestException);
 
       expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
-        where: { id: MASTER_ID, organizationId: COMPANY_B, isDeleted: false },
+        where: { id: MASTER_ID, organizationId: COMPANY_B, isActive: true },
         select: { id: true },
       });
       expect(prisma.processingCost.create).not.toHaveBeenCalled();

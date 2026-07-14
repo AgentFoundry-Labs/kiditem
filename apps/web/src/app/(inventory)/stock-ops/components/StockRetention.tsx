@@ -1,204 +1,26 @@
 'use client';
 
-import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { BarChart3, TrendingDown, Package, Percent, Loader2, RefreshCw } from 'lucide-react';
-import { apiClient } from '@/lib/api-client';
+import { useState } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { CircleDollarSign } from 'lucide-react';
 import { queryKeys } from '@/lib/query-keys';
-import { cn, formatNumber, getGradeColor } from '@/lib/utils';
-
-interface PurchaseOrder {
-  id: string;
-  status: string;
-  items?: { productId: string; productName: string; quantity: number }[];
-}
-
-interface InventoryItem {
-  productId: string;
-  currentStock: number;
-  product?: { id: string; name: string; sku: string | null; grade?: string | null } | null;
-}
-
-interface RetentionItem {
-  productId: string;
-  productName: string;
-  sku: string | null;
-  grade: string;
-  totalInbound: number;
-  currentStock: number;
-  retentionRate: number;
-  soldQuantity: number;
-}
+import { formatNumber } from '@/lib/utils';
+import { listSellpiaInventorySkus, sellpiaInventoryKeyParams } from '../../_shared/inventory-api';
+import { ErrorState, LoadingState, ProjectionCard, SimpleTable } from './ZeroItems';
 
 export default function StockRetention() {
-  const { data: poData, isLoading: loadingPo } = useQuery({
-    queryKey: queryKeys.purchaseOrders.list({ status: 'received' }),
-    queryFn: () =>
-      apiClient.get<{ items: PurchaseOrder[]; total: number }>(
-        '/api/purchase-orders?status=received&limit=200'
-      ),
+  const [page, setPage] = useState(1);
+  const params = { page, limit: 100 };
+  const { data, isLoading, error } = useQuery({
+    queryKey: queryKeys.inventory.assetList(sellpiaInventoryKeyParams(params)),
+    queryFn: () => listSellpiaInventorySkus(params),
+    placeholderData: keepPreviousData,
   });
 
-  const { data: invData, isLoading: loadingInv } = useQuery({
-    queryKey: queryKeys.inventory.list({ limit: '500' }),
-    queryFn: () =>
-      apiClient.get<{ items: InventoryItem[]; total: number }>('/api/inventory?limit=200'),
-  });
-
-  const isLoading = loadingPo || loadingInv;
-
-  const items = useMemo(() => {
-    const orders = poData?.items ?? [];
-    const inventories = invData?.items ?? [];
-
-    // 상품별 총 입고 수량 계산
-    const inboundMap = new Map<string, { name: string; qty: number }>();
-    for (const po of orders) {
-      for (const item of po.items ?? []) {
-        const qty = Number(item.quantity) || 0;
-        const prev = inboundMap.get(item.productId) ?? { name: item.productName, qty: 0 };
-        prev.qty += qty;
-        inboundMap.set(item.productId, prev);
-      }
-    }
-
-    // 재고 맵
-    const stockMap = new Map<string, InventoryItem>();
-    for (const inv of inventories) {
-      stockMap.set(inv.productId, inv);
-    }
-
-    // 잔존율 계산
-    const result: RetentionItem[] = [];
-    for (const [productId, inbound] of Array.from(inboundMap.entries())) {
-      const inv = stockMap.get(productId);
-      const currentStock = Number(inv?.currentStock) || 0;
-      const totalInbound = inbound.qty;
-      const soldQuantity = Math.max(0, totalInbound - currentStock);
-      const retentionRate = totalInbound > 0 ? (currentStock / totalInbound) * 100 : 0;
-
-      result.push({
-        productId,
-        productName: inbound.name || inv?.product?.name || productId,
-        sku: inv?.product?.sku ?? null,
-        grade: (inv?.product as any)?.grade ?? '-',
-        totalInbound,
-        currentStock,
-        retentionRate: Math.round(retentionRate * 10) / 10,
-        soldQuantity,
-      });
-    }
-
-    return result.sort((a, b) => b.retentionRate - a.retentionRate);
-  }, [poData, invData]);
-
-  const totalInbound = items.reduce((s, i) => s + i.totalInbound, 0);
-  const totalCurrentStock = items.reduce((s, i) => s + i.currentStock, 0);
-  const avgRetention = totalInbound > 0 ? ((totalCurrentStock / totalInbound) * 100).toFixed(1) : '0';
-  const highRetention = items.filter((i) => i.retentionRate > 80).length;
-
-  const getRetentionColor = (rate: number) => {
-    if (rate > 80) return 'text-red-600';
-    if (rate > 50) return 'text-orange-600';
-    if (rate > 20) return 'text-yellow-600';
-    return 'text-green-600';
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <BarChart3 className="w-6 h-6 text-cyan-600" />
-          <h2 className="text-lg font-bold text-slate-800">입고대비 잔존재고 분석</h2>
-        </div>
-        <button disabled={isLoading} className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50">
-          {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-          새로고침
-        </button>
-      </div>
-
-      {/* KPI */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <div className="flex items-center gap-2 mb-1">
-            <Package className="w-4 h-4 text-blue-500" />
-            <p className="card-label">총 입고수량</p>
-          </div>
-          <p className="card-value text-slate-800">{isLoading ? '-' : `${formatNumber(totalInbound)}개`}</p>
-        </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <p className="text-sm text-slate-500 mb-1">현재 잔존재고</p>
-          <p className="card-value text-slate-800">{isLoading ? '-' : `${formatNumber(totalCurrentStock)}개`}</p>
-        </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <div className="flex items-center gap-2 mb-1">
-            <Percent className="w-4 h-4 text-cyan-500" />
-            <p className="card-label">평균 잔존율</p>
-          </div>
-          <p className="card-value text-cyan-600">{isLoading ? '-' : `${avgRetention}%`}</p>
-        </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <div className="flex items-center gap-2 mb-1">
-            <TrendingDown className="w-4 h-4 text-red-500" />
-            <p className="card-label">잔존율 80%+</p>
-          </div>
-          <p className="card-value text-red-600">{isLoading ? '-' : `${highRetention}개`}</p>
-          <p className="text-xs text-slate-400 mt-1">판매 부진 주의</p>
-        </div>
-      </div>
-
-      {/* 테이블 */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5">
-        <h2 className="text-lg font-semibold text-slate-800 mb-4">
-          상품별 잔존재고 분석
-          <span className="text-sm text-slate-400 ml-2">({items.length}개 상품)</span>
-        </h2>
-        <div className="overflow-x-auto">
-          <table>
-            <thead>
-              <tr className="border-b border-slate-200 text-slate-500">
-                <th className="text-left py-2 px-3">상품명</th>
-                <th className="text-left py-2 px-3">SKU</th>
-                <th className="text-center py-2 px-3">등급</th>
-                <th className="text-right py-2 px-3">총 입고</th>
-                <th className="text-right py-2 px-3">판매수량</th>
-                <th className="text-right py-2 px-3">현재재고</th>
-                <th className="text-right py-2 px-3">잔존율</th>
-                <th className="text-left py-2 px-3">잔존율 바</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                <tr><td colSpan={8} className="py-12 text-center text-slate-400">
-                  <Loader2 className="w-5 h-5 animate-spin inline mr-2" />로딩 중...
-                </td></tr>
-              ) : items.length === 0 ? (
-                <tr><td colSpan={8} className="py-12 text-center text-slate-400">데이터 없음 (입고된 발주 없음)</td></tr>
-              ) : items.map((item) => (
-                <tr key={item.productId} className={cn('border-b border-slate-100 hover:bg-slate-50', item.retentionRate > 80 && 'bg-red-50/30')}>
-                  <td className="py-2 px-3 font-medium max-w-[180px] truncate">{item.productName}</td>
-                  <td className="py-2 px-3 text-xs text-slate-500 font-mono">{item.sku || '-'}</td>
-                  <td className="py-2 px-3 text-center">
-                    <span className={cn('px-2 py-0.5 rounded text-xs font-bold', getGradeColor(item.grade))}>{item.grade}</span>
-                  </td>
-                  <td className="py-2 px-3 text-right">{formatNumber(item.totalInbound)}개</td>
-                  <td className="py-2 px-3 text-right text-green-600">{formatNumber(item.soldQuantity)}개</td>
-                  <td className="py-2 px-3 text-right font-medium">{formatNumber(item.currentStock)}개</td>
-                  <td className={cn('py-2 px-3 text-right font-bold', getRetentionColor(item.retentionRate))}>
-                    {item.retentionRate}%
-                  </td>
-                  <td className="py-2 px-3 w-32">
-                    <div className="w-full bg-slate-100 rounded-full h-2">
-                      <div className={cn('h-2 rounded-full', item.retentionRate > 80 ? 'bg-red-400' : item.retentionRate > 50 ? 'bg-orange-400' : 'bg-green-400')}
-                        style={{ width: `${Math.min(100, item.retentionRate)}%` }} />
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
+  return <ProjectionCard title="재고자산" description="매입가가 있는 Sellpia SKU만 평가액에 포함합니다." icon={CircleDollarSign}>
+    {data ? <div className="grid gap-3 sm:grid-cols-3"><Metric label="평가 재고자산" value={`${formatNumber(data.summary.pricedAssetValue)}원`} /><Metric label="총 재고수량" value={`${formatNumber(data.summary.totalUnits)}개`} /><Metric label="가격 미등록" value={`${formatNumber(data.summary.unpricedSkuCount)}개`} /></div> : null}
+    {error ? <ErrorState /> : isLoading ? <LoadingState /> : <SimpleTable headings={['Sellpia 코드', '상품명', '현재고', '매입가', '재고자산']} rows={(data?.items ?? []).map((item) => [item.code, item.name, `${formatNumber(item.currentStock)}개`, item.purchasePrice === null ? '가격 미등록' : `${formatNumber(item.purchasePrice)}원`, item.stockValue === null ? '-' : `${formatNumber(item.stockValue)}원`])} empty="재고자산 데이터가 없습니다." pagination={{ page: data?.page ?? page, limit: data?.limit ?? 100, total: data?.total ?? 0, onPageChange: setPage }} />}
+  </ProjectionCard>;
 }
+
+function Metric({ label, value }: { label: string; value: string }) { return <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4"><p className="text-sm text-[var(--text-secondary)]">{label}</p><p className="mt-1 text-xl font-semibold">{value}</p></div>; }

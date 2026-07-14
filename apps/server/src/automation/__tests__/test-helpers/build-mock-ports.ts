@@ -21,10 +21,10 @@ export type MockActionBoardRepo = {
 export function buildMockActionBoardRepo(): MockActionBoardRepo {
   return {
     fetchPerListingMetrics: vi.fn(),
-    findInventoryStockRows: vi.fn(),
+    countOutOfStockMasterProducts: vi.fn(),
+    countMappingAttentionChannelSkus: vi.fn(),
     countLowCtrThumbnails: vi.fn(),
     findAGradeReviewCounts: vi.fn(),
-    findInventoryReorderCandidates: vi.fn(),
     upsertActionTaskSeed: vi.fn(),
     findActionTasksForDay: vi.fn(),
     findActionTaskScoped: vi.fn(),

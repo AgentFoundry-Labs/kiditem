@@ -1,244 +1,37 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { ShoppingCart, PackageX } from 'lucide-react';
-import { apiClient } from '@/lib/api-client';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { PackageX } from 'lucide-react';
+import { Pagination } from '@/components/ui/Pagination';
 import { queryKeys } from '@/lib/query-keys';
-import { cn, formatNumber, getGradeColor } from '@/lib/utils';
-import {
-  fetchInventoryList,
-  inventoryListKeyParams,
-  type InventoryListParams,
-} from '../../_shared/inventory-api';
-import { stockOpsInventoryName } from '../lib/inventory-projection';
-
-interface ProductItem {
-  id: string;
-  name: string;
-  sku: string | null;
-  category: string | null;
-  organization: string;
-  costPrice: number;
-  sellPrice: number;
-  currentStock: number;
-  status: string;
-  abcGrade: string;
-  orderCount: number;
-}
-
-const ZERO_STOCK_PARAMS: InventoryListParams = { status: 'out', limit: 200 };
+import { listSellpiaInventorySkus, sellpiaInventoryKeyParams } from '../../_shared/inventory-api';
 
 export default function ZeroItems() {
-  const [tab, setTab] = useState<'zero_sales' | 'zero_stock'>('zero_sales');
-
-  const { data: productsData, isLoading: loadingProducts } = useQuery({
-    queryKey: queryKeys.products.list({ limit: '200', orderCount: '0' }),
-    queryFn: () =>
-      apiClient.get<{ items: ProductItem[]; total: number }>(
-        '/api/products?limit=200',
-      ),
+  const [page, setPage] = useState(1);
+  const params = { page, limit: 100, stockStatus: 'out_of_stock' as const };
+  const { data, isLoading, error } = useQuery({
+    queryKey: queryKeys.inventory.snapshot(sellpiaInventoryKeyParams(params)),
+    queryFn: () => listSellpiaInventorySkus(params),
+    placeholderData: keepPreviousData,
   });
-
-  const { data: inventoryData, isLoading: loadingInventory } = useQuery({
-    queryKey: queryKeys.inventory.list(inventoryListKeyParams(ZERO_STOCK_PARAMS)),
-    queryFn: () => fetchInventoryList(ZERO_STOCK_PARAMS),
-  });
-
-  const isLoading = loadingProducts || loadingInventory;
-  const zeroSalesItems = productsData?.items?.filter((p) => p.orderCount === 0) ?? [];
-  const zeroStockItems = inventoryData?.items ?? [];
 
   return (
-    <div className="space-y-6">
-      {/* KPI */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <div className="flex items-center gap-2 mb-1">
-            <ShoppingCart className="w-4 h-4 text-orange-500" />
-            <p className="card-label">판매 0건 상품</p>
-          </div>
-          <p className="card-value text-orange-600">
-            {isLoading ? '-' : `${zeroSalesItems.length}개`}
-          </p>
-          <p className="text-xs text-slate-400 mt-1">
-            주문이 한 건도 없는 상품
-          </p>
-        </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <div className="flex items-center gap-2 mb-1">
-            <PackageX className="w-4 h-4 text-red-500" />
-            <p className="card-label">재고 0 옵션</p>
-          </div>
-          <p className="card-value text-red-600">
-            {isLoading ? '-' : `${zeroStockItems.length}개`}
-          </p>
-          <p className="text-xs text-slate-400 mt-1">
-            현재 재고 상태가 <code className="px-1 rounded bg-slate-100">out</code> 인 옵션
-          </p>
-        </div>
-      </div>
-
-      {/* 탭 */}
-      <div className="flex gap-2">
-        <button
-          onClick={() => setTab('zero_sales')}
-          className={cn(
-            'flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors',
-            tab === 'zero_sales'
-              ? 'bg-orange-600 text-white'
-              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50',
-          )}
-        >
-          <ShoppingCart className="w-4 h-4" /> 판매 0건 ({zeroSalesItems.length})
-        </button>
-        <button
-          onClick={() => setTab('zero_stock')}
-          className={cn(
-            'flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm transition-colors',
-            tab === 'zero_stock'
-              ? 'bg-red-600 text-white'
-              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50',
-          )}
-        >
-          <PackageX className="w-4 h-4" /> 재고 0 ({zeroStockItems.length})
-        </button>
-      </div>
-
-      {/* 판매 0건 테이블 */}
-      {tab === 'zero_sales' && (
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <h2 className="text-lg font-semibold text-slate-800 mb-4">
-            판매 0건 상품 목록
-          </h2>
-          <div className="overflow-x-auto">
-            <table>
-              <thead>
-                <tr className="border-b border-slate-200 text-slate-500">
-                  <th className="text-left py-2 px-3">상품명</th>
-                  <th className="text-left py-2 px-3">SKU</th>
-                  <th className="text-center py-2 px-3">등급</th>
-                  <th className="text-left py-2 px-3">카테고리</th>
-                  <th className="text-right py-2 px-3">매입가</th>
-                  <th className="text-right py-2 px-3">판매가</th>
-                  <th className="text-right py-2 px-3">재고</th>
-                  <th className="text-left py-2 px-3">회사</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={8} className="py-12 text-center text-slate-400">
-                      로딩 중...
-                    </td>
-                  </tr>
-                ) : zeroSalesItems.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="py-12 text-center text-slate-400">
-                      판매 0건 상품 없음
-                    </td>
-                  </tr>
-                ) : (
-                  zeroSalesItems.map((item) => (
-                    <tr
-                      key={item.id}
-                      className="border-b border-slate-100 hover:bg-orange-50/30"
-                    >
-                      <td className="py-2 px-3 font-medium max-w-[180px] truncate">
-                        {item.name}
-                      </td>
-                      <td className="py-2 px-3 text-xs text-slate-500 font-mono">
-                        {item.sku || '-'}
-                      </td>
-                      <td className="py-2 px-3 text-center">
-                        <span
-                          className={cn(
-                            'px-2 py-0.5 rounded text-xs font-bold',
-                            getGradeColor(item.abcGrade),
-                          )}
-                        >
-                          {item.abcGrade}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3 text-slate-500">
-                        {item.category || '-'}
-                      </td>
-                      <td className="py-2 px-3 text-right">
-                        {formatNumber(item.costPrice)}원
-                      </td>
-                      <td className="py-2 px-3 text-right">
-                        {formatNumber(item.sellPrice)}원
-                      </td>
-                      <td className="py-2 px-3 text-right">
-                        {formatNumber(item.currentStock)}개
-                      </td>
-                      <td className="py-2 px-3 text-slate-500 text-xs">
-                        {item.organization}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+    <ProjectionCard title="Sellpia 현재고 0" description="마지막 완료 파일에서 현재고가 0인 물리 SKU입니다." icon={PackageX}>
+      {error ? <ErrorState /> : isLoading ? <LoadingState /> : (
+        <SimpleTable headings={['Sellpia 코드', '상품명', '옵션', '바코드']} rows={(data?.items ?? []).map((item) => [item.code, item.name, item.optionName ?? '-', item.barcode ?? '-'])} empty="현재고 0인 SKU가 없습니다." pagination={{ page: data?.page ?? page, limit: data?.limit ?? 100, total: data?.total ?? 0, onPageChange: setPage }} />
       )}
-
-      {/* 재고 0 테이블 */}
-      {tab === 'zero_stock' && (
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <h2 className="text-lg font-semibold text-slate-800 mb-4">
-            재고 0 옵션 목록
-          </h2>
-          <div className="overflow-x-auto">
-            <table>
-              <thead>
-                <tr className="border-b border-slate-200 text-slate-500">
-                  <th className="text-left py-2 px-3">상품 / 옵션</th>
-                  <th className="text-left py-2 px-3">SKU</th>
-                  <th className="text-right py-2 px-3">현재재고</th>
-                  <th className="text-right py-2 px-3">발주점</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={4} className="py-12 text-center text-slate-400">
-                      로딩 중...
-                    </td>
-                  </tr>
-                ) : zeroStockItems.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="py-12 text-center text-slate-400">
-                      재고 0 옵션 없음
-                    </td>
-                  </tr>
-                ) : (
-                  zeroStockItems.map((item) => (
-                    <tr
-                      key={item.id}
-                      className="border-b border-slate-100 hover:bg-red-50/30"
-                    >
-                      <td className="py-2 px-3 font-medium max-w-[240px] truncate">
-                        {stockOpsInventoryName(item)}
-                      </td>
-                      <td className="py-2 px-3 text-xs text-slate-500 font-mono">
-                        {item.sku || '-'}
-                      </td>
-                      <td className="py-2 px-3 text-right text-red-600 font-bold">
-                        {formatNumber(item.currentStock)}개
-                      </td>
-                      <td className="py-2 px-3 text-right text-slate-600">
-                        {formatNumber(item.reorderPoint)}개
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
+    </ProjectionCard>
   );
 }
+
+export function ProjectionCard({ title, description, icon: Icon, children }: { title: string; description: string; icon: typeof PackageX; children: React.ReactNode }) {
+  return <section className="space-y-4"><div><h2 className="flex items-center gap-2 text-lg font-semibold"><Icon className="h-5 w-5" aria-hidden="true" /> {title}</h2><p className="mt-1 text-sm text-[var(--text-secondary)]">{description}</p></div>{children}</section>;
+}
+
+export function SimpleTable({ headings, rows, empty, pagination }: { headings: string[]; rows: string[][]; empty: string; pagination?: { page: number; limit: number; total: number; onPageChange: (page: number) => void } }) {
+  return <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]"><div className="overflow-x-auto"><table className="w-full min-w-[680px]"><thead><tr>{headings.map((heading) => <th key={heading}>{heading}</th>)}</tr></thead><tbody>{rows.length ? rows.map((row, index) => <tr key={`${row[0]}-${index}`}>{row.map((cell, cellIndex) => <td key={`${cellIndex}-${cell}`} className={cellIndex === 0 ? 'font-mono text-xs' : ''}>{cell}</td>)}</tr>) : <tr><td colSpan={headings.length} className="py-12 text-center text-[var(--text-secondary)]">{empty}</td></tr>}</tbody></table></div>{pagination ? <Pagination {...pagination} /> : null}</div>;
+}
+
+export function LoadingState() { return <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-12 text-center text-[var(--text-secondary)]">불러오는 중...</div>; }
+export function ErrorState() { return <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">데이터를 불러오지 못했습니다.</div>; }

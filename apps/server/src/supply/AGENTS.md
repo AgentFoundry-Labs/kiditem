@@ -2,8 +2,8 @@ Consult this document first instead of relying on memorized knowledge.
 
 # supply — Suppliers + Procurement
 
-`src/supply/` owns supplier registry, master-supplier policy
-(`MasterSupplierProduct`), and purchase-order procurement. Suppliers are
+`src/supply/` owns supplier registry, Sellpia physical-product supplier policy
+(`SupplierProduct`), and purchase-order procurement. Suppliers are
 organization-private. Sourcing and supply are separate because sourcing buyer
 work and vendor-manager/procurement work mutate different surfaces.
 
@@ -30,7 +30,8 @@ Route shape is frozen.
 ## Main Data Models
 
 - `Supplier` is organization-private supplier identity.
-- `MasterSupplierProduct` is the master-supplier policy table.
+- `SupplierProduct` links a Sellpia `MasterProduct` to supplier price, MOQ, and
+  primary-supplier policy.
 - `PurchaseOrder` is procurement state.
 - `SupplierPayment` is finance-owned and must not be written from supply.
 
@@ -43,12 +44,13 @@ Route shape is frozen.
 - Delete is allowed only from `draft` or `pending`.
 - `/api/purchase-orders` keeps the legacy single POST action body
   (`create | updateStatus | delete`).
-- Repository adapters own Prisma details and ProductOption ownership checks;
-  application services depend on `application/port/out/*` contracts only.
+- Repository adapters own Prisma details and Sellpia `MasterProduct` ownership
+  checks; application services depend on `application/port/out/*` contracts
+  only.
 
 ## Cross-Domain Ports
 
-- Future writers for `MasterSupplierProduct` must use a supply-owned port such
+- Future writers for `SupplierProduct` must use a supply-owned port such
   as `SUPPLY_ATTACH_PORT`.
 - Finance owns supplier-payment writes. Supply may read payment data for
   back-references when needed.
@@ -66,5 +68,5 @@ Route shape is frozen.
 
 ## Current Non-Goals
 
-- `MasterSupplierProduct` currently has no write path; analytics reads it via a
+- `SupplierProduct` currently has no write path; analytics reads it via a
   read-only join.

@@ -7,6 +7,10 @@ import {
   SOURCING_CANDIDATE_REPOSITORY_PORT,
   type SourcingCandidateRepositoryPort,
 } from '../port/out/repository/sourcing-candidate.repository.port';
+import {
+  PRODUCT_PREPARATION_REPOSITORY_PORT,
+  type ProductPreparationRepositoryPort,
+} from '../port/out/repository/product-preparation.repository.port';
 
 export interface SourcingWorkspaceArchiveResult {
   ok: true;
@@ -24,11 +28,28 @@ export class SourcingWorkspaceArchiveService {
     private readonly candidates: SourcingCandidateRepositoryPort,
     @Inject(SOURCING_AI_WORKSPACE_ARCHIVE_PORT)
     private readonly aiArchive: SourcingAiWorkspaceArchivePort,
+    @Inject(PRODUCT_PREPARATION_REPOSITORY_PORT)
+    private readonly preparations: ProductPreparationRepositoryPort,
   ) {}
 
   async archive(candidateId: string, organizationId: string): Promise<SourcingWorkspaceArchiveResult> {
     return this.candidates.runInTransaction(async (tx) => {
       const archivedAt = new Date();
+      await this.candidates.lockCandidate(tx, {
+        id: candidateId,
+        organizationId,
+      });
+      const locked = await this.candidates.findCandidateState(tx, {
+        id: candidateId,
+        organizationId,
+      });
+      if (!locked || locked.status !== 'sourced') {
+        throw new NotFoundException('Sourcing candidate not found');
+      }
+      await this.preparations.assertCandidateTerminalTransitionAllowed(tx, {
+        organizationId,
+        sourceCandidateId: candidateId,
+      });
       const candidate = await this.candidates.archiveSourcedWorkspace(tx, {
         id: candidateId,
         organizationId,

@@ -89,6 +89,7 @@ export class AdCampaignIngestHandler {
 
     const scrapeRun = await this.scrapeRepo.createRun({
       organizationId,
+      channelAccountId: map.channelAccountId,
       channel: 'coupang',
       source: 'advertising',
       pageType: 'campaign',
@@ -140,7 +141,6 @@ export class AdCampaignIngestHandler {
           externalOptionId: externalOptionIdRaw,
           listingId: match.listingId,
           listingOptionId: match.listingOptionId,
-          optionId: match.optionId,
           matchStatus,
           matchReason: !pair.hasNormalizedRow
             ? 'missing normalized row (snapshot only)'
@@ -231,7 +231,6 @@ export class AdCampaignIngestHandler {
             targetKey,
             listingId: match.listingId ?? null,
             listingOptionId: match.listingOptionId ?? null,
-            optionId: match.optionId ?? null,
             externalId: externalIdRaw ?? match.externalId ?? null,
             externalOptionId:
               externalOptionIdRaw ?? match.externalOptionId ?? null,
@@ -297,6 +296,7 @@ export class AdCampaignIngestHandler {
         };
         await this.accountKpiRepo.upsertAccountKpi({
           organizationId,
+          channelAccountId: map.channelAccountId,
           channel: 'coupang',
           source: 'advertising',
           kpiType: 'advertising_campaign_kpis',

@@ -4,8 +4,6 @@ export type ThumbnailSubject =
   | {
       kind: 'content-workspace';
       workspaceId: string;
-      targetMasterId?: string | null;
-      sourceCandidateId?: string | null;
     }
   | { kind: 'direct-upload' };
 
@@ -35,8 +33,8 @@ export function thumbnailSubjectToDtoIdentity(
     case 'content-workspace':
       return {
         contentWorkspaceId: subject.workspaceId,
-        productId: subject.targetMasterId ?? null,
-        sourceCandidateId: subject.targetMasterId ? null : subject.sourceCandidateId ?? null,
+        productId: null,
+        sourceCandidateId: null,
       };
     case 'direct-upload':
       return { productId: null, sourceCandidateId: null, contentWorkspaceId: null };
@@ -48,8 +46,6 @@ export function thumbnailSubjectFromParams(params: ThumbnailSubjectParams): Thum
     return {
       kind: 'content-workspace',
       workspaceId: params.contentWorkspaceId,
-      targetMasterId: params.productId ?? null,
-      sourceCandidateId: params.sourceCandidateId ?? null,
     };
   }
   if (params.productId) return { kind: 'master-product', productId: params.productId };

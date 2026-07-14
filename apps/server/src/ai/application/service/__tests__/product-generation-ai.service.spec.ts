@@ -101,7 +101,6 @@ describe('ProductGenerationAiService', () => {
     expect(detailPages.generate).toHaveBeenCalledWith(
       expect.objectContaining({
         rawTitle: '자석 다트게임',
-        productId: undefined,
         sourceReferences: [{
           sourceType: 'sourcing_candidate',
           sourceCandidateId: CANDIDATE_ID,

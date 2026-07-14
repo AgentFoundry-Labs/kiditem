@@ -9,7 +9,8 @@ import {
 
 const baseOrderListItem = {
   id: '00000000-0000-4000-8000-000000000001',
-  platform: 'coupang',
+  channelAccountId: '00000000-0000-4000-8000-000000000010',
+  channel: 'coupang',
   externalOrderId: '123456789',
   externalNumber: 'CO-100',
   displayOrderNumber: 'CO-100',

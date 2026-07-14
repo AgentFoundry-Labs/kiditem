@@ -85,7 +85,6 @@ export class AdCampaignRepositoryAdapter
           campaign_name AS "campaignName",
           listing_id::text AS "listingId",
           listing_option_id::text AS "listingOptionId",
-          option_id::text AS "optionId",
           external_id AS "externalId",
           external_option_id AS "externalOptionId",
           keyword,
@@ -101,7 +100,6 @@ export class AdCampaignRepositoryAdapter
         latest."campaignName",
         latest."listingId"::uuid AS "listingId",
         latest."listingOptionId"::uuid AS "listingOptionId",
-        latest."optionId"::uuid AS "optionId",
         latest."externalId",
         latest."externalOptionId",
         latest.keyword,
@@ -155,25 +153,18 @@ export class AdCampaignRepositoryAdapter
     if (listingIds.length === 0) return totals;
 
     const listings = await this.prisma.channelListing.findMany({
-      where: { id: { in: listingIds }, organizationId, isDeleted: false },
-      select: { id: true, masterId: true },
+      where: {
+        id: { in: listingIds },
+        organizationId,
+        isActive: true,
+      },
+      select: { id: true, abcGrade: true },
     });
-    const masterIds = Array.from(new Set(listings.map((l) => l.masterId)));
-    const masters =
-      masterIds.length > 0
-        ? await this.prisma.masterProduct.findMany({
-            where: { id: { in: masterIds }, organizationId },
-            select: { id: true, abcGrade: true },
-          })
-        : [];
-    const listingMap = new Map(listings.map((l) => [l.id, l]));
-    const masterMap = new Map(masters.map((m) => [m.id, m]));
+    const listingMap = new Map(listings.map((listing) => [listing.id, listing]));
 
     for (const row of rows) {
       const listing = row.listingId ? listingMap.get(row.listingId) : null;
-      const grade = listing
-        ? masterMap.get(listing.masterId)?.abcGrade
-        : null;
+      const grade = listing?.abcGrade;
       if (grade === 'A' || grade === 'B' || grade === 'C') {
         totals[grade] += row.adSpend;
       }

@@ -31,6 +31,7 @@ interface ThumbnailSourcePickerProps {
   onReorderImages: (images: string[]) => void;
   onUploadImages: (files: File[]) => Promise<void> | void;
   uploadingCount?: number;
+  canSaveConfiguration?: boolean;
 }
 
 export default function ThumbnailSourcePicker({
@@ -47,6 +48,7 @@ export default function ThumbnailSourcePicker({
   onReorderImages,
   onUploadImages,
   uploadingCount = 0,
+  canSaveConfiguration = true,
 }: ThumbnailSourcePickerProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [libraryTab, setLibraryTab] = useState<ImageLibraryTab>('all');
@@ -55,7 +57,14 @@ export default function ThumbnailSourcePicker({
   const selectedOption = useMemo(
     () =>
       availableOptions.find((option) => option.url === selectedUrl) ??
-      (selectedUrl ? { url: selectedUrl, kind: 'source' as const, generatedCandidateId: null } : null),
+      (selectedUrl
+        ? {
+            url: selectedUrl,
+            kind: 'source' as const,
+            generatedGenerationId: null,
+            generatedCandidateId: null,
+          }
+        : null),
     [availableOptions, selectedUrl],
   );
   const selectedAlreadySaved = Boolean(selectedUrl && selectedUrl === savedRepresentativeUrl);
@@ -133,7 +142,7 @@ export default function ThumbnailSourcePicker({
             <CheckCircle2 size={15} />
             대표 썸네일 등록
           </button>
-          <button
+          {canSaveConfiguration ? <button
             type="button"
             onClick={onSaveConfiguration}
             disabled={thumbnailUrls.length === 0}
@@ -141,7 +150,7 @@ export default function ThumbnailSourcePicker({
           >
             <Save size={15} />
             썸네일 구성 저장
-          </button>
+          </button> : null}
         </div>
       </div>
 

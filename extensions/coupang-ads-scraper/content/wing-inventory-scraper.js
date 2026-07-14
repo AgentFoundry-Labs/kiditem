@@ -74,17 +74,9 @@
     return /login|signin|xauth|로그인|아이디|비밀번호/i.test(`${location.href}\n${text.slice(0, 3000)}`);
   }
 
-  function normalizeImageUrl(url) {
-    if (!url) return "";
-    try {
-      return new URL(url, location.href).toString();
-    } catch {
-      return String(url);
-    }
-  }
-
   function pickNameFromRow(row) {
     const direct =
+      row.querySelector("a.ip-title") ||
       row.querySelector("td.column-info .item-title") ||
       row.querySelector('[class*="item-title"]') ||
       row.querySelector('[class*="product-name"]') ||
@@ -100,130 +92,80 @@
     return "";
   }
 
-  function normalizeHeaderLabel(label) {
-    return String(label || "").replace(/\s+/g, "");
-  }
-
-  function findColumnIndex(headers, names) {
-    const normalizedNames = names.map(normalizeHeaderLabel);
-    return headers.findIndex((header) => normalizedNames.includes(normalizeHeaderLabel(header)));
-  }
-
-  function pickLegacyCodeFromRow(row) {
-    const headers = [];
-    const ths = document.querySelectorAll("table thead th, table thead td");
-    for (const th of ths) headers.push(th.innerText.trim().replace(/\n/g, " "));
-
-    const cells = Array.from(row.querySelectorAll("td"));
-    const legacyIndex = findColumnIndex(headers, [
-      "상품코드",
-      "판매자상품코드",
-      "판매자 상품코드",
-      "업체상품코드",
-      "업체 상품코드",
-      "외부상품코드",
-      "외부 상품코드",
-    ]);
-    if (legacyIndex >= 0 && cells[legacyIndex]) {
-      const value = cells[legacyIndex].textContent?.trim().replace(/\s+/g, " ") || "";
-      if (value) return value;
+  function parseCatalogDiscoveryPage() {
+    const collector = globalThis.KidItemCoupangCatalog;
+    if (!collector) {
+      return { success: false, error: "쿠팡 카탈로그 수집 모듈을 불러오지 못했습니다" };
+    }
+    if (isLoginPage()) {
+      return { success: false, pendingLogin: true, error: "쿠팡 Wing 로그인이 필요합니다" };
     }
 
-    const text = row.textContent || "";
-    const match = text.match(/(?:판매자\s*상품코드|업체\s*상품코드|외부\s*상품코드|상품코드)\s*[:：]?\s*([A-Za-z0-9_-]{2,})/);
-    return match ? match[1] : "";
-  }
-
-  function parseImageRows() {
-    const inventoryRows = Array.from(document.querySelectorAll("tr.inventory-line[data-inventory]"));
-    const rows = [];
-
-    for (const row of inventoryRows) {
-      const inventoryId = row.getAttribute("data-inventory")?.trim() || "";
-      const img =
+    const rows = Array.from(
+      document.querySelectorAll("tr.inventory-line[data-inventory]"),
+    );
+    const records = rows.map((row) => {
+      const image =
         row.querySelector("td.column-image img[src]") ||
         row.querySelector('img[src*="coupangcdn.com"]') ||
         row.querySelector("img[src]");
-      const url = normalizeImageUrl(img?.getAttribute("src") || img?.src || "");
-      const name = pickNameFromRow(row);
-      const legacyCode = pickLegacyCodeFromRow(row);
-      if (inventoryId && url) rows.push({ inventoryId, legacyCode, name, url });
+      return {
+        externalProductId: row.getAttribute("data-inventory")?.trim() || "",
+        registeredName: pickNameFromRow(row) || null,
+        primaryImageUrl: collector.normalizeImageUrl(
+          image?.getAttribute("src") || image?.src || "",
+        ),
+      };
+    }).filter((record) => record.externalProductId);
+
+    if (records.length === 0) {
+      return { success: false, error: "Wing 등록상품 행을 찾을 수 없습니다" };
     }
-
-    if (rows.length > 0) return rows;
-
-    const headerRows = parseWithHeaders();
-    for (const item of headerRows) {
-      const inventoryId =
-        item["등록상품ID"] ||
-        item["노출상품ID"] ||
-        item["상품ID"] ||
-        item["판매상품ID"] ||
-        "";
-      const url = normalizeImageUrl(item["이미지URL"] || item["이미지 URL"] || "");
-      const name =
-        item["상품명"] ||
-        item["등록상품명"] ||
-        item["노출상품명"] ||
-        item["상품명/옵션명"] ||
-        "";
-      const legacyCode =
-        item["상품코드"] ||
-        item["판매자상품코드"] ||
-        item["판매자 상품코드"] ||
-        item["업체상품코드"] ||
-        item["업체 상품코드"] ||
-        item["외부상품코드"] ||
-        item["외부 상품코드"] ||
-        "";
-      if (inventoryId && url) {
-        rows.push({
-          inventoryId: String(inventoryId),
-          legacyCode: legacyCode ? String(legacyCode) : "",
-          name: String(name || inventoryId),
-          url,
-        });
-      }
-    }
-
-    return rows;
-  }
-
-  async function scrapeImagePage() {
-    if (isLoginPage()) {
+    const missingTitle = records.find((record) => !record.registeredName);
+    if (missingTitle) {
       return {
         success: false,
-        pendingLogin: true,
-        error: "쿠팡 Wing 로그인 필요 — 열린 Wing 이미지 동기화 창에서 로그인 후 다시 실행하세요.",
+        error: `Wing 상품명 선택자(a.ip-title)가 비어 있습니다: ${missingTitle.externalProductId}`,
       };
     }
 
-    try {
-      await waitForSelector("table tbody tr, tr.inventory-line[data-inventory]", 20000);
-    } catch (e) {
-      if (isLoginPage()) {
-        return {
-          success: false,
-          pendingLogin: true,
-          error: "쿠팡 Wing 로그인 필요 — 열린 Wing 이미지 동기화 창에서 로그인 후 다시 실행하세요.",
-        };
-      }
-      return { success: false, error: "상품목록 테이블 로딩 실패" };
+    const bodyText = document.body?.innerText || "";
+    const totalMatch =
+      bodyText.match(/(?:전체|총)\s*([\d,]+)\s*(?:건|개)/) ||
+      bodyText.match(/([\d,]+)\s*(?:건|개)\s*(?:의|중)/);
+    const totalItems = totalMatch
+      ? Number(totalMatch[1].replace(/,/g, ""))
+      : null;
+    const url = new URL(location.href);
+    const page = Number(url.searchParams.get("page") || "1");
+    const pageSize = Number(url.searchParams.get("countPerPage") || records.length);
+    if (!Number.isInteger(totalItems) || totalItems <= 0) {
+      return { success: false, error: "Wing 전체 등록상품 수를 확인할 수 없습니다" };
     }
 
-    await sleep(1000);
-    const rows = parseImageRows();
     return {
       success: true,
-      rows,
-      count: rows.length,
-      page: Number(new URL(location.href).searchParams.get("page") || "1"),
-      totalPages: getTotalPages(),
+      page,
+      pageSize,
+      totalItems,
+      records,
     };
   }
 
   // ── 총 페이지 수 추출 ──
   function getTotalPages() {
+    const bodyText = document.body?.innerText || "";
+    const totalMatch =
+      bodyText.match(/(?:전체|총)\s*([\d,]+)\s*(?:건|개)/) ||
+      bodyText.match(/([\d,]+)\s*(?:건|개)\s*(?:의|중)/);
+    if (totalMatch) {
+      const totalCount = Number(totalMatch[1].replace(/,/g, ""));
+      const perPage = Number(new URL(location.href).searchParams.get("countPerPage")) || 50;
+      if (Number.isInteger(totalCount) && totalCount > 0) {
+        return Math.ceil(totalCount / perPage);
+      }
+    }
+
     // 페이지네이션 영역에서 마지막 페이지 번호
     const pageLinks = document.querySelectorAll('[class*="pagination"] a, [class*="paging"] a, [class*="page-num"], .pagination a, .paging a, [class*="page"] button, [class*="page"] a');
     let max = 1;
@@ -384,9 +326,16 @@
 
   // ── 메시지 리스너: 팝업에서 트리거 ──
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-    if (msg.action === "scrapeInventoryImagePage") {
-      scrapeImagePage().then(sendResponse);
-      return true; // async
+    if (msg.action === "collectCoupangCatalogDiscoveryPage") {
+      waitForSelector("tr.inventory-line[data-inventory]", 20000)
+        .then(() => sleep(500))
+        .then(() => parseCatalogDiscoveryPage())
+        .then(sendResponse)
+        .catch((error) => sendResponse({
+          success: false,
+          error: error?.message || "Wing 등록상품 페이지 수집 실패",
+        }));
+      return true;
     }
 
     if (msg.action === "scrapeInventoryList") {

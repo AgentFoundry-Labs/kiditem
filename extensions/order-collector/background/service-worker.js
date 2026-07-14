@@ -6,7 +6,7 @@ const ICECREAM_MALL_TAB_MATCHES = [
 ];
 const SELLPIA_ORDER_UPLOAD_URL = "https://kiditem.sellpia.com/order_collect.html?ctype=OM_FILE";
 const SELLPIA_TAB_MATCHES = ["https://*.sellpia.com/*"];
-// 송장 재출력 = 송장 업로드용 송장번호 소스(송장 채번된 주문). scrape 가 이 페이지의 #search_date_type 을 읽으므로 이 URL 이어야 함.
+// 송장 재출력 = 송장 업로드용 송장번호 소스(송장 채번된 주문).
 const SELLPIA_REPRINT_URL = "https://kiditem.sellpia.com/order_delivery_reprint.html";
 const COUPANG_SHIPMENT_URL = "https://supplier.coupang.com/ibs/asn/active";
 const COUPANG_SUPPLIER_TAB_MATCHES = ["https://supplier.coupang.com/*"];
@@ -101,25 +101,13 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
         boriboriOrders: true,
         collectRocketPoRows: true,
         listRocketPos: true,
-        collectCoupangProducts: true,
-        openCoupangLogin: true,
         collectKakaoOrders: true,
         collectSellpiaDeliTracking: true,
         uploadDomeggookTracking: true,
         uploadOnchTracking: true,
-        testRocketSourcing: true,
       },
     });
     return false;
-  }
-
-  if (msg?.action === "testRocketSourcing") {
-    testRocketSourcing(Array.isArray(msg.vendorItemIds) ? msg.vendorItemIds : [])
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({ success: false, error: error?.message || "로켓 불러오기 테스트 실패" });
-      });
-    return true;
   }
 
   if (msg?.action === "collectSellpiaDeliTracking") {
@@ -177,18 +165,6 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
     return true;
   }
 
-  if (msg?.action === "openCoupangLogin") {
-    openCoupangLoginPage()
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({
-          success: false,
-          error: error?.message || "쿠팡 로그인창 열기 실패",
-        });
-      });
-    return true;
-  }
-
   if (msg?.action === "clickCoupangShipmentDownloads") {
     clickCoupangShipmentDownloads({
       date: typeof msg.date === "string" ? msg.date : null,
@@ -209,8 +185,6 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
     collectRocketPoRows({
       from: typeof msg.from === "string" ? msg.from : null,
       to: typeof msg.to === "string" ? msg.to : null,
-      status: typeof msg.status === "string" ? msg.status : "",
-      dateType: typeof msg.dateType === "string" ? msg.dateType : "",
     })
       .then((result) => sendResponse(result))
       .catch((error) => {
@@ -233,18 +207,6 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
         sendResponse({
           success: false,
           error: error?.message || "로켓 발주 목록 조회 실패",
-        });
-      });
-    return true;
-  }
-
-  if (msg?.action === "collectCoupangProducts") {
-    collectCoupangProducts()
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({
-          success: false,
-          error: error?.message || "쿠팡 상품목록 조회 실패",
         });
       });
     return true;
@@ -510,105 +472,6 @@ async function findOrCreateSellpiaTab() {
   return chrome.tabs.create({ url: SELLPIA_ORDER_UPLOAD_URL, active: true });
 }
 
-// ── 셀피아 송장 재출력 조회 = 송장 업로드용 송장번호 소스 ──
-// scrape 가 #search_date_type 을 읽으므로 반드시 송장재출력 페이지 탭이어야 함. 이미 열려 있으면 재사용, 없으면 백그라운드 생성.
-async function findOrCreateSellpiaReprintTab() {
-  const tabs = await chrome.tabs.query({ url: SELLPIA_TAB_MATCHES });
-  const onReprint = tabs.find((t) => (t.url || "").includes("order_delivery_reprint"));
-  if (onReprint?.id) return { tab: onReprint, created: false };
-  const tab = await chrome.tabs.create({ url: SELLPIA_REPRINT_URL, active: false });
-  return { tab, created: true };
-}
-
-async function collectSellpiaDeliTracking(options = {}) {
-  const { tab, created } = await findOrCreateSellpiaReprintTab();
-  if (!tab?.id) return { success: false, error: "셀피아(kiditem.sellpia.com) 탭을 열 수 없습니다." };
-  try {
-    await waitForTabReady(tab.id);
-    const injected = await withTimeout(
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        world: "MAIN", // 페이지 컨텍스트 fetch (로그인 세션 쿠키). ISOLATED 는 SameSite 쿠키 미전송 위험.
-        func: scrapeSellpiaDeliTracking,
-        args: [options.startDate || null, options.endDate || null],
-      }),
-      60000,
-      "셀피아 송장 조회 시간이 초과되었습니다.",
-    );
-    return injected[0]?.result ?? { success: false, error: "셀피아 화면에 접근하지 못했습니다." };
-  } catch (e) {
-    if (isMallAccessError(e)) { await bringMallTabToFront(tab.id); return mallAccessErrorResult("셀피아"); }
-    return mallGenericErrorResult("셀피아", e);
-  } finally {
-    if (created && tab.id) {
-      try { await chrome.tabs.remove(tab.id); } catch { /* 이미 닫힘 */ }
-    }
-  }
-}
-
-// kiditem.sellpia.com 페이지 컨텍스트: "송장 재출력" 목록 조회 → 송장 매핑 행 반환.
-// ⭐송장은 배송완료목록(deli_list)이 아니라 송장 재출력(송장 채번된 주문)에 있다. delivery_link.action.html
-//   domode=GET_ORDER_DELIVERY_REPRINT_LIST → rdata.list. 원주문번호=ship_info.ord_no(= group_no 밑줄 뒤).
-//   delicom=셀피아 택배사코드(예 1136=CJ). 반환: ordNo · invNo(송장) · courier(택배사코드) · provider(판매처).
-async function scrapeSellpiaDeliTracking(startDate, endDate) {
-  try {
-    const p = (n) => String(n).padStart(2, "0");
-    const d = new Date();
-    const end = endDate || `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-    const s0 = new Date(d.getTime() - 30 * 24 * 60 * 60 * 1000); // 기본 최근 30일
-    const start = startDate || `${s0.getFullYear()}-${p(s0.getMonth() + 1)}-${p(s0.getDate())}`;
-    const dateType = (document.getElementById("search_date_type") || {}).value || "";
-    const body = new URLSearchParams({
-      domode: "GET_ORDER_DELIVERY_REPRINT_LIST",
-      date_type: dateType, // 송장출력일자/송장번호채번일자/피킹일자 (기본값 사용)
-      s_date: start,
-      e_date: end,
-      delinum: "",
-      receiver: "",
-      onlydeli_sellpia_code: "",
-      pick_num: "",
-    });
-    const res = await fetch("delivery_link.action.html", {
-      method: "POST",
-      credentials: "include",
-      headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" },
-      body: body.toString(),
-    });
-    if (!res.ok) {
-      return { success: false, error: "셀피아 송장 조회 실패 (HTTP " + res.status + "). 셀피아 로그인을 확인하세요." };
-    }
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      return { success: false, error: "셀피아 송장 응답을 해석하지 못했습니다. 셀피아 로그인을 확인하세요." };
-    }
-    const list = Array.isArray(data && data.list) ? data.list : [];
-    const s2 = (v) => String(v == null ? "" : v).trim();
-    // ⭐전 몰 반환(판매처 필터는 프론트가 몰별로). 각 몰 송장 업로드가 이 소스를 공유한다.
-    const rows = list
-      .map((o) => {
-        const si = o.ship_info || {};
-        const ordNo = s2(si.ord_no || String(o.group_no || "").split("_").pop() || "");
-        return {
-          ordNo,
-          itemNo: "",
-          invNo: s2(o.delinum),
-          courier: s2(o.delicom), // 셀피아 택배사코드(예 1136=CJ)
-          provider: s2(si.provider_name || o.receiver), // 판매처명 (몰 매핑용)
-          receiver: s2(o.receiver).replace(/\([^)]*\)\s*$/, "").trim(), // 수취인 (몰명 괄호 제거)
-          post: s2(o.receiver_post),
-          addr: [s2(o.receiver_addr1), s2(o.receiver_addr2)].filter(Boolean).join(" "),
-        };
-      })
-      .filter((r) => r.ordNo && r.invNo);
-    return { success: true, rows, total: list.length, range: { start, end } };
-  } catch (e) {
-    return { success: false, error: String((e && e.message) || e) };
-  }
-}
-
 async function openCoupangShipmentPage() {
   const tab = await findOrCreateCoupangSupplierTab();
   if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
@@ -619,23 +482,6 @@ async function openCoupangShipmentPage() {
     tabId: tab.id,
     url: currentTab.url || tab.url || COUPANG_SHIPMENT_URL,
   };
-}
-
-// 로그아웃 상태에서 프론트가 호출 — supplier.coupang.com 탭을 앞으로(active) 가져와 사용자가 직접 로그인하게 한다.
-// ⭐자동 로그인/비번 저장은 안 한다(쿠팡 봇탐지·캡차·본계정 잠김 위험). 한번 로그인하면 세션 쿠키로 유지됨.
-async function openCoupangLoginPage() {
-  const tabs = await chrome.tabs.query({ url: COUPANG_SUPPLIER_TAB_MATCHES });
-  const tab = tabs[0]?.id
-    ? await chrome.tabs.update(tabs[0].id, { active: true })
-    : await chrome.tabs.create({ url: "https://supplier.coupang.com/", active: true });
-  if (tab && tab.windowId != null) {
-    try {
-      await chrome.windows.update(tab.windowId, { focused: true });
-    } catch (e) {
-      /* 창 포커스 실패 — 무시 */
-    }
-  }
-  return { success: true, tabId: tab?.id };
 }
 
 async function clickCoupangShipmentDownloads(options) {
@@ -665,71 +511,51 @@ async function clickCoupangShipmentDownloads(options) {
 }
 
 // ── 로켓 발주확정: 발주리스트(거래처확인요청) + 상세를 풀컬럼 스크래핑 ──
-async function collectRocketPoRows({ from, to, status, dateType }) {
-  const tab = await findCoupangSupplierTabBg();
+async function collectRocketPoRows({ from, to }) {
+  const tab = await findOrCreateCoupangSupplierTab();
   if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
-  try {
-    await waitForTabReady(tab.id);
+  await waitForTabReady(tab.id);
 
-    const injected = await withTimeout(
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: scrapeRocketPoRows,
-        args: [from, to, status || "RP", dateType || "WAREHOUSING_PLAN_DATE"],
-      }),
-      180000,
-      "로켓 발주 수집 시간이 초과되었습니다.",
-    );
+  const injected = await withTimeout(
+    chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: scrapeRocketPoRows,
+      args: [from, to],
+    }),
+    180000,
+    "로켓 발주 수집 시간이 초과되었습니다.",
+  );
 
-    return (
-      injected[0]?.result ?? {
-        success: false,
-        error: "supplier 화면에 접근하지 못했습니다.",
-      }
-    );
-  } catch (e) {
-    // 미로그인 → supplier 탭이 로그인 페이지로 리다이렉트되면 executeScript 가 host 권한 에러("must
-    // request permission"/"Cannot access contents")를 던진다. 로그인 안내로 바꾸고 탭을 앞으로.
-    if (isMallAccessError(e)) {
-      await bringMallTabToFront(tab.id);
-      return mallAccessErrorResult("쿠팡 supplier");
+  return (
+    injected[0]?.result ?? {
+      success: false,
+      error: "supplier 화면에 접근하지 못했습니다.",
     }
-    return mallGenericErrorResult("로켓 발주 수집", e);
-  }
+  );
 }
 
 // ── 로켓 발주 목록(PO 단위, SKU 상세 없이) — 화면 리스트용 빠른 조회 ──
 async function listRocketPos({ from, to, status }) {
-  const tab = await findCoupangSupplierTabBg();
+  const tab = await findOrCreateCoupangSupplierTab();
   if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
-  try {
-    await waitForTabReady(tab.id);
+  await waitForTabReady(tab.id);
 
-    const injected = await withTimeout(
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: scrapeRocketPoList,
-        args: [from, to, status || ""],
-      }),
-      60000,
-      "로켓 발주 목록 조회 시간이 초과되었습니다.",
-    );
+  const injected = await withTimeout(
+    chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: scrapeRocketPoList,
+      args: [from, to, status || ""],
+    }),
+    60000,
+    "로켓 발주 목록 조회 시간이 초과되었습니다.",
+  );
 
-    return (
-      injected[0]?.result ?? {
-        success: false,
-        error: "supplier 화면에 접근하지 못했습니다.",
-      }
-    );
-  } catch (e) {
-    // 미로그인 → supplier 탭이 로그인 페이지로 리다이렉트되면 executeScript 가 host 권한 에러("must
-    // request permission"/"Cannot access contents")를 던진다. 로그인 안내로 바꾸고 탭을 앞으로.
-    if (isMallAccessError(e)) {
-      await bringMallTabToFront(tab.id);
-      return mallAccessErrorResult("쿠팡 supplier");
+  return (
+    injected[0]?.result ?? {
+      success: false,
+      error: "supplier 화면에 접근하지 못했습니다.",
     }
-    return mallGenericErrorResult("로켓 발주 목록", e);
-  }
+  );
 }
 
 // supplier 페이지 컨텍스트: 입고예정일(WAREHOUSING_PLAN_DATE) 범위의 발주를 PO 단위로만 빠르게.
@@ -758,7 +584,6 @@ async function scrapeRocketPoList(from, to, statusCode) {
         if (p === 1)
           return {
             success: false,
-            pendingLogin: true,
             error: "쿠팡 supplier 로그인이 필요합니다. supplier.coupang.com 에 로그인한 뒤 다시 시도하세요.",
           };
         break;
@@ -796,210 +621,8 @@ async function scrapeRocketPoList(from, to, statusCode) {
   }
 }
 
-// 쿠팡 supplier 상품(SKU) 목록 수집 — 발주 리스트와 동일 패턴(supplier 탭 same-origin fetch).
-// supplier.coupang.com: 각 vendorItemId 를 /sr/sourcing/api/3p-product/{id} 로 조회해
-// 로켓 "등록된 상품 불러오기" 가능여부(200+productName)를 테스트한다. 등록상품ID(vendorInventoryId)는 500이라
-// 반드시 옵션ID(vendorItemId)를 넘겨야 한다.
-async function testRocketSourcing(vendorItemIds) {
-  const ids = (Array.isArray(vendorItemIds) ? vendorItemIds : [])
-    .map((v) => String(v || "").trim())
-    .filter(Boolean);
-  if (ids.length === 0) return { success: true, results: [], okCount: 0, failCount: 0 };
-
-  const tab = await findCoupangSupplierTabBg();
-  if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
-  const keepAlive = setInterval(() => {
-    chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
-  }, 20000);
-  try {
-    await waitForTabReady(tab.id);
-    const injected = await withTimeout(
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: async (idList) => {
-          const results = [];
-          const chunk = 8;
-          for (let i = 0; i < idList.length; i += chunk) {
-            const batch = idList.slice(i, i + chunk);
-            const part = await Promise.all(
-              batch.map(async (id) => {
-                try {
-                  const res = await fetch("/sr/sourcing/api/3p-product/" + encodeURIComponent(id), {
-                    credentials: "include",
-                  });
-                  if (res.status === 401 || res.status === 403) {
-                    return { vendorItemId: id, ok: false, status: res.status, loginRequired: true };
-                  }
-                  const text = await res.text();
-                  let productName = null;
-                  let productId = null;
-                  let reason = "";
-                  try {
-                    const j = JSON.parse(text);
-                    productName = j.productName || null;
-                    productId = j.productId != null ? String(j.productId) : null;
-                    reason = j.errorMessage || j.errorCode || "";
-                  } catch (e) {
-                    /* non-json */
-                  }
-                  return {
-                    vendorItemId: id,
-                    ok: res.status === 200 && !!productName,
-                    status: res.status,
-                    productName,
-                    productId,
-                    reason: (reason || "").slice(0, 80),
-                  };
-                } catch (e) {
-                  return {
-                    vendorItemId: id,
-                    ok: false,
-                    status: 0,
-                    reason: (e && e.message ? e.message : String(e)).slice(0, 80),
-                  };
-                }
-              }),
-            );
-            results.push(...part);
-          }
-          const anyLogin = results.some((r) => r.loginRequired);
-          if (anyLogin && results.every((r) => !r.ok)) {
-            return {
-              success: false,
-              pendingLogin: true,
-              error: "쿠팡 supplier 로그인이 필요합니다. supplier.coupang.com 에 로그인한 뒤 다시 시도하세요.",
-            };
-          }
-          return {
-            success: true,
-            results,
-            okCount: results.filter((r) => r.ok).length,
-            failCount: results.filter((r) => !r.ok).length,
-          };
-        },
-        args: [ids],
-      }),
-      180000,
-      "로켓 불러오기 테스트 시간이 초과되었습니다.",
-    );
-    return injected[0]?.result ?? { success: false, error: "supplier 화면에 접근하지 못했습니다." };
-  } catch (e) {
-    if (isMallAccessError(e)) {
-      await bringMallTabToFront(tab.id);
-      return mallAccessErrorResult("쿠팡 supplier");
-    }
-    return mallGenericErrorResult("로켓 불러오기 테스트", e);
-  } finally {
-    clearInterval(keepAlive);
-  }
-}
-
-async function collectCoupangProducts() {
-  const tab = await findCoupangSupplierTabBg();
-  if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
-  // vendorSearch 페이지네이션(+페이지 텀)으로 길다. MV3 서비스워커 유휴 종료(=message port closed) 방지 keepalive.
-  const keepAlive = setInterval(() => {
-    chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
-  }, 20000);
-  try {
-    await waitForTabReady(tab.id);
-    const injected = await withTimeout(
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: scrapeCoupangProducts,
-      }),
-      160000,
-      "쿠팡 상품목록 조회 시간이 초과되었습니다.",
-    );
-    return (
-      injected[0]?.result ?? {
-        success: false,
-        error: "supplier 화면에 접근하지 못했습니다.",
-      }
-    );
-  } catch (e) {
-    if (isMallAccessError(e)) {
-      await bringMallTabToFront(tab.id);
-      return mallAccessErrorResult("쿠팡 supplier");
-    }
-    return mallGenericErrorResult("쿠팡 상품목록", e);
-  } finally {
-    clearInterval(keepAlive);
-  }
-}
-
-// supplier 페이지 컨텍스트: /qvt/v2/wims/vendorSearch 를 페이지네이션하며 전체 상품(바코드·상품명·skuId) 수집.
-// registerDate 기준 필터라 전체를 받기 위해 넓은 범위(2018 ~ 내일)로 조회한다.
-async function scrapeCoupangProducts() {
-  try {
-    const clean = (s, n) =>
-      (s || "").replace(new RegExp("[\\u0000-\\u001F]", "g"), " ").replace(/\s+/g, " ").trim().slice(0, n || 200);
-    const startDate = String(Date.UTC(2018, 0, 1));
-    const endDate = String(Date.now() + 86400000);
-    const body = (page) => ({
-      startDate,
-      endDate,
-      conditions: {
-        vendorId: "", state: "", skuId: "", sourcingChannelId: "",
-        quotationId: "", estimationId: "", progress: "",
-        productName: "", categoryCode: "", barcode: "", isReplyNeeded: false,
-      },
-      page,
-      sizePerPage: 50,
-    });
-    const out = [];
-    const seen = new Set();
-    for (let p = 1; p <= 200; p++) {
-      // 페이지 간 텀 — 쿠팡 봇탐지(Akamai) 완화. 첫 페이지는 지연 없음.
-      if (p > 1) await new Promise((r) => setTimeout(r, 400));
-      const res = await fetch("/qvt/v2/wims/vendorSearch", {
-        method: "POST",
-        credentials: "include",
-        headers: { "content-type": "application/json", accept: "application/json" },
-        body: JSON.stringify(body(p)),
-      });
-      const text = await res.text();
-      if (!res.ok || text.trim().charAt(0) === "<") {
-        if (p === 1)
-          return {
-            success: false,
-            pendingLogin: true,
-            error: "쿠팡 supplier 로그인이 필요합니다. supplier.coupang.com 에 로그인한 뒤 다시 시도하세요.",
-          };
-        break;
-      }
-      let j;
-      try {
-        j = JSON.parse(text);
-      } catch (e) {
-        if (p === 1) return { success: false, error: "상품목록 응답을 해석하지 못했습니다 (supplier 로그인/세션 확인)." };
-        break;
-      }
-      const items = (j && j.items) || [];
-      for (const it of items) {
-        const barcode = String(it.barcode || "").trim();
-        const key = barcode || String(it.skuId || "") || String(it.vendorItemId || "");
-        if (!key || seen.has(key)) continue;
-        seen.add(key);
-        out.push({
-          barcode,
-          productName: clean(it.productName, 200),
-          skuId: String(it.skuId || ""),
-          vendorItemId: String(it.vendorItemId || ""),
-          state: String(it.state || ""),
-        });
-      }
-      const nav = (j && j.pageNavigator) || {};
-      if (!items.length || p >= (nav.totalPages || 1)) break;
-    }
-    return { success: true, products: out };
-  } catch (e) {
-    return { success: false, error: (e && e.message) || "쿠팡 상품목록 조회 실패" };
-  }
-}
-
 // supplier.coupang.com 페이지 컨텍스트에서 실행 (DOMParser + same-origin fetch + 쿠키).
-async function scrapeRocketPoRows(from, to, statusCode, dateType) {
+async function scrapeRocketPoRows(from, to) {
   try {
     const ctrl = new RegExp("[\\u0000-\\u001F]", "g");
     const clean = (s, n) => (s || "").replace(ctrl, " ").replace(/^\d{8,}\s*/, "").trim().slice(0, n || 80);
@@ -1020,21 +643,11 @@ async function scrapeRocketPoRows(from, to, statusCode, dateType) {
       d.setUTCHours(d.getUTCHours() + 9);
       return d.toISOString().replace("T", " ").slice(0, 19);
     };
-    // from/to = 날짜 범위. 기본은 발주확정 양식 화면용 입고예정일, 매출 동기화는 발주일.
-    const poStatusCode = statusCode || "RP";
-    const searchDateType = dateType || "WAREHOUSING_PLAN_DATE";
-    const useOrderedAtBusinessDate = searchDateType === "PURCHASE_ORDER_DATE";
-    const isConfirmedPo = (po) => {
-      const status = String(po.purchaseOrderStatus || po.purchaseOrderStatusCode || "").replace(/\s+/g, "").toUpperCase();
-      const statusText = String(po.purchaseOrderStatusDescription || po.purchaseOrderStatusName || "").replace(/\s+/g, "");
-      return status === "PA" || statusText.includes("발주확정");
-    };
+    // from/to = 입고예정일(KST) 범위. 발주현황=거래처확인요청(RP) 을 서버에 넘겨 조회.
     const listUrl = (p) =>
       "/po-web/app/purchase-order/list?page=" + p +
-      "&searchDateType=" + encodeURIComponent(searchDateType) +
-      "&searchStartDate=" + (from || "") + "&searchEndDate=" + (to || "") +
-      "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=" + encodeURIComponent(poStatusCode) +
-      "&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
+      "&searchDateType=WAREHOUSING_PLAN_DATE&searchStartDate=" + (from || "") + "&searchEndDate=" + (to || "") +
+      "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=RP&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
 
     const pos = [];
     for (let p = 1; p <= 40; p++) {
@@ -1044,7 +657,6 @@ async function scrapeRocketPoRows(from, to, statusCode, dateType) {
         if (p === 1)
           return {
             success: false,
-            pendingLogin: true,
             error:
               "쿠팡 supplier 로그인이 필요합니다. supplier.coupang.com 에 로그인한 뒤 다시 시도하세요. (발주리스트가 JSON 대신 로그인 페이지를 반환했습니다)",
           };
@@ -1060,8 +672,7 @@ async function scrapeRocketPoRows(from, to, statusCode, dateType) {
       const b = j.body || {};
       const rows = b.body || [];
       for (const o of rows) {
-        // 서버가 발주현황 + 날짜 범위로 이미 필터함.
-        if (useOrderedAtBusinessDate && !isConfirmedPo(o)) continue;
+        // 서버가 발주현황=거래처확인요청(RP) + 입고예정일(KST) 범위로 이미 필터함.
         pos.push(o);
       }
       if (p >= (b.lastPageNumber || 1)) break;
@@ -1088,7 +699,6 @@ async function scrapeRocketPoRows(from, to, statusCode, dateType) {
             center: po.centerName || "",
             inboundType: po.transportTypeDescription || "",
             poStatus: po.purchaseOrderStatusDescription || "",
-            poStatusCode: po.purchaseOrderStatus || po.purchaseOrderStatusCode || "",
             vendorName: po.vendorName || "",
             productNo: r[1] || "",
             barcode: (String(r[2]).match(/^\d{8,}/) || [""])[0],
@@ -1103,7 +713,6 @@ async function scrapeRocketPoRows(from, to, statusCode, dateType) {
             totalPurchase: num(r[9]),
             expectedInboundDate: kstDate(po.expectedDeliveryDate).replace(/-/g, ""),
             poRegisteredAt: kstDateTime(po.createdAt),
-            businessDateBasis: useOrderedAtBusinessDate ? "ordered_at" : "expected_inbound",
             xdock: "N",
           });
         }
@@ -1133,14 +742,6 @@ async function findOrCreateCoupangSupplierTab() {
     return chrome.tabs.get(tabs[0].id);
   }
   return chrome.tabs.create({ url: COUPANG_SHIPMENT_URL, active: true });
-}
-
-// PO/상품 수집용 — same-origin fetch 만 하면 되므로 기존 supplier 탭을 앞으로 가져오거나 이동하지 않는다.
-// (findOrCreateCoupangSupplierTab 는 쉽먼트 페이지로 이동+active:true 라 사용자 화면이 쿠팡으로 넘어감. 수집은 백그라운드.)
-async function findCoupangSupplierTabBg() {
-  const tabs = await chrome.tabs.query({ url: COUPANG_SUPPLIER_TAB_MATCHES });
-  if (tabs[0]?.id) return tabs[0]; // 기존 supplier 탭 그대로 사용 — 활성화/이동 안 함(화면 안 넘어감)
-  return chrome.tabs.create({ url: "https://supplier.coupang.com/", active: false }); // 없으면 백그라운드 새 탭
 }
 
 // ── 꼬망세(EduPre) 주문 수집: 입점관리자 "선택엑셀다운"(get_search_excel) xlsx export 를 fetch ──
@@ -1217,120 +818,6 @@ async function scrapeKkomangseExport() {
 }
 
 // ── 온채널(onch3) 주문 수집: orders.php 리스트(주문코드+일자) + 주문별 상세모달 fetch ──
-// ── 카카오(톡스토어) 주문 수집: OMS `_search` API 로 배송준비중(301)만 스크랩 (다운로드 없이, PII 언마스킹) ──
-async function findOrCreateKakaoTab() {
-  const tabs = await chrome.tabs.query({ url: KAKAO_TAB_MATCHES });
-  if (tabs[0]?.id) return { tab: tabs[0], created: false }; // 기존 카카오 탭 재사용 (포커스 안 뺏음)
-  const tab = await chrome.tabs.create({ url: KAKAO_ORDER_URL, active: false }); // 백그라운드 새 탭
-  return { tab, created: true };
-}
-
-async function collectKakaoOrders(dateFilter) {
-  const { tab, created } = await findOrCreateKakaoTab();
-  if (!tab?.id) return { success: false, error: "카카오쇼핑 판매자센터(shopping-seller.kakao.com) 탭을 열 수 없습니다." };
-  const keepAlive = setInterval(() => {
-    chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
-  }, 20000);
-  let keepOpen = false;
-  try {
-    await waitForTabReady(tab.id);
-    const injected = await withTimeout(
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: scrapeKakaoOrders,
-        args: [dateFilter || ""],
-      }),
-      120000,
-      "카카오 주문 수집 시간이 초과되었습니다.",
-    );
-    return injected[0]?.result ?? { success: false, error: "카카오 화면에 접근하지 못했습니다." };
-  } catch (e) {
-    if (isMallAccessError(e)) { keepOpen = created; await bringMallTabToFront(tab.id); return mallAccessErrorResult("카카오"); }
-    return mallGenericErrorResult("카카오", e);
-  } finally {
-    clearInterval(keepAlive);
-    if (created && tab.id && !keepOpen) {
-      try {
-        await chrome.tabs.remove(tab.id); // 우리가 연 백그라운드 탭 정리
-      } catch {
-        /* 이미 닫힘 — 무시 */
-      }
-    }
-  }
-}
-
-// shopping-seller.kakao.com 페이지 컨텍스트: POST /api/oms/v2/orders/_search/SELLER_ORDER/101 (배송준비중 301, 페이지네이션).
-// ⭐응답 PII 언마스킹됨(주소·연락처 풀). channelId 101 = 톡스토어. dateFilter(YYYY-MM-DD) 있으면 그날 결제분만.
-async function scrapeKakaoOrders(dateFilter) {
-  try {
-    const pad = (n) => String(n).padStart(2, "0");
-    const ymd = (d) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
-    const now = new Date();
-    let from, to;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dateFilter || "")) {
-      const s = dateFilter.replace(/-/g, "");
-      from = s + "000000";
-      to = s + "235959";
-    } else {
-      // 배송준비중은 미출고분이라 최근분 — 넉넉히 90일 결제분 조회.
-      to = ymd(now) + "235959";
-      from = ymd(new Date(now.getTime() - 90 * 86400000)) + "000000";
-    }
-    const orders = [];
-    for (let page = 0; page < 50; page++) {
-      const res = await fetch("/api/oms/v2/orders/_search/SELLER_ORDER/101", {
-        method: "POST",
-        credentials: "include",
-        headers: { "content-type": "application/json", accept: "application/json" },
-        // ⭐배송준비중 = enum 이름 "ShippingWaiting" (숫자 301 을 보내면 500). 응답의 statusCode 는 301.
-        body: JSON.stringify({
-          size: "200",
-          statuses: ["ShippingWaiting"],
-          orderPaidAt: { from, to },
-          page: String(page),
-        }),
-      });
-      const text = await res.text();
-      // 로그인 리다이렉트(HTML)면 로그인 안내, API 오류(JSON errorMessage)면 실제 메시지 전달 — 500 을 "로그인"으로 오표시하지 않는다.
-      if (text.trim().charAt(0) === "<") {
-        if (page === 0)
-          return {
-            success: false,
-            pendingLogin: true,
-            error: "카카오쇼핑 판매자센터 로그인이 필요합니다. shopping-seller.kakao.com 에 로그인한 뒤 다시 시도하세요.",
-          };
-        break;
-      }
-      if (!res.ok) {
-        let msg = `카카오 주문 조회 실패 (HTTP ${res.status})`;
-        try {
-          const j = JSON.parse(text);
-          if (j && j.errorMessage) msg = `카카오: ${j.errorMessage}`;
-        } catch (e) {
-          /* 파싱 실패 — 기본 메시지 */
-        }
-        if (page === 0) return { success: false, error: msg };
-        break;
-      }
-      let j;
-      try {
-        j = JSON.parse(text);
-      } catch (e) {
-        if (page === 0) return { success: false, error: "카카오 주문 응답을 해석하지 못했습니다 (로그인/세션 확인)." };
-        break;
-      }
-      const contents = (j && j.contents) || [];
-      for (const o of contents) {
-        if (Number(o.statusCode) === 301) orders.push(o); // 배송준비중만 (방어적 재확인)
-      }
-      if (j.last || contents.length < 200) break;
-    }
-    return { success: true, orders, count: orders.length };
-  } catch (e) {
-    return { success: false, error: (e && e.message) || "카카오 주문 수집 실패" };
-  }
-}
-
 async function findOrCreateOnchannelTab() {
   const tabs = await chrome.tabs.query({ url: ONCHANNEL_TAB_MATCHES });
   const orderTab = tabs.find((tab) => (tab.url || "").includes("/supplier/orders"));
@@ -1343,101 +830,6 @@ async function findOrCreateOnchannelTab() {
   }
   const tab = await chrome.tabs.create({ url: ONCHANNEL_ORDER_URL, active: false }); // 백그라운드 새 탭
   return { tab, created: true };
-}
-
-// ── 온채널 송장 업로드(발송처리): 목록에서 주문코드→memberOrderNum 스크랩 → 주문당 trans_ok POST ──
-// ⚠️파괴적. 셀피아 ord_no(=온채널 주문코드 MO_/GO_)로 조인. rows=[{ordNo, invNo, courier}].
-async function uploadOnchTracking(options = {}) {
-  const rows = Array.isArray(options.rows) ? options.rows : [];
-  if (rows.length === 0) return { success: false, error: "온채널 송장이 없습니다." };
-  const { tab, created } = await findOrCreateOnchannelTab();
-  if (!tab?.id) return { success: false, error: "온채널(onch3.co.kr) 탭을 열 수 없습니다." };
-  try {
-    await waitForTabReady(tab.id);
-    const injected = await withTimeout(
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        world: "MAIN", // 로그인 세션 same-origin POST
-        func: scrapeOnchUpload,
-        args: [rows],
-      }),
-      120000,
-      "온채널 송장 업로드 시간이 초과되었습니다.",
-    );
-    return injected[0]?.result ?? { success: false, error: "온채널 화면에 접근하지 못했습니다." };
-  } catch (e) {
-    if (isMallAccessError(e)) { await bringMallTabToFront(tab.id); return mallAccessErrorResult("온채널"); }
-    return mallGenericErrorResult("온채널", e);
-  } finally {
-    if (created && tab.id) {
-      try { await chrome.tabs.remove(tab.id); } catch { /* 이미 닫힘 */ }
-    }
-  }
-}
-
-// onch3.co.kr 주문 화면: 목록 주문코드↔memberOrderNum 매핑 후 각 송장 POST /access/order_access.php?ubr=trans_ok.
-async function scrapeOnchUpload(rows) {
-  try {
-    if (/login/i.test(location.href) || document.querySelector('input[type="password"]')) {
-      return { success: false, error: "온채널 로그인이 필요합니다. onch3.co.kr 에 로그인 후 다시 시도하세요." };
-    }
-    // 택배사 정식명(CJ 대한통운) — #deliveryObjs 에서 확정, 없으면 기본값.
-    let cjName = "CJ 대한통운";
-    try {
-      const objs = JSON.parse(document.getElementById("deliveryObjs").value || "[]");
-      const cj = objs.find((o) => /대한통운/.test(o.delivery_name || ""));
-      if (cj && cj.delivery_name) cjName = cj.delivery_name;
-    } catch { /* 기본값 사용 */ }
-
-    // 목록: 주문코드(상세모달) → { member(memberOrderNum), isFirst }. 송장입력 버튼과 같은 행의 주문코드를 페어링.
-    const map = {};
-    const sjBtns = [...document.querySelectorAll('[onclick*="supplierDeliveryNumberModal"]')];
-    for (const b of sjBtns) {
-      const oc = b.getAttribute("onclick") || "";
-      const m = oc.match(/supplierDeliveryNumberModal\('([^']*)','([^']*)','([^']*)'/);
-      if (!m) continue;
-      let el = b;
-      let code = null;
-      for (let i = 0; i < 12 && el; i += 1) {
-        el = el.parentElement;
-        const d = el && el.querySelector('[onclick*="supplierOrderDetailModal"]');
-        if (d) { code = ((d.getAttribute("onclick") || "").match(/'([^']+)'/) || [])[1]; break; }
-      }
-      if (code && !map[code]) map[code] = { member: m[1], isFirst: m[3] };
-    }
-
-    const results = [];
-    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-    for (const r of rows) {
-      const ordNo = String(r.ordNo || "").trim();
-      const invNo = String(r.invNo || "").trim();
-      if (!ordNo || !invNo) { results.push({ ordNo, ok: false, reason: "송장/주문번호 없음" }); continue; }
-      const hit = map[ordNo];
-      if (!hit) { results.push({ ordNo, ok: false, reason: "온채널 목록에 없음(이미 발송 또는 기간 밖)" }); continue; }
-      if (hit.isFirst !== "true") { results.push({ ordNo, ok: false, reason: "이미 송장 등록됨" }); continue; }
-      const body = new URLSearchParams({ trans_nm: cjName, trans_num: invNo, hidden_trans_num: hit.member });
-      try {
-        const res = await fetch("/access/order_access.php?ubr=trans_ok", {
-          method: "POST",
-          credentials: "include",
-          headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" },
-          body: body.toString(),
-        });
-        const txt = await res.text();
-        let code = null;
-        try { code = JSON.parse(txt).code; } catch { /* not json */ }
-        const ok = String(code) === "200";
-        results.push({ ordNo, ok, code, reason: ok ? "" : "응답 " + (code ?? txt.slice(0, 40)) });
-        await sleep(250); // 연속 POST 간격
-      } catch (e) {
-        results.push({ ordNo, ok: false, reason: String((e && e.message) || e) });
-      }
-    }
-    const okCount = results.filter((x) => x.ok).length;
-    return { success: true, total: rows.length, okCount, listSize: Object.keys(map).length, results: results.slice(0, 60) };
-  } catch (e) {
-    return { success: false, error: String((e && e.message) || e) };
-  }
 }
 
 async function collectOnchannelOrders(dateFilter) {
@@ -1864,11 +1256,7 @@ async function collectTeachervilleOrders() {
 }
 
 // shop.teacherville.co.kr(selleradmin) 페이지 컨텍스트: 출고 전 주문을 셀피아 양식(엑셀템플릿 117)으로
-// order_process/excel_down POST → SpreadsheetML(.xls) base64.
-// ⭐이 몰은 excel_type='search'/params 를 지원하지 않는다(폼에 해당 input 자체가 없음). 실제 사이트
-//   excel_down() 도 항상 excel_type='select' 로 "목록 체크박스(order_seq[]) 파이프 목록"을 전송한다.
-//   'search' 로 보내면 서버가 order_seq 를 무시하고 header-only 빈엑셀(7KB)을 반환 → 과거 "주문없음" 버그.
-//   ✅정답: 출고 전 행의 order_seq[] 값들을 '|' 로 이어 보내면 데이터가 채워진다(라이브 실증).
+// order_process/excel_down POST → SpreadsheetML(.xls) base64. ⭐seq=117(티쳐몰 주문서)여야 데이터가 나옴.
 async function scrapeTeachervilleOrders() {
   try {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -2307,10 +1695,8 @@ async function scrapeArt09Orders() {
   }
 }
 
-// seller-club.co.kr 페이지 컨텍스트: 결제완료(stateCd=c) 일괄엑셀 언마스킹 다운로드 POST → base64 xlsx.
-// ⭐새 주문은 결제완료(c)에 쌓인다. 출고대기(d)는 셀러가 출고처리로 옮겨야 차는 칸이라 보통 비어 있고,
-//   비어 있으면 excel-xlsx 가 404(JSON 에러바디)를 반환한다 — 과거 stateCd='d' 로 404 나던 원인.
-// 다운로드 사유는 항상 전달하고, 사이트가 비밀번호 언마스킹을 요구하면 저장된 계정 비밀번호를 함께 보낸다.
+// seller-club.co.kr 페이지 컨텍스트: 출고대기(stateCd=d) 일괄엑셀 언마스킹 다운로드 POST → base64 xlsx.
+// 언마스킹은 "다운로드 사유"만 필요(비밀번호 불필요 — type:reason). reason="배송확인합니다".
 async function scrapeBoriboriOrders(downloadPassword) {
   try {
     const p = (n) => String(n).padStart(2, "0");
@@ -3040,6 +2426,7 @@ async function scrapeKidkidsOrders(dateFilter) {
 // 엑셀다운로드는 서버 비동기 생성(~1분). 백그라운드 탭에서 "엑셀다운로드" 클릭 + 생성요청 모달
 // submit 으로 오늘 포함 기간 export 를 생성 → getOrderList JSON 폴링(SUCCESS) → CDN CSV base64.
 const DOMEGGOOK_LIST_URL = "https://domeggook.com/sc/order/lstAll";
+const DOMEGGOOK_INPROCESS_URL = "https://domeggook.com/sc/order/lstInprocess";
 const DOMEGGOOK_ORDERLIST_API = "https://domeggook.com/sc/excel/getOrderList?format=grid&pg=1";
 
 async function domeggookOrderList() {
@@ -3078,69 +2465,6 @@ async function findOrCreateDomeggookTab(navUrl) {
   }
   const tab = await chrome.tabs.create({ url: navUrl, active: false }); // 백그라운드 새 탭
   return { tab, created: true };
-}
-
-// ── 도매꾹 송장 업로드(발송처리): 송장 엑셀일괄입력 = POST /sc/order/shipXls (multipart deliXls + tar) ──
-// ⚠️파괴적: 실주문 발송처리. 프론트가 사용자 확인 후에만 호출한다. 양식 = [주문번호·택배사코드명(DAEHAN)·송장번호] .xls.
-const DOMEGGOOK_INPROCESS_URL = "https://domeggook.com/sc/order/lstInprocess";
-
-async function uploadDomeggookTracking(options = {}) {
-  const fileBase64 = typeof options.fileBase64 === "string" ? options.fileBase64 : "";
-  const fileName = typeof options.fileName === "string" ? options.fileName : "도매꾹_송장.xls";
-  const tar = Array.isArray(options.orderNos) ? options.orderNos.join(",") : "";
-  if (!fileBase64) return { success: false, error: "도매꾹 송장 파일이 없습니다." };
-  const { tab, created } = await findOrCreateDomeggookTab(DOMEGGOOK_INPROCESS_URL);
-  if (!tab?.id) return { success: false, error: "도매꾹(domeggook.com) 탭을 열 수 없습니다." };
-  try {
-    await waitForTabReady(tab.id);
-    const injected = await withTimeout(
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        world: "MAIN", // 로그인 세션 쿠키로 same-origin POST
-        func: scrapeDomeggookShipUpload,
-        args: [fileBase64, fileName, tar],
-      }),
-      60000,
-      "도매꾹 송장 업로드 시간이 초과되었습니다.",
-    );
-    return injected[0]?.result ?? { success: false, error: "도매꾹 화면에 접근하지 못했습니다." };
-  } catch (e) {
-    if (isMallAccessError(e)) { await bringMallTabToFront(tab.id); return mallAccessErrorResult("도매꾹"); }
-    return mallGenericErrorResult("도매꾹", e);
-  } finally {
-    if (created && tab.id) {
-      try { await chrome.tabs.remove(tab.id); } catch { /* 이미 닫힘 */ }
-    }
-  }
-}
-
-// domeggook.com 페이지 컨텍스트: 송장 엑셀(base64) → File → multipart POST /sc/order/shipXls.
-async function scrapeDomeggookShipUpload(fileBase64, fileName, tar) {
-  try {
-    const bin = atob(fileBase64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
-    const file = new File([bytes], fileName, { type: "application/vnd.ms-excel" });
-    const fd = new FormData();
-    fd.append("deliXls", file); // 폼 file input 이름
-    fd.append("tar", tar || ""); // 대상 주문번호 목록(콤마조인)
-    const res = await fetch("/sc/order/shipXls", { method: "POST", credentials: "include", body: fd });
-    const text = await res.text();
-    if (!res.ok) {
-      return { success: false, error: "도매꾹 송장 업로드 실패 (HTTP " + res.status + "). 로그인을 확인하세요.", snippet: text.slice(0, 300) };
-    }
-    // 응답(HTML/JSON)에서 성공 여부 추정. 확정 못 하면 원문 스니펫을 프론트로 넘겨 사용자가 확인.
-    let uploaded = /완료|성공|반영|success/i.test(text) && !/실패|오류|불가/.test(text);
-    try {
-      const j = JSON.parse(text);
-      if (j && (j.res === true || j.result === true || j.success === true)) uploaded = true;
-      if (j && (j.res === false || j.result === false)) uploaded = false;
-    } catch { /* not json */ }
-    const snippet = text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 400);
-    return { success: true, uploaded, httpStatus: res.status, snippet };
-  } catch (e) {
-    return { success: false, error: String((e && e.message) || e) };
-  }
 }
 
 async function collectDomeggookOrders(date) {
@@ -3504,7 +2828,6 @@ async function clickCoupangShipmentDownloadButtons(options) {
   });
 
   const rows = [];
-  const availableDates = new Set();
   let labelCount = 0;
   let statementCount = 0;
 
@@ -3514,12 +2837,8 @@ async function clickCoupangShipmentDownloadButtons(options) {
     const outboundAt = textAt(cells, headerMap, ["발송일"]);
     const inboundDate = textAt(cells, headerMap, ["입고예정일", "입고 예정일"]);
     const center = textAt(cells, headerMap, ["센터"]);
-    // 입고예정일·발송일 둘 다 후보(화면 컬럼 의미차 흡수). 하나라도 선택 날짜와 맞으면 통과.
-    const candInbound = compactDate(inboundDate);
-    const candOutbound = compactDate(outboundAt);
-    if (candInbound) availableDates.add(candInbound);
-    if (candOutbound) availableDates.add(candOutbound);
-    if (targetDate && candInbound !== targetDate && candOutbound !== targetDate) continue;
+    const candidateDate = compactDate(inboundDate || outboundAt);
+    if (targetDate && candidateDate !== targetDate) continue;
 
     let labelClicked = false;
     let statementClicked = false;
@@ -3554,17 +2873,11 @@ async function clickCoupangShipmentDownloadButtons(options) {
   }
 
   if (rows.length === 0) {
-    const seen = Array.from(availableDates).sort();
-    const hint = seen.length
-      ? ` (화면 표의 날짜: ${seen.join(", ")} — '다운로드 날짜'를 이 중 하나로 맞춰 다시 시도하세요)`
-      : ` (표 ${rowElements.length}행에서 입고예정일/발송일 날짜를 읽지 못했습니다. 쿠팡 쉽먼트 화면에 해당 날짜 결과가 조회돼 있는지 확인하세요)`;
     return {
       success: false,
       error: targetDate
-        ? `선택한 날짜(${targetDate})에 해당하는 쉽먼트 행을 찾지 못했습니다.${hint}`
+        ? "선택한 날짜에 해당하는 쉽먼트 행을 찾지 못했습니다."
         : "다운로드할 쉽먼트 행을 찾지 못했습니다.",
-      availableDates: seen,
-      rowCount: rowElements.length,
     };
   }
 
@@ -4692,4 +4005,358 @@ async function scrapeIcecreamMallDeliveryGrid(date, expectedHeaders) {
     masked,
     source: "icecream-mall-delivery-grid",
   };
+}
+
+async function findOrCreateSellpiaReprintTab() {
+  const tabs = await chrome.tabs.query({ url: SELLPIA_TAB_MATCHES });
+  const onReprint = tabs.find((t) => (t.url || "").includes("order_delivery_reprint"));
+  if (onReprint?.id) return { tab: onReprint, created: false };
+  const tab = await chrome.tabs.create({ url: SELLPIA_REPRINT_URL, active: false });
+  return { tab, created: true };
+}
+
+async function collectSellpiaDeliTracking(options = {}) {
+  const { tab, created } = await findOrCreateSellpiaReprintTab();
+  if (!tab?.id) return { success: false, error: "셀피아(kiditem.sellpia.com) 탭을 열 수 없습니다." };
+  try {
+    await waitForTabReady(tab.id);
+    const injected = await withTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: "MAIN", // 페이지 컨텍스트 fetch (로그인 세션 쿠키). ISOLATED 는 SameSite 쿠키 미전송 위험.
+        func: scrapeSellpiaDeliTracking,
+        args: [options.startDate || null, options.endDate || null],
+      }),
+      60000,
+      "셀피아 송장 조회 시간이 초과되었습니다.",
+    );
+    return injected[0]?.result ?? { success: false, error: "셀피아 화면에 접근하지 못했습니다." };
+  } catch (e) {
+    if (isMallAccessError(e)) { await bringMallTabToFront(tab.id); return mallAccessErrorResult("셀피아"); }
+    return mallGenericErrorResult("셀피아", e);
+  } finally {
+    if (created && tab.id) {
+      try { await chrome.tabs.remove(tab.id); } catch { /* 이미 닫힘 */ }
+    }
+  }
+}
+
+async function scrapeSellpiaDeliTracking(startDate, endDate) {
+  try {
+    const p = (n) => String(n).padStart(2, "0");
+    const d = new Date();
+    const end = endDate || `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    const s0 = new Date(d.getTime() - 30 * 24 * 60 * 60 * 1000); // 기본 최근 30일
+    const start = startDate || `${s0.getFullYear()}-${p(s0.getMonth() + 1)}-${p(s0.getDate())}`;
+    const dateType = (document.getElementById("search_date_type") || {}).value || "";
+    const body = new URLSearchParams({
+      domode: "GET_ORDER_DELIVERY_REPRINT_LIST",
+      date_type: dateType, // 송장출력일자/송장번호채번일자/피킹일자 (기본값 사용)
+      s_date: start,
+      e_date: end,
+      delinum: "",
+      receiver: "",
+      onlydeli_sellpia_code: "",
+      pick_num: "",
+    });
+    const res = await fetch("delivery_link.action.html", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" },
+      body: body.toString(),
+    });
+    if (!res.ok) {
+      return { success: false, error: "셀피아 송장 조회 실패 (HTTP " + res.status + "). 셀피아 로그인을 확인하세요." };
+    }
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return { success: false, error: "셀피아 송장 응답을 해석하지 못했습니다. 셀피아 로그인을 확인하세요." };
+    }
+    const list = Array.isArray(data && data.list) ? data.list : [];
+    const s2 = (v) => String(v == null ? "" : v).trim();
+    // ⭐전 몰 반환(판매처 필터는 프론트가 몰별로). 각 몰 송장 업로드가 이 소스를 공유한다.
+    const rows = list
+      .map((o) => {
+        const si = o.ship_info || {};
+        const ordNo = s2(si.ord_no || String(o.group_no || "").split("_").pop() || "");
+        return {
+          ordNo,
+          itemNo: "",
+          invNo: s2(o.delinum),
+          courier: s2(o.delicom), // 셀피아 택배사코드(예 1136=CJ)
+          provider: s2(si.provider_name || o.receiver), // 판매처명 (몰 매핑용)
+          receiver: s2(o.receiver).replace(/\([^)]*\)\s*$/, "").trim(), // 수취인 (몰명 괄호 제거)
+          post: s2(o.receiver_post),
+          addr: [s2(o.receiver_addr1), s2(o.receiver_addr2)].filter(Boolean).join(" "),
+        };
+      })
+      .filter((r) => r.ordNo && r.invNo);
+    return { success: true, rows, total: list.length, range: { start, end } };
+  } catch (e) {
+    return { success: false, error: String((e && e.message) || e) };
+  }
+}
+
+async function findOrCreateKakaoTab() {
+  const tabs = await chrome.tabs.query({ url: KAKAO_TAB_MATCHES });
+  if (tabs[0]?.id) return { tab: tabs[0], created: false }; // 기존 카카오 탭 재사용 (포커스 안 뺏음)
+  const tab = await chrome.tabs.create({ url: KAKAO_ORDER_URL, active: false }); // 백그라운드 새 탭
+  return { tab, created: true };
+}
+
+async function collectKakaoOrders(dateFilter) {
+  const { tab, created } = await findOrCreateKakaoTab();
+  if (!tab?.id) return { success: false, error: "카카오쇼핑 판매자센터(shopping-seller.kakao.com) 탭을 열 수 없습니다." };
+  const keepAlive = setInterval(() => {
+    chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
+  }, 20000);
+  let keepOpen = false;
+  try {
+    await waitForTabReady(tab.id);
+    const injected = await withTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: scrapeKakaoOrders,
+        args: [dateFilter || ""],
+      }),
+      120000,
+      "카카오 주문 수집 시간이 초과되었습니다.",
+    );
+    return injected[0]?.result ?? { success: false, error: "카카오 화면에 접근하지 못했습니다." };
+  } catch (e) {
+    if (isMallAccessError(e)) { keepOpen = created; await bringMallTabToFront(tab.id); return mallAccessErrorResult("카카오"); }
+    return mallGenericErrorResult("카카오", e);
+  } finally {
+    clearInterval(keepAlive);
+    if (created && tab.id && !keepOpen) {
+      try {
+        await chrome.tabs.remove(tab.id); // 우리가 연 백그라운드 탭 정리
+      } catch {
+        /* 이미 닫힘 — 무시 */
+      }
+    }
+  }
+}
+
+async function scrapeKakaoOrders(dateFilter) {
+  try {
+    const pad = (n) => String(n).padStart(2, "0");
+    const ymd = (d) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+    const now = new Date();
+    let from, to;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateFilter || "")) {
+      const s = dateFilter.replace(/-/g, "");
+      from = s + "000000";
+      to = s + "235959";
+    } else {
+      // 배송준비중은 미출고분이라 최근분 — 넉넉히 90일 결제분 조회.
+      to = ymd(now) + "235959";
+      from = ymd(new Date(now.getTime() - 90 * 86400000)) + "000000";
+    }
+    const orders = [];
+    for (let page = 0; page < 50; page++) {
+      const res = await fetch("/api/oms/v2/orders/_search/SELLER_ORDER/101", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        // ⭐배송준비중 = enum 이름 "ShippingWaiting" (숫자 301 을 보내면 500). 응답의 statusCode 는 301.
+        body: JSON.stringify({
+          size: "200",
+          statuses: ["ShippingWaiting"],
+          orderPaidAt: { from, to },
+          page: String(page),
+        }),
+      });
+      const text = await res.text();
+      // 로그인 리다이렉트(HTML)면 로그인 안내, API 오류(JSON errorMessage)면 실제 메시지 전달 — 500 을 "로그인"으로 오표시하지 않는다.
+      if (text.trim().charAt(0) === "<") {
+        if (page === 0)
+          return {
+            success: false,
+            pendingLogin: true,
+            error: "카카오쇼핑 판매자센터 로그인이 필요합니다. shopping-seller.kakao.com 에 로그인한 뒤 다시 시도하세요.",
+          };
+        break;
+      }
+      if (!res.ok) {
+        let msg = `카카오 주문 조회 실패 (HTTP ${res.status})`;
+        try {
+          const j = JSON.parse(text);
+          if (j && j.errorMessage) msg = `카카오: ${j.errorMessage}`;
+        } catch (e) {
+          /* 파싱 실패 — 기본 메시지 */
+        }
+        if (page === 0) return { success: false, error: msg };
+        break;
+      }
+      let j;
+      try {
+        j = JSON.parse(text);
+      } catch (e) {
+        if (page === 0) return { success: false, error: "카카오 주문 응답을 해석하지 못했습니다 (로그인/세션 확인)." };
+        break;
+      }
+      const contents = (j && j.contents) || [];
+      for (const o of contents) {
+        if (Number(o.statusCode) === 301) orders.push(o); // 배송준비중만 (방어적 재확인)
+      }
+      if (j.last || contents.length < 200) break;
+    }
+    return { success: true, orders, count: orders.length };
+  } catch (e) {
+    return { success: false, error: (e && e.message) || "카카오 주문 수집 실패" };
+  }
+}
+
+async function uploadOnchTracking(options = {}) {
+  const rows = Array.isArray(options.rows) ? options.rows : [];
+  if (rows.length === 0) return { success: false, error: "온채널 송장이 없습니다." };
+  const { tab, created } = await findOrCreateOnchannelTab();
+  if (!tab?.id) return { success: false, error: "온채널(onch3.co.kr) 탭을 열 수 없습니다." };
+  try {
+    await waitForTabReady(tab.id);
+    const injected = await withTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: "MAIN", // 로그인 세션 same-origin POST
+        func: scrapeOnchUpload,
+        args: [rows],
+      }),
+      120000,
+      "온채널 송장 업로드 시간이 초과되었습니다.",
+    );
+    return injected[0]?.result ?? { success: false, error: "온채널 화면에 접근하지 못했습니다." };
+  } catch (e) {
+    if (isMallAccessError(e)) { await bringMallTabToFront(tab.id); return mallAccessErrorResult("온채널"); }
+    return mallGenericErrorResult("온채널", e);
+  } finally {
+    if (created && tab.id) {
+      try { await chrome.tabs.remove(tab.id); } catch { /* 이미 닫힘 */ }
+    }
+  }
+}
+
+async function scrapeOnchUpload(rows) {
+  try {
+    if (/login/i.test(location.href) || document.querySelector('input[type="password"]')) {
+      return { success: false, error: "온채널 로그인이 필요합니다. onch3.co.kr 에 로그인 후 다시 시도하세요." };
+    }
+    // 택배사 정식명(CJ 대한통운) — #deliveryObjs 에서 확정, 없으면 기본값.
+    let cjName = "CJ 대한통운";
+    try {
+      const objs = JSON.parse(document.getElementById("deliveryObjs").value || "[]");
+      const cj = objs.find((o) => /대한통운/.test(o.delivery_name || ""));
+      if (cj && cj.delivery_name) cjName = cj.delivery_name;
+    } catch { /* 기본값 사용 */ }
+
+    // 목록: 주문코드(상세모달) → { member(memberOrderNum), isFirst }. 송장입력 버튼과 같은 행의 주문코드를 페어링.
+    const map = {};
+    const sjBtns = [...document.querySelectorAll('[onclick*="supplierDeliveryNumberModal"]')];
+    for (const b of sjBtns) {
+      const oc = b.getAttribute("onclick") || "";
+      const m = oc.match(/supplierDeliveryNumberModal\('([^']*)','([^']*)','([^']*)'/);
+      if (!m) continue;
+      let el = b;
+      let code = null;
+      for (let i = 0; i < 12 && el; i += 1) {
+        el = el.parentElement;
+        const d = el && el.querySelector('[onclick*="supplierOrderDetailModal"]');
+        if (d) { code = ((d.getAttribute("onclick") || "").match(/'([^']+)'/) || [])[1]; break; }
+      }
+      if (code && !map[code]) map[code] = { member: m[1], isFirst: m[3] };
+    }
+
+    const results = [];
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    for (const r of rows) {
+      const ordNo = String(r.ordNo || "").trim();
+      const invNo = String(r.invNo || "").trim();
+      if (!ordNo || !invNo) { results.push({ ordNo, ok: false, reason: "송장/주문번호 없음" }); continue; }
+      const hit = map[ordNo];
+      if (!hit) { results.push({ ordNo, ok: false, reason: "온채널 목록에 없음(이미 발송 또는 기간 밖)" }); continue; }
+      if (hit.isFirst !== "true") { results.push({ ordNo, ok: false, reason: "이미 송장 등록됨" }); continue; }
+      const body = new URLSearchParams({ trans_nm: cjName, trans_num: invNo, hidden_trans_num: hit.member });
+      try {
+        const res = await fetch("/access/order_access.php?ubr=trans_ok", {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" },
+          body: body.toString(),
+        });
+        const txt = await res.text();
+        let code = null;
+        try { code = JSON.parse(txt).code; } catch { /* not json */ }
+        const ok = String(code) === "200";
+        results.push({ ordNo, ok, code, reason: ok ? "" : "응답 " + (code ?? txt.slice(0, 40)) });
+        await sleep(250); // 연속 POST 간격
+      } catch (e) {
+        results.push({ ordNo, ok: false, reason: String((e && e.message) || e) });
+      }
+    }
+    const okCount = results.filter((x) => x.ok).length;
+    return { success: true, total: rows.length, okCount, listSize: Object.keys(map).length, results: results.slice(0, 60) };
+  } catch (e) {
+    return { success: false, error: String((e && e.message) || e) };
+  }
+}
+
+async function uploadDomeggookTracking(options = {}) {
+  const fileBase64 = typeof options.fileBase64 === "string" ? options.fileBase64 : "";
+  const fileName = typeof options.fileName === "string" ? options.fileName : "도매꾹_송장.xls";
+  const tar = Array.isArray(options.orderNos) ? options.orderNos.join(",") : "";
+  if (!fileBase64) return { success: false, error: "도매꾹 송장 파일이 없습니다." };
+  const { tab, created } = await findOrCreateDomeggookTab(DOMEGGOOK_INPROCESS_URL);
+  if (!tab?.id) return { success: false, error: "도매꾹(domeggook.com) 탭을 열 수 없습니다." };
+  try {
+    await waitForTabReady(tab.id);
+    const injected = await withTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: "MAIN", // 로그인 세션 쿠키로 same-origin POST
+        func: scrapeDomeggookShipUpload,
+        args: [fileBase64, fileName, tar],
+      }),
+      60000,
+      "도매꾹 송장 업로드 시간이 초과되었습니다.",
+    );
+    return injected[0]?.result ?? { success: false, error: "도매꾹 화면에 접근하지 못했습니다." };
+  } catch (e) {
+    if (isMallAccessError(e)) { await bringMallTabToFront(tab.id); return mallAccessErrorResult("도매꾹"); }
+    return mallGenericErrorResult("도매꾹", e);
+  } finally {
+    if (created && tab.id) {
+      try { await chrome.tabs.remove(tab.id); } catch { /* 이미 닫힘 */ }
+    }
+  }
+}
+
+async function scrapeDomeggookShipUpload(fileBase64, fileName, tar) {
+  try {
+    const bin = atob(fileBase64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+    const file = new File([bytes], fileName, { type: "application/vnd.ms-excel" });
+    const fd = new FormData();
+    fd.append("deliXls", file); // 폼 file input 이름
+    fd.append("tar", tar || ""); // 대상 주문번호 목록(콤마조인)
+    const res = await fetch("/sc/order/shipXls", { method: "POST", credentials: "include", body: fd });
+    const text = await res.text();
+    if (!res.ok) {
+      return { success: false, error: "도매꾹 송장 업로드 실패 (HTTP " + res.status + "). 로그인을 확인하세요.", snippet: text.slice(0, 300) };
+    }
+    // 응답(HTML/JSON)에서 성공 여부 추정. 확정 못 하면 원문 스니펫을 프론트로 넘겨 사용자가 확인.
+    let uploaded = /완료|성공|반영|success/i.test(text) && !/실패|오류|불가/.test(text);
+    try {
+      const j = JSON.parse(text);
+      if (j && (j.res === true || j.result === true || j.success === true)) uploaded = true;
+      if (j && (j.res === false || j.result === false)) uploaded = false;
+    } catch { /* not json */ }
+    const snippet = text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 400);
+    return { success: true, uploaded, httpStatus: res.status, snippet };
+  } catch (e) {
+    return { success: false, error: String((e && e.message) || e) };
+  }
 }

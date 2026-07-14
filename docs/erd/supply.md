@@ -9,27 +9,16 @@
 
 | Model | Table | Description |
 |---|---|---|
-| MasterSupplierProduct | `master_supplier_products` | Master 단위 주공급처 정책. 여러 supplier 후보 중 isPrimary 가 기본. |
 | PurchaseOrder | `purchase_orders` | 발주 state machine (draft→pending→ordered→shipped→received). 입고 검수 필드 포함 (receivedQty, defectQty). 단위는 CNY(Decimal 12,2). |
 | PurchaseOrderItem | `purchase_order_items` | - |
 | Supplier | `suppliers` | - |
 | SupplierPayment | `supplier_payments` | - |
-| SupplierProduct | `supplier_products` | 공급사별 SKU(옵션) 단위 공급가 관리. |
+| SupplierProduct | `supplier_products` | 공급사별 Sellpia 물리 상품 단위 공급가/주공급처 정책. |
 
 ## Mermaid ER Diagram
 
 ```mermaid
 erDiagram
-  MasterSupplierProduct {
-    String id PK
-    String masterId FK
-    String supplierId FK
-    Boolean isPrimary
-    Int minOrderQty
-    String memo
-    DateTime createdAt
-    DateTime updatedAt
-  }
   PurchaseOrder {
     String id PK
     String organizationId FK
@@ -57,8 +46,9 @@ erDiagram
   }
   PurchaseOrderItem {
     String id PK
+    String organizationId FK
     String orderId FK
-    String optionId FK
+    String masterProductId FK
     String productName
     Int quantity
     Decimal unitPriceCny
@@ -96,16 +86,18 @@ erDiagram
   }
   SupplierProduct {
     String id PK
+    String organizationId FK
     String supplierId FK
-    String optionId FK
+    String masterProductId FK,UK
     Int supplyPrice
     Int minOrderQty
+    Boolean isPrimary
+    String memo
     DateTime createdAt
     DateTime updatedAt
   }
   PurchaseOrder ||--o{ PurchaseOrderItem : "order"
   PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"
-  Supplier ||--o{ MasterSupplierProduct : "supplier"
   Supplier o|--o{ PurchaseOrder : "supplier"
   Supplier ||--o{ SupplierPayment : "supplier"
   Supplier ||--o{ SupplierProduct : "supplier"
@@ -115,9 +107,10 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
-| MasterSupplierProduct | master | references external | Core | MasterProduct |
 | PurchaseOrder | organization | references external | Core | Organization |
-| PurchaseOrderItem | option | references external | Core | ProductOption |
+| PurchaseOrderItem | masterProduct | references external | Core | MasterProduct |
+| PurchaseOrderItem | organization | references external | Core | Organization |
 | Supplier | organization | references external | Core | Organization |
 | SupplierPayment | organization | references external | Core | Organization |
-| SupplierProduct | option | references external | Core | ProductOption |
+| SupplierProduct | masterProduct | references external | Core | MasterProduct |
+| SupplierProduct | organization | references external | Core | Organization |

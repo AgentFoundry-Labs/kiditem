@@ -2,6 +2,34 @@ import { describe, expect, it, vi } from 'vitest';
 import { ThumbnailWingRepositoryAdapter } from '../thumbnail-wing.repository.adapter';
 
 describe('ThumbnailWingRepositoryAdapter', () => {
+  it('scopes registrable thumbnail workspaces to active Coupang listings', async () => {
+    const prisma = {
+      contentWorkspace: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+    };
+    const repository = new ThumbnailWingRepositoryAdapter(prisma as never);
+
+    await repository.findRegistrableMaster('master-1', 'org-1');
+
+    expect(prisma.contentWorkspace.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'master-1',
+          organizationId: 'org-1',
+          isDeleted: false,
+          status: 'active',
+          channelListing: {
+            is: {
+              isActive: true,
+              channelAccount: { is: { channel: 'coupang' } },
+            },
+          },
+        },
+      }),
+    );
+  });
+
   it('updates registration attempts with organization and generation scope', async () => {
     const prisma = {
       thumbnailRegistrationAttempt: {

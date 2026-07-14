@@ -9,7 +9,7 @@
 
 | Model | Table | Description |
 |---|---|---|
-| CandidateImage | `sourcing_candidate_images` | 소싱 후보의 이미지 갤러리. 승격 시 MasterProductImage로 clone. |
+| CandidateImage | `sourcing_candidate_images` | 소싱 후보가 소유하는 이미지 갤러리. 소싱 콘텐츠와 썸네일 생성 입력으로 사용한다. |
 | LiveCommerceBroadcastDailySnapshot | `live_commerce_broadcast_daily_snapshots` | 타오바오 공식 API 또는 로그인된 1688·도우인 브라우저 화면에서 수집한 라이브 방송 일별 스냅샷. source와 broadcastId가 외부 방송 식별자를 이룬다. |
 | LiveCommerceProductDailySnapshot | `live_commerce_product_daily_snapshots` | 중국 라이브 방송에 노출된 상품의 일별 스냅샷. broadcastId로 방송 스냅샷과 논리적으로 연결하고 상품 단위 비교를 지원한다. |
 | NaverKeywordDailySnapshot | `naver_keyword_daily_snapshots` | 네이버 키워드(검색광고 월검색량 + 데이터랩 검색어트렌드) 일별 스냅샷. 시드 키워드당 하루 1행(최신본 upsert). trendRatio 는 latestRatio 반올림(0-100). |
@@ -165,7 +165,7 @@ erDiagram
     String imageUrl
     Decimal costCny
     String status
-    String promotedMasterId FK
+    String provenanceMasterProductId FK
     String rejectedReason
     DateTime rejectedAt
     String rejectedByUserId FK
@@ -210,14 +210,14 @@ erDiagram
 | ShortsTrendDailySnapshot | organization | references external | Core | Organization |
 | Sourcing1688HotProductDailySnapshot | organization | references external | Core | Organization |
 | SourcingCandidate | organization | references external | Core | Organization |
-| SourcingCandidate | promotedMaster | references external | Core | MasterProduct |
+| SourcingCandidate | provenanceMasterProduct | references external | Core | MasterProduct |
 | SourcingCandidate | rejectedByUser | references external | Core | User |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ContentGeneration |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ContentGenerationSource |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ContentWorkspace |
-| SourcingCandidate | sourceCandidate | referenced by external | AI | DetailPageArtifact |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ProductPreparation |
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ThumbnailGeneration |
+| SourcingCandidate | sourceCandidate | referenced by external | Core | ChannelListing |
 | SourcingCandidate | triggeredByUser | references external | Core | User |
 | SourcingWorkspaceSnapshot | organization | references external | Core | Organization |
 | TrendSeedKeyword | organization | references external | Core | Organization |

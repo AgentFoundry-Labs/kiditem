@@ -9,6 +9,9 @@ const ARCHIVED_AT = new Date('2026-05-15T08:00:00.000Z');
 describe('AI SourcingWorkspaceArchiveService', () => {
   it('delegates candidate AI artifact archival to the archive repository', async () => {
     const scope = {
+      contentWorkspace: {
+        updateMany: vi.fn(),
+      },
       contentGeneration: {
         findMany: vi.fn(),
         updateMany: vi.fn(),

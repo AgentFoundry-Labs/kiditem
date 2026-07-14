@@ -1,5 +1,16 @@
 export const COUPANG_PROVIDER_PORT = Symbol('COUPANG_PROVIDER_PORT');
 
+export class CoupangProviderRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly providerOutcome: 'definitive_failure' | 'uncertain',
+  ) {
+    super(message);
+    this.name = 'CoupangProviderRequestError';
+  }
+}
+
 /** Coupang Wing API — seller product list (undocumented response shape) */
 export interface SellerProductListResponse {
   code: string;
@@ -14,6 +25,16 @@ export interface SellerProductListResponse {
       brand?: string;
     }>;
   };
+}
+
+export interface SellerProductExternalSkuResponse {
+  code: string;
+  message: string;
+  data?: Array<{
+    sellerProductId: number;
+    sellerProductName: string;
+    statusName?: string;
+  }>;
 }
 
 /** Coupang Wing API — seller product detail (undocumented response shape) */
@@ -120,28 +141,48 @@ export interface CoupangProviderPort {
   createSellerProduct(
     organizationId: string,
     payload: CoupangSellerProductPayload,
+    channelAccountId?: string,
+    beforeDispatch?: () => Promise<void>,
   ): Promise<CoupangCreateSellerProductResponse>;
   getSellerProducts(organizationId: string, params: {
     nextToken?: string;
     maxPerPage?: number;
     status?: string;
   }): Promise<SellerProductListResponse>;
-  getSellerProduct(organizationId: string, sellerProductId: string): Promise<SellerProductDetailResponse>;
-  getOrderSheets(organizationId: string, params: {
+  getSellerProduct(
+    organizationId: string,
+    sellerProductId: string,
+    channelAccountId?: string,
+  ): Promise<SellerProductDetailResponse>;
+  getSellerProductsByExternalVendorSku(
+    organizationId: string,
+    externalVendorSkuCode: string,
+    channelAccountId?: string,
+  ): Promise<SellerProductExternalSkuResponse>;
+  getOrderSheets(organizationId: string, channelAccountId: string, params: {
     createdAtFrom: string;
     createdAtTo: string;
     status?: string;
     maxPerPage?: number;
     nextToken?: string;
   }): Promise<OrderSheetResponse>;
-  confirmOrderSheets(organizationId: string, shipmentBoxIds: number[]): Promise<unknown>;
+  confirmOrderSheets(
+    organizationId: string,
+    channelAccountId: string,
+    shipmentBoxIds: number[],
+  ): Promise<unknown>;
   uploadInvoice(
     organizationId: string,
+    channelAccountId: string,
     shipmentBoxId: number,
     params: {
       deliveryCompanyCode: string;
       invoiceNumber: string;
     },
   ): Promise<unknown>;
-  approveReturn(organizationId: string, receiptId: number): Promise<unknown>;
+  approveReturn(
+    organizationId: string,
+    channelAccountId: string,
+    receiptId: number,
+  ): Promise<unknown>;
 }

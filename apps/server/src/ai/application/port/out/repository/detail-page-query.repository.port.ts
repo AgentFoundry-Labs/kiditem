@@ -5,7 +5,7 @@ export const DETAIL_PAGE_QUERY_REPOSITORY_PORT = Symbol(
 export interface DetailPageGenerationSnapshot {
   id: string;
   sourceCandidateId: string | null;
-  contentWorkspaceId: string | null;
+  contentWorkspaceId: string;
   templateId: string | null;
   generationInput: unknown;
   generationResult: unknown;
@@ -13,14 +13,10 @@ export interface DetailPageGenerationSnapshot {
   status: string;
   errorMessage: string | null;
   createdAt: Date;
-  generationGroup: {
-    targetMasterId: string | null;
-  };
 }
 
 export interface DetailPageListRepositoryInput {
   organizationId: string;
-  productId?: string | null;
   sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
 }
@@ -35,7 +31,7 @@ export interface DetailPageDuplicateRevisionSnapshot {
 export interface DetailPageDuplicateSourceSnapshot {
   id: string;
   generationGroupId: string;
-  contentWorkspaceId: string | null;
+  contentWorkspaceId: string;
   sourceCandidateId: string | null;
   detailPageArtifactId: string | null;
   contentType: string;
@@ -49,14 +45,9 @@ export interface DetailPageDuplicateSourceSnapshot {
   editedHtmlSavedAt: Date | null;
   status: string;
   triggeredByUserId: string | null;
-  generationGroup: {
-    targetMasterId: string | null;
-  };
   detailPageArtifact: {
     id: string;
     title: string | null;
-    sourceCandidateId: string | null;
-    targetMasterId: string | null;
     currentRevision: DetailPageDuplicateRevisionSnapshot | null;
   } | null;
 }

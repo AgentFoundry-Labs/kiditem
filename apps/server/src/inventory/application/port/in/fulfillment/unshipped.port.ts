@@ -1,4 +1,4 @@
-import type { UnshippedItemRow } from '../../out/repository/inventory-query.repository.port';
+import type { UnshippedItemRow } from '../../out/repository/unshipped.repository.port';
 
 export const UNSHIPPED_PORT = Symbol('UnshippedPort');
 

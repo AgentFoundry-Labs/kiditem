@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
   CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
   type ContentAssetLibraryRepositoryPort,
@@ -10,7 +10,7 @@ export { groupUrlAssetKey } from '../../domain/content-asset-key';
 export interface ContentAssetListQuery {
   page?: number;
   limit?: number;
-  productId?: string | null;
+  contentWorkspaceId?: string | null;
   generationId?: string | null;
 }
 
@@ -22,6 +22,24 @@ export class ContentAssetService {
     @Inject(CONTENT_ASSET_LIBRARY_REPOSITORY_PORT)
     private readonly repository: ContentAssetLibraryRepositoryPort,
   ) {}
+
+  async deleteAsset(
+    organizationId: string,
+    contentAssetId: string,
+  ): Promise<{ ok: true }> {
+    const result = await this.repository.deleteAsset({
+      organizationId,
+      contentAssetId,
+      deletedAt: new Date(),
+    });
+    if (result.status === 'not_found') throw new NotFoundException('Content asset not found.');
+    if (result.status === 'in_use') {
+      throw new ConflictException(
+        'Content asset is still used by an active generation or thumbnail selection.',
+      );
+    }
+    return { ok: true };
+  }
 
   recordDetailPageInputAssets(input: {
     organizationId: string;
@@ -70,15 +88,15 @@ export class ContentAssetService {
   ): Promise<{
     items: Array<{
       id: string;
-      productId: string | null;
-      generationGroupId: string;
+      contentWorkspaceId: string | null;
+      originGenerationGroupId: string | null;
       url: string;
       assetType: string;
       role: string | null;
       label: string | null;
       sortOrder: number;
       metadata: unknown;
-      product: { id: string; code: string; name: string } | null;
+      workspace: { id: string; displayName: string } | null;
       createdAt: string;
       updatedAt: string;
     }>;
@@ -97,22 +115,22 @@ export class ContentAssetService {
       organizationId,
       page,
       limit,
-      productId: query.productId ?? null,
+      contentWorkspaceId: query.contentWorkspaceId ?? null,
       generationId: query.generationId ?? null,
     });
 
     return {
       items: rows.map((row) => ({
         id: row.id,
-        productId: row.generationGroup.targetMaster?.id ?? null,
-        generationGroupId: row.generationGroupId,
+        contentWorkspaceId: row.originGenerationGroup?.contentWorkspace.id ?? null,
+        originGenerationGroupId: row.originGenerationGroupId,
         url: row.url,
         assetType: row.assetType,
         role: row.role,
         label: row.label,
         sortOrder: row.sortOrder,
         metadata: row.metadata,
-        product: row.generationGroup.targetMaster,
+        workspace: row.originGenerationGroup?.contentWorkspace ?? null,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
       })),

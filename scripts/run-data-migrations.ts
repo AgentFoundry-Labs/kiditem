@@ -18,6 +18,8 @@ import {
   dataMigrations,
 } from './data-migrations/index';
 import type {
+  DataMigrationContext,
+  DataMigrationTarget,
   DataMigration,
   MigrationResult,
 } from './data-migrations/types';
@@ -134,14 +136,27 @@ export function assertApplyDataMigrationsConfirmation(confirm: string | undefine
   }
 }
 
-function assertMutatingTarget(args: CliArgs, dbUrl: string): void {
-  const target = value(args, 'target') ?? process.env.DATA_MIGRATION_TARGET;
-  if (target !== 'local' && target !== 'staging') {
-    throw new Error('Data migrations require --target local or --target staging.');
+export function assertMutatingTarget(
+  target: string | undefined,
+  dbUrl: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): asserts target is DataMigrationTarget {
+  if (target === 'local' || target === 'staging') {
+    if (isDefinitelyProductionDatabaseUrl(dbUrl)) {
+      throw new Error('Refusing to run data migrations against a database URL that looks like production.');
+    }
+    return;
   }
-  if (isDefinitelyProductionDatabaseUrl(dbUrl)) {
-    throw new Error('Refusing to run data migrations against a database URL that looks like production.');
+  if (target === 'production') {
+    if (env.GITHUB_ACTIONS !== 'true') {
+      throw new Error('Production data migrations may run only inside GitHub Actions.');
+    }
+    if (env.DATA_MIGRATION_PRODUCTION_CONFIRM !== 'DEPLOY_PRODUCTION') {
+      throw new Error('Production data migrations require DATA_MIGRATION_PRODUCTION_CONFIRM=DEPLOY_PRODUCTION.');
+    }
+    return;
   }
+  throw new Error('Data migrations require --target local, staging, or production.');
 }
 
 async function dataMigrationRunsTableExists(prisma: PrismaClient): Promise<boolean> {
@@ -256,6 +271,7 @@ async function markMigrationFailed(
 async function runOneMigration(
   prisma: PrismaClient,
   migration: DataMigration,
+  context: DataMigrationContext,
   schemaGitSha: string,
   schemaHash: string,
 ): Promise<{ migrationId: string; status: 'skipped' | 'succeeded'; affectedRows: number }> {
@@ -266,7 +282,7 @@ async function runOneMigration(
 
   await markMigrationRunning(prisma, migration, schemaGitSha, schemaHash);
   try {
-    const result = await prisma.$transaction((tx) => migration.run(tx), {
+    const result = await prisma.$transaction((tx) => migration.run(tx, context), {
       timeout: dataMigrationTransactionTimeoutMs(),
     });
     await markMigrationSucceeded(prisma, migration, schemaGitSha, schemaHash, result);
@@ -327,7 +343,8 @@ async function commandStatus(args: CliArgs): Promise<void> {
 
 async function commandUp(args: CliArgs): Promise<void> {
   const dbUrl = requiredValue(args, 'database-url', 'DATABASE_URL');
-  assertMutatingTarget(args, dbUrl);
+  const target = value(args, 'target') ?? process.env.DATA_MIGRATION_TARGET;
+  assertMutatingTarget(target, dbUrl);
   assertApplyDataMigrationsConfirmation(
     value(args, 'confirm') ?? process.env.DATA_MIGRATION_CONFIRM,
   );
@@ -345,7 +362,13 @@ async function commandUp(args: CliArgs): Promise<void> {
       throw new Error('data_migration_runs table is missing. Run `npm run db:push` before `npm run data:migrate -- up`.');
     }
     for (const migration of selectedMigrations) {
-      results.push(await runOneMigration(prisma, migration, schemaGitSha, schemaHash));
+      results.push(await runOneMigration(
+        prisma,
+        migration,
+        { target },
+        schemaGitSha,
+        schemaHash,
+      ));
     }
   } finally {
     await prisma.$disconnect();
@@ -366,12 +389,14 @@ async function commandUp(args: CliArgs): Promise<void> {
 function printHelp(): void {
   console.log(`Usage:
   npm run data:migrate -- status [--database-url <url>]
-  npm run data:migrate -- up [--phase all|pre-schema|post-schema] --target local|staging --confirm ${APPLY_DATA_MIGRATIONS_CONFIRMATION}
+  npm run data:migrate -- up [--phase all|pre-schema|post-schema] --target local|staging|production --confirm ${APPLY_DATA_MIGRATIONS_CONFIRMATION}
 
 Env:
   DATABASE_URL                 Database URL used when --database-url is omitted.
-  DATA_MIGRATION_TARGET        local or staging.
+  DATA_MIGRATION_TARGET        local, staging, or production. Production additionally requires GitHub Actions and the production confirmation below.
   DATA_MIGRATION_CONFIRM       ${APPLY_DATA_MIGRATIONS_CONFIRMATION}
+  DATA_MIGRATION_PRODUCTION_CONFIRM
+                               Must be DEPLOY_PRODUCTION for target production.
   DATA_MIGRATION_PHASE         all, pre-schema, or post-schema. Defaults to all.
   DATA_MIGRATION_TRANSACTION_TIMEOUT_MS
                                Interactive transaction timeout in ms. Defaults to ${DEFAULT_DATA_MIGRATION_TRANSACTION_TIMEOUT_MS}.

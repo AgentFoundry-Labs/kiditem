@@ -1,36 +1,69 @@
-'use client';
+import { CircleDollarSign, Package, PackageCheck, PackageX, type LucideIcon } from 'lucide-react';
+import { formatNumber } from '@/lib/utils';
+import type { InventorySkuSnapshotSummary } from '@kiditem/shared/inventory';
 
-import { Package, AlertTriangle, CheckCircle2 } from 'lucide-react';
-import type { InventorySummary } from '@kiditem/shared/inventory';
+type CardTone = 'slate' | 'green' | 'orange' | 'purple';
 
-export function InventorySummaryCards({ summary }: { summary: InventorySummary }) {
+const toneClasses: Record<CardTone, { card: string; label: string; value: string }> = {
+  slate: {
+    card: 'border-[var(--border)] bg-[var(--surface)]',
+    label: 'text-[var(--text-secondary)]',
+    value: 'text-[var(--text-primary)]',
+  },
+  green: {
+    card: 'border-green-200 bg-green-50',
+    label: 'text-green-600',
+    value: 'text-green-700',
+  },
+  orange: {
+    card: 'border-orange-200 bg-orange-50',
+    label: 'text-orange-600',
+    value: 'text-orange-700',
+  },
+  purple: {
+    card: 'border-purple-200 bg-purple-50',
+    label: 'text-purple-600',
+    value: 'text-purple-700',
+  },
+};
+
+export function InventorySummaryCards({ summary }: { summary: InventorySkuSnapshotSummary }) {
+  const cards: {
+    label: string;
+    value: number;
+    tone: CardTone;
+    icon: LucideIcon;
+    unit?: string;
+  }[] = [
+    { label: '전체 상품', value: summary.totalSkus, tone: 'slate', icon: Package },
+    { label: '재고 있음', value: summary.inStockSkus, tone: 'green', icon: PackageCheck },
+    { label: '재고 없음', value: summary.outOfStockSkus, tone: 'orange', icon: PackageX },
+    {
+      label: '평가 재고자산',
+      value: summary.pricedAssetValue,
+      tone: 'purple',
+      icon: CircleDollarSign,
+      unit: '원',
+    },
+  ];
+
   return (
-    <div className="grid grid-cols-4 gap-4">
-      <div className="card flex items-center gap-3">
-        <Package size={20} className="text-purple-600" />
-        <div><div className="card-label">전체 상품</div><div className="card-value">{summary.total}개</div></div>
-      </div>
-      <div className="bg-green-50 dark:bg-green-950 rounded-xl p-4 border border-green-200 dark:border-green-800 flex items-center gap-3">
-        <CheckCircle2 size={20} className="text-green-600 dark:text-green-400" />
-        <div>
-          <div className="text-sm text-green-600 dark:text-green-400">정상</div>
-          <div className="text-xl font-bold text-green-700 dark:text-green-300">{summary.healthy}개</div>
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {cards.map(({ label, value, tone, icon: Icon, unit }) => (
+        <div
+          key={label}
+          data-testid="inventory-summary-card"
+          className={`flex items-center gap-3 rounded-xl border p-4 ${toneClasses[tone].card}`}
+        >
+          <Icon className={`h-5 w-5 ${toneClasses[tone].label}`} aria-hidden="true" />
+          <div>
+            <div className={`text-sm ${toneClasses[tone].label}`}>{label}</div>
+            <div className={`mt-1 text-xl font-bold ${toneClasses[tone].value}`}>
+              {formatNumber(value)}{unit ?? '개'}
+            </div>
+          </div>
         </div>
-      </div>
-      <div className="bg-red-50 dark:bg-red-950 rounded-xl p-4 border border-red-200 dark:border-red-800 flex items-center gap-3">
-        <AlertTriangle size={20} className="text-red-600 dark:text-red-400" />
-        <div>
-          <div className="text-sm text-red-600 dark:text-red-400">재고 부족</div>
-          <div className="text-xl font-bold text-red-700 dark:text-red-300">{summary.low}개</div>
-        </div>
-      </div>
-      <div className="bg-orange-50 dark:bg-orange-950 rounded-xl p-4 border border-orange-200 dark:border-orange-800 flex items-center gap-3">
-        <Package size={20} className="text-orange-600 dark:text-orange-400" />
-        <div>
-          <div className="text-sm text-orange-600 dark:text-orange-400">재고 없음</div>
-          <div className="text-xl font-bold text-orange-700 dark:text-orange-300">{summary.out}개</div>
-        </div>
-      </div>
+      ))}
     </div>
   );
 }

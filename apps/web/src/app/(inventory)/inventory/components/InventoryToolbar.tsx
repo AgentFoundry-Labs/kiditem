@@ -1,57 +1,80 @@
 'use client';
 
-import { ClipboardCheck, Barcode, AlertTriangle, RefreshCw, Download } from 'lucide-react';
-import { cn, timeAgo } from '@/lib/utils';
+import { Barcode, Download, Search } from 'lucide-react';
+import { formatDateTime } from '@/lib/utils';
 
 interface InventoryToolbarProps {
-  syncing: boolean;
-  channelLastModifiedAt: string | null | undefined;
-  onReceiveStock: () => void;
+  query: string;
+  latestImportAt: string | Date | null;
+  busy: boolean;
+  onQueryChange: (value: string) => void;
+  onSearch: () => void;
   onBarcodePrint: () => void;
-  onStockCheck: () => void;
-  onCoupangSync: () => void;
   onExcel: () => void;
 }
 
 export function InventoryToolbar({
-  syncing,
-  channelLastModifiedAt,
-  onReceiveStock,
+  query,
+  latestImportAt,
+  busy,
+  onQueryChange,
+  onSearch,
   onBarcodePrint,
-  onStockCheck,
-  onCoupangSync,
   onExcel,
 }: InventoryToolbarProps) {
   return (
-    <div>
-      <div className="flex items-center justify-between">
+    <div className="space-y-3">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <h1 className="page-title">재고/발주 관리</h1>
-        <div className="flex items-center gap-2">
-          <button onClick={onReceiveStock} className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium">
-            <ClipboardCheck size={16} /> 검수 입고
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onBarcodePrint}
+            className="inline-flex items-center gap-2 rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background hover:opacity-90 disabled:opacity-50"
+          >
+            <Barcode className="h-4 w-4" aria-hidden="true" /> 바코드 출력
           </button>
-          <button onClick={onBarcodePrint} className="flex items-center gap-2 px-4 py-2 bg-foreground text-background rounded-lg hover:opacity-90 text-sm font-medium">
-            <Barcode size={16} /> 바코드 출력
-          </button>
-          <button onClick={onStockCheck} className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 text-sm font-medium">
-            <AlertTriangle size={16} /> 재고 부족 체크
-          </button>
-          <button onClick={onCoupangSync} disabled={syncing} className="flex items-center gap-2 px-4 py-2 border border-purple-600 text-purple-600 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-950 text-sm font-medium disabled:opacity-50">
-            <RefreshCw size={16} className={syncing ? 'animate-spin' : ''} /> {syncing ? '동기화 중...' : '쿠팡 동기화'}
-          </button>
-          <button onClick={onExcel} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium">
-            <Download size={16} /> 엑셀
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onExcel}
+            className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+          >
+            <Download className="h-4 w-4" aria-hidden="true" /> 엑셀
           </button>
         </div>
       </div>
-      {channelLastModifiedAt !== undefined && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
-          <div className={cn('w-1.5 h-1.5 rounded-full', channelLastModifiedAt ? 'bg-green-400' : 'bg-amber-400')} />
-          {channelLastModifiedAt
-            ? `최근 채널 변경: ${timeAgo(channelLastModifiedAt)}`
-            : '채널 변경 기록 없음 — 쿠팡 동기화 후 확인하세요'}
-        </div>
-      )}
+      <div>
+        <p className="text-sm text-[var(--text-secondary)]">
+          Sellpia가 현재 재고의 기준이며, KidItem에서는 수량을 직접 수정하지 않습니다.
+        </p>
+        <p className="mt-1 text-xs text-[var(--text-secondary)]">
+          마지막 완료: {latestImportAt ? formatDateTime(latestImportAt) : '가져오기 기록 없음'}
+        </p>
+      </div>
+      <form
+        className="flex max-w-xl gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSearch();
+        }}
+      >
+        <label className="sr-only" htmlFor="sellpia-inventory-search">재고 검색</label>
+        <input
+          id="sellpia-inventory-search"
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          placeholder="Sellpia 코드, 상품명, 옵션, 바코드 검색"
+          className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
+        />
+        <button
+          type="submit"
+          className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white"
+        >
+          <Search className="h-4 w-4" aria-hidden="true" /> 검색
+        </button>
+      </form>
     </div>
   );
 }

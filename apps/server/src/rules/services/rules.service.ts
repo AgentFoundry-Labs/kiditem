@@ -1,6 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   AGENT_RUNNER_PORT,
@@ -110,12 +110,12 @@ export class RulesService {
     }
 
     try {
-      // 1. healthScore 일괄 업데이트 — Prisma updateMany + $transaction.
-      // organizationId 가 신뢰 경계. 각 update 는 (id, organizationId) 로 스코프 → 다른 회사 master 가 섞일 수 없음.
+      // 1. 쇼핑몰 등록상품별 healthScore 일괄 업데이트.
+      // Agent payload의 기존 masterId 키는 API 호환을 위해 유지하지만 값은 listing ID다.
       const now = new Date();
       await this.prisma.$transaction(
         products.map((r) =>
-          this.prisma.masterProduct.updateMany({
+          this.prisma.channelListing.updateMany({
             where: { id: r.masterId, organizationId },
             data: { healthScore: r.healthScore, healthUpdatedAt: now },
           }),
@@ -145,19 +145,19 @@ export class RulesService {
       }
 
       // 3. critical alerts 생성
-      // Alert.targetType='master' 규약 (alert.mapper spec + drift spec 참조): rule_violation 은 MasterProduct 단위.
+      // 룰 평가는 쇼핑몰 등록상품 단위다. 셀피아 MasterProduct는 재고 행이므로 대상이 아니다.
       const criticals = products.flatMap((r) =>
         r.violations
           .filter((v) => v.severity === 'critical')
           .map((v) => ({
             organizationId,
-            targetType: 'master',
+            targetType: 'listing',
             targetId: r.masterId,
             type: 'rule_violation',
             severity: 'critical',
             title: v.message,
             message: v.actionType ?? '',
-            href: `/product-hub/${r.masterId}`,
+            href: '/product-pipeline/registered-products',
           })),
       );
       if (criticals.length) {
@@ -270,20 +270,36 @@ export class RulesService {
     topCritical: { id: string; name: string; healthScore: number | null; abcGrade: string | null }[];
   }> {
     const [healthy, warning, critical, total, lastEval] = await Promise.all([
-      this.prisma.masterProduct.count({
-        where: { organizationId, isDeleted: false, healthScore: { gte: 70 } },
+      this.prisma.channelListing.count({
+        where: {
+          organizationId,
+          isActive: true,
+          healthScore: { gte: 70 },
+        },
       }),
-      this.prisma.masterProduct.count({
-        where: { organizationId, isDeleted: false, healthScore: { gte: 40, lt: 70 } },
+      this.prisma.channelListing.count({
+        where: {
+          organizationId,
+          isActive: true,
+          healthScore: { gte: 40, lt: 70 },
+        },
       }),
-      this.prisma.masterProduct.count({
-        where: { organizationId, isDeleted: false, healthScore: { lt: 40 } },
+      this.prisma.channelListing.count({
+        where: {
+          organizationId,
+          isActive: true,
+          healthScore: { lt: 40 },
+        },
       }),
-      this.prisma.masterProduct.count({
-        where: { organizationId, isDeleted: false },
+      this.prisma.channelListing.count({
+        where: { organizationId, isActive: true },
       }),
-      this.prisma.masterProduct.findFirst({
-        where: { organizationId, isDeleted: false, healthUpdatedAt: { not: null } },
+      this.prisma.channelListing.findFirst({
+        where: {
+          organizationId,
+          isActive: true,
+          healthUpdatedAt: { not: null },
+        },
         orderBy: { healthUpdatedAt: 'desc' },
         select: { healthUpdatedAt: true },
       }),
@@ -291,12 +307,29 @@ export class RulesService {
 
     const notEvaluated = total - healthy - warning - critical;
 
-    const topCritical = await this.prisma.masterProduct.findMany({
-      where: { organizationId, isDeleted: false, healthScore: { lt: 40 } },
+    const topCriticalRows = await this.prisma.channelListing.findMany({
+      where: {
+        organizationId,
+        isActive: true,
+        healthScore: { lt: 40 },
+      },
       orderBy: { healthScore: 'asc' },
       take: 5,
-      select: { id: true, name: true, healthScore: true, abcGrade: true },
+      select: {
+        id: true,
+        displayName: true,
+        channelName: true,
+        externalId: true,
+        healthScore: true,
+        abcGrade: true,
+      },
     });
+    const topCritical = topCriticalRows.map((listing) => ({
+      id: listing.id,
+      name: listing.displayName ?? listing.channelName ?? listing.externalId,
+      healthScore: listing.healthScore,
+      abcGrade: listing.abcGrade,
+    }));
 
     return {
       total,

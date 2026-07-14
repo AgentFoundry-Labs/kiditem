@@ -54,7 +54,6 @@ describe('ThumbnailWorkspaceTab', () => {
       <ThumbnailWorkspaceTab
         editData={{ ...editData, thumbnails: [] }}
         productId="candidate-1"
-        promotedMasterId={null}
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -75,7 +74,6 @@ describe('ThumbnailWorkspaceTab', () => {
       <ThumbnailWorkspaceTab
         editData={editData}
         productId="candidate-1"
-        promotedMasterId={null}
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -100,7 +98,6 @@ describe('ThumbnailWorkspaceTab', () => {
       <ThumbnailWorkspaceTab
         editData={editData}
         productId="candidate-1"
-        promotedMasterId={null}
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -127,7 +124,6 @@ describe('ThumbnailWorkspaceTab', () => {
       <ThumbnailWorkspaceTab
         editData={editData}
         productId="candidate-1"
-        promotedMasterId={null}
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -156,7 +152,6 @@ describe('ThumbnailWorkspaceTab', () => {
       <ThumbnailWorkspaceTab
         editData={editData}
         productId="candidate-1"
-        promotedMasterId={null}
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -182,7 +177,6 @@ describe('ThumbnailWorkspaceTab', () => {
       <ThumbnailWorkspaceTab
         editData={editData}
         productId="candidate-1"
-        promotedMasterId={null}
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -208,7 +202,6 @@ describe('ThumbnailWorkspaceTab', () => {
       <ThumbnailWorkspaceTab
         editData={editData}
         productId="candidate-1"
-        promotedMasterId={null}
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -236,7 +229,6 @@ describe('ThumbnailWorkspaceTab', () => {
       <ThumbnailWorkspaceTab
         editData={editData}
         productId="candidate-1"
-        promotedMasterId={null}
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -271,7 +263,6 @@ describe('ThumbnailWorkspaceTab', () => {
       <ThumbnailWorkspaceTab
         editData={editData}
         productId="candidate-1"
-        promotedMasterId={null}
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -300,7 +291,6 @@ describe('ThumbnailWorkspaceTab', () => {
       <ThumbnailWorkspaceTab
         editData={editData}
         productId="candidate-1"
-        promotedMasterId={null}
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -320,6 +310,7 @@ describe('ThumbnailWorkspaceTab', () => {
       selectedThumbnail: {
         url: 'https://cdn.example.com/source.jpg',
         kind: 'source',
+        generatedGenerationId: null,
         generatedCandidateId: null,
       },
     });
@@ -339,7 +330,6 @@ describe('ThumbnailWorkspaceTab', () => {
           ],
         }}
         productId="candidate-1"
-        promotedMasterId={null}
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -370,6 +360,7 @@ describe('ThumbnailWorkspaceTab', () => {
       selectedThumbnail: {
         url: 'https://cdn.example.com/other.jpg',
         kind: 'source',
+        generatedGenerationId: null,
         generatedCandidateId: null,
       },
     });
@@ -386,7 +377,6 @@ describe('ThumbnailWorkspaceTab', () => {
           ],
         }}
         productId="candidate-1"
-        promotedMasterId={null}
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -425,7 +415,6 @@ describe('ThumbnailWorkspaceTab', () => {
           ],
         }}
         productId="candidate-1"
-        promotedMasterId={null}
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"

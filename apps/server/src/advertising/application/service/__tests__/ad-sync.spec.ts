@@ -10,6 +10,7 @@ import type { TrafficIngestHandler } from "../traffic-ingest.handler";
 import type { CoupangAdsDailyIngestHandler } from "../coupang-ads-daily-ingest.handler";
 import type { KeywordRankIngestHandler } from "../keyword-rank-ingest.handler";
 import type { WingSalesRankIngestHandler } from "../wing-sales-rank-ingest.handler";
+import type { AdIngestTransactionPort } from "../../port/out/transaction/ad-ingest-transaction.port";
 import {
   buildMockAdListingRepo,
   buildMockScrapeTargetRepo,
@@ -33,21 +34,13 @@ describe("AdSyncService", () => {
   let listingRepo: MockAdListingRepo;
   let scrapeTargetRepo: MockScrapeTargetRepo;
   let scrapeRepo: MockChannelScrapeRepo;
-  let keywordRankHandler: {
-    execute: ReturnType<typeof vi.fn>;
-    executeSellerCatalogs: ReturnType<typeof vi.fn>;
-    executeSellerIdentities: ReturnType<typeof vi.fn>;
-  };
+  let ingestTransaction: { runIdempotent: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     listingRepo = buildMockAdListingRepo();
     scrapeTargetRepo = buildMockScrapeTargetRepo();
     scrapeRepo = buildMockChannelScrapeRepo();
-    keywordRankHandler = {
-      execute: vi.fn(),
-      executeSellerCatalogs: vi.fn(),
-      executeSellerIdentities: vi.fn(),
-    };
+    ingestTransaction = { runIdempotent: vi.fn() };
     service = new AdSyncService(
       listingRepo as unknown as AdListingRepositoryPort,
       scrapeTargetRepo as unknown as ScrapeTargetRepositoryPort,
@@ -56,65 +49,78 @@ describe("AdSyncService", () => {
       {} as RawScrapeIngestHandler,
       {} as TrafficIngestHandler,
       {} as CoupangAdsDailyIngestHandler,
-      keywordRankHandler as unknown as KeywordRankIngestHandler,
+      {} as KeywordRankIngestHandler,
       {} as WingSalesRankIngestHandler,
+      ingestTransaction as unknown as AdIngestTransactionPort,
     );
   });
 
-  it("dispatches selected overlapping seller catalogs to the catalog ingest path", async () => {
-    listingRepo.buildAdSyncListingMap.mockResolvedValue({
+  it("runs an authoritative replay key once and returns the persisted response on retry", async () => {
+    const map: ListingMap = {
+      channelAccountId: "account-1",
       externalOptionIdMap: new Map(),
       externalIdMap: new Map(),
-    });
-    keywordRankHandler.executeSellerCatalogs.mockResolvedValue({
-      success: true,
-      results: [],
-    });
-    const payload = {
-      type: "competitor_seller_catalog",
-      data: [],
-    } as never;
-
-    await service.sync(payload, "organization-1");
-
-    expect(keywordRankHandler.executeSellerCatalogs).toHaveBeenCalledWith(
-      payload,
-      "organization-1",
+    };
+    listingRepo.buildAdSyncListingMap.mockResolvedValue(map);
+    const handler = {
+      execute: vi.fn(async () => ({
+        success: true,
+        scrapeRunId: "run-1",
+        scrapeSnapshotCount: 2,
+      })),
+    };
+    let cached: unknown;
+    ingestTransaction.runIdempotent.mockImplementation(
+      async (_input, operation) => {
+        if (cached !== undefined) return { value: cached, replayed: true };
+        cached = await operation();
+        return { value: cached, replayed: false };
+      },
     );
-  });
-
-  it("dispatches server-selected product seller identities to the identity ingest path", async () => {
-    listingRepo.buildAdSyncListingMap.mockResolvedValue({
-      externalOptionIdMap: new Map(),
-      externalIdMap: new Map(),
-    });
-    keywordRankHandler.executeSellerIdentities = vi.fn().mockResolvedValue({
-      success: true,
-      results: [],
-    });
+    service = new AdSyncService(
+      listingRepo as unknown as AdListingRepositoryPort,
+      scrapeTargetRepo as unknown as ScrapeTargetRepositoryPort,
+      scrapeRepo as unknown as ChannelScrapeRepositoryPort,
+      {} as AdCampaignIngestHandler,
+      handler as unknown as RawScrapeIngestHandler,
+      {} as TrafficIngestHandler,
+      {} as CoupangAdsDailyIngestHandler,
+      {} as KeywordRankIngestHandler,
+      {} as WingSalesRankIngestHandler,
+      ingestTransaction as unknown as AdIngestTransactionPort,
+    );
     const payload = {
-      type: "competitor_seller_identity",
-      data: [],
-    } as never;
+      type: "raw_scrape",
+      source: "wing",
+      idempotencyKey:
+        "authoritative-rebuild:12345:550e8400-e29b-41d4-a716-446655440000",
+    };
 
-    await service.sync(payload, "organization-1");
+    const first = await service.sync(payload, "organization-1");
+    const retry = await service.sync(payload, "organization-1");
 
-    expect(keywordRankHandler.executeSellerIdentities).toHaveBeenCalledWith(
-      payload,
-      "organization-1",
+    expect(first).toMatchObject({ success: true, replayed: false });
+    expect(retry).toMatchObject({ success: true, replayed: true });
+    expect(handler.execute).toHaveBeenCalledTimes(1);
+    expect(ingestTransaction.runIdempotent).toHaveBeenCalledWith(
+      {
+        organizationId: "organization-1",
+        idempotencyKey: payload.idempotencyKey,
+      },
+      expect.any(Function),
     );
   });
 
   describe("buildListingMap", () => {
     it("delegates to AdListingRepositoryPort.buildAdSyncListingMap and returns the map verbatim", async () => {
       const map: ListingMap = {
+        channelAccountId: "account-1",
         externalOptionIdMap: new Map([
           [
             "V1",
             {
               listingId: "L1",
               listingOptionId: "LO1",
-              optionId: "O1",
               externalId: "COUPANG-1",
             },
           ],
@@ -123,7 +129,6 @@ describe("AdSyncService", () => {
             {
               listingId: "L2",
               listingOptionId: "LO2",
-              optionId: "O2",
               externalId: "COUPANG-2",
             },
           ],
@@ -140,13 +145,11 @@ describe("AdSyncService", () => {
       expect(result.externalOptionIdMap.get("V1")).toEqual({
         listingId: "L1",
         listingOptionId: "LO1",
-        optionId: "O1",
         externalId: "COUPANG-1",
       });
       expect(result.externalOptionIdMap.get("V2")).toEqual({
         listingId: "L2",
         listingOptionId: "LO2",
-        optionId: "O2",
         externalId: "COUPANG-2",
       });
       expect(result.externalIdMap.get("COUPANG-1")).toEqual({
@@ -161,15 +164,15 @@ describe("AdSyncService", () => {
       );
     });
 
-    it("preserves externalOptionIdMap entries with null internal optionId (Wave C2)", async () => {
+    it("preserves externalOptionIdMap entries without a legacy internal option id", async () => {
       const map: ListingMap = {
+        channelAccountId: "account-1",
         externalOptionIdMap: new Map([
           [
             "V1",
             {
               listingId: "L1",
               listingOptionId: "LO1",
-              optionId: null,
               externalId: "COUPANG-NULL",
             },
           ],
@@ -180,19 +183,17 @@ describe("AdSyncService", () => {
 
       const result = await service.buildListingMap("organization-1");
 
-      // Wave C2 contract: listingOptionId 는 internal optionId 가 null 이어도
-      // 보존되어야 한다 (C3 의 option daily snapshot 이 listingOptionId 만으로
-      // upsert 가능하도록).
+      // ChannelListingOption.id alone owns the channel option identity.
       expect(result.externalOptionIdMap.get("V1")).toEqual({
         listingId: "L1",
         listingOptionId: "LO1",
-        optionId: null,
         externalId: "COUPANG-NULL",
       });
     });
 
     it("cross-tenant isolation — organization B externalOptionId does not leak into organization A map", async () => {
       const empty: ListingMap = {
+        channelAccountId: "account-a",
         externalOptionIdMap: new Map(),
         externalIdMap: new Map(),
       };
@@ -206,16 +207,32 @@ describe("AdSyncService", () => {
         "organization-A",
       );
     });
+
+    it("propagates the explicit Coupang channel account to the repository", async () => {
+      const map: ListingMap = {
+        channelAccountId: "account-2",
+        externalOptionIdMap: new Map(),
+        externalIdMap: new Map(),
+      };
+      listingRepo.buildAdSyncListingMap.mockResolvedValue(map);
+
+      await service.buildListingMap("organization-1", "account-2");
+
+      expect(listingRepo.buildAdSyncListingMap).toHaveBeenCalledWith(
+        "organization-1",
+        "account-2",
+      );
+    });
   });
 
   describe("matchListingFromRow", () => {
     const map: ListingMap = {
+      channelAccountId: "account-1",
       externalOptionIdMap: new Map<
         string,
         {
           listingId: string;
           listingOptionId: string;
-          optionId: string | null;
           externalId: string;
         }
       >([
@@ -224,7 +241,6 @@ describe("AdSyncService", () => {
           {
             listingId: "L-V",
             listingOptionId: "LO-V",
-            optionId: "O-V",
             externalId: "E-V",
           },
         ],
@@ -240,13 +256,12 @@ describe("AdSyncService", () => {
       expect(result).toEqual({
         listingId: "L-V",
         listingOptionId: "LO-V",
-        optionId: "O-V",
         externalId: "E-V",
         externalOptionId: "V-HIT",
       });
     });
 
-    it("falls back to externalId when vendorItemId misses (listingOption + optionId null)", () => {
+    it("falls back to externalId when vendorItemId misses", () => {
       const result = service.matchListingFromRow(
         { vendorItemId: "V-MISS", externalId: "E-HIT" },
         map,
@@ -254,7 +269,6 @@ describe("AdSyncService", () => {
       expect(result).toEqual({
         listingId: "L-E",
         listingOptionId: null,
-        optionId: null,
         externalId: "E-HIT",
         externalOptionId: null,
       });
@@ -268,7 +282,6 @@ describe("AdSyncService", () => {
       expect(result).toEqual({
         listingId: null,
         listingOptionId: null,
-        optionId: null,
         externalId: null,
         externalOptionId: null,
       });
@@ -282,7 +295,6 @@ describe("AdSyncService", () => {
       expect(result).toEqual({
         listingId: null,
         listingOptionId: null,
-        optionId: null,
         externalId: null,
         externalOptionId: null,
       });

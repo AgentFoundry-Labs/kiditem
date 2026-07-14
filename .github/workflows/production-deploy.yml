@@ -4,14 +4,30 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Deploy this ref, show production status, or rollback to an existing GHCR tag.
+        description: Deploy this ref, finalize a guarded rebuild, show status, or roll back.
         type: choice
         required: true
         default: status
         options:
           - deploy
+          - finalize-rebuild
           - status
           - rollback
+      deployment_target:
+        description: Shared database target. This workflow accepts production only.
+        type: choice
+        required: true
+        default: production
+        options:
+          - production
+      destructive_reset:
+        description: Exact RESET_PRODUCTION_DATA confirmation for rebuild deploys and finalization.
+        required: false
+        type: string
+      rebuild_run_id:
+        description: Originating destructive deploy run ID; required for finalize-rebuild.
+        required: false
+        type: string
       image_tag:
         description: Existing GHCR tag for rollback. Use a git SHA tag, not "production".
         required: false
@@ -152,30 +168,163 @@ jobs:
           : "${DATABASE_URL:?Set production secret PRODUCTION_DATABASE_URL}"
           npx prisma generate
 
+      - name: Validate production rebuild confirmation
+        if: inputs.destructive_reset != ''
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DEPLOYMENT_TARGET: ${{ inputs.deployment_target }}
+          REBUILD_TARGET: ${{ inputs.deployment_target }}
+          GITHUB_ENVIRONMENT: production
+          DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
+          EXPECTED_RESET_CONFIRMATION: RESET_PRODUCTION_DATA
+          REBUILD_EXPECTED_DATABASE_HOST: ${{ secrets.PRODUCTION_REBUILD_EXPECTED_DATABASE_HOST }}
+          REBUILD_EXPECTED_SUPABASE_PROJECT_REF: ${{ secrets.PRODUCTION_REBUILD_EXPECTED_SUPABASE_PROJECT_REF }}
+          REBUILD_ORGANIZATION_ID: ${{ vars.PRODUCTION_REBUILD_ORGANIZATION_ID }}
+          REBUILD_ORGANIZATION_SLUG: ${{ vars.PRODUCTION_REBUILD_ORGANIZATION_SLUG }}
+          REBUILD_COUPANG_ACCOUNT_ID: ${{ vars.PRODUCTION_REBUILD_COUPANG_ACCOUNT_ID }}
+          REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID: ${{ secrets.PRODUCTION_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID }}
+        run: npm run inventory:rebuild -- guard
+
       - name: Run pre-schema data migrations
+        if: inputs.destructive_reset == ''
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
           DATA_MIGRATION_TARGET: production
           DATA_MIGRATION_CONFIRM: APPLY_DATA_MIGRATIONS
+          DATA_MIGRATION_PRODUCTION_CONFIRM: ${{ inputs.confirm }}
         run: |
           set -euo pipefail
           : "${DATABASE_URL:?Set production secret PRODUCTION_DATABASE_URL}"
           npm run data:migrate -- up --phase pre-schema
 
-      - name: Apply production Prisma schema
+      - name: Prepare SSH for guarded rebuild
+        if: inputs.destructive_reset != ''
+        env:
+          PRODUCTION_SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+          PRODUCTION_SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          : "${PRODUCTION_SSH_KEY:?Set production secret PRODUCTION_SSH_KEY}"
+          : "${PRODUCTION_SSH_KNOWN_HOSTS:?Set production secret PRODUCTION_SSH_KNOWN_HOSTS}"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$PRODUCTION_SSH_KEY" > ~/.ssh/kiditem-production
+          chmod 600 ~/.ssh/kiditem-production
+          printf '%s\n' "$PRODUCTION_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Sync production rebuild control script
+        if: inputs.destructive_reset != ''
+        env:
+          PRODUCTION_HOST: ${{ vars.PRODUCTION_HOST }}
+          PRODUCTION_USER: ${{ vars.PRODUCTION_USER }}
+          PRODUCTION_REMOTE_DIR: ${{ vars.PRODUCTION_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          : "${PRODUCTION_HOST:?Set production variable PRODUCTION_HOST}"
+          PRODUCTION_USER="${PRODUCTION_USER:-ubuntu}"
+          PRODUCTION_REMOTE_DIR="${PRODUCTION_REMOTE_DIR:-/opt/kiditem}"
+          target="${PRODUCTION_USER}@${PRODUCTION_HOST}"
+          remote_dir_q="$(printf '%q' "$PRODUCTION_REMOTE_DIR")"
+          tar -czf - deploy/production/remote-deploy.sh deploy/staging/remote-deploy.sh \
+            | ssh -i ~/.ssh/kiditem-production "$target" \
+                "mkdir -p ${remote_dir_q}/deploy/production ${remote_dir_q}/deploy/staging && tar -xzf - -C ${remote_dir_q} && chmod +x ${remote_dir_q}/deploy/production/remote-deploy.sh ${remote_dir_q}/deploy/staging/remote-deploy.sh"
+
+      - name: Quiesce production application traffic
+        id: quiesce
+        if: inputs.destructive_reset != ''
+        env:
+          PRODUCTION_HOST: ${{ vars.PRODUCTION_HOST }}
+          PRODUCTION_USER: ${{ vars.PRODUCTION_USER }}
+          PRODUCTION_REMOTE_DIR: ${{ vars.PRODUCTION_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          PRODUCTION_USER="${PRODUCTION_USER:-ubuntu}"
+          PRODUCTION_REMOTE_DIR="${PRODUCTION_REMOTE_DIR:-/opt/kiditem}"
+          q() { printf '%q' "$1"; }
+          ssh -i ~/.ssh/kiditem-production "${PRODUCTION_USER}@${PRODUCTION_HOST}" \
+            "cd $(q "$PRODUCTION_REMOTE_DIR") && ./deploy/production/remote-deploy.sh quiesce"
+
+      - name: Export approved Coupang replay bundle
+        if: inputs.destructive_reset != ''
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DEPLOYMENT_TARGET: ${{ inputs.deployment_target }}
+          REBUILD_TARGET: ${{ inputs.deployment_target }}
+          GITHUB_ENVIRONMENT: production
+          DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
+          EXPECTED_RESET_CONFIRMATION: RESET_PRODUCTION_DATA
+          REBUILD_DEPLOYED_SHA: ${{ needs.prepare.outputs.git_sha }}
+          REBUILD_ORGANIZATION_ID: ${{ vars.PRODUCTION_REBUILD_ORGANIZATION_ID }}
+          REBUILD_COUPANG_ACCOUNT_ID: ${{ vars.PRODUCTION_REBUILD_COUPANG_ACCOUNT_ID }}
+          REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID: ${{ secrets.PRODUCTION_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID }}
+          REBUILD_BUNDLE_PATH: ${{ runner.temp }}/authoritative-rebuild.json
+        run: npm run inventory:rebuild -- export-coupang --origin-run-id "${{ github.run_id }}"
+
+      - name: Preserve private rebuild bundle for one day
+        if: inputs.destructive_reset != ''
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: authoritative-rebuild-${{ github.run_id }}-production
+          path: ${{ runner.temp }}/authoritative-rebuild.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Cross destructive reset boundary
+        id: reset_boundary
+        if: inputs.destructive_reset != ''
+        run: echo "started=true" >> "$GITHUB_OUTPUT"
+
+      - name: Rebuild production database from final schema
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?Set production secret PRODUCTION_DATABASE_URL}"
+          if [ -n "$DESTRUCTIVE_RESET" ]; then
+            npx prisma db push --force-reset
+          else
+            npx prisma db push
+          fi
+
+      - name: Generate Prisma client after schema push
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
         run: |
           set -euo pipefail
           : "${DATABASE_URL:?Set production secret PRODUCTION_DATABASE_URL}"
-          npx prisma db push
           npx prisma generate
 
+      - name: Bootstrap production authentication and account baseline
+        if: inputs.destructive_reset != ''
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DEPLOYMENT_TARGET: ${{ inputs.deployment_target }}
+          REBUILD_TARGET: ${{ inputs.deployment_target }}
+          GITHUB_ENVIRONMENT: production
+          DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
+          EXPECTED_RESET_CONFIRMATION: RESET_PRODUCTION_DATA
+          REBUILD_DEPLOYED_SHA: ${{ needs.prepare.outputs.git_sha }}
+          REBUILD_ORGANIZATION_ID: ${{ vars.PRODUCTION_REBUILD_ORGANIZATION_ID }}
+          REBUILD_ORGANIZATION_NAME: ${{ vars.PRODUCTION_REBUILD_ORGANIZATION_NAME }}
+          REBUILD_ORGANIZATION_SLUG: ${{ vars.PRODUCTION_REBUILD_ORGANIZATION_SLUG }}
+          REBUILD_USER_ID: ${{ vars.PRODUCTION_REBUILD_USER_ID }}
+          REBUILD_USER_EMAIL: ${{ secrets.PRODUCTION_REBUILD_USER_EMAIL }}
+          REBUILD_USER_NAME: ${{ vars.PRODUCTION_REBUILD_USER_NAME }}
+          REBUILD_COUPANG_ACCOUNT_ID: ${{ vars.PRODUCTION_REBUILD_COUPANG_ACCOUNT_ID }}
+          REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID: ${{ secrets.PRODUCTION_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID }}
+          REBUILD_COUPANG_ACCOUNT_NAME: ${{ vars.PRODUCTION_REBUILD_COUPANG_ACCOUNT_NAME }}
+          REBUILD_ROCKET_ACCOUNT_ID: ${{ vars.PRODUCTION_REBUILD_ROCKET_ACCOUNT_ID }}
+          REBUILD_ROCKET_EXTERNAL_ACCOUNT_ID: ${{ secrets.PRODUCTION_REBUILD_ROCKET_EXTERNAL_ACCOUNT_ID }}
+          REBUILD_ROCKET_ACCOUNT_NAME: ${{ vars.PRODUCTION_REBUILD_ROCKET_ACCOUNT_NAME }}
+        run: npm run inventory:rebuild -- bootstrap --origin-run-id "${{ github.run_id }}"
+
       - name: Run post-schema data migrations
+        if: inputs.destructive_reset == ''
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
           DATA_MIGRATION_TARGET: production
           DATA_MIGRATION_CONFIRM: APPLY_DATA_MIGRATIONS
+          DATA_MIGRATION_PRODUCTION_CONFIRM: ${{ inputs.confirm }}
         run: |
           set -euo pipefail
           : "${DATABASE_URL:?Set production secret PRODUCTION_DATABASE_URL}"
@@ -210,6 +359,11 @@ jobs:
           DIRECT_1688_MTOP_BASE_URL: ${{ vars.PRODUCTION_DIRECT_1688_MTOP_BASE_URL }}
           TMAPI_TOKEN: ${{ secrets.PRODUCTION_TMAPI_TOKEN }}
           TMAPI_BASE_URL: ${{ vars.PRODUCTION_TMAPI_BASE_URL }}
+          SOURCING_PLAYWRIGHT_CDP_ENDPOINT: ${{ vars.PRODUCTION_SOURCING_PLAYWRIGHT_CDP_ENDPOINT }}
+          TAOBAO_TOP_APP_KEY: ${{ secrets.PRODUCTION_TAOBAO_TOP_APP_KEY }}
+          TAOBAO_TOP_APP_SECRET: ${{ secrets.PRODUCTION_TAOBAO_TOP_APP_SECRET }}
+          TAOBAO_TOP_BASE_URL: ${{ vars.PRODUCTION_TAOBAO_TOP_BASE_URL }}
+          TAOBAO_TOP_TIMEOUT_MS: ${{ vars.PRODUCTION_TAOBAO_TOP_TIMEOUT_MS }}
           GEMINI_API_KEY: ${{ secrets.PRODUCTION_GEMINI_API_KEY }}
           AI_TEXT_MODEL: ${{ vars.PRODUCTION_AI_TEXT_MODEL }}
           AI_IMAGE_MODEL: ${{ vars.PRODUCTION_AI_IMAGE_MODEL }}
@@ -323,6 +477,7 @@ jobs:
           exit 1
 
       - name: Verify production data migration status
+        if: inputs.destructive_reset == ''
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
         run: |
@@ -344,6 +499,20 @@ jobs:
           ssh -i ~/.ssh/kiditem-production "${PRODUCTION_USER}@${PRODUCTION_HOST}" \
             "cd $(q "$PRODUCTION_REMOTE_DIR") && ./deploy/production/remote-deploy.sh status"
 
+      - name: Resume previous production runtime after pre-reset failure
+        if: failure() && inputs.destructive_reset != '' && (steps.quiesce.outcome == 'success' || steps.quiesce.outcome == 'failure') && steps.reset_boundary.outputs.started != 'true'
+        env:
+          PRODUCTION_HOST: ${{ vars.PRODUCTION_HOST }}
+          PRODUCTION_USER: ${{ vars.PRODUCTION_USER }}
+          PRODUCTION_REMOTE_DIR: ${{ vars.PRODUCTION_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          PRODUCTION_USER="${PRODUCTION_USER:-ubuntu}"
+          PRODUCTION_REMOTE_DIR="${PRODUCTION_REMOTE_DIR:-/opt/kiditem}"
+          q() { printf '%q' "$1"; }
+          ssh -i ~/.ssh/kiditem-production "${PRODUCTION_USER}@${PRODUCTION_HOST}" \
+            "cd $(q "$PRODUCTION_REMOTE_DIR") && ./deploy/production/remote-deploy.sh resume"
+
       - name: Write production deployment summary
         if: always()
         env:
@@ -361,6 +530,142 @@ jobs:
             echo "- API image: \`${API_IMAGE}\`"
             echo "- Web image: \`${WEB_IMAGE}\`"
             echo "- URL: ${PRODUCTION_URL:-unset}"
+            echo "- Runbook: \`docs/runbooks/production-deploy.md\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  finalize_rebuild:
+    name: Finalize production authoritative rebuild
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'finalize-rebuild'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Resolve originating rebuild run
+        id: origin
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REBUILD_RUN_ID: ${{ inputs.rebuild_run_id }}
+        run: |
+          set -euo pipefail
+          case "$REBUILD_RUN_ID" in
+            ''|*[!0-9]*) echo "rebuild_run_id must be the originating numeric workflow run ID" >&2; exit 2 ;;
+          esac
+          run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${REBUILD_RUN_ID}")"
+          workflow_path="$(jq -r '.path' <<<"$run_json")"
+          event="$(jq -r '.event' <<<"$run_json")"
+          conclusion="$(jq -r '.conclusion' <<<"$run_json")"
+          head_sha="$(jq -r '.head_sha' <<<"$run_json")"
+          [[ "$workflow_path" == ".github/workflows/production-deploy.yml" ]] || { echo "origin run belongs to $workflow_path" >&2; exit 2; }
+          [[ "$event" == "workflow_dispatch" && "$conclusion" == "success" ]] || { echo "origin run must be a successful workflow_dispatch" >&2; exit 2; }
+          [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "origin run has invalid head SHA" >&2; exit 2; }
+          jobs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${REBUILD_RUN_ID}/jobs?per_page=100")"
+          deploy_jobs="$(jq '[.jobs[] | select(.name == "Deploy to production" and .conclusion == "success")] | length' <<<"$jobs_json")"
+          [[ "$deploy_jobs" == "1" ]] || { echo "origin run did not complete exactly one production deploy job" >&2; exit 2; }
+          artifacts_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${REBUILD_RUN_ID}/artifacts?per_page=100")"
+          artifact_name="authoritative-rebuild-${REBUILD_RUN_ID}-production"
+          artifacts="$(jq --arg name "$artifact_name" '[.artifacts[] | select(.name == $name and .expired == false)] | length' <<<"$artifacts_json")"
+          [[ "$artifacts" == "1" ]] || { echo "origin run does not expose exactly one live production rebuild artifact" >&2; exit 2; }
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout originating rebuild SHA
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ steps.origin.outputs.head_sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install finalization dependencies
+        run: npm ci --ignore-scripts --fetch-timeout=600000 --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000 --no-audit --no-fund
+
+      - name: Generate Prisma client for finalization
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        run: npx prisma generate
+
+      - name: Validate production finalization binding
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DEPLOYMENT_TARGET: ${{ inputs.deployment_target }}
+          REBUILD_TARGET: ${{ inputs.deployment_target }}
+          GITHUB_ENVIRONMENT: production
+          DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
+          EXPECTED_RESET_CONFIRMATION: RESET_PRODUCTION_DATA
+          REBUILD_RUN_ID: ${{ inputs.rebuild_run_id }}
+          REBUILD_EXPECTED_DATABASE_HOST: ${{ secrets.PRODUCTION_REBUILD_EXPECTED_DATABASE_HOST }}
+          REBUILD_EXPECTED_SUPABASE_PROJECT_REF: ${{ secrets.PRODUCTION_REBUILD_EXPECTED_SUPABASE_PROJECT_REF }}
+          REBUILD_ORGANIZATION_ID: ${{ vars.PRODUCTION_REBUILD_ORGANIZATION_ID }}
+          REBUILD_ORGANIZATION_SLUG: ${{ vars.PRODUCTION_REBUILD_ORGANIZATION_SLUG }}
+          REBUILD_COUPANG_ACCOUNT_ID: ${{ vars.PRODUCTION_REBUILD_COUPANG_ACCOUNT_ID }}
+          REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID: ${{ secrets.PRODUCTION_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          case "$REBUILD_RUN_ID" in
+            ''|*[!0-9]*) echo "rebuild_run_id must be the originating numeric workflow run ID" >&2; exit 2 ;;
+          esac
+          npm run inventory:rebuild -- guard
+
+      - name: Download private rebuild bundle from originating run
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: authoritative-rebuild-${{ inputs.rebuild_run_id }}-production
+          path: ${{ runner.temp }}/authoritative-rebuild
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.rebuild_run_id }}
+
+      - name: Replay approved Coupang snapshots through authenticated endpoint
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DEPLOYMENT_TARGET: ${{ inputs.deployment_target }}
+          REBUILD_TARGET: ${{ inputs.deployment_target }}
+          REBUILD_DEPLOYED_SHA: ${{ steps.origin.outputs.head_sha }}
+          GITHUB_ENVIRONMENT: production
+          DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
+          EXPECTED_RESET_CONFIRMATION: RESET_PRODUCTION_DATA
+          REBUILD_ORGANIZATION_ID: ${{ vars.PRODUCTION_REBUILD_ORGANIZATION_ID }}
+          REBUILD_COUPANG_ACCOUNT_ID: ${{ vars.PRODUCTION_REBUILD_COUPANG_ACCOUNT_ID }}
+          REBUILD_USER_ID: ${{ vars.PRODUCTION_REBUILD_USER_ID }}
+          REBUILD_USER_EMAIL: ${{ secrets.PRODUCTION_REBUILD_USER_EMAIL }}
+          REBUILD_API_URL: ${{ vars.PRODUCTION_REBUILD_EXPECTED_API_ORIGIN }}
+          REBUILD_EXPECTED_API_ORIGIN: ${{ vars.PRODUCTION_REBUILD_EXPECTED_API_ORIGIN }}
+          SUPABASE_URL: ${{ vars.PRODUCTION_SUPABASE_URL || vars.PRODUCTION_NEXT_PUBLIC_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
+          REBUILD_EXPECTED_SUPABASE_PROJECT_REF: ${{ secrets.PRODUCTION_REBUILD_EXPECTED_SUPABASE_PROJECT_REF }}
+          SUPABASE_SECRET_KEY: ${{ secrets.PRODUCTION_SUPABASE_SECRET_KEY }}
+          REBUILD_BUNDLE_PATH: ${{ runner.temp }}/authoritative-rebuild/authoritative-rebuild.json
+        run: npm run inventory:rebuild -- replay-coupang --origin-run-id "${{ inputs.rebuild_run_id }}"
+
+      - name: Verify imported facts and mark production ready
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DEPLOYMENT_TARGET: ${{ inputs.deployment_target }}
+          REBUILD_TARGET: ${{ inputs.deployment_target }}
+          REBUILD_DEPLOYED_SHA: ${{ steps.origin.outputs.head_sha }}
+          GITHUB_ENVIRONMENT: production
+          DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
+          EXPECTED_RESET_CONFIRMATION: RESET_PRODUCTION_DATA
+          REBUILD_ORGANIZATION_ID: ${{ vars.PRODUCTION_REBUILD_ORGANIZATION_ID }}
+          REBUILD_COUPANG_ACCOUNT_ID: ${{ vars.PRODUCTION_REBUILD_COUPANG_ACCOUNT_ID }}
+          REBUILD_EXPECTED_ACTIVE_MASTERS: ${{ vars.PRODUCTION_REBUILD_EXPECTED_ACTIVE_MASTERS }}
+          REBUILD_EXPECTED_LISTINGS: ${{ vars.PRODUCTION_REBUILD_EXPECTED_LISTINGS }}
+          REBUILD_EXPECTED_CHANNEL_SKUS: ${{ vars.PRODUCTION_REBUILD_EXPECTED_CHANNEL_SKUS }}
+          REBUILD_BUNDLE_PATH: ${{ runner.temp }}/authoritative-rebuild/authoritative-rebuild.json
+        run: npm run inventory:rebuild -- verify-ready --origin-run-id "${{ inputs.rebuild_run_id }}"
+
+      - name: Write production rebuild finalization summary
+        if: always()
+        env:
+          REBUILD_RUN_ID: ${{ inputs.rebuild_run_id }}
+        run: |
+          {
+            echo "## Production authoritative rebuild finalization"
+            echo
+            echo "- Originating run: \`${REBUILD_RUN_ID}\`"
+            echo "- Result: \`${{ job.status }}\`"
             echo "- Runbook: \`docs/runbooks/production-deploy.md\`"
           } >> "$GITHUB_STEP_SUMMARY"
 

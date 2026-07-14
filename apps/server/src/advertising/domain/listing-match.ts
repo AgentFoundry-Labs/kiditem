@@ -2,9 +2,9 @@
 //
 // Matching priority (invariant — see advertising/AGENTS.md):
 //   1) Coupang vendorItemId → ChannelListingOption.externalOptionId →
-//      {listingId, listingOptionId, optionId|null}
+//      {listingId, listingOptionId}
 //   2) externalId → ChannelListing.externalId + platform='coupang' →
-//      {listingId, listingOptionId:null, optionId:null}
+//      {listingId, listingOptionId:null}
 //   3) 매칭 실패 → matchStatus='unmatched'
 
 export type ScrapeMatchStatus =
@@ -13,9 +13,10 @@ export type ScrapeMatchStatus =
   | 'unmatched';
 
 export interface ListingMap {
-  // Option matches keep `listingOptionId` even when internal `optionId` is
-  // null. Daily option-snapshot upsert needs the listing option id to land
-  // facts before internal product matching is complete. Also carry the
+  /** Active primary Coupang account that owns every listing in this map. */
+  channelAccountId: string;
+  // Option matches keep `listingOptionId`. Daily option-snapshot upsert needs
+  // the listing option id to land facts before inventory matching is complete. Also carry the
   // listing's `externalId` so daily-snapshot rows can populate the
   // denormalized `externalId` column without an extra DB lookup.
   externalOptionIdMap: Map<
@@ -23,7 +24,6 @@ export interface ListingMap {
     {
       listingId: string;
       listingOptionId: string;
-      optionId: string | null;
       externalId: string;
     }
   >;
@@ -33,7 +33,6 @@ export interface ListingMap {
 export interface ListingMatch {
   listingId: string | null;
   listingOptionId: string | null;
-  optionId: string | null;
   // Canonical channel identifiers needed for daily-snapshot upsert.
   // `externalId` is `ChannelListing.externalId` (e.g. Coupang sellerProductId).
   // `externalOptionId` is `ChannelListingOption.externalOptionId` (e.g. vendorItemId).
@@ -68,7 +67,6 @@ export function matchListingFromRow(
       return {
         listingId: hit.listingId,
         listingOptionId: hit.listingOptionId,
-        optionId: hit.optionId,
         externalId: hit.externalId,
         externalOptionId: providerOptionId,
       };
@@ -87,7 +85,6 @@ export function matchListingFromRow(
       return {
         listingId: hit.listingId,
         listingOptionId: null,
-        optionId: null,
         externalId,
         externalOptionId: null,
       };
@@ -97,7 +94,6 @@ export function matchListingFromRow(
   return {
     listingId: null,
     listingOptionId: null,
-    optionId: null,
     externalId: null,
     externalOptionId: null,
   };

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import type { PrismaClient } from '@prisma/client';
 import { AdvertisingModule } from '../advertising.module';
@@ -31,27 +32,23 @@ describe('AdSync flow (PG integration, H2)', () => {
     legacySuffix?: string;
   }) {
     const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}${params.legacySuffix ?? ''}`;
-    const master = await prisma.masterProduct.create({
-      data: {
-        organizationId: params.organizationId,
-        code: `M-${unique}`,
-        name: `Master ${unique}`,
-        optionCounter: 0,
-      },
-    });
-    const option = await prisma.productOption.create({
-      data: {
-        organizationId: params.organizationId,
-        masterId: master.id,
-        sku: `SKU-${unique}`,
-        optionName: `Option ${unique}`,
-      },
-    });
+    const channelAccount =
+      (await prisma.channelAccount.findFirst({
+        where: { organizationId: params.organizationId, channel: 'coupang' },
+      })) ??
+      (await prisma.channelAccount.create({
+        data: {
+          organizationId: params.organizationId,
+          channel: 'coupang',
+          name: 'Ad Sync PG Coupang',
+          externalAccountId: 'ad-sync-pg',
+          isPrimary: true,
+        },
+      }));
     const listing = await prisma.channelListing.create({
       data: {
         organizationId: params.organizationId,
-        masterId: master.id,
-        channel: 'coupang',
+        channelAccountId: channelAccount.id,
         externalId: params.externalId,
       },
     });
@@ -59,12 +56,11 @@ describe('AdSync flow (PG integration, H2)', () => {
       data: {
         organizationId: params.organizationId,
         listingId: listing.id,
-        optionId: option.id,
         externalOptionId: params.externalOptionId,
         isActive: true,
       },
     });
-    return { master, option, listing, listingOption };
+    return { channelAccount, listing, listingOption };
   }
 
   beforeAll(async () => {
@@ -87,6 +83,15 @@ describe('AdSync flow (PG integration, H2)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Ad Sync PG Coupang',
+        externalAccountId: 'ad-sync-pg',
+        isPrimary: true,
+      },
+    });
   });
 
   describe('buildListingMap', () => {
@@ -109,18 +114,115 @@ describe('AdSync flow (PG integration, H2)', () => {
       expect(map.externalOptionIdMap.get('VENDOR-A')).toEqual({
         listingId: a.listing.id,
         listingOptionId: a.listingOption.id,
-        optionId: a.option.id,
         externalId: 'EXT-A',
       });
+      expect(map.channelAccountId).toBe(a.channelAccount.id);
       expect(map.externalIdMap.get('EXT-A')).toEqual({
         listingId: a.listing.id,
       });
       expect(map.externalOptionIdMap.has('VENDOR-OTHER')).toBe(false);
       expect(map.externalIdMap.has('EXT-OTHER')).toBe(false);
     });
+
+    it('requires an explicit account when an organization has multiple active Coupang accounts', async () => {
+      await prisma.channelAccount.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channel: 'coupang',
+          name: 'Ad Sync PG Coupang Secondary',
+          externalAccountId: 'ad-sync-pg-secondary',
+        },
+      });
+
+      await expect(
+        adSyncService.buildListingMap(TEST_ORGANIZATION_ID),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('uses only the explicitly selected tenant-owned account', async () => {
+      const secondary = await prisma.channelAccount.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channel: 'coupang',
+          name: 'Ad Sync PG Coupang Secondary',
+          externalAccountId: 'ad-sync-pg-secondary',
+        },
+      });
+      const listing = await prisma.channelListing.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: secondary.id,
+          externalId: 'EXT-SECONDARY',
+        },
+      });
+      const option = await prisma.channelListingOption.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId: listing.id,
+          externalOptionId: 'VENDOR-SECONDARY',
+        },
+      });
+
+      const map = await adSyncService.buildListingMap(
+        TEST_ORGANIZATION_ID,
+        secondary.id,
+      );
+
+      expect(map.channelAccountId).toBe(secondary.id);
+      expect(map.externalOptionIdMap.get('VENDOR-SECONDARY')).toEqual({
+        listingId: listing.id,
+        listingOptionId: option.id,
+        externalId: 'EXT-SECONDARY',
+      });
+    });
+
+    it('does not accept an account identifier owned by another organization', async () => {
+      const foreignAccount = await prisma.channelAccount.create({
+        data: {
+          organizationId: OTHER_ORGANIZATION_ID,
+          channel: 'coupang',
+          name: 'Other Organization Coupang',
+          externalAccountId: 'other-ad-sync-pg',
+        },
+      });
+
+      await expect(
+        adSyncService.buildListingMap(
+          TEST_ORGANIZATION_ID,
+          foreignAccount.id,
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
   });
 
   describe('sync(ad_campaign)', () => {
+    it('stores raw scrape facts against the explicitly selected account', async () => {
+      const secondary = await prisma.channelAccount.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channel: 'coupang',
+          name: 'Ad Sync PG Coupang Secondary',
+          externalAccountId: 'ad-sync-pg-secondary',
+        },
+      });
+
+      await adSyncService.sync(
+        {
+          type: 'ad_campaign',
+          channelAccountId: secondary.id,
+          timestamp: '2026-04-14T01:00:00Z',
+          normalizedRows: [],
+        },
+        TEST_ORGANIZATION_ID,
+      );
+
+      const run = await prisma.channelScrapeRun.findFirstOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(run.channelAccountId).toBe(secondary.id);
+    });
+
     it('#2 vendorItemId hit → ChannelListingDailySnapshot ad metrics + ChannelAdTargetDailySnapshot at product grain', async () => {
       const seeded = await seedListing({
         organizationId: TEST_ORGANIZATION_ID,

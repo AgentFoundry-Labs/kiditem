@@ -23,9 +23,6 @@ import {
   buildDetailGenerationEntryHtml,
   buildGenerationHistoryHtml,
 } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/generated-detail-html';
-import {
-  selectedThumbnailGenerationCandidateId as resolveSelectedThumbnailGenerationCandidateId,
-} from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
 import type { RegistrationThumbnailOption } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/registration-selection';
 import {
   candidatesApi,
@@ -40,6 +37,7 @@ import {
 } from '../../lib/product-workspace-tabs';
 import { useGenerationHistory } from '../../hooks/useGenerationHistory';
 import { extractKcCertificationNumber } from '../../lib/kc-autofill';
+import { contentWorkspacesApi } from '../../lib/content-workspaces-api';
 import { buildProductRegistrationPreviewData } from './preview/product-registration-preview';
 import { GenerationProgressBannerStack } from './GenerationProgressBanner';
 import ProductErrorView from './ProductErrorView';
@@ -64,6 +62,7 @@ interface ProductWorkspaceScreenProps {
   hasSavedDetailPage?: boolean;
   savedDetailPageGenerationId?: string | null;
   thumbnailSourceCandidateId?: string | null;
+  detailGenerationEnabled?: boolean;
   onOpenDetailTemplateGeneration?: () => void;
 }
 
@@ -79,6 +78,7 @@ export function ProductWorkspaceScreen({
   hasSavedDetailPage,
   savedDetailPageGenerationId = null,
   thumbnailSourceCandidateId,
+  detailGenerationEnabled = true,
   onOpenDetailTemplateGeneration,
 }: ProductWorkspaceScreenProps) {
   const router = useRouter();
@@ -102,6 +102,8 @@ export function ProductWorkspaceScreen({
   const [selectedBoldVerticalId, setSelectedBoldVerticalId] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [selectedRegistrationThumbnailUrl, setSelectedRegistrationThumbnailUrl] = useState<string | null>(null);
+  const [selectedThumbnailGenerationId, setSelectedThumbnailGenerationId] = useState<string | null>(null);
+  const [selectedThumbnailGenerationCandidateId, setSelectedThumbnailGenerationCandidateId] = useState<string | null>(null);
   const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string | null>(null);
   const [thumbnailPreviewImages, setThumbnailPreviewImages] = useState<string[]>([]);
   const [detailWorkspacePreviewHtml, setDetailWorkspacePreviewHtml] = useState<string | null>(null);
@@ -131,23 +133,16 @@ export function ProductWorkspaceScreen({
   const queryError = initialWorkspaceData ? null : productDetailQuery.error;
 
   const product = fetchedData?.product ?? null;
-  const promotedMasterId =
-    (product as { promoted_master_id?: string | null; promotedMasterId?: string | null } | null)
-      ?.promoted_master_id ??
-    (product as { promotedMasterId?: string | null } | null)?.promotedMasterId ??
-    null;
-  const detailGenerationProductId = promotedMasterId ?? productId;
-  const detailGenerationContentWorkspaceId = contentWorkspaceId ?? null;
-  const detailGenerationSourceCandidateId =
-    detailGenerationContentWorkspaceId || promotedMasterId ? null : productId;
   const productPreparation = product?.productPreparation ?? null;
-  const [basicPreparationBaseUpdatedAt, setBasicPreparationBaseUpdatedAt] =
-    useState<string | null | undefined>(undefined);
-  useEffect(() => {
-    setBasicPreparationBaseUpdatedAt(productPreparation?.updatedAt ?? null);
-  }, [productPreparation?.updatedAt]);
-  const effectiveContentWorkspaceId =
-    contentWorkspaceId ?? productPreparation?.contentWorkspaceId ?? null;
+  const editablePreparationId = productPreparation?.status === 'draft'
+    ? productPreparation.id
+    : null;
+  const detailGenerationProductId = productId;
+  const detailGenerationContentWorkspaceId =
+    contentWorkspaceId ?? productPreparation?.sourceContentWorkspaceId ?? null;
+  const detailGenerationSourceCandidateId =
+    detailGenerationContentWorkspaceId ? null : productId;
+  const effectiveContentWorkspaceId = detailGenerationContentWorkspaceId;
   const effectiveSavedDetailPageGenerationId =
     savedDetailPageGenerationId ?? productPreparation?.selectedDetailPageGenerationId ?? null;
   const detailPageData = fetchedData?.detailPageData ?? placeholderDetailPageData;
@@ -199,18 +194,10 @@ export function ProductWorkspaceScreen({
   });
   const effectiveThumbnailSourceCandidateId =
     thumbnailSourceCandidateId === undefined ? productId : thumbnailSourceCandidateId;
-  const selectionCandidateId =
-    thumbnailSourceCandidateId === undefined ? productId : thumbnailSourceCandidateId;
   const thumbnailGenerations = useSourcingThumbnailGenerations({
     sourceCandidateId: effectiveThumbnailSourceCandidateId,
     contentWorkspaceId: effectiveContentWorkspaceId,
   });
-  const selectedThumbnailGenerationCandidateId = useMemo(() => {
-    return resolveSelectedThumbnailGenerationCandidateId(
-      selectedRegistrationThumbnailUrl,
-      thumbnailGenerations.data ?? [],
-    );
-  }, [selectedRegistrationThumbnailUrl, thumbnailGenerations.data]);
   const loadError = queryError
     ? isApiError(queryError)
       ? queryError.detail
@@ -219,44 +206,39 @@ export function ProductWorkspaceScreen({
 
   const selectThumbnailMutation = useMutation({
     mutationFn: (option: RegistrationThumbnailOption) => {
-      if (!selectionCandidateId) return Promise.resolve(null);
-      return candidatesApi.selectThumbnail(selectionCandidateId, {
+      if (!editablePreparationId) {
+        throw new Error('먼저 채널 등록 준비를 만들어 주세요.');
+      }
+      return candidatesApi.selectThumbnail(editablePreparationId, {
         selectedThumbnailUrl: option.url,
+        selectedThumbnailGenerationId: option.generatedGenerationId ?? null,
         selectedThumbnailGenerationCandidateId: option.generatedCandidateId ?? null,
       });
     },
     onSuccess: () => {
-      if (selectionCandidateId) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(selectionCandidateId) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
-      }
+      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
     },
   });
 
   const updateBasicInfoMutation = useMutation({
     mutationFn: (input: UpdateProductBasicsInput) => {
-      if (!selectionCandidateId) return Promise.resolve(null);
-      return candidatesApi.updateBasicInfo(selectionCandidateId, input);
+      if (!editablePreparationId) {
+        throw new Error('먼저 채널 등록 준비를 만들어 주세요.');
+      }
+      return candidatesApi.updateBasicInfo(editablePreparationId, {
+        ...input,
+        basePreparationUpdatedAt: productPreparation?.updatedAt ?? null,
+      });
     },
     onSuccess: () => {
-      if (selectionCandidateId) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(selectionCandidateId) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
-      }
+      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
     },
   });
 
   const handleCommitBasicInfo = async (input: UpdateProductBasicsInput) => {
-    if (!selectionCandidateId) return;
-    const basePreparationUpdatedAt =
-      basicPreparationBaseUpdatedAt === undefined
-        ? productPreparation?.updatedAt ?? null
-        : basicPreparationBaseUpdatedAt;
-    const updated = await updateBasicInfoMutation.mutateAsync({
-      ...input,
-      basePreparationUpdatedAt,
-    });
-    setBasicPreparationBaseUpdatedAt(updated?.updatedAt ?? null);
+    await updateBasicInfoMutation.mutateAsync(input);
   };
 
   const kcAutoFilledRef = useRef<string | null>(null);
@@ -269,15 +251,16 @@ export function ProductWorkspaceScreen({
     setSelectedBoldVerticalId(null);
     setSelectedAgentId(null);
     setSelectedRegistrationThumbnailUrl(null);
+    setSelectedThumbnailGenerationId(null);
+    setSelectedThumbnailGenerationCandidateId(null);
     setThumbnailPreviewUrl(null);
     setThumbnailPreviewImages([]);
     setDetailWorkspacePreviewHtml(null);
-    setBasicPreparationBaseUpdatedAt(undefined);
     kcAutoFilledRef.current = null;
   }, [contentWorkspaceId, productId, thumbnailSourceCandidateId]);
 
   useEffect(() => {
-    if (!selectionCandidateId) return;
+    if (!editablePreparationId) return;
     const basicInfo = fetchedData?.product?.basicInfo;
     if (!basicInfo) return;
     const status = basicInfo.kcCertificationStatus;
@@ -298,7 +281,7 @@ export function ProductWorkspaceScreen({
     );
     // mutation 객체는 매 렌더 새 identity 라서 ref 로 중복 호출을 막는다.
   }, [
-    selectionCandidateId,
+    editablePreparationId,
     fetchedData?.product?.basicInfo?.kcCertificationStatus,
     kidsPlayfulEntries,
     boldEntries,
@@ -308,16 +291,37 @@ export function ProductWorkspaceScreen({
     thumbnailUrls: string[];
     selectedThumbnail: RegistrationThumbnailOption | null;
   }) => {
-    if (!selectionCandidateId) return;
     const thumbnailUrls = uniqueNonEmpty(input.thumbnailUrls);
     setThumbnailPreviewImages(thumbnailUrls);
     if (input.selectedThumbnail) {
       setSelectedRegistrationThumbnailUrl(input.selectedThumbnail.url);
+      setSelectedThumbnailGenerationId(
+        input.selectedThumbnail.generatedGenerationId ?? null,
+      );
+      setSelectedThumbnailGenerationCandidateId(
+        input.selectedThumbnail.generatedCandidateId ?? null,
+      );
     }
     try {
-      await updateBasicInfoMutation.mutateAsync({ thumbnailUrls });
-      if (input.selectedThumbnail) {
-        await selectThumbnailMutation.mutateAsync(input.selectedThumbnail);
+      if (editablePreparationId) {
+        await updateBasicInfoMutation.mutateAsync({ thumbnailUrls });
+        if (input.selectedThumbnail) {
+          await selectThumbnailMutation.mutateAsync(input.selectedThumbnail);
+        }
+      } else if (effectiveContentWorkspaceId && input.selectedThumbnail) {
+        await contentWorkspacesApi.selectCurrentThumbnail(
+          effectiveContentWorkspaceId,
+          contentWorkspaceThumbnailSelection(input.selectedThumbnail),
+        );
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: queryKeys.contentWorkspaces.detail(effectiveContentWorkspaceId),
+          }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.contentWorkspaces.all }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all }),
+        ]);
+      } else {
+        throw new Error('저장 가능한 썸네일 구성이 없습니다.');
       }
       toast.success('썸네일 구성을 저장했습니다.');
     } catch (err) {
@@ -331,13 +335,13 @@ export function ProductWorkspaceScreen({
       selectedDetailPageArtifactId?: string | null;
       selectedDetailPageRevisionId?: string | null;
     }) => {
-      if (!selectionCandidateId) return Promise.resolve(null);
-      return candidatesApi.selectDetailPage(selectionCandidateId, input);
+      if (!editablePreparationId) {
+        throw new Error('먼저 채널 등록 준비를 만들어 주세요.');
+      }
+      return candidatesApi.selectDetailPage(editablePreparationId, input);
     },
     onSuccess: () => {
-      if (selectionCandidateId) {
-        queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(selectionCandidateId) });
-      }
+      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
     },
   });
 
@@ -365,6 +369,16 @@ export function ProductWorkspaceScreen({
       nextEditData.thumbnails[0] ??
       null,
     );
+    setSelectedThumbnailGenerationId(
+      basicInfo?.selectedThumbnailGenerationId
+      ?? fetchedData.product.productPreparation?.selectedThumbnailGenerationId
+      ?? null,
+    );
+    setSelectedThumbnailGenerationCandidateId(
+      basicInfo?.selectedThumbnailGenerationCandidateId
+      ?? fetchedData.product.productPreparation?.selectedThumbnailGenerationCandidateId
+      ?? null,
+    );
     setThumbnailPreviewImages(
       basicInfo?.thumbnailPreviewUrls && basicInfo.thumbnailPreviewUrls.length > 0
         ? basicInfo.thumbnailPreviewUrls
@@ -385,9 +399,12 @@ export function ProductWorkspaceScreen({
     setEditData((prev) => ({ ...prev, [field]: value }));
     if (field === 'thumbnails') {
       const next = value as string[];
-      setSelectedRegistrationThumbnailUrl((selected) =>
-        selected && !next.includes(selected) ? null : selected,
-      );
+      if (selectedRegistrationThumbnailUrl
+        && !next.includes(selectedRegistrationThumbnailUrl)) {
+        setSelectedRegistrationThumbnailUrl(null);
+        setSelectedThumbnailGenerationId(null);
+        setSelectedThumbnailGenerationCandidateId(null);
+      }
     }
   };
 
@@ -521,15 +538,17 @@ export function ProductWorkspaceScreen({
         productName={editData.name || '(상품명 없음)'}
         productId={productId}
         status={product?.status}
-        promotedMasterId={promotedMasterId}
+        productPreparation={productPreparation}
         basicInfo={product?.basicInfo ?? null}
         costCny={product?.cost_cny ?? null}
         isEditComplete={isEditComplete}
         isLocked={isLocked}
         selectedThumbnailUrl={selectedRegistrationThumbnailUrl}
+        selectedThumbnailGenerationId={selectedThumbnailGenerationId}
         selectedThumbnailGenerationCandidateId={selectedThumbnailGenerationCandidateId}
         selectedDetailPageGenerationId={effectiveSavedDetailPageGenerationId}
         detailGenerationContentWorkspaceId={detailGenerationContentWorkspaceId}
+        detailGenerationEnabled={detailGenerationEnabled}
         showCandidateActions={showCandidateActions}
         onOpenDetailTemplateGeneration={onOpenDetailTemplateGeneration}
         onToggleEditComplete={() => setIsEditComplete((v) => !v)}
@@ -568,10 +587,9 @@ export function ProductWorkspaceScreen({
               basicInfo={product?.basicInfo ?? null}
               costCny={product?.cost_cny ?? null}
               updateField={updateField}
-              onCommitBasicInfo={handleCommitBasicInfo}
+              onCommitBasicInfo={editablePreparationId ? handleCommitBasicInfo : undefined}
               nameLength={nameLength}
               productId={productId}
-              promotedMasterId={promotedMasterId}
               detailPreviewHtml={detailPreviewHtml}
               editedHtml={editedHtml}
               templateCss={templateCss}
@@ -613,15 +631,16 @@ export function ProductWorkspaceScreen({
                   setSelectedBoldVerticalId(null);
                 }
               }}
-              onApplyRegistrationDetailPage={(input) =>
-                selectDetailPageMutation.mutateAsync(input).then(() => undefined)
-              }
+              onApplyRegistrationDetailPage={editablePreparationId
+                ? (input) => selectDetailPageMutation.mutateAsync(input).then(() => undefined)
+                : undefined}
               selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
               thumbnailPreviewImages={thumbnailPreviewImages}
               mobilePreviewData={mobilePreviewData}
               onPreviewThumbnail={setThumbnailPreviewUrl}
               onThumbnailPreviewImagesChange={setThumbnailPreviewImages}
               onSaveThumbnailConfiguration={handleSaveThumbnailConfiguration}
+              canSaveThumbnailConfiguration={Boolean(editablePreparationId)}
               thumbnailGenerationReturnHref={thumbnailWorkspaceReturnHref}
               selectedDetailPageSummary={selectedDetailPageSummary}
               onDetailPreviewHtmlChange={setDetailWorkspacePreviewHtml}
@@ -643,4 +662,14 @@ export function ProductWorkspaceScreen({
 
 function uniqueNonEmpty(values: Array<string | null | undefined>): string[] {
   return Array.from(new Set(values.map((value) => value?.trim()).filter(Boolean) as string[]));
+}
+
+function contentWorkspaceThumbnailSelection(option: RegistrationThumbnailOption) {
+  if (option.generatedGenerationId && option.generatedCandidateId) {
+    return {
+      sourceThumbnailGenerationId: option.generatedGenerationId,
+      sourceThumbnailCandidateId: option.generatedCandidateId,
+    };
+  }
+  return { externalUrl: option.url };
 }

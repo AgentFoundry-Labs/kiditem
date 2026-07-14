@@ -15,6 +15,7 @@ import GlobalConfirmDialog from '@/components/GlobalConfirmDialog';
 import GenerationCompletionWatcher from '@/components/GenerationCompletionWatcher';
 import QuickActionFab from '@/components/QuickActionFab';
 import { useAuth } from '@/hooks/useAuth';
+import RebuildReadinessBanner from '@/components/RebuildReadinessBanner';
 
 const CopilotChat = dynamic(() => import('./CopilotChat'), { ssr: false });
 
@@ -119,6 +120,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           collapsedForEditor ? 'md:ml-[68px]' : 'md:ml-60'
         )}
       >
+        <RebuildReadinessBanner />
         <main
           className={cn(
             isEditorRoute || isWingCatalogRoute ? 'p-0' : isFinalSelectionRoute ? 'p-3' : 'p-6',

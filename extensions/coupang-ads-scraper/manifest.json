@@ -35,7 +35,10 @@
     },
     {
       "matches": ["https://wing.coupang.com/vendor-inventory/list*"],
-      "js": ["content/wing-inventory-scraper.js"],
+      "js": [
+        "shared/coupang-catalog-collector.js",
+        "content/wing-inventory-scraper.js"
+      ],
       "run_at": "document_idle"
     },
     {
@@ -47,7 +50,10 @@
       "matches": [
         "https://wing.coupang.com/tenants/seller-web/vendor-inventory/list*"
       ],
-      "js": ["content/wing-inventory-scraper.js"],
+      "js": [
+        "shared/coupang-catalog-collector.js",
+        "content/wing-inventory-scraper.js"
+      ],
       "run_at": "document_idle"
     },
     {

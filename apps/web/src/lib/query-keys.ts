@@ -46,13 +46,16 @@ export const queryKeys = {
   },
   inventory: {
     all: ['inventory'] as const,
-    list: (params: Record<string, string>) => [...queryKeys.inventory.all, 'list', params] as const,
-    detail: (id: string) => [...queryKeys.inventory.all, 'detail', id] as const,
-    byMaster: (masterId: string) => [...queryKeys.inventory.all, 'byMaster', masterId] as const,
-    transactions: (params: Record<string, string>) =>
-      [...queryKeys.inventory.all, 'transactions', params] as const,
-    transactionSummary: (params: Record<string, string>) =>
-      [...queryKeys.inventory.all, 'transactionSummary', params] as const,
+    snapshots: () => [...queryKeys.inventory.all, 'sellpia-skus'] as const,
+    snapshot: (params: Record<string, string>) =>
+      [...queryKeys.inventory.snapshots(), params] as const,
+    assets: () => [...queryKeys.inventory.all, 'sellpia-assets'] as const,
+    assetList: (params: Record<string, string>) =>
+      [...queryKeys.inventory.assets(), params] as const,
+    importRuns: () => [...queryKeys.inventory.all, 'sellpia-import-runs'] as const,
+    importRunList: (params: Record<string, string>) =>
+      [...queryKeys.inventory.importRuns(), params] as const,
+    receiptBatches: () => [...queryKeys.inventory.all, 'sellpia-receipt-batches'] as const,
   },
   dashboard: {
     all: ['dashboard'] as const,
@@ -110,6 +113,11 @@ export const queryKeys = {
     search: (params: Record<string, string>) => [...queryKeys.orders.all, 'search', params] as const,
     compare: (params: Record<string, string>) => [...queryKeys.orders.all, 'compare', params] as const,
     sync: (params: Record<string, string>) => [...queryKeys.orders.all, 'sync', params] as const,
+    rocketPoList: (params: { from: string; to: string; status: string }) =>
+      [...queryKeys.orders.all, 'rocket-po-list', params] as const,
+    collectionMalls: () => [...queryKeys.orders.all, 'collection', 'malls'] as const,
+    collectionMallAction: (action: string) =>
+      [...queryKeys.orders.collectionMalls(), action] as const,
   },
   coupangDashboard: {
     all: ['coupangDashboard'] as const,
@@ -162,17 +170,28 @@ export const queryKeys = {
     generations: (params?: Record<string, string>) => [...queryKeys.thumbnailAnalysis.all, 'generations', params] as const,
     tracking: () => [...queryKeys.thumbnailAnalysis.all, 'tracking'] as const,
   },
-  coupangImageSync: {
-    all: ['coupangImageSync'] as const,
-    capabilities: () => [...queryKeys.coupangImageSync.all, 'capabilities'] as const,
-    current: () => [...queryKeys.coupangImageSync.all, 'current'] as const,
-    job: (jobId: string) => [...queryKeys.coupangImageSync.all, 'job', jobId] as const,
+  channelAccounts: {
+    all: ['channelAccounts'] as const,
+    active: () => [...queryKeys.channelAccounts.all, 'active'] as const,
   },
-  channelReconciliation: {
-    all: ['channelReconciliation'] as const,
-    summary: () => [...queryKeys.channelReconciliation.all, 'summary'] as const,
-    items: (params: Record<string, string>) =>
-      [...queryKeys.channelReconciliation.all, 'items', params] as const,
+  channelSkuMappings: {
+    all: ['channelSkuMappings'] as const,
+    lists: () => [...queryKeys.channelSkuMappings.all, 'list'] as const,
+    list: (params: Record<string, string>) =>
+      [...queryKeys.channelSkuMappings.lists(), params] as const,
+    candidates: (channelSkuId: string, params: Record<string, string>) =>
+      [
+        ...queryKeys.channelSkuMappings.all,
+        'candidates',
+        channelSkuId,
+        params,
+      ] as const,
+  },
+  channelSkuAvailability: {
+    all: ['channelSkuAvailability'] as const,
+    lists: () => [...queryKeys.channelSkuAvailability.all, 'list'] as const,
+    list: (params: Record<string, string>) =>
+      [...queryKeys.channelSkuAvailability.lists(), params] as const,
   },
   coupangAccount: {
     all: ['coupangAccount'] as const,
@@ -224,6 +243,33 @@ export const queryKeys = {
     editedHtml: (id: string) => [...queryKeys.productContent.all, 'edited-html', id] as const,
     generationEditedHtml: (id: string) =>
       [...queryKeys.productContent.all, 'generation-edited-html', id] as const,
+    detailGenerationsAll: (templateId: 'kids-playful' | 'bold-vertical') =>
+      [templateId === 'bold-vertical' ? 'bold-generations' : 'kp-generations'] as const,
+    detailGenerations: (
+      templateId: 'kids-playful' | 'bold-vertical',
+      scope?: {
+        productId?: string | null;
+        sourceCandidateId?: string | null;
+        contentWorkspaceId?: string | null;
+      },
+    ) => {
+      const root = templateId === 'bold-vertical' ? 'bold-generations' : 'kp-generations';
+      if (scope?.contentWorkspaceId) {
+        return [root, { contentWorkspaceId: scope.contentWorkspaceId }] as const;
+      }
+      if (scope?.sourceCandidateId) {
+        return [root, { sourceCandidateId: scope.sourceCandidateId }] as const;
+      }
+      if (templateId === 'kids-playful' && scope?.productId) {
+        return [root, { productId: scope.productId }] as const;
+      }
+      if (templateId === 'bold-vertical') {
+        return [root, { productId: scope?.productId ?? null }] as const;
+      }
+      return [root] as const;
+    },
+    detailGeneration: (id: string) => ['kp-generations', 'one', id] as const,
+    detailGenerationNoop: () => ['kp-generations', 'one', 'noop'] as const,
   },
   contentWorkspaces: {
     all: ['content-workspaces'] as const,
@@ -239,6 +285,13 @@ export const queryKeys = {
       [...queryKeys.channelListings.all, 'list', params] as const,
     detail: (id: string) => [...queryKeys.channelListings.all, 'detail', id] as const,
   },
+  coupangCatalogImports: {
+    all: ['coupangCatalogImports'] as const,
+    run: (channelAccountId: string, runId: string) =>
+      [...queryKeys.coupangCatalogImports.all, channelAccountId, runId] as const,
+    extension: (runId: string) =>
+      [...queryKeys.coupangCatalogImports.all, 'extension', runId] as const,
+  },
   organizations: {
     all: ['organizations'] as const,
     list: () => [...queryKeys.organizations.all, 'list'] as const,
@@ -246,10 +299,6 @@ export const queryKeys = {
   suppliers: {
     all: ['suppliers'] as const,
     list: () => [...queryKeys.suppliers.all, 'list'] as const,
-  },
-  stockAudits: {
-    all: ['stockAudits'] as const,
-    list: () => [...queryKeys.stockAudits.all, 'list'] as const,
   },
   stockTransfers: {
     all: ['stockTransfers'] as const,
@@ -268,11 +317,6 @@ export const queryKeys = {
     list: (scope?: string) => [...queryKeys.actionTasks.all, 'list', scope ?? 'all'] as const,
   },
   syncInfo: () => ['syncInfo'] as const,
-  productOptions: {
-    all: ['product-options'] as const,
-    list: (params: Record<string, string>) => [...queryKeys.productOptions.all, 'list', params] as const,
-    detail: (id: string) => [...queryKeys.productOptions.all, 'detail', id] as const,
-  },
   manualLedger: {
     all: ['manual-ledger'] as const,
   },

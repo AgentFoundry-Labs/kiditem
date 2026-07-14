@@ -1,19 +1,20 @@
 // KIDITEM OS — Background Service Worker
 
-importScripts("../utils/coupang-seller-detail.js");
+importScripts(
+  "../utils/coupang-seller-detail.js",
+  "../shared/coupang-catalog-collector.js",
+  "coupang-catalog-import.js",
+);
 
 const API_URL = "http://localhost:4000";
 const AUTH_TOKEN_KEY = "kiditem_auth_token";
 const AD_ACTION_URL =
   "https://advertising.coupang.com/dashboard?kiditemExecuteActions=1#kiditemExecuteActions=1";
-const WING_IMAGE_SYNC_URL =
-  "https://wing.coupang.com/vendor-inventory/list?searchKeywordType=ALL&searchKeywords=&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&shippingFeeSearchType=ALL&displayCategoryCodes=&listingStartTime=null&listingEndTime=null&saleEndDateSearchType=ALL&bundledShippingSearchType=ALL&upBundling=ALL&displayDeletedProduct=false&shippingMethod=ALL&exposureStatus=ALL&locale=ko_KR&sortMethod=SORT_BY_REGISTRATION_DATE&countPerPage=50&page=1";
 const WING_CATALOG_FORM_URL =
   "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2";
 const WING_CATALOG_SEARCH_ENDPOINT = "/tenants/seller-web/pre-matching/search";
 const COUPANG_SEARCH_URL = "https://www.coupang.com/np/search";
 const COUPANG_AUTOCOMPLETE_ENDPOINT = "/np/search/autoComplete";
-const WING_IMAGE_SYNC_MAX_PAGES = 50;
 const WING_CATALOG_MAX_PAGES = 5;
 const WING_CATALOG_PAGE_DELAY_MS = 1200;
 const WING_RANK_STALE_AFTER_MS = 5 * 60 * 1000;
@@ -26,12 +27,8 @@ const COUPANG_PRODUCT_DETAIL_RENDER_DELAY_MS = 1200;
 const COUPANG_SELLER_CATALOG_BATCH_LIMIT = 20;
 const COUPANG_SELLER_CATALOG_MAX_ITEMS = 500;
 const COUPANG_SELLER_CATALOG_RENDER_DELAY_MS = 1200;
-const WING_IMAGE_SYNC_TAB_KEY = "kiditem_image_sync_tab_id";
-const WING_IMAGE_SYNC_WINDOW_KEY = "kiditem_image_sync_window_id";
 const BATCH_SCRAPE_STATUS_KEY = "kiditem_batch_scrape";
 const BATCH_SCRAPE_CANCEL_KEY = "kiditem_batch_scrape_cancel";
-const IMAGE_SYNC_STATUS_KEY = "kiditem_image_sync_status";
-const IMAGE_SYNC_CANCEL_KEY = "kiditem_image_sync_cancel";
 const RANK_CHECK_STATUS_KEY = "kiditem_rank_check"; // Wing 판매순위 배치 전용
 const KEYWORD_RANK_STATUS_KEY = "kiditem_keyword_rank_check"; // 쿠팡 검색(SERP) 키워드 순위 배치 전용
 const COMPETITOR_SELLER_CATALOG_STATUS_KEY =
@@ -85,6 +82,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     resumeInterruptedWingSalesRankCheck();
   if (alarm.name === "coupang-keyword-serp-rank")
     runScheduledKeywordRankCheck();
+  KidItemCoupangCatalogImport.handleAlarm(alarm, coupangCatalogImportDependencies());
 });
 
 function cleanupStorage() {
@@ -302,11 +300,8 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       success: true,
       version: chrome.runtime.getManifest().version,
       capabilities: {
-        coupangImageRows: true,
-        coupangImageRowSource: "extension",
         wingCatalogSearch: true,
         wingCatalogSearchSource: "wing-pre-matching",
-        collectWingOptionIds: true,
         coupangKeywordSuggestions: true,
         coupangKeywordSuggestionSource: "coupang-search-page",
         coupangProductNameTokens: true,
@@ -320,20 +315,41 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         coupangCompetitorSellerCatalogOnDemand: true,
         wingCatalogSalesRank: true,
         wingCatalogSalesRankSource: "wing-pre-matching-sales-28d",
+        coupangCatalogSnapshot: true,
+        coupangCatalogSnapshotSource: "wing-inventory-v1",
       },
     });
     return;
   }
 
-  if (msg.action === "scrapeCoupangImageRows") {
-    scrapeCoupangImageRows(typeof msg.runId === "string" ? msg.runId : null)
+  if (msg.action === "startCoupangCatalogImport") {
+    KidItemCoupangCatalogImport.start(msg, coupangCatalogImportDependencies())
       .then((result) => sendResponse(result))
       .catch((e) =>
         sendResponse({
           success: false,
-          error: e?.message || "쿠팡 이미지 목록 수집 실패",
+          error: e?.message || "쿠팡 상품 수집 시작 실패",
         }),
       );
+    return true;
+  }
+
+  if (msg.action === "getCoupangCatalogImportStatus") {
+    KidItemCoupangCatalogImport.getStatus(
+      typeof msg.runId === "string" ? msg.runId : null,
+      coupangCatalogImportDependencies(),
+    )
+      .then((result) => sendResponse(result))
+      .catch((e) => sendResponse({ status: "error", runId: msg.runId, error: e?.message || "쿠팡 상품 수집 상태 조회 실패" }));
+    return true;
+  }
+
+  if (msg.action === "cancelCoupangCatalogImport") {
+    KidItemCoupangCatalogImport.cancel(
+      typeof msg.runId === "string" ? msg.runId : null,
+    )
+      .then((result) => sendResponse(result))
+      .catch((e) => sendResponse({ success: false, error: e?.message || "쿠팡 상품 수집 중단 실패" }));
     return true;
   }
 
@@ -344,18 +360,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         sendResponse({
           success: false,
           error: e?.message || "Wing 카탈로그 검색 실패",
-        }),
-      );
-    return true;
-  }
-
-  if (msg.action === "collectWingOptionIds") {
-    collectWingOptionIds(msg)
-      .then((result) => sendResponse(result))
-      .catch((e) =>
-        sendResponse({
-          success: false,
-          error: e?.message || "Wing 옵션ID 수집 실패",
         }),
       );
     return true;
@@ -465,31 +469,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  if (msg.action === "getCoupangImageRowsStatus") {
-    chrome.storage.local.get(IMAGE_SYNC_STATUS_KEY, (data) => {
-      const status = data[IMAGE_SYNC_STATUS_KEY] || { status: "idle" };
-      const runId = typeof msg.runId === "string" ? msg.runId : null;
-      if (runId && status.runId && status.runId !== runId) {
-        sendResponse({ status: "idle", runId, staleRunId: status.runId });
-        return;
-      }
-      sendResponse(status);
-    });
-    return true;
-  }
-
-  if (msg.action === "cancelCoupangImageRows") {
-    cancelCoupangImageRows(typeof msg.runId === "string" ? msg.runId : null)
-      .then((result) => sendResponse(result))
-      .catch((e) =>
-        sendResponse({
-          success: false,
-          error: e?.message || "이미지 수집 중단 실패",
-        }),
-      );
-    return true;
-  }
-
   if (msg.action === "registerWingThumbnail") {
     registerWingThumbnail(msg)
       .then((result) => sendResponse(result))
@@ -592,178 +571,13 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 });
 
-// wing.coupang.com: vendor-inventory 목록을 페이지네이션 스크랩해 {vendorInventoryId, name, method, status} 를 모으고,
-// 각 상품의 items API(vendor-inventory-items-with-vendorItems)로 옵션ID(vendorItemId)를 매칭한다.
-// 로켓 "등록된 상품 불러오기" 검색은 옵션ID(vendorItemId)만 받으므로(등록상품ID=vendorInventoryId 는 500) 옵션ID까지 뽑아야 한다.
-async function collectWingOptionIds(message) {
-  const maxPages = clampNumber(message?.maxPages, 1, 60, 5);
-  const tab = await getOrCreateWingInventoryTab();
-  const tabId = tab?.id;
-  if (!tabId) return { success: false, error: "Wing 탭을 열 수 없습니다" };
-
-  const keepAlive = setInterval(() => {
-    chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
-  }, 20000);
-  const products = [];
-  const seen = new Set();
-  let pageCount = 0;
-
-  try {
-    for (let page = 1; page <= maxPages; page++) {
-      let loaded;
-      try {
-        loaded = await updateTabAndWait(
-          tabId,
-          buildWingImageSyncPageUrl(page),
-          { active: false },
-        );
-      } catch (error) {
-        if (products.length === 0)
-          return {
-            success: false,
-            error: error?.message || "Wing 목록 로딩 실패",
-            tabId,
-          };
-        break;
-      }
-      if (!isWingInventoryUrl(loaded?.url || "")) {
-        activateTab(tabId);
-        return {
-          success: false,
-          pendingLogin: true,
-          opened: true,
-          tabId,
-          error:
-            "쿠팡 Wing 로그인 필요 — 열린 Wing 창에서 로그인 후 다시 실행하세요.",
-        };
-      }
-      await sleep(1400);
-
-      // 1) 렌더된 목록 DOM 파싱
-      let pageRows = [];
-      try {
-        const [scrape] = await chrome.scripting.executeScript({
-          target: { tabId },
-          func: () => {
-            const trs = Array.prototype.slice.call(
-              document.querySelectorAll("tr"),
-            );
-            return trs
-              .filter((tr) => /등록상품ID/.test(tr.textContent || ""))
-              .map((tr) => {
-                const txt = (tr.textContent || "").replace(/\s+/g, " ").trim();
-                const link = tr.querySelector('a[href*="vendorInventoryId="]');
-                const id =
-                  (txt.match(/등록상품ID\s*(\d+)/) || [])[1] ||
-                  (link
-                    ? (link
-                        .getAttribute("href")
-                        .match(/vendorInventoryId=(\d+)/) || [])[1]
-                    : null);
-                const name = (txt.split(/판매자배송|로켓그로스/)[0] || "")
-                  .trim()
-                  .slice(0, 80);
-                const method = /로켓그로스/.test(txt)
-                  ? "rocket"
-                  : /판매자배송/.test(txt)
-                    ? "seller"
-                    : "unknown";
-                const status = /판매\s*중지|판매중지/.test(txt)
-                  ? "stopped"
-                  : "selling";
-                return { vendorInventoryId: id, name, method, status };
-              })
-              .filter((r) => r.vendorInventoryId);
-          },
-        });
-        pageRows = Array.isArray(scrape?.result) ? scrape.result : [];
-      } catch (e) {
-        if (products.length === 0)
-          return { success: false, error: "Wing 목록 파싱 실패", tabId };
-        break;
-      }
-
-      const freshIds = [];
-      for (const r of pageRows) {
-        if (seen.has(r.vendorInventoryId)) continue;
-        seen.add(r.vendorInventoryId);
-        products.push(r);
-        freshIds.push(r.vendorInventoryId);
-      }
-      pageCount = page;
-
-      // 2) 이 페이지 상품들의 옵션ID(vendorItemId) items API 조회 (same-origin, 쿠키)
-      if (freshIds.length > 0) {
-        try {
-          const [itemsRes] = await chrome.scripting.executeScript({
-            target: { tabId },
-            func: async (ids) => {
-              const out = {};
-              const chunk = 10;
-              for (let i = 0; i < ids.length; i += chunk) {
-                const batch = ids.slice(i, i + chunk);
-                const part = await Promise.all(
-                  batch.map(async (id) => {
-                    try {
-                      const r = await fetch(
-                        "/tenants/seller-web/v2/vendor-inventory/vendor-inventory-items-with-vendorItems/" +
-                          id,
-                        {
-                          credentials: "include",
-                          headers: { Accept: "application/json" },
-                        },
-                      );
-                      const j = await r.json();
-                      const opts = (
-                        j && Array.isArray(j.data) ? j.data : []
-                      ).map((d) => ({
-                        vendorItemId:
-                          d.vendorItemId == null
-                            ? null
-                            : String(d.vendorItemId),
-                        itemName: d.itemName || "",
-                        sku: d.externalSkuCode || "",
-                        barcode: d.barcode || "",
-                        salePrice:
-                          d.salePrice == null ? null : Number(d.salePrice),
-                      }));
-                      return [id, opts];
-                    } catch (e) {
-                      return [id, []];
-                    }
-                  }),
-                );
-                for (const pair of part) out[pair[0]] = pair[1];
-              }
-              return out;
-            },
-            args: [freshIds],
-          });
-          const itemsMap = itemsRes?.result || {};
-          for (const p of products) {
-            if (!p.options && itemsMap[p.vendorInventoryId])
-              p.options = itemsMap[p.vendorInventoryId];
-          }
-        } catch (e) {
-          /* 옵션 조회 실패해도 상품 목록은 유지 */
-        }
-      }
-
-      if (pageRows.length === 0) break; // 카탈로그 끝
-      await sleep(WING_CATALOG_PAGE_DELAY_MS);
-    }
-  } finally {
-    clearInterval(keepAlive);
-  }
-
-  for (const p of products) if (!Array.isArray(p.options)) p.options = [];
-  const optionCount = products.reduce((sum, p) => sum + p.options.length, 0);
+function coupangCatalogImportDependencies() {
   return {
-    success: true,
-    products,
-    productCount: products.length,
-    optionCount,
-    pageCount,
+    activateTab,
+    authedFetch,
+    notifyDashboard,
+    sendTabMessage,
+    updateTabAndWait,
   };
 }
 
@@ -3155,305 +2969,6 @@ function openAndExecuteAdActions(url = AD_ACTION_URL) {
   });
 }
 
-async function scrapeCoupangImageRows(runId = null) {
-  const imageRunId =
-    runId || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const startedAt = Date.now();
-  await chrome.storage.local.remove(IMAGE_SYNC_CANCEL_KEY);
-
-  const tab = await getOrCreateWingInventoryTab();
-  const tabId = tab?.id;
-  if (!tabId) return { success: false, error: "Wing 탭을 열 수 없습니다" };
-
-  await setImageSyncStatus({
-    runId: imageRunId,
-    status: "running",
-    phase: "opening",
-    currentPage: 0,
-    totalPages: 1,
-    rows: 0,
-    tabId,
-    startedAt,
-  });
-
-  const allRows = [];
-  const seenPageSignatures = new Set();
-  let totalPages = 1;
-
-  try {
-    for (
-      let page = 1;
-      page <= Math.min(totalPages, WING_IMAGE_SYNC_MAX_PAGES);
-      page++
-    ) {
-      if (await isImageSyncCancelled(imageRunId)) {
-        return finishImageSyncCancelled(imageRunId, {
-          tabId,
-          rows: allRows.length,
-          totalPages,
-          currentPage: page - 1,
-        });
-      }
-
-      const pageUrl = buildWingImageSyncPageUrl(page);
-      await setImageSyncStatus({
-        runId: imageRunId,
-        status: "running",
-        phase: "loading",
-        currentPage: page,
-        totalPages,
-        rows: allRows.length,
-        tabId,
-        startedAt,
-      });
-
-      let loaded;
-      try {
-        loaded = await updateTabAndWait(tabId, pageUrl, { active: false });
-      } catch (error) {
-        if (await isImageSyncCancelled(imageRunId)) {
-          return finishImageSyncCancelled(imageRunId, {
-            tabId,
-            rows: allRows.length,
-            totalPages,
-            currentPage: page,
-          });
-        }
-        throw error;
-      }
-      if (!isWingInventoryUrl(loaded.url)) {
-        activateTab(tabId);
-        await setImageSyncStatus({
-          runId: imageRunId,
-          status: "error",
-          phase: "login",
-          currentPage: page,
-          totalPages,
-          rows: allRows.length,
-          tabId,
-          startedAt,
-          endedAt: Date.now(),
-          error: "쿠팡 Wing 로그인 필요",
-        });
-        return {
-          success: false,
-          pendingLogin: true,
-          opened: true,
-          tabId,
-          error:
-            "쿠팡 Wing 로그인 필요 — 열린 Wing 이미지 동기화 창에서 로그인 후 다시 실행하세요.",
-        };
-      }
-
-      if (await isImageSyncCancelled(imageRunId)) {
-        return finishImageSyncCancelled(imageRunId, {
-          tabId,
-          rows: allRows.length,
-          totalPages,
-          currentPage: page,
-        });
-      }
-
-      await setImageSyncStatus({
-        runId: imageRunId,
-        status: "running",
-        phase: "scraping",
-        currentPage: page,
-        totalPages,
-        rows: allRows.length,
-        tabId,
-        startedAt,
-      });
-
-      await sleep(1500);
-      let response;
-      try {
-        response = await sendTabMessage(tabId, {
-          action: "scrapeInventoryImagePage",
-        });
-      } catch (error) {
-        if (await isImageSyncCancelled(imageRunId)) {
-          return finishImageSyncCancelled(imageRunId, {
-            tabId,
-            rows: allRows.length,
-            totalPages,
-            currentPage: page,
-          });
-        }
-        throw error;
-      }
-      if (!response?.success) {
-        if (response?.pendingLogin) activateTab(tabId);
-        await setImageSyncStatus({
-          runId: imageRunId,
-          status: "error",
-          phase: "scraping",
-          currentPage: page,
-          totalPages,
-          rows: allRows.length,
-          tabId,
-          startedAt,
-          endedAt: Date.now(),
-          error: response?.error || "Wing 상품목록 수집 실패",
-        });
-        return {
-          success: false,
-          pendingLogin: !!response?.pendingLogin,
-          opened: true,
-          tabId,
-          error: response?.error || "Wing 상품목록 수집 실패",
-        };
-      }
-
-      const rows = normalizeCoupangImageRows(response.rows);
-      if (rows.length === 0) break;
-      const pageSignature = buildInventoryRowsSignature(rows);
-      if (seenPageSignatures.has(pageSignature)) {
-        console.warn(
-          `[KIDITEM] Wing image sync duplicate page detected at page ${page}; stopping pagination`,
-        );
-        break;
-      }
-      seenPageSignatures.add(pageSignature);
-      allRows.push(...rows);
-      const nextTotalPages = Number(response.totalPages || 1);
-      totalPages = Math.max(
-        1,
-        Math.min(nextTotalPages, WING_IMAGE_SYNC_MAX_PAGES),
-      );
-
-      await setImageSyncStatus({
-        runId: imageRunId,
-        status: "running",
-        phase: "scraping",
-        currentPage: page,
-        totalPages,
-        rows: allRows.length,
-        tabId,
-        startedAt,
-      });
-    }
-
-    await setImageSyncStatus({
-      runId: imageRunId,
-      status: "done",
-      phase: "finished",
-      currentPage: Math.min(totalPages, WING_IMAGE_SYNC_MAX_PAGES),
-      totalPages,
-      rows: allRows.length,
-      tabId,
-      startedAt,
-      endedAt: Date.now(),
-    });
-
-    return {
-      success: true,
-      opened: true,
-      tabId,
-      rows: allRows,
-      total: allRows.length,
-      runId: imageRunId,
-    };
-  } catch (error) {
-    await setImageSyncStatus({
-      runId: imageRunId,
-      status: "error",
-      phase: "finished",
-      currentPage: 0,
-      totalPages,
-      rows: allRows.length,
-      tabId,
-      startedAt,
-      endedAt: Date.now(),
-      error: error?.message || String(error),
-    });
-    throw error;
-  }
-}
-
-async function setImageSyncStatus(status) {
-  await chrome.storage.local.set({ [IMAGE_SYNC_STATUS_KEY]: status });
-}
-
-async function isImageSyncCancelled(runId) {
-  const data = await getStorage(IMAGE_SYNC_CANCEL_KEY);
-  const cancel = data[IMAGE_SYNC_CANCEL_KEY];
-  return !!cancel?.cancelled && (!cancel.runId || cancel.runId === runId);
-}
-
-async function finishImageSyncCancelled(runId, status = {}) {
-  await setImageSyncStatus({
-    ...status,
-    runId,
-    status: "cancelled",
-    phase: "finished",
-    endedAt: Date.now(),
-    cancelled: true,
-  });
-  return {
-    success: false,
-    cancelled: true,
-    error: "이미지 수집이 중단되었습니다",
-    runId,
-  };
-}
-
-async function cancelCoupangImageRows(runId = null) {
-  await chrome.storage.local.set({
-    [IMAGE_SYNC_CANCEL_KEY]: {
-      cancelled: true,
-      runId,
-      requestedAt: Date.now(),
-    },
-  });
-  const data = await getStorage(IMAGE_SYNC_STATUS_KEY);
-  const status = data[IMAGE_SYNC_STATUS_KEY] || {};
-  if (runId && status.runId && status.runId !== runId) {
-    return { success: true, cancelled: false, staleRunId: status.runId };
-  }
-  if (status.windowId) {
-    await removeWindow(status.windowId).catch(() => {});
-    await clearManagedImageSyncWindow();
-  } else if (status.tabId) {
-    await removeTab(status.tabId).catch(() => {});
-    await clearManagedImageSyncWindow();
-  }
-  await setImageSyncStatus({
-    ...status,
-    runId: status.runId || runId,
-    status: "cancelled",
-    phase: "finished",
-    cancelled: true,
-    endedAt: Date.now(),
-  });
-  return { success: true, cancelled: true, runId: status.runId || runId };
-}
-
-function buildWingImageSyncPageUrl(page) {
-  const url = new URL(WING_IMAGE_SYNC_URL);
-  url.searchParams.set("page", String(page));
-  return url.toString();
-}
-
-function buildInventoryRowsSignature(rows) {
-  return rows
-    .map((row) => `${row?.inventoryId || ""}:${row?.url || ""}`)
-    .join("|");
-}
-
-function normalizeCoupangImageRows(rows) {
-  if (!Array.isArray(rows)) return [];
-  return rows
-    .filter((row) => row?.inventoryId && row?.url)
-    .map((row) => ({
-      inventoryId: String(row.inventoryId),
-      legacyCode: row.legacyCode ? String(row.legacyCode) : null,
-      name: String(row.name || ""),
-      url: String(row.url),
-      source: "extension",
-    }));
-}
-
 function isWingInventoryUrl(url) {
   if (typeof url !== "string") return false;
   try {
@@ -3465,61 +2980,6 @@ function isWingInventoryUrl(url) {
   } catch {
     return false;
   }
-}
-
-async function getOrCreateWingInventoryTab() {
-  const managed = await getManagedImageSyncTab();
-  if (managed?.id) return managed;
-
-  const syncWindow = await createWindow({
-    url: WING_IMAGE_SYNC_URL,
-    focused: false,
-    type: "normal",
-  });
-  const tab =
-    getFirstWindowTab(syncWindow) || (await getFirstTabInWindow(syncWindow.id));
-  if (tab?.id && syncWindow?.id) {
-    await chrome.storage.local.set({
-      [WING_IMAGE_SYNC_TAB_KEY]: tab.id,
-      [WING_IMAGE_SYNC_WINDOW_KEY]: syncWindow.id,
-    });
-  }
-  return tab;
-}
-
-async function getManagedImageSyncTab() {
-  const data = await getStorage([
-    WING_IMAGE_SYNC_TAB_KEY,
-    WING_IMAGE_SYNC_WINDOW_KEY,
-  ]);
-  const tabId = data[WING_IMAGE_SYNC_TAB_KEY];
-  const windowId = data[WING_IMAGE_SYNC_WINDOW_KEY];
-
-  if (!tabId || !windowId) {
-    if (tabId || windowId) await clearManagedImageSyncWindow();
-    return null;
-  }
-
-  const tab = await getTab(tabId).catch(() => null);
-  if (!tab?.id || tab.windowId !== windowId) {
-    await clearManagedImageSyncWindow();
-    return null;
-  }
-
-  const syncWindow = await getWindow(windowId).catch(() => null);
-  if (!syncWindow?.id) {
-    await clearManagedImageSyncWindow();
-    return null;
-  }
-
-  return tab;
-}
-
-function clearManagedImageSyncWindow() {
-  return chrome.storage.local.remove([
-    WING_IMAGE_SYNC_TAB_KEY,
-    WING_IMAGE_SYNC_WINDOW_KEY,
-  ]);
 }
 
 function getStorage(keys) {
@@ -3540,34 +3000,10 @@ function getTab(tabId) {
   });
 }
 
-function getWindow(windowId) {
-  return new Promise((resolve, reject) => {
-    chrome.windows.get(windowId, (syncWindow) => {
-      if (chrome.runtime.lastError || !syncWindow?.id) {
-        reject(new Error(chrome.runtime.lastError?.message || "창 조회 실패"));
-        return;
-      }
-      resolve(syncWindow);
-    });
-  });
-}
-
 function removeTab(tabId) {
   return new Promise((resolve) => {
     try {
       chrome.tabs.remove(tabId, () =>
-        resolve({ success: !chrome.runtime.lastError }),
-      );
-    } catch {
-      resolve({ success: false });
-    }
-  });
-}
-
-function removeWindow(windowId) {
-  return new Promise((resolve) => {
-    try {
-      chrome.windows.remove(windowId, () =>
         resolve({ success: !chrome.runtime.lastError }),
       );
     } catch {
@@ -3586,12 +3022,7 @@ function createWindow(createProperties) {
   return new Promise((resolve, reject) => {
     chrome.windows.create(createProperties, (syncWindow) => {
       if (chrome.runtime.lastError || !syncWindow?.id) {
-        reject(
-          new Error(
-            chrome.runtime.lastError?.message ||
-              "Wing 이미지 동기화 창 생성 실패",
-          ),
-        );
+        reject(new Error(chrome.runtime.lastError?.message || "Wing 창 생성 실패"));
         return;
       }
       resolve(syncWindow);

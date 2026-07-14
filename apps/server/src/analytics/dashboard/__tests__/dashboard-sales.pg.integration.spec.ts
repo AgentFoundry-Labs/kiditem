@@ -219,7 +219,11 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
   it('T5: Wing override flows through trafficKpi.adSummary + lastSyncAt', async () => {
     // Hard rewrite Phase H3b — wing dashboard ad-summary now lives in
     // ChannelAccountDailyKpiSnapshot(source='wing', kpiType='wing_dashboard').
-    await seedTestListing('5');
+    const { listingId } = await seedTestListing('5');
+    const listing = await prisma.channelListing.findUniqueOrThrow({
+      where: { id: listingId },
+      select: { channelAccountId: true },
+    });
     const now = new Date();
     const monthStartStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
     const businessDate = new Date(
@@ -228,6 +232,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     await prisma.channelAccountDailyKpiSnapshot.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: listing.channelAccountId,
         channel: 'coupang',
         source: 'wing',
         kpiType: 'wing_dashboard',
@@ -287,5 +292,65 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     // note + remove this guard.
     expect(result.topProducts[0].profitRate).toBe(30.0);
     expect(result.topProducts[0].netProfit).toBe(Math.round(12_000 * 0.3));
+  });
+
+  it('T7: a bundle listing contributes its line revenue exactly once', async () => {
+    const primary = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'M-T-BUNDLE-PRIMARY',
+      name: 'Bundle representative',
+    });
+    const secondary = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      code: 'M-T-BUNDLE-SECONDARY',
+      name: 'Bundle component',
+    });
+    const option = await setupProductOption(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId: primary.id,
+      sku: 'SKU-T-BUNDLE',
+      costPrice: 0,
+      commissionRate: 0,
+    });
+    const listing = await setupChannelListing(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId: primary.id,
+      channel: 'coupang',
+      externalId: 'EXT-T-BUNDLE',
+      channelName: '번들 상품',
+      optionId: option.id,
+      externalOptionId: 'VI-T-BUNDLE',
+    });
+    await prisma.channelSkuComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelSkuId: listing.listingOptionId,
+        masterProductId: secondary.id,
+        quantity: 2,
+        mappingSource: 'manual',
+      },
+    });
+    await seedOrderWithLineItems(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      externalOrderId: 'SALES-T-BUNDLE',
+      orderedAt: midMonth().toISOString(),
+      shippingPrice: 0,
+      lineItems: [{
+        quantity: 1,
+        totalPrice: 80_000,
+        optionId: option.id,
+        listingOptionId: listing.listingOptionId,
+      }],
+    });
+
+    const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
+
+    expect(result.topProducts).toHaveLength(1);
+    expect(result.topProducts[0]).toMatchObject({
+      id: listing.listingId,
+      name: 'Bundle representative',
+      organization: '번들 상품',
+      revenue: 80_000,
+    });
   });
 });

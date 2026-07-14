@@ -50,6 +50,7 @@ ENV PORT=4000
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PYTHON_BIN=/opt/kiditem-python/bin/python
 
 RUN test -x "$PUPPETEER_EXECUTABLE_PATH" && "$PUPPETEER_EXECUTABLE_PATH" --version
 
@@ -75,6 +76,18 @@ RUN npm ci \
     && npm cache clean --force \
     && rm -rf /root/.npm
 
+COPY apps/server/src/orders/coupang-directship/requirements.txt ./apps/server/coupang-directship-requirements.txt
+
+RUN apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update -y \
+    && apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends \
+        python3 \
+        python3-venv \
+    && python3 -m venv /opt/kiditem-python \
+    && "$PYTHON_BIN" -m pip install --no-cache-dir --upgrade pip \
+    && "$PYTHON_BIN" -m pip install --no-cache-dir -r ./apps/server/coupang-directship-requirements.txt \
+    && "$PYTHON_BIN" -c "import xlrd, xlutils, xlwt" \
+    && rm -rf /var/lib/apt/lists/*
+
 # npm workspaces can hoist runtime packages to /app/node_modules while leaving
 # peers/transitives under the server workspace. Fail the image build if the
 # production resolver cannot load representative server runtime dependencies.
@@ -85,6 +98,17 @@ COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/apps/server/dist ./apps/server/dist
+
+RUN tmpdir="$(mktemp -d)" \
+    && printf '{"pos":[],"centers":{}}' > "$tmpdir/input.json" \
+    && "$PYTHON_BIN" \
+        ./apps/server/dist/orders/coupang-directship/generate.py \
+        ./apps/server/dist/orders/coupang-directship/template.xls \
+        "$tmpdir/input.json" \
+        "$tmpdir/output.xls" \
+        SHIPMENT \
+    && test -s "$tmpdir/output.xls" \
+    && rm -rf "$tmpdir"
 
 RUN node -e "require('./apps/server/dist/app.module.js')"
 

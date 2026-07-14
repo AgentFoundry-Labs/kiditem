@@ -1,7 +1,7 @@
 // Outgoing port for Coupang keyword rank tracking persistence
 // (`CoupangKeywordTracker`, `CoupangKeywordRankDailySnapshot`,
 // `CoupangKeywordSerpDailySnapshot`, own-catalog reads on
-// `CoupangProductListing`). Application services
+// `ChannelListing`/`ChannelListingOption`). Application services
 // (KeywordRankService, KeywordRankIngestHandler) depend on this contract;
 // the Prisma-backed adapter lives in
 // `adapter/out/repository/keyword-rank.repository.adapter.ts`.
@@ -32,7 +32,7 @@ export interface UpdateKeywordTrackerInput {
   maxPages?: number;
 }
 
-/** 자사 카탈로그 자동매칭 대상 — `CoupangProductListing` 의 vendorItemId 보유 행. */
+/** 자사 카탈로그 자동매칭 대상 — 쿠팡 `ChannelListingOption.externalOptionId` 보유 행. */
 export interface OwnVendorItem {
   vendorItemId: string;
   skuId: string;

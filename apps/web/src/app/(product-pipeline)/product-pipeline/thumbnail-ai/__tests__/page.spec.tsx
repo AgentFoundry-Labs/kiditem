@@ -97,20 +97,6 @@ vi.mock('../hooks/useThumbnailActions', () => ({
   }),
 }));
 
-vi.mock('../hooks/useCoupangImageSync', () => ({
-  useCoupangImageSync: () => ({
-    status: null,
-    startError: null,
-    isCancelledError: false,
-    reset: vi.fn(),
-    start: vi.fn(),
-    cancel: vi.fn(),
-    isRunning: false,
-    extensionRunId: null,
-    extensionStatus: null,
-  }),
-}));
-
 vi.mock('@/components/ui/EmptyState', () => ({
   EmptyState: ({ message }: { message: string }) => <div>{message}</div>,
   ErrorState: ({ message }: { message: string }) => <div>{message}</div>,
@@ -124,7 +110,6 @@ vi.mock('@/components/ui/ConfirmDialog', () => ({
 
 vi.mock('../components/ThumbnailHeader', () => ({ ThumbnailHeader: () => <div /> }));
 vi.mock('../components/BatchProgressBanner', () => ({ BatchProgressBanner: () => <div /> }));
-vi.mock('../components/UnmatchedReconciliationBanner', () => ({ UnmatchedReconciliationBanner: () => <div /> }));
 vi.mock('../components/GradeDistributionDonut', () => ({ GradeDistributionDonut: () => <div /> }));
 vi.mock('../components/AiActionCenter', () => ({ AiActionCenter: () => <div /> }));
 vi.mock('../components/ComplianceCard', () => ({ ComplianceCard: () => <div /> }));

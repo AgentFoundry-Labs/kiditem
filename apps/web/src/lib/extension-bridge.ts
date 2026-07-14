@@ -1,3 +1,5 @@
+import { safeStorageGet, safeStorageSet } from './browser-storage';
+
 export const KIDITEM_EXTENSION_ID_KEY = 'kiditem-ext-id';
 export const KIDITEM_SOURCING_EXTENSION_ID_KEY = 'kiditem-sourcing-ext-id';
 export const KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY = 'kiditem-order-ext-id';
@@ -84,12 +86,7 @@ async function detectExtensionIdWithHandshake(options: DetectExtensionOptions): 
     }
   };
 
-  let stored: string | null = null;
-  try {
-    stored = window.localStorage.getItem(options.storageKey);
-  } catch {
-    stored = null;
-  }
+  const stored = safeStorageGet('local', options.storageKey);
   if (stored && (await tryPing(stored))) return stored;
 
   const fromHandshake = await new Promise<string | null>((resolve) => {
@@ -119,11 +116,7 @@ async function detectExtensionIdWithHandshake(options: DetectExtensionOptions): 
   });
 
   if (fromHandshake && (await tryPing(fromHandshake))) {
-    try {
-      window.localStorage.setItem(options.storageKey, fromHandshake);
-    } catch {
-      /* noop */
-    }
+    safeStorageSet('local', options.storageKey, fromHandshake);
     return fromHandshake;
   }
   return null;

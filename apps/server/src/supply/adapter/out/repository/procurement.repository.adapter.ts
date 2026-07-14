@@ -71,9 +71,16 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
       if (!supplier) return { ok: false as const, reason: 'supplier_not_found' as const };
     }
 
-    const missingOptionIds = await this.findMissingOwnedOptionIds(organizationId, command);
-    if (missingOptionIds.length > 0) {
-      return { ok: false as const, reason: 'option_not_found' as const, missingOptionIds };
+    const missingMasterProductIds = await this.findMissingOwnedMasterProductIds(
+      organizationId,
+      command,
+    );
+    if (missingMasterProductIds.length > 0) {
+      return {
+        ok: false as const,
+        reason: 'master_product_not_found' as const,
+        missingMasterProductIds,
+      };
     }
 
     const totalAmountCny = command.items.reduce(
@@ -95,7 +102,8 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
         items: {
           create: command.items.map((item) => ({
             productName: item.productName,
-            optionId: item.optionId || null,
+            organizationId,
+            masterProductId: item.masterProductId,
             quantity: item.quantity,
             unitPriceCny: item.unitPriceCny,
           })),
@@ -125,7 +133,7 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
         items: {
           select: {
             productName: true,
-            optionId: true,
+            masterProductId: true,
             quantity: true,
             unitPriceCny: true,
           },
@@ -141,7 +149,7 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
       totalAmountCny: decimalString(order.totalAmountCny),
       items: order.items.map((item) => ({
         productName: item.productName,
-        optionId: item.optionId,
+        masterProductId: item.masterProductId!,
         quantity: item.quantity,
         unitPriceCny: decimalString(item.unitPriceCny),
       })),
@@ -180,25 +188,24 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
     return count > 0;
   }
 
-  private async findMissingOwnedOptionIds(
+  private async findMissingOwnedMasterProductIds(
     organizationId: string,
     command: PurchaseOrderCreateCommand,
   ) {
-    const optionIds = Array.from(
-      new Set(
-        command.items
-          .map((item) => item.optionId)
-          .filter((id): id is string => typeof id === 'string' && id.length > 0),
-      ),
+    const masterProductIds = Array.from(
+      new Set(command.items.map((item) => item.masterProductId)),
     );
-    if (optionIds.length === 0) return [];
 
-    const owned = await this.prisma.productOption.findMany({
-      where: { id: { in: optionIds }, organizationId, isDeleted: false },
+    const owned = await this.prisma.masterProduct.findMany({
+      where: {
+        id: { in: masterProductIds },
+        organizationId,
+        isActive: true,
+      },
       select: { id: true },
     });
     const ownedSet = new Set(owned.map((row) => row.id));
-    return optionIds.filter((id) => !ownedSet.has(id));
+    return masterProductIds.filter((id) => !ownedSet.has(id));
   }
 }
 

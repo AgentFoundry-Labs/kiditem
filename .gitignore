@@ -71,7 +71,7 @@ __pycache__/
 # Test
 coverage/
 
-# KidItem local runtime state, including copied browser profiles.
+# KidItem local runtime state, including browser profiles.
 .kiditem/
 
 # Claude Code — user/session-local only. Repo rules live in AGENTS.md and docs/.
@@ -79,6 +79,11 @@ coverage/
 
 # Codex local skill install target. Shared skill sources live under tools/codex/.
 .agents/
+.understand-anything/
+
+# Local marketplace/inventory workbooks — approved inputs stay off git.
+docs/references/Coupang_detailinfo_*.xlsx
+docs/references/exported-list*.xls*
 
 # Tools
 .claude-flow/
@@ -93,4 +98,5 @@ data/
 prisma/init.sql
 tools/telegram-bot/
 .superpowers/
+.worktrees/
 docs/superpowers/plans/

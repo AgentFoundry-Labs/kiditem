@@ -32,7 +32,6 @@ interface Props {
   onCommitBasicInfo?: (input: UpdateProductBasicsInput) => Promise<void> | void;
   nameLength: number;
   productId: string;
-  promotedMasterId: string | null;
   detailPreviewHtml: string;
   editedHtml: string | null;
   templateCss: string;
@@ -73,6 +72,7 @@ interface Props {
     thumbnailUrls: string[];
     selectedThumbnail: RegistrationThumbnailOption | null;
   }) => Promise<void> | void;
+  canSaveThumbnailConfiguration?: boolean;
   thumbnailGenerationReturnHref: string;
   selectedDetailPageSummary?: SelectedDetailPageSummary | null;
   onDetailPreviewHtmlChange?: (html: string | null) => void;
@@ -87,7 +87,6 @@ export default function ProductTabContent({
   onCommitBasicInfo,
   nameLength,
   productId,
-  promotedMasterId,
   detailPreviewHtml,
   editedHtml,
   templateCss,
@@ -118,6 +117,7 @@ export default function ProductTabContent({
   onPreviewThumbnail,
   onThumbnailPreviewImagesChange,
   onSaveThumbnailConfiguration,
+  canSaveThumbnailConfiguration = true,
   thumbnailGenerationReturnHref,
   selectedDetailPageSummary = null,
   onDetailPreviewHtmlChange,
@@ -196,7 +196,7 @@ export default function ProductTabContent({
     case 'basic':
       return (
         <div className="space-y-3 p-5">
-          <div className="flex items-center justify-end">
+          {onCommitBasicInfo ? <div className="flex items-center justify-end">
             {isBasicEditing ? (
               <div className="flex items-center gap-2">
                 <button
@@ -224,7 +224,7 @@ export default function ProductTabContent({
                 수정
               </button>
             )}
-          </div>
+          </div> : null}
           <ProductBasicsTab
             editData={editData}
             basicInfo={basicInfo}
@@ -234,8 +234,9 @@ export default function ProductTabContent({
             draft={basicDraft}
             onDraftChange={updateBasicDraft}
             onDraftTagsChange={updateBasicDraftTags}
-            onCommitKcImage={commitKcImage}
+            onCommitKcImage={onCommitBasicInfo ? commitKcImage : undefined}
             isKcImageSaving={isKcImageSaving}
+            readOnly={!onCommitBasicInfo}
             selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
             selectedDetailPageGenerationId={savedDetailPageGenerationId}
             selectedDetailPageSummary={selectedDetailPageSummary}
@@ -261,7 +262,6 @@ export default function ProductTabContent({
         <ThumbnailWorkspaceTab
           editData={editData}
           productId={productId}
-          promotedMasterId={promotedMasterId}
           contentWorkspaceId={contentWorkspaceId}
           thumbnailUrl={thumbnailUrl}
           thumbnailSourceCandidateId={effectiveThumbnailSourceCandidateId}
@@ -270,6 +270,7 @@ export default function ProductTabContent({
           onPreviewThumbnail={onPreviewThumbnail}
           onThumbnailPreviewImagesChange={onThumbnailPreviewImagesChange}
           onSaveThumbnailConfiguration={onSaveThumbnailConfiguration}
+          canSaveConfiguration={canSaveThumbnailConfiguration}
           thumbnailGenerationReturnHref={thumbnailGenerationReturnHref}
         />
       );

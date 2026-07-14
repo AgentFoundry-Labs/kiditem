@@ -3,7 +3,7 @@ import type { StockTransferRow } from '../../out/repository/transfers.repository
 export const TRANSFERS_PORT = Symbol('TransfersPort');
 
 export type CreateStockTransferInput = {
-  optionId: string;
+  masterProductId: string;
   fromWarehouseId: string;
   toWarehouseId: string;
   quantity: number;

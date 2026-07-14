@@ -13,7 +13,6 @@ export {
 } from './detail-page-editor.dto';
 export { ListContentAssetsQueryDto } from './content-asset.dto';
 export {
-  AttachContentGroupToProductDto,
   ListContentArchiveQueryDto,
 } from './content-archive.dto';
 export {

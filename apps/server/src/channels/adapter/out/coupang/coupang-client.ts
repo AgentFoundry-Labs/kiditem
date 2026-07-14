@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { CoupangProviderRequestError } from '../../../application/port/out/provider/coupang-provider.port';
 
 const COUPANG_HOST = 'api-gateway.coupang.com';
 const COUPANG_BASE_URL = `https://${COUPANG_HOST}`;
@@ -16,6 +17,7 @@ interface CoupangRequestOptions {
   path: string;
   query?: Record<string, string>;
   body?: unknown;
+  beforeDispatch?: () => Promise<void>;
 }
 
 function generateAuthorization(
@@ -47,6 +49,7 @@ export async function coupangRequest<T = unknown>({
   path,
   query = {},
   body,
+  beforeDispatch,
 }: CoupangRequestOptions): Promise<T> {
   const queryString = new URLSearchParams(query).toString();
   const authorization = generateAuthorization(credentials, method, path, queryString);
@@ -77,11 +80,22 @@ export async function coupangRequest<T = unknown>({
   }
 
   try {
+    await beforeDispatch?.();
     const response = await fetch(url, fetchOptions);
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Coupang API error ${response.status}: ${errorText}`);
+      const providerOutcome = response.status >= 400
+        && response.status < 500
+        && response.status !== 408
+        && response.status !== 409
+        ? 'definitive_failure'
+        : 'uncertain';
+      throw new CoupangProviderRequestError(
+        `Coupang API error ${response.status}: ${errorText}`,
+        response.status,
+        providerOutcome,
+      );
     }
 
     const contentType = response.headers.get('content-type') || '';

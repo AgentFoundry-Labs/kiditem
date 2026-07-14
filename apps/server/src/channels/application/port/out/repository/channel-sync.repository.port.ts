@@ -35,6 +35,8 @@ export interface CoupangSyncReturnPayload {
   items?: Array<{
     productName?: string;
     vendorItemName?: string;
+    vendorItemId?: string | number | null;
+    sellerProductId?: string | number | null;
     quantity?: number;
     [k: string]: unknown;
   }>;
@@ -75,11 +77,13 @@ export interface ChannelSyncRepositoryPort {
 
   syncSingleOrder(
     organizationId: string,
+    channelAccountId: string,
     payload: CoupangSyncOrderPayload,
   ): Promise<void>;
 
   syncSingleReturn(
     organizationId: string,
+    channelAccountId: string,
     payload: CoupangSyncReturnPayload,
   ): Promise<void>;
 }

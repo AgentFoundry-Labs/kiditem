@@ -31,11 +31,13 @@ describe('thumbnail workspace state', () => {
       {
         url: 'https://cdn.example.com/source.jpg',
         kind: 'source',
+        generatedGenerationId: null,
         generatedCandidateId: null,
       },
       {
         url: 'https://cdn.example.com/generated.jpg',
         kind: 'generated',
+        generatedGenerationId: 'generation-ready',
         generatedCandidateId: 'candidate-1',
       },
     ]);
@@ -49,6 +51,7 @@ describe('thumbnail workspace state', () => {
       {
         url: 'https://cdn.example.com/generated.jpg',
         kind: 'generated',
+        generatedGenerationId: 'generation-ready',
         generatedCandidateId: 'candidate-1',
       },
     ]);

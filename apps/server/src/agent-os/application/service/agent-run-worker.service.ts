@@ -49,8 +49,8 @@ import {
  *
  * Multi-instance note: claim is `FOR UPDATE SKIP LOCKED`, so multiple workers
  * across replicas are safe. KidItem currently runs a single backend instance,
- * matching the same operational assumption as `coupang-image-sync` and the
- * panel SSE bus. When prod scales out, this worker scales naturally.
+ * matching the panel SSE bus assumption. When prod scales out, this worker
+ * scales naturally.
  */
 @Injectable()
 export class AgentRunWorker implements OnModuleInit, OnModuleDestroy {

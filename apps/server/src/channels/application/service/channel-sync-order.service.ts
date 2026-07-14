@@ -29,7 +29,11 @@ export async function syncCoupangOrders(
     const dateFrom =
       from ?? new Date(dateTo.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    const response = await deps.coupang.getOrderSheets(organizationId, {
+    const channelAccountId = await deps.syncRepository.getPrimaryCoupangAccountId(organizationId);
+    if (!channelAccountId) {
+      throw new Error('Active primary Coupang ChannelAccount is required for order sync');
+    }
+    const response = await deps.coupang.getOrderSheets(organizationId, channelAccountId, {
       createdAtFrom: deps.formatOrderDate(dateFrom),
       createdAtTo: deps.formatOrderDate(dateTo),
       maxPerPage: 50,
@@ -47,7 +51,7 @@ export async function syncCoupangOrders(
 
     for (const order of orders) {
       try {
-        await deps.syncRepository.syncSingleOrder(organizationId, order);
+        await deps.syncRepository.syncSingleOrder(organizationId, channelAccountId, order);
         result.synced++;
       } catch (error: unknown) {
         result.errors++;
@@ -74,10 +78,14 @@ export async function syncCoupangOrders(
   return result;
 }
 
-export function syncSingleCoupangOrder(
+export async function syncSingleCoupangOrder(
   syncRepository: ChannelSyncRepositoryPort,
   payload: CoupangSyncOrderPayload,
   organizationId: string,
 ): Promise<void> {
-  return syncRepository.syncSingleOrder(organizationId, payload);
+  const channelAccountId = await syncRepository.getPrimaryCoupangAccountId(organizationId);
+  if (!channelAccountId) {
+    throw new Error('Active primary Coupang ChannelAccount is required for order sync');
+  }
+  return syncRepository.syncSingleOrder(organizationId, channelAccountId, payload);
 }

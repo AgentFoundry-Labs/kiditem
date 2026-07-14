@@ -14,7 +14,7 @@ import { hydratedListingToSummary } from '../../mapper/ad-listing.mapper';
  *
  * 변경:
  *  - prisma 호출 제거 (orchestrator 책임)
- *  - snapshot.product.inventory.currentStock → input.inventory?.availableStock
+ *  - channel SKU component capacity → input.availability?.sellableStock
  *  - review aggregate (count/avg) → input.reviewStats
  *  - ad metrics → input.metrics
  *  - traffic.{rev, prevRev, orders} + maxT14 → input.trafficContext
@@ -33,7 +33,7 @@ export class AdExposureService {
    * 본문 이전.
    */
   calculateScores(input: ExposureScoreInput): ExposureProductScore {
-    const { listing, metrics, inventory, reviewStats, trafficContext, fulfillmentContext } = input;
+    const { listing, metrics, availability, reviewStats, trafficContext, fulfillmentContext } = input;
 
     // ad metrics → score input 으로 정규화 (원본은 ad?.spend ?? 0 등 nullable 처리, 여기서는 metrics 가 항상 존재)
     const m = metrics.metrics;
@@ -59,7 +59,7 @@ export class AdExposureService {
     const adScore = this.calculateAdScore({ spend, roas, ctr, cvr });
     const fulfillmentScore = this.calculateFulfillmentScore({
       leadTime: fulfillmentContext.leadTime,
-      stock: inventory?.availableStock ?? 0,
+      stock: availability?.sellableStock ?? null,
       profitRate: fulfillmentContext.profitRate,
     });
     const infoScore = this.calculateInfoScore({
@@ -232,27 +232,18 @@ export class AdExposureService {
 
   /**
    * 출고/가격 점수 (max 100). 원본 line 1277-1296.
-   * - leadScore: 0=40, 1=35, 2=25, ≥3=10, null=20 (정보 없음 중립)
+   * - leadScore: 20 (Sellpia snapshot does not own replenishment lead time)
    * - stockScore (0/10/20/30): stock >50/≥10/≥1
    * - profitScore (0/10/20/30): profitRate >10/≥5/≥0
    */
   private calculateFulfillmentScore(params: {
     leadTime: number | null;
-    stock: number;
+    stock: number | null;
     profitRate: number;
   }): number {
-    const { leadTime, stock, profitRate } = params;
-    const leadScore =
-      leadTime === 0
-        ? 40
-        : leadTime === 1
-          ? 35
-          : leadTime === 2
-            ? 25
-            : leadTime != null
-              ? 10
-              : 20;
-    const stockScore = stock > 50 ? 30 : stock >= 10 ? 20 : stock >= 1 ? 10 : 0;
+    const { stock, profitRate } = params;
+    const leadScore = 20;
+    const stockScore = stock === null ? 10 : stock > 50 ? 30 : stock >= 10 ? 20 : stock >= 1 ? 10 : 0;
     const profitScore = profitRate > 10 ? 30 : profitRate >= 5 ? 20 : profitRate >= 0 ? 10 : 0;
     return Math.min(100, leadScore + stockScore + profitScore);
   }

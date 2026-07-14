@@ -2,13 +2,10 @@ import { describe, it, expect, vi } from 'vitest';
 import { InternalServerErrorException } from '@nestjs/common';
 import { SourcingAgentGatewayAdapter } from '../sourcing-agent.gateway.adapter';
 import type { AgentRunnerPort } from '../../../../../agent-os/application/port/in/agent-runner.port';
-import type { PostPromotionAiTriggerPort } from '../../../../../ai/application/port/in/generation/post-promotion-ai-trigger.port';
 import type { ProductGenerationAiTriggerPort } from '../../../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
-import type { OperationAlertPort } from '../../../../application/port/out/cross-domain/operation-alert.port';
 
 function makeAdapter(runByType: ReturnType<typeof vi.fn>) {
   const runner = { runByType } as unknown as AgentRunnerPort;
-  const postPromotion = { fireForMaster: vi.fn().mockResolvedValue(undefined) } as unknown as PostPromotionAiTriggerPort;
   const productGeneration = {
     startForCandidate: vi.fn().mockResolvedValue({
       candidateId: 'candidate-1',
@@ -19,13 +16,10 @@ function makeAdapter(runByType: ReturnType<typeof vi.fn>) {
       href: '/product-pipeline/collected-products/candidate-1',
     }),
   } as unknown as ProductGenerationAiTriggerPort;
-  const alerts = { start: vi.fn().mockResolvedValue({}) } as unknown as OperationAlertPort;
   return {
     adapter: new SourcingAgentGatewayAdapter(
       runner,
-      postPromotion,
       productGeneration,
-      alerts,
     ),
     productGeneration,
   };

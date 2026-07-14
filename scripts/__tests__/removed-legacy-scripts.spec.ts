@@ -11,6 +11,34 @@ const deletedLegacyTables = [
   'item_winners',
   ' ads ',
 ];
+const retiredBaselineScript = ['import', 'product-baseline'].join(':');
+const retiredImporterFile = ['import', 'product', 'baseline.ts'].join('-');
+const retiredPlannerFile = ['import', 'baseline', 'planner.ts'].join('-');
+
+describe('retired matched-workbook baseline importer', () => {
+  it('has no package entrypoint, executable sources, inventory entry, or runbook advertisement', () => {
+    const packageJson = JSON.parse(
+      readFileSync(join(repoRoot, 'package.json'), 'utf8'),
+    ) as { scripts?: Record<string, string> };
+    const inventory = readFileSync(
+      join(repoRoot, 'scripts/check-script-inventory.mjs'),
+      'utf8',
+    );
+    const runbookIndex = readFileSync(
+      join(repoRoot, 'docs/runbooks/README.md'),
+      'utf8',
+    );
+
+    expect(packageJson.scripts).not.toHaveProperty(retiredBaselineScript);
+    expect(existsSync(join(repoRoot, 'scripts', retiredImporterFile))).toBe(false);
+    expect(existsSync(join(repoRoot, 'scripts', retiredPlannerFile))).toBe(false);
+    expect(existsSync(join(repoRoot, 'docs/runbooks/import-drive-reference-data.md'))).toBe(false);
+    expect(inventory).not.toContain(retiredImporterFile);
+    expect(inventory).not.toContain(retiredPlannerFile);
+    expect(runbookIndex).not.toContain('Import Drive Reference Data');
+    expect(runbookIndex).not.toContain('import-drive-reference-data.md');
+  });
+});
 
 function runDevData(args: string[]) {
   return execFileSync(join(repoRoot, 'node_modules/.bin/tsx'), ['scripts/dev-data.ts', ...args], {

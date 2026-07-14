@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 // Architecture guard tests freeze the Inventory port/adapter contract:
@@ -7,9 +8,9 @@ import path from 'node:path';
 //   - PrismaService is imported only under `inventory/adapter/out/repository/**`.
 //   - `*persistence.ts` is not used as final naming under `apps/server/src/inventory`.
 //   - `application/**` does not import Prisma client/types.
-//   - `application/service/**` does not import `adapter/out/**` or
-//     ProductsModule/BundleStockService directly. Concrete adapters reach
-//     application code only via Nest token bindings to ports.
+//   - `application/service/**` does not import `adapter/out/**` or products
+//     implementation details. Concrete adapters reach application code only
+//     via Nest token bindings to ports.
 //   - Controllers (`adapter/in/http/**`) depend on `application/port/in/**`,
 //     not on concrete application services.
 //   - Domain code (`inventory/domain/**`) does not depend on NestJS, Prisma,
@@ -17,6 +18,7 @@ import path from 'node:path';
 
 const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const INVENTORY_ROOT = path.resolve(__dirname, '..');
+const PRISMA_INVENTORY_SCHEMA = path.resolve(REPO_ROOT, 'prisma/models/inventory.prisma');
 
 function rg(args: string): string[] {
   try {
@@ -36,6 +38,26 @@ function inventoryRel(): string {
 }
 
 describe('Inventory architecture contract', () => {
+  it('uses Sellpia MasterProduct as the sole operational inventory identity', () => {
+    const schema = readFileSync(PRISMA_INVENTORY_SCHEMA, 'utf8');
+    for (const modelName of ['StockTransfer', 'PickingItem', 'ReturnTransfer']) {
+      const block = schema.match(new RegExp(`model ${modelName} \\{([\\s\\S]*?)\\n\\}`))?.[1] ?? '';
+      expect(block, `${modelName} must carry masterProductId`).toContain('masterProductId');
+      expect(block, `${modelName} must relate to MasterProduct`).toContain('MasterProduct');
+      expect(block).not.toContain('inventorySkuId');
+      expect(block).not.toMatch(/\boptionId\b/);
+    }
+  });
+
+  it('keeps Unshipped reads behind a dedicated repository adapter', () => {
+    const service = readFileSync(
+      path.join(INVENTORY_ROOT, 'application/service/unshipped.service.ts'),
+      'utf8',
+    );
+    expect(service).toContain('UNSHIPPED_REPOSITORY_PORT');
+    expect(service).not.toContain('INVENTORY_QUERY_REPOSITORY_PORT');
+  });
+
   it('PrismaService is imported only under inventory/adapter/out/repository/**', () => {
     const inv = inventoryRel();
     const allowedPrefix = path.join(inv, 'adapter/out/repository') + path.sep;
@@ -92,7 +114,7 @@ describe('Inventory architecture contract', () => {
     );
     expect(
       hits,
-      `application services must reach products only through BundleStockPort:\n${hits.join('\n')}`,
+      `application services must not depend on products implementation details:\n${hits.join('\n')}`,
     ).toEqual([]);
   });
 

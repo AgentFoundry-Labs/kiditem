@@ -363,8 +363,8 @@ describe('OperationAlertService.closeStaleOperations', () => {
     const staleBefore = new Date('2026-05-10T10:00:00Z');
     const stale = existingAlert({
       id: '44444444-4444-4444-4444-444444444444',
-      operationKey: 'coupang-image-sync:job-1',
-      sourceType: 'coupang_image_sync',
+      operationKey: 'coupang-sync:products',
+      sourceType: 'coupang_sync',
       sourceId: 'job-1',
       updatedAt: new Date('2026-05-10T07:00:00Z'),
       metadata: { jobId: 'job-1', phase: 'scraping' },
@@ -373,7 +373,7 @@ describe('OperationAlertService.closeStaleOperations', () => {
       ...stale,
       status: 'failed',
       severity: 'error',
-      message: '쿠팡 이미지 동기화가 서버 재시작/배포 중 중단되어 자동 종료되었습니다.',
+      message: '쿠팡 상품 동기화가 서버 재시작/배포 중 중단되어 자동 종료되었습니다.',
       finishedAt: new Date('2026-05-10T10:01:00Z'),
       metadata: { jobId: 'job-1', phase: 'finished', staleReconciled: true },
     };
@@ -382,11 +382,11 @@ describe('OperationAlertService.closeStaleOperations', () => {
     prisma.alert.findFirst.mockResolvedValueOnce(closed);
 
     const result = await service.closeStaleOperations({
-      sourceType: 'coupang_image_sync',
-      operationKeyPrefix: 'coupang-image-sync:',
+      sourceType: 'coupang_sync',
+      operationKeyPrefix: 'coupang-sync:',
       staleBefore,
       status: 'failed',
-      message: '쿠팡 이미지 동기화가 서버 재시작/배포 중 중단되어 자동 종료되었습니다.',
+      message: '쿠팡 상품 동기화가 서버 재시작/배포 중 중단되어 자동 종료되었습니다.',
       metadata: { phase: 'finished', staleReconciled: true },
     });
 
@@ -394,8 +394,8 @@ describe('OperationAlertService.closeStaleOperations', () => {
       where: {
         kind: 'operation',
         status: { in: ['pending', 'running'] },
-        sourceType: 'coupang_image_sync',
-        operationKey: { startsWith: 'coupang-image-sync:' },
+        sourceType: 'coupang_sync',
+        operationKey: { startsWith: 'coupang-sync:' },
         updatedAt: { lt: staleBefore },
       },
       orderBy: { updatedAt: 'asc' },
@@ -410,7 +410,7 @@ describe('OperationAlertService.closeStaleOperations', () => {
       data: expect.objectContaining({
         status: 'failed',
         severity: 'error',
-        message: '쿠팡 이미지 동기화가 서버 재시작/배포 중 중단되어 자동 종료되었습니다.',
+        message: '쿠팡 상품 동기화가 서버 재시작/배포 중 중단되어 자동 종료되었습니다.',
         finishedAt: expect.any(Date),
         metadata: { jobId: 'job-1', phase: 'finished', staleReconciled: true },
       }),

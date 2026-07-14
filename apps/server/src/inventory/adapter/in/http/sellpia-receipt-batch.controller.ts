@@ -1,21 +1,21 @@
 import { Body, Controller, Get, Inject, Param, Post } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
-import type { AuthUser } from '../../../../auth/auth.types';
 import {
-  SELLPIA_SYNC_PORT,
-  type SellpiaSyncPort,
-} from '../../../application/port/in/stock/sellpia-sync.port';
+  SELLPIA_RECEIPT_BATCH_PORT,
+  type SellpiaReceiptBatchPort,
+} from '../../../application/port/in/stock/sellpia-receipt-batch.port';
 import {
   CreateSellpiaReceiptBatchDto,
   MarkSellpiaReceiptBatchUploadedDto,
 } from './dto';
+import type { AuthUser } from '../../../../auth/auth.types';
 
 @Controller('inventory/sellpia-receipt-batches')
 export class SellpiaReceiptBatchController {
   constructor(
-    @Inject(SELLPIA_SYNC_PORT)
-    private readonly sellpiaSync: SellpiaSyncPort,
+    @Inject(SELLPIA_RECEIPT_BATCH_PORT)
+    private readonly receiptBatches: SellpiaReceiptBatchPort,
   ) {}
 
   @Post()
@@ -24,7 +24,7 @@ export class SellpiaReceiptBatchController {
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateSellpiaReceiptBatchDto,
   ) {
-    return this.sellpiaSync.createReceiptBatch({
+    return this.receiptBatches.createReceiptBatch({
       organizationId,
       userId: user.id,
       sourceType: dto.sourceType,
@@ -35,7 +35,7 @@ export class SellpiaReceiptBatchController {
 
   @Get()
   list(@CurrentOrganization() organizationId: string) {
-    return this.sellpiaSync.listReceiptBatches(organizationId);
+    return this.receiptBatches.listReceiptBatches(organizationId);
   }
 
   @Post(':id/mark-uploaded')
@@ -45,7 +45,7 @@ export class SellpiaReceiptBatchController {
     @Param('id') batchId: string,
     @Body() dto: MarkSellpiaReceiptBatchUploadedDto,
   ) {
-    return this.sellpiaSync.markReceiptBatchUploaded({
+    return this.receiptBatches.markReceiptBatchUploaded({
       organizationId,
       userId: user.id,
       batchId,

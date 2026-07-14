@@ -461,6 +461,8 @@ function makeGenerationRow(overrides: Record<string, unknown> = {}) {
     id: GENERATION_ID,
     organizationId: ORGANIZATION_ID,
     generationGroupId: GENERATION_GROUP_ID,
+    contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
+    sourceCandidateId: null,
     contentType: 'detail_page',
     templateId: 'bold-vertical',
     generationInput: {
@@ -613,7 +615,7 @@ describe('DetailPageAiService', () => {
 
     expect(result.id).toBe(GENERATION_ID);
     expect(result.imageProcessingStatus).toBe('processing');
-    expect(result.productId).toBe(MASTER_ID);
+    expect(result.contentWorkspaceId).toBe(REGISTRATION_WORKSPACE_ID);
   });
 
   it('suppresses child detail operation alert when linked to product generation parent', async () => {
@@ -1001,7 +1003,6 @@ describe('DetailPageAiService', () => {
       triggeredByUserId: USER_ID,
       rawTitle: '키즈 텀블러',
       sourceCandidateId: null,
-      targetMasterId: null,
     });
     expect(prisma.contentGeneration.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1601,7 +1602,6 @@ describe('DetailPageAiService', () => {
       triggeredByUserId: USER_ID,
       rawTitle: '  키즈   텀블러  ',
       sourceCandidateId: null,
-      targetMasterId: null,
     });
     expect(prisma.contentGeneration.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -1649,7 +1649,7 @@ describe('DetailPageAiService', () => {
       }),
     );
     expect(operationAlerts.fail).not.toHaveBeenCalled();
-    expect(result.productId).toBeNull();
+    expect(result.contentWorkspaceId).toBe(REGISTRATION_WORKSPACE_ID);
     expect(result.imageProcessingStatus).toBe('processing');
   });
 

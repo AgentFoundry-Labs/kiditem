@@ -13,16 +13,12 @@ import {
   CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
   type ContentAssetLibraryRepositoryPort,
 } from '../../../application/port/out/repository/content-asset-library.repository.port';
-import {
-  PRODUCT_WORKSPACE_GROUP_REPOSITORY_PORT,
-  type ProductWorkspaceGroupRepositoryPort,
-} from '../../../application/port/out/repository/product-workspace-group.repository.port';
 
 const detailPageGenerationInclude = {
   generationGroup: {
     select: {
       id: true,
-      targetMasterId: true,
+      contentWorkspaceId: true,
     },
   },
 } satisfies Prisma.ContentGenerationInclude;
@@ -31,8 +27,6 @@ const detailPageGenerationInclude = {
 export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerationRepositoryPort {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(PRODUCT_WORKSPACE_GROUP_REPOSITORY_PORT)
-    private readonly productWorkspaceGroups: ProductWorkspaceGroupRepositoryPort,
     @Inject(CONTENT_ASSET_LIBRARY_REPOSITORY_PORT)
     private readonly contentAssets: ContentAssetLibraryRepositoryPort,
   ) {}
@@ -51,26 +45,15 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
       select: {
         id: true,
         sourceCandidateId: true,
-        targetMasterId: true,
         displayName: true,
         normalizedTitle: true,
       },
     });
   }
 
-  private async findTargetMaster(input: { organizationId: string; productId: string }) {
-    return this.prisma.masterProduct.findFirst({
-      where: {
-        id: input.productId,
-        organizationId: input.organizationId,
-        isDeleted: false,
-      },
-      select: { id: true, name: true },
-    });
-  }
-
   private async createInputGenerationGroup(input: {
     organizationId: string;
+    contentWorkspaceId: string;
     triggeredByUserId: string | null;
     rawTitle: string;
     templateId: string;
@@ -78,6 +61,7 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
     const group = await this.prisma.contentGenerationGroup.create({
       data: {
         organizationId: input.organizationId,
+        contentWorkspaceId: input.contentWorkspaceId,
         groupType: 'input_variation',
         title: input.rawTitle.slice(0, 80),
         createdByUserId: input.triggeredByUserId,
@@ -95,7 +79,7 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
     organizationId: string;
     baseGenerationId: string;
     existingGroupId: string | null;
-    productId: string | null;
+    contentWorkspaceId: string;
     title: string;
     triggeredByUserId: string | null;
   }): Promise<string> {
@@ -103,8 +87,8 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
     const group = await this.prisma.contentGenerationGroup.create({
       data: {
         organizationId: input.organizationId,
+        contentWorkspaceId: input.contentWorkspaceId,
         groupType: 'input_variation',
-        targetMasterId: input.productId,
         baseContentGenerationId: input.baseGenerationId,
         title: input.title.slice(0, 80),
         createdByUserId: input.triggeredByUserId,
@@ -121,7 +105,6 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
 
   async openProcessingGenerationLedger(input: {
     organizationId: string;
-    productId: string | null;
     generationGroupId?: string | null;
     contentWorkspaceId: string;
     sourceCandidateId: string | null;
@@ -137,29 +120,15 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
       contentAssetId?: string | null;
       label?: string | null;
     }>;
-  }): Promise<{ status: 'created'; row: DetailPageGenerationSnapshot } | { status: 'product_not_found' }> {
-    const targetMaster = input.productId
-      ? await this.findTargetMaster({
-        organizationId: input.organizationId,
-        productId: input.productId,
-      })
-      : null;
-    if (input.productId && !targetMaster) return { status: 'product_not_found' };
+  }): Promise<{ status: 'created'; row: DetailPageGenerationSnapshot }> {
     const generationGroupId = input.generationGroupId ??
-      (targetMaster
-        ? (await this.productWorkspaceGroups.ensureProductWorkspaceGroup({
-          organizationId: input.organizationId,
-          productId: targetMaster.id,
-          title: targetMaster.name,
-          triggeredByUserId: input.triggeredByUserId,
-          source: 'detail_page_generation',
-        })).id
-        : await this.createInputGenerationGroup({
-          organizationId: input.organizationId,
-          triggeredByUserId: input.triggeredByUserId,
-          rawTitle: input.rawTitle,
-          templateId: input.templateId,
-        }));
+      await this.createInputGenerationGroup({
+        organizationId: input.organizationId,
+        contentWorkspaceId: input.contentWorkspaceId,
+        triggeredByUserId: input.triggeredByUserId,
+        rawTitle: input.rawTitle,
+        templateId: input.templateId,
+      });
     const row = await this.prisma.contentGeneration.create({
       data: {
         organizationId: input.organizationId,
@@ -265,7 +234,6 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
         sourceCandidateId: true,
         generationInput: true,
         generationResult: true,
-        generationGroup: { select: { targetMasterId: true } },
         templateId: true,
         generatedTitle: true,
       },
@@ -275,26 +243,22 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
 
   async findImageOnlyBaseCandidates(input: {
     organizationId: string;
-    productId: string | null;
     sourceCandidateId: string | null;
     contentWorkspaceId: string | null;
     templateId: string;
   }): Promise<DetailPageImageOnlyBaseCandidateSnapshot[]> {
-    if (!input.productId && !input.sourceCandidateId && !input.contentWorkspaceId) return [];
+    if (!input.sourceCandidateId && !input.contentWorkspaceId) return [];
     const where: Prisma.ContentGenerationWhereInput = {
       organizationId: input.organizationId,
       contentType: 'detail_page',
       templateId: input.templateId,
       status: { in: ['READY', 'completed'] },
-      ...(input.productId
-        ? { generationGroup: { targetMasterId: input.productId } }
-        : input.contentWorkspaceId
-          ? { contentWorkspaceId: input.contentWorkspaceId }
-          : {
+      ...(input.contentWorkspaceId
+        ? { contentWorkspaceId: input.contentWorkspaceId }
+        : {
               OR: [
                 { sourceCandidateId: input.sourceCandidateId },
                 { sources: { some: { sourceCandidateId: input.sourceCandidateId } } },
-                { detailPageArtifact: { is: { sourceCandidateId: input.sourceCandidateId } } },
               ],
             }),
     };
@@ -323,7 +287,7 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
         organizationId: input.organizationId,
         isDeleted: false,
       },
-      select: { id: true, name: true, promotedMasterId: true },
+      select: { id: true, name: true },
     });
   }
 

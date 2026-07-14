@@ -179,8 +179,6 @@ describe('DetailPageContentGenerationSinkAdapter', () => {
         data: {
           organizationId: ORG,
           contentWorkspaceId: REGISTRATION_WORKSPACE_ID,
-          sourceCandidateId: CANDIDATE_ID,
-          targetMasterId: null,
           sourceContentGenerationId: CG_ID,
           title: '키즈 텀블러 안심 음수',
           status: 'generated',

@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useCallback, Fragment } from 'react';
-import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { useState, useEffect, useCallback, Fragment } from "react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -43,11 +43,11 @@ import {
   Rocket,
   LogOut,
   type LucideIcon,
-} from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { useStore } from '@/store/useStore';
-import { usePanelStore } from '@/components/panel/lib/panel-store';
-import { useAuth } from '@/hooks/useAuth';
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useStore } from "@/store/useStore";
+import { usePanelStore } from "@/components/panel/lib/panel-store";
+import { useAuth } from "@/hooks/useAuth";
 
 interface MenuItem {
   href: string;
@@ -66,145 +66,217 @@ interface MenuSection {
 
 export const menuSections: MenuSection[] = [
   {
-    label: '',
+    label: "",
     collapsible: false,
     items: [
-      { href: '/dashboard', label: '대시보드', icon: LayoutDashboard },
-      { href: '/action-board', label: '액션 보드', icon: ClipboardList },
+      { href: "/dashboard", label: "대시보드", icon: LayoutDashboard },
+      { href: "/action-board", label: "액션 보드", icon: ClipboardList },
     ],
   },
   {
-    label: '소싱 에이전트',
+    label: "소싱 에이전트",
     collapsible: true,
     items: [
-      { href: '/sourcing-ai', label: '소싱 홈', icon: Compass },
-      { href: '/sourcing-ai/market', label: '시장 분석', icon: TrendingUp, groupLabel: '리서치' },
-      { href: '/sourcing-ai/keywords', label: '키워드 분석', icon: Search },
-      { href: '/sourcing-ai/category-sourcing', label: '카테고리 소싱', icon: Layers },
-      { href: '/sourcing-ai/competitor-analysis', label: '경쟁업체 분석', icon: Building2 },
-      { href: '/sourcing-ai/wing-catalog', label: '쿠팡 상품 분석', icon: PackageSearch },
-      { href: '/sourcing-ai/product-tracking', label: '상품 추적', icon: LineChart },
-      { href: '/sourcing-ai/recommendations', label: '오늘의 추천', icon: Sparkles },
-      { href: '/sourcing-ai/wholesale-search', label: '도매 상품 검색', icon: ShoppingCart, groupLabel: '소싱' },
-      { href: '/sourcing-ai/validation', label: '상품 검증', icon: ClipboardList },
-      { href: '/sourcing-ai/final-selection', label: '최종 선택', icon: PackageCheck },
-      { href: '/sourcing-ai/settings', label: '소싱 설정', icon: Settings, groupLabel: '설정' },
-    ],
-  },
-  {
-    label: '상품 에이전트',
-    collapsible: true,
-    items: [
-      { href: '/product-pipeline/productgenerate', label: '상품 생성', icon: Plus },
-      { href: '/product-pipeline/collected-products', label: '수집 상품', icon: Search },
-      { href: '/product-pipeline/registered-products', label: '등록 상품', icon: Package },
-      { href: '/product-pipeline/detail-template-generation', label: '상세 템플릿 생성', icon: Sparkles },
-      { href: '/product-pipeline/thumbnail-ai', label: '썸네일 AI', icon: ImageIcon },
-      { href: '/product-pipeline/thumbnail-generation', label: '썸네일 생성', icon: Wand2 },
-    ],
-  },
-  {
-    label: '마케팅 에이전트',
-    collapsible: true,
-    items: [
-      { href: '/ad-ops', label: '광고전략 AI', icon: Zap },
-      { href: '/rank-tracking', label: '쿠팡 순위추적', icon: LineChart },
-    ],
-  },
-  {
-    label: '상품관리',
-    collapsible: true,
-    items: [
-      { href: '/product-hub', label: '상품 관리', icon: Package },
-      { href: '/product-hub/matching', label: '상품 매칭', icon: Link2 },
-      { href: '/product-hub/rocket-register', label: '쿠팡 로켓 등록', icon: Rocket },
+      { href: "/sourcing-ai", label: "소싱 홈", icon: Compass },
       {
-        href: '/reviews',
-        label: '리뷰 관리',
+        href: "/sourcing-ai/market",
+        label: "시장 분석",
+        icon: TrendingUp,
+        groupLabel: "리서치",
+      },
+      { href: "/sourcing-ai/keywords", label: "키워드 분석", icon: Search },
+      {
+        href: "/sourcing-ai/category-sourcing",
+        label: "카테고리 소싱",
+        icon: Layers,
+      },
+      {
+        href: "/sourcing-ai/competitor-analysis",
+        label: "경쟁업체 분석",
+        icon: Building2,
+      },
+      {
+        href: "/sourcing-ai/wing-catalog",
+        label: "쿠팡 상품 분석",
+        icon: PackageSearch,
+      },
+      {
+        href: "/sourcing-ai/product-tracking",
+        label: "상품 추적",
+        icon: LineChart,
+      },
+      {
+        href: "/sourcing-ai/recommendations",
+        label: "오늘의 추천",
+        icon: Sparkles,
+      },
+      {
+        href: "/sourcing-ai/wholesale-search",
+        label: "도매 상품 검색",
+        icon: ShoppingCart,
+        groupLabel: "소싱",
+      },
+      {
+        href: "/sourcing-ai/validation",
+        label: "상품 검증",
+        icon: ClipboardList,
+      },
+      {
+        href: "/sourcing-ai/final-selection",
+        label: "최종 선택",
+        icon: PackageCheck,
+      },
+      {
+        href: "/sourcing-ai/settings",
+        label: "소싱 설정",
+        icon: Settings,
+        groupLabel: "설정",
+      },
+    ],
+  },
+  {
+    label: "상품 에이전트",
+    collapsible: true,
+    items: [
+      {
+        href: "/product-pipeline/productgenerate",
+        label: "상품 생성",
+        icon: Plus,
+      },
+      {
+        href: "/product-pipeline/collected-products",
+        label: "수집 상품",
+        icon: Search,
+      },
+      {
+        href: "/product-pipeline/registered-products",
+        label: "등록 상품",
+        icon: Package,
+      },
+      {
+        href: "/product-pipeline/detail-template-generation",
+        label: "상세 템플릿 생성",
+        icon: Sparkles,
+      },
+      {
+        href: "/product-pipeline/thumbnail-ai",
+        label: "썸네일 AI",
+        icon: ImageIcon,
+      },
+      {
+        href: "/product-pipeline/thumbnail-generation",
+        label: "썸네일 생성",
+        icon: Wand2,
+      },
+    ],
+  },
+  {
+    label: "마케팅 에이전트",
+    collapsible: true,
+    items: [
+      { href: "/ad-ops", label: "광고전략 AI", icon: Zap },
+      { href: "/rank-tracking", label: "쿠팡 순위추적", icon: LineChart },
+    ],
+  },
+  {
+    label: "상품관리",
+    collapsible: true,
+    items: [
+      { href: "/product-hub", label: "상품 관리", icon: Package },
+      { href: "/product-hub/matching", label: "상품 매칭", icon: Link2 },
+      {
+        href: "/reviews",
+        label: "리뷰 관리",
         icon: MessageSquare,
       },
       {
-        href: '/product-hub/options',
-        label: '상품 옵션 관리',
+        href: "/product-hub/options",
+        label: "상품 옵션 관리",
         icon: Layers,
       },
     ],
   },
   {
-    label: '주문관리',
+    label: "주문관리",
     collapsible: true,
     items: [
-      { href: '/order-hub', label: '주문 처리', icon: ShoppingCart },
-      { href: '/order-collection', label: '주문수집', icon: FileSpreadsheet },
-      { href: '/rocket-orders', label: '쿠팡 로켓', icon: Rocket },
-      { href: '/cs-management', label: 'CS 관리', icon: Headphones },
-      { href: '/order-status-hub', label: '주문 현황', icon: ClipboardList },
-      { href: '/unshipped-items', label: '미배송 조회', icon: AlertTriangle },
+      { href: "/order-hub", label: "주문 처리", icon: ShoppingCart },
+      { href: "/order-collection", label: "주문수집", icon: FileSpreadsheet },
+      { href: "/rocket-orders", label: "쿠팡 로켓", icon: Rocket },
+      { href: "/cs-management", label: "CS 관리", icon: Headphones },
+      { href: "/order-status-hub", label: "주문 현황", icon: ClipboardList },
+      { href: "/unshipped-items", label: "미배송 조회", icon: AlertTriangle },
     ],
   },
   {
-    label: '재고관리',
+    label: "재고관리",
     collapsible: true,
     items: [
-      { href: '/inventory-hub', label: '재고 관리', icon: Warehouse },
-      { href: '/stock-ops', label: '재고 분석', icon: Boxes },
-      { href: '/warehouses', label: '창고 관리', icon: Building2 },
+      { href: "/inventory-hub", label: "재고 관리", icon: Warehouse },
+      { href: "/stock-ops", label: "재고 분석", icon: Boxes },
+      { href: "/warehouses", label: "창고 관리", icon: Building2 },
     ],
   },
   {
-    label: '출고/반품',
+    label: "출고/반품",
     collapsible: true,
     items: [
-      { href: '/outbound', label: '출고 현황', icon: Truck },
-      { href: '/coupang-shipments', label: '쿠팡 쉽먼트', icon: PackageCheck },
-      { href: '/returns', label: '반품 관리', icon: RotateCcw },
-      { href: '/return-scan', label: '반품 스캔', icon: ScanLine },
+      { href: "/outbound", label: "출고 현황", icon: Truck },
+      { href: "/coupang-shipments", label: "쿠팡 쉽먼트", icon: PackageCheck },
+      { href: "/returns", label: "반품 관리", icon: RotateCcw },
+      { href: "/return-scan", label: "반품 스캔", icon: ScanLine },
     ],
   },
   {
-    label: '거래처',
+    label: "거래처",
     collapsible: true,
     items: [
-      { href: '/supplier-hub', label: '거래처 관리', icon: Handshake },
-      { href: '/suppliers', label: '거래처 목록', icon: Users },
+      { href: "/supplier-hub", label: "거래처 관리", icon: Handshake },
+      { href: "/suppliers", label: "거래처 목록", icon: Users },
     ],
   },
   {
-    label: '재무/분석',
+    label: "재무/분석",
     collapsible: true,
     items: [
-      { href: '/profit-loss', label: '손익 분석', icon: TrendingUp },
-      { href: '/sales-analysis', label: '매출 분석', icon: LineChart },
-      { href: '/finance-hub', label: '정산 관리', icon: Wallet },
+      { href: "/profit-loss", label: "손익 분석", icon: TrendingUp },
+      { href: "/sales-analysis", label: "매출 분석", icon: LineChart },
+      { href: "/finance-hub", label: "정산 관리", icon: Wallet },
     ],
   },
   {
-    label: '',
+    label: "",
     collapsible: false,
     items: [
       // `/agent-os` is the user-facing Agent OS surface. The `/agents`
       // operations console remains addressable by direct URL for run/request
       // debugging, but should not be the main user navigation target.
-      { href: '/agent-os', label: 'Agent OS', icon: Bot },
-      { href: '/settings', label: '설정', icon: Settings },
+      { href: "/agent-os", label: "Agent OS", icon: Bot },
+      { href: "/settings", label: "설정", icon: Settings },
     ],
   },
 ];
 
 function isItemActive(href: string, pathname: string): boolean {
-  if (href === '/dashboard') return pathname === '/dashboard';
-  if (href === '/agents') return pathname.startsWith('/agents') || pathname.startsWith('/workflows') || pathname.startsWith('/marketplace');
-  if (href === '/agent-os') return pathname.startsWith('/agent-os');
-  const matchesRoute = pathname === href || pathname.startsWith(href + '/');
+  if (href === "/dashboard") return pathname === "/dashboard";
+  if (href === "/agents")
+    return (
+      pathname.startsWith("/agents") ||
+      pathname.startsWith("/workflows") ||
+      pathname.startsWith("/marketplace")
+    );
+  if (href === "/agent-os") return pathname.startsWith("/agent-os");
+  const matchesRoute = pathname === href || pathname.startsWith(href + "/");
   if (!matchesRoute) return false;
 
   const hasMoreSpecificActiveItem = menuSections
     .flatMap((section) => section.items)
-    .some((item) => (
-      item.href !== href &&
-      item.href.startsWith(href + '/') &&
-      (pathname === item.href || pathname.startsWith(item.href + '/'))
-    ));
+    .some(
+      (item) =>
+        item.href !== href &&
+        item.href.startsWith(href + "/") &&
+        (pathname === item.href || pathname.startsWith(item.href + "/")),
+    );
 
   return !hasMoreSpecificActiveItem;
 }
@@ -219,7 +291,6 @@ function findActiveSection(pathname: string): string | null {
   return null;
 }
 
-
 export default function Sidebar({
   onChatToggle,
   chatOpen,
@@ -231,7 +302,11 @@ export default function Sidebar({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { sidebarOpen: storeSidebarOpen, toggleSidebar, setSidebarOpen } = useStore();
+  const {
+    sidebarOpen: storeSidebarOpen,
+    toggleSidebar,
+    setSidebarOpen,
+  } = useStore();
   const sidebarOpen = lockCollapsed ? false : storeSidebarOpen;
   const editorDirty = useStore((s) => s.editorDirty);
   const setEditorDirty = useStore((s) => s.setEditorDirty);
@@ -246,10 +321,10 @@ export default function Sidebar({
       if (!editorDirty) return;
       e.preventDefault();
       showConfirm({
-        title: '저장하지 않은 변경사항이 있습니다',
-        message: '정말 이 페이지를 떠나시겠습니까? 변경사항은 사라집니다.',
-        confirmText: '나가기',
-        cancelText: '계속 편집',
+        title: "저장하지 않은 변경사항이 있습니다",
+        message: "정말 이 페이지를 떠나시겠습니까? 변경사항은 사라집니다.",
+        confirmText: "나가기",
+        cancelText: "계속 편집",
         onConfirm: () => {
           setEditorDirty(false);
           router.push(href);
@@ -265,11 +340,13 @@ export default function Sidebar({
   });
 
   useEffect(() => {
-    const mq = window.matchMedia('(max-width: 767px)');
+    const mq = window.matchMedia("(max-width: 767px)");
     if (mq.matches) setSidebarOpen(false);
-    const handler = (e: MediaQueryListEvent) => { if (e.matches) setSidebarOpen(false); };
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
+    const handler = (e: MediaQueryListEvent) => {
+      if (e.matches) setSidebarOpen(false);
+    };
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
   }, [setSidebarOpen]);
 
   useEffect(() => {
@@ -308,21 +385,29 @@ export default function Sidebar({
       )}
       <aside
         className={cn(
-          'fixed left-0 top-0 z-50 h-screen bg-[var(--surface)] border-r border-[var(--border-subtle)] transition-all duration-300 flex flex-col font-sans overflow-hidden',
+          "fixed left-0 top-0 z-50 h-screen bg-[var(--surface)] border-r border-[var(--border-subtle)] transition-all duration-300 flex flex-col font-sans overflow-hidden",
           sidebarOpen
-            ? 'translate-x-0 w-60 md:translate-x-0 md:w-60'
-            : '-translate-x-full w-60 md:translate-x-0 md:w-[68px]'
+            ? "translate-x-0 w-60 md:translate-x-0 md:w-60"
+            : "-translate-x-full w-60 md:translate-x-0 md:w-[68px]",
         )}
       >
         {/* Logo */}
         <div className="h-14 shrink-0 flex items-center px-5 border-b border-[var(--border-subtle)]">
           {sidebarOpen ? (
             <>
-              <Link href="/" onClick={(e) => handleNavClick(e, '/')} className="flex items-center gap-2.5">
+              <Link
+                href="/"
+                onClick={(e) => handleNavClick(e, "/")}
+                className="flex items-center gap-2.5"
+              >
                 <div className="w-7 h-7 rounded-lg bg-[var(--primary)] flex items-center justify-center flex-shrink-0">
-                  <span className="text-[12px] font-extrabold text-[var(--primary-contrast)]">K</span>
+                  <span className="text-[12px] font-extrabold text-[var(--primary-contrast)]">
+                    K
+                  </span>
                 </div>
-                <span className="text-[16px] font-bold text-[var(--text-primary)] tracking-tight">Kiditem</span>
+                <span className="text-[16px] font-bold text-[var(--text-primary)] tracking-tight">
+                  Kiditem
+                </span>
               </Link>
               {!lockCollapsed && (
                 <button
@@ -341,9 +426,16 @@ export default function Sidebar({
               <PanelLeftOpen size={16} />
             </button>
           ) : (
-            <Link href="/" onClick={(e) => handleNavClick(e, '/')} className="mx-auto" title="홈으로">
+            <Link
+              href="/"
+              onClick={(e) => handleNavClick(e, "/")}
+              className="mx-auto"
+              title="홈으로"
+            >
               <div className="w-7 h-7 rounded-lg bg-[var(--primary)] flex items-center justify-center">
-                <span className="text-[12px] font-extrabold text-[var(--primary-contrast)]">K</span>
+                <span className="text-[12px] font-extrabold text-[var(--primary-contrast)]">
+                  K
+                </span>
               </div>
             </Link>
           )}
@@ -352,12 +444,13 @@ export default function Sidebar({
         {/* Scrollable nav — collapsible sections */}
         <nav
           className="min-h-0 flex-1 overflow-y-auto py-2"
-          style={{ scrollbarWidth: 'none', overscrollBehaviorY: 'contain' }}
+          style={{ scrollbarWidth: "none", overscrollBehaviorY: "contain" }}
         >
           {menuSections.slice(0, -1).map((section, si) => {
-            const isOpen = !section.collapsible || openGroups.has(section.label);
-            const hasActiveChild = section.items.some(item =>
-              isItemActive(item.href, pathname)
+            const isOpen =
+              !section.collapsible || openGroups.has(section.label);
+            const hasActiveChild = section.items.some((item) =>
+              isItemActive(item.href, pathname),
             );
 
             return (
@@ -373,29 +466,35 @@ export default function Sidebar({
                     onClick={() => toggleGroup(section.label)}
                     className="w-full flex items-center justify-between px-5 pt-5 pb-1.5 group transition-colors"
                   >
-                    <span className={cn(
-                      'text-[15px] font-semibold leading-5 tracking-normal transition-colors',
-                      hasActiveChild ? 'text-[var(--text-secondary)]' : 'text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)]'
-                    )}>
+                    <span
+                      className={cn(
+                        "text-[15px] font-semibold leading-5 tracking-normal transition-colors",
+                        hasActiveChild
+                          ? "text-[var(--text-secondary)]"
+                          : "text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)]",
+                      )}
+                    >
                       {section.label}
                     </span>
                     <ChevronDown
                       size={12}
                       className={cn(
-                        'text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)] transition-all duration-200',
-                        isOpen ? '' : '-rotate-90'
+                        "text-[var(--text-tertiary)] group-hover:text-[var(--text-secondary)] transition-all duration-200",
+                        isOpen ? "" : "-rotate-90",
                       )}
                     />
                   </button>
                 )}
 
                 {/* 아이템 목록 */}
-                <div className={cn(
-                  'space-y-0.5 px-3 overflow-hidden transition-all duration-200',
-                  !sidebarOpen || !section.collapsible || isOpen
-                    ? 'max-h-[760px] opacity-100 mt-1'
-                    : 'max-h-0 opacity-0'
-                )}>
+                <div
+                  className={cn(
+                    "space-y-0.5 px-3 overflow-hidden transition-all duration-200",
+                    !sidebarOpen || !section.collapsible || isOpen
+                      ? "max-h-[760px] opacity-100 mt-1"
+                      : "max-h-0 opacity-0",
+                  )}
+                >
                   {section.items.map((item) => {
                     const active = isItemActive(item.href, pathname);
                     const Icon = item.icon;
@@ -408,15 +507,21 @@ export default function Sidebar({
                           size={18}
                           strokeWidth={active ? 2 : 1.5}
                           className={cn(
-                            'shrink-0 transition-colors',
+                            "shrink-0 transition-colors",
                             item.gatedReason
-                              ? 'text-[var(--text-muted)] opacity-50'
-                              : active ? 'text-[var(--primary)]' : 'text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]'
+                              ? "text-[var(--text-muted)] opacity-50"
+                              : active
+                                ? "text-[var(--primary)]"
+                                : "text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]",
                           )}
                         />
                         {sidebarOpen && (
                           <>
-                            <span className={active ? 'font-semibold' : 'font-medium'}>
+                            <span
+                              className={
+                                active ? "font-semibold" : "font-medium"
+                              }
+                            >
                               {item.label}
                             </span>
                             {item.gatedReason && (
@@ -436,8 +541,8 @@ export default function Sidebar({
                         data-sidebar-gated-route={item.href}
                         aria-label={`${item.label} — 준비 중`}
                         className={cn(
-                          'group flex w-full cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2 text-left text-[15px] leading-5 text-slate-300 opacity-75 relative',
-                          !sidebarOpen && 'justify-center px-0'
+                          "group flex w-full cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2 text-left text-[15px] leading-5 text-slate-300 opacity-75 relative",
+                          !sidebarOpen && "justify-center px-0",
                         )}
                         title={item.gatedReason}
                       >
@@ -448,11 +553,11 @@ export default function Sidebar({
                         href={item.href}
                         onClick={(e) => handleNavClick(e, item.href)}
                         className={cn(
-                          'group flex items-center gap-3 px-3 py-2 rounded-lg text-[15px] leading-5 transition-colors relative',
+                          "group flex items-center gap-3 px-3 py-2 rounded-lg text-[15px] leading-5 transition-colors relative",
                           active
-                            ? 'bg-[var(--primary-soft)] text-[var(--primary)]'
-                            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-sunken)]',
-                          !sidebarOpen && 'justify-center px-0'
+                            ? "bg-[var(--primary-soft)] text-[var(--primary)]"
+                            : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-sunken)]",
+                          !sidebarOpen && "justify-center px-0",
                         )}
                         title={!sidebarOpen ? item.label : undefined}
                       >
@@ -489,11 +594,11 @@ export default function Sidebar({
                 href={item.href}
                 onClick={(e) => handleNavClick(e, item.href)}
                 className={cn(
-                  'group flex items-center gap-3 px-3 py-2 rounded-lg text-[15px] leading-5 transition-colors relative',
+                  "group flex items-center gap-3 px-3 py-2 rounded-lg text-[15px] leading-5 transition-colors relative",
                   active
-                    ? 'bg-[var(--primary-soft)] text-[var(--primary)]'
-                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-sunken)]',
-                  !sidebarOpen && 'justify-center px-0'
+                    ? "bg-[var(--primary-soft)] text-[var(--primary)]"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-sunken)]",
+                  !sidebarOpen && "justify-center px-0",
                 )}
                 title={!sidebarOpen ? item.label : undefined}
               >
@@ -504,12 +609,14 @@ export default function Sidebar({
                   size={18}
                   strokeWidth={active ? 2 : 1.5}
                   className={cn(
-                    'shrink-0 transition-colors',
-                    active ? 'text-[var(--primary)]' : 'text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]'
+                    "shrink-0 transition-colors",
+                    active
+                      ? "text-[var(--primary)]"
+                      : "text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]",
                   )}
                 />
                 {sidebarOpen && (
-                  <span className={active ? 'font-semibold' : 'font-medium'}>
+                  <span className={active ? "font-semibold" : "font-medium"}>
                     {item.label}
                   </span>
                 )}
@@ -520,16 +627,20 @@ export default function Sidebar({
           <button
             onClick={() => setPanelOpen(true)}
             className={cn(
-              'w-full group flex items-center gap-3 px-3 py-2 rounded-lg text-[15px] leading-5 font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] hover:text-[var(--text-primary)] transition-colors',
-              !sidebarOpen && 'justify-center px-0'
+              "w-full group flex items-center gap-3 px-3 py-2 rounded-lg text-[15px] leading-5 font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] hover:text-[var(--text-primary)] transition-colors",
+              !sidebarOpen && "justify-center px-0",
             )}
-            title={!sidebarOpen ? '알림' : undefined}
+            title={!sidebarOpen ? "알림" : undefined}
           >
             <div className="relative shrink-0">
-              <Bell size={18} strokeWidth={1.75} className="text-[var(--text-muted)] group-hover:text-[var(--text-secondary)] transition-colors" />
+              <Bell
+                size={18}
+                strokeWidth={1.75}
+                className="text-[var(--text-muted)] group-hover:text-[var(--text-secondary)] transition-colors"
+              />
               {unreadAlertCount > 0 && (
                 <span className="absolute -top-1 -right-1 bg-[var(--danger)] text-white text-[9px] font-bold rounded-full min-w-[14px] h-[14px] flex items-center justify-center px-0.5">
-                  {unreadAlertCount > 99 ? '99+' : unreadAlertCount}
+                  {unreadAlertCount > 99 ? "99+" : unreadAlertCount}
                 </span>
               )}
               {runningCount > 0 && (
@@ -543,38 +654,50 @@ export default function Sidebar({
             <button
               onClick={onChatToggle}
               className={cn(
-                'group flex items-center gap-3 px-3 py-2 rounded-lg text-[15px] leading-5 transition-all duration-100 relative w-full',
+                "group flex items-center gap-3 px-3 py-2 rounded-lg text-[15px] leading-5 transition-all duration-100 relative w-full",
                 chatOpen
-                  ? 'bg-[var(--primary-soft)] text-[var(--primary)]'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-sunken)]',
-                !sidebarOpen && 'justify-center px-0'
+                  ? "bg-[var(--primary-soft)] text-[var(--primary)]"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-sunken)]",
+                !sidebarOpen && "justify-center px-0",
               )}
-              title={!sidebarOpen ? 'AI 챗' : undefined}
+              title={!sidebarOpen ? "AI 챗" : undefined}
             >
               <MessageSquare
                 size={18}
                 strokeWidth={chatOpen ? 2 : 1.5}
                 className={cn(
-                  'shrink-0 transition-colors',
-                  chatOpen ? 'text-[var(--primary)]' : 'text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]'
+                  "shrink-0 transition-colors",
+                  chatOpen
+                    ? "text-[var(--primary)]"
+                    : "text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]",
                 )}
               />
-              {sidebarOpen && <span className={chatOpen ? 'font-semibold' : 'font-medium'}>AI 챗</span>}
+              {sidebarOpen && (
+                <span className={chatOpen ? "font-semibold" : "font-medium"}>
+                  AI 챗
+                </span>
+              )}
             </button>
           )}
           {user && (
             <button
               onClick={logout}
               className={cn(
-                'group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[15px] leading-5 font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] hover:text-[var(--danger)] transition-colors',
-                !sidebarOpen && 'justify-center px-0',
+                "group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[15px] leading-5 font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-sunken)] hover:text-[var(--danger)] transition-colors",
+                !sidebarOpen && "justify-center px-0",
               )}
               title={!sidebarOpen ? `${user.email} — 로그아웃` : undefined}
             >
-              <LogOut size={18} strokeWidth={1.75} className="shrink-0 text-[var(--text-muted)] group-hover:text-[var(--danger)] transition-colors" />
+              <LogOut
+                size={18}
+                strokeWidth={1.75}
+                className="shrink-0 text-[var(--text-muted)] group-hover:text-[var(--danger)] transition-colors"
+              />
               {sidebarOpen && (
                 <span className="flex-1 min-w-0 text-left">
-                  <span className="block truncate text-[11px] font-normal text-[var(--text-muted)]">{user.email}</span>
+                  <span className="block truncate text-[11px] font-normal text-[var(--text-muted)]">
+                    {user.email}
+                  </span>
                   <span>로그아웃</span>
                 </span>
               )}

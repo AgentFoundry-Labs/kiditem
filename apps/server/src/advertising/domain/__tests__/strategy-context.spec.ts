@@ -1,17 +1,16 @@
 import { describe, it, expect } from 'vitest';
+import * as strategyContext from '../strategy-context';
 import {
   buildGradeMap,
   computeListingProfitRate,
   emptyMetrics,
-  firstOptionByListing,
   getCurrentPeriod,
   getWeekRange,
-  sumListingStock,
   toAdAggregateRows,
   toGradeMapStrict,
   uniqueIds,
 } from '../strategy-context';
-import type { HydratedListing, InventoryRow } from '../model/strategy-types';
+import type { HydratedListing } from '../model/strategy-types';
 
 describe('domain/strategy-context — date helpers', () => {
   it('getCurrentPeriod returns year + 1-indexed month from injected Date', () => {
@@ -49,6 +48,62 @@ describe('domain/strategy-context — date helpers', () => {
 });
 
 describe('domain/strategy-context — pure transforms', () => {
+  it('computes exact component purchase cost only when every Sellpia price is known', () => {
+    const compute = (
+      strategyContext as Record<string, unknown>
+    ).computeChannelSkuPurchaseCost as undefined | ((components: Array<{
+      purchasePrice: number | null;
+      quantity: number;
+    }>) => number | null);
+
+    expect(compute).toBeTypeOf('function');
+    expect(compute!([
+      { purchasePrice: 1200, quantity: 2 },
+      { purchasePrice: 800, quantity: 3 },
+    ])).toBe(4800);
+    expect(compute!([
+      { purchasePrice: 1200, quantity: 2 },
+      { purchasePrice: null, quantity: 1 },
+    ])).toBeNull();
+    expect(compute!([])).toBeNull();
+  });
+
+  it('hydrates the primary ChannelSku with exact capacity, sale price, and component cost', () => {
+    const apply = (
+      strategyContext as Record<string, unknown>
+    ).applyChannelSkuAvailability as undefined | ((
+      listings: HydratedListing[],
+      availability: Array<{
+        sku: { id: string; sellableStock: number | null; salePrice: number | null };
+        components: Array<{ purchasePrice: number | null; quantity: number }>;
+      }>,
+    ) => HydratedListing[]);
+    const listing = makeHydratedListing('L1', 'A');
+    listing.primaryOption = {
+      listingOptionId: 'sku-1',
+      sellableStock: null,
+      purchaseCost: null,
+      salePrice: null,
+      commissionRate: 0.1,
+      shippingCost: 2500,
+    };
+
+    expect(apply).toBeTypeOf('function');
+    const [hydrated] = apply!([listing], [{
+      sku: { id: 'sku-1', sellableStock: 4, salePrice: 20_000 },
+      components: [
+        { purchasePrice: 1200, quantity: 2 },
+        { purchasePrice: 800, quantity: 1 },
+      ],
+    }]);
+
+    expect(hydrated.primaryOption).toMatchObject({
+      sellableStock: 4,
+      purchaseCost: 3200,
+      salePrice: 20_000,
+    });
+  });
+
   it('uniqueIds drops nullish + dedupes', () => {
     expect(uniqueIds(['a', 'b', null, 'a', undefined, 'c'])).toEqual(['a', 'b', 'c']);
   });
@@ -111,48 +166,27 @@ describe('domain/strategy-context — pure transforms', () => {
     });
   });
 
-  it('firstOptionByListing picks the first optionId per listing (insertion order)', () => {
-    const inv = new Map<string, InventoryRow>([
-      ['opt-a', makeInventoryRow('opt-a', 'L1', 0)],
-      ['opt-b', makeInventoryRow('opt-b', 'L1', 0)],
-      ['opt-c', makeInventoryRow('opt-c', 'L2', 0)],
-    ]);
-    const map = firstOptionByListing(inv);
-    expect(map.get('L1')).toBe('opt-a');
-    expect(map.get('L2')).toBe('opt-c');
-  });
-
-  it('sumListingStock totals availableStock across a listing', () => {
-    const inv = new Map<string, InventoryRow>([
-      ['opt-a', makeInventoryRow('opt-a', 'L1', 5)],
-      ['opt-b', makeInventoryRow('opt-b', 'L1', 7)],
-      ['opt-c', makeInventoryRow('opt-c', 'L2', 99)],
-    ]);
-    expect(sumListingStock(inv, 'L1')).toBe(12);
-    expect(sumListingStock(inv, 'L2')).toBe(99);
-  });
-
   it('computeListingProfitRate returns % scale, 0 when sell <= 0', () => {
     expect(
       computeListingProfitRate({
-        optionId: 'opt-1',
-        listingId: 'L1',
-        availableStock: 10,
-        costPrice: 5_000,
-        sellPrice: 20_000,
+        listingOptionId: 'opt-1',
+        sellableStock: 10,
+        purchaseCost: 5_000,
+        salePrice: 20_000,
         commissionRate: 0.1,
-      } as InventoryRow),
+        shippingCost: null,
+      }),
     ).toBe(65);
 
     expect(
       computeListingProfitRate({
-        optionId: 'opt-2',
-        listingId: 'L1',
-        availableStock: 0,
-        costPrice: 5_000,
-        sellPrice: 0,
+        listingOptionId: 'opt-2',
+        sellableStock: 0,
+        purchaseCost: 5_000,
+        salePrice: 0,
         commissionRate: 0.1,
-      } as InventoryRow),
+        shippingCost: null,
+      }),
     ).toBe(0);
 
     expect(computeListingProfitRate(null)).toBe(0);
@@ -164,13 +198,13 @@ describe('domain/strategy-context — pure transforms', () => {
     // value being preserved; treating "loss" as 0 would silently mask C-grade actions.
     expect(
       computeListingProfitRate({
-        optionId: 'opt-loss',
-        listingId: 'L1',
-        availableStock: 5,
-        costPrice: 12_000,
-        sellPrice: 10_000,
+        listingOptionId: 'opt-loss',
+        sellableStock: 5,
+        purchaseCost: 12_000,
+        salePrice: 10_000,
         commissionRate: 0.1,
-      } as InventoryRow),
+        shippingCost: null,
+      }),
     ).toBe(-30);
   });
 
@@ -178,13 +212,13 @@ describe('domain/strategy-context — pure transforms', () => {
     // Channel data sometimes lands without commission; we must not throw or return NaN.
     expect(
       computeListingProfitRate({
-        optionId: 'opt-no-commission',
-        listingId: 'L1',
-        availableStock: 5,
-        costPrice: 4_000,
-        sellPrice: 10_000,
+        listingOptionId: 'opt-no-commission',
+        sellableStock: 5,
+        purchaseCost: 4_000,
+        salePrice: 10_000,
         commissionRate: null,
-      } as InventoryRow),
+        shippingCost: null,
+      }),
     ).toBe(60);
   });
 
@@ -193,13 +227,13 @@ describe('domain/strategy-context — pure transforms', () => {
     // profitRate > 10 as a strong positive signal, so keep missing cost neutral.
     expect(
       computeListingProfitRate({
-        optionId: 'opt-no-cost',
-        listingId: 'L1',
-        availableStock: 5,
-        costPrice: null,
-        sellPrice: 10_000,
+        listingOptionId: 'opt-no-cost',
+        sellableStock: 5,
+        purchaseCost: null,
+        salePrice: 10_000,
         commissionRate: 0,
-      } as InventoryRow),
+        shippingCost: null,
+      }),
     ).toBe(0);
   });
 
@@ -208,13 +242,13 @@ describe('domain/strategy-context — pure transforms', () => {
     // margin should be exactly 0%, not -0% or NaN.
     expect(
       computeListingProfitRate({
-        optionId: 'opt-full-commission',
-        listingId: 'L1',
-        availableStock: 5,
-        costPrice: 0,
-        sellPrice: 10_000,
+        listingOptionId: 'opt-full-commission',
+        sellableStock: 5,
+        purchaseCost: 0,
+        salePrice: 10_000,
         commissionRate: 1,
-      } as InventoryRow),
+        shippingCost: null,
+      }),
     ).toBe(0);
   });
 
@@ -245,16 +279,5 @@ function makeHydratedListing(
       healthScore: null,
     },
     primaryOption: null,
-  };
-}
-
-function makeInventoryRow(optionId: string, listingId: string, availableStock: number): InventoryRow {
-  return {
-    optionId,
-    listingId,
-    availableStock,
-    costPrice: null,
-    sellPrice: null,
-    commissionRate: null,
   };
 }

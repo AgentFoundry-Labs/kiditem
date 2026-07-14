@@ -44,14 +44,14 @@ LLM/media/storage/fetch boundary, or large-file pressure.
 
 | Owner | Scope |
 |---|---|
-| `products` | catalog, options, categories compatibility, bundle stock |
-| `sourcing` | Chinese product discovery, candidate inbox, promotion |
-| `supply` | suppliers, master-supplier policy, purchase orders |
-| `inventory` | inventory, warehouses, transfers, audits, picking |
+| `products` | `/api/categories` compatibility only |
+| `sourcing` | Chinese product discovery, candidate inbox, account-scoped registration preparation |
+| `supply` | suppliers, Sellpia MasterProduct supplier policy, purchase orders |
+| `inventory` | Sellpia inventory snapshot, warehouses, transfer/picking records |
 | `orders` | orders, returns, CS/reviews, return-transfer surfaces |
 | `finance` | P&L, settlements, supplier payments, cost/plan analytics |
 | `advertising` | ad operations, scrape ingest, ad actions |
-| `channels` | marketplace account/listing/order sync and reconciliation |
+| `channels` | marketplace accounts, listing/SKU catalog import, matching, and order sync |
 | `ai` | image/text/detail-page/thumbnail AI boundaries |
 | `rules` | business policy definitions and Agent OS delegation |
 | `agent-os` | agent catalog, queue, runtime, policy, cost, observability |
@@ -82,14 +82,14 @@ Common owner-domain guides:
 | [`src/analytics/dashboard/AGENTS.md`](src/analytics/dashboard/AGENTS.md) | dashboard raw-SQL read model |
 | [`src/automation/AGENTS.md`](src/automation/AGENTS.md) | workflows, alerts, action board, panel |
 | [`src/auth/AGENTS.md`](src/auth/AGENTS.md) | guards, decorators, Supabase auth |
-| [`src/channels/AGENTS.md`](src/channels/AGENTS.md) | marketplace sync and reconciliation |
+| [`src/channels/AGENTS.md`](src/channels/AGENTS.md) | marketplace catalog import, matching, and sync |
 | [`src/chat/AGENTS.md`](src/chat/AGENTS.md) | CopilotKit and Claude CLI adapter |
 | [`src/finance/AGENTS.md`](src/finance/AGENTS.md) | finance aggregation and payments |
 | [`src/inventory/AGENTS.md`](src/inventory/AGENTS.md) | stock single-writer and inventory ops |
 | [`src/orders/AGENTS.md`](src/orders/AGENTS.md) | order/return channel-agnostic spine |
-| [`src/products/AGENTS.md`](src/products/AGENTS.md) | catalog/options/bundle stock |
+| [`src/products/AGENTS.md`](src/products/AGENTS.md) | categories compatibility only |
 | [`src/rules/AGENTS.md`](src/rules/AGENTS.md) | rules evaluation and Agent OS delegation |
-| [`src/sourcing/AGENTS.md`](src/sourcing/AGENTS.md) | discovery, candidate inbox, promotion |
+| [`src/sourcing/AGENTS.md`](src/sourcing/AGENTS.md) | discovery, candidate inbox, registration preparation |
 | [`src/supply/AGENTS.md`](src/supply/AGENTS.md) | suppliers and procurement |
 
 ## Global HTTP Rules

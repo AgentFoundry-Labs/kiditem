@@ -14,7 +14,8 @@ export interface ActionTaskSeedMetrics {
   minusProducts: number;
   lowProfitProducts: number;
   highAdProducts: number;
-  needReorder: number;
+  outOfStockSkus: number;
+  mappingAttentionSkus: number;
   adRate: number;
   lowCtrProducts: number;
   lowReviewProducts: number;
@@ -45,12 +46,20 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
       where: '쿠팡 윙', priority: 'high', role: 'finance', href: '/product-hub?tab=cleanup',
     });
   }
-  if (metrics.needReorder > 0) {
+  if (metrics.outOfStockSkus > 0) {
     seeds.push({
-      taskKey: 'h-reorder', type: 'human',
-      label: `${metrics.needReorder}개 상품 — 매입처에 발주`,
-      detail: '안전재고 이하 상품을 매입처에 발주서 전송',
-      where: '매입처/1688', priority: 'high', role: 'inventory', href: '/purchase-orders',
+      taskKey: 'h-zero-stock', type: 'human',
+      label: `셀피아 재고 0개 SKU ${metrics.outOfStockSkus}건 — 현황 확인`,
+      detail: '셀피아 최신 재고 스냅샷에서 수량이 0인 SKU 확인',
+      where: '재고 운영', priority: 'high', role: 'inventory', href: '/stock-ops?tab=sellpia-zero',
+    });
+  }
+  if (metrics.mappingAttentionSkus > 0) {
+    seeds.push({
+      taskKey: 'h-mapping-attention', type: 'human',
+      label: `채널 SKU 매칭 확인 ${metrics.mappingAttentionSkus}건`,
+      detail: '셀피아 재고 구성품이 연결되지 않은 채널 SKU 확인',
+      where: '상품 매칭', priority: 'high', role: 'inventory', href: '/product-hub/matching',
     });
   }
   if (metrics.adRate > 12) {
@@ -102,9 +111,9 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
 
   seeds.push({
     taskKey: 'recalc-grade', type: 'ai',
-    label: 'ABC 등급 재계산', detail: '14일 매출 기반 등급 재산정 + 변동 리포트',
+    label: 'ABC 등급 제안 분석', detail: '매출 Pareto 기준 현재 등급과 제안 등급 비교',
     priority: 'high', role: 'data',
-    apiCall: { url: '/api/products/calculate-grades', method: 'POST', body: {} },
+    apiCall: { url: '/api/statistics?type=pareto', method: 'GET' },
   });
   if (metrics.minusProducts > 0) {
     seeds.push({
@@ -112,7 +121,7 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
       label: `적자 상품 ${metrics.minusProducts}개 분석`,
       detail: '적자 원인 분석: 광고비 과다 / 원가 문제 / 가격 오류',
       priority: 'urgent', role: 'finance',
-      apiCall: { url: '/api/products?status=active&sortBy=profitRate&sortDir=asc&period=14', method: 'GET' },
+      apiCall: { url: '/api/profit-loss', method: 'GET' },
     });
   }
   seeds.push({
@@ -120,7 +129,7 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
     label: '광고 자동규칙 전략 분석',
     detail: 'A/B/C 등급별 광고 규칙 평가 → 수정 요청 생성',
     priority: 'urgent', role: 'ad',
-    apiCall: { url: '/api/ad-rules', method: 'GET' },
+    apiCall: { url: '/api/ads/strategy/recommend', method: 'GET' },
   });
   if (metrics.highAdProducts > 0) {
     seeds.push({
@@ -128,16 +137,7 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
       label: `광고비 초과 ${metrics.highAdProducts}개 분석`,
       detail: 'ROAS/CTR 분석 → 중단/축소/유지 판단',
       priority: 'high', role: 'ad',
-      apiCall: { url: '/api/products?sortBy=revenue&sortDir=desc&period=14', method: 'GET' },
-    });
-  }
-  if (metrics.needReorder > 0) {
-    seeds.push({
-      taskKey: 'analyze-stock', type: 'ai',
-      label: `재고 부족 ${metrics.needReorder}개 분석`,
-      detail: '판매속도 대비 재고일수 계산 → 발주 추천량',
-      priority: 'high', role: 'inventory',
-      apiCall: { url: '/api/inventory', method: 'GET' },
+      apiCall: { url: '/api/ads?limit=200', method: 'GET' },
     });
   }
   if (metrics.lowCtrProducts > 0) {
@@ -146,7 +146,7 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
       label: `썸네일 CTR 분석 (${metrics.lowCtrProducts}개)`,
       detail: 'CTR 1.5% 미만 상품 → 개선 우선순위',
       priority: 'medium', role: 'data',
-      apiCall: { url: '/api/products?sortBy=revenue&sortDir=desc&period=14', method: 'GET' },
+      apiCall: { url: '/api/ads?limit=200', method: 'GET' },
     });
   }
   seeds.push({
@@ -154,7 +154,7 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
     label: '카테고리별 성과 분석',
     detail: '카테고리별 매출/이익률/ROAS 비교',
     priority: 'medium', role: 'finance',
-    apiCall: { url: '/api/coupang/category', method: 'GET' },
+    apiCall: { url: '/api/statistics?type=categories', method: 'GET' },
   });
 
   return seeds;

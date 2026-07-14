@@ -41,7 +41,7 @@ describe('channelListingsApi', () => {
   it('loads one registered listing workspace', async () => {
     vi.mocked(apiClient.get).mockResolvedValueOnce({
       id: 'listing-1',
-      masterId: 'master-1',
+      listingName: '쿠팡 등록 상품',
     });
 
     await channelListingsApi.getWorkspace('listing-1');
@@ -49,7 +49,7 @@ describe('channelListingsApi', () => {
     expect(apiClient.get).toHaveBeenCalledWith('/api/channels/listings/listing-1/workspace');
   });
 
-  it('loads registered products as MasterProduct groups including deleted tab', async () => {
+  it('loads deleted registered listings through the canonical list endpoint', async () => {
     vi.mocked(apiClient.get).mockResolvedValueOnce({
       items: [],
       total: 0,
@@ -58,14 +58,14 @@ describe('channelListingsApi', () => {
       marketCounts: [],
     });
 
-    await channelListingsApi.listGroups({
+    await channelListingsApi.list({
       tab: 'deleted',
       channel: 'coupang',
       createdSince: '2026-05-11T00:00:00.000Z',
     });
 
     expect(apiClient.get).toHaveBeenCalledWith(
-      '/api/channels/listings/groups?page=1&limit=20&channel=coupang&createdSince=2026-05-11T00%3A00%3A00.000Z&tab=deleted',
+      '/api/channels/listings?page=1&limit=20&channel=coupang&createdSince=2026-05-11T00%3A00%3A00.000Z&tab=deleted',
     );
   });
 });

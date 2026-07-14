@@ -9,6 +9,9 @@ const ORGANIZATION_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '99999999-9999-9999-9999-999999999999';
 const MASTER_ID = '22222222-2222-4222-8222-222222222222';
 const GENERATION_ID = '33333333-3333-4333-8333-333333333333';
+const SOURCE_WORKSPACE_ID = '44444444-4444-4444-8444-444444444444';
+const DIRECT_WORKSPACE_ID = '55555555-5555-4555-8555-555555555555';
+const LISTING_WORKSPACE_ID = '66666666-6666-4666-8666-666666666666';
 
 const mocks = vi.hoisted(() => ({
   toThumbnailGenerationItem: vi.fn(),
@@ -149,6 +152,58 @@ describe('ThumbnailGenerationService operation alerts', () => {
       }),
     );
   });
+
+  it.each([
+    ['sourcing_candidate', SOURCE_WORKSPACE_ID],
+    ['direct_detail_page', DIRECT_WORKSPACE_ID],
+    ['channel_listing', LISTING_WORKSPACE_ID],
+  ] as const)(
+    'keeps %s ContentWorkspace as the thumbnail generation owner',
+    async (_ownerType, workspaceId) => {
+      const ledger = makeLedgerStub();
+      vi.mocked(ledger.findJobMastersByIds).mockResolvedValueOnce(
+        new Map([
+          [
+            workspaceId,
+            {
+              id: workspaceId,
+              name: `${_ownerType} workspace`,
+              imageUrl: 'https://cdn.example.com/source.jpg',
+              thumbnailUrl: null,
+              category: null,
+              images: [],
+              thumbnailAnalyses: [],
+            },
+          ],
+        ]),
+      );
+      vi.mocked(ledger.openPendingEditorJob).mockResolvedValueOnce({
+        id: GENERATION_ID,
+        masterId: workspaceId,
+        status: 'pending',
+      } as never);
+      const { service } = makeService(makeOperationAlertsStub(), ledger);
+
+      await service.createEditJobs(
+        [workspaceId],
+        ORGANIZATION_ID,
+        'quality',
+        'auto',
+        USER_ID,
+      );
+
+      expect(ledger.findJobMastersByIds).toHaveBeenCalledWith(
+        [workspaceId],
+        ORGANIZATION_ID,
+      );
+      expect(ledger.openPendingEditorJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          organizationId: ORGANIZATION_ID,
+          masterId: workspaceId,
+        }),
+      );
+    },
+  );
 
   it('records cancellation audit in the thumbnail generation event payload', async () => {
     const ledger = makeLedgerStub();

@@ -30,9 +30,9 @@ model Thumbnail {
 /// @namespace AI
 /// @describe 5차원 scores(heroShot·composition·branding·mobile·differentiation) + complianceGrade(PASS/WARN/FAIL) + imageSpec(사전검수). 스펙 FAIL 시 AI 호출 생략.
 model ThumbnailAnalysis {
-  id             String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-  masterId       String @unique @map("master_id") @db.Uuid
+  id                 String @id @default(uuid()) @db.Uuid
+  organizationId     String @map("organization_id") @db.Uuid
+  contentWorkspaceId String @unique @map("content_workspace_id") @db.Uuid
 
   imageUrl     String @map("image_url")
   overallScore Int    @default(0) @map("overall_score")
@@ -53,10 +53,11 @@ model ThumbnailAnalysis {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  master       MasterProduct @relation(fields: [masterId], references: [id], onDelete: Cascade)
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contentWorkspace ContentWorkspace @relation(fields: [contentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
   @@index([organizationId])
+  @@index([contentWorkspaceId])
   @@index([grade])
   @@index([complianceGrade])
   @@map("thumbnail_analyses")
@@ -67,9 +68,8 @@ model ThumbnailAnalysis {
 model ThumbnailGeneration {
   id                 String  @id @default(uuid()) @db.Uuid
   organizationId     String  @map("organization_id") @db.Uuid
-  masterId           String? @map("master_id") @db.Uuid
   sourceCandidateId  String? @map("source_candidate_id") @db.Uuid
-  contentWorkspaceId String? @map("content_workspace_id") @db.Uuid
+  contentWorkspaceId String  @map("content_workspace_id") @db.Uuid
 
   originalUrl          String?                         @map("original_url")
   candidates           ThumbnailGenerationCandidate[]
@@ -97,16 +97,16 @@ model ThumbnailGeneration {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization                   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  master                         MasterProduct?       @relation(fields: [masterId], references: [id], onDelete: Cascade)
-  sourceCandidate                SourcingCandidate?   @relation("ThumbnailGenerationSourcingCandidate", fields: [sourceCandidateId], references: [id], onDelete: SetNull)
-  contentWorkspace               ContentWorkspace?    @relation("ThumbnailGenerationContentWorkspace", fields: [contentWorkspaceId], references: [id], onDelete: SetNull)
+  organization                   Organization                         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceCandidate                SourcingCandidate?                   @relation("ThumbnailGenerationSourcingCandidate", fields: [sourceCandidateId], references: [id], onDelete: SetNull)
+  contentWorkspace               ContentWorkspace                     @relation("ThumbnailGenerationContentWorkspace", fields: [contentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Cascade)
   trackings                      ThumbnailTracking[]
-  triggeredByUser                User?                @relation("ThumbnailGenerationTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
-  selectedForProductPreparations ProductPreparation[] @relation("ProductPreparationSelectedThumbnailGeneration")
+  triggeredByUser                User?                                @relation("ThumbnailGenerationTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  selectedForProductPreparations ProductPreparation[]                 @relation("ProductPreparationSelectedThumbnailGeneration")
+  thumbnailSelections            ContentWorkspaceThumbnailSelection[] @relation("ContentWorkspaceThumbnailSelectionGeneration")
 
+  @@unique([id, organizationId], map: "thumbnail_generations_id_org_key")
   @@index([organizationId])
-  @@index([masterId])
   @@index([sourceCandidateId])
   @@index([contentWorkspaceId])
   @@index([status])
@@ -141,11 +141,13 @@ model ThumbnailGenerationCandidate {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization                   Organization                    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  generation                     ThumbnailGeneration             @relation(fields: [generationId], references: [id], onDelete: Cascade)
+  organization                   Organization                         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  generation                     ThumbnailGeneration                  @relation(fields: [generationId], references: [id], onDelete: Cascade)
   derivedInputs                  ThumbnailGenerationInputImage[]
-  selectedForProductPreparations ProductPreparation[]            @relation("ProductPreparationSelectedThumbnailGenerationCandidate")
+  selectedForProductPreparations ProductPreparation[]                 @relation("ProductPreparationSelectedThumbnailGenerationCandidate")
+  thumbnailSelections            ContentWorkspaceThumbnailSelection[] @relation("ContentWorkspaceThumbnailSelectionCandidate")
 
+  @@unique([id, organizationId], map: "thumbnail_generation_candidates_id_org_key")
   @@index([organizationId])
   @@index([generationId])
   @@index([organizationId, generationId])
@@ -166,7 +168,6 @@ model ThumbnailGenerationInputImage {
   label                      String?
   sortOrder                  Int     @default(0) @map("sort_order")
   source                     String  @default("upload")
-  masterImageId              String? @map("master_image_id") @db.Uuid
   candidateImageId           String? @map("candidate_image_id") @db.Uuid
   sourceThumbnailCandidateId String? @map("source_candidate_id") @db.Uuid
 
@@ -180,13 +181,11 @@ model ThumbnailGenerationInputImage {
 
   organization             Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   generation               ThumbnailGeneration           @relation(fields: [generationId], references: [id], onDelete: Cascade)
-  masterImage              MasterProductImage?           @relation(fields: [masterImageId], references: [id], onDelete: SetNull)
   candidateImage           CandidateImage?               @relation(fields: [candidateImageId], references: [id], onDelete: SetNull)
   sourceThumbnailCandidate ThumbnailGenerationCandidate? @relation(fields: [sourceThumbnailCandidateId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
   @@index([generationId])
-  @@index([masterImageId])
   @@index([candidateImageId])
   @@index([sourceThumbnailCandidateId])
   @@index([organizationId, generationId])
@@ -332,7 +331,7 @@ model ContentGeneration {
   id                   String    @id @default(uuid()) @db.Uuid
   organizationId       String    @map("organization_id") @db.Uuid
   generationGroupId    String    @map("generation_group_id") @db.Uuid
-  contentWorkspaceId   String?   @map("content_workspace_id") @db.Uuid
+  contentWorkspaceId   String    @map("content_workspace_id") @db.Uuid
   sourceCandidateId    String?   @map("source_candidate_id") @db.Uuid
   detailPageArtifactId String?   @map("detail_page_artifact_id") @db.Uuid
   contentType          String    @default("detail_page") @map("content_type")
@@ -355,7 +354,7 @@ model ContentGeneration {
 
   organization                   Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   generationGroup                ContentGenerationGroup        @relation("ContentGenerationGroupMembers", fields: [generationGroupId], references: [id], onDelete: Cascade)
-  contentWorkspace               ContentWorkspace?             @relation("ContentGenerationContentWorkspace", fields: [contentWorkspaceId], references: [id], onDelete: SetNull)
+  contentWorkspace               ContentWorkspace              @relation("ContentGenerationContentWorkspace", fields: [contentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Cascade)
   sourceCandidate                SourcingCandidate?            @relation("ContentGenerationPrimarySourcingCandidate", fields: [sourceCandidateId], references: [id], onDelete: SetNull)
   detailPageArtifact             DetailPageArtifact?           @relation("ContentGenerationDetailPageArtifact", fields: [detailPageArtifactId], references: [id], onDelete: SetNull)
   triggeredByUser                User?                         @relation("ContentGenerationTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
@@ -367,6 +366,7 @@ model ContentGeneration {
   detailPageRevisions            DetailPageRevision[]          @relation("DetailPageRevisionContentGeneration")
   selectedForProductPreparations ProductPreparation[]          @relation("ProductPreparationSelectedDetailPageGeneration")
 
+  @@unique([id, organizationId], map: "content_generations_id_org_key")
   @@index([organizationId])
   @@index([generationGroupId])
   @@index([contentWorkspaceId])
@@ -392,9 +392,7 @@ model ContentGeneration {
 model DetailPageArtifact {
   id                        String    @id @default(uuid()) @db.Uuid
   organizationId            String    @map("organization_id") @db.Uuid
-  contentWorkspaceId        String?   @map("content_workspace_id") @db.Uuid
-  sourceCandidateId         String?   @map("source_candidate_id") @db.Uuid
-  targetMasterId            String?   @map("target_master_id") @db.Uuid
+  contentWorkspaceId        String    @map("content_workspace_id") @db.Uuid
   sourceContentGenerationId String?   @map("source_content_generation_id") @db.Uuid
   currentRevisionId         String?   @map("current_revision_id") @db.Uuid
   title                     String?
@@ -408,9 +406,7 @@ model DetailPageArtifact {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization                   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  contentWorkspace               ContentWorkspace?    @relation("DetailPageArtifactContentWorkspace", fields: [contentWorkspaceId], references: [id], onDelete: SetNull)
-  sourceCandidate                SourcingCandidate?   @relation("DetailPageArtifactSourcingCandidate", fields: [sourceCandidateId], references: [id], onDelete: SetNull)
-  targetMaster                   MasterProduct?       @relation("DetailPageArtifactTargetMaster", fields: [targetMasterId], references: [id], onDelete: SetNull)
+  contentWorkspace               ContentWorkspace     @relation("DetailPageArtifactContentWorkspace", fields: [contentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Cascade)
   sourceContentGeneration        ContentGeneration?   @relation("DetailPageArtifactSourceGeneration", fields: [sourceContentGenerationId], references: [id], onDelete: SetNull)
   currentRevision                DetailPageRevision?  @relation("DetailPageArtifactCurrentRevision", fields: [currentRevisionId], references: [id], onDelete: SetNull)
   createdByUser                  User?                @relation("DetailPageArtifactCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
@@ -419,35 +415,33 @@ model DetailPageArtifact {
   currentForContentWorkspaces    ContentWorkspace[]   @relation("ContentWorkspaceCurrentArtifact")
   selectedForProductPreparations ProductPreparation[] @relation("ProductPreparationSelectedDetailPageArtifact")
 
+  @@unique([id, organizationId], map: "detail_page_artifacts_id_org_key")
   @@index([organizationId])
   @@index([contentWorkspaceId])
-  @@index([sourceCandidateId])
-  @@index([targetMasterId])
   @@index([sourceContentGenerationId])
   @@index([currentRevisionId])
   @@index([createdByUserId])
-  @@index([organizationId, sourceCandidateId])
   @@index([organizationId, contentWorkspaceId])
-  @@index([organizationId, targetMasterId])
   @@index([organizationId, status])
   @@index([organizationId, isDeleted])
-  @@index([organizationId, sourceCandidateId, isDeleted])
   @@map("detail_page_artifacts")
 }
 
 /// @namespace AI
-/// @describe Product content workspace. Detail-page and thumbnail generations for the same owner/title accumulate here as versioned content history before or after MasterProduct creation.
+/// @describe Product content workspace owned by a sourcing candidate, channel listing, or direct detail page.
 model ContentWorkspace {
   id                          String    @id @default(uuid()) @db.Uuid
   organizationId              String    @map("organization_id") @db.Uuid
   ownerType                   String    @map("owner_type")
   sourceCandidateId           String?   @map("source_candidate_id") @db.Uuid
-  targetMasterId              String?   @map("target_master_id") @db.Uuid
+  channelListingId            String?   @map("channel_listing_id") @db.Uuid
+  originWorkspaceId           String?   @map("origin_workspace_id") @db.Uuid
   displayName                 String    @map("display_name")
   normalizedTitle             String    @map("normalized_title")
   status                      String    @default("active")
   currentDetailPageArtifactId String?   @map("current_detail_page_artifact_id") @db.Uuid
   currentDetailPageRevisionId String?   @map("current_detail_page_revision_id") @db.Uuid
+  currentThumbnailSelectionId String?   @map("current_thumbnail_selection_id") @db.Uuid
   createdByUserId             String?   @map("created_by_user_id") @db.Uuid
   isDeleted                   Boolean   @default(false) @map("is_deleted")
   deletedAt                   DateTime? @map("deleted_at") @db.Timestamptz
@@ -455,32 +449,71 @@ model ContentWorkspace {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization              Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceCandidate           SourcingCandidate?    @relation("ContentWorkspaceSourcingCandidate", fields: [sourceCandidateId], references: [id], onDelete: SetNull)
-  targetMaster              MasterProduct?        @relation("ContentWorkspaceTargetMaster", fields: [targetMasterId], references: [id], onDelete: SetNull)
-  currentDetailPageArtifact DetailPageArtifact?   @relation("ContentWorkspaceCurrentArtifact", fields: [currentDetailPageArtifactId], references: [id], onDelete: SetNull)
-  currentDetailPageRevision DetailPageRevision?   @relation("ContentWorkspaceCurrentRevision", fields: [currentDetailPageRevisionId], references: [id], onDelete: SetNull)
-  createdByUser             User?                 @relation("ContentWorkspaceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  contentGenerations        ContentGeneration[]   @relation("ContentGenerationContentWorkspace")
-  detailPageArtifacts       DetailPageArtifact[]  @relation("DetailPageArtifactContentWorkspace")
-  productPreparations       ProductPreparation[]  @relation("ProductPreparationContentWorkspace")
-  thumbnailGenerations      ThumbnailGeneration[] @relation("ThumbnailGenerationContentWorkspace")
+  organization              Organization                         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceCandidate           SourcingCandidate?                   @relation("ContentWorkspaceSourcingCandidate", fields: [sourceCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  channelListing            ChannelListing?                      @relation(fields: [channelListingId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  originWorkspace           ContentWorkspace?                    @relation("ContentWorkspaceBranches", fields: [originWorkspaceId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  derivedWorkspaces         ContentWorkspace[]                   @relation("ContentWorkspaceBranches")
+  currentDetailPageArtifact DetailPageArtifact?                  @relation("ContentWorkspaceCurrentArtifact", fields: [currentDetailPageArtifactId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  currentDetailPageRevision DetailPageRevision?                  @relation("ContentWorkspaceCurrentRevision", fields: [currentDetailPageRevisionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  currentThumbnailSelection ContentWorkspaceThumbnailSelection?  @relation("ContentWorkspaceCurrentThumbnail", fields: [currentThumbnailSelectionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  createdByUser             User?                                @relation("ContentWorkspaceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  contentGenerations        ContentGeneration[]                  @relation("ContentGenerationContentWorkspace")
+  detailPageArtifacts       DetailPageArtifact[]                 @relation("DetailPageArtifactContentWorkspace")
+  thumbnailAnalyses         ThumbnailAnalysis[]
+  thumbnailGenerations      ThumbnailGeneration[]                @relation("ThumbnailGenerationContentWorkspace")
+  thumbnailSelections       ContentWorkspaceThumbnailSelection[] @relation("ContentWorkspaceThumbnailSelections")
+  sourceProductPreparations ProductPreparation[]                 @relation("ProductPreparationSourceContentWorkspace")
+  contentGenerationGroups   ContentGenerationGroup[]
 
-  @@unique([organizationId, ownerType, normalizedTitle], map: "content_workspaces_direct_title_unique", where: raw("owner_type = 'direct_detail_page' AND source_candidate_id IS NULL AND target_master_id IS NULL AND status = 'active' AND is_deleted = false"))
+  @@unique([organizationId, ownerType, normalizedTitle], map: "content_workspaces_direct_title_unique", where: raw("owner_type = 'direct_detail_page' AND source_candidate_id IS NULL AND channel_listing_id IS NULL AND status = 'active' AND is_deleted = false"))
   @@unique([organizationId, sourceCandidateId, normalizedTitle], map: "content_workspaces_candidate_title_unique", where: raw("source_candidate_id IS NOT NULL AND status = 'active' AND is_deleted = false"))
-  @@unique([organizationId, targetMasterId, normalizedTitle], map: "content_workspaces_master_title_unique", where: raw("target_master_id IS NOT NULL AND status = 'active' AND is_deleted = false"))
+  @@unique([organizationId, sourceCandidateId], map: "content_workspaces_candidate_active_key", where: raw("source_candidate_id IS NOT NULL AND status = 'active' AND is_deleted = false"))
+  @@unique([organizationId, channelListingId], map: "content_workspaces_listing_active_key", where: raw("channel_listing_id IS NOT NULL AND status = 'active' AND is_deleted = false"))
+  @@unique([id, organizationId], map: "content_workspaces_id_org_key")
+  @@unique([currentThumbnailSelectionId, organizationId], map: "content_workspaces_current_thumbnail_key", where: raw("current_thumbnail_selection_id IS NOT NULL"))
   @@index([organizationId])
   @@index([sourceCandidateId])
-  @@index([targetMasterId])
+  @@index([channelListingId])
+  @@index([originWorkspaceId])
   @@index([currentDetailPageArtifactId])
   @@index([currentDetailPageRevisionId])
+  @@index([currentThumbnailSelectionId])
   @@index([createdByUserId])
   @@index([organizationId, status, isDeleted])
   @@index([organizationId, normalizedTitle, status, isDeleted])
   @@index([organizationId, ownerType, normalizedTitle, status, isDeleted])
   @@index([organizationId, sourceCandidateId, status, isDeleted])
-  @@index([organizationId, targetMasterId, status, isDeleted])
   @@map("content_workspaces")
+}
+
+/// @namespace AI
+/// @describe Stable workspace-owned thumbnail adoption with optional generation provenance.
+model ContentWorkspaceThumbnailSelection {
+  id                          String   @id @default(uuid()) @db.Uuid
+  organizationId              String   @map("organization_id") @db.Uuid
+  contentWorkspaceId          String   @map("content_workspace_id") @db.Uuid
+  contentAssetId              String   @map("content_asset_id") @db.Uuid
+  sourceThumbnailGenerationId String?  @map("source_thumbnail_generation_id") @db.Uuid
+  sourceThumbnailCandidateId  String?  @map("source_thumbnail_candidate_id") @db.Uuid
+  createdByUserId             String?  @map("created_by_user_id") @db.Uuid
+  createdAt                   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization        Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contentWorkspace    ContentWorkspace              @relation("ContentWorkspaceThumbnailSelections", fields: [contentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  contentAsset        ContentAsset                  @relation(fields: [contentAssetId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceGeneration    ThumbnailGeneration?          @relation("ContentWorkspaceThumbnailSelectionGeneration", fields: [sourceThumbnailGenerationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceCandidate     ThumbnailGenerationCandidate? @relation("ContentWorkspaceThumbnailSelectionCandidate", fields: [sourceThumbnailCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  createdByUser       User?                         @relation("ContentWorkspaceThumbnailSelectionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  currentForWorkspace ContentWorkspace?             @relation("ContentWorkspaceCurrentThumbnail")
+
+  @@unique([id, organizationId], map: "content_workspace_thumbnail_selections_id_org_key")
+  @@index([organizationId])
+  @@index([contentWorkspaceId])
+  @@index([contentAssetId])
+  @@index([sourceThumbnailGenerationId])
+  @@index([sourceThumbnailCandidateId])
+  @@map("content_workspace_thumbnail_selections")
 }
 
 /// @namespace AI
@@ -489,14 +522,13 @@ model ProductPreparation {
   id             String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
 
-  sourceCandidateId  String? @map("source_candidate_id") @db.Uuid
-  masterId           String? @map("master_id") @db.Uuid
-  contentWorkspaceId String? @map("content_workspace_id") @db.Uuid
+  sourceCandidateId        String  @map("source_candidate_id") @db.Uuid
+  channelAccountId         String  @map("channel_account_id") @db.Uuid
+  sourceContentWorkspaceId String  @map("source_content_workspace_id") @db.Uuid
+  channelListingId         String? @map("channel_listing_id") @db.Uuid
 
-  displayName        String    @map("display_name")
-  status             String    @default("draft")
-  isCurrentForMaster Boolean   @default(false) @map("is_current_for_master")
-  appliedToMasterAt  DateTime? @map("applied_to_master_at") @db.Timestamptz
+  displayName String @map("display_name")
+  status      String @default("draft")
 
   selectedThumbnailUrl                   String? @map("selected_thumbnail_url")
   selectedThumbnailGenerationId          String? @map("selected_thumbnail_generation_id") @db.Uuid
@@ -505,7 +537,16 @@ model ProductPreparation {
   selectedDetailPageRevisionId           String? @map("selected_detail_page_revision_id") @db.Uuid
   selectedDetailPageGenerationId         String? @map("selected_detail_page_generation_id") @db.Uuid
 
-  registrationInput Json @default("{}") @map("registration_input")
+  registrationInput        Json      @default("{}") @map("registration_input")
+  submissionKey            String    @map("submission_key")
+  providerSubmissionId     String?   @map("provider_submission_id")
+  lastError                String?   @map("last_error")
+  registrationResult       Json?     @map("registration_result")
+  submissionPayloadJson    Json?     @map("submission_payload_json")
+  submissionPayloadHash    String?   @map("submission_payload_hash")
+  providerOutcome          String?   @map("provider_outcome")
+  submissionLeaseToken     String?   @map("submission_lease_token") @db.Uuid
+  submissionLeaseClaimedAt DateTime? @map("submission_lease_claimed_at") @db.Timestamptz
 
   createdByUserId String?   @map("created_by_user_id") @db.Uuid
   isDeleted       Boolean   @default(false) @map("is_deleted")
@@ -514,24 +555,24 @@ model ProductPreparation {
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization                         Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceCandidate                      SourcingCandidate?            @relation(fields: [sourceCandidateId], references: [id], onDelete: SetNull)
-  master                               MasterProduct?                @relation(fields: [masterId], references: [id], onDelete: SetNull)
-  contentWorkspace                     ContentWorkspace?             @relation("ProductPreparationContentWorkspace", fields: [contentWorkspaceId], references: [id], onDelete: SetNull)
-  selectedDetailPageArtifact           DetailPageArtifact?           @relation("ProductPreparationSelectedDetailPageArtifact", fields: [selectedDetailPageArtifactId], references: [id], onDelete: SetNull)
-  selectedDetailPageRevision           DetailPageRevision?           @relation("ProductPreparationSelectedDetailPageRevision", fields: [selectedDetailPageRevisionId], references: [id], onDelete: SetNull)
-  selectedDetailPageGeneration         ContentGeneration?            @relation("ProductPreparationSelectedDetailPageGeneration", fields: [selectedDetailPageGenerationId], references: [id], onDelete: SetNull)
-  selectedThumbnailGeneration          ThumbnailGeneration?          @relation("ProductPreparationSelectedThumbnailGeneration", fields: [selectedThumbnailGenerationId], references: [id], onDelete: SetNull)
-  selectedThumbnailGenerationCandidate ThumbnailGenerationCandidate? @relation("ProductPreparationSelectedThumbnailGenerationCandidate", fields: [selectedThumbnailGenerationCandidateId], references: [id], onDelete: SetNull)
+  sourceCandidate                      SourcingCandidate             @relation(fields: [sourceCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  channelAccount                       ChannelAccount                @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceContentWorkspace               ContentWorkspace              @relation("ProductPreparationSourceContentWorkspace", fields: [sourceContentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  channelListing                       ChannelListing?               @relation(fields: [channelListingId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  selectedDetailPageArtifact           DetailPageArtifact?           @relation("ProductPreparationSelectedDetailPageArtifact", fields: [selectedDetailPageArtifactId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  selectedDetailPageRevision           DetailPageRevision?           @relation("ProductPreparationSelectedDetailPageRevision", fields: [selectedDetailPageRevisionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  selectedDetailPageGeneration         ContentGeneration?            @relation("ProductPreparationSelectedDetailPageGeneration", fields: [selectedDetailPageGenerationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  selectedThumbnailGeneration          ThumbnailGeneration?          @relation("ProductPreparationSelectedThumbnailGeneration", fields: [selectedThumbnailGenerationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  selectedThumbnailGenerationCandidate ThumbnailGenerationCandidate? @relation("ProductPreparationSelectedThumbnailGenerationCandidate", fields: [selectedThumbnailGenerationCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
   createdByUser                        User?                         @relation("ProductPreparationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
-  @@unique([organizationId, sourceCandidateId], map: "product_preparations_org_source_candidate_active_key", where: raw("source_candidate_id IS NOT NULL AND is_deleted = false"))
-  @@unique([organizationId, masterId], map: "product_preparations_org_master_current_key", where: raw("master_id IS NOT NULL AND is_current_for_master = true AND is_deleted = false"))
+  @@unique([organizationId, sourceCandidateId, channelAccountId], map: "product_preparations_org_source_account_active_key", where: raw("status = ANY (ARRAY['draft'::text, 'submitting'::text, 'failed'::text]) AND is_deleted = false"))
+  @@unique([organizationId, submissionKey])
   @@index([organizationId, status, isDeleted])
   @@index([sourceCandidateId])
-  @@index([masterId])
-  @@index([organizationId, masterId, isDeleted])
-  @@index([organizationId, masterId, isCurrentForMaster, isDeleted])
-  @@index([contentWorkspaceId])
+  @@index([channelAccountId])
+  @@index([sourceContentWorkspaceId])
+  @@index([channelListingId])
   @@index([selectedDetailPageArtifactId])
   @@index([selectedDetailPageRevisionId])
   @@index([selectedDetailPageGenerationId])
@@ -564,6 +605,7 @@ model DetailPageRevision {
   currentForContentWorkspaces    ContentWorkspace[]   @relation("ContentWorkspaceCurrentRevision")
   selectedForProductPreparations ProductPreparation[] @relation("ProductPreparationSelectedDetailPageRevision")
 
+  @@unique([id, organizationId], map: "detail_page_revisions_id_org_key")
   @@index([organizationId])
   @@index([artifactId])
   @@index([contentGenerationId])
@@ -574,12 +616,12 @@ model DetailPageRevision {
 }
 
 /// @namespace AI
-/// @describe Same-input generation group. Product-less groups are standalone generated-content workspaces; product-bound groups remain candidate lineage inside a Master workspace.
+/// @describe Same-input generation group owned by a content workspace.
 model ContentGenerationGroup {
   id                      String  @id @default(uuid()) @db.Uuid
   organizationId          String  @map("organization_id") @db.Uuid
   groupType               String  @default("input_variation") @map("group_type")
-  targetMasterId          String? @map("target_master_id") @db.Uuid
+  contentWorkspaceId      String  @map("content_workspace_id") @db.Uuid
   baseContentGenerationId String? @map("base_content_generation_id") @db.Uuid
   title                   String?
   inputFingerprint        String? @map("input_fingerprint")
@@ -590,15 +632,15 @@ model ContentGenerationGroup {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization          Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  targetMaster          MasterProduct?      @relation(fields: [targetMasterId], references: [id], onDelete: SetNull)
+  contentWorkspace      ContentWorkspace    @relation(fields: [contentWorkspaceId, organizationId], references: [id, organizationId], onDelete: Cascade)
   baseContentGeneration ContentGeneration?  @relation("ContentGenerationGroupBase", fields: [baseContentGenerationId], references: [id], onDelete: SetNull)
   generations           ContentGeneration[] @relation("ContentGenerationGroupMembers")
-  assets                ContentAsset[]
+  originatingAssets     ContentAsset[]      @relation("ContentAssetOriginGenerationGroup")
 
-  @@unique([organizationId, targetMasterId], map: "content_generation_groups_product_workspace_unique", where: raw("target_master_id IS NOT NULL AND group_type = 'product_workspace'"))
+  @@unique([id, organizationId], map: "content_generation_groups_id_org_key")
   @@index([organizationId])
   @@index([organizationId, groupType])
-  @@index([organizationId, targetMasterId])
+  @@index([contentWorkspaceId])
   @@index([baseContentGenerationId])
   @@index([inputFingerprint])
   @@map("content_generation_groups")
@@ -640,12 +682,12 @@ model ContentGenerationSource {
 }
 
 /// @namespace AI
-/// @describe Generated/editable media workspace asset. Product gallery adoption copies selected rows into MasterProductImage.
+/// @describe Organization-scoped managed media with optional generation-group provenance.
 model ContentAsset {
-  id                String  @id @default(uuid()) @db.Uuid
-  organizationId    String  @map("organization_id") @db.Uuid
-  generationGroupId String  @map("generation_group_id") @db.Uuid
-  createdByUserId   String? @map("created_by_user_id") @db.Uuid
+  id                      String  @id @default(uuid()) @db.Uuid
+  organizationId          String  @map("organization_id") @db.Uuid
+  originGenerationGroupId String? @map("origin_generation_group_id") @db.Uuid
+  createdByUserId         String? @map("created_by_user_id") @db.Uuid
 
   assetKey   String  @map("asset_key")
   url        String
@@ -667,18 +709,19 @@ model ContentAsset {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization      Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  generationGroup   ContentGenerationGroup        @relation(fields: [generationGroupId], references: [id], onDelete: Cascade)
-  createdByUser     User?                         @relation("ContentAssetCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
-  usages            ContentGenerationAssetUsage[]
-  generationSources ContentGenerationSource[]
+  organization          Organization                         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  originGenerationGroup ContentGenerationGroup?              @relation("ContentAssetOriginGenerationGroup", fields: [originGenerationGroupId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  createdByUser         User?                                @relation("ContentAssetCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  usages                ContentGenerationAssetUsage[]
+  generationSources     ContentGenerationSource[]
+  thumbnailSelections   ContentWorkspaceThumbnailSelection[]
 
   @@unique([organizationId, assetKey])
+  @@unique([id, organizationId], map: "content_assets_id_org_key")
   @@index([organizationId])
-  @@index([generationGroupId])
+  @@index([originGenerationGroupId])
   @@index([createdByUserId])
   @@index([organizationId, assetType])
-  @@index([organizationId, generationGroupId])
   @@map("content_assets")
 }
 

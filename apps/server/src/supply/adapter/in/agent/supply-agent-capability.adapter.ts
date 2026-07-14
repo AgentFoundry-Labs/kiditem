@@ -13,6 +13,7 @@ import type { AgentCapabilityHandler } from '../../../../agent-os/application/po
 
 const PurchaseOrderDraftInputSchema = z.object({
   recommendationArtifactId: z.string().uuid().optional(),
+  masterProductId: z.string().uuid(),
   productName: z.string().min(1),
   supplierName: z.string().min(1),
   supplierId: z.string().uuid().optional(),
@@ -44,6 +45,7 @@ const PurchaseOrderSubmissionOutputSchema = z.object({
 function recommendationFromInput(input: Record<string, unknown>) {
   const parsed = PurchaseOrderDraftInputSchema.parse(input);
   return {
+    masterProductId: parsed.masterProductId,
     productName: parsed.productName,
     supplierName: parsed.supplierName,
     supplierId: parsed.supplierId ?? null,

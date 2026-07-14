@@ -6,13 +6,10 @@ const sharedSrc = path.resolve(__dirname, '../../packages/shared/src');
 /**
  * Integration test config — real Postgres 기반.
  *
- * - `docker-compose.test.yml` 로 띄운 격리 Postgres(5434) 를 대상으로 한다.
+ * - Testcontainers 가 invocation 당 격리된 Postgres 17 컨테이너를 하나 기동한다.
  * - 파일명 규칙: `**\/*.pg.integration.spec.ts` — unit(vitest.config.ts) / e2e(vitest.config.e2e.ts) 와 구분.
- * - 루트에서 `npm run test:integration` 으로 실행 (DATABASE_URL 주입 + root 고정).
- *
- * 실행 전 필요:
- *   npm run db:test:up         # Postgres tmpfs 기동
- *   npm run db:test:prepare    # prisma db push (schema)
+ * - global setup 이 동적 DATABASE_URL 로 Prisma schema 를 push 한 뒤 worker 에 전달한다.
+ * - 루트에서 `npm run test:integration` 한 번으로 실행하고 종료 시 자동 정리한다.
  *
  * 단일 fork 로 serial 실행:
  *   - TRUNCATE CASCADE 기반 reset 은 트랜잭션 중첩에 취약 → singleFork 로 격리 단순화
@@ -32,6 +29,8 @@ export default defineConfig({
   },
   test: {
     root: '.',
+    globalSetup: './src/test-helpers/postgres-global-setup.ts',
+    setupFiles: ['./src/test-helpers/postgres-test-env.setup.ts'],
     include: [
       'src/**/*.pg.integration.spec.ts',
       'src/**/__tests__/*.pg.integration.spec.ts',

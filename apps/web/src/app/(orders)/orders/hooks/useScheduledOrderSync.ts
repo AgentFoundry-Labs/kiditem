@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import { apiClient } from '@/lib/api-client';
+import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 import { queryKeys } from '@/lib/query-keys';
 import { getCurrentSyncWindow, makeDateHourKey } from '../lib/order-pipeline';
 
@@ -27,7 +28,7 @@ export function useScheduledOrderSync() {
       if (!windowInfo) return { status: 'skipped' as const };
 
       const storageKey = `${STORAGE_PREFIX}${windowInfo.dateHour}`;
-      if (sessionStorage.getItem(storageKey) === 'success') {
+      if (safeStorageGet('session', storageKey) === 'success') {
         return { status: 'already-synced' as const };
       }
 
@@ -38,7 +39,7 @@ export function useScheduledOrderSync() {
             to: windowInfo.to,
           }),
         );
-        sessionStorage.setItem(storageKey, 'success');
+        safeStorageSet('session', storageKey, 'success');
         await queryClient.invalidateQueries({ queryKey: queryKeys.orders.all });
         toast.success(`쿠팡 주문 동기화 완료: ${result.synced}건`);
         return { status: 'synced' as const, result };

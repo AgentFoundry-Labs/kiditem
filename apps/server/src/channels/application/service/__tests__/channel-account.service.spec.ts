@@ -152,4 +152,130 @@ describe('ChannelAccountService — Coupang account settings', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(tx.channelAccount.create).not.toHaveBeenCalled();
   });
+
+  it('creates and switches to a distinct account when the Coupang store identity changes', async () => {
+    const prisma = makePrisma();
+    const tx = makeTx();
+    const service = new ChannelAccountRepositoryAdapter(prisma as never);
+    const primary = {
+      id: 'account-a',
+      organizationId: ORGANIZATION_ID,
+      channel: 'coupang',
+      name: 'Store A',
+      externalAccountId: 'A00000001',
+      vendorId: 'A00000001',
+      status: 'active',
+      isPrimary: true,
+      config: {},
+    };
+    const created = {
+      id: 'account-b',
+      organizationId: ORGANIZATION_ID,
+      channel: 'coupang',
+      name: '쿠팡 Wing',
+      externalAccountId: 'B00000002',
+      vendorId: 'B00000002',
+      status: 'active',
+      isPrimary: true,
+      config: {},
+      updatedAt: new Date('2026-07-13T00:00:00.000Z'),
+    };
+
+    prisma.$transaction.mockImplementation(async (cb: (txArg: typeof tx) => Promise<void>) =>
+      cb(tx),
+    );
+    tx.channelAccount.findFirst.mockResolvedValueOnce(null);
+    tx.channelAccount.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+      Object.assign(created, data);
+      return { id: created.id };
+    });
+    tx.channelAccount.updateMany.mockResolvedValue({ count: 1 });
+    prisma.channelAccount.findFirst.mockResolvedValue(created);
+
+    await service.upsertCoupangSettings(ORGANIZATION_ID, {
+      vendorId: 'B00000002',
+      accessKey: 'store-b-access',
+      secretKey: 'store-b-secret',
+    });
+
+    expect(tx.channelAccount.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        externalAccountId: 'B00000002',
+        vendorId: 'B00000002',
+        isPrimary: true,
+      }),
+    }));
+    expect(tx.channelAccount.updateMany).not.toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'account-a' }),
+      data: expect.objectContaining({
+        externalAccountId: 'B00000002',
+      }),
+    }));
+    expect(tx.channelAccount.updateMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: ORGANIZATION_ID,
+        channel: 'coupang',
+        id: { not: 'account-b' },
+      },
+      data: { isPrimary: false },
+    });
+  });
+
+  it('does not reuse another store credentials when a new store omits credentials', async () => {
+    const prisma = makePrisma();
+    const tx = makeTx();
+    const service = new ChannelAccountRepositoryAdapter(prisma as never);
+
+    prisma.$transaction.mockImplementation(async (cb: (txArg: typeof tx) => Promise<void>) =>
+      cb(tx),
+    );
+    tx.channelAccount.findFirst.mockResolvedValueOnce(null);
+
+    await expect(service.upsertCoupangSettings(ORGANIZATION_ID, {
+      vendorId: 'B00000002',
+    })).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(tx.channelAccount.create).not.toHaveBeenCalled();
+    expect(tx.channelAccount.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('rotates credentials for the same store without rewriting its identity columns', async () => {
+    const prisma = makePrisma();
+    const tx = makeTx();
+    const service = new ChannelAccountRepositoryAdapter(prisma as never);
+    const existing = {
+      id: 'account-a',
+      name: 'Store A',
+      externalAccountId: 'A00000001',
+      vendorId: 'A00000001',
+      config: {},
+    };
+
+    prisma.$transaction.mockImplementation(async (cb: (txArg: typeof tx) => Promise<void>) =>
+      cb(tx),
+    );
+    tx.channelAccount.findFirst.mockResolvedValueOnce(existing);
+    tx.channelAccount.updateMany.mockResolvedValue({ count: 1 });
+    prisma.channelAccount.findFirst.mockResolvedValue({
+      ...existing,
+      status: 'active',
+      isPrimary: true,
+      updatedAt: new Date('2026-07-13T00:00:00.000Z'),
+    });
+
+    await service.upsertCoupangSettings(ORGANIZATION_ID, {
+      vendorId: 'A00000001',
+      accessKey: 'rotated-access',
+      secretKey: 'rotated-secret',
+    });
+
+    expect(tx.channelAccount.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'account-a' }),
+      data: expect.not.objectContaining({
+        externalAccountId: expect.anything(),
+        vendorId: expect.anything(),
+      }),
+    }));
+    expect(tx.channelAccount.create).not.toHaveBeenCalled();
+  });
 });

@@ -14,15 +14,10 @@ import { OrderCollectionMallAccountService } from './services/order-collection-m
 import { CoupangDirectshipService } from './coupang-directship/coupang-directship.service';
 import { ReturnTransfersController } from './return-transfers/return-transfers.controller';
 import { ReturnTransfersService } from './return-transfers/return-transfers.service';
-import { RocketPoController } from './controllers/rocket-po.controller';
-import { RocketPoConfirmService } from './services/rocket-po-confirm.service';
-import { CoupangCatalogController } from './controllers/coupang-catalog.controller';
-import { CoupangCatalogService } from './services/coupang-catalog.service';
 import { ChannelsModule } from '../channels/channels.module';
-import { InventoryModule } from '../inventory/inventory.module';
 
 @Module({
-  imports: [ChannelsModule, InventoryModule],
+  imports: [ChannelsModule],
   controllers: [
     OrdersController,
     OrderCollectionController,
@@ -31,8 +26,6 @@ import { InventoryModule } from '../inventory/inventory.module';
     CsController,
     ReviewsController,
     ReturnTransfersController,
-    RocketPoController,
-    CoupangCatalogController,
   ],
   providers: [
     OrdersService,
@@ -43,8 +36,6 @@ import { InventoryModule } from '../inventory/inventory.module';
     CsService,
     ReviewsService,
     ReturnTransfersService,
-    RocketPoConfirmService,
-    CoupangCatalogService,
   ],
 })
 export class OrdersModule {}

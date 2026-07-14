@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type { ContentAssetLibraryRepositoryPort } from '../../port/out/repository/content-asset-library.repository.port';
 import { ContentAssetService } from '../content-asset.service';
@@ -16,11 +17,26 @@ function repository(
     syncGenerationImageUsages: vi.fn(),
     syncGenerationImageUsagesInScope: vi.fn(),
     listAssets: vi.fn(),
+    deleteAsset: vi.fn(),
     ...overrides,
   } as ContentAssetLibraryRepositoryPort;
 }
 
 describe('ContentAssetService', () => {
+  it('blocks deletion while an active generation usage or thumbnail selection references the asset', async () => {
+    const repo = repository({
+      deleteAsset: vi.fn().mockResolvedValue({ status: 'in_use' }),
+    });
+    const service = new ContentAssetService(repo);
+
+    await expect(service.deleteAsset(ORG, 'asset-1')).rejects.toBeInstanceOf(ConflictException);
+    expect(repo.deleteAsset).toHaveBeenCalledWith({
+      organizationId: ORG,
+      contentAssetId: 'asset-1',
+      deletedAt: expect.any(Date),
+    });
+  });
+
   it('delegates detail-page input asset recording to the asset library repository', async () => {
     const assets = [{
       id: 'asset-1',
@@ -83,7 +99,7 @@ describe('ContentAssetService', () => {
     });
   });
 
-  it('lists group assets through the product workspace relation', async () => {
+  it('lists group assets through the content workspace relation', async () => {
     const createdAt = new Date('2026-05-13T09:00:00.000Z');
     const updatedAt = new Date('2026-05-13T09:30:00.000Z');
     const repo = repository({
@@ -92,7 +108,7 @@ describe('ContentAssetService', () => {
         rows: [
           {
             id: 'asset-1',
-            generationGroupId: GROUP_ID,
+            originGenerationGroupId: GROUP_ID,
             url: 'https://cdn.example.com/asset.png',
             assetType: 'image',
             role: 'used',
@@ -101,11 +117,10 @@ describe('ContentAssetService', () => {
             metadata: { width: 1200 },
             createdAt,
             updatedAt,
-            generationGroup: {
-              targetMaster: {
-                id: 'master-1',
-                code: 'M-00000001',
-                name: '큐브 퍼즐',
+            originGenerationGroup: {
+              contentWorkspace: {
+                id: 'workspace-1',
+                displayName: '큐브 퍼즐',
               },
             },
           },
@@ -115,23 +130,22 @@ describe('ContentAssetService', () => {
     const service = new ContentAssetService(repo);
 
     await expect(
-      service.listAssets(ORG, { page: 2, limit: 10, productId: 'master-1' }),
+      service.listAssets(ORG, { page: 2, limit: 10, contentWorkspaceId: 'workspace-1' }),
     ).resolves.toEqual({
       items: [
         {
           id: 'asset-1',
-          productId: 'master-1',
-          generationGroupId: GROUP_ID,
+          contentWorkspaceId: 'workspace-1',
+          originGenerationGroupId: GROUP_ID,
           url: 'https://cdn.example.com/asset.png',
           assetType: 'image',
           role: 'used',
           label: 'hero',
           sortOrder: 0,
           metadata: { width: 1200 },
-          product: {
-            id: 'master-1',
-            code: 'M-00000001',
-            name: '큐브 퍼즐',
+          workspace: {
+            id: 'workspace-1',
+            displayName: '큐브 퍼즐',
           },
           createdAt: createdAt.toISOString(),
           updatedAt: updatedAt.toISOString(),
@@ -146,7 +160,7 @@ describe('ContentAssetService', () => {
       organizationId: ORG,
       page: 2,
       limit: 10,
-      productId: 'master-1',
+      contentWorkspaceId: 'workspace-1',
       generationId: null,
     });
   });
