@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  normalizeRegisteredName,
   rankSellpiaMasterProductCandidates,
   statusForUnmappedCandidates,
   type CandidateSellpiaMasterProduct,
@@ -10,6 +11,7 @@ const baseEvidence: ChannelSkuEvidence = {
   sellerSku: null,
   modelNumber: null,
   barcode: null,
+  registeredName: null,
   productNames: [],
   optionName: null,
 };
@@ -95,6 +97,42 @@ describe('rankSellpiaMasterProductCandidates', () => {
     expect(statusForUnmappedCandidates(results)).toBe('needs_review');
   });
 
+  it('normalizes NFKC, case, and Unicode whitespace while preserving semantic punctuation', () => {
+    expect(normalizeRegisteredName(' Ａb\tC\u3000아기 + 컵/2&1 '))
+      .toBe('abc아기+컵/2&1');
+    expect(normalizeRegisteredName('아기-컵')).toBe('아기-컵');
+    expect(normalizeRegisteredName('아기+컵'))
+      .not.toBe(normalizeRegisteredName('아기컵'));
+    expect(normalizeRegisteredName(' \t\u3000 ')).toBeNull();
+  });
+
+  it('ranks every exact normalized registered-name match before general suggestions', () => {
+    const first = { ...sku('name-b', 'SP-B'), name: '아기 컵+빨대' };
+    const second = { ...sku('name-a', 'SP-A'), name: '아기컵 + 빨대' };
+    const suggestion = sku('suggestion', 'SP-S');
+    const results = rank({
+      evidence: { ...baseEvidence, registeredName: '아기 컵 + 빨대' },
+      normalizedNameCandidates: [first, second],
+      nameSuggestionCandidates: [suggestion],
+    });
+
+    expect(results.map(({ id, reason }) => ({ id, reason }))).toEqual([
+      { id: 'name-a', reason: 'exact_normalized_name' },
+      { id: 'name-b', reason: 'exact_normalized_name' },
+      { id: 'suggestion', reason: 'name_suggestion' },
+    ]);
+    expect(statusForUnmappedCandidates(results)).toBe('needs_review');
+  });
+
+  it('rejects normalized-name candidates with different semantic punctuation', () => {
+    const results = rank({
+      evidence: { ...baseEvidence, registeredName: '아기+컵' },
+      normalizedNameCandidates: [{ ...sku('plain', 'SP-PLAIN'), name: '아기컵' }],
+    });
+
+    expect(results).toEqual([]);
+  });
+
   it('uses general names only for suggestions and manual results only for manual search', () => {
     const suggestion = sku('suggestion', 'SP-S');
     const manual = sku('manual', 'SP-M');
@@ -154,12 +192,14 @@ function rank(input: {
   evidence: ChannelSkuEvidence;
   exactCodeCandidates?: CandidateSellpiaMasterProduct[];
   identifierCandidates?: CandidateSellpiaMasterProduct[];
+  normalizedNameCandidates?: CandidateSellpiaMasterProduct[];
   nameSuggestionCandidates?: CandidateSellpiaMasterProduct[];
   manualSearchCandidates?: CandidateSellpiaMasterProduct[];
 }) {
   return rankSellpiaMasterProductCandidates({
     exactCodeCandidates: [],
     identifierCandidates: [],
+    normalizedNameCandidates: [],
     nameSuggestionCandidates: [],
     manualSearchCandidates: [],
     ...input,

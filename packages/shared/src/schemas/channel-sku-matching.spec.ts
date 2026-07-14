@@ -228,6 +228,7 @@ describe('channel SKU matching contracts', () => {
       'exact_sellpia_code',
       'unique_barcode',
       'ambiguous_identifier',
+      'exact_normalized_name',
       'name_suggestion',
       'manual_search',
     ]);

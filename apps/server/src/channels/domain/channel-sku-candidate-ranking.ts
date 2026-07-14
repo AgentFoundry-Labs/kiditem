@@ -2,6 +2,7 @@ export type ChannelSkuEvidence = {
   sellerSku: string | null;
   modelNumber: string | null;
   barcode: string | null;
+  registeredName: string | null;
   productNames: string[];
   optionName: string | null;
 };
@@ -21,6 +22,7 @@ export type RankedSellpiaMasterProductCandidate = CandidateSellpiaMasterProduct 
     | 'exact_sellpia_code'
     | 'unique_barcode'
     | 'ambiguous_identifier'
+    | 'exact_normalized_name'
     | 'name_suggestion'
     | 'manual_search';
   rank: number;
@@ -30,6 +32,7 @@ export type RankSellpiaMasterProductCandidatesInput = {
   evidence: ChannelSkuEvidence;
   exactCodeCandidates: CandidateSellpiaMasterProduct[];
   identifierCandidates: CandidateSellpiaMasterProduct[];
+  normalizedNameCandidates: CandidateSellpiaMasterProduct[];
   nameSuggestionCandidates: CandidateSellpiaMasterProduct[];
   manualSearchCandidates: CandidateSellpiaMasterProduct[];
 };
@@ -44,8 +47,9 @@ const REASON_PRIORITY: Record<RankedSellpiaMasterProductCandidate['reason'], num
   exact_sellpia_code: 0,
   unique_barcode: 1,
   ambiguous_identifier: 2,
-  name_suggestion: 3,
-  manual_search: 4,
+  exact_normalized_name: 3,
+  name_suggestion: 4,
+  manual_search: 5,
 };
 
 export function rankSellpiaMasterProductCandidates(
@@ -79,6 +83,18 @@ export function rankSellpiaMasterProductCandidates(
     }
   }
 
+  const normalizedRegisteredName = normalizeRegisteredName(input.evidence.registeredName);
+  if (normalizedRegisteredName) {
+    for (const candidate of dedupeCandidates(input.normalizedNameCandidates)) {
+      if (normalizeRegisteredName(candidate.name) !== normalizedRegisteredName) continue;
+      keepStronger(matches, {
+        candidate,
+        reason: 'exact_normalized_name',
+        exactSourcePriority: Number.POSITIVE_INFINITY,
+      });
+    }
+  }
+
   for (const candidate of dedupeCandidates(input.nameSuggestionCandidates)) {
     keepStronger(matches, {
       candidate,
@@ -105,7 +121,8 @@ export function statusForUnmappedCandidates(
   return candidates.some((candidate) =>
     candidate.reason === 'exact_sellpia_code'
     || candidate.reason === 'unique_barcode'
-    || candidate.reason === 'ambiguous_identifier')
+    || candidate.reason === 'ambiguous_identifier'
+    || candidate.reason === 'exact_normalized_name')
     ? 'needs_review'
     : 'unmatched';
 }
@@ -120,6 +137,12 @@ export function normalizeIdentifier(value: string | null): string | null {
   if (!value) return null;
   const digits = value.replace(/\D/g, '');
   return digits.length >= 8 && digits.length <= 14 ? digits : null;
+}
+
+export function normalizeRegisteredName(value: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.normalize('NFKC').toLowerCase().replace(/\s/gu, '');
+  return normalized || null;
 }
 
 function exactSellpiaCodeEvidence(evidence: ChannelSkuEvidence): Map<string, number> {
