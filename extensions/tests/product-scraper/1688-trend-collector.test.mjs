@@ -114,20 +114,23 @@ test('collects keywords sequentially in one Chrome tab and preserves backend com
       : [item('200000001', 1)];
     cb({ ok: true, items });
   });
-  const fetchCalls = [];
+  const requestCalls = [];
   const collector = loadCollector({
     fakeChrome: fake.chrome,
     backendConfig: {
       ok: true,
       base: 'http://localhost:4000/api/sourcing/extension',
       headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' },
+      request: async (url, init) => {
+        requestCalls.push({ url, init });
+        return {
+          ok: true,
+          json: async () => ({ collected: 3, businessDate: '2026-07-13' }),
+        };
+      },
     },
-    fetchImpl: async (url, init) => {
-      fetchCalls.push({ url, init });
-      return {
-        ok: true,
-        json: async () => ({ collected: 3, businessDate: '2026-07-13' }),
-      };
+    fetchImpl: async () => {
+      throw new Error('KidItem ingest must use backendConfig.request');
     },
   });
 
@@ -145,8 +148,8 @@ test('collects keywords sequentially in one Chrome tab and preserves backend com
   assert.match(fake.calls.update[0].url, /keywords=%E6%96%87%E5%85%B7&charset=utf8$/);
   assert.match(fake.calls.update[1].url, /keywords=%E7%8E%A9%E5%85%B7&charset=utf8$/);
 
-  assert.equal(fetchCalls[0].url, 'http://localhost:4000/api/sourcing/extension/trend/1688-results');
-  const payload = JSON.parse(fetchCalls[0].init.body);
+  assert.equal(requestCalls[0].url, 'http://localhost:4000/api/sourcing/extension/trend/1688-results');
+  const payload = JSON.parse(requestCalls[0].init.body);
   assert.equal(payload.runId, started.runId);
   assert.deepEqual(payload.keywords.map((entry) => entry.keyword), ['文具', '玩具']);
   assert.deepEqual(payload.keywords.map((entry) => entry.items.length), [2, 1]);

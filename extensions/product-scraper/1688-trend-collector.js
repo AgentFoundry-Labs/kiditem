@@ -177,7 +177,8 @@
 
     async function postBatch(run, keywords, errors) {
       const config = run.backendConfig;
-      const response = await fetch(`${config.base}/trend/1688-results`, {
+      const request = config.request || fetch;
+      const response = await request(`${config.base}/trend/1688-results`, {
         method: "POST",
         headers: config.headers,
         body: JSON.stringify({ runId: run.runId, keywords, errors }),

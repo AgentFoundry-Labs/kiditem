@@ -3,10 +3,14 @@ importScripts("live-commerce-collector.js");
 
 const DEFAULT_API = "http://localhost:4000/api/sourcing/extension";
 const EXTRACT_TIMEOUT_MS = 20000;
-const INGEST_TOKEN_KEY = "kiditem_sourcing_ingest_token";
-const INGEST_TOKEN_EXPIRES_AT_KEY = "kiditem_sourcing_ingest_token_expires_at";
-const INGEST_TOKEN_MAX_EXPIRES_AT_KEY = "kiditem_sourcing_ingest_token_max_expires_at";
-const RENEW_WINDOW_MS = 5 * 60 * 1000;
+const AUTH_TOKEN_KEY = "kiditem_auth_token";
+const LEGACY_AUTH_TOKEN_KEYS = [
+  "kiditem_sourcing_ingest_token",
+  "kiditem_sourcing_ingest_token_expires_at",
+  "kiditem_sourcing_ingest_token_max_expires_at",
+];
+const AUTH_REQUIRED_EVENT = "kiditem:extension-auth-required";
+const AUTH_REFRESH_TIMEOUT_MS = 10_000;
 const TREND_KEEPALIVE_PORT = "kiditem-1688-trend-keepalive";
 const ALLOWED_WEB_ORIGINS = new Set([
   "http://localhost:3000",
@@ -17,9 +21,14 @@ const ALLOWED_API_BASES = new Set([
   "http://127.0.0.1:4000/api/sourcing/extension",
   "https://staging.merchon.org/api/sourcing/extension",
 ]);
+const KIDITEM_WEB_URL_PATTERNS = [
+  "http://localhost:3000/*",
+  "https://staging.merchon.org/*",
+];
 
 let apiBase = DEFAULT_API;
 let pendingCollect = null;
+let authRefreshInFlight = null;
 
 function getLocal(keys) {
   return new Promise((resolve) => {
@@ -56,37 +65,79 @@ function isAllowedExternalSender(sender) {
   }
 }
 
-async function getIngestToken(apiBaseForRenewal) {
-  const stored = await getLocal([
-    INGEST_TOKEN_KEY,
-    INGEST_TOKEN_EXPIRES_AT_KEY,
-    INGEST_TOKEN_MAX_EXPIRES_AT_KEY,
-  ]);
-  const token = stored[INGEST_TOKEN_KEY];
-  if (typeof token !== "string" || !token.trim()) return null;
+async function getAuthToken() {
+  const stored = await getLocal(AUTH_TOKEN_KEY);
+  const token = stored[AUTH_TOKEN_KEY];
+  return typeof token === "string" && token.trim() ? token : null;
+}
 
-  const expiresAt = Date.parse(stored[INGEST_TOKEN_EXPIRES_AT_KEY] || "");
-  if (!Number.isFinite(expiresAt) || expiresAt - Date.now() > RENEW_WINDOW_MS) {
-    return token;
-  }
+function waitForAuthTokenChange(previousToken) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (token) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      chrome.storage.onChanged.removeListener(handleStorageChange);
+      resolve(token);
+    };
+    const handleStorageChange = (changes, areaName) => {
+      if (areaName !== "local") return;
+      const nextToken = changes[AUTH_TOKEN_KEY]?.newValue;
+      if (
+        typeof nextToken === "string" &&
+        nextToken.trim() &&
+        nextToken !== previousToken
+      ) {
+        finish(nextToken);
+      }
+    };
+    const timer = setTimeout(() => finish(null), AUTH_REFRESH_TIMEOUT_MS);
+    chrome.storage.onChanged.addListener(handleStorageChange);
+    getAuthToken().then((currentToken) => {
+      if (currentToken && currentToken !== previousToken) finish(currentToken);
+    });
+  });
+}
 
-  try {
-    const resp = await fetch(`${apiBaseForRenewal}/session/renew`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!resp.ok) return token;
-    const next = await resp.json();
-    if (typeof next.token !== "string") return token;
-    await setLocal({
-      [INGEST_TOKEN_KEY]: next.token,
-      [INGEST_TOKEN_EXPIRES_AT_KEY]: next.expiresAt || null,
-      [INGEST_TOKEN_MAX_EXPIRES_AT_KEY]: next.maxExpiresAt || null,
-    });
-    return next.token;
-  } catch {
-    return token;
-  }
+async function notifyKidItemAuthRequired() {
+  const tabs = await chrome.tabs.query({ url: KIDITEM_WEB_URL_PATTERNS });
+  await Promise.all(
+    tabs
+      .filter((tab) => tab?.id)
+      .map((tab) =>
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: (eventName) =>
+            window.dispatchEvent(new CustomEvent(eventName)),
+          args: [AUTH_REQUIRED_EVENT],
+        }).catch(() => null),
+      ),
+  );
+}
+
+function requestFreshAuthToken(previousToken) {
+  if (authRefreshInFlight) return authRefreshInFlight;
+  authRefreshInFlight = (async () => {
+    const changedToken = waitForAuthTokenChange(previousToken);
+    await notifyKidItemAuthRequired().catch(() => null);
+    return changedToken;
+  })().finally(() => {
+    authRefreshInFlight = null;
+  });
+  return authRefreshInFlight;
+}
+
+async function fetchKidItem(url, init = {}, allowAuthRetry = true) {
+  const token = await getAuthToken();
+  const headers = new Headers(init.headers || {});
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const response = await fetch(url, { ...init, headers });
+  if (response.status !== 401 || !allowAuthRetry || !token) return response;
+
+  const nextToken = await requestFreshAuthToken(token);
+  if (!nextToken || nextToken === token) return response;
+  return fetchKidItem(url, init, false);
 }
 
 async function backendRequestConfig() {
@@ -95,7 +146,7 @@ async function backendRequestConfig() {
     return { ok: false, error: "허용되지 않은 KidItem API 주소입니다." };
   }
   const headers = { "Content-Type": "application/json" };
-  const token = await getIngestToken(base);
+  const token = await getAuthToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   if (!headers.Authorization) {
     return {
@@ -103,7 +154,7 @@ async function backendRequestConfig() {
       error: "KidItem 웹 앱에서 로그인 후 다시 시도해주세요.",
     };
   }
-  return { ok: true, base, headers };
+  return { ok: true, base, headers, request: fetchKidItem };
 }
 
 const trendCollector = ProductScraper1688Trend.create({
@@ -233,21 +284,19 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     if (approvedMessageApiBase) apiBase = approvedMessageApiBase;
     chrome.storage.local.set({
       ...(approvedMessageApiBase ? { apiBase: approvedMessageApiBase } : {}),
-      [INGEST_TOKEN_KEY]: token,
-      [INGEST_TOKEN_EXPIRES_AT_KEY]: typeof msg.expiresAt === "string" ? msg.expiresAt : null,
-      [INGEST_TOKEN_MAX_EXPIRES_AT_KEY]:
-        typeof msg.maxExpiresAt === "string" ? msg.maxExpiresAt : null,
+      [AUTH_TOKEN_KEY]: token,
     }, () => {
-      sendResponse({ success: true });
+      chrome.storage.local.remove(LEGACY_AUTH_TOKEN_KEYS, () => {
+        sendResponse({ success: true });
+      });
     });
     return true;
   }
 
   if (msg.action === "clearAuthToken") {
     chrome.storage.local.remove([
-      INGEST_TOKEN_KEY,
-      INGEST_TOKEN_EXPIRES_AT_KEY,
-      INGEST_TOKEN_MAX_EXPIRES_AT_KEY,
+      AUTH_TOKEN_KEY,
+      ...LEGACY_AUTH_TOKEN_KEYS,
     ], () => {
       sendResponse({ success: true });
     });
@@ -406,7 +455,7 @@ async function sendToBackend(productData) {
     const config = await backendRequestConfig();
     if (!config.ok) return config;
     const url = `${config.base}/product-data`;
-    const resp = await fetch(url, {
+    const resp = await config.request(url, {
       method: "POST",
       headers: config.headers,
       body: JSON.stringify(productData),
@@ -435,7 +484,7 @@ async function sendDescriptionToBackend(data) {
   try {
     const config = await backendRequestConfig();
     if (!config.ok) return;
-    await fetch(`${config.base}/product-data`, {
+    await config.request(`${config.base}/product-data`, {
       method: "POST",
       headers: config.headers,
       body: JSON.stringify({ ...data, page_type: "description" }),

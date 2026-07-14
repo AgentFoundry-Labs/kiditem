@@ -47,7 +47,8 @@
           throw new Error(extracted?.error || "방송 정보를 찾지 못했습니다.");
         }
 
-        const response = await fetch(`${backendConfig.base}/trend/live-commerce-results`, {
+        const request = backendConfig.request || fetch;
+        const response = await request(`${backendConfig.base}/trend/live-commerce-results`, {
           method: "POST",
           headers: backendConfig.headers,
           body: JSON.stringify({

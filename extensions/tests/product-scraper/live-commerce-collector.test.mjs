@@ -28,3 +28,62 @@ test('accepts only HTTPS 1688 and Douyin collection URLs', () => {
   assert.equal(module.validateLiveUrl('http://live.douyin.com/123').ok, false);
   assert.equal(module.validateLiveUrl('https://evil.example/live/123').ok, false);
 });
+
+test('posts collected broadcasts through the authenticated backend request', async () => {
+  const module = loadCollectorModule();
+  const requestCalls = [];
+  const updatedListeners = [];
+  const chrome = {
+    runtime: { lastError: null },
+    tabs: {
+      create: (_properties, cb) => cb({ id: 1, url: 'https://live.douyin.com/123' }),
+      get: (_tabId, cb) => cb({ id: 1, status: 'complete', url: 'https://live.douyin.com/123' }),
+      onUpdated: {
+        addListener: (listener) => updatedListeners.push(listener),
+        removeListener: (listener) => {
+          const index = updatedListeners.indexOf(listener);
+          if (index >= 0) updatedListeners.splice(index, 1);
+        },
+      },
+      sendMessage: (_tabId, _message, cb) => cb({
+        ok: true,
+        source: 'douyin',
+        pageUrl: 'https://live.douyin.com/123',
+        broadcast: { title: '방송' },
+        products: [],
+      }),
+      remove: (_tabId, cb) => cb(),
+    },
+  };
+  const collector = module.create({
+    chrome,
+    ensureContentScripts: async () => true,
+    getBackendRequestConfig: async () => ({
+      ok: true,
+      base: 'http://localhost:4000/api/sourcing/extension',
+      headers: { Authorization: 'Bearer token' },
+      request: async (url, init) => {
+        requestCalls.push({ url, init });
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            source: 'douyin',
+            broadcastCount: 1,
+            productCount: 0,
+            businessDate: '2026-07-14',
+          }),
+        };
+      },
+    }),
+  });
+
+  const result = await collector.collect('https://live.douyin.com/123');
+
+  assert.equal(result.success, true);
+  assert.equal(requestCalls.length, 1);
+  assert.equal(
+    requestCalls[0].url,
+    'http://localhost:4000/api/sourcing/extension/trend/live-commerce-results',
+  );
+});
