@@ -31,6 +31,7 @@ const COUPANG_SELLER_CATALOG_RENDER_DELAY_MS = 1200;
 const BATCH_SCRAPE_STATUS_KEY = "kiditem_batch_scrape";
 const BATCH_SCRAPE_CANCEL_KEY = "kiditem_batch_scrape_cancel";
 const RANK_CHECK_STATUS_KEY = "kiditem_rank_check"; // Wing 판매순위 배치 전용
+const RANK_CHECK_CANCEL_KEY = "kiditem_rank_check_cancel";
 const KEYWORD_RANK_STATUS_KEY = "kiditem_keyword_rank_check"; // 쿠팡 검색(SERP) 키워드 순위 배치 전용
 const COMPETITOR_SELLER_CATALOG_STATUS_KEY =
   "kiditem_competitor_seller_catalog_check";
@@ -295,6 +296,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
           "coupang-seller-shop-newest-first",
         coupangCompetitorSellerCatalogOnDemand: true,
         wingCatalogSalesRank: true,
+        wingCatalogSalesRankCancel: true,
         wingCatalogSalesRankSource: "wing-pre-matching-sales-28d",
         coupangCatalogSnapshot: true,
         coupangCatalogSnapshotSource: "wing-inventory-v1",
@@ -424,16 +426,39 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.action === "cancelWingSalesRankCheck") {
+    const requestedRunId = typeof msg.runId === "string" ? msg.runId : null;
+    requestWingSalesRankCancellation(requestedRunId)
+      .then((result) => sendResponse(result))
+      .catch((e) =>
+        sendResponse({
+          success: false,
+          cancelled: false,
+          error: e?.message || "Wing 판매순위 수집 중단 실패",
+        }),
+      );
+    return true;
+  }
+
   if (msg.action === "getWingSalesRankCheckStatus") {
-    chrome.storage.local.get(RANK_CHECK_STATUS_KEY, (data) => {
-      const status = data[RANK_CHECK_STATUS_KEY] || { status: "idle" };
-      const runId = typeof msg.runId === "string" ? msg.runId : null;
-      if (runId && status.runId && status.runId !== runId) {
-        sendResponse({ status: "idle", runId, staleRunId: status.runId });
-        return;
-      }
-      sendResponse(status);
-    });
+    chrome.storage.local.get(
+      [RANK_CHECK_STATUS_KEY, RANK_CHECK_CANCEL_KEY],
+      (data) => {
+        const status = data[RANK_CHECK_STATUS_KEY] || { status: "idle" };
+        const cancellation = data[RANK_CHECK_CANCEL_KEY];
+        const runId = typeof msg.runId === "string" ? msg.runId : null;
+        if (runId && status.runId && status.runId !== runId) {
+          sendResponse({ status: "idle", runId, staleRunId: status.runId });
+          return;
+        }
+        sendResponse({
+          ...status,
+          cancelRequested:
+            !!cancellation?.cancelled &&
+            (!cancellation.runId || cancellation.runId === status.runId),
+        });
+      },
+    );
     return true;
   }
 
@@ -1000,6 +1025,25 @@ async function startWingSalesRankCheck() {
       runId: existing.runId || null,
     };
   }
+  if (existingIsActive && (await isWingSalesRankCancelled(existing.runId))) {
+    await chrome.storage.local.remove(RANK_CHECK_CANCEL_KEY);
+    await chrome.storage.local.set({
+      [RANK_CHECK_STATUS_KEY]: {
+        ...existing,
+        status: "cancelled",
+        cancelled: true,
+        cancelRequested: false,
+        endedAt: Date.now(),
+      },
+    });
+    return {
+      success: true,
+      started: false,
+      cancelled: true,
+      runId: existing.runId || null,
+    };
+  }
+  await chrome.storage.local.remove(RANK_CHECK_CANCEL_KEY);
   if (existingIsActive) {
     runId = existing.runId || runId;
     startedAt = existing.startedAt || startedAt;
@@ -1103,6 +1147,7 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
   let completed = 0;
   let failed = 0;
   let rankedProducts = 0;
+  let cancelled = false;
   const failures = [];
   const keepAlive = setInterval(() => {
     chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
@@ -1110,6 +1155,10 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
 
   try {
     for (let index = 0; index < targets.length; index++) {
+      if (await isWingSalesRankCancelled(runId)) {
+        cancelled = true;
+        break;
+      }
       const target = targets[index];
       const keyword = String(target.keyword || "").trim();
       const maxPages = clampNumber(
@@ -1186,6 +1235,10 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
         );
       }
 
+      if (await isWingSalesRankCancelled(runId)) {
+        cancelled = true;
+        break;
+      }
       if (index < targets.length - 1) await sleep(randomDelayMs(1200, 2500));
       await chrome.storage.local.set({
         [RANK_CHECK_STATUS_KEY]: {
@@ -1208,6 +1261,7 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
     clearInterval(keepAlive);
   }
 
+  await chrome.storage.local.remove(RANK_CHECK_CANCEL_KEY);
   await chrome.storage.local.set({
     [RANK_CHECK_STATUS_KEY]: {
       runId,
@@ -1218,22 +1272,67 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
       rankedProducts,
       failures,
       current: null,
-      status: "done",
+      status: cancelled ? "cancelled" : "done",
       startedAt,
       heartbeatAt: Date.now(),
       endedAt: Date.now(),
+      cancelled,
     },
   });
   notifyDashboard();
   return {
-    success: true,
+    success: !cancelled,
     completed,
     failed,
     total,
     productTotal,
     rankedProducts,
     runId,
+    cancelled,
   };
+}
+
+async function isWingSalesRankCancelled(runId) {
+  const data = await getStorage(RANK_CHECK_CANCEL_KEY);
+  const cancel = data[RANK_CHECK_CANCEL_KEY];
+  return !!cancel?.cancelled && (!cancel.runId || cancel.runId === runId);
+}
+
+async function requestWingSalesRankCancellation(runId = null) {
+  if (!runId) {
+    return {
+      success: false,
+      cancelled: false,
+      error: "Wing 판매순위 실행 ID가 필요합니다",
+    };
+  }
+  await chrome.storage.local.set({
+    [RANK_CHECK_CANCEL_KEY]: {
+      cancelled: true,
+      runId,
+      requestedAt: Date.now(),
+    },
+  });
+  const data = await getStorage(RANK_CHECK_STATUS_KEY);
+  const status = data[RANK_CHECK_STATUS_KEY] || { status: "idle" };
+  if (runId && status.runId && status.runId !== runId) {
+    await chrome.storage.local.remove(RANK_CHECK_CANCEL_KEY);
+    return { success: true, cancelled: false, staleRunId: status.runId };
+  }
+  if (status.status !== "running" && status.status !== "starting") {
+    await chrome.storage.local.remove(RANK_CHECK_CANCEL_KEY);
+    const alreadyCancelled =
+      status.status === "cancelled" && status.runId === runId;
+    return {
+      success: true,
+      cancelled: alreadyCancelled,
+      runId: status.runId || runId,
+      status: status.status,
+    };
+  }
+
+  const activeRunId = status.runId || runId;
+  return { success: true, cancelled: true, runId: activeRunId };
 }
 
 function sortWingCatalogRowsBySales(rows) {

@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Radar } from "lucide-react";
+import { Loader2, Radar, Square } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
+  cancelWingSalesRankCheck,
   getWingSalesRankCheckStatus,
   runWingSalesRankCheck,
   type RankCheckStatus,
@@ -30,7 +31,28 @@ export default function BatchRankCheck({
 }) {
   const [runId, setRunId] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const settledRunIdRef = useRef<string | null>(null);
+
+  const discoveryQuery = useQuery({
+    queryKey: ["rank-tracking", "check-status", "discovery", extensionId],
+    queryFn: () => getWingSalesRankCheckStatus(extensionId!, null),
+    enabled: !!extensionId && !runId,
+    refetchInterval: (query) => {
+      const data = query.state.data as RankCheckStatus | undefined;
+      return data && isRunning(data.status) ? false : 5000;
+    },
+    gcTime: 0,
+  });
+
+  useEffect(() => {
+    const discovered = discoveryQuery.data;
+    if (!discovered || !isRunning(discovered.status) || !discovered.runId)
+      return;
+    settledRunIdRef.current = null;
+    setStopping(!!discovered.cancelRequested);
+    setRunId(discovered.runId);
+  }, [discoveryQuery.data]);
 
   const statusQuery = useQuery({
     queryKey: ["rank-tracking", "check-status", extensionId, runId],
@@ -80,9 +102,16 @@ export default function BatchRankCheck({
         );
       }
       onCompleted();
+    } else if (status.status === "cancelled") {
+      toast.info(
+        `Wing 판매순위 수집 중단 — ${completed}/${total}개 키워드 처리`,
+      );
+      onCompleted();
     } else if (status.status === "error") {
       toast.error(status.error ?? "키워드 순위 일괄 확인 실패");
     }
+    setStopping(false);
+    setRunId(null);
   }, [runId, status, onCompleted]);
 
   const start = async () => {
@@ -121,12 +150,27 @@ export default function BatchRankCheck({
   const completed = (status?.completed ?? 0) + (status?.failed ?? 0);
   const progressPct = total > 0 ? Math.round((completed / total) * 100) : 0;
 
+  const stop = async () => {
+    if (!extensionId || !runId || stopping) return;
+    setStopping(true);
+    try {
+      await cancelWingSalesRankCheck(extensionId, runId);
+      toast.info("현재 키워드 처리를 마친 뒤 수집을 중단합니다.");
+      await statusQuery.refetch();
+    } catch (err) {
+      setStopping(false);
+      toast.error(
+        err instanceof Error ? err.message : "Wing 판매순위 수집 중단 실패",
+      );
+    }
+  };
+
   return (
     <div className="flex items-center gap-3">
       {running && status && isRunning(status.status) && (
         <div className="hidden items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 sm:flex">
           <span className="tabular-nums font-semibold text-purple-700">
-            {completed}/{total}
+            처리 {completed} / 전체 {total}
           </span>
           <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100">
             <div
@@ -161,6 +205,21 @@ export default function BatchRankCheck({
           </>
         )}
       </button>
+      {running && runId && (
+        <button
+          type="button"
+          onClick={stop}
+          disabled={stopping}
+          className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {stopping ? (
+            <Loader2 size={14} className="animate-spin" />
+          ) : (
+            <Square size={13} fill="currentColor" />
+          )}
+          {stopping ? "중단 요청 중…" : "수집 중단"}
+        </button>
+      )}
     </div>
   );
 }
