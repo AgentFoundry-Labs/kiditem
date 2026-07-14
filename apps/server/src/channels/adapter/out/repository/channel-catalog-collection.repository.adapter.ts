@@ -259,6 +259,8 @@ const chunkSelect = {
   checksum: true,
   itemCount: true,
   payload: true,
+  publishedAt: true,
+  publicationJson: true,
 } as const;
 
 function ownedRunWhere(input: {

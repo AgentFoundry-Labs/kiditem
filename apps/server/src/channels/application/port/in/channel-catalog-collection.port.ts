@@ -23,6 +23,7 @@ export interface ChannelCatalogCollectionPort {
 
   putChunk(input: {
     organizationId: string;
+    userId: string;
     channelAccountId: string;
     runId: string;
     kind: CoupangCatalogChunkKind;

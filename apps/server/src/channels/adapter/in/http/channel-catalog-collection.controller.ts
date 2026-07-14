@@ -63,12 +63,14 @@ export class ChannelCatalogCollectionController {
     @Param('kind') rawKind: string,
     @Param('sequence', new ParseIntPipe()) sequence: number,
     @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
     @Body() request: PutCoupangCatalogChunkRequest,
   ) {
     const kind = CoupangCatalogChunkKindSchema.safeParse(rawKind);
     if (!kind.success) throw new BadRequestException('Unknown catalog chunk kind');
     return this.collection.putChunk({
       organizationId,
+      userId: user.id,
       channelAccountId,
       runId,
       kind: kind.data,

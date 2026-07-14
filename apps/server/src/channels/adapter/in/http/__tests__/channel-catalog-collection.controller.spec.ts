@@ -74,11 +74,13 @@ describe('ChannelCatalogCollectionController', () => {
       'manifest_confirmation',
       1,
       ORGANIZATION_ID,
+      { id: USER_ID } as never,
       request,
     );
 
     expect(port.putChunk).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
+      userId: USER_ID,
       channelAccountId: ACCOUNT_ID,
       runId: RUN_ID,
       kind: 'manifest_confirmation',

@@ -24,6 +24,8 @@ export interface ChannelCatalogCollectionChunkRecord {
   checksum: string;
   itemCount: number;
   payload: unknown;
+  publishedAt: Date | null;
+  publicationJson: unknown;
 }
 
 export interface ChannelCatalogCollectionWithChunks

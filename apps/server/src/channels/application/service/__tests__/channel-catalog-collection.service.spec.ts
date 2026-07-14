@@ -61,6 +61,12 @@ describe('ChannelCatalogCollectionService', () => {
       optionCount: 1,
       mediaCount: 1,
       storedChunks: 2,
+      publishedProducts: 1,
+      publishedOptionCount: 1,
+      publishedMediaCount: 1,
+      publishedChunks: 1,
+      firstPublishedAt: '2026-07-14T00:00:00.000Z',
+      lastPublishedAt: '2026-07-14T00:00:00.000Z',
     });
     expect(result.missing).toEqual({
       discoverySequences: [2],
@@ -77,6 +83,7 @@ describe('ChannelCatalogCollectionService', () => {
 
     await service.putChunk({
       ...ownedInput(),
+      userId: USER_ID,
       kind: 'discovery_page',
       sequence: 1,
       request: {
@@ -95,6 +102,63 @@ describe('ChannelCatalogCollectionService', () => {
     }));
   });
 
+  it('publishes a stored product-detail chunk immediately, including idempotent retries', async () => {
+    const repository = makeRepository();
+    const chunk = productChunk(0, ['P-1'], false);
+    repository.putChunk.mockResolvedValue({ stored: false, chunk });
+    const publisher = makePublisher();
+    const service = new ChannelCatalogCollectionService(repository, publisher);
+
+    await service.putChunk({
+      ...ownedInput(),
+      userId: USER_ID,
+      kind: 'product_details',
+      sequence: chunk.sequence,
+      request: {
+        kind: 'product_details',
+        sequence: chunk.sequence,
+        checksum: hashCatalogChunkPayload(chunk.payload),
+        itemCount: chunk.itemCount,
+        payload: chunk.payload,
+      },
+    });
+
+    expect(publisher.publishChunk).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      userId: USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      collectionRunId: RUN_ID,
+      chunkId: chunk.id,
+      products: chunk.payload.products,
+    });
+  });
+
+  it('keeps stored but unpublished details retryable and out of published progress', async () => {
+    const repository = makeRepository();
+    repository.getOwnedRunWithChunks.mockResolvedValue(runWithChunks([
+      discoveryChunk(1, [
+        { ordinal: 0, externalProductId: 'P-1', registeredName: '상품', primaryImageUrl: null },
+      ], onePageManifest()),
+      productChunk(0, ['P-1'], false),
+      confirmationChunk(onePageManifest()),
+    ]));
+    const service = new ChannelCatalogCollectionService(repository, makePublisher());
+
+    const result = await service.getStatus(ownedInput());
+
+    expect(result.phase).toBe('hydration');
+    expect(result.progress).toMatchObject({
+      hydratedProducts: 1,
+      publishedProducts: 0,
+      publishedOptionCount: 0,
+      publishedMediaCount: 0,
+      publishedChunks: 0,
+      firstPublishedAt: null,
+      lastPublishedAt: null,
+    });
+    expect(result.missing.productIds).toEqual(['P-1']);
+  });
+
   it('rejects a checksum mismatch before writing JSONB', async () => {
     const repository = makeRepository();
     const service = new ChannelCatalogCollectionService(repository, makePublisher());
@@ -104,6 +168,7 @@ describe('ChannelCatalogCollectionService', () => {
 
     await expect(service.putChunk({
       ...ownedInput(),
+      userId: USER_ID,
       kind: 'discovery_page',
       sequence: 1,
       request: {
@@ -210,6 +275,10 @@ function makeRepository() {
 
 function makePublisher() {
   return {
+    publishChunk: vi.fn<ChannelCatalogPublicationPort['publishChunk']>().mockResolvedValue({
+      duplicate: false,
+      changes: { publishedProducts: 1 },
+    }),
     publish: vi.fn<ChannelCatalogPublicationPort['publish']>().mockResolvedValue({
       sourceImportRunId: '00000000-0000-4000-8000-000000000006',
       duplicate: false,
@@ -285,10 +354,12 @@ function discoveryChunk(
     checksum: 'a'.repeat(64),
     itemCount: items.length,
     payload: discoveryPayload(page, items, manifest),
+    publishedAt: null,
+    publicationJson: null,
   };
 }
 
-function productChunk(startOrdinal: number, productIds: string[]) {
+function productChunk(startOrdinal: number, productIds: string[], published = true) {
   const products = productIds.map((externalProductId, index) => ({
     ordinal: startOrdinal + index,
     product: {
@@ -332,6 +403,8 @@ function productChunk(startOrdinal: number, productIds: string[]) {
       startOrdinal,
       products,
     },
+    publishedAt: published ? new Date('2026-07-14T00:00:00.000Z') : null,
+    publicationJson: published ? { publishedProducts: products.length } : null,
   };
 }
 
@@ -347,5 +420,7 @@ function confirmationChunk(manifest = onePageManifest()) {
       kind: 'manifest_confirmation' as const,
       manifest,
     },
+    publishedAt: null,
+    publicationJson: null,
   };
 }

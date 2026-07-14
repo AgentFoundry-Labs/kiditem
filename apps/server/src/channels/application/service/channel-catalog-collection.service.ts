@@ -86,7 +86,7 @@ implements ChannelCatalogCollectionPort {
     if (request.checksum !== expectedChecksum) {
       throw new BadRequestException('Chunk checksum does not match its canonical payload');
     }
-    await this.repository.putChunk({
+    const stored = await this.repository.putChunk({
       organizationId: input.organizationId,
       channelAccountId: input.channelAccountId,
       runId: input.runId,
@@ -96,6 +96,16 @@ implements ChannelCatalogCollectionPort {
       itemCount: request.itemCount,
       payload: request.payload,
     });
+    if (request.kind === 'product_details') {
+      await this.publisher.publishChunk({
+        organizationId: input.organizationId,
+        userId: input.userId,
+        channelAccountId: input.channelAccountId,
+        collectionRunId: input.runId,
+        chunkId: stored.chunk.id,
+        products: request.payload.products,
+      });
+    }
     return this.getStatus(input);
   }
 
@@ -216,6 +226,12 @@ function buildCollectionStatus(
         0,
       ),
       storedChunks: run.chunks.length,
+      publishedProducts: state.publishedProducts.length,
+      publishedOptionCount: countOptions(state.publishedProducts),
+      publishedMediaCount: countMedia(state.publishedProducts),
+      publishedChunks: state.publishedChunkDates.length,
+      firstPublishedAt: firstDate(state.publishedChunkDates)?.toISOString() ?? null,
+      lastPublishedAt: lastDate(state.publishedChunkDates)?.toISOString() ?? null,
     },
     missing: {
       discoverySequences: missingDiscoverySequences(state),
@@ -253,6 +269,8 @@ type InspectedChunks = {
   discoveryPages: Set<number>;
   discovered: Array<{ ordinal: number; externalProductId: string }>;
   products: CanonicalProduct[];
+  publishedProducts: CanonicalProduct[];
+  publishedChunkDates: Date[];
 };
 
 function inspectChunks(chunks: ChannelCatalogCollectionChunkRecord[]): InspectedChunks {
@@ -261,6 +279,8 @@ function inspectChunks(chunks: ChannelCatalogCollectionChunkRecord[]): Inspected
   const discoveryPages = new Set<number>();
   const discovered: InspectedChunks['discovered'] = [];
   const products: CanonicalProduct[] = [];
+  const publishedProducts: CanonicalProduct[] = [];
+  const publishedChunkDates: Date[] = [];
 
   for (const chunk of chunks) {
     if (chunk.kind === 'discovery_page') {
@@ -275,6 +295,10 @@ function inspectChunks(chunks: ChannelCatalogCollectionChunkRecord[]): Inspected
     } else if (chunk.kind === 'product_details') {
       const payload = parseStoredChunk(CoupangCatalogProductDetailsChunkV1Schema, chunk);
       products.push(...payload.products);
+      if (chunk.publishedAt) {
+        publishedProducts.push(...payload.products);
+        publishedChunkDates.push(chunk.publishedAt);
+      }
     } else if (chunk.kind === 'manifest_confirmation') {
       const payload = parseStoredChunk(
         CoupangCatalogManifestConfirmationV1Schema,
@@ -291,6 +315,8 @@ function inspectChunks(chunks: ChannelCatalogCollectionChunkRecord[]): Inspected
     discoveryPages,
     discovered: discovered.sort((a, b) => a.ordinal - b.ordinal),
     products: products.sort((a, b) => a.ordinal - b.ordinal),
+    publishedProducts: publishedProducts.sort((a, b) => a.ordinal - b.ordinal),
+    publishedChunkDates,
   };
 }
 
@@ -365,10 +391,19 @@ function assembleCompleteSnapshot(
       externalOptionOwners.set(option.externalOptionId, item.product.externalProductId);
     }
   }
-  const missingProducts = missingProductIds(state);
+  const missingProducts = missingHydratedProductIds(state);
   if (missingProducts.length > 0 || state.products.length !== state.discovered.length) {
     throw new BadRequestException(
       `Product details are missing: ${missingProducts.join(', ')}`,
+    );
+  }
+  const unpublishedProducts = missingProductIds(state);
+  if (
+    unpublishedProducts.length > 0 ||
+    state.publishedProducts.length !== state.discovered.length
+  ) {
+    throw new BadRequestException(
+      `Product details are not published: ${unpublishedProducts.join(', ')}`,
     );
   }
   return { manifest: state.manifest, products: state.products };
@@ -381,10 +416,45 @@ function missingDiscoverySequences(state: InspectedChunks): number[] {
 }
 
 function missingProductIds(state: InspectedChunks): string[] {
+  const published = new Set(
+    state.publishedProducts.map((item) => item.product.externalProductId),
+  );
+  return state.discovered
+    .filter((item) => !published.has(item.externalProductId))
+    .map((item) => item.externalProductId);
+}
+
+function missingHydratedProductIds(state: InspectedChunks): string[] {
   const hydrated = new Set(state.products.map((item) => item.product.externalProductId));
   return state.discovered
     .filter((item) => !hydrated.has(item.externalProductId))
     .map((item) => item.externalProductId);
+}
+
+function countOptions(products: CanonicalProduct[]): number {
+  return products.reduce((sum, item) => sum + item.product.options.length, 0);
+}
+
+function countMedia(products: CanonicalProduct[]): number {
+  return products.reduce(
+    (sum, item) => sum + item.product.media.length + item.product.options.reduce(
+      (optionSum, option) => optionSum + option.media.length,
+      0,
+    ),
+    0,
+  );
+}
+
+function firstDate(dates: Date[]): Date | null {
+  return dates.length > 0
+    ? new Date(Math.min(...dates.map((date) => date.getTime())))
+    : null;
+}
+
+function lastDate(dates: Date[]): Date | null {
+  return dates.length > 0
+    ? new Date(Math.max(...dates.map((date) => date.getTime())))
+    : null;
 }
 
 function derivePhase(
