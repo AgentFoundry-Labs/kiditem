@@ -228,6 +228,12 @@ describe('Coupang catalog snapshot contracts', () => {
         optionCount: 1,
         mediaCount: 1,
         storedChunks: 3,
+        publishedProducts: 1,
+        publishedOptionCount: 1,
+        publishedMediaCount: 1,
+        publishedChunks: 1,
+        firstPublishedAt: '2026-07-14T00:00:30.000Z',
+        lastPublishedAt: '2026-07-14T00:00:30.000Z',
       },
       missing: {
         discoverySequences: [],
@@ -241,5 +247,11 @@ describe('Coupang catalog snapshot contracts', () => {
       finishedAt: null,
     });
     expect(parsed.missing.productIds).toEqual(['10002']);
+    expect(parsed.progress.publishedProducts).toBe(1);
+    expect(parsed.progress.lastPublishedAt).toBe('2026-07-14T00:00:30.000Z');
+    expect(() => CoupangCatalogCollectionRunSchema.parse({
+      ...parsed,
+      progress: { ...parsed.progress, publishedProducts: -1 },
+    })).toThrow();
   });
 });

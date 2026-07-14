@@ -96,6 +96,9 @@ model ChannelScrapeChunk {
   itemCount Int    @map("item_count")
   payload   Json   @db.JsonB
 
+  publishedAt    DateTime? @map("published_at") @db.Timestamptz
+  publicationJson Json?    @map("publication_json") @db.JsonB
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 

@@ -329,6 +329,12 @@ export const CoupangCatalogCollectionRunSchema = z.object({
     optionCount: z.number().int().nonnegative(),
     mediaCount: z.number().int().nonnegative(),
     storedChunks: z.number().int().nonnegative(),
+    publishedProducts: z.number().int().nonnegative(),
+    publishedOptionCount: z.number().int().nonnegative(),
+    publishedMediaCount: z.number().int().nonnegative(),
+    publishedChunks: z.number().int().nonnegative(),
+    firstPublishedAt: zIsoDate.nullable(),
+    lastPublishedAt: zIsoDate.nullable(),
   }),
   missing: z.object({
     discoverySequences: z.array(z.number().int().positive()),
