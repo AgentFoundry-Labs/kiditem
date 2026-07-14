@@ -185,6 +185,48 @@ describe('OperationAlertService.start', () => {
 });
 
 describe('OperationAlertService.succeed / fail / progress / cancel', () => {
+  it('pauses an operation alert for browser attention', async () => {
+    const { service, prisma, eventEmitter } = makeService();
+    const running = existingAlert();
+    prisma.alert.findFirst
+      .mockResolvedValueOnce(running)
+      .mockResolvedValueOnce(
+        existingAlert({
+          status: 'pending',
+          severity: 'warning',
+          finishedAt: null,
+        }),
+      );
+    prisma.alert.updateMany.mockResolvedValueOnce({ count: 1 });
+
+    const alert = await service.attention(
+      ORGANIZATION_ID,
+      OPERATION_KEY,
+      {
+        message: 'Wing 로그인이 필요합니다.',
+        metadata: {
+          browserCollection: true,
+          attentionReason: 'marketplace_login',
+        },
+      },
+    );
+
+    expect(alert?.status).toBe('pending');
+    expect(prisma.alert.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'pending',
+          severity: 'warning',
+          finishedAt: null,
+        }),
+      }),
+    );
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      PANEL_EVENTS.UPSERT,
+      expect.any(Object),
+    );
+  });
+
   it('succeed sets status=succeeded, progress=1, finishedAt + emits', async () => {
     const { service, prisma, eventEmitter } = makeService();
     const running = existingAlert();
@@ -350,6 +392,7 @@ describe('OperationAlertService.succeed / fail / progress / cancel', () => {
     await service.fail(ORGANIZATION_ID, OPERATION_KEY);
     await service.cancel(ORGANIZATION_ID, OPERATION_KEY);
     await service.progress(ORGANIZATION_ID, OPERATION_KEY, { progress: 0.3 });
+    await service.attention(ORGANIZATION_ID, OPERATION_KEY);
 
     for (const call of prisma.alert.updateMany.mock.calls) {
       expect(call[0].where).toMatchObject({ organizationId: ORGANIZATION_ID });

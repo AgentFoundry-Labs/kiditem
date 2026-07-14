@@ -6,8 +6,8 @@
 //
 // Idempotency contract owned by the implementation:
 //   - identity is `(organizationId, operationKey)`
-//   - `start` upserts; `succeed`/`fail`/`progress`/`cancel` are no-ops when
-//     the row does not exist (defensive producer-side calls)
+//   - `start` upserts; `attention`/`succeed`/`fail`/`progress`/`cancel` are
+//     no-ops when the row does not exist (defensive producer-side calls)
 //   - `closeStaleOperations` recovers operations whose producer crashed
 //
 // The schema-typed `Alert` row is intentionally *not* exposed here —
@@ -80,6 +80,13 @@ export interface OperationAlertPort {
     organizationId: string,
     operationKey: string,
     patch: OperationLifecyclePatch,
+  ): Promise<AlertRecord | null>;
+
+  /** Pause a running operation for user attention. Defaults severity to warning. */
+  attention(
+    organizationId: string,
+    operationKey: string,
+    patch?: OperationLifecyclePatch,
   ): Promise<AlertRecord | null>;
 
   /** Mark a running operation succeeded. No-op when the row is missing. */

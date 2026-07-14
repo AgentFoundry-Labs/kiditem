@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { OperationAlertLifecycleController } from '../operation-alert-lifecycle.controller';
 
 const ORGANIZATION_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const USER_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
-const OPERATION_KEY = 'dashboard.collect:wing_sales';
+const OTHER_USER_ID = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+const COLLECTION_RUN_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+const OPERATION_KEY = `browser-collection:${COLLECTION_RUN_ID}`;
 
 function alertRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -12,18 +14,18 @@ function alertRow(overrides: Record<string, unknown> = {}) {
     organizationId: ORGANIZATION_ID,
     kind: 'operation',
     status: 'running',
-    type: 'dashboard_data_collect',
+    type: 'browser_collection',
     severity: 'info',
-    title: 'Wing 매출 수집',
+    title: '쿠팡 Wing 데이터 수집',
     message: null,
     targetType: null,
     targetId: null,
     operationKey: OPERATION_KEY,
-    sourceType: 'readiness_check',
-    sourceId: 'wing_sales',
+    sourceType: 'browser_collection_session',
+    sourceId: 'dashboard.wing_sales',
     actorUserId: USER_ID,
     actionTaskId: null,
-    href: '/dashboard',
+    href: `/dashboard?collectionRun=${COLLECTION_RUN_ID}`,
     progress: 0,
     metadata: { lookbackDays: 14 },
     isRead: false,
@@ -40,6 +42,7 @@ function makeService() {
   return {
     findByOperationKey: vi.fn(),
     start: vi.fn(),
+    attention: vi.fn(),
     progress: vi.fn(),
     succeed: vi.fn(),
     fail: vi.fn(),
@@ -64,10 +67,10 @@ describe('OperationAlertLifecycleController.start', () => {
     await controller.start(
       {
         operationKey: OPERATION_KEY,
-        type: 'dashboard_data_collect',
+        type: 'browser_collection',
         title: 'client-supplied title is ignored',
-        sourceType: 'readiness_check',
-        sourceId: 'wing_sales',
+        sourceType: 'browser_collection_session',
+        sourceId: 'dashboard.wing_sales',
         href: '/settings',
         metadata: { lookbackDays: 14 },
       },
@@ -80,11 +83,11 @@ describe('OperationAlertLifecycleController.start', () => {
         organizationId: ORGANIZATION_ID,
         operationKey: OPERATION_KEY,
         actorUserId: USER_ID,
-        type: 'dashboard_data_collect',
+        type: 'browser_collection',
         title: '쿠팡 Wing 데이터 수집',
-        sourceType: 'readiness_check',
-        sourceId: 'wing_sales',
-        href: '/dashboard',
+        sourceType: 'browser_collection_session',
+        sourceId: 'dashboard.wing_sales',
+        href: `/dashboard?collectionRun=${COLLECTION_RUN_ID}`,
         metadata: { lookbackDays: 14 },
       }),
     );
@@ -97,10 +100,10 @@ describe('OperationAlertLifecycleController.start', () => {
     const result = await controller.start(
       {
         operationKey: OPERATION_KEY,
-        type: 'dashboard_data_collect',
+        type: 'browser_collection',
         title: 'Wing 매출 수집',
-        sourceType: 'readiness_check',
-        sourceId: 'wing_sales',
+        sourceType: 'browser_collection_session',
+        sourceId: 'dashboard.wing_sales',
         href: '/dashboard',
       },
       ORGANIZATION_ID,
@@ -115,62 +118,61 @@ describe('OperationAlertLifecycleController.start', () => {
     expect(result.createdAt).toBe('2026-05-09T00:00:00.000Z');
   });
 
-  it('rejects unsupported browser operation alert producers', async () => {
+  it('returns 400 for a forged browser collection producer', async () => {
     const { controller } = makeController();
 
     await expect(
       controller.start(
         {
-          operationKey: 'anything',
-          type: 'thumbnail_edit_job',
+          operationKey: OPERATION_KEY,
+          type: 'browser_collection',
           title: '임의 조작',
-          sourceType: 'thumbnail_generation',
-          href: '/product-pipeline/thumbnail-generation',
+          sourceType: 'browser_collection_session',
+          sourceId: 'advertising.forged',
+          href: '/settings',
         },
         ORGANIZATION_ID,
         { id: USER_ID } as any,
       ),
-    ).rejects.toThrow('unsupported operation alert producer');
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('rejects unknown readiness source ids instead of trusting client title/href', async () => {
+  it('returns 400 for a non-UUID browser collection operation key', async () => {
     const { controller } = makeController();
 
     await expect(
       controller.start(
         {
-          operationKey: 'dashboard.collect:unknown',
-          type: 'dashboard_data_collect',
+          operationKey: 'browser-collection:not-a-uuid',
+          type: 'browser_collection',
           title: '임의 수집',
-          sourceType: 'readiness_check',
-          sourceId: 'unknown',
+          sourceType: 'browser_collection_session',
+          sourceId: 'dashboard.wing_sales',
           href: '/dashboard',
         },
         ORGANIZATION_ID,
         { id: USER_ID } as any,
       ),
-    ).rejects.toThrow('unsupported operation alert producer');
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('accepts thumbnail analysis browser batch producer and canonicalizes title/href', async () => {
+  it('appends collectionRun with an ampersand when the canonical route has a query', async () => {
     const { controller, service } = makeController();
     service.start.mockResolvedValueOnce(
       alertRow({
-        type: 'thumbnail_analysis',
-        title: '썸네일 AI 분류',
-        sourceType: 'browser_batch',
-        sourceId: 'all',
-        href: '/product-pipeline/thumbnail-generation',
+        title: '쿠팡 로켓 매출 수집',
+        sourceId: 'dashboard.rocket_sales',
+        href: `/sales-analysis?tab=rocket-daily&collectionRun=${COLLECTION_RUN_ID}`,
       }),
     );
 
     await controller.start(
       {
-        operationKey: 'thumbnail-analysis:batch:test',
-        type: 'thumbnail_analysis',
+        operationKey: OPERATION_KEY,
+        type: 'browser_collection',
         title: 'client title ignored',
-        sourceType: 'browser_batch',
-        sourceId: 'all',
+        sourceType: 'browser_collection_session',
+        sourceId: 'dashboard.rocket_sales',
         href: '/settings',
       },
       ORGANIZATION_ID,
@@ -180,13 +182,13 @@ describe('OperationAlertLifecycleController.start', () => {
     expect(service.start).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: ORGANIZATION_ID,
-        operationKey: 'thumbnail-analysis:batch:test',
+        operationKey: OPERATION_KEY,
         actorUserId: USER_ID,
-        type: 'thumbnail_analysis',
-        title: '썸네일 AI 분류',
-        sourceType: 'browser_batch',
-        sourceId: 'all',
-        href: '/product-pipeline/thumbnail-generation',
+        type: 'browser_collection',
+        title: '쿠팡 로켓 매출 수집',
+        sourceType: 'browser_collection_session',
+        sourceId: 'dashboard.rocket_sales',
+        href: `/sales-analysis?tab=rocket-daily&collectionRun=${COLLECTION_RUN_ID}`,
       }),
     );
   });
@@ -194,6 +196,36 @@ describe('OperationAlertLifecycleController.start', () => {
 
 describe('OperationAlertLifecycleController.update', () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it('dispatches pending -> attention without trusting an href patch', async () => {
+    const { controller, service } = makeController();
+    service.findByOperationKey.mockResolvedValueOnce(alertRow());
+    service.attention.mockResolvedValueOnce(
+      alertRow({ status: 'pending', severity: 'warning' }),
+    );
+
+    await controller.update(
+      OPERATION_KEY,
+      {
+        status: 'pending',
+        message: 'Wing 로그인이 필요합니다.',
+        href: '/settings',
+        metadata: { attentionReason: 'marketplace_login' },
+      },
+      ORGANIZATION_ID,
+      { id: USER_ID } as any,
+    );
+
+    expect(service.attention).toHaveBeenCalledWith(
+      ORGANIZATION_ID,
+      OPERATION_KEY,
+      expect.objectContaining({
+        message: 'Wing 로그인이 필요합니다.',
+        metadata: { attentionReason: 'marketplace_login' },
+      }),
+    );
+    expect(service.attention.mock.calls[0]?.[2]).not.toHaveProperty('href');
+  });
 
   it('dispatches running -> progress', async () => {
     const { controller, service } = makeController();
@@ -215,7 +247,7 @@ describe('OperationAlertLifecycleController.update', () => {
     expect(service.succeed).not.toHaveBeenCalled();
   });
 
-  it('dispatches succeeded -> succeed and forwards href patch', async () => {
+  it('dispatches succeeded -> succeed without trusting an href patch', async () => {
     const { controller, service } = makeController();
     service.findByOperationKey.mockResolvedValueOnce(alertRow());
     service.succeed.mockResolvedValueOnce(
@@ -232,7 +264,7 @@ describe('OperationAlertLifecycleController.update', () => {
     expect(service.succeed).toHaveBeenCalledWith(
       ORGANIZATION_ID,
       OPERATION_KEY,
-      expect.objectContaining({ href: '/dashboard?ok=1' }),
+      expect.not.objectContaining({ href: '/dashboard?ok=1' }),
     );
   });
 
@@ -297,7 +329,9 @@ describe('OperationAlertLifecycleController.update', () => {
 
   it('returns 404 when another user tries to update the lifecycle row', async () => {
     const { controller, service } = makeController();
-    service.findByOperationKey.mockResolvedValueOnce(alertRow({ actorUserId: 'other-user' }));
+    service.findByOperationKey.mockResolvedValueOnce(
+      alertRow({ actorUserId: OTHER_USER_ID }),
+    );
 
     await expect(
       controller.update(

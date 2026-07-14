@@ -96,7 +96,12 @@ export class OperationAlertLifecycleController {
     if (
       !existing ||
       existing.actorUserId !== user.id ||
-      !isBrowserOperationProducer(existing.type, existing.sourceType)
+      !isBrowserOperationProducer({
+        operationKey,
+        type: existing.type,
+        sourceType: existing.sourceType,
+        sourceId: existing.sourceId,
+      })
     ) {
       throw new NotFoundException(
         `operation alert not found: ${operationKey}`,
@@ -105,7 +110,6 @@ export class OperationAlertLifecycleController {
 
     const patch: OperationLifecyclePatch = {
       message: dto.message,
-      href: dto.href,
       progress: dto.progress,
       severity: dto.severity,
       metadata: dto.metadata,
@@ -157,6 +161,12 @@ export class OperationAlertLifecycleController {
     patch: OperationLifecyclePatch,
   ) {
     switch (status) {
+      case 'pending':
+        return this.operationAlerts.attention(
+          organizationId,
+          operationKey,
+          patch,
+        );
       case 'running':
         return this.operationAlerts.progress(
           organizationId,
