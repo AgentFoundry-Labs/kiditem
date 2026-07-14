@@ -103,7 +103,12 @@ implements CatalogMediaPublicationPort {
         };
         const asset = existing
           ? await tx.contentAsset.update({
-              where: { id: existing.id },
+              where: {
+                id_organizationId: {
+                  id: existing.id,
+                  organizationId: input.organizationId,
+                },
+              },
               data: {
                 url: existing.storageKey ? existing.url : media.sourceUrl,
                 role: media.role,
@@ -139,7 +144,12 @@ implements CatalogMediaPublicationPort {
       if (absentIds.length > 0) {
         for (const asset of providerAssets.filter((item) => absentIds.includes(item.id))) {
           await tx.contentAsset.update({
-            where: { id: asset.id },
+            where: {
+              id_organizationId: {
+                id: asset.id,
+                organizationId: input.organizationId,
+              },
+            },
             data: {
               isDeleted: true,
               deletedAt: new Date(),
@@ -178,7 +188,12 @@ implements CatalogMediaPublicationPort {
           select: { id: true },
         });
         await tx.contentWorkspace.update({
-          where: { id: workspace.id },
+          where: {
+            id_organizationId: {
+              id: workspace.id,
+              organizationId: input.organizationId,
+            },
+          },
           data: { currentThumbnailSelectionId: selection.id },
         });
       }
