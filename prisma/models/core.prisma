@@ -69,10 +69,10 @@ model Organization {
   supplierPayments SupplierPayment[]
 
   // Warehouse & Inventory Ops
-  warehouses        Warehouse[]
-  stockTransfers    StockTransfer[]
-  stockTransactions StockTransaction[]
-  stockAudits       StockAudit[]
+  warehouses                  Warehouse[]
+  stockTransfers              StockTransfer[]
+  stockTransactions           StockTransaction[]
+  stockAudits                 StockAudit[]
   sellpiaStockSnapshots       SellpiaStockSnapshot[]
   sellpiaStockSnapshotItems   SellpiaStockSnapshotItem[]
   sellpiaNewProductCandidates SellpiaNewProductCandidate[]
@@ -97,10 +97,12 @@ model Organization {
   categoryMappings CategoryMapping[]
 
   // Analytics
-  salesPlans                 SalesPlan[]
-  rocketSupplyDailySnapshots RocketSupplyDailySnapshot[]
-  rocketPurchaseOrders       RocketPurchaseOrder[]
-  coupangProductListings     CoupangProductListing[]
+  salesPlans                            SalesPlan[]
+  rocketSupplyDailySnapshots            RocketSupplyDailySnapshot[]
+  rocketPurchaseOrders                  RocketPurchaseOrder[]
+  coupangProductListings                CoupangProductListing[]
+  coupangWingSalesRankDailySnapshots    CoupangWingSalesRankDailySnapshot[]
+  coupangRepresentativeKeywordOverrides CoupangRepresentativeKeywordOverride[]
 
   // Ontology
   businessRules  BusinessRule[]
@@ -137,6 +139,15 @@ model Organization {
   channelReconciliationRuns       ChannelReconciliationRun[]
   channelReconciliationItems      ChannelReconciliationItem[]
 
+  // Channels — Coupang keyword rank tracking
+  coupangKeywordTrackers           CoupangKeywordTracker[]
+  coupangKeywordRankDailySnapshots CoupangKeywordRankDailySnapshot[]
+  coupangKeywordSerpDailySnapshots CoupangKeywordSerpDailySnapshot[]
+
+  // Channels — Coupang Wing 카탈로그 상품 추적
+  coupangWingTrackedProducts              CoupangWingTrackedProduct[]
+  coupangWingTrackedProductDailySnapshots CoupangWingTrackedProductDailySnapshot[]
+
   // Additional back-relations for FK rename additions
   gradeHistory GradeHistory[] // Task 8 Step 2 adds organizationId to GradeHistory
 
@@ -144,6 +155,15 @@ model Organization {
   sourcingCandidates         SourcingCandidate[]
   candidateImages            CandidateImage[]
   sourcingWorkspaceSnapshots SourcingWorkspaceSnapshot[]
+
+  // Sourcing — 시장 트렌드 정기 수집
+  trendSeedKeywords                    TrendSeedKeyword[]
+  naverKeywordDailySnapshots           NaverKeywordDailySnapshot[]
+  naverPopularKeywordDailySnapshots    NaverPopularKeywordDailySnapshot[]
+  sourcing1688HotProductDailySnapshots Sourcing1688HotProductDailySnapshot[]
+  shortsTrendDailySnapshots            ShortsTrendDailySnapshot[]
+  liveCommerceBroadcastDailySnapshots  LiveCommerceBroadcastDailySnapshot[]
+  liveCommerceProductDailySnapshots    LiveCommerceProductDailySnapshot[]
 
   @@map("organizations")
 }
@@ -458,17 +478,17 @@ model ProductOption {
 
   channelListingOptions ChannelListingOption[]
 
-  stockTransactions  StockTransaction[]
-  stockTransfers     StockTransfer[]
-  pickingItems       PickingItem[]
-  returnTransfers    ReturnTransfer[]
+  stockTransactions           StockTransaction[]
+  stockTransfers              StockTransfer[]
+  pickingItems                PickingItem[]
+  returnTransfers             ReturnTransfer[]
   sellpiaStockSnapshotItems   SellpiaStockSnapshotItem[]
   sellpiaNewProductCandidates SellpiaNewProductCandidate[]
   rocketInventoryLedger       RocketInventoryLedger[]
-  purchaseOrderItems PurchaseOrderItem[]
-  supplierProducts   SupplierProduct[]
-  shipments          Shipment[]
-  unshippedItems     UnshippedItem[]
+  purchaseOrderItems          PurchaseOrderItem[]
+  supplierProducts            SupplierProduct[]
+  shipments                   Shipment[]
+  unshippedItems              UnshippedItem[]
 
   // Order domain (Plan A.5)
   orderLineItems       OrderLineItem[]

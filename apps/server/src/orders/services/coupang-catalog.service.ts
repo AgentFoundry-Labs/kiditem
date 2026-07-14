@@ -21,14 +21,33 @@ export interface CoupangProductInput {
   state?: string | null;
 }
 
+/** WING 수집 상품(바코드 없음, 옵션ID 보유). skuId 는 `wing:<vendorItemId>` 합성키로 생성. */
+export interface WingProductInput {
+  vendorItemId: string;
+  productName: string;
+  salePrice?: number | null; // WING(쿠팡) 판매가
+}
+
+/** skuId 접두로 출처 구분: `wing:`=WING, `po:`=발주보충, 그 외=vendorSearch. */
+export type CoupangListingSource = 'wing' | 'purchase_order' | 'vendor_search';
+
+export function coupangListingSource(skuId: string): CoupangListingSource {
+  if (skuId.startsWith('wing:')) return 'wing';
+  if (skuId.startsWith('po:')) return 'purchase_order';
+  return 'vendor_search';
+}
+
 export interface CoupangListingRow {
   id: string;
   skuId: string;
+  source: CoupangListingSource;
+  vendorItemId: string | null;
   barcode: string | null;
   productName: string;
   packQty: number | null;
   category: string | null;
   state: string | null;
+  salePrice: number | null;
   matchStatus: string;
   matchedOptionId: string | null;
   bundleOptionId: string | null;
@@ -37,7 +56,29 @@ export interface CoupangListingRow {
     name: string;
     barcode: string | null;
     availableStock: number;
+    costPrice: number | null;
   } | null;
+}
+
+/** 로켓 등록 현황 한 행(마스터 단위, 실제 상품). */
+export interface RocketStatusRow {
+  masterId: string;
+  masterName: string;
+  masterCode: string;
+  thumbnailUrl: string | null;
+  registered: boolean; // 쿠팡 로켓 등록 여부(로켓 카탈로그에 이 마스터의 옵션이 있음)
+  optionCount: number;
+  costPrice: number | null; // 공급가(대표 옵션 최저)
+  wingPrice: number | null; // 쿠팡 WING 판매가(3P) — 매칭 옵션의 최저가(기본단위/낱개)
+  rocketPrice: number | null; // 쿠팡 로켓 단가(발주 매입가) — 바코드 조인, 없으면 null
+  margin: number | null; // WING가 − 공급가
+}
+
+export interface RocketStatusResult {
+  items: RocketStatusRow[];
+  total: number; // 실제 상품 수(옵션 있는 마스터)
+  registered: number; // 로켓 등록
+  unregistered: number; // 로켓 미등록
 }
 
 type SellpiaMatch = { core: string; price: string | null; optionId: string };
@@ -146,6 +187,80 @@ export class CoupangCatalogService {
   }
 
   /**
+   * WING 수집 상품(옵션ID + 상품명, 바코드 없음)을 셀피아 재고 이름과 매칭해 카탈로그에 얹는다.
+   * skuId=`wing:<vendorItemId>` 합성키(재실행 시 중복 없이 갱신). vendorItemId 를 채워 로켓 옵션ID를 재고에 연결.
+   * vendorSearch/발주(po:) 행과 별개 네임스페이스라 기존 445 매칭을 건드리지 않는다. 이미 연결(bundled/linked/ignored)된
+   * 행은 매칭상태 보존. 매칭은 셀피아 스냅샷(사장님이 동기화한 재고) 기준 — 없으면 unmatched(검토 대상).
+   */
+  async syncWingListings(
+    wingProducts: WingProductInput[],
+    organizationId: string,
+  ): Promise<{ total: number; matched: number; suggested: number; fuzzy: number; unmatched: number }> {
+    if (!Array.isArray(wingProducts) || wingProducts.length === 0) {
+      throw new BadRequestException('동기화할 WING 상품이 없습니다.');
+    }
+
+    const index = await this.sellpiaIndex(organizationId);
+    const wingKeys = wingProducts
+      .map((p) => `wing:${String(p.vendorItemId ?? '').trim()}`)
+      .filter((k) => k !== 'wing:');
+    const existing = await this.prisma.coupangProductListing.findMany({
+      where: { organizationId, skuId: { in: wingKeys } },
+      select: { skuId: true, matchStatus: true },
+    });
+    const prevStatusBySku = new Map(existing.map((e) => [e.skuId, e.matchStatus]));
+
+    const now = new Date();
+    let matched = 0;
+    let suggested = 0;
+    let fuzzy = 0;
+    const seen = new Set<string>();
+
+    for (const p of wingProducts) {
+      const vendorItemId = String(p.vendorItemId ?? '').trim();
+      const productName = String(p.productName ?? '').trim();
+      if (!vendorItemId || !productName) continue;
+      const skuId = `wing:${vendorItemId}`;
+      if (seen.has(skuId)) continue; // 같은 옵션ID 중복 방지(다중옵션 목록 등)
+      seen.add(skuId);
+
+      const normalizedName = normalizeCoupangName(productName);
+      const packQty = parsePackQty(productName);
+      const m = this.matchOption(normalizedName, coupangNamePrice(productName), index);
+      const matchedOptionId = m?.optionId ?? null;
+      const matchStatus = matchedOptionId ? (m!.fuzzy ? 'fuzzy' : 'suggested') : 'unmatched';
+      if (matchedOptionId) {
+        matched++;
+        if (m!.fuzzy) fuzzy++;
+        else suggested++;
+      }
+
+      const productFields = {
+        barcode: null,
+        vendorItemId,
+        productName,
+        normalizedName,
+        packQty,
+        category: null,
+        state: null,
+        salePrice: typeof p.salePrice === 'number' && p.salePrice > 0 ? Math.round(p.salePrice) : null,
+        syncedAt: now,
+      };
+      // 이미 사용자가 연결/무시한 행은 자동매칭으로 덮지 않는다.
+      const connected = CONNECTED_STATUSES.has(prevStatusBySku.get(skuId) ?? '');
+      const matchFields = connected ? {} : { matchedOptionId, matchStatus };
+
+      await this.prisma.coupangProductListing.upsert({
+        where: { organizationId_skuId: { organizationId, skuId } },
+        create: { organizationId, skuId, ...productFields, matchedOptionId, matchStatus },
+        update: { ...productFields, ...matchFields },
+      });
+    }
+
+    return { total: seen.size, matched, suggested, fuzzy, unmatched: seen.size - matched };
+  }
+
+  /**
    * 실제 발주(RocketPurchaseOrder) 바코드 중 카탈로그에 없는 것을 카탈로그로 보충한다.
    *
    * vendorSearch(QVT 소싱/검수 파이프라인)는 검수완료(INSPECTION_COMPLETE) 상품만 반환하므로,
@@ -244,13 +359,16 @@ export class CoupangCatalogService {
   /** 카탈로그 목록 + 매칭된 단품(이름·바코드·가용재고) 조인. */
   async listListings(
     organizationId: string,
-    opts: { onlyBundles?: boolean; onlyUnconnected?: boolean } = {},
+    opts: { onlyBundles?: boolean; onlyUnconnected?: boolean; source?: CoupangListingSource } = {},
   ): Promise<CoupangListingRow[]> {
+    const sourcePrefix =
+      opts.source === 'wing' ? 'wing:' : opts.source === 'purchase_order' ? 'po:' : null;
     const rows = await this.prisma.coupangProductListing.findMany({
       where: {
         organizationId,
         ...(opts.onlyBundles ? { packQty: { not: null } } : {}),
         ...(opts.onlyUnconnected ? { matchStatus: { in: ['unmatched', 'suggested', 'fuzzy'] } } : {}),
+        ...(sourcePrefix ? { skuId: { startsWith: sourcePrefix } } : {}),
       },
       orderBy: [{ matchStatus: 'asc' }, { productName: 'asc' }],
       take: 5000,
@@ -268,6 +386,7 @@ export class CoupangCatalogService {
             barcode: true,
             isBundle: true,
             availableStock: true,
+            costPrice: true,
             master: { select: { name: true } },
             inventory: { select: { currentStock: true, reservedStock: true } },
           },
@@ -280,11 +399,14 @@ export class CoupangCatalogService {
       return {
         id: r.id,
         skuId: r.skuId,
+        source: coupangListingSource(r.skuId),
+        vendorItemId: r.vendorItemId,
         barcode: r.barcode,
         productName: r.productName,
         packQty: r.packQty,
         category: r.category,
         state: r.state,
+        salePrice: r.salePrice,
         matchStatus: r.matchStatus,
         matchedOptionId: r.matchedOptionId,
         bundleOptionId: r.bundleOptionId,
@@ -296,10 +418,135 @@ export class CoupangCatalogService {
               availableStock: o.isBundle
                 ? Math.max(0, o.availableStock ?? 0)
                 : Math.max(0, (o.inventory?.currentStock ?? 0) - (o.inventory?.reservedStock ?? 0)),
+              costPrice: o.costPrice ?? null,
             }
           : null,
       };
     });
+  }
+
+  /**
+   * 쿠팡 로켓 등록/미등록 현황 (마스터 단위).
+   *
+   * 유니버스 = 옵션 있는 마스터(= 실제 상품; 소싱후보/드래프트 같은 껍데기 마스터 제외).
+   * 로켓 등록 = 로켓 카탈로그 행(skuId 가 `wing:` 아님 = vendorSearch/발주 보충)의 matchedOptionId/
+   * bundleOptionId 에 이 마스터의 옵션이 잡힘 → 그 상품은 이미 로켓에 올라가 있음.
+   * WING 은 로켓과 별개(3P)라 등록 판정에서 제외하고, WING 판매가(salePrice)는 마진 계산용으로만 붙인다.
+   */
+  async rocketRegistrationStatus(organizationId: string): Promise<RocketStatusResult> {
+    // 1) 로켓 카탈로그가 매칭한 우리 옵션 집합 (WING 행 제외).
+    const rocketRows = await this.prisma.coupangProductListing.findMany({
+      where: { organizationId, NOT: { skuId: { startsWith: 'wing:' } } },
+      select: { matchedOptionId: true, bundleOptionId: true },
+    });
+    const rocketOptionIds = new Set<string>();
+    for (const r of rocketRows) {
+      // 로켓 SKU 1행 = 우리 상품 1개. 번들 연결이면 묶음 옵션이 실제 로켓 SKU,
+      // 아니면 이름매칭된 낱개. 둘 다 더하면 번들의 구성 낱개까지 등록으로 오카운트됨.
+      const optionId = r.bundleOptionId ?? r.matchedOptionId;
+      if (optionId) rocketOptionIds.add(optionId);
+    }
+
+    // 2) WING 판매가 맵 (옵션ID → **최저가**). ⭐한 WING 상품이 1~6세트 같은 묶음 옵션들을 같은 이름으로
+    //    한 옵션에 매칭시키므로, MAX 를 쓰면 최대 묶음가(예 6세트 128,000)를 집는다 → **최저가(=기본단위/
+    //    낱개, 예 1세트 25,000)** 를 대표 WING가로 써야 실제 판매가에 가깝다.
+    const wingRows = await this.prisma.coupangProductListing.findMany({
+      where: {
+        organizationId,
+        skuId: { startsWith: 'wing:' },
+        matchedOptionId: { not: null },
+        salePrice: { not: null },
+      },
+      select: { matchedOptionId: true, salePrice: true },
+    });
+    const wingPriceByOption = new Map<string, number>();
+    for (const w of wingRows) {
+      if (!w.matchedOptionId || w.salePrice == null) continue;
+      const prev = wingPriceByOption.get(w.matchedOptionId);
+      if (prev == null || w.salePrice < prev) wingPriceByOption.set(w.matchedOptionId, w.salePrice);
+    }
+
+    // 3) 로켓 단가 맵 (바코드 → 매입 단가). 로켓 카탈로그(vendorSearch)엔 가격이 없고, 실제 로켓 가격은
+    //    발주(RocketPurchaseOrder) items 에만 있다(unitPrice, 없으면 amount/qty). 바코드로 우리 옵션에 정확 조인.
+    //    최신 발주 우선(createdAt desc, 먼저 본 바코드 유지). WING(3P 판매가)과 로켓(1P 매입가)은 다른 가격이다.
+    const pos = await this.prisma.rocketPurchaseOrder.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: 'desc' },
+      select: { items: true },
+    });
+    const rocketPriceByBarcode = new Map<string, number>();
+    for (const po of pos) {
+      const items = Array.isArray(po.items) ? (po.items as Array<Record<string, unknown>>) : [];
+      for (const it of items) {
+        const barcode = String(it?.barcode ?? '').trim();
+        if (!barcode || rocketPriceByBarcode.has(barcode)) continue;
+        const qty = Number(it?.qty ?? 0);
+        const amount = Number(it?.amount ?? 0);
+        const unit =
+          it?.unitPrice != null ? Number(it.unitPrice) : qty > 0 ? Math.round(amount / qty) : NaN;
+        if (Number.isFinite(unit) && unit > 0) rocketPriceByBarcode.set(barcode, unit);
+      }
+    }
+
+    // 4) 옵션 있는 마스터(실제 상품) + 옵션 바코드/공급가.
+    const masters = await this.prisma.masterProduct.findMany({
+      where: {
+        organizationId,
+        isDeleted: false,
+        options: { some: { isDeleted: false } },
+      },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        thumbnailUrl: true,
+        imageUrl: true,
+        options: {
+          where: { isDeleted: false },
+          select: { id: true, barcode: true, costPrice: true },
+        },
+      },
+    });
+
+    const minOf = (vals: Array<number | null | undefined>): number | null => {
+      const nums = vals.filter((v): v is number => typeof v === 'number');
+      return nums.length ? Math.min(...nums) : null;
+    };
+
+    let registered = 0;
+    const rows: RocketStatusRow[] = masters.map((m) => {
+      const isReg = m.options.some((o) => rocketOptionIds.has(o.id));
+      if (isReg) registered++;
+      // 대표가 = 옵션 중 최저(기본단위 기준). WING/로켓/공급가 각각 독립 최저.
+      const wingPrice = minOf(m.options.map((o) => wingPriceByOption.get(o.id)));
+      const rocketPrice = minOf(
+        m.options.map((o) => (o.barcode ? rocketPriceByBarcode.get(o.barcode) : undefined)),
+      );
+      const costPrice = minOf(m.options.map((o) => o.costPrice));
+      const margin = wingPrice != null && costPrice != null ? wingPrice - costPrice : null;
+      return {
+        masterId: m.id,
+        masterName: m.name,
+        masterCode: m.code,
+        thumbnailUrl: m.thumbnailUrl ?? m.imageUrl ?? null,
+        registered: isReg,
+        optionCount: m.options.length,
+        costPrice,
+        wingPrice,
+        rocketPrice,
+        margin,
+      };
+    });
+
+    // WING 마진 큰 순(미등록 뷰에서 등록 우선순위) → 이름순.
+    rows.sort(
+      (a, b) =>
+        (b.margin ?? Number.NEGATIVE_INFINITY) - (a.margin ?? Number.NEGATIVE_INFINITY) ||
+        a.masterName.localeCompare(b.masterName),
+    );
+
+    const total = rows.length;
+    return { items: rows, total, registered, unregistered: total - registered };
   }
 
   /** 사용자 확인/연결 결과 반영 (매칭 단품 수정 · 연결완료 상태 · 무시). */

@@ -20,9 +20,11 @@ const READINESS_OPERATION_DEFINITIONS = new Map<
   BrowserOperationProducerDefinition
 >([
   ['wing_sales', { title: '쿠팡 Wing 데이터 수집', href: '/dashboard' }],
+  ['rocket_sales', { title: '쿠팡 로켓 매출 수집', href: '/sales-analysis?tab=rocket-daily' }],
   ['coupang_ads', { title: '쿠팡 광고 데이터 수집', href: '/ad-ops' }],
   ['coupang_products', { title: '쿠팡 상품 데이터 수집', href: '/dashboard' }],
   ['wing_kpi', { title: 'Wing 아이템위너 KPI', href: '/dashboard' }],
+  ['keyword_rank', { title: '쿠팡 키워드 순위 수집', href: '/rank-tracking' }],
 ]);
 
 export function isBrowserOperationProducer(

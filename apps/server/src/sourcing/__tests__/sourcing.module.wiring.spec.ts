@@ -7,6 +7,9 @@ import { Sourcing1688KeywordSearchService } from '../application/service/sourcin
 import { SourcingAgentRagService } from '../application/service/sourcing-agent-rag.service';
 import { SourcingMarketModelService } from '../application/service/sourcing-market-model.service';
 import { NaverKeywordResearchService } from '../application/service/naver-keyword-research.service';
+import { TrendCollectService } from '../application/service/trend-collect.service';
+import { TrendQueryService } from '../application/service/trend-query.service';
+import { LiveCommerceService } from '../application/service/live-commerce.service';
 import { SourcingService } from '../application/service/sourcing.service';
 import { SourcingPromotionService } from '../application/service/sourcing-promotion.service';
 import { SourcingWorkspaceArchiveService } from '../application/service/sourcing-workspace-archive.service';
@@ -16,6 +19,8 @@ import { SourcingMarketDiscoveryService } from '../application/service/sourcing-
 import { SourcingDiscoveryCapabilityAdapter } from '../adapter/in/agent/sourcing-discovery-capability.adapter';
 import { SourcingListingPrepCapabilityAdapter } from '../adapter/in/agent/sourcing-listing-prep-capability.adapter';
 import { SourcingScrapeUrlCapabilityAdapter } from '../adapter/in/agent/sourcing-scrape-url-capability.adapter';
+import { Sourcing1688TrendExtensionController } from '../adapter/in/http/sourcing-1688-trend-extension.controller';
+import { SourcingLiveCommerceExtensionController } from '../adapter/in/http/sourcing-live-commerce-extension.controller';
 import { NaverDatalabPopularKeywordAdapter } from '../adapter/out/naver/naver-datalab-popular-keyword.adapter';
 import { NaverDatalabTrendAdapter } from '../adapter/out/naver/naver-datalab-trend.adapter';
 import { NaverAutocompleteKeywordAdapter } from '../adapter/out/naver/naver-autocomplete-keyword.adapter';
@@ -29,6 +34,10 @@ import { SourcingWorkspaceSnapshotRepositoryAdapter } from '../adapter/out/repos
 import { SourcingPlaywrightRuntimeHandler } from '../adapter/out/runtime/sourcing-playwright-runtime.handler';
 import { Direct1688ImageSearchAdapter } from '../adapter/out/1688/direct-1688-image-search.adapter';
 import { Direct1688KeywordSearchAdapter } from '../adapter/out/1688/direct-1688-keyword-search.adapter';
+import { ShortstrendTrendAdapter } from '../adapter/out/shortstrend/shortstrend-trend.adapter';
+import { TrendCollectionRepositoryAdapter } from '../adapter/out/repository/trend-collection.repository.adapter';
+import { LiveCommerceRepositoryAdapter } from '../adapter/out/repository/live-commerce.repository.adapter';
+import { TaobaoLiveAdapter } from '../adapter/out/taobao/taobao-live.adapter';
 import { SourcingRuntimeHandler } from '../adapter/out/runtime/sourcing-runtime.handler';
 import {
   SOURCING_DISCOVERY_CAPABILITY_PORT,
@@ -37,6 +46,8 @@ import {
 } from '../application/port/in/capability/sourcing-capability.ports';
 import { SOURCING_1688_IMAGE_SEARCH_PORT } from '../application/port/out/provider/1688-image-search.port';
 import { SOURCING_1688_KEYWORD_SEARCH_PORT } from '../application/port/out/provider/1688-keyword-search.port';
+import { SHORTSTREND_TREND_PORT } from '../application/port/out/provider/shortstrend-trend.port';
+import { TAOBAO_LIVE_PORT } from '../application/port/out/provider/taobao-live.port';
 import {
   SOURCING_NAVER_DATALAB_POPULAR_KEYWORD_PORT,
   SOURCING_NAVER_DATALAB_TREND_PORT,
@@ -49,6 +60,8 @@ import { SOURCING_OPERATION_ALERT_PORT } from '../application/port/out/cross-dom
 import { SOURCING_PRODUCTS_CATALOG_PORT } from '../application/port/out/cross-domain/products-catalog.port';
 import { SOURCING_CANDIDATE_REPOSITORY_PORT } from '../application/port/out/repository/sourcing-candidate.repository.port';
 import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from '../application/port/out/repository/sourcing-workspace-snapshot.repository.port';
+import { TREND_COLLECTION_REPOSITORY_PORT } from '../application/port/out/repository/trend-collection.repository.port';
+import { LIVE_COMMERCE_REPOSITORY_PORT } from '../application/port/out/repository/live-commerce.repository.port';
 import { AutomationModule } from '../../automation/automation.module';
 
 // NestJS @Module / @Controller metadata keys (stable across Nest 10/11).
@@ -67,6 +80,8 @@ describe('SourcingModule canonical owner wiring', () => {
     const controllers: unknown[] = Reflect.getMetadata(CONTROLLERS_KEY, SourcingModule) ?? [];
     expect(controllers.map((controller) => (controller as { name: string }).name)).toEqual([
       'SourcingExtensionIngestController',
+      'Sourcing1688TrendExtensionController',
+      'SourcingLiveCommerceExtensionController',
       'SourcingKeywordResearchController',
       'Sourcing1688ImageSearchController',
       'Sourcing1688KeywordSearchController',
@@ -75,7 +90,11 @@ describe('SourcingModule canonical owner wiring', () => {
       'Sourcing1688NewProductModelController',
       'SourcingCandidateWorkspaceController',
       'SourcingWorkspaceSnapshotController',
+      'TrendCollectionController',
+      'LiveCommerceController',
     ]);
+    expect(controllers).toContain(Sourcing1688TrendExtensionController);
+    expect(controllers).toContain(SourcingLiveCommerceExtensionController);
   });
 
   it('declares every application service as a provider', () => {
@@ -92,6 +111,9 @@ describe('SourcingModule canonical owner wiring', () => {
     expect(providers).toContain(SourcingWorkspaceSnapshotService);
     expect(providers).toContain(SourcingMarketDiscoveryService);
     expect(providers).toContain(ProductPreparationSelectionService);
+    expect(providers).toContain(TrendCollectService);
+    expect(providers).toContain(TrendQueryService);
+    expect(providers).toContain(LiveCommerceService);
   });
 
   it('binds outgoing ports to their adapters', () => {
@@ -112,6 +134,10 @@ describe('SourcingModule canonical owner wiring', () => {
     expect(providers).toContain(SourcingPlaywrightRuntimeHandler);
     expect(providers).toContain(Direct1688ImageSearchAdapter);
     expect(providers).toContain(Direct1688KeywordSearchAdapter);
+    expect(providers).toContain(ShortstrendTrendAdapter);
+    expect(providers).toContain(TrendCollectionRepositoryAdapter);
+    expect(providers).toContain(LiveCommerceRepositoryAdapter);
+    expect(providers).toContain(TaobaoLiveAdapter);
     expect(providers).toContain(SourcingRuntimeHandler);
     expect(
       providers.some((provider) =>
@@ -184,6 +210,30 @@ describe('SourcingModule canonical owner wiring', () => {
     );
     expect(keywordSearchBinding).toBeDefined();
     expect(keywordSearchBinding!.useExisting).toBe(Direct1688KeywordSearchAdapter);
+    const shortstrendBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === 'object' && p !== null && (p as any).provide === SHORTSTREND_TREND_PORT,
+    );
+    expect(shortstrendBinding).toBeDefined();
+    expect(shortstrendBinding!.useExisting).toBe(ShortstrendTrendAdapter);
+    const trendRepositoryBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === 'object' && p !== null && (p as any).provide === TREND_COLLECTION_REPOSITORY_PORT,
+    );
+    expect(trendRepositoryBinding).toBeDefined();
+    expect(trendRepositoryBinding!.useExisting).toBe(TrendCollectionRepositoryAdapter);
+    const liveCommerceRepositoryBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === 'object' && p !== null && (p as any).provide === LIVE_COMMERCE_REPOSITORY_PORT,
+    );
+    expect(liveCommerceRepositoryBinding).toBeDefined();
+    expect(liveCommerceRepositoryBinding!.useExisting).toBe(LiveCommerceRepositoryAdapter);
+    const taobaoLiveBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === 'object' && p !== null && (p as any).provide === TAOBAO_LIVE_PORT,
+    );
+    expect(taobaoLiveBinding).toBeDefined();
+    expect(taobaoLiveBinding!.useExisting).toBe(TaobaoLiveAdapter);
     const naverKeywordBinding = providers.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
         typeof p === 'object' && p !== null && (p as any).provide === SOURCING_NAVER_KEYWORD_RESEARCH_PORT,
@@ -228,6 +278,8 @@ describe('SourcingModule canonical owner wiring', () => {
       controllers.map((controller) => Reflect.getMetadata(PATH_KEY, controller as object)),
     ).toEqual([
       'sourcing',
+      'sourcing/extension/trend',
+      'sourcing/extension/trend',
       'sourcing/keyword-research/naver',
       'sourcing/1688/image-search',
       'sourcing/1688/keyword-search',
@@ -236,6 +288,8 @@ describe('SourcingModule canonical owner wiring', () => {
       'sourcing/1688-new-product-model',
       'sourcing',
       'sourcing/workspace-snapshots',
+      'sourcing/trend',
+      'sourcing/live-commerce',
     ]);
   });
 });

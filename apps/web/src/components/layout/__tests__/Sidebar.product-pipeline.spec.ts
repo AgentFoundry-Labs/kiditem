@@ -42,6 +42,7 @@ describe('Sidebar product pipeline navigation', () => {
     expect(marketingAgentIndex).toBe(productAgentIndex + 1);
     expect(marketingAgent?.items.map((item) => [item.href, item.label])).toEqual([
       ['/ad-ops', '광고전략 AI'],
+      ['/rank-tracking', '쿠팡 순위추적'],
     ]);
     expect(topSection.items.some((item) => item.href === '/ad-ops')).toBe(false);
   });

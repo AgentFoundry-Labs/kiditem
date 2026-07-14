@@ -1,5 +1,5 @@
-import { SellochSourcingPage } from '../components/SellochSourcingPage';
+import { ToyCategorySourcingPage } from './components/ToyCategorySourcingPage';
 
 export default function SourcingCategoryPage() {
-  return <SellochSourcingPage kind="category" />;
+  return <ToyCategorySourcingPage />;
 }

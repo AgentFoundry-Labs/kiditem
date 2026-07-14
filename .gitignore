@@ -42,6 +42,9 @@ graphify-out/.graphify_*
 tmp/
 output/
 outputs/
+.lazyweb/
+apps/*/dev-*.log
+xlsx_read.cjs
 
 # Python
 __pycache__/

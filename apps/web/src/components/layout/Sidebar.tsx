@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -54,6 +54,8 @@ interface MenuItem {
   label: string;
   icon: LucideIcon;
   gatedReason?: string;
+  /** 이 아이템 위에 표시할 소싱 단계 구분 소제목(리서치/실행 등). 사이드바 펼침 상태에서만 노출. */
+  groupLabel?: string;
 }
 
 interface MenuSection {
@@ -76,16 +78,17 @@ export const menuSections: MenuSection[] = [
     collapsible: true,
     items: [
       { href: '/sourcing-ai', label: '소싱 홈', icon: Compass },
-      { href: '/sourcing-ai/recommendations', label: '오늘의 추천', icon: Sparkles },
+      { href: '/sourcing-ai/market', label: '시장 분석', icon: TrendingUp, groupLabel: '리서치' },
       { href: '/sourcing-ai/keywords', label: '키워드 분석', icon: Search },
-      { href: '/sourcing-ai/market', label: '시장 분석', icon: TrendingUp },
+      { href: '/sourcing-ai/category-sourcing', label: '카테고리 소싱', icon: Layers },
       { href: '/sourcing-ai/competitor-analysis', label: '경쟁업체 분석', icon: Building2 },
       { href: '/sourcing-ai/wing-catalog', label: '쿠팡 상품 분석', icon: PackageSearch },
-      { href: '/sourcing-ai/category-sourcing', label: '카테고리 소싱', icon: Layers },
-      { href: '/sourcing-ai/wholesale-search', label: '도매 상품 검색', icon: ShoppingCart },
+      { href: '/sourcing-ai/product-tracking', label: '상품 추적', icon: LineChart },
+      { href: '/sourcing-ai/recommendations', label: '오늘의 추천', icon: Sparkles },
+      { href: '/sourcing-ai/wholesale-search', label: '도매 상품 검색', icon: ShoppingCart, groupLabel: '소싱' },
       { href: '/sourcing-ai/validation', label: '상품 검증', icon: ClipboardList },
-      { href: '/sourcing-ai/settings', label: '소싱 설정', icon: Settings },
       { href: '/sourcing-ai/final-selection', label: '최종 선택', icon: PackageCheck },
+      { href: '/sourcing-ai/settings', label: '소싱 설정', icon: Settings, groupLabel: '설정' },
     ],
   },
   {
@@ -105,6 +108,7 @@ export const menuSections: MenuSection[] = [
     collapsible: true,
     items: [
       { href: '/ad-ops', label: '광고전략 AI', icon: Zap },
+      { href: '/rank-tracking', label: '쿠팡 순위추적', icon: LineChart },
     ],
   },
   {
@@ -113,6 +117,7 @@ export const menuSections: MenuSection[] = [
     items: [
       { href: '/product-hub', label: '상품 관리', icon: Package },
       { href: '/product-hub/matching', label: '상품 매칭', icon: Link2 },
+      { href: '/product-hub/rocket-register', label: '쿠팡 로켓 등록', icon: Rocket },
       {
         href: '/reviews',
         label: '리뷰 관리',
@@ -388,7 +393,7 @@ export default function Sidebar({
                 <div className={cn(
                   'space-y-0.5 px-3 overflow-hidden transition-all duration-200',
                   !sidebarOpen || !section.collapsible || isOpen
-                    ? 'max-h-[500px] opacity-100 mt-1'
+                    ? 'max-h-[760px] opacity-100 mt-1'
                     : 'max-h-0 opacity-0'
                 )}>
                   {section.items.map((item) => {
@@ -424,28 +429,22 @@ export default function Sidebar({
                       </>
                     );
 
-                    if (item.gatedReason) {
-                      return (
-                        <button
-                          key={item.href}
-                          type="button"
-                          disabled
-                          data-sidebar-gated-route={item.href}
-                          aria-label={`${item.label} — 준비 중`}
-                          className={cn(
-                            'group flex w-full cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2 text-left text-[15px] leading-5 text-slate-300 opacity-75 relative',
-                            !sidebarOpen && 'justify-center px-0'
-                          )}
-                          title={item.gatedReason}
-                        >
-                          {content}
-                        </button>
-                      );
-                    }
-
-                    return (
+                    const element = item.gatedReason ? (
+                      <button
+                        type="button"
+                        disabled
+                        data-sidebar-gated-route={item.href}
+                        aria-label={`${item.label} — 준비 중`}
+                        className={cn(
+                          'group flex w-full cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2 text-left text-[15px] leading-5 text-slate-300 opacity-75 relative',
+                          !sidebarOpen && 'justify-center px-0'
+                        )}
+                        title={item.gatedReason}
+                      >
+                        {content}
+                      </button>
+                    ) : (
                       <Link
-                        key={item.href}
                         href={item.href}
                         onClick={(e) => handleNavClick(e, item.href)}
                         className={cn(
@@ -459,6 +458,17 @@ export default function Sidebar({
                       >
                         {content}
                       </Link>
+                    );
+
+                    return (
+                      <Fragment key={item.href}>
+                        {item.groupLabel && sidebarOpen && (
+                          <p className="px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+                            {item.groupLabel}
+                          </p>
+                        )}
+                        {element}
+                      </Fragment>
                     );
                   })}
                 </div>

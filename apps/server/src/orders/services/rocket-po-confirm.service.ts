@@ -71,6 +71,8 @@ export interface ConfirmSourceRow {
   totalPurchase?: number | string;
   expectedInboundDate?: string;
   poRegisteredAt?: string;
+  businessDateBasis?: 'ordered_at' | 'expected_inbound';
+  poStatusCode?: string;
   xdock?: string;
   /** 편집 미리보기에서 사용자가 직접 넣은 값 — 있으면 재고 계산 대신 이 값을 씀. */
   confirmQty?: number;
@@ -139,6 +141,15 @@ type ConfirmAvailability = {
   inventoryId?: string;
   optionId: string;
 };
+
+interface RocketRevenueRefreshRange {
+  from: Date;
+  to: Date;
+}
+
+interface RocketPurchaseOrderPersistOptions {
+  revenueRefreshRange?: RocketRevenueRefreshRange;
+}
 
 @Injectable()
 export class RocketPoConfirmService {
@@ -224,11 +235,12 @@ export class RocketPoConfirmService {
   async previewConfirmRows(
     rows: ConfirmSourceRow[],
     organizationId: string,
+    options: RocketPurchaseOrderPersistOptions = {},
   ): Promise<ConfirmPreviewResult> {
     if (!rows.length) throw new BadRequestException('미리볼 발주 행이 없습니다.');
     const barcodes = [...new Set(rows.map((r) => String(r.barcode ?? '').trim()).filter(Boolean))];
     const avail = await this.availabilityByBarcode(barcodes, organizationId);
-    await this.persistRocketPurchaseOrders(rows, organizationId);
+    await this.persistRocketPurchaseOrders(rows, organizationId, options);
 
     return this.computeConfirmRows(rows, avail);
   }
@@ -332,21 +344,38 @@ export class RocketPoConfirmService {
   private async persistRocketPurchaseOrders(
     rows: ConfirmSourceRow[],
     organizationId: string,
+    options: RocketPurchaseOrderPersistOptions = {},
   ): Promise<void> {
     const summaries = buildRocketPurchaseOrderSummaries(rows);
-    if (summaries.length === 0) return;
+    if (summaries.length === 0 && !options.revenueRefreshRange) return;
 
     const affectedDates = new Map<string, Date>();
     const orderedSummaries = [...summaries].sort((a, b) => a.poSeq - b.poSeq);
     for (const summary of orderedSummaries) {
       affectedDates.set(summary.businessDate.toISOString().slice(0, 10), summary.businessDate);
     }
-    const orderedAffectedDates = [...affectedDates.entries()]
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([dateKey, businessDate]) => ({ dateKey, businessDate }));
-
+    for (const businessDate of enumerateDateRange(options.revenueRefreshRange)) {
+      affectedDates.set(businessDate.toISOString().slice(0, 10), businessDate);
+    }
     await this.prisma.$transaction(async (tx) => {
-      for (const { dateKey } of orderedAffectedDates) {
+      if (orderedSummaries.length > 0) {
+        const existingOrders = await tx.rocketPurchaseOrder.findMany({
+          where: {
+            organizationId,
+            poSeq: { in: orderedSummaries.map((summary) => summary.poSeq) },
+          },
+          select: { poSeq: true, businessDate: true },
+        });
+        for (const existing of existingOrders) {
+          if (!existing.businessDate) continue;
+          affectedDates.set(existing.businessDate.toISOString().slice(0, 10), existing.businessDate);
+        }
+      }
+      const allAffectedDates = [...affectedDates.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([dateKey, businessDate]) => ({ dateKey, businessDate }));
+
+      for (const { dateKey } of allAffectedDates) {
         await this.lockRocketDailySnapshot(tx, organizationId, dateKey);
       }
       for (const summary of orderedSummaries) {
@@ -389,7 +418,7 @@ export class RocketPoConfirmService {
       await this.refreshRocketDailySnapshots(
         tx,
         organizationId,
-        orderedAffectedDates.map(({ businessDate }) => businessDate),
+        allAffectedDates.map(({ businessDate }) => businessDate),
       );
     });
   }
@@ -415,9 +444,16 @@ export class RocketPoConfirmService {
     for (const businessDate of businessDates) {
       const orders = await tx.rocketPurchaseOrder.findMany({
         where: { organizationId, businessDate },
-        select: { poSeq: true, orderAmount: true, orderQty: true },
+        select: { poSeq: true, orderAmount: true, orderQty: true, status: true },
       });
-      const totals = orders.reduce(
+      const revenueOrders = orders.filter((order) => isConfirmedPoStatus(order.status));
+      if (revenueOrders.length === 0) {
+        await tx.rocketSupplyDailySnapshot.deleteMany({
+          where: { organizationId, businessDate },
+        });
+        continue;
+      }
+      const totals = revenueOrders.reduce(
         (acc, order) => ({
           revenueKrw: acc.revenueKrw + order.orderAmount,
           itemQty: acc.itemQty + order.orderQty,
@@ -436,14 +472,14 @@ export class RocketPoConfirmService {
           organizationId,
           businessDate,
           revenueKrw: totals.revenueKrw,
-          poCount: orders.length,
+          poCount: revenueOrders.length,
           itemQty: totals.itemQty,
           source: 'rocket',
           rawJson: { poSeqs: totals.poSeqs, source: 'rocket-po-confirm' },
         },
         update: {
           revenueKrw: totals.revenueKrw,
-          poCount: orders.length,
+          poCount: revenueOrders.length,
           itemQty: totals.itemQty,
           source: 'rocket',
           rawJson: { poSeqs: totals.poSeqs, source: 'rocket-po-confirm' },
@@ -520,6 +556,7 @@ type RocketPurchaseOrderItem = {
   amount: number;
   productNo: string;
   barcode: string;
+  expectedInboundDate: string | null;
 };
 
 function buildRocketPurchaseOrderSummaries(rows: ConfirmSourceRow[]): RocketPurchaseOrderSummary[] {
@@ -534,7 +571,10 @@ function buildRocketPurchaseOrderSummaries(rows: ConfirmSourceRow[]): RocketPurc
   for (const [poSeq, poRows] of groups) {
     const first = poRows[0];
     if (!first) continue;
-    const businessDate = parseBusinessDate(first.expectedInboundDate) ?? parseBusinessDate(first.poRegisteredAt);
+    const businessDate =
+      first.businessDateBasis === 'ordered_at'
+        ? parseBusinessDate(first.poRegisteredAt) ?? parseBusinessDate(first.expectedInboundDate)
+        : parseBusinessDate(first.expectedInboundDate) ?? parseBusinessDate(first.poRegisteredAt);
     if (!businessDate) continue;
     const orderedAt = parseOrderedAt(first.poRegisteredAt) ?? businessDate;
     const items = poRows.map((row) => {
@@ -547,13 +587,14 @@ function buildRocketPurchaseOrderSummaries(rows: ConfirmSourceRow[]): RocketPurc
         amount,
         productNo: cleanText(row.productNo),
         barcode: cleanText(row.barcode),
+        expectedInboundDate: formatDateValue(row.expectedInboundDate),
       };
     });
     summaries.push({
       poSeq,
       businessDate,
       orderedAt,
-      status: nullableText(first.poStatus),
+      status: nullableText(first.poStatus) ?? nullableText(first.poStatusCode),
       vendorName: nullableText(first.vendorName),
       centerName: nullableText(first.center),
       firstSkuName: nullableText(items.find((item) => item.name)?.name),
@@ -587,6 +628,29 @@ function parseBusinessDate(value: unknown): Date | null {
     return null;
   }
   return date;
+}
+
+function formatDateValue(value: unknown): string | null {
+  const date = parseBusinessDate(value);
+  return date ? date.toISOString().slice(0, 10) : null;
+}
+
+function enumerateDateRange(range: RocketRevenueRefreshRange | undefined): Date[] {
+  if (!range) return [];
+  const out: Date[] = [];
+  for (
+    let time = range.from.getTime();
+    time <= range.to.getTime();
+    time += 86400000
+  ) {
+    out.push(new Date(time));
+  }
+  return out;
+}
+
+function isConfirmedPoStatus(value: unknown): boolean {
+  const normalized = String(value ?? '').replace(/\s+/g, '').trim().toUpperCase();
+  return normalized === 'PA' || normalized.includes('발주확정');
 }
 
 function parseOrderedAt(value: unknown): Date | null {

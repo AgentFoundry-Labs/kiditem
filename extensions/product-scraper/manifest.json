@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Auto-Seller Product Scraper",
-  "version": "2.0.0",
-  "description": "이커머스 상품 데이터 자동 추출 (Alibaba, 1688)",
+  "version": "2.2.0",
+  "description": "이커머스 상품·중국 라이브 방송 데이터 추출 (Alibaba, 1688, Douyin)",
   "permissions": [
     "activeTab",
     "scripting",
@@ -19,6 +19,8 @@
     "https://korean.alibaba.com/*",
     "https://*.alibaba.com/*",
     "https://*.1688.com/*",
+    "https://*.douyin.com/*",
+    "https://*.jinritemai.com/*",
     "https://itemcdn.tmall.com/*",
     "http://localhost:3000/*",
     "https://staging.merchon.org/*",
@@ -61,6 +63,17 @@
       "js": ["extractors/1688-bridge.js"],
       "run_at": "document_idle",
       "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://*.1688.com/*",
+        "https://*.douyin.com/*"
+      ],
+      "js": [
+        "live-commerce-extractor.js",
+        "live-commerce-content.js"
+      ],
+      "run_at": "document_idle"
     },
     {
       "matches": [

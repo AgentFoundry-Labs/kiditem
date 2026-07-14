@@ -15,6 +15,7 @@ import {
   type CoupangListing,
   type KidItemOption,
 } from '../lib/bundle-register-api';
+import { notifyCollectError } from '../lib/coupang-login';
 
 function optionLabel(o: KidItemOption): string {
   const name = o.masterName ? `${o.masterName} ${o.optionName ?? ''}`.trim() : o.optionName ?? '(옵션)';
@@ -66,7 +67,7 @@ export function BundleRegisterPanel() {
       );
       await loadList();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : '쿠팡 상품 동기화 실패');
+      notifyCollectError(e, '쿠팡 상품 동기화 실패');
     } finally {
       setSyncing(false);
     }
@@ -286,11 +287,23 @@ export function BundleRegisterPanel() {
                       </div>
                       <div className="min-w-0 flex-1 text-right text-xs">
                         {isConnected ? (
-                          <span className="inline-flex items-center gap-1 font-medium text-emerald-700">
-                            <Check size={12} />
-                            {r.matchStatus === 'linked'
-                              ? '바코드 직접매칭 (번들 불필요)'
-                              : `번들 연결됨${r.packQty ? ` × ${r.packQty}` : ''}`}
+                          <span className="flex flex-wrap items-center justify-end gap-x-1.5 gap-y-0.5 text-slate-600">
+                            {r.matchedOption && (
+                              <span className="inline-flex min-w-0 items-center gap-1">
+                                <span className="text-slate-400">→</span>
+                                <b className="max-w-[240px] truncate text-emerald-700" title={r.matchedOption.name}>
+                                  {r.matchedOption.name}
+                                </b>
+                                {r.matchedOption.barcode && (
+                                  <span className="font-mono text-[10px] text-slate-400">{r.matchedOption.barcode}</span>
+                                )}
+                                <span className="text-slate-400">재고 {formatNumber(r.matchedOption.availableStock)}</span>
+                              </span>
+                            )}
+                            <span className="inline-flex flex-none items-center gap-0.5 rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700">
+                              <Check size={11} />
+                              {r.matchStatus === 'linked' ? '바코드 직접' : `묶음 × ${r.packQty ?? '?'}`}
+                            </span>
                           </span>
                         ) : r.matchedOption ? (
                           <span className="text-slate-600">

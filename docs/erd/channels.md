@@ -17,6 +17,14 @@
 | ChannelReconciliationRun | `channel_reconciliation_runs` | 채널-KidItem 상품 매칭 스캔 실행 이력. 실제 연결 source of truth 는 ChannelListing / ChannelListingOption. |
 | ChannelScrapeRun | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
 | ChannelScrapeSnapshot | `channel_scrape_snapshots` | 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존. |
+| CoupangKeywordRankDailySnapshot | `coupang_keyword_rank_daily_snapshots` | 쿠팡 검색 키워드×상품(vendorItemId) 일별 순위 fact. 순위 null = 스캔한 페이지 내 미노출(순위권 밖). overallRank 는 광고 포함 전체 순위, organicRank 는 오가닉만, adRank 는 광고만 센 순위. |
+| CoupangKeywordSerpDailySnapshot | `coupang_keyword_serp_daily_snapshots` | 쿠팡 검색 키워드별 SERP 전체 캡처(키워드-일자당 최신본 upsert). items 는 DOM 순서 그대로의 결과 리스트 JSON — 경쟁사 노출 확인·순위 재계산용. |
+| CoupangKeywordTracker | `coupang_keyword_trackers` | 쿠팡 검색 키워드별 자사 상품 순위 추적 대상. 확장이 www.coupang.com 검색결과(SERP)를 수집할 키워드 정의. vendorItemIds 는 명시 추적 타깃(빈 배열 = 자사 카탈로그 자동매칭만). |
+| CoupangProductListing | `coupang_product_listings` | 쿠팡 로켓 supplier 등록 상품(vendorSearch) 카탈로그 + KidItem 매칭/번들 연결 상태. |
+| CoupangRepresentativeKeywordOverride | `coupang_representative_keyword_overrides` | 자사 쿠팡 상품(vendorItemId)별 사용자가 직접 지정한 대표 검색 키워드. 없으면 쿠팡 카테고리와 Wing 28일 지표로 자동 추천한다. |
+| CoupangWingSalesRankDailySnapshot | `coupang_wing_sales_rank_daily_snapshots` | Wing 상품 매칭 API의 키워드별 최근 28일 판매량순에서 자사 vendorItemId가 차지한 일별 순위. salesRank null은 수집 범위 밖이며 판매량·조회·매출 지표도 같은 Wing 응답에서 저장한다. |
+| CoupangWingTrackedProduct | `coupang_wing_tracked_products` | 쿠팡 Wing 카탈로그 경쟁상품 추적 대상. 상품분석(wing-catalog)에서 사용자가 추적 등록한 카탈로그 상품(자사/경쟁 무관). sourceKeyword = 지표 갱신 시 재검색할 키워드. |
+| CoupangWingTrackedProductDailySnapshot | `coupang_wing_tracked_product_daily_snapshots` | 쿠팡 Wing 추적상품 일별 지표 스냅샷(상품×일자당 최신본 upsert). Wing 카탈로그 28일 지표(클릭 pv·판매·매출·전환) + 판매가·리뷰. |
 | RocketPurchaseOrder | `rocket_purchase_orders` | 쿠팡 로켓 발주 단건(per-PO) 상세 — 매출분석 드릴다운(일자→발주→품목)용. items 는 발주서 품목(SKU) 라인 JSON(표시 전용). |
 | RocketSupplyDailySnapshot | `rocket_supply_daily_snapshots` | 쿠팡 로켓(공급사 발주) 일별 매출 fact. po-web 발주리스트의 발주금액(공급가)을 입고예정일(KST) 기준으로 집계한 값으로, 윙 매출과 분리된 로켓 매출 소스. |
 
@@ -261,6 +269,137 @@ erDiagram
     Json normalizedJson
     DateTime createdAt
   }
+  CoupangKeywordRankDailySnapshot {
+    String id PK
+    String organizationId FK
+    String keyword
+    String vendorItemId
+    DateTime businessDate
+    String productId
+    String itemId
+    String productName
+    Int overallRank
+    Int organicRank
+    Int adRank
+    Int page
+    Int positionInPage
+    Int priceKrw
+    Int reviewCount
+    String source
+    DateTime capturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  CoupangKeywordSerpDailySnapshot {
+    String id PK
+    String organizationId FK
+    String keyword
+    DateTime businessDate
+    Json items
+    Int itemCount
+    Int pagesScanned
+    DateTime capturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  CoupangKeywordTracker {
+    String id PK
+    String organizationId FK
+    String keyword
+    StringArray vendorItemIds
+    Int maxPages
+    Boolean enabled
+    DateTime lastCapturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  CoupangProductListing {
+    String id PK
+    String organizationId FK
+    String skuId
+    String barcode
+    String vendorItemId
+    String productName
+    String normalizedName
+    Int packQty
+    String category
+    String state
+    Int salePrice
+    String matchStatus
+    String matchedOptionId
+    String bundleOptionId
+    DateTime syncedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  CoupangRepresentativeKeywordOverride {
+    String id PK
+    String organizationId FK
+    String vendorItemId
+    String keyword
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  CoupangWingSalesRankDailySnapshot {
+    String id PK
+    String organizationId FK
+    String keyword
+    String vendorItemId
+    DateTime businessDate
+    String productId
+    String itemId
+    String productName
+    String categoryHierarchy
+    Int salesRank
+    Int salesLast28d
+    Int viewsLast28d
+    Int revenueLast28d
+    Decimal conversionRate28d
+    Int salePrice
+    Int reviewCount
+    Int keywordSalesLast28d
+    Int keywordViewsLast28d
+    Decimal keywordConversionRate28d
+    Int pagesScanned
+    Int collectedCount
+    Int totalResults
+    DateTime capturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  CoupangWingTrackedProduct {
+    String id PK
+    String organizationId FK
+    String productId
+    String itemId
+    String vendorItemId
+    String productName
+    String imagePath
+    String brandName
+    String categoryHierarchy
+    String sourceKeyword
+    Boolean enabled
+    DateTime lastCapturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  CoupangWingTrackedProductDailySnapshot {
+    String id PK
+    String organizationId FK
+    String trackedProductId FK
+    DateTime businessDate
+    Int salePriceKrw
+    Int ratingCount
+    Decimal ratingAverage
+    Int pvLast28Day
+    Int salesLast28d
+    Int estimatedRevenue28d
+    Decimal conversionRate28d
+    String sourceKeyword
+    DateTime capturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   RocketPurchaseOrder {
     String id PK
     String organizationId FK
@@ -296,6 +435,7 @@ erDiagram
   ChannelScrapeSnapshot o|--o{ ChannelAdTargetDailySnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelListingDailySnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelListingOptionDailySnapshot : "rawSnapshot"
+  CoupangWingTrackedProduct ||--o{ CoupangWingTrackedProductDailySnapshot : "trackedProduct"
 ```
 
 ## External References
@@ -321,5 +461,13 @@ erDiagram
 | ChannelScrapeSnapshot | listingOption | references external | Core | ChannelListingOption |
 | ChannelScrapeSnapshot | option | references external | Core | ProductOption |
 | ChannelScrapeSnapshot | organization | references external | Core | Organization |
+| CoupangKeywordRankDailySnapshot | organization | references external | Core | Organization |
+| CoupangKeywordSerpDailySnapshot | organization | references external | Core | Organization |
+| CoupangKeywordTracker | organization | references external | Core | Organization |
+| CoupangProductListing | organization | references external | Core | Organization |
+| CoupangRepresentativeKeywordOverride | organization | references external | Core | Organization |
+| CoupangWingSalesRankDailySnapshot | organization | references external | Core | Organization |
+| CoupangWingTrackedProduct | organization | references external | Core | Organization |
+| CoupangWingTrackedProductDailySnapshot | organization | references external | Core | Organization |
 | RocketPurchaseOrder | organization | references external | Core | Organization |
 | RocketSupplyDailySnapshot | organization | references external | Core | Organization |

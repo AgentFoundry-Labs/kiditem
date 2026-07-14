@@ -2,10 +2,11 @@ Consult this document first instead of relying on memorized knowledge.
 
 # advertising — Ad Operations
 
-`src/advertising/` owns Coupang ad operations, scrape ingest, daily fact
-projection, strategy/action generation, and ad-action execution. It works over
-the products 3-layer model (`MasterProduct`, `ProductOption`,
-`ChannelListing`) and is organization-scoped throughout.
+`src/advertising/` owns Coupang ad operations, keyword/SERP tracking,
+competitor aggregation, scrape ingest, daily fact projection, strategy/action
+generation, and ad-action execution. It works over the products 3-layer model
+(`MasterProduct`, `ProductOption`, `ChannelListing`) and is
+organization-scoped throughout.
 
 ## Folder Map
 
@@ -28,6 +29,7 @@ advertising/
 
 - Coupang ad scrape ingest: `POST /api/ads/extension/sync`
 - Ad dashboards and strategy/action APIs under `/api/ads/*`
+- Keyword/SERP rank tracking and competitor seller views under `/api/ads/*`
 - Ad action execution lifecycle for approved queued actions
 
 ## Main Data Models

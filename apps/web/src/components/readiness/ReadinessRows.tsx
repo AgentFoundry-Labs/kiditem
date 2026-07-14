@@ -5,11 +5,12 @@ import {
   CheckCircle2,
   ChevronDown,
   Database,
+  LineChart,
   Loader2,
   Megaphone,
   Package,
   RefreshCw,
-  ShoppingBag,
+  Rocket,
   Trophy,
   XCircle,
 } from 'lucide-react';
@@ -21,7 +22,8 @@ import { cn } from '@/lib/utils';
 type DisplayMeta = { title: string; hint: string; icon: LucideIcon };
 
 const DISPLAY: Record<string, DisplayMeta> = {
-  wing_sales: { title: '어제의 주문', hint: '매출·방문·장바구니', icon: ShoppingBag },
+  wing_sales: { title: '일별 매출', hint: '매출·방문·장바구니', icon: LineChart },
+  rocket_sales: { title: '쿠팡 로켓', hint: '발주확정 매출', icon: Rocket },
   coupang_ads: { title: '광고 성과', hint: '클릭·전환·지출', icon: Megaphone },
   coupang_products: { title: '상품 목록', hint: '등록된 SKU 동기화', icon: Package },
   wing_kpi: { title: '아이템위너 순위', hint: '경쟁 현황', icon: Trophy },
@@ -29,6 +31,15 @@ const DISPLAY: Record<string, DisplayMeta> = {
 
 function getDisplay(check: ReadinessCheck): DisplayMeta {
   return DISPLAY[check.key] ?? { title: check.label, hint: check.detail, icon: Database };
+}
+
+function collectLabel(check: ReadinessCheck): string {
+  if (check.key === 'wing_sales') return '매출 받기';
+  if (check.key === 'rocket_sales') return '매출 동기화';
+  if (check.key === 'coupang_ads') return '광고 받기';
+  if (check.key === 'wing_kpi') return '순위 받기';
+  if (check.key === 'coupang_products') return '상품 받기';
+  return '지금 받기';
 }
 
 function statusMeta(status: ReadinessCheck['status']) {
@@ -161,6 +172,7 @@ export function ActionCheckCard({
 
   const subline = (() => {
     if (missingCount > 0) return `최근 ${check.expectedDates!.length}일 중 ${missingCount}일이 비어 있어요`;
+    if (check.key === 'rocket_sales' && check.status === 'stale') return '오늘 로켓 매출이 아직 갱신되지 않았어요';
     if (check.status === 'stale') return '어제 데이터가 아직 반영되지 않았어요';
     return meta.hint;
   })();
@@ -220,7 +232,7 @@ export function ActionCheckCard({
           ) : (
             <>
               <RefreshCw className="h-3.5 w-3.5" />
-              지금 받기
+              {collectLabel(check)}
             </>
           )}
         </button>

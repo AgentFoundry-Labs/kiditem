@@ -1,56 +1,21 @@
-import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
+import { sendToExtension } from '@/lib/extension-bridge';
+import {
+  collectRocketPoRowsFromExtension as collectRocketRows,
+  detectRocketOrderExtensionId,
+  type RocketConfirmSourceRow,
+} from '@/lib/rocket-sales-collection';
 
 /** 확장이 supplier.coupang.com 에서 긁어오는 발주 SKU 행 (확정수량/사유는 백엔드에서 계산). */
-export interface RocketConfirmSourceRow {
-  poNumber: string;
-  barcode: string;
-  orderQty: number;
-  [key: string]: unknown;
-}
-
-interface CollectResponse {
-  success?: boolean;
-  rows?: RocketConfirmSourceRow[];
-  poCount?: number;
-  error?: string;
-}
-
-async function detectRocketOrderExtensionId(requiredCapability: string): Promise<string> {
-  const exactId = await detectOrderCollectionExtensionId(1200, requiredCapability);
-  if (exactId) return exactId;
-
-  // 이전에 로드된 확장은 action 은 있어도 ping capabilities 에 새 키가 없을 수 있다.
-  // 기본 주문수집 capability 로 한 번 더 잡아보고, 실제 action 호출 결과로 버전 문제를 판단한다.
-  const compatibleId = await detectOrderCollectionExtensionId();
-  if (compatibleId) return compatibleId;
-
-  throw new Error(
-    '주문수집 확장프로그램을 찾지 못했습니다. extensions/order-collector 를 Chrome 에 로드/새로고침하고 supplier.coupang.com 로그인 후 다시 시도해주세요.',
-  );
-}
+export type { RocketConfirmSourceRow };
 
 /** order-collector 확장으로 거래처확인요청 발주 풀컬럼을 supplier 세션에서 수집. */
 export async function collectRocketPoRowsFromExtension(
   from: string,
   to: string,
 ): Promise<{ rows: RocketConfirmSourceRow[]; poCount: number }> {
-  const extensionId = await detectRocketOrderExtensionId('collectRocketPoRows');
-  const res = await sendToExtension<CollectResponse>(
-    extensionId,
-    { action: 'collectRocketPoRows', from, to },
-    190000,
-  );
-  if (!res) {
-    throw new Error(
-      '주문수집 확장이 로켓 발주 수집 액션에 응답하지 않았습니다. Chrome 확장 관리에서 extensions/order-collector 를 새로고침해주세요.',
-    );
-  }
-  if (!res?.success || !res.rows) {
-    throw new Error(res?.error ?? '로켓 발주 수집에 실패했습니다.');
-  }
-  return { rows: res.rows, poCount: res.poCount ?? 0 };
+  return collectRocketRows({ from, to, status: 'RP' });
 }
 
 export interface RocketPoSummary {
@@ -83,18 +48,21 @@ export async function listRocketPosFromExtension(
 ): Promise<RocketPoSummary[]> {
   const extensionId = await detectRocketOrderExtensionId('listRocketPos');
   const statusCode = status ? ROCKET_STATUS_CODE[status] ?? '' : '';
-  const res = await sendToExtension<{ success?: boolean; pos?: RocketPoSummary[]; error?: string }>(
-    extensionId,
-    { action: 'listRocketPos', from, to, status: statusCode },
-    70000,
-  );
+  const res = await sendToExtension<{
+    success?: boolean;
+    pos?: RocketPoSummary[];
+    error?: string;
+    pendingLogin?: boolean;
+  }>(extensionId, { action: 'listRocketPos', from, to, status: statusCode }, 70000);
   if (!res) {
     throw new Error(
       '주문수집 확장이 로켓 발주 목록 액션에 응답하지 않았습니다. Chrome 확장 관리에서 extensions/order-collector 를 새로고침해주세요.',
     );
   }
   if (!res?.success || !res.pos) {
-    throw new Error(res?.error ?? '로켓 발주 목록 조회에 실패했습니다.');
+    throw Object.assign(new Error(res?.error ?? '로켓 발주 목록 조회에 실패했습니다.'), {
+      pendingLogin: res?.pendingLogin === true,
+    });
   }
   return res.pos;
 }

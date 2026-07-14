@@ -1,17 +1,28 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { toast } from 'sonner';
 import {
   AlertCircle,
   ArrowDownToLine,
   ChevronUp,
+  ExternalLink,
+  LineChart as LineChartIcon,
   Loader2,
   PackageSearch,
+  Plus,
   Search,
+  Check,
   type LucideIcon,
 } from 'lucide-react';
 import { isChromeExtensionRuntimeAvailable } from '@/lib/extension-bridge';
+import { isApiError } from '@/lib/api-error';
 import { cn, formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
+import {
+  addWingTrackedProduct,
+  listWingTrackedProducts,
+} from '../../lib/wing-tracking-api';
 import {
   buildWingCatalogSummary,
   formatWingCatalogRate,
@@ -28,6 +39,8 @@ import {
   buildRelatedKeywordCandidates,
   type KeywordFrequency,
 } from '../lib/wing-catalog-keyword-insights';
+import { buildCoupangProductUrl } from '../lib/wing-catalog-delivery';
+import { WingReviewAnalysisModal } from './WingReviewAnalysisModal';
 import {
   searchNaverRelatedKeywords,
   type NaverRelatedKeyword,
@@ -55,11 +68,13 @@ export function WingCatalogPage() {
   const [naverRelatedKeywords, setNaverRelatedKeywords] = useState<NaverRelatedKeyword[]>([]);
   const [relatedKeywordNotice, setRelatedKeywordNotice] = useState<string | null>(null);
   const [loadingRelatedKeywords, setLoadingRelatedKeywords] = useState(false);
+  const [reviewProduct, setReviewProduct] = useState<WingCatalogProduct | null>(null);
+  const [trackedProductIds, setTrackedProductIds] = useState<Set<string>>(new Set());
+  const [trackingProductId, setTrackingProductId] = useState<string | null>(null);
 
   const rows = useMemo(() => sortWingCatalogRows(result?.rows ?? [], sortKey), [result?.rows, sortKey]);
   const summary = useMemo(() => buildWingCatalogSummary(result?.rows ?? []), [result?.rows]);
   const topProduct = rows[0] ?? null;
-  const deliverySummary = useMemo(() => buildDeliverySummary(rows), [rows]);
   const priceBuckets = useMemo(() => buildPriceBuckets(rows), [rows]);
   const stripMetrics = useMemo(() => buildStripMetrics(rows, summary), [rows, summary]);
   const analyzedKeyword = result?.keyword ?? keyword;
@@ -92,6 +107,54 @@ export function WingCatalogPage() {
   useEffect(() => {
     setExtensionRuntimeAvailable(isChromeExtensionRuntimeAvailable());
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    listWingTrackedProducts()
+      .then((items) => {
+        if (!cancelled) setTrackedProductIds(new Set(items.map((item) => item.productId)));
+      })
+      .catch(() => {
+        // 추적 목록 로드 실패는 무시(추적 버튼은 여전히 동작).
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleTrack = async (row: WingCatalogProduct) => {
+    if (trackedProductIds.has(row.productId)) return;
+    setTrackingProductId(row.productId);
+    try {
+      await addWingTrackedProduct({
+        productId: row.productId,
+        itemId: row.itemId,
+        vendorItemId: row.vendorItemId,
+        productName: row.productName,
+        imagePath: row.imagePath,
+        brandName: row.brandName,
+        categoryHierarchy: row.categoryHierarchy,
+        sourceKeyword: result?.keyword ?? keyword,
+        salePriceKrw: row.salePrice,
+        ratingCount: row.ratingCount,
+        ratingAverage: row.rating,
+        pvLast28Day: row.pvLast28Day,
+        salesLast28d: row.salesLast28d,
+        estimatedRevenue28d: row.estimatedRevenue28d,
+        conversionRate28d: row.conversionRate28d,
+      });
+      setTrackedProductIds((prev) => new Set(prev).add(row.productId));
+      toast.success('추적 상품에 추가했습니다', {
+        description: '상품 추적 페이지에서 지표 추이를 확인하세요.',
+      });
+    } catch (trackError) {
+      toast.error(
+        isApiError(trackError) ? trackError.message : '추적 추가에 실패했습니다',
+      );
+    } finally {
+      setTrackingProductId(null);
+    }
+  };
 
   useEffect(() => {
     const seedKeyword = result?.keyword?.trim();
@@ -241,8 +304,7 @@ export function WingCatalogPage() {
           </div>
         )}
 
-        <section className="grid gap-5 xl:grid-cols-[270px_minmax(0,1fr)_300px] 2xl:grid-cols-[290px_minmax(0,1fr)_310px]">
-          <DeliveryCard summary={deliverySummary} hasRows={rows.length > 0} />
+        <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px] 2xl:grid-cols-[minmax(0,1fr)_340px]">
           <HeroAnalysisCard product={topProduct} rows={rows} summary={summary} keyword={result?.keyword ?? keyword} />
           <PriceDistributionCard buckets={priceBuckets} rows={rows} />
         </section>
@@ -269,47 +331,43 @@ export function WingCatalogPage() {
           <p className="text-xs font-semibold text-[var(--text-tertiary)]">
             {result ? `${formatNumber(rows.length)}개 상품 · ${result.stopReason ?? '완료'}` : '키워드를 분석하면 상품별 Wing 지표가 표시됩니다.'}
           </p>
-          <button
-            type="button"
-            onClick={handleDownload}
-            disabled={!result}
-            className="inline-flex h-10 items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 text-sm font-black text-green-700 transition hover:bg-green-100 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <ArrowDownToLine size={16} />
-            엑셀 다운로드
-          </button>
-        </div>
-
-        <CatalogTable rows={rows} />
-      </div>
-    </main>
-  );
-}
-
-function DeliveryCard({ summary, hasRows }: { summary: DeliverySummary; hasRows: boolean }) {
-  const conic = `conic-gradient(#d8f2f1 0 ${summary.rate}%, #8ed2d3 ${summary.rate}% ${Math.min(summary.rate + 4, 100)}%, #edf6f6 ${Math.min(summary.rate + 4, 100)}% 100%)`;
-
-  return (
-    <article className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 shadow-sm">
-      <h2 className="text-lg font-black">배송방식 비율</h2>
-      <p className="mt-2 text-sm font-bold text-[var(--text-tertiary)]">어떤 배송방식이 잘 팔리는지 확인해보세요</p>
-      <div className="mt-10 flex justify-center">
-        <div className="relative h-48 w-48 rounded-full" style={{ background: conic }}>
-          <div className="absolute inset-10 flex flex-col items-center justify-center rounded-full bg-[var(--surface)]">
-            <span className="text-3xl font-black">{hasRows ? `${summary.rate}%` : '-'}</span>
-            <span className="text-sm font-black">{summary.label}</span>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/sourcing-ai/product-tracking"
+              className="inline-flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 text-sm font-black text-[var(--text-secondary)] transition hover:bg-[var(--surface-sunken)]"
+            >
+              <LineChartIcon size={16} />
+              추적 상품 보기
+            </Link>
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={!result}
+              className="inline-flex h-10 items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 text-sm font-black text-green-700 transition hover:bg-green-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <ArrowDownToLine size={16} />
+              엑셀 다운로드
+            </button>
           </div>
         </div>
+
+        <CatalogTable
+          rows={rows}
+          onAnalyze={setReviewProduct}
+          onTrack={handleTrack}
+          trackedProductIds={trackedProductIds}
+          trackingProductId={trackingProductId}
+        />
       </div>
-      <div className="mt-9 text-center">
-        <p className="text-base font-black">
-          {hasRows ? `${summary.label}이 ${summary.rate}%로 가장 높아요` : '검색 결과 대기중'}
-        </p>
-        <p className="mt-2 text-sm font-semibold text-[var(--text-tertiary)]">
-          {hasRows ? `Wing 응답 ${formatNumber(summary.total)}개 상품 기준` : 'Wing 카탈로그 검색 후 계산됩니다'}
-        </p>
-      </div>
-    </article>
+
+      {reviewProduct && (
+        <WingReviewAnalysisModal
+          product={reviewProduct}
+          rows={rows}
+          onClose={() => setReviewProduct(null)}
+        />
+      )}
+    </main>
   );
 }
 
@@ -348,9 +406,6 @@ function HeroAnalysisCard({
         <AnalysisCell label="상품 전체리뷰" value={`${formatNumber(totalReviewCount)}개`} sub="수집 결과 기준" />
         <AnalysisCell label="TOP10 평균리뷰" value={`${formatNumber(Math.round(averageReviewTop10 ?? 0))}개`} />
         <AnalysisCell label="평균 전환율" value={formatWingCatalogRate(summary.averageConversionRate28d)} />
-        <AnalysisCell label="로켓 배송" value={`${deliveryRatio(rows, 'rocket')}%`} />
-        <AnalysisCell label="판매자 로켓" value={`${deliveryRatio(rows, 'sellerRocket')}%`} />
-        <AnalysisCell label="판매자 배송 (윙)" value={`${deliveryRatio(rows, 'wing')}%`} />
       </div>
     </article>
   );
@@ -526,7 +581,19 @@ function StripMetric({ label, value, sub, range }: StripMetric) {
   );
 }
 
-function CatalogTable({ rows }: { rows: WingCatalogProduct[] }) {
+function CatalogTable({
+  rows,
+  onAnalyze,
+  onTrack,
+  trackedProductIds,
+  trackingProductId,
+}: {
+  rows: WingCatalogProduct[];
+  onAnalyze: (product: WingCatalogProduct) => void;
+  onTrack: (product: WingCatalogProduct) => void;
+  trackedProductIds: Set<string>;
+  trackingProductId: string | null;
+}) {
   return (
     <section className="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-sm">
       <div className="overflow-x-auto">
@@ -537,7 +604,6 @@ function CatalogTable({ rows }: { rows: WingCatalogProduct[] }) {
               <th rowSpan={2} className="w-32 border-r border-[var(--border)] px-4 py-4">이미지</th>
               <th rowSpan={2} className="w-20 border-r border-[var(--border)] px-4 py-4 text-center">순위</th>
               <th rowSpan={2} className="min-w-[420px] border-r border-[var(--border)] px-4 py-4">상품명</th>
-              <th rowSpan={2} className="w-32 border-r border-[var(--border)] px-4 py-4">배송타입</th>
               <th rowSpan={2} className="w-28 border-r border-[var(--border)] px-4 py-4">도착...</th>
               <th rowSpan={2} className="w-28 border-r border-[var(--border)] px-4 py-4">가격</th>
               <th rowSpan={2} className="w-28 border-r border-[var(--border)] px-4 py-4">리뷰수</th>
@@ -553,12 +619,20 @@ function CatalogTable({ rows }: { rows: WingCatalogProduct[] }) {
           <tbody className="divide-y divide-[var(--border-subtle)]">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={12} className="px-4 py-16 text-center text-sm font-bold text-[var(--text-tertiary)]">
+                <td colSpan={11} className="px-4 py-16 text-center text-sm font-bold text-[var(--text-tertiary)]">
                   키워드를 분석하면 이 영역에 상품별 클릭수, 판매량, 매출, 전환율이 표시됩니다.
                 </td>
               </tr>
             ) : rows.map((row, index) => (
-              <CatalogRow key={`${row.productId}:${row.itemId}:${row.vendorItemId}`} row={row} rank={index + 1} />
+              <CatalogRow
+                key={`${row.productId}:${row.itemId}:${row.vendorItemId}`}
+                row={row}
+                rank={index + 1}
+                onAnalyze={onAnalyze}
+                onTrack={onTrack}
+                isTracked={trackedProductIds.has(row.productId)}
+                isTracking={trackingProductId === row.productId}
+              />
             ))}
           </tbody>
         </table>
@@ -567,13 +641,56 @@ function CatalogTable({ rows }: { rows: WingCatalogProduct[] }) {
   );
 }
 
-function CatalogRow({ row, rank }: { row: WingCatalogProduct; rank: number }) {
+function CatalogRow({
+  row,
+  rank,
+  onAnalyze,
+  onTrack,
+  isTracked,
+  isTracking,
+}: {
+  row: WingCatalogProduct;
+  rank: number;
+  onAnalyze: (product: WingCatalogProduct) => void;
+  onTrack: (product: WingCatalogProduct) => void;
+  isTracked: boolean;
+  isTracking: boolean;
+}) {
   const imageUrl = resolveCoupangCatalogImageUrl(row.imagePath);
+  const productUrl = buildCoupangProductUrl(row);
 
   return (
     <tr className="align-middle hover:bg-[var(--surface-sunken)]">
       <td className="px-4 py-4">
-        <button type="button" className="h-9 rounded-lg border border-[#7bd1d0] px-3 text-xs font-black text-[#40a7a5]">리뷰 분석</button>
+        <div className="flex flex-col gap-1.5">
+          <button
+            type="button"
+            onClick={() => onAnalyze(row)}
+            className="h-9 rounded-lg border border-[#7bd1d0] px-3 text-xs font-black text-[#40a7a5] transition hover:bg-[#e7f7f6]"
+          >
+            리뷰 분석
+          </button>
+          <button
+            type="button"
+            onClick={() => onTrack(row)}
+            disabled={isTracked || isTracking}
+            className={cn(
+              'inline-flex h-9 items-center justify-center gap-1 rounded-lg border px-3 text-xs font-black transition disabled:cursor-not-allowed',
+              isTracked
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-600'
+                : 'border-[#ffcaa8] text-[#ff5a1f] hover:bg-[#fff1e9]',
+            )}
+          >
+            {isTracking ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : isTracked ? (
+              <Check size={13} />
+            ) : (
+              <Plus size={13} />
+            )}
+            {isTracked ? '추적중' : '추적'}
+          </button>
+        </div>
       </td>
       <td className="px-4 py-4">
         <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-lg bg-[var(--surface-sunken)]">
@@ -583,13 +700,24 @@ function CatalogRow({ row, rank }: { row: WingCatalogProduct; rank: number }) {
       <td className="px-4 py-4 text-center font-black">{rank}</td>
       <td className="px-4 py-4">
         <div className="max-w-[520px]">
-          <p className="font-black leading-6 text-[var(--text-primary)]">{row.productName}</p>
+          {productUrl ? (
+            <a
+              href={productUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group inline-flex items-start gap-1 font-black leading-6 text-[var(--text-primary)] hover:text-[#ff5a1f]"
+            >
+              <span>{row.productName}</span>
+              <ExternalLink size={13} className="mt-1 shrink-0 text-[var(--text-tertiary)] group-hover:text-[#ff5a1f]" />
+            </a>
+          ) : (
+            <p className="font-black leading-6 text-[var(--text-primary)]">{row.productName}</p>
+          )}
           <p className="mt-1 text-xs font-semibold text-[var(--text-tertiary)]">
             상품ID {row.productId}{row.itemName ? ` · ${row.itemName}` : ''}
           </p>
         </div>
       </td>
-      <td className="px-4 py-4 font-black text-[#a76b34]">coupang wing</td>
       <td className="px-4 py-4 font-bold">{deliveryDays(row)}일</td>
       <td className="px-4 py-4 font-black">{formatKRW(row.salePrice)}원</td>
       <td className="px-4 py-4 font-bold">{formatNumber(row.ratingCount)}개</td>
@@ -611,12 +739,6 @@ function AnalysisCell({ label, value, sub }: { label: string; value: string; sub
   );
 }
 
-type DeliverySummary = {
-  label: string;
-  rate: number;
-  total: number;
-};
-
 type PriceBucket = {
   label: string;
   productCount: number;
@@ -635,32 +757,6 @@ type StripMetric = {
   sub: string;
   range: string;
 };
-
-function buildDeliverySummary(rows: WingCatalogProduct[]): DeliverySummary {
-  if (rows.length === 0) return { label: '판매자배송', rate: 0, total: 0 };
-  const wingCount = rows.filter((row) => !isRocketLike(row)).length;
-  const rocketCount = rows.length - wingCount;
-  if (wingCount >= rocketCount) {
-    return { label: '판매자배송', rate: Math.round((wingCount / rows.length) * 100), total: rows.length };
-  }
-  return { label: '로켓배송', rate: Math.round((rocketCount / rows.length) * 100), total: rows.length };
-}
-
-function isRocketLike(row: WingCatalogProduct): boolean {
-  const joined = `${row.deliveryInfo ?? ''} ${row.productName}`.toLowerCase();
-  return joined.includes('rocket') || joined.includes('로켓');
-}
-
-function deliveryRatio(rows: WingCatalogProduct[], type: 'rocket' | 'sellerRocket' | 'wing'): number {
-  if (rows.length === 0) return 0;
-  if (type === 'rocket') {
-    return Math.round((rows.filter(isRocketLike).length / rows.length) * 100);
-  }
-  if (type === 'sellerRocket') {
-    return Math.round((rows.filter((row) => row.productName.includes('로켓')).length / rows.length) * 100);
-  }
-  return Math.round((rows.filter((row) => !isRocketLike(row)).length / rows.length) * 100);
-}
 
 function buildPriceBuckets(rows: WingCatalogProduct[]): PriceBucket[] {
   if (rows.length === 0) {
@@ -776,9 +872,7 @@ function recommendedPrice(rows: WingCatalogProduct[]): number {
 }
 
 function deliveryDays(row: WingCatalogProduct): number {
-  if (isRocketLike(row)) return 1;
-  if ((row.salesLast28d ?? 0) > 1000) return 2;
-  return 3;
+  return (row.salesLast28d ?? 0) > 1000 ? 2 : 3;
 }
 
 function average(values: Array<number | null | undefined>): number | null {

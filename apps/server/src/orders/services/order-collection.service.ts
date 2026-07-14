@@ -122,6 +122,35 @@ export interface OrderCollectionRowsInput {
   fileName?: unknown;
 }
 
+/** 아이스크림몰 송장 업로드(출고완료 일괄등록) 파일 생성 입력. rows=아이스크림 배송조회, tracking=셀피아 송장. */
+export interface IcecreamSendFinishInput {
+  headers: unknown; // 아이스크림 배송조회 헤더
+  rows: unknown; // 아이스크림 배송조회 행
+  tracking: unknown; // 셀피아 송장 [{ ordNo, itemNo, invNo, courier }]
+}
+
+export interface IcecreamSendFinishResult {
+  buffer: Buffer;
+  fileName: string;
+  sourceRows: number; // 아이스크림 배송조회 라인 수
+  trackingRows: number; // 셀피아 송장 행 수
+  matchedRows: number; // 송장이 매칭돼 파일에 들어간 라인 수
+  unmappedCouriers: string[]; // hdcCd 코드로 못 바꾼 택배사명 (검토 필요)
+}
+
+/** 도매꾹 송장 엑셀일괄입력 파일 생성 입력. tracking=셀피아 송장 [{ ordNo, invNo, courier }]. */
+export interface DomeggookShipInput {
+  tracking: unknown;
+}
+
+export interface DomeggookShipResult {
+  buffer: Buffer;
+  fileName: string;
+  orderNos: string[]; // 파일에 담긴 주문번호(shipXls tar 용)
+  rowCount: number;
+  unmappedCouriers: string[]; // 도매꾹 코드로 못 바꾼 택배사
+}
+
 export interface KidsnoteConvertItem {
   productName?: string;
   option?: string;
@@ -203,6 +232,53 @@ export interface KidkidsConvertInput {
   fileName?: string;
 }
 
+// 카카오(톡스토어) OMS `_search` 응답 한 건. 확장이 배송준비중(statusCode 301)만 스크랩해 넘긴다.
+export interface KakaoConvertOrder {
+  deliveryAcceptedAt?: string; // 배송지/수신자정보 입력일 (YYYYMMDDHHMMSS)
+  statusCode?: number; // 301=배송준비중
+  statusName?: string;
+  paymentId?: number | string; // 주문번호
+  itemId?: number | string; // 채널상품번호
+  itemName?: string;
+  optionTitle?: string;
+  quantity?: number;
+  shippingMethod?: string;
+  deliveryServiceCompanyId?: number | string;
+  invoiceNumber?: string;
+  receiverName?: string;
+  receiverMobileNumber?: string; // "010-5899-5334"
+  receiverPhoneNumber?: string;
+  address?: string;
+  zoneCode?: string;
+  postNo?: string;
+  requestMessage?: string; // 배송메세지
+  orderPaidAt?: string; // 주문일 (YYYYMMDDHHMMSS)
+  standardPriceAmount?: number;
+  optionPriceAmount?: number;
+  sellerDiscountAmount?: number;
+  sellerDiscountCouponAmount?: number;
+  totalSellerPrice?: number;
+  commissionAmount?: number;
+  additionalCommissionAmount?: number;
+  afCommissionAmount?: number;
+  feeDiscountAmount?: number;
+  channelName?: string;
+  brandName?: string;
+  sellerItemNo?: string;
+  deliveryOriginId?: number | string;
+  deliveryAmountType?: string;
+  baseDeliveryAmount?: number;
+  areaAdditionalAmount?: number;
+  referrerType?: string; // 유입경로
+  talkDealOrder?: string;
+  itemType?: string;
+  b2b?: boolean | string;
+}
+export interface KakaoConvertInput {
+  orders?: KakaoConvertOrder[];
+  fileName?: string;
+}
+
 @Injectable()
 export class OrderCollectionService {
   async convertIcecreamMallOrderFile(
@@ -230,6 +306,102 @@ export class OrderCollectionService {
         : `아이스크림몰_${dayStamp(new Date())}_브라우저수집`;
 
     return convertIcecreamMallRows(sourceRows, buildOutputFileName(inputFileName));
+  }
+
+  /**
+   * 아이스크림몰 "출고완료 일괄등록" 업로드 파일 생성 (비파괴 — 파일만 만든다. 몰 업로드는 프론트/확장이 별도로).
+   * 아이스크림 배송조회(주문번호·배송번호·상품번호) + 셀피아 송장(주문번호→송장·택배사)을 주문번호로 조인해
+   * 서버가 읽는 4컬럼 [배송번호(deliNo)·배송순번(deliSeq)·택배사코드(hdcCd)·송장번호(invNo)] xlsx 로 만든다.
+   * ⚠️deliSeq 는 배송번호 그룹 안 순번(1,2,3…) — 아이스크림몰 실제 배송순번과 일치하는지 실데이터 검증 필요.
+   */
+  buildIcecreamSendFinishFile(input: IcecreamSendFinishInput): IcecreamSendFinishResult {
+    const headers = parseStringArray(input.headers, 'headers');
+    const rows = parseRows(input.rows);
+    const tracking = parseSellpiaTracking(input.tracking);
+    if (headers.length === 0 || rows.length === 0) {
+      throw new BadRequestException('아이스크림몰 배송조회 데이터가 없습니다.');
+    }
+    const sourceRows = rows.map((row) => mapSourceRow(headers, row));
+
+    // 송장 조회 인덱스: 주문번호+상품번호 우선, 없으면 주문번호만.
+    const byOrderItem = new Map<string, { invNo: string; courier: string }>();
+    const byOrder = new Map<string, { invNo: string; courier: string }>();
+    for (const t of tracking) {
+      const val = { invNo: t.invNo, courier: t.courier };
+      if (t.ordNo && t.itemNo) byOrderItem.set(`${t.ordNo}${t.itemNo}`, val);
+      if (t.ordNo && !byOrder.has(t.ordNo)) byOrder.set(t.ordNo, val);
+    }
+
+    const outputRows: (string | number)[][] = [];
+    const unmapped = new Set<string>();
+    const groups = groupByDelivery(sourceRows);
+    for (const group of groups) {
+      group.rows.forEach((source, index) => {
+        const ordNo = cell(source, '주문번호');
+        const deliNo = cell(source, '배송번호');
+        const itemNo = cell(source, '상품번호');
+        const deliSeq = index + 1;
+        const hit = byOrderItem.get(`${ordNo}${itemNo}`) ?? byOrder.get(ordNo);
+        if (!hit || !hit.invNo) return; // 아직 송장 없는(미발송) 라인은 제외
+        const hdcCd = courierToHdcCd(hit.courier);
+        if (!hdcCd) unmapped.add(hit.courier || '(빈 택배사)');
+        outputRows.push([deliNo, deliSeq, hdcCd, hit.invNo]);
+      });
+    }
+
+    // 서버 excelColumns="deliNo, deliSeq, hdcCd, invNo" 순서. 1행은 헤더(파서가 건너뜀).
+    const sheet = XLSX.utils.aoa_to_sheet([
+      ['배송번호', '배송순번', '택배사코드', '송장번호'],
+      ...outputRows,
+    ]);
+    sheet['!cols'] = [{ wch: 16 }, { wch: 10 }, { wch: 12 }, { wch: 18 }];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, 'Sheet1');
+    const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' }) as Buffer;
+
+    return {
+      buffer,
+      fileName: `아이스크림몰_송장업로드_${dayStamp(new Date())}.xlsx`,
+      sourceRows: sourceRows.length,
+      trackingRows: tracking.length,
+      matchedRows: outputRows.length,
+      unmappedCouriers: [...unmapped],
+    };
+  }
+
+  /**
+   * 도매꾹 "송장 엑셀일괄입력"(POST /sc/order/shipXls, deliXls 파일) 업로드용 .xls 생성 (비파괴 — 파일만).
+   * 셀피아 송장(주문번호=도매꾹 주문번호 직접 조인)으로 양식 3컬럼 [주문번호·택배사코드명·송장번호].
+   * 택배사코드명 = 도매꾹 택배사코드(CJ대한통운=DAEHAN). 주문당 1건(중복 주문번호 제거).
+   */
+  buildDomeggookShipFile(input: DomeggookShipInput): DomeggookShipResult {
+    const tracking = parseSellpiaTracking(input.tracking);
+    if (tracking.length === 0) {
+      throw new BadRequestException('도매꾹 송장이 없습니다.');
+    }
+    const seen = new Set<string>();
+    const dataRows: string[][] = [];
+    const orderNos: string[] = [];
+    const unmapped = new Set<string>();
+    for (const t of tracking) {
+      if (seen.has(t.ordNo)) continue;
+      seen.add(t.ordNo);
+      const code = SELLPIA_DELICOM_TO_DOMEGGOOK[t.courier] ?? '';
+      if (!code) unmapped.add(t.courier || '(빈 택배사)');
+      dataRows.push([t.ordNo, code, t.invNo]);
+      orderNos.push(t.ordNo);
+    }
+    const sheet = XLSX.utils.aoa_to_sheet([['주문번호', '택배사코드명', '송장번호'], ...dataRows]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, 'Sheet1');
+    const buffer = XLSX.write(workbook, { bookType: 'xls', type: 'buffer' }) as Buffer;
+    return {
+      buffer,
+      fileName: `도매꾹_송장_${dayStamp(new Date())}.xls`,
+      orderNos,
+      rowCount: orderNos.length,
+      unmappedCouriers: [...unmapped],
+    };
   }
 
   convertKidsnoteOrders(input: KidsnoteConvertInput): OrderCollectionConversion {
@@ -308,6 +480,22 @@ export class OrderCollectionService {
         ? Math.floor(Number(input.startOrderNo))
         : 96090;
     return convertKidkidsRows(orders, name, startNo);
+  }
+
+  convertKakaoOrders(input: KakaoConvertInput): OrderCollectionConversion {
+    const orders = Array.isArray(input?.orders) ? input.orders : [];
+    if (orders.length === 0) {
+      throw new BadRequestException('변환할 카카오 주문이 없습니다.');
+    }
+    if (orders.length > 5_000) {
+      throw new BadRequestException('한 번에 변환할 수 있는 주문은 5,000건까지입니다.');
+    }
+    const base =
+      typeof input.fileName === 'string' && input.fileName.trim()
+        ? input.fileName.trim()
+        : `카카오_${dayStamp(new Date())}`;
+    const name = base.toLowerCase().endsWith('.xls') ? base : `${base}.xls`;
+    return convertKakaoRows(orders, name);
   }
 
   /**
@@ -882,6 +1070,102 @@ function convertOnchannelRows(
   };
 }
 
+// 셀피아 카카오(톡스토어) 업로드 양식 (45컬럼) — Kakao OMS export 형식 그대로. 배송준비중(301)만 passthrough.
+const KAKAO_HEADERS = [
+  '배송지/수신자정보 입력일', '주문상태', '주문번호', '채널상품번호', '상품명', '옵션', '수량', '배송방법', '택배사코드', '송장번호',
+  '수령인명', '수령인연락처1', '하이픈포함 수령인연락처1', '수령인연락처2', '하이픈포함 수령인연락처2', '배송지주소', '우편번호', '배송메세지', '배송예정일', '주문일',
+  '상품금액', '옵션금액', '판매자할인금액', '판매자쿠폰할인금액', '정산기준금액', '기본수수료', '노출추가수수료', '추천리워드수수료', '수수료할인금액', '채널',
+  '브랜드', '모델명', '판매자상품번호', '옵션코드', '최초배송비번호', '배송비지불방법', '기본배송비 유형', '기본배송비 금액', '도서산간 추가 배송비 금액', '유입경로',
+  '톡딜여부', '상품유형', 'biz판매여부 ', '이메일 정보', '순서',
+] as const;
+
+// "20260707105505" → "2026-07-07 10:55:05" (셀피아 카카오 양식의 날짜 표기). 8자리면 날짜만.
+function kakaoDateTime(value: unknown): string {
+  const s = String(value ?? '').replace(/\D/g, '');
+  if (s.length < 8) return '';
+  const date = `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+  return s.length >= 14 ? `${date} ${s.slice(8, 10)}:${s.slice(10, 12)}:${s.slice(12, 14)}` : date;
+}
+
+/** 카카오 주문(OMS `_search`) → 셀피아 45컬럼. ⭐배송준비중(statusCode 301)만 남기고 나머지는 스킵. */
+function convertKakaoRows(orders: KakaoConvertOrder[], fileName: string): OrderCollectionConversion {
+  const aoa: (string | number)[][] = [KAKAO_HEADERS.slice() as string[]];
+  let seq = 0;
+  let skipped = 0;
+  for (const o of orders) {
+    if (Number(o?.statusCode) !== 301) {
+      skipped += 1; // 배송준비중이 아니면 제외 (확장이 이미 걸러도 방어적으로 재확인)
+      continue;
+    }
+    seq += 1;
+    const mobile = String(o?.receiverMobileNumber ?? '');
+    const phone2 = String(o?.receiverPhoneNumber ?? '');
+    aoa.push([
+      kakaoDateTime(o?.deliveryAcceptedAt), // 0 배송지/수신자정보 입력일
+      `${o?.statusCode ?? ''} ${o?.statusName ?? ''}`.trim(), // 1 주문상태 "301 배송 준비 중"
+      String(o?.paymentId ?? ''), // 2 주문번호
+      String(o?.itemId ?? ''), // 3 채널상품번호
+      String(o?.itemName ?? ''), // 4 상품명
+      String(o?.optionTitle ?? ''), // 5 옵션
+      kidsnoteNum(o?.quantity) || 1, // 6 수량
+      String(o?.shippingMethod ?? ''), // 7 배송방법
+      String(o?.deliveryServiceCompanyId ?? ''), // 8 택배사코드
+      String(o?.invoiceNumber ?? ''), // 9 송장번호
+      String(o?.receiverName ?? ''), // 10 수령인명
+      mobile.replace(/-/g, ''), // 11 수령인연락처1
+      mobile, // 12 하이픈포함 수령인연락처1
+      phone2.replace(/-/g, ''), // 13 수령인연락처2
+      phone2, // 14 하이픈포함 수령인연락처2
+      String(o?.address ?? ''), // 15 배송지주소
+      String(o?.zoneCode ?? o?.postNo ?? ''), // 16 우편번호
+      String(o?.requestMessage ?? ''), // 17 배송메세지
+      '', // 18 배송예정일 (Kakao 응답에 없음)
+      kakaoDateTime(o?.orderPaidAt), // 19 주문일
+      kidsnoteNum(o?.standardPriceAmount), // 20 상품금액
+      kidsnoteNum(o?.optionPriceAmount), // 21 옵션금액
+      kidsnoteNum(o?.sellerDiscountAmount), // 22 판매자할인금액
+      kidsnoteNum(o?.sellerDiscountCouponAmount), // 23 판매자쿠폰할인금액
+      kidsnoteNum(o?.totalSellerPrice), // 24 정산기준금액
+      kidsnoteNum(o?.commissionAmount), // 25 기본수수료
+      kidsnoteNum(o?.additionalCommissionAmount), // 26 노출추가수수료
+      kidsnoteNum(o?.afCommissionAmount), // 27 추천리워드수수료
+      kidsnoteNum(o?.feeDiscountAmount), // 28 수수료할인금액
+      String(o?.channelName ?? ''), // 29 채널
+      String(o?.brandName ?? ''), // 30 브랜드
+      '', // 31 모델명 (없음)
+      String(o?.sellerItemNo ?? ''), // 32 판매자상품번호
+      '', // 33 옵션코드 (없음)
+      String(o?.deliveryOriginId ?? ''), // 34 최초배송비번호
+      '', // 35 배송비지불방법 (없음)
+      String(o?.deliveryAmountType ?? ''), // 36 기본배송비 유형
+      kidsnoteNum(o?.baseDeliveryAmount), // 37 기본배송비 금액
+      kidsnoteNum(o?.areaAdditionalAmount), // 38 도서산간 추가 배송비 금액
+      String(o?.referrerType ?? ''), // 39 유입경로
+      String(o?.talkDealOrder ?? ''), // 40 톡딜여부
+      String(o?.itemType ?? ''), // 41 상품유형
+      o?.b2b === true ? 'Y' : o?.b2b ? String(o.b2b) : '', // 42 biz판매여부
+      '', // 43 이메일 정보
+      seq, // 44 순서
+    ]);
+  }
+  if (aoa.length <= 1) {
+    throw new BadRequestException('변환할 배송준비중 카카오 주문이 없습니다.');
+  }
+  const sheet = XLSX.utils.aoa_to_sheet(aoa);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, 'Sheet0');
+  const rawBuffer = XLSX.write(workbook, { bookType: 'xls', bookSST: true, type: 'buffer' }) as Buffer;
+  const buffer = wrapKidsnoteSellpiaXls(rawBuffer); // 셀피아 호환 메타 재조립 (KidsNote와 동일)
+  return {
+    buffer,
+    fileName,
+    sourceRows: orders.length,
+    productRows: 0,
+    outputRows: aoa.length - 1,
+    skippedRows: skipped,
+  };
+}
+
 // 셀피아 키드키즈 업로드 양식 (17컬럼) — 주문서(logis_down5) 기반. 상품행 + 택배비행(3000 고정) 2행 구조.
 const KIDKIDS_HEADERS = [
   '주문번호', '주문일자', '이름', '전화', '휴대폰', '우편번호', '주소', '상품명', '옵션', '수량',
@@ -1233,6 +1517,75 @@ function parseRows(value: unknown): string[][] {
     throw new BadRequestException('rows 값이 올바르지 않습니다.');
   }
   return value.map((row) => parseStringArray(row, 'row'));
+}
+
+interface SellpiaTrackingRow {
+  ordNo: string;
+  itemNo: string;
+  invNo: string;
+  courier: string;
+}
+
+function parseSellpiaTracking(value: unknown): SellpiaTrackingRow[] {
+  if (value == null) return [];
+  if (!Array.isArray(value)) {
+    throw new BadRequestException('tracking 값이 올바르지 않습니다.');
+  }
+  return value
+    .map((raw) => {
+      const r = (raw ?? {}) as Record<string, unknown>;
+      return {
+        ordNo: normalizeCell(r.ordNo as string).trim(),
+        itemNo: normalizeCell(r.itemNo as string).trim(),
+        invNo: normalizeCell(r.invNo as string).trim(),
+        courier: normalizeCell(r.courier as string).trim(),
+      };
+    })
+    .filter((r) => r.ordNo && r.invNo);
+}
+
+// 셀피아 택배사명(delicom) → 아이스크림몰 택배사코드(hdcCd). 공백/특수 제거 후 별칭 매칭.
+// ⚠️실제 delicom 표기 샘플이 없어(배송완료 0건) 일반 별칭 기준 — 매칭 안 되면 unmappedCouriers 로 노출됨.
+const COURIER_HDC_MAP: Record<string, string> = {
+  cj대한통운: '10', cj택배: '10', 대한통운: '10', cj: '10', cjgls: '10',
+  우체국: '11', 우체국택배: '11', 우체국등기: '11', epost: '11',
+  로젠: '14', 로젠택배: '14', logen: '14',
+  건영: '15', 건영택배: '15',
+  경동: '16', 경동택배: '16',
+  대신: '17', 대신택배: '17',
+  롯데: '18', 롯데택배: '18', 롯데글로벌로지스: '18', 현대택배: '18',
+  일양: '19', 일양로지스: '19',
+  천일: '20', 천일택배: '20', 천일화물: '20',
+  한진: '21', 한진택배: '21',
+  합동: '22', 합동택배: '22',
+  우리: '23', 우리택배: '23',
+  홈픽: '24', 홈픽택배: '24',
+  농협: '25', 농협택배: '25',
+  gs편의점: '26', gs편의점택배: '26', gs25: '26', gs편의점반값택배: '26',
+  딜리박스: '27',
+  slx: '28', slx택배: '28',
+  서림: '32', 서림택배: '32',
+  직접배송: '40', 방문수령: '40', 매장수령: '40',
+};
+
+// 셀피아 택배사코드(delicom, 송장재출력) → 아이스크림몰 택배사코드(hdcCd). 셀피아는 자체 CJ대한통운 발송이라 1136 이 대부분.
+// ⚠️다른 택배사 delicom 코드는 실 데이터 확인되면 추가.
+const SELLPIA_DELICOM_TO_HDC: Record<string, string> = {
+  '1136': '10', // CJ대한통운
+};
+
+// 셀피아 택배사코드(delicom) → 도매꾹 택배사코드(com/lDeliCom). 셀피아=CJ(1136)→도매꾹 DAEHAN.
+const SELLPIA_DELICOM_TO_DOMEGGOOK: Record<string, string> = {
+  '1136': 'DAEHAN', // CJ대한통운
+};
+
+function courierToHdcCd(courier: string): string {
+  const raw = (courier ?? '').trim();
+  if (!raw) return '';
+  // 셀피아 delicom 은 숫자 코드로 온다(예 1136). 코드 매핑 우선, 없으면 택배사명 별칭 매칭.
+  if (/^\d+$/.test(raw)) return SELLPIA_DELICOM_TO_HDC[raw] ?? '';
+  const key = raw.toLowerCase().replace(/[\s()（）_/-]+/g, '');
+  return COURIER_HDC_MAP[key] ?? '';
 }
 
 function mapSourceRow(headers: string[], row: string[]): SourceRow {

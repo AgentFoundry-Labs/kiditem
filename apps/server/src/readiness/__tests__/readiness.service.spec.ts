@@ -206,6 +206,14 @@ describe('ReadinessService', () => {
           lastObservedAt: new Date('2026-05-02T01:00:00.000Z'),
         })),
       },
+      rocketPurchaseOrder: {
+        findMany: vi.fn(async () => [
+          {
+            businessDate: new Date('2026-05-14T00:00:00.000Z'),
+            updatedAt: new Date('2026-05-02T01:00:00.000Z'),
+          },
+        ]),
+      },
       masterProduct: {
         count: vi.fn(async () => 1752),
         findFirst: vi.fn(async () => ({ updatedAt: new Date('2026-05-02T01:00:00.000Z') })),
@@ -224,8 +232,10 @@ describe('ReadinessService', () => {
     expect(adsQuery.where.businessDate.lte).toEqual(new Date('2026-05-01T00:00:00.000Z'));
 
     const wingSales = status.checks.find((check) => check.key === 'wing_sales');
+    const rocketSales = status.checks.find((check) => check.key === 'rocket_sales');
     const coupangAds = status.checks.find((check) => check.key === 'coupang_ads');
     expect(wingSales?.status).toBe('ok');
+    expect(rocketSales?.status).toBe('ok');
     expect(coupangAds?.status).toBe('stale');
     expect(coupangAds?.missingDates).toEqual(['2026-04-18']);
   });

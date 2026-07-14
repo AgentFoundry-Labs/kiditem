@@ -16,6 +16,7 @@ import {
   type RocketComputedRow,
   type RocketMatchReason,
 } from '../lib/rocket-confirm-api';
+import { notifyCollectError } from '../lib/coupang-login';
 import { saveRocketConfirmFile } from '../lib/rocket-confirm-file-store';
 
 type Busy = null | 'preview' | 'download' | 'fill';
@@ -123,7 +124,7 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
       setCommitResult(null);
       toast.success(`발주 ${count}건 · ${preview.rows.length}행 — 확정수량 확인/수정 후 다운로드하세요`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : '발주 수집 실패');
+      notifyCollectError(e, '발주 수집 실패');
     } finally {
       setBusy(null);
     }

@@ -6,6 +6,10 @@ import vm from 'node:vm';
 
 const backgroundPath = path.resolve('extensions/product-scraper/background.js');
 const backgroundSource = fs.readFileSync(backgroundPath, 'utf8');
+const trendCollectorPath = path.resolve('extensions/product-scraper/1688-trend-collector.js');
+const trendCollectorSource = fs.readFileSync(trendCollectorPath, 'utf8');
+const liveCommerceCollectorPath = path.resolve('extensions/product-scraper/live-commerce-collector.js');
+const liveCommerceCollectorSource = fs.readFileSync(liveCommerceCollectorPath, 'utf8');
 
 function createStorage(initial = {}) {
   const values = { ...initial };
@@ -50,6 +54,7 @@ function loadBackground(initialStorage = {}) {
   const storage = createStorage(initialStorage);
   const externalListeners = [];
   const runtimeListeners = [];
+  const connectListeners = [];
   const installListeners = [];
   const fetchCalls = [];
 
@@ -59,6 +64,7 @@ function loadBackground(initialStorage = {}) {
         id: 'product-scraper-extension',
         getManifest: () => ({ version: '2.0.0' }),
         onInstalled: { addListener: (listener) => installListeners.push(listener) },
+        onConnect: { addListener: (listener) => connectListeners.push(listener) },
         onMessage: { addListener: (listener) => runtimeListeners.push(listener) },
         onMessageExternal: { addListener: (listener) => externalListeners.push(listener) },
         lastError: null,
@@ -82,9 +88,29 @@ function loadBackground(initialStorage = {}) {
   };
 
   vm.createContext(context);
+  context.importScripts = (file) => {
+    if (file === '1688-trend-collector.js') {
+      vm.runInContext(trendCollectorSource, context, { filename: trendCollectorPath });
+      return;
+    }
+    if (file === 'live-commerce-collector.js') {
+      vm.runInContext(liveCommerceCollectorSource, context, {
+        filename: liveCommerceCollectorPath,
+      });
+      return;
+    }
+    assert.fail(`Unexpected background import: ${file}`);
+  };
   vm.runInContext(backgroundSource, context, { filename: backgroundPath });
 
-  return { context, externalListeners, fetchCalls, installListeners, storage: storage.values };
+  return {
+    context,
+    connectListeners,
+    externalListeners,
+    fetchCalls,
+    installListeners,
+    storage: storage.values,
+  };
 }
 
 function sendExternal(listener, message, sender = { url: 'http://localhost:3000/product-pipeline/collected-products' }) {
@@ -106,6 +132,47 @@ test('stores KidItem auth tokens sent by the logged-in web app', async () => {
   assert.equal(response?.success, true);
   assert.equal(env.storage.kiditem_sourcing_ingest_token, 'token-from-web');
   assert.equal(env.storage.kiditem_sourcing_ingest_token_expires_at, '2026-05-21T12:30:00.000Z');
+});
+
+test('advertises the logged-in Chrome trend and live-commerce collector capabilities', async () => {
+  const env = loadBackground();
+
+  const response = await sendExternal(env.externalListeners[0], { action: 'ping' });
+
+  assert.equal(response?.success, true);
+  assert.equal(response?.capabilities?.sourcing1688TrendCollector, true);
+  assert.equal(response?.capabilities?.sourcingLiveCommerceCollector, true);
+});
+
+test('accepts a heartbeat port that keeps long 1688 trend runs alive', () => {
+  const env = loadBackground();
+  const messageListeners = [];
+
+  assert.equal(env.connectListeners.length, 1);
+  env.connectListeners[0]({
+    name: 'kiditem-1688-trend-keepalive',
+    onMessage: { addListener: (listener) => messageListeners.push(listener) },
+  });
+
+  assert.equal(messageListeners.length, 1);
+});
+
+test('rejects invalid 1688 trend collection inputs before opening a tab', async () => {
+  const env = loadBackground();
+
+  const empty = await sendExternal(env.externalListeners[0], {
+    action: 'start1688TrendCollection',
+    keywords: [],
+    maxResultsPerKeyword: 20,
+  });
+  const oversized = await sendExternal(env.externalListeners[0], {
+    action: 'start1688TrendCollection',
+    keywords: ['문구'],
+    maxResultsPerKeyword: 21,
+  });
+
+  assert.equal(empty?.success, false);
+  assert.equal(oversized?.success, false);
 });
 
 test('stores staging API base and auth token from the staging web app', async () => {

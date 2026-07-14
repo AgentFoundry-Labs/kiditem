@@ -12,6 +12,9 @@ import { AdvertisingIngestController } from './adapter/in/http/advertising-inges
 import { AdvertisingOverviewController } from './adapter/in/http/advertising-overview.controller';
 import { AdvertisingStrategyController } from './adapter/in/http/advertising-strategy.controller';
 import { AdStrategyAgentController } from './adapter/in/http/ad-strategy-agent.controller';
+import { KeywordRankController } from './adapter/in/http/keyword-rank.controller';
+import { CompetitorTrackingController } from './adapter/in/http/competitor-tracking.controller';
+import { WingTrackedProductController } from './adapter/in/http/wing-tracked-product.controller';
 
 // adapter/out/repository
 import { ScrapeTargetRepositoryAdapter } from './adapter/out/repository/scrape-target.repository.adapter';
@@ -27,6 +30,9 @@ import { ChannelScrapeRepositoryAdapter } from './adapter/out/repository/channel
 import { ChannelListingDailyRepositoryAdapter } from './adapter/out/repository/channel-listing-daily.repository.adapter';
 import { ChannelOptionDailyRepositoryAdapter } from './adapter/out/repository/channel-option-daily.repository.adapter';
 import { ChannelTargetDailyRepositoryAdapter } from './adapter/out/repository/channel-target-daily.repository.adapter';
+import { KeywordRankRepositoryAdapter } from './adapter/out/repository/keyword-rank.repository.adapter';
+import { WingTrackedProductRepositoryAdapter } from './adapter/out/repository/wing-tracked-product.repository.adapter';
+import { KiditemStorefrontAdapter } from './adapter/out/provider/kiditem-storefront.adapter';
 // adapter/out/automation
 import { OperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 
@@ -45,8 +51,13 @@ import { AdSyncService } from './application/service/ad-sync.service';
 import { AdActionService } from './application/service/ad-action.service';
 import { AdExecutionService } from './application/service/ad-execution.service';
 import { AdConfigService } from './application/service/ad-config.service';
+import { KeywordRankService } from './application/service/keyword-rank.service';
+import { CompetitorTrackingService } from './application/service/competitor-tracking.service';
+import { WingTrackedProductService } from './application/service/wing-tracked-product.service';
 import { AdCampaignIngestHandler } from './application/service/ad-campaign-ingest.handler';
 import { CoupangAdsDailyIngestHandler } from './application/service/coupang-ads-daily-ingest.handler';
+import { KeywordRankIngestHandler } from './application/service/keyword-rank-ingest.handler';
+import { WingSalesRankIngestHandler } from './application/service/wing-sales-rank-ingest.handler';
 import { RawScrapeIngestHandler } from './application/service/raw-scrape-ingest.handler';
 import { TrafficIngestHandler } from './application/service/traffic-ingest.handler';
 
@@ -67,7 +78,10 @@ import { CHANNEL_SCRAPE_REPOSITORY_PORT } from './application/port/out/repositor
 import { CHANNEL_LISTING_DAILY_REPOSITORY_PORT } from './application/port/out/repository/channel-listing-daily.repository.port';
 import { CHANNEL_OPTION_DAILY_REPOSITORY_PORT } from './application/port/out/repository/channel-option-daily.repository.port';
 import { CHANNEL_TARGET_DAILY_REPOSITORY_PORT } from './application/port/out/repository/channel-target-daily.repository.port';
+import { KEYWORD_RANK_REPOSITORY_PORT } from './application/port/out/repository/keyword-rank.repository.port';
+import { WING_TRACKED_PRODUCT_REPOSITORY_PORT } from './application/port/out/repository/wing-tracked-product.repository.port';
 import { OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
+import { KIDITEM_STOREFRONT_PORT } from './application/port/out/provider/kiditem-storefront.port';
 
 // `application/port/out/*` ports bound to their adapters via `useExisting`
 // so application services depend on tokens, not concrete classes. Mirrors
@@ -86,6 +100,9 @@ const REPOSITORY_PORT_BINDINGS = [
   { provide: CHANNEL_LISTING_DAILY_REPOSITORY_PORT, useExisting: ChannelListingDailyRepositoryAdapter },
   { provide: CHANNEL_OPTION_DAILY_REPOSITORY_PORT, useExisting: ChannelOptionDailyRepositoryAdapter },
   { provide: CHANNEL_TARGET_DAILY_REPOSITORY_PORT, useExisting: ChannelTargetDailyRepositoryAdapter },
+  { provide: KEYWORD_RANK_REPOSITORY_PORT, useExisting: KeywordRankRepositoryAdapter },
+  { provide: WING_TRACKED_PRODUCT_REPOSITORY_PORT, useExisting: WingTrackedProductRepositoryAdapter },
+  { provide: KIDITEM_STOREFRONT_PORT, useExisting: KiditemStorefrontAdapter },
   { provide: OPERATION_ALERT_PORT, useExisting: OperationAlertAdapter },
 ];
 
@@ -101,6 +118,9 @@ const REPOSITORY_PORT_BINDINGS = [
     AdvertisingActionsController,
     AdvertisingExecutionController,
     AdStrategyAgentController,
+    KeywordRankController,
+    CompetitorTrackingController,
+    WingTrackedProductController,
   ],
   providers: [
     // adapter/out/repository
@@ -117,6 +137,9 @@ const REPOSITORY_PORT_BINDINGS = [
     ChannelListingDailyRepositoryAdapter,
     ChannelOptionDailyRepositoryAdapter,
     ChannelTargetDailyRepositoryAdapter,
+    KeywordRankRepositoryAdapter,
+    WingTrackedProductRepositoryAdapter,
+    KiditemStorefrontAdapter,
     // adapter/out/automation
     OperationAlertAdapter,
     // application/service
@@ -134,9 +157,14 @@ const REPOSITORY_PORT_BINDINGS = [
     AdActionService,
     AdExecutionService,
     AdConfigService,
+    KeywordRankService,
+    CompetitorTrackingService,
+    WingTrackedProductService,
     // application/service — ingest handlers
     AdCampaignIngestHandler,
     CoupangAdsDailyIngestHandler,
+    KeywordRankIngestHandler,
+    WingSalesRankIngestHandler,
     RawScrapeIngestHandler,
     TrafficIngestHandler,
     // services/* — transitional facade (grandfathered)

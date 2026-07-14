@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import type {
   RocketRevenueRepositoryPort,
@@ -11,7 +12,7 @@ import type {
 /**
  * Coupang Rocket(공급사 발주) revenue read model.
  *
- * Reads `rocket_supply_daily_snapshots` (발주금액=공급가, 입고예정일 KST 기준 일별
+ * Reads confirmed `rocket_purchase_orders` (발주금액=공급가, 발주일 KST 기준 일별
  * fact). The dashboard surfaces this as a separate revenue lane from Wing.
  *
  * Multi-tenant: every read binds `organizationId`. `business_date` is `@db.Date`;
@@ -23,14 +24,10 @@ export class RocketRevenueRepositoryAdapter implements RocketRevenueRepositoryPo
   constructor(private readonly prisma: PrismaService) {}
 
   async findLatestDataDate(organizationId: string): Promise<Date | null> {
-    const agg = await this.prisma.rocketSupplyDailySnapshot.aggregate({
+    const agg = await this.prisma.rocketPurchaseOrder.aggregate({
       where: {
         organizationId,
-        OR: [
-          { revenueKrw: { gt: 0 } },
-          { poCount: { gt: 0 } },
-          { itemQty: { gt: 0 } },
-        ],
+        ...confirmedPurchaseOrderWhere(),
       },
       _max: { businessDate: true },
     });
@@ -42,20 +39,21 @@ export class RocketRevenueRepositoryAdapter implements RocketRevenueRepositoryPo
     from: Date,
     to: Date,
   ): Promise<RocketRevenueMetrics> {
-    const agg = await this.prisma.rocketSupplyDailySnapshot.aggregate({
+    const agg = await this.prisma.rocketPurchaseOrder.aggregate({
       where: {
         organizationId,
         businessDate: { gte: from, lt: to },
+        ...confirmedPurchaseOrderWhere(),
       },
-      _sum: { revenueKrw: true, poCount: true, itemQty: true },
+      _sum: { orderAmount: true, orderQty: true },
       _max: { updatedAt: true },
       _count: { _all: true },
     });
 
     return {
-      revenue: agg._sum.revenueKrw ?? 0,
-      poCount: agg._sum.poCount ?? 0,
-      itemQty: agg._sum.itemQty ?? 0,
+      revenue: agg._sum.orderAmount ?? 0,
+      poCount: agg._count._all ?? 0,
+      itemQty: agg._sum.orderQty ?? 0,
       hasData: (agg._count._all ?? 0) > 0,
       lastObservedAt: agg._max.updatedAt ?? null,
     };
@@ -66,26 +64,30 @@ export class RocketRevenueRepositoryAdapter implements RocketRevenueRepositoryPo
     since: Date,
     until?: Date,
   ): Promise<RocketDailyRow[]> {
-    const rows = await this.prisma.rocketSupplyDailySnapshot.findMany({
+    const rows = await this.prisma.rocketPurchaseOrder.groupBy({
+      by: ['businessDate'],
       where: {
         organizationId,
         businessDate: until ? { gte: since, lt: until } : { gte: since },
+        ...confirmedPurchaseOrderWhere(),
       },
+      _sum: { orderAmount: true, orderQty: true },
+      _count: { _all: true },
       orderBy: { businessDate: 'asc' },
-      select: { businessDate: true, revenueKrw: true, poCount: true, itemQty: true },
     });
 
     return rows.map((r) => ({
       date: r.businessDate.toISOString().slice(0, 10),
-      revenue: r.revenueKrw,
-      poCount: r.poCount,
-      itemQty: r.itemQty,
+      revenue: r._sum.orderAmount ?? 0,
+      poCount: r._count._all ?? 0,
+      itemQty: r._sum.orderQty ?? 0,
     }));
   }
 
   private static readonly ORDER_SELECT = {
     poSeq: true,
     businessDate: true,
+    orderedAt: true,
     status: true,
     vendorName: true,
     centerName: true,
@@ -99,7 +101,11 @@ export class RocketRevenueRepositoryAdapter implements RocketRevenueRepositoryPo
   async fetchOrdersForDate(organizationId: string, date: Date): Promise<RocketOrderRow[]> {
     const dayEnd = new Date(date.getTime() + 24 * 3600 * 1000);
     const rows = await this.prisma.rocketPurchaseOrder.findMany({
-      where: { organizationId, businessDate: { gte: date, lt: dayEnd } },
+      where: {
+        organizationId,
+        businessDate: { gte: date, lt: dayEnd },
+        ...confirmedPurchaseOrderWhere(),
+      },
       orderBy: { orderAmount: 'desc' },
       select: RocketRevenueRepositoryAdapter.ORDER_SELECT,
     });
@@ -125,9 +131,16 @@ export class RocketRevenueRepositoryAdapter implements RocketRevenueRepositoryPo
   }
 }
 
+function confirmedPurchaseOrderWhere(): Prisma.RocketPurchaseOrderWhereInput {
+  return {
+    OR: [{ status: 'PA' }, { status: { contains: '발주확정' } }],
+  };
+}
+
 function mapOrderRow(r: {
   poSeq: number;
   businessDate: Date;
+  orderedAt: Date;
   status: string | null;
   vendorName: string | null;
   centerName: string | null;
@@ -137,9 +150,12 @@ function mapOrderRow(r: {
   orderAmount: number;
   items: unknown;
 }): RocketOrderRow {
+  const items = Array.isArray(r.items) ? (r.items as unknown as RocketOrderItem[]) : [];
   return {
     poSeq: r.poSeq,
     businessDate: r.businessDate.toISOString().slice(0, 10),
+    orderedAt: r.orderedAt.toISOString(),
+    expectedInboundDate: resolveExpectedInboundDate(items),
     status: r.status,
     vendorName: r.vendorName,
     centerName: r.centerName,
@@ -147,6 +163,13 @@ function mapOrderRow(r: {
     skuCount: r.skuCount,
     orderQty: r.orderQty,
     orderAmount: r.orderAmount,
-    items: Array.isArray(r.items) ? (r.items as unknown as RocketOrderItem[]) : [],
+    items,
   };
+}
+
+function resolveExpectedInboundDate(items: RocketOrderItem[]): string | null {
+  for (const item of items) {
+    if (item.expectedInboundDate) return item.expectedInboundDate;
+  }
+  return null;
 }

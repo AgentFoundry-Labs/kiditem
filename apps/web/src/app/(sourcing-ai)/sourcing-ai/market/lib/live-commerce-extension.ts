@@ -1,0 +1,89 @@
+import {
+  detectSourcingExtensionId,
+  isChromeExtensionRuntimeAvailable,
+  sendToExtension,
+} from '@/lib/extension-bridge';
+import type { LiveCommerceSource } from './live-commerce-api';
+
+const REQUEST_TIMEOUT_MS = 90_000;
+
+interface ExtensionResponse {
+  success?: boolean;
+  error?: string;
+  status?: string;
+  source?: LiveCommerceSource;
+  broadcastCount?: number;
+  productCount?: number;
+  businessDate?: string | null;
+  capabilities?: { sourcingLiveCommerceCollector?: boolean };
+}
+
+export interface LiveCommerceExtensionReadiness {
+  configured: boolean;
+  message: string;
+}
+
+export async function fetchLiveCommerceExtensionReadiness(): Promise<LiveCommerceExtensionReadiness> {
+  if (!isChromeExtensionRuntimeAvailable()) {
+    return { configured: false, message: 'Chrome에서 KidItem을 열어주세요.' };
+  }
+  const extensionId = await detectSourcingExtensionId();
+  if (!extensionId) {
+    return { configured: false, message: 'Auto-Seller 확장프로그램 설치 필요' };
+  }
+  try {
+    const ping = await sendToExtension<ExtensionResponse>(
+      extensionId,
+      { action: 'ping' },
+      8_000,
+    );
+    return ping?.capabilities?.sourcingLiveCommerceCollector
+      ? { configured: true, message: '방송 URL 수집 준비 완료' }
+      : { configured: false, message: 'chrome://extensions에서 확장 새로고침 필요' };
+  } catch {
+    return { configured: false, message: '확장프로그램 응답 없음 · 새로고침 필요' };
+  }
+}
+
+export async function collectLiveCommerceFromChrome(url: string): Promise<{
+  source: LiveCommerceSource;
+  broadcastCount: number;
+  productCount: number;
+  businessDate: string | null;
+}> {
+  const normalized = url.trim();
+  if (!normalized) throw new Error('1688 또는 도우인 방송 URL을 입력해주세요.');
+  if (!isChromeExtensionRuntimeAvailable()) {
+    throw new Error('로그인된 방송 수집은 Chrome 확장프로그램에서 실행됩니다. 같은 Chrome에서 KidItem을 열어주세요.');
+  }
+  const extensionId = await detectSourcingExtensionId();
+  if (!extensionId) {
+    throw new Error('Auto-Seller Product Scraper 확장프로그램을 설치하거나 새로고침해주세요.');
+  }
+  const ping = await sendToExtension<ExtensionResponse>(
+    extensionId,
+    { action: 'ping' },
+    8_000,
+  );
+  if (!ping?.capabilities?.sourcingLiveCommerceCollector) {
+    throw new Error('중국 라이브 수집 기능이 없는 확장 버전입니다. chrome://extensions에서 확장프로그램을 새로고침해주세요.');
+  }
+  const result = await sendToExtension<ExtensionResponse>(
+    extensionId,
+    { action: 'collectLiveCommerceUrl', url: normalized },
+    REQUEST_TIMEOUT_MS,
+  );
+  if (!result?.success || !result.source) {
+    throw new Error(result?.error ?? '방송 수집에 실패했습니다.');
+  }
+  return {
+    source: result.source,
+    broadcastCount: countValue(result.broadcastCount),
+    productCount: countValue(result.productCount),
+    businessDate: typeof result.businessDate === 'string' ? result.businessDate : null,
+  };
+}
+
+function countValue(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+}

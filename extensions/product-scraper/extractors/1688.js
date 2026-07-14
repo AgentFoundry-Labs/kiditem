@@ -6,18 +6,21 @@ ProductScraper.alibaba1688 = (() => {
   const C = ProductScraper.common;
 
   const SEARCH_CARD = [
+    "a.i18n-card-wrap[href*='/offer/']",
     "div.wp-offerlist-windows ul.offer-list-row > li",
     "[class*='offer-list'] > li",
     "[class*='sm-offer-item']",
   ];
 
   const SEARCH_TITLE = [
+    "span.offer-title",
     "a.title-link",
     "[class*='title-link']",
     "a[href*='/offer/']",
   ];
 
   const SEARCH_PRICE = [
+    "div.price-wrap",
     "div.price em",
     "[class*='price'] em",
     "[class*='price']",
@@ -27,6 +30,14 @@ ProductScraper.alibaba1688 = (() => {
     "div.company-name",
     "a.company-name",
     "[class*='company-name']",
+  ];
+
+  const SEARCH_TRADE = [
+    "[class*='trade']",
+    "[class*='sold']",
+    "[class*='sale']",
+    "[class*='deal']",
+    "[class*='pay']",
   ];
 
   const DETAIL = {
@@ -90,9 +101,11 @@ ProductScraper.alibaba1688 = (() => {
       if (!title) continue;
 
       let url = "";
-      const linkEl = titleEl && titleEl.tagName === "A"
-        ? titleEl
-        : card.querySelector("a[href*='/offer/']") || card.querySelector("a[href]");
+      const linkEl = card.tagName === "A"
+        ? card
+        : titleEl && titleEl.tagName === "A"
+          ? titleEl
+          : card.querySelector("a[href*='/offer/']") || card.querySelector("a[href]");
       if (linkEl) {
         const href = linkEl.getAttribute("href") || "";
         url = href.startsWith("http") ? href : `https:${href}`;
@@ -136,6 +149,157 @@ ProductScraper.alibaba1688 = (() => {
       items,
       total_found: items.length,
       extracted_at: new Date().toISOString(),
+    };
+  }
+
+  function normalizeUrl(value) {
+    if (!value) return "";
+    if (value.indexOf("//") === 0) return "https:" + value;
+    try {
+      var normalized = new URL(value, location.href);
+      return normalized.protocol === "http:" || normalized.protocol === "https:"
+        ? normalized.href
+        : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function canonicalOfferId(card, linkEl) {
+    var candidates = [];
+    if (card) {
+      candidates.push(
+        card.getAttribute("data-offer-id"),
+        card.getAttribute("data-offerid"),
+        card.getAttribute("offer-id")
+      );
+    }
+    if (linkEl) candidates.push(linkEl.getAttribute("href"));
+
+    if (card) {
+      var offerLinks = card.querySelectorAll("a[href*='/offer/']");
+      for (var i = 0; i < offerLinks.length; i++) {
+        candidates.push(offerLinks[i].getAttribute("href"));
+      }
+    }
+
+    for (var j = 0; j < candidates.length; j++) {
+      var value = String(candidates[j] || "");
+      var direct = value.match(/\/offer\/(\d{6,})(?:\.html)?(?:[/?#]|$)/i);
+      if (direct) return direct[1];
+      if (/^\d{6,}$/.test(value)) return value;
+    }
+    return "";
+  }
+
+  function normalizeMonthlySales(value) {
+    var text = String(value || "").replace(/,/g, "").replace(/\s+/g, " ");
+    if (!text) return null;
+
+    var commerceMarker = /(?:近\s*30\s*天\s*)?(?:成交|月销|销量|已售|付款|购买|采购|下单|구매)/;
+    var beforeCount = text.match(
+      /(?:近\s*30\s*天\s*)?(?:成交|月销|销量|已售|付款|购买|采购|下单|구매)[^\d]{0,12}(\d+(?:\.\d+)?)\s*([亿万千억만천]?)\s*\+?/i
+    );
+    var afterCount = text.match(
+      /(\d+(?:\.\d+)?)\s*([亿万千억만천]?)\s*\+?\s*(?:人付款|件已售|笔成交|购买|人采购|人下单|구매)/i
+    );
+    var match = beforeCount || afterCount;
+    if (!match || (!commerceMarker.test(text) && !afterCount)) return null;
+
+    var amount = Number(match[1]);
+    if (!Number.isFinite(amount) || amount < 0) return null;
+    var multiplier = match[2] === "亿" || match[2] === "억"
+      ? 100000000
+      : match[2] === "万" || match[2] === "만"
+        ? 10000
+        : match[2] === "千" || match[2] === "천"
+          ? 1000
+          : 1;
+    return Math.min(2147483647, Math.floor(amount * multiplier));
+  }
+
+  function findMonthlySales(card) {
+    var candidates = card.querySelectorAll(SEARCH_TRADE.join(","));
+    for (var i = 0; i < candidates.length; i++) {
+      var parsed = normalizeMonthlySales(candidates[i].textContent || "");
+      if (parsed !== null) return parsed;
+    }
+    return normalizeMonthlySales(card.textContent || "");
+  }
+
+  function extractTrendSearch(maxResults) {
+    var requested = Number(maxResults);
+    var limit = Number.isFinite(requested)
+      ? Math.max(1, Math.min(20, Math.floor(requested)))
+      : 20;
+    var cards = C.qAll(SEARCH_CARD);
+    var items = [];
+
+    for (var i = 0; i < cards.length && items.length < limit; i++) {
+      var card = cards[i];
+      var titleEl = card.querySelector(SEARCH_TITLE.join(","));
+      var linkEl = card.tagName === "A"
+        ? card
+        : titleEl && titleEl.tagName === "A"
+          ? titleEl
+          : card.querySelector("a[href*='/offer/']");
+      var offerId = canonicalOfferId(card, linkEl);
+      if (!offerId) continue;
+
+      var title = titleEl
+        ? (titleEl.getAttribute("title") || titleEl.textContent || "").trim()
+        : "";
+      if (!title) continue;
+
+      var priceEl = card.querySelector(SEARCH_PRICE.join(","));
+      var price = C.parsePrice(priceEl ? priceEl.textContent.trim() : "");
+      var supplierEl = card.querySelector(SEARCH_SUPPLIER.join(","));
+      var supplierName = supplierEl
+        ? (supplierEl.getAttribute("title") || supplierEl.textContent || "").trim()
+        : "";
+      var imageEl = card.querySelector(
+        "img[data-sf-original-src], img[data-original-src], img[data-src], img[src]"
+      );
+      var imageUrl = imageEl
+        ? normalizeUrl(
+          imageEl.dataset.sfOriginalSrc ||
+          imageEl.dataset.originalSrc ||
+          imageEl.dataset.src ||
+          imageEl.getAttribute("src") ||
+          ""
+        )
+        : "";
+      if (!imageUrl) {
+        var similarLink = card.querySelector("a[href*='imageAddress=']");
+        if (similarLink) {
+          try {
+            imageUrl = normalizeUrl(
+              new URL(similarLink.getAttribute("href"), location.href)
+                .searchParams.get("imageAddress") || ""
+            );
+          } catch (e) {}
+        }
+      }
+      if (!imageUrl) continue;
+
+      items.push({
+        offerId: offerId,
+        monthlySales: findMonthlySales(card),
+        rank: items.length + 1,
+        title: title.slice(0, 500),
+        priceCny: price.min,
+        supplierName: supplierName.slice(0, 200),
+        imageUrl: imageUrl,
+        sourceUrl: "https://detail.1688.com/offer/" + offerId + ".html",
+      });
+    }
+
+    return {
+      items: items,
+      totalFound: items.length,
+      verificationRequired: false,
+      sourceUrl: location.href,
+      extractedAt: new Date().toISOString(),
     };
   }
 
@@ -651,6 +815,9 @@ ProductScraper.alibaba1688 = (() => {
   return {
     extract: extract,
     extractSearch: extractSearch,
+    extractTrendSearch: extractTrendSearch,
+    canonicalOfferId: canonicalOfferId,
+    normalizeMonthlySales: normalizeMonthlySales,
     extractDetailFromModel: extractDetailFromModel,
     extractDetailFromData: extractDetailFromData,
     extractDetailFromDOM: extractDetailFromDOM,

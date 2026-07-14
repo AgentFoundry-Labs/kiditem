@@ -16,10 +16,13 @@ import type { MulterFile } from '../../common/types';
 import {
   OrderCollectionService,
   type OrderCollectionRowsInput,
+  type IcecreamSendFinishInput,
+  type DomeggookShipInput,
   type KidsnoteConvertInput,
   type KkomangseConvertInput,
   type OnchannelConvertInput,
   type KidkidsConvertInput,
+  type KakaoConvertInput,
 } from '../services/order-collection.service';
 import {
   CoupangDirectshipService,
@@ -114,6 +117,59 @@ export class OrderCollectionController {
     return new StreamableFile(result.buffer);
   }
 
+  // 아이스크림몰 송장 업로드용 파일 생성 (비파괴 — 파일만 반환. 실제 몰 업로드는 프론트/확장이 별도로).
+  @Post('icecream-mall/sendfinish-file')
+  @Header('Access-Control-Expose-Headers', [
+    'Content-Disposition',
+    'X-Icecream-SendFinish-Source-Rows',
+    'X-Icecream-SendFinish-Tracking-Rows',
+    'X-Icecream-SendFinish-Matched-Rows',
+    'X-Icecream-SendFinish-Unmapped-Couriers',
+  ].join(', '))
+  buildIcecreamSendFinishFile(
+    @Body() body: IcecreamSendFinishInput,
+    @Res({ passthrough: true }) response: Response,
+  ): StreamableFile {
+    const result = this.orderCollectionService.buildIcecreamSendFinishFile(body);
+    response.setHeader('Content-Disposition', contentDispositionAttachment(result.fileName));
+    response.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    response.setHeader('X-Icecream-SendFinish-Source-Rows', String(result.sourceRows));
+    response.setHeader('X-Icecream-SendFinish-Tracking-Rows', String(result.trackingRows));
+    response.setHeader('X-Icecream-SendFinish-Matched-Rows', String(result.matchedRows));
+    response.setHeader(
+      'X-Icecream-SendFinish-Unmapped-Couriers',
+      encodeURIComponent(result.unmappedCouriers.join(',')),
+    );
+    return new StreamableFile(result.buffer);
+  }
+
+  // 도매꾹 송장 엑셀일괄입력용 파일 생성 (비파괴 — 파일만. 실제 shipXls 업로드는 확장이 확인 후).
+  @Post('domeggook/ship-file')
+  @Header('Access-Control-Expose-Headers', [
+    'Content-Disposition',
+    'X-Domeggook-Ship-Row-Count',
+    'X-Domeggook-Ship-Order-Nos',
+    'X-Domeggook-Ship-Unmapped-Couriers',
+  ].join(', '))
+  buildDomeggookShipFile(
+    @Body() body: DomeggookShipInput,
+    @Res({ passthrough: true }) response: Response,
+  ): StreamableFile {
+    const result = this.orderCollectionService.buildDomeggookShipFile(body);
+    response.setHeader('Content-Disposition', contentDispositionAttachment(result.fileName));
+    response.setHeader('Content-Type', 'application/vnd.ms-excel');
+    response.setHeader('X-Domeggook-Ship-Row-Count', String(result.rowCount));
+    response.setHeader('X-Domeggook-Ship-Order-Nos', encodeURIComponent(result.orderNos.join(',')));
+    response.setHeader(
+      'X-Domeggook-Ship-Unmapped-Couriers',
+      encodeURIComponent(result.unmappedCouriers.join(',')),
+    );
+    return new StreamableFile(result.buffer);
+  }
+
   @Post('kidsnote/convert')
   @Header('Access-Control-Expose-Headers', [
     'Content-Disposition',
@@ -178,6 +234,23 @@ export class OrderCollectionController {
     @Res({ passthrough: true }) response: Response,
   ): StreamableFile {
     const result = this.orderCollectionService.convertKidkidsOrders(body);
+    this.setConversionHeaders(result, response);
+    return new StreamableFile(result.buffer);
+  }
+
+  @Post('kakao/convert')
+  @Header('Access-Control-Expose-Headers', [
+    'Content-Disposition',
+    'X-Order-Collection-Source-Rows',
+    'X-Order-Collection-Product-Rows',
+    'X-Order-Collection-Output-Rows',
+    'X-Order-Collection-Skipped-Rows',
+  ].join(', '))
+  convertKakao(
+    @Body() body: KakaoConvertInput,
+    @Res({ passthrough: true }) response: Response,
+  ): StreamableFile {
+    const result = this.orderCollectionService.convertKakaoOrders(body);
     this.setConversionHeaders(result, response);
     return new StreamableFile(result.buffer);
   }

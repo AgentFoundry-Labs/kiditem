@@ -4,7 +4,6 @@ import { AgentOsModule } from '../agent-os/agent-os.module';
 import { AiModule } from '../ai/ai.module';
 import { AutomationModule } from '../automation/automation.module';
 import { ProductsModule } from '../products/products.module';
-
 import { Sourcing1688NewProductModelController } from './adapter/in/http/sourcing-1688-new-product-model.controller';
 import { SourcingCandidateWorkspaceController } from './adapter/in/http/sourcing-candidate-workspace.controller';
 import { SourcingDiscoveryCapabilityAdapter } from './adapter/in/agent/sourcing-discovery-capability.adapter';
@@ -14,9 +13,13 @@ import { Sourcing1688ImageSearchController } from './adapter/in/http/sourcing-16
 import { Sourcing1688KeywordSearchController } from './adapter/in/http/sourcing-1688-keyword-search.controller';
 import { SourcingAgentRagController } from './adapter/in/http/sourcing-agent-rag.controller';
 import { SourcingExtensionIngestController } from './adapter/in/http/sourcing-extension-ingest.controller';
+import { Sourcing1688TrendExtensionController } from './adapter/in/http/sourcing-1688-trend-extension.controller';
+import { SourcingLiveCommerceExtensionController } from './adapter/in/http/sourcing-live-commerce-extension.controller';
 import { SourcingKeywordResearchController } from './adapter/in/http/sourcing-keyword-research.controller';
 import { SourcingMarketModelController } from './adapter/in/http/sourcing-market-model.controller';
 import { SourcingWorkspaceSnapshotController } from './adapter/in/http/sourcing-workspace-snapshot.controller';
+import { TrendCollectionController } from './adapter/in/http/trend-collection.controller';
+import { LiveCommerceController } from './adapter/in/http/live-commerce.controller';
 import { NaverKeywordResearchService } from './application/service/naver-keyword-research.service';
 import { Sourcing1688NewProductModelService } from './application/service/sourcing-1688-new-product-model.service';
 import { Sourcing1688ImageSearchService } from './application/service/sourcing-1688-image-search.service';
@@ -30,7 +33,9 @@ import { SourcingWorkspaceSnapshotService } from './application/service/sourcing
 import { ProductPreparationSelectionService } from './application/service/product-preparation-selection.service';
 import { SourcingScrapeFinalizedBridge } from './application/service/sourcing-scrape-finalized.bridge';
 import { SourcingMarketDiscoveryService } from './application/service/sourcing-market-discovery.service';
-
+import { TrendCollectService } from './application/service/trend-collect.service';
+import { TrendQueryService } from './application/service/trend-query.service';
+import { LiveCommerceService } from './application/service/live-commerce.service';
 import { NaverDatalabPopularKeywordAdapter } from './adapter/out/naver/naver-datalab-popular-keyword.adapter';
 import { NaverDatalabTrendAdapter } from './adapter/out/naver/naver-datalab-trend.adapter';
 import { NaverAutocompleteKeywordAdapter } from './adapter/out/naver/naver-autocomplete-keyword.adapter';
@@ -41,9 +46,13 @@ import { SourcingOperationAlertAdapter } from './adapter/out/automation/operatio
 import { SourcingProductsCatalogAdapter } from './adapter/out/products/products-catalog.adapter';
 import { SourcingCandidateRepositoryAdapter } from './adapter/out/repository/sourcing-candidate.repository.adapter';
 import { SourcingWorkspaceSnapshotRepositoryAdapter } from './adapter/out/repository/sourcing-workspace-snapshot.repository.adapter';
+import { TrendCollectionRepositoryAdapter } from './adapter/out/repository/trend-collection.repository.adapter';
+import { LiveCommerceRepositoryAdapter } from './adapter/out/repository/live-commerce.repository.adapter';
 import { SourcingPlaywrightRuntimeHandler } from './adapter/out/runtime/sourcing-playwright-runtime.handler';
 import { Direct1688ImageSearchAdapter } from './adapter/out/1688/direct-1688-image-search.adapter';
 import { Direct1688KeywordSearchAdapter } from './adapter/out/1688/direct-1688-keyword-search.adapter';
+import { ShortstrendTrendAdapter } from './adapter/out/shortstrend/shortstrend-trend.adapter';
+import { TaobaoLiveAdapter } from './adapter/out/taobao/taobao-live.adapter';
 import { SourcingRuntimeHandler } from './adapter/out/runtime/sourcing-runtime.handler';
 import {
   SOURCING_DISCOVERY_CAPABILITY_PORT,
@@ -52,6 +61,8 @@ import {
 } from './application/port/in/capability/sourcing-capability.ports';
 import { SOURCING_1688_IMAGE_SEARCH_PORT } from './application/port/out/provider/1688-image-search.port';
 import { SOURCING_1688_KEYWORD_SEARCH_PORT } from './application/port/out/provider/1688-keyword-search.port';
+import { SHORTSTREND_TREND_PORT } from './application/port/out/provider/shortstrend-trend.port';
+import { TAOBAO_LIVE_PORT } from './application/port/out/provider/taobao-live.port';
 import {
   SOURCING_NAVER_DATALAB_POPULAR_KEYWORD_PORT,
   SOURCING_NAVER_DATALAB_TREND_PORT,
@@ -64,6 +75,8 @@ import { SOURCING_OPERATION_ALERT_PORT } from './application/port/out/cross-doma
 import { SOURCING_PRODUCTS_CATALOG_PORT } from './application/port/out/cross-domain/products-catalog.port';
 import { SOURCING_CANDIDATE_REPOSITORY_PORT } from './application/port/out/repository/sourcing-candidate.repository.port';
 import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from './application/port/out/repository/sourcing-workspace-snapshot.repository.port';
+import { TREND_COLLECTION_REPOSITORY_PORT } from './application/port/out/repository/trend-collection.repository.port';
+import { LIVE_COMMERCE_REPOSITORY_PORT } from './application/port/out/repository/live-commerce.repository.port';
 
 /**
  * Sourcing is the canonical owner root for sourced-product discovery and the
@@ -90,6 +103,8 @@ import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from './application/port/
   imports: [PrismaModule, AgentOsModule, AiModule, AutomationModule, ProductsModule],
   controllers: [
     SourcingExtensionIngestController,
+    Sourcing1688TrendExtensionController,
+    SourcingLiveCommerceExtensionController,
     SourcingKeywordResearchController,
     Sourcing1688ImageSearchController,
     Sourcing1688KeywordSearchController,
@@ -98,6 +113,8 @@ import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from './application/port/
     Sourcing1688NewProductModelController,
     SourcingCandidateWorkspaceController,
     SourcingWorkspaceSnapshotController,
+    TrendCollectionController,
+    LiveCommerceController,
   ],
   providers: [
     SourcingService,
@@ -112,6 +129,9 @@ import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from './application/port/
     SourcingWorkspaceSnapshotService,
     SourcingMarketDiscoveryService,
     ProductPreparationSelectionService,
+    TrendCollectService,
+    TrendQueryService,
+    LiveCommerceService,
     SourcingScrapeFinalizedBridge,
     SourcingDiscoveryCapabilityAdapter,
     SourcingListingPrepCapabilityAdapter,
@@ -126,9 +146,13 @@ import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from './application/port/
     SourcingProductsCatalogAdapter,
     SourcingCandidateRepositoryAdapter,
     SourcingWorkspaceSnapshotRepositoryAdapter,
+    TrendCollectionRepositoryAdapter,
+    LiveCommerceRepositoryAdapter,
     SourcingPlaywrightRuntimeHandler,
     Direct1688ImageSearchAdapter,
     Direct1688KeywordSearchAdapter,
+    ShortstrendTrendAdapter,
+    TaobaoLiveAdapter,
     SourcingRuntimeHandler,
     {
       provide: SOURCING_DISCOVERY_CAPABILITY_PORT,
@@ -149,6 +173,14 @@ import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from './application/port/
     {
       provide: SOURCING_1688_KEYWORD_SEARCH_PORT,
       useExisting: Direct1688KeywordSearchAdapter,
+    },
+    {
+      provide: SHORTSTREND_TREND_PORT,
+      useExisting: ShortstrendTrendAdapter,
+    },
+    {
+      provide: TAOBAO_LIVE_PORT,
+      useExisting: TaobaoLiveAdapter,
     },
     {
       provide: SOURCING_NAVER_KEYWORD_RESEARCH_PORT,
@@ -189,6 +221,14 @@ import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from './application/port/
     {
       provide: SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT,
       useExisting: SourcingWorkspaceSnapshotRepositoryAdapter,
+    },
+    {
+      provide: TREND_COLLECTION_REPOSITORY_PORT,
+      useExisting: TrendCollectionRepositoryAdapter,
+    },
+    {
+      provide: LIVE_COMMERCE_REPOSITORY_PORT,
+      useExisting: LiveCommerceRepositoryAdapter,
     },
   ],
 })

@@ -14,6 +14,9 @@ import { AdvertisingIngestController } from '../adapter/in/http/advertising-inge
 import { AdvertisingOverviewController } from '../adapter/in/http/advertising-overview.controller';
 import { AdvertisingStrategyController } from '../adapter/in/http/advertising-strategy.controller';
 import { AdStrategyAgentController } from '../adapter/in/http/ad-strategy-agent.controller';
+import { KeywordRankController } from '../adapter/in/http/keyword-rank.controller';
+import { CompetitorTrackingController } from '../adapter/in/http/competitor-tracking.controller';
+import { WingTrackedProductController } from '../adapter/in/http/wing-tracked-product.controller';
 
 // adapter/out/repository
 import { ScrapeTargetRepositoryAdapter } from '../adapter/out/repository/scrape-target.repository.adapter';
@@ -29,6 +32,8 @@ import { ChannelScrapeRepositoryAdapter } from '../adapter/out/repository/channe
 import { ChannelListingDailyRepositoryAdapter } from '../adapter/out/repository/channel-listing-daily.repository.adapter';
 import { ChannelOptionDailyRepositoryAdapter } from '../adapter/out/repository/channel-option-daily.repository.adapter';
 import { ChannelTargetDailyRepositoryAdapter } from '../adapter/out/repository/channel-target-daily.repository.adapter';
+import { KeywordRankRepositoryAdapter } from '../adapter/out/repository/keyword-rank.repository.adapter';
+import { KiditemStorefrontAdapter } from '../adapter/out/provider/kiditem-storefront.adapter';
 // adapter/out/automation
 import { OperationAlertAdapter } from '../adapter/out/automation/operation-alert.adapter';
 
@@ -47,8 +52,12 @@ import { AdSyncService } from '../application/service/ad-sync.service';
 import { AdActionService } from '../application/service/ad-action.service';
 import { AdExecutionService } from '../application/service/ad-execution.service';
 import { AdConfigService } from '../application/service/ad-config.service';
+import { KeywordRankService } from '../application/service/keyword-rank.service';
+import { CompetitorTrackingService } from '../application/service/competitor-tracking.service';
 import { AdCampaignIngestHandler } from '../application/service/ad-campaign-ingest.handler';
 import { CoupangAdsDailyIngestHandler } from '../application/service/coupang-ads-daily-ingest.handler';
+import { KeywordRankIngestHandler } from '../application/service/keyword-rank-ingest.handler';
+import { WingSalesRankIngestHandler } from '../application/service/wing-sales-rank-ingest.handler';
 import { RawScrapeIngestHandler } from '../application/service/raw-scrape-ingest.handler';
 import { TrafficIngestHandler } from '../application/service/traffic-ingest.handler';
 
@@ -89,7 +98,15 @@ describe('AdvertisingModule capability wiring', () => {
   it('mounts route-family ads + ad-agent controllers from adapter/in/http', () => {
     const controllers: unknown[] =
       Reflect.getMetadata(CONTROLLERS_KEY, AdvertisingModule) ?? [];
-    expect(new Set(controllers)).toEqual(new Set([...ADS_CONTROLLERS, AdStrategyAgentController]));
+    expect(new Set(controllers)).toEqual(
+      new Set([
+        ...ADS_CONTROLLERS,
+        AdStrategyAgentController,
+        KeywordRankController,
+        CompetitorTrackingController,
+        WingTrackedProductController,
+      ]),
+    );
   });
 
   it('declares every repository + automation adapter as a provider', () => {
@@ -109,6 +126,8 @@ describe('AdvertisingModule capability wiring', () => {
       ChannelListingDailyRepositoryAdapter,
       ChannelOptionDailyRepositoryAdapter,
       ChannelTargetDailyRepositoryAdapter,
+      KeywordRankRepositoryAdapter,
+      KiditemStorefrontAdapter,
       OperationAlertAdapter,
     ]) {
       expect(providers).toContain(cls);
@@ -133,8 +152,12 @@ describe('AdvertisingModule capability wiring', () => {
       AdActionService,
       AdExecutionService,
       AdConfigService,
+      KeywordRankService,
+      CompetitorTrackingService,
       AdCampaignIngestHandler,
       CoupangAdsDailyIngestHandler,
+      KeywordRankIngestHandler,
+      WingSalesRankIngestHandler,
       RawScrapeIngestHandler,
       TrafficIngestHandler,
       ChannelScrapePersistenceService,
@@ -147,14 +170,14 @@ describe('AdvertisingModule capability wiring', () => {
     const providers: unknown[] =
       Reflect.getMetadata(PROVIDERS_KEY, AdvertisingModule) ?? [];
     // Token-shaped providers are objects with a `provide` field; everything
-    // else is a class provider. The 13 repository ports + OPERATION_ALERT_PORT
+    // else is a class provider. The repository/provider ports + OPERATION_ALERT_PORT
     // are bound via useExisting so application services depend on tokens
     // rather than concrete adapter classes.
     const tokenProviders = providers.filter(
       (p): p is { provide: unknown; useExisting?: unknown } =>
         typeof p === 'object' && p !== null && 'provide' in p,
     );
-    expect(tokenProviders).toHaveLength(14);
+    expect(tokenProviders).toHaveLength(17);
     for (const provider of tokenProviders) {
       expect(provider.useExisting).toBeDefined();
     }
@@ -165,5 +188,12 @@ describe('AdvertisingModule capability wiring', () => {
       expect(Reflect.getMetadata(PATH_KEY, controller)).toBe('ads');
     }
     expect(Reflect.getMetadata(PATH_KEY, AdStrategyAgentController)).toBe('ad-agent');
+    expect(Reflect.getMetadata(PATH_KEY, KeywordRankController)).toBe('ads/keyword-rank');
+    expect(Reflect.getMetadata(PATH_KEY, CompetitorTrackingController)).toBe(
+      'ads/competitors',
+    );
+    expect(Reflect.getMetadata(PATH_KEY, WingTrackedProductController)).toBe(
+      'ads/wing-tracked-products',
+    );
   });
 });

@@ -1,9 +1,13 @@
+importScripts("1688-trend-collector.js");
+importScripts("live-commerce-collector.js");
+
 const DEFAULT_API = "http://localhost:4000/api/sourcing/extension";
 const EXTRACT_TIMEOUT_MS = 20000;
 const INGEST_TOKEN_KEY = "kiditem_sourcing_ingest_token";
 const INGEST_TOKEN_EXPIRES_AT_KEY = "kiditem_sourcing_ingest_token_expires_at";
 const INGEST_TOKEN_MAX_EXPIRES_AT_KEY = "kiditem_sourcing_ingest_token_max_expires_at";
 const RENEW_WINDOW_MS = 5 * 60 * 1000;
+const TREND_KEEPALIVE_PORT = "kiditem-1688-trend-keepalive";
 const ALLOWED_WEB_ORIGINS = new Set([
   "http://localhost:3000",
   "https://staging.merchon.org",
@@ -102,6 +106,59 @@ async function backendRequestConfig() {
   return { ok: true, base, headers };
 }
 
+const trendCollector = ProductScraper1688Trend.create({
+  chrome,
+  getBackendRequestConfig: backendRequestConfig,
+  ensureContentScripts: injectContentScripts,
+});
+
+const liveCommerceCollector = ProductScraperLiveCommerce.create({
+  chrome,
+  getBackendRequestConfig: backendRequestConfig,
+  ensureContentScripts: injectLiveCommerceContentScripts,
+});
+
+// MV3 service workers may be suspended during a multi-keyword 1688 run.
+// The KidItem host content script sends a small heartbeat while the page is
+// open so in-flight extraction promises and external response channels stay
+// alive until the batch finishes.
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== TREND_KEEPALIVE_PORT) return;
+  port.onMessage.addListener(() => {
+    // Receiving the port message is the keepalive signal; no response needed.
+  });
+});
+
+function validateTrendStartMessage(msg) {
+  if (!Array.isArray(msg?.keywords) || msg.keywords.length < 1 || msg.keywords.length > 20) {
+    return { ok: false, error: "keywords must contain 1 to 20 strings" };
+  }
+  const keywords = [];
+  for (const raw of msg.keywords) {
+    if (typeof raw !== "string") {
+      return { ok: false, error: "each keyword must be a string" };
+    }
+    const keyword = raw.trim();
+    if (!keyword || keyword.length > 100) {
+      return { ok: false, error: "each keyword must contain 1 to 100 characters" };
+    }
+    keywords.push(keyword);
+  }
+
+  const requestedLimit = msg.maxResultsPerKeyword === undefined
+    ? 20
+    : msg.maxResultsPerKeyword;
+  if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 20) {
+    return { ok: false, error: "maxResultsPerKeyword must be an integer from 1 to 20" };
+  }
+  return { ok: true, keywords, maxResultsPerKeyword: requestedLimit };
+}
+
+function validateOptionalRunId(value) {
+  return value === undefined ||
+    (typeof value === "string" && value.length > 0 && value.length <= 200);
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get(["apiBase"], (result) => {
     if (result.apiBase) apiBase = result.apiBase;
@@ -113,14 +170,57 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     sendResponse({ success: false, error: "forbidden_origin" });
     return;
   }
+  if (!msg || typeof msg !== "object" || Array.isArray(msg)) {
+    sendResponse({ success: false, error: "invalid_message" });
+    return;
+  }
 
   if (msg.action === "ping") {
     sendResponse({
       success: true,
       version: chrome.runtime.getManifest().version,
-      capabilities: { sourcingProductScraper: true },
+      capabilities: {
+        sourcingProductScraper: true,
+        sourcing1688TrendCollector: true,
+        sourcingLiveCommerceCollector: true,
+      },
     });
     return;
+  }
+
+  if (msg.action === "start1688TrendCollection") {
+    const validated = validateTrendStartMessage(msg);
+    if (!validated.ok) {
+      sendResponse({ success: false, error: validated.error });
+      return;
+    }
+    trendCollector
+      .start(validated.keywords, validated.maxResultsPerKeyword)
+      .then(sendResponse);
+    return true;
+  }
+
+  if (msg.action === "get1688TrendCollectionStatus") {
+    if (!validateOptionalRunId(msg.runId)) {
+      sendResponse({ success: false, error: "invalid runId" });
+      return;
+    }
+    trendCollector.getStatus(msg.runId).then(sendResponse);
+    return true;
+  }
+
+  if (msg.action === "cancel1688TrendCollection") {
+    if (!validateOptionalRunId(msg.runId)) {
+      sendResponse({ success: false, error: "invalid runId" });
+      return;
+    }
+    trendCollector.cancel(msg.runId).then(sendResponse);
+    return true;
+  }
+
+  if (msg.action === "collectLiveCommerceUrl") {
+    liveCommerceCollector.collect(msg.url).then(sendResponse);
+    return true;
   }
 
   if (msg.action === "setAuthToken") {
@@ -257,6 +357,20 @@ async function injectContentScripts(tabId) {
     return true;
   } catch (e) {
     console.log("[bg] script injection failed:", e.message);
+    return false;
+  }
+}
+
+async function injectLiveCommerceContentScripts(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["live-commerce-extractor.js", "live-commerce-content.js"],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    return true;
+  } catch (error) {
+    console.log("[bg] live commerce script injection failed:", error.message);
     return false;
   }
 }

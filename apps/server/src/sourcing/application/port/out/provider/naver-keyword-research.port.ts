@@ -55,7 +55,16 @@ export type NaverDatalabPopularKeywordBoardKey =
   | 'birth_kids'
   | 'toys_dolls'
   | 'stationery_office'
-  | 'kids_fashion';
+  | 'kids_fashion'
+  | 'toys_block'
+  | 'toys_action'
+  | 'fancy_sticker'
+  | 'fancy_goods'
+  | 'stationery_writing'
+  | 'toys_roleplay'
+  | 'toys_puzzle'
+  | 'fancy_diary'
+  | 'stationery_note';
 
 export interface CompareNaverDatalabSearchTrendsInput {
   keywords: string[];
@@ -115,6 +124,12 @@ export interface NaverDatalabPopularKeywordRank {
   keyword: string;
   linkId: string | null;
   categories: string[];
+  /** 직전 저장일 순위 대비 신규 진입 여부(직전 데이터가 없으면 false). */
+  isNew?: boolean;
+  /** 직전 저장일의 순위(신규거나 직전 데이터 없으면 null). */
+  previousRank?: number | null;
+  /** 직전 순위 − 현재 순위(양수=상승). 신규/직전없음이면 null. */
+  rankDelta?: number | null;
 }
 
 export interface NaverDatalabPopularKeywordBoard {

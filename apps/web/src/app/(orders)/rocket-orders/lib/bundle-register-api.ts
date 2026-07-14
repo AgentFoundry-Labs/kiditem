@@ -33,16 +33,20 @@ async function detectExt(capability: string): Promise<string> {
 /** 확장으로 쿠팡 supplier 전체 상품목록을 수집. */
 export async function collectCoupangProductsFromExtension(): Promise<CoupangProduct[]> {
   const extensionId = await detectExt('collectCoupangProducts');
-  const res = await sendToExtension<{ success?: boolean; products?: CoupangProduct[]; error?: string }>(
-    extensionId,
-    { action: 'collectCoupangProducts' },
-    190000,
-  );
+  const res = await sendToExtension<{
+    success?: boolean;
+    products?: CoupangProduct[];
+    error?: string;
+    pendingLogin?: boolean;
+  }>(extensionId, { action: 'collectCoupangProducts' }, 190000);
   if (!res) {
     throw new Error('주문수집 확장이 쿠팡 상품목록 액션에 응답하지 않았습니다. Chrome 확장 관리에서 새로고침해주세요.');
   }
   if (!res.success || !res.products) {
-    throw new Error(res?.error ?? '쿠팡 상품목록 수집에 실패했습니다.');
+    // pendingLogin 이면 패널이 [쿠팡 로그인창 열기]로 안내한다.
+    throw Object.assign(new Error(res?.error ?? '쿠팡 상품목록 수집에 실패했습니다.'), {
+      pendingLogin: res?.pendingLogin === true,
+    });
   }
   return res.products;
 }

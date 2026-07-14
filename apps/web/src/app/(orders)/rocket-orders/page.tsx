@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   FileText,
+  LogIn,
   PackageCheck,
   RefreshCw,
   Rocket,
@@ -20,6 +21,7 @@ import { RocketWeekCalendar, type RocketCalDay } from './components/RocketWeekCa
 import { RocketMonthCalendar, type MonthDayData } from './components/RocketMonthCalendar';
 import { RocketOrdersChart, type RocketChartPoint } from './components/RocketOrdersChart';
 import { listRocketPosFromExtension, type RocketPoSummary } from './lib/rocket-confirm-api';
+import { isCoupangLoginNeeded, openCoupangLogin } from './lib/coupang-login';
 
 const STATUS_OPTIONS = [
   { value: '거래처확인요청', label: '신규 주문 (거래확인서요청)' },
@@ -336,16 +338,28 @@ export default function RocketOrdersPage() {
 
       {isError && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-center">
-          <p className="text-sm font-medium text-amber-800">발주 목록을 불러오지 못했습니다</p>
+          <p className="text-sm font-medium text-amber-800">
+            {isCoupangLoginNeeded(error) ? '쿠팡 supplier 로그인이 필요합니다' : '발주 목록을 불러오지 못했습니다'}
+          </p>
           <p className="mt-1 text-xs text-amber-600">
             {error instanceof Error ? error.message : '주문수집 확장 + supplier.coupang.com 로그인을 확인하세요.'}
           </p>
-          <button
-            onClick={() => refetch()}
-            className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100"
-          >
-            <RefreshCw size={13} /> 다시 시도
-          </button>
+          <div className="mt-3 flex items-center justify-center gap-2">
+            {isCoupangLoginNeeded(error) && (
+              <button
+                onClick={() => void openCoupangLogin()}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
+              >
+                <LogIn size={13} /> 쿠팡 로그인창 열기
+              </button>
+            )}
+            <button
+              onClick={() => refetch()}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100"
+            >
+              <RefreshCw size={13} /> 다시 시도
+            </button>
+          </div>
         </div>
       )}
 

@@ -24,14 +24,14 @@ export function PopularKeywordCard({
             <p className="mt-1 truncate text-[11px] font-bold text-[var(--text-tertiary)]">{board.categoryPath}</p>
           </div>
           <span className="rounded-md bg-[#fff4ef] px-2 py-1 text-[11px] font-black text-[#e14b16]">
-            TOP {Math.min(board.ranks.length, 20)}
+            TOP {board.ranks.length}
           </span>
         </div>
         <p className="mt-2 truncate text-[11px] font-bold text-[var(--text-secondary)]">
           {board.range || board.datetime || board.date || '최근 집계'}
         </p>
       </div>
-      <div className="divide-y divide-[var(--border-subtle)]">
+      <div className="max-h-[520px] divide-y divide-[var(--border-subtle)] overflow-y-auto">
         {board.error && board.ranks.length === 0 ? (
           <div className="px-4 py-8 text-center">
             <p className="text-xs font-black text-amber-700">DataLab 호출 제한</p>
@@ -39,7 +39,7 @@ export function PopularKeywordCard({
           </div>
         ) : board.ranks.length === 0 ? (
           <div className="px-4 py-8 text-center text-xs font-bold text-[var(--text-tertiary)]">표시할 키워드가 없습니다.</div>
-        ) : board.ranks.slice(0, 10).map((rank) => {
+        ) : board.ranks.map((rank) => {
           const registered = isInterestKeyword(rank.keyword);
           return (
             <div
@@ -53,7 +53,14 @@ export function PopularKeywordCard({
                 disabled={disabled}
                 className="min-w-0 text-left disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <span className="block truncate text-xs font-black">{rank.keyword}</span>
+                <span className="flex items-center gap-1.5">
+                  <span className="truncate text-xs font-black">{rank.keyword}</span>
+                  {rank.isNew ? (
+                    <span className="shrink-0 rounded bg-emerald-100 px-1 py-0.5 text-[9px] font-black leading-none text-emerald-700">NEW</span>
+                  ) : rank.rankDelta != null && rank.rankDelta > 0 ? (
+                    <span className="shrink-0 rounded bg-orange-100 px-1 py-0.5 text-[9px] font-black leading-none text-orange-700">▲{rank.rankDelta}</span>
+                  ) : null}
+                </span>
                 {rank.categories.length > 0 && (
                   <span className="block truncate text-[10px] font-bold text-[var(--text-tertiary)]">{rank.categories.slice(0, 2).join(', ')}</span>
                 )}

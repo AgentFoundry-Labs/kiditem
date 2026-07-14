@@ -92,13 +92,15 @@ export class RocketPoController {
   @Post('confirm-preview')
   async confirmPreview(
     @CurrentOrganization() organizationId: string,
-    @Body() body: { rows?: ConfirmSourceRow[] },
+    @Body() body: { rows?: ConfirmSourceRow[]; revenueRefreshRange?: RocketRevenueRefreshRangeBody },
   ): Promise<ConfirmPreviewResult> {
     const rows = body?.rows ?? [];
     if (!rows.length) {
       throw new BadRequestException('미리볼 발주 행이 없습니다.');
     }
-    return this.rocketPoConfirmService.previewConfirmRows(rows, organizationId);
+    return this.rocketPoConfirmService.previewConfirmRows(rows, organizationId, {
+      revenueRefreshRange: parseRevenueRefreshRange(body?.revenueRefreshRange),
+    });
   }
 
   /** 미리보기에서 확정한 쿠팡 로켓 수량 → KidItem Rocket 예약 ledger 기록 */
@@ -168,6 +170,38 @@ export class RocketPoController {
 
     return result;
   }
+}
+
+interface RocketRevenueRefreshRangeBody {
+  from?: string;
+  to?: string;
+}
+
+function parseRevenueRefreshRange(
+  value: RocketRevenueRefreshRangeBody | undefined,
+): { from: Date; to: Date } | undefined {
+  if (!value) return undefined;
+  const from = parseDateOnly(value.from, 'revenueRefreshRange.from');
+  const to = parseDateOnly(value.to, 'revenueRefreshRange.to');
+  if (from.getTime() > to.getTime()) {
+    throw new BadRequestException('revenueRefreshRange.from은 to보다 이후일 수 없습니다.');
+  }
+  const days = Math.floor((to.getTime() - from.getTime()) / 86400000) + 1;
+  if (days > 45) {
+    throw new BadRequestException('revenueRefreshRange는 45일 이하만 허용합니다.');
+  }
+  return { from, to };
+}
+
+function parseDateOnly(value: string | undefined, name: string): Date {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new BadRequestException(`${name}는 YYYY-MM-DD 형식이어야 합니다.`);
+  }
+  const date = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
+    throw new BadRequestException(`${name}는 유효한 날짜여야 합니다.`);
+  }
+  return date;
 }
 
 interface RocketConfirmCommitResult {

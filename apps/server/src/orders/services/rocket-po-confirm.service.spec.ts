@@ -127,7 +127,7 @@ describe('RocketPoConfirmService', () => {
     expect(result.shortRows).toBe(1);
   });
 
-  it('upserts rocket purchase orders and daily snapshots from preview rows', async () => {
+  it('upserts confirmed rocket purchase orders and daily snapshots from preview rows', async () => {
     const { service, rocketPurchaseOrder, rocketSupplyDailySnapshot, transaction, executeRaw } = makeServiceWithAvailability(10);
 
     await service.previewConfirmRows(
@@ -136,7 +136,7 @@ describe('RocketPoConfirmService', () => {
           poNumber: '123456',
           vendorName: 'KidItem Vendor',
           center: '덕평',
-          poStatus: '거래처확인요청',
+          poStatus: '발주확정',
           productName: 'Rocket SKU A',
           productNo: 'P-A',
           orderQty: 3,
@@ -172,7 +172,7 @@ describe('RocketPoConfirmService', () => {
           organizationId: ORGANIZATION_ID,
           poSeq: 123456,
           businessDate,
-          status: '거래처확인요청',
+          status: '발주확정',
           vendorName: 'KidItem Vendor',
           centerName: '덕평',
           firstSkuName: 'Rocket SKU A',
@@ -186,7 +186,7 @@ describe('RocketPoConfirmService', () => {
     expect(executeRaw).toHaveBeenCalledTimes(1);
     expect(rocketPurchaseOrder.findMany).toHaveBeenCalledWith({
       where: { organizationId: ORGANIZATION_ID, businessDate },
-      select: { poSeq: true, orderAmount: true, orderQty: true },
+      select: { poSeq: true, orderAmount: true, orderQty: true, status: true },
     });
     expect(rocketSupplyDailySnapshot.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -205,6 +205,120 @@ describe('RocketPoConfirmService', () => {
       }),
     );
   });
+
+  it('uses purchase order registered date for rocket sales sync rows', async () => {
+    const { service, rocketPurchaseOrder, rocketSupplyDailySnapshot } = makeServiceWithAvailability(10);
+
+    await service.previewConfirmRows(
+      [
+        sourceRow({
+          poNumber: '123456',
+          productName: 'Rocket SKU A',
+          orderQty: 3,
+          totalPurchase: '3,000',
+          expectedInboundDate: '20260731',
+          poRegisteredAt: '2026-07-09 10:30:00',
+          businessDateBasis: 'ordered_at',
+          poStatus: '발주확정',
+        }),
+      ],
+      ORGANIZATION_ID,
+    );
+
+    const businessDate = new Date(Date.UTC(2026, 6, 9));
+    expect(rocketPurchaseOrder.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          businessDate,
+          orderedAt: new Date('2026-07-09T01:30:00.000Z'),
+        }),
+      }),
+    );
+    expect(rocketSupplyDailySnapshot.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          organizationId_businessDate: {
+            organizationId: ORGANIZATION_ID,
+            businessDate,
+          },
+        },
+      }),
+    );
+  });
+
+  it('cleans up old inbound-date snapshots when rocket sales sync moves orders to purchase dates', async () => {
+    const { service, rocketPurchaseOrder, rocketSupplyDailySnapshot, executeRaw } = makeServiceWithAvailability(10);
+    const oldBusinessDate = new Date(Date.UTC(2026, 6, 31));
+    const newBusinessDate = new Date(Date.UTC(2026, 6, 9));
+    rocketPurchaseOrder.findMany
+      .mockResolvedValueOnce([{ poSeq: 123456, businessDate: oldBusinessDate }])
+      .mockResolvedValueOnce([{ poSeq: 123456, orderAmount: 3000, orderQty: 3, status: '발주확정' }])
+      .mockResolvedValueOnce([]);
+
+    await service.previewConfirmRows(
+      [
+        sourceRow({
+          poNumber: '123456',
+          productName: 'Rocket SKU A',
+          orderQty: 3,
+          totalPurchase: '3,000',
+          expectedInboundDate: '20260731',
+          poRegisteredAt: '2026-07-09 10:30:00',
+          businessDateBasis: 'ordered_at',
+          poStatus: '발주확정',
+        }),
+      ],
+      ORGANIZATION_ID,
+    );
+
+    expect(executeRaw).toHaveBeenCalledTimes(2);
+    expect(rocketSupplyDailySnapshot.deleteMany).toHaveBeenCalledWith({
+      where: { organizationId: ORGANIZATION_ID, businessDate: oldBusinessDate },
+    });
+    expect(rocketSupplyDailySnapshot.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          organizationId_businessDate: {
+            organizationId: ORGANIZATION_ID,
+            businessDate: newBusinessDate,
+          },
+        },
+        create: expect.objectContaining({
+          revenueKrw: 3000,
+          poCount: 1,
+          itemQty: 3,
+        }),
+      }),
+    );
+  });
+
+  it('removes revenue snapshots when only request-confirmation rows remain', async () => {
+    const { service, rocketPurchaseOrder, rocketSupplyDailySnapshot } = makeServiceWithAvailability(10);
+    const businessDate = new Date(Date.UTC(2026, 6, 31));
+    rocketPurchaseOrder.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ poSeq: 123456, orderAmount: 3000, orderQty: 3, status: '거래처확인요청' }]);
+
+    await service.previewConfirmRows(
+      [
+        sourceRow({
+          poNumber: '123456',
+          productName: 'Rocket SKU A',
+          orderQty: 3,
+          totalPurchase: '3,000',
+          expectedInboundDate: '20260731',
+          poRegisteredAt: '2026-07-09 10:30:00',
+          poStatus: '거래처확인요청',
+        }),
+      ],
+      ORGANIZATION_ID,
+    );
+
+    expect(rocketSupplyDailySnapshot.upsert).not.toHaveBeenCalled();
+    expect(rocketSupplyDailySnapshot.deleteMany).toHaveBeenCalledWith({
+      where: { organizationId: ORGANIZATION_ID, businessDate },
+    });
+  });
 });
 
 function makeServiceWithAvailability(available: number, optionRows?: unknown[]) {
@@ -221,10 +335,11 @@ function makeServiceWithAvailability(available: number, optionRows?: unknown[]) 
   );
   const rocketPurchaseOrder = {
     upsert: vi.fn().mockResolvedValue({}),
-    findMany: vi.fn().mockResolvedValue([{ poSeq: 123456, orderAmount: 5000, orderQty: 5 }]),
+    findMany: vi.fn().mockResolvedValue([{ poSeq: 123456, orderAmount: 5000, orderQty: 5, status: '발주확정' }]),
   };
   const rocketSupplyDailySnapshot = {
     upsert: vi.fn().mockResolvedValue({}),
+    deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
   };
   const executeRaw = vi.fn().mockResolvedValue(0);
   const prisma = {
@@ -254,12 +369,14 @@ function sourceRow(input: Partial<ConfirmSourceRow>): ConfirmSourceRow {
   };
   if (input.center !== undefined) row.center = input.center;
   if (input.poStatus !== undefined) row.poStatus = input.poStatus;
+  if (input.poStatusCode !== undefined) row.poStatusCode = input.poStatusCode;
   if (input.vendorName !== undefined) row.vendorName = input.vendorName;
   if (input.productNo !== undefined) row.productNo = input.productNo;
   if (input.purchasePrice !== undefined) row.purchasePrice = input.purchasePrice;
   if (input.totalPurchase !== undefined) row.totalPurchase = input.totalPurchase;
   if (input.expectedInboundDate !== undefined) row.expectedInboundDate = input.expectedInboundDate;
   if (input.poRegisteredAt !== undefined) row.poRegisteredAt = input.poRegisteredAt;
+  if (input.businessDateBasis !== undefined) row.businessDateBasis = input.businessDateBasis;
   if (input.confirmQty !== undefined) row.confirmQty = input.confirmQty;
   if (input.shortageReason !== undefined) row.shortageReason = input.shortageReason;
   return row;

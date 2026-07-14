@@ -393,6 +393,7 @@ model CoupangProductListing {
   packQty         Int?     @map("pack_qty") // 이름에서 파싱한 입수량(묶음이면 N, 낱개면 null)
   category        String?
   state           String? // 쿠팡 상품 상태(INSPECTION_COMPLETE 등)
+  salePrice       Int?     @map("sale_price") // WING(쿠팡) 판매가 — 마진(쿠팡가−공급가) 계산용
   matchStatus     String   @default("unmatched") // unmatched | suggested | linked | bundled | ignored
   matchedOptionId String?  @map("matched_option_id") @db.Uuid // 이름매칭된 KidItem 단품 옵션(연결 후보)
   bundleOptionId  String?  @map("bundle_option_id") @db.Uuid // 연결완료된 번들 옵션
@@ -407,6 +408,211 @@ model CoupangProductListing {
   @@index([organizationId, matchStatus])
   @@index([organizationId, barcode])
   @@map("coupang_product_listings")
+}
+
+/// @namespace Channels
+/// @describe 자사 쿠팡 상품(vendorItemId)별 사용자가 직접 지정한 대표 검색 키워드. 없으면 쿠팡 카테고리와 Wing 28일 지표로 자동 추천한다.
+model CoupangRepresentativeKeywordOverride {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  vendorItemId   String @map("vendor_item_id")
+  keyword        String
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, vendorItemId])
+  @@index([organizationId])
+  @@map("coupang_representative_keyword_overrides")
+}
+
+/// @namespace Channels
+/// @describe 쿠팡 검색 키워드별 자사 상품 순위 추적 대상. 확장이 www.coupang.com 검색결과(SERP)를 수집할 키워드 정의. vendorItemIds 는 명시 추적 타깃(빈 배열 = 자사 카탈로그 자동매칭만).
+model CoupangKeywordTracker {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  keyword       String
+  vendorItemIds String[] @map("vendor_item_ids") // 명시 추적 타깃 vendorItemId 목록(빈 배열 = 자사 카탈로그 자동매칭만)
+  maxPages      Int      @default(2) @map("max_pages")
+  enabled       Boolean  @default(true)
+
+  lastCapturedAt DateTime? @map("last_captured_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, keyword])
+  @@index([organizationId])
+  @@map("coupang_keyword_trackers")
+}
+
+/// @namespace Channels
+/// @describe 쿠팡 검색 키워드×상품(vendorItemId) 일별 순위 fact. 순위 null = 스캔한 페이지 내 미노출(순위권 밖). overallRank 는 광고 포함 전체 순위, organicRank 는 오가닉만, adRank 는 광고만 센 순위.
+model CoupangKeywordRankDailySnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  keyword        String
+  vendorItemId   String   @map("vendor_item_id")
+  businessDate   DateTime @map("business_date") @db.Date
+
+  productId   String? @map("product_id")
+  itemId      String? @map("item_id")
+  productName String? @map("product_name")
+
+  overallRank    Int? @map("overall_rank")
+  organicRank    Int? @map("organic_rank")
+  adRank         Int? @map("ad_rank")
+  page           Int?
+  positionInPage Int? @map("position_in_page")
+  priceKrw       Int? @map("price_krw")
+  reviewCount    Int? @map("review_count")
+
+  source     String   @default("coupang_search")
+  capturedAt DateTime @map("captured_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, keyword, vendorItemId, businessDate])
+  @@index([organizationId, keyword, businessDate])
+  @@index([organizationId, vendorItemId, businessDate])
+  @@map("coupang_keyword_rank_daily_snapshots")
+}
+
+/// @namespace Channels
+/// @describe 쿠팡 Wing 카탈로그 경쟁상품 추적 대상. 상품분석(wing-catalog)에서 사용자가 추적 등록한 카탈로그 상품(자사/경쟁 무관). sourceKeyword = 지표 갱신 시 재검색할 키워드.
+model CoupangWingTrackedProduct {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  productId    String  @map("product_id")
+  itemId       String? @map("item_id")
+  vendorItemId String? @map("vendor_item_id")
+
+  productName       String  @map("product_name")
+  imagePath         String? @map("image_path")
+  brandName         String? @map("brand_name")
+  categoryHierarchy String? @map("category_hierarchy")
+  sourceKeyword     String? @map("source_keyword")
+
+  enabled        Boolean   @default(true)
+  lastCapturedAt DateTime? @map("last_captured_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization                             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  snapshots    CoupangWingTrackedProductDailySnapshot[]
+
+  @@unique([organizationId, productId])
+  @@index([organizationId])
+  @@map("coupang_wing_tracked_products")
+}
+
+/// @namespace Channels
+/// @describe 쿠팡 Wing 추적상품 일별 지표 스냅샷(상품×일자당 최신본 upsert). Wing 카탈로그 28일 지표(클릭 pv·판매·매출·전환) + 판매가·리뷰.
+model CoupangWingTrackedProductDailySnapshot {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
+  trackedProductId String   @map("tracked_product_id") @db.Uuid
+  businessDate     DateTime @map("business_date") @db.Date
+
+  salePriceKrw        Int?     @map("sale_price_krw")
+  ratingCount         Int?     @map("rating_count")
+  ratingAverage       Decimal? @map("rating_average") @db.Decimal(3, 2)
+  pvLast28Day         Int?     @map("pv_last_28day")
+  salesLast28d        Int?     @map("sales_last_28d")
+  estimatedRevenue28d Int?     @map("estimated_revenue_28d")
+  conversionRate28d   Decimal? @map("conversion_rate_28d") @db.Decimal(7, 6)
+
+  sourceKeyword String?  @map("source_keyword")
+  capturedAt    DateTime @map("captured_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization   Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  trackedProduct CoupangWingTrackedProduct @relation(fields: [trackedProductId], references: [id], onDelete: Cascade)
+
+  @@unique([trackedProductId, businessDate])
+  @@index([organizationId])
+  @@index([trackedProductId, businessDate])
+  @@map("coupang_wing_tracked_product_daily_snapshots")
+}
+
+/// @namespace Channels
+/// @describe 쿠팡 검색 키워드별 SERP 전체 캡처(키워드-일자당 최신본 upsert). items 는 DOM 순서 그대로의 결과 리스트 JSON — 경쟁사 노출 확인·순위 재계산용.
+model CoupangKeywordSerpDailySnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  keyword        String
+  businessDate   DateTime @map("business_date") @db.Date
+
+  items        Json // [{ rank, page, positionInPage, isAd, productId, itemId, vendorItemId, name, priceKrw, reviewCount, ratingScore, link }]
+  itemCount    Int  @default(0) @map("item_count")
+  pagesScanned Int  @default(0) @map("pages_scanned")
+
+  capturedAt DateTime @map("captured_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, keyword, businessDate])
+  @@index([organizationId, businessDate])
+  @@map("coupang_keyword_serp_daily_snapshots")
+}
+
+/// @namespace Channels
+/// @describe Wing 상품 매칭 API의 키워드별 최근 28일 판매량순에서 자사 vendorItemId가 차지한 일별 순위. salesRank null은 수집 범위 밖이며 판매량·조회·매출 지표도 같은 Wing 응답에서 저장한다.
+model CoupangWingSalesRankDailySnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  keyword        String
+  vendorItemId   String   @map("vendor_item_id")
+  businessDate   DateTime @map("business_date") @db.Date
+
+  productId         String? @map("product_id")
+  itemId            String? @map("item_id")
+  productName       String? @map("product_name")
+  categoryHierarchy String? @map("category_hierarchy")
+
+  salesRank         Int?     @map("sales_rank")
+  salesLast28d      Int?     @map("sales_last_28d")
+  viewsLast28d      Int?     @map("views_last_28d")
+  revenueLast28d    Int?     @map("revenue_last_28d")
+  conversionRate28d Decimal? @map("conversion_rate_28d") @db.Decimal(9, 6)
+  salePrice         Int?     @map("sale_price")
+  reviewCount       Int?     @map("review_count")
+
+  // 같은 키워드 검색 결과 전체의 시장 수요 지표. 후보 키워드 간 비교 점수에 사용한다.
+  keywordSalesLast28d      Int?     @map("keyword_sales_last_28d")
+  keywordViewsLast28d      Int?     @map("keyword_views_last_28d")
+  keywordConversionRate28d Decimal? @map("keyword_conversion_rate_28d") @db.Decimal(9, 6)
+
+  pagesScanned   Int      @default(0) @map("pages_scanned")
+  collectedCount Int      @default(0) @map("collected_count")
+  totalResults   Int?     @map("total_results")
+  capturedAt     DateTime @map("captured_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, keyword, vendorItemId, businessDate])
+  @@index([organizationId, businessDate])
+  @@index([organizationId, keyword, businessDate])
+  @@index([organizationId, vendorItemId, businessDate])
+  @@map("coupang_wing_sales_rank_daily_snapshots")
 }
 
 /// @namespace Channels

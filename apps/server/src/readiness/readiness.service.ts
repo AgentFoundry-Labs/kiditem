@@ -57,8 +57,10 @@ export class ReadinessService {
     const now = new Date();
     // Wing/광고는 당일 데이터가 없고 전일이 최신 → 어제를 기준일로 잡음
     const todayKstStart = kstDayStart(now);
+    const todayKstStr = toKstDateStr(todayKstStart);
     const yesterdayKstStart = new Date(todayKstStart.getTime() - 86400000);
     const yesterdayKstStr = toKstDateStr(yesterdayKstStart);
+    const rocketRangeStartKstStr = `${todayKstStr.slice(0, 8)}01`;
 
     // lookback N 일 전 ~ 어제까지의 기대 일자
     const lookbackStart = new Date(
@@ -72,6 +74,7 @@ export class ReadinessService {
     const [
       wingDailyKpiRows,
       adsDailyKpiRows,
+      rocketDailyRows,
       wingItemWinnerKpi,
       productCount,
       lastProduct,
@@ -99,6 +102,18 @@ export class ReadinessService {
         },
         select: { businessDate: true, lastObservedAt: true },
         orderBy: { businessDate: 'desc' },
+      }),
+      // rocket_sales — 쿠팡 supplier po-web 발주확정 원천 발주(발주일 기준)
+      this.prisma.rocketPurchaseOrder.findMany({
+        where: {
+          organizationId,
+          businessDate: {
+            gte: parseDbDate(rocketRangeStartKstStr),
+          },
+          ...confirmedRocketPurchaseOrderWhere(),
+        },
+        select: { businessDate: true, updatedAt: true },
+        orderBy: { updatedAt: 'desc' },
       }),
       // wing_itemwinner_kpi — 가장 최근 1건
       this.prisma.channelAccountDailyKpiSnapshot.findFirst({
@@ -131,9 +146,16 @@ export class ReadinessService {
     const adsYesterdayOk = adsPresent.has(yesterdayKstStr);
     const adsLastDate = adsDailyKpiRows[0]?.lastObservedAt ?? null;
 
+    // 쿠팡 로켓 매출 수집 — 미래 입고예정일 발주가 들어오므로 일자 누락보다
+    // "오늘 한 번 갱신했는지"를 readiness 기준으로 삼는다.
+    const rocketPresent = new Set(rocketDailyRows.map((r) => toKstDateStr(r.businessDate)));
+    const rocketLastDate = rocketDailyRows[0]?.updatedAt ?? null;
+    const rocketFreshToday = rocketLastDate ? rocketLastDate >= todayKstStart : false;
+
     const wingBase = 'https://wing.coupang.com/tenants/business-insight/sales-analysis';
     const adsDashboardUrl = 'https://advertising.coupang.com/marketing/dashboard/sales';
     const wingItemWinnerUrl = 'https://wing.coupang.com/tenants/seller-price-management?rf=menu';
+    const rocketPoListUrl = 'https://supplier.coupang.com/po-web/purchase/order/list';
 
     const checks: ReadinessCheck[] = [
       {
@@ -163,6 +185,24 @@ export class ReadinessService {
         referenceDate: yesterdayKstStr,
         expectedDates,
         missingDates: wingMissing,
+      },
+      {
+        key: 'rocket_sales',
+        label: '쿠팡 로켓 매출',
+        status: rocketFreshToday ? 'ok' : rocketLastDate ? 'stale' : 'missing',
+        detail: rocketFreshToday
+          ? `오늘 갱신됨 — ${rocketRangeStartKstStr}~${todayKstStr} 발주확정/발주일 기준`
+          : rocketLastDate
+            ? `오늘 미갱신 — 마지막 수집 ${formatKst(rocketLastDate)}`
+            : '로켓 발주확정 매출 수집 이력 없음',
+        lastSyncedAt: rocketLastDate ? rocketLastDate.toISOString() : null,
+        count: rocketPresent.size,
+        collector: 'extension',
+        collectEndpoint: null,
+        scrapeUrls: [rocketPoListUrl],
+        referenceDate: todayKstStr,
+        expectedDates: null,
+        missingDates: null,
       },
       {
         key: 'coupang_ads',
@@ -365,6 +405,12 @@ function isCredentialEnvelope(value: unknown): boolean {
       record.ciphertext &&
       record.tag,
   );
+}
+
+function confirmedRocketPurchaseOrderWhere(): Prisma.RocketPurchaseOrderWhereInput {
+  return {
+    OR: [{ status: 'PA' }, { status: { contains: '발주확정' } }],
+  };
 }
 
 /** Date → KST YYYY-MM-DD */

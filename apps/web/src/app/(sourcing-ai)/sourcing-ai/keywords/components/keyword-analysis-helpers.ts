@@ -61,17 +61,24 @@ export interface RelatedKeywordGroups {
 }
 
 export const boardFilterOptions: Array<{ value: BoardFilterKey; label: string; caption: string }> = [
-  { value: 'all', label: '전체 보드', caption: '모든 인기 키워드' },
-  { value: 'all_categories', label: '필터 없음', caption: '기본 TOP' },
-  { value: 'birth_kids', label: '출산/육아', caption: '상위 카테고리' },
-  { value: 'toys_dolls', label: '완구/인형', caption: '소싱 핵심' },
-  { value: 'stationery_office', label: '문구/사무', caption: '소싱 핵심' },
-  { value: 'kids_fashion', label: '유아동의류', caption: '계절 반응' },
+  { value: 'all', label: '전체 보드', caption: '완구·팬시문구 전체' },
+  { value: 'toys_dolls', label: '완구/인형', caption: '완구 전체' },
+  { value: 'toys_block', label: '블록완구', caption: '레고·블록' },
+  { value: 'toys_action', label: '작동완구', caption: '로봇·RC' },
+  { value: 'toys_roleplay', label: '역할놀이', caption: '주방·소꿉' },
+  { value: 'toys_puzzle', label: '퍼즐·교구', caption: '큐브·퍼즐' },
+  { value: 'fancy_sticker', label: '스티커·다꾸', caption: '팬시 핵심' },
+  { value: 'fancy_goods', label: '팬시문구', caption: '말랑이·소품' },
+  { value: 'fancy_diary', label: '다이어리', caption: '다꾸·플래너' },
+  { value: 'stationery_writing', label: '필기·노트', caption: '필기구' },
+  { value: 'stationery_note', label: '노트·메모', caption: '포스트잇·노트' },
 ];
 
 export const rankLimitOptions = [
   { value: '10', label: 'TOP 10' },
   { value: '20', label: 'TOP 20' },
+  { value: '50', label: 'TOP 50' },
+  { value: '100', label: 'TOP 100' },
 ];
 
 export const focusOptions: Array<{ value: FocusMode; label: string; caption: string }> = [
@@ -80,7 +87,19 @@ export const focusOptions: Array<{ value: FocusMode; label: string; caption: str
   { value: 'kids', label: '키즈 전체', caption: '출산/육아 포함' },
 ];
 
-const toyStationeryBoards = new Set<NaverDatalabPopularKeywordBoardKey>(['toys_dolls', 'stationery_office']);
+const toyStationeryBoards = new Set<NaverDatalabPopularKeywordBoardKey>([
+  'toys_dolls',
+  'toys_block',
+  'toys_action',
+  'toys_roleplay',
+  'toys_puzzle',
+  'fancy_sticker',
+  'fancy_goods',
+  'fancy_diary',
+  'stationery_writing',
+  'stationery_note',
+  'stationery_office',
+]);
 const kidsBoards = new Set<NaverDatalabPopularKeywordBoardKey>(['birth_kids', 'toys_dolls', 'kids_fashion']);
 
 export function timeUnitLabel(value: NaverDatalabTimeUnit): string {

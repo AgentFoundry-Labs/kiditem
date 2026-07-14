@@ -298,7 +298,7 @@ Kinds:
 
 | Path | Kind | Routes / Notes |
 |---|---|---|
-| `apps/web/src/app/(advertising)` | Route Group | `ad-ops` |
+| `apps/web/src/app/(advertising)` | Route Group | `ad-ops`, `rank-tracking` |
 | `apps/web/src/app/(analytics)` | Route Group | `dashboard` |
 | `apps/web/src/app/(automation)` | Route Group | `_shared`, `action-board`, `agents`, `marketplace`, `workflows` |
 | `apps/web/src/app/(catalog)` | Route Group | `product-hub`, `product-hub/[id]`, `product-hub/matching`, `product-hub/options`; product hub implementation code lives under `product-hub/`. |

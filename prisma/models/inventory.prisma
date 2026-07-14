@@ -278,10 +278,10 @@ model SellpiaStockSnapshotItem {
   createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization        Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  snapshot            SellpiaStockSnapshot          @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
-  option              ProductOption?                @relation(fields: [productOptionId], references: [id], onDelete: SetNull)
-  inventory           Inventory?                    @relation(fields: [inventoryId], references: [id], onDelete: SetNull)
+  organization        Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  snapshot            SellpiaStockSnapshot        @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  option              ProductOption?              @relation(fields: [productOptionId], references: [id], onDelete: SetNull)
+  inventory           Inventory?                  @relation(fields: [inventoryId], references: [id], onDelete: SetNull)
   newProductCandidate SellpiaNewProductCandidate?
 
   @@index([organizationId])
@@ -319,10 +319,10 @@ model SellpiaNewProductCandidate {
   createdAt                   DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt                   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization      Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  snapshotItem      SellpiaStockSnapshotItem   @relation(fields: [snapshotItemId], references: [id], onDelete: Cascade)
-  resolvedOption    ProductOption?            @relation(fields: [resolvedProductOptionId], references: [id], onDelete: SetNull)
-  createdInventory  Inventory?                @relation(fields: [createdInventoryId], references: [id], onDelete: SetNull)
+  organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  snapshotItem     SellpiaStockSnapshotItem @relation(fields: [snapshotItemId], references: [id], onDelete: Cascade)
+  resolvedOption   ProductOption?           @relation(fields: [resolvedProductOptionId], references: [id], onDelete: SetNull)
+  createdInventory Inventory?               @relation(fields: [createdInventoryId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
   @@index([organizationId, status])
