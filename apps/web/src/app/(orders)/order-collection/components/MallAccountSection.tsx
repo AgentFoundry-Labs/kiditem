@@ -1,32 +1,29 @@
-import { useEffect, useState } from 'react';
-import * as Dialog from '@radix-ui/react-dialog';
+import { useEffect, useState } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import {
   AlertCircle,
   Eye,
   EyeOff,
   ExternalLink,
   Loader2,
-  LockKeyhole,
   RefreshCw,
   Save,
-  Settings2,
   Store,
   Truck,
   Upload,
   X,
-} from 'lucide-react';
-import { cn, formatDateTime, formatNumber } from '@/lib/utils';
+} from "lucide-react";
+import { cn, formatDateTime, formatNumber } from "@/lib/utils";
 import {
   formatMallCollectionTime,
   isAutoDetectableMall,
   isBrowserCollectableMall,
-  mallStatus,
   type ConversionState,
   type MallAccountDraft,
-} from '../lib/order-collection-page-model';
-import { isTrackingSupportedMall } from '../lib/icecream-tracking-api';
-import type { MallCollectionStat } from '../lib/order-collection-stats';
-import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
+} from "../lib/order-collection-page-model";
+import { isTrackingSupportedMall } from "../lib/icecream-tracking-api";
+import type { MallCollectionStat } from "../lib/order-collection-stats";
+import type { OrderCollectionMallAccount } from "../lib/order-mall-account-api";
 
 interface MallAccountSectionProps {
   mallAccounts: OrderCollectionMallAccount[];
@@ -60,8 +57,12 @@ interface MallAccountSectionProps {
   onToggleAutoDetect: () => void;
   onAutoIntervalChange: (minutes: number) => void;
   onSettingsOpenChange: (open: boolean) => void;
-  onDraftChange: (draft: MallAccountDraft | ((current: MallAccountDraft) => MallAccountDraft)) => void;
-  onPasswordVisibleChange: (visible: boolean | ((current: boolean) => boolean)) => void;
+  onDraftChange: (
+    draft: MallAccountDraft | ((current: MallAccountDraft) => MallAccountDraft),
+  ) => void;
+  onPasswordVisibleChange: (
+    visible: boolean | ((current: boolean) => boolean),
+  ) => void;
   onOpenMall: () => void;
   onSaveMallAccount: () => void;
 }
@@ -110,10 +111,13 @@ export function MallAccountSection({
           <div className="flex items-center gap-2.5">
             <Store size={18} className="text-slate-500" />
             <div>
-              <div className="text-sm font-semibold text-slate-900">몰 계정 관리</div>
+              <div className="text-sm font-semibold text-slate-900">
+                주문수집
+              </div>
               <div className="text-xs text-slate-500">
-                {formatNumber(configuredMallCount)} / {formatNumber(mallAccounts.length)} 저장
-                {autoDetect ? ` · 자동감지 ${autoIntervalMin}분` : ''}
+                {formatNumber(configuredMallCount)} /{" "}
+                {formatNumber(mallAccounts.length)} 계정
+                {autoDetect ? ` · 자동감지 ${autoIntervalMin}분 (09–18시)` : ""}
               </div>
             </div>
           </div>
@@ -126,26 +130,29 @@ export function MallAccountSection({
             <button
               type="button"
               onClick={onToggleAutoDetect}
+              title="설정한 간격마다 새 주문을 자동 감지합니다 (오전 9시~오후 6시, 이 페이지가 열려 있을 때)"
               className={cn(
-                'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium',
+                "inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
                 autoDetect
-                  ? 'border-purple-200 bg-purple-50 text-purple-700'
-                  : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50',
+                  ? "border-purple-200 bg-purple-50 text-purple-700"
+                  : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50",
               )}
             >
               <span
                 className={cn(
-                  'h-1.5 w-1.5 rounded-full',
-                  autoDetect ? 'bg-purple-600' : 'bg-slate-300',
+                  "h-1.5 w-1.5 rounded-full",
+                  autoDetect ? "bg-purple-600" : "bg-slate-300",
                 )}
               />
               자동감지
             </button>
             <select
               value={autoIntervalMin}
-              onChange={(event) => onAutoIntervalChange(Number(event.target.value))}
+              onChange={(event) =>
+                onAutoIntervalChange(Number(event.target.value))
+              }
               aria-label="자동 감지 간격"
-              className="rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm font-medium text-slate-600"
+              className="rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm font-medium text-slate-600 outline-none hover:bg-slate-50 focus:border-slate-400"
             >
               {autoIntervalOptions.map((minutes) => (
                 <option key={minutes} value={minutes}>
@@ -171,12 +178,16 @@ export function MallAccountSection({
                 mallLoading ||
                 browserCollecting ||
                 collectingKeys.size > 0 ||
-                conversionState === 'converting' ||
+                conversionState === "converting" ||
                 enabledMallCount === 0
               }
               className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-3 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {browserCollecting ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+              {browserCollecting ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : (
+                <RefreshCw size={15} />
+              )}
               전체 수집
             </button>
             <button
@@ -185,7 +196,10 @@ export function MallAccountSection({
               disabled={mallLoading}
               className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >
-              <RefreshCw size={15} className={mallLoading ? 'animate-spin' : ''} />
+              <RefreshCw
+                size={15}
+                className={mallLoading ? "animate-spin" : ""}
+              />
               새로고침
             </button>
           </div>
@@ -203,142 +217,173 @@ export function MallAccountSection({
               불러오는 중
             </div>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
-              {mallAccounts.map((account) => {
-                const status = mallStatus(account);
-                const isOpenAccount = mallSettingsOpen && selectedMall?.key === account.key;
-                const isCollectingAccount = collectingKeys.has(account.key);
-                const collectable = account.enabled && isBrowserCollectableMall(account);
-                const collectionStat = mallCollectionStats.get(account.key);
-                const trackingSupported = isTrackingSupportedMall(account.key);
+            <div className="overflow-x-auto pb-1">
+              <div className="grid min-w-[720px] grid-cols-5 gap-3">
+                {mallAccounts.map((account) => {
+                  const isOpenAccount =
+                    mallSettingsOpen && selectedMall?.key === account.key;
+                  const isCollectingAccount = collectingKeys.has(account.key);
+                  const collectable =
+                    account.enabled && isBrowserCollectableMall(account);
+                  const autoDetectable = isAutoDetectableMall(account);
+                  const collectionStat = mallCollectionStats.get(account.key);
+                  const trackingSupported = isTrackingSupportedMall(
+                    account.key,
+                  );
 
-                return (
-                  <article
-                    key={account.key}
-                    aria-label={`${account.name} 계정 카드`}
-                    className={cn(
-                      'flex min-h-[220px] flex-col rounded-xl border bg-white p-4 transition-colors',
-                      isOpenAccount ? 'border-purple-300 bg-purple-50/40' : 'border-slate-200',
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex min-w-0 items-center gap-2.5">
-                        <span className="flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-slate-100 text-sm font-semibold text-slate-600">
-                          {account.name.slice(0, 1)}
-                        </span>
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold text-slate-900">{account.name}</div>
-                          <div className="truncate text-[11px] text-slate-400">{account.key}</div>
+                  return (
+                    <article
+                      key={account.key}
+                      aria-label={`${account.name} 계정 카드`}
+                      className={cn(
+                        "flex flex-col rounded-xl border p-3.5 transition-colors",
+                        collectable
+                          ? "border-slate-200 hover:border-purple-300"
+                          : "border-slate-100 bg-slate-50/40",
+                        isOpenAccount && "ring-1 ring-purple-300",
+                      )}
+                    >
+                      <div className="flex min-w-0 items-center justify-between gap-1.5">
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <span
+                            className={cn(
+                              "h-1.5 w-1.5 flex-none rounded-full",
+                              collectable ? "bg-emerald-500" : "bg-slate-300",
+                            )}
+                            title={collectable ? "수집 가능" : "준비 중"}
+                          />
+                          <span
+                            className={cn(
+                              "truncate text-[13px] font-semibold",
+                              collectable ? "text-slate-900" : "text-slate-400",
+                            )}
+                            title={account.name}
+                          >
+                            {account.name}
+                          </span>
                         </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => onOpenSettings(account)}
-                        aria-label={`${account.name} 설정`}
-                        className="inline-flex h-8 w-8 flex-none items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                      >
-                        <Settings2 size={15} />
-                      </button>
-                    </div>
-
-                    <div className="mt-3 flex items-center justify-between gap-2">
-                      <span
-                        className={cn(
-                          'inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium',
-                          status.tone === 'ready' && 'bg-emerald-50 text-emerald-700',
-                          status.tone === 'paused' && 'bg-slate-100 text-slate-500',
-                          status.tone === 'empty' && 'bg-amber-50 text-amber-700',
-                        )}
-                      >
-                        {status.label}
-                      </span>
-                      <span className="flex min-w-0 items-center gap-1 text-[11px] text-slate-400">
-                        {account.hasPassword ? <LockKeyhole size={11} aria-label="비밀번호 저장됨" /> : null}
-                        <span className="truncate">{account.loginId || '로그인 ID 없음'}</span>
-                      </span>
-                    </div>
-
-                    <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg bg-slate-50 p-3">
-                      <div>
-                        <div className="text-[11px] text-slate-400">누적 주문</div>
-                        <div
-                          className="mt-0.5 text-lg font-bold tabular-nums text-slate-900"
-                          title={collectionStat ? `상품 행 ${formatNumber(collectionStat.productRows)}개` : undefined}
+                        <button
+                          type="button"
+                          onClick={() => onOpenSettings(account)}
+                          aria-label={`${account.name} 설정`}
+                          className="flex-none rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-500 transition-colors hover:bg-slate-50"
                         >
-                          {formatNumber(collectionStat?.orderRows ?? 0)}
-                        </div>
+                          설정
+                        </button>
                       </div>
-                      <div className="text-right">
-                        <div className="text-[11px] text-slate-400">최근 수집</div>
-                        <div
-                          className="mt-1 text-xs tabular-nums text-slate-600"
-                          title={collectionStat ? formatDateTime(collectionStat.latestAt) : undefined}
-                        >
-                          {collectionStat ? formatMallCollectionTime(collectionStat.latestAt) : '-'}
-                        </div>
-                      </div>
-                    </div>
 
-                    <div className="mt-auto space-y-2 pt-4">
-                      <div className="flex h-5 items-center justify-center text-[11px] text-slate-400">
-                        {autoDetect && isAutoDetectableMall(account) && autoNextRunAt !== null ? (
+                      <div className="mt-2.5 grid grid-cols-2 divide-x divide-slate-200/80 overflow-hidden rounded-lg bg-slate-50">
+                        <div
+                          className="px-2 py-3.5 text-center"
+                          title={
+                            collectionStat
+                              ? `오늘 수집 ${formatMallCollectionTime(collectionStat.latestAt)}`
+                              : undefined
+                          }
+                        >
+                          <div
+                            className={cn(
+                              "text-lg font-bold leading-none tabular-nums",
+                              collectionStat && collectionStat.orderRows > 0
+                                ? "text-slate-900"
+                                : "text-slate-300",
+                            )}
+                          >
+                            {formatNumber(collectionStat?.orderRows ?? 0)}
+                          </div>
+                          <div className="mt-1 text-[10px] text-slate-400">
+                            당일
+                          </div>
+                        </div>
+                        <div
+                          className="px-2 py-3.5 text-center"
+                          title="오늘 주문 중 셀피아 미전송"
+                        >
+                          <div
+                            className={cn(
+                              "text-lg font-bold leading-none tabular-nums",
+                              collectionStat && collectionStat.newRows > 0
+                                ? "text-purple-600"
+                                : "text-slate-300",
+                            )}
+                          >
+                            {formatNumber(collectionStat?.newRows ?? 0)}
+                          </div>
+                          <div className="mt-1 text-[10px] text-slate-400">
+                            신규
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-2.5 flex h-5 items-center justify-center text-[11px]">
+                        {!collectable ? (
+                          <span className="text-slate-300">준비 중</span>
+                        ) : autoDetect &&
+                          autoDetectable &&
+                          autoNextRunAt !== null ? (
                           <AutoDetectCountdown
                             running={autoRunning}
                             targetAt={autoNextRunAt}
                           />
                         ) : (
-                          <span>{collectable ? '수동' : '준비 중'}</span>
+                          <span className="text-slate-300">수동</span>
                         )}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => onCollectMall(account)}
-                        aria-label={`${account.name} 수집`}
-                        disabled={
-                          browserCollecting ||
-                          isCollectingAccount ||
-                          conversionState === 'converting' ||
-                          !collectable
-                        }
-                        title={
-                          !account.enabled
-                            ? '중지된 계정입니다.'
-                            : collectable
-                              ? `${account.name} 개별 수집`
-                              : '자동 수집 준비 중'
-                        }
-                        className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-purple-600 px-3 py-2 text-xs font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-35"
-                      >
-                        {isCollectingAccount ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-                        {isCollectingAccount ? '수집 중' : '주문 수집'}
-                      </button>
-                      {trackingSupported ? (
+
+                      <div className="mt-2.5 flex gap-1.5">
                         <button
                           type="button"
-                          onClick={() => onUploadTracking(account)}
-                          disabled={isCollectingAccount}
-                          aria-label={`${account.name} 송장 업로드`}
-                          title={`${account.name} 송장 업로드`}
-                          className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-medium text-purple-700 hover:bg-purple-100 disabled:opacity-50"
+                          onClick={() => onCollectMall(account)}
+                          aria-label={`${account.name} 수집`}
+                          disabled={
+                            browserCollecting ||
+                            isCollectingAccount ||
+                            conversionState === "converting" ||
+                            !collectable
+                          }
+                          title={
+                            !account.enabled
+                              ? "중지된 계정입니다."
+                              : collectable
+                                ? `${account.name} 개별 수집`
+                                : "자동 수집 준비 중"
+                          }
+                          className="inline-flex flex-1 items-center justify-center whitespace-nowrap rounded-md bg-purple-600 py-1.5 text-xs font-medium text-white transition-colors hover:bg-purple-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
                         >
-                          <Upload size={13} />
-                          송장 업로드
+                          {isCollectingAccount ? (
+                            <Loader2 size={13} className="animate-spin" />
+                          ) : (
+                            "수집"
+                          )}
                         </button>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled
-                          aria-label={`${account.name} 송장 업로드 준비 중`}
-                          className="inline-flex w-full cursor-not-allowed items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-400"
-                        >
-                          <Truck size={13} />
-                          송장 준비 중
-                        </button>
-                      )}
-                    </div>
-                  </article>
-                );
-              })}
+                        {trackingSupported ? (
+                          <button
+                            type="button"
+                            onClick={() => onUploadTracking(account)}
+                            disabled={isCollectingAccount}
+                            aria-label={`${account.name} 송장 업로드`}
+                            title={`${account.name} 송장 업로드`}
+                            className="inline-flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-md border border-purple-200 bg-purple-50 py-1.5 text-xs font-medium text-purple-700 transition-colors hover:bg-purple-100 disabled:opacity-50"
+                          >
+                            <Upload size={13} />
+                            송장 업로드
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled
+                            aria-label={`${account.name} 송장 업로드 준비 중`}
+                            className="inline-flex flex-1 cursor-not-allowed items-center justify-center gap-1 whitespace-nowrap rounded-md border border-dashed border-slate-200 bg-slate-50 py-1.5 text-xs font-medium text-slate-400"
+                          >
+                            <Truck size={13} />
+                            준비
+                          </button>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
@@ -362,7 +407,13 @@ export function MallAccountSection({
   );
 }
 
-function AutoDetectCountdown({ targetAt, running }: { targetAt: number; running: boolean }) {
+function AutoDetectCountdown({
+  targetAt,
+  running,
+}: {
+  targetAt: number;
+  running: boolean;
+}) {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -376,7 +427,7 @@ function AutoDetectCountdown({ targetAt, running }: { targetAt: number; running:
   const remainder = seconds % 60;
   return (
     <span className="tabular-nums text-purple-600">
-      자동 {minutes}:{String(remainder).padStart(2, '0')}
+      자동 {minutes}:{String(remainder).padStart(2, "0")}
     </span>
   );
 }
@@ -390,8 +441,12 @@ interface MallSettingsDialogProps {
   mallPasswordVisible: boolean;
   enabledMallCount: number;
   onOpenChange: (open: boolean) => void;
-  onDraftChange: (draft: MallAccountDraft | ((current: MallAccountDraft) => MallAccountDraft)) => void;
-  onPasswordVisibleChange: (visible: boolean | ((current: boolean) => boolean)) => void;
+  onDraftChange: (
+    draft: MallAccountDraft | ((current: MallAccountDraft) => MallAccountDraft),
+  ) => void;
+  onPasswordVisibleChange: (
+    visible: boolean | ((current: boolean) => boolean),
+  ) => void;
   onOpenMall: () => void;
   onSaveMallAccount: () => void;
 }
@@ -418,10 +473,10 @@ function MallSettingsDialog({
           <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
             <div className="min-w-0">
               <Dialog.Title className="truncate text-sm font-semibold text-slate-900">
-                {selectedMall?.name ?? '몰 설정'}
+                {selectedMall?.name ?? "몰 설정"}
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs text-slate-500">
-                {selectedMall?.configured ? '계정 저장됨' : '계정 미설정'}
+                {selectedMall?.configured ? "계정 저장됨" : "계정 미설정"}
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
@@ -442,7 +497,12 @@ function MallSettingsDialog({
                 <input
                   type="checkbox"
                   checked={draft.enabled}
-                  onChange={(event) => onDraftChange((current) => ({ ...current, enabled: event.target.checked }))}
+                  onChange={(event) =>
+                    onDraftChange((current) => ({
+                      ...current,
+                      enabled: event.target.checked,
+                    }))
+                  }
                   disabled={!selectedMall || mallSaving}
                   className="h-4 w-4 rounded border-slate-300"
                 />
@@ -450,12 +510,19 @@ function MallSettingsDialog({
               </label>
             </div>
             <label className="block">
-              <span className="text-xs font-medium text-slate-600">접속 URL</span>
+              <span className="text-xs font-medium text-slate-600">
+                접속 URL
+              </span>
               <div className="mt-1 flex gap-2">
                 <input
                   type="url"
                   value={draft.siteUrl}
-                  onChange={(event) => onDraftChange((current) => ({ ...current, siteUrl: event.target.value }))}
+                  onChange={(event) =>
+                    onDraftChange((current) => ({
+                      ...current,
+                      siteUrl: event.target.value,
+                    }))
+                  }
                   disabled={!selectedMall || mallSaving}
                   placeholder="https://"
                   className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400 disabled:opacity-50"
@@ -472,11 +539,18 @@ function MallSettingsDialog({
               </div>
             </label>
             <label className="block">
-              <span className="text-xs font-medium text-slate-600">로그인 ID</span>
+              <span className="text-xs font-medium text-slate-600">
+                로그인 ID
+              </span>
               <input
                 type="text"
                 value={draft.loginId}
-                onChange={(event) => onDraftChange((current) => ({ ...current, loginId: event.target.value }))}
+                onChange={(event) =>
+                  onDraftChange((current) => ({
+                    ...current,
+                    loginId: event.target.value,
+                  }))
+                }
                 disabled={!selectedMall || mallSaving}
                 className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400 disabled:opacity-50"
               />
@@ -492,16 +566,21 @@ function MallSettingsDialog({
               </span>
               <span className="mt-1 flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 focus-within:border-slate-400">
                 <input
-                  type={mallPasswordVisible ? 'text' : 'password'}
+                  type={mallPasswordVisible ? "text" : "password"}
                   value={draft.password}
-                  onChange={(event) => onDraftChange((current) => ({ ...current, password: event.target.value }))}
+                  onChange={(event) =>
+                    onDraftChange((current) => ({
+                      ...current,
+                      password: event.target.value,
+                    }))
+                  }
                   disabled={!selectedMall || mallSaving || mallPasswordLoading}
                   placeholder={
                     mallPasswordLoading
-                      ? '저장된 비밀번호 불러오는 중'
+                      ? "저장된 비밀번호 불러오는 중"
                       : selectedMall?.hasPassword
-                        ? '저장된 비밀번호'
-                        : '비밀번호 입력'
+                        ? "저장된 비밀번호"
+                        : "비밀번호 입력"
                   }
                   autoComplete="new-password"
                   className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-50"
@@ -511,15 +590,21 @@ function MallSettingsDialog({
                   onClick={() => onPasswordVisibleChange((visible) => !visible)}
                   disabled={!selectedMall || mallPasswordLoading}
                   className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 disabled:opacity-40"
-                  aria-label={mallPasswordVisible ? '비밀번호 숨기기' : '비밀번호 보기'}
+                  aria-label={
+                    mallPasswordVisible ? "비밀번호 숨기기" : "비밀번호 보기"
+                  }
                 >
-                  {mallPasswordVisible ? <EyeOff size={14} /> : <Eye size={14} />}
+                  {mallPasswordVisible ? (
+                    <EyeOff size={14} />
+                  ) : (
+                    <Eye size={14} />
+                  )}
                 </button>
               </span>
               <span className="mt-1 block text-xs text-slate-400">
                 {selectedMall?.hasPassword
-                  ? `저장된 비밀번호를 불러와 표시합니다.${selectedMall.passwordUpdatedAt ? ` 마지막 저장: ${formatDateTime(selectedMall.passwordUpdatedAt)}` : ''}`
-                  : '저장하면 암호화되어 보관됩니다.'}
+                  ? `저장된 비밀번호를 불러와 표시합니다.${selectedMall.passwordUpdatedAt ? ` 마지막 저장: ${formatDateTime(selectedMall.passwordUpdatedAt)}` : ""}`
+                  : "저장하면 암호화되어 보관됩니다."}
               </span>
             </label>
             <label className="block">
@@ -527,7 +612,12 @@ function MallSettingsDialog({
               <input
                 type="text"
                 value={draft.memo}
-                onChange={(event) => onDraftChange((current) => ({ ...current, memo: event.target.value }))}
+                onChange={(event) =>
+                  onDraftChange((current) => ({
+                    ...current,
+                    memo: event.target.value,
+                  }))
+                }
                 disabled={!selectedMall || mallSaving}
                 className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-slate-400 disabled:opacity-50"
               />
@@ -535,7 +625,9 @@ function MallSettingsDialog({
           </div>
 
           <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-5 py-4">
-            <div className="text-xs text-slate-500">사용 {formatNumber(enabledMallCount)}</div>
+            <div className="text-xs text-slate-500">
+              사용 {formatNumber(enabledMallCount)}
+            </div>
             <div className="flex items-center gap-2">
               <Dialog.Close asChild>
                 <button
@@ -552,7 +644,11 @@ function MallSettingsDialog({
                 disabled={!selectedMall || mallSaving}
                 className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {mallSaving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+                {mallSaving ? (
+                  <Loader2 size={15} className="animate-spin" />
+                ) : (
+                  <Save size={15} />
+                )}
                 저장
               </button>
             </div>
