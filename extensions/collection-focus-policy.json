@@ -9,8 +9,8 @@
     "extensions/order-collector/background/interactive-tabs.js"
   ],
   "legacyFocusCounts": {
-    "extensions/coupang-ads-scraper/background/service-worker.js": 16,
-    "extensions/coupang-ads-scraper/background/coupang-catalog-import.js": 4,
+    "extensions/coupang-ads-scraper/background/service-worker.js": 0,
+    "extensions/coupang-ads-scraper/background/coupang-catalog-import.js": 0,
     "extensions/product-scraper/1688-trend-collector.js": 1,
     "extensions/product-scraper/live-commerce-collector.js": 1,
     "extensions/product-scraper/background.js": 0,

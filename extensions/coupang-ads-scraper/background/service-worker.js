@@ -2,6 +2,10 @@
 
 importScripts(
   "kiditem-auth.js",
+  "collection-session.js",
+  "collection-window.js",
+  "collection-runs.js",
+  "interactive-tabs.js",
   "../utils/coupang-seller-detail.js",
   "../shared/coupang-catalog-collector.js",
   "coupang-catalog-import.js",
@@ -35,6 +39,7 @@ const RANK_CHECK_CANCEL_KEY = "kiditem_rank_check_cancel";
 const KEYWORD_RANK_STATUS_KEY = "kiditem_keyword_rank_check"; // 쿠팡 검색(SERP) 키워드 순위 배치 전용
 const COMPETITOR_SELLER_CATALOG_STATUS_KEY =
   "kiditem_competitor_seller_catalog_check";
+const COLLECTION_WINDOW_STORAGE_KEY = "kiditem_coupang_collection_window";
 
 const kidItemAuth = KidItemAuth.create({
   chrome,
@@ -44,6 +49,57 @@ const kidItemAuth = KidItemAuth.create({
   webUrlPatterns: ["http://localhost:3000/*"],
 });
 const { authedFetch, getAuthToken } = kidItemAuth;
+const collectionSessions = KidItemCollectionSession.create({
+  chrome,
+  storageKey: "kiditem_collection_sessions",
+  webUrlPatterns: ["http://localhost:3000/*"],
+});
+const collectionWindow = KidItemCollectionWindow.create({
+  chrome,
+  storageKey: COLLECTION_WINDOW_STORAGE_KEY,
+  sessions: collectionSessions,
+  statusKey: BATCH_SCRAPE_STATUS_KEY,
+  cancelKey: BATCH_SCRAPE_CANCEL_KEY,
+  markScraped: (targetId) =>
+    authedFetch(`/api/ads/scrape-targets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "markScraped", id: targetId }),
+    }).then(() => undefined),
+  notify: notifyDashboard,
+});
+const collectionRuns = KidItemCollectionRuns.create({
+  chrome,
+  sessions: collectionSessions,
+  collectionWindow,
+  cancelScrape: (runId) => collectionWindow.cancelRun(runId),
+  cancelWingRank: requestWingSalesRankCancellation,
+  cancelCatalog: (runId) =>
+    KidItemCoupangCatalogImport.cancel(
+      runId,
+      coupangCatalogImportDependencies(),
+    ),
+  loadScheduledTargets: loadScheduledScrapeTargets,
+  startScheduledScrape: (input) =>
+    handleScrapeTargets(input.targets, input.runId, input.startedAt, {
+      producer: "advertising.scrape_targets",
+      restartStrategy: "extension",
+      sessionStarted: input.sessionStarted,
+    }),
+  startWingRank: startWingSalesRankCheck,
+  restartCatalog: (runId) =>
+    KidItemCoupangCatalogImport.restart(
+      runId,
+      coupangCatalogImportDependencies(),
+    ),
+  startCatalog: (message) =>
+    KidItemCoupangCatalogImport.start(
+      message,
+      coupangCatalogImportDependencies(),
+    ),
+});
+const interactiveTabs = KidItemInteractiveTabs.create({ chrome });
+const INTERACTIVE_TAB_REASONS = KidItemInteractiveTabs.reasons;
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[KIDITEM] Extension installed");
@@ -178,11 +234,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === "reportBatchScrapeDone") {
     const tabId = sender?.tab?.id;
     if (tabId) {
-      setTimeout(() => {
-        try {
-          chrome.tabs.remove(tabId);
-        } catch {}
-      }, 2000);
+      chrome.storage.local.get(COLLECTION_WINDOW_STORAGE_KEY, (data) => {
+        const owned = data?.[COLLECTION_WINDOW_STORAGE_KEY];
+        if (owned?.tabId === tabId) return;
+        setTimeout(() => {
+          try {
+            chrome.tabs.remove(tabId);
+          } catch {}
+        }, 2000);
+      });
     }
     sendResponse({ ok: true });
     return;
@@ -213,14 +273,49 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 // ═══ 대시보드(외부 웹페이지)에서 메시지 수신 ═══
 chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
+  const respond = (operation) => {
+    Promise.resolve(operation)
+      .then((result) => sendResponse(result))
+      .catch((error) =>
+        sendResponse({
+          success: false,
+          error: error?.message || "Collection session request failed",
+        }),
+      );
+    return true;
+  };
+
+  if (msg.action === "listCollectionSessions")
+    return respond(collectionSessions.list());
+  if (msg.action === "getCollectionSession")
+    return respond(collectionSessions.get(msg.runId));
+  if (msg.action === "cancelCollectionSession")
+    return respond(collectionRuns.cancel(msg.runId));
+  if (msg.action === "openCollectionAttentionTab")
+    return respond(collectionSessions.openAttentionTab(msg.runId));
+  if (msg.action === "restartCollectionSession")
+    return respond(collectionRuns.restart(msg.runId));
+
   if (msg.action === "scrapeTargets") {
     // MV3 service worker가 긴 async chain 중 idle 종료되면 port가 닫혀 loop 중단됨.
     // 즉시 응답 + fire-and-forget. 진행률은 chrome.storage.local.kiditem_batch_scrape 에 기록.
-    const urls = msg.urls || [];
+    const producer = collectionRuns.resolveScrapeTargetProducer(msg.producer);
+    if (!producer) {
+      sendResponse({
+        success: false,
+        error: "Unsupported collection producer",
+      });
+      return false;
+    }
+    const urls = collectionRuns.validateScrapeTargets(msg.urls);
+    if (!urls) {
+      sendResponse({ success: false, error: "Invalid scrape target list" });
+      return false;
+    }
     const runId =
       typeof msg.runId === "string"
         ? msg.runId
-        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        : collectionRuns.createRunId();
     const startedAt = Date.now();
     chrome.storage.local.remove(BATCH_SCRAPE_CANCEL_KEY);
     chrome.storage.local.set({
@@ -234,7 +329,10 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         startedAt,
       },
     });
-    handleScrapeTargets(urls, runId, startedAt).catch((e) => {
+    handleScrapeTargets(urls, runId, startedAt, {
+      producer,
+      restartStrategy: "web",
+    }).catch((e) => {
       chrome.storage.local.set({
         [BATCH_SCRAPE_STATUS_KEY]: {
           runId,
@@ -300,13 +398,14 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         wingCatalogSalesRankSource: "wing-pre-matching-sales-28d",
         coupangCatalogSnapshot: true,
         coupangCatalogSnapshotSource: "wing-inventory-v1",
+        browserCollectionSessions: true,
       },
     });
     return;
   }
 
   if (msg.action === "startCoupangCatalogImport") {
-    KidItemCoupangCatalogImport.start(msg, coupangCatalogImportDependencies())
+    collectionRuns.startCatalog(msg)
       .then((result) => sendResponse(result))
       .catch((e) =>
         sendResponse({
@@ -330,6 +429,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   if (msg.action === "cancelCoupangCatalogImport") {
     KidItemCoupangCatalogImport.cancel(
       typeof msg.runId === "string" ? msg.runId : null,
+      coupangCatalogImportDependencies(),
     )
       .then((result) => sendResponse(result))
       .catch((e) => sendResponse({ success: false, error: e?.message || "쿠팡 상품 수집 중단 실패" }));
@@ -521,70 +621,37 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   // ── 상품 수정 자동화: Wing 탭 열고 content script에 작업 위임 ──
   if (msg.action === "openAndEditProduct") {
     const { productName } = msg;
-    const wingUrl = `https://wing.coupang.com/vendor-inventory/list?searchKeywordType=PRODUCT_NAME&searchKeywords=${encodeURIComponent(productName)}&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&locale=ko_KR&sortMethod=SORT_BY_ITEM_LEVEL_UNIT_SOLD&countPerPage=50&page=1`;
-
-    // pending 작업 저장 (content script가 페이지 로드 시 읽어서 실행)
-    chrome.storage.local.set(
-      { kiditem_pending_edit: { productName, ts: Date.now() } },
-      () => {
-        chrome.tabs.create({ url: wingUrl, active: true }, (tab) => {
-          if (!tab?.id) {
-            sendResponse({ success: false, error: "탭 생성 실패" });
-            return;
-          }
-
-          const tabId = tab.id;
-          let resolved = false;
-
-          const timeout = setTimeout(() => {
-            if (!resolved) {
-              resolved = true;
-              sendResponse({ success: false, error: "타임아웃 (30초)" });
-            }
-          }, 30000);
-
-          // 탭 로딩 완료 → content script에 메시지 전송
-          const onUpdated = (updatedTabId, changeInfo) => {
-            if (updatedTabId !== tabId || changeInfo.status !== "complete")
-              return;
-            chrome.tabs.onUpdated.removeListener(onUpdated);
-
-            // 페이지 초기화 대기 후 메시지 전송 (pending 방식으로 이미 처리되지만 직접 전송도 시도)
-            setTimeout(() => {
-              chrome.tabs.sendMessage(
-                tabId,
-                { action: "searchAndEdit", productName },
-                (response) => {
-                  if (resolved) return;
-                  resolved = true;
-                  clearTimeout(timeout);
-                  sendResponse(
-                    response || {
-                      success: false,
-                      error: "content script 미응답",
-                    },
-                  );
-                },
-              );
-            }, 3000);
-          };
-
-          chrome.tabs.onUpdated.addListener(onUpdated);
-        });
-      },
-    );
-    return true; // async
+    openAndEditProduct(productName)
+      .then((result) => sendResponse(result))
+      .catch((error) =>
+        sendResponse({
+          success: false,
+          error: error?.message || "상품 수정 탭 생성 실패",
+        }),
+      );
+    return true;
   }
 });
 
 function coupangCatalogImportDependencies() {
   return {
-    activateTab,
     authedFetch,
+    collectionSessions,
     notifyDashboard,
     sendTabMessage,
     updateTabAndWait,
   };
+}
+
+async function loadScheduledScrapeTargets() {
+  const response = await authedFetch(`/api/ads/scrape-targets`);
+  if (!response.ok) {
+    throw new Error(`수집 대상 조회 실패 (${response.status})`);
+  }
+  const json = await response.json();
+  const targets = collectionRuns.validateScrapeTargets(json?.targets || []);
+  if (!targets) throw new Error("현재 수집 대상이 없습니다");
+  return targets;
 }
 
 async function searchWingCatalogProducts(message) {
@@ -593,10 +660,21 @@ async function searchWingCatalogProducts(message) {
   if (!keyword) return { success: false, error: "검색 키워드를 입력하세요" };
 
   const maxPages = clampNumber(message.maxPages, 1, WING_CATALOG_MAX_PAGES, 2);
+  const ownsSession = typeof message.collectionRunId !== "string";
+  const runId = ownsSession
+    ? await collectionRuns.beginWebCollection(
+        "advertising.wing_rank",
+        { keywordCount: 1, maxPages, startedAt: Date.now() },
+        message.runId,
+      )
+    : message.collectionRunId;
   const tab = await getOrCreateWingCatalogTab();
   const tabId = tab?.id;
-  if (!tabId)
+  if (!tabId) {
+    if (ownsSession) await collectionSessions.fail(runId);
     return { success: false, error: "Wing 카탈로그 검색 탭을 열 수 없습니다" };
+  }
+  await collectionRuns.attachTab(runId, tab);
 
   const loaded = await waitForTabComplete(tabId, {
     expectedUrl: WING_CATALOG_FORM_URL,
@@ -604,17 +682,17 @@ async function searchWingCatalogProducts(message) {
   }).catch((error) => ({
     error: error?.message || "Wing 상품등록 화면 로딩 실패",
   }));
-  if (loaded?.error) return { success: false, error: loaded.error, tabId };
+  if (loaded?.error) {
+    if (ownsSession) await collectionSessions.fail(runId);
+    return { success: false, error: loaded.error, tabId, runId };
+  }
   if (!isWingCatalogFormUrl(loaded?.url || "")) {
-    activateTab(tabId);
-    return {
-      success: false,
-      pendingLogin: true,
-      opened: true,
+    return collectionRuns.requireAttention(
+      runId,
       tabId,
-      error:
-        "쿠팡 Wing 로그인 필요 — 열린 Wing 상품등록 탭에서 로그인 후 다시 실행하세요.",
-    };
+      "marketplace_login",
+      "쿠팡 로그인이 필요합니다. 알림에서 확인 탭을 열어 로그인해주세요.",
+    );
   }
 
   const startedAt = Date.now();
@@ -634,7 +712,7 @@ async function searchWingCatalogProducts(message) {
       searchOrder: "DEFAULT",
       sortType: "DEFAULT",
     };
-    const response = await executeWingCatalogSearch(tabId, payload);
+    const response = await executeWingCatalogSearchWithRetry(tabId, payload);
 
     if (
       !response?.ok ||
@@ -645,16 +723,16 @@ async function searchWingCatalogProducts(message) {
           ? "Wing 요청 제한에 걸렸습니다. 잠시 후 다시 시도하세요."
           : "Wing이 JSON 대신 다른 응답을 반환했습니다.";
       if (rows.length === 0) {
-        activateTab(tabId);
-        return {
-          success: false,
-          opened: true,
+        const retryExhausted =
+          response?.status === 429 || response?.status >= 500;
+        return collectionRuns.requireAttention(
+          runId,
           tabId,
-          pendingLogin: response?.status === 401 || response?.status === 403,
-          error: messageText,
-          status: response?.status,
-          contentType: response?.contentType,
-        };
+          retryExhausted ? "rate_limited" : "marketplace_login",
+          retryExhausted
+            ? messageText
+            : "쿠팡 로그인이 필요합니다. 알림에서 확인 탭을 열어 로그인해주세요.",
+        );
       }
       warnings.push(`${searchPage}페이지: ${messageText}`);
       stopReason = "non_json_response";
@@ -700,7 +778,7 @@ async function searchWingCatalogProducts(message) {
     upstreamTotal != null && upstreamTotal >= rows.length
       ? upstreamTotal
       : null;
-  return {
+  const result = {
     success: true,
     opened: true,
     tabId,
@@ -718,6 +796,8 @@ async function searchWingCatalogProducts(message) {
     startedAt,
     endedAt: Date.now(),
   };
+  if (ownsSession) await collectionSessions.succeed(runId);
+  return { ...result, runId };
 }
 
 async function searchCoupangKeywordSuggestions(message) {
@@ -726,9 +806,18 @@ async function searchCoupangKeywordSuggestions(message) {
   if (!keyword) return { success: false, error: "검색 키워드를 입력하세요" };
 
   const maxResults = clampNumber(message.maxResults, 1, 50, 20);
+  const runId = await collectionRuns.beginWebCollection(
+    "advertising.keyword_rank",
+    { keywordCount: 1, maxResults, startedAt: Date.now() },
+    message.runId,
+  );
   const tab = await getOrCreateCoupangSearchTab(keyword);
   const tabId = tab?.id;
-  if (!tabId) return { success: false, error: "쿠팡 검색 탭을 열 수 없습니다" };
+  if (!tabId) {
+    await collectionSessions.fail(runId);
+    return { success: false, error: "쿠팡 검색 탭을 열 수 없습니다", runId };
+  }
+  await collectionRuns.attachTab(runId, tab);
 
   const loaded = await waitForTabComplete(tabId, {
     expectedUrl: buildCoupangSearchUrl(keyword),
@@ -736,15 +825,17 @@ async function searchCoupangKeywordSuggestions(message) {
   }).catch((error) => ({
     error: error?.message || "쿠팡 검색 화면 로딩 실패",
   }));
-  if (loaded?.error) return { success: false, error: loaded.error, tabId };
+  if (loaded?.error) {
+    await collectionSessions.fail(runId);
+    return { success: false, error: loaded.error, tabId, runId };
+  }
   if (!isCoupangSearchUrl(loaded?.url || "")) {
-    activateTab(tabId);
-    return {
-      success: false,
-      opened: true,
+    return collectionRuns.requireAttention(
+      runId,
       tabId,
-      error: "쿠팡 검색 페이지를 열 수 없습니다.",
-    };
+      "marketplace_login",
+      "쿠팡 로그인이 필요합니다. 알림에서 확인 탭을 열어 로그인해주세요.",
+    );
   }
 
   await sleep(COUPANG_KEYWORD_SEARCH_DELAY_MS);
@@ -754,18 +845,15 @@ async function searchCoupangKeywordSuggestions(message) {
     maxResults,
   );
   if (!response?.success) {
-    activateTab(tabId);
-    return {
-      success: false,
-      opened: true,
+    return collectionRuns.requireAttention(
+      runId,
       tabId,
-      error: response?.error || "쿠팡 인기 키워드 수집 실패",
-      status: response?.status,
-      contentType: response?.contentType,
-    };
+      response?.status === 429 ? "rate_limited" : "marketplace_login",
+      response?.error || "쿠팡 인기 키워드 수집을 계속하려면 확인이 필요합니다.",
+    );
   }
 
-  return {
+  const result = {
     success: true,
     opened: true,
     tabId,
@@ -780,19 +868,26 @@ async function searchCoupangKeywordSuggestions(message) {
     startedAt: Date.now(),
     endedAt: Date.now(),
   };
+  await collectionSessions.succeed(runId);
+  return { ...result, runId };
 }
 
 async function getOrCreateCoupangSearchTab(keyword) {
   const url = buildCoupangSearchUrl(keyword);
   const existing = await queryTabs({ url: `${COUPANG_SEARCH_URL}*` });
-  const activeTab =
-    existing.find((tab) => tab?.id && tab.status === "complete") ||
-    existing.find((tab) => tab?.id);
-  if (activeTab?.id) {
-    return updateTabAndWait(activeTab.id, url, {
-      active: false,
-      timeoutMs: 60000,
-    }).catch(() => activeTab);
+  const reusableTab =
+    existing.find(
+      (tab) => tab?.id && tab.active !== true && tab.status === "complete",
+    ) || existing.find((tab) => tab?.id && tab.active !== true);
+  if (reusableTab?.id) {
+    try {
+      return await updateTabAndWait(reusableTab.id, url, {
+        active: false,
+        timeoutMs: 60000,
+      });
+    } catch {
+      // The user may have activated it after queryTabs; create a new inactive tab.
+    }
   }
 
   const tab = await createTab({ url, active: false });
@@ -1007,9 +1102,9 @@ async function executeCoupangKeywordSuggestionSearch(
 
 // ═══ Wing 상품분석 최근 28일 판매량순 × 자사 카탈로그 전체 ═══
 
-async function startWingSalesRankCheck() {
+async function startWingSalesRankCheck(options = {}) {
   const now = Date.now();
-  let runId = `${now}-${Math.random().toString(36).slice(2)}`;
+  let runId = options.runId || collectionRuns.createRunId();
   let startedAt = now;
   const existingData = await getStorage(RANK_CHECK_STATUS_KEY);
   const existing = existingData[RANK_CHECK_STATUS_KEY];
@@ -1017,7 +1112,11 @@ async function startWingSalesRankCheck() {
     existing &&
     (existing.status === "running" || existing.status === "starting");
   const lastHeartbeatAt = existing?.heartbeatAt || existing?.startedAt || 0;
-  if (existingIsActive && now - lastHeartbeatAt < WING_RANK_STALE_AFTER_MS) {
+  if (
+    !options.forceRestart &&
+    existingIsActive &&
+    now - lastHeartbeatAt < WING_RANK_STALE_AFTER_MS
+  ) {
     return {
       success: false,
       started: false,
@@ -1025,7 +1124,11 @@ async function startWingSalesRankCheck() {
       runId: existing.runId || null,
     };
   }
-  if (existingIsActive && (await isWingSalesRankCancelled(existing.runId))) {
+  if (
+    !options.forceRestart &&
+    existingIsActive &&
+    (await isWingSalesRankCancelled(existing.runId))
+  ) {
     await chrome.storage.local.remove(RANK_CHECK_CANCEL_KEY);
     await chrome.storage.local.set({
       [RANK_CHECK_STATUS_KEY]: {
@@ -1044,9 +1147,22 @@ async function startWingSalesRankCheck() {
     };
   }
   await chrome.storage.local.remove(RANK_CHECK_CANCEL_KEY);
-  if (existingIsActive) {
+  if (existingIsActive && !options.forceRestart) {
     runId = existing.runId || runId;
     startedAt = existing.startedAt || startedAt;
+  }
+
+  if (!options.sessionStarted) {
+    await collectionSessions.start({
+      runId,
+      producer: "advertising.wing_rank",
+      classification: "background_preferred",
+      restartStrategy: options.restartStrategy || "web",
+      inputIdentity: {
+        startedAt,
+        scheduled: options.restartStrategy === "extension",
+      },
+    });
   }
 
   let targetResponse;
@@ -1069,6 +1185,7 @@ async function startWingSalesRankCheck() {
         endedAt: Date.now(),
       },
     });
+    await collectionSessions.fail(runId);
     return { success: false, started: false, error: errorMessage, runId };
   }
 
@@ -1097,6 +1214,7 @@ async function startWingSalesRankCheck() {
         endedAt: Date.now(),
       },
     });
+    await collectionSessions.succeed(runId);
     return { success: true, started: false, total: 0, productTotal, runId };
   }
 
@@ -1115,6 +1233,13 @@ async function startWingSalesRankCheck() {
       resumed,
     },
   });
+  await collectionSessions.progress(runId, {
+    current: 0,
+    total: targets.length,
+    completed: 0,
+    failed: 0,
+    label: null,
+  });
   runWingSalesRankBatch(targets, productTotal, runId, startedAt).catch(
     (error) => {
       chrome.storage.local.set({
@@ -1129,6 +1254,7 @@ async function startWingSalesRankCheck() {
           endedAt: Date.now(),
         },
       });
+      collectionSessions.fail(runId).catch(() => {});
     },
   );
   return {
@@ -1148,6 +1274,7 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
   let failed = 0;
   let rankedProducts = 0;
   let cancelled = false;
+  let attentionRequired = false;
   const failures = [];
   const keepAlive = setInterval(() => {
     chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
@@ -1183,12 +1310,27 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
           heartbeatAt: Date.now(),
         },
       });
+      await collectionSessions.progress(runId, {
+        current: index + 1,
+        total,
+        completed,
+        failed,
+        label: keyword,
+      });
 
       let completedTarget = false;
       let lastError = null;
       for (let attempt = 1; attempt <= 2; attempt++) {
         try {
-          const search = await searchWingCatalogProducts({ keyword, maxPages });
+          const search = await searchWingCatalogProducts({
+            keyword,
+            maxPages,
+            collectionRunId: runId,
+          });
+          if (search?.attentionRequired) {
+            attentionRequired = true;
+            break;
+          }
           if (!search?.success)
             throw new Error(search?.error || "Wing 상품분석 조회 실패");
           const sortedItems = sortWingCatalogRowsBySales(search.rows || []);
@@ -1223,6 +1365,7 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
           if (attempt < 2) await sleep(randomDelayMs(5000, 9000));
         }
       }
+      if (attentionRequired) break;
       if (!completedTarget) {
         failed++;
         failures.push({
@@ -1272,16 +1415,22 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
       rankedProducts,
       failures,
       current: null,
-      status: cancelled ? "cancelled" : "done",
+      status: cancelled
+        ? "cancelled"
+        : attentionRequired
+          ? "attention_required"
+          : "done",
       startedAt,
       heartbeatAt: Date.now(),
       endedAt: Date.now(),
       cancelled,
     },
   });
+  if (cancelled) await collectionSessions.cancel(runId);
+  else if (!attentionRequired) await collectionSessions.succeed(runId);
   notifyDashboard();
   return {
-    success: !cancelled,
+    success: !cancelled && !attentionRequired,
     completed,
     failed,
     total,
@@ -1289,10 +1438,12 @@ async function runWingSalesRankBatch(targets, productTotal, runId, startedAt) {
     rankedProducts,
     runId,
     cancelled,
+    attentionRequired,
   };
 }
 
 async function isWingSalesRankCancelled(runId) {
+  if (await collectionRuns.isCancelled(runId)) return true;
   const data = await getStorage(RANK_CHECK_CANCEL_KEY);
   const cancel = data[RANK_CHECK_CANCEL_KEY];
   return !!cancel?.cancelled && (!cancel.runId || cancel.runId === runId);
@@ -1378,7 +1529,7 @@ async function runScheduledWingSalesRankCheck() {
   const token = await getAuthToken();
   if (!token) return;
   try {
-    await startWingSalesRankCheck();
+    await startWingSalesRankCheck({ restartStrategy: "extension" });
   } catch (error) {
     console.error(
       "[KIDITEM] Wing 판매순위 자동 확인 실패:",
@@ -1397,7 +1548,11 @@ async function resumeInterruptedWingSalesRankCheck() {
   const lastHeartbeatAt = status.heartbeatAt || status.startedAt || 0;
   if (Date.now() - lastHeartbeatAt < WING_RANK_STALE_AFTER_MS) return;
   try {
-    await startWingSalesRankCheck();
+    await startWingSalesRankCheck({
+      forceRestart: true,
+      runId: status.runId,
+      restartStrategy: "extension",
+    });
   } catch (error) {
     console.error(
       "[KIDITEM] 중단된 Wing 판매순위 재개 실패:",
@@ -1415,12 +1570,27 @@ async function checkCoupangKeywordRank(message) {
     typeof message.keyword === "string" ? message.keyword.trim() : "";
   if (!keyword) return { success: false, error: "검색 키워드를 입력하세요" };
   const maxPages = clampNumber(message.maxPages, 1, COUPANG_RANK_MAX_PAGES, 2);
+  const runId = await collectionRuns.beginWebCollection(
+    "advertising.keyword_rank",
+    { keywordCount: 1, maxPages, startedAt: Date.now() },
+    message.runId,
+  );
 
-  const capture = await captureCoupangKeywordSerp(keyword, maxPages);
+  const capture = await captureCoupangKeywordSerp(keyword, maxPages, { runId });
   if (!capture.success) {
-    if (capture.tabId) activateTab(capture.tabId);
+    if (capture.tabId) {
+      return collectionRuns.requireAttention(
+        runId,
+        capture.tabId,
+        capture.wall === "captcha" ? "captcha" : "marketplace_login",
+        capture.error ||
+          "쿠팡 로그인이 필요합니다. 알림에서 확인 탭을 열어주세요.",
+      );
+    }
+    await collectionSessions.fail(runId);
     return {
       success: false,
+      runId,
       keyword,
       error: capture.error || "쿠팡 키워드 순위 수집 실패",
       wall: capture.wall || null,
@@ -1441,8 +1611,10 @@ async function checkCoupangKeywordRank(message) {
     }
   }
 
+  await collectionSessions.succeed(runId);
   return {
     success: true,
+    runId,
     keyword,
     pagesScanned: capture.pagesScanned,
     items: capture.items,
@@ -1456,9 +1628,19 @@ async function checkCoupangKeywordRank(message) {
 
 // 등록된 트래커 전체를 순차 확인. 즉시 응답 + fire-and-forget (scrapeTargets 패턴).
 // 진행률은 chrome.storage.local[KEYWORD_RANK_STATUS_KEY] 에 기록(Wing 판매순위 배치와 별도 키).
-async function startCoupangKeywordRankCheck() {
-  const runId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+async function startCoupangKeywordRankCheck(options = {}) {
+  const runId = options.runId || collectionRuns.createRunId();
   const startedAt = Date.now();
+
+  if (!options.sessionStarted) {
+    await collectionSessions.start({
+      runId,
+      producer: "advertising.keyword_rank",
+      classification: "background_preferred",
+      restartStrategy: "web",
+      inputIdentity: { startedAt, keywordCount: 0 },
+    });
+  }
 
   const existingData = await getStorage(KEYWORD_RANK_STATUS_KEY);
   const existing = existingData[KEYWORD_RANK_STATUS_KEY];
@@ -1501,6 +1683,7 @@ async function startCoupangKeywordRankCheck() {
         endedAt: Date.now(),
       },
     });
+    await collectionSessions.fail(runId);
     return { success: false, started: false, error: errorMessage, runId };
   }
 
@@ -1523,6 +1706,7 @@ async function startCoupangKeywordRankCheck() {
         endedAt: Date.now(),
       },
     });
+    await collectionSessions.succeed(runId);
     return { success: true, started: false, total: 0, runId };
   }
 
@@ -1537,6 +1721,13 @@ async function startCoupangKeywordRankCheck() {
       startedAt,
     },
   });
+  await collectionSessions.progress(runId, {
+    current: 0,
+    total: enabled.length,
+    completed: 0,
+    failed: 0,
+    label: null,
+  });
 
   runCoupangKeywordRankBatch(enabled, runId, startedAt).catch((e) => {
     chrome.storage.local.set({
@@ -1549,6 +1740,7 @@ async function startCoupangKeywordRankCheck() {
         endedAt: Date.now(),
       },
     });
+    collectionSessions.fail(runId).catch(() => {});
   });
 
   return { success: true, started: true, total: enabled.length, runId };
@@ -1565,7 +1757,10 @@ async function startCoupangCompetitorSellerCatalogCollection(message) {
     };
   }
 
-  const runId = `seller-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const runId =
+    typeof message?.runId === "string"
+      ? message.runId
+      : collectionRuns.createRunId();
   const startedAt = Date.now();
   const existingData = await getStorage(COMPETITOR_SELLER_CATALOG_STATUS_KEY);
   const existing = existingData[COMPETITOR_SELLER_CATALOG_STATUS_KEY];
@@ -1593,6 +1788,14 @@ async function startCoupangCompetitorSellerCatalogCollection(message) {
       error: "서버의 추적 판매자 목록에서 해당 판매자샵을 찾지 못했습니다",
     };
   }
+
+  await collectionSessions.start({
+    runId,
+    producer: "advertising.competitor_catalog",
+    classification: "background_preferred",
+    restartStrategy: "web",
+    inputIdentity: { sellerCount: 1, startedAt },
+  });
 
   await chrome.storage.local.set({
     [COMPETITOR_SELLER_CATALOG_STATUS_KEY]: {
@@ -1625,6 +1828,7 @@ async function startCoupangCompetitorSellerCatalogCollection(message) {
           endedAt: Date.now(),
         },
       });
+      collectionSessions.fail(runId).catch(() => {});
     },
   );
 
@@ -1644,6 +1848,7 @@ async function runCoupangCompetitorSellerCatalogCollection(
   startedAt,
 ) {
   let tabId = null;
+  let attentionRequired = false;
   try {
     const tab = await createTab({
       url: target.sellerStoreUrl,
@@ -1651,6 +1856,14 @@ async function runCoupangCompetitorSellerCatalogCollection(
     });
     tabId = tab?.id || null;
     if (!tabId) throw new Error("쿠팡 판매자샵 탭을 열 수 없습니다");
+    await collectionRuns.attachTab(runId, tab);
+    await collectionSessions.progress(runId, {
+      current: 1,
+      total: 1,
+      completed: 0,
+      failed: 0,
+      label: target.sellerName || null,
+    });
 
     await chrome.storage.local.set({
       [COMPETITOR_SELLER_CATALOG_STATUS_KEY]: {
@@ -1669,9 +1882,14 @@ async function runCoupangCompetitorSellerCatalogCollection(
     const catalogs = await collectCoupangSellerCatalogs(tabId, [target], 1);
     const catalog = catalogs[0];
     if (!catalog) {
-      throw new Error(
-        "판매자샵에서 상품을 찾지 못했습니다. 쿠팡 로그인·보안문자 또는 판매자샵 화면을 확인해 주세요.",
+      attentionRequired = true;
+      await collectionRuns.requireAttention(
+        runId,
+        tabId,
+        "marketplace_login",
+        "판매자샵 수집을 계속하려면 쿠팡 로그인 또는 보안문자 확인이 필요합니다.",
       );
+      return;
     }
     const sync = await postCompetitorSellerCatalogSync([catalog]);
     if (!sync?.success) {
@@ -1693,9 +1911,13 @@ async function runCoupangCompetitorSellerCatalogCollection(
         endedAt: Date.now(),
       },
     });
+    await collectionSessions.succeed(runId);
     notifyDashboard();
+  } catch (error) {
+    await collectionSessions.fail(runId);
+    throw error;
   } finally {
-    if (tabId) await removeTab(tabId).catch(() => {});
+    if (tabId && !attentionRequired) await removeTab(tabId).catch(() => {});
   }
 }
 
@@ -1707,6 +1929,7 @@ async function runCoupangKeywordRankBatch(trackers, runId, startedAt) {
   let trackedSellerCount = 0;
   const failures = [];
   let tabId = null;
+  let attentionRequired = false;
 
   const keepAlive = setInterval(() => {
     chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
@@ -1714,6 +1937,7 @@ async function runCoupangKeywordRankBatch(trackers, runId, startedAt) {
 
   try {
     for (let i = 0; i < trackers.length; i++) {
+      if (await collectionRuns.isCancelled(runId)) break;
       const tracker = trackers[i];
       const keyword = String(tracker.keyword || "").trim();
       const maxPages = clampNumber(
@@ -1735,12 +1959,30 @@ async function runCoupangKeywordRankBatch(trackers, runId, startedAt) {
           startedAt,
         },
       });
+      await collectionSessions.progress(runId, {
+        current: i + 1,
+        total,
+        completed,
+        failed,
+        label: keyword,
+      });
 
       try {
         const capture = await captureCoupangKeywordSerp(keyword, maxPages, {
           tabId,
+          runId,
         });
         if (capture.tabId) tabId = capture.tabId;
+        if (!capture.success && capture.tabId) {
+          attentionRequired = true;
+          await collectionRuns.requireAttention(
+            runId,
+            capture.tabId,
+            capture.wall === "captcha" ? "captcha" : "marketplace_login",
+            capture.error || "쿠팡 검색 화면 확인이 필요합니다.",
+          );
+          break;
+        }
         if (!capture.success)
           throw new Error(capture.error || "쿠팡 키워드 순위 수집 실패");
         const sync = await postKeywordRankSync(capture);
@@ -1756,10 +1998,12 @@ async function runCoupangKeywordRankBatch(trackers, runId, startedAt) {
         );
       }
 
+      if (attentionRequired) break;
+
       if (i < trackers.length - 1) await sleep(randomDelayMs(4000, 8000));
     }
 
-    if (tabId) {
+    if (tabId && !attentionRequired) {
       // 이미 식별된 지정/기존 판매자는 상품 상세 발굴보다 먼저 수집한다.
       // 상품 상세 대상이 많아 MV3 서비스워커가 중간 종료되더라도, 사용자가
       // 명시적으로 추적한 판매자샵의 최신 상품은 이번 실행 초반에 저장된다.
@@ -1874,7 +2118,7 @@ async function runCoupangKeywordRankBatch(trackers, runId, startedAt) {
     }
   } finally {
     clearInterval(keepAlive);
-    if (tabId) await removeTab(tabId).catch(() => {});
+    if (tabId && !attentionRequired) await removeTab(tabId).catch(() => {});
   }
 
   await chrome.storage.local.set({
@@ -1887,24 +2131,26 @@ async function runCoupangKeywordRankBatch(trackers, runId, startedAt) {
       resolvedSellerProductCount,
       trackedSellerCount,
       current: null,
-      status: "done",
+      status: attentionRequired ? "attention_required" : "done",
       startedAt,
       endedAt: Date.now(),
     },
   });
+  if (!attentionRequired) await collectionSessions.succeed(runId);
   notifyDashboard();
 
   console.log(
     `[KIDITEM] 키워드 순위 일괄 확인 완료: ${completed}/${total} 성공, ${failed} 실패`,
   );
   return {
-    success: true,
+    success: !attentionRequired,
     completed,
     failed,
     total,
     resolvedSellerProductCount,
     trackedSellerCount,
     runId,
+    attentionRequired,
   };
 }
 
@@ -1939,6 +2185,7 @@ async function captureCoupangKeywordSerp(keyword, maxPages, options = {}) {
       tabId = tab?.id || null;
       if (!tabId)
         return { success: false, error: "쿠팡 검색 탭을 열 수 없습니다" };
+      if (options.runId) await collectionRuns.attachTab(options.runId, tab);
     } else {
       const loaded = await updateTabAndWait(tabId, pageUrl, {
         active: false,
@@ -2400,13 +2647,16 @@ async function executeCoupangSellerCatalogExtraction(tabId) {
 
 async function getOrCreateCoupangRankSearchTab(url) {
   const existing = await queryTabs({ url: `${COUPANG_SEARCH_URL}*` });
-  const activeTab =
-    existing.find((tab) => tab?.id && tab.status === "complete") ||
-    existing.find((tab) => tab?.id);
-  if (activeTab?.id) {
-    return updateTabAndWait(activeTab.id, url, { active: false }).catch(
-      () => activeTab,
-    );
+  const reusableTab =
+    existing.find(
+      (tab) => tab?.id && tab.active !== true && tab.status === "complete",
+    ) || existing.find((tab) => tab?.id && tab.active !== true);
+  if (reusableTab?.id) {
+    try {
+      return await updateTabAndWait(reusableTab.id, url, { active: false });
+    } catch {
+      // The user may have activated it after queryTabs; create a new inactive tab.
+    }
   }
 
   const tab = await createTab({ url, active: false });
@@ -2739,28 +2989,35 @@ function randomDelayMs(minMs, maxMs) {
 
 async function getOrCreateWingCatalogTab() {
   const existing = await queryTabs({ url: `${WING_CATALOG_FORM_URL}*` });
-  const activeTab =
-    existing.find((tab) => tab?.id && tab.status === "complete") ||
-    existing.find((tab) => tab?.id);
-  if (activeTab?.id) return activeTab;
+  const reusableTab =
+    existing.find(
+      (tab) => tab?.id && tab.active !== true && tab.status === "complete",
+    ) || existing.find((tab) => tab?.id && tab.active !== true);
+  if (reusableTab?.id) return reusableTab;
 
   const wingTabs = await queryTabs({ url: "https://wing.coupang.com/*" });
   const reusable = wingTabs.find(
     (tab) =>
       tab?.id &&
+      tab.active !== true &&
       tab.url &&
       tab.url.includes("/tenants/seller-web/vendor-inventory/formV2"),
   );
   if (reusable?.id) return reusable;
 
-  const syncWindow = await createWindow({
-    url: WING_CATALOG_FORM_URL,
-    focused: false,
-    type: "normal",
-  });
-  return (
-    getFirstWindowTab(syncWindow) || (await getFirstTabInWindow(syncWindow.id))
-  );
+  return createTab({ url: WING_CATALOG_FORM_URL, active: false });
+}
+
+async function executeWingCatalogSearchWithRetry(tabId, payload) {
+  let response = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    response = await executeWingCatalogSearch(tabId, payload);
+    const retryable =
+      response?.status === 429 || response?.status >= 500;
+    if (!retryable || attempt === 2) return response;
+    await sleep(1000 * attempt);
+  }
+  return response;
 }
 
 async function executeWingCatalogSearch(tabId, payload) {
@@ -2891,6 +3148,21 @@ function isWingCatalogFormUrl(url) {
   }
 }
 
+async function openAndEditProduct(value) {
+  const productName = typeof value === "string" ? value.trim() : "";
+  if (!productName) return { success: false, error: "상품명이 없습니다" };
+  await chrome.storage.local.set({
+    kiditem_pending_edit: { productName, ts: Date.now() },
+  });
+  const tab = await interactiveTabs.createTab({
+    url: buildWingProductSearchUrl(productName),
+    reason: INTERACTIVE_TAB_REASONS.PRODUCT_EDIT,
+  });
+  await waitForTabComplete(tab.id, { timeoutMs: 30000 });
+  await sleep(3000);
+  return sendTabMessage(tab.id, { action: "searchAndEdit", productName });
+}
+
 async function registerWingThumbnail(message) {
   const productName =
     typeof message.productName === "string" ? message.productName.trim() : "";
@@ -2904,9 +3176,9 @@ async function registerWingThumbnail(message) {
     return { success: false, error: "대표이미지 데이터가 없습니다" };
   }
 
-  const tab = await createTab({
+  const tab = await interactiveTabs.createTab({
     url: buildWingProductSearchUrl(productName),
-    active: true,
+    reason: INTERACTIVE_TAB_REASONS.THUMBNAIL_REGISTRATION,
   });
   if (!tab?.id) return { success: false, error: "Wing 탭을 열 수 없습니다" };
   const tabId = tab.id;
@@ -2918,7 +3190,10 @@ async function registerWingThumbnail(message) {
   );
   if (loaded?.error) return { success: false, error: loaded.error, tabId };
   if (!isWingInventoryUrl(loaded?.url || "")) {
-    activateTab(tabId);
+    await interactiveTabs.focusTab(
+      tabId,
+      INTERACTIVE_TAB_REASONS.THUMBNAIL_REGISTRATION,
+    );
     return {
       success: false,
       pendingLogin: true,
@@ -2935,7 +3210,10 @@ async function registerWingThumbnail(message) {
     productName,
   });
   if (!openResult?.success) {
-    activateTab(tabId);
+    await interactiveTabs.focusTab(
+      tabId,
+      INTERACTIVE_TAB_REASONS.THUMBNAIL_REGISTRATION,
+    );
     return {
       success: false,
       opened: true,
@@ -2956,7 +3234,10 @@ async function registerWingThumbnail(message) {
     image,
   });
   if (!uploadResult?.success) {
-    activateTab(tabId);
+    await interactiveTabs.focusTab(
+      tabId,
+      INTERACTIVE_TAB_REASONS.THUMBNAIL_REGISTRATION,
+    );
     return {
       success: false,
       opened: true,
@@ -2965,7 +3246,10 @@ async function registerWingThumbnail(message) {
     };
   }
 
-  activateTab(tabId);
+  await interactiveTabs.focusTab(
+    tabId,
+    INTERACTIVE_TAB_REASONS.THUMBNAIL_REGISTRATION,
+  );
   return {
     success: true,
     opened: true,
@@ -2995,14 +3279,12 @@ function isCoupangSearchUrl(url) {
   }
 }
 
-function openAndExecuteAdActions(url = AD_ACTION_URL) {
+async function openAndExecuteAdActions(url = AD_ACTION_URL) {
+  const tab = await interactiveTabs.createTab({
+    url,
+    reason: INTERACTIVE_TAB_REASONS.AD_MUTATION,
+  });
   return new Promise((resolve) => {
-    chrome.tabs.create({ url, active: true }, (tab) => {
-      if (chrome.runtime.lastError || !tab?.id) {
-        resolve({ success: false, error: "쿠팡 광고센터 탭 생성 실패" });
-        return;
-      }
-
       const tabId = tab.id;
       let sent = false;
       const cleanup = () => chrome.tabs.onUpdated.removeListener(onUpdated);
@@ -3045,7 +3327,6 @@ function openAndExecuteAdActions(url = AD_ACTION_URL) {
       }
 
       chrome.tabs.onUpdated.addListener(onUpdated);
-    });
   });
 }
 
@@ -3098,18 +3379,6 @@ function queryTabs(queryInfo) {
   });
 }
 
-function createWindow(createProperties) {
-  return new Promise((resolve, reject) => {
-    chrome.windows.create(createProperties, (syncWindow) => {
-      if (chrome.runtime.lastError || !syncWindow?.id) {
-        reject(new Error(chrome.runtime.lastError?.message || "Wing 창 생성 실패"));
-        return;
-      }
-      resolve(syncWindow);
-    });
-  });
-}
-
 function createTab(createProperties) {
   return new Promise((resolve, reject) => {
     chrome.tabs.create(createProperties, (tab) => {
@@ -3122,18 +3391,11 @@ function createTab(createProperties) {
   });
 }
 
-function getFirstWindowTab(syncWindow) {
-  const tabs = Array.isArray(syncWindow?.tabs) ? syncWindow.tabs : [];
-  return tabs.find((tab) => tab?.id) || null;
-}
-
-async function getFirstTabInWindow(windowId) {
-  const tabs = await queryTabs({ windowId });
-  return tabs.find((tab) => tab?.id) || null;
-}
-
 async function updateTabAndWait(tabId, url, options = {}) {
   const before = await getTab(tabId).catch(() => null);
+  if (before?.active && options.allowActive !== true) {
+    throw new Error("active user tab is collection-protected");
+  }
   return new Promise((resolve, reject) => {
     chrome.tabs.update(tabId, { url, active: !!options.active }, () => {
       if (chrome.runtime.lastError) {
@@ -3148,17 +3410,6 @@ async function updateTabAndWait(tabId, url, options = {}) {
         .catch(reject);
     });
   });
-}
-
-function activateTab(tabId) {
-  try {
-    chrome.tabs.update(tabId, { active: true }, (tab) => {
-      if (chrome.runtime.lastError || !tab?.windowId) return;
-      chrome.windows.update(tab.windowId, { focused: true }, () => {});
-    });
-  } catch {
-    /* noop */
-  }
 }
 
 function waitForTabComplete(tabId, options = {}) {
@@ -3257,156 +3508,38 @@ function sleep(ms) {
 }
 
 /**
- * 등록된 URL 을 **순차적으로** 처리. 각 URL 에 대해:
- *  1) 탭 오픈 (active) → 2) 로드 대기 → 3) manualSync 전송 → 4) 결과 수신 → 5) 탭 닫기 → 6) 다음 URL
+ * 등록된 URL 을 **순차적으로** 처리. 전용 비활성 창의 단일 탭을 URL 별로
+ * 탐색하고 manualSync 를 실행한다. 성공/실패/취소 같은 terminal 상태에서만 창을 닫는다.
  *
  * 과거 병렬(3초 간격) 구현은 이전 탭이 백그라운드화되면서 Chrome throttle 로
  * 달력 setDateRange 타임아웃 → 첫 탭만 성공 버그가 있었다. 순차로 바꿔 이를 제거.
  */
 async function handleScrapeTargets(
   urls,
-  runId = `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  runId = collectionRuns.createRunId(),
   startedAt = Date.now(),
+  options = {},
 ) {
   if (!urls || urls.length === 0) {
     return { success: false, error: "수집 대상 URL이 없습니다" };
   }
-
-  await chrome.storage.local.remove(BATCH_SCRAPE_CANCEL_KEY);
-
-  const total = urls.length;
-  console.log(`[KIDITEM] 순차 배치 스크랩 시작 — ${total}개 URL`);
-
-  let completed = 0;
-  let failed = 0;
-  let cancelled = false;
-
-  await chrome.storage.local.set({
-    [BATCH_SCRAPE_STATUS_KEY]: {
+  const producer = collectionRuns.resolveScrapeTargetProducer(options.producer);
+  if (!producer) throw new Error("Unsupported collection producer");
+  if (!options.sessionStarted) {
+    await collectionSessions.start({
       runId,
-      total,
-      completed,
-      failed,
-      current: 0,
-      status: "running",
-      startedAt,
-    },
-  });
-
-  for (let i = 0; i < urls.length; i++) {
-    if (await isBatchScrapeCancelled(runId)) {
-      cancelled = true;
-      break;
-    }
-
-    const item = urls[i];
-    console.log(`[KIDITEM] 순차 스크랩 ${i + 1}/${total}: ${item.url}`);
-
-    await chrome.storage.local.set({
-      [BATCH_SCRAPE_STATUS_KEY]: {
-        runId,
-        total,
-        completed,
-        failed,
-        current: i + 1,
-        currentUrl: item.url,
-        currentLabel: item.label,
-        currentTabId: null,
-        status: "running",
-        startedAt,
-      },
+      producer,
+      classification: "background_preferred",
+      restartStrategy: options.restartStrategy || "web",
+      inputIdentity: { targetCount: urls.length, startedAt },
     });
-
-    try {
-      const result = await scrapeUrl(item.url, item.id || null, item.label, {
-        onTabCreated: async (tabId) => {
-          await chrome.storage.local.set({
-            [BATCH_SCRAPE_STATUS_KEY]: {
-              runId,
-              total,
-              completed,
-              failed,
-              current: i + 1,
-              currentUrl: item.url,
-              currentLabel: item.label,
-              currentTabId: tabId,
-              status: "running",
-              startedAt,
-            },
-          });
-        },
-      });
-      if (result?.cancelled || (await isBatchScrapeCancelled(runId))) {
-        cancelled = true;
-        break;
-      }
-      if (result?.success) completed++;
-      else failed++;
-    } catch (e) {
-      if (await isBatchScrapeCancelled(runId)) {
-        cancelled = true;
-        break;
-      }
-      failed++;
-      console.error(`[KIDITEM] 스크랩 실패 (${item.url}):`, e?.message || e);
-    }
   }
 
-  await chrome.storage.local.set({
-    [BATCH_SCRAPE_STATUS_KEY]: {
-      runId,
-      total,
-      completed,
-      failed,
-      current: cancelled ? completed + failed : total,
-      currentTabId: null,
-      status: cancelled ? "cancelled" : "done",
-      startedAt,
-      endedAt: Date.now(),
-      cancelled,
-    },
-  });
-  notifyDashboard();
-
-  console.log(
-    `[KIDITEM] 순차 배치 ${cancelled ? "중단" : "완료"}: ${completed}/${total} 성공, ${failed} 실패`,
-  );
-  return { success: !cancelled, completed, failed, total, cancelled };
-}
-
-async function isBatchScrapeCancelled(runId) {
-  const data = await getStorage(BATCH_SCRAPE_CANCEL_KEY);
-  const cancel = data[BATCH_SCRAPE_CANCEL_KEY];
-  return !!cancel?.cancelled && (!cancel.runId || cancel.runId === runId);
+  return collectionWindow.collectTargets({ runId, targets: urls, startedAt });
 }
 
 async function cancelBatchScrape(runId = null) {
-  await chrome.storage.local.set({
-    [BATCH_SCRAPE_CANCEL_KEY]: {
-      cancelled: true,
-      runId,
-      requestedAt: Date.now(),
-    },
-  });
-  const data = await getStorage(BATCH_SCRAPE_STATUS_KEY);
-  const status = data[BATCH_SCRAPE_STATUS_KEY] || {};
-  if (runId && status.runId && status.runId !== runId) {
-    return { success: true, cancelled: false, staleRunId: status.runId };
-  }
-  if (status.currentTabId) {
-    await removeTab(status.currentTabId).catch(() => {});
-  }
-  await chrome.storage.local.set({
-    [BATCH_SCRAPE_STATUS_KEY]: {
-      ...status,
-      runId: status.runId || runId,
-      status: "cancelled",
-      cancelled: true,
-      endedAt: Date.now(),
-    },
-  });
-  notifyDashboard();
-  return { success: true, cancelled: true, runId: status.runId || runId };
+  return collectionWindow.cancelRun(runId);
 }
 
 /**
@@ -3435,8 +3568,17 @@ async function autoScrape() {
       return;
     }
 
-    const urls = targets.map((t) => ({ id: t.id, url: t.url, label: t.label }));
-    const result = await handleScrapeTargets(urls);
+    const urls = collectionRuns.validateScrapeTargets(targets);
+    if (!urls) throw new Error("현재 자동 수집 대상이 올바르지 않습니다");
+    const result = await handleScrapeTargets(
+      urls,
+      collectionRuns.createRunId(),
+      Date.now(),
+      {
+        producer: "advertising.scrape_targets",
+        restartStrategy: "extension",
+      },
+    );
 
     console.log(
       `[KIDITEM] 자동 수집 완료: ${result.completed}/${result.total} 성공`,
@@ -3496,144 +3638,38 @@ async function doMonthlyScrape(year, month) {
     },
   });
 
-  let completed = 0;
-
+  const urls = [];
   for (let day = 1; day <= endDay; day++) {
     const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    const url = `https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date=${dateStr}&end_date=${dateStr}`;
-
-    await scrapeUrl(url, null, `매출분석 ${dateStr}`);
-    completed++;
-
-    chrome.storage.local.set({
-      kiditem_monthly_sync: {
-        year,
-        month,
-        completed,
-        total,
-        status: "running",
-      },
+    urls.push({
+      id: `wing-sales-${dateStr}`,
+      url: `https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date=${dateStr}&end_date=${dateStr}`,
+      label: `매출분석 ${dateStr}`,
     });
-
-    // 다음 날짜 로드 전 1초 대기
-    if (day < endDay) {
-      await new Promise((r) => setTimeout(r, 1000));
-    }
   }
 
+  const result = await handleScrapeTargets(
+    urls,
+    collectionRuns.createRunId(),
+    Date.now(),
+    { producer: "dashboard.wing_sales", restartStrategy: "web" },
+  );
+
   chrome.storage.local.set({
-    kiditem_monthly_sync: { year, month, completed, total, status: "done" },
+    kiditem_monthly_sync: {
+      year,
+      month,
+      completed: result.completed,
+      total,
+      status: result.success ? "done" : "error",
+    },
   });
   notifyDashboard();
 }
 
-function scrapeUrl(url, targetId, label, options = {}) {
-  return new Promise((resolve) => {
-    // The #kiditemBatch marker is for fallback window.open flows where the
-    // content script has to self-start. In service-worker driven scraping we
-    // send manualSync ourselves; leaving the marker on creates two competing
-    // orchestrators for the same tab.
-    const openUrl = url.replace(/#kiditemBatch=1$/, "");
-
-    // 탭 활성화 — 백그라운드 탭은 Chrome이 setTimeout을 throttle해서 setDateRange가 타임아웃 넘김
-    chrome.tabs.create({ url: openUrl, active: true }, (tab) => {
-      if (chrome.runtime.lastError || !tab?.id) {
-        resolve({ url, success: false, error: "탭 생성 실패" });
-        return;
-      }
-
-      const tabId = tab.id;
-      let resolved = false;
-      if (typeof options.onTabCreated === "function") {
-        Promise.resolve(options.onTabCreated(tabId)).catch(() => {});
-      }
-
-      const cleanup = () => {
-        chrome.tabs.onUpdated.removeListener(onUpdated);
-        chrome.tabs.onRemoved.removeListener(onRemoved);
-      };
-      const finish = (result) => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(timeout);
-        cleanup();
-        resolve(result);
-      };
-
-      // 타임아웃 180초 — 달력 UI 조작(~5s) + 테이블 리로드(~3.5s) + 페이지네이션(다수 페이지 × 2s)
-      const timeout = setTimeout(() => {
-        try {
-          chrome.tabs.remove(tabId);
-        } catch {}
-        finish({ url, success: false, error: "타임아웃 (180초)" });
-      }, 180000);
-
-      const onRemoved = (removedTabId) => {
-        if (removedTabId !== tabId) return;
-        finish({
-          url,
-          label,
-          success: false,
-          cancelled: true,
-          error: "수집이 중단되었습니다",
-        });
-      };
-
-      // 탭 로딩 완료 감지
-      const onUpdated = (updatedTabId, changeInfo) => {
-        if (updatedTabId !== tabId || changeInfo.status !== "complete") return;
-
-        chrome.tabs.onUpdated.removeListener(onUpdated);
-
-        // 페이지 로딩 후 content script가 초기화될 시간 대기 (4초)
-        setTimeout(() => {
-          chrome.tabs.sendMessage(
-            tabId,
-            { action: "manualSync" },
-            (response) => {
-              if (resolved) return;
-
-              // 수집 완료 알림을 서버로 전송
-              if (targetId) {
-                authedFetch(`/api/ads/scrape-targets`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ action: "markScraped", id: targetId }),
-                }).catch(() => {});
-              }
-
-              // 탭 닫기 (3초 후 — 데이터 전송 완료 보장)
-              setTimeout(() => {
-                try {
-                  chrome.tabs.remove(tabId);
-                } catch {}
-              }, 3000);
-
-              if (chrome.runtime.lastError) {
-                finish({
-                  url,
-                  label,
-                  success: false,
-                  error:
-                    "content script 미응답 (페이지가 지원 대상이 아닐 수 있음)",
-                });
-                return;
-              }
-
-              finish({
-                url,
-                label,
-                success: response?.success || false,
-                type: response?.type || "unknown",
-                count: response?.count || 0,
-              });
-            },
-          );
-        }, 4000);
-      };
-
-      chrome.tabs.onUpdated.addListener(onUpdated);
-      chrome.tabs.onRemoved.addListener(onRemoved);
-    });
-  });
-}
+collectionRuns.recover().catch((error) => {
+  console.error(
+    "[KIDITEM] 브라우저 수집 세션 복구 실패:",
+    error?.message || error,
+  );
+});

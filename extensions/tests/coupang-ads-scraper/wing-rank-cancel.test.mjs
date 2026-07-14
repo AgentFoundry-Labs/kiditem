@@ -25,8 +25,21 @@ test("Wing sales-rank collection supports cooperative cancellation", () => {
   assert.match(source, /isWingSalesRankCancelled\(runId\)/);
   assert.match(
     source,
-    /existingIsActive && \(await isWingSalesRankCancelled\(existing\.runId\)\)/,
+    /existingIsActive[\s\S]*?isWingSalesRankCancelled\(existing\.runId\)/,
   );
-  assert.match(source, /status:\s*cancelled \? "cancelled" : "done"/);
+  assert.match(source, /status:\s*cancelled[\s\S]*?"cancelled"/);
   assert.match(source, /chrome\.storage\.local\.remove\(RANK_CHECK_CANCEL_KEY\)/);
+});
+
+test("Wing rank pauses the whole session on login or bounded upstream exhaustion", () => {
+  assert.match(source, /async function startWingSalesRankCheck\(options = \{\}\)/);
+  assert.match(source, /options\.forceRestart/);
+  assert.match(source, /producer:\s*"advertising\.wing_rank"/);
+  assert.match(source, /executeWingCatalogSearchWithRetry/);
+  assert.match(source, /response\?\.status === 429/);
+  assert.match(source, /response\?\.status >= 500/);
+  assert.match(source, /attentionRequired/);
+  assert.match(source, /"marketplace_login"/);
+  assert.match(source, /"rate_limited"/);
+  assert.match(source, /break;/);
 });

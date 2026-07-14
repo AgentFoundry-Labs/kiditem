@@ -51,8 +51,22 @@
           startedAt: Date.now(),
           updatedAt: Date.now(),
           error: null,
-        };
+    };
     await setState(state);
+    if (state.status === "done") {
+      await clearAlarm();
+      await closeManagedWindow();
+      await dependencies.collectionSessions.succeed(runId);
+    }
+    if (state.status === "running") {
+      await dependencies.collectionSessions.progress(runId, {
+        current: 0,
+        total: state.totalPages || 0,
+        completed: state.discoveredProducts || 0,
+        failed: 0,
+        label: "Wing 상품 목록 확인",
+      });
+    }
     if (state.status === "running") {
       scheduleNextStep();
       runSoon(dependencies);
@@ -72,7 +86,7 @@
     return publicStatus(state);
   }
 
-  async function cancel(runId) {
+  async function cancel(runId, dependencies) {
     const state = await getState();
     if (!state || (runId && state.runId !== runId)) {
       return { success: true, cancelled: false, runId };
@@ -87,7 +101,48 @@
     await setState(cancelled);
     await clearAlarm();
     await closeManagedWindow();
+    if (dependencies?.collectionSessions) {
+      await dependencies.collectionSessions.cancel(cancelled.runId);
+    }
     return { success: true, cancelled: true, ...publicStatus(cancelled) };
+  }
+
+  async function restart(runId, dependencies) {
+    const state = await getState();
+    if (!state || state.runId !== runId) {
+      throw new Error("쿠팡 상품 수집 재시작 원본을 찾을 수 없습니다");
+    }
+    const server = await getServerStatus(
+      dependencies,
+      state.channelAccountId,
+      runId,
+    );
+    const restarted = {
+      ...state,
+      status: server.status === "completed" ? "done" : "running",
+      phase: "discovery",
+      currentPage: 0,
+      totalPages: 0,
+      discoveredProducts: 0,
+      hydratedProducts: server.progress?.hydratedProducts || 0,
+      uploadedChunks: server.progress?.storedChunks || 0,
+      manifest: null,
+      discoveryItems: [],
+      error: null,
+      endedAt: null,
+      updatedAt: Date.now(),
+    };
+    await closeManagedWindow();
+    await setState(restarted);
+    if (restarted.status === "done") {
+      await clearAlarm();
+      await dependencies.collectionSessions.succeed(restarted.runId);
+    }
+    if (restarted.status === "running") {
+      scheduleNextStep();
+      runSoon(dependencies);
+    }
+    return { success: true, started: restarted.status === "running", ...publicStatus(restarted) };
   }
 
   function handleAlarm(alarm, dependencies) {
@@ -161,21 +216,35 @@
 
   async function collectDiscoveryPage(state, server, dependencies) {
     const page = state.manifest ? state.currentPage + 1 : 1;
-    const tab = await getOrCreateManagedTab();
+    const tab = await getOrCreateManagedTab(state, dependencies);
     const pageUrl = buildListUrl(page);
     const loaded = await dependencies.updateTabAndWait(tab.id, pageUrl, {
       active: false,
     });
     if (!isWingListUrl(loaded?.url || "")) {
-      dependencies.activateTab(tab.id);
-      throw new Error("쿠팡 Wing 로그인 필요 — 열린 수집 창에서 로그인해주세요");
+      await pauseForAttention(
+        state,
+        dependencies,
+        tab,
+        "쿠팡 로그인이 필요합니다. 알림에서 확인 탭을 열어 로그인해주세요.",
+      );
+      return;
     }
     await delay(500);
     const response = await dependencies.sendTabMessage(tab.id, {
       action: "collectCoupangCatalogDiscoveryPage",
     });
     if (!response?.success) {
-      if (response?.pendingLogin) dependencies.activateTab(tab.id);
+      if (response?.pendingLogin) {
+        await pauseForAttention(
+          state,
+          dependencies,
+          tab,
+          response?.error ||
+            "쿠팡 로그인이 필요합니다. 알림에서 확인 탭을 열어 로그인해주세요.",
+        );
+        return;
+      }
       throw new Error(response?.error || `Wing 등록상품 ${page}페이지 수집 실패`);
     }
 
@@ -221,17 +290,29 @@
       uploadedChunks: state.uploadedChunks + 1,
       updatedAt: Date.now(),
     });
+    await dependencies.collectionSessions.progress(state.runId, {
+      current: page,
+      total: manifest.expectedPages,
+      completed: discoveryItems.length,
+      failed: 0,
+      label: `Wing 상품 목록 ${page}페이지`,
+    });
     scheduleNextStep();
   }
 
   async function confirmManifest(state, dependencies) {
-    const tab = await getOrCreateManagedTab();
+    const tab = await getOrCreateManagedTab(state, dependencies);
     const loaded = await dependencies.updateTabAndWait(tab.id, buildListUrl(1), {
       active: false,
     });
     if (!isWingListUrl(loaded?.url || "")) {
-      dependencies.activateTab(tab.id);
-      throw new Error("쿠팡 Wing 로그인이 만료되었습니다");
+      await pauseForAttention(
+        state,
+        dependencies,
+        tab,
+        "쿠팡 Wing 로그인이 만료되었습니다. 알림에서 확인 탭을 열어주세요.",
+      );
+      return;
     }
     await delay(500);
     const response = await dependencies.sendTabMessage(tab.id, {
@@ -303,7 +384,7 @@
       startOrdinal,
       startOrdinal + MAX_PRODUCTS_PER_CHUNK,
     );
-    const tab = await getOrCreateManagedTab();
+    const tab = await getOrCreateManagedTab(state, dependencies);
     const products = [];
     for (const item of group) {
       const loaded = await dependencies.updateTabAndWait(
@@ -312,8 +393,13 @@
         { active: false },
       );
       if (!isWingDetailUrl(loaded?.url || "")) {
-        dependencies.activateTab(tab.id);
-        throw new Error("쿠팡 Wing 로그인 필요 — 열린 수집 창에서 로그인해주세요");
+        await pauseForAttention(
+          state,
+          dependencies,
+          tab,
+          "쿠팡 로그인이 필요합니다. 알림에서 확인 탭을 열어 로그인해주세요.",
+        );
+        return;
       }
       const sellerProduct = await collectSellerProduct(tab.id);
       const product = root.KidItemCoupangCatalog.buildCatalogProduct(sellerProduct);
@@ -345,7 +431,34 @@
       uploadedChunks: state.uploadedChunks + 1,
       updatedAt: Date.now(),
     });
+    await dependencies.collectionSessions.progress(state.runId, {
+      current: startOrdinal + products.length,
+      total: state.manifest.totalItems,
+      completed:
+        updated.progress?.hydratedProducts ||
+        (server.progress?.hydratedProducts || 0) + products.length,
+      failed: 0,
+      label: "Wing 상품 상세 수집",
+    });
     scheduleNextStep();
+  }
+
+  async function pauseForAttention(state, dependencies, tab, message) {
+    await dependencies.collectionSessions.attachTab(state.runId, {
+      tabId: tab.id,
+      windowId: tab.windowId,
+    });
+    await dependencies.collectionSessions.requireAttention(state.runId, {
+      reason: "marketplace_login",
+      message,
+    });
+    await setState({
+      ...state,
+      status: "attention_required",
+      error: null,
+      updatedAt: Date.now(),
+    });
+    await clearAlarm();
   }
 
   async function collectSellerProduct(tabId) {
@@ -453,6 +566,8 @@
     };
     await setState(failed);
     await clearAlarm();
+    await closeManagedWindow();
+    await dependencies.collectionSessions.fail(state.runId);
     try {
       await apiJson(dependencies, `${runApiPath(state)}/errors`, {
         method: "POST",
@@ -482,6 +597,7 @@
     await setState(done);
     await clearAlarm();
     await closeManagedWindow();
+    await dependencies.collectionSessions.succeed(state.runId);
     dependencies.notifyDashboard();
   }
 
@@ -597,47 +713,59 @@
     return chrome.storage.local.set({ [STATE_KEY]: state });
   }
 
-  async function getOrCreateManagedTab() {
+  async function getOrCreateManagedTab(state, dependencies) {
     const data = await new Promise((resolve) => {
       chrome.storage.local.get([TAB_KEY, WINDOW_KEY], resolve);
-    });
-    if (data?.[TAB_KEY] && data?.[WINDOW_KEY]) {
-      const tab = await getTab(data[TAB_KEY]).catch(() => null);
-      if (tab?.id && tab.windowId === data[WINDOW_KEY]) return tab;
+        });
+        if (data?.[TAB_KEY] && data?.[WINDOW_KEY]) {
+          const tab = await getTab(data[TAB_KEY]).catch(() => null);
+          if (
+            tab?.id &&
+            tab.active !== true &&
+            tab.windowId === data[WINDOW_KEY]
+          ) {
+            await dependencies.collectionSessions.attachTab(state.runId, {
+              tabId: tab.id,
+              windowId: tab.windowId,
+        });
+        return tab;
+      }
     }
     await chrome.storage.local.remove([TAB_KEY, WINDOW_KEY]);
-    const syncWindow = await new Promise((resolve, reject) => {
-      chrome.windows.create(
-        { url: WING_LIST_URL, focused: false, type: "normal" },
-        (created) => {
-          if (chrome.runtime.lastError || !created?.id) {
-            reject(new Error(chrome.runtime.lastError?.message || "Wing 수집 창 생성 실패"));
-            return;
-          }
-          resolve(created);
-        },
-      );
+    const tab = await new Promise((resolve, reject) => {
+      chrome.tabs.create({ url: WING_LIST_URL, active: false }, (created) => {
+        if (chrome.runtime.lastError || !created?.id) {
+          reject(new Error(chrome.runtime.lastError?.message || "Wing 수집 탭 생성 실패"));
+          return;
+        }
+        resolve(created);
+      });
     });
-    const tab = syncWindow.tabs?.find((candidate) => candidate?.id) ||
-      (await queryTabs({ windowId: syncWindow.id }))[0];
     if (!tab?.id) throw new Error("Wing 수집 탭을 만들 수 없습니다");
     await chrome.storage.local.set({
       [TAB_KEY]: tab.id,
-      [WINDOW_KEY]: syncWindow.id,
+      [WINDOW_KEY]: tab.windowId,
+    });
+    await dependencies.collectionSessions.attachTab(state.runId, {
+      tabId: tab.id,
+      windowId: tab.windowId,
     });
     return tab;
   }
 
   async function closeManagedWindow() {
     const data = await new Promise((resolve) => {
-      chrome.storage.local.get([WINDOW_KEY], resolve);
-    });
-    const windowId = data?.[WINDOW_KEY];
-    if (windowId) {
-      await new Promise((resolve) => {
-        chrome.windows.remove(windowId, () => resolve());
-      });
-    }
+      chrome.storage.local.get([TAB_KEY], resolve);
+        });
+        const tabId = data?.[TAB_KEY];
+        if (tabId) {
+          const tab = await getTab(tabId).catch(() => null);
+          if (tab?.id && tab.active !== true) {
+            await new Promise((resolve) => {
+              chrome.tabs.remove(tabId, () => resolve());
+            });
+          }
+        }
     await chrome.storage.local.remove([TAB_KEY, WINDOW_KEY]);
   }
 
@@ -653,10 +781,6 @@
     });
   }
 
-  function queryTabs(query) {
-    return new Promise((resolve) => chrome.tabs.query(query, resolve));
-  }
-
   function delay(milliseconds) {
     return new Promise((resolve) => setTimeout(resolve, milliseconds));
   }
@@ -666,6 +790,7 @@
     cancel,
     getStatus,
     handleAlarm,
+    restart,
     start,
   };
 })(globalThis);
