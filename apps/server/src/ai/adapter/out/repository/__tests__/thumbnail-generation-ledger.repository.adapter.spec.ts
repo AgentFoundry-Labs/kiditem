@@ -17,17 +17,21 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
   it('opens pending editor jobs through the adapter-private Prisma helper', async () => {
     const prisma = {};
     const repository = new ThumbnailGenerationLedgerRepositoryAdapter(prisma as never);
-    helperMocks.createPendingEditJob.mockResolvedValueOnce({ id: 'generation-1' });
+    helperMocks.createPendingEditJob.mockResolvedValueOnce({
+      id: 'generation-1',
+    });
 
-    await expect(repository.openPendingEditorJob({
-      organizationId: 'org-1',
-      masterId: 'master-1',
-      originalUrl: 'https://cdn.example.com/source.jpg',
-      method: 'generate',
-      inputMeta: { mode: 'edit' },
-      editAnalysis: null,
-      triggeredByUserId: 'user-1',
-    })).resolves.toEqual({ id: 'generation-1' });
+    await expect(
+      repository.openPendingEditorJob({
+        organizationId: 'org-1',
+        contentWorkspaceId: 'workspace-1',
+        originalUrl: 'https://cdn.example.com/source.jpg',
+        method: 'generate',
+        inputMeta: { mode: 'edit' },
+        editAnalysis: null,
+        triggeredByUserId: 'user-1',
+      }),
+    ).resolves.toEqual({ id: 'generation-1' });
 
     expect(helperMocks.createPendingEditJob).toHaveBeenCalledWith(
       prisma,
@@ -52,30 +56,30 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
       attemptNumber: 1,
     });
 
-    await expect(repository.claimForDirectProjection({
-      generationId: 'generation-1',
-      organizationId: 'org-1',
-    })).resolves.toEqual({
+    await expect(
+      repository.claimForDirectProjection({
+        generationId: 'generation-1',
+        organizationId: 'org-1',
+      }),
+    ).resolves.toEqual({
       fromStatus: 'pending',
       fromPhase: null,
       attemptNumber: 1,
     });
-    await expect(repository.projectDirectSuccess({
-      generationId: 'generation-1',
-      organizationId: 'org-1',
-      candidates: [],
-      inputMeta: { aiJobId: 'request-1' },
-    })).resolves.toEqual({
+    await expect(
+      repository.projectDirectSuccess({
+        generationId: 'generation-1',
+        organizationId: 'org-1',
+        candidates: [],
+        inputMeta: { aiJobId: 'request-1' },
+      }),
+    ).resolves.toEqual({
       fromStatus: 'running',
       fromPhase: null,
       attemptNumber: 1,
     });
 
-    expect(helperMocks.lockGenerationForProcessing).toHaveBeenCalledWith(
-      prisma,
-      'generation-1',
-      'org-1',
-    );
+    expect(helperMocks.lockGenerationForProcessing).toHaveBeenCalledWith(prisma, 'generation-1', 'org-1');
     expect(helperMocks.applyDirectSuccessResult).toHaveBeenCalledWith(
       prisma,
       expect.objectContaining({
@@ -103,10 +107,12 @@ describe('ThumbnailGenerationLedgerRepositoryAdapter', () => {
     };
     const repository = new ThumbnailGenerationLedgerRepositoryAdapter(prisma as never);
 
-    await expect(repository.readParentAlertLink({
-      organizationId: 'org-1',
-      generationId: 'generation-1',
-    })).resolves.toEqual({
+    await expect(
+      repository.readParentAlertLink({
+        organizationId: 'org-1',
+        generationId: 'generation-1',
+      }),
+    ).resolves.toEqual({
       mode: 'parent',
       batchId: 'batch-1',
       parentOperationKey: 'product-generation:batch-1',

@@ -1,12 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type {
-  ThumbnailAnalysisListResponse,
-  ThumbnailAnalysisSummary,
-} from '@kiditem/shared/ai';
-import {
-  buildAnalysisListResponse,
-  buildAnalysisSummary,
-} from '../../mapper/thumbnail-analysis.mapper';
+import type { ThumbnailAnalysisListResponse, ThumbnailAnalysisSummary } from '@kiditem/shared/ai';
+import { buildAnalysisListResponse, buildAnalysisSummary } from '../../mapper/thumbnail-analysis.mapper';
 import {
   THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
   type ThumbnailAnalysisRepositoryPort,
@@ -14,7 +8,7 @@ import {
 
 /**
  * Read-only reader for ThumbnailAnalysis list / summary surfaces. Scoped to
- * masters with a non-deleted Coupang listing — non-Coupang masters never
+ * workspaces with a non-deleted Coupang listing — non-Coupang workspaces never
  * surface in the AI thumbnail UI.
  */
 @Injectable()

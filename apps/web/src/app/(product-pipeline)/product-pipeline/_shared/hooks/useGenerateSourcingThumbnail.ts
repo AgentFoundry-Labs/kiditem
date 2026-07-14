@@ -41,32 +41,26 @@ export function useGenerateSourcingThumbnail() {
 }
 
 export function useSourcingThumbnailGenerations(params: {
-  productId?: string | null;
   sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
 }) {
-  const productId = params.productId ?? null;
   const sourceCandidateId = params.sourceCandidateId ?? null;
   const contentWorkspaceId = params.contentWorkspaceId ?? null;
   const filterParams: Record<string, string> = contentWorkspaceId
     ? { contentWorkspaceId }
     : sourceCandidateId
       ? { sourceCandidateId }
-      : productId
-        ? { productId }
-        : { sourceCandidateId: '' };
+      : { sourceCandidateId: '' };
   return useQuery({
     queryKey: queryKeys.thumbnailAnalysis.generations(filterParams),
-    enabled: !!productId || !!sourceCandidateId || !!contentWorkspaceId,
+    enabled: !!contentWorkspaceId || !!sourceCandidateId,
     queryFn: async (): Promise<ThumbnailGenerationItem[]> => {
-      if (!productId && !sourceCandidateId && !contentWorkspaceId) return [];
+      if (!contentWorkspaceId && !sourceCandidateId) return [];
       const searchParams = new URLSearchParams({ limit: '20' });
       if (contentWorkspaceId) {
         searchParams.set('contentWorkspaceId', contentWorkspaceId);
       } else if (sourceCandidateId) {
         searchParams.set('sourceCandidateId', sourceCandidateId);
-      } else if (productId) {
-        searchParams.set('productId', productId);
       }
       const result = await apiClient.get<ThumbnailGenerationListResponse>(
         `/api/thumbnail-analysis/generations?${searchParams}`,
@@ -75,9 +69,7 @@ export function useSourcingThumbnailGenerations(params: {
     },
     refetchInterval: (query) => {
       const items = query.state.data ?? [];
-      return items.some((item) => item.status === 'pending' || item.status === 'running')
-        ? 2500
-        : false;
+      return items.some((item) => item.status === 'pending' || item.status === 'running') ? 2500 : false;
     },
   });
 }

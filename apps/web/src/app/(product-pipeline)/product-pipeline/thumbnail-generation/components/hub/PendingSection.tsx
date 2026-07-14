@@ -20,19 +20,21 @@ import { ImgWithSkeleton } from '../shared/ImgWithSkeleton';
 
 function navigate(
   router: ReturnType<typeof useRouter>,
-  productId: string,
+  contentWorkspaceId: string,
   generationId: string,
   returnTo?: string | null,
 ) {
-  router.push(thumbnailGenerationEditHref({
-    generationId,
-    returnTo,
-    subjectParams: { productId },
-  }));
+  router.push(
+    thumbnailGenerationEditHref({
+      generationId,
+      returnTo,
+      subjectParams: { contentWorkspaceId },
+    }),
+  );
 }
 
 type ProductGroup = {
-  productId: string;
+  contentWorkspaceId: string;
   representative: ThumbnailGenerationItem;
   items: ThumbnailGenerationItem[];
 };
@@ -40,22 +42,22 @@ type ProductGroup = {
 function groupByProduct(items: ThumbnailGenerationItem[]): ProductGroup[] {
   const map = new Map<string, ThumbnailGenerationItem[]>();
   for (const g of items) {
-    if (!g.productId) continue;
-    const bucket = map.get(g.productId);
+    if (!g.contentWorkspaceId) continue;
+    const bucket = map.get(g.contentWorkspaceId);
     if (bucket) bucket.push(g);
-    else map.set(g.productId, [g]);
+    else map.set(g.contentWorkspaceId, [g]);
   }
   const groups: ProductGroup[] = [];
-  for (const [productId, list] of map) {
-    const sorted = [...list].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    );
-    groups.push({ productId, representative: sorted[0], items: sorted });
+  for (const [contentWorkspaceId, list] of map) {
+    const sorted = [...list].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    groups.push({
+      contentWorkspaceId,
+      representative: sorted[0],
+      items: sorted,
+    });
   }
   return groups.sort(
-    (a, b) =>
-      new Date(b.representative.createdAt).getTime() -
-      new Date(a.representative.createdAt).getTime(),
+    (a, b) => new Date(b.representative.createdAt).getTime() - new Date(a.representative.createdAt).getTime(),
   );
 }
 
@@ -77,7 +79,7 @@ export function PendingSection({ returnTo = null }: { returnTo?: string | null }
   const [page, setPage] = useState(1);
   const [deleteTarget, setDeleteTarget] = useState<ProductGroup | null>(null);
   const [cancelTarget, setCancelTarget] = useState<ProductGroup | null>(null);
-  const [cancellingProductId, setCancellingProductId] = useState<string | null>(null);
+  const [cancellingContentWorkspaceId, setCancellingContentWorkspaceId] = useState<string | null>(null);
 
   const inProgress = useMemo(() => data.filter(isInProgress), [data]);
   const groups = useMemo(() => groupByProduct(inProgress), [inProgress]);
@@ -106,10 +108,10 @@ export function PendingSection({ returnTo = null }: { returnTo?: string | null }
   };
 
   const confirmCancelGroup = async () => {
-    if (!cancelTarget || cancellingProductId) return;
+    if (!cancelTarget || cancellingContentWorkspaceId) return;
     const target = cancelTarget;
     const items = target.items.filter(isActiveGeneration);
-    setCancellingProductId(target.productId);
+    setCancellingContentWorkspaceId(target.contentWorkspaceId);
     try {
       const results = await Promise.allSettled(items.map((item) => cancelMutation.mutateAsync(item.id)));
       const ok = results.filter((r) => r.status === 'fulfilled').length;
@@ -124,16 +126,13 @@ export function PendingSection({ returnTo = null }: { returnTo?: string | null }
         setCancelTarget(null);
       }
     } finally {
-      setCancellingProductId(null);
+      setCancellingContentWorkspaceId(null);
     }
   };
 
   const totalPages = Math.max(1, Math.ceil(groups.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
-  const pagedGroups = useMemo(
-    () => groups.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
-    [groups, safePage],
-  );
+  const pagedGroups = useMemo(() => groups.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [groups, safePage]);
 
   if (isLoading && data.length === 0) {
     return (
@@ -153,9 +152,7 @@ export function PendingSection({ returnTo = null }: { returnTo?: string | null }
           <h3 className="text-xl font-bold text-gray-900">진행 중인 작업</h3>
           <span className="text-xs font-bold text-gray-500 ml-1">전체 {inProgress.length}</span>
         </div>
-        {totalPages > 1 && (
-          <SectionPager page={safePage} totalPages={totalPages} onChange={setPage} />
-        )}
+        {totalPages > 1 && <SectionPager page={safePage} totalPages={totalPages} onChange={setPage} />}
       </div>
 
       {groups.length === 0 ? (
@@ -170,14 +167,14 @@ export function PendingSection({ returnTo = null }: { returnTo?: string | null }
         <div className="grid grid-cols-3 md:grid-cols-3 xl:grid-cols-4 gap-x-1 gap-y-6">
           {pagedGroups.map((group) => (
             <PendingCard
-              key={group.productId}
+              key={group.contentWorkspaceId}
               group={group}
-              onClick={() => navigate(router, group.productId, group.representative.id, returnTo)}
+              onClick={() => navigate(router, group.contentWorkspaceId, group.representative.id, returnTo)}
               onCancel={() => setCancelTarget(group)}
               onConfirmCancel={confirmCancelGroup}
               onDismissCancel={() => setCancelTarget(null)}
-              isConfirmingCancel={cancelTarget?.productId === group.productId}
-              isCancelling={cancellingProductId === group.productId}
+              isConfirmingCancel={cancelTarget?.contentWorkspaceId === group.contentWorkspaceId}
+              isCancelling={cancellingContentWorkspaceId === group.contentWorkspaceId}
               onDelete={() => setDeleteTarget(group)}
             />
           ))}
@@ -197,7 +194,7 @@ export function PendingSection({ returnTo = null }: { returnTo?: string | null }
           deleteTarget ? (
             <>
               <span className="font-semibold text-[var(--text-primary,#0f172a)]">
-                {deleteTarget.representative.product?.name ?? '상품 정보 없음'}
+                {deleteTarget.representative.contentWorkspace?.name ?? '상품 정보 없음'}
               </span>
               의 AI 생성 작업이 삭제됩니다. 복구할 수 없습니다.
             </>
@@ -270,26 +267,21 @@ function PendingCard({
   const running = item.status === 'running' || item.status === 'pending';
   const activeCount = group.items.filter(isActiveGeneration).length;
   const canCancel = activeCount > 0;
-  const productName = item.product?.name ?? '상품 정보 없음';
-  const preview = item.candidates?.[0]?.url ?? item.originalUrl ?? item.product?.imageUrl;
+  const productName = item.contentWorkspace?.name ?? '상품 정보 없음';
+  const preview = item.candidates?.[0]?.url ?? item.originalUrl ?? item.contentWorkspace?.imageUrl;
   const resolved = resolveImageUrl(preview);
-  const hasBox = Boolean(item.product?.hasBoxImage);
-  const hasColor = Boolean(item.product?.hasColorVariantImages);
+  const hasBox = Boolean(item.contentWorkspace?.hasBoxImage);
+  const hasColor = Boolean(item.contentWorkspace?.hasColorVariantImages);
 
   return (
-    <div
-      onClick={onClick}
-      className="flex flex-col group relative cursor-pointer hover:opacity-95 transition-opacity"
-    >
+    <div onClick={onClick} className="flex flex-col group relative cursor-pointer hover:opacity-95 transition-opacity">
       {isConfirmingCancel ? (
         <div
           className="absolute left-1 right-1 top-1 z-30 rounded-xl border border-rose-200 bg-white/95 px-2 py-1.5 shadow-lg"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="space-y-1">
-            <div className="text-[11px] font-bold leading-tight text-rose-700">
-              중단할까요?
-            </div>
+            <div className="text-[11px] font-bold leading-tight text-rose-700">중단할까요?</div>
             <div className="flex items-center justify-end gap-1">
               <button
                 type="button"

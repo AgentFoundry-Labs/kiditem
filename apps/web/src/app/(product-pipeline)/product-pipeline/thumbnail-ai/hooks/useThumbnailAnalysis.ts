@@ -27,10 +27,16 @@ export function useAnalysisList() {
 export function useAnalyze() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: { productId?: string; imageUrl?: string; productName?: string; scope?: AnalysisScope }) =>
-      apiClient.post<ThumbnailAnalysisResult>('/api/thumbnail-analysis/analyze', data),
+    mutationFn: (data: {
+      contentWorkspaceId?: string;
+      imageUrl?: string;
+      productName?: string;
+      scope?: AnalysisScope;
+    }) => apiClient.post<ThumbnailAnalysisResult>('/api/thumbnail-analysis/analyze', data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.all });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.thumbnailAnalysis.all,
+      });
     },
   });
 }

@@ -29,7 +29,7 @@ export interface PlaywriterStatus {
  *
  * Encapsulates the Playwriter `spawn` lifecycle, the dynamic Wing search URL,
  * and the inline browser-automation script. No Prisma access, no tenant
- * concept — the service decides which generation/master/attempt to register
+ * concept — the service decides which generation/workspace/attempt to register
  * and hands this adapter the resolved product name + image path.
  */
 @Injectable()
@@ -64,8 +64,7 @@ export class WingAutomationRunner {
         if (stdout.includes('SUCCESS')) {
           resolve({ success: true });
         } else {
-          const message =
-            stdout.match(/ERROR:(.+)/)?.[1]?.trim() || stderr.trim() || 'Unknown error';
+          const message = stdout.match(/ERROR:(.+)/)?.[1]?.trim() || stderr.trim() || 'Unknown error';
           resolve({ success: false, error: message });
         }
       });
@@ -84,7 +83,9 @@ export class WingAutomationRunner {
       });
     }
     return new Promise((resolve) => {
-      const proc = spawnPlaywriter(['session', 'list'], { timeout: PLAYWRITER_STATUS_TIMEOUT_MS });
+      const proc = spawnPlaywriter(['session', 'list'], {
+        timeout: PLAYWRITER_STATUS_TIMEOUT_MS,
+      });
       let stdout = '';
       let stderr = '';
       proc.stdout?.on('data', (chunk: Buffer) => {
@@ -95,7 +96,10 @@ export class WingAutomationRunner {
       });
       proc.on('close', (code) => {
         if (code !== 0) {
-          resolve({ connected: false, error: stderr.trim() || 'playwriter not found' });
+          resolve({
+            connected: false,
+            error: stderr.trim() || 'playwriter not found',
+          });
           return;
         }
         const lines = stdout
@@ -110,9 +114,7 @@ export class WingAutomationRunner {
   }
 
   private buildScript(productName: string, imagePath: string, screenshotPath: string): string {
-    const wingUrl =
-      WING_BASE +
-      `&searchKeywordType=ALL&searchKeywords=${encodeURIComponent(productName)}`;
+    const wingUrl = WING_BASE + `&searchKeywordType=ALL&searchKeywords=${encodeURIComponent(productName)}`;
 
     return `
 (async () => {

@@ -11,7 +11,7 @@ export interface ThumbnailWingGenerationRegistrationAttemptRow {
 }
 
 export interface ThumbnailWingGenerationForRegistration {
-  masterId: string | null;
+  contentWorkspaceId: string | null;
   selectedUrl: string | null;
   candidates: ThumbnailWingGenerationCandidateRow[];
 }
@@ -21,9 +21,9 @@ export interface ThumbnailWingGenerationForVerification {
   registrationAttempts: ThumbnailWingGenerationRegistrationAttemptRow[];
 }
 
-export interface ThumbnailWingRegistrableMaster {
-  name: string | null;
-  listings?: Array<{ channelName: string | null }>;
+export interface ThumbnailWingRegistrableWorkspace {
+  displayName: string | null;
+  channelListing: { channelName: string | null } | null;
 }
 
 export interface ThumbnailWingRegistrationAttemptPatch {
@@ -39,19 +39,16 @@ export interface ThumbnailWingRepositoryPort {
     generationId: string,
     organizationId: string,
   ): Promise<ThumbnailWingGenerationForRegistration | null>;
-  findRegistrableMaster(
-    masterId: string,
+  findRegistrableWorkspace(
+    contentWorkspaceId: string,
     organizationId: string,
-  ): Promise<ThumbnailWingRegistrableMaster | null>;
+  ): Promise<ThumbnailWingRegistrableWorkspace | null>;
   findGenerationWithLatestAttempt(
     id: string,
     organizationId: string,
   ): Promise<ThumbnailWingGenerationForVerification | null>;
   ensureGenerationExists(id: string, organizationId: string): Promise<void>;
-  createRegistrationAttempt(
-    generationId: string,
-    organizationId: string,
-  ): Promise<{ id: string }>;
+  createRegistrationAttempt(generationId: string, organizationId: string): Promise<{ id: string }>;
   updateRegistrationAttemptOrThrow(
     id: string,
     organizationId: string,

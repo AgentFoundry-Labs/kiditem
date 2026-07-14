@@ -3,10 +3,7 @@ import type { ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/
 import { pickDisplayableImageUrl } from '@/lib/resolve-url';
 import { isApplied, isReady } from '../../_shared/lib/thumbnail-status';
 import type { MainTabKey } from '../components/ThumbnailMainTabs';
-import {
-  getEffectiveComplianceGrade,
-  needsThumbnailFix,
-} from '../../_shared/lib/thumbnail-classification';
+import { getEffectiveComplianceGrade, needsThumbnailFix } from '../../_shared/lib/thumbnail-classification';
 import type { AnalysisListResponse } from './useThumbnailAnalysis';
 
 interface UseThumbnailPageModelParams {
@@ -48,75 +45,79 @@ export function useThumbnailPageModel({
   return useMemo(() => {
     const effectiveScanResult = scanResult ?? EMPTY_ANALYSIS_RESPONSE;
     const { allResults, unclassified = [] } = effectiveScanResult;
-    const productGenerations = generations.filter(
-      (g): g is ThumbnailGenerationItem & { productId: string } => Boolean(g.productId),
+    const productGenerations = generations.filter((g): g is ThumbnailGenerationItem & { contentWorkspaceId: string } =>
+      Boolean(g.contentWorkspaceId),
     );
 
-    const generatedProductIds = new Set(
-      productGenerations.filter((g) => g.status !== 'failed').map((g) => g.productId),
+    const generatedContentWorkspaceIds = new Set(
+      productGenerations.filter((g) => g.status !== 'failed').map((g) => g.contentWorkspaceId),
     );
     const activeGenerations = productGenerations.filter(
       (g) => g.status === 'pending' || g.status === 'running' || isReady(g),
     );
 
-    const genByProductId = new Map<string, ThumbnailGenerationItem>();
+    const genByContentWorkspaceId = new Map<string, ThumbnailGenerationItem>();
     for (const generation of productGenerations) {
-      const existing = genByProductId.get(generation.productId);
+      const existing = genByContentWorkspaceId.get(generation.contentWorkspaceId);
       if (!existing || new Date(generation.createdAt) > new Date(existing.createdAt)) {
-        genByProductId.set(generation.productId, generation);
+        genByContentWorkspaceId.set(generation.contentWorkspaceId, generation);
       }
     }
 
-    const historyByProduct = Array.from(genByProductId.values()).filter((g) => {
+    const historyByProduct = Array.from(genByContentWorkspaceId.values()).filter((g) => {
       if (!isApplied(g)) return false;
-      return !!pickDisplayableImageUrl(g.selectedUrl, g.originalUrl, g.product?.imageUrl);
+      return !!pickDisplayableImageUrl(g.selectedUrl, g.originalUrl, g.contentWorkspace?.imageUrl);
     });
 
     const classifiedNoImage = allResults.filter((r) => r.analyzed && !r.imageUrl);
     const unclassifiedCount = unclassified.filter((u) => u.imageUrl).length;
     const classifiedResults = allResults.filter((r) => r.analyzed && r.imageUrl);
     const needsFixProducts = classifiedResults.filter(needsThumbnailFix);
-    const pendingProducts = needsFixProducts.filter((p) => !genByProductId.has(p.productId));
+    const hasGenerationFor = (result: ThumbnailAnalysisResult) =>
+      Boolean(result.contentWorkspaceId && genByContentWorkspaceId.has(result.contentWorkspaceId));
+    const getGenerationFor = (result: ThumbnailAnalysisResult) =>
+      result.contentWorkspaceId ? genByContentWorkspaceId.get(result.contentWorkspaceId) : undefined;
+    const pendingProducts = needsFixProducts.filter(
+      (p): p is ThumbnailAnalysisResult & { contentWorkspaceId: string } =>
+        Boolean(p.contentWorkspaceId && !hasGenerationFor(p)),
+    );
 
-    const needsFixIds = new Set(needsFixProducts.map((p) => p.productId));
-    const validActiveGenerations = activeGenerations.filter((g) => needsFixIds.has(g.productId));
+    const needsFixIds = new Set(
+      needsFixProducts.flatMap((p) => (p.contentWorkspaceId ? [p.contentWorkspaceId] : [])),
+    );
+    const validActiveGenerations = activeGenerations.filter((g) => needsFixIds.has(g.contentWorkspaceId));
     const aiEditCount = productGenerations.filter(
       (g) =>
-        needsFixIds.has(g.productId) &&
-        (
-          g.status === 'pending' ||
+        needsFixIds.has(g.contentWorkspaceId) &&
+        (g.status === 'pending' ||
           g.status === 'running' ||
           isReady(g) ||
           g.status === 'failed' ||
-          g.status === 'cancelled'
-        ),
+          g.status === 'cancelled'),
     ).length;
 
-    const searchFilter = (r: ThumbnailAnalysisResult) =>
-      !sq || r.productName.toLowerCase().includes(sq);
+    const searchFilter = (r: ThumbnailAnalysisResult) => !sq || r.productName.toLowerCase().includes(sq);
 
     const cleanResults = classifiedResults.filter((r) => !needsThumbnailFix(r));
     const hasEditStatus = (items: ThumbnailAnalysisResult[], statuses: string[]) =>
       items.filter((r) => {
-        const g = genByProductId.get(r.productId);
+        const g = getGenerationFor(r);
         return g && statuses.includes(g.status);
       });
 
     const isAllTabFailFilter = activeTab === 'all' && gradeFilter === 'FAIL';
-    const filterBase =
-      activeTab === 'needsfix' || isAllTabFailFilter ? needsFixProducts : cleanResults;
+    const filterBase = activeTab === 'needsfix' || isAllTabFailFilter ? needsFixProducts : cleanResults;
 
     let filtered: ThumbnailAnalysisResult[];
     if (gradeFilter === 'all') filtered = filterBase;
     else if (gradeFilter === 'edit-pending') filtered = hasEditStatus(filterBase, ['pending', 'running']);
     else if (gradeFilter === 'edit-ready')
       filtered = filterBase.filter((item) => {
-        const g = genByProductId.get(item.productId);
+        const g = getGenerationFor(item);
         return g && isReady(g);
       });
     else if (gradeFilter === 'edit-failed') filtered = hasEditStatus(filterBase, ['failed']);
-    else if (gradeFilter === 'FAIL')
-      filtered = filterBase.filter((r) => getEffectiveComplianceGrade(r) === 'FAIL');
+    else if (gradeFilter === 'FAIL') filtered = filterBase.filter((r) => getEffectiveComplianceGrade(r) === 'FAIL');
     else if (['WARN', 'PASS'].includes(gradeFilter))
       filtered = filterBase.filter((r) => getEffectiveComplianceGrade(r) === gradeFilter);
     else if (['S', 'A', 'B', 'C', 'F'].includes(gradeFilter))
@@ -124,40 +125,31 @@ export function useThumbnailPageModel({
     else filtered = filterBase;
 
     if (activeTab === 'needsfix' && !gradeFilter.startsWith('edit-')) {
-      filtered = filtered.filter((r) => !genByProductId.has(r.productId));
+      filtered = filtered.filter((r) => !hasGenerationFor(r));
     }
 
-    filtered = filtered
-      .filter(searchFilter)
-      .sort((a, b) => {
-        const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return tb - ta;
-      });
+    filtered = filtered.filter(searchFilter).sort((a, b) => {
+      const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return tb - ta;
+    });
 
     const totalPages = Math.ceil(filtered.length / pageSize);
     const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
 
     const unclassifiedWithImage = unclassified.filter((r) => r.imageUrl).filter(searchFilter);
-    const unclassifiedNoImage = [
-      ...unclassified.filter((r) => !r.imageUrl),
-      ...classifiedNoImage,
-    ].filter(searchFilter);
+    const unclassifiedNoImage = [...unclassified.filter((r) => !r.imageUrl), ...classifiedNoImage].filter(searchFilter);
 
     const activeGenForProduct = selectedProduct
-      ? generations.find(
-          (g) =>
-            g.productId === selectedProduct.productId &&
-            (g.status === 'running' || isReady(g)),
-        ) ?? null
+      ? (generations.find(
+          (g) => g.contentWorkspaceId === selectedProduct.contentWorkspaceId && (g.status === 'running' || isReady(g)),
+        ) ?? null)
       : null;
 
     const totalCount = effectiveScanResult.total;
     const analyzedCount = classifiedResults.length;
     const avgScore =
-      analyzedCount > 0
-        ? Math.round(classifiedResults.reduce((s, r) => s + r.overallScore, 0) / analyzedCount)
-        : 0;
+      analyzedCount > 0 ? Math.round(classifiedResults.reduce((s, r) => s + r.overallScore, 0) / analyzedCount) : 0;
     const gradeDistribution = classifiedResults.reduce<Record<string, number>>(
       (acc, r) => {
         if (r.grade) acc[r.grade] = (acc[r.grade] ?? 0) + 1;
@@ -165,29 +157,23 @@ export function useThumbnailPageModel({
       },
       { S: 0, A: 0, B: 0, C: 0, F: 0 },
     );
-    const healthGrade =
-      avgScore >= 90 ? 'S' : avgScore >= 75 ? 'A' : avgScore >= 60 ? 'B' : avgScore >= 40 ? 'C' : 'F';
-    const needsFixCount = needsFixProducts.filter((p) => !genByProductId.has(p.productId)).length;
+    const healthGrade = avgScore >= 90 ? 'S' : avgScore >= 75 ? 'A' : avgScore >= 60 ? 'B' : avgScore >= 40 ? 'C' : 'F';
+    const needsFixCount = needsFixProducts.filter((p) => p.contentWorkspaceId && !hasGenerationFor(p)).length;
     const appliedCount = historyByProduct.length;
     const reviewedCount = appliedCount;
 
     const historyTotalPages = Math.ceil(historyByProduct.length / pageSize);
-    const pagedHistory = historyByProduct.slice(
-      (historyPage - 1) * pageSize,
-      historyPage * pageSize,
-    );
+    const pagedHistory = historyByProduct.slice((historyPage - 1) * pageSize, historyPage * pageSize);
 
     const unclassifiedSample = unclassified.slice(0, 7);
     const recentClassified = classifiedResults.slice(0, 7);
     const needsFixSample = classifiedResults
-      .filter((r) => !genByProductId.has(r.productId) && needsThumbnailFix(r))
+      .filter((r) => r.contentWorkspaceId && !hasGenerationFor(r) && needsThumbnailFix(r))
       .slice(0, 7);
     const inGeneration = validActiveGenerations.slice(0, 7);
     const recentApplied = productGenerations
       .filter(
-        (g) =>
-          isApplied(g) &&
-          !!pickDisplayableImageUrl(g.selectedUrl, g.originalUrl, g.product?.imageUrl),
+        (g) => isApplied(g) && !!pickDisplayableImageUrl(g.selectedUrl, g.originalUrl, g.contentWorkspace?.imageUrl),
       )
       .slice(0, 7);
 
@@ -198,8 +184,8 @@ export function useThumbnailPageModel({
     return {
       allResults,
       unclassified,
-      generatedProductIds,
-      genByProductId,
+      generatedContentWorkspaceIds,
+      genByContentWorkspaceId,
       historyByProduct,
       classifiedNoImage,
       unclassifiedCount,
@@ -233,15 +219,5 @@ export function useThumbnailPageModel({
       warnCount,
       passCount,
     };
-  }, [
-    activeTab,
-    generations,
-    gradeFilter,
-    historyPage,
-    page,
-    pageSize,
-    scanResult,
-    selectedProduct,
-    sq,
-  ]);
+  }, [activeTab, generations, gradeFilter, historyPage, page, pageSize, scanResult, selectedProduct, sq]);
 }

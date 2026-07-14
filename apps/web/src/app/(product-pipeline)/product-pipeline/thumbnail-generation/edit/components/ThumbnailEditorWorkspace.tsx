@@ -34,10 +34,7 @@ import { EditorControlPanel } from '../../components/control/EditorControlPanel'
 import { ModeCaseModal } from '../../components/control/ModeCaseModal';
 import type { EditUseCase } from '../../components/control/UseCaseSelection';
 import type { SupplementaryLabel } from '../../components/input/EditorInputPanel';
-import {
-  buildInitialSlots, selectProductValue, setFirstSlotValueByKind,
-  type Slot,
-} from '../lib/slots';
+import { buildInitialSlots, selectProductValue, setFirstSlotValueByKind, type Slot } from '../lib/slots';
 import { type EditorMode, parseEditCaseParam } from '../lib/edit-page-types';
 import { buildGenerateThumbnailDto } from '../lib/build-generate-thumbnail-dto';
 import { resolveOriginalPreviewImage } from '../lib/preview-image';
@@ -61,13 +58,9 @@ interface ThumbnailEditorWorkspaceProps {
   onBack?: () => void;
 }
 
-export function ThumbnailEditorWorkspace({
-  embedded = false,
-  onBack,
-}: ThumbnailEditorWorkspaceProps) {
+export function ThumbnailEditorWorkspace({ embedded = false, onBack }: ThumbnailEditorWorkspaceProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const productId = searchParams.get('productId');
   const sourceCandidateId = searchParams.get('sourceCandidateId');
   const contentWorkspaceId = searchParams.get('contentWorkspaceId');
   const imageUrlParam = searchParams.get('imageUrl');
@@ -93,15 +86,17 @@ export function ThumbnailEditorWorkspace({
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   const productName = productNameParam;
 
-  // 분석 결과 fetch — productId 의 recompose 분류 정보 (kind, options) 받아서 picker 노출.
+  // 분석 결과 fetch — contentWorkspaceId 의 recompose 분류 정보 (kind, options) 받아서 picker 노출.
   const { data: analysisList } = useAnalysisList();
-  const productAnalysis = productId
-    ? analysisList?.allResults.find((r) => r.productId === productId)
+  const productAnalysis = contentWorkspaceId
+    ? analysisList?.allResults.find((r) => r.contentWorkspaceId === contentWorkspaceId)
     : null;
   const recomposeClassification = productAnalysis?.recompose ?? null;
 
@@ -134,7 +129,7 @@ export function ThumbnailEditorWorkspace({
         initialProductImage: imageUrlParam,
         sceneType: 'white-studio',
         // bundle 케이스로 직접 진입할 때 첫 슬롯이 owner 가 되도록 박아둠.
-        ownerProductId: productId,
+        ownerContentWorkspaceId: contentWorkspaceId,
       },
     ),
   );
@@ -200,8 +195,7 @@ export function ThumbnailEditorWorkspace({
   const [styleType, setStyleType] = useState('minimal');
   const [productDescription, setProductDescription] = useState(productDescriptionParam);
 
-  const { images: hubImages, loading: hubImagesLoading } =
-    useContentWorkspaceImages(contentWorkspaceId);
+  const { images: hubImages, loading: hubImagesLoading } = useContentWorkspaceImages(contentWorkspaceId);
   const originalImageUrl = hubImages[0]?.url ?? null;
 
   const productImage = selectProductValue(slots);
@@ -225,8 +219,11 @@ export function ThumbnailEditorWorkspace({
       return item?.status === 'pending' || item?.status === 'running' ? 2500 : false;
     },
   });
-  const { forcedAwaiting, isAwaitingGen, beginAwaiting, clearAwaiting } =
-    useGenerationAwaitingState(observedGenerationId, pollingGenerations, observedGeneration);
+  const { forcedAwaiting, isAwaitingGen, beginAwaiting, clearAwaiting } = useGenerationAwaitingState(
+    observedGenerationId,
+    pollingGenerations,
+    observedGeneration,
+  );
   const originalPreviewImage = resolveOriginalPreviewImage({
     initialGenerationOriginalUrl: observedGeneration?.originalUrl,
     initialImageUrl,
@@ -263,14 +260,12 @@ export function ThumbnailEditorWorkspace({
    */
   useEffect(() => {
     if (generationId || generationIdParam) return; // 이미 있으면 skip
-    if (!productId && !sourceCandidateId && !contentWorkspaceId) return;
+    if (!contentWorkspaceId && !sourceCandidateId) return;
     const activeGen = pollingGenerations.find(
       (g) =>
         (contentWorkspaceId
           ? g.contentWorkspaceId === contentWorkspaceId
-          : productId
-            ? g.productId === productId
-            : g.sourceCandidateId === sourceCandidateId) &&
+          : g.sourceCandidateId === sourceCandidateId) &&
         (g.status === 'pending' || g.status === 'running'),
     );
     if (activeGen) {
@@ -280,12 +275,17 @@ export function ThumbnailEditorWorkspace({
       router.replace(`?${next.toString()}`, { scroll: false });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productId, sourceCandidateId, contentWorkspaceId, pollingGenerations.length, generationId, generationIdParam]);
+  }, [contentWorkspaceId, sourceCandidateId, pollingGenerations.length, generationId, generationIdParam]);
 
   const { historyCandidates, recommendedCandidateUrl } = useEditorHistory({
-    productId, sourceCandidateId, contentWorkspaceId, mode, result, generationId,
+    sourceCandidateId,
+    contentWorkspaceId,
+    mode,
+    result,
+    generationId,
     observedGeneration,
-    selectedCandidateUrl, setSelectedCandidateUrl,
+    selectedCandidateUrl,
+    setSelectedCandidateUrl,
   });
 
   const generateMutation = useGenerateThumbnail();
@@ -298,7 +298,7 @@ export function ThumbnailEditorWorkspace({
     const imageOnly = options.imageOnly === true;
     console.log('[edit-page] handleGenerate called', {
       selectedVariantKey,
-      productId,
+      contentWorkspaceId,
       mode,
       hasRecompose: !!recomposeClassification,
       userPromptEmpty: !userPrompt.trim(),
@@ -330,8 +330,11 @@ export function ThumbnailEditorWorkspace({
       const dto = buildGenerateThumbnailDto({
         mode,
         slots,
-        subject: thumbnailSubjectFromParams({ productId, sourceCandidateId, contentWorkspaceId }),
-        productId,
+        subject: thumbnailSubjectFromParams({
+          sourceCandidateId,
+          contentWorkspaceId,
+        }),
+        contentWorkspaceId,
         sourceCandidateId,
         supplementaryLabel,
         pieceCount,
@@ -348,10 +351,10 @@ export function ThumbnailEditorWorkspace({
       if (!mountedRef.current) return;
 
       if (data?.status === 'pending' && data.generationId) {
-        // Uniform async path: product-bound, candidate-bound, workspace, and
+        // Uniform async path: workspace-bound, candidate-bound, workspace, and
         // direct-upload jobs all return a ThumbnailGeneration id first. The
         // single-generation query above keeps polling even when ownerless rows
-        // are intentionally absent from the product-bound list query.
+        // are intentionally absent from the workspace-bound list query.
         setGenerationId(data.generationId);
         const next = new URLSearchParams(searchParams.toString());
         next.set('generationId', data.generationId);
@@ -375,7 +378,9 @@ export function ThumbnailEditorWorkspace({
           });
         }
         clearAwaiting();
-        queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.all });
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.thumbnailAnalysis.all,
+        });
         toast.success(`썸네일 ${data.candidates.length}장 생성 완료`);
         if (data.generationId) {
           const next = new URLSearchParams(searchParams.toString());
@@ -397,8 +402,11 @@ export function ThumbnailEditorWorkspace({
    * 응답: ThumbnailGenerationItem[] — generationId 받아 URL 갱신 → 결과 폴링/표시.
    */
   const handleRecomposeVariant = async (variantKey: RecomposeVariantKey | undefined) => {
-    console.log('[edit-page] handleRecomposeVariant called', { variantKey, productId });
-    if (!productId) {
+    console.log('[edit-page] handleRecomposeVariant called', {
+      variantKey,
+      contentWorkspaceId,
+    });
+    if (!contentWorkspaceId) {
       toast.error('상품 정보가 필요합니다');
       return;
     }
@@ -406,14 +414,12 @@ export function ThumbnailEditorWorkspace({
     console.log('[edit-page] forcedAwaiting=true, calling editJobsMutation...');
     try {
       const created = await editJobsMutation.mutateAsync({
-        productIds: [productId],
+        contentWorkspaceIds: [contentWorkspaceId],
         purpose: 'compliance',
         variantKey,
       });
       console.log('[edit-page] editJobsMutation response:', created);
-      const item = Array.isArray(created)
-        ? created.find((d) => d.productId === productId)
-        : null;
+      const item = Array.isArray(created) ? created.find((d) => d.contentWorkspaceId === contentWorkspaceId) : null;
       if (item) {
         setGenerationId(item.id);
         // mutation 응답 candidates 는 일반적으로 빈 배열 (status=pending). 결과 도착은 polling 으로.
@@ -428,12 +434,10 @@ export function ThumbnailEditorWorkspace({
         });
         toast.success('AI 편집 시작 — 잠시만 기다려주세요');
       } else {
-        // mutation 응답 빈 array — 이미 진행 중인 같은 productId job 있음.
+        // mutation 응답 빈 array — 이미 진행 중인 같은 contentWorkspaceId job 있음.
         // 해당 active generation 을 폴링 데이터에서 찾아 generationId 박기 → 모달 유지.
         const activeGen = pollingGenerations.find(
-          (g) =>
-            g.productId === productId &&
-            (g.status === 'pending' || g.status === 'running'),
+          (g) => g.contentWorkspaceId === contentWorkspaceId && (g.status === 'pending' || g.status === 'running'),
         );
         if (activeGen) {
           setGenerationId(activeGen.id);
@@ -508,9 +512,7 @@ export function ThumbnailEditorWorkspace({
       return;
     }
     // selectedCandidateUrl 은 resolveImageUrl 거친 값 — 원본 url 찾아서 backend 로 보낸다
-    const target = historyCandidates.find(
-      (c) => (resolveImageUrl(c.url) ?? c.url) === selectedCandidateUrl,
-    );
+    const target = historyCandidates.find((c) => (resolveImageUrl(c.url) ?? c.url) === selectedCandidateUrl);
     if (!target?.generationId) {
       setDeleteDialogOpen(false);
       toast.error('선택한 이미지를 찾을 수 없습니다');
@@ -530,9 +532,7 @@ export function ThumbnailEditorWorkspace({
         if (res.generationDeleted) {
           // 현재 gen row 도 cascade 삭제됨. history 에 다른 gen 후보가 남았으면
           // 그 중 가장 최근 것으로 편집기 재진입 (UseCaseSelection 폴백 방지).
-          const remaining = historyCandidates.find(
-            (c) => c.generationId && c.generationId !== targetGenId,
-          );
+          const remaining = historyCandidates.find((c) => c.generationId && c.generationId !== targetGenId);
           setResult([]);
           setGenerationId(null);
           setSelectedCandidateUrl(null);
@@ -561,9 +561,9 @@ export function ThumbnailEditorWorkspace({
     }
   };
 
-  const hasInput = !!productId || !!sourceCandidateId || !!contentWorkspaceId || hasInputSlotFilled;
+  const hasInput = !!contentWorkspaceId || !!sourceCandidateId || hasInputSlotFilled;
 
-  // NOTE: 예전에는 imageUrl+productId+mode+editCase 쿼리가 있으면 자동으로 handleGenerate 를 호출했다.
+  // NOTE: 예전에는 imageUrl+contentWorkspaceId+mode+editCase 쿼리가 있으면 자동으로 handleGenerate 를 호출했다.
   // 하지만 이 동작이 두 가지 UX 문제를 일으켰다:
   //   1. 모달 → "편집화면으로 가기" 를 누르면 편집 화면에 들어가자마자 바로 생성 mutation 이 돌아서
   //      사용자가 입력·설정을 확인할 틈도 없이 AI 가 돌아감.
@@ -577,9 +577,7 @@ export function ThumbnailEditorWorkspace({
     <div
       className={cn(
         'flex flex-col bg-slate-50',
-        embedded
-          ? 'min-h-[720px] rounded-lg border border-slate-200'
-          : 'h-screen -m-6',
+        embedded ? 'min-h-[720px] rounded-lg border border-slate-200' : 'h-screen -m-6',
       )}
     >
       <EditorPageHeader
@@ -592,9 +590,9 @@ export function ThumbnailEditorWorkspace({
             onBack();
             return;
           }
-          router.push(returnTo ?? (sourceCandidateId
-            ? collectedProductDetailHref(sourceCandidateId)
-            : THUMBNAIL_GENERATION_ROOT));
+          router.push(
+            returnTo ?? (sourceCandidateId ? collectedProductDetailHref(sourceCandidateId) : THUMBNAIL_GENERATION_ROOT),
+          );
         }}
         onOpenModeModal={() => setModalOpen(true)}
       />
@@ -611,15 +609,12 @@ export function ThumbnailEditorWorkspace({
           // carry-over. (예: bundle → single 로 가면 첫 bundle 슬롯의 이미지가 product 슬롯으로
           // 옮겨짐.) 슬롯 레이아웃이 mode/editCase 와 항상 일관되게 유지되도록 보장.
           const carryOverImage =
-            selectProductValue(slots) ??
-            slots.find((s) => s.value)?.value ??
-            imageUrlParam ??
-            null;
+            selectProductValue(slots) ?? slots.find((s) => s.value)?.value ?? imageUrlParam ?? null;
           setSlots(
             buildInitialSlots(nextMode, nextCase, {
               initialProductImage: carryOverImage,
               sceneType,
-              ownerProductId: productId,
+              ownerContentWorkspaceId: contentWorkspaceId,
             }),
           );
           const next = new URLSearchParams(searchParams.toString());
@@ -631,104 +626,93 @@ export function ThumbnailEditorWorkspace({
       />
 
       <div className="flex-1 min-h-0 grid grid-cols-[320px_1fr_320px]">
-          <EditorInputPanel
-            mode={mode}
-            editCase={editCase}
-            productId={productId}
-            contentWorkspaceId={contentWorkspaceId}
-            slots={slots}
-            onSlotsChange={setSlots}
-            fallbackProductImage={fallbackProductImage}
-            originalImage={originalPreviewImage}
-            supplementaryLabel={supplementaryLabel}
-            sceneType={sceneType}
-            hubImages={hubImages}
-            hubImagesLoading={hubImagesLoading}
-            historyCandidates={historyCandidates}
-            selectedCandidateUrl={selectedCandidateUrl}
-            recommendedCandidateUrl={recommendedCandidateUrl}
-            onSelectCandidate={handleSelectCandidate}
-            onSupplementaryLabelChange={setSupplementaryLabel}
-            onPromoteCase={(nextCase) => {
-              // 현재 product 슬롯 값 보존하며 editCase 승격 → 새 슬롯 레이아웃으로 재빌드.
-              // color-variants/bundle 케이스에도 carry-over 되도록 buildInitialSlots 가
-              // initialProductImage 를 첫 슬롯 (color_variant 1 / bundle_item A) 에 복사.
-              // bundle 의 경우 ownerProductId 를 박아두면 결과 저장 기준이 "이 상품" 으로 유지.
-              const currentProduct = selectProductValue(slots) ?? imageUrlParam ?? null;
-              setEditCase(nextCase);
-              setSlots(
-                buildInitialSlots('edit', nextCase, {
-                  initialProductImage: currentProduct,
-                  sceneType,
-                  ownerProductId: productId,
-                }),
-              );
-              const next = new URLSearchParams(searchParams.toString());
-              next.set('editCase', nextCase);
-              router.replace(`?${next.toString()}`, { scroll: false });
-            }}
-            generationId={generationId}
-            onDeleteSelectedCandidate={() => setDeleteDialogOpen(true)}
-          />
+        <EditorInputPanel
+          mode={mode}
+          editCase={editCase}
+          contentWorkspaceId={contentWorkspaceId}
+          slots={slots}
+          onSlotsChange={setSlots}
+          fallbackProductImage={fallbackProductImage}
+          originalImage={originalPreviewImage}
+          supplementaryLabel={supplementaryLabel}
+          sceneType={sceneType}
+          hubImages={hubImages}
+          hubImagesLoading={hubImagesLoading}
+          historyCandidates={historyCandidates}
+          selectedCandidateUrl={selectedCandidateUrl}
+          recommendedCandidateUrl={recommendedCandidateUrl}
+          onSelectCandidate={handleSelectCandidate}
+          onSupplementaryLabelChange={setSupplementaryLabel}
+          onPromoteCase={(nextCase) => {
+            // 현재 product 슬롯 값 보존하며 editCase 승격 → 새 슬롯 레이아웃으로 재빌드.
+            // color-variants/bundle 케이스에도 carry-over 되도록 buildInitialSlots 가
+            // initialProductImage 를 첫 슬롯 (color_variant 1 / bundle_item A) 에 복사.
+            // bundle 의 경우 ownerContentWorkspaceId 를 박아두면 결과 저장 기준이 "이 상품" 으로 유지.
+            const currentProduct = selectProductValue(slots) ?? imageUrlParam ?? null;
+            setEditCase(nextCase);
+            setSlots(
+              buildInitialSlots('edit', nextCase, {
+                initialProductImage: currentProduct,
+                sceneType,
+                ownerContentWorkspaceId: contentWorkspaceId,
+              }),
+            );
+            const next = new URLSearchParams(searchParams.toString());
+            next.set('editCase', nextCase);
+            router.replace(`?${next.toString()}`, { scroll: false });
+          }}
+          generationId={generationId}
+          onDeleteSelectedCandidate={() => setDeleteDialogOpen(true)}
+        />
 
-          <EditorResultPanel
-            mode={mode}
-            originalImage={originalPreviewImage ?? productImage}
-            candidates={historyCandidates}
-            selectedCandidateUrl={selectedCandidateUrl}
-            isGenerating={
-              generateMutation.isPending ||
-              editJobsMutation.isPending ||
-              isAwaitingGen ||
-              forcedAwaiting
-            }
-            productName={productName}
-            onSelectCandidate={handleSelectCandidate}
-          />
+        <EditorResultPanel
+          mode={mode}
+          originalImage={originalPreviewImage ?? productImage}
+          candidates={historyCandidates}
+          selectedCandidateUrl={selectedCandidateUrl}
+          isGenerating={generateMutation.isPending || editJobsMutation.isPending || isAwaitingGen || forcedAwaiting}
+          productName={productName}
+          onSelectCandidate={handleSelectCandidate}
+        />
 
-          <EditorControlPanel
-            mode={mode}
-            editCase={editCase}
-            pieceCount={pieceCount}
-            layout={layout}
-            userPrompt={userPrompt}
-            sceneType={sceneType}
-            styleType={styleType}
-            productDescription={productDescription}
-            isPending={
-              generateMutation.isPending ||
-              editJobsMutation.isPending ||
-              isAwaitingGen ||
-              forcedAwaiting
-            }
-            hasInput={hasInput}
-            selectedCandidateUrl={selectedCandidateUrl}
-            generationId={generationId}
-            isApplying={wingRegisterMutation.isPending}
-            onPieceCountChange={setPieceCount}
-            onLayoutChange={setLayout}
-            onUserPromptChange={(v) => {
-              userPromptDirtyRef.current = true;
-              setUserPrompt(v);
-            }}
-            onSceneTypeChange={setSceneType}
-            onStyleTypeChange={setStyleType}
-            onProductDescriptionChange={setProductDescription}
-            onGenerateImageOnly={() => handleGenerate({ imageOnly: true })}
-            onGenerate={() => handleGenerate()}
-            onCoupang={handleCoupang}
-            onReEditFromSelected={handleReEditFromSelected}
-            recomposeSlot={
-              recomposeClassification ? (
-                <RecomposeControlSlot
-                  classification={recomposeClassification}
-                  userPrompt={userPrompt}
-                  selectedVariantKey={selectedVariantKey}
-                  onSelectVariant={setSelectedVariantKey}
-                />
-              ) : undefined
-            }
-          />
+        <EditorControlPanel
+          mode={mode}
+          editCase={editCase}
+          pieceCount={pieceCount}
+          layout={layout}
+          userPrompt={userPrompt}
+          sceneType={sceneType}
+          styleType={styleType}
+          productDescription={productDescription}
+          isPending={generateMutation.isPending || editJobsMutation.isPending || isAwaitingGen || forcedAwaiting}
+          hasInput={hasInput}
+          selectedCandidateUrl={selectedCandidateUrl}
+          generationId={generationId}
+          isApplying={wingRegisterMutation.isPending}
+          onPieceCountChange={setPieceCount}
+          onLayoutChange={setLayout}
+          onUserPromptChange={(v) => {
+            userPromptDirtyRef.current = true;
+            setUserPrompt(v);
+          }}
+          onSceneTypeChange={setSceneType}
+          onStyleTypeChange={setStyleType}
+          onProductDescriptionChange={setProductDescription}
+          onGenerateImageOnly={() => handleGenerate({ imageOnly: true })}
+          onGenerate={() => handleGenerate()}
+          onCoupang={handleCoupang}
+          onReEditFromSelected={handleReEditFromSelected}
+          recomposeSlot={
+            recomposeClassification ? (
+              <RecomposeControlSlot
+                classification={recomposeClassification}
+                userPrompt={userPrompt}
+                selectedVariantKey={selectedVariantKey}
+                onSelectVariant={setSelectedVariantKey}
+              />
+            ) : undefined
+          }
+        />
       </div>
 
       <DeleteCandidateConfirmDialog

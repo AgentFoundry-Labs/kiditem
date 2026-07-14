@@ -1,9 +1,19 @@
-import { IsArray, IsBoolean, IsIn, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsBoolean, IsEmpty, IsIn, IsOptional, IsString } from 'class-validator';
 
 export class EditJobsDto {
+  @IsEmpty({
+    message: 'productIds는 제거되었습니다. contentWorkspaceIds를 사용하세요',
+  })
+  productIds?: never;
+
+  @IsEmpty({
+    message: 'masterIds는 제거되었습니다. contentWorkspaceIds를 사용하세요',
+  })
+  masterIds?: never;
+
   @IsArray()
   @IsString({ each: true })
-  productIds!: string[];
+  contentWorkspaceIds!: string[];
 
   @IsOptional()
   @IsIn(['compliance', 'quality'])

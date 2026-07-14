@@ -9,23 +9,23 @@ import type {
 } from '../../../application/port/out/repository/thumbnail-generation-ledger.repository.port';
 import { readProductGenerationAlertLink } from '../../../application/service/product-generation-alert-link';
 import {
-  findActiveJobForProduct,
+  findActiveJobForWorkspace,
   findAutoBatchCandidates,
-  findGenerationMaster,
-  findGenerationMasters,
+  findGenerationWorkspace,
+  findGenerationWorkspaces,
   findGenerationOrThrow,
   findGenerationRows,
   findGenerationWithCandidatesOrThrow,
   findGenerationWithInputImages,
-  findJobMaster,
-  findJobMastersByIds,
-  findProductForEditor,
+  findWorkspaceForThumbnailJob,
+  findWorkspacesForThumbnailJobs,
+  findWorkspaceForThumbnailEditor,
   findRecentAutoJob,
   findThumbnailAnalysisGrade,
 } from './thumbnail-generation-ledger.query';
 import {
   applyDirectSuccessResult,
-  applyGenerationToMaster,
+  applyGenerationToWorkspace,
   clearReadySelections,
   createPendingCandidateJob,
   createPendingEditJob,
@@ -43,13 +43,11 @@ import {
 } from './thumbnail-generation-ledger.persistence';
 
 @Injectable()
-export class ThumbnailGenerationLedgerRepositoryAdapter
-  implements ThumbnailGenerationLedgerRepositoryPort
-{
+export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGenerationLedgerRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
-  findProductForEditor(productId: string, organizationId: string) {
-    return findProductForEditor(this.prisma, productId, organizationId);
+  findWorkspaceForThumbnailEditor(contentWorkspaceId: string, organizationId: string) {
+    return findWorkspaceForThumbnailEditor(this.prisma, contentWorkspaceId, organizationId);
   }
 
   async findGenerationRows(
@@ -75,20 +73,17 @@ export class ThumbnailGenerationLedgerRepositoryAdapter
     >;
   }
 
-  async findGenerationMasters(
-    rows: Array<{ masterId: string | null }>,
-    organizationId: string,
-  ) {
-    return findGenerationMasters(this.prisma, rows, organizationId);
+  async findGenerationWorkspaces(rows: Array<{ contentWorkspaceId: string | null }>, organizationId: string) {
+    return findGenerationWorkspaces(this.prisma, rows, organizationId);
   }
 
-  findGenerationMaster(masterId: string | null, organizationId: string) {
-    return findGenerationMaster(this.prisma, masterId, organizationId);
+  findGenerationWorkspace(contentWorkspaceId: string | null, organizationId: string) {
+    return findGenerationWorkspace(this.prisma, contentWorkspaceId, organizationId);
   }
 
-  async findJobMaster(masterId: string, organizationId: string) {
-    return findJobMaster(this.prisma, masterId, organizationId) as Promise<
-      Awaited<ReturnType<ThumbnailGenerationLedgerRepositoryPort['findJobMaster']>>
+  async findWorkspaceForThumbnailJob(contentWorkspaceId: string, organizationId: string) {
+    return findWorkspaceForThumbnailJob(this.prisma, contentWorkspaceId, organizationId) as Promise<
+      Awaited<ReturnType<ThumbnailGenerationLedgerRepositoryPort['findWorkspaceForThumbnailJob']>>
     >;
   }
 
@@ -111,30 +106,26 @@ export class ThumbnailGenerationLedgerRepositoryAdapter
     });
   }
 
-  async findJobMastersByIds(ids: string[], organizationId: string) {
-    return findJobMastersByIds(this.prisma, ids, organizationId) as Promise<
-      Awaited<ReturnType<ThumbnailGenerationLedgerRepositoryPort['findJobMastersByIds']>>
+  async findWorkspacesForThumbnailJobs(ids: string[], organizationId: string) {
+    return findWorkspacesForThumbnailJobs(this.prisma, ids, organizationId) as Promise<
+      Awaited<ReturnType<ThumbnailGenerationLedgerRepositoryPort['findWorkspacesForThumbnailJobs']>>
     >;
   }
 
-  async findActiveJobForProduct(
-    masterId: string,
-    organizationId: string,
-    method: string,
-  ) {
-    return findActiveJobForProduct(this.prisma, masterId, organizationId, method);
+  async findActiveJobForWorkspace(contentWorkspaceId: string, organizationId: string, method: string) {
+    return findActiveJobForWorkspace(this.prisma, contentWorkspaceId, organizationId, method);
   }
 
-  findRecentAutoJob(masterId: string, organizationId: string, cooldownStart: Date) {
-    return findRecentAutoJob(this.prisma, masterId, organizationId, cooldownStart);
+  findRecentAutoJob(contentWorkspaceId: string, organizationId: string, cooldownStart: Date) {
+    return findRecentAutoJob(this.prisma, contentWorkspaceId, organizationId, cooldownStart);
   }
 
   findAutoBatchCandidates(organizationId: string, take: number) {
     return findAutoBatchCandidates(this.prisma, organizationId, take);
   }
 
-  findThumbnailAnalysisGrade(masterId: string, organizationId: string) {
-    return findThumbnailAnalysisGrade(this.prisma, masterId, organizationId);
+  findThumbnailAnalysisGrade(contentWorkspaceId: string, organizationId: string) {
+    return findThumbnailAnalysisGrade(this.prisma, contentWorkspaceId, organizationId);
   }
 
   saveEditorResult(input: SaveEditorResultInput) {
@@ -144,27 +135,21 @@ export class ThumbnailGenerationLedgerRepositoryAdapter
     });
   }
 
-  async openPendingEditorJob(
-    input: Parameters<ThumbnailGenerationLedgerRepositoryPort['openPendingEditorJob']>[0],
-  ) {
+  async openPendingEditorJob(input: Parameters<ThumbnailGenerationLedgerRepositoryPort['openPendingEditorJob']>[0]) {
     return createPendingEditJob(this.prisma, {
       ...input,
       inputMeta: input.inputMeta as Prisma.InputJsonValue,
     });
   }
 
-  openPendingCandidateJob(
-    input: Parameters<ThumbnailGenerationLedgerRepositoryPort['openPendingCandidateJob']>[0],
-  ) {
+  openPendingCandidateJob(input: Parameters<ThumbnailGenerationLedgerRepositoryPort['openPendingCandidateJob']>[0]) {
     return createPendingCandidateJob(this.prisma, {
       ...input,
       inputMeta: input.inputMeta as Prisma.InputJsonValue,
     });
   }
 
-  openPendingStandaloneJob(
-    input: Parameters<ThumbnailGenerationLedgerRepositoryPort['openPendingStandaloneJob']>[0],
-  ) {
+  openPendingStandaloneJob(input: Parameters<ThumbnailGenerationLedgerRepositoryPort['openPendingStandaloneJob']>[0]) {
     return createPendingStandaloneJob(this.prisma, {
       ...input,
       inputMeta: input.inputMeta as Prisma.InputJsonValue,
@@ -185,10 +170,10 @@ export class ThumbnailGenerationLedgerRepositoryAdapter
     return clearReadySelections(this.prisma, organizationId);
   }
 
-  applyGenerationToMaster(
-    input: Parameters<ThumbnailGenerationLedgerRepositoryPort['applyGenerationToMaster']>[0],
+  applyGenerationToWorkspace(
+    input: Parameters<ThumbnailGenerationLedgerRepositoryPort['applyGenerationToWorkspace']>[0],
   ) {
-    return applyGenerationToMaster(this.prisma, input);
+    return applyGenerationToWorkspace(this.prisma, input);
   }
 
   markGenerationCancelled(id: string, organizationId: string) {
@@ -203,15 +188,11 @@ export class ThumbnailGenerationLedgerRepositoryAdapter
     return removeCandidate(this.prisma, input);
   }
 
-  resetGenerationForReEdit(
-    input: Parameters<ThumbnailGenerationLedgerRepositoryPort['resetGenerationForReEdit']>[0],
-  ) {
+  resetGenerationForReEdit(input: Parameters<ThumbnailGenerationLedgerRepositoryPort['resetGenerationForReEdit']>[0]) {
     return resetGenerationForReEdit(this.prisma, input);
   }
 
-  replaceLegacyEditResult(
-    input: Parameters<ThumbnailGenerationLedgerRepositoryPort['replaceLegacyEditResult']>[0],
-  ) {
+  replaceLegacyEditResult(input: Parameters<ThumbnailGenerationLedgerRepositoryPort['replaceLegacyEditResult']>[0]) {
     return replaceGenerationResult(this.prisma, {
       ...input,
       inputMeta: input.inputMeta as Prisma.InputJsonValue,
@@ -222,30 +203,19 @@ export class ThumbnailGenerationLedgerRepositoryAdapter
     return markGenerationFailed(this.prisma, id, organizationId, message);
   }
 
-  claimForDirectProjection(
-    input: Parameters<ThumbnailGenerationLedgerRepositoryPort['claimForDirectProjection']>[0],
-  ) {
+  claimForDirectProjection(input: Parameters<ThumbnailGenerationLedgerRepositoryPort['claimForDirectProjection']>[0]) {
     return lockGenerationForProcessing(this.prisma, input.generationId, input.organizationId);
   }
 
-  projectDirectSuccess(
-    input: Parameters<ThumbnailGenerationLedgerRepositoryPort['projectDirectSuccess']>[0],
-  ) {
+  projectDirectSuccess(input: Parameters<ThumbnailGenerationLedgerRepositoryPort['projectDirectSuccess']>[0]) {
     return applyDirectSuccessResult(this.prisma, {
       ...input,
       inputMeta: input.inputMeta as Prisma.InputJsonValue,
     });
   }
 
-  projectDirectFailure(
-    input: Parameters<ThumbnailGenerationLedgerRepositoryPort['projectDirectFailure']>[0],
-  ) {
-    return markGenerationFailed(
-      this.prisma,
-      input.generationId,
-      input.organizationId,
-      input.errorMessage,
-    );
+  projectDirectFailure(input: Parameters<ThumbnailGenerationLedgerRepositoryPort['projectDirectFailure']>[0]) {
+    return markGenerationFailed(this.prisma, input.generationId, input.organizationId, input.errorMessage);
   }
 
   async findGenerationProjectionStatus(
@@ -257,7 +227,13 @@ export class ThumbnailGenerationLedgerRepositoryAdapter
         organizationId: input.organizationId,
         isDeleted: false,
       },
-      select: { id: true, status: true, phase: true, inputMeta: true, errorMessage: true },
+      select: {
+        id: true,
+        status: true,
+        phase: true,
+        inputMeta: true,
+        errorMessage: true,
+      },
     });
   }
 

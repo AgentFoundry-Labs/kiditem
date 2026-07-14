@@ -26,7 +26,7 @@ interface ScanResultsTabProps {
   pageSize: number;
   gradeFilter: string;
   gradeDistribution: Record<string, number>;
-  genByProductId: Map<string, ThumbnailGenerationItem>;
+  genByContentWorkspaceId: Map<string, ThumbnailGenerationItem>;
   selectedNeedsFixIds: Set<string>;
   onToggleNeedsFix: (id: string) => void;
   onSelectAllUnEdited: (ids: string[] | null) => void;
@@ -52,7 +52,7 @@ export function ScanResultsTab({
   pageSize,
   gradeFilter,
   gradeDistribution,
-  genByProductId,
+  genByContentWorkspaceId,
   selectedNeedsFixIds,
   onToggleNeedsFix,
   onSelectAllUnEdited,
@@ -66,33 +66,35 @@ export function ScanResultsTab({
   onRunBatchPaged,
 }: ScanResultsTabProps) {
   const editPendingCount = needsFixProducts.filter((r) => {
-    const g = genByProductId.get(r.productId);
+    if (!r.contentWorkspaceId) return false;
+    const g = genByContentWorkspaceId.get(r.contentWorkspaceId);
     return g && (g.status === 'pending' || g.status === 'running');
   }).length;
   const editReadyCount = needsFixProducts.filter((r) => {
-    const g = genByProductId.get(r.productId);
+    if (!r.contentWorkspaceId) return false;
+    const g = genByContentWorkspaceId.get(r.contentWorkspaceId);
     return g && isReady(g);
   }).length;
   const editFailedCount = needsFixProducts.filter((r) => {
-    const g = genByProductId.get(r.productId);
+    if (!r.contentWorkspaceId) return false;
+    const g = genByContentWorkspaceId.get(r.contentWorkspaceId);
     return g && g.status === 'failed';
   }).length;
   const complianceFailCount = needsFixProducts.filter(hasConfirmedComplianceFailure).length;
-  const unEditedProducts = needsFixProducts.filter((r) => {
-    const g = genByProductId.get(r.productId);
-    return !g || g.status === 'failed';
-  });
+  const unEditedProducts = needsFixProducts.filter(
+    (r): r is ThumbnailAnalysisResult & { contentWorkspaceId: string } => {
+      if (!r.contentWorkspaceId) return false;
+      const g = genByContentWorkspaceId.get(r.contentWorkspaceId);
+      return !g || g.status === 'failed';
+    },
+  );
   const allUnEditedSelected =
-    unEditedProducts.length > 0 &&
-    unEditedProducts.every((r) => selectedNeedsFixIds.has(r.productId));
+    unEditedProducts.length > 0 && unEditedProducts.every((r) => selectedNeedsFixIds.has(r.contentWorkspaceId));
 
   const aiResultsCount = Object.keys(aiResults).length;
 
   // 'all' 탭은 위반/품질미달 제외 — page.tsx 의 base 와 동일 정책. (라벨 카운트 정합용)
-  const cleanResults = useMemo(
-    () => classifiedResults.filter((r) => !needsThumbnailFix(r)),
-    [classifiedResults],
-  );
+  const cleanResults = useMemo(() => classifiedResults.filter((r) => !needsThumbnailFix(r)), [classifiedResults]);
   const cleanGradeDistribution = useMemo(
     () =>
       cleanResults.reduce<Record<string, number>>(
@@ -111,7 +113,10 @@ export function ScanResultsTab({
         <div className="space-y-2">
           <div
             className="flex items-center justify-between p-3 rounded-xl"
-            style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.20)' }}
+            style={{
+              background: 'rgba(245,158,11,0.06)',
+              border: '1px solid rgba(245,158,11,0.20)',
+            }}
           >
             <div className="flex items-center gap-3">
               <AlertTriangle size={16} style={{ color: '#f59e0b' }} />
@@ -126,7 +131,7 @@ export function ScanResultsTab({
               <button
                 onClick={() => {
                   if (allUnEditedSelected) onSelectAllUnEdited(null);
-                  else onSelectAllUnEdited(unEditedProducts.map((r) => r.productId));
+                  else onSelectAllUnEdited(unEditedProducts.map((r) => r.contentWorkspaceId));
                 }}
                 className="text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
                 style={
@@ -146,8 +151,14 @@ export function ScanResultsTab({
           <FilterBar
             tabs={[
               { key: 'all', label: `전체 (${needsFixCount})` },
-              { key: 'FAIL', label: `위반 (${needsFixProducts.filter((r) => getEffectiveComplianceGrade(r) === 'FAIL').length})` },
-              { key: 'WARN', label: `주의 (${needsFixProducts.filter((r) => getEffectiveComplianceGrade(r) === 'WARN').length})` },
+              {
+                key: 'FAIL',
+                label: `위반 (${needsFixProducts.filter((r) => getEffectiveComplianceGrade(r) === 'FAIL').length})`,
+              },
+              {
+                key: 'WARN',
+                label: `주의 (${needsFixProducts.filter((r) => getEffectiveComplianceGrade(r) === 'WARN').length})`,
+              },
               { key: 'edit-pending', label: `편집 중 (${editPendingCount})` },
               { key: 'edit-ready', label: `편집 완료 (${editReadyCount})` },
               { key: 'edit-failed', label: `편집 실패 (${editFailedCount})` },
@@ -169,9 +180,18 @@ export function ScanResultsTab({
             })),
             // 위반 필터는 cleanResults 가 아니라 전체 분석건 기준 — 클릭 시 page 가 base 를
             // needsFix 로 스위칭해서 위반만 노출 (격리는 유지하되 진입점은 보존).
-            { key: 'FAIL', label: `위반 (${classifiedResults.filter((r) => getEffectiveComplianceGrade(r) === 'FAIL').length})` },
-            { key: 'WARN', label: `주의 (${cleanResults.filter((r) => getEffectiveComplianceGrade(r) === 'WARN').length})` },
-            { key: 'PASS', label: `적합 (${cleanResults.filter((r) => getEffectiveComplianceGrade(r) === 'PASS').length})` },
+            {
+              key: 'FAIL',
+              label: `위반 (${classifiedResults.filter((r) => getEffectiveComplianceGrade(r) === 'FAIL').length})`,
+            },
+            {
+              key: 'WARN',
+              label: `주의 (${cleanResults.filter((r) => getEffectiveComplianceGrade(r) === 'WARN').length})`,
+            },
+            {
+              key: 'PASS',
+              label: `적합 (${cleanResults.filter((r) => getEffectiveComplianceGrade(r) === 'PASS').length})`,
+            },
           ]}
           current={gradeFilter}
           onChange={onChangeGradeFilter}
@@ -219,18 +239,18 @@ export function ScanResultsTab({
       ) : (
         <div className="grid grid-cols-4 md:grid-cols-6 xl:grid-cols-8 gap-3">
           {paged.map((item) => {
-            const display = aiResults[item.productId] || item;
-            const isAiDone = !!aiResults[item.productId];
-            const itemGen = genByProductId.get(item.productId);
+            const contentWorkspaceId = item.contentWorkspaceId;
+            const display = (contentWorkspaceId ? aiResults[contentWorkspaceId] : undefined) || item;
+            const isAiDone = contentWorkspaceId ? !!aiResults[contentWorkspaceId] : false;
+            const itemGen = contentWorkspaceId ? genByContentWorkspaceId.get(contentWorkspaceId) : undefined;
             const isEditing = itemGen && (itemGen.status === 'running' || itemGen.status === 'pending');
             const itemReady = itemGen && isReady(itemGen);
             const violationSummary = getPrimaryViolationSummary(display);
             const effectiveComplianceGrade = getEffectiveComplianceGrade(display);
             const showRedWarning = hasConfirmedComplianceFailure(display);
-            const showAmberWarning =
-              display.complianceGrade === 'FAIL' && effectiveComplianceGrade === 'WARN';
+            const showAmberWarning = display.complianceGrade === 'FAIL' && effectiveComplianceGrade === 'WARN';
             return (
-              <div key={item.productId} className="flex flex-col gap-1">
+              <div key={item.id} className="flex flex-col gap-1">
                 <ProductCard
                   imageUrl={item.imageUrl}
                   name={item.productName}
@@ -250,9 +270,7 @@ export function ScanResultsTab({
                       title={violationSummary ?? '위반 근거 없음'}
                     >
                       <AlertTriangle size={11} className="mt-0.5 shrink-0" />
-                      <span className="line-clamp-2">
-                        {violationSummary ?? '위반 근거 없음 · 재분석 필요'}
-                      </span>
+                      <span className="line-clamp-2">{violationSummary ?? '위반 근거 없음 · 재분석 필요'}</span>
                     </div>
                   )}
                   {showAmberWarning && (
@@ -274,14 +292,14 @@ export function ScanResultsTab({
                     >
                       <Wand2 size={10} /> 결과 확인하기
                     </button>
-                  ) : (
+                  ) : contentWorkspaceId ? (
                     <NeedsFixSelector
-                      productId={item.productId}
+                      contentWorkspaceId={contentWorkspaceId}
                       imageUrl={item.imageUrl}
-                      isSelected={selectedNeedsFixIds.has(item.productId)}
+                      isSelected={selectedNeedsFixIds.has(contentWorkspaceId)}
                       onToggle={onToggleNeedsFix}
                     />
-                  ))}
+                  ) : null)}
               </div>
             );
           })}
@@ -325,12 +343,12 @@ function FilterBar({
 }
 
 function NeedsFixSelector({
-  productId,
+  contentWorkspaceId,
   imageUrl,
   isSelected,
   onToggle,
 }: {
-  productId: string;
+  contentWorkspaceId: string;
   imageUrl: string | null;
   isSelected: boolean;
   onToggle: (id: string) => void;
@@ -340,7 +358,7 @@ function NeedsFixSelector({
       <button
         onClick={(e) => {
           e.stopPropagation();
-          onToggle(productId);
+          onToggle(contentWorkspaceId);
         }}
         className={`w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold border-2 transition-all ${
           isSelected
@@ -352,10 +370,7 @@ function NeedsFixSelector({
         {isSelected ? '선택됨' : '선택'}
       </button>
       {isSelected && (
-        <Link
-          href={buildEditHref({ productId, imageUrl })}
-          onClick={(e) => e.stopPropagation()}
-        >
+        <Link href={buildEditHref({ contentWorkspaceId, imageUrl })} onClick={(e) => e.stopPropagation()}>
           <button className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-100">
             <Wand2 size={10} /> AI 편집하러가기
           </button>

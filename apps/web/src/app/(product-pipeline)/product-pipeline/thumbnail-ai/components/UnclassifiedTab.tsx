@@ -4,10 +4,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { ProductCard } from '../../_shared/components/thumbnails/ProductCard';
 import { PaginationBar } from './PaginationBar';
 import type { AnalysisScope } from '../hooks/useThumbnailAnalysis';
-import {
-  getEffectiveComplianceGrade,
-  needsThumbnailFix,
-} from '../../_shared/lib/thumbnail-classification';
+import { getEffectiveComplianceGrade, needsThumbnailFix } from '../../_shared/lib/thumbnail-classification';
 
 type SubTab = 'with-image' | 'no-image' | 'new';
 
@@ -46,17 +43,28 @@ export function UnclassifiedTab({
   );
 
   const subTabs = [
-    { key: 'with-image' as const, label: '이미지 있는 상품', count: unclassifiedWithImage.length, color: 'var(--thumb-primary)' },
-    { key: 'no-image' as const, label: '이미지 없는 상품', count: unclassifiedNoImage.length, color: '#f59e0b' },
-    { key: 'new' as const, label: '새로 등록된 상품', count: newProducts.length, color: '#00c471' },
+    {
+      key: 'with-image' as const,
+      label: '이미지 있는 상품',
+      count: unclassifiedWithImage.length,
+      color: 'var(--thumb-primary)',
+    },
+    {
+      key: 'no-image' as const,
+      label: '이미지 없는 상품',
+      count: unclassifiedNoImage.length,
+      color: '#f59e0b',
+    },
+    {
+      key: 'new' as const,
+      label: '새로 등록된 상품',
+      count: newProducts.length,
+      color: '#00c471',
+    },
   ];
 
   const currentItems =
-    subTab === 'with-image'
-      ? unclassifiedWithImage
-      : subTab === 'no-image'
-        ? unclassifiedNoImage
-        : newProducts;
+    subTab === 'with-image' ? unclassifiedWithImage : subTab === 'no-image' ? unclassifiedNoImage : newProducts;
 
   const totalPages = Math.ceil(currentItems.length / pageSize);
   const pagedCurrent = currentItems.slice((page - 1) * pageSize, page * pageSize);
@@ -71,7 +79,11 @@ export function UnclassifiedTab({
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-semibold transition-colors"
             style={
               subTab === st.key
-                ? { background: 'var(--thumb-card-bg)', color: st.color, boxShadow: 'var(--thumb-shadow-sm)' }
+                ? {
+                    background: 'var(--thumb-card-bg)',
+                    color: st.color,
+                    boxShadow: 'var(--thumb-shadow-sm)',
+                  }
                 : { color: 'var(--thumb-text-tertiary)' }
             }
           >
@@ -82,7 +94,10 @@ export function UnclassifiedTab({
                 style={
                   subTab === st.key
                     ? { background: `${st.color}18`, color: st.color }
-                    : { background: 'var(--thumb-border-subtle)', color: 'var(--thumb-text-secondary)' }
+                    : {
+                        background: 'var(--thumb-border-subtle)',
+                        color: 'var(--thumb-text-secondary)',
+                      }
                 }
               >
                 {st.count}
@@ -95,7 +110,10 @@ export function UnclassifiedTab({
       {subTab === 'with-image' && unclassifiedWithImage.length > 0 && (
         <div
           className="flex items-center justify-between p-3 rounded-xl"
-          style={{ background: 'var(--thumb-primary-subtle)', border: '1px solid rgba(49,130,246,0.15)' }}
+          style={{
+            background: 'var(--thumb-primary-subtle)',
+            border: '1px solid rgba(49,130,246,0.15)',
+          }}
         >
           <div className="flex items-center gap-2">
             <Zap size={16} style={{ color: 'var(--thumb-primary)' }} />
@@ -124,7 +142,10 @@ export function UnclassifiedTab({
               onClick={() => onRunBatch(pagedCurrent)}
               disabled={batchAnalyzing}
               className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-              style={{ background: 'rgba(49,130,246,0.12)', color: 'var(--thumb-primary)' }}
+              style={{
+                background: 'rgba(49,130,246,0.12)',
+                color: 'var(--thumb-primary)',
+              }}
             >
               <Zap size={14} /> 이 페이지 ({pagedCurrent.filter((i) => i.imageUrl).length}개)
             </button>
@@ -184,24 +205,19 @@ export function UnclassifiedTab({
       ) : (
         <div className="grid grid-cols-4 md:grid-cols-6 xl:grid-cols-8 gap-3">
           {pagedCurrent.map((item) => {
-            const aiDone = !!aiResults[item.productId];
-            const display = aiResults[item.productId] || item;
+            const contentWorkspaceId = item.contentWorkspaceId;
+            const aiDone = contentWorkspaceId ? !!aiResults[contentWorkspaceId] : false;
+            const display = (contentWorkspaceId ? aiResults[contentWorkspaceId] : undefined) || item;
             return (
               <ProductCard
-                key={item.productId}
+                key={item.id}
                 imageUrl={item.imageUrl}
                 name={item.productName}
                 grade={aiDone ? display.grade : undefined}
                 score={aiDone ? display.overallScore : undefined}
                 complianceGrade={aiDone ? (getEffectiveComplianceGrade(display) ?? undefined) : undefined}
                 aiAnalyzed={aiDone}
-                overlay={
-                  !item.imageUrl
-                    ? 'skipped'
-                    : aiDone && needsThumbnailFix(display)
-                      ? 'needs-fix'
-                      : undefined
-                }
+                overlay={!item.imageUrl ? 'skipped' : aiDone && needsThumbnailFix(display) ? 'needs-fix' : undefined}
                 onClick={() => onSelectProduct(item)}
               />
             );

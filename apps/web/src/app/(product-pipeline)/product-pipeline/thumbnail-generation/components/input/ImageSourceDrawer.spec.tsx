@@ -17,14 +17,15 @@ describe('ImageSourceDrawer content workspace capability', () => {
     render(
       <ImageSourceDrawer
         role="product"
-        productId={null}
         contentWorkspaceId="workspace-1"
-        hubImages={[{
-          url: 'https://cdn.example.com/workspace-product.jpg',
-          role: 'product',
-          label: '워크스페이스 상품 이미지',
-          sortOrder: 0,
-        }]}
+        hubImages={[
+          {
+            url: 'https://cdn.example.com/workspace-product.jpg',
+            role: 'product',
+            label: '워크스페이스 상품 이미지',
+            sortOrder: 0,
+          },
+        ]}
         hubImagesLoading={false}
         availableTabs={['hub']}
         onPick={onPick}
@@ -36,9 +37,11 @@ describe('ImageSourceDrawer content workspace capability', () => {
     fireEvent.click(screen.getByRole('button', { name: '이미지 소스 열기' }));
     fireEvent.click(await screen.findByRole('button', { name: '워크스페이스 상품 이미지' }));
 
-    await waitFor(() => expect(onPick).toHaveBeenCalledWith({
-      value: 'https://cdn.example.com/workspace-product.jpg',
-      source: 'hub',
-    }));
+    await waitFor(() =>
+      expect(onPick).toHaveBeenCalledWith({
+        value: 'https://cdn.example.com/workspace-product.jpg',
+        source: 'hub',
+      }),
+    );
   });
 });

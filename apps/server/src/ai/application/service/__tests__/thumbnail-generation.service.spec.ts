@@ -7,7 +7,7 @@ import type { ThumbnailGenerationLedgerRepositoryPort } from '../../port/out/rep
 
 const ORGANIZATION_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '99999999-9999-9999-9999-999999999999';
-const MASTER_ID = '22222222-2222-4222-8222-222222222222';
+const WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
 const GENERATION_ID = '33333333-3333-4333-8333-333333333333';
 const SOURCE_WORKSPACE_ID = '44444444-4444-4444-8444-444444444444';
 const DIRECT_WORKSPACE_ID = '55555555-5555-4555-8555-555555555555';
@@ -15,11 +15,11 @@ const LISTING_WORKSPACE_ID = '66666666-6666-4666-8666-666666666666';
 
 const mocks = vi.hoisted(() => ({
   toThumbnailGenerationItem: vi.fn(),
-  resolveMasterThumbnailImage: vi.fn(),
+  resolveWorkspaceThumbnailSource: vi.fn(),
 }));
 
-vi.mock('../../../domain/thumbnail-master-image', () => ({
-  resolveMasterThumbnailImage: mocks.resolveMasterThumbnailImage,
+vi.mock('../../../domain/thumbnail-workspace-source', () => ({
+  resolveWorkspaceThumbnailSource: mocks.resolveWorkspaceThumbnailSource,
 }));
 
 vi.mock('../../../mapper/thumbnail-generation.mapper', () => ({
@@ -53,20 +53,22 @@ function makeProductGenerationAlertsStub(): ProductGenerationAlertService {
 
 function makeLedgerStub(): ThumbnailGenerationLedgerRepositoryPort {
   return {
-    findJobMastersByIds: vi.fn().mockResolvedValue(new Map([
-      [
-        MASTER_ID,
-        {
-          id: MASTER_ID,
-          name: '검증용 상품',
-          thumbnailAnalyses: [],
-        },
-      ],
-    ])),
-    findActiveJobForProduct: vi.fn().mockResolvedValue(null),
+    findWorkspacesForThumbnailJobs: vi.fn().mockResolvedValue(
+      new Map([
+        [
+          WORKSPACE_ID,
+          {
+            id: WORKSPACE_ID,
+            name: '검증용 상품',
+            thumbnailAnalyses: [],
+          },
+        ],
+      ]),
+    ),
+    findActiveJobForWorkspace: vi.fn().mockResolvedValue(null),
     openPendingEditorJob: vi.fn().mockResolvedValue({
       id: GENERATION_ID,
-      masterId: MASTER_ID,
+      contentWorkspaceId: WORKSPACE_ID,
       status: 'pending',
     }),
     markGenerationCancelled: vi.fn().mockResolvedValue({
@@ -90,10 +92,7 @@ function makeService(
   productGenerationAlerts: ProductGenerationAlertService = makeProductGenerationAlertsStub(),
 ) {
   const generationJobs = makeGenerationJobsStub();
-  const lifecycle = new ThumbnailGenerationLifecycleService(
-    ledger,
-    generationEvents as never,
-  );
+  const lifecycle = new ThumbnailGenerationLifecycleService(ledger, generationEvents as never);
   return {
     ledger,
     generationJobs,
@@ -116,10 +115,10 @@ describe('ThumbnailGenerationService operation alerts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setImmediateSpy = vi.spyOn(globalThis, 'setImmediate').mockImplementation(() => 0 as never);
-    mocks.resolveMasterThumbnailImage.mockReturnValue('https://cdn.example.com/source.jpg');
+    mocks.resolveWorkspaceThumbnailSource.mockReturnValue('https://cdn.example.com/source.jpg');
     mocks.toThumbnailGenerationItem.mockReturnValue({
       id: GENERATION_ID,
-      productId: MASTER_ID,
+      contentWorkspaceId: WORKSPACE_ID,
     });
   });
 
@@ -130,17 +129,9 @@ describe('ThumbnailGenerationService operation alerts', () => {
   it('links thumbnail edit alerts to the thumbnail workspace with generation context', async () => {
     const { service, operationAlerts, ledger } = makeService();
 
-    await service.createEditJobs(
-      [MASTER_ID],
-      ORGANIZATION_ID,
-      'compliance',
-      'auto',
-      USER_ID,
-    );
+    await service.createEditJobs([WORKSPACE_ID], ORGANIZATION_ID, 'compliance', 'auto', USER_ID);
 
-    expect(ledger.openPendingEditorJob).toHaveBeenCalledWith(
-      expect.objectContaining({ triggeredByUserId: USER_ID }),
-    );
+    expect(ledger.openPendingEditorJob).toHaveBeenCalledWith(expect.objectContaining({ triggeredByUserId: USER_ID }));
     expect(operationAlerts.start).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: ORGANIZATION_ID,
@@ -157,63 +148,47 @@ describe('ThumbnailGenerationService operation alerts', () => {
     ['sourcing_candidate', SOURCE_WORKSPACE_ID],
     ['direct_detail_page', DIRECT_WORKSPACE_ID],
     ['channel_listing', LISTING_WORKSPACE_ID],
-  ] as const)(
-    'keeps %s ContentWorkspace as the thumbnail generation owner',
-    async (_ownerType, workspaceId) => {
-      const ledger = makeLedgerStub();
-      vi.mocked(ledger.findJobMastersByIds).mockResolvedValueOnce(
-        new Map([
-          [
-            workspaceId,
-            {
-              id: workspaceId,
-              name: `${_ownerType} workspace`,
-              imageUrl: 'https://cdn.example.com/source.jpg',
-              thumbnailUrl: null,
-              category: null,
-              images: [],
-              thumbnailAnalyses: [],
-            },
-          ],
-        ]),
-      );
-      vi.mocked(ledger.openPendingEditorJob).mockResolvedValueOnce({
-        id: GENERATION_ID,
-        masterId: workspaceId,
-        status: 'pending',
-      } as never);
-      const { service } = makeService(makeOperationAlertsStub(), ledger);
+  ] as const)('keeps %s ContentWorkspace as the thumbnail generation owner', async (_ownerType, workspaceId) => {
+    const ledger = makeLedgerStub();
+    vi.mocked(ledger.findWorkspacesForThumbnailJobs).mockResolvedValueOnce(
+      new Map([
+        [
+          workspaceId,
+          {
+            id: workspaceId,
+            name: `${_ownerType} workspace`,
+            imageUrl: 'https://cdn.example.com/source.jpg',
+            thumbnailUrl: null,
+            category: null,
+            images: [],
+            thumbnailAnalyses: [],
+          },
+        ],
+      ]),
+    );
+    vi.mocked(ledger.openPendingEditorJob).mockResolvedValueOnce({
+      id: GENERATION_ID,
+      contentWorkspaceId: workspaceId,
+      status: 'pending',
+    } as never);
+    const { service } = makeService(makeOperationAlertsStub(), ledger);
 
-      await service.createEditJobs(
-        [workspaceId],
-        ORGANIZATION_ID,
-        'quality',
-        'auto',
-        USER_ID,
-      );
+    await service.createEditJobs([workspaceId], ORGANIZATION_ID, 'quality', 'auto', USER_ID);
 
-      expect(ledger.findJobMastersByIds).toHaveBeenCalledWith(
-        [workspaceId],
-        ORGANIZATION_ID,
-      );
-      expect(ledger.openPendingEditorJob).toHaveBeenCalledWith(
-        expect.objectContaining({
-          organizationId: ORGANIZATION_ID,
-          masterId: workspaceId,
-        }),
-      );
-    },
-  );
+    expect(ledger.findWorkspacesForThumbnailJobs).toHaveBeenCalledWith([workspaceId], ORGANIZATION_ID);
+    expect(ledger.openPendingEditorJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        contentWorkspaceId: workspaceId,
+      }),
+    );
+  });
 
   it('records cancellation audit in the thumbnail generation event payload', async () => {
     const ledger = makeLedgerStub();
     const operationAlerts = makeOperationAlertsStub();
     const generationEvents = { append: vi.fn() };
-    const { service, generationJobs } = makeService(
-      operationAlerts,
-      ledger,
-      generationEvents,
-    );
+    const { service, generationJobs } = makeService(operationAlerts, ledger, generationEvents);
 
     const result = await service.cancelForOperation({
       organizationId: ORGANIZATION_ID,
@@ -267,12 +242,7 @@ describe('ThumbnailGenerationService operation alerts', () => {
       },
     });
     const productGenerationAlerts = makeProductGenerationAlertsStub();
-    const { service } = makeService(
-      makeOperationAlertsStub(),
-      ledger,
-      { append: vi.fn() },
-      productGenerationAlerts,
-    );
+    const { service } = makeService(makeOperationAlertsStub(), ledger, { append: vi.fn() }, productGenerationAlerts);
 
     await service.cancelForOperation({
       organizationId: ORGANIZATION_ID,

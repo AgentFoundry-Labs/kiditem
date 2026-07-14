@@ -133,8 +133,6 @@ export type {
 
 // Thumbnails
 export {
-  ThumbnailListItemSchema,
-  ThumbnailSummarySchema,
   ThumbnailScoresSchema,
   ComplianceScoresSchema,
   ImageSpecSchema,
@@ -157,8 +155,6 @@ export {
   THUMBNAIL_TRACKING_STATUSES,
 } from './thumbnails.js';
 export type {
-  ThumbnailListItem,
-  ThumbnailSummary,
   ThumbnailScores,
   ComplianceScores,
   ImageSpec,

@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  ComplianceScores,
-  RecomposeVariantClassification,
-  ThumbnailScores,
-} from '@kiditem/shared/ai';
+import type { ComplianceScores, RecomposeVariantClassification, ThumbnailScores } from '@kiditem/shared/ai';
 import { ThumbnailAnalysisAnalyzerService } from '../thumbnail-analysis-analyzer.service';
 import { ThumbnailAnalysisBatchService } from '../thumbnail-analysis-batch.service';
 
@@ -50,15 +46,14 @@ function makeRepositoryMock(workspaces: Array<ReturnType<typeof workspaceRow>>) 
     findWorkspacesForBatch: vi.fn(async (ids: string[]) =>
       workspaces.filter((workspace) => ids.includes(workspace.id)),
     ),
-    findWorkspaceForAnalysis: vi.fn(async (id: string) =>
-      workspaces.find((workspace) => workspace.id === id) ?? null,
-    ),
-    upsertAnalysis: vi.fn(async (input: { contentWorkspaceId: string }) =>
-      analysisRow(input.contentWorkspaceId),
-    ),
+    findWorkspaceForAnalysis: vi.fn(async (id: string) => workspaces.find((workspace) => workspace.id === id) ?? null),
+    upsertAnalysis: vi.fn(async (input: { contentWorkspaceId: string }) => analysisRow(input.contentWorkspaceId)),
     findAllAnalysisWorkspaces: vi.fn(async () => []),
     findAnalysesForOrganization: vi.fn(async () => []),
-    getAnalysisSummaryRows: vi.fn(async () => ({ workspaceCount: 0, rows: [] })),
+    getAnalysisSummaryRows: vi.fn(async () => ({
+      workspaceCount: 0,
+      rows: [],
+    })),
     findWorkspacesForPreInspect: vi.fn(async () => []),
     findRecomposeWorkspace: vi.fn(async () => null),
   };
@@ -66,14 +61,20 @@ function makeRepositoryMock(workspaces: Array<ReturnType<typeof workspaceRow>>) 
 
 function makeVisionMock(opts: { failChunk?: boolean } = {}) {
   return {
-    analyzeQuality: vi.fn(async (items: Array<{ productId: string }>) => {
+    analyzeQuality: vi.fn(async (items: Array<{ contentWorkspaceId: string }>) => {
       if (opts.failChunk) throw new Error('Gemini quota');
       const map = new Map<string, unknown>();
       for (const item of items) {
-        map.set(item.productId, {
+        map.set(item.contentWorkspaceId, {
           overallScore: 75,
           grade: 'B' as const,
-          scores: { heroShot: 70, composition: 70, branding: 70, mobile: 70, differentiation: 70 } satisfies ThumbnailScores,
+          scores: {
+            heroShot: 70,
+            composition: 70,
+            branding: 70,
+            mobile: 70,
+            differentiation: 70,
+          } satisfies ThumbnailScores,
           issues: [],
           suggestions: [],
           method: 'ai',
@@ -81,10 +82,10 @@ function makeVisionMock(opts: { failChunk?: boolean } = {}) {
       }
       return map;
     }),
-    checkCompliance: vi.fn(async (items: Array<{ productId: string }>) => {
+    checkCompliance: vi.fn(async (items: Array<{ contentWorkspaceId: string }>) => {
       const map = new Map<string, unknown>();
       for (const item of items) {
-        map.set(item.productId, {
+        map.set(item.contentWorkspaceId, {
           complianceGrade: 'PASS',
           complianceScores: {
             violations: {
@@ -102,7 +103,11 @@ function makeVisionMock(opts: { failChunk?: boolean } = {}) {
               excessive_editing: false,
             },
             confidence: {},
-            quality: { estimatedFillPercent: 90, centerOffsetPercent: 1, aspectRatioValid: true },
+            quality: {
+              estimatedFillPercent: 90,
+              centerOffsetPercent: 1,
+              aspectRatioValid: true,
+            },
             violationCount: 0,
           } satisfies ComplianceScores,
         });
@@ -137,18 +142,9 @@ function makeBatch(opts: { failChunk?: boolean } = {}) {
   const repository = makeRepositoryMock([workspaceRow(P1), workspaceRow(P2)]);
   const vision = makeVisionMock(opts);
   const recompose = makeRecomposeMock();
-  const analyzer = new ThumbnailAnalysisAnalyzerService(
-    repository as never,
-    vision as never,
-    recompose as never,
-  );
-  const analyzerSpy = vi.spyOn(analyzer, 'analyzeProduct');
-  const batch = new ThumbnailAnalysisBatchService(
-    repository as never,
-    vision as never,
-    recompose as never,
-    analyzer,
-  );
+  const analyzer = new ThumbnailAnalysisAnalyzerService(repository as never, vision as never, recompose as never);
+  const analyzerSpy = vi.spyOn(analyzer, 'analyzeWorkspace');
+  const batch = new ThumbnailAnalysisBatchService(repository as never, vision as never, recompose as never, analyzer);
   return { batch, repository, vision, recompose, analyzer, analyzerSpy };
 }
 
@@ -157,7 +153,7 @@ describe('ThumbnailAnalysisBatchService', () => {
     vi.clearAllMocks();
   });
 
-  it('returns empty array for empty productIds without touching vision', async () => {
+  it('returns empty array for empty contentWorkspaceIds without touching vision', async () => {
     const { batch, vision } = makeBatch();
     const result = await batch.analyzeBatch([], ORGANIZATION_ID, 'all');
     expect(result).toEqual([]);
@@ -177,9 +173,9 @@ describe('ThumbnailAnalysisBatchService', () => {
     expect(calls).toContain(P2);
   });
 
-  it('falls back to analyzer.analyzeProduct when chunk batch call throws', async () => {
+  it('falls back to analyzer.analyzeWorkspace when chunk batch call throws', async () => {
     const { batch, analyzerSpy } = makeBatch({ failChunk: true });
-    // analyzer.analyzeProduct also calls vision.analyzeQuality — but quality mock
+    // analyzer.analyzeWorkspace also calls vision.analyzeQuality — but quality mock
     // is set to fail. Use spy to assert the fallback was attempted per product.
     await batch.analyzeBatch([P1, P2], ORGANIZATION_ID, 'quality');
     expect(analyzerSpy).toHaveBeenCalledTimes(2);
@@ -197,9 +193,10 @@ describe('ThumbnailAnalysisBatchService', () => {
     // Stall the quality call so the batch sits in flight long enough to cancel.
     let resolveQuality: (value: Map<string, unknown>) => void = () => {};
     vision.analyzeQuality.mockImplementationOnce(
-      () => new Promise<Map<string, unknown>>((resolve) => {
-        resolveQuality = resolve;
-      }),
+      () =>
+        new Promise<Map<string, unknown>>((resolve) => {
+          resolveQuality = resolve;
+        }),
     );
     const inflight = batch.analyzeBatch([P1, P2], ORGANIZATION_ID, 'quality');
     await Promise.resolve();
@@ -215,9 +212,10 @@ describe('ThumbnailAnalysisBatchService', () => {
     const { batch, vision } = makeBatch();
     let resolveFirst: (value: Map<string, unknown>) => void = () => {};
     vision.analyzeQuality.mockImplementationOnce(
-      () => new Promise<Map<string, unknown>>((resolve) => {
-        resolveFirst = resolve;
-      }),
+      () =>
+        new Promise<Map<string, unknown>>((resolve) => {
+          resolveFirst = resolve;
+        }),
     );
     const first = batch.analyzeBatch([P1], ORGANIZATION_ID, 'quality');
     await Promise.resolve();

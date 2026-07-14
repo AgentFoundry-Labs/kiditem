@@ -1,22 +1,14 @@
 import type { EditUseCase } from '../../components/control/UseCaseSelection';
 import type { SupplementaryLabel } from '../../components/input/EditorInputPanel';
-import {
-  thumbnailSubjectToDtoIdentity,
-  type ThumbnailSubject,
-} from '../../../_shared/lib/thumbnail-subject';
-import {
-  pickCaseFromSlots,
-  slotsToDto,
-  type LayoutKindLite,
-  type Slot,
-} from './slots';
+import { thumbnailSubjectToDtoIdentity, type ThumbnailSubject } from '../../../_shared/lib/thumbnail-subject';
+import { pickCaseFromSlots, slotsToDto, type LayoutKindLite, type Slot } from './slots';
 import type { EditorMode } from './edit-page-types';
 
 interface BuildGenerateThumbnailDtoParams {
   mode: EditorMode;
   slots: Slot[];
   subject?: ThumbnailSubject;
-  productId: string | null;
+  contentWorkspaceId: string | null;
   sourceCandidateId?: string | null;
   supplementaryLabel: SupplementaryLabel;
   pieceCount: number | null;
@@ -34,7 +26,7 @@ export function buildGenerateThumbnailDto({
   mode,
   slots,
   subject,
-  productId,
+  contentWorkspaceId,
   sourceCandidateId,
   supplementaryLabel,
   pieceCount,
@@ -50,10 +42,9 @@ export function buildGenerateThumbnailDto({
   const resolvedCase: EditUseCase | null = mode === 'creative' ? null : pickCaseFromSlots(slots);
   const identity = subject
     ? thumbnailSubjectToDtoIdentity(subject)
-    : { productId, sourceCandidateId: sourceCandidateId ?? null, contentWorkspaceId: null };
+    : { contentWorkspaceId, sourceCandidateId: sourceCandidateId ?? null };
 
   return slotsToDto(slots, resolvedCase, {
-    productId: identity.productId,
     sourceCandidateId: identity.sourceCandidateId,
     contentWorkspaceId: identity.contentWorkspaceId,
     supplementaryLabel,

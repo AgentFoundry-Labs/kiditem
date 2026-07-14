@@ -7,14 +7,8 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import * as fs from 'node:fs';
-import {
-  WING_AUTOMATION_PORT,
-  type WingAutomationPort,
-} from '../port/out/runtime/wing-automation.port';
-import {
-  IMAGE_FETCH_PORT,
-  type ImageFetchPort,
-} from '../port/out/provider/image-fetch.port';
+import { WING_AUTOMATION_PORT, type WingAutomationPort } from '../port/out/runtime/wing-automation.port';
+import { IMAGE_FETCH_PORT, type ImageFetchPort } from '../port/out/provider/image-fetch.port';
 import {
   THUMBNAIL_WING_REPOSITORY_PORT,
   type ThumbnailWingRepositoryPort,
@@ -42,10 +36,7 @@ export class ThumbnailWingService {
     private readonly automationRunner: WingAutomationPort,
   ) {}
 
-  async prepareWingRegistration(
-    generationId: string,
-    organizationId: string,
-  ): Promise<WingRegistrationPrepareResult> {
+  async prepareWingRegistration(generationId: string, organizationId: string): Promise<WingRegistrationPrepareResult> {
     const target = await this.resolveRegistrationTarget(generationId, organizationId);
     const image = await this.loadImagePayload(target.selectedUrl, generationId);
     const attempt = await this.repository.createRegistrationAttempt(generationId, organizationId);
@@ -63,8 +54,8 @@ export class ThumbnailWingService {
     organizationId: string,
     command: WingRegistrationCompleteCommand,
   ): Promise<WingRegistrationResult> {
-    const screenshotPath = command.success ? command.screenshotUrl ?? null : null;
-    const errorMessage = command.success ? null : command.error ?? 'Wing upload failed';
+    const screenshotPath = command.success ? (command.screenshotUrl ?? null) : null;
+    const errorMessage = command.success ? null : (command.error ?? 'Wing upload failed');
     await this.repository.updateRegistrationAttemptOrThrow(
       command.attemptId,
       organizationId,
@@ -72,7 +63,7 @@ export class ThumbnailWingService {
         status: command.success ? 'uploaded' : 'failed',
         errorMessage,
         screenshotUrl: screenshotPath,
-        externalId: command.success ? command.externalId ?? null : null,
+        externalId: command.success ? (command.externalId ?? null) : null,
         finishedAt: new Date(),
       },
       generationId,
@@ -103,7 +94,7 @@ export class ThumbnailWingService {
       });
       await this.repository.updateRegistrationAttemptOrThrow(attempt.id, organizationId, {
         status: automation.success ? 'uploaded' : 'failed',
-        errorMessage: automation.success ? null : automation.error ?? 'Unknown error',
+        errorMessage: automation.success ? null : (automation.error ?? 'Unknown error'),
         screenshotUrl: automation.success ? screenshotPath : null,
         finishedAt: new Date(),
       });
@@ -182,14 +173,16 @@ export class ThumbnailWingService {
     if (!selectedUrl) {
       throw new NotFoundException('Generation not found or no selected image');
     }
-    if (!gen.masterId) {
+    if (!gen.contentWorkspaceId) {
       throw new BadRequestException('소싱 후보 썸네일은 상품 승격 후 등록할 수 있습니다');
     }
 
-    const master = await this.repository.findRegistrableMaster(gen.masterId, organizationId);
-    if (!master) throw new NotFoundException(`MasterProduct ${gen.masterId} not found`);
+    const workspace = await this.repository.findRegistrableWorkspace(gen.contentWorkspaceId, organizationId);
+    if (!workspace) {
+      throw new NotFoundException(`ContentWorkspace ${gen.contentWorkspaceId} not found`);
+    }
 
-    const productName = pickWingProductName(master);
+    const productName = pickWingProductName(workspace);
     if (!productName) {
       throw new BadRequestException('쿠팡 등록 상품명을 찾을 수 없습니다');
     }
@@ -232,9 +225,7 @@ export class ThumbnailWingService {
 
   private assertLocalServerAutomationAllowed(): void {
     if (!this.isServerAutomationBlocked()) return;
-    throw new ServiceUnavailableException(
-      '스테이징/운영 Wing 등록은 Chrome 확장 프로그램으로만 실행할 수 있습니다.',
-    );
+    throw new ServiceUnavailableException('스테이징/운영 Wing 등록은 Chrome 확장 프로그램으로만 실행할 수 있습니다.');
   }
 
   private isServerAutomationBlocked(): boolean {

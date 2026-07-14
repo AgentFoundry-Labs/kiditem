@@ -2,11 +2,7 @@
 
 import { useState } from 'react';
 import { toast } from 'sonner';
-import type {
-  RecomposeVariantKey,
-  ThumbnailAnalysisResult,
-  ThumbnailGenerationItem,
-} from '@kiditem/shared/ai';
+import type { RecomposeVariantKey, ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import { useAnalyze } from './useThumbnailAnalysis';
 import {
   useApplyGeneration,
@@ -23,10 +19,7 @@ interface Options {
   onAfterClose?: () => void;
 }
 
-export function useThumbnailActions(
-  refetchGenerations: () => void,
-  options: Options = {},
-) {
+export function useThumbnailActions(refetchGenerations: () => void, options: Options = {}) {
   const analyzeMutation = useAnalyze();
   const editJobsMutation = useCreateEditJobs();
   const selectCandidateMutation = useSelectCandidate();
@@ -43,7 +36,9 @@ export function useThumbnailActions(
   const mergeAiResults = (results: ThumbnailAnalysisResult[]) =>
     setAiResults((prev) => {
       const next = { ...prev };
-      for (const r of results) next[r.productId] = r;
+      for (const r of results) {
+        if (r.contentWorkspaceId) next[r.contentWorkspaceId] = r;
+      }
       return next;
     });
 
@@ -55,18 +50,18 @@ export function useThumbnailActions(
    * 여기선 분류 호출 없이 바로 편집 job 만 띄운다.
    */
   const editSingle = async (
-    productId: string,
+    contentWorkspaceId: string,
     purpose: 'compliance' | 'quality' = 'compliance',
     variantKey?: RecomposeVariantKey,
   ) => {
     try {
       const created = await editJobsMutation.mutateAsync({
-        productIds: [productId],
+        contentWorkspaceIds: [contentWorkspaceId],
         purpose,
         variantKey,
       });
       if (Array.isArray(created)) {
-        const genItem = created.find((d) => d.productId === productId);
+        const genItem = created.find((d) => d.contentWorkspaceId === contentWorkspaceId);
         if (genItem) options.onAfterEditStarted?.(genItem);
       }
       refetchGenerations();
@@ -76,12 +71,12 @@ export function useThumbnailActions(
     }
   };
 
-  const editBatch = async (productIds: string[]) => {
-    if (productIds.length === 0) return;
+  const editBatch = async (contentWorkspaceIds: string[]) => {
+    if (contentWorkspaceIds.length === 0) return;
     try {
       // batch 는 항상 auto — variant 선택은 single-product 전용 UX.
-      await editJobsMutation.mutateAsync({ productIds });
-      toast.success(`${productIds.length}개 AI 편집 시작`);
+      await editJobsMutation.mutateAsync({ contentWorkspaceIds });
+      toast.success(`${contentWorkspaceIds.length}개 AI 편집 시작`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '일괄 편집 실패');
     }
@@ -89,7 +84,10 @@ export function useThumbnailActions(
 
   const selectCandidate = async (generationId: string, selectedUrl: string) => {
     try {
-      await selectCandidateMutation.mutateAsync({ id: generationId, selectedUrl });
+      await selectCandidateMutation.mutateAsync({
+        id: generationId,
+        selectedUrl,
+      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '후보 선택 실패');
     }
@@ -159,11 +157,11 @@ export function useThumbnailActions(
     }
   };
 
-  const runAiAnalysis = async (productId: string) => {
-    setAiAnalyzingId(productId);
+  const runAiAnalysis = async (contentWorkspaceId: string) => {
+    setAiAnalyzingId(contentWorkspaceId);
     try {
-      const data = await analyzeMutation.mutateAsync({ productId });
-      setAiResults((prev) => ({ ...prev, [productId]: data }));
+      const data = await analyzeMutation.mutateAsync({ contentWorkspaceId });
+      setAiResults((prev) => ({ ...prev, [contentWorkspaceId]: data }));
       const methodLabel = data.method === 'ai' ? 'Gemini Vision' : '룰 기반';
       toast.success(`${data.grade}등급 (${data.overallScore}점) — ${methodLabel} 분석 완료`);
     } catch (err) {

@@ -2,7 +2,7 @@
  * Pure response/precedence mappers for the Wing registration flow.
  *
  * The Wing service composes persistence reads, automation results, and these
- * mappers — keeping precedence rules (Coupang channel name > master name,
+ * mappers — keeping precedence rules (Coupang channel name > workspace display name,
  * generation.selectedUrl > single-candidate fallback) out of the orchestrator.
  */
 
@@ -18,9 +18,9 @@ export interface WingVerificationResult {
   error?: string;
 }
 
-export interface MasterForWingNaming {
-  name: string | null;
-  listings?: Array<{ channelName: string | null }>;
+export interface WorkspaceForWingNaming {
+  displayName: string | null;
+  channelListing: { channelName: string | null } | null;
 }
 
 export interface GenerationForWingSelection {
@@ -33,9 +33,9 @@ export interface RegistrationAttemptForVerification {
   errorMessage: string | null;
 }
 
-export function pickWingProductName(master: MasterForWingNaming): string {
-  const coupangName = master.listings?.[0]?.channelName?.trim();
-  return decodeWingProductName(coupangName || master.name || '');
+export function pickWingProductName(workspace: WorkspaceForWingNaming): string {
+  const coupangName = workspace.channelListing?.channelName?.trim();
+  return decodeWingProductName(coupangName || workspace.displayName || '');
 }
 
 function decodeWingProductName(value: string): string {
@@ -78,7 +78,7 @@ export function toVerificationResult(
   const registered = latest?.status === 'registered';
   const result: WingVerificationResult = {
     registered,
-    detectedUrl: registered ? generation.selectedUrl ?? null : null,
+    detectedUrl: registered ? (generation.selectedUrl ?? null) : null,
   };
   if (latest?.errorMessage) result.error = latest.errorMessage;
   return result;

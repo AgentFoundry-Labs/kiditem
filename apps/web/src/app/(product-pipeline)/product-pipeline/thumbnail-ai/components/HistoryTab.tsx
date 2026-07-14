@@ -43,7 +43,11 @@ export function HistoryTab({
   trackingTotal,
 }: HistoryTabProps) {
   const subTabs = [
-    { key: 'history' as const, label: '편집 이력', count: historyByProduct.length },
+    {
+      key: 'history' as const,
+      label: '편집 이력',
+      count: historyByProduct.length,
+    },
     { key: 'tracking' as const, label: '추적 분석', count: trackingTotal },
   ];
 
@@ -51,7 +55,10 @@ export function HistoryTab({
     <div className="space-y-4">
       <div
         className="flex gap-1 p-1 rounded-xl w-fit"
-        style={{ background: 'var(--thumb-surface-sunken)', border: '1px solid var(--thumb-border-subtle)' }}
+        style={{
+          background: 'var(--thumb-surface-sunken)',
+          border: '1px solid var(--thumb-border-subtle)',
+        }}
       >
         {subTabs.map((st) => (
           <button
@@ -60,7 +67,11 @@ export function HistoryTab({
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-semibold transition-colors"
             style={
               subTab === st.key
-                ? { background: 'var(--thumb-card-bg)', color: 'var(--thumb-primary)', boxShadow: 'var(--thumb-shadow-sm)' }
+                ? {
+                    background: 'var(--thumb-card-bg)',
+                    color: 'var(--thumb-primary)',
+                    boxShadow: 'var(--thumb-shadow-sm)',
+                  }
                 : { color: 'var(--thumb-text-tertiary)' }
             }
           >
@@ -70,8 +81,14 @@ export function HistoryTab({
                 className="text-[11px] font-bold px-1.5 py-0.5 rounded-md tabular-nums"
                 style={
                   subTab === st.key
-                    ? { background: 'var(--thumb-surface-sunken)', color: 'var(--thumb-primary)' }
-                    : { background: 'var(--thumb-border-subtle)', color: 'var(--thumb-text-tertiary)' }
+                    ? {
+                        background: 'var(--thumb-surface-sunken)',
+                        color: 'var(--thumb-primary)',
+                      }
+                    : {
+                        background: 'var(--thumb-border-subtle)',
+                        color: 'var(--thumb-text-tertiary)',
+                      }
                 }
               >
                 {st.count}
@@ -99,12 +116,8 @@ export function HistoryTab({
                 {pagedHistory.map((gen) => (
                   <ProductCard
                     key={gen.id}
-                    imageUrl={pickDisplayableImageUrl(
-                      gen.selectedUrl,
-                      gen.originalUrl,
-                      gen.product?.imageUrl,
-                    )}
-                    name={gen.product?.name ?? '상품 정보 없음'}
+                    imageUrl={pickDisplayableImageUrl(gen.selectedUrl, gen.originalUrl, gen.contentWorkspace?.imageUrl)}
+                    name={gen.contentWorkspace?.name ?? '상품 정보 없음'}
                     badge={<ThumbnailStatusBadge status={gen.status} phase={gen.phase ?? null} />}
                     overlay={
                       gen.status === 'running' || gen.status === 'pending'

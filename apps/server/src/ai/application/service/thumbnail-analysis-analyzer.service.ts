@@ -14,10 +14,7 @@ import type {
   RecomposeVariantClassification,
 } from '@kiditem/shared/ai';
 import type { AnalysisScope } from './thumbnail-analysis-requests';
-import {
-  ThumbnailVisionAiService,
-  type ThumbnailAiItem,
-} from './thumbnail-vision-ai.service';
+import { ThumbnailVisionAiService, type ThumbnailAiItem } from './thumbnail-vision-ai.service';
 import { ThumbnailRecomposeService } from './thumbnail-recompose.service';
 import { toAnalysisResult } from '../../mapper/thumbnail-analysis.mapper';
 import {
@@ -28,7 +25,7 @@ import {
 } from '../port/out/repository/thumbnail-analysis.repository.port';
 
 /**
- * Single-product analyzer — owns analyzeProduct / analyzeDirectImage /
+ * Single-product analyzer — owns analyzeWorkspace / analyzeDirectImage /
  * preInspect / checkImageSpec. All persistence routes through
  * `upsertThumbnailAnalysis` so the chunk-batch sibling can reuse the same
  * write path without duplicating the upsert payload assembly.
@@ -45,22 +42,22 @@ export class ThumbnailAnalysisAnalyzerService {
   ) {}
 
   /**
-   * 단일 master 분석 — `scope` 에 따라 quality / compliance / 둘 다 갱신.
+   * 단일 workspace 분석 — `scope` 에 따라 quality / compliance / 둘 다 갱신.
    * AI 호출 결과를 ThumbnailAnalysis 에 upsert. 갱신되지 않는 다른 branch 의
    * 기존 값은 보존된다.
    */
-  async analyzeProduct(
-    productId: string,
+  async analyzeWorkspace(
+    contentWorkspaceId: string,
     organizationId: string,
     scope: AnalysisScope,
     signal?: AbortSignal,
   ): Promise<ThumbnailAnalysisResult> {
-    const workspace = await this.repository.findWorkspaceForAnalysis(productId, organizationId);
-    if (!workspace) throw new NotFoundException(`ContentWorkspace ${productId} not found`);
+    const workspace = await this.repository.findWorkspaceForAnalysis(contentWorkspaceId, organizationId);
+    if (!workspace) throw new NotFoundException(`ContentWorkspace ${contentWorkspaceId} not found`);
     const imageUrl = workspace.imageUrl;
 
     const visionItem: ThumbnailAiItem = {
-      productId: workspace.id,
+      contentWorkspaceId: workspace.id,
       productName: workspace.name,
       imageUrl,
       category: workspace.category ?? null,
@@ -135,7 +132,7 @@ export class ThumbnailAnalysisAnalyzerService {
     scope: AnalysisScope = 'all',
   ): Promise<ThumbnailAnalysisResult> {
     const visionItem: ThumbnailAiItem = {
-      productId: 'direct',
+      contentWorkspaceId: 'direct',
       productName: productName ?? '',
       imageUrl,
       category: null,
@@ -194,7 +191,7 @@ export class ThumbnailAnalysisAnalyzerService {
 
     return {
       id: `direct-${Date.now()}`,
-      productId: '',
+      contentWorkspaceId: null,
       productName: productName ?? '',
       imageUrl,
       overallScore,
@@ -227,10 +224,10 @@ export class ThumbnailAnalysisAnalyzerService {
    * fail 카운트는 단순 count, 부분 실패가 batch 전체를 abort 하지 않는다.
    */
   async preInspect(
-    productIds: string[] | undefined,
+    contentWorkspaceIds: string[] | undefined,
     organizationId: string,
   ): Promise<{ processed: number; failed: number }> {
-    const workspaces = await this.repository.findWorkspacesForPreInspect(productIds, organizationId);
+    const workspaces = await this.repository.findWorkspacesForPreInspect(contentWorkspaceIds, organizationId);
     let processed = 0;
     let failed = 0;
     for (const workspace of workspaces) {
@@ -245,9 +242,7 @@ export class ThumbnailAnalysisAnalyzerService {
         });
         processed += 1;
       } catch (err) {
-        this.logger.warn(
-          `preInspect skip ${workspace.id}: ${err instanceof Error ? err.message : String(err)}`,
-        );
+        this.logger.warn(`preInspect skip ${workspace.id}: ${err instanceof Error ? err.message : String(err)}`);
         failed += 1;
       }
     }

@@ -1,8 +1,4 @@
-import type {
-  EditAnalysisResult,
-  ThumbnailGenerationItem,
-  ThumbnailPhase,
-} from '@kiditem/shared/ai';
+import type { EditAnalysisResult, ThumbnailGenerationItem, ThumbnailPhase } from '@kiditem/shared/ai';
 
 /**
  * Prisma row → public `ThumbnailGenerationItem` projection. Owns the status /
@@ -10,7 +6,7 @@ import type {
  * shape used by `/api/thumbnail-analysis/generations*` and the editor flow.
  */
 
-export type GenerationMasterSummary = {
+export type GenerationWorkspaceSummary = {
   id: string;
   name: string;
   imageUrl: string | null;
@@ -44,9 +40,8 @@ export type GenerationRow = {
   phase: string | null;
   grade: string;
   score: number;
-  masterId: string | null;
+  contentWorkspaceId: string;
   sourceCandidateId?: string | null;
-  contentWorkspaceId?: string | null;
   method: string;
   originalUrl: string | null;
   selectedUrl: string | null;
@@ -58,36 +53,31 @@ export type GenerationRow = {
   triggeredByUserId: string | null;
   candidates: GenerationCandidateRow[];
   registrationAttempts: GenerationRegistrationAttemptRow[];
-  master?: GenerationMasterSummary | null;
+  contentWorkspace?: GenerationWorkspaceSummary | null;
 };
 
 const ALLOWED_STATUSES = ['pending', 'running', 'succeeded', 'failed', 'cancelled'] as const;
 const ALLOWED_PHASES: ThumbnailPhase[] = ['ready', 'applied'];
 
-function toRegistrationStatus(
-  status: string | undefined,
-): ThumbnailGenerationItem['registrationStatus'] {
+function toRegistrationStatus(status: string | undefined): ThumbnailGenerationItem['registrationStatus'] {
   if (status === 'uploaded' || status === 'registered' || status === 'failed') return status;
   return null;
 }
 
-function registrationCheckedAt(
-  attempt: GenerationRegistrationAttemptRow | undefined,
-): string | null {
+function registrationCheckedAt(attempt: GenerationRegistrationAttemptRow | undefined): string | null {
   if (!attempt) return null;
   return (attempt.finishedAt ?? attempt.updatedAt ?? attempt.createdAt).toISOString();
 }
 
 export function toThumbnailGenerationItem(
   row: GenerationRow,
-  master: GenerationMasterSummary | null | undefined = row.master,
+  contentWorkspace: GenerationWorkspaceSummary | null | undefined = row.contentWorkspace,
 ): ThumbnailGenerationItem {
   const status = (ALLOWED_STATUSES as readonly string[]).includes(row.status)
     ? (row.status as ThumbnailGenerationItem['status'])
     : 'failed';
-  const phase = row.phase && (ALLOWED_PHASES as readonly string[]).includes(row.phase)
-    ? (row.phase as ThumbnailPhase)
-    : null;
+  const phase =
+    row.phase && (ALLOWED_PHASES as readonly string[]).includes(row.phase) ? (row.phase as ThumbnailPhase) : null;
   return {
     id: row.id,
     createdAt: row.createdAt.toISOString(),
@@ -95,9 +85,8 @@ export function toThumbnailGenerationItem(
     phase,
     grade: row.grade,
     score: row.score,
-    productId: row.masterId,
     sourceCandidateId: row.sourceCandidateId ?? null,
-    contentWorkspaceId: row.contentWorkspaceId ?? null,
+    contentWorkspaceId: row.contentWorkspaceId,
     method: row.method,
     originalUrl: row.originalUrl,
     selectedUrl: row.selectedUrl,
@@ -105,8 +94,7 @@ export function toThumbnailGenerationItem(
       id: c.id,
       url: c.url,
       storageKey: c.storageKey,
-      filename:
-        c.filename ?? c.storageKey?.split('/').pop() ?? c.url.split('/').pop() ?? 'thumbnail',
+      filename: c.filename ?? c.storageKey?.split('/').pop() ?? c.url.split('/').pop() ?? 'thumbnail',
       sortOrder: c.sortOrder,
     })),
     editAnalysis: (row.editAnalysis as EditAnalysisResult | null) ?? null,
@@ -117,14 +105,12 @@ export function toThumbnailGenerationItem(
     registrationStatus: toRegistrationStatus(row.registrationAttempts[0]?.status),
     registrationCheckedAt: registrationCheckedAt(row.registrationAttempts[0]),
     registrationError: row.registrationAttempts[0]?.errorMessage ?? null,
-    product: master
-      ? {
-          id: master.id,
-          name: master.name,
-          imageUrl: master.imageUrl,
-          coupangProductId: null,
-          category: master.category,
-        }
-      : null,
+    contentWorkspace: {
+      id: contentWorkspace?.id ?? row.contentWorkspaceId,
+      name: contentWorkspace?.name ?? '',
+      imageUrl: contentWorkspace?.imageUrl ?? row.originalUrl,
+      coupangProductId: null,
+      category: contentWorkspace?.category ?? null,
+    },
   } satisfies ThumbnailGenerationItem;
 }
