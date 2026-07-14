@@ -2,7 +2,9 @@ import { toast } from 'sonner';
 import { formatNumber } from '@/lib/utils';
 import {
   collectIcecreamMallRowsFromExtension,
+  detectOrderCollectionSessionExtension,
   ensureMallLoggedInViaExtension,
+  type OrderCollectionExtensionRun,
 } from './order-collection-extension';
 import {
   orderMallAccountApi,
@@ -53,18 +55,36 @@ export function createBrowserMallCollector({
     }
   };
 
-  const ensureMallLogin = async (mallKey: string): Promise<void> => {
+  const ensureMallLogin = async (
+    mallKey: string,
+    run: OrderCollectionExtensionRun,
+  ): Promise<void> => {
     const credentials = await tryLoadMallCredentials(mallKey);
-    if (credentials) await ensureMallLoggedInViaExtension(mallKey, credentials);
+    if (!credentials) return;
+    const result = await ensureMallLoggedInViaExtension(mallKey, credentials, run);
+    if (!result.success) {
+      console.warn(
+        `[order-collection] ${mallKey} login preflight did not complete; continuing with the managed collector`,
+        result.error,
+      );
+    }
   };
 
-  const generateKidsnoteSellpia = async (): Promise<number> => {
+  const generateKidsnoteSellpia = async (
+    run: OrderCollectionExtensionRun,
+    collectionDate: string,
+  ): Promise<number> => {
     const { collectKidsnoteOrdersFromExtension, convertKidsnoteToSellpiaFile } = await import(
       './kidsnote-orders-api'
     );
-    const today = todayYmd();
-    await ensureMallLogin('kidsnote');
-    const { orders } = await collectKidsnoteOrdersFromExtension(today, today, '', true);
+    await ensureMallLogin('kidsnote', run);
+    const { orders } = await collectKidsnoteOrdersFromExtension(
+      collectionDate,
+      collectionDate,
+      '',
+      true,
+      run,
+    );
     if (!orders.length) {
       toast.error('오늘 키즈노트 주문이 없습니다.');
       return 0;
@@ -76,7 +96,7 @@ export function createBrowserMallCollector({
       id: `${convertedAt}-kidsnote-browser`,
       sourceName: `키즈노트 주문 (${formatNumber(orders.length)}건)`,
       convertedAt,
-      collectionDate: today,
+      collectionDate,
       collectionMode: 'browser',
       collectedRows: orders.length,
       mallKey: 'kidsnote',
@@ -85,15 +105,17 @@ export function createBrowserMallCollector({
     return orders.length;
   };
 
-  const generateKkomangseSellpia = async (): Promise<number> => {
+  const generateKkomangseSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
     const { collectKkomangseXlsxFromExtension, convertKkomangseToSellpiaFile } = await import(
       './kkomangse-orders-api'
     );
-    await ensureMallLogin('kkomangse');
-    const xlsxBase64 = await collectKkomangseXlsxFromExtension();
+    await ensureMallLogin('kkomangse', run);
+    const xlsxBase64 = await collectKkomangseXlsxFromExtension(run);
     let result: Awaited<ReturnType<typeof convertKkomangseToSellpiaFile>>;
     try {
-      result = await convertKkomangseToSellpiaFile(xlsxBase64, { date: todayYmd() });
+      result = await convertKkomangseToSellpiaFile(xlsxBase64, {
+        date: collectionDateOf(run),
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (/주문이 없|없습니다/.test(msg)) {
@@ -109,7 +131,7 @@ export function createBrowserMallCollector({
       id: `${convertedAt}-kkomangse-browser`,
       sourceName: `꼬망세 주문 (${formatNumber(rows)}건)`,
       convertedAt,
-      collectionDate: todayYmd(),
+      collectionDate: collectionDateOf(run),
       collectionMode: 'browser',
       collectedRows: rows,
       mallKey: 'kkomangse',
@@ -118,23 +140,25 @@ export function createBrowserMallCollector({
     return rows;
   };
 
-  const generateDomeggookSellpia = async (): Promise<number> => {
+  const generateDomeggookSellpia = async (
+    run: OrderCollectionExtensionRun,
+    collectionDate: string,
+  ): Promise<number> => {
     const { collectDomeggookCsvFromExtension, convertDomeggookCsvBase64 } = await import(
       './domeggook-orders-api'
     );
-    const collectDate = todayYmd();
-    await ensureMallLogin('domeggook');
-    const { csvBase64, fileName } = await collectDomeggookCsvFromExtension(collectDate);
+    await ensureMallLogin('domeggook', run);
+    const { csvBase64, fileName } = await collectDomeggookCsvFromExtension(collectionDate, run);
     let result: Awaited<ReturnType<typeof convertDomeggookCsvBase64>>;
     try {
       result = await convertDomeggookCsvBase64(csvBase64, fileName, {
-        date: collectDate,
+        date: collectionDate,
         download: false,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (/주문이 없|없습니다/.test(msg)) {
-        toast(`${collectDate} 도매꾹 주문이 없습니다.`);
+        toast(`${collectionDate} 도매꾹 주문이 없습니다.`);
         return 0;
       }
       throw err;
@@ -144,9 +168,9 @@ export function createBrowserMallCollector({
     addBrowserGeneratedFile({
       ...result,
       id: `${convertedAt}-domeggook-browser`,
-      sourceName: `도매꾹 주문 ${collectDate} (${formatNumber(rows)}건)`,
+      sourceName: `도매꾹 주문 ${collectionDate} (${formatNumber(rows)}건)`,
       convertedAt,
-      collectionDate: collectDate,
+      collectionDate,
       collectionMode: 'browser',
       collectedRows: rows,
       mallKey: 'domeggook',
@@ -155,12 +179,12 @@ export function createBrowserMallCollector({
     return rows;
   };
 
-  const generateKidkidsSellpia = async (): Promise<number> => {
+  const generateKidkidsSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
     const { collectKidkidsOrdersFromExtension, convertKidkidsToSellpiaFile } = await import(
       './kidkids-orders-api'
     );
-    await ensureMallLogin('kidkids');
-    const orders = await collectKidkidsOrdersFromExtension();
+    await ensureMallLogin('kidkids', run);
+    const orders = await collectKidkidsOrdersFromExtension(undefined, run);
     if (orders.length === 0) {
       toast(
         '출고예정일이 지정된 키드키즈 주문이 없습니다. (출고관리에서 출고예정일을 먼저 지정하세요. 이미 출고처리한 주문은 목록에서 빠집니다.)',
@@ -175,7 +199,7 @@ export function createBrowserMallCollector({
       id: `${convertedAt}-kidkids-browser`,
       sourceName: `키드키즈 주문 (${formatNumber(orders.length)}건)`,
       convertedAt,
-      collectionDate: todayYmd(),
+      collectionDate: collectionDateOf(run),
       collectionMode: 'browser',
       collectedRows: rows,
       mallKey: 'kidkids',
@@ -184,11 +208,11 @@ export function createBrowserMallCollector({
     return rows;
   };
 
-  const generateLotteonSellpia = async (): Promise<number> => {
+  const generateLotteonSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
     const { collectLotteonXlsxFromExtension, convertLotteonToSellpiaFile } = await import(
       './lotteon-orders-api'
     );
-    const { xlsxBase64, fileName } = await collectLotteonXlsxFromExtension();
+    const { xlsxBase64, fileName } = await collectLotteonXlsxFromExtension(run);
     let result: Awaited<ReturnType<typeof convertLotteonToSellpiaFile>>;
     try {
       result = await convertLotteonToSellpiaFile(xlsxBase64, fileName, { download: false });
@@ -207,7 +231,7 @@ export function createBrowserMallCollector({
       id: `${convertedAt}-lotte-on-browser`,
       sourceName: `롯데ON 주문 (${formatNumber(rows)}건)`,
       convertedAt,
-      collectionDate: todayYmd(),
+      collectionDate: collectionDateOf(run),
       collectionMode: 'browser',
       collectedRows: rows,
       mallKey: 'lotte-on',
@@ -216,11 +240,11 @@ export function createBrowserMallCollector({
     return rows;
   };
 
-  const generateGsshopSellpia = async (): Promise<number> => {
+  const generateGsshopSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
     const { collectGsshopXlsxFromExtension, convertGsshopToSellpiaFile } = await import(
       './gsshop-orders-api'
     );
-    const collected = await collectGsshopXlsxFromExtension();
+    const collected = await collectGsshopXlsxFromExtension(run);
     if ('empty' in collected) {
       toast('GS샵 신규 주문이 없습니다.');
       return 0;
@@ -245,7 +269,7 @@ export function createBrowserMallCollector({
       id: `${convertedAt}-gs-shop-browser`,
       sourceName: `GS샵 주문 (${formatNumber(rows)}건)`,
       convertedAt,
-      collectionDate: todayYmd(),
+      collectionDate: collectionDateOf(run),
       collectionMode: 'browser',
       collectedRows: rows,
       mallKey: 'gs-shop',
@@ -254,12 +278,12 @@ export function createBrowserMallCollector({
     return rows;
   };
 
-  const generateAlwayzSellpia = async (): Promise<number> => {
+  const generateAlwayzSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
     const { collectAlwayzXlsxFromExtension, convertAlwayzToSellpiaFile } = await import(
       './alwayz-orders-api'
     );
-    await ensureMallLogin('always');
-    const collected = await collectAlwayzXlsxFromExtension();
+    await ensureMallLogin('always', run);
+    const collected = await collectAlwayzXlsxFromExtension(run);
     if ('empty' in collected) {
       toast('올웨이즈 신규 주문이 없습니다.');
       return 0;
@@ -284,7 +308,7 @@ export function createBrowserMallCollector({
       id: `${convertedAt}-always-browser`,
       sourceName: `올웨이즈 주문 (${formatNumber(rows)}건)`,
       convertedAt,
-      collectionDate: todayYmd(),
+      collectionDate: collectionDateOf(run),
       collectionMode: 'browser',
       collectedRows: rows,
       mallKey: 'always',
@@ -293,11 +317,11 @@ export function createBrowserMallCollector({
     return rows;
   };
 
-  const generateBoriboriSellpia = async (): Promise<number> => {
+  const generateBoriboriSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
     const { collectBoriboriXlsxFromExtension, convertBoriboriToSellpiaFile } = await import(
       './boribori-orders-api'
     );
-    const { xlsxBase64, fileName } = await collectBoriboriXlsxFromExtension();
+    const { xlsxBase64, fileName } = await collectBoriboriXlsxFromExtension({ run });
     let result: Awaited<ReturnType<typeof convertBoriboriToSellpiaFile>>;
     try {
       result = await convertBoriboriToSellpiaFile(xlsxBase64, fileName, { download: false });
@@ -316,7 +340,7 @@ export function createBrowserMallCollector({
       id: `${convertedAt}-boribori-browser`,
       sourceName: `보리보리 주문 (${formatNumber(rows)}건)`,
       convertedAt,
-      collectionDate: todayYmd(),
+      collectionDate: collectionDateOf(run),
       collectionMode: 'browser',
       collectedRows: rows,
       mallKey: 'boribori',
@@ -325,11 +349,11 @@ export function createBrowserMallCollector({
     return rows;
   };
 
-  const generateTeachervilleSellpia = async (): Promise<number> => {
+  const generateTeachervilleSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
     const { collectTeachervilleXlsxFromExtension, convertTeachervilleToSellpiaFile } = await import(
       './teacherville-orders-api'
     );
-    const { xlsxBase64, fileName } = await collectTeachervilleXlsxFromExtension();
+    const { xlsxBase64, fileName } = await collectTeachervilleXlsxFromExtension(run);
     let result: Awaited<ReturnType<typeof convertTeachervilleToSellpiaFile>>;
     try {
       result = await convertTeachervilleToSellpiaFile(xlsxBase64, fileName, { download: false });
@@ -348,7 +372,7 @@ export function createBrowserMallCollector({
       id: `${convertedAt}-teacher-mall-browser`,
       sourceName: `티쳐몰 주문 (${formatNumber(rows)}건)`,
       convertedAt,
-      collectionDate: todayYmd(),
+      collectionDate: collectionDateOf(run),
       collectionMode: 'browser',
       collectedRows: rows,
       mallKey: 'teacher-mall',
@@ -357,10 +381,10 @@ export function createBrowserMallCollector({
     return rows;
   };
 
-  const generateArt09Csv = async (): Promise<number> => {
+  const generateArt09Csv = async (run: OrderCollectionExtensionRun): Promise<number> => {
     const { collectArt09CsvFromExtension } = await import('./art09-orders-api');
-    await ensureMallLogin('art09');
-    const result = await collectArt09CsvFromExtension({ download: false });
+    await ensureMallLogin('art09', run);
+    const result = await collectArt09CsvFromExtension({ download: false, run });
     const rows = result.outputRows ?? 0;
     if (rows === 0) {
       toast('아트공구 수집 대상 주문이 없습니다.');
@@ -374,7 +398,7 @@ export function createBrowserMallCollector({
       id: `${convertedAt}-art09-browser`,
       sourceName: `아트공구 주문 (${formatNumber(orderCount)}건 · ${formatNumber(rows)}품목)`,
       convertedAt,
-      collectionDate: todayYmd(),
+      collectionDate: collectionDateOf(run),
       collectionMode: 'browser',
       collectedRows: orderCount,
       mallKey: 'art09',
@@ -384,13 +408,13 @@ export function createBrowserMallCollector({
     return orderCount;
   };
 
-  const generateCoupangDirectSellpia = async (): Promise<number> => {
+  const generateCoupangDirectSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
     const {
       COUPANG_TRANSPORT_LABEL,
       collectCoupangDirectFromExtension,
       convertCoupangDirectToSellpiaFile,
     } = await import('./coupang-directship-api');
-    const data = await collectCoupangDirectFromExtension();
+    const data = await collectCoupangDirectFromExtension(run);
     if (data.pos.length === 0) {
       toast('발주확정 쿠팡직배송 신규 발주가 없습니다.');
       return 0;
@@ -413,7 +437,7 @@ export function createBrowserMallCollector({
         id: `${convertedAt}-coupang-direct-${transport.toLowerCase()}-browser`,
         sourceName: `쿠팡직배송 ${label} (${formatNumber(poCount)}건 · ${formatNumber(itemRows)}품목)`,
         convertedAt,
-        collectionDate: todayYmd(),
+        collectionDate: collectionDateOf(run),
         collectionMode: 'browser' as const,
         collectedRows: poCount,
         mallKey: 'coupang-direct',
@@ -427,12 +451,15 @@ export function createBrowserMallCollector({
     return totalOrders;
   };
 
-  const generateOnchannelSellpia = async (): Promise<number> => {
+  const generateOnchannelSellpia = async (
+    run: OrderCollectionExtensionRun,
+    collectionDate: string,
+  ): Promise<number> => {
     const { collectOnchannelOrdersFromExtension, convertOnchannelToSellpiaFile } = await import(
       './onchannel-orders-api'
     );
-    await ensureMallLogin('onch');
-    const orders = await collectOnchannelOrdersFromExtension(todayYmd());
+    await ensureMallLogin('onch', run);
+    const orders = await collectOnchannelOrdersFromExtension(collectionDate, run);
     if (orders.length === 0) {
       toast('오늘 온채널 신규 주문이 없습니다.');
       return 0;
@@ -445,7 +472,7 @@ export function createBrowserMallCollector({
       id: `${convertedAt}-onch-browser`,
       sourceName: `온채널 주문 (${formatNumber(orders.length)}건)`,
       convertedAt,
-      collectionDate: todayYmd(),
+      collectionDate,
       collectionMode: 'browser',
       collectedRows: rows,
       mallKey: 'onch',
@@ -454,11 +481,11 @@ export function createBrowserMallCollector({
     return rows;
   };
 
-  const generateKakaoSellpia = async (): Promise<number> => {
+  const generateKakaoSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
     const { collectKakaoOrdersFromExtension, convertKakaoToSellpiaFile } = await import(
       './kakao-orders-api'
     );
-    const orders = await collectKakaoOrdersFromExtension();
+    const orders = await collectKakaoOrdersFromExtension(undefined, run);
     if (orders.length === 0) {
       toast('배송준비중인 카카오 주문이 없습니다.');
       return 0;
@@ -471,7 +498,7 @@ export function createBrowserMallCollector({
       id: `${convertedAt}-kakao-browser`,
       sourceName: `카카오 배송준비중 주문 (${formatNumber(orders.length)}건)`,
       convertedAt,
-      collectionDate: todayYmd(),
+      collectionDate: collectionDateOf(run),
       collectionMode: 'browser',
       collectedRows: rows,
       mallKey: 'kakao',
@@ -482,33 +509,43 @@ export function createBrowserMallCollector({
 
   return async function collectBrowserMall(
     account: OrderCollectionMallAccount,
+    run?: OrderCollectionExtensionRun,
   ): Promise<BrowserMallCollectionResult> {
-    const today = todayYmd();
-    if (account.key === 'kidsnote') return resultFor(await generateKidsnoteSellpia(), today);
-    if (account.key === 'kkomangse') return resultFor(await generateKkomangseSellpia(), today);
-    if (account.key === 'onch') return resultFor(await generateOnchannelSellpia(), today);
-    if (account.key === 'kakao') return resultFor(await generateKakaoSellpia(), today);
-    if (account.key === 'domeggook') return resultFor(await generateDomeggookSellpia(), today);
-    if (account.key === 'kidkids') return resultFor(await generateKidkidsSellpia(), today);
-    if (account.key === 'lotte-on') return resultFor(await generateLotteonSellpia(), today);
-    if (account.key === 'gs-shop') return resultFor(await generateGsshopSellpia(), today);
-    if (account.key === 'always') return resultFor(await generateAlwayzSellpia(), today);
-    if (account.key === 'boribori') return resultFor(await generateBoriboriSellpia(), today);
-    if (account.key === 'coupang-direct') return resultFor(await generateCoupangDirectSellpia(), today);
-    if (account.key === 'teacher-mall') return resultFor(await generateTeachervilleSellpia(), today);
-    if (account.key === 'art09') return resultFor(await generateArt09Csv(), today);
+    const extensionId = run?.extensionId ?? await detectOrderCollectionSessionExtension();
+    if (!extensionId) {
+      throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
+    }
+    const resolvedRun: OrderCollectionExtensionRun = {
+      runId: run?.runId ?? globalThis.crypto.randomUUID(),
+      extensionId,
+      date: run?.date ?? todayYmd(),
+    };
+    const today = collectionDateOf(resolvedRun);
+    if (account.key === 'kidsnote') return resultFor(await generateKidsnoteSellpia(resolvedRun, today), today);
+    if (account.key === 'kkomangse') return resultFor(await generateKkomangseSellpia(resolvedRun), today);
+    if (account.key === 'onch') return resultFor(await generateOnchannelSellpia(resolvedRun, today), today);
+    if (account.key === 'kakao') return resultFor(await generateKakaoSellpia(resolvedRun), today);
+    if (account.key === 'domeggook') return resultFor(await generateDomeggookSellpia(resolvedRun, today), today);
+    if (account.key === 'kidkids') return resultFor(await generateKidkidsSellpia(resolvedRun), today);
+    if (account.key === 'lotte-on') return resultFor(await generateLotteonSellpia(resolvedRun), today);
+    if (account.key === 'gs-shop') return resultFor(await generateGsshopSellpia(resolvedRun), today);
+    if (account.key === 'always') return resultFor(await generateAlwayzSellpia(resolvedRun), today);
+    if (account.key === 'boribori') return resultFor(await generateBoriboriSellpia(resolvedRun), today);
+    if (account.key === 'coupang-direct') return resultFor(await generateCoupangDirectSellpia(resolvedRun), today);
+    if (account.key === 'teacher-mall') return resultFor(await generateTeachervilleSellpia(resolvedRun), today);
+    if (account.key === 'art09') return resultFor(await generateArt09Csv(resolvedRun), today);
     if (!isBrowserCollectableMall(account)) {
       throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
     }
 
     const credentials = await loadMallLoginCredentials(account);
-    const collected = await collectIcecreamMallRowsFromExtension(todayYmd(), credentials);
+    const collected = await collectIcecreamMallRowsFromExtension(today, credentials, resolvedRun);
     saveIcecreamDeliveryIndex(collected.headers, collected.rows);
     const { convertIcecreamMallOrderRows } = await import('./order-collection-api');
     const result = await convertIcecreamMallOrderRows({
       headers: collected.headers,
       rows: collected.rows,
-      fileName: `아이스크림몰_${collected.date ?? todayYmd()}_브라우저수집`,
+      fileName: `아이스크림몰_${collected.date ?? today}_브라우저수집`,
     });
     const convertedAt = Date.now();
     addBrowserGeneratedFile({
@@ -516,7 +553,7 @@ export function createBrowserMallCollector({
       id: `${convertedAt}-${account.key}-browser`,
       sourceName: `${account.name} 브라우저 수집 (${formatNumber(collected.rowCount)}행)`,
       convertedAt,
-      collectionDate: collected.date ?? todayYmd(),
+      collectionDate: collected.date ?? today,
       collectionMode: 'browser',
       collectedRows: collected.rowCount,
       mallKey: account.key,
@@ -539,6 +576,11 @@ function resultFor(rowCount: number, date: string): BrowserMallCollectionResult 
     masked: false,
     date,
   };
+}
+
+function collectionDateOf(run: OrderCollectionExtensionRun): string {
+  if (!run.date) throw new Error('Order collection date is required');
+  return run.date;
 }
 
 function coupangDirectOrderNumbers(pos: CoupangDirectPo[]): string[] {

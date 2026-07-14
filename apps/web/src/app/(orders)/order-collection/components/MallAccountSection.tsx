@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   AlertCircle,
@@ -26,6 +26,7 @@ import type { MallCollectionStat } from "../lib/order-collection-stats";
 import type { OrderCollectionMallAccount } from "../lib/order-mall-account-api";
 
 interface MallAccountSectionProps {
+  collectionControls?: ReactNode;
   mallAccounts: OrderCollectionMallAccount[];
   mallLoading: boolean;
   mallSaving: boolean;
@@ -68,6 +69,7 @@ interface MallAccountSectionProps {
 }
 
 export function MallAccountSection({
+  collectionControls,
   mallAccounts,
   mallLoading,
   mallSaving,
@@ -206,6 +208,7 @@ export function MallAccountSection({
         </div>
 
         <div className="p-5">
+          {collectionControls ? <div className="mb-3">{collectionControls}</div> : null}
           {mallError ? (
             <div className="flex items-center gap-2 rounded-lg border border-red-100 bg-red-50 px-4 py-5 text-sm text-red-600">
               <AlertCircle size={15} />

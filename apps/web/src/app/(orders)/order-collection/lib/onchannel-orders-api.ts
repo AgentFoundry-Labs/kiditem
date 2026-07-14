@@ -3,6 +3,7 @@ import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extensi
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
+import type { OrderCollectionExtensionRun } from './order-collection-extension';
 
 export interface OnchannelOrder {
   orderCode?: string;
@@ -32,8 +33,8 @@ interface OnchannelCollectResponse {
  * order-collector 확장으로 온채널(onch3.co.kr) 입점관리자 주문 목록을 로그인 세션에서 가져온다.
  * 리스트(주문코드+일자) 스크랩 + 주문별 상세모달(order_detail_supplier) fetch → 상품금액/배송비 분리값 포함.
  */
-export async function collectOnchannelOrdersFromExtension(date?: string): Promise<OnchannelOrder[]> {
-  const extensionId = await detectOrderCollectionExtensionId();
+export async function collectOnchannelOrdersFromExtension(date?: string, run?: OrderCollectionExtensionRun): Promise<OnchannelOrder[]> {
+  const extensionId = run?.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 onch3.co.kr 입점관리자에 로그인한 뒤 다시 시도하세요.',
@@ -41,7 +42,7 @@ export async function collectOnchannelOrdersFromExtension(date?: string): Promis
   }
   const res = await sendToExtension<OnchannelCollectResponse>(
     extensionId,
-    { action: 'collectOnchannelOrders', date }, // "YYYY-MM-DD" 면 그날 주문만
+    { action: 'collectOnchannelOrders', date, runId: run?.runId ?? globalThis.crypto.randomUUID() }, // "YYYY-MM-DD" 면 그날 주문만
     130000,
   );
   if (!res?.success || !Array.isArray(res.orders)) {

@@ -104,8 +104,13 @@
     }
 
     async function publish(view) {
-      const tabs = await chromeApi.tabs.query({ url: webUrlPatterns });
-      await Promise.all(
+      let tabs;
+      try {
+        tabs = await chromeApi.tabs.query({ url: webUrlPatterns });
+      } catch {
+        return;
+      }
+      await Promise.allSettled(
         tabs
           .filter((tab) => Number.isInteger(tab.id))
           .map((tab) =>
@@ -129,6 +134,7 @@
         const sessions = await readSessions();
         const current = sessions[runId];
         if (!current) return null;
+        if (current.status === 'cancelled') return toPublicView(current);
         const resolvedPatch =
           typeof patch === 'function' ? patch(current) : patch;
         const next = {
@@ -170,11 +176,20 @@
       });
     }
 
-    function attachTab(runId, tab) {
-      return transition(runId, {
+    async function attachTab(runId, tab) {
+      const view = await transition(runId, {
         _managedTabId: tab.tabId,
         _managedWindowId: tab.windowId,
+        _managedTabCloseOnRestart: tab.closeOnRestart !== false,
       });
+      if (
+        view?.status === 'cancelled' &&
+        tab.closeOnRestart !== false &&
+        Number.isInteger(tab.tabId)
+      ) {
+        await chromeApi.tabs.remove(tab.tabId).catch(() => undefined);
+      }
+      return view;
     }
 
     function progress(runId, nextProgress) {
@@ -216,22 +231,74 @@
       });
     }
 
-    function cancel(runId) {
-      return transition(runId, {
-        status: 'cancelled',
-        attention: null,
-        finishedAt: now(),
+    function cancel(runId, cancelOptions = {}) {
+      return enqueueStorageMutation(storageKey, async () => {
+        const sessions = await readSessions();
+        const current = sessions[runId];
+        if (!current) return null;
+
+        if (
+          cancelOptions.closeManagedTab === true &&
+          Number.isInteger(current._managedTabId) &&
+          current._managedTabCloseOnRestart !== false
+        ) {
+          await chromeApi.tabs.remove(current._managedTabId).catch(() => undefined);
+        }
+
+        const next = {
+          ...current,
+          status: 'cancelled',
+          attention: null,
+          updatedAt: Math.max(now(), current.updatedAt + 1),
+          finishedAt: now(),
+        };
+        if (cancelOptions.closeManagedTab === true) {
+          delete next._managedTabId;
+          delete next._managedWindowId;
+          delete next._managedTabCloseOnRestart;
+        }
+        sessions[runId] = next;
+        await writeSessions(prune(sessions));
+        const publicView = toPublicView(next);
+        await publish(publicView);
+        return publicView;
       });
     }
 
-    function restart(runId) {
-      return transition(runId, (current) => ({
-        status: 'running',
-        attempt: current.attempt + 1,
-        progress: emptyProgress(),
-        attention: null,
-        finishedAt: null,
-      }));
+    function restart(runId, restartOptions = {}) {
+      return enqueueStorageMutation(storageKey, async () => {
+        const sessions = await readSessions();
+        const current = sessions[runId];
+        if (!current) return null;
+
+        if (
+          restartOptions.closeManagedTab === true &&
+          Number.isInteger(current._managedTabId) &&
+          current._managedTabCloseOnRestart !== false
+        ) {
+          await chromeApi.tabs.remove(current._managedTabId).catch(() => undefined);
+        }
+
+        const next = {
+          ...current,
+          status: 'running',
+          attempt: current.attempt + 1,
+          progress: emptyProgress(),
+          attention: null,
+          updatedAt: Math.max(now(), current.updatedAt + 1),
+          finishedAt: null,
+        };
+        if (restartOptions.closeManagedTab === true) {
+          delete next._managedTabId;
+          delete next._managedWindowId;
+          delete next._managedTabCloseOnRestart;
+        }
+        sessions[runId] = next;
+        await writeSessions(prune(sessions));
+        const publicView = toPublicView(next);
+        await publish(publicView);
+        return publicView;
+      });
     }
 
     function get(runId) {

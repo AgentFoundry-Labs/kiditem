@@ -10,11 +10,15 @@ const workerPath = path.join(
   repoRoot,
   'extensions/order-collector/background/service-worker.js',
 );
+const backgroundRoot = path.dirname(workerPath);
 const workerSource = readFileSync(workerPath, 'utf8');
+const RUN_ID = '11111111-1111-4111-8111-111111111111';
 
 function loadWorker(overrides = {}) {
   let externalMessageListener = null;
-  const context = vm.createContext({
+  let context;
+  const storage = {};
+  const sandbox = {
     URL,
     URLSearchParams,
     TextDecoder,
@@ -25,6 +29,8 @@ function loadWorker(overrides = {}) {
     console,
     setTimeout,
     clearTimeout,
+    structuredClone,
+    crypto: { randomUUID: () => RUN_ID },
     chrome: {
       runtime: {
         onMessageExternal: {
@@ -34,18 +40,44 @@ function loadWorker(overrides = {}) {
         },
         getManifest: () => ({ version: 'test' }),
       },
+      storage: {
+        local: {
+          async get(key) {
+            return { [key]: structuredClone(storage[key]) };
+          },
+          async set(values) {
+            Object.assign(storage, structuredClone(values));
+          },
+        },
+      },
+      tabs: {
+        async query() { return []; },
+        async remove() {},
+        async update(tabId, properties) { return { id: tabId, windowId: 1, ...properties }; },
+      },
+      windows: { async update() {} },
+      scripting: { async executeScript() {} },
     },
     ...overrides,
-  });
+    importScripts(...relativePaths) {
+      for (const relativePath of relativePaths) {
+        const filename = path.join(backgroundRoot, relativePath);
+        vm.runInContext(readFileSync(filename, 'utf8'), context, { filename });
+      }
+    },
+  };
+  context = vm.createContext(sandbox);
   vm.runInContext(workerSource, context, { filename: workerPath });
-  return { context, externalMessageListener };
+  return { context, externalMessageListener, storage };
 }
 
 test('collectRocketPoRows message forwards the requested status and date basis', async () => {
   const { context, externalMessageListener } = loadWorker();
   let received = null;
-  context.collectRocketPoRows = async (input) => {
+  let receivedCollection = null;
+  context.collectRocketPoRows = async (input, collection) => {
     received = input;
+    receivedCollection = collection;
     return { success: true, rows: [], poCount: 0 };
   };
 
@@ -57,6 +89,7 @@ test('collectRocketPoRows message forwards the requested status and date basis',
         to: '2026-07-07',
         status: 'PA',
         dateType: 'PURCHASE_ORDER_DATE',
+        runId: RUN_ID,
       },
       {},
       resolve,
@@ -70,7 +103,11 @@ test('collectRocketPoRows message forwards the requested status and date basis',
     status: 'PA',
     dateType: 'PURCHASE_ORDER_DATE',
   });
-  assert.deepEqual(response, { success: true, rows: [], poCount: 0 });
+  assert.equal(receivedCollection.runId, RUN_ID);
+  assert.equal(response.runId, RUN_ID);
+  assert.equal(response.collectionSession.status, 'succeeded');
+  assert.deepEqual(response.rows, []);
+  assert.equal(response.poCount, 0);
 });
 
 test('Rocket page scraper uses the requested filters and labels returned rows', async () => {

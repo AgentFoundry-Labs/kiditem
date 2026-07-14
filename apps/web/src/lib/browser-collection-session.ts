@@ -176,8 +176,9 @@ export async function syncBrowserCollectionAlert(
 export async function recordMissingBrowserCollection(
   producer: BrowserCollectionProducer,
   inputIdentity: BrowserCollectionInputIdentity,
+  existingRunId?: string,
 ): Promise<{ runId: string }> {
-  const runId = globalThis.crypto.randomUUID();
+  const runId = existingRunId ?? globalThis.crypto.randomUUID();
   const now = Date.now();
   const message = '브라우저 수집 익스텐션을 찾을 수 없습니다.';
   const validated = BrowserCollectionSessionViewSchema.parse({

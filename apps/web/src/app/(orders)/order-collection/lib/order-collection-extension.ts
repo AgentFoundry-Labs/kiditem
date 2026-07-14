@@ -25,11 +25,29 @@ interface IcecreamMallExtensionResponse extends Partial<IcecreamMallExtensionRow
   error?: string;
 }
 
+export interface OrderCollectionExtensionRun {
+  runId: string;
+  extensionId?: string;
+  date?: string | null;
+}
+
+export interface MallLoginEnsureResult {
+  success: boolean;
+  submitted?: boolean;
+  pendingLogin?: boolean;
+  error?: string;
+}
+
+export async function detectOrderCollectionSessionExtension(): Promise<string | null> {
+  return detectOrderCollectionExtensionId(1200, 'browserCollectionSessions');
+}
+
 export async function collectIcecreamMallRowsFromExtension(
   date: string,
   credentials?: IcecreamMallExtensionCredentials,
+  run?: OrderCollectionExtensionRun,
 ): Promise<IcecreamMallExtensionRows> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = run?.extensionId ?? await detectOrderCollectionSessionExtension();
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. extensions/order-collector를 Chrome에서 로드한 뒤 다시 시도해주세요.',
@@ -40,6 +58,7 @@ export async function collectIcecreamMallRowsFromExtension(
     action: 'collectIcecreamMallOrders',
     date,
     credentials,
+    runId: run?.runId ?? globalThis.crypto.randomUUID(),
   }, 90000);
 
   if (!response?.success || !response.headers || !response.rows) {
@@ -65,18 +84,39 @@ export async function collectIcecreamMallRowsFromExtension(
 
 /**
  * 수집 전 자동 로그인 보장(선택). 저장된 계정이 있으면 확장이 백그라운드로 해당 몰에 로그인해둔다.
- * 실패해도 조용히 넘어감 — 로그인 안 되면 뒤이은 수집 단계가 "로그인 필요"로 안내한다.
+ * 로그인 보장 결과를 호출자에게 돌려줘 수집을 계속할지 명시적으로 결정하게 한다.
  */
 export async function ensureMallLoggedInViaExtension(
   mallKey: string,
   credentials: IcecreamMallExtensionCredentials,
-): Promise<void> {
-  const extensionId = await detectOrderCollectionExtensionId();
-  if (!extensionId) return;
+  run?: OrderCollectionExtensionRun,
+): Promise<MallLoginEnsureResult> {
+  const extensionId = run?.extensionId ?? await detectOrderCollectionSessionExtension();
+  if (!extensionId) {
+    return {
+      success: false,
+      pendingLogin: true,
+      error: '주문수집 확장프로그램을 찾을 수 없습니다.',
+    };
+  }
   try {
-    await sendToExtension(extensionId, { action: 'ensureMallLoggedIn', mallKey, credentials }, 45000);
-  } catch {
-    /* 자동 로그인 실패 — 수집 단계에서 로그인 필요 메시지로 안내됨 */
+    const response = await sendToExtension<MallLoginEnsureResult>(
+      extensionId,
+      {
+        action: 'ensureMallLoggedIn',
+        mallKey,
+        credentials,
+        runId: run?.runId ?? globalThis.crypto.randomUUID(),
+      },
+      45000,
+    );
+    return response ?? { success: false, error: '자동 로그인 응답이 없습니다.' };
+  } catch (error) {
+    return {
+      success: false,
+      pendingLogin: true,
+      error: error instanceof Error ? error.message : '자동 로그인 실패',
+    };
   }
 }
 

@@ -21,6 +21,7 @@ function createFakeChrome(initialStorage = {}) {
   const calls = {
     executeScript: [],
     tabsQuery: [],
+    tabsRemove: [],
     tabsUpdate: [],
     windowsUpdate: [],
   };
@@ -43,6 +44,9 @@ function createFakeChrome(initialStorage = {}) {
         async query(query) {
           calls.tabsQuery.push(structuredClone(query));
           return [{ id: 90 }, { id: 91 }];
+        },
+        async remove(tabId) {
+          calls.tabsRemove.push(tabId);
         },
         async update(tabId, properties) {
           calls.tabsUpdate.push({ tabId, properties: structuredClone(properties) });
@@ -327,6 +331,117 @@ test('restart begins a new attempt from progress zero with sanitized restart inp
   assert.equal(restarted.restartStrategy, 'extension');
 });
 
+test('restart preserves the managed tab by default', async () => {
+  const runtime = loadAdapter(generatedPaths[2]);
+  const manager = runtime.create({
+    chrome: runtime.chrome,
+    storageKey: 'sessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+    now: () => 100,
+  });
+  await manager.start(startInput());
+  await manager.attachTab(RUN_ID, { tabId: 7, windowId: 2 });
+
+  const restarted = await manager.restart(RUN_ID);
+
+  assert.equal(restarted.attempt, 2);
+  assert.deepEqual(runtime.calls.tabsRemove, []);
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabId, 7);
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedWindowId, 2);
+});
+
+test('restart can close and detach the previous managed attention tab', async () => {
+  const runtime = loadAdapter(generatedPaths[2]);
+  const manager = runtime.create({
+    chrome: runtime.chrome,
+    storageKey: 'sessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+    now: () => 100,
+  });
+  await manager.start(startInput());
+  await manager.attachTab(RUN_ID, { tabId: 7, windowId: 2 });
+  await manager.requireAttention(RUN_ID, {
+    reason: 'marketplace_login',
+    message: '로그인이 필요합니다.',
+  });
+
+  const restarted = await manager.restart(RUN_ID, { closeManagedTab: true });
+
+  assert.equal(restarted.status, 'running');
+  assert.equal(restarted.attempt, 2);
+  assert.equal(restarted.attention, null);
+  assert.deepEqual(runtime.calls.tabsRemove, [7]);
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabId, undefined);
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedWindowId, undefined);
+});
+
+test('restart detaches but preserves a managed tab owned by the user', async () => {
+  const runtime = loadAdapter(generatedPaths[2]);
+  const manager = runtime.create({
+    chrome: runtime.chrome,
+    storageKey: 'sessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+    now: () => 100,
+  });
+  await manager.start(startInput());
+  await manager.attachTab(RUN_ID, {
+    tabId: 7,
+    windowId: 2,
+    closeOnRestart: false,
+  });
+
+  const restarted = await manager.restart(RUN_ID, { closeManagedTab: true });
+
+  assert.equal(restarted.attempt, 2);
+  assert.deepEqual(runtime.calls.tabsRemove, []);
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabId, undefined);
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedWindowId, undefined);
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabCloseOnRestart, undefined);
+});
+
+test('session publication is best effort across stale KidItem tabs', async () => {
+  const fake = createFakeChrome();
+  fake.chrome.scripting.executeScript = async (details) => {
+    fake.calls.executeScript.push(details);
+    if (details.target.tabId === 90) throw new Error('The tab was closed');
+  };
+  const runtime = loadAdapter(generatedPaths[1], fake);
+  const manager = runtime.create({
+    chrome: runtime.chrome,
+    storageKey: 'sessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+    now: () => 100,
+  });
+
+  const started = await manager.start(startInput());
+
+  assert.equal(started.status, 'running');
+  assert.equal(runtime.storage.sessions[RUN_ID].status, 'running');
+  assert.deepEqual(
+    runtime.calls.executeScript.map((call) => call.target.tabId),
+    [90, 91],
+  );
+});
+
+test('session transition survives a failed KidItem tab query', async () => {
+  const fake = createFakeChrome();
+  fake.chrome.tabs.query = async () => {
+    throw new Error('Tabs unavailable');
+  };
+  const runtime = loadAdapter(generatedPaths[1], fake);
+  const manager = runtime.create({
+    chrome: runtime.chrome,
+    storageKey: 'sessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+    now: () => 100,
+  });
+
+  const started = await manager.start(startInput());
+
+  assert.equal(started.status, 'running');
+  assert.equal(runtime.storage.sessions[RUN_ID].status, 'running');
+});
+
 test('cancellation is cooperative and never changes browser focus', async () => {
   const runtime = loadAdapter(generatedPaths[0]);
   const manager = runtime.create({
@@ -344,6 +459,105 @@ test('cancellation is cooperative and never changes browser focus', async () => 
   assert.equal(cancelled.finishedAt, 100);
   assert.equal(runtime.calls.tabsUpdate.length, 0);
   assert.equal(runtime.calls.windowsUpdate.length, 0);
+  assert.deepEqual(runtime.calls.tabsRemove, []);
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabId, 7);
+});
+
+test('cancellation can close and detach the managed order tab', async () => {
+  const runtime = loadAdapter(generatedPaths[2]);
+  const manager = runtime.create({
+    chrome: runtime.chrome,
+    storageKey: 'sessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+    now: () => 100,
+  });
+  await manager.start(startInput());
+  await manager.attachTab(RUN_ID, { tabId: 7, windowId: 2 });
+
+  const cancelled = await manager.cancel(RUN_ID, { closeManagedTab: true });
+
+  assert.equal(cancelled.status, 'cancelled');
+  assert.deepEqual(runtime.calls.tabsRemove, [7]);
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabId, undefined);
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedWindowId, undefined);
+});
+
+test('cancellation detaches but preserves a managed tab owned by the user', async () => {
+  const runtime = loadAdapter(generatedPaths[2]);
+  const manager = runtime.create({
+    chrome: runtime.chrome,
+    storageKey: 'sessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+    now: () => 100,
+  });
+  await manager.start(startInput());
+  await manager.attachTab(RUN_ID, {
+    tabId: 7,
+    windowId: 2,
+    closeOnRestart: false,
+  });
+
+  const cancelled = await manager.cancel(RUN_ID, { closeManagedTab: true });
+
+  assert.equal(cancelled.status, 'cancelled');
+  assert.deepEqual(runtime.calls.tabsRemove, []);
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabId, undefined);
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedWindowId, undefined);
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabCloseOnRestart, undefined);
+});
+
+test('late operation transitions cannot overwrite a cancelled session', async () => {
+  const runtime = loadAdapter(generatedPaths[2]);
+  const manager = runtime.create({
+    chrome: runtime.chrome,
+    storageKey: 'sessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+    now: () => 100,
+  });
+  await manager.start(startInput());
+  await manager.cancel(RUN_ID);
+
+  const lateViews = [
+    await manager.attachTab(RUN_ID, { tabId: 8, windowId: 3 }),
+    await manager.progress(RUN_ID, {
+      current: 1,
+      total: 1,
+      completed: 1,
+      failed: 0,
+      label: 'late progress',
+    }),
+    await manager.requireAttention(RUN_ID, {
+      reason: 'marketplace_login',
+      message: '늦은 로그인 요청',
+    }),
+    await manager.fail(RUN_ID),
+    await manager.succeed(RUN_ID),
+  ];
+
+  assert.ok(lateViews.every((view) => view.status === 'cancelled'));
+  assert.equal(runtime.storage.sessions[RUN_ID].status, 'cancelled');
+  assert.deepEqual(runtime.calls.tabsRemove, [8]);
+});
+
+test('a user-owned tab attached after cancellation is preserved', async () => {
+  const runtime = loadAdapter(generatedPaths[2]);
+  const manager = runtime.create({
+    chrome: runtime.chrome,
+    storageKey: 'sessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+    now: () => 100,
+  });
+  await manager.start(startInput());
+  await manager.cancel(RUN_ID);
+
+  const view = await manager.attachTab(RUN_ID, {
+    tabId: 9,
+    windowId: 3,
+    closeOnRestart: false,
+  });
+
+  assert.equal(view.status, 'cancelled');
+  assert.deepEqual(runtime.calls.tabsRemove, []);
 });
 
 test('attention never focuses until the explicit open command', async () => {

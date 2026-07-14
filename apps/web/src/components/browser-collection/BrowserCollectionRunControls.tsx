@@ -13,12 +13,14 @@ import { cn } from '@/lib/utils';
 type BrowserCollectionRunControlsProps = {
   session: BrowserCollectionSessionView;
   onWebRestart: (session: BrowserCollectionSessionView) => void | Promise<void>;
+  webRestartUnavailableMessage?: string;
   className?: string;
 };
 
 export function BrowserCollectionRunControls({
   session,
   onWebRestart,
+  webRestartUnavailableMessage,
   className,
 }: BrowserCollectionRunControlsProps) {
   const queryClient = useQueryClient();
@@ -105,6 +107,9 @@ export function BrowserCollectionRunControls({
       {needsAttention && session.attention && (
         <p className="text-sm text-amber-700">{session.attention.message}</p>
       )}
+      {needsAttention && session.restartStrategy === 'web' && webRestartUnavailableMessage && (
+        <p className="mt-2 text-sm text-amber-700">{webRestartUnavailableMessage}</p>
+      )}
 
       <div className="mt-3 flex flex-wrap gap-2">
         {needsAttention && session.attention?.canOpenTab && (
@@ -117,7 +122,9 @@ export function BrowserCollectionRunControls({
             확인 탭 열기
           </button>
         )}
-        {needsAttention && (
+        {needsAttention && !(
+          session.restartStrategy === 'web' && webRestartUnavailableMessage
+        ) && (
           <button
             type="button"
             className={buttonClassName}

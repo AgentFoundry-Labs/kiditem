@@ -224,6 +224,25 @@ describe('BrowserCollectionRunControls', () => {
     );
   });
 
+  it('explains when this route cannot safely restart a web-strategy session', () => {
+    const onWebRestart = vi.fn();
+    renderWithQueryClient(
+      <BrowserCollectionRunControls
+        session={attentionSession({ restartStrategy: 'web' })}
+        onWebRestart={onWebRestart}
+        webRestartUnavailableMessage="이 작업은 원래 실행 화면에서 재실행해주세요."
+      />,
+    );
+
+    expect(
+      screen.getByText('이 작업은 원래 실행 화면에서 재실행해주세요.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: '처음부터 재실행' }),
+    ).not.toBeInTheDocument();
+    expect(onWebRestart).not.toHaveBeenCalled();
+  });
+
   it('sends cancellation from both running and attention states', async () => {
     const { rerender, queryClient } = renderWithQueryClient(
       <BrowserCollectionRunControls

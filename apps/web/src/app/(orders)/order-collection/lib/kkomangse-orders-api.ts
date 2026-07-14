@@ -3,6 +3,7 @@ import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extensi
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
+import type { OrderCollectionExtensionRun } from './order-collection-extension';
 
 interface KkomangseCollectResponse {
   success?: boolean;
@@ -15,8 +16,8 @@ interface KkomangseCollectResponse {
  * order-collector 확장으로 꼬망세(EduPre) 입점관리자 "선택엑셀다운"(검색결과 전체) xlsx 를
  * 로그인 세션에서 가져온다 (base64). HTML 스크랩이 아니라 관리자의 엑셀 export 를 그대로 fetch.
  */
-export async function collectKkomangseXlsxFromExtension(): Promise<string> {
-  const extensionId = await detectOrderCollectionExtensionId();
+export async function collectKkomangseXlsxFromExtension(run?: OrderCollectionExtensionRun): Promise<string> {
+  const extensionId = run?.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 nstore.edupre.co.kr 관리자에 로그인한 뒤 다시 시도하세요.',
@@ -24,7 +25,11 @@ export async function collectKkomangseXlsxFromExtension(): Promise<string> {
   }
   const res = await sendToExtension<KkomangseCollectResponse>(
     extensionId,
-    { action: 'collectKkomangseOrders' },
+    {
+      action: 'collectKkomangseOrders',
+      date: run?.date,
+      runId: run?.runId ?? globalThis.crypto.randomUUID(),
+    },
     90000,
   );
   if (!res?.success || !res.xlsxBase64) {

@@ -1,6 +1,7 @@
 import { downloadBlob } from '@/lib/browser-download';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import type { OrderCollectionConversionResult } from './order-collection-api';
+import type { OrderCollectionExtensionRun } from './order-collection-extension';
 
 const ART09_HEADERS = [
   '쇼핑몰',
@@ -62,8 +63,8 @@ export interface Art09CsvResult extends OrderCollectionConversionResult {
   orderNumbers: string[];
 }
 
-export async function collectArt09OrdersFromExtension(): Promise<Art09OrderRow[]> {
-  const extensionId = await detectOrderCollectionExtensionId();
+export async function collectArt09OrdersFromExtension(run?: OrderCollectionExtensionRun): Promise<Art09OrderRow[]> {
+  const extensionId = run?.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 zzogzzog1.cafe24.com 에 로그인한 뒤 다시 시도하세요.',
@@ -72,7 +73,11 @@ export async function collectArt09OrdersFromExtension(): Promise<Art09OrderRow[]
 
   const res = await sendToExtension<Art09CollectResponse>(
     extensionId,
-    { action: 'collectArt09Orders' },
+    {
+      action: 'collectArt09Orders',
+      date: run?.date,
+      runId: run?.runId ?? globalThis.crypto.randomUUID(),
+    },
     190000,
   );
 
@@ -84,9 +89,9 @@ export async function collectArt09OrdersFromExtension(): Promise<Art09OrderRow[]
 }
 
 export async function collectArt09CsvFromExtension(
-  options?: { download?: boolean },
+  options?: { download?: boolean; run?: OrderCollectionExtensionRun },
 ): Promise<Art09CsvResult> {
-  const rows = await collectArt09OrdersFromExtension();
+  const rows = await collectArt09OrdersFromExtension(options?.run);
   const csvRows = rows.map(rowToCsv);
   const csv = `\uFEFF${[ART09_HEADERS, ...csvRows].map(csvLine).join('\r\n')}\r\n`;
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });

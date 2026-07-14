@@ -3,6 +3,7 @@ import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extensi
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
+import type { OrderCollectionExtensionRun } from './order-collection-extension';
 
 export interface KidkidsOrderItem {
   name?: string;
@@ -33,8 +34,8 @@ interface KidkidsCollectResponse {
  * order-collector 확장으로 키드키즈(partner.kidkids.net) 출고관리 주문을 로그인 세션에서 가져온다.
  * 목록(logis_index) 출고예정일 필터 + 주문서(logis_down5) fetch → 공급단가·우편번호 포함. date "YYYY-MM-DD" 면 그 출고예정일만.
  */
-export async function collectKidkidsOrdersFromExtension(date?: string): Promise<KidkidsOrder[]> {
-  const extensionId = await detectOrderCollectionExtensionId();
+export async function collectKidkidsOrdersFromExtension(date?: string, run?: OrderCollectionExtensionRun): Promise<KidkidsOrder[]> {
+  const extensionId = run?.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 partner.kidkids.net 출고관리에 로그인한 뒤 다시 시도하세요.',
@@ -42,7 +43,11 @@ export async function collectKidkidsOrdersFromExtension(date?: string): Promise<
   }
   const res = await sendToExtension<KidkidsCollectResponse>(
     extensionId,
-    { action: 'collectKidkidsOrders', date },
+    {
+      action: 'collectKidkidsOrders',
+      date: date ?? run?.date,
+      runId: run?.runId ?? globalThis.crypto.randomUUID(),
+    },
     190000,
   );
   if (!res?.success || !Array.isArray(res.orders)) {

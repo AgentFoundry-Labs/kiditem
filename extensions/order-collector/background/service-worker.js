@@ -1,3 +1,22 @@
+importScripts(
+  "collection-session.js",
+  "interactive-tabs.js",
+  "order-collection-lifecycle.js",
+);
+
+const KIDITEM_WEB_URL_PATTERNS = ["http://localhost:3000/*"];
+const collectionSessions = KidItemCollectionSession.create({
+  chrome,
+  storageKey: "kiditem_collection_sessions",
+  webUrlPatterns: KIDITEM_WEB_URL_PATTERNS,
+});
+const orderCollectionLifecycle = KidItemOrderCollectionLifecycle.create({
+  sessions: collectionSessions,
+  isAttentionError: isMallAccessError,
+});
+const interactiveTabs = KidItemInteractiveTabs.create({ chrome });
+const INTERACTIVE_TAB_REASONS = KidItemInteractiveTabs.reasons;
+
 const ICECREAM_MALL_URL = "https://po.i-screammall.co.kr/main.do";
 const ICECREAM_MALL_TAB_MATCHES = [
   "https://*.i-screammall.co.kr/*",
@@ -90,6 +109,34 @@ const ICECREAM_DELIVERY_HEADERS = [
 ];
 
 chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
+  const respond = (operation) => {
+    Promise.resolve(operation)
+      .then(sendResponse)
+      .catch((error) => {
+        sendResponse({
+          success: false,
+          error: error?.message || "Collection session request failed",
+        });
+      });
+    return true;
+  };
+
+  if (msg?.action === "listCollectionSessions") {
+    return respond(collectionSessions.list());
+  }
+  if (msg?.action === "getCollectionSession") {
+    return respond(collectionSessions.get(msg.runId));
+  }
+  if (msg?.action === "cancelCollectionSession") {
+    return respond(orderCollectionLifecycle.cancel(msg.runId));
+  }
+  if (msg?.action === "openCollectionAttentionTab") {
+    return respond(collectionSessions.openAttentionTab(msg.runId));
+  }
+  if (msg?.action === "restartCollectionSession") {
+    return respond(collectionSessions.get(msg.runId));
+  }
+
   if (msg?.action === "ping") {
     sendResponse({
       success: true,
@@ -103,6 +150,7 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
         listRocketPos: true,
         collectKakaoOrders: true,
         collectSellpiaDeliTracking: true,
+        browserCollectionSessions: true,
         uploadDomeggookTracking: true,
         uploadOnchTracking: true,
       },
@@ -111,30 +159,29 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg?.action === "collectSellpiaDeliTracking") {
-    collectSellpiaDeliTracking({
-      startDate: typeof msg.startDate === "string" ? msg.startDate : null,
-      endDate: typeof msg.endDate === "string" ? msg.endDate : null,
-    })
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({ success: false, error: error?.message || "셀피아 송장 조회 실패" });
-      });
-    return true;
+    return respond(orderCollectionLifecycle.run(
+      msg,
+      KidItemOrderCollectionLifecycle.createIdentity(
+        "sellpia",
+        typeof msg.endDate === "string" ? msg.endDate : msg.startDate,
+      ),
+      (collection) => collectSellpiaDeliTracking({
+        startDate: typeof msg.startDate === "string" ? msg.startDate : null,
+        endDate: typeof msg.endDate === "string" ? msg.endDate : null,
+      }, collection),
+    ));
   }
 
   if (msg?.action === "collectIcecreamMallOrders") {
-    collectIcecreamMallOrders(
-      typeof msg.date === "string" ? msg.date : null,
-      normalizeIcecreamMallCredentials(msg.credentials),
-    )
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({
-          success: false,
-          error: error?.message || "아이스크림몰 주문 수집 실패",
-        });
-      });
-    return true;
+    return respond(orderCollectionLifecycle.run(
+      msg,
+      KidItemOrderCollectionLifecycle.createIdentity("icecream-mall", msg.date),
+      (collection) => collectIcecreamMallOrders(
+        typeof msg.date === "string" ? msg.date : null,
+        normalizeIcecreamMallCredentials(msg.credentials),
+        collection,
+      ),
+    ));
   }
 
   if (msg?.action === "sendOrderFileToSellpia") {
@@ -182,74 +229,69 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg?.action === "collectRocketPoRows") {
-    collectRocketPoRows({
-      from: typeof msg.from === "string" ? msg.from : null,
-      to: typeof msg.to === "string" ? msg.to : null,
-      status: ["RP", "PA", "RI", "CI", ""].includes(msg.status) ? msg.status : "RP",
-      dateType:
-        msg.dateType === "PURCHASE_ORDER_DATE"
-          ? "PURCHASE_ORDER_DATE"
-          : "WAREHOUSING_PLAN_DATE",
-    })
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({
-          success: false,
-          error: error?.message || "로켓 발주 수집 실패",
-        });
-      });
-    return true;
+    return respond(orderCollectionLifecycle.run(
+      msg,
+      KidItemOrderCollectionLifecycle.createIdentity(
+        "coupang-rocket",
+        typeof msg.to === "string" ? msg.to : msg.from,
+      ),
+      (collection) => collectRocketPoRows({
+        from: typeof msg.from === "string" ? msg.from : null,
+        to: typeof msg.to === "string" ? msg.to : null,
+        status: ["RP", "PA", "RI", "CI", ""].includes(msg.status) ? msg.status : "RP",
+        dateType:
+          msg.dateType === "PURCHASE_ORDER_DATE"
+            ? "PURCHASE_ORDER_DATE"
+            : "WAREHOUSING_PLAN_DATE",
+      }, collection),
+    ));
   }
 
   if (msg?.action === "listRocketPos") {
-    listRocketPos({
-      from: typeof msg.from === "string" ? msg.from : null,
-      to: typeof msg.to === "string" ? msg.to : null,
-      status: typeof msg.status === "string" ? msg.status : "",
-    })
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({
-          success: false,
-          error: error?.message || "로켓 발주 목록 조회 실패",
-        });
-      });
-    return true;
+    return respond(orderCollectionLifecycle.run(
+      msg,
+      KidItemOrderCollectionLifecycle.createIdentity(
+        "coupang-rocket",
+        typeof msg.to === "string" ? msg.to : msg.from,
+      ),
+      (collection) => listRocketPos({
+        from: typeof msg.from === "string" ? msg.from : null,
+        to: typeof msg.to === "string" ? msg.to : null,
+        status: typeof msg.status === "string" ? msg.status : "",
+      }, collection),
+    ));
   }
 
   if (msg?.action === "collectKidsnoteOrders") {
-    collectKidsnoteOrders({
-      from: typeof msg.from === "string" ? msg.from : null,
-      to: typeof msg.to === "string" ? msg.to : null,
-      status: typeof msg.status === "string" ? msg.status : "",
-      withDetail: msg.withDetail === true,
-    })
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({
-          success: false,
-          error: error?.message || "키즈노트 주문 수집 실패",
-        });
-      });
-    return true;
+    return respond(orderCollectionLifecycle.run(
+      msg,
+      KidItemOrderCollectionLifecycle.createIdentity(
+        "kidsnote",
+        typeof msg.to === "string" ? msg.to : msg.from,
+      ),
+      (collection) => collectKidsnoteOrders({
+        from: typeof msg.from === "string" ? msg.from : null,
+        to: typeof msg.to === "string" ? msg.to : null,
+        status: typeof msg.status === "string" ? msg.status : "",
+        withDetail: msg.withDetail === true,
+      }, collection),
+    ));
   }
 
   if (msg?.action === "collectKkomangseOrders") {
-    collectKkomangseOrders()
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({ success: false, error: error?.message || "꼬망세 주문 수집 실패" });
-      });
-    return true;
+    return respond(orderCollectionLifecycle.run(
+      msg,
+      KidItemOrderCollectionLifecycle.createIdentity("kkomangse", msg.date),
+      (collection) => collectKkomangseOrders(collection),
+    ));
   }
 
   if (msg?.action === "collectOnchannelOrders") {
-    collectOnchannelOrders(msg.date)
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({ success: false, error: error?.message || "온채널 주문 수집 실패" });
-      });
-    return true;
+    return respond(orderCollectionLifecycle.run(
+      msg,
+      KidItemOrderCollectionLifecycle.createIdentity("onch", msg.date),
+      (collection) => collectOnchannelOrders(msg.date, collection),
+    ));
   }
 
   if (msg?.action === "uploadOnchTracking") {
@@ -262,12 +304,11 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg?.action === "collectDomeggookOrders") {
-    collectDomeggookOrders(msg.date)
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({ success: false, error: error?.message || "도매꾹 주문 수집 실패" });
-      });
-    return true;
+    return respond(orderCollectionLifecycle.run(
+      msg,
+      KidItemOrderCollectionLifecycle.createIdentity("domeggook", msg.date),
+      (collection) => collectDomeggookOrders(msg.date, collection),
+    ));
   }
 
   if (msg?.action === "uploadDomeggookTracking") {
@@ -293,86 +334,77 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg?.action === "collectKidkidsOrders") {
-    collectKidkidsOrders(msg.date)
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({ success: false, error: error?.message || "키드키즈 주문 수집 실패" });
-      });
-    return true;
+    return respond(orderCollectionLifecycle.run(
+      msg,
+      KidItemOrderCollectionLifecycle.createIdentity("kidkids", msg.date),
+      (collection) => collectKidkidsOrders(msg.date, collection),
+    ));
   }
 
   if (msg?.action === "collectLotteonOrders") {
-    collectLotteonOrders()
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({ success: false, error: error?.message || "롯데ON 주문 수집 실패" });
-      });
-    return true;
+    return respond(orderCollectionLifecycle.run(
+      msg,
+      KidItemOrderCollectionLifecycle.createIdentity("lotte-on", msg.date),
+      (collection) => collectLotteonOrders(collection),
+    ));
   }
 
   if (msg?.action === "collectGsshopOrders") {
-    collectGsshopOrders()
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({ success: false, error: error?.message || "GS샵 주문 수집 실패" });
-      });
-    return true;
+    return respond(orderCollectionLifecycle.run(
+      msg,
+      KidItemOrderCollectionLifecycle.createIdentity("gs-shop", msg.date),
+      (collection) => collectGsshopOrders(collection),
+    ));
   }
 
   if (msg?.action === "collectAlwayzOrders") {
-    collectAlwayzOrders()
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({ success: false, error: error?.message || "올웨이즈 주문 수집 실패" });
-      });
-    return true;
+    return respond(orderCollectionLifecycle.run(
+      msg,
+      KidItemOrderCollectionLifecycle.createIdentity("always", msg.date),
+      (collection) => collectAlwayzOrders(collection),
+    ));
   }
 
   if (msg?.action === "collectKakaoOrders") {
-    collectKakaoOrders(msg.date)
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({ success: false, error: error?.message || "카카오 주문 수집 실패" });
-      });
-    return true;
+    return respond(orderCollectionLifecycle.run(
+      msg,
+      KidItemOrderCollectionLifecycle.createIdentity("kakao", msg.date),
+      (collection) => collectKakaoOrders(msg.date, collection),
+    ));
   }
 
   if (msg?.action === "collectBoriboriOrders") {
-    collectBoriboriOrders({
-      password: typeof msg.password === "string" ? msg.password : "",
-    })
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({ success: false, error: error?.message || "보리보리 주문 수집 실패" });
-      });
-    return true;
+    return respond(orderCollectionLifecycle.run(
+      msg,
+      KidItemOrderCollectionLifecycle.createIdentity("boribori", msg.date),
+      (collection) => collectBoriboriOrders({
+        password: typeof msg.password === "string" ? msg.password : "",
+      }, collection),
+    ));
   }
 
   if (msg?.action === "collectTeachervilleOrders") {
-    collectTeachervilleOrders()
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({ success: false, error: error?.message || "티쳐몰 주문 수집 실패" });
-      });
-    return true;
+    return respond(orderCollectionLifecycle.run(
+      msg,
+      KidItemOrderCollectionLifecycle.createIdentity("teacher-mall", msg.date),
+      (collection) => collectTeachervilleOrders(collection),
+    ));
   }
 
   if (msg?.action === "collectArt09Orders") {
-    collectArt09Orders()
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({ success: false, error: error?.message || "아트공구 주문 수집 실패" });
-      });
-    return true;
+    return respond(orderCollectionLifecycle.run(
+      msg,
+      KidItemOrderCollectionLifecycle.createIdentity("art09", msg.date),
+      (collection) => collectArt09Orders(collection),
+    ));
   }
 
   if (msg?.action === "collectCoupangDirectOrders") {
-    collectCoupangDirectOrders()
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({ success: false, error: error?.message || "쿠팡직배송 주문 수집 실패" });
-      });
-    return true;
+    return respond(orderCollectionLifecycle.run(
+      msg,
+      KidItemOrderCollectionLifecycle.createIdentity("coupang-direct", msg.date),
+      (collection) => collectCoupangDirectOrders(collection),
+    ));
   }
 
   return false;
@@ -405,15 +437,9 @@ function isMallAccessError(err) {
   );
 }
 
-// 로그인 안내 탭을 해당 창에서 활성 탭으로 만든다(사용자가 찾아 로그인할 수 있게).
-// ⚠️전체 수집 때 미로그인 몰마다 창 포커스를 뺏으면 산만하므로, 창 raise(windows.update focused)는
-// 하지 않고 탭만 active 로 둔다. 사용자는 Chrome 을 볼 때 로그인 탭을 바로 발견한다.
-async function bringMallTabToFront(tabId) {
-  try {
-    await chrome.tabs.update(tabId, { active: true });
-  } catch {
-    /* 탭 활성화 실패 — 무시 */
-  }
+async function attachOrderCollectionTab(collection, tab, owned) {
+  if (!collection) return;
+  await collection.attachTab(tab, { owned });
 }
 
 // 페이지 접근불가(=대체로 미로그인) 안내 결과. pendingLogin=true 로 프론트가 "로그인 필요"로 표시.
@@ -467,18 +493,28 @@ async function findOrCreateSellpiaTab() {
   const tabs = await chrome.tabs.query({ url: SELLPIA_TAB_MATCHES });
   const onUploadPage = tabs.find((tab) => (tab.url || "").includes("order_collect.html"));
   if (onUploadPage?.id) {
-    await chrome.tabs.update(onUploadPage.id, { active: true });
-    return onUploadPage;
+    return interactiveTabs.focusTab(
+      onUploadPage.id,
+      INTERACTIVE_TAB_REASONS.ORDER_FILE_UPLOAD,
+    );
   }
   if (tabs[0]?.id) {
-    await chrome.tabs.update(tabs[0].id, { url: SELLPIA_ORDER_UPLOAD_URL, active: true });
-    return chrome.tabs.get(tabs[0].id);
+    await chrome.tabs.update(tabs[0].id, { url: SELLPIA_ORDER_UPLOAD_URL });
+    return interactiveTabs.focusTab(
+      tabs[0].id,
+      INTERACTIVE_TAB_REASONS.ORDER_FILE_UPLOAD,
+    );
   }
-  return chrome.tabs.create({ url: SELLPIA_ORDER_UPLOAD_URL, active: true });
+  return interactiveTabs.createTab({
+    url: SELLPIA_ORDER_UPLOAD_URL,
+    reason: INTERACTIVE_TAB_REASONS.ORDER_FILE_UPLOAD,
+  });
 }
 
 async function openCoupangShipmentPage() {
-  const tab = await findOrCreateCoupangSupplierTab();
+  const tab = await findOrCreateInteractiveCoupangSupplierTab(
+    INTERACTIVE_TAB_REASONS.SHIPMENT_PAGE,
+  );
   if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
   await waitForTabReady(tab.id);
   const currentTab = await chrome.tabs.get(tab.id).catch(() => tab);
@@ -490,7 +526,9 @@ async function openCoupangShipmentPage() {
 }
 
 async function clickCoupangShipmentDownloads(options) {
-  const tab = await findOrCreateCoupangSupplierTab();
+  const tab = await findOrCreateInteractiveCoupangSupplierTab(
+    INTERACTIVE_TAB_REASONS.SHIPMENT_DOWNLOAD,
+  );
   if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
   await waitForTabReady(tab.id);
 
@@ -516,9 +554,10 @@ async function clickCoupangShipmentDownloads(options) {
 }
 
 // ── 로켓 발주확정: 발주리스트(거래처확인요청) + 상세를 풀컬럼 스크래핑 ──
-async function collectRocketPoRows({ from, to, status = "RP", dateType = "WAREHOUSING_PLAN_DATE" }) {
-  const tab = await findOrCreateCoupangSupplierTab();
+async function collectRocketPoRows({ from, to, status = "RP", dateType = "WAREHOUSING_PLAN_DATE" }, collection) {
+  const { tab, created } = await findOrCreateCoupangSupplierTab();
   if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
+  await attachOrderCollectionTab(collection, tab, created);
   await waitForTabReady(tab.id);
 
   const injected = await withTimeout(
@@ -540,9 +579,10 @@ async function collectRocketPoRows({ from, to, status = "RP", dateType = "WAREHO
 }
 
 // ── 로켓 발주 목록(PO 단위, SKU 상세 없이) — 화면 리스트용 빠른 조회 ──
-async function listRocketPos({ from, to, status }) {
-  const tab = await findOrCreateCoupangSupplierTab();
+async function listRocketPos({ from, to, status }, collection) {
+  const { tab, created } = await findOrCreateCoupangSupplierTab();
   if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
+  await attachOrderCollectionTab(collection, tab, created);
   await waitForTabReady(tab.id);
 
   const injected = await withTimeout(
@@ -743,16 +783,21 @@ async function scrapeRocketPoRows(from, to, statusCode, dateType) {
 
 async function findOrCreateCoupangSupplierTab() {
   const tabs = await chrome.tabs.query({ url: COUPANG_SUPPLIER_TAB_MATCHES });
+  const supplierTab = tabs[0];
+  if (supplierTab?.id) return { tab: supplierTab, created: false };
+  const tab = await chrome.tabs.create({ url: COUPANG_PO_LIST_URL, active: false });
+  return { tab, created: true };
+}
+
+async function findOrCreateInteractiveCoupangSupplierTab(reason) {
+  const tabs = await chrome.tabs.query({ url: COUPANG_SUPPLIER_TAB_MATCHES });
   const shipmentTab = tabs.find((tab) => (tab.url || "").includes("/ibs/asn/active"));
-  if (shipmentTab?.id) {
-    await chrome.tabs.update(shipmentTab.id, { active: true });
-    return shipmentTab;
-  }
+  if (shipmentTab?.id) return interactiveTabs.focusTab(shipmentTab.id, reason);
   if (tabs[0]?.id) {
-    await chrome.tabs.update(tabs[0].id, { url: COUPANG_SHIPMENT_URL, active: true });
-    return chrome.tabs.get(tabs[0].id);
+    await chrome.tabs.update(tabs[0].id, { url: COUPANG_SHIPMENT_URL });
+    return interactiveTabs.focusTab(tabs[0].id, reason);
   }
-  return chrome.tabs.create({ url: COUPANG_SHIPMENT_URL, active: true });
+  return interactiveTabs.createTab({ url: COUPANG_SHIPMENT_URL, reason });
 }
 
 // ── 꼬망세(EduPre) 주문 수집: 입점관리자 "선택엑셀다운"(get_search_excel) xlsx export 를 fetch ──
@@ -771,9 +816,10 @@ async function findOrCreateKkomangseTab() {
   return { tab, created: true };
 }
 
-async function collectKkomangseOrders() {
+async function collectKkomangseOrders(collection) {
   const { tab, created } = await findOrCreateKkomangseTab();
   if (!tab?.id) return { success: false, error: "꼬망세(nstore.edupre.co.kr) 탭을 열 수 없습니다." };
+  await attachOrderCollectionTab(collection, tab, created);
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
@@ -784,7 +830,7 @@ async function collectKkomangseOrders() {
     );
     return injected[0]?.result ?? { success: false, error: "꼬망세 화면에 접근하지 못했습니다." };
   } catch (e) {
-    if (isMallAccessError(e)) { keepOpen = created; await bringMallTabToFront(tab.id); return mallAccessErrorResult("꼬망세"); }
+    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("꼬망세"); }
     return mallGenericErrorResult("꼬망세", e);
   } finally {
     if (created && tab.id && !keepOpen) {
@@ -843,9 +889,10 @@ async function findOrCreateOnchannelTab() {
   return { tab, created: true };
 }
 
-async function collectOnchannelOrders(dateFilter) {
+async function collectOnchannelOrders(dateFilter, collection) {
   const { tab, created } = await findOrCreateOnchannelTab();
   if (!tab?.id) return { success: false, error: "온채널(onch3.co.kr) 탭을 열 수 없습니다." };
+  await attachOrderCollectionTab(collection, tab, created);
   // 모달 fetch 가 수십 번 → 작업이 길다. MV3 서비스워커 유휴 종료(=message port closed) 방지 keepalive.
   const keepAlive = setInterval(() => {
     chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
@@ -864,7 +911,7 @@ async function collectOnchannelOrders(dateFilter) {
     );
     return injected[0]?.result ?? { success: false, error: "온채널 화면에 접근하지 못했습니다." };
   } catch (e) {
-    if (isMallAccessError(e)) { keepOpen = created; await bringMallTabToFront(tab.id); return mallAccessErrorResult("온채널"); }
+    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("온채널"); }
     return mallGenericErrorResult("온채널", e);
   } finally {
     clearInterval(keepAlive);
@@ -1009,9 +1056,10 @@ async function findOrCreateKidkidsTab() {
   return { tab, created: true };
 }
 
-async function collectKidkidsOrders(dateFilter) {
+async function collectKidkidsOrders(dateFilter, collection) {
   const { tab, created } = await findOrCreateKidkidsTab();
   if (!tab?.id) return { success: false, error: "키드키즈(partner.kidkids.net) 탭을 열 수 없습니다." };
+  await attachOrderCollectionTab(collection, tab, created);
   // 주문서 fetch 가 주문 수만큼 → 길다. MV3 서비스워커 유휴 종료(=port closed) 방지 keepalive.
   const keepAlive = setInterval(() => {
     chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
@@ -1030,7 +1078,7 @@ async function collectKidkidsOrders(dateFilter) {
     );
     return injected[0]?.result ?? { success: false, error: "키드키즈 화면에 접근하지 못했습니다." };
   } catch (e) {
-    if (isMallAccessError(e)) { keepOpen = created; await bringMallTabToFront(tab.id); return mallAccessErrorResult("키드키즈"); }
+    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("키드키즈"); }
     return mallGenericErrorResult("키드키즈", e);
   } finally {
     clearInterval(keepAlive);
@@ -1055,9 +1103,10 @@ async function findOrCreateLotteonTab() {
   return { tab, created: true };
 }
 
-async function collectLotteonOrders() {
+async function collectLotteonOrders(collection) {
   const { tab, created } = await findOrCreateLotteonTab();
   if (!tab?.id) return { success: false, error: "롯데ON(store.lotteon.com) 탭을 열 수 없습니다." };
+  await attachOrderCollectionTab(collection, tab, created);
   // 롯데ON 판매자센터는 SPA + 토큰(sessionStorage.AuthToken)/SSO 로그인이라 확장이 ID/비번을 자동 입력할 수
   // 없다(캡차·통합회원 로그인). 미로그인이면 로그인 탭을 앞으로 띄워 사용자가 직접 로그인하도록 안내한다.
   let loginNeeded = false;
@@ -1074,7 +1123,6 @@ async function collectLotteonOrders() {
     const result = injected[0]?.result ?? { success: false, error: "롯데ON 화면에 접근하지 못했습니다." };
     if (!result.success && /로그인|인증|세션/.test(result.error || "")) {
       loginNeeded = true;
-      await bringMallTabToFront(tab.id); // 로그인 탭을 활성 탭으로 (사용자가 직접 로그인)
       return {
         success: false,
         pendingLogin: true,
@@ -1189,9 +1237,10 @@ async function findOrCreateBoriboriTab() {
   return { tab, created: true };
 }
 
-async function collectBoriboriOrders(options = {}) {
+async function collectBoriboriOrders(options = {}, collection) {
   const { tab, created } = await findOrCreateBoriboriTab();
   if (!tab?.id) return { success: false, error: "보리보리(seller-club.co.kr) 탭을 열 수 없습니다." };
+  await attachOrderCollectionTab(collection, tab, created);
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
@@ -1207,7 +1256,7 @@ async function collectBoriboriOrders(options = {}) {
     );
     return injected[0]?.result ?? { success: false, error: "보리보리 화면에 접근하지 못했습니다." };
   } catch (e) {
-    if (isMallAccessError(e)) { keepOpen = created; await bringMallTabToFront(tab.id); return mallAccessErrorResult("보리보리"); }
+    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("보리보리"); }
     return mallGenericErrorResult("보리보리", e);
   } finally {
     if (created && tab.id && !keepOpen) {
@@ -1230,9 +1279,10 @@ async function findOrCreateTeachervilleTab() {
   return { tab, created: true };
 }
 
-async function collectTeachervilleOrders() {
+async function collectTeachervilleOrders(collection) {
   const { tab, created } = await findOrCreateTeachervilleTab();
   if (!tab?.id) return { success: false, error: "티쳐몰(shop.teacherville.co.kr) 탭을 열 수 없습니다." };
+  await attachOrderCollectionTab(collection, tab, created);
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
@@ -1253,7 +1303,7 @@ async function collectTeachervilleOrders() {
     );
     return injected[0]?.result ?? { success: false, error: "티쳐몰 화면에 접근하지 못했습니다." };
   } catch (e) {
-    if (isMallAccessError(e)) { keepOpen = created; await bringMallTabToFront(tab.id); return mallAccessErrorResult("티쳐몰"); }
+    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("티쳐몰"); }
     return mallGenericErrorResult("티쳐몰", e);
   } finally {
     if (created && tab.id && !keepOpen) {
@@ -1342,9 +1392,10 @@ async function findOrCreateArt09Tab() {
   return { tab, created: true };
 }
 
-async function collectArt09Orders() {
+async function collectArt09Orders(collection) {
   const { tab, created } = await findOrCreateArt09Tab();
   if (!tab?.id) return { success: false, error: "아트공구(zzogzzog1.cafe24.com) 탭을 열 수 없습니다." };
+  await attachOrderCollectionTab(collection, tab, created);
   const keepAlive = setInterval(() => {
     chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
   }, 20000);
@@ -1367,11 +1418,10 @@ async function collectArt09Orders() {
     const result = injected[0]?.result ?? { success: false, error: "아트공구 화면에 접근하지 못했습니다." };
     if (!result.success && result.pendingLogin) {
       keepOpen = true;
-      await bringMallTabToFront(tab.id);
     }
     return result;
   } catch (e) {
-    if (isMallAccessError(e)) { keepOpen = created; await bringMallTabToFront(tab.id); return mallAccessErrorResult("아트공구"); }
+    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("아트공구"); }
     return mallGenericErrorResult("아트공구", e);
   } finally {
     clearInterval(keepAlive);
@@ -1851,9 +1901,10 @@ async function scrapeBoriboriOrders(downloadPassword) {
 // 발주현황=발주확정(PA), 운송유형(SHIPMENT=쉽먼트/MILKRUN=밀크런) 그대로 담아 백엔드가 분리 생성.
 // ⚠️품목 상세(/scm/purchase/order/get)는 po-web 컨텍스트서 fetch 하면 로그인페이지 → /scm 페이지로
 // 이동한 뒤 그 컨텍스트에서 fetch 해야 인증됨. 목록/센터(po-web API)는 같은 origin이라 /scm 서도 됨.
-async function collectCoupangDirectOrders() {
+async function collectCoupangDirectOrders(collection) {
   const { tab, created } = await findOrCreateCoupangPoTab();
   if (!tab?.id) return { success: false, error: "쿠팡 공급사허브(supplier.coupang.com) 탭을 열 수 없습니다." };
+  await attachOrderCollectionTab(collection, tab, created);
   const keepAlive = setInterval(() => {
     chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
   }, 20000);
@@ -1886,7 +1937,7 @@ async function collectCoupangDirectOrders() {
     );
     return dataInjected[0]?.result ?? { success: false, error: "쿠팡 발주 상세에 접근하지 못했습니다." };
   } catch (e) {
-    if (isMallAccessError(e)) { keepOpen = created; await bringMallTabToFront(tab.id); return mallAccessErrorResult("쿠팡직배송"); }
+    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("쿠팡직배송"); }
     return mallGenericErrorResult("쿠팡직배송", e);
   } finally {
     clearInterval(keepAlive);
@@ -2047,9 +2098,10 @@ async function findOrCreateGsshopTab() {
   return { tab, created: true };
 }
 
-async function collectGsshopOrders() {
+async function collectGsshopOrders(collection) {
   const { tab, created } = await findOrCreateGsshopTab();
   if (!tab?.id) return { success: false, error: "GS샵(partners.gsshop.com) 탭을 열 수 없습니다." };
+  await attachOrderCollectionTab(collection, tab, created);
   // 조회+상세 fetch 후 클라이언트 엑셀 조립까지 길다. MV3 서비스워커 유휴 종료(=port closed) 방지 keepalive.
   const keepAlive = setInterval(() => {
     chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
@@ -2068,7 +2120,7 @@ async function collectGsshopOrders() {
     );
     return injected[0]?.result ?? { success: false, error: "GS샵 화면에 접근하지 못했습니다." };
   } catch (e) {
-    if (isMallAccessError(e)) { keepOpen = created; await bringMallTabToFront(tab.id); return mallAccessErrorResult("GS샵"); }
+    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("GS샵"); }
     return mallGenericErrorResult("GS샵", e);
   } finally {
     clearInterval(keepAlive);
@@ -2212,9 +2264,10 @@ async function findOrCreateAlwayzTab() {
   return { tab, created: true };
 }
 
-async function collectAlwayzOrders() {
+async function collectAlwayzOrders(collection) {
   const { tab, created } = await findOrCreateAlwayzTab();
   if (!tab?.id) return { success: false, error: "올웨이즈(alwayzseller.ilevit.com) 탭을 열 수 없습니다." };
+  await attachOrderCollectionTab(collection, tab, created);
   const keepAlive = setInterval(() => {
     chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
   }, 20000);
@@ -2232,7 +2285,7 @@ async function collectAlwayzOrders() {
     );
     return injected[0]?.result ?? { success: false, error: "올웨이즈 화면에 접근하지 못했습니다." };
   } catch (e) {
-    if (isMallAccessError(e)) { keepOpen = created; await bringMallTabToFront(tab.id); return mallAccessErrorResult("올웨이즈"); }
+    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("올웨이즈"); }
     return mallGenericErrorResult("올웨이즈", e);
   } finally {
     clearInterval(keepAlive);
@@ -2478,7 +2531,7 @@ async function findOrCreateDomeggookTab(navUrl) {
   return { tab, created: true };
 }
 
-async function collectDomeggookOrders(date) {
+async function collectDomeggookOrders(date, collection) {
   // 로그인/기존 목록 확인 + 트리거 전 최신 요청시각(이후 새로 생성된 것만 고르기 위함)
   const before = await domeggookOrderList();
   if (!before) return { success: false, error: "domeggook.com 로그인이 필요합니다. 로그인 후 다시 시도하세요." };
@@ -2492,6 +2545,7 @@ async function collectDomeggookOrders(date) {
 
   const { tab, created } = await findOrCreateDomeggookTab(navUrl);
   if (!tab?.id) return { success: false, error: "도매꾹(domeggook.com) 탭을 열 수 없습니다." };
+  await attachOrderCollectionTab(collection, tab, created);
   const keepAlive = setInterval(() => {
     chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
   }, 20000);
@@ -2533,7 +2587,7 @@ async function collectDomeggookOrders(date) {
       size: buf.length,
     };
   } catch (e) {
-    if (isMallAccessError(e)) { keepOpen = created; await bringMallTabToFront(tab.id); return mallAccessErrorResult("도매꾹"); }
+    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("도매꾹"); }
     return mallGenericErrorResult("도매꾹", e);
   } finally {
     clearInterval(keepAlive);
@@ -2600,9 +2654,10 @@ async function findOrCreateKidsnoteTab() {
   return { tab, created: true };
 }
 
-async function collectKidsnoteOrders({ from, to, status, withDetail }) {
+async function collectKidsnoteOrders({ from, to, status, withDetail }, collection) {
   const { tab, created } = await findOrCreateKidsnoteTab();
   if (!tab?.id) return { success: false, error: "키즈노트(shop.kidsnote.com) 탭을 열 수 없습니다." };
+  await attachOrderCollectionTab(collection, tab, created);
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
@@ -2622,7 +2677,7 @@ async function collectKidsnoteOrders({ from, to, status, withDetail }) {
       }
     );
   } catch (e) {
-    if (isMallAccessError(e)) { keepOpen = created; await bringMallTabToFront(tab.id); return mallAccessErrorResult("키즈노트"); }
+    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("키즈노트"); }
     return mallGenericErrorResult("키즈노트", e);
   } finally {
     if (created && tab.id && !keepOpen) {
@@ -3093,11 +3148,12 @@ async function injectSellpiaOrderFile(payload) {
   }
 }
 
-async function collectIcecreamMallOrders(date, credentials) {
-  const tab = await findOrCreateIcecreamMallTab();
+async function collectIcecreamMallOrders(date, credentials, collection) {
+  const { tab, created } = await findOrCreateIcecreamMallTab();
   if (!tab.id) {
     return { success: false, error: "아이스크림몰 탭을 열 수 없습니다." };
   }
+  await attachOrderCollectionTab(collection, tab, created);
 
   await waitForTabReady(tab.id);
   const login = await withTimeout(
@@ -3225,9 +3281,10 @@ function summarizeScrapeFailures(results) {
 async function findOrCreateIcecreamMallTab() {
   const tabs = await chrome.tabs.query({ url: ICECREAM_MALL_TAB_MATCHES });
   const active = tabs.find((tab) => tab.active) || tabs[0];
-  if (active) return active;
+  if (active) return { tab: active, created: false };
 
-  return chrome.tabs.create({ url: ICECREAM_MALL_URL, active: true });
+  const tab = await chrome.tabs.create({ url: ICECREAM_MALL_URL, active: false });
+  return { tab, created: true };
 }
 
 function withTimeout(promise, timeoutMs, message) {
@@ -4026,9 +4083,11 @@ async function findOrCreateSellpiaReprintTab() {
   return { tab, created: true };
 }
 
-async function collectSellpiaDeliTracking(options = {}) {
+async function collectSellpiaDeliTracking(options = {}, collection) {
   const { tab, created } = await findOrCreateSellpiaReprintTab();
   if (!tab?.id) return { success: false, error: "셀피아(kiditem.sellpia.com) 탭을 열 수 없습니다." };
+  await attachOrderCollectionTab(collection, tab, created);
+  let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
     const injected = await withTimeout(
@@ -4043,10 +4102,10 @@ async function collectSellpiaDeliTracking(options = {}) {
     );
     return injected[0]?.result ?? { success: false, error: "셀피아 화면에 접근하지 못했습니다." };
   } catch (e) {
-    if (isMallAccessError(e)) { await bringMallTabToFront(tab.id); return mallAccessErrorResult("셀피아"); }
+    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("셀피아"); }
     return mallGenericErrorResult("셀피아", e);
   } finally {
-    if (created && tab.id) {
+    if (created && tab.id && !keepOpen) {
       try { await chrome.tabs.remove(tab.id); } catch { /* 이미 닫힘 */ }
     }
   }
@@ -4118,9 +4177,10 @@ async function findOrCreateKakaoTab() {
   return { tab, created: true };
 }
 
-async function collectKakaoOrders(dateFilter) {
+async function collectKakaoOrders(dateFilter, collection) {
   const { tab, created } = await findOrCreateKakaoTab();
   if (!tab?.id) return { success: false, error: "카카오쇼핑 판매자센터(shopping-seller.kakao.com) 탭을 열 수 없습니다." };
+  await attachOrderCollectionTab(collection, tab, created);
   const keepAlive = setInterval(() => {
     chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
   }, 20000);
@@ -4138,7 +4198,7 @@ async function collectKakaoOrders(dateFilter) {
     );
     return injected[0]?.result ?? { success: false, error: "카카오 화면에 접근하지 못했습니다." };
   } catch (e) {
-    if (isMallAccessError(e)) { keepOpen = created; await bringMallTabToFront(tab.id); return mallAccessErrorResult("카카오"); }
+    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("카카오"); }
     return mallGenericErrorResult("카카오", e);
   } finally {
     clearInterval(keepAlive);
@@ -4227,6 +4287,8 @@ async function uploadOnchTracking(options = {}) {
   if (rows.length === 0) return { success: false, error: "온채널 송장이 없습니다." };
   const { tab, created } = await findOrCreateOnchannelTab();
   if (!tab?.id) return { success: false, error: "온채널(onch3.co.kr) 탭을 열 수 없습니다." };
+  await interactiveTabs.focusTab(tab.id, INTERACTIVE_TAB_REASONS.TRACKING_MUTATION);
+  let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
     const injected = await withTimeout(
@@ -4241,10 +4303,10 @@ async function uploadOnchTracking(options = {}) {
     );
     return injected[0]?.result ?? { success: false, error: "온채널 화면에 접근하지 못했습니다." };
   } catch (e) {
-    if (isMallAccessError(e)) { await bringMallTabToFront(tab.id); return mallAccessErrorResult("온채널"); }
+    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("온채널"); }
     return mallGenericErrorResult("온채널", e);
   } finally {
-    if (created && tab.id) {
+    if (created && tab.id && !keepOpen) {
       try { await chrome.tabs.remove(tab.id); } catch { /* 이미 닫힘 */ }
     }
   }
@@ -4321,6 +4383,8 @@ async function uploadDomeggookTracking(options = {}) {
   if (!fileBase64) return { success: false, error: "도매꾹 송장 파일이 없습니다." };
   const { tab, created } = await findOrCreateDomeggookTab(DOMEGGOOK_INPROCESS_URL);
   if (!tab?.id) return { success: false, error: "도매꾹(domeggook.com) 탭을 열 수 없습니다." };
+  await interactiveTabs.focusTab(tab.id, INTERACTIVE_TAB_REASONS.TRACKING_MUTATION);
+  let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
     const injected = await withTimeout(
@@ -4335,10 +4399,10 @@ async function uploadDomeggookTracking(options = {}) {
     );
     return injected[0]?.result ?? { success: false, error: "도매꾹 화면에 접근하지 못했습니다." };
   } catch (e) {
-    if (isMallAccessError(e)) { await bringMallTabToFront(tab.id); return mallAccessErrorResult("도매꾹"); }
+    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("도매꾹"); }
     return mallGenericErrorResult("도매꾹", e);
   } finally {
-    if (created && tab.id) {
+    if (created && tab.id && !keepOpen) {
       try { await chrome.tabs.remove(tab.id); } catch { /* 이미 닫힘 */ }
     }
   }

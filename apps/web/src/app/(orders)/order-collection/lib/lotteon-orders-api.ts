@@ -2,6 +2,7 @@ import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extensi
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
+import type { OrderCollectionExtensionRun } from './order-collection-extension';
 
 interface LotteonCollectResponse {
   success?: boolean;
@@ -16,8 +17,8 @@ interface LotteonCollectResponse {
  * (saveDownloadReason 로 개인정보 다운로드 사유 등록 → downloadDeliveryExcel 로 fileId 발급 → fileManage
  *  CDN 다운로드). 반환은 base64(xlsx bytes 그대로). 확장 서비스워커가 CORS·인증을 우회.
  */
-export async function collectLotteonXlsxFromExtension(): Promise<{ xlsxBase64: string; fileName: string }> {
-  const extensionId = await detectOrderCollectionExtensionId();
+export async function collectLotteonXlsxFromExtension(run?: OrderCollectionExtensionRun): Promise<{ xlsxBase64: string; fileName: string }> {
+  const extensionId = run?.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 store.lotteon.com 에 로그인한 뒤 다시 시도하세요.',
@@ -25,7 +26,11 @@ export async function collectLotteonXlsxFromExtension(): Promise<{ xlsxBase64: s
   }
   const res = await sendToExtension<LotteonCollectResponse>(
     extensionId,
-    { action: 'collectLotteonOrders' },
+    {
+      action: 'collectLotteonOrders',
+      date: run?.date,
+      runId: run?.runId ?? globalThis.crypto.randomUUID(),
+    },
     120000,
   );
   if (!res?.success || !res.xlsxBase64) {

@@ -1,5 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { MallAccountSection } from "./MallAccountSection";
 import type { MallCollectionStat } from "../lib/order-collection-stats";
@@ -26,6 +29,7 @@ function mallAccount(
 function renderSection(
   accounts: OrderCollectionMallAccount[],
   stats = new Map<string, MallCollectionStat>(),
+  collectionControls?: ReactNode,
 ) {
   const callbacks = {
     onCollectAll: vi.fn(),
@@ -75,6 +79,7 @@ function renderSection(
       autoNextRunAt={null}
       autoRunning={false}
       failedMallCount={0}
+      collectionControls={collectionControls}
       {...callbacks}
     />,
   );
@@ -145,5 +150,44 @@ describe("MallAccountSection", () => {
 
     await user.click(screen.getByRole("button", { name: "키드키즈 설정" }));
     expect(callbacks.onOpenSettings).toHaveBeenCalledWith(account);
+  });
+
+  it("renders collection recovery controls above the mall cards", () => {
+    const account = mallAccount("kidsnote", { name: "키즈노트" });
+    renderSection(
+      [account],
+      new Map(),
+      <div aria-label="주문 수집 복구 컨트롤">복구</div>,
+    );
+
+    const controls = screen.getByLabelText("주문 수집 복구 컨트롤");
+    const card = screen.getByRole("article", { name: "키즈노트 계정 카드" });
+    expect(
+      controls.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+  });
+
+  it("wires route collectionRun recovery and same-run restart", () => {
+    const routeRoot = path.resolve(import.meta.dirname, "..");
+    const page = readFileSync(path.join(routeRoot, "page.tsx"), "utf8");
+    const collector = readFileSync(
+      path.join(routeRoot, "lib/browser-mall-collection.ts"),
+      "utf8",
+    );
+    const sessionHook = readFileSync(
+      path.join(routeRoot, "hooks/use-order-collection-session-controls.ts"),
+      "utf8",
+    );
+
+    expect(page).toContain("BrowserCollectionRunControls");
+    expect(sessionHook).toContain("useBrowserCollectionSession");
+    expect(sessionHook).toContain("collectionRun");
+    expect(sessionHook).toContain("globalThis.crypto.randomUUID()");
+    expect(sessionHook).toContain("'orders.mall'");
+    expect(page).toMatch(/handleBrowserCollectMall\(account,\s*session\.runId\)/);
+    expect(page).toContain('webRestartUnavailableMessage');
+    expect(sessionHook).toContain("mallAccounts.find((account) => account.key === mallKey)");
+    expect(collector).toContain("runId");
+    expect(collector).toContain("extensionId");
   });
 });

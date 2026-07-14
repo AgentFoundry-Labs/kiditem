@@ -3,6 +3,7 @@ import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extensi
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
+import type { OrderCollectionExtensionRun } from './order-collection-extension';
 
 export interface CoupangDirectItem {
   skuId?: string;
@@ -42,8 +43,8 @@ export const COUPANG_TRANSPORT_LABEL: Record<CoupangTransport, string> = {
  * order-collector 확장으로 쿠팡 공급사허브의 "발주확정(PA)" 발주를 수집한다.
  * 발주목록(po-web) + 발주별 품목(/scm 상세) + 센터주소(po-web) 를 모아 운송유형(쉽먼트/밀크런)까지 담아 온다.
  */
-export async function collectCoupangDirectFromExtension(): Promise<CoupangDirectData> {
-  const extensionId = await detectOrderCollectionExtensionId();
+export async function collectCoupangDirectFromExtension(run?: OrderCollectionExtensionRun): Promise<CoupangDirectData> {
+  const extensionId = run?.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 supplier.coupang.com 에 로그인한 뒤 다시 시도하세요.',
@@ -51,7 +52,11 @@ export async function collectCoupangDirectFromExtension(): Promise<CoupangDirect
   }
   const res = await sendToExtension<CoupangCollectResponse>(
     extensionId,
-    { action: 'collectCoupangDirectOrders' },
+    {
+      action: 'collectCoupangDirectOrders',
+      date: run?.date,
+      runId: run?.runId ?? globalThis.crypto.randomUUID(),
+    },
     240000, // 발주별 /scm 상세 fetch 가 많아 넉넉히
   );
   if (!res?.success || !Array.isArray(res.pos)) {

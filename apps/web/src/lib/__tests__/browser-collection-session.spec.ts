@@ -262,6 +262,23 @@ describe('browser collection alert synchronization', () => {
     now.mockRestore();
   });
 
+  it('keeps a route-generated run id when recording a missing extension', async () => {
+    const runId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+
+    const result = await recordMissingBrowserCollection(
+      'orders.mall',
+      { mallKey: 'kidsnote' },
+      runId,
+    );
+
+    expect(result).toEqual({ runId });
+    expect(mockStart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationKey: `browser-collection:${runId}`,
+      }),
+    );
+  });
+
   it('rejects secret-bearing missing-extension identities before alert metadata leaves the browser', async () => {
     await expect(
       recordMissingBrowserCollection('dashboard.wing_sales', {
