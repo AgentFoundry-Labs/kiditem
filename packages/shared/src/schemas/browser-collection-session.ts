@@ -50,6 +50,7 @@ export const BrowserCollectionClassificationSchema = z.enum([
 export const BrowserCollectionAttentionReasonSchema = z.enum(
   BROWSER_COLLECTION_ATTENTION_REASONS,
 );
+export const BrowserCollectionRunIdSchema = z.string().uuid();
 
 const InputValueSchema = z.union([
   z.string().max(500),
@@ -58,7 +59,7 @@ const InputValueSchema = z.union([
   z.null(),
 ]);
 const SecretIdentityKeyPattern =
-  /token|password|secret|cookie|credential|file|rows|payload/i;
+  /response|body|html|token|password|secret|cookie|credential|file|rows|payload/i;
 const InputIdentitySchema = z
   .record(z.string().min(1).max(80), InputValueSchema)
   .superRefine((value, context) => {
@@ -80,7 +81,7 @@ const InputIdentitySchema = z
 
 export const BrowserCollectionSessionViewSchema = z
   .object({
-    runId: z.string().uuid(),
+    runId: BrowserCollectionRunIdSchema,
     producer: BrowserCollectionProducerSchema,
     classification: BrowserCollectionClassificationSchema.exclude([
       'interactive_only',
@@ -150,25 +151,25 @@ export const BrowserCollectionCommandSchema = z.discriminatedUnion('action', [
   z
     .object({
       action: z.literal('getCollectionSession'),
-      runId: z.string().uuid(),
+      runId: BrowserCollectionRunIdSchema,
     })
     .strict(),
   z
     .object({
       action: z.literal('cancelCollectionSession'),
-      runId: z.string().uuid(),
+      runId: BrowserCollectionRunIdSchema,
     })
     .strict(),
   z
     .object({
       action: z.literal('openCollectionAttentionTab'),
-      runId: z.string().uuid(),
+      runId: BrowserCollectionRunIdSchema,
     })
     .strict(),
   z
     .object({
       action: z.literal('restartCollectionSession'),
-      runId: z.string().uuid(),
+      runId: BrowserCollectionRunIdSchema,
     })
     .strict(),
 ]);

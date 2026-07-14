@@ -1,10 +1,12 @@
 'use client';
 
 import type { BrowserCollectionSessionView } from '@kiditem/shared/browser-collection-session';
+import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
   sendBrowserCollectionControl,
   type BrowserCollectionControlAction,
+  updateBrowserCollectionSessionCache,
 } from '@/lib/browser-collection-session';
 import { cn } from '@/lib/utils';
 
@@ -19,6 +21,7 @@ export function BrowserCollectionRunControls({
   onWebRestart,
   className,
 }: BrowserCollectionRunControlsProps) {
+  const queryClient = useQueryClient();
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const isRunning = session.status === 'running';
   const needsAttention = session.status === 'attention_required';
@@ -29,7 +32,10 @@ export function BrowserCollectionRunControls({
     if (busyAction) return;
     setBusyAction(action);
     try {
-      await sendBrowserCollectionControl(session.runId, action);
+      const response = await sendBrowserCollectionControl(session.runId, action);
+      if (response) {
+        updateBrowserCollectionSessionCache(queryClient, response);
+      }
     } catch (error) {
       console.warn(`[browser-collection] ${action} failed`, error);
     } finally {
@@ -44,10 +50,13 @@ export function BrowserCollectionRunControls({
       if (session.restartStrategy === 'web') {
         await onWebRestart(session);
       } else {
-        await sendBrowserCollectionControl(
+        const response = await sendBrowserCollectionControl(
           session.runId,
           'restartCollectionSession',
         );
+        if (response) {
+          updateBrowserCollectionSessionCache(queryClient, response);
+        }
       }
     } catch (error) {
       console.warn('[browser-collection] restart failed', error);

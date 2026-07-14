@@ -186,6 +186,12 @@ describe('BrowserCollectionSessionViewSchema', () => {
       ...createSession(),
       inputIdentity: { sourcePayload: 'raw input' },
     })).toThrow('Secret identity field is not allowed: sourcePayload');
+    for (const key of ['response', 'responseBody', 'body', 'rawHtml']) {
+      expect(() => BrowserCollectionSessionViewSchema.parse({
+        ...createSession(),
+        inputIdentity: { [key]: 'raw input' },
+      })).toThrow(`Secret identity field is not allowed: ${key}`);
+    }
   });
 
   it('keeps input identity values primitive and bounded', () => {

@@ -7,6 +7,7 @@ import {
   type BrowserCollectionProducer,
   type BrowserCollectionSessionView,
 } from '@kiditem/shared/browser-collection-session';
+import type { QueryClient } from '@tanstack/react-query';
 import {
   detectBrowserCollectionExtensionIds,
   sendToExtension,
@@ -16,6 +17,7 @@ import {
   startOperationAlert,
   updateOperationAlert,
 } from './operation-alerts';
+import { queryKeys } from './query-keys';
 
 type BrowserCollectionInputIdentity =
   BrowserCollectionSessionView['inputIdentity'];
@@ -43,8 +45,51 @@ function alertMetadata(session: BrowserCollectionSessionView) {
     runId: session.runId,
     producer: session.producer,
     attempt: session.attempt,
+    collectionUpdatedAt: session.updatedAt,
     attentionReason: session.attention?.reason ?? null,
   };
+}
+
+type BrowserCollectionOrdering = Pick<
+  BrowserCollectionSessionView,
+  'attempt' | 'updatedAt'
+>;
+
+export function isBrowserCollectionOrderingNewer(
+  candidate: BrowserCollectionOrdering,
+  current: BrowserCollectionOrdering | null | undefined,
+): boolean {
+  if (!current) return true;
+  if (candidate.attempt !== current.attempt) {
+    return candidate.attempt > current.attempt;
+  }
+  return candidate.updatedAt > current.updatedAt;
+}
+
+export function preferBrowserCollectionSession(
+  current: BrowserCollectionSessionView | null | undefined,
+  candidate: BrowserCollectionSessionView | null,
+): BrowserCollectionSessionView | null {
+  if (!candidate) return current ?? null;
+  return isBrowserCollectionOrderingNewer(candidate, current)
+    ? candidate
+    : (current ?? candidate);
+}
+
+export function updateBrowserCollectionSessionCache(
+  queryClient: QueryClient,
+  candidate: BrowserCollectionSessionView,
+): boolean {
+  let updated = false;
+  queryClient.setQueryData<BrowserCollectionSessionView | null>(
+    queryKeys.browserCollection.session(candidate.runId),
+    (current) => {
+      if (!isBrowserCollectionOrderingNewer(candidate, current)) return current;
+      updated = true;
+      return candidate;
+    },
+  );
+  return updated;
 }
 
 function startInput(
@@ -165,6 +210,7 @@ export async function recordMissingBrowserCollection(
     runId,
     producer,
     attempt: 1,
+    collectionUpdatedAt: now,
     attentionReason: 'extension_missing',
     inputIdentity: validated.inputIdentity,
   };
@@ -211,7 +257,7 @@ function preferNewestSessions(
   const byRunId = new Map<string, BrowserCollectionSessionView>();
   for (const session of sessions) {
     const current = byRunId.get(session.runId);
-    if (!current || session.updatedAt > current.updatedAt) {
+    if (isBrowserCollectionOrderingNewer(session, current)) {
       byRunId.set(session.runId, session);
     }
   }

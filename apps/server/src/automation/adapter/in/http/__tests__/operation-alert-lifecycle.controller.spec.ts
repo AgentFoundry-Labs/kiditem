@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { OperationAlertLifecycleController } from '../operation-alert-lifecycle.controller';
+import { OperationAlertOwnershipConflictError } from '../../../../domain/errors/operation-alert-ownership-conflict.error';
 
 const ORGANIZATION_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const USER_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
@@ -154,6 +155,75 @@ describe('OperationAlertLifecycleController.start', () => {
         { id: USER_ID } as any,
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it.each([
+    '------------------------------------',
+    'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+  ])('returns 400 for the UUID lookalike %s', async (runId) => {
+    const { controller } = makeController();
+
+    await expect(
+      controller.start(
+        {
+          operationKey: `browser-collection:${runId}`,
+          type: 'browser_collection',
+          title: '임의 수집',
+          sourceType: 'browser_collection_session',
+          sourceId: 'dashboard.wing_sales',
+          href: '/dashboard',
+        },
+        ORGANIZATION_ID,
+        { id: USER_ID } as any,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('returns 404 without restarting another actor personal alert', async () => {
+    const { controller, service } = makeController();
+    service.findByOperationKey.mockResolvedValueOnce(
+      alertRow({ actorUserId: OTHER_USER_ID }),
+    );
+
+    await expect(
+      controller.start(
+        {
+          operationKey: OPERATION_KEY,
+          type: 'browser_collection',
+          title: 'Wing 매출 수집',
+          sourceType: 'browser_collection_session',
+          sourceId: 'dashboard.wing_sales',
+          href: '/dashboard',
+        },
+        ORGANIZATION_ID,
+        { id: USER_ID } as any,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(service.start).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when another actor wins the operation-key existence race', async () => {
+    const { controller, service } = makeController();
+    service.findByOperationKey.mockResolvedValueOnce(null);
+    service.start.mockRejectedValueOnce(
+      new OperationAlertOwnershipConflictError(),
+    );
+
+    await expect(
+      controller.start(
+        {
+          operationKey: OPERATION_KEY,
+          type: 'browser_collection',
+          title: 'Wing 매출 수집',
+          sourceType: 'browser_collection_session',
+          sourceId: 'dashboard.wing_sales',
+          href: '/dashboard',
+        },
+        ORGANIZATION_ID,
+        { id: USER_ID } as any,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('appends collectionRun with an ampersand when the canonical route has a query', async () => {

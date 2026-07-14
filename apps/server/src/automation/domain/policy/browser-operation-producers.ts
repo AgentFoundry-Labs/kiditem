@@ -1,4 +1,7 @@
-import type { BrowserCollectionProducer } from '@kiditem/shared/browser-collection-session';
+import {
+  BrowserCollectionRunIdSchema,
+  type BrowserCollectionProducer,
+} from '@kiditem/shared/browser-collection-session';
 
 export interface BrowserOperationProducerInput {
   operationKey: string;
@@ -59,8 +62,7 @@ const COLLECTION_PRODUCERS = new Map<
   ['orders.mall', { title: '주문 데이터 수집', href: '/order-collection' }],
 ]);
 
-const BROWSER_COLLECTION_OPERATION_KEY =
-  /^browser-collection:([0-9a-f-]{36})$/i;
+const BROWSER_COLLECTION_OPERATION_KEY = /^browser-collection:(.+)$/;
 
 export function isBrowserOperationProducer(
   input: BrowserOperationProducerInput,
@@ -85,7 +87,13 @@ export function resolveBrowserOperationProducer(
   const producer = COLLECTION_PRODUCERS.get(
     input.sourceId as BrowserCollectionProducer,
   );
-  if (!operationKeyMatch || !producer) return null;
+  if (
+    !operationKeyMatch ||
+    !BrowserCollectionRunIdSchema.safeParse(operationKeyMatch[1]).success ||
+    !producer
+  ) {
+    return null;
+  }
 
   const collectionRun = operationKeyMatch[1];
   const separator = producer.href.includes('?') ? '&' : '?';

@@ -13,12 +13,48 @@ import type {
   OperationAlertTransitionPatch,
   OperationAlertUpsertData,
 } from '../../../application/port/out/repository/operation-alert.repository.port';
+import { OperationAlertOwnershipConflictError } from '../../../domain/errors/operation-alert-ownership-conflict.error';
 
 const TERMINAL_OPERATION_STATUSES = new Set([
   'succeeded',
   'failed',
   'cancelled',
 ]);
+
+type BrowserCollectionOrdering = {
+  attempt: number;
+  updatedAt: number;
+};
+
+function browserCollectionOrdering(
+  metadata: unknown,
+): BrowserCollectionOrdering | null {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return null;
+  }
+  const record = metadata as Record<string, unknown>;
+  if (
+    record.browserCollection !== true ||
+    !Number.isInteger(record.attempt) ||
+    !Number.isInteger(record.collectionUpdatedAt)
+  ) {
+    return null;
+  }
+  return {
+    attempt: record.attempt as number,
+    updatedAt: record.collectionUpdatedAt as number,
+  };
+}
+
+function compareBrowserCollectionOrdering(
+  candidate: BrowserCollectionOrdering,
+  current: BrowserCollectionOrdering,
+): number {
+  if (candidate.attempt !== current.attempt) {
+    return candidate.attempt - current.attempt;
+  }
+  return candidate.updatedAt - current.updatedAt;
+}
 
 @Injectable()
 export class OperationAlertRepositoryAdapter
@@ -36,6 +72,22 @@ export class OperationAlertRepositoryAdapter
     });
 
     if (existing) {
+      this.assertPersonalOwner(existing, data.actorUserId);
+      const incomingOrdering = browserCollectionOrdering(data.metadata);
+      const currentOrdering = browserCollectionOrdering(existing.metadata);
+      if (
+        incomingOrdering &&
+        currentOrdering &&
+        compareBrowserCollectionOrdering(incomingOrdering, currentOrdering) <= 0
+      ) {
+        return existing;
+      }
+      if (
+        incomingOrdering &&
+        TERMINAL_OPERATION_STATUSES.has(existing.status)
+      ) {
+        return existing;
+      }
       // Re-running an operation must not flip an already-read alert back to
       // unread; honour the existing read state regardless of `data.isRead`.
       // FK scalar (`actorUserId`) is excluded from the update path —
@@ -60,7 +112,13 @@ export class OperationAlertRepositoryAdapter
         readAt: existing.isRead ? existing.readAt : null,
       };
       await this.prisma.alert.updateMany({
-        where: { id: existing.id, organizationId },
+        where: {
+          id: existing.id,
+          organizationId,
+          ...(incomingOrdering
+            ? { status: { in: ['pending', 'running'] } }
+            : {}),
+        },
         data: updateData,
       });
       const refreshed = await this.prisma.alert.findFirst({
@@ -108,9 +166,24 @@ export class OperationAlertRepositoryAdapter
         const racy = await this.prisma.alert.findFirst({
           where: { organizationId, operationKey },
         });
-        if (racy) return racy;
+        if (racy) {
+          this.assertPersonalOwner(racy, data.actorUserId);
+          return racy;
+        }
       }
       throw err;
+    }
+  }
+
+  private assertPersonalOwner(
+    alert: Pick<Alert, 'actorUserId'>,
+    requestedActorUserId: string | null,
+  ): void {
+    if (
+      requestedActorUserId !== null &&
+      alert.actorUserId !== requestedActorUserId
+    ) {
+      throw new OperationAlertOwnershipConflictError();
     }
   }
 
@@ -124,6 +197,26 @@ export class OperationAlertRepositoryAdapter
     });
     if (!existing) return null;
     if (TERMINAL_OPERATION_STATUSES.has(existing.status)) return existing;
+
+    const incomingOrdering = browserCollectionOrdering(patch.metadata);
+    const currentOrdering = browserCollectionOrdering(existing.metadata);
+    if (
+      incomingOrdering &&
+      currentOrdering &&
+      (() => {
+        const comparison = compareBrowserCollectionOrdering(
+          incomingOrdering,
+          currentOrdering,
+        );
+        if (comparison < 0) return true;
+        if (comparison > 0) return false;
+        return !(
+          existing.status === 'running' && patch.status !== 'running'
+        );
+      })()
+    ) {
+      return existing;
+    }
 
     const mergedMetadata =
       patch.metadata !== undefined

@@ -4,7 +4,8 @@
   const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled']);
   const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
   const SECRET_KEY_PATTERN =
-    /token|password|secret|cookie|credential|file|rows|payload/i;
+    /response|body|html|token|password|secret|cookie|credential|file|rows|payload/i;
+  const storageMutationQueues = new Map();
 
   function emptyProgress() {
     return {
@@ -17,11 +18,39 @@
   }
 
   function sanitizeInputIdentity(inputIdentity) {
-    return Object.fromEntries(
-      Object.entries(inputIdentity || {}).filter(
-        ([key]) => !SECRET_KEY_PATTERN.test(key),
-      ),
+    const sanitized = {};
+    for (const [key, value] of Object.entries(inputIdentity || {})) {
+      if (Object.keys(sanitized).length >= 20) break;
+      if (
+        key.length < 1 ||
+        key.length > 80 ||
+        SECRET_KEY_PATTERN.test(key)
+      ) {
+        continue;
+      }
+      const primitive =
+        value === null ||
+        typeof value === 'boolean' ||
+        (typeof value === 'number' && Number.isFinite(value)) ||
+        (typeof value === 'string' && value.length <= 500);
+      if (primitive) sanitized[key] = value;
+    }
+    return sanitized;
+  }
+
+  function enqueueStorageMutation(storageKey, operation) {
+    const previous = storageMutationQueues.get(storageKey) || Promise.resolve();
+    const result = previous.catch(() => undefined).then(operation);
+    const tail = result.then(
+      () => undefined,
+      () => undefined,
     );
+    storageMutationQueues.set(storageKey, tail);
+    return result.finally(() => {
+      if (storageMutationQueues.get(storageKey) === tail) {
+        storageMutationQueues.delete(storageKey);
+      }
+    });
   }
 
   function create(options) {
@@ -95,40 +124,50 @@
       );
     }
 
-    async function transition(runId, patch) {
-      const sessions = await readSessions();
-      const current = sessions[runId];
-      if (!current) return null;
-      const next = { ...current, ...patch, updatedAt: now() };
-      sessions[runId] = next;
-      await writeSessions(prune(sessions));
-      const publicView = toPublicView(next);
-      await publish(publicView);
-      return publicView;
+    function transition(runId, patch) {
+      return enqueueStorageMutation(storageKey, async () => {
+        const sessions = await readSessions();
+        const current = sessions[runId];
+        if (!current) return null;
+        const resolvedPatch =
+          typeof patch === 'function' ? patch(current) : patch;
+        const next = {
+          ...current,
+          ...resolvedPatch,
+          updatedAt: Math.max(now(), current.updatedAt + 1),
+        };
+        sessions[runId] = next;
+        await writeSessions(prune(sessions));
+        const publicView = toPublicView(next);
+        await publish(publicView);
+        return publicView;
+      });
     }
 
-    async function start(input) {
-      const sessions = await readSessions();
-      const timestamp = now();
-      const session = {
-        runId: input.runId,
-        producer: input.producer,
-        classification: input.classification,
-        status: 'running',
-        attempt: 1,
-        restartStrategy: input.restartStrategy,
-        progress: emptyProgress(),
-        inputIdentity: sanitizeInputIdentity(input.inputIdentity),
-        attention: null,
-        startedAt: timestamp,
-        updatedAt: timestamp,
-        finishedAt: null,
-      };
-      sessions[input.runId] = session;
-      await writeSessions(prune(sessions));
-      const publicView = toPublicView(session);
-      await publish(publicView);
-      return publicView;
+    function start(input) {
+      return enqueueStorageMutation(storageKey, async () => {
+        const sessions = await readSessions();
+        const timestamp = now();
+        const session = {
+          runId: input.runId,
+          producer: input.producer,
+          classification: input.classification,
+          status: 'running',
+          attempt: 1,
+          restartStrategy: input.restartStrategy,
+          progress: emptyProgress(),
+          inputIdentity: sanitizeInputIdentity(input.inputIdentity),
+          attention: null,
+          startedAt: timestamp,
+          updatedAt: timestamp,
+          finishedAt: null,
+        };
+        sessions[input.runId] = session;
+        await writeSessions(prune(sessions));
+        const publicView = toPublicView(session);
+        await publish(publicView);
+        return publicView;
+      });
     }
 
     function attachTab(runId, tab) {
@@ -147,11 +186,8 @@
       });
     }
 
-    async function requireAttention(runId, attention) {
-      const sessions = await readSessions();
-      const current = sessions[runId];
-      if (!current) return null;
-      return transition(runId, {
+    function requireAttention(runId, attention) {
+      return transition(runId, (current) => ({
         status: 'attention_required',
         attention: {
           reason: attention.reason,
@@ -161,7 +197,7 @@
             Number.isInteger(current._managedWindowId),
         },
         finishedAt: null,
-      });
+      }));
     }
 
     function succeed(runId) {
@@ -188,46 +224,49 @@
       });
     }
 
-    async function restart(runId) {
-      const sessions = await readSessions();
-      const current = sessions[runId];
-      if (!current) return null;
-      return transition(runId, {
+    function restart(runId) {
+      return transition(runId, (current) => ({
         status: 'running',
         attempt: current.attempt + 1,
         progress: emptyProgress(),
         attention: null,
         finishedAt: null,
+      }));
+    }
+
+    function get(runId) {
+      return enqueueStorageMutation(storageKey, async () => {
+        const sessions = await readSessions();
+        return sessions[runId] ? toPublicView(sessions[runId]) : null;
       });
     }
 
-    async function get(runId) {
-      const sessions = await readSessions();
-      return sessions[runId] ? toPublicView(sessions[runId]) : null;
-    }
-
-    async function list() {
-      const sessions = await readSessions();
-      return Object.values(sessions).map(toPublicView);
-    }
-
-    async function openAttentionTab(runId) {
-      const sessions = await readSessions();
-      const session = sessions[runId];
-      if (!session || session.status !== 'attention_required') {
-        throw new Error('Collection session does not require attention');
-      }
-      if (
-        !Number.isInteger(session._managedTabId) ||
-        !Number.isInteger(session._managedWindowId)
-      ) {
-        throw new Error('Collection session has no managed attention tab');
-      }
-      await chromeApi.tabs.update(session._managedTabId, { active: true });
-      await chromeApi.windows.update(session._managedWindowId, {
-        focused: true,
+    function list() {
+      return enqueueStorageMutation(storageKey, async () => {
+        const sessions = await readSessions();
+        return Object.values(sessions).map(toPublicView);
       });
-      return toPublicView(session);
+    }
+
+    function openAttentionTab(runId) {
+      return enqueueStorageMutation(storageKey, async () => {
+        const sessions = await readSessions();
+        const session = sessions[runId];
+        if (!session || session.status !== 'attention_required') {
+          throw new Error('Collection session does not require attention');
+        }
+        if (
+          !Number.isInteger(session._managedTabId) ||
+          !Number.isInteger(session._managedWindowId)
+        ) {
+          throw new Error('Collection session has no managed attention tab');
+        }
+        await chromeApi.tabs.update(session._managedTabId, { active: true });
+        await chromeApi.windows.update(session._managedWindowId, {
+          focused: true,
+        });
+        return toPublicView(session);
+      });
     }
 
     return {
@@ -247,4 +286,3 @@
 
   global.KidItemCollectionSession = Object.freeze({ create });
 })(globalThis);
-

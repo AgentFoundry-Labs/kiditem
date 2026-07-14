@@ -19,6 +19,7 @@ import {
   isBrowserOperationProducer,
   resolveBrowserOperationProducer,
 } from '../../../domain/policy/browser-operation-producers';
+import { OperationAlertOwnershipConflictError } from '../../../domain/errors/operation-alert-ownership-conflict.error';
 import {
   ReconcileBrowserOperationAlertsDto,
   StartOperationAlertDto,
@@ -65,20 +66,39 @@ export class OperationAlertLifecycleController {
       throw new BadRequestException('unsupported operation alert producer');
     }
 
-    const alert = await this.operationAlerts.start({
+    const existing = await this.operationAlerts.findByOperationKey(
       organizationId,
-      operationKey: dto.operationKey,
-      type: dto.type,
-      title: producer.title,
-      message: dto.message ?? null,
-      sourceType: dto.sourceType,
-      sourceId: dto.sourceId ?? null,
-      actorUserId: user.id,
-      href: producer.href,
-      severity: dto.severity,
-      progress: dto.progress ?? null,
-      metadata: dto.metadata,
-    });
+      dto.operationKey,
+    );
+    if (existing && existing.actorUserId !== user.id) {
+      throw new NotFoundException(
+        `operation alert not found: ${dto.operationKey}`,
+      );
+    }
+
+    const alert = await this.operationAlerts
+      .start({
+        organizationId,
+        operationKey: dto.operationKey,
+        type: dto.type,
+        title: producer.title,
+        message: dto.message ?? null,
+        sourceType: dto.sourceType,
+        sourceId: dto.sourceId ?? null,
+        actorUserId: user.id,
+        href: producer.href,
+        severity: dto.severity,
+        progress: dto.progress ?? null,
+        metadata: dto.metadata,
+      })
+      .catch((error: unknown) => {
+        if (error instanceof OperationAlertOwnershipConflictError) {
+          throw new NotFoundException(
+            `operation alert not found: ${dto.operationKey}`,
+          );
+        }
+        throw error;
+      });
     return mapAlertRowToItem(alert);
   }
 

@@ -165,6 +165,85 @@ describe('OperationAlertService.start', () => {
     expect(alert.id).toBe(ALERT_ID);
   });
 
+  it('does not update or emit an existing personal alert owned by another actor', async () => {
+    const { service, prisma, eventEmitter } = makeService();
+    prisma.alert.findFirst.mockResolvedValueOnce(
+      existingAlert({ actorUserId: '44444444-4444-4444-4444-444444444444' }),
+    );
+
+    await expect(
+      service.start({
+        organizationId: ORGANIZATION_ID,
+        operationKey: OPERATION_KEY,
+        type: 'detail_page_generation',
+        title: 'cross-user overwrite',
+        actorUserId: ACTOR_USER_ID,
+      }),
+    ).rejects.toThrow('operation alert belongs to another actor');
+
+    expect(prisma.alert.updateMany).not.toHaveBeenCalled();
+    expect(eventEmitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('does not adopt another actor personal alert after a P2002 existence race', async () => {
+    const { service, prisma, eventEmitter } = makeService();
+    prisma.alert.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(
+        existingAlert({ actorUserId: '44444444-4444-4444-4444-444444444444' }),
+      );
+    prisma.alert.create.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('Unique constraint', {
+        code: 'P2002',
+        clientVersion: '5.0.0',
+      }),
+    );
+
+    await expect(
+      service.start({
+        organizationId: ORGANIZATION_ID,
+        operationKey: OPERATION_KEY,
+        type: 'detail_page_generation',
+        title: 'racy cross-user overwrite',
+        actorUserId: ACTOR_USER_ID,
+      }),
+    ).rejects.toThrow('operation alert belongs to another actor');
+
+    expect(prisma.alert.updateMany).not.toHaveBeenCalled();
+    expect(eventEmitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('does not let a late browser running start reset a terminal alert', async () => {
+    const { service, prisma } = makeService();
+    const terminal = existingAlert({
+      status: 'succeeded',
+      type: 'browser_collection',
+      metadata: {
+        browserCollection: true,
+        attempt: 1,
+        collectionUpdatedAt: 300,
+      },
+      finishedAt: new Date('2026-05-07T00:05:00Z'),
+    });
+    prisma.alert.findFirst.mockResolvedValueOnce(terminal);
+
+    const result = await service.start({
+      organizationId: ORGANIZATION_ID,
+      operationKey: OPERATION_KEY,
+      type: 'browser_collection',
+      title: 'late running event',
+      actorUserId: ACTOR_USER_ID,
+      metadata: {
+        browserCollection: true,
+        attempt: 1,
+        collectionUpdatedAt: 200,
+      },
+    });
+
+    expect(result.status).toBe('succeeded');
+    expect(prisma.alert.updateMany).not.toHaveBeenCalled();
+  });
+
   it('does not throw when panel emit fails', async () => {
     const { service, prisma, eventEmitter } = makeService();
     prisma.alert.findFirst.mockResolvedValueOnce(null);
@@ -185,6 +264,64 @@ describe('OperationAlertService.start', () => {
 });
 
 describe('OperationAlertService.succeed / fail / progress / cancel', () => {
+  it('ignores an older browser attempt even when its timestamp is later', async () => {
+    const { service, prisma } = makeService();
+    const current = existingAlert({
+      status: 'pending',
+      type: 'browser_collection',
+      metadata: {
+        browserCollection: true,
+        attempt: 2,
+        collectionUpdatedAt: 300,
+      },
+    });
+    prisma.alert.findFirst.mockResolvedValueOnce(current);
+
+    const result = await service.progress(ORGANIZATION_ID, OPERATION_KEY, {
+      progress: 0.5,
+      metadata: {
+        browserCollection: true,
+        attempt: 1,
+        collectionUpdatedAt: 999,
+      },
+    });
+
+    expect(result).toEqual(current);
+    expect(prisma.alert.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('allows a terminal recovery transition immediately after a same-version synthetic start', async () => {
+    const { service, prisma } = makeService();
+    const metadata = {
+      browserCollection: true,
+      attempt: 1,
+      collectionUpdatedAt: 300,
+    };
+    const running = existingAlert({
+      type: 'browser_collection',
+      metadata,
+    });
+    prisma.alert.findFirst
+      .mockResolvedValueOnce(running)
+      .mockResolvedValueOnce(
+        existingAlert({
+          status: 'succeeded',
+          type: 'browser_collection',
+          metadata,
+          progress: 1,
+          finishedAt: new Date('2026-05-07T00:05:00Z'),
+        }),
+      );
+    prisma.alert.updateMany.mockResolvedValueOnce({ count: 1 });
+
+    const result = await service.succeed(ORGANIZATION_ID, OPERATION_KEY, {
+      metadata,
+    });
+
+    expect(result?.status).toBe('succeeded');
+    expect(prisma.alert.updateMany).toHaveBeenCalledOnce();
+  });
+
   it('pauses an operation alert for browser attention', async () => {
     const { service, prisma, eventEmitter } = makeService();
     const running = existingAlert();

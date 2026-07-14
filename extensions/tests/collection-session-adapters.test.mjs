@@ -192,6 +192,62 @@ test('start sanitizes identity and publishes only the public session view', asyn
   }
 });
 
+test('start enforces the shared bounded primitive identity contract', async () => {
+  const runtime = loadAdapter(generatedPaths[1]);
+  const manager = runtime.create({
+    chrome: runtime.chrome,
+    storageKey: 'sessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+    now: () => 100,
+  });
+  const boundedFields = Object.fromEntries(
+    Array.from({ length: 25 }, (_, index) => [`field${index}`, index]),
+  );
+
+  const view = await manager.start({
+    ...startInput(),
+    inputIdentity: {
+      ...boundedFields,
+      response: 'raw',
+      responseBody: 'raw',
+      body: 'raw',
+      rawHtml: '<html />',
+      accessToken: 'secret',
+      nested: { raw: true },
+      array: ['raw'],
+      infinite: Number.POSITIVE_INFINITY,
+      tooLong: 'x'.repeat(501),
+      ['x'.repeat(81)]: 'long key',
+      '': 'empty key',
+    },
+  });
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(view.inputIdentity)),
+    Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`field${index}`, index])),
+  );
+});
+
+test('concurrent starts retain both sessions in the same storage map', async () => {
+  const runtime = loadAdapter(generatedPaths[0]);
+  const manager = runtime.create({
+    chrome: runtime.chrome,
+    storageKey: 'sessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+    now: () => 100,
+  });
+
+  await Promise.all([
+    manager.start(startInput(RUN_ID)),
+    manager.start(startInput(OTHER_RUN_ID)),
+  ]);
+
+  assert.deepEqual(Object.keys(runtime.storage.sessions).sort(), [
+    RUN_ID,
+    OTHER_RUN_ID,
+  ]);
+});
+
 test('managed tab IDs stay private while transitions are stored and published', async () => {
   let time = 100;
   const runtime = loadAdapter(generatedPaths[1]);

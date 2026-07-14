@@ -24,6 +24,7 @@ import type {
   UpdateOperationAlertRequest,
 } from '@kiditem/shared/alerts';
 import { apiClient } from './api-client';
+import { isApiError } from './api-error';
 
 export type OperationAlertHandle = {
   operationKey: string;
@@ -91,11 +92,11 @@ export async function updateOperationAlert(
       body,
     );
   } catch (err) {
-    // 404 = no matching alert (caller never started one, or it was already
-    // closed by another tab). Log + swallow so the calling hook can finish
-    // its own state machine.
-    console.warn(`[operation-alerts] update ${input.status} failed`, err);
-    return null;
+    if (isApiError(err) && err.status === 404) {
+      console.warn(`[operation-alerts] update ${input.status} not found`, err);
+      return null;
+    }
+    throw err;
   }
 }
 

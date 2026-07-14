@@ -102,6 +102,7 @@ describe('browser collection alert synchronization', () => {
         runId: RUN_ID,
         producer: 'dashboard.wing_sales',
         attempt: 1,
+        collectionUpdatedAt: 1_700_000_001_000,
         attentionReason: null,
       },
     });
@@ -202,10 +203,32 @@ describe('browser collection alert synchronization', () => {
     expect(metadata).not.toHaveProperty('_managedWindowId');
   });
 
+  it('includes attempt and updatedAt ordering metadata on terminal updates', async () => {
+    await syncBrowserCollectionAlert(
+      session({
+        status: 'succeeded',
+        attempt: 3,
+        updatedAt: 1_700_000_005_000,
+        finishedAt: 1_700_000_005_000,
+      }),
+    );
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      `browser-collection:${RUN_ID}`,
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          attempt: 3,
+          collectionUpdatedAt: 1_700_000_005_000,
+        }),
+      }),
+    );
+  });
+
   it('creates a canonical pending extension-missing alert without opening a tab', async () => {
     const randomUuid = vi
       .spyOn(globalThis.crypto, 'randomUUID')
       .mockReturnValue(RUN_ID);
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_004_000);
 
     const result = await recordMissingBrowserCollection(
       'dashboard.wing_sales',
@@ -227,6 +250,8 @@ describe('browser collection alert synchronization', () => {
         status: 'pending',
         severity: 'warning',
         metadata: expect.objectContaining({
+          attempt: 1,
+          collectionUpdatedAt: 1_700_000_004_000,
           attentionReason: 'extension_missing',
           inputIdentity: { trigger: 'dashboard_traffic' },
         }),
@@ -234,6 +259,7 @@ describe('browser collection alert synchronization', () => {
     );
     expect(mockSend).not.toHaveBeenCalled();
     randomUuid.mockRestore();
+    now.mockRestore();
   });
 
   it('rejects secret-bearing missing-extension identities before alert metadata leaves the browser', async () => {
@@ -256,7 +282,7 @@ describe('browser collection extension lookup and controls', () => {
   });
 
   it('lists all three detected extensions in parallel and deduplicates by run ID', async () => {
-    const newer = session({ updatedAt: 1_700_000_003_000, attempt: 2 });
+    const newer = session({ updatedAt: 1_699_999_999_000, attempt: 2 });
     mockSend.mockImplementation(async (extensionId: string) => {
       if (extensionId === 'coupang-extension') return [session()];
       if (extensionId === 'sourcing-extension') return [newer];

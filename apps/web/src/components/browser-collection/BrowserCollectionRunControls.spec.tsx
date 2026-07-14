@@ -1,11 +1,16 @@
 import type { BrowserCollectionSessionView } from '@kiditem/shared/browser-collection-session';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { queryKeys } from '@/lib/query-keys';
 
 const RUN_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const mockSendControl = vi.hoisted(() => vi.fn());
 
-vi.mock('@/lib/browser-collection-session', () => ({
+vi.mock('@/lib/browser-collection-session', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@/lib/browser-collection-session')
+  >()),
   sendBrowserCollectionControl: mockSendControl,
 }));
 
@@ -51,6 +56,24 @@ function attentionSession(
   });
 }
 
+function renderWithQueryClient(
+  ui: React.ReactElement,
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  }),
+) {
+  return {
+    queryClient,
+    ...render(ui, {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
+      ),
+    }),
+  };
+}
+
 describe('BrowserCollectionRunControls', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -58,7 +81,7 @@ describe('BrowserCollectionRunControls', () => {
   });
 
   it('renders progress, attempt, and cancel while running', () => {
-    render(
+    renderWithQueryClient(
       <BrowserCollectionRunControls
         session={session()}
         onWebRestart={vi.fn()}
@@ -78,7 +101,7 @@ describe('BrowserCollectionRunControls', () => {
   });
 
   it('renders explicit open, restart, and cancel controls for attention', () => {
-    render(
+    renderWithQueryClient(
       <BrowserCollectionRunControls
         session={attentionSession()}
         onWebRestart={vi.fn()}
@@ -95,7 +118,7 @@ describe('BrowserCollectionRunControls', () => {
   });
 
   it('opens the attention tab only after the explicit button click', async () => {
-    render(
+    renderWithQueryClient(
       <BrowserCollectionRunControls
         session={attentionSession()}
         onWebRestart={vi.fn()}
@@ -114,7 +137,7 @@ describe('BrowserCollectionRunControls', () => {
   });
 
   it('does not render a focus action when the session cannot open a tab', () => {
-    render(
+    renderWithQueryClient(
       <BrowserCollectionRunControls
         session={attentionSession({
           attention: {
@@ -133,7 +156,7 @@ describe('BrowserCollectionRunControls', () => {
   });
 
   it('restarts an extension-strategy session through the extension control', async () => {
-    render(
+    renderWithQueryClient(
       <BrowserCollectionRunControls
         session={attentionSession({ restartStrategy: 'extension' })}
         onWebRestart={vi.fn()}
@@ -150,10 +173,42 @@ describe('BrowserCollectionRunControls', () => {
     });
   });
 
+  it('uses the parsed restart response to replace a stale attention cache entry', async () => {
+    const current = attentionSession({ restartStrategy: 'extension' });
+    const restarted = session({
+      status: 'running',
+      attempt: current.attempt + 1,
+      updatedAt: current.updatedAt + 1,
+    });
+    mockSendControl.mockResolvedValueOnce(restarted);
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(
+      queryKeys.browserCollection.session(RUN_ID),
+      current,
+    );
+    renderWithQueryClient(
+      <BrowserCollectionRunControls
+        session={current}
+        onWebRestart={vi.fn()}
+      />,
+      queryClient,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '처음부터 재실행' }));
+
+    await waitFor(() => {
+      expect(
+        queryClient.getQueryData(
+          queryKeys.browserCollection.session(RUN_ID),
+        ),
+      ).toEqual(restarted);
+    });
+  });
+
   it('delegates a web-strategy restart to the required route callback', async () => {
     const current = attentionSession({ restartStrategy: 'web' });
     const onWebRestart = vi.fn().mockResolvedValue(undefined);
-    render(
+    renderWithQueryClient(
       <BrowserCollectionRunControls
         session={current}
         onWebRestart={onWebRestart}
@@ -170,7 +225,7 @@ describe('BrowserCollectionRunControls', () => {
   });
 
   it('sends cancellation from both running and attention states', async () => {
-    const { rerender } = render(
+    const { rerender, queryClient } = renderWithQueryClient(
       <BrowserCollectionRunControls
         session={session()}
         onWebRestart={vi.fn()}
@@ -183,6 +238,12 @@ describe('BrowserCollectionRunControls', () => {
         'cancelCollectionSession',
       );
     });
+    const cancelled = session({
+      status: 'cancelled',
+      updatedAt: session().updatedAt + 1,
+      finishedAt: session().updatedAt + 1,
+    });
+    mockSendControl.mockResolvedValueOnce(cancelled);
 
     mockSendControl.mockClear();
     rerender(
@@ -198,10 +259,13 @@ describe('BrowserCollectionRunControls', () => {
         'cancelCollectionSession',
       );
     });
+    expect(
+      queryClient.getQueryData(queryKeys.browserCollection.session(RUN_ID)),
+    ).toEqual(cancelled);
   });
 
   it('renders no controls after a session reaches a terminal state', () => {
-    const { container } = render(
+    const { container } = renderWithQueryClient(
       <BrowserCollectionRunControls
         session={session({
           status: 'succeeded',

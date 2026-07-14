@@ -7,7 +7,10 @@ import { queryKeys } from '@/lib/query-keys';
 const RUN_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const mockFindSession = vi.hoisted(() => vi.fn());
 
-vi.mock('@/lib/browser-collection-session', () => ({
+vi.mock('@/lib/browser-collection-session', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@/lib/browser-collection-session')
+  >()),
   findBrowserCollectionSession: mockFindSession,
 }));
 
@@ -116,5 +119,38 @@ describe('useBrowserCollectionSession', () => {
     expect(
       typeof interval === 'function' ? interval(query!) : interval,
     ).toBe(false);
+  });
+
+  it('does not let an older attempt from polling overwrite newer cached session data', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const newer = session({
+      status: 'attention_required',
+      attempt: 2,
+      updatedAt: 1_700_000_002_000,
+      attention: {
+        reason: 'marketplace_login',
+        message: '로그인이 필요합니다.',
+        canOpenTab: true,
+      },
+    });
+    queryClient.setQueryData(
+      queryKeys.browserCollection.session(RUN_ID),
+      newer,
+    );
+    mockFindSession.mockResolvedValueOnce(
+      session({ attempt: 1, updatedAt: 1_700_000_009_000 }),
+    );
+
+    const { result } = renderHook(() => useBrowserCollectionSession(RUN_ID), {
+      wrapper: wrapper(queryClient),
+    });
+
+    await waitFor(() => expect(mockFindSession).toHaveBeenCalledWith(RUN_ID));
+    expect(result.current.data).toEqual(newer);
+    expect(
+      queryClient.getQueryData(queryKeys.browserCollection.session(RUN_ID)),
+    ).toEqual(newer);
   });
 });
