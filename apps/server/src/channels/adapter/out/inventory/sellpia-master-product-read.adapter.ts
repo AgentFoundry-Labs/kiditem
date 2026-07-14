@@ -36,6 +36,13 @@ implements ChannelsSellpiaMasterProductReadPort {
     return this.map(this.inventory.findByBarcodes(organizationId, barcodes));
   }
 
+  async findByNormalizedNames(
+    organizationId: string,
+    normalizedNames: string[],
+  ): Promise<CandidateSellpiaMasterProduct[]> {
+    return this.map(this.inventory.findByNormalizedNames(organizationId, normalizedNames));
+  }
+
   async search(
     organizationId: string,
     query: string,

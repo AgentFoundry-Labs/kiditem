@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   SellpiaMasterProductReadModel,
@@ -47,6 +47,36 @@ implements SellpiaMasterProductReadRepositoryPort {
     barcodes: string[],
   ): Promise<SellpiaMasterProductReadModel[]> {
     return this.find({ organizationId, barcode: { in: barcodes } });
+  }
+
+  async findByNormalizedNames(
+    organizationId: string,
+    normalizedNames: string[],
+  ): Promise<SellpiaMasterProductReadModel[]> {
+    const rows = await this.prisma.$queryRaw<SelectedSellpiaMaster[]>(Prisma.sql`
+      SELECT
+        id,
+        code,
+        name,
+        option_name AS "optionName",
+        barcode,
+        current_stock AS "currentStock",
+        purchase_price AS "purchasePrice",
+        sale_price AS "salePrice",
+        is_active AS "isActive",
+        last_import_run_id AS "lastImportRunId"
+      FROM master_products
+      WHERE organization_id = ${organizationId}::uuid
+        AND is_active = true
+        AND regexp_replace(
+          lower(normalize(name, NFKC)),
+          '[[:space:]]+',
+          '',
+          'g'
+        ) IN (${Prisma.join(normalizedNames)})
+      ORDER BY code ASC, id ASC
+    `);
+    return rows.map(toReadModel);
   }
 
   async search(

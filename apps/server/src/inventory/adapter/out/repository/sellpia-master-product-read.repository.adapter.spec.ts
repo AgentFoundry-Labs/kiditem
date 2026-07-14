@@ -54,6 +54,30 @@ describe('SellpiaMasterProductReadRepositoryAdapter', () => {
       }),
     }));
   });
+
+  it('batch-reads active tenant Masters by the strict normalized-name expression', async () => {
+    const queryRaw = vi.fn().mockResolvedValue([
+      stagedMaster('master-1', 'SP-1', '아기 컵+빨대'),
+      stagedMaster('master-2', 'SP-2', '아기컵 + 빨대'),
+    ]);
+    const repository = new SellpiaMasterProductReadRepositoryAdapter({
+      $queryRaw: queryRaw,
+    } as unknown as PrismaService);
+
+    const rows = await repository.findByNormalizedNames(
+      organizationId,
+      ['아기컵+빨대'],
+    );
+
+    const statement = queryRaw.mock.calls[0]?.[0];
+    expect(statement.text).toContain('FROM master_products');
+    expect(statement.text).toContain('organization_id =');
+    expect(statement.text).toContain('is_active = true');
+    expect(statement.text).toContain('normalize(name, NFKC)');
+    expect(statement.text).toContain("'[[:space:]]+'");
+    expect(statement.values).toEqual([organizationId, '아기컵+빨대']);
+    expect(rows.map(({ id }) => id)).toEqual(['master-1', 'master-2']);
+  });
 });
 
 function stagedMaster(

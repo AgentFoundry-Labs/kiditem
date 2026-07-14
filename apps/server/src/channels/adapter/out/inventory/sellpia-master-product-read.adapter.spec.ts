@@ -28,4 +28,27 @@ describe('ChannelsSellpiaMasterProductReadAdapter', () => {
 
     expect(result[0]?.purchasePrice).toBe(1_500);
   });
+
+  it('forwards normalized-name batches through the Inventory owner port', async () => {
+    const owner = {
+      findByNormalizedNames: vi.fn().mockResolvedValue([{
+        id: '00000000-0000-4000-8000-000000000002',
+        code: 'SP-001',
+        name: '아기 컵',
+        optionName: null,
+        barcode: null,
+        currentStock: 8,
+        purchasePrice: 1_500,
+        salePrice: 2_500,
+        isActive: true,
+        lastImportRunId: null,
+      }]),
+    } as unknown as SellpiaMasterProductReadPort;
+    const adapter = new ChannelsSellpiaMasterProductReadAdapter(owner);
+
+    const result = await adapter.findByNormalizedNames(organizationId, ['아기컵']);
+
+    expect(owner.findByNormalizedNames).toHaveBeenCalledWith(organizationId, ['아기컵']);
+    expect(result[0]).toMatchObject({ sellpiaProductCode: 'SP-001', name: '아기 컵' });
+  });
 });

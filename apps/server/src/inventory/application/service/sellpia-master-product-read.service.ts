@@ -39,6 +39,14 @@ export class SellpiaMasterProductReadService implements SellpiaMasterProductRead
       this.repository.findByBarcodes(organizationId, values));
   }
 
+  findByNormalizedNames(
+    organizationId: string,
+    normalizedNames: string[],
+  ): Promise<SellpiaMasterProductReadModel[]> {
+    return this.readIdentifiers(normalizedNames, (values) =>
+      this.repository.findByNormalizedNames(organizationId, values));
+  }
+
   search(
     organizationId: string,
     query: string,

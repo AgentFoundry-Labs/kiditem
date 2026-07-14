@@ -17,6 +17,10 @@ export interface ChannelsSellpiaMasterProductReadPort {
     organizationId: string,
     barcodes: string[],
   ): Promise<CandidateSellpiaMasterProduct[]>;
+  findByNormalizedNames(
+    organizationId: string,
+    normalizedNames: string[],
+  ): Promise<CandidateSellpiaMasterProduct[]>;
   search(
     organizationId: string,
     query: string,
