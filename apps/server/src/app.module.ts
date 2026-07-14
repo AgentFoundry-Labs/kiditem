@@ -1,11 +1,10 @@
-import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.module';
 import { CommonModule } from './common/common.module';
 import { AuthModule } from './auth/auth.module';
-import { SourcingExtensionAuthMiddleware } from './auth/middleware/sourcing-extension-auth.middleware';
 import { SupabaseAuthMiddleware } from './auth/middleware/supabase-auth.middleware';
 import { OrganizationScopeGuard } from './auth/guards/organization-scope.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
@@ -78,14 +77,6 @@ import { RebuildReadinessGuard } from './readiness/rebuild-readiness.guard';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer
-      .apply(SourcingExtensionAuthMiddleware)
-      .forRoutes(
-        { path: 'sourcing/extension/product-data', method: RequestMethod.ALL },
-        { path: 'sourcing/extension/session/renew', method: RequestMethod.ALL },
-        { path: 'sourcing/extension/trend/1688-results', method: RequestMethod.ALL },
-        { path: 'sourcing/extension/trend/live-commerce-results', method: RequestMethod.ALL },
-      );
     // Supabase JWT 검증 — `Authorization: Bearer` 또는 Supabase SSR auth-token 쿠키.
     // SSE (`/api/panel/*`) 는 EventSource 가 헤더를 못 보내므로 쿠키 기반으로
     // 통과한다 (frontend 가 `withCredentials: true`).

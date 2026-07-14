@@ -1,9 +1,7 @@
-import { Body, Controller, Get, Post, Query, Req } from '@nestjs/common';
-import type { Request } from 'express';
+import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
-import { SourcingExtensionTokenService } from '../../../../auth/sourcing-extension-token.service';
 import { SourcingService } from '../../../application/service/sourcing.service';
 import {
   CreateProductGenerationDto,
@@ -16,26 +14,7 @@ import {
 
 @Controller('sourcing')
 export class SourcingExtensionIngestController {
-  constructor(
-    private readonly sourcingService: SourcingService,
-    private readonly extensionTokens: SourcingExtensionTokenService,
-  ) {}
-
-  @Post('extension/session')
-  issueExtensionSession(@CurrentUser() user: AuthUser) {
-    return this.extensionTokens.issue(user);
-  }
-
-  @Post('extension/session/renew')
-  renewExtensionSession(
-    @CurrentUser() user: AuthUser,
-    @Req() req: Request,
-  ) {
-    const previous = req.sourcingExtensionToken;
-    return previous
-      ? this.extensionTokens.renew(user, previous)
-      : this.extensionTokens.issue(user);
-  }
+  constructor(private readonly sourcingService: SourcingService) {}
 
   @Post('extension/product-data')
   async receiveExtensionData(

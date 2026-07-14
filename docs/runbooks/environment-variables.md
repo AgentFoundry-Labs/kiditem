@@ -158,9 +158,6 @@ same-origin `/api/*` routing.
 | `PORT` | API runtime | Yes | NestJS | `4000` for the API container. |
 | `DATABASE_URL` | API runtime | Yes | Prisma adapter | Main application database URL. |
 | `SUPABASE_URL` | Auth | Yes | Supabase JWT/JWKS middleware | Must match the project issuing browser session cookies. |
-| `SOURCING_EXTENSION_TOKEN_SECRET` | Auth/Sourcing | Yes in production | Sourcing extension ingest token signer | Server-only HMAC secret for short-lived extension ingest tokens. Local dev falls back to an ephemeral boot secret. |
-| `SOURCING_EXTENSION_TOKEN_TTL_SECONDS` | Auth/Sourcing | Optional | Sourcing extension ingest token signer | Defaults to `1800` seconds. |
-| `SOURCING_EXTENSION_TOKEN_MAX_SECONDS` | Auth/Sourcing | Optional | Sourcing extension ingest token signer | Defaults to `86400` seconds, allowing long runs without indefinite credentials. |
 | `CORS_ORIGINS` | API runtime | Yes in production | Nest CORS | Comma-separated public origins. Same-origin `/api/*` still works through nginx. |
 | `API_SELF_URL` | API runtime | Optional | Action board service | Defaults to `http://localhost:4000`. Set if self-calls need the public or container URL. |
 
