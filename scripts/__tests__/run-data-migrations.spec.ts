@@ -28,7 +28,7 @@ describe("data migration registry", () => {
       "v0.1.4:001_record_agent_os_operator_backbone_release",
       "v0.1.6:001_record_rocket_read_model_release",
       "v0.1.7:001_record_sellpia_rocket_inventory_sync_release",
-      "v0.1.13:001_migrate_representative_keyword_overrides",
+      "v0.1.18:001_migrate_representative_keyword_overrides",
     ]);
     expect(
       DATA_MIGRATION_IDS.some((id) =>
@@ -37,14 +37,14 @@ describe("data migration registry", () => {
     ).toBe(false);
   });
 
-  it("uses a schema-only 0.1.18 release without a release data migration", () => {
+  it("registers the current 0.1.18 release data migration", () => {
     const rootVersion = normalizeReleaseVersion(
       readFileSync(join(repoRoot, "VERSION"), "utf8"),
     );
     expect(rootVersion).toBe("0.1.18");
     expect(
       dataMigrations.map((migration) => migration.releaseVersion),
-    ).not.toContain(rootVersion);
+    ).toContain(rootVersion);
     for (const migration of dataMigrations) {
       expect(migration.id.startsWith(`v${migration.releaseVersion}:`)).toBe(
         true,

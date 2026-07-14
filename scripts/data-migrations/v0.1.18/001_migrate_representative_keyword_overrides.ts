@@ -7,8 +7,8 @@ import type { DataMigration } from "../types";
  * 가장 오래된 지정값을 보존하며, 자사 카탈로그에 없는 옵션ID는 건너뛴다.
  */
 export const migrateRepresentativeKeywordOverrides: DataMigration = {
-  id: "v0.1.13:001_migrate_representative_keyword_overrides",
-  releaseVersion: "0.1.13",
+  id: "v0.1.18:001_migrate_representative_keyword_overrides",
+  releaseVersion: "0.1.18",
   name: "Migrate representative keyword overrides from keyword trackers",
   async run(tx) {
     const trackers = await tx.coupangKeywordTracker.findMany({
