@@ -10,25 +10,23 @@ export class ThumbnailWingRepositoryAdapter implements ThumbnailWingRepositoryPo
   constructor(private readonly prisma: PrismaService) {}
 
   findGenerationWithCandidates(generationId: string, organizationId: string) {
-    return this.prisma.thumbnailGeneration.findFirst({
-      where: { id: generationId, organizationId },
-      include: {
-        candidates: {
-          where: { organizationId },
-          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    return this.prisma.thumbnailGeneration
+      .findFirst({
+        where: { id: generationId, organizationId },
+        include: {
+          candidates: {
+            where: { organizationId },
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          },
         },
-      },
-    }).then((generation) =>
-      generation
-        ? { ...generation, masterId: generation.contentWorkspaceId }
-        : null,
-    );
+      })
+      .then((generation) => (generation ? { ...generation, contentWorkspaceId: generation.contentWorkspaceId } : null));
   }
 
-  findRegistrableMaster(masterId: string, organizationId: string) {
+  findRegistrableWorkspace(contentWorkspaceId: string, organizationId: string) {
     return this.prisma.contentWorkspace.findFirst({
       where: {
-        id: masterId,
+        id: contentWorkspaceId,
         organizationId,
         isDeleted: false,
         status: 'active',
@@ -43,16 +41,7 @@ export class ThumbnailWingRepositoryAdapter implements ThumbnailWingRepositoryPo
         displayName: true,
         channelListing: { select: { channelName: true } },
       },
-    }).then((workspace) =>
-      workspace
-        ? {
-            name: workspace.displayName,
-            listings: workspace.channelListing
-              ? [{ channelName: workspace.channelListing.channelName }]
-              : [],
-          }
-        : null,
-    );
+    });
   }
 
   findGenerationWithLatestAttempt(id: string, organizationId: string) {

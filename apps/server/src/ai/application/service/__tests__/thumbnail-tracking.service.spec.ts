@@ -43,7 +43,7 @@ function makeRepository(): ThumbnailTrackingRepositoryPort {
   return {
     findTrackings: vi.fn().mockResolvedValue([]),
     countTrackings: vi.fn().mockResolvedValue(0),
-    findFirstListingForMaster: vi.fn().mockResolvedValue({ id: LISTING_ID }),
+    findChannelListingForWorkspace: vi.fn().mockResolvedValue({ id: LISTING_ID }),
     createTracking: vi.fn().mockResolvedValue({ created: true, row: makeTrackingRow() }),
     updateMetrics: vi.fn().mockResolvedValue(makeTrackingRow({ status: 'measured', ctrAfter: 2.4 })),
     findTrackingForSnapshot: vi.fn().mockResolvedValue({
@@ -115,23 +115,22 @@ describe('ThumbnailTrackingService', () => {
   it('creates tracking through the repository after resolving the listing', async () => {
     const { service, repository } = makeService();
 
-    await expect(service.create({
-      organizationId: ORGANIZATION_ID,
-      masterId: MASTER_ID,
-      generationId: GENERATION_ID,
-      originalGrade: 'A',
-      originalScore: 92,
-    })).resolves.toMatchObject({
+    await expect(
+      service.create({
+        organizationId: ORGANIZATION_ID,
+        contentWorkspaceId: MASTER_ID,
+        generationId: GENERATION_ID,
+        originalGrade: 'A',
+        originalScore: 92,
+      }),
+    ).resolves.toMatchObject({
       id: TRACKING_ID,
-      productId: LISTING_ID,
+      channelListingId: LISTING_ID,
       productName: '테스트 상품',
       generationId: GENERATION_ID,
     });
 
-    expect(repository.findFirstListingForMaster).toHaveBeenCalledWith(
-      MASTER_ID,
-      ORGANIZATION_ID,
-    );
+    expect(repository.findChannelListingForWorkspace).toHaveBeenCalledWith(MASTER_ID, ORGANIZATION_ID);
     expect(repository.createTracking).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       listingId: LISTING_ID,
@@ -141,18 +140,20 @@ describe('ThumbnailTrackingService', () => {
     });
   });
 
-  it('returns null without creating tracking when the master has no listing', async () => {
+  it('returns null without creating tracking when the workspace has no listing', async () => {
     const repository = makeRepository();
-    vi.mocked(repository.findFirstListingForMaster).mockResolvedValueOnce(null);
+    vi.mocked(repository.findChannelListingForWorkspace).mockResolvedValueOnce(null);
     const { service } = makeService(repository);
 
-    await expect(service.create({
-      organizationId: ORGANIZATION_ID,
-      masterId: MASTER_ID,
-      generationId: GENERATION_ID,
-      originalGrade: 'B',
-      originalScore: 81,
-    })).resolves.toBeNull();
+    await expect(
+      service.create({
+        organizationId: ORGANIZATION_ID,
+        contentWorkspaceId: MASTER_ID,
+        generationId: GENERATION_ID,
+        originalGrade: 'B',
+        originalScore: 81,
+      }),
+    ).resolves.toBeNull();
 
     expect(repository.createTracking).not.toHaveBeenCalled();
   });
@@ -162,8 +163,9 @@ describe('ThumbnailTrackingService', () => {
     vi.mocked(repository.updateMetrics).mockResolvedValueOnce(null);
     const { service } = makeService(repository);
 
-    await expect(service.updateMetrics(TRACKING_ID, { ctrAfter: 2.3 }, ORGANIZATION_ID))
-      .rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.updateMetrics(TRACKING_ID, { ctrAfter: 2.3 }, ORGANIZATION_ID)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 
   it('collects a daily snapshot through scraper and repository ports', async () => {
@@ -184,13 +186,15 @@ describe('ThumbnailTrackingService', () => {
     });
 
     expect(salesScraper.scrapeByProductName).toHaveBeenCalledWith('쿠팡 상품명');
-    expect(repository.upsertDailySnapshot).toHaveBeenCalledWith(expect.objectContaining({
-      organizationId: ORGANIZATION_ID,
-      trackingId: TRACKING_ID,
-      capturedDate: new Date('2026-05-19T00:00:00.000Z'),
-      unitsSold30d: 42,
-      rawCellTexts: ['쿠팡 상품명', '42'],
-      setSalesBefore: true,
-    }));
+    expect(repository.upsertDailySnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        trackingId: TRACKING_ID,
+        capturedDate: new Date('2026-05-19T00:00:00.000Z'),
+        unitsSold30d: 42,
+        rawCellTexts: ['쿠팡 상품명', '42'],
+        setSalesBefore: true,
+      }),
+    );
   });
 });

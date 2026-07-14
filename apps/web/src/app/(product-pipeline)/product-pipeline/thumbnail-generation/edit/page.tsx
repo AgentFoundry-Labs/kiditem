@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { productBoundThumbnailWorkspaceHref } from '../../_shared/lib/product-pipeline-routes';
+import { thumbnailWorkspaceHref } from '../../_shared/lib/product-pipeline-routes';
 import { ThumbnailEditorWorkspace } from './components/ThumbnailEditorWorkspace';
 
 export type { EditorMode, HistoryCandidate } from './lib/edit-page-types';
@@ -22,8 +22,7 @@ function ThumbnailEditorWorkspaceRoute() {
   const forceFullPage = searchParams.get('fullPage') === '1';
   const workspaceHref = forceFullPage
     ? null
-    : productBoundThumbnailWorkspaceHref({
-        productId: searchParams.get('productId'),
+    : thumbnailWorkspaceHref({
         sourceCandidateId: searchParams.get('sourceCandidateId'),
         contentWorkspaceId: searchParams.get('contentWorkspaceId'),
         returnTo: searchParams.get('returnTo'),

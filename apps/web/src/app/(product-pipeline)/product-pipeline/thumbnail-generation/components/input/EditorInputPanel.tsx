@@ -27,7 +27,6 @@ export type SupplementaryLabel = (typeof SUPPLEMENTARY_LABELS)[number];
 interface Props {
   mode: EditorMode;
   editCase?: EditUseCase | null;
-  productId: string | null;
   contentWorkspaceId?: string | null;
   slots: Slot[];
   onSlotsChange: (updater: (prev: Slot[]) => Slot[]) => void;
@@ -65,7 +64,6 @@ const GROUP_MIN: Partial<Record<SlotKind, number>> = {
 export function EditorInputPanel({
   mode,
   editCase = null,
-  productId,
   contentWorkspaceId = null,
   slots,
   onSlotsChange,
@@ -102,7 +100,7 @@ export function EditorInputPanel({
   const referenceSlot = slots.find((s) => s.kind === 'reference');
   const colorSlots = slots.filter((s) => s.kind === 'color_variant');
   const bundleSlots = slots.filter((s) => s.kind === 'bundle_item');
-  const bundleOwnerId = bundleSlots.find((s) => s.value)?.sourceProductId;
+  const bundleOwnerId = bundleSlots.find((s) => s.value)?.sourceContentWorkspaceId;
   const selectedCandidate = selectedCandidateUrl
     ? historyCandidates.find((c) => (resolveImageUrl(c.url) ?? '') === selectedCandidateUrl)
     : null;
@@ -154,19 +152,11 @@ export function EditorInputPanel({
                 onClick={() => onSelectCandidate(url)}
                 className={cn(
                   'relative aspect-square overflow-hidden bg-white transition-all',
-                  active
-                    ? 'ring-2 ring-inset ring-violet-500'
-                    : 'hover:ring-1 hover:ring-inset hover:ring-gray-400',
+                  active ? 'ring-2 ring-inset ring-violet-500' : 'hover:ring-1 hover:ring-inset hover:ring-gray-400',
                 )}
                 title={`${modeTitle} · 후보 ${label}${createdLabel ? ` · ${createdLabel}` : ''}${recommended ? ' · 추천' : ''}`}
               >
-                {url ? (
-                  <ImgWithSkeleton
-                    src={url}
-                    alt={`후보 ${label}`}
-                    fit="cover"
-                  />
-                ) : null}
+                {url ? <ImgWithSkeleton src={url} alt={`후보 ${label}`} fit="cover" /> : null}
                 <span
                   className={cn(
                     'absolute left-1 top-1 flex h-4 w-4 items-center justify-center rounded-md text-[9px] font-bold',
@@ -248,7 +238,6 @@ export function EditorInputPanel({
                 </div>
                 <SlotCard
                   slot={productSlot}
-                  productId={productId}
                   contentWorkspaceId={contentWorkspaceId}
                   hubImages={hubImages}
                   hubImagesLoading={hubImagesLoading}
@@ -269,14 +258,15 @@ export function EditorInputPanel({
                     className="text-[12px] font-semibold text-gray-700 bg-[#f2f4f6] border-0 rounded-lg px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-violet-500/30"
                   >
                     {SUPPLEMENTARY_LABELS.map((l) => (
-                      <option key={l} value={l}>{l}</option>
+                      <option key={l} value={l}>
+                        {l}
+                      </option>
                     ))}
                   </select>
                 </div>
                 <p className="text-[12px] text-gray-500">패키지·세트구성 등 보조 이미지</p>
                 <SlotCard
                   slot={packagingSlot}
-                  productId={productId}
                   contentWorkspaceId={contentWorkspaceId}
                   hubImages={hubImages}
                   hubImagesLoading={hubImagesLoading}
@@ -302,7 +292,6 @@ export function EditorInputPanel({
                 <SlotCard
                   key={slot.id}
                   slot={slot}
-                  productId={productId}
                   contentWorkspaceId={contentWorkspaceId}
                   hubImages={hubImages}
                   hubImagesLoading={hubImagesLoading}
@@ -315,7 +304,6 @@ export function EditorInputPanel({
               {countByKind(slots, 'color_variant') < (GROUP_MAX.color_variant ?? 8) && (
                 <AddSlotTile
                   role="color_variant"
-                  productId={productId}
                   contentWorkspaceId={contentWorkspaceId}
                   hubImages={hubImages}
                   hubImagesLoading={hubImagesLoading}
@@ -345,7 +333,6 @@ export function EditorInputPanel({
                 <SlotCard
                   key={slot.id}
                   slot={slot}
-                  productId={productId}
                   contentWorkspaceId={contentWorkspaceId}
                   hubImages={hubImages}
                   hubImagesLoading={hubImagesLoading}
@@ -359,7 +346,6 @@ export function EditorInputPanel({
               {countByKind(slots, 'bundle_item') < (GROUP_MAX.bundle_item ?? 4) && (
                 <AddSlotTile
                   role="bundle_item"
-                  productId={productId}
                   contentWorkspaceId={contentWorkspaceId}
                   hubImages={hubImages}
                   hubImagesLoading={hubImagesLoading}
@@ -382,7 +368,6 @@ export function EditorInputPanel({
               </div>
               <SlotCard
                 slot={productSlot}
-                productId={productId}
                 contentWorkspaceId={contentWorkspaceId}
                 hubImages={hubImages}
                 hubImagesLoading={hubImagesLoading}
@@ -481,7 +466,6 @@ export function EditorInputPanel({
                 </div>
                 <SlotCard
                   slot={productSlot}
-                  productId={productId}
                   contentWorkspaceId={contentWorkspaceId}
                   hubImages={hubImages}
                   hubImagesLoading={hubImagesLoading}
@@ -499,7 +483,6 @@ export function EditorInputPanel({
                 </div>
                 <SlotCard
                   slot={referenceSlot}
-                  productId={productId}
                   contentWorkspaceId={contentWorkspaceId}
                   hubImages={hubImages}
                   hubImagesLoading={hubImagesLoading}

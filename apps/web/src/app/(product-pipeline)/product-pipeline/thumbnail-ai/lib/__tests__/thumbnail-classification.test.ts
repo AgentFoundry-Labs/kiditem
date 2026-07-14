@@ -23,12 +23,10 @@ const emptyViolations: ComplianceScores['violations'] = {
   excessive_editing: false,
 };
 
-function product(
-  input: Partial<ThumbnailAnalysisResult>,
-): ThumbnailAnalysisResult {
+function product(input: Partial<ThumbnailAnalysisResult>): ThumbnailAnalysisResult {
   return {
     id: 'analysis-1',
-    productId: 'product-1',
+    contentWorkspaceId: 'product-1',
     productName: '테스트 상품',
     imageUrl: 'https://example.com/image.jpg',
     overallScore: 80,
@@ -47,9 +45,7 @@ function product(
   };
 }
 
-function complianceScores(
-  input: Partial<ComplianceScores> = {},
-): ComplianceScores {
+function complianceScores(input: Partial<ComplianceScores> = {}): ComplianceScores {
   return {
     violations: { ...emptyViolations },
     confidence: {},
@@ -134,9 +130,7 @@ describe('thumbnail classification helpers', () => {
   });
 
   it('does not treat a structural F grade as needs-fix before quality analysis', () => {
-    expect(
-      needsThumbnailFix(product({ grade: 'F', analyzed: false, qualityAnalyzed: false })),
-    ).toBe(false);
+    expect(needsThumbnailFix(product({ grade: 'F', analyzed: false, qualityAnalyzed: false }))).toBe(false);
   });
 
   it('surfaces missing reason as evidence with null reason', () => {

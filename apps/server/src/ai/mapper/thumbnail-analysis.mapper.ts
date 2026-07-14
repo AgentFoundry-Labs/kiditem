@@ -6,9 +6,7 @@ import type {
   ThumbnailAnalysisSummary,
   ThumbnailScores,
 } from '@kiditem/shared/ai';
-import {
-  isDisplayableThumbnailUrl,
-} from '../domain/thumbnail-master-image';
+import { isDisplayableThumbnailUrl } from '../domain/thumbnail-workspace-source';
 import type {
   ThumbnailAnalysisRow,
   ThumbnailAnalysisSummaryRow,
@@ -22,7 +20,7 @@ export type AnalysisRowWorkspace = ThumbnailAnalysisWorkspaceRow;
 
 /**
  * Has any branch of the analysis (quality or compliance) actually been run
- * against the master? `preInspect` writes spec-only rows where neither flag is
+ * against the workspace? `preInspect` writes spec-only rows where neither flag is
  * set — those are intentionally excluded from the "analyzed" projection.
  */
 export function hasActualAnalysis(a: ThumbnailAnalysisRow): boolean {
@@ -30,9 +28,9 @@ export function hasActualAnalysis(a: ThumbnailAnalysisRow): boolean {
 }
 
 /**
- * Project a `thumbnailAnalysis` row + the originating master into the shared
- * `ThumbnailAnalysisResult` shape. The master argument is allowed to be
- * `null` so the same mapper can render a row whose master is no longer
+ * Project a `thumbnailAnalysis` row + the originating workspace into the shared
+ * `ThumbnailAnalysisResult` shape. The workspace argument is allowed to be
+ * `null` so the same mapper can render a row whose workspace is no longer
  * findable for the caller's organization (in which case `productName` falls back
  * to empty and the image URL falls back to the analysis row's own value).
  */
@@ -43,7 +41,7 @@ export function toAnalysisResult(
   const fallback = workspace?.imageUrl ?? null;
   return {
     id: a.id,
-    productId: a.contentWorkspaceId,
+    contentWorkspaceId: a.contentWorkspaceId,
     productName: workspace?.name ?? '',
     imageUrl: isDisplayableThumbnailUrl(a.imageUrl) ? a.imageUrl : fallback,
     overallScore: a.overallScore,
@@ -64,7 +62,7 @@ export function toAnalysisResult(
 }
 
 /**
- * Render a master that has no quality analysis yet. `existing` is the
+ * Render a workspace that has no quality analysis yet. `existing` is the
  * spec-only `thumbnailAnalysis` row produced by `preInspect`, if any —
  * carrying its `imageSpec` / `recompose` forward keeps the unclassified
  * tile informative without claiming it's been analyzed.
@@ -75,7 +73,7 @@ export function unclassifiedAnalysisResult(
 ): ThumbnailAnalysisResult {
   return {
     id: workspace.id,
-    productId: workspace.id,
+    contentWorkspaceId: workspace.id,
     productName: workspace.name,
     imageUrl: workspace.imageUrl,
     overallScore: 0,
@@ -107,14 +105,13 @@ interface DistributionTally {
 
 function tallyDistributions(
   rows: ReadonlyArray<
-    Pick<
-      ThumbnailAnalysisRow,
-      'grade' | 'complianceGrade' | 'qualityAnalyzedAt' | 'complianceAnalyzedAt'
-    >
+    Pick<ThumbnailAnalysisRow, 'grade' | 'complianceGrade' | 'qualityAnalyzedAt' | 'complianceAnalyzedAt'>
   >,
 ): DistributionTally {
   const gradeDistribution: GradeDistribution = { ...EMPTY_GRADE_DIST };
-  const complianceDistribution: ComplianceDistribution = { ...EMPTY_COMPLIANCE_DIST };
+  const complianceDistribution: ComplianceDistribution = {
+    ...EMPTY_COMPLIANCE_DIST,
+  };
   let analyzed = 0;
   let partialCount = 0;
   for (const a of rows) {
@@ -139,12 +136,8 @@ export function buildAnalysisListResponse(
   analyses: ReadonlyArray<ThumbnailAnalysisRow>,
 ): ThumbnailAnalysisListResponse {
   const workspaceById = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
-  const ownedAnalysisRows = analyses.filter((analysis) =>
-    workspaceById.has(analysis.contentWorkspaceId),
-  );
-  const analysisByWorkspaceId = new Map(
-    ownedAnalysisRows.map((analysis) => [analysis.contentWorkspaceId, analysis]),
-  );
+  const ownedAnalysisRows = analyses.filter((analysis) => workspaceById.has(analysis.contentWorkspaceId));
+  const analysisByWorkspaceId = new Map(ownedAnalysisRows.map((analysis) => [analysis.contentWorkspaceId, analysis]));
   const qualityAnalyzedWorkspaceIds = new Set(
     ownedAnalysisRows
       .filter((analysis) => analysis.qualityAnalyzedAt !== null)
@@ -153,21 +146,11 @@ export function buildAnalysisListResponse(
 
   const allResults = ownedAnalysisRows
     .filter(hasActualAnalysis)
-    .map((analysis) =>
-      toAnalysisResult(
-        analysis,
-        workspaceById.get(analysis.contentWorkspaceId) ?? null,
-      ),
-    );
+    .map((analysis) => toAnalysisResult(analysis, workspaceById.get(analysis.contentWorkspaceId) ?? null));
 
   const unclassified = workspaces
     .filter((workspace) => !qualityAnalyzedWorkspaceIds.has(workspace.id))
-    .map((workspace) =>
-      unclassifiedAnalysisResult(
-        workspace,
-        analysisByWorkspaceId.get(workspace.id),
-      ),
-    );
+    .map((workspace) => unclassifiedAnalysisResult(workspace, analysisByWorkspaceId.get(workspace.id)));
 
   const tally = tallyDistributions(ownedAnalysisRows);
 
@@ -184,15 +167,15 @@ export function buildAnalysisListResponse(
 }
 
 export function buildAnalysisSummary(
-  masterCount: number,
+  workspaceCount: number,
   rows: ReadonlyArray<ThumbnailAnalysisSummaryRow>,
 ): ThumbnailAnalysisSummary {
   const tally = tallyDistributions(rows);
   return {
-    total: masterCount,
+    total: workspaceCount,
     analyzed: tally.analyzed,
     partialCount: tally.partialCount,
-    unclassifiedCount: Math.max(masterCount - tally.analyzed, 0),
+    unclassifiedCount: Math.max(workspaceCount - tally.analyzed, 0),
     gradeDistribution: tally.gradeDistribution,
     complianceDistribution: tally.complianceDistribution,
   } satisfies ThumbnailAnalysisSummary;

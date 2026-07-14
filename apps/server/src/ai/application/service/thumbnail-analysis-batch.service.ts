@@ -1,14 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type {
-  ImageSpec,
-  RecomposeVariantClassification,
-  ThumbnailAnalysisResult,
-} from '@kiditem/shared/ai';
+import type { ImageSpec, RecomposeVariantClassification, ThumbnailAnalysisResult } from '@kiditem/shared/ai';
 import type { AnalysisScope } from './thumbnail-analysis-requests';
-import {
-  ThumbnailVisionAiService,
-  type ThumbnailAiItem,
-} from './thumbnail-vision-ai.service';
+import { ThumbnailVisionAiService, type ThumbnailAiItem } from './thumbnail-vision-ai.service';
 import { ThumbnailRecomposeService } from './thumbnail-recompose.service';
 import {
   THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
@@ -33,7 +26,7 @@ import { ThumbnailAnalysisAnalyzerService } from './thumbnail-analysis-analyzer.
  * cancel cannot wipe a fresh batch's controller.
  *
  * Fallback: if the chunk batch call fails (e.g. Gemini quota), we fall back
- * to `analyzer.analyzeProduct(...)` per product. The analyzer is injected
+ * to `analyzer.analyzeWorkspace(...)` per product. The analyzer is injected
  * one-way, which is fine — the facade composes analyzer + batch but the
  * batch service itself never calls back into the facade.
  */
@@ -51,11 +44,11 @@ export class ThumbnailAnalysisBatchService {
   ) {}
 
   async analyzeBatch(
-    productIds: string[],
+    contentWorkspaceIds: string[],
     organizationId: string,
     scope: AnalysisScope,
   ): Promise<ThumbnailAnalysisResult[]> {
-    if (productIds.length === 0) return [];
+    if (contentWorkspaceIds.length === 0) return [];
     const previous = this.batchAborts.get(organizationId);
     if (previous) previous.abort();
     const controller = new AbortController();
@@ -69,17 +62,17 @@ export class ThumbnailAnalysisBatchService {
     const results: ThumbnailAnalysisResult[] = [];
 
     try {
-      const workspaces = await this.repository.findWorkspacesForBatch(productIds, organizationId);
+      const workspaces = await this.repository.findWorkspacesForBatch(contentWorkspaceIds, organizationId);
       const workspaceMap = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
 
       // 표시 가능한 이미지가 있는 product 만 vision batch 대상.
       const items: ThumbnailAiItem[] = [];
-      for (const productId of productIds) {
-        const workspace = workspaceMap.get(productId);
+      for (const contentWorkspaceId of contentWorkspaceIds) {
+        const workspace = workspaceMap.get(contentWorkspaceId);
         if (!workspace) continue;
         const imageUrl = workspace.imageUrl;
         items.push({
-          productId: workspace.id,
+          contentWorkspaceId: workspace.id,
           productName: workspace.name,
           imageUrl,
           category: workspace.category ?? null,
@@ -96,12 +89,8 @@ export class ThumbnailAnalysisBatchService {
         const chunk = items.slice(i, i + BATCH_SIZE);
         try {
           const [qualityMap, complianceMap, recomposeMap] = await Promise.all([
-            wantsQuality
-              ? this.vision.analyzeQuality(chunk, signal)
-              : Promise.resolve(new Map()),
-            wantsCompliance
-              ? this.vision.checkCompliance(chunk, signal)
-              : Promise.resolve(new Map()),
+            wantsQuality ? this.vision.analyzeQuality(chunk, signal) : Promise.resolve(new Map()),
+            wantsCompliance ? this.vision.checkCompliance(chunk, signal) : Promise.resolve(new Map()),
             wantsQuality
               ? this.recomposeChunk(chunk, signal)
               : Promise.resolve(new Map<string, RecomposeVariantClassification>()),
@@ -112,16 +101,16 @@ export class ThumbnailAnalysisBatchService {
           // verifier 쪽이 동시 호출 부담 — 안정성 우선 sequential.
           for (const item of chunk) {
             if (signal.aborted) break;
-            const workspace = workspaceMap.get(item.productId);
+            const workspace = workspaceMap.get(item.contentWorkspaceId);
             if (!workspace) continue;
             try {
               const saved = await this.persistChunkResult({
                 workspace,
                 imageUrl: item.imageUrl,
                 scope,
-                qualityResult: qualityMap.get(item.productId),
-                complianceResult: complianceMap.get(item.productId),
-                recompose: recomposeMap.get(item.productId),
+                qualityResult: qualityMap.get(item.contentWorkspaceId),
+                complianceResult: complianceMap.get(item.contentWorkspaceId),
+                recompose: recomposeMap.get(item.contentWorkspaceId),
                 organizationId,
                 signal,
               });
@@ -129,7 +118,7 @@ export class ThumbnailAnalysisBatchService {
             } catch (err) {
               if (signal.aborted || this.isAbortError(err)) break;
               this.logger.warn(
-                `analyzeBatch skip ${item.productId}: ${err instanceof Error ? err.message : String(err)}`,
+                `analyzeBatch skip ${item.contentWorkspaceId}: ${err instanceof Error ? err.message : String(err)}`,
               );
             }
           }
@@ -143,12 +132,12 @@ export class ThumbnailAnalysisBatchService {
             if (signal.aborted) break;
             try {
               results.push(
-                await this.analyzer.analyzeProduct(item.productId, organizationId, scope, signal),
+                await this.analyzer.analyzeWorkspace(item.contentWorkspaceId, organizationId, scope, signal),
               );
             } catch (innerErr) {
               if (signal.aborted || this.isAbortError(innerErr)) break;
               this.logger.warn(
-                `analyzeBatch fallback skip ${item.productId}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`,
+                `analyzeBatch fallback skip ${item.contentWorkspaceId}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`,
               );
             }
           }
@@ -192,25 +181,25 @@ export class ThumbnailAnalysisBatchService {
             productName: item.productName,
             category: item.category ?? null,
           });
-          return { productId: item.productId, recompose: r };
+          return { contentWorkspaceId: item.contentWorkspaceId, recompose: r };
         } catch (err) {
           if (signal?.aborted || this.isAbortError(err)) return null;
           this.logger.warn(
-            `recompose chunk skip ${item.productId}: ${err instanceof Error ? err.message : String(err)}`,
+            `recompose chunk skip ${item.contentWorkspaceId}: ${err instanceof Error ? err.message : String(err)}`,
           );
           return null;
         }
       }),
     );
     for (const r of results) {
-      if (r) map.set(r.productId, r.recompose);
+      if (r) map.set(r.contentWorkspaceId, r.recompose);
     }
     return map;
   }
 
   /**
    * chunk batch 결과를 ThumbnailAnalysis 에 persist. quality / compliance /
-   * recompose 가 부분 누락돼도 가능한 부분만 upsert. analyzeProduct 와 같은
+   * recompose 가 부분 누락돼도 가능한 부분만 upsert. analyzeWorkspace 와 같은
    * shape 의 row 반환.
    */
   private async persistChunkResult(input: {

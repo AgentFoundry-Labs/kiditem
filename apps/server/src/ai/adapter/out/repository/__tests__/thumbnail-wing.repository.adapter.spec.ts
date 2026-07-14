@@ -10,12 +10,12 @@ describe('ThumbnailWingRepositoryAdapter', () => {
     };
     const repository = new ThumbnailWingRepositoryAdapter(prisma as never);
 
-    await repository.findRegistrableMaster('master-1', 'org-1');
+    await repository.findRegistrableWorkspace('workspace-1', 'org-1');
 
     expect(prisma.contentWorkspace.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          id: 'master-1',
+          id: 'workspace-1',
           organizationId: 'org-1',
           isDeleted: false,
           status: 'active',
@@ -51,7 +51,11 @@ describe('ThumbnailWingRepositoryAdapter', () => {
     );
 
     expect(prisma.thumbnailRegistrationAttempt.updateMany).toHaveBeenCalledWith({
-      where: { id: 'attempt-1', organizationId: 'org-1', generationId: 'generation-1' },
+      where: {
+        id: 'attempt-1',
+        organizationId: 'org-1',
+        generationId: 'generation-1',
+      },
       data: expect.objectContaining({
         status: 'uploaded',
         errorMessage: null,
@@ -69,7 +73,9 @@ describe('ThumbnailWingRepositoryAdapter', () => {
     const repository = new ThumbnailWingRepositoryAdapter(prisma as never);
 
     await expect(
-      repository.updateRegistrationAttemptOrThrow('attempt-1', 'other-org', { status: 'failed' }),
+      repository.updateRegistrationAttemptOrThrow('attempt-1', 'other-org', {
+        status: 'failed',
+      }),
     ).rejects.toThrow('ThumbnailRegistrationAttempt attempt-1 not found');
 
     expect(prisma.thumbnailRegistrationAttempt.updateMany).toHaveBeenCalledWith({

@@ -1,10 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { ComplianceScores, ImageSpec, ThumbnailScores } from '@kiditem/shared/ai';
-import {
-  COMPLIANCE_PROMPT,
-  COMPLIANCE_REFERENCE_HEADER,
-  QUALITY_PROMPT,
-} from '../../domain/prompts/thumbnail-prompts';
+import { COMPLIANCE_PROMPT, COMPLIANCE_REFERENCE_HEADER, QUALITY_PROMPT } from '../../domain/prompts/thumbnail-prompts';
 import { ThumbnailComplianceVerifierService } from './thumbnail-compliance-verifier.service';
 import {
   THUMBNAIL_REFERENCE_IMAGES_PORT,
@@ -24,14 +20,10 @@ import {
   parseComplianceResponse,
   scoreToGrade,
 } from '../../domain/thumbnail-compliance-normalizer';
-import {
-  deriveImageSpec,
-  type ImageBytes,
-  parseImageDimensions,
-} from '../../domain/thumbnail-image-spec';
+import { deriveImageSpec, type ImageBytes, parseImageDimensions } from '../../domain/thumbnail-image-spec';
 
 export interface ThumbnailAiItem {
-  productId: string;
+  contentWorkspaceId: string;
   productName: string;
   imageUrl: string;
   category?: string | null;
@@ -65,10 +57,7 @@ export class ThumbnailVisionAiService {
 
   // ─── Public API ─────────────────────────────────────────────────────────
 
-  async analyzeQuality(
-    items: ThumbnailAiItem[],
-    signal?: AbortSignal,
-  ): Promise<Map<string, AiAnalysisResult>> {
+  async analyzeQuality(items: ThumbnailAiItem[], signal?: AbortSignal): Promise<Map<string, AiAnalysisResult>> {
     const results = new Map<string, AiAnalysisResult>();
     if (items.length === 0) return results;
     this.adapter.throwIfAborted(signal);
@@ -80,7 +69,10 @@ export class ThumbnailVisionAiService {
     );
     this.adapter.throwIfAborted(signal);
 
-    const validItems = items.map((item, i) => ({ item, imageData: imageDataList[i] }));
+    const validItems = items.map((item, i) => ({
+      item,
+      imageData: imageDataList[i],
+    }));
     const productList = formatProductList(validItems);
     const imageParts = imagePartsOf(validItems);
 
@@ -95,10 +87,7 @@ export class ThumbnailVisionAiService {
         contents: [
           {
             role: 'user',
-            parts: [
-              ...imageParts,
-              { text: QUALITY_PROMPT.replace('{productList}', productList) },
-            ],
+            parts: [...imageParts, { text: QUALITY_PROMPT.replace('{productList}', productList) }],
           },
         ],
       },
@@ -111,7 +100,7 @@ export class ThumbnailVisionAiService {
       const idx = entry.index ?? i;
       if (idx < validItems.length) {
         const overallScore = entry.overallScore ?? 0;
-        results.set(validItems[idx].item.productId, {
+        results.set(validItems[idx].item.contentWorkspaceId, {
           overallScore,
           grade: scoreToGrade(overallScore),
           scores: entry.scores ?? null,
@@ -128,10 +117,7 @@ export class ThumbnailVisionAiService {
     items: ThumbnailAiItem[],
     signal?: AbortSignal,
   ): Promise<Map<string, { complianceGrade: ComplianceGrade; complianceScores: ComplianceScores }>> {
-    const results = new Map<
-      string,
-      { complianceGrade: ComplianceGrade; complianceScores: ComplianceScores }
-    >();
+    const results = new Map<string, { complianceGrade: ComplianceGrade; complianceScores: ComplianceScores }>();
     if (items.length === 0) return results;
     this.adapter.throwIfAborted(signal);
     this.adapter.assertConfigured();
@@ -142,7 +128,10 @@ export class ThumbnailVisionAiService {
     );
     this.adapter.throwIfAborted(signal);
 
-    const validItems = items.map((item, i) => ({ item, imageData: imageDataList[i] }));
+    const validItems = items.map((item, i) => ({
+      item,
+      imageData: imageDataList[i],
+    }));
     const productList = formatProductList(validItems);
     const imageParts = imagePartsOf(validItems);
 
@@ -158,7 +147,9 @@ export class ThumbnailVisionAiService {
             parts: [
               ...referenceParts,
               ...imageParts,
-              { text: COMPLIANCE_PROMPT.replace('{productList}', productList) },
+              {
+                text: COMPLIANCE_PROMPT.replace('{productList}', productList),
+              },
             ],
           },
         ],
@@ -183,10 +174,7 @@ export class ThumbnailVisionAiService {
         );
         normalizeTextRelatedViolations(entry);
 
-        results.set(
-          validItems[idx].item.productId,
-          parseComplianceResponse(entry),
-        );
+        results.set(validItems[idx].item.contentWorkspaceId, parseComplianceResponse(entry));
       }),
     );
 
@@ -208,11 +196,7 @@ export class ThumbnailVisionAiService {
    * JSON-only image classifier used by recompose service. Wrapper around the
    * vision provider port so other services don't pull provider SDKs directly.
    */
-  async classifyImageJson(
-    imageUrl: string,
-    prompt: string,
-    signal?: AbortSignal,
-  ): Promise<string | null> {
+  async classifyImageJson(imageUrl: string, prompt: string, signal?: AbortSignal): Promise<string | null> {
     this.adapter.assertConfigured();
     const fetched = await this.adapter.fetchImageBytes(imageUrl);
     return this.adapter.callVisionForJsonText(
@@ -221,7 +205,9 @@ export class ThumbnailVisionAiService {
           {
             role: 'user',
             parts: [
-              { inlineData: { data: fetched.data, mimeType: fetched.mimeType } },
+              {
+                inlineData: { data: fetched.data, mimeType: fetched.mimeType },
+              },
               { text: prompt },
             ],
           },
@@ -242,20 +228,13 @@ export class ThumbnailVisionAiService {
   }
 }
 
-function formatProductList(
-  validItems: ReadonlyArray<{ item: ThumbnailAiItem }>,
-): string {
+function formatProductList(validItems: ReadonlyArray<{ item: ThumbnailAiItem }>): string {
   return validItems
-    .map(
-      (v, idx) =>
-        `이미지 ${idx}: "${v.item.productName}" (카테고리: ${v.item.category ?? '미분류'})`,
-    )
+    .map((v, idx) => `이미지 ${idx}: "${v.item.productName}" (카테고리: ${v.item.category ?? '미분류'})`)
     .join('\n');
 }
 
-function imagePartsOf(
-  validItems: ReadonlyArray<{ imageData: ImageBytes }>,
-): ThumbnailPromptPart[] {
+function imagePartsOf(validItems: ReadonlyArray<{ imageData: ImageBytes }>): ThumbnailPromptPart[] {
   return validItems.map((v) => ({
     inlineData: { data: v.imageData.data, mimeType: v.imageData.mimeType },
   }));

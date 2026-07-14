@@ -11,15 +11,11 @@ import { useSourcingThumbnailGenerations } from '../../../hooks/useGenerateSourc
 import { thumbnailGenerationEditHref } from '../../../lib/product-pipeline-routes';
 import ProductThumbnailResults from './ProductThumbnailResults';
 import ThumbnailSourcePicker from './ThumbnailSourcePicker';
-import {
-  buildThumbnailSourceOptions,
-  getGeneratedThumbnailOptions,
-} from './thumbnail-workspace-state';
+import { buildThumbnailSourceOptions, getGeneratedThumbnailOptions } from './thumbnail-workspace-state';
 import type { ProductEditState } from '../../../lib/product-workspace-types';
 
 interface ThumbnailWorkspaceTabProps {
   editData: ProductEditState;
-  productId: string;
   contentWorkspaceId?: string | null;
   thumbnailUrl?: string | null;
   thumbnailSourceCandidateId?: string | null;
@@ -65,26 +61,23 @@ export default function ThumbnailWorkspaceTab({
     contentWorkspaceId,
   });
   const sourceOptions = useMemo(
-    () => buildThumbnailSourceOptions({
-      sourceImageUrls: editData.thumbnails,
-      generations: thumbnailGenerations.data ?? [],
-    }),
+    () =>
+      buildThumbnailSourceOptions({
+        sourceImageUrls: editData.thumbnails,
+        generations: thumbnailGenerations.data ?? [],
+      }),
     [editData.thumbnails, thumbnailGenerations.data],
   );
   const resultOptions = useMemo(
-    () => getGeneratedThumbnailOptions({
-      sourceImageUrls: editData.thumbnails,
-      generations: thumbnailGenerations.data ?? [],
-    }),
+    () =>
+      getGeneratedThumbnailOptions({
+        sourceImageUrls: editData.thumbnails,
+        generations: thumbnailGenerations.data ?? [],
+      }),
     [editData.thumbnails, thumbnailGenerations.data],
   );
   const fallbackPreviewImages = useMemo(
-    () =>
-      uniqueNonEmpty([
-        selectedRegistrationThumbnailUrl,
-        thumbnailUrl,
-        editData.thumbnails[0],
-      ]),
+    () => uniqueNonEmpty([selectedRegistrationThumbnailUrl, thumbnailUrl, editData.thumbnails[0]]),
     [editData.thumbnails, selectedRegistrationThumbnailUrl, thumbnailUrl],
   );
   const availableSourceOptions = useMemo(
@@ -122,11 +115,12 @@ export default function ThumbnailWorkspaceTab({
   const openEditor = (mode: 'edit' | 'creative', sourceUrl = selectedSourceUrl) => {
     if (!sourceUrl) return;
     const shouldUseUploadKey =
-      sourceUrl.startsWith('data:') ||
-      sourceUrl.startsWith('blob:') ||
-      sourceUrl.length > 1500;
+      sourceUrl.startsWith('data:') || sourceUrl.startsWith('blob:') || sourceUrl.length > 1500;
     const uploadKey = shouldUseUploadKey
-      ? writeThumbnailEditorUpload(sourceUrl, { productName: editData.name, mode })
+      ? writeThumbnailEditorUpload(sourceUrl, {
+          productName: editData.name,
+          mode,
+        })
       : null;
     const workspaceHref = thumbnailGenerationEditHref({
       mode,
@@ -152,10 +146,7 @@ export default function ThumbnailWorkspaceTab({
     });
     const formData = new FormData();
     formData.append('file', uploadFile);
-    const result = await apiClient.upload<{ url: string }>(
-      '/api/ai/detail-page/images',
-      formData,
-    );
+    const result = await apiClient.upload<{ url: string }>('/api/ai/detail-page/images', formData);
     return result.url;
   };
 
@@ -164,9 +155,7 @@ export default function ThumbnailWorkspaceTab({
     setUploadingCount(files.length);
     try {
       const results = await Promise.allSettled(files.map(uploadThumbnailSourceImage));
-      const uploaded = results.flatMap((result) =>
-        result.status === 'fulfilled' ? [result.value] : [],
-      );
+      const uploaded = results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []));
       const failedCount = results.length - uploaded.length;
       if (uploaded.length > 0) {
         const next = uniqueNonEmpty([...thumbnailPreviewImages, ...uploaded]);
@@ -217,10 +206,7 @@ export default function ThumbnailWorkspaceTab({
   const handleRegisterRepresentative = () => {
     const saveUrl = selectedSourceUrl ?? thumbnailPreviewImages[0] ?? null;
     if (!saveUrl) return;
-    const nextThumbnailUrls = uniqueNonEmpty([
-      saveUrl,
-      ...thumbnailPreviewImages.filter((url) => url !== saveUrl),
-    ]);
+    const nextThumbnailUrls = uniqueNonEmpty([saveUrl, ...thumbnailPreviewImages.filter((url) => url !== saveUrl)]);
     onThumbnailPreviewImagesChange(nextThumbnailUrls);
     onSaveThumbnailConfiguration({
       thumbnailUrls: nextThumbnailUrls,

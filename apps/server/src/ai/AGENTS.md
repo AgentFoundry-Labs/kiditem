@@ -73,6 +73,12 @@ ai/
   generation.
 - `ThumbnailGeneration` is the thumbnail generation ledger.
 
+Thumbnail analysis, generation, editing, tracking, and Wing registration use
+`ContentWorkspace.id` as `contentWorkspaceId`. `sourceCandidateId` is
+provenance, `channelListingId` identifies the marketplace listing, and
+`generationId` identifies the ledger row. Do not reintroduce `productId`,
+`masterId`, or `MasterProduct` terminology for a thumbnail workspace.
+
 ## Direct AI Generation Flow
 
 Detail-page, thumbnail, and image-edit generation are asynchronous direct AI

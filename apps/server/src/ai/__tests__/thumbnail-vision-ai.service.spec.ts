@@ -90,15 +90,9 @@ describe('thumbnail compliance normalizer', () => {
   });
 
   it('rejects vague digital claims when reason cites package surface', () => {
-    expect(
-      hasDigitalOverlayEvidence('패키지 전면 라벨 표면의 30% 할인 인쇄 문구'),
-    ).toBe(false);
-    expect(
-      hasDigitalOverlayEvidence("우상단 여백에 포토샵 오버레이 '30% 할인' 배지"),
-    ).toBe(true);
-    expect(
-      hasDigitalOverlayEvidence('상품 표면과 분리되어 떠 있는 디지털 오버레이'),
-    ).toBe(true);
+    expect(hasDigitalOverlayEvidence('패키지 전면 라벨 표면의 30% 할인 인쇄 문구')).toBe(false);
+    expect(hasDigitalOverlayEvidence("우상단 여백에 포토샵 오버레이 '30% 할인' 배지")).toBe(true);
+    expect(hasDigitalOverlayEvidence('상품 표면과 분리되어 떠 있는 디지털 오버레이')).toBe(true);
   });
 
   it('normalizes Gemini string booleans and clamps confidence values before grading', () => {
@@ -134,7 +128,11 @@ describe('thumbnail compliance normalizer', () => {
 
   it('does not fail compliance when Gemini omits violation keys', () => {
     const result = parseComplianceResponse({
-      quality: { estimatedFillPercent: 90, centerOffsetPercent: 2, aspectRatioValid: true },
+      quality: {
+        estimatedFillPercent: 90,
+        centerOffsetPercent: 2,
+        aspectRatioValid: true,
+      },
     });
     expect(result.complianceGrade).toBe('PASS');
     expect(result.complianceScores.violationCount).toBe(0);
@@ -147,16 +145,12 @@ describe('thumbnail image spec — pixel mask', () => {
     // (minc>=230, maxc-minc<12) so flood-fill expands across the frame, but
     // the blueish tint and channel spread keep it out of the strict
     // white verdict (requires minChannelMean>=248 and maxChannelDiff<3).
-    const verdict = await analyzeWhiteBackgroundByPixels(
-      await makePngBase64({ r: 242, g: 247, b: 252 }),
-    );
+    const verdict = await analyzeWhiteBackgroundByPixels(await makePngBase64({ r: 242, g: 247, b: 252 }));
     expect(verdict.verdict).toBe('not-white');
   });
 
   it('marks pure-white backgrounds as compliant via pixel mask', async () => {
-    const verdict = await analyzeWhiteBackgroundByPixels(
-      await makePngBase64({ r: 255, g: 255, b: 255 }),
-    );
+    const verdict = await analyzeWhiteBackgroundByPixels(await makePngBase64({ r: 255, g: 255, b: 255 }));
     expect(verdict.verdict).toBe('white');
   });
 });
@@ -170,8 +164,9 @@ interface BuildOptions {
 }
 
 function buildService(opts: BuildOptions = {}) {
-  const imageFetcher =
-    opts.imageFetcher ?? { fetchTrustedStorageImage: vi.fn() };
+  const imageFetcher = opts.imageFetcher ?? {
+    fetchTrustedStorageImage: vi.fn(),
+  };
   const references = opts.references ?? { complianceParts: vi.fn(() => []) };
   const adapter = new GeminiThumbnailVisionAdapter(imageFetcher as never);
   if (opts.clientStub) {
@@ -189,7 +184,7 @@ describe('ThumbnailVisionAiService failure and fetch behavior', () => {
     await expect(
       service.analyzeQuality([
         {
-          productId: 'p1',
+          contentWorkspaceId: 'p1',
           productName: 'Product',
           imageUrl: 'https://example.com/p.jpg',
           category: null,
@@ -207,7 +202,7 @@ describe('ThumbnailVisionAiService failure and fetch behavior', () => {
       service.analyzeQuality(
         [
           {
-            productId: 'p1',
+            contentWorkspaceId: 'p1',
             productName: 'Product',
             imageUrl: 'https://example.com/p.jpg',
             category: null,
@@ -252,7 +247,7 @@ describe('ThumbnailVisionAiService failure and fetch behavior', () => {
     await expect(
       service.checkCompliance([
         {
-          productId: 'p1',
+          contentWorkspaceId: 'p1',
           productName: 'Product',
           imageUrl: 'https://example.com/p.jpg',
           category: null,

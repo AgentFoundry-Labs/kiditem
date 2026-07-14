@@ -97,17 +97,23 @@ export function NeedsFixSection({ returnTo = null }: { returnTo?: string | null 
   // thumbnails 페이지 "개선 필요" 탭과 single source of truth.
   // 필터: analyzed + needsThumbnailFix (FAIL[evidence 있음] || grade C/F) + 편집 파이프라인에 없는 것.
   // generation 이 하나라도 있으면 (pending/running/ready/applied/failed 무관) 제외 — AI 편집 탭에서 추적됨.
-  const generatedProductIds = useMemo(
-    () => new Set(generations.map((g) => g.productId).filter((id): id is string => Boolean(id))),
+  const generatedContentWorkspaceIds = useMemo(
+    () => new Set(generations.map((g) => g.contentWorkspaceId).filter((id): id is string => Boolean(id))),
     [generations],
   );
 
-  const allNeedsFix: ThumbnailAnalysisResult[] = useMemo(
+  const allNeedsFix = useMemo(
     () =>
       (data?.allResults ?? []).filter(
-        (r) => r.analyzed && needsThumbnailFix(r) && !generatedProductIds.has(r.productId),
+        (r): r is ThumbnailAnalysisResult & { contentWorkspaceId: string } =>
+          Boolean(
+            r.contentWorkspaceId &&
+              r.analyzed &&
+              needsThumbnailFix(r) &&
+              !generatedContentWorkspaceIds.has(r.contentWorkspaceId),
+          ),
       ),
-    [data, generatedProductIds],
+    [data, generatedContentWorkspaceIds],
   );
 
   const needsFix = useMemo(() => {
@@ -129,17 +135,19 @@ export function NeedsFixSection({ returnTo = null }: { returnTo?: string | null 
   const isEmpty = !isLoading && allNeedsFix.length === 0;
 
   const gotoEdit = (r: ThumbnailAnalysisResult, selection: FeatureSelection) => {
-    router.push(thumbnailGenerationEditHref({
-      editCase: selection.mode === 'edit' ? selection.editCase : null,
-      extraParams: {
-        scene: selection.mode === 'creative' ? selection.scene : null,
-        customPrompt: selection.mode === 'creative' && selection.customPrompt ? '1' : null,
-      },
-      imageUrl: r.imageUrl,
-      mode: selection.mode,
-      returnTo,
-      subjectParams: { productId: r.productId },
-    }));
+    router.push(
+      thumbnailGenerationEditHref({
+        editCase: selection.mode === 'edit' ? selection.editCase : null,
+        extraParams: {
+          scene: selection.mode === 'creative' ? selection.scene : null,
+          customPrompt: selection.mode === 'creative' && selection.customPrompt ? '1' : null,
+        },
+        imageUrl: r.imageUrl,
+        mode: selection.mode,
+        returnTo,
+        subjectParams: { contentWorkspaceId: r.contentWorkspaceId },
+      }),
+    );
   };
 
   const handleModalSelect = (selection: FeatureSelection) => {
@@ -209,17 +217,10 @@ export function NeedsFixSection({ returnTo = null }: { returnTo?: string | null 
   );
 }
 
-function NeedsFixCard({
-  item,
-  onPick,
-}: {
-  item: ThumbnailAnalysisResult;
-  onPick: () => void;
-}) {
+function NeedsFixCard({ item, onPick }: { item: ThumbnailAnalysisResult; onPick: () => void }) {
   const t = tokensOf(item);
   const resolved = resolveImageUrl(item.imageUrl);
-  const complianceLabel =
-    item.complianceGrade === 'FAIL' ? 'FAIL' : item.complianceGrade === 'WARN' ? 'WARN' : null;
+  const complianceLabel = item.complianceGrade === 'FAIL' ? 'FAIL' : item.complianceGrade === 'WARN' ? 'WARN' : null;
 
   return (
     <div className="flex flex-col group">
@@ -242,12 +243,8 @@ function NeedsFixCard({
         )}
       </button>
       <div className="mt-1.5 flex items-center justify-between gap-1.5 px-0.5">
-        <h5 className="text-[11px] font-medium text-gray-700 line-clamp-1 min-w-0">
-          {item.productName}
-        </h5>
-        <span className="shrink-0 text-[10px] font-bold text-gray-500 tabular-nums">
-          {item.grade}
-        </span>
+        <h5 className="text-[11px] font-medium text-gray-700 line-clamp-1 min-w-0">{item.productName}</h5>
+        <span className="shrink-0 text-[10px] font-bold text-gray-500 tabular-nums">{item.grade}</span>
       </div>
     </div>
   );

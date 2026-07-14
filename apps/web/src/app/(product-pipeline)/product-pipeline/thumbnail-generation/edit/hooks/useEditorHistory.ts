@@ -7,7 +7,6 @@ import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 import type { EditorMode, HistoryCandidate } from '../lib/edit-page-types';
 
 interface Args {
-  productId: string | null;
   sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
   mode: EditorMode;
@@ -19,14 +18,18 @@ interface Args {
 }
 
 export function useEditorHistory({
-  productId, sourceCandidateId, contentWorkspaceId, mode, result, generationId,
-  observedGeneration, selectedCandidateUrl, setSelectedCandidateUrl,
+  sourceCandidateId,
+  contentWorkspaceId,
+  mode,
+  result,
+  generationId,
+  observedGeneration,
+  selectedCandidateUrl,
+  setSelectedCandidateUrl,
 }: Args) {
-  const hasOwnerScope = Boolean(productId || sourceCandidateId || contentWorkspaceId);
+  const hasOwnerScope = Boolean(contentWorkspaceId || sourceCandidateId);
   const { data: allGenerations = [] } = useGenerationList(
-    hasOwnerScope
-      ? { productId, sourceCandidateId, contentWorkspaceId, limit: 24 }
-      : { scope: 'direct-upload', limit: 24 },
+    hasOwnerScope ? { contentWorkspaceId, sourceCandidateId, limit: 24 } : { scope: 'direct-upload', limit: 24 },
   );
 
   const historyCandidates = useMemo<HistoryCandidate[]>(() => {
@@ -56,21 +59,28 @@ export function useEditorHistory({
     if (hasOwnerScope) {
       const workspaceGens = allGenerations
         .filter((g) =>
-          contentWorkspaceId
-            ? g.contentWorkspaceId === contentWorkspaceId
-            : productId
-              ? g.productId === productId
-              : g.sourceCandidateId === sourceCandidateId)
+          contentWorkspaceId ? g.contentWorkspaceId === contentWorkspaceId : g.sourceCandidateId === sourceCandidateId,
+        )
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       for (const gen of workspaceGens) {
         for (const c of gen.candidates ?? []) {
-          push({ ...c, method: gen.method, createdAt: gen.createdAt, generationId: gen.id });
+          push({
+            ...c,
+            method: gen.method,
+            createdAt: gen.createdAt,
+            generationId: gen.id,
+          });
         }
       }
     } else {
       for (const gen of allGenerations) {
         for (const c of gen.candidates ?? []) {
-          push({ ...c, method: gen.method, createdAt: gen.createdAt, generationId: gen.id });
+          push({
+            ...c,
+            method: gen.method,
+            createdAt: gen.createdAt,
+            generationId: gen.id,
+          });
         }
       }
     }
@@ -78,7 +88,6 @@ export function useEditorHistory({
   }, [
     allGenerations,
     hasOwnerScope,
-    productId,
     sourceCandidateId,
     contentWorkspaceId,
     result,
@@ -88,12 +97,11 @@ export function useEditorHistory({
   ]);
 
   const recommendedCandidateUrl = useMemo(() => {
-    if (!productId && !sourceCandidateId && !contentWorkspaceId) return null;
+    if (!contentWorkspaceId && !sourceCandidateId) return null;
     const scored = allGenerations.filter(
-      (g) => (contentWorkspaceId
-        ? g.contentWorkspaceId === contentWorkspaceId
-        : productId
-          ? g.productId === productId
+      (g) =>
+        (contentWorkspaceId
+          ? g.contentWorkspaceId === contentWorkspaceId
           : g.sourceCandidateId === sourceCandidateId) &&
         typeof g.score === 'number' &&
         g.score > 0,
@@ -103,7 +111,7 @@ export function useEditorHistory({
     const pick = best.selectedUrl ?? best.candidates?.[0]?.url ?? null;
     if (!pick) return null;
     return resolveImageUrl(pick) ?? pick;
-  }, [allGenerations, productId, sourceCandidateId, contentWorkspaceId]);
+  }, [allGenerations, contentWorkspaceId, sourceCandidateId]);
 
   useEffect(() => {
     if (historyCandidates.length === 0) {
@@ -111,9 +119,7 @@ export function useEditorHistory({
       return;
     }
     const firstUrl = resolveImageUrl(historyCandidates[0].url) ?? historyCandidates[0].url;
-    const stillValid = historyCandidates.some(
-      (c) => (resolveImageUrl(c.url) ?? c.url) === selectedCandidateUrl,
-    );
+    const stillValid = historyCandidates.some((c) => (resolveImageUrl(c.url) ?? c.url) === selectedCandidateUrl);
     if (!stillValid) setSelectedCandidateUrl(firstUrl);
   }, [historyCandidates, selectedCandidateUrl, setSelectedCandidateUrl]);
 

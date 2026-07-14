@@ -1,8 +1,4 @@
-import {
-  RECOMPOSE_KINDS,
-  type RecomposeKind,
-  type RecomposeVariantClassification,
-} from '@kiditem/shared/ai';
+import { RECOMPOSE_KINDS, type RecomposeKind, type RecomposeVariantClassification } from '@kiditem/shared/ai';
 
 /**
  * Pure JSON-classification helper for the Vision-driven recompose flow.
@@ -13,7 +9,7 @@ import {
  * `RecomposeVariantClassification` shape — including the with-box / no-box
  * default options that the legacy service used to inline.
  *
- * Keeping this pure means the service is just orchestration (master lookup,
+ * Keeping this pure means the service is just orchestration (workspace lookup,
  * vision call) and the parse contract is reusable from tests or future
  * batch-classification callers without spinning up Nest DI.
  */

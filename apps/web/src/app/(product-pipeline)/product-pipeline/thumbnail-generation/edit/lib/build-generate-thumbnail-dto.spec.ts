@@ -4,7 +4,7 @@ import { buildGenerateThumbnailDto } from './build-generate-thumbnail-dto';
 import type { Slot } from './slots';
 
 describe('buildGenerateThumbnailDto', () => {
-  it('passes sourceCandidateId instead of productId for candidate-owned thumbnail work', () => {
+  it('passes sourceCandidateId for candidate-owned thumbnail work', () => {
     const slots: Slot[] = [
       {
         id: 'slot-product',
@@ -16,24 +16,26 @@ describe('buildGenerateThumbnailDto', () => {
       },
     ];
 
-    expect(buildGenerateThumbnailDto({
-      mode: 'edit',
-      slots,
-      productId: null,
+    expect(
+      buildGenerateThumbnailDto({
+        mode: 'edit',
+        slots,
+        contentWorkspaceId: null,
+        sourceCandidateId: 'candidate-123',
+        supplementaryLabel: '박스',
+        pieceCount: null,
+        imageOnly: true,
+        userPrompt: 'ignored when imageOnly',
+        sceneType: 'white-studio',
+        styleType: 'minimal',
+        productDescription: 'ignored when imageOnly',
+        productName: '쭉쭉붙이는터치등',
+        effectiveProductImage: null,
+        layout: 'auto',
+      }),
+    ).toMatchObject({
       sourceCandidateId: 'candidate-123',
-      supplementaryLabel: 'box',
-      pieceCount: null,
-      imageOnly: true,
-      userPrompt: 'ignored when imageOnly',
-      sceneType: 'white-studio',
-      styleType: 'minimal',
-      productDescription: 'ignored when imageOnly',
-      productName: '쭉쭉붙이는터치등',
-      effectiveProductImage: null,
-      layout: 'auto',
-    })).toMatchObject({
-      sourceCandidateId: 'candidate-123',
-      productId: undefined,
+      contentWorkspaceId: undefined,
       productImage: 'https://cdn.example.com/source.jpg',
     });
   });
@@ -41,7 +43,7 @@ describe('buildGenerateThumbnailDto', () => {
   it('accepts ThumbnailSubject as the identity Interface', () => {
     const subject: ThumbnailSubject = {
       kind: 'content-workspace',
-      workspaceId: 'workspace-1',
+      contentWorkspaceId: 'workspace-1',
     };
 
     const slots: Slot[] = [
@@ -55,26 +57,27 @@ describe('buildGenerateThumbnailDto', () => {
       },
     ];
 
-    expect(buildGenerateThumbnailDto({
-      mode: 'edit',
-      slots,
-      subject,
-      productId: 'should-not-leak',
-      sourceCandidateId: null,
-      supplementaryLabel: 'box',
-      pieceCount: null,
-      imageOnly: true,
-      userPrompt: '',
-      sceneType: 'white-studio',
-      styleType: 'minimal',
-      productDescription: '',
-      productName: '쭉쭉붙이는터치등',
-      effectiveProductImage: null,
-      layout: 'auto',
-    })).toMatchObject({
+    expect(
+      buildGenerateThumbnailDto({
+        mode: 'edit',
+        slots,
+        subject,
+        contentWorkspaceId: 'workspace-1',
+        sourceCandidateId: null,
+        supplementaryLabel: '박스',
+        pieceCount: null,
+        imageOnly: true,
+        userPrompt: '',
+        sceneType: 'white-studio',
+        styleType: 'minimal',
+        productDescription: '',
+        productName: '쭉쭉붙이는터치등',
+        effectiveProductImage: null,
+        layout: 'auto',
+      }),
+    ).toMatchObject({
       sourceCandidateId: undefined,
       contentWorkspaceId: 'workspace-1',
-      productId: undefined,
     });
   });
 });

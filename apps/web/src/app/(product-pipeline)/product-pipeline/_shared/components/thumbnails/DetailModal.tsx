@@ -2,9 +2,18 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
-  X, ImageIcon, Eye, Wand2, CheckCircle, ExternalLink,
-  Download, XCircle,
-  Loader2, ChevronLeft, ChevronRight, Maximize2,
+  X,
+  ImageIcon,
+  Eye,
+  Wand2,
+  CheckCircle,
+  ExternalLink,
+  Download,
+  XCircle,
+  Loader2,
+  ChevronLeft,
+  ChevronRight,
+  Maximize2,
   Square,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -37,7 +46,7 @@ interface DetailModalProps {
   aiResult?: ThumbnailAnalysisResult;
   isAiAnalyzing: boolean;
   imageSpec?: ImageSpec | null;
-  generatedProductIds: Set<string>;
+  generatedContentWorkspaceIds: Set<string>;
   hideEdit?: boolean;
   onClose: () => void;
   onAiAnalyze: () => void;
@@ -78,11 +87,12 @@ export function DetailModal({
   const [slideIndex, setSlideIndex] = useState(0);
 
   const display = aiResult || product;
-  const analysisMethodLabel =
-    display?.method === 'ai' ? 'Gemini' : display?.method === 'rule' ? '룰 기반' : 'AI';
+  const analysisMethodLabel = display?.method === 'ai' ? 'Gemini' : display?.method === 'rule' ? '룰 기반' : 'AI';
   const candidates = gen?.candidates || [];
-  const productName = gen?.product?.name || product?.productName || '';
-  const originalImage = resolveImageUrl(gen?.originalUrl || gen?.product?.imageUrl || product?.imageUrl || null);
+  const productName = gen?.contentWorkspace?.name || product?.productName || '';
+  const originalImage = resolveImageUrl(
+    gen?.originalUrl || gen?.contentWorkspace?.imageUrl || product?.imageUrl || null,
+  );
   const hasCandidates = candidates.length > 0;
   const hasAnalysis = !!(display?.scores || display?.complianceScores);
   // 이미지 생성 + 분석 데이터가 둘 다 있으면 combined 뷰: 위 Before/After, 아래 분석.
@@ -91,16 +101,19 @@ export function DetailModal({
   const isGenerationFailed = gen?.status === 'failed' || gen?.status === 'cancelled';
   const isGenerationRunning = gen?.status === 'pending' || gen?.status === 'running';
   const editHref = buildEditHref({
-    productId: product?.productId ?? gen?.productId ?? '',
+    contentWorkspaceId: product?.contentWorkspaceId ?? gen?.contentWorkspaceId ?? '',
     generationId: gen?.id,
-    imageUrl: product?.imageUrl ?? gen?.product?.imageUrl ?? null,
+    imageUrl: product?.imageUrl ?? gen?.contentWorkspace?.imageUrl ?? null,
   });
   const grade = display?.grade;
   const gradeConf = grade ? GRADE_CONFIG[grade] : null;
 
   // gen이 바뀌면 슬라이드를 기존 selectedUrl 위치로 초기화
   useEffect(() => {
-    if (!gen || candidates.length === 0) { setSlideIndex(0); return; }
+    if (!gen || candidates.length === 0) {
+      setSlideIndex(0);
+      return;
+    }
     const idx = candidates.findIndex((c) => {
       const raw = typeof c === 'string' ? c : c.url;
       return raw === gen.selectedUrl || resolveImageUrl(raw) === resolveImageUrl(gen.selectedUrl ?? null);
@@ -109,7 +122,9 @@ export function DetailModal({
   }, [gen?.id]);
 
   const currentRawUrl = candidates[slideIndex]
-    ? (typeof candidates[slideIndex] === 'string' ? candidates[slideIndex] : (candidates[slideIndex] as { url: string }).url)
+    ? typeof candidates[slideIndex] === 'string'
+      ? candidates[slideIndex]
+      : (candidates[slideIndex] as { url: string }).url
     : '';
   const currentImgUrl = resolveImageUrl(currentRawUrl) ?? '';
   const isCurrentSelected = resolveImageUrl(gen?.selectedUrl ?? null) === currentImgUrl;
@@ -122,8 +137,16 @@ export function DetailModal({
           className="fixed inset-0 z-[70] flex items-center justify-center bg-black/90 cursor-zoom-out"
           onClick={() => setZoomImage(null)}
         >
-          <img src={zoomImage} alt="" className="max-w-[90vw] max-h-[90vh] object-contain rounded-2xl" referrerPolicy="no-referrer" />
-          <button className="absolute top-5 right-5 w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors" onClick={() => setZoomImage(null)}>
+          <img
+            src={zoomImage}
+            alt=""
+            className="max-w-[90vw] max-h-[90vh] object-contain rounded-2xl"
+            referrerPolicy="no-referrer"
+          />
+          <button
+            className="absolute top-5 right-5 w-10 h-10 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center transition-colors"
+            onClick={() => setZoomImage(null)}
+          >
             <X size={18} className="text-white" />
           </button>
         </div>
@@ -134,22 +157,18 @@ export function DetailModal({
         <div
           className={cn(
             'bg-white rounded-2xl w-full max-h-[90vh] flex flex-col overflow-hidden',
-            isCombined
-              ? 'max-w-4xl'
-              : hasCandidates
-                ? 'max-w-3xl'
-                : isUnclassified
-                  ? 'max-w-md'
-                  : 'max-w-4xl',
+            isCombined ? 'max-w-4xl' : hasCandidates ? 'max-w-3xl' : isUnclassified ? 'max-w-md' : 'max-w-4xl',
           )}
           style={{ boxShadow: '0 24px 64px rgba(0,0,0,0.22)' }}
           onClick={(e) => e.stopPropagation()}
         >
-
           {/* ── 헤더 ── */}
           <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-100 flex-shrink-0">
             {gradeConf && grade && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-sm font-black flex-shrink-0" style={{ background: gradeConf.bg, color: gradeConf.text }}>
+              <span
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-sm font-black flex-shrink-0"
+                style={{ background: gradeConf.bg, color: gradeConf.text }}
+              >
                 {grade}
                 <span className="font-mono text-xs font-semibold opacity-80">{display?.overallScore}</span>
               </span>
@@ -181,7 +200,10 @@ export function DetailModal({
                 <CheckCircle size={12} /> 적용 완료
               </span>
             )}
-            <button onClick={onClose} className="w-8 h-8 rounded-xl hover:bg-slate-100 flex items-center justify-center transition-colors flex-shrink-0">
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-xl hover:bg-slate-100 flex items-center justify-center transition-colors flex-shrink-0"
+            >
               <X size={16} className="text-slate-400" />
             </button>
           </div>
@@ -195,7 +217,10 @@ export function DetailModal({
                   {gen?.status === 'cancelled' ? '생성이 취소되었습니다' : 'AI 썸네일 생성에 실패했습니다'}
                 </div>
                 <p className="mt-1 text-xs leading-relaxed text-red-700/85">
-                  {gen?.errorMessage ?? (gen?.status === 'cancelled' ? '사용자 또는 시스템에 의해 취소되었습니다.' : '오류 메시지가 없습니다.')}
+                  {gen?.errorMessage ??
+                    (gen?.status === 'cancelled'
+                      ? '사용자 또는 시스템에 의해 취소되었습니다.'
+                      : '오류 메시지가 없습니다.')}
                 </p>
               </div>
             )}
@@ -215,7 +240,12 @@ export function DetailModal({
                       onClick={() => originalImage && setZoomImage(originalImage)}
                     >
                       {originalImage ? (
-                        <img src={originalImage} alt="현재" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                        <img
+                          src={originalImage}
+                          alt="현재"
+                          className="w-full h-full object-contain"
+                          referrerPolicy="no-referrer"
+                        />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">
                           <ImageIcon size={32} className="text-slate-300" />
@@ -296,7 +326,13 @@ export function DetailModal({
                             : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-400 hover:text-indigo-600',
                         )}
                       >
-                        {isCurrentSelected ? <><CheckCircle size={14} /> 선택됨</> : '이 이미지 선택'}
+                        {isCurrentSelected ? (
+                          <>
+                            <CheckCircle size={14} /> 선택됨
+                          </>
+                        ) : (
+                          '이 이미지 선택'
+                        )}
                       </button>
                     </div>
                   </div>
@@ -321,7 +357,6 @@ export function DetailModal({
             ) : hasCandidates ? (
               /* ── Before / After 뷰 ── */
               <div className="grid grid-cols-2 gap-4 max-w-3xl mx-auto mt-4 px-4 pb-4">
-
                 {/* ── Before ── */}
                 <div className="flex flex-col">
                   <div className="pb-1.5 flex-shrink-0">
@@ -332,7 +367,12 @@ export function DetailModal({
                     onClick={() => originalImage && setZoomImage(originalImage)}
                   >
                     {originalImage ? (
-                      <img src={originalImage} alt="현재" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                      <img
+                        src={originalImage}
+                        alt="현재"
+                        className="w-full h-full object-contain"
+                        referrerPolicy="no-referrer"
+                      />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
                         <ImageIcon size={32} className="text-slate-300" />
@@ -340,7 +380,10 @@ export function DetailModal({
                     )}
                     <button
                       className="absolute bottom-3 right-3 w-7 h-7 rounded-full bg-black/35 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
-                      onClick={(e) => { e.stopPropagation(); if (originalImage) setZoomImage(originalImage); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (originalImage) setZoomImage(originalImage);
+                      }}
                     >
                       <Maximize2 size={12} className="text-white" />
                     </button>
@@ -386,7 +429,10 @@ export function DetailModal({
                     {/* 확대 버튼 */}
                     <button
                       className="absolute bottom-3 right-3 w-7 h-7 rounded-full bg-black/35 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
-                      onClick={(e) => { e.stopPropagation(); if (currentImgUrl) setZoomImage(currentImgUrl); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (currentImgUrl) setZoomImage(currentImgUrl);
+                      }}
                     >
                       <Maximize2 size={12} className="text-white" />
                     </button>
@@ -436,7 +482,13 @@ export function DetailModal({
                           : 'bg-white border-slate-200 text-slate-500 hover:border-indigo-400 hover:text-indigo-600',
                       )}
                     >
-                      {isCurrentSelected ? <><CheckCircle size={14} /> 선택됨</> : '이 이미지 선택'}
+                      {isCurrentSelected ? (
+                        <>
+                          <CheckCircle size={14} /> 선택됨
+                        </>
+                      ) : (
+                        '이 이미지 선택'
+                      )}
                     </button>
                   </div>
                 </div>
@@ -464,36 +516,53 @@ export function DetailModal({
                   <div onClick={() => originalImage && setZoomImage(originalImage)} className="cursor-zoom-in">
                     <CoupangSearchCardPreview imageUrl={originalImage ?? ''} productName={productName} />
                   </div>
-                  {productGenerations.length > 1 && (() => {
-                    const past = productGenerations.filter((g) => g.id !== gen?.id).slice(0, 3);
-                    if (!past.length) return null;
-                    return (
-                      <div>
-                        <p className="text-[10px] text-slate-400 uppercase font-semibold tracking-wide mb-2">과거 이력</p>
-                        <div className="flex gap-2">
-                          {past.map((pg) => {
-                            const url = resolveImageUrl(pg.selectedUrl || pg.candidates?.[0]?.url || pg.originalUrl);
-                            return (
-                              <button key={pg.id} onClick={() => onSelectGen(pg)} className="flex-1 group">
-                                <div className={cn(
-                                  'aspect-square rounded-lg overflow-hidden border-2 transition-colors group-hover:border-indigo-400',
-                                  isApplied(pg) ? 'border-emerald-400' : 'border-slate-200',
-                                )}>
-                                  {url
-                                    ? <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" referrerPolicy="no-referrer" />
-                                    : <div className="w-full h-full bg-slate-100 flex items-center justify-center"><ImageIcon size={12} className="text-slate-300" /></div>
-                                  }
-                                </div>
-                                <p className="text-[9px] text-slate-400 text-center mt-1">
-                                  {new Date(pg.createdAt).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
-                                </p>
-                              </button>
-                            );
-                          })}
+                  {productGenerations.length > 1 &&
+                    (() => {
+                      const past = productGenerations.filter((g) => g.id !== gen?.id).slice(0, 3);
+                      if (!past.length) return null;
+                      return (
+                        <div>
+                          <p className="text-[10px] text-slate-400 uppercase font-semibold tracking-wide mb-2">
+                            과거 이력
+                          </p>
+                          <div className="flex gap-2">
+                            {past.map((pg) => {
+                              const url = resolveImageUrl(pg.selectedUrl || pg.candidates?.[0]?.url || pg.originalUrl);
+                              return (
+                                <button key={pg.id} onClick={() => onSelectGen(pg)} className="flex-1 group">
+                                  <div
+                                    className={cn(
+                                      'aspect-square rounded-lg overflow-hidden border-2 transition-colors group-hover:border-indigo-400',
+                                      isApplied(pg) ? 'border-emerald-400' : 'border-slate-200',
+                                    )}
+                                  >
+                                    {url ? (
+                                      <img
+                                        src={url}
+                                        alt=""
+                                        className="w-full h-full object-cover"
+                                        loading="lazy"
+                                        referrerPolicy="no-referrer"
+                                      />
+                                    ) : (
+                                      <div className="w-full h-full bg-slate-100 flex items-center justify-center">
+                                        <ImageIcon size={12} className="text-slate-300" />
+                                      </div>
+                                    )}
+                                  </div>
+                                  <p className="text-[9px] text-slate-400 text-center mt-1">
+                                    {new Date(pg.createdAt).toLocaleDateString('ko-KR', {
+                                      month: 'numeric',
+                                      day: 'numeric',
+                                    })}
+                                  </p>
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })()}
+                      );
+                    })()}
                 </div>
 
                 <DetailModalAnalysisPanel
@@ -512,70 +581,72 @@ export function DetailModal({
 
           {/* ── 푸터 (미분류는 없음) ── */}
           {!isUnclassified && (
-          <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/60 flex-shrink-0">
-            <div className="flex items-center gap-2">
-              {hasCandidates && (
-                <>
-                  <button onClick={onDelete} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm text-red-400 hover:bg-red-50 transition-colors font-medium">
-                    <XCircle size={14} /> 삭제
-                  </button>
-                  {!hideEdit && (
-                    <Link
-                      href={editHref}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm text-slate-500 hover:bg-slate-200 transition-colors font-medium"
-                    >
-                      <Wand2 size={14} /> 편집 페이지
-                    </Link>
-                  )}
-                  {gen?.selectedUrl && (
+            <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-slate-50/60 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                {hasCandidates && (
+                  <>
                     <button
-                      onClick={async () => {
-                        const url = resolveImageUrl(gen.selectedUrl) ?? gen.selectedUrl;
-                        if (!url) return;
-                        try {
-                          await downloadImageFile(url, `${productName}.png`);
-                        } catch (err) {
-                          console.error('[thumbnail-detail] download failed', err);
-                          toast.error('이미지 다운로드에 실패했어요. 다시 시도해주세요.');
-                        }
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm text-slate-500 hover:bg-slate-200 transition-colors font-medium"
+                      onClick={onDelete}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm text-red-400 hover:bg-red-50 transition-colors font-medium"
                     >
-                      <Download size={14} /> 다운로드
+                      <XCircle size={14} /> 삭제
                     </button>
-                  )}
-                </>
-              )}
-              {!hasCandidates && !hideEdit && (
+                    {!hideEdit && (
+                      <Link
+                        href={editHref}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm text-slate-500 hover:bg-slate-200 transition-colors font-medium"
+                      >
+                        <Wand2 size={14} /> 편집 페이지
+                      </Link>
+                    )}
+                    {gen?.selectedUrl && (
+                      <button
+                        onClick={async () => {
+                          const url = resolveImageUrl(gen.selectedUrl) ?? gen.selectedUrl;
+                          if (!url) return;
+                          try {
+                            await downloadImageFile(url, `${productName}.png`);
+                          } catch (err) {
+                            console.error('[thumbnail-detail] download failed', err);
+                            toast.error('이미지 다운로드에 실패했어요. 다시 시도해주세요.');
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm text-slate-500 hover:bg-slate-200 transition-colors font-medium"
+                      >
+                        <Download size={14} /> 다운로드
+                      </button>
+                    )}
+                  </>
+                )}
+                {!hasCandidates && !hideEdit && (
+                  <Link
+                    href={editHref}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm text-slate-500 hover:bg-slate-200 transition-colors font-medium"
+                  >
+                    <Wand2 size={14} /> 편집 페이지
+                  </Link>
+                )}
+              </div>
+
+              {hasCandidates ? (
+                <button
+                  onClick={onApply}
+                  disabled={!gen?.selectedUrl}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 disabled:opacity-35 disabled:cursor-not-allowed transition-all shadow-sm shadow-indigo-200"
+                >
+                  <ExternalLink size={14} />
+                  {gen?.selectedUrl ? '쿠팡에 적용하기' : '이미지를 선택하세요'}
+                </button>
+              ) : !hideEdit ? (
                 <Link
                   href={editHref}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm text-slate-500 hover:bg-slate-200 transition-colors font-medium"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-colors"
                 >
-                  <Wand2 size={14} /> 편집 페이지
+                  <Wand2 size={14} /> AI 편집 시작
                 </Link>
-              )}
+              ) : null}
             </div>
-
-            {hasCandidates ? (
-              <button
-                onClick={onApply}
-                disabled={!gen?.selectedUrl}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 disabled:opacity-35 disabled:cursor-not-allowed transition-all shadow-sm shadow-indigo-200"
-              >
-                <ExternalLink size={14} />
-                {gen?.selectedUrl ? '쿠팡에 적용하기' : '이미지를 선택하세요'}
-              </button>
-            ) : !hideEdit ? (
-              <Link
-                href={editHref}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-colors"
-              >
-                <Wand2 size={14} /> AI 편집 시작
-              </Link>
-            ) : null}
-          </div>
           )}
-
         </div>
       </div>
     </>

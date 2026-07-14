@@ -28,45 +28,6 @@ export const ComplianceScoresSchema = z.object({
   violationCount: z.number(),
 });
 
-// GET /api/thumbnails 응답의 각 item
-export const ThumbnailListItemSchema = z.object({
-  id: z.string(),
-  productId: z.string(),
-  productName: z.string(),
-  organization: z.string(),
-  imageUrl: z.string(),
-  ctr: z.number(),
-  prevCtr: z.number(),
-  impressions: z.number(),
-  clicks: z.number(),
-  status: z.string(),
-  strategy: z.string(),
-  grade: z.string(),
-  issues: z.array(
-    z.object({
-      type: z.string(),
-      severity: z.string(),
-      message: z.string(),
-    }),
-  ),
-  suggestions: z.array(z.string()),
-});
-
-// GET /api/thumbnails/summary 응답
-export const ThumbnailSummarySchema = z.object({
-  total: z.number(),
-  gradeDistribution: z.object({
-    S: z.number(),
-    A: z.number(),
-    B: z.number(),
-    C: z.number(),
-    F: z.number(),
-  }),
-});
-
-export type ThumbnailListItem = z.infer<typeof ThumbnailListItemSchema>;
-export type ThumbnailSummary = z.infer<typeof ThumbnailSummarySchema>;
-
 // ─── 이미지 스펙 ────────────────────────────────────────────────
 
 export const ImageSpecIssueSchema = z.object({
@@ -155,7 +116,7 @@ export const ThumbnailScoresSchema = z.object({
 
 export const ThumbnailAnalysisResultSchema = z.object({
   id: z.string(),
-  productId: z.string(),
+  contentWorkspaceId: z.string().nullable(),
   productName: z.string(),
   imageUrl: z.string().nullable(),
   overallScore: z.number(),
@@ -187,7 +148,11 @@ export const ThumbnailAnalysisSummarySchema = z.object({
     C: z.number(),
     F: z.number(),
   }),
-  complianceDistribution: z.object({ PASS: z.number(), WARN: z.number(), FAIL: z.number() }),
+  complianceDistribution: z.object({
+    PASS: z.number(),
+    WARN: z.number(),
+    FAIL: z.number(),
+  }),
 });
 
 export const ThumbnailAnalysisListResponseSchema = ThumbnailAnalysisSummarySchema.extend({
@@ -211,17 +176,18 @@ export type ThumbnailRegistrationStatus = (typeof THUMBNAIL_REGISTRATION_STATUSE
 
 export const ThumbnailGenerationItemSchema = z.object({
   id: z.string(),
-  productId: z.string().nullable(),
+  contentWorkspaceId: z.string(),
   sourceCandidateId: z.string().nullable().optional(),
-  contentWorkspaceId: z.string().nullable().optional(),
   originalUrl: z.string().nullable(),
-  candidates: z.array(z.object({
-    id: z.string().uuid().optional(),
-    url: z.string(),
-    storageKey: z.string().nullable().optional(),
-    filename: z.string(),
-    sortOrder: z.number().int().nonnegative().optional(),
-  })),
+  candidates: z.array(
+    z.object({
+      id: z.string().uuid().optional(),
+      url: z.string(),
+      storageKey: z.string().nullable().optional(),
+      filename: z.string(),
+      sortOrder: z.number().int().nonnegative().optional(),
+    }),
+  ),
   selectedUrl: z.string().nullable(),
   status: z.enum(['pending', 'running', 'succeeded', 'failed', 'cancelled']),
   phase: z.enum(THUMBNAIL_PHASES).nullable().optional(),
@@ -237,7 +203,7 @@ export const ThumbnailGenerationItemSchema = z.object({
   registrationCheckedAt: z.string().nullable().optional(),
   registrationError: z.string().nullable().optional(),
   createdAt: z.string(),
-  product: z.object({
+  contentWorkspace: z.object({
     id: z.string(),
     name: z.string(),
     imageUrl: z.string().nullable(),
@@ -245,7 +211,7 @@ export const ThumbnailGenerationItemSchema = z.object({
     category: z.string().nullable(),
     hasBoxImage: z.boolean().optional(),
     hasColorVariantImages: z.boolean().optional(),
-  }).nullable(),
+  }),
 });
 
 export const ThumbnailGenerationListResponseSchema = z.object({
@@ -260,7 +226,7 @@ export type ThumbnailTrackingStatus = (typeof THUMBNAIL_TRACKING_STATUSES)[numbe
 
 export const ThumbnailTrackingRecordSchema = z.object({
   id: z.string(),
-  productId: z.string(),
+  channelListingId: z.string(),
   productName: z.string(),
   generationId: z.string(),
   originalGrade: z.string(),

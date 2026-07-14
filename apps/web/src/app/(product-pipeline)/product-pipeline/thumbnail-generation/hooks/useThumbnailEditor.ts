@@ -3,7 +3,6 @@ import { useMutation } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 
 interface GenerateRequest {
-  productId?: string;
   sourceCandidateId?: string;
   contentWorkspaceId?: string;
   productName?: string;
@@ -33,7 +32,6 @@ interface GenerateResponse {
 
 export function useGenerateThumbnail() {
   return useMutation({
-    mutationFn: (data: GenerateRequest) =>
-      apiClient.post<GenerateResponse>('/api/thumbnail-editor/generate', data),
+    mutationFn: (data: GenerateRequest) => apiClient.post<GenerateResponse>('/api/thumbnail-editor/generate', data),
   });
 }

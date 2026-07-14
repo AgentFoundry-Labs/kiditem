@@ -4,15 +4,12 @@ import { Prisma } from '@prisma/client';
 import { generationInclude } from './thumbnail-generation-ledger.query';
 import type { EditAnalysisResult } from '@kiditem/shared/ai';
 import type { PrismaService } from '../../../../prisma/prisma.service';
-import type {
-  ThumbnailEditorCandidate,
-  ThumbnailEditorInputImage,
-} from '../../../domain/model/thumbnail-editor';
+import type { ThumbnailEditorCandidate, ThumbnailEditorInputImage } from '../../../domain/model/thumbnail-editor';
 import type { GenerationRow } from '../../../mapper/thumbnail-generation.mapper';
 
 /**
  * Tenant-scoped writers for `ThumbnailGeneration` and its candidate / input-
- * image / master-product relations. Each function takes the organization scope as
+ * image / content-workspace relations. Each function takes the organization scope as
  * an explicit argument and binds it on every write — there is no fallback or
  * default-organization recovery path.
  *
@@ -22,7 +19,7 @@ import type { GenerationRow } from '../../../mapper/thumbnail-generation.mapper'
  */
 
 export interface SaveEditorResultInput {
-  productId: string;
+  contentWorkspaceId: string;
   organizationId: string;
   originalUrl: string | null;
   candidates: ThumbnailEditorCandidate[];
@@ -36,7 +33,7 @@ export interface SaveEditorResultInput {
 function normalizeInputSource(source: string | null | undefined): string {
   if (source === 'other-product') return 'other_product';
   if (source === 'prev-gen' || source === 're-edit') return 'prev_gen';
-  if (source === 'master_image') return 'hub';
+  if (source === 'workspace_image' || source === 'master_image') return 'hub';
   return source ?? 'upload';
 }
 
@@ -105,28 +102,21 @@ async function assertThumbnailProvenanceMutable(
     select: { id: true },
   });
   if (adopted) {
-    throw new ConflictException(
-      'Adopted thumbnail provenance cannot be changed.',
-    );
+    throw new ConflictException('Adopted thumbnail provenance cannot be changed.');
   }
 }
 
-export async function saveEditorResult(
-  prisma: PrismaService,
-  input: SaveEditorResultInput,
-): Promise<string> {
+export async function saveEditorResult(prisma: PrismaService, input: SaveEditorResultInput): Promise<string> {
   const generation = await prisma.thumbnailGeneration.create({
     data: {
       organizationId: input.organizationId,
-      contentWorkspaceId: input.productId,
+      contentWorkspaceId: input.contentWorkspaceId,
       originalUrl: input.originalUrl,
       method: input.method,
       status: 'succeeded',
       phase: 'ready',
       inputMeta: input.inputMeta ?? undefined,
-      editAnalysis: input.editAnalysis
-        ? (input.editAnalysis as unknown as Prisma.InputJsonValue)
-        : Prisma.JsonNull,
+      editAnalysis: input.editAnalysis ? (input.editAnalysis as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
       triggeredByUserId: input.triggeredByUserId ?? null,
       candidates: {
         create: input.candidates.map((c, index) => ({
@@ -175,12 +165,11 @@ export async function createPendingEditJob(
   prisma: PrismaService,
   args: {
     organizationId: string;
-    masterId: string;
+    contentWorkspaceId: string;
     originalUrl: string;
     method: string;
     inputMeta: Prisma.InputJsonValue;
     editAnalysis: EditAnalysisResult | null;
-    contentWorkspaceId?: string | null;
     triggeredByUserId?: string | null;
   },
 ): Promise<GenerationRow> {
@@ -189,13 +178,11 @@ export async function createPendingEditJob(
       organizationId: args.organizationId,
       originalUrl: args.originalUrl,
       method: args.method,
-      contentWorkspaceId: args.contentWorkspaceId ?? args.masterId,
+      contentWorkspaceId: args.contentWorkspaceId,
       status: 'pending',
       phase: null,
       inputMeta: args.inputMeta,
-      editAnalysis: args.editAnalysis
-        ? (args.editAnalysis as unknown as Prisma.InputJsonValue)
-        : Prisma.JsonNull,
+      editAnalysis: args.editAnalysis ? (args.editAnalysis as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
       triggeredByUserId: args.triggeredByUserId ?? null,
     },
     include: generationInclude(args.organizationId),
@@ -205,7 +192,7 @@ export async function createPendingEditJob(
 
 /**
  * Build a pending thumbnail generation for a sourcing candidate workspace.
- * Candidate-bound rows intentionally have no `masterId`; registration may
+ * Candidate-bound rows intentionally have no `contentWorkspaceId`; registration may
  * branch selected content into the account-scoped listing workspace without
  * cloning the candidate or its generation job.
  */
@@ -275,7 +262,7 @@ export async function createPendingCandidateJob(
 
 /**
  * Build a pending thumbnail generation for the standalone thumbnail editor.
- * These rows intentionally have neither `masterId` nor `sourceCandidateId`:
+ * These rows intentionally have neither `contentWorkspaceId` nor `sourceCandidateId`:
  * they are user-visible only by generation id and must not create sourcing
  * inbox cards.
  */
@@ -351,10 +338,7 @@ export async function setSelectedCandidate(
  *
  * Tenant scope: organizationId WHERE 절로 강제.
  */
-export async function clearReadySelections(
-  prisma: PrismaService,
-  organizationId: string,
-): Promise<{ count: number }> {
+export async function clearReadySelections(prisma: PrismaService, organizationId: string): Promise<{ count: number }> {
   const result = await prisma.thumbnailGeneration.updateMany({
     where: {
       organizationId,
@@ -377,18 +361,18 @@ export interface ApplyGenerationSelected {
 
 /**
  * Adopt the chosen candidate as the content workspace's current thumbnail.
- * The Sellpia MasterProduct is inventory-only and never receives media.
+ * The Sellpia ContentWorkspace is inventory-only and never receives media.
  */
-export async function applyGenerationToMaster(
+export async function applyGenerationToWorkspace(
   prisma: PrismaService,
   args: {
     id: string;
     organizationId: string;
-    masterId: string;
+    contentWorkspaceId: string;
     selected: ApplyGenerationSelected | null;
   },
 ): Promise<void> {
-  const { id, organizationId, masterId, selected } = args;
+  const { id, organizationId, contentWorkspaceId, selected } = args;
   await prisma.$transaction(async (tx) => {
     if (selected) {
       const candidate = await tx.thumbnailGenerationCandidate.findFirst({
@@ -428,7 +412,7 @@ export async function applyGenerationToMaster(
       const selection = await tx.contentWorkspaceThumbnailSelection.create({
         data: {
           organizationId,
-          contentWorkspaceId: masterId,
+          contentWorkspaceId: contentWorkspaceId,
           contentAssetId: asset.id,
           sourceThumbnailGenerationId: id,
           sourceThumbnailCandidateId: candidate?.id ?? null,
@@ -436,13 +420,17 @@ export async function applyGenerationToMaster(
         select: { id: true },
       });
       await tx.contentWorkspace.updateMany({
-        where: { id: masterId, organizationId, isDeleted: false },
+        where: { id: contentWorkspaceId, organizationId, isDeleted: false },
         data: { currentThumbnailSelectionId: selection.id },
       });
     }
     await tx.thumbnailGeneration.updateMany({
       where: { id, organizationId, isDeleted: false },
-      data: { status: 'succeeded', phase: 'applied', selectedUrl: selected?.url ?? null },
+      data: {
+        status: 'succeeded',
+        phase: 'applied',
+        selectedUrl: selected?.url ?? null,
+      },
     });
   });
 }
@@ -472,11 +460,7 @@ export async function markGenerationCancelled(
   });
 }
 
-export async function deleteGeneration(
-  prisma: PrismaService,
-  id: string,
-  organizationId: string,
-): Promise<void> {
+export async function deleteGeneration(prisma: PrismaService, id: string, organizationId: string): Promise<void> {
   await prisma.$transaction(async (tx) => {
     const current = await lockThumbnailGeneration(tx, id, organizationId);
     if (!current) return;
@@ -546,7 +530,7 @@ export async function removeCandidate(
  * Reset a finished generation back to pending and clear its candidates so the
  * background scheduler can reprocess. `inputMeta` is replaced with a minimal
  * re-edit pointer; the prior context is no longer needed because the next
- * `processEditJob` rebuilds it from fresh master analysis.
+ * `processEditJob` rebuilds it from fresh workspace analysis.
  */
 export async function resetGenerationForReEdit(
   prisma: PrismaService,
@@ -656,8 +640,12 @@ export async function replaceGenerationResult(
       organizationId,
       generationId,
     });
-    await tx.thumbnailGenerationCandidate.deleteMany({ where: { generationId, organizationId } });
-    await tx.thumbnailGenerationInputImage.deleteMany({ where: { generationId, organizationId } });
+    await tx.thumbnailGenerationCandidate.deleteMany({
+      where: { generationId, organizationId },
+    });
+    await tx.thumbnailGenerationInputImage.deleteMany({
+      where: { generationId, organizationId },
+    });
     if (candidates.length > 0) {
       await tx.thumbnailGenerationCandidate.createMany({
         data: candidates.map((candidate, index) => ({
@@ -695,16 +683,19 @@ export async function replaceGenerationResult(
       });
     }
     await tx.thumbnailGeneration.updateMany({
-      where: { id: generationId, organizationId, isDeleted: false, status: 'running' },
+      where: {
+        id: generationId,
+        organizationId,
+        isDeleted: false,
+        status: 'running',
+      },
       data: {
         status: 'succeeded',
         phase: 'ready',
         selectedUrl: null,
         errorMessage: null,
         inputMeta,
-        editAnalysis: editAnalysis
-          ? (editAnalysis as unknown as Prisma.InputJsonValue)
-          : Prisma.JsonNull,
+        editAnalysis: editAnalysis ? (editAnalysis as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
       },
     });
     return {
@@ -748,7 +739,9 @@ export async function applyDirectSuccessResult(
       organizationId,
       generationId,
     });
-    await tx.thumbnailGenerationCandidate.deleteMany({ where: { generationId, organizationId } });
+    await tx.thumbnailGenerationCandidate.deleteMany({
+      where: { generationId, organizationId },
+    });
     if (candidates.length > 0) {
       await tx.thumbnailGenerationCandidate.createMany({
         data: candidates.map((candidate, index) => ({
@@ -766,7 +759,12 @@ export async function applyDirectSuccessResult(
       });
     }
     await tx.thumbnailGeneration.updateMany({
-      where: { id: generationId, organizationId, isDeleted: false, status: 'running' },
+      where: {
+        id: generationId,
+        organizationId,
+        isDeleted: false,
+        status: 'running',
+      },
       data: {
         status: 'succeeded',
         phase: 'ready',

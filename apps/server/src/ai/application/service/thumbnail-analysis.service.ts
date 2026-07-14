@@ -16,7 +16,7 @@ import { ThumbnailAnalysisBatchService } from './thumbnail-analysis-batch.servic
  *
  *   - `ThumbnailAnalysisQueryService` — read-only list / summary
  *   - `ThumbnailAnalysisAnalyzerService` — single-product analyze
- *     (analyzeProduct / analyzeDirectImage / preInspect / checkImageSpec)
+ *     (analyzeWorkspace / analyzeDirectImage / preInspect / checkImageSpec)
  *   - `ThumbnailAnalysisBatchService` — chunk-batched analyze with
  *     per-organization cancellation (analyzeBatch / cancelBatch)
  *
@@ -41,13 +41,13 @@ export class ThumbnailAnalysisService {
     return this.query.getSummary(organizationId);
   }
 
-  analyzeProduct(
-    productId: string,
+  analyzeWorkspace(
+    contentWorkspaceId: string,
     organizationId: string,
     scope: AnalysisScope,
     signal?: AbortSignal,
   ): Promise<ThumbnailAnalysisResult> {
-    return this.analyzer.analyzeProduct(productId, organizationId, scope, signal);
+    return this.analyzer.analyzeWorkspace(contentWorkspaceId, organizationId, scope, signal);
   }
 
   analyzeDirectImage(
@@ -63,18 +63,18 @@ export class ThumbnailAnalysisService {
   }
 
   preInspect(
-    productIds: string[] | undefined,
+    contentWorkspaceIds: string[] | undefined,
     organizationId: string,
   ): Promise<{ processed: number; failed: number }> {
-    return this.analyzer.preInspect(productIds, organizationId);
+    return this.analyzer.preInspect(contentWorkspaceIds, organizationId);
   }
 
   analyzeBatch(
-    productIds: string[],
+    contentWorkspaceIds: string[],
     organizationId: string,
     scope: AnalysisScope,
   ): Promise<ThumbnailAnalysisResult[]> {
-    return this.batch.analyzeBatch(productIds, organizationId, scope);
+    return this.batch.analyzeBatch(contentWorkspaceIds, organizationId, scope);
   }
 
   cancelBatch(organizationId: string): { cancelled: boolean } {

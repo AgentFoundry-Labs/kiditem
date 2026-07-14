@@ -16,7 +16,6 @@ const SOURCE_LABELS: Record<SlotSource, string> = {
 
 interface SlotCardProps {
   slot: Slot;
-  productId: string | null;
   contentWorkspaceId?: string | null;
   hubImages: MasterImageItem[];
   hubImagesLoading: boolean;
@@ -31,7 +30,6 @@ interface SlotCardProps {
 
 export function SlotCard({
   slot,
-  productId,
   contentWorkspaceId = null,
   hubImages,
   hubImagesLoading,
@@ -52,9 +50,7 @@ export function SlotCard({
       <div className="flex items-center justify-between px-0.5">
         <span className="text-[12px] font-semibold text-gray-700">{slot.label}</span>
         {sourceBadge && (
-          <span className="text-[10px] text-gray-500 bg-gray-100 rounded-md px-1.5 py-0.5">
-            {sourceBadge}
-          </span>
+          <span className="text-[10px] text-gray-500 bg-gray-100 rounded-md px-1.5 py-0.5">{sourceBadge}</span>
         )}
       </div>
 
@@ -64,7 +60,6 @@ export function SlotCard({
 
           <ImageSourceDrawer
             role={slot.role}
-            productId={productId}
             contentWorkspaceId={contentWorkspaceId}
             hubImages={hubImages}
             hubImagesLoading={hubImagesLoading}
@@ -105,7 +100,6 @@ export function SlotCard({
       ) : (
         <ImageSourceDrawer
           role={slot.role}
-          productId={productId}
           contentWorkspaceId={contentWorkspaceId}
           hubImages={hubImages}
           hubImagesLoading={hubImagesLoading}
@@ -131,7 +125,6 @@ export function SlotCard({
 
 interface AddSlotTileProps {
   role: 'color_variant' | 'bundle_item';
-  productId: string | null;
   contentWorkspaceId?: string | null;
   hubImages: MasterImageItem[];
   hubImagesLoading: boolean;
@@ -142,7 +135,6 @@ interface AddSlotTileProps {
 
 export function AddSlotTile({
   role,
-  productId,
   contentWorkspaceId = null,
   hubImages,
   hubImagesLoading,
@@ -156,7 +148,6 @@ export function AddSlotTile({
   return (
     <ImageSourceDrawer
       role={drawerRole}
-      productId={productId}
       contentWorkspaceId={contentWorkspaceId}
       hubImages={hubImages}
       hubImagesLoading={hubImagesLoading}

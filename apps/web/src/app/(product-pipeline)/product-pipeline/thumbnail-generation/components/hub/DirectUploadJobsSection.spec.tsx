@@ -8,9 +8,8 @@ const mocks = vi.hoisted(() => ({
   listParams: null as unknown,
   directGeneration: {
     id: 'direct-generation-1',
-    productId: null,
+    contentWorkspaceId: 'workspace-direct',
     sourceCandidateId: null,
-    contentWorkspaceId: null,
     originalUrl: 'https://example.com/input.png',
     candidates: [
       {
@@ -31,7 +30,13 @@ const mocks = vi.hoisted(() => ({
     inputMeta: { productName: 'Uploaded toy', mode: 'edit' },
     errorMessage: null,
     createdAt: '2026-05-18T00:00:00.000Z',
-    product: null,
+    contentWorkspace: {
+      id: 'workspace-direct',
+      name: 'Uploaded toy',
+      imageUrl: 'https://example.com/input.png',
+      coupangProductId: null,
+      category: null,
+    },
   } satisfies ThumbnailGenerationItem,
 }));
 

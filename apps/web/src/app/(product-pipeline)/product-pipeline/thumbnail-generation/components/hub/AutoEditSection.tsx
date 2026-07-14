@@ -15,33 +15,26 @@ interface BatchResponse {
   succeeded: number;
   failed: number;
   skipped: number;
-  runs: Array<{ ok: boolean; productId: string; error?: string }>;
+  runs: Array<{ ok: boolean; contentWorkspaceId: string; error?: string }>;
 }
 
 export function AutoEditSection() {
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: () =>
-      apiClient.post<BatchResponse>('/api/thumbnail-auto/batch?limit=30', {}),
+    mutationFn: () => apiClient.post<BatchResponse>('/api/thumbnail-auto/batch?limit=30', {}),
     onSuccess: (data) => {
       if (data.attempted === 0) {
-        toast.info(
-          `자동 재편집 대상 없음 — 7일 쿨다운으로 ${data.skipped}개 스킵됨`,
-        );
+        toast.info(`자동 재편집 대상 없음 — 7일 쿨다운으로 ${data.skipped}개 스킵됨`);
       } else {
-        toast.success(
-          `자동 재편집: 성공 ${data.succeeded} / 실패 ${data.failed} / 쿨다운 스킵 ${data.skipped}`,
-        );
+        toast.success(`자동 재편집: 성공 ${data.succeeded} / 실패 ${data.failed} / 쿨다운 스킵 ${data.skipped}`);
       }
-      queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.all });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.thumbnailAnalysis.all,
+      });
     },
     onError: (err: unknown) => {
-      const message = isApiError(err)
-        ? err.detail
-        : err instanceof Error
-          ? err.message
-          : '요청 실패';
+      const message = isApiError(err) ? err.detail : err instanceof Error ? err.message : '요청 실패';
       toast.error(`자동 재편집 실패: ${message}`);
     },
   });
@@ -71,9 +64,7 @@ export function AutoEditSection() {
           </div>
 
           <div className="min-w-0">
-            <h2 className="text-lg font-bold text-gray-900 tracking-tight">
-              A등급 상품 자동 재편집
-            </h2>
+            <h2 className="text-lg font-bold text-gray-900 tracking-tight">A등급 상품 자동 재편집</h2>
             <p className="mt-0.5 text-sm text-slate-600 leading-snug">
               매출 상위 상품 중 7일 내 재편집 이력이 없는 것들만 선별해서 한 번에 AI 생성.
               <span className="text-slate-500"> 진행 상황은 작업 알림에서 확인.</span>

@@ -8,7 +8,7 @@ import { ArrowLeft, ImageIcon } from 'lucide-react';
 import {
   THUMBNAIL_AI_ROOT,
   normalizeProductPipelineReturnTo,
-  productBoundThumbnailWorkspaceHref,
+  thumbnailWorkspaceHref,
   thumbnailGenerationEditHref,
 } from '../_shared/lib/product-pipeline-routes';
 import { useAnalysisList } from '../thumbnail-ai/hooks/useThumbnailAnalysis';
@@ -39,12 +39,10 @@ function ThumbnailGenerationHubContent() {
   const uploadKey = searchParams.get('uploadKey');
   const productName = searchParams.get('productName')?.trim() ?? '';
   const productDescription = searchParams.get('productDescription')?.trim() ?? '';
-  const productId = searchParams.get('productId');
   const sourceCandidateId = searchParams.get('sourceCandidateId');
   const contentWorkspaceId = searchParams.get('contentWorkspaceId');
-  const hasWorkspaceInput = Boolean(imageUrl || uploadKey || productName || productId || sourceCandidateId || contentWorkspaceId);
-  const workspaceHref = productBoundThumbnailWorkspaceHref({
-    productId,
+  const hasWorkspaceInput = Boolean(imageUrl || uploadKey || productName || sourceCandidateId || contentWorkspaceId);
+  const workspaceHref = thumbnailWorkspaceHref({
     sourceCandidateId,
     contentWorkspaceId,
     returnTo,
@@ -67,32 +65,29 @@ function ThumbnailGenerationHubContent() {
 
   const startUpload = (mode: 'edit' | 'creative') => {
     if (hasWorkspaceInput) {
-      router.push(thumbnailGenerationEditHref({
-        editCase: mode === 'edit' ? 'single' : null,
-        extraParams: uploadKey ? { uploadKey } : undefined,
-        imageUrl,
-        mode,
-        productDescription,
-        productName,
-        returnTo,
-        subjectParams: {
-          productId,
-          sourceCandidateId,
-          contentWorkspaceId,
-        },
-      }));
+      router.push(
+        thumbnailGenerationEditHref({
+          editCase: mode === 'edit' ? 'single' : null,
+          extraParams: uploadKey ? { uploadKey } : undefined,
+          imageUrl,
+          mode,
+          productDescription,
+          productName,
+          returnTo,
+          subjectParams: {
+            sourceCandidateId,
+            contentWorkspaceId,
+          },
+        }),
+      );
       return;
     }
     uploadRef.current?.openFilePicker(mode);
   };
 
-  const hasActiveGeneration = generations.some(
-    (g) => g.status === 'pending' || g.status === 'running',
-  );
+  const hasActiveGeneration = generations.some((g) => g.status === 'pending' || g.status === 'running');
   const hasRegistrationPending = generations.some(
-    (g) =>
-      g.phase === 'applied' &&
-      (g.registrationStatus == null || g.registrationStatus === 'failed'),
+    (g) => g.phase === 'applied' && (g.registrationStatus == null || g.registrationStatus === 'failed'),
   );
   const hasNeedsFix = (analysis?.allResults ?? []).some(
     (r) =>
@@ -117,9 +112,7 @@ function ThumbnailGenerationHubContent() {
       />
       <div className="space-y-4 p-6">
         <header className="flex items-center justify-between gap-3">
-          <h1 className="text-xl font-extrabold tracking-tight text-gray-900">
-            썸네일 생성
-          </h1>
+          <h1 className="text-xl font-extrabold tracking-tight text-gray-900">썸네일 생성</h1>
           {returnTo && (
             <button
               type="button"
@@ -182,10 +175,7 @@ function ThumbnailGenerationHubContent() {
             <div className="text-sm font-semibold text-gray-700">진행 중인 작업이 없어요</div>
             <div className="mt-1 text-xs text-gray-500">
               이미지를 업로드하거나{' '}
-              <Link
-                href={THUMBNAIL_AI_ROOT}
-                className="font-medium text-violet-600 hover:underline"
-              >
+              <Link href={THUMBNAIL_AI_ROOT} className="font-medium text-violet-600 hover:underline">
                 썸네일 AI
               </Link>
               에서 수정이 필요한 상품을 찾아보세요.

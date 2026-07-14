@@ -4,6 +4,7 @@ import {
   IsArray,
   IsIn,
   IsInt,
+  IsEmpty,
   IsOptional,
   IsString,
   MaxLength,
@@ -15,9 +16,15 @@ const EDITOR_PURPOSES = ['compliance', 'quality'] as const;
 const LAYOUTS = ['auto', 'fan', 'arch', 'grid', 'stack', 'radial'] as const;
 
 export class ThumbnailEditorDto {
-  @IsOptional()
-  @IsString()
-  productId?: string;
+  @IsEmpty({
+    message: 'productId는 제거되었습니다. contentWorkspaceId를 사용하세요',
+  })
+  productId?: never;
+
+  @IsEmpty({
+    message: 'masterId는 제거되었습니다. contentWorkspaceId를 사용하세요',
+  })
+  masterId?: never;
 
   @IsOptional()
   @IsString()

@@ -1,8 +1,5 @@
 import type { ThumbnailSubjectParams } from './thumbnail-subject';
-import {
-  buildProductWorkspaceTabUrl,
-  type ProductWorkspaceTab,
-} from './product-workspace-tabs';
+import { buildProductWorkspaceTabUrl, type ProductWorkspaceTab } from './product-workspace-tabs';
 
 export const PRODUCT_PIPELINE_ROOT = '/product-pipeline';
 export const COLLECTED_PRODUCTS_ROOT = `${PRODUCT_PIPELINE_ROOT}/collected-products`;
@@ -108,8 +105,7 @@ export function registeredProductWorkspaceTabHref({
   });
 }
 
-export function productBoundThumbnailWorkspaceHref({
-  productId: _productId,
+export function thumbnailWorkspaceHref({
   sourceCandidateId,
   contentWorkspaceId,
   returnTo,
@@ -121,7 +117,6 @@ export function productBoundThumbnailWorkspaceHref({
   editCase,
   mode,
 }: {
-  productId?: string | null;
   sourceCandidateId?: string | null;
   contentWorkspaceId?: string | null;
   returnTo?: string | null;
@@ -148,7 +143,6 @@ export function productBoundThumbnailWorkspaceHref({
       productName,
       productDescription,
       editCase,
-      productId: _productId,
       sourceCandidateId,
       contentWorkspaceId,
     });
@@ -166,7 +160,6 @@ export function productBoundThumbnailWorkspaceHref({
       productName,
       productDescription,
       editCase,
-      productId: _productId,
       sourceCandidateId,
       contentWorkspaceId,
     });
@@ -182,7 +175,6 @@ export function productBoundThumbnailWorkspaceHref({
       productName,
       productDescription,
       editCase,
-      productId: _productId,
       sourceCandidateId,
       contentWorkspaceId,
     });
@@ -198,7 +190,6 @@ export function productBoundThumbnailWorkspaceHref({
       productName,
       productDescription,
       editCase,
-      productId: _productId,
       sourceCandidateId,
       contentWorkspaceId,
     });
@@ -295,8 +286,7 @@ export function thumbnailGenerationHubHref({
   if (subjectParams?.contentWorkspaceId) {
     params.set('contentWorkspaceId', subjectParams.contentWorkspaceId);
   }
-  if (subjectParams?.productId) params.set('productId', subjectParams.productId);
-  if (!subjectParams?.productId && subjectParams?.sourceCandidateId) {
+  if (!subjectParams?.contentWorkspaceId && subjectParams?.sourceCandidateId) {
     params.set('sourceCandidateId', subjectParams.sourceCandidateId);
   }
   if (imageUrl) params.set('imageUrl', imageUrl);
@@ -339,8 +329,7 @@ export function thumbnailGenerationEditHref({
   if (subjectParams?.contentWorkspaceId) {
     params.set('contentWorkspaceId', subjectParams.contentWorkspaceId);
   }
-  if (subjectParams?.productId) params.set('productId', subjectParams.productId);
-  if (!subjectParams?.productId && subjectParams?.sourceCandidateId) {
+  if (!subjectParams?.contentWorkspaceId && subjectParams?.sourceCandidateId) {
     params.set('sourceCandidateId', subjectParams.sourceCandidateId);
   }
   if (generationId) params.set('generationId', generationId);

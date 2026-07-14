@@ -53,7 +53,6 @@ describe('ThumbnailWorkspaceTab', () => {
     render(
       <ThumbnailWorkspaceTab
         editData={{ ...editData, thumbnails: [] }}
-        productId="candidate-1"
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -73,7 +72,6 @@ describe('ThumbnailWorkspaceTab', () => {
     render(
       <ThumbnailWorkspaceTab
         editData={editData}
-        productId="candidate-1"
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -97,7 +95,6 @@ describe('ThumbnailWorkspaceTab', () => {
     render(
       <ThumbnailWorkspaceTab
         editData={editData}
-        productId="candidate-1"
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -123,7 +120,6 @@ describe('ThumbnailWorkspaceTab', () => {
     render(
       <ThumbnailWorkspaceTab
         editData={editData}
-        productId="candidate-1"
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -144,14 +140,13 @@ describe('ThumbnailWorkspaceTab', () => {
 
   it('syncs the editor-selected source into the mobile preview when the tab opens', () => {
     const onPreviewThumbnail = vi.fn();
-    searchParamsMock.mockReturnValue(new URLSearchParams([
-      ['imageUrl', 'https://cdn.example.com/edited-from-editor.jpg'],
-    ]));
+    searchParamsMock.mockReturnValue(
+      new URLSearchParams([['imageUrl', 'https://cdn.example.com/edited-from-editor.jpg']]),
+    );
 
     render(
       <ThumbnailWorkspaceTab
         editData={editData}
-        productId="candidate-1"
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -164,9 +159,7 @@ describe('ThumbnailWorkspaceTab', () => {
       />,
     );
 
-    expect(onPreviewThumbnail).toHaveBeenCalledWith(
-      'https://cdn.example.com/edited-from-editor.jpg',
-    );
+    expect(onPreviewThumbnail).toHaveBeenCalledWith('https://cdn.example.com/edited-from-editor.jpg');
   });
 
   it('previews generated result candidates before representative application', () => {
@@ -176,7 +169,6 @@ describe('ThumbnailWorkspaceTab', () => {
     render(
       <ThumbnailWorkspaceTab
         editData={editData}
-        productId="candidate-1"
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -201,7 +193,6 @@ describe('ThumbnailWorkspaceTab', () => {
     render(
       <ThumbnailWorkspaceTab
         editData={editData}
-        productId="candidate-1"
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -228,7 +219,6 @@ describe('ThumbnailWorkspaceTab', () => {
     render(
       <ThumbnailWorkspaceTab
         editData={editData}
-        productId="candidate-1"
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -262,7 +252,6 @@ describe('ThumbnailWorkspaceTab', () => {
     render(
       <ThumbnailWorkspaceTab
         editData={editData}
-        productId="candidate-1"
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -290,7 +279,6 @@ describe('ThumbnailWorkspaceTab', () => {
     render(
       <ThumbnailWorkspaceTab
         editData={editData}
-        productId="candidate-1"
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
@@ -324,20 +312,13 @@ describe('ThumbnailWorkspaceTab', () => {
       <ThumbnailWorkspaceTab
         editData={{
           ...editData,
-          thumbnails: [
-            'https://cdn.example.com/source.jpg',
-            'https://cdn.example.com/other.jpg',
-          ],
+          thumbnails: ['https://cdn.example.com/source.jpg', 'https://cdn.example.com/other.jpg'],
         }}
-        productId="candidate-1"
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl="https://cdn.example.com/source.jpg"
-        thumbnailPreviewImages={[
-          'https://cdn.example.com/source.jpg',
-          'https://cdn.example.com/other.jpg',
-        ]}
+        thumbnailPreviewImages={['https://cdn.example.com/source.jpg', 'https://cdn.example.com/other.jpg']}
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={onThumbnailPreviewImagesChange}
         onSaveThumbnailConfiguration={onSaveThumbnailConfiguration}
@@ -353,10 +334,7 @@ describe('ThumbnailWorkspaceTab', () => {
       'https://cdn.example.com/source.jpg',
     ]);
     expect(onSaveThumbnailConfiguration).toHaveBeenCalledWith({
-      thumbnailUrls: [
-        'https://cdn.example.com/other.jpg',
-        'https://cdn.example.com/source.jpg',
-      ],
+      thumbnailUrls: ['https://cdn.example.com/other.jpg', 'https://cdn.example.com/source.jpg'],
       selectedThumbnail: {
         url: 'https://cdn.example.com/other.jpg',
         kind: 'source',
@@ -371,20 +349,13 @@ describe('ThumbnailWorkspaceTab', () => {
       <ThumbnailWorkspaceTab
         editData={{
           ...editData,
-          thumbnails: [
-            'https://cdn.example.com/source.jpg',
-            'https://cdn.example.com/other.jpg',
-          ],
+          thumbnails: ['https://cdn.example.com/source.jpg', 'https://cdn.example.com/other.jpg'],
         }}
-        productId="candidate-1"
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl="https://cdn.example.com/source.jpg"
-        thumbnailPreviewImages={[
-          'https://cdn.example.com/other.jpg',
-          'https://cdn.example.com/source.jpg',
-        ]}
+        thumbnailPreviewImages={['https://cdn.example.com/other.jpg', 'https://cdn.example.com/source.jpg']}
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={vi.fn()}
@@ -393,12 +364,10 @@ describe('ThumbnailWorkspaceTab', () => {
     );
 
     expect(
-      within(screen.getByRole('button', { name: '썸네일 미리보기 이미지 1' }))
-        .queryAllByText('대표 이미지'),
+      within(screen.getByRole('button', { name: '썸네일 미리보기 이미지 1' })).queryAllByText('대표 이미지'),
     ).toHaveLength(0);
     expect(
-      within(screen.getByRole('button', { name: '썸네일 미리보기 이미지 2' }))
-        .getAllByText('등록 대표'),
+      within(screen.getByRole('button', { name: '썸네일 미리보기 이미지 2' })).getAllByText('등록 대표'),
     ).toHaveLength(2);
   });
 
@@ -409,12 +378,8 @@ describe('ThumbnailWorkspaceTab', () => {
       <ThumbnailWorkspaceTab
         editData={{
           ...editData,
-          thumbnails: [
-            'https://cdn.example.com/source.jpg',
-            'https://cdn.example.com/other.jpg',
-          ],
+          thumbnails: ['https://cdn.example.com/source.jpg', 'https://cdn.example.com/other.jpg'],
         }}
-        productId="candidate-1"
         contentWorkspaceId={null}
         thumbnailUrl={null}
         thumbnailSourceCandidateId="candidate-1"

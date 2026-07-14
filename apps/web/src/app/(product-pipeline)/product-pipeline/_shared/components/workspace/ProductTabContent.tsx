@@ -179,7 +179,10 @@ export default function ProductTabContent({
 
   // 보기 모드에서 KC 인증 이미지를 올리면 수정/저장 없이 바로 저장한다.
   const commitKcImage = async (value: string) => {
-    setBasicDraft((current) => ({ ...current, kcCertificationImageUrl: value }));
+    setBasicDraft((current) => ({
+      ...current,
+      kcCertificationImageUrl: value,
+    }));
     setIsKcImageSaving(true);
     try {
       await onCommitBasicInfo?.({ kcCertificationImageUrl: value });
@@ -196,35 +199,37 @@ export default function ProductTabContent({
     case 'basic':
       return (
         <div className="space-y-3 p-5">
-          {onCommitBasicInfo ? <div className="flex items-center justify-end">
-            {isBasicEditing ? (
-              <div className="flex items-center gap-2">
+          {onCommitBasicInfo ? (
+            <div className="flex items-center justify-end">
+              {isBasicEditing ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={cancelBasicEditing}
+                    className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 transition hover:bg-slate-50"
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="button"
+                    onClick={saveBasicEditing}
+                    disabled={isBasicSaving}
+                    className="h-9 rounded-md bg-emerald-600 px-3 text-xs font-black text-white shadow-sm transition hover:bg-emerald-700"
+                  >
+                    저장
+                  </button>
+                </div>
+              ) : (
                 <button
                   type="button"
-                  onClick={cancelBasicEditing}
-                  className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 transition hover:bg-slate-50"
+                  onClick={() => setIsBasicEditing(true)}
+                  className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
                 >
-                  취소
+                  수정
                 </button>
-                <button
-                  type="button"
-                  onClick={saveBasicEditing}
-                  disabled={isBasicSaving}
-                  className="h-9 rounded-md bg-emerald-600 px-3 text-xs font-black text-white shadow-sm transition hover:bg-emerald-700"
-                >
-                  저장
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setIsBasicEditing(true)}
-                className="h-9 rounded-md border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 transition hover:bg-slate-50"
-              >
-                수정
-              </button>
-            )}
-          </div> : null}
+              )}
+            </div>
+          ) : null}
           <ProductBasicsTab
             editData={editData}
             basicInfo={basicInfo}
@@ -261,7 +266,6 @@ export default function ProductTabContent({
       return (
         <ThumbnailWorkspaceTab
           editData={editData}
-          productId={productId}
           contentWorkspaceId={contentWorkspaceId}
           thumbnailUrl={thumbnailUrl}
           thumbnailSourceCandidateId={effectiveThumbnailSourceCandidateId}
@@ -305,14 +309,7 @@ export default function ProductTabContent({
       );
 
     case 'raw':
-      return (
-        <RawDataTab
-          productId={productId}
-          rawData={rawData}
-          imageUrls={imageUrls}
-          thumbnailUrl={thumbnailUrl}
-        />
-      );
+      return <RawDataTab productId={productId} rawData={rawData} imageUrls={imageUrls} thumbnailUrl={thumbnailUrl} />;
 
     default:
       return null;

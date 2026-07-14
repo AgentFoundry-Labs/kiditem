@@ -3,14 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ReadyGenerationSection } from './ReadyGenerationSection';
 
 vi.mock('next/link', () => ({
-  default: ({
-    href,
-    children,
-    ...props
-  }: {
-    href: string;
-    children: React.ReactNode;
-  }) => (
+  default: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...props}>
       {children}
     </a>
@@ -28,8 +21,8 @@ describe('ReadyGenerationSection', () => {
         generations={[
           {
             id: 'generation-1',
-            productId: 'product-1',
-            product: {
+            contentWorkspaceId: 'workspace-1',
+            contentWorkspace: {
               name: '할로윈 호박머리띠',
               imageUrl: 'https://cdn.example.com/original.jpg',
             },

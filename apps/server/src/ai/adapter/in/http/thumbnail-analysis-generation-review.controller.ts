@@ -17,11 +17,18 @@ export class ThumbnailAnalysisGenerationReviewController {
   listGenerations(
     @CurrentOrganization() organizationId: string,
     @Query('productId') productId?: string,
+    @Query('masterId') masterId?: string,
     @Query('sourceCandidateId') sourceCandidateId?: string,
     @Query('contentWorkspaceId') contentWorkspaceId?: string,
     @Query('scope') scope?: string,
     @Query('limit') limit?: string,
   ) {
+    if (productId) {
+      throw new BadRequestException('productId는 제거되었습니다. contentWorkspaceId를 사용하세요');
+    }
+    if (masterId) {
+      throw new BadRequestException('masterId는 제거되었습니다. contentWorkspaceId를 사용하세요');
+    }
     const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
     let normalizedScope: ReturnType<typeof normalizeThumbnailGenerationListScope>;
     try {
@@ -33,7 +40,6 @@ export class ThumbnailAnalysisGenerationReviewController {
       throw err;
     }
     return this.generationService.findAll(organizationId, {
-      productId: productId || null,
       sourceCandidateId: sourceCandidateId || null,
       contentWorkspaceId: contentWorkspaceId || null,
       scope: normalizedScope,

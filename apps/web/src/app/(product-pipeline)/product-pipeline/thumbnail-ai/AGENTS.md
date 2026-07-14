@@ -32,6 +32,11 @@ React Query hooks
 Batch progress uses `AbortController` refs plus server cancel and immediate UI
 state updates.
 
+Thumbnail results and generations join on `contentWorkspaceId`. Tracking rows
+use `channelListingId`; collected-product entry keeps `sourceCandidateId` as
+provenance. Thumbnail requests, URLs, query keys, and local maps must not use
+`productId` or `masterId` as workspace aliases.
+
 ## Cross-Route Dependencies
 
 - `@kiditem/shared` provides `ThumbnailAnalysisResult` and

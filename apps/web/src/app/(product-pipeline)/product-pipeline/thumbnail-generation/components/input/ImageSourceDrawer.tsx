@@ -11,13 +11,10 @@ import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
 
 import { useRecentGenerations } from '../../hooks/useRecentGenerations';
 import { HUB_ROLE_CONFIG, type MasterImageRole } from '../../../_shared/lib/hub-roles';
-import { REGISTERED_PRODUCTS_ROOT } from '../../../_shared/lib/product-pipeline-routes';
+import { registeredProductDetailHref } from '../../../_shared/lib/product-pipeline-routes';
 import { queryKeys } from '@/lib/query-keys';
 import { cn } from '@/lib/utils';
-import {
-  contentWorkspacesApi,
-  type ContentWorkspaceSummary,
-} from '../../../_shared/lib/content-workspaces-api';
+import { contentWorkspacesApi, type ContentWorkspaceSummary } from '../../../_shared/lib/content-workspaces-api';
 import { useContentWorkspaceImages } from '../../../_shared/hooks/useContentWorkspaceImages';
 
 import { ImgWithSkeleton } from '../shared/ImgWithSkeleton';
@@ -35,7 +32,6 @@ const TAB_LABELS: Record<DrawerTabKey, string> = {
 interface Props {
   children: React.ReactNode;
   role: MasterImageRole;
-  productId: string | null;
   contentWorkspaceId?: string | null;
   hubImages: MasterImageItem[];
   hubImagesLoading: boolean;
@@ -58,7 +54,6 @@ function fileToDataUrl(file: File): Promise<string> {
 export function ImageSourceDrawer({
   children,
   role,
-  productId,
   contentWorkspaceId = null,
   hubImages,
   hubImagesLoading,
@@ -108,16 +103,11 @@ export function ImageSourceDrawer({
 
           <div className="p-3">
             {tab === 'upload' && (
-              <UploadTab
-                multi={multi}
-                remainingSlots={remainingSlots}
-                onPickMany={handlePickMany}
-              />
+              <UploadTab multi={multi} remainingSlots={remainingSlots} onPickMany={handlePickMany} />
             )}
             {tab === 'hub' && (
               <HubTab
                 role={role}
-                productId={productId}
                 contentWorkspaceId={contentWorkspaceId}
                 images={hubImages}
                 loading={hubImagesLoading}
@@ -126,15 +116,12 @@ export function ImageSourceDrawer({
             )}
             {tab === 'recent' && (
               <RecentTab
-                productId={productId}
+                contentWorkspaceId={contentWorkspaceId}
                 onPick={(url) => handlePick({ value: url, source: 'prev-gen' })}
               />
             )}
             {tab === 'other' && (
-              <OtherProductTab
-                role={role}
-                onPick={(url) => handlePick({ value: url, source: 'other-product' })}
-              />
+              <OtherProductTab role={role} onPick={(url) => handlePick({ value: url, source: 'other-product' })} />
             )}
           </div>
         </Popover.Content>
@@ -143,15 +130,7 @@ export function ImageSourceDrawer({
   );
 }
 
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       type="button"
@@ -190,7 +169,10 @@ function UploadTab({ multi, remainingSlots, onPickMany }: UploadTabProps) {
       }
       if (slice.length === 0) return;
       const urls = await Promise.all(slice.map(fileToDataUrl));
-      const picks: SlotPick[] = urls.map((u) => ({ value: u, source: 'upload' }));
+      const picks: SlotPick[] = urls.map((u) => ({
+        value: u,
+        source: 'upload',
+      }));
       onPickMany(multi ? picks : [picks[0]]);
     },
     [multi, cap, atCap, onPickMany],
@@ -212,12 +194,8 @@ function UploadTab({ multi, remainingSlots, onPickMany }: UploadTabProps) {
         )}
       >
         <Upload size={22} className="mb-2" />
-        <div className="text-[12px] font-medium">
-          {atCap ? '최대 장수에 도달' : '클릭 또는 드래그앤드롭'}
-        </div>
-        {multi && !atCap && (
-          <div className="text-[10px] text-gray-400 mt-1">여러 장 한번에 선택 가능</div>
-        )}
+        <div className="text-[12px] font-medium">{atCap ? '최대 장수에 도달' : '클릭 또는 드래그앤드롭'}</div>
+        {multi && !atCap && <div className="text-[10px] text-gray-400 mt-1">여러 장 한번에 선택 가능</div>}
         <input
           ref={inputRef}
           type="file"
@@ -237,31 +215,26 @@ function UploadTab({ multi, remainingSlots, onPickMany }: UploadTabProps) {
 
 interface HubTabProps {
   role: MasterImageRole;
-  productId: string | null;
   contentWorkspaceId: string | null;
   images: MasterImageItem[];
   loading: boolean;
   onPick: (url: string) => void;
 }
 
-function HubTab({ role, productId, contentWorkspaceId, images, loading, onPick }: HubTabProps) {
+function HubTab({ role, contentWorkspaceId, images, loading, onPick }: HubTabProps) {
   const roleImages = useMemo(() => images.filter((img) => img.role === role), [images, role]);
   const roleConfig = useMemo(() => HUB_ROLE_CONFIG.find((c) => c.role === role), [role]);
 
-  if (!productId && !contentWorkspaceId) {
+  if (!contentWorkspaceId) {
     return (
-      <div className="text-center py-6 text-[11px] text-gray-500">
-        상품이 지정되지 않아 허브를 불러올 수 없습니다
-      </div>
+      <div className="text-center py-6 text-[11px] text-gray-500">상품이 지정되지 않아 허브를 불러올 수 없습니다</div>
     );
   }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-2 px-0.5">
-        <span className="text-[11px] font-semibold text-violet-700">
-          {roleConfig?.label ?? role}
-        </span>
+        <span className="text-[11px] font-semibold text-violet-700">{roleConfig?.label ?? role}</span>
         <span className="text-[10px] text-gray-400">{roleImages.length}장</span>
       </div>
 
@@ -274,9 +247,9 @@ function HubTab({ role, productId, contentWorkspaceId, images, loading, onPick }
         <div className="text-center py-6">
           <ImageIcon size={20} className="mx-auto mb-2 text-gray-300" />
           <div className="text-[11px] text-gray-500 mb-1.5">허브에 등록된 이미지 없음</div>
-          {productId ? (
+          {contentWorkspaceId ? (
             <Link
-              href={`${REGISTERED_PRODUCTS_ROOT}?masterId=${encodeURIComponent(productId)}`}
+              href={registeredProductDetailHref(contentWorkspaceId)}
               className="inline-flex items-center gap-1 text-[11px] text-violet-600 hover:text-violet-700"
             >
               <ArrowRight size={11} /> 소싱 화면에서 확인
@@ -302,12 +275,12 @@ function HubTab({ role, productId, contentWorkspaceId, images, loading, onPick }
 }
 
 interface RecentTabProps {
-  productId: string | null;
+  contentWorkspaceId: string | null;
   onPick: (url: string) => void;
 }
 
-function RecentTab({ productId, onPick }: RecentTabProps) {
-  const { data: generations = [], isLoading } = useRecentGenerations(productId);
+function RecentTab({ contentWorkspaceId, onPick }: RecentTabProps) {
+  const { data: generations = [], isLoading } = useRecentGenerations(contentWorkspaceId);
 
   // Flatten: prefer selectedUrl, else all candidates
   const thumbs = useMemo(() => {
@@ -324,7 +297,7 @@ function RecentTab({ productId, onPick }: RecentTabProps) {
     return out;
   }, [generations]);
 
-  if (!productId) {
+  if (!contentWorkspaceId) {
     return (
       <div className="text-center py-6 text-[11px] text-gray-500">
         상품이 지정되지 않아 최근 생성 이미지를 불러올 수 없습니다
@@ -344,9 +317,7 @@ function RecentTab({ productId, onPick }: RecentTabProps) {
           <span className="text-[11px]">로딩 중...</span>
         </div>
       ) : thumbs.length === 0 ? (
-        <div className="text-center py-6 text-[11px] text-gray-500">
-          이전 생성 결과가 없습니다
-        </div>
+        <div className="text-center py-6 text-[11px] text-gray-500">이전 생성 결과가 없습니다</div>
       ) : (
         <div className="grid grid-cols-3 gap-1.5 max-h-[240px] overflow-y-auto">
           {thumbs.map((t, i) => (
@@ -395,16 +366,21 @@ function OtherProductTab({ role, onPick }: OtherProductTabProps) {
   }, [search]);
 
   const searchQuery = useQuery({
-    queryKey: queryKeys.contentWorkspaces.list({ title: debounced, limit: '20' }),
+    queryKey: queryKeys.contentWorkspaces.list({
+      title: debounced,
+      limit: '20',
+    }),
     queryFn: async () => {
-      const data = await contentWorkspacesApi.list({ title: debounced, limit: 20 });
+      const data = await contentWorkspacesApi.list({
+        title: debounced,
+        limit: 20,
+      });
       return { items: data.items.map(toProductLite), total: data.total };
     },
     enabled: !picked,
   });
 
-  const { images: workspaceImages, loading: workspaceImagesLoading } =
-    useContentWorkspaceImages(picked?.id ?? null);
+  const { images: workspaceImages, loading: workspaceImagesLoading } = useContentWorkspaceImages(picked?.id ?? null);
 
   if (!picked) {
     const items = searchQuery.data?.items ?? [];
@@ -462,9 +438,7 @@ function OtherProductTab({ role, onPick }: OtherProductTabProps) {
   }
 
   const fallback = picked.imageUrl ?? null;
-  const productImages = workspaceImages.filter(
-    (img) => img.role === role && img.url !== fallback,
-  );
+  const productImages = workspaceImages.filter((img) => img.role === role && img.url !== fallback);
 
   return (
     <div>
@@ -480,18 +454,14 @@ function OtherProductTab({ role, onPick }: OtherProductTabProps) {
           </button>
           <span className="text-[11px] font-semibold text-gray-900 truncate">{picked.name}</span>
         </div>
-        <span className="text-[10px] text-gray-400">
-          {productImages.length + (fallback ? 1 : 0)}장
-        </span>
+        <span className="text-[10px] text-gray-400">{productImages.length + (fallback ? 1 : 0)}장</span>
       </div>
       {workspaceImagesLoading ? (
         <div className="flex items-center justify-center py-6 text-gray-400">
           <Loader2 size={12} className="animate-spin" />
         </div>
       ) : productImages.length === 0 && !fallback ? (
-        <div className="text-center py-6 text-[11px] text-gray-500">
-          이 상품은 이미지가 없습니다
-        </div>
+        <div className="text-center py-6 text-[11px] text-gray-500">이 상품은 이미지가 없습니다</div>
       ) : (
         <div className="grid grid-cols-3 gap-1.5 max-h-[220px] overflow-y-auto">
           {fallback && (
