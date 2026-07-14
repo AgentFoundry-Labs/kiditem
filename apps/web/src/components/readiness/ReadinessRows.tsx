@@ -295,7 +295,7 @@ export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
         </div>
 
         <button
-          onClick={run}
+          onClick={() => void run()}
           disabled={loading}
           className={cn(
             'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
@@ -319,7 +319,7 @@ export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
       {collectionSession?.data && (
         <BrowserCollectionRunControls
           session={collectionSession.data}
-          onWebRestart={run}
+          onWebRestart={(session) => run(session.runId)}
           className="mx-4 mb-4"
         />
       )}

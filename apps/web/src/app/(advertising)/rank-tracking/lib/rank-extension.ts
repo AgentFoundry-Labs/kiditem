@@ -10,7 +10,7 @@ import {
 } from "@/lib/extension-bridge";
 import type { SerpItem } from "./rank-api";
 
-export const RANK_EXTENSION_MIN_VERSION = "1.2.32";
+export const RANK_EXTENSION_MIN_VERSION = "1.2.33";
 
 export const RANK_EXTENSION_CHROME_REQUIRED =
   "Wing 판매순위 수집은 Chrome 확장프로그램으로 실행됩니다. Chrome에서 이 페이지를 열어주세요.";
@@ -40,6 +40,7 @@ interface KidItemExtensionPingResponse {
 
 export interface CheckKeywordRankResponse {
   success?: boolean;
+  cancelled?: boolean;
   attentionRequired?: boolean;
   runId?: string | null;
   error?: string;
@@ -164,6 +165,13 @@ export async function checkCoupangKeywordRank(
   );
   if (
     !response?.success &&
+    response?.cancelled &&
+    typeof response.runId === "string"
+  ) {
+    return { ...response, items: [] };
+  }
+  if (
+    !response?.success &&
     response?.attentionRequired &&
     typeof response.runId === "string"
   ) {
@@ -181,9 +189,11 @@ export async function checkCoupangKeywordRank(
 /** 활성 트래커 전체 일괄 확인 시작 — 즉시 runId 반환, 진행률은 status 폴링. */
 export async function runWingSalesRankCheck(
   extensionId: string,
+  runId?: string,
 ): Promise<RunRankCheckResponse> {
   const response = await sendToExtension<RunRankCheckResponse>(extensionId, {
     action: "runWingSalesRankCheck",
+    ...(runId ? { runId } : {}),
   });
   if (!response?.success) {
     throw new Error(response?.error ?? "Wing 판매순위 일괄 확인 시작 실패");

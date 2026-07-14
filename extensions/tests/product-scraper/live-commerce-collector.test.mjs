@@ -184,6 +184,7 @@ test('keeps a login challenge inactive and publishes attention until the generic
       remove(tabId, cb) {
         calls.remove.push(tabId);
         cb?.();
+        return Promise.resolve();
       },
       onUpdated: { addListener() {}, removeListener() {} },
       sendMessage: () => assert.fail('login challenge must pause before extraction'),
@@ -231,6 +232,13 @@ test('keeps a login challenge inactive and publishes attention until the generic
   await sessions.openAttentionTab(result.runId);
   assert.deepEqual(calls.update, [{ tabId: 11, active: true }]);
   assert.deepEqual(calls.focus, [{ windowId: 9, focused: true }]);
+
+  sessions.requireAttention = async (runId) =>
+    sessions.cancel(runId, { closeManagedTab: true });
+  const raced = await collector.collect('https://live.douyin.com/456');
+  assert.equal(raced.cancelled, true);
+  assert.equal(raced.status, 'cancelled');
+  assert.deepEqual(calls.remove, [11]);
 });
 
 test('restarts a login-blocked URL under the same run and closes the previous tab', async () => {
@@ -271,6 +279,7 @@ test('restarts a login-blocked URL under the same run and closes the previous ta
       remove(tabId, cb) {
         calls.remove.push(tabId);
         cb?.();
+        return Promise.resolve();
       },
       onUpdated: { addListener() {}, removeListener() {} },
       sendMessage: () => assert.fail('login challenge must pause before extraction'),
@@ -301,4 +310,353 @@ test('restarts a login-blocked URL under the same run and closes the previous ta
   const session = await sessions.get(first.runId);
   assert.equal(session.status, 'attention_required');
   assert.equal(session.attempt, 2);
+});
+
+test('same-run restart after a service-worker reload closes the stored managed attention tab', async () => {
+  const context = loadCollectorModule();
+  const calls = { create: [], remove: [] };
+  const values = {};
+  let nextTabId = 30;
+  const chrome = {
+    runtime: { lastError: null },
+    storage: {
+      local: {
+        get: async (key) => ({ [key]: values[key] }),
+        set: async (next) => Object.assign(values, next),
+      },
+    },
+    scripting: { executeScript: async () => [] },
+    tabs: {
+      create(properties, cb) {
+        const tab = {
+          id: nextTabId++,
+          windowId: 9,
+          url: properties.url,
+          active: properties.active,
+        };
+        calls.create.push(tab.id);
+        cb(tab);
+      },
+      get(tabId, cb) {
+        cb({
+          id: tabId,
+          windowId: 9,
+          status: 'complete',
+          url: 'https://live.douyin.com/login',
+        });
+      },
+      query: async () => [],
+      update(_tabId, _properties, cb) { cb?.(); },
+      remove(tabId, cb) {
+        calls.remove.push(tabId);
+        cb?.();
+        return Promise.resolve();
+      },
+      onUpdated: { addListener() {}, removeListener() {} },
+      sendMessage: () => assert.fail('login challenge must pause before extraction'),
+    },
+    windows: { update(_windowId, _properties, cb) { cb?.(); } },
+  };
+  const sessions = context.KidItemCollectionSession.create({
+    chrome,
+    storageKey: 'kiditem_collection_sessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+  });
+  const createCollector = () => context.ProductScraperLiveCommerce.create({
+    chrome,
+    sessions,
+    ensureContentScripts: async () => true,
+    getBackendRequestConfig: async () => ({ ok: true, base: '', headers: {} }),
+  });
+
+  const first = await createCollector().collect('https://live.douyin.com/123');
+  const restarted = await createCollector().collect(
+    'https://live.douyin.com/123',
+    first.runId,
+  );
+
+  assert.equal(restarted.runId, first.runId);
+  assert.deepEqual(calls.create, [30, 31]);
+  assert.deepEqual(calls.remove, [30]);
+  const session = await sessions.get(first.runId);
+  assert.equal(session.attempt, 2);
+});
+
+test('cancel after a service-worker reload closes the stored managed attention tab', async () => {
+  const context = loadCollectorModule();
+  const calls = { remove: [] };
+  const values = {};
+  const chrome = {
+    runtime: { lastError: null },
+    storage: {
+      local: {
+        get: async (key) => ({ [key]: values[key] }),
+        set: async (next) => Object.assign(values, next),
+      },
+    },
+    scripting: { executeScript: async () => [] },
+    tabs: {
+      create(properties, cb) {
+        cb({ id: 35, windowId: 9, url: properties.url, active: false });
+      },
+      get(tabId, cb) {
+        cb({
+          id: tabId,
+          windowId: 9,
+          status: 'complete',
+          url: 'https://live.douyin.com/login',
+        });
+      },
+      query: async () => [],
+      update(_tabId, _properties, cb) { cb?.(); },
+      remove(tabId, cb) {
+        calls.remove.push(tabId);
+        cb?.();
+        return Promise.resolve();
+      },
+      onUpdated: { addListener() {}, removeListener() {} },
+      sendMessage: () => assert.fail('login challenge must pause before extraction'),
+    },
+    windows: { update(_windowId, _properties, cb) { cb?.(); } },
+  };
+  const sessions = context.KidItemCollectionSession.create({
+    chrome,
+    storageKey: 'kiditem_collection_sessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+  });
+  const createCollector = () => context.ProductScraperLiveCommerce.create({
+    chrome,
+    sessions,
+    ensureContentScripts: async () => true,
+    getBackendRequestConfig: async () => ({ ok: true, base: '', headers: {} }),
+  });
+
+  const first = await createCollector().collect('https://live.douyin.com/123');
+  const cancelled = await createCollector().cancel(first.runId);
+
+  assert.equal(cancelled.status, 'cancelled');
+  assert.deepEqual(calls.remove, [35]);
+  assert.equal((await sessions.get(first.runId)).status, 'cancelled');
+});
+
+test('cancel during the backend request cannot return false success', async () => {
+  const context = loadCollectorModule();
+  const values = {};
+  const removed = [];
+  let resolveRequest;
+  let requestStarted;
+  const started = new Promise((resolve) => { requestStarted = resolve; });
+  const response = new Promise((resolve) => { resolveRequest = resolve; });
+  const chrome = {
+    runtime: { lastError: null },
+    storage: {
+      local: {
+        get: async (key) => ({ [key]: values[key] }),
+        set: async (next) => Object.assign(values, next),
+      },
+    },
+    scripting: { executeScript: async () => [] },
+    tabs: {
+      create(properties, cb) {
+        cb({ id: 45, windowId: 9, url: properties.url, active: false });
+      },
+      get(tabId, cb) {
+        cb({
+          id: tabId,
+          windowId: 9,
+          status: 'complete',
+          url: 'https://live.douyin.com/123',
+        });
+      },
+      query: async () => [],
+      update(_tabId, _properties, cb) { cb?.(); },
+      remove(tabId, cb) {
+        removed.push(tabId);
+        cb?.();
+        return Promise.resolve();
+      },
+      onUpdated: { addListener() {}, removeListener() {} },
+      sendMessage(_tabId, _message, cb) {
+        cb({
+          ok: true,
+          source: 'douyin',
+          pageUrl: 'https://live.douyin.com/123',
+          broadcast: { title: '방송' },
+          products: [],
+        });
+      },
+    },
+    windows: { update(_windowId, _properties, cb) { cb?.(); } },
+  };
+  const sessions = context.KidItemCollectionSession.create({
+    chrome,
+    storageKey: 'kiditem_collection_sessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+  });
+  const runId = '00000000-0000-4000-8000-000000000145';
+  const collector = context.ProductScraperLiveCommerce.create({
+    chrome,
+    sessions,
+    createRunId: () => runId,
+    ensureContentScripts: async () => true,
+    getBackendRequestConfig: async () => ({
+      ok: true,
+      base: 'http://localhost:4000/api/sourcing/extension',
+      headers: {},
+      request: async () => {
+        requestStarted();
+        return response;
+      },
+    }),
+  });
+
+  const collection = collector.collect('https://live.douyin.com/123');
+  await started;
+  await collector.cancel(runId);
+  resolveRequest({
+    ok: true,
+    status: 200,
+    json: async () => ({ source: 'douyin', broadcastCount: 1, productCount: 0 }),
+  });
+  const result = await collection;
+
+  assert.equal(result.success, false);
+  assert.equal(result.cancelled, true);
+  assert.equal(result.status, 'cancelled');
+  assert.equal((await sessions.get(runId)).status, 'cancelled');
+  assert.deepEqual(removed, [45]);
+});
+
+test('cancel during extraction wins over a verification response', async () => {
+  const context = loadCollectorModule();
+  const values = {};
+  const removed = [];
+  let extractionCallback;
+  let extractionStarted;
+  const started = new Promise((resolve) => { extractionStarted = resolve; });
+  const chrome = {
+    runtime: { lastError: null },
+    storage: {
+      local: {
+        get: async (key) => ({ [key]: values[key] }),
+        set: async (next) => Object.assign(values, next),
+      },
+    },
+    scripting: { executeScript: async () => [] },
+    tabs: {
+      create(properties, cb) {
+        cb({ id: 46, windowId: 9, url: properties.url, active: false });
+      },
+      get(tabId, cb) {
+        cb({
+          id: tabId,
+          windowId: 9,
+          status: 'complete',
+          url: 'https://live.douyin.com/123',
+        });
+      },
+      query: async () => [],
+      update(_tabId, _properties, cb) { cb?.(); },
+      remove(tabId, cb) {
+        removed.push(tabId);
+        cb?.();
+        return Promise.resolve();
+      },
+      onUpdated: { addListener() {}, removeListener() {} },
+      sendMessage(_tabId, _message, cb) {
+        extractionCallback = cb;
+        extractionStarted();
+      },
+    },
+    windows: { update(_windowId, _properties, cb) { cb?.(); } },
+  };
+  const sessions = context.KidItemCollectionSession.create({
+    chrome,
+    storageKey: 'kiditem_collection_sessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+  });
+  const runId = '00000000-0000-4000-8000-000000000146';
+  const collector = context.ProductScraperLiveCommerce.create({
+    chrome,
+    sessions,
+    createRunId: () => runId,
+    ensureContentScripts: async () => true,
+    getBackendRequestConfig: async () => ({ ok: true, base: '', headers: {} }),
+  });
+
+  const collection = collector.collect('https://live.douyin.com/123');
+  await started;
+  await collector.cancel(runId);
+  extractionCallback({
+    ok: false,
+    status: 'verification_required',
+    verificationUrl: 'https://live.douyin.com/login',
+  });
+  const result = await collection;
+
+  assert.equal(result.success, false);
+  assert.equal(result.cancelled, true);
+  assert.equal(result.status, 'cancelled');
+  assert.equal((await sessions.get(runId)).status, 'cancelled');
+  assert.deepEqual(removed, [46]);
+});
+
+test('same-run restart rejects a different owner or an already active live-commerce run', async () => {
+  const context = loadCollectorModule();
+  const values = {};
+  let createCount = 0;
+  const chrome = {
+    runtime: { lastError: null },
+    storage: {
+      local: {
+        get: async (key) => ({ [key]: values[key] }),
+        set: async (next) => Object.assign(values, next),
+      },
+    },
+    scripting: { executeScript: async () => [] },
+    tabs: {
+      create(properties, cb) {
+        createCount += 1;
+        cb({ id: createCount, windowId: 9, url: properties.url });
+      },
+      get(tabId, cb) {
+        cb({ id: tabId, windowId: 9, status: 'complete', url: 'https://live.douyin.com/login' });
+      },
+      query: async () => [],
+      update(_tabId, _properties, cb) { cb?.(); },
+      remove(_tabId, cb) { cb?.(); return Promise.resolve(); },
+      onUpdated: { addListener() {}, removeListener() {} },
+      sendMessage: () => undefined,
+    },
+    windows: { update(_windowId, _properties, cb) { cb?.(); } },
+  };
+  const sessions = context.KidItemCollectionSession.create({
+    chrome,
+    storageKey: 'kiditem_collection_sessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+  });
+  const collector = context.ProductScraperLiveCommerce.create({
+    chrome,
+    sessions,
+    ensureContentScripts: async () => true,
+    getBackendRequestConfig: async () => ({ ok: true, base: '', headers: {} }),
+  });
+
+  const first = await collector.collect('https://live.douyin.com/123');
+  await assert.rejects(
+    collector.collect('https://live.douyin.com/456', first.runId),
+    /page owner/i,
+  );
+  await sessions.progress(first.runId, {
+    current: 0,
+    total: 1,
+    completed: 0,
+    failed: 0,
+    label: 'still running',
+  });
+  await assert.rejects(
+    collector.collect('https://live.douyin.com/123', first.runId),
+    /already active/i,
+  );
+  assert.equal(createCount, 1);
 });

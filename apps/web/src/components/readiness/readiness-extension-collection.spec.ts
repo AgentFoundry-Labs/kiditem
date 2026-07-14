@@ -12,12 +12,18 @@ import {
   syncBrowserCollectionAlert,
 } from '@/lib/browser-collection-session';
 import {
+  COUPANG_COLLECTION_EXTENSION_MIN_VERSION,
   READINESS_COLLECTION_PRODUCERS,
   runReadinessExtensionCollection,
 } from './readiness-extension-collection';
 import { useReadinessCollection } from './useReadinessCollection';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
+const COMPATIBLE_PING = {
+  success: true,
+  version: '1.2.33',
+  capabilities: { browserCollectionSessions: true },
+};
 
 const mocks = vi.hoisted(() => ({
   detectExtensionId: vi.fn(),
@@ -111,9 +117,30 @@ describe('readiness extension collection', () => {
     vi.mocked(recordMissingBrowserCollection).mockResolvedValue({ runId: RUN_ID });
   });
 
+  it('rejects the prior collection-session worker before starting a scrape', async () => {
+    vi.mocked(sendToExtension).mockResolvedValueOnce({
+      success: false,
+      error: 'old worker reached scrapeTargets',
+      version: '1.2.32',
+      capabilities: { browserCollectionSessions: true },
+    });
+
+    await expect(
+      runReadinessExtensionCollection({
+        check: check('wing_sales'),
+        producer: 'dashboard.wing_sales',
+        extensionId: 'coupang-extension',
+        runId: RUN_ID,
+      }),
+    ).rejects.toThrow(/1\.2\.33|새로고침/);
+    expect(COUPANG_COLLECTION_EXTENSION_MIN_VERSION).toBe('1.2.33');
+    expect(sendToExtension).toHaveBeenCalledTimes(1);
+  });
+
   it('starts a run and reads its generic collection session by run ID', async () => {
     const completed = session('dashboard.wing_sales');
     vi.mocked(sendToExtension)
+      .mockResolvedValueOnce(COMPATIBLE_PING)
       .mockResolvedValueOnce({ success: true, started: true, runId: RUN_ID })
       .mockResolvedValueOnce(completed);
 
@@ -127,7 +154,7 @@ describe('readiness extension collection', () => {
     ).resolves.toEqual(completed);
 
     expect(sendToExtension).toHaveBeenNthCalledWith(
-      1,
+      2,
       'coupang-extension',
       expect.objectContaining({
         action: 'scrapeTargets',
@@ -135,7 +162,7 @@ describe('readiness extension collection', () => {
         runId: RUN_ID,
       }),
     );
-    expect(sendToExtension).toHaveBeenNthCalledWith(2, 'coupang-extension', {
+    expect(sendToExtension).toHaveBeenNthCalledWith(3, 'coupang-extension', {
       action: 'getCollectionSession',
       runId: RUN_ID,
     });
@@ -145,6 +172,7 @@ describe('readiness extension collection', () => {
   it('returns the collection result when alert synchronization is unavailable', async () => {
     const completed = session('dashboard.wing_sales');
     vi.mocked(sendToExtension)
+      .mockResolvedValueOnce(COMPATIBLE_PING)
       .mockResolvedValueOnce({ success: true, started: true, runId: RUN_ID })
       .mockResolvedValueOnce(completed);
     vi.mocked(syncBrowserCollectionAlert).mockRejectedValueOnce(
@@ -171,6 +199,7 @@ describe('readiness extension collection', () => {
         producer?: BrowserCollectionSessionView['producer'];
         runId?: string;
       };
+      if (command.action === 'ping') return COMPATIBLE_PING;
       if (command.action === 'scrapeTargets') {
         producerByRun.set(command.runId!, command.producer!);
         return { success: true, started: true, runId: command.runId };
@@ -230,9 +259,28 @@ describe('readiness extension collection', () => {
     expect(recordMissingBrowserCollection).toHaveBeenCalledWith(
       'dashboard.wing_sales',
       { checkKey: 'wing_sales', trigger: 'readiness' },
+      undefined,
     );
     expect(sendToExtension).not.toHaveBeenCalled();
     expect(open).not.toHaveBeenCalled();
+  });
+
+  it('keeps the current run id when a web restart cannot find the extension', async () => {
+    mocks.detectExtensionId.mockResolvedValue(null);
+    const { result } = renderHook(
+      () => useReadinessCollection({ refetchReadiness: vi.fn() }),
+      { wrapper: wrapper() },
+    );
+
+    await act(async () => {
+      await result.current.handleCollect(check('wing_sales'), RUN_ID);
+    });
+
+    expect(recordMissingBrowserCollection).toHaveBeenCalledWith(
+      'dashboard.wing_sales',
+      { checkKey: 'wing_sales', trigger: 'readiness' },
+      RUN_ID,
+    );
   });
 
   it('runs the ad sweep once with advertising.ad_sync after daily ads finish', async () => {
@@ -243,6 +291,7 @@ describe('readiness extension collection', () => {
         producer?: BrowserCollectionSessionView['producer'];
         runId?: string;
       };
+      if (command.action === 'ping') return COMPATIBLE_PING;
       if (command.action === 'scrapeTargets') {
         producerByRun.set(command.runId!, command.producer!);
         return { success: true, started: true, runId: command.runId };
@@ -315,7 +364,7 @@ describe('readiness extension collection', () => {
     expect(scrapeCollectorSource).toContain("'advertising.scrape_targets'");
     expect(scrapeCollectorSource).toContain('BrowserCollectionRunControls');
     expect(competitorExtensionSource).toContain(
-      'COMPETITOR_EXTENSION_MIN_VERSION = "1.2.32"',
+      'COMPETITOR_EXTENSION_MIN_VERSION = "1.2.33"',
     );
     expect(competitorExtensionSource).toContain('browserCollectionSessions');
     expect(competitorPageSource).toContain('useBrowserCollectionSession');

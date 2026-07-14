@@ -46,13 +46,17 @@ export default function QuickRankCheck({
     setRunId(collectionSession.runId);
   }, [collectionSession, runId]);
 
-  const runKeywordCheck = async (nextKeyword: string, nextMaxPages: number) => {
+  const runKeywordCheck = async (
+    nextKeyword: string,
+    nextMaxPages: number,
+    requestedRunId?: string,
+  ) => {
     if (!nextKeyword || loading) return;
     if (!extensionId) {
       if (disabledReason) toast.error(disabledReason);
       return;
     }
-    const nextRunId = crypto.randomUUID();
+    const nextRunId = requestedRunId ?? crypto.randomUUID();
     setRunId(nextRunId);
     setLoading(true);
     try {
@@ -62,6 +66,10 @@ export default function QuickRankCheck({
         runId: nextRunId,
       });
       setRunId(response.runId ?? nextRunId);
+      if (response.cancelled) {
+        setResult(null);
+        return;
+      }
       if (response.attentionRequired) {
         setResult(null);
         toast.warning(response.error ?? '쿠팡 확인이 필요합니다.');
@@ -130,7 +138,9 @@ export default function QuickRankCheck({
         <div className="border-t border-slate-100 px-5 py-3">
           <BrowserCollectionRunControls
             session={collectionSession}
-            onWebRestart={() => runKeywordCheck(keyword.trim(), maxPages)}
+            onWebRestart={(session) =>
+              runKeywordCheck(keyword.trim(), maxPages, session.runId)
+            }
           />
         </div>
       )}

@@ -170,7 +170,7 @@ export default function ReadinessModal({
                       if (!restartCheck || restartCheck.key === 'rocket_sales') {
                         return;
                       }
-                      await handleCollect(restartCheck);
+                      await handleCollect(restartCheck, session.runId);
                     }}
                   />
                 )}

@@ -13,6 +13,8 @@ const runtimePath = path.join(
   repoRoot,
   'extensions/coupang-ads-scraper/background/collection-runs.js',
 );
+const WEB_RUN_ID = '11111111-1111-4111-8111-111111111111';
+const DASHBOARD_RUN_ID = '22222222-2222-4222-8222-222222222222';
 
 function createRuntime(initialSessions = []) {
   const sessionsById = new Map(
@@ -29,8 +31,8 @@ function createRuntime(initialSessions = []) {
     async attachTab(runId, tab) {
       calls.push(['attach', runId, tab.tabId, tab.windowId]);
     },
-    async cancel(runId) {
-      calls.push(['cancel', runId]);
+    async cancel(runId, options) {
+      calls.push(['cancel', runId, options || null]);
       sessionsById.get(runId).status = 'cancelled';
     },
     async get(runId) {
@@ -41,16 +43,22 @@ function createRuntime(initialSessions = []) {
     },
     async requireAttention(runId, attention) {
       calls.push(['attention', runId, attention.reason]);
-      sessionsById.get(runId).status = 'attention_required';
+      const current = sessionsById.get(runId);
+      if (current.status !== 'cancelled') current.status = 'attention_required';
+      return current;
     },
-    async restart(runId) {
-      calls.push(['restart', runId]);
+    async restart(runId, options) {
+      calls.push(['restart', runId, options || null]);
       const current = sessionsById.get(runId);
       current.status = 'running';
       current.attempt = (current.attempt || 1) + 1;
     },
   };
   const collectionWindow = {
+    async close(runId) {
+      calls.push(['closeWindow', runId]);
+      return true;
+    },
     async reattach(runId) {
       calls.push(['reattach', runId]);
       return runId === 'scheduled' ? { tabId: 90, windowId: 9 } : null;
@@ -81,6 +89,8 @@ function createRuntime(initialSessions = []) {
     cancelScrape: async (runId) => calls.push(['cancelScrape', runId]),
     cancelWingRank: async (runId) => calls.push(['cancelWingRank', runId]),
     cancelCatalog: async (runId) => calls.push(['cancelCatalog', runId]),
+    cancelKeywordRank: async (runId) => calls.push(['cancelKeywordRank', runId]),
+    cancelCompetitorCatalog: async (runId) => calls.push(['cancelCompetitorCatalog', runId]),
     loadScheduledTargets: async () => {
       calls.push(['loadScheduledTargets']);
       return [{ id: 'a', url: 'https://wing.coupang.com/a', label: 'A' }];
@@ -101,6 +111,7 @@ function session(overrides) {
     status: 'running',
     restartStrategy: 'web',
     attempt: 1,
+    inputIdentity: { keywordCount: 1 },
     ...overrides,
   };
 }
@@ -151,7 +162,7 @@ test('extension restart resets progress before reloading current targets at item
   await controller.restart('scheduled');
 
   assert.deepEqual(calls, [
-    ['restart', 'scheduled'],
+    ['restart', 'scheduled', null],
     ['loadScheduledTargets'],
     ['startScheduledScrape', 0],
   ]);
@@ -181,8 +192,232 @@ test('cancel dispatches to the producer owner after cancelling the generic sessi
   await controller.cancel('catalog');
 
   assert.deepEqual(calls, [
-    ['cancel', 'catalog'],
     ['cancelCatalog', 'catalog'],
+  ]);
+});
+
+test('same-run web restart validates ownership and increments the existing attempt', async () => {
+  const runtime = createRuntime([
+    session({
+      runId: WEB_RUN_ID,
+      producer: 'advertising.keyword_rank',
+      status: 'attention_required',
+      inputIdentity: { keywordCount: 1, maxPages: 2 },
+    }),
+  ]);
+
+  const runId = await runtime.controller.beginWebCollection(
+    'advertising.keyword_rank',
+    { maxPages: 2, keywordCount: 1 },
+    WEB_RUN_ID,
+  );
+
+  assert.equal(runId, WEB_RUN_ID);
+  assert.equal(runtime.sessionsById.get(WEB_RUN_ID).attempt, 2);
+  assert.deepEqual(JSON.parse(JSON.stringify(runtime.calls)), [
+    ['restart', WEB_RUN_ID, { closeManagedTab: true }],
+  ]);
+});
+
+test('same-run web restart compares only the caller-declared stable owner keys', async () => {
+  const matching = createRuntime([
+    session({
+      runId: WEB_RUN_ID,
+      status: 'attention_required',
+      inputIdentity: {
+        collectionMode: 'single_serp',
+        keywordFingerprint: 'keyword:a1',
+        startedAt: 100,
+      },
+    }),
+  ]);
+
+  await matching.controller.beginWebCollection(
+    'advertising.keyword_rank',
+    {
+      collectionMode: 'single_serp',
+      keywordFingerprint: 'keyword:a1',
+      startedAt: 200,
+    },
+    WEB_RUN_ID,
+    ['collectionMode', 'keywordFingerprint'],
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(matching.calls)), [
+    ['restart', WEB_RUN_ID, { closeManagedTab: true }],
+  ]);
+
+  for (const inputIdentity of [
+    { collectionMode: 'suggestions', keywordFingerprint: 'keyword:a1' },
+    { collectionMode: 'single_serp', keywordFingerprint: 'keyword:b2' },
+  ]) {
+    const mismatch = createRuntime([
+      session({
+        runId: WEB_RUN_ID,
+        status: 'attention_required',
+        inputIdentity: {
+          collectionMode: 'single_serp',
+          keywordFingerprint: 'keyword:a1',
+        },
+      }),
+    ]);
+    await assert.rejects(
+      mismatch.controller.beginWebCollection(
+        'advertising.keyword_rank',
+        inputIdentity,
+        WEB_RUN_ID,
+        ['collectionMode', 'keywordFingerprint'],
+      ),
+      /input owner/i,
+    );
+    assert.deepEqual(mismatch.calls, []);
+  }
+});
+
+test('same-run dashboard restart closes its dedicated owned window before restart', async () => {
+  const { calls, controller } = createRuntime([
+    session({
+      runId: DASHBOARD_RUN_ID,
+      producer: 'dashboard.wing_sales',
+      status: 'attention_required',
+      inputIdentity: { targetCount: 2, referenceDate: '2026-07-15' },
+    }),
+  ]);
+
+  await controller.beginWebCollection(
+    'dashboard.wing_sales',
+    { referenceDate: '2026-07-15', targetCount: 2 },
+    DASHBOARD_RUN_ID,
+  );
+
+  assert.deepEqual(calls, [
+    ['closeWindow', DASHBOARD_RUN_ID],
+    ['restart', DASHBOARD_RUN_ID, null],
+  ]);
+});
+
+test('same-run web restart rejects a generic session that is still active', async () => {
+  for (const status of ['pending', 'running']) {
+    const runtime = createRuntime([
+      session({
+        runId: WEB_RUN_ID,
+        status,
+        inputIdentity: { collectionMode: 'all_trackers' },
+      }),
+    ]);
+
+    await assert.rejects(
+      runtime.controller.beginWebCollection(
+        'advertising.keyword_rank',
+        { collectionMode: 'all_trackers' },
+        WEB_RUN_ID,
+        ['collectionMode'],
+      ),
+      /already active/i,
+    );
+    assert.deepEqual(runtime.calls, []);
+  }
+});
+
+test('same-run web restart rejects a different producer, strategy, or invalid run id', async () => {
+  const runtime = createRuntime([
+    session({
+      runId: WEB_RUN_ID,
+      producer: 'advertising.competitor_catalog',
+      inputIdentity: { sellerId: 'seller-a', sellerCount: 1 },
+    }),
+  ]);
+
+  await assert.rejects(
+    runtime.controller.beginWebCollection(
+      'advertising.keyword_rank',
+      { keywordCount: 1 },
+      WEB_RUN_ID,
+    ),
+    /owner/i,
+  );
+  runtime.sessionsById.get(WEB_RUN_ID).restartStrategy = 'extension';
+  await assert.rejects(
+    runtime.controller.beginWebCollection(
+      'advertising.competitor_catalog',
+      { sellerId: 'seller-b', sellerCount: 1 },
+      WEB_RUN_ID,
+    ),
+    /restart strategy/i,
+  );
+  await assert.rejects(
+    runtime.controller.beginWebCollection(
+      'advertising.competitor_catalog',
+      { sellerId: 'seller-a', sellerCount: 1 },
+      'not-a-uuid',
+    ),
+    /run id/i,
+  );
+  assert.deepEqual(runtime.calls, []);
+});
+
+test('cancel uses dedicated window ownership and ordinary tab owner cancellation', async () => {
+  const dashboard = createRuntime([
+    session({ runId: 'dashboard', producer: 'dashboard.wing_sales' }),
+  ]);
+  await dashboard.controller.cancel('dashboard');
+  assert.deepEqual(dashboard.calls, [['cancelScrape', 'dashboard']]);
+
+  const keyword = createRuntime([
+    session({ runId: 'keyword', producer: 'advertising.keyword_rank' }),
+  ]);
+  await keyword.controller.cancel('keyword');
+  assert.deepEqual(JSON.parse(JSON.stringify(keyword.calls)), [
+    ['cancel', 'keyword', { closeManagedTab: true }],
+    ['cancelKeywordRank', 'keyword'],
+  ]);
+
+  const competitor = createRuntime([
+    session({ runId: 'competitor', producer: 'advertising.competitor_catalog' }),
+  ]);
+  await competitor.controller.cancel('competitor');
+  assert.deepEqual(JSON.parse(JSON.stringify(competitor.calls)), [
+    ['cancel', 'competitor', { closeManagedTab: true }],
+    ['cancelCompetitorCatalog', 'competitor'],
+  ]);
+});
+
+test('attention preserves the ownership recorded by the original tab attach', async () => {
+  const { calls, controller } = createRuntime([
+    session({ runId: 'web-run' }),
+  ]);
+
+  await controller.requireAttention(
+    'web-run',
+    90,
+    'marketplace_login',
+    'login required',
+  );
+
+  assert.deepEqual(calls, [
+    ['attention', 'web-run', 'marketplace_login'],
+  ]);
+});
+
+test('attention reports cancellation when the terminal session wins the race', async () => {
+  const { calls, controller } = createRuntime([
+    session({ runId: 'cancelled-run', status: 'cancelled' }),
+  ]);
+
+  const result = await controller.requireAttention(
+    'cancelled-run',
+    90,
+    'marketplace_login',
+    'login required',
+  );
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+    success: false,
+    cancelled: true,
+    runId: 'cancelled-run',
+    tabId: 90,
+  });
+  assert.deepEqual(calls, [
+    ['attention', 'cancelled-run', 'marketplace_login'],
   ]);
 });
 
@@ -200,7 +435,7 @@ test('worker reload reattaches a live tab and restarts extension work from zero'
   assert.deepEqual(calls, [
     ['reattach', 'scheduled'],
     ['attach', 'scheduled', 90, 9],
-    ['restart', 'scheduled'],
+    ['restart', 'scheduled', null],
     ['loadScheduledTargets'],
     ['startScheduledScrape', 0],
   ]);

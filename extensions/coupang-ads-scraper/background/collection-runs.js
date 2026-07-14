@@ -13,6 +13,9 @@
     "advertising.ad_sync",
     "advertising.scrape_targets",
   ]);
+  const UUID_PATTERN =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const ACTIVE_SESSION_STATUSES = new Set(["pending", "running"]);
 
   function create(options) {
     const chromeApi = options.chrome;
@@ -76,11 +79,44 @@
       producer,
       inputIdentity,
       requestedRunId,
+      stableOwnerKeys = [],
     ) {
-      const runId =
-        typeof requestedRunId === "string" && requestedRunId
-          ? requestedRunId
-          : createRunId();
+      const hasRequestedRunId = requestedRunId !== undefined;
+      if (
+        hasRequestedRunId &&
+        (typeof requestedRunId !== "string" ||
+          !UUID_PATTERN.test(requestedRunId))
+      ) {
+        throw new Error("Collection run ID must be a UUID");
+      }
+      const runId = hasRequestedRunId ? requestedRunId : createRunId();
+      const existing = hasRequestedRunId ? await sessions.get(runId) : null;
+      if (existing) {
+        if (existing.producer !== producer) {
+          throw new Error("Collection session owner does not match producer");
+        }
+        if (existing.restartStrategy !== "web") {
+          throw new Error("Collection session restart strategy is not web");
+        }
+        if (ACTIVE_SESSION_STATUSES.has(existing.status)) {
+          throw new Error("Collection session is already active");
+        }
+        for (const key of stableOwnerKeys) {
+          if (
+            typeof key !== "string" ||
+            existing.inputIdentity?.[key] !== inputIdentity?.[key]
+          ) {
+            throw new Error("Collection session input owner does not match");
+          }
+        }
+        if (SCRAPE_PRODUCERS.has(producer)) {
+          await collectionWindow.close(runId);
+          await sessions.restart(runId);
+        } else {
+          await sessions.restart(runId, { closeManagedTab: true });
+        }
+        return runId;
+      }
       await sessions.start({
         runId,
         producer,
@@ -115,8 +151,10 @@
     }
 
     async function requireAttention(runId, tabId, reason, message) {
-      await attachTab(runId, tabId);
-      await sessions.requireAttention(runId, { reason, message });
+      const session = await sessions.requireAttention(runId, { reason, message });
+      if (session?.status === "cancelled") {
+        return { success: false, cancelled: true, runId, tabId };
+      }
       return {
         success: false,
         attentionRequired: true,
@@ -157,17 +195,26 @@
       }
       const session = await sessions.get(runId);
       if (!session) return { success: true, cancelled: false, runId };
-      await sessions.cancel(runId);
       if (
         isDashboardProducer(session.producer) ||
         session.producer === "advertising.ad_sync" ||
         session.producer === "advertising.scrape_targets"
       ) {
         await options.cancelScrape(runId);
-      } else if (session.producer === "advertising.wing_rank") {
-        await options.cancelWingRank(runId);
-      } else if (session.producer === "channels.coupang_catalog") {
+        return { success: true, cancelled: true, runId };
+      }
+      if (session.producer === "channels.coupang_catalog") {
         await options.cancelCatalog(runId);
+        return { success: true, cancelled: true, runId };
+      }
+
+      await sessions.cancel(runId, { closeManagedTab: true });
+      if (session.producer === "advertising.wing_rank") {
+        await options.cancelWingRank(runId);
+      } else if (session.producer === "advertising.keyword_rank") {
+        await options.cancelKeywordRank(runId);
+      } else if (session.producer === "advertising.competitor_catalog") {
+        await options.cancelCompetitorCatalog(runId);
       }
       return { success: true, cancelled: true, runId };
     }
@@ -190,7 +237,12 @@
         );
       }
 
-      await sessions.restart(runId);
+      await sessions.restart(
+        runId,
+        session.producer === "advertising.wing_rank"
+          ? { closeManagedTab: true }
+          : undefined,
+      );
       try {
         if (session.producer === "advertising.scrape_targets") {
           const targets = await options.loadScheduledTargets();

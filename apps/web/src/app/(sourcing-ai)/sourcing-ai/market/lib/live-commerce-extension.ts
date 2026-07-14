@@ -6,10 +6,12 @@ import {
 import type { LiveCommerceSource } from './live-commerce-api';
 
 const REQUEST_TIMEOUT_MS = 90_000;
+export const LIVE_COMMERCE_EXTENSION_MIN_VERSION = '2.2.2';
 
 interface ExtensionResponse {
   success?: boolean;
   error?: string;
+  version?: string;
   runId?: string;
   status?: string;
   source?: LiveCommerceSource;
@@ -27,6 +29,7 @@ export type LiveCommerceExtensionErrorCode =
   | 'extension_missing'
   | 'extension_reload_required'
   | 'attention_required'
+  | 'collection_cancelled'
   | 'collection_failed';
 
 export class LiveCommerceExtensionError extends Error {
@@ -60,7 +63,8 @@ export async function fetchLiveCommerceExtensionReadiness(): Promise<LiveCommerc
       8_000,
     );
     return ping?.capabilities?.sourcingLiveCommerceCollector &&
-      ping.capabilities.browserCollectionSessions
+      ping.capabilities.browserCollectionSessions &&
+      isVersionAtLeast(ping.version, LIVE_COMMERCE_EXTENSION_MIN_VERSION)
       ? { configured: true, message: '방송 URL 수집 준비 완료' }
       : { configured: false, message: 'chrome://extensions에서 확장 새로고침 필요' };
   } catch {
@@ -105,7 +109,8 @@ export async function collectLiveCommerceFromChrome(
   );
   if (
     !ping?.capabilities?.sourcingLiveCommerceCollector ||
-    !ping.capabilities.browserCollectionSessions
+    !ping.capabilities.browserCollectionSessions ||
+    !isVersionAtLeast(ping.version, LIVE_COMMERCE_EXTENSION_MIN_VERSION)
   ) {
     throw new LiveCommerceExtensionError(
       'extension_reload_required',
@@ -125,7 +130,9 @@ export async function collectLiveCommerceFromChrome(
     throw new LiveCommerceExtensionError(
       result?.status === 'attention_required'
         ? 'attention_required'
-        : 'collection_failed',
+        : result?.status === 'cancelled'
+          ? 'collection_cancelled'
+          : 'collection_failed',
       result?.error ?? '방송 수집에 실패했습니다.',
       result?.runId ?? null,
     );
@@ -141,4 +148,18 @@ export async function collectLiveCommerceFromChrome(
 
 function countValue(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+}
+
+function isVersionAtLeast(current: string | undefined, minimum: string): boolean {
+  if (!current) return false;
+  const currentParts = current.split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const minimumParts = minimum.split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const size = Math.max(currentParts.length, minimumParts.length);
+  for (let index = 0; index < size; index += 1) {
+    const currentValue = currentParts[index] ?? 0;
+    const minimumValue = minimumParts[index] ?? 0;
+    if (currentValue > minimumValue) return true;
+    if (currentValue < minimumValue) return false;
+  }
+  return true;
 }

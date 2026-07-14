@@ -37,7 +37,7 @@ export function useOrderCollectionSessionControls(
     setRunId(nextRunId);
     const extensionId = await detectOrderCollectionSessionExtension();
     if (extensionId) {
-      const sessionDate = existingRunId === session?.runId &&
+      const sessionDate = session && existingRunId === session.runId &&
         (typeof session.inputIdentity.date === 'string' || session.inputIdentity.date === null)
         ? session.inputIdentity.date
         : undefined;

@@ -12,6 +12,7 @@ import {
   sortWingCatalogRows,
   WING_CATALOG_CHROME_REQUIRED,
   WING_CATALOG_EXTENSION_RELOAD_REQUIRED,
+  WING_CATALOG_EXTENSION_MIN_VERSION,
   WING_CATALOG_SEARCH_TIMEOUT_MS,
   type WingCatalogProduct,
 } from './wing-catalog-extension';
@@ -101,8 +102,25 @@ describe('wing catalog extension helpers', () => {
   });
 
   it('keeps a specific reload guidance for stale extension versions', () => {
+    expect(WING_CATALOG_EXTENSION_MIN_VERSION).toBe('1.2.33');
     expect(WING_CATALOG_EXTENSION_RELOAD_REQUIRED).toContain('새로고침');
     expect(WING_CATALOG_EXTENSION_RELOAD_REQUIRED).toContain('chrome://extensions');
+  });
+
+  it('rejects the prior worker before starting a catalog search', async () => {
+    mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
+    mockedSendToExtension.mockResolvedValueOnce({
+      success: true,
+      version: '1.2.32',
+      capabilities: {
+        wingCatalogSearch: true,
+        browserCollectionSessions: true,
+      },
+    });
+
+    await expect(searchWingCatalogProducts({ keyword: '슬라임', maxPages: 2 }))
+      .rejects.toThrow(WING_CATALOG_EXTENSION_RELOAD_REQUIRED);
+    expect(mockedSendToExtension).toHaveBeenCalledTimes(1);
   });
 
   it('explains that in-app browsers cannot run Chrome extension crawling', async () => {
@@ -118,7 +136,14 @@ describe('wing catalog extension helpers', () => {
   it('waits long enough for Wing tab loading and paged catalog search', async () => {
     mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
     mockedSendToExtension
-      .mockResolvedValueOnce({ success: true, capabilities: { wingCatalogSearch: true } })
+      .mockResolvedValueOnce({
+        success: true,
+        version: '1.2.33',
+        capabilities: {
+          wingCatalogSearch: true,
+          browserCollectionSessions: true,
+        },
+      })
       .mockResolvedValueOnce({ success: true, keyword: '슬라임', rows: [] });
 
     await expect(searchWingCatalogProducts({ keyword: ' 슬라임 ', maxPages: 2 }))

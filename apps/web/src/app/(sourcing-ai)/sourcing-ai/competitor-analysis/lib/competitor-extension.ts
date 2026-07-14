@@ -4,7 +4,7 @@ import {
   sendToExtension,
 } from "@/lib/extension-bridge";
 
-export const COMPETITOR_EXTENSION_MIN_VERSION = "1.2.32";
+export const COMPETITOR_EXTENSION_MIN_VERSION = "1.2.33";
 
 export type CompetitorExtensionGate =
   | { status: "ready"; extensionId: string; version: string }
@@ -86,9 +86,11 @@ export function competitorExtensionGateMessage(
 
 export async function runCompetitorCollection(
   extensionId: string,
+  runId?: string,
 ): Promise<CompetitorCollectionRun> {
   const response = await sendToExtension<CompetitorCollectionRun>(extensionId, {
     action: "runCoupangKeywordRankCheck",
+    ...(runId ? { runId } : {}),
   });
   if (!response?.success) {
     throw new Error(
@@ -112,12 +114,14 @@ export async function getCompetitorCollectionStatus(
 export async function runCompetitorSellerCollection(
   extensionId: string,
   sellerId: string,
+  runId?: string,
 ): Promise<CompetitorCollectionRun> {
   const response = await sendToExtension<CompetitorCollectionRun>(
     extensionId,
     {
       action: "runCoupangCompetitorSellerCatalog",
       sellerId,
+      ...(runId ? { runId } : {}),
     },
     30_000,
   );

@@ -23,7 +23,11 @@ describe('startCoupangCatalogBrowser', () => {
     vi.mocked(sendToExtension)
       .mockResolvedValueOnce({
         success: true,
-        capabilities: { coupangCatalogSnapshot: true },
+        version: '1.2.33',
+        capabilities: {
+          coupangCatalogSnapshot: true,
+          browserCollectionSessions: true,
+        },
       })
       .mockResolvedValueOnce({ success: true })
       .mockResolvedValueOnce({ success: true, started: true });

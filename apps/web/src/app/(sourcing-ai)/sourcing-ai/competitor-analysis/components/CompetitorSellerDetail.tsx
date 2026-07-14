@@ -246,7 +246,7 @@ function CatalogPending({ seller }: { seller: CompetitorSeller }) {
         {seller.sellerName} 판매자샵은 아직 수집 전입니다
       </h2>
       <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-[var(--text-secondary)]">
-        확장프로그램 1.2.32+로 판매자 수집을 실행하면 판매자샵 전체
+        확장프로그램 1.2.33+로 판매자 수집을 실행하면 판매자샵 전체
         상품·이미지와 이후 신상품을 기록합니다.
       </p>
     </section>

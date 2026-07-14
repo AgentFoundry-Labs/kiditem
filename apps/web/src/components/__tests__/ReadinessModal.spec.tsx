@@ -9,6 +9,7 @@ const mockApiGet = vi.hoisted(() => vi.fn());
 const mockAdSyncRun = vi.hoisted(() => vi.fn());
 const mockSearchParams = vi.hoisted(() => new URLSearchParams());
 const mockCollectionSession = vi.hoisted(() => vi.fn());
+const mockHandleCollect = vi.hoisted(() => vi.fn());
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,
@@ -29,6 +30,13 @@ vi.mock('@/app/(advertising)/ad-ops/hooks/useAdSync', () => ({
   useAdSync: () => ({
     loading: false,
     run: mockAdSyncRun,
+  }),
+}));
+
+vi.mock('../readiness/useReadinessCollection', () => ({
+  useReadinessCollection: () => ({
+    pendingKey: null,
+    handleCollect: mockHandleCollect,
   }),
 }));
 
@@ -102,6 +110,7 @@ describe('ReadinessModal', () => {
     mockAdSyncRun.mockReset();
     mockCollectionSession.mockReset();
     mockCollectionSession.mockReturnValue({ data: null });
+    mockHandleCollect.mockReset();
     mockSearchParams.delete('collectionRun');
     localStorage.clear();
     sessionStorage.clear();
@@ -207,5 +216,21 @@ describe('ReadinessModal', () => {
     expect(screen.getByRole('button', { name: '처음부터 재실행' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '중단' })).toBeInTheDocument();
     expect(mockCollectionSession).toHaveBeenCalledWith(runId);
+
+    fireEvent.click(screen.getByRole('button', { name: '처음부터 재실행' }));
+    await waitFor(() => {
+      expect(mockHandleCollect).toHaveBeenCalledWith(
+        expect.objectContaining({ key: 'wing_sales' }),
+        runId,
+      );
+    });
+  });
+
+  it('does not pass a React click event as the ad-sync run id', async () => {
+    render(<ReadinessModal open onClose={vi.fn()} />, { wrapper: wrapper() });
+
+    fireEvent.click(await screen.findByRole('button', { name: '광고 동기화' }));
+
+    expect(mockAdSyncRun).toHaveBeenCalledWith();
   });
 });

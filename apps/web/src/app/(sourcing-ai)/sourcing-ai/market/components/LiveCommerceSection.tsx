@@ -108,7 +108,15 @@ export function LiveCommerceSection() {
       refresh();
       toast.success(`${SOURCE_META[result.source].label} 방송 1개 · 상품 ${formatNumber(result.productCount)}개 저장`);
     },
-    onError: (error) => toast.error(errorMessage(error)),
+    onError: (error) => {
+      if (
+        error instanceof LiveCommerceExtensionError &&
+        error.code === 'collection_cancelled'
+      ) {
+        return;
+      }
+      toast.error(errorMessage(error));
+    },
   });
 
   const productCountByBroadcast = useMemo(() => {

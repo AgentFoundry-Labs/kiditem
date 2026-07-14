@@ -14,6 +14,7 @@ export const READINESS_COLLECTION_PRODUCERS = {
   coupang_products: 'dashboard.coupang_products',
   wing_kpi: 'dashboard.wing_kpi',
 } as const satisfies Record<string, BrowserCollectionProducer>;
+export const COUPANG_COLLECTION_EXTENSION_MIN_VERSION = '1.2.33';
 
 const POLL_INTERVAL_MS = 2_000;
 
@@ -21,6 +22,12 @@ type StartResponse = {
   success?: boolean;
   error?: string;
   runId?: string;
+};
+
+type PingResponse = {
+  success?: boolean;
+  version?: string;
+  capabilities?: { browserCollectionSessions?: boolean };
 };
 
 export type ReadinessExtensionCollectionInput = {
@@ -48,6 +55,19 @@ export async function runReadinessExtensionCollection({
 }: ReadinessExtensionCollectionInput): Promise<BrowserCollectionSessionView> {
   const urls = check.scrapeUrls ?? [];
   if (urls.length === 0) throw new Error('수집 URL 없음');
+
+  const ping = await sendToExtension<PingResponse>(extensionId, {
+    action: 'ping',
+  }).catch(() => null);
+  if (
+    !ping?.success ||
+    !ping.capabilities?.browserCollectionSessions ||
+    !isVersionAtLeast(ping.version, COUPANG_COLLECTION_EXTENSION_MIN_VERSION)
+  ) {
+    throw new Error(
+      `KIDITEM 쿠팡 확장프로그램 ${COUPANG_COLLECTION_EXTENSION_MIN_VERSION}+가 필요합니다. chrome://extensions에서 새로고침해 주세요.`,
+    );
+  }
 
   const started = await sendToExtension<StartResponse>(extensionId, {
     action: 'scrapeTargets',
@@ -87,4 +107,25 @@ export async function runReadinessExtensionCollection({
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function isVersionAtLeast(
+  current: string | undefined,
+  minimum: string,
+): boolean {
+  if (!current) return false;
+  const currentParts = current
+    .split('.')
+    .map((part) => Number.parseInt(part, 10) || 0);
+  const minimumParts = minimum
+    .split('.')
+    .map((part) => Number.parseInt(part, 10) || 0);
+  const size = Math.max(currentParts.length, minimumParts.length);
+  for (let index = 0; index < size; index += 1) {
+    const currentValue = currentParts[index] ?? 0;
+    const minimumValue = minimumParts[index] ?? 0;
+    if (currentValue > minimumValue) return true;
+    if (currentValue < minimumValue) return false;
+  }
+  return true;
 }

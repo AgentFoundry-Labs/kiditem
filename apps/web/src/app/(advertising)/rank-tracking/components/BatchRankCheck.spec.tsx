@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getWingSalesRankCheckStatus,
@@ -95,6 +95,11 @@ describe("BatchRankCheck", () => {
   });
 
   it("renders generic attention, restart, and cancel controls for the active run", async () => {
+    vi.mocked(runWingSalesRankCheck).mockResolvedValue({
+      success: true,
+      started: true,
+      runId: RUN_ID_2,
+    });
     vi.mocked(getWingSalesRankCheckStatus)
       .mockResolvedValueOnce({
         status: "running",
@@ -154,5 +159,13 @@ describe("BatchRankCheck", () => {
     expect(
       screen.queryByRole("button", { name: "수집 중단" }),
     ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "처음부터 재실행" }));
+    await waitFor(() => {
+      expect(runWingSalesRankCheck).toHaveBeenCalledWith(
+        "coupang-extension",
+        RUN_ID_2,
+      );
+    });
   });
 });

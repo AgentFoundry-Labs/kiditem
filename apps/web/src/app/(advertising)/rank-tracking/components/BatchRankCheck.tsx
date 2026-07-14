@@ -128,14 +128,14 @@ export default function BatchRankCheck({
     setRunId(null);
   }, [runId, status, onCompleted]);
 
-  const start = async () => {
+  const start = async (requestedRunId?: string) => {
     if (!extensionId) {
       if (disabledReason) toast.error(disabledReason);
       return;
     }
     setStarting(true);
     try {
-      const result = await runWingSalesRankCheck(extensionId);
+      const result = await runWingSalesRankCheck(extensionId, requestedRunId);
       if (!result.started) {
         toast.info("순위를 확인할 자사 상품이 없습니다.");
         return;
@@ -182,7 +182,7 @@ export default function BatchRankCheck({
       )}
       <button
         type="button"
-        onClick={start}
+        onClick={() => void start()}
         disabled={
           running ||
           collectionSession?.status === "running" ||
@@ -208,7 +208,7 @@ export default function BatchRankCheck({
       {collectionSession && (
         <BrowserCollectionRunControls
           session={collectionSession}
-          onWebRestart={start}
+          onWebRestart={(session) => start(session.runId)}
           className="basis-full"
         />
       )}

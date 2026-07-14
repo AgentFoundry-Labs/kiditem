@@ -93,18 +93,22 @@ export function useReadinessCollection({
     check: ReadinessCheck,
     producer: NonNullable<ReturnType<typeof readinessCollectionProducer>>,
     extensionId: string,
+    requestedRunId?: string,
   ) => {
     const session = await runReadinessExtensionCollection({
       check,
       producer,
       extensionId,
-      runId: makeRunId(),
+      runId: requestedRunId ?? makeRunId(),
     });
     announceSession(session);
     return session;
   };
 
-  const handleCollect = async (check: ReadinessCheck) => {
+  const handleCollect = async (
+    check: ReadinessCheck,
+    requestedRunId?: string,
+  ) => {
     if (check.collector === 'server') {
       await handleServerCollect(check);
       return;
@@ -127,12 +131,17 @@ export function useReadinessCollection({
         await recordMissingBrowserCollection(producer, {
           checkKey: check.key,
           trigger: 'readiness',
-        });
+        }, requestedRunId);
         toast.warning('브라우저 수집 익스텐션을 찾을 수 없습니다.');
         return;
       }
 
-      const session = await runExtensionCollection(check, producer, extensionId);
+      const session = await runExtensionCollection(
+        check,
+        producer,
+        extensionId,
+        requestedRunId,
+      );
       if (check.key === 'coupang_ads' && session.status === 'succeeded') {
         await runReadinessExtensionCollection({
           check: AD_SYNC_CHECK,

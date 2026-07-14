@@ -37,7 +37,7 @@ export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
   const queryClient = useQueryClient();
   const collectionSession = useBrowserCollectionSession(runId);
 
-  const run = async () => {
+  const run = async (requestedRunId?: string) => {
     if (loading) return;
     setLoading(true);
     try {
@@ -46,13 +46,14 @@ export function useAdSync({ onComplete }: UseAdSyncOptions = {}) {
         const missing = await recordMissingBrowserCollection(
           'advertising.ad_sync',
           { trigger: 'ad_sync' },
+          requestedRunId,
         );
         setRunId(missing.runId);
         toast.warning('브라우저 수집 익스텐션을 찾을 수 없습니다.');
         return;
       }
 
-      const nextRunId = crypto.randomUUID();
+      const nextRunId = requestedRunId ?? crypto.randomUUID();
       setRunId(nextRunId);
       toast.info('광고 동기화를 백그라운드에서 시작합니다.');
       const session = await runReadinessExtensionCollection({

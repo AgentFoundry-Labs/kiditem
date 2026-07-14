@@ -30,6 +30,11 @@
       try {
         const tab = await createTab(chromeApi, validated.url);
         tabId = tab.id;
+        if (run.cancelRequested) {
+          await removeTab(chromeApi, tabId);
+          tabId = null;
+          throw new Error("Collection cancelled");
+        }
         run.tabId = tabId;
         if (Number.isInteger(tab.windowId)) {
           await sessions.attachTab(runId, {
@@ -37,6 +42,7 @@
             windowId: tab.windowId,
           });
         }
+        if (run.cancelRequested) throw new Error("Collection cancelled");
         await sessions.progress(runId, {
           current: 0,
           total: 1,
@@ -45,28 +51,45 @@
           label: "라이브 방송 페이지 확인 중",
         });
         const navigated = await waitForNavigation(chromeApi, tabId, validated.url);
+        if (run.cancelRequested) throw new Error("Collection cancelled");
         if (navigated.verificationRequired) {
           run.keepTabOpen = true;
-          return requireAttention(sessions, runId, navigated.url);
+          const attention = await requireAttention(sessions, runId, navigated.url);
+          if (attention.cancelled) {
+            run.keepTabOpen = false;
+            run.tabId = null;
+            tabId = null;
+          }
+          return attention;
         }
 
         let extracted = await triggerExtraction(chromeApi, tabId);
+        if (run.cancelRequested) throw new Error("Collection cancelled");
         if (extracted?.error === "content_script_missing") {
           const injected = await ensureContentScripts(tabId);
+          if (run.cancelRequested) throw new Error("Collection cancelled");
           if (!injected) throw new Error("라이브 수집 스크립트를 주입하지 못했습니다.");
           extracted = await triggerExtraction(chromeApi, tabId);
+          if (run.cancelRequested) throw new Error("Collection cancelled");
         }
         if (!extracted?.ok) {
           if (extracted?.status === "verification_required") {
             run.keepTabOpen = true;
-            return requireAttention(
+            const attention = await requireAttention(
               sessions,
               runId,
               extracted.verificationUrl || navigated.url,
             );
+            if (attention.cancelled) {
+              run.keepTabOpen = false;
+              run.tabId = null;
+              tabId = null;
+            }
+            return attention;
           }
           throw new Error(extracted?.error || "방송 정보를 찾지 못했습니다.");
         }
+        if (run.cancelRequested) throw new Error("Collection cancelled");
 
         const request = backendConfig.request || fetch;
         const response = await request(`${backendConfig.base}/trend/live-commerce-results`, {
@@ -81,6 +104,7 @@
         });
         const body = await readResponse(response);
         if (!response.ok) throw new Error(body?.message || `KidItem API HTTP ${response.status}`);
+        if (run.cancelRequested) throw new Error("Collection cancelled");
         await sessions.progress(runId, {
           current: 1,
           total: 1,
@@ -88,10 +112,13 @@
           failed: 0,
           label: "라이브 방송 수집 완료",
         });
+        if (run.cancelRequested) throw new Error("Collection cancelled");
         await sessions.succeed(runId);
+        if (run.cancelRequested) throw new Error("Collection cancelled");
         await removeTab(chromeApi, tabId);
         tabId = null;
         run.tabId = null;
+        if (run.cancelRequested) throw new Error("Collection cancelled");
         return {
           success: true,
           runId,
@@ -102,13 +129,24 @@
         };
       } catch (error) {
         if (!run.cancelRequested) await sessions.fail(runId);
+        if (run.cancelRequested) {
+          return {
+            success: false,
+            cancelled: true,
+            status: "cancelled",
+            runId,
+            error: "Collection cancelled",
+          };
+        }
         return {
           success: false,
           runId,
           error: error instanceof Error ? error.message : String(error),
         };
       } finally {
-        if (!run.keepTabOpen && tabId) await removeTab(chromeApi, tabId);
+        if (!run.keepTabOpen && tabId && run.tabId === tabId) {
+          await removeTab(chromeApi, tabId);
+        }
         if (!run.keepTabOpen) activeRuns.delete(runId);
       }
     }
@@ -137,14 +175,22 @@
       ) {
         throw new Error("Collection session not found");
       }
+      if (
+        session.inputIdentity?.source !== validated.source ||
+        session.inputIdentity?.pageUrl !== toSafePageUrl(validated.url)
+      ) {
+        throw new Error("Live-commerce page owner does not match this run");
+      }
+      if (session.status === "pending" || session.status === "running") {
+        throw new Error("Live-commerce collection session is already active");
+      }
       const previousRun = activeRuns.get(requestedRunId);
       if (previousRun) {
         previousRun.cancelRequested = true;
         previousRun.keepTabOpen = false;
-        await removeTab(chromeApi, previousRun.tabId);
         activeRuns.delete(requestedRunId);
       }
-      await sessions.restart(requestedRunId);
+      await sessions.restart(requestedRunId, { closeManagedTab: true });
       return requestedRunId;
     }
 
@@ -153,10 +199,10 @@
       if (run) {
         run.cancelRequested = true;
         run.keepTabOpen = false;
-        await removeTab(chromeApi, run.tabId);
+        run.tabId = null;
         activeRuns.delete(runId);
       }
-      await sessions.cancel(runId);
+      await sessions.cancel(runId, { closeManagedTab: true });
       return sessions.get(runId);
     }
 
@@ -168,7 +214,15 @@
     const message = reason === "captcha"
       ? "방송 수집을 계속하려면 보안문자를 완료해주세요. 알림에서 확인 탭을 열 수 있습니다."
       : "방송 수집을 계속하려면 로그인해주세요. 알림에서 확인 탭을 열 수 있습니다.";
-    await sessions.requireAttention(runId, { reason, message });
+    const session = await sessions.requireAttention(runId, { reason, message });
+    if (session?.status === "cancelled") {
+      return {
+        success: false,
+        cancelled: true,
+        runId,
+        status: "cancelled",
+      };
+    }
     return {
       success: false,
       runId,

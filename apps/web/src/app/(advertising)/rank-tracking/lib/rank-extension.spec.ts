@@ -9,6 +9,7 @@ import {
   detectRankExtensionGate,
   isRankExtensionVersionAtLeast,
   RANK_EXTENSION_MIN_VERSION,
+  runWingSalesRankCheck,
 } from "./rank-extension";
 
 vi.mock("@/lib/extension-bridge", () => ({
@@ -25,12 +26,15 @@ describe("rank extension version gate", () => {
   });
 
   it("requires the generic collection-session extension release", () => {
-    expect(RANK_EXTENSION_MIN_VERSION).toBe("1.2.32");
+    expect(RANK_EXTENSION_MIN_VERSION).toBe("1.2.33");
     expect(
       isRankExtensionVersionAtLeast("1.2.31", RANK_EXTENSION_MIN_VERSION),
     ).toBe(false);
     expect(
       isRankExtensionVersionAtLeast("1.2.32", RANK_EXTENSION_MIN_VERSION),
+    ).toBe(false);
+    expect(
+      isRankExtensionVersionAtLeast("1.2.33", RANK_EXTENSION_MIN_VERSION),
     ).toBe(true);
   });
 
@@ -39,7 +43,7 @@ describe("rank extension version gate", () => {
     vi.mocked(detectExtensionId).mockResolvedValue("coupang-extension");
     vi.mocked(sendToExtension).mockResolvedValue({
       success: true,
-      version: "1.2.32",
+      version: "1.2.33",
       capabilities: {
         wingCatalogSalesRank: true,
         wingCatalogSalesRankCancel: true,
@@ -50,7 +54,7 @@ describe("rank extension version gate", () => {
     await expect(detectRankExtensionGate()).resolves.toEqual({
       status: "outdated",
       extensionId: "coupang-extension",
-      version: "1.2.32",
+      version: "1.2.33",
     });
   });
 
@@ -68,6 +72,42 @@ describe("rank extension version gate", () => {
       }),
     ).resolves.toMatchObject({
       attentionRequired: true,
+      runId: "11111111-1111-4111-8111-111111111111",
+    });
+  });
+
+  it("returns a cancelled single-rank run without turning it into a collection error", async () => {
+    vi.mocked(sendToExtension).mockResolvedValue({
+      success: false,
+      cancelled: true,
+      runId: "11111111-1111-4111-8111-111111111111",
+    });
+
+    await expect(
+      checkCoupangKeywordRank("coupang-extension", {
+        keyword: "문구세트",
+      }),
+    ).resolves.toMatchObject({
+      cancelled: true,
+      runId: "11111111-1111-4111-8111-111111111111",
+      items: [],
+    });
+  });
+
+  it("passes the current run id through a Wing same-run restart", async () => {
+    vi.mocked(sendToExtension).mockResolvedValue({
+      success: true,
+      started: true,
+      runId: "11111111-1111-4111-8111-111111111111",
+    });
+
+    await runWingSalesRankCheck(
+      "coupang-extension",
+      "11111111-1111-4111-8111-111111111111",
+    );
+
+    expect(sendToExtension).toHaveBeenCalledWith("coupang-extension", {
+      action: "runWingSalesRankCheck",
       runId: "11111111-1111-4111-8111-111111111111",
     });
   });

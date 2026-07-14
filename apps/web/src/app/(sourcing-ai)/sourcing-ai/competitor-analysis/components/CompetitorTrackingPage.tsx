@@ -101,6 +101,10 @@ export function CompetitorTrackingPage() {
         collectionSession.producer === "advertising.competitor_catalog"
           ? "seller"
           : "all",
+      sellerId:
+        typeof collectionSession.inputIdentity.sellerId === "string"
+          ? collectionSession.inputIdentity.sellerId
+          : undefined,
     });
   }, [activeRun, collectionSession, gate]);
 
@@ -157,7 +161,7 @@ export function CompetitorTrackingPage() {
   }, [activeRun, periodDays, queryClient, statusQuery.data]);
 
   const collectMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (requestedRunId?: string) => {
       const configured = await autoConfigureCompetitorTrackers(12);
       const nextGate = await detectCompetitorExtensionGate();
       setGate(nextGate);
@@ -167,7 +171,10 @@ export function CompetitorTrackingPage() {
             "쿠팡 확장프로그램을 사용할 수 없습니다.",
         );
       }
-      const run = await runCompetitorCollection(nextGate.extensionId);
+      const run = await runCompetitorCollection(
+        nextGate.extensionId,
+        requestedRunId,
+      );
       return { configured, run, extensionId: nextGate.extensionId };
     },
     onSuccess: ({ configured, run, extensionId }) => {
@@ -191,7 +198,13 @@ export function CompetitorTrackingPage() {
   });
 
   const collectSellerMutation = useMutation({
-    mutationFn: async (seller: CompetitorSeller) => {
+    mutationFn: async ({
+      seller,
+      requestedRunId,
+    }: {
+      seller: CompetitorSeller;
+      requestedRunId?: string;
+    }) => {
       if (!seller.sellerId || !seller.sellerStoreUrl) {
         throw new Error("판매자샵 주소가 확인된 판매자만 수집할 수 있습니다.");
       }
@@ -206,6 +219,7 @@ export function CompetitorTrackingPage() {
       const run = await runCompetitorSellerCollection(
         nextGate.extensionId,
         seller.sellerId,
+        requestedRunId,
       );
       return { seller, run, extensionId: nextGate.extensionId };
     },
@@ -267,22 +281,32 @@ export function CompetitorTrackingPage() {
   const collectingSellerKey =
     activeRun?.mode === "seller" ? activeRun.sellerKey : null;
   const pendingSellerKey = collectSellerMutation.isPending
-    ? collectSellerMutation.variables?.sellerKey
+    ? collectSellerMutation.variables?.seller.sellerKey
     : null;
 
-  const restartCollection = async () => {
-    if (!collectionSession) return;
-    if (collectionSession.producer === "advertising.keyword_rank") {
-      await collectMutation.mutateAsync();
+  const restartCollection = async (
+    session: NonNullable<typeof collectionSession>,
+  ) => {
+    if (session.producer === "advertising.keyword_rank") {
+      await collectMutation.mutateAsync(session.runId);
       return;
     }
-    const sellerId = activeRun?.sellerId ?? statusQuery.data?.sellerId ?? null;
+    const sellerId =
+      activeRun?.sellerId ??
+      (typeof session.inputIdentity.sellerId === "string"
+        ? session.inputIdentity.sellerId
+        : null) ??
+      statusQuery.data?.sellerId ??
+      null;
     const seller = data?.sellers.find((candidate) => candidate.sellerId === sellerId);
     if (!seller) {
       toast.error("처음부터 다시 수집할 판매자를 확인할 수 없습니다.");
       return;
     }
-    await collectSellerMutation.mutateAsync(seller);
+    await collectSellerMutation.mutateAsync({
+      seller,
+      requestedRunId: session.runId,
+    });
   };
 
   if (overviewQuery.isLoading) return <LoadingState />;
@@ -364,7 +388,7 @@ export function CompetitorTrackingPage() {
             </select>
             <button
               type="button"
-              onClick={() => collectMutation.mutate()}
+              onClick={() => collectMutation.mutate(undefined)}
               disabled={
                 collectMutation.isPending ||
                 collectSellerMutation.isPending ||
@@ -440,7 +464,7 @@ export function CompetitorTrackingPage() {
         <DataEmptyState
           status={data.collection.status}
           keywords={data.collection.suggestedKeywords}
-          onCollect={() => collectMutation.mutate()}
+          onCollect={() => collectMutation.mutate(undefined)}
           pending={collectMutation.isPending}
         />
       ) : (
@@ -451,7 +475,9 @@ export function CompetitorTrackingPage() {
             search={search}
             onSearchChange={setSearch}
             onSelect={setSelectedSellerKey}
-            onCollectSeller={(seller) => collectSellerMutation.mutate(seller)}
+            onCollectSeller={(seller) =>
+              collectSellerMutation.mutate({ seller })
+            }
             collectingSellerKey={collectingSellerKey ?? pendingSellerKey}
             collectionDisabled={collecting || collectSellerMutation.isPending}
           />
@@ -530,7 +556,7 @@ function CollectionNotice({
   const message = collecting
     ? `${currentKeyword ?? "키워드 준비 중"} · ${formatNumber(completed)}/${formatNumber(total)} 완료`
     : (gateMessage ??
-      `기존 스냅샷 ${formatNumber(unresolvedCount)}개 상품은 판매자 정보가 없습니다. 확장프로그램 1.2.32+로 재수집하면 내 상품과 겹치는 판매자만 선별해 전체 상품과 이미지를 추적합니다.`);
+      `기존 스냅샷 ${formatNumber(unresolvedCount)}개 상품은 판매자 정보가 없습니다. 확장프로그램 1.2.33+로 재수집하면 내 상품과 겹치는 판매자만 선별해 전체 상품과 이미지를 추적합니다.`);
   return (
     <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
       <AlertCircle size={15} className="mt-0.5 shrink-0" />

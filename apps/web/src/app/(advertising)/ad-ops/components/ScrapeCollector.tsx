@@ -102,6 +102,7 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
       BrowserCollectionProducer,
       'advertising.ad_sync' | 'advertising.scrape_targets'
     >,
+    requestedRunId?: string,
   ) => {
     const selectedTargets =
       producer === 'advertising.ad_sync'
@@ -116,7 +117,7 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
       const missing = await recordMissingBrowserCollection(producer, {
         targetCount: selectedTargets.length,
         trigger: 'ad_ops',
-      });
+      }, requestedRunId);
       setRunId(missing.runId);
       setLoading(false);
       setResults([{ success: false, error: '익스텐션 연결이 필요합니다.' }]);
@@ -124,7 +125,7 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
     }
 
     try {
-      const nextRunId = crypto.randomUUID();
+      const nextRunId = requestedRunId ?? crypto.randomUUID();
       setRunId(nextRunId);
       const check: ReadinessCheck = {
         key: producer === 'advertising.ad_sync' ? 'ad_sync' : 'scrape_targets',
@@ -258,6 +259,7 @@ export default function ScrapeCollector({ onComplete }: { onComplete?: () => voi
                       session.producer === 'advertising.ad_sync'
                         ? 'advertising.ad_sync'
                         : 'advertising.scrape_targets',
+                      session.runId,
                     )
                   }
                 />

@@ -17,7 +17,11 @@ test("Wing sales-rank collection supports cooperative cancellation", () => {
     source,
     /const requestedRunId = typeof msg\.runId === "string" \? msg\.runId : null;/,
   );
-  assert.match(source, /requestWingSalesRankCancellation\(requestedRunId\)/);
+  assert.match(source, /collectionRuns\.cancel\(requestedRunId\)/);
+  assert.match(
+    source,
+    /collectionSessions\.cancel\(runId, \{ closeManagedTab: true \}\)/,
+  );
   assert.match(
     source,
     /chrome\.storage\.local\.get\(\s*\[RANK_CHECK_STATUS_KEY, RANK_CHECK_CANCEL_KEY\]/,

@@ -9,6 +9,7 @@ import {
 import {
   collectLiveCommerceFromChrome,
   fetchLiveCommerceExtensionReadiness,
+  LIVE_COMMERCE_EXTENSION_MIN_VERSION,
 } from './live-commerce-extension';
 
 vi.mock('@/lib/extension-bridge', () => ({
@@ -29,17 +30,26 @@ describe('live-commerce Chrome extension bridge', () => {
   });
 
   it('reports that an older extension must be reloaded before collection', async () => {
-    mockedSend.mockResolvedValueOnce({ success: true, capabilities: {} });
+    mockedSend.mockResolvedValueOnce({
+      success: true,
+      version: '2.2.1',
+      capabilities: {
+        sourcingLiveCommerceCollector: true,
+        browserCollectionSessions: true,
+      },
+    });
 
     await expect(fetchLiveCommerceExtensionReadiness()).resolves.toEqual({
       configured: false,
       message: 'chrome://extensions에서 확장 새로고침 필요',
     });
+    expect(LIVE_COMMERCE_EXTENSION_MIN_VERSION).toBe('2.2.2');
   });
 
   it('reports readiness when the live-commerce capability is advertised', async () => {
     mockedSend.mockResolvedValueOnce({
       success: true,
+      version: '2.2.2',
       capabilities: {
         sourcingLiveCommerceCollector: true,
         browserCollectionSessions: true,
@@ -56,6 +66,7 @@ describe('live-commerce Chrome extension bridge', () => {
     mockedSend
       .mockResolvedValueOnce({
         success: true,
+        version: '2.2.2',
         capabilities: {
           sourcingLiveCommerceCollector: true,
           browserCollectionSessions: true,
@@ -89,6 +100,7 @@ describe('live-commerce Chrome extension bridge', () => {
   it('requires the generic browser collection-session capability', async () => {
     mockedSend.mockResolvedValueOnce({
       success: true,
+      version: '2.2.2',
       capabilities: { sourcingLiveCommerceCollector: true },
     });
 
@@ -100,6 +112,7 @@ describe('live-commerce Chrome extension bridge', () => {
     mockedSend
       .mockResolvedValueOnce({
         success: true,
+        version: '2.2.2',
         capabilities: {
           sourcingLiveCommerceCollector: true,
           browserCollectionSessions: true,
@@ -119,10 +132,42 @@ describe('live-commerce Chrome extension bridge', () => {
       });
   });
 
+  it('surfaces cancellation distinctly so the UI does not show a failure toast', async () => {
+    mockedSend
+      .mockResolvedValueOnce({
+        success: true,
+        version: '2.2.2',
+        capabilities: {
+          sourcingLiveCommerceCollector: true,
+          browserCollectionSessions: true,
+        },
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        runId: '00000000-0000-4000-8000-000000000125',
+        status: 'cancelled',
+      });
+
+    await expect(collectLiveCommerceFromChrome('https://live.douyin.com/123'))
+      .rejects.toMatchObject({
+        code: 'collection_cancelled',
+        runId: '00000000-0000-4000-8000-000000000125',
+      });
+
+    const source = fs.readFileSync(
+      path.resolve(
+        'src/app/(sourcing-ai)/sourcing-ai/market/components/LiveCommerceSection.tsx',
+      ),
+      'utf8',
+    );
+    expect(source).toContain("error.code === 'collection_cancelled'");
+  });
+
   it('passes the existing run id when the user restarts from the beginning', async () => {
     mockedSend
       .mockResolvedValueOnce({
         success: true,
+        version: '2.2.2',
         capabilities: {
           sourcingLiveCommerceCollector: true,
           browserCollectionSessions: true,
