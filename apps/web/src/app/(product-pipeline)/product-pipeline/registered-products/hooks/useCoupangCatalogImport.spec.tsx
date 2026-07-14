@@ -13,8 +13,10 @@ const mocks = vi.hoisted(() => ({
   getCollection: vi.fn(),
   startBrowser: vi.fn(),
   getBrowserStatus: vi.fn(),
-  cancelBrowser: vi.fn(),
   detectExtensionId: vi.fn(),
+  isChromeExtensionRuntimeAvailable: vi.fn(),
+  sendToExtension: vi.fn(),
+  useBrowserCollectionSession: vi.fn(),
 }));
 
 vi.mock('@/components/providers/AuthProvider', () => ({
@@ -23,12 +25,17 @@ vi.mock('@/components/providers/AuthProvider', () => ({
 
 vi.mock('@/lib/extension-bridge', () => ({
   detectExtensionId: mocks.detectExtensionId,
+  isChromeExtensionRuntimeAvailable: mocks.isChromeExtensionRuntimeAvailable,
+  sendToExtension: mocks.sendToExtension,
+}));
+
+vi.mock('@/hooks/useBrowserCollectionSession', () => ({
+  useBrowserCollectionSession: mocks.useBrowserCollectionSession,
 }));
 
 vi.mock('../lib/coupang-catalog-import', () => ({
   startCoupangCatalogBrowser: mocks.startBrowser,
   getCoupangCatalogBrowserStatus: mocks.getBrowserStatus,
-  cancelCoupangCatalogBrowser: mocks.cancelBrowser,
 }));
 
 vi.mock('../lib/channel-listings-api', () => ({
@@ -56,6 +63,8 @@ describe('useCoupangCatalogImport', () => {
       status: 'running',
       progress: { publishedProducts: 0 },
     });
+    mocks.useBrowserCollectionSession.mockReturnValue({ data: null });
+    mocks.isChromeExtensionRuntimeAvailable.mockReturnValue(true);
   });
 
   it('refetches a previously idle extension status after collection starts', async () => {
@@ -80,5 +89,30 @@ describe('useCoupangCatalogImport', () => {
         queryKey: queryKeys.coupangCatalogImports.extension(RUN_ID),
       });
     });
+    expect(mocks.useBrowserCollectionSession).toHaveBeenCalledWith(RUN_ID);
+  });
+
+  it('requires the generic browser session capability before catalog start', async () => {
+    const actual = await vi.importActual<
+      typeof import('../lib/coupang-catalog-import')
+    >('../lib/coupang-catalog-import');
+    mocks.detectExtensionId.mockResolvedValue('extension-id');
+    mocks.sendToExtension.mockResolvedValue({
+      success: true,
+      version: '1.2.32',
+      capabilities: {
+        coupangCatalogSnapshot: true,
+        browserCollectionSessions: false,
+      },
+    });
+
+    await expect(
+      actual.startCoupangCatalogBrowser({
+        channelAccountId: ACCOUNT_ID,
+        runId: RUN_ID,
+        accessToken: 'test-token',
+      }),
+    ).rejects.toThrow('새로고침');
+    expect(mocks.sendToExtension).toHaveBeenCalledTimes(1);
   });
 });

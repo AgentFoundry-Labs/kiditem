@@ -5,8 +5,8 @@ import {
 } from "./competitor-extension";
 
 describe("competitor extension version gate", () => {
-  it("requires the seller-enrichment extension version", () => {
-    expect(COMPETITOR_EXTENSION_MIN_VERSION).toBe("1.2.30");
+  it("requires the browser collection session extension version", () => {
+    expect(COMPETITOR_EXTENSION_MIN_VERSION).toBe("1.2.32");
     expect(isVersionAtLeast("1.2.23", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
       false,
     );
@@ -23,6 +23,12 @@ describe("competitor extension version gate", () => {
       false,
     );
     expect(isVersionAtLeast("1.2.30", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
+      false,
+    );
+    expect(isVersionAtLeast("1.2.31", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
+      false,
+    );
+    expect(isVersionAtLeast("1.2.32", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(
       true,
     );
     expect(isVersionAtLeast("1.3.0", COMPETITOR_EXTENSION_MIN_VERSION)).toBe(

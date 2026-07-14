@@ -15,8 +15,8 @@
     "extensions/product-scraper/live-commerce-collector.js": 1,
     "extensions/product-scraper/background.js": 0,
     "extensions/order-collector/background/service-worker.js": 26,
-    "apps/web/src/components/readiness/useReadinessCollection.ts": 1,
-    "apps/web/src/app/(advertising)/ad-ops/hooks/useAdSync.ts": 1,
-    "apps/web/src/app/(analytics)/dashboard/page.tsx": 1
+    "apps/web/src/components/readiness/useReadinessCollection.ts": 0,
+    "apps/web/src/app/(advertising)/ad-ops/hooks/useAdSync.ts": 0,
+    "apps/web/src/app/(analytics)/dashboard/page.tsx": 0
   }
 }

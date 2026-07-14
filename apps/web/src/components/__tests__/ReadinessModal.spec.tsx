@@ -7,6 +7,16 @@ import type { ReadinessResponse } from '@kiditem/shared/readiness';
 
 const mockApiGet = vi.hoisted(() => vi.fn());
 const mockAdSyncRun = vi.hoisted(() => vi.fn());
+const mockSearchParams = vi.hoisted(() => new URLSearchParams());
+const mockCollectionSession = vi.hoisted(() => vi.fn());
+
+vi.mock('next/navigation', () => ({
+  useSearchParams: () => mockSearchParams,
+}));
+
+vi.mock('@/hooks/useBrowserCollectionSession', () => ({
+  useBrowserCollectionSession: mockCollectionSession,
+}));
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
@@ -90,6 +100,9 @@ describe('ReadinessModal', () => {
     mockApiGet.mockReset();
     mockApiGet.mockResolvedValue(makeReadinessResponse());
     mockAdSyncRun.mockReset();
+    mockCollectionSession.mockReset();
+    mockCollectionSession.mockReturnValue({ data: null });
+    mockSearchParams.delete('collectionRun');
     localStorage.clear();
     sessionStorage.clear();
   });
@@ -153,5 +166,46 @@ describe('ReadinessModal', () => {
 
     expect(await screen.findByText('조회 전용')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '매출 동기화' })).not.toBeInTheDocument();
+  });
+
+  it('opens from collectionRun and renders explicit browser controls', async () => {
+    const runId = '11111111-1111-4111-8111-111111111111';
+    mockSearchParams.set('collectionRun', runId);
+    mockCollectionSession.mockReturnValue({
+      data: {
+        runId,
+        producer: 'dashboard.wing_sales',
+        classification: 'background_preferred',
+        status: 'attention_required',
+        attempt: 1,
+        restartStrategy: 'web',
+        progress: {
+          current: 1,
+          total: 2,
+          completed: 0,
+          failed: 0,
+          label: 'Wing 로그인 확인',
+        },
+        inputIdentity: { trigger: 'readiness' },
+        attention: {
+          reason: 'marketplace_login',
+          message: 'Wing 로그인이 필요합니다.',
+          canOpenTab: true,
+        },
+        startedAt: 1_700_000_000_000,
+        updatedAt: 1_700_000_001_000,
+        finishedAt: null,
+      },
+    });
+
+    render(<ReadinessModal autoOpenWhen="collectionIssue" />, {
+      wrapper: wrapper(),
+    });
+
+    expect(await screen.findByText('Wing 로그인이 필요합니다.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '확인 탭 열기' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '처음부터 재실행' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '중단' })).toBeInTheDocument();
+    expect(mockCollectionSession).toHaveBeenCalledWith(runId);
   });
 });

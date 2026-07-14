@@ -1,8 +1,11 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
+import { BrowserCollectionRunIdSchema } from '@kiditem/shared/browser-collection-session';
 import { Loader2, Search } from 'lucide-react';
 import { toast } from 'sonner';
+import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
+import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
 import { formatDateTime } from '@/lib/utils';
 import type { SerpItem } from '../lib/rank-api';
 import {
@@ -28,21 +31,42 @@ export default function QuickRankCheck({
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CheckKeywordRankResponse | null>(null);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
+  const [linkedRunId] = useState(readCollectionRunId);
+  const collectionSessionQuery = useBrowserCollectionSession(
+    runId ?? linkedRunId,
+  );
+  const collectionSession =
+    collectionSessionQuery.data?.producer === 'advertising.keyword_rank'
+      ? collectionSessionQuery.data
+      : null;
 
-  const handleSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    const trimmed = keyword.trim();
-    if (!trimmed || loading) return;
+  useEffect(() => {
+    if (!collectionSession || runId) return;
+    setRunId(collectionSession.runId);
+  }, [collectionSession, runId]);
+
+  const runKeywordCheck = async (nextKeyword: string, nextMaxPages: number) => {
+    if (!nextKeyword || loading) return;
     if (!extensionId) {
       if (disabledReason) toast.error(disabledReason);
       return;
     }
+    const nextRunId = crypto.randomUUID();
+    setRunId(nextRunId);
     setLoading(true);
     try {
       const response = await checkCoupangKeywordRank(extensionId, {
-        keyword: trimmed,
-        maxPages,
+        keyword: nextKeyword,
+        maxPages: nextMaxPages,
+        runId: nextRunId,
       });
+      setRunId(response.runId ?? nextRunId);
+      if (response.attentionRequired) {
+        setResult(null);
+        toast.warning(response.error ?? '쿠팡 확인이 필요합니다.');
+        return;
+      }
       setResult(response);
       setCheckedAt(new Date());
       if (response.posted && response.keyword) {
@@ -54,6 +78,12 @@ export default function QuickRankCheck({
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    const trimmed = keyword.trim();
+    await runKeywordCheck(trimmed, maxPages);
   };
 
   const items: SerpItem[] = result?.items ?? [];
@@ -96,6 +126,15 @@ export default function QuickRankCheck({
         </button>
       </form>
 
+      {collectionSession && (
+        <div className="border-t border-slate-100 px-5 py-3">
+          <BrowserCollectionRunControls
+            session={collectionSession}
+            onWebRestart={() => runKeywordCheck(keyword.trim(), maxPages)}
+          />
+        </div>
+      )}
+
       {loading && (
         <div className="flex items-center gap-2 border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
           <Loader2 size={13} className="animate-spin text-purple-600" />
@@ -122,4 +161,12 @@ export default function QuickRankCheck({
       )}
     </div>
   );
+}
+
+function readCollectionRunId(): string | null {
+  if (typeof window === 'undefined') return null;
+  const parsed = BrowserCollectionRunIdSchema.safeParse(
+    new URLSearchParams(window.location.search).get('collectionRun'),
+  );
+  return parsed.success ? parsed.data : null;
 }

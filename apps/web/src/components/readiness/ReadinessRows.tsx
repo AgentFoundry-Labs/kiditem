@@ -15,6 +15,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { useAdSync } from '@/app/(advertising)/ad-ops/hooks/useAdSync';
+import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
 import { cn } from '@/lib/utils';
 import type { LucideIcon } from 'lucide-react';
 import type { ReadinessCheck } from '@kiditem/shared/readiness';
@@ -272,7 +273,7 @@ export function ActionCheckCard({
 }
 
 export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
-  const { loading, run } = useAdSync({ onComplete });
+  const { collectionSession, loading, run } = useAdSync({ onComplete });
 
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] transition-all">
@@ -289,7 +290,7 @@ export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
             운영중 캠페인을 자동 순회하며 캠페인별 상품 데이터를 수집해요
           </p>
           <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
-            새 탭에서 자동 처리 - 수 분 소요될 수 있어요
+            백그라운드에서 자동 처리 - 수 분 소요될 수 있어요
           </p>
         </div>
 
@@ -315,6 +316,13 @@ export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
           )}
         </button>
       </div>
+      {collectionSession?.data && (
+        <BrowserCollectionRunControls
+          session={collectionSession.data}
+          onWebRestart={run}
+          className="mx-4 mb-4"
+        />
+      )}
     </div>
   );
 }

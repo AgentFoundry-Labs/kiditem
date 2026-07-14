@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { BrowserCollectionRunIdSchema } from "@kiditem/shared/browser-collection-session";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Radar, Square } from "lucide-react";
+import { Loader2, Radar } from "lucide-react";
 import { toast } from "sonner";
+import { BrowserCollectionRunControls } from "@/components/browser-collection/BrowserCollectionRunControls";
+import { useBrowserCollectionSession } from "@/hooks/useBrowserCollectionSession";
 import { cn } from "@/lib/utils";
 import {
-  cancelWingSalesRankCheck,
   getWingSalesRankCheckStatus,
   runWingSalesRankCheck,
   type RankCheckStatus,
@@ -30,14 +32,21 @@ export default function BatchRankCheck({
   onCompleted: () => void;
 }) {
   const [runId, setRunId] = useState<string | null>(null);
+  const [linkedRunId] = useState(readCollectionRunId);
   const [starting, setStarting] = useState(false);
-  const [stopping, setStopping] = useState(false);
   const settledRunIdRef = useRef<string | null>(null);
+  const collectionSessionQuery = useBrowserCollectionSession(
+    runId ?? linkedRunId,
+  );
+  const collectionSession =
+    collectionSessionQuery.data?.producer === "advertising.wing_rank"
+      ? collectionSessionQuery.data
+      : null;
 
   const discoveryQuery = useQuery({
     queryKey: ["rank-tracking", "check-status", "discovery", extensionId],
     queryFn: () => getWingSalesRankCheckStatus(extensionId!, null),
-    enabled: !!extensionId && !runId,
+    enabled: !!extensionId && !runId && !linkedRunId,
     refetchInterval: (query) => {
       const data = query.state.data as RankCheckStatus | undefined;
       return data && isRunning(data.status) ? false : 5000;
@@ -50,9 +59,14 @@ export default function BatchRankCheck({
     if (!discovered || !isRunning(discovered.status) || !discovered.runId)
       return;
     settledRunIdRef.current = null;
-    setStopping(!!discovered.cancelRequested);
     setRunId(discovered.runId);
   }, [discoveryQuery.data]);
+
+  useEffect(() => {
+    if (!collectionSession || runId) return;
+    settledRunIdRef.current = null;
+    setRunId(collectionSession.runId);
+  }, [collectionSession, runId]);
 
   const statusQuery = useQuery({
     queryKey: ["rank-tracking", "check-status", extensionId, runId],
@@ -85,6 +99,7 @@ export default function BatchRankCheck({
   useEffect(() => {
     if (!runId || !status) return;
     if (isRunning(status.status)) return;
+    if (status.status === "attention_required") return;
     if (settledRunIdRef.current === runId) return;
     settledRunIdRef.current = runId;
 
@@ -110,7 +125,6 @@ export default function BatchRankCheck({
     } else if (status.status === "error") {
       toast.error(status.error ?? "키워드 순위 일괄 확인 실패");
     }
-    setStopping(false);
     setRunId(null);
   }, [runId, status, onCompleted]);
 
@@ -128,12 +142,8 @@ export default function BatchRankCheck({
       }
       settledRunIdRef.current = null;
       setRunId(result.runId ?? null);
-      const pendingProducts =
-        result.pendingProductTotal ?? result.productTotal ?? 0;
       toast.info(
-        result.resumed
-          ? `중단 지점부터 이어서 수집합니다 — 남은 상품 ${pendingProducts}개`
-          : `자사 상품 ${result.productTotal ?? 0}개의 Wing 판매순위 수집을 시작했습니다.`,
+        `자사 상품 ${result.productTotal ?? 0}개의 Wing 판매순위를 처음부터 다시 수집합니다.`,
       );
     } catch (err) {
       toast.error(
@@ -150,23 +160,8 @@ export default function BatchRankCheck({
   const completed = (status?.completed ?? 0) + (status?.failed ?? 0);
   const progressPct = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-  const stop = async () => {
-    if (!extensionId || !runId || stopping) return;
-    setStopping(true);
-    try {
-      await cancelWingSalesRankCheck(extensionId, runId);
-      toast.info("현재 키워드 처리를 마친 뒤 수집을 중단합니다.");
-      await statusQuery.refetch();
-    } catch (err) {
-      setStopping(false);
-      toast.error(
-        err instanceof Error ? err.message : "Wing 판매순위 수집 중단 실패",
-      );
-    }
-  };
-
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex flex-wrap items-center gap-3">
       {running && status && isRunning(status.status) && (
         <div className="hidden items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 sm:flex">
           <span className="tabular-nums font-semibold text-purple-700">
@@ -188,7 +183,12 @@ export default function BatchRankCheck({
       <button
         type="button"
         onClick={start}
-        disabled={running || !extensionId}
+        disabled={
+          running ||
+          collectionSession?.status === "running" ||
+          collectionSession?.status === "attention_required" ||
+          !extensionId
+        }
         title={!extensionId ? (disabledReason ?? undefined) : undefined}
         className={cn(
           "flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-purple-700",
@@ -205,21 +205,21 @@ export default function BatchRankCheck({
           </>
         )}
       </button>
-      {running && runId && (
-        <button
-          type="button"
-          onClick={stop}
-          disabled={stopping}
-          className="flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {stopping ? (
-            <Loader2 size={14} className="animate-spin" />
-          ) : (
-            <Square size={13} fill="currentColor" />
-          )}
-          {stopping ? "중단 요청 중…" : "수집 중단"}
-        </button>
+      {collectionSession && (
+        <BrowserCollectionRunControls
+          session={collectionSession}
+          onWebRestart={start}
+          className="basis-full"
+        />
       )}
     </div>
   );
+}
+
+function readCollectionRunId(): string | null {
+  if (typeof window === "undefined") return null;
+  const parsed = BrowserCollectionRunIdSchema.safeParse(
+    new URLSearchParams(window.location.search).get("collectionRun"),
+  );
+  return parsed.success ? parsed.data : null;
 }

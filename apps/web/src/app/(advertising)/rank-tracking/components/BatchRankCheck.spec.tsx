@@ -1,17 +1,31 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  cancelWingSalesRankCheck,
   getWingSalesRankCheckStatus,
   runWingSalesRankCheck,
 } from "../lib/rank-extension";
 import BatchRankCheck from "./BatchRankCheck";
 
+const RUN_ID_1 = "11111111-1111-4111-8111-111111111111";
+const RUN_ID_2 = "22222222-2222-4222-8222-222222222222";
+const mockCollectionSession = vi.hoisted(() => vi.fn());
+const mockSendCollectionControl = vi.hoisted(() => vi.fn());
+
 vi.mock("../lib/rank-extension", () => ({
-  cancelWingSalesRankCheck: vi.fn(),
   getWingSalesRankCheckStatus: vi.fn(),
   runWingSalesRankCheck: vi.fn(),
+}));
+
+vi.mock("@/hooks/useBrowserCollectionSession", () => ({
+  useBrowserCollectionSession: mockCollectionSession,
+}));
+
+vi.mock("@/lib/browser-collection-session", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@/lib/browser-collection-session")
+  >()),
+  sendBrowserCollectionControl: mockSendCollectionControl,
 }));
 
 vi.mock("sonner", () => ({
@@ -44,13 +58,15 @@ describe("BatchRankCheck", () => {
   beforeEach(() => {
     vi.mocked(getWingSalesRankCheckStatus).mockReset();
     vi.mocked(runWingSalesRankCheck).mockReset();
-    vi.mocked(cancelWingSalesRankCheck).mockReset();
+    mockCollectionSession.mockReset();
+    mockCollectionSession.mockReturnValue({ data: null });
+    mockSendCollectionControl.mockReset();
   });
 
   it("restores an active extension run after the page reloads", async () => {
     vi.mocked(getWingSalesRankCheckStatus).mockResolvedValue({
       status: "running",
-      runId: "wing-run-1",
+      runId: RUN_ID_1,
       total: 12,
       completed: 3,
       failed: 1,
@@ -74,37 +90,69 @@ describe("BatchRankCheck", () => {
     );
     expect(getWingSalesRankCheckStatus).toHaveBeenCalledWith(
       "coupang-extension",
-      "wing-run-1",
+      RUN_ID_1,
     );
   });
 
-  it("requests a cooperative stop for the active run", async () => {
-    vi.mocked(getWingSalesRankCheckStatus).mockResolvedValue({
-      status: "running",
-      runId: "wing-run-2",
-      total: 947,
-      completed: 67,
-      failed: 0,
-      current: "문구세트",
-    });
-    vi.mocked(cancelWingSalesRankCheck).mockResolvedValue({
-      success: true,
-      cancelled: true,
-      runId: "wing-run-2",
-    });
+  it("renders generic attention, restart, and cancel controls for the active run", async () => {
+    vi.mocked(getWingSalesRankCheckStatus)
+      .mockResolvedValueOnce({
+        status: "running",
+        runId: RUN_ID_2,
+        total: 947,
+        completed: 67,
+        failed: 0,
+        current: "문구세트",
+      })
+      .mockResolvedValue({
+        status: "attention_required",
+        runId: RUN_ID_2,
+        total: 947,
+        completed: 67,
+        failed: 0,
+        current: "문구세트",
+      });
+    mockCollectionSession.mockImplementation((runId: string | null) => ({
+      data:
+        runId === RUN_ID_2
+          ? {
+              runId: RUN_ID_2,
+              producer: "advertising.wing_rank",
+              classification: "background_preferred",
+              status: "attention_required",
+              attempt: 1,
+              restartStrategy: "web",
+              progress: {
+                current: 67,
+                total: 947,
+                completed: 67,
+                failed: 0,
+                label: "문구세트",
+              },
+              inputIdentity: { scheduled: false },
+              attention: {
+                reason: "marketplace_login",
+                message: "Wing 로그인이 필요합니다.",
+                canOpenTab: true,
+              },
+              startedAt: 1_700_000_000_000,
+              updatedAt: 1_700_000_001_000,
+              finishedAt: null,
+            }
+          : null,
+    }));
 
     renderBatchRankCheck();
-    const cancelButton = await screen.findByRole("button", {
-      name: "수집 중단",
-    });
-
-    fireEvent.click(cancelButton);
 
     await waitFor(() => {
-      expect(cancelWingSalesRankCheck).toHaveBeenCalledWith(
-        "coupang-extension",
-        "wing-run-2",
-      );
+      expect(mockCollectionSession).toHaveBeenCalledWith(RUN_ID_2);
     });
+    expect(screen.getByText("Wing 로그인이 필요합니다.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "확인 탭 열기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "처음부터 재실행" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "중단" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "수집 중단" }),
+    ).not.toBeInTheDocument();
   });
 });

@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { BrowserCollectionRunIdSchema } from '@kiditem/shared/browser-collection-session';
 import { useQuery } from '@tanstack/react-query';
-import { Database, Loader2, RefreshCw, Square } from 'lucide-react';
+import { Database, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
+import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
 import { formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
 import { useCoupangCatalogImport } from '../hooks/useCoupangCatalogImport';
@@ -21,7 +23,8 @@ export function CoupangCatalogImportPanel() {
     [accountsQuery.data],
   );
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
-  const catalogImport = useCoupangCatalogImport(selectedAccountId);
+  const [linkedRunId] = useState(readCollectionRunId);
+  const catalogImport = useCoupangCatalogImport(selectedAccountId, linkedRunId);
   const completedToastRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -42,13 +45,17 @@ export function CoupangCatalogImportPanel() {
 
   const server = catalogImport.serverStatus;
   const extension = catalogImport.extensionStatus;
+  const collectionSession = catalogImport.collectionSession.data;
   const isComplete = server?.status === 'completed';
   const isRunning = server?.status === 'running' && extension?.status === 'running';
+  const browserActive =
+    collectionSession?.status === 'running' ||
+    collectionSession?.status === 'attention_required';
   const canResume = server?.status === 'running' &&
     (!extension || extension.status === 'idle' || extension.status === 'error' || extension.status === 'cancelled');
   const progress = server ? buildCoupangCatalogProgress(server, Date.now()) : null;
   const error = extension?.error || errorMessage(catalogImport.startError) ||
-    errorMessage(catalogImport.cancelError) || server?.error?.message || null;
+    server?.error?.message || null;
 
   const handleStart = async () => {
     try {
@@ -56,15 +63,6 @@ export function CoupangCatalogImportPanel() {
       toast.success(canResume ? '쿠팡 상품 수집을 재개했습니다.' : '쿠팡 상품 수집을 시작했습니다.');
     } catch (cause) {
       toast.error(errorMessage(cause) || '쿠팡 상품 수집을 시작하지 못했습니다.');
-    }
-  };
-
-  const handleCancel = async () => {
-    try {
-      await catalogImport.cancel();
-      toast.success('쿠팡 상품 수집을 중단했습니다. 같은 실행에서 다시 재개할 수 있습니다.');
-    } catch (cause) {
-      toast.error(errorMessage(cause) || '쿠팡 상품 수집을 중단하지 못했습니다.');
     }
   };
 
@@ -132,18 +130,7 @@ export function CoupangCatalogImportPanel() {
               <option key={account.id} value={account.id}>{account.name}</option>
             ))}
           </select>
-          {isRunning && (
-            <button
-              type="button"
-              onClick={handleCancel}
-              disabled={catalogImport.isCancelling}
-              className="flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-            >
-              <Square size={12} />
-              중단
-            </button>
-          )}
-          {!isRunning && (
+          {!browserActive && !isRunning && (
             <button
               type="button"
               onClick={handleStart}
@@ -159,9 +146,24 @@ export function CoupangCatalogImportPanel() {
             </button>
           )}
         </div>
+        {collectionSession && (
+          <BrowserCollectionRunControls
+            session={collectionSession}
+            onWebRestart={handleStart}
+            className="basis-full"
+          />
+        )}
       </div>
     </section>
   );
+}
+
+function readCollectionRunId(): string | null {
+  if (typeof window === 'undefined') return null;
+  const parsed = BrowserCollectionRunIdSchema.safeParse(
+    new URLSearchParams(window.location.search).get('collectionRun'),
+  );
+  return parsed.success ? parsed.data : null;
 }
 
 function phaseLabel(phase: string): string {

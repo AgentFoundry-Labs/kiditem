@@ -10,7 +10,7 @@ import {
 } from "@/lib/extension-bridge";
 import type { SerpItem } from "./rank-api";
 
-export const RANK_EXTENSION_MIN_VERSION = "1.2.31";
+export const RANK_EXTENSION_MIN_VERSION = "1.2.32";
 
 export const RANK_EXTENSION_CHROME_REQUIRED =
   "Wing 판매순위 수집은 Chrome 확장프로그램으로 실행됩니다. Chrome에서 이 페이지를 열어주세요.";
@@ -34,11 +34,14 @@ interface KidItemExtensionPingResponse {
     coupangKeywordRank?: boolean;
     wingCatalogSalesRank?: boolean;
     wingCatalogSalesRankCancel?: boolean;
+    browserCollectionSessions?: boolean;
   };
 }
 
 export interface CheckKeywordRankResponse {
   success?: boolean;
+  attentionRequired?: boolean;
+  runId?: string | null;
   error?: string;
   keyword?: string;
   pagesScanned?: number;
@@ -83,15 +86,6 @@ export interface RankCheckStatus {
   cancelled?: boolean;
 }
 
-export interface CancelRankCheckResponse {
-  success?: boolean;
-  cancelled?: boolean;
-  runId?: string | null;
-  staleRunId?: string;
-  status?: string;
-  error?: string;
-}
-
 export function isRankExtensionVersionAtLeast(
   current: string | null | undefined,
   minimum: string,
@@ -133,6 +127,7 @@ export async function detectRankExtensionGate(): Promise<RankExtensionGate> {
   if (
     !ping.capabilities?.wingCatalogSalesRank ||
     !ping.capabilities?.wingCatalogSalesRankCancel ||
+    !ping.capabilities?.browserCollectionSessions ||
     !isRankExtensionVersionAtLeast(version, RANK_EXTENSION_MIN_VERSION)
   ) {
     return { status: "outdated", extensionId, version };
@@ -152,7 +147,7 @@ export function rankExtensionGateMessage(
 /** 단일 키워드 SERP 캡처(+기본 서버 전송). 확장이 www.coupang.com 검색 탭을 연다. */
 export async function checkCoupangKeywordRank(
   extensionId: string,
-  input: { keyword: string; maxPages?: number },
+  input: { keyword: string; maxPages?: number; runId?: string },
 ): Promise<CheckKeywordRankResponse> {
   const keyword = input.keyword.trim();
   if (!keyword) throw new Error("검색 키워드를 입력하세요.");
@@ -163,9 +158,17 @@ export async function checkCoupangKeywordRank(
       action: "checkCoupangKeywordRank",
       keyword,
       maxPages: input.maxPages ?? 2,
+      ...(input.runId ? { runId: input.runId } : {}),
     },
     RANK_CHECK_TIMEOUT_MS,
   );
+  if (
+    !response?.success &&
+    response?.attentionRequired &&
+    typeof response.runId === "string"
+  ) {
+    return { ...response, items: [] };
+  }
   if (!response?.success) {
     throw new Error(response?.error ?? "쿠팡 키워드 순위 수집 실패");
   }
@@ -197,25 +200,4 @@ export async function getWingSalesRankCheckStatus(
     ...(runId ? { runId } : {}),
   });
   return response ?? { status: "idle" };
-}
-
-export async function cancelWingSalesRankCheck(
-  extensionId: string,
-  runId: string,
-): Promise<CancelRankCheckResponse> {
-  const response = await sendToExtension<CancelRankCheckResponse>(extensionId, {
-    action: "cancelWingSalesRankCheck",
-    runId,
-  });
-  if (!response?.success) {
-    throw new Error(response?.error ?? "Wing 판매순위 수집 중단 실패");
-  }
-  if (!response.cancelled) {
-    throw new Error(
-      response.staleRunId
-        ? "Wing 판매순위 실행이 변경되어 중단하지 못했습니다."
-        : "Wing 판매순위 수집이 이미 종료되었습니다.",
-    );
-  }
-  return response;
 }

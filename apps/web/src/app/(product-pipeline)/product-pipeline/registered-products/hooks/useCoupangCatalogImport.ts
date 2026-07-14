@@ -7,11 +7,11 @@ import {
   type CoupangCatalogBrowserStatus,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { useAuthSession } from '@/components/providers/AuthProvider';
+import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
 import { safeStorageGet, safeStorageRemove, safeStorageSet } from '@/lib/browser-storage';
 import { detectExtensionId } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
 import {
-  cancelCoupangCatalogBrowser,
   getCoupangCatalogBrowserStatus,
   startCoupangCatalogBrowser,
 } from '../lib/coupang-catalog-import';
@@ -25,16 +25,29 @@ type ActiveRun = {
   runId: string;
 };
 
-export function useCoupangCatalogImport(channelAccountId: string | null) {
+export function useCoupangCatalogImport(
+  channelAccountId: string | null,
+  linkedRunId: string | null = null,
+) {
   const queryClient = useQueryClient();
   const { session } = useAuthSession();
   const [activeRun, setActiveRun] = useState<ActiveRun | null>(() => readActiveRun());
   const [extensionId, setExtensionId] = useState<string | null>(null);
+  const collectionSession = useBrowserCollectionSession(
+    activeRun?.runId ?? linkedRunId,
+  );
   const completedRunRef = useRef<string | null>(null);
   const publishedProgressRef = useRef<{
     runId: string;
     publishedProducts: number;
   } | null>(null);
+
+  useEffect(() => {
+    if (activeRun || !channelAccountId || !linkedRunId) return;
+    const linked = { channelAccountId, runId: linkedRunId };
+    setActiveRun(linked);
+    writeActiveRun(linked);
+  }, [activeRun, channelAccountId, linkedRunId]);
 
   const serverStatusQuery = useQuery({
     queryKey: activeRun
@@ -111,16 +124,6 @@ export function useCoupangCatalogImport(channelAccountId: string | null) {
     },
   });
 
-  const cancelMutation = useMutation({
-    mutationFn: async () => {
-      if (!activeRun) return;
-      const detected = extensionId ?? await detectExtensionId();
-      if (!detected) throw new Error('KIDITEM 쿠팡 확장프로그램을 찾을 수 없습니다.');
-      setExtensionId(detected);
-      await cancelCoupangCatalogBrowser(detected, activeRun.runId);
-    },
-  });
-
   useEffect(() => {
     const server = serverStatusQuery.data;
     if (!server) return;
@@ -155,19 +158,16 @@ export function useCoupangCatalogImport(channelAccountId: string | null) {
     publishedProgressRef.current = null;
     safeStorageRemove('local', STORAGE_KEY);
     startMutation.reset();
-    cancelMutation.reset();
   };
 
   return {
     activeRun,
     serverStatus: serverStatusQuery.data ?? null,
     extensionStatus: extensionStatusQuery.data ?? null,
+    collectionSession,
     isStarting: startMutation.isPending,
-    isCancelling: cancelMutation.isPending,
     startError: startMutation.error,
-    cancelError: cancelMutation.error,
     start: startMutation.mutateAsync,
-    cancel: cancelMutation.mutateAsync,
     reset,
   };
 }

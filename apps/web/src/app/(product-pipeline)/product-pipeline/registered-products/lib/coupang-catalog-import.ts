@@ -9,8 +9,11 @@ type ExtensionResponse = {
   success?: boolean;
   started?: boolean;
   error?: string;
+  version?: string;
   capabilities?: Record<string, unknown>;
 };
+
+export const COUPANG_CATALOG_EXTENSION_MIN_VERSION = '1.2.32';
 
 export const COUPANG_CATALOG_EXTENSION_REQUIRED =
   'KIDITEM 쿠팡 확장프로그램을 설치하고 새로고침한 뒤 다시 시도하세요.';
@@ -32,7 +35,11 @@ export async function startCoupangCatalogBrowser(input: {
   const ping = await sendToExtension<ExtensionResponse>(extensionId, {
     action: 'ping',
   });
-  if (ping?.capabilities?.coupangCatalogSnapshot !== true) {
+  if (
+    ping?.capabilities?.coupangCatalogSnapshot !== true ||
+    ping.capabilities.browserCollectionSessions !== true ||
+    !isVersionAtLeast(ping.version, COUPANG_CATALOG_EXTENSION_MIN_VERSION)
+  ) {
     throw new Error(COUPANG_CATALOG_EXTENSION_RELOAD_REQUIRED);
   }
   const auth = await sendToExtension<ExtensionResponse>(extensionId, {
@@ -63,12 +70,19 @@ export function getCoupangCatalogBrowserStatus(
   });
 }
 
-export function cancelCoupangCatalogBrowser(
-  extensionId: string,
-  runId: string,
-): Promise<ExtensionResponse> {
-  return sendToExtension<ExtensionResponse>(extensionId, {
-    action: 'cancelCoupangCatalogImport',
-    runId,
-  });
+function isVersionAtLeast(
+  current: string | null | undefined,
+  minimum: string,
+): boolean {
+  if (!current) return false;
+  const currentParts = current.split('.').map((part) => Number(part) || 0);
+  const minimumParts = minimum.split('.').map((part) => Number(part) || 0);
+  const length = Math.max(currentParts.length, minimumParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const currentPart = currentParts[index] ?? 0;
+    const minimumPart = minimumParts[index] ?? 0;
+    if (currentPart > minimumPart) return true;
+    if (currentPart < minimumPart) return false;
+  }
+  return true;
 }

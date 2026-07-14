@@ -4,7 +4,7 @@ import {
   sendToExtension,
 } from "@/lib/extension-bridge";
 
-export const COMPETITOR_EXTENSION_MIN_VERSION = "1.2.30";
+export const COMPETITOR_EXTENSION_MIN_VERSION = "1.2.32";
 
 export type CompetitorExtensionGate =
   | { status: "ready"; extensionId: string; version: string }
@@ -20,6 +20,7 @@ interface ExtensionPingResponse {
     coupangCompetitorSeller?: boolean;
     coupangCompetitorSellerCatalog?: boolean;
     coupangCompetitorSellerCatalogOnDemand?: boolean;
+    browserCollectionSessions?: boolean;
   };
 }
 
@@ -60,7 +61,8 @@ export async function detectCompetitorExtensionGate(): Promise<CompetitorExtensi
     !ping.capabilities?.coupangKeywordRank ||
     !ping.capabilities?.coupangCompetitorSeller ||
     !ping.capabilities?.coupangCompetitorSellerCatalog ||
-    !ping.capabilities?.coupangCompetitorSellerCatalogOnDemand
+    !ping.capabilities?.coupangCompetitorSellerCatalogOnDemand ||
+    !ping.capabilities?.browserCollectionSessions
   ) {
     return { status: "outdated", version };
   }

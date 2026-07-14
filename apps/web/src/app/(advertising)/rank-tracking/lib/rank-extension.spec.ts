@@ -1,7 +1,12 @@
-import { sendToExtension } from "@/lib/extension-bridge";
+import {
+  detectExtensionId,
+  isChromeExtensionRuntimeAvailable,
+  sendToExtension,
+} from "@/lib/extension-bridge";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  cancelWingSalesRankCheck,
+  checkCoupangKeywordRank,
+  detectRankExtensionGate,
   isRankExtensionVersionAtLeast,
   RANK_EXTENSION_MIN_VERSION,
 } from "./rank-extension";
@@ -15,27 +20,55 @@ vi.mock("@/lib/extension-bridge", () => ({
 describe("rank extension version gate", () => {
   beforeEach(() => {
     vi.mocked(sendToExtension).mockReset();
+    vi.mocked(detectExtensionId).mockReset();
+    vi.mocked(isChromeExtensionRuntimeAvailable).mockReset();
   });
 
-  it("requires the cooperative Wing cancellation capability", () => {
-    expect(RANK_EXTENSION_MIN_VERSION).toBe("1.2.31");
-    expect(
-      isRankExtensionVersionAtLeast("1.2.30", RANK_EXTENSION_MIN_VERSION),
-    ).toBe(false);
+  it("requires the generic collection-session extension release", () => {
+    expect(RANK_EXTENSION_MIN_VERSION).toBe("1.2.32");
     expect(
       isRankExtensionVersionAtLeast("1.2.31", RANK_EXTENSION_MIN_VERSION),
+    ).toBe(false);
+    expect(
+      isRankExtensionVersionAtLeast("1.2.32", RANK_EXTENSION_MIN_VERSION),
     ).toBe(true);
   });
 
-  it("reports a stop only when the extension accepted cancellation", async () => {
+  it("rejects an extension without browserCollectionSessions", async () => {
+    vi.mocked(isChromeExtensionRuntimeAvailable).mockReturnValue(true);
+    vi.mocked(detectExtensionId).mockResolvedValue("coupang-extension");
     vi.mocked(sendToExtension).mockResolvedValue({
       success: true,
-      cancelled: false,
-      status: "done",
+      version: "1.2.32",
+      capabilities: {
+        wingCatalogSalesRank: true,
+        wingCatalogSalesRankCancel: true,
+        browserCollectionSessions: false,
+      },
+    });
+
+    await expect(detectRankExtensionGate()).resolves.toEqual({
+      status: "outdated",
+      extensionId: "coupang-extension",
+      version: "1.2.32",
+    });
+  });
+
+  it("preserves an attention run so the generic controls can recover it", async () => {
+    vi.mocked(sendToExtension).mockResolvedValue({
+      success: false,
+      attentionRequired: true,
+      runId: "11111111-1111-4111-8111-111111111111",
+      error: "쿠팡 로그인이 필요합니다.",
     });
 
     await expect(
-      cancelWingSalesRankCheck("coupang-extension", "wing-run-1"),
-    ).rejects.toThrow("이미 종료");
+      checkCoupangKeywordRank("coupang-extension", {
+        keyword: "문구세트",
+      }),
+    ).resolves.toMatchObject({
+      attentionRequired: true,
+      runId: "11111111-1111-4111-8111-111111111111",
+    });
   });
 });

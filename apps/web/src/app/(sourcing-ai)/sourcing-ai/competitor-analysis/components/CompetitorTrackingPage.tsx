@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { BrowserCollectionRunIdSchema } from "@kiditem/shared/browser-collection-session";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -13,6 +14,8 @@ import {
   Trophy,
 } from "lucide-react";
 import { toast } from "sonner";
+import { BrowserCollectionRunControls } from "@/components/browser-collection/BrowserCollectionRunControls";
+import { useBrowserCollectionSession } from "@/hooks/useBrowserCollectionSession";
 import { friendlyError } from "@/lib/api-error";
 import { queryKeys } from "@/lib/query-keys";
 import { formatDateTime, formatNumber } from "@/lib/utils";
@@ -38,6 +41,7 @@ type ActiveRun = {
   runId: string;
   extensionId: string;
   mode: "all" | "seller";
+  sellerId?: string;
   sellerKey?: string;
   sellerName?: string;
 } | null;
@@ -51,7 +55,16 @@ export function CompetitorTrackingPage() {
   );
   const [gate, setGate] = useState<GateState>({ status: "checking" });
   const [activeRun, setActiveRun] = useState<ActiveRun>(null);
+  const [linkedRunId] = useState(readCollectionRunId);
   const completedRunRef = useRef<string | null>(null);
+  const collectionSessionQuery = useBrowserCollectionSession(
+    activeRun?.runId ?? linkedRunId,
+  );
+  const collectionSession =
+    collectionSessionQuery.data?.producer === "advertising.competitor_catalog" ||
+    collectionSessionQuery.data?.producer === "advertising.keyword_rank"
+      ? collectionSessionQuery.data
+      : null;
 
   const overviewQuery = useQuery({
     queryKey: queryKeys.sourcing.competitors(periodDays),
@@ -73,6 +86,24 @@ export function CompetitorTrackingPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (activeRun || gate.status !== "ready" || !collectionSession) return;
+    if (
+      collectionSession.status !== "running" &&
+      collectionSession.status !== "attention_required"
+    ) {
+      return;
+    }
+    setActiveRun({
+      runId: collectionSession.runId,
+      extensionId: gate.extensionId,
+      mode:
+        collectionSession.producer === "advertising.competitor_catalog"
+          ? "seller"
+          : "all",
+    });
+  }, [activeRun, collectionSession, gate]);
+
   const statusQuery = useQuery({
     queryKey: queryKeys.sourcing.competitorCollectionStatus(
       activeRun?.runId ?? null,
@@ -90,14 +121,16 @@ export function CompetitorTrackingPage() {
     enabled: Boolean(activeRun),
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      return status === "done" || status === "error" ? false : 2_000;
+      return status === "done" || status === "error" || status === "cancelled"
+        ? false
+        : 2_000;
     },
   });
 
   useEffect(() => {
     if (!activeRun || !statusQuery.data) return;
     const status = statusQuery.data.status;
-    if (status !== "done" && status !== "error") return;
+    if (status !== "done" && status !== "error" && status !== "cancelled") return;
     if (completedRunRef.current === activeRun.runId) return;
     completedRunRef.current = activeRun.runId;
     queryClient.invalidateQueries({
@@ -113,6 +146,8 @@ export function CompetitorTrackingPage() {
           `쿠팡 경쟁 판매자 수집 완료 · ${formatNumber(statusQuery.data.completed ?? 0)}개 키워드`,
         );
       }
+    } else if (status === "cancelled") {
+      toast.info("쿠팡 경쟁 판매자 수집을 중단했습니다.");
     } else {
       toast.error(
         statusQuery.data.error ?? "쿠팡 경쟁 판매자 수집에 실패했습니다.",
@@ -182,6 +217,7 @@ export function CompetitorTrackingPage() {
           extensionId,
           mode: "seller",
           sellerKey: seller.sellerKey,
+          sellerId: seller.sellerId ?? undefined,
           sellerName: seller.brandName ?? seller.sellerName,
         });
         toast.success(
@@ -224,12 +260,30 @@ export function CompetitorTrackingPage() {
     gate.status === "checking"
       ? null
       : competitorExtensionGateMessage(gate as CompetitorExtensionGate);
-  const collecting = Boolean(activeRun);
+  const collecting =
+    Boolean(activeRun) ||
+    collectionSession?.status === "running" ||
+    collectionSession?.status === "attention_required";
   const collectingSellerKey =
     activeRun?.mode === "seller" ? activeRun.sellerKey : null;
   const pendingSellerKey = collectSellerMutation.isPending
     ? collectSellerMutation.variables?.sellerKey
     : null;
+
+  const restartCollection = async () => {
+    if (!collectionSession) return;
+    if (collectionSession.producer === "advertising.keyword_rank") {
+      await collectMutation.mutateAsync();
+      return;
+    }
+    const sellerId = activeRun?.sellerId ?? statusQuery.data?.sellerId ?? null;
+    const seller = data?.sellers.find((candidate) => candidate.sellerId === sellerId);
+    if (!seller) {
+      toast.error("처음부터 다시 수집할 판매자를 확인할 수 없습니다.");
+      return;
+    }
+    await collectSellerMutation.mutateAsync(seller);
+  };
 
   if (overviewQuery.isLoading) return <LoadingState />;
   if (overviewQuery.isError) {
@@ -328,6 +382,13 @@ export function CompetitorTrackingPage() {
         </div>
       </section>
 
+      {collectionSession && (
+        <BrowserCollectionRunControls
+          session={collectionSession}
+          onWebRestart={restartCollection}
+        />
+      )}
+
       {(gateMessage ||
         collecting ||
         data.summary.unresolvedSellerProductCount > 0) && (
@@ -410,6 +471,14 @@ export function CompetitorTrackingPage() {
   );
 }
 
+function readCollectionRunId(): string | null {
+  if (typeof window === "undefined") return null;
+  const parsed = BrowserCollectionRunIdSchema.safeParse(
+    new URLSearchParams(window.location.search).get("collectionRun"),
+  );
+  return parsed.success ? parsed.data : null;
+}
+
 function SummaryCard({
   icon: Icon,
   label,
@@ -461,7 +530,7 @@ function CollectionNotice({
   const message = collecting
     ? `${currentKeyword ?? "키워드 준비 중"} · ${formatNumber(completed)}/${formatNumber(total)} 완료`
     : (gateMessage ??
-      `기존 스냅샷 ${formatNumber(unresolvedCount)}개 상품은 판매자 정보가 없습니다. 확장프로그램 1.2.30+로 재수집하면 내 상품과 겹치는 판매자만 선별해 전체 상품과 이미지를 추적합니다.`);
+      `기존 스냅샷 ${formatNumber(unresolvedCount)}개 상품은 판매자 정보가 없습니다. 확장프로그램 1.2.32+로 재수집하면 내 상품과 겹치는 판매자만 선별해 전체 상품과 이미지를 추적합니다.`);
   return (
     <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
       <AlertCircle size={15} className="mt-0.5 shrink-0" />
