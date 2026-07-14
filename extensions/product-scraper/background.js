@@ -1,3 +1,5 @@
+importScripts("collection-session.js");
+importScripts("interactive-tabs.js");
 importScripts("1688-trend-collector.js");
 importScripts("live-commerce-collector.js");
 
@@ -158,17 +160,55 @@ async function backendRequestConfig() {
   return { ok: true, base, headers, request: fetchKidItem };
 }
 
+const collectionSessions = KidItemCollectionSession.create({
+  chrome,
+  storageKey: "kiditem_collection_sessions",
+  webUrlPatterns: KIDITEM_WEB_URL_PATTERNS,
+});
+
 const trendCollector = ProductScraper1688Trend.create({
   chrome,
   getBackendRequestConfig: backendRequestConfig,
   ensureContentScripts: injectContentScripts,
+  sessions: collectionSessions,
 });
 
 const liveCommerceCollector = ProductScraperLiveCommerce.create({
   chrome,
   getBackendRequestConfig: backendRequestConfig,
   ensureContentScripts: injectLiveCommerceContentScripts,
+  sessions: collectionSessions,
 });
+
+async function cancelCollectionSession(runId) {
+  const session = await collectionSessions.get(runId);
+  if (!session) return null;
+  if (session.producer === "sourcing.1688_trend") {
+    await trendCollector.cancel(runId);
+  } else if (session.producer === "sourcing.live_commerce") {
+    await liveCommerceCollector.cancel(runId);
+  } else {
+    throw new Error("Unsupported collection producer");
+  }
+  return collectionSessions.get(runId);
+}
+
+async function restartCollectionSession(runId) {
+  const session = await collectionSessions.get(runId);
+  if (!session) throw new Error("Collection session not found");
+  if (session.producer === "sourcing.1688_trend") {
+    await trendCollector.restart(runId);
+    return collectionSessions.get(runId);
+  }
+  if (session.producer === "sourcing.live_commerce") {
+    await collectionSessions.requireAttention(runId, {
+      reason: "manual_confirmation",
+      message: "현재 방송 URL을 확인한 뒤 처음부터 다시 수집해주세요.",
+    });
+    return collectionSessions.get(runId);
+  }
+  throw new Error("Unsupported collection producer");
+}
 
 // MV3 service workers may be suspended during a multi-keyword 1688 run.
 // The KidItem host content script sends a small heartbeat while the page is
@@ -227,6 +267,34 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return;
   }
 
+  const respond = (promise) => {
+    Promise.resolve(promise)
+      .then(sendResponse)
+      .catch((error) =>
+        sendResponse({
+          success: false,
+          error: error?.message || "Collection session request failed",
+        }),
+      );
+    return true;
+  };
+
+  if (msg.action === "listCollectionSessions") {
+    return respond(collectionSessions.list());
+  }
+  if (msg.action === "getCollectionSession") {
+    return respond(collectionSessions.get(msg.runId));
+  }
+  if (msg.action === "cancelCollectionSession") {
+    return respond(cancelCollectionSession(msg.runId));
+  }
+  if (msg.action === "openCollectionAttentionTab") {
+    return respond(collectionSessions.openAttentionTab(msg.runId));
+  }
+  if (msg.action === "restartCollectionSession") {
+    return respond(restartCollectionSession(msg.runId));
+  }
+
   if (msg.action === "ping") {
     sendResponse({
       success: true,
@@ -235,6 +303,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         sourcingProductScraper: true,
         sourcing1688TrendCollector: true,
         sourcingLiveCommerceCollector: true,
+        browserCollectionSessions: true,
       },
     });
     return;
@@ -271,8 +340,11 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "collectLiveCommerceUrl") {
-    liveCommerceCollector.collect(msg.url).then(sendResponse);
-    return true;
+    if (!validateOptionalRunId(msg.runId)) {
+      sendResponse({ success: false, error: "invalid runId" });
+      return;
+    }
+    return respond(liveCommerceCollector.collect(msg.url, msg.runId));
   }
 
   if (msg.action === "setAuthToken") {

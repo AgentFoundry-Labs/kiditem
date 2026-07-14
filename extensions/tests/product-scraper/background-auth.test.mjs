@@ -6,36 +6,40 @@ import vm from 'node:vm';
 
 const backgroundPath = path.resolve('extensions/product-scraper/background.js');
 const backgroundSource = fs.readFileSync(backgroundPath, 'utf8');
+const collectionSessionPath = path.resolve('extensions/product-scraper/collection-session.js');
+const collectionSessionSource = fs.readFileSync(collectionSessionPath, 'utf8');
+const interactiveTabsPath = path.resolve('extensions/product-scraper/interactive-tabs.js');
+const interactiveTabsSource = fs.readFileSync(interactiveTabsPath, 'utf8');
 const trendCollectorPath = path.resolve('extensions/product-scraper/1688-trend-collector.js');
 const trendCollectorSource = fs.readFileSync(trendCollectorPath, 'utf8');
 const liveCommerceCollectorPath = path.resolve('extensions/product-scraper/live-commerce-collector.js');
 const liveCommerceCollectorSource = fs.readFileSync(liveCommerceCollectorPath, 'utf8');
+const manifest = JSON.parse(
+  fs.readFileSync(path.resolve('extensions/product-scraper/manifest.json'), 'utf8'),
+);
 
 function createStorage(initial = {}, notify = () => {}) {
   const values = { ...initial };
   return {
     values,
     get(keys, cb) {
+      let result;
       if (keys == null) {
-        cb({ ...values });
-        return;
-      }
-      if (typeof keys === 'string') {
-        cb({ [keys]: values[keys] });
-        return;
-      }
-      if (Array.isArray(keys)) {
-        cb(Object.fromEntries(keys.map((key) => [key, values[key]])));
-        return;
-      }
-      cb(
-        Object.fromEntries(
+        result = { ...values };
+      } else if (typeof keys === 'string') {
+        result = { [keys]: values[keys] };
+      } else if (Array.isArray(keys)) {
+        result = Object.fromEntries(keys.map((key) => [key, values[key]]));
+      } else {
+        result = Object.fromEntries(
           Object.entries(keys).map(([key, fallback]) => [
             key,
             values[key] === undefined ? fallback : values[key],
           ]),
-        ),
-      );
+        );
+      }
+      if (cb) cb(result);
+      else return Promise.resolve(result);
     },
     set(next, cb) {
       const changes = Object.fromEntries(
@@ -46,7 +50,8 @@ function createStorage(initial = {}, notify = () => {}) {
       );
       Object.assign(values, next);
       notify(changes, 'local');
-      cb?.();
+      if (cb) cb();
+      else return Promise.resolve();
     },
     remove(keys, cb) {
       const changes = {};
@@ -55,7 +60,8 @@ function createStorage(initial = {}, notify = () => {}) {
         delete values[key];
       }
       notify(changes, 'local');
-      cb?.();
+      if (cb) cb();
+      else return Promise.resolve();
     },
   };
 }
@@ -127,6 +133,14 @@ function loadBackground(initialStorage = {}, plannedResponses = []) {
 
   vm.createContext(context);
   context.importScripts = (file) => {
+    if (file === 'collection-session.js') {
+      vm.runInContext(collectionSessionSource, context, { filename: collectionSessionPath });
+      return;
+    }
+    if (file === 'interactive-tabs.js') {
+      vm.runInContext(interactiveTabsSource, context, { filename: interactiveTabsPath });
+      return;
+    }
     if (file === '1688-trend-collector.js') {
       vm.runInContext(trendCollectorSource, context, { filename: trendCollectorPath });
       return;
@@ -208,6 +222,37 @@ test('advertises the logged-in Chrome trend and live-commerce collector capabili
   assert.equal(response?.success, true);
   assert.equal(response?.capabilities?.sourcing1688TrendCollector, true);
   assert.equal(response?.capabilities?.sourcingLiveCommerceCollector, true);
+  assert.equal(response?.capabilities?.browserCollectionSessions, true);
+  assert.equal(manifest.version, '2.2.1');
+});
+
+test('loads collection sessions and the interactive focus owner before sourcing collectors', () => {
+  const collectionSession = backgroundSource.indexOf('importScripts("collection-session.js")');
+  const interactiveTabs = backgroundSource.indexOf('importScripts("interactive-tabs.js")');
+  const trendCollector = backgroundSource.indexOf('importScripts("1688-trend-collector.js")');
+  const liveCommerceCollector = backgroundSource.indexOf('importScripts("live-commerce-collector.js")');
+
+  assert.ok(collectionSession >= 0);
+  assert.ok(interactiveTabs > collectionSession);
+  assert.ok(trendCollector > interactiveTabs);
+  assert.ok(liveCommerceCollector > trendCollector);
+  assert.match(backgroundSource, /KidItemCollectionSession\.create\(/);
+  assert.match(backgroundSource, /storageKey:\s*["']kiditem_collection_sessions["']/);
+});
+
+test('exposes all generic browser collection controls before sourcing actions', () => {
+  const genericList = backgroundSource.indexOf('msg.action === "listCollectionSessions"');
+  const trendStart = backgroundSource.indexOf('msg.action === "start1688TrendCollection"');
+  assert.ok(genericList >= 0 && genericList < trendStart);
+  for (const action of [
+    'listCollectionSessions',
+    'getCollectionSession',
+    'cancelCollectionSession',
+    'openCollectionAttentionTab',
+    'restartCollectionSession',
+  ]) {
+    assert.match(backgroundSource, new RegExp(`msg\\.action === ["']${action}["']`));
+  }
 });
 
 test('accepts a heartbeat port that keeps long 1688 trend runs alive', () => {

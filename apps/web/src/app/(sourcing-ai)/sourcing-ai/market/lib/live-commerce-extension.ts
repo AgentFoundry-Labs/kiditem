@@ -10,12 +10,34 @@ const REQUEST_TIMEOUT_MS = 90_000;
 interface ExtensionResponse {
   success?: boolean;
   error?: string;
+  runId?: string;
   status?: string;
   source?: LiveCommerceSource;
   broadcastCount?: number;
   productCount?: number;
   businessDate?: string | null;
-  capabilities?: { sourcingLiveCommerceCollector?: boolean };
+  capabilities?: {
+    sourcingLiveCommerceCollector?: boolean;
+    browserCollectionSessions?: boolean;
+  };
+}
+
+export type LiveCommerceExtensionErrorCode =
+  | 'chrome_required'
+  | 'extension_missing'
+  | 'extension_reload_required'
+  | 'attention_required'
+  | 'collection_failed';
+
+export class LiveCommerceExtensionError extends Error {
+  constructor(
+    public readonly code: LiveCommerceExtensionErrorCode,
+    message: string,
+    public readonly runId: string | null = null,
+  ) {
+    super(message);
+    this.name = 'LiveCommerceExtensionError';
+  }
 }
 
 export interface LiveCommerceExtensionReadiness {
@@ -37,7 +59,8 @@ export async function fetchLiveCommerceExtensionReadiness(): Promise<LiveCommerc
       { action: 'ping' },
       8_000,
     );
-    return ping?.capabilities?.sourcingLiveCommerceCollector
+    return ping?.capabilities?.sourcingLiveCommerceCollector &&
+      ping.capabilities.browserCollectionSessions
       ? { configured: true, message: '방송 URL 수집 준비 완료' }
       : { configured: false, message: 'chrome://extensions에서 확장 새로고침 필요' };
   } catch {
@@ -45,38 +68,70 @@ export async function fetchLiveCommerceExtensionReadiness(): Promise<LiveCommerc
   }
 }
 
-export async function collectLiveCommerceFromChrome(url: string): Promise<{
+export async function collectLiveCommerceFromChrome(
+  url: string,
+  runId?: string,
+): Promise<{
+  runId: string;
   source: LiveCommerceSource;
   broadcastCount: number;
   productCount: number;
   businessDate: string | null;
 }> {
   const normalized = url.trim();
-  if (!normalized) throw new Error('1688 또는 도우인 방송 URL을 입력해주세요.');
+  if (!normalized) {
+    throw new LiveCommerceExtensionError(
+      'collection_failed',
+      '1688 또는 도우인 방송 URL을 입력해주세요.',
+    );
+  }
   if (!isChromeExtensionRuntimeAvailable()) {
-    throw new Error('로그인된 방송 수집은 Chrome 확장프로그램에서 실행됩니다. 같은 Chrome에서 KidItem을 열어주세요.');
+    throw new LiveCommerceExtensionError(
+      'chrome_required',
+      '로그인된 방송 수집은 Chrome 확장프로그램에서 실행됩니다. 같은 Chrome에서 KidItem을 열어주세요.',
+    );
   }
   const extensionId = await detectSourcingExtensionId();
   if (!extensionId) {
-    throw new Error('Auto-Seller Product Scraper 확장프로그램을 설치하거나 새로고침해주세요.');
+    throw new LiveCommerceExtensionError(
+      'extension_missing',
+      'Auto-Seller Product Scraper 확장프로그램을 설치하거나 새로고침해주세요.',
+    );
   }
   const ping = await sendToExtension<ExtensionResponse>(
     extensionId,
     { action: 'ping' },
     8_000,
   );
-  if (!ping?.capabilities?.sourcingLiveCommerceCollector) {
-    throw new Error('중국 라이브 수집 기능이 없는 확장 버전입니다. chrome://extensions에서 확장프로그램을 새로고침해주세요.');
+  if (
+    !ping?.capabilities?.sourcingLiveCommerceCollector ||
+    !ping.capabilities.browserCollectionSessions
+  ) {
+    throw new LiveCommerceExtensionError(
+      'extension_reload_required',
+      '중국 라이브 수집 기능이 없는 확장 버전입니다. chrome://extensions에서 확장프로그램을 새로고침해주세요.',
+    );
   }
   const result = await sendToExtension<ExtensionResponse>(
     extensionId,
-    { action: 'collectLiveCommerceUrl', url: normalized },
+    {
+      action: 'collectLiveCommerceUrl',
+      url: normalized,
+      ...(runId ? { runId } : {}),
+    },
     REQUEST_TIMEOUT_MS,
   );
-  if (!result?.success || !result.source) {
-    throw new Error(result?.error ?? '방송 수집에 실패했습니다.');
+  if (!result?.success || !result.source || !result.runId) {
+    throw new LiveCommerceExtensionError(
+      result?.status === 'attention_required'
+        ? 'attention_required'
+        : 'collection_failed',
+      result?.error ?? '방송 수집에 실패했습니다.',
+      result?.runId ?? null,
+    );
   }
   return {
+    runId: result.runId,
     source: result.source,
     broadcastCount: countValue(result.broadcastCount),
     productCount: countValue(result.productCount),

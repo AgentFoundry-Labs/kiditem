@@ -8,25 +8,46 @@
     const chromeApi = options.chrome;
     const getBackendRequestConfig = options.getBackendRequestConfig;
     const ensureContentScripts = options.ensureContentScripts;
+    const sessions = options.sessions;
+    const createRunId = options.createRunId || (() => {
+      if (global.crypto && typeof global.crypto.randomUUID === "function") {
+        return global.crypto.randomUUID();
+      }
+      return `live-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    });
+    const activeRuns = new Map();
 
-    async function collect(urlValue) {
+    async function collect(urlValue, requestedRunId) {
       const validated = validateLiveUrl(urlValue);
       if (!validated.ok) return { success: false, error: validated.error };
       const backendConfig = await getBackendRequestConfig();
       if (!backendConfig.ok) return { success: false, error: backendConfig.error };
 
+      const runId = await prepareRun(requestedRunId, validated);
+      const run = { runId, tabId: null, keepTabOpen: false, cancelRequested: false };
+      activeRuns.set(runId, run);
       let tabId = null;
       try {
         const tab = await createTab(chromeApi, validated.url);
         tabId = tab.id;
+        run.tabId = tabId;
+        if (Number.isInteger(tab.windowId)) {
+          await sessions.attachTab(runId, {
+            tabId,
+            windowId: tab.windowId,
+          });
+        }
+        await sessions.progress(runId, {
+          current: 0,
+          total: 1,
+          completed: 0,
+          failed: 0,
+          label: "라이브 방송 페이지 확인 중",
+        });
         const navigated = await waitForNavigation(chromeApi, tabId, validated.url);
         if (navigated.verificationRequired) {
-          return {
-            success: false,
-            status: "verification_required",
-            error: "열린 방송 탭에서 로그인 또는 보안문자를 완료한 뒤 다시 수집하세요.",
-            verificationUrl: navigated.url,
-          };
+          run.keepTabOpen = true;
+          return requireAttention(sessions, runId, navigated.url);
         }
 
         let extracted = await triggerExtraction(chromeApi, tabId);
@@ -37,12 +58,12 @@
         }
         if (!extracted?.ok) {
           if (extracted?.status === "verification_required") {
-            return {
-              success: false,
-              status: "verification_required",
-              error: "열린 방송 탭에서 로그인 또는 보안문자를 완료한 뒤 다시 수집하세요.",
-              verificationUrl: extracted.verificationUrl || navigated.url,
-            };
+            run.keepTabOpen = true;
+            return requireAttention(
+              sessions,
+              runId,
+              extracted.verificationUrl || navigated.url,
+            );
           }
           throw new Error(extracted?.error || "방송 정보를 찾지 못했습니다.");
         }
@@ -60,25 +81,105 @@
         });
         const body = await readResponse(response);
         if (!response.ok) throw new Error(body?.message || `KidItem API HTTP ${response.status}`);
+        await sessions.progress(runId, {
+          current: 1,
+          total: 1,
+          completed: 1,
+          failed: 0,
+          label: "라이브 방송 수집 완료",
+        });
+        await sessions.succeed(runId);
         await removeTab(chromeApi, tabId);
         tabId = null;
+        run.tabId = null;
         return {
           success: true,
+          runId,
           source: body.source || extracted.source,
           broadcastCount: normalizeCount(body.broadcastCount),
           productCount: normalizeCount(body.productCount),
           businessDate: body.businessDate || null,
         };
       } catch (error) {
-        return { success: false, error: error instanceof Error ? error.message : String(error) };
+        if (!run.cancelRequested) await sessions.fail(runId);
+        return {
+          success: false,
+          runId,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      } finally {
+        if (!run.keepTabOpen && tabId) await removeTab(chromeApi, tabId);
+        if (!run.keepTabOpen) activeRuns.delete(runId);
       }
     }
 
-    return { collect, validateLiveUrl };
+    async function prepareRun(requestedRunId, validated) {
+      if (typeof requestedRunId !== "string" || !requestedRunId) {
+        const runId = createRunId();
+        await sessions.start({
+          runId,
+          producer: "sourcing.live_commerce",
+          classification: "background_preferred",
+          restartStrategy: "web",
+          inputIdentity: {
+            source: validated.source,
+            pageUrl: toSafePageUrl(validated.url),
+          },
+        });
+        return runId;
+      }
+
+      const session = await sessions.get(requestedRunId);
+      if (
+        !session ||
+        session.producer !== "sourcing.live_commerce" ||
+        session.restartStrategy !== "web"
+      ) {
+        throw new Error("Collection session not found");
+      }
+      const previousRun = activeRuns.get(requestedRunId);
+      if (previousRun) {
+        previousRun.cancelRequested = true;
+        previousRun.keepTabOpen = false;
+        await removeTab(chromeApi, previousRun.tabId);
+        activeRuns.delete(requestedRunId);
+      }
+      await sessions.restart(requestedRunId);
+      return requestedRunId;
+    }
+
+    async function cancel(runId) {
+      const run = activeRuns.get(runId);
+      if (run) {
+        run.cancelRequested = true;
+        run.keepTabOpen = false;
+        await removeTab(chromeApi, run.tabId);
+        activeRuns.delete(runId);
+      }
+      await sessions.cancel(runId);
+      return sessions.get(runId);
+    }
+
+    return { collect, cancel, validateLiveUrl };
+  }
+
+  async function requireAttention(sessions, runId, verificationUrl) {
+    const reason = isCaptchaUrl(verificationUrl) ? "captcha" : "marketplace_login";
+    const message = reason === "captcha"
+      ? "방송 수집을 계속하려면 보안문자를 완료해주세요. 알림에서 확인 탭을 열 수 있습니다."
+      : "방송 수집을 계속하려면 로그인해주세요. 알림에서 확인 탭을 열 수 있습니다.";
+    await sessions.requireAttention(runId, { reason, message });
+    return {
+      success: false,
+      runId,
+      status: "attention_required",
+      error: message,
+      verificationUrl,
+    };
   }
 
   function validateLiveUrl(urlValue) {
-    if (typeof urlValue !== "string" || !urlValue.trim() || urlValue.length > 2048) {
+    if (typeof urlValue !== "string" || !urlValue.trim() || urlValue.length > 500) {
       return { ok: false, error: "1688 또는 도우인 방송 URL을 입력해주세요." };
     }
     try {
@@ -91,7 +192,11 @@
           ? "douyin"
           : null;
       if (!source) return { ok: false, error: "1688 또는 도우인 방송 URL만 수집할 수 있습니다." };
-      return { ok: true, url: url.toString(), source };
+      const normalized = url.toString();
+      if (normalized.length > 500) {
+        return { ok: false, error: "방송 URL이 너무 깁니다." };
+      }
+      return { ok: true, url: normalized, source };
     } catch (e) {
       return { ok: false, error: "방송 URL 형식이 올바르지 않습니다." };
     }
@@ -99,7 +204,7 @@
 
   function createTab(chromeApi, url) {
     return new Promise((resolve, reject) => {
-      chromeApi.tabs.create({ url, active: true }, (tab) => {
+      chromeApi.tabs.create({ url, active: false }, (tab) => {
         const error = chromeApi.runtime.lastError;
         if (error || !tab?.id) {
           reject(new Error(error?.message || "방송 탭을 열 수 없습니다."));
@@ -178,6 +283,24 @@
     } catch (e) {
       return false;
     }
+  }
+
+  function isCaptchaUrl(urlValue) {
+    try {
+      const url = new URL(urlValue);
+      return url.pathname.includes("/punish")
+        || url.searchParams.get("action") === "captcha"
+        || /(?:verify|captcha)/i.test(url.pathname);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function toSafePageUrl(urlValue) {
+    const url = new URL(urlValue);
+    url.search = "";
+    url.hash = "";
+    return url.toString();
   }
 
   async function readResponse(response) {

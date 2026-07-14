@@ -13,6 +13,7 @@ type CollectionStatus =
   | 'running'
   | 'posting'
   | 'completed'
+  | 'attention_required'
   | 'verification_required'
   | 'failed'
   | 'cancelled';
@@ -28,6 +29,7 @@ interface ExtensionResponse {
   errors?: Array<{ keyword?: string; message?: string }>;
   capabilities?: {
     sourcing1688TrendCollector?: boolean;
+    browserCollectionSessions?: boolean;
   };
 }
 
@@ -43,6 +45,7 @@ export class TrendExtensionError extends Error {
   constructor(
     public readonly code: TrendExtensionErrorCode,
     message: string,
+    public readonly runId: string | null = null,
   ) {
     super(message);
     this.name = 'TrendExtensionError';
@@ -50,6 +53,7 @@ export class TrendExtensionError extends Error {
 }
 
 export interface Chrome1688TrendCollectionResult {
+  runId: string;
   collected: number;
   businessDate: string | null;
   errors: Array<{ keyword: string; message: string }>;
@@ -57,6 +61,7 @@ export interface Chrome1688TrendCollectionResult {
 
 export async function collect1688TrendsFromChrome(
   keywords: readonly string[],
+  onRunStarted?: (runId: string) => void,
 ): Promise<Chrome1688TrendCollectionResult> {
   const normalizedKeywords = Array.from(
     new Set(keywords.map((keyword) => keyword.trim()).filter(Boolean)),
@@ -84,7 +89,10 @@ export async function collect1688TrendsFromChrome(
     { action: 'ping' },
     EXTENSION_REQUEST_TIMEOUT_MS,
   );
-  if (!ping?.capabilities?.sourcing1688TrendCollector) {
+  if (
+    !ping?.capabilities?.sourcing1688TrendCollector ||
+    !ping.capabilities.browserCollectionSessions
+  ) {
     throw new TrendExtensionError(
       'extension_reload_required',
       '1688 트렌드 수집 기능이 없는 이전 확장 버전입니다. chrome://extensions 에서 Auto-Seller Product Scraper를 새로고침하세요.',
@@ -104,8 +112,10 @@ export async function collect1688TrendsFromChrome(
     throw new TrendExtensionError(
       started?.status === 'verification_required' ? 'verification_required' : 'collection_failed',
       started?.error ?? '1688 Chrome 수집을 시작하지 못했습니다.',
+      started?.runId ?? null,
     );
   }
+  onRunStarted?.(started.runId);
 
   const deadline = Date.now() + COLLECTION_TIMEOUT_MS;
   while (Date.now() < deadline) {
@@ -117,21 +127,27 @@ export async function collect1688TrendsFromChrome(
 
     if (status.status === 'completed') {
       return {
+        runId: started.runId,
         collected: normalizeCount(status.collected),
         businessDate: typeof status.businessDate === 'string' ? status.businessDate : null,
         errors: normalizeCollectionErrors(status.errors),
       };
     }
-    if (status.status === 'verification_required') {
+    if (
+      status.status === 'verification_required' ||
+      status.status === 'attention_required'
+    ) {
       throw new TrendExtensionError(
         'verification_required',
         status.error ?? '열린 1688 탭에서 슬라이더 검증을 완료한 뒤 수집 버튼을 다시 눌러주세요.',
+        started.runId,
       );
     }
     if (status.status === 'failed' || status.status === 'cancelled' || status.success === false) {
       throw new TrendExtensionError(
         'collection_failed',
         status.error ?? '1688 Chrome 수집에 실패했습니다.',
+        started.runId,
       );
     }
 
@@ -146,6 +162,7 @@ export async function collect1688TrendsFromChrome(
   throw new TrendExtensionError(
     'collection_timeout',
     '1688 수집이 2분 안에 끝나지 않았습니다. 열린 1688 탭의 검증 상태를 확인해주세요.',
+    started.runId,
   );
 }
 

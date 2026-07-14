@@ -10,6 +10,7 @@
     const chromeApi = options.chrome;
     const getBackendRequestConfig = options.getBackendRequestConfig;
     const ensureContentScripts = options.ensureContentScripts;
+    const sessions = options.sessions;
     const now = options.now || (() => new Date());
     const createRunId = options.createRunId || (() => {
       if (global.crypto && typeof global.crypto.randomUUID === "function") {
@@ -19,6 +20,7 @@
     });
 
     let activeRun = null;
+    const runsById = new Map();
 
     function storageGet(key) {
       return new Promise((resolve) => {
@@ -161,17 +163,16 @@
     async function markVerificationRequired(run, tab, keyword) {
       run.keepTabOpen = true;
       const verificationUrl = tab?.url || `${SEARCH_ORIGIN}/punish?action=captcha`;
-      try {
-        await updateTab(run.tabId, { active: true });
-      } catch (e) {
-        // The status is still useful if Chrome cannot focus the tab.
-      }
       await setStatus(run, {
-        status: "verification_required",
+        status: "attention_required",
         currentKeyword: keyword,
         verificationUrl,
         error: "1688 검색 결과가 슬라이더 검증을 요구합니다.",
         tabId: run.tabId,
+      });
+      await sessions.requireAttention(run.runId, {
+        reason: "captcha",
+        message: "1688 검색 결과가 슬라이더 검증을 요구합니다. 알림에서 확인 탭을 열어 검증해주세요.",
       });
     }
 
@@ -198,6 +199,12 @@
         if (!tab) tab = await createTab();
         run.tabId = tab.id;
         await setStatus(run, { tabId: run.tabId });
+        if (Number.isInteger(tab.windowId)) {
+          await sessions.attachTab(run.runId, {
+            tabId: tab.id,
+            windowId: tab.windowId,
+          });
+        }
 
         for (let index = 0; index < run.keywords.length; index++) {
           if (run.cancelRequested) return;
@@ -210,6 +217,13 @@
             collected: keywordResults.reduce((sum, entry) => sum + entry.items.length, 0),
             error: null,
             verificationUrl: null,
+          });
+          await sessions.progress(run.runId, {
+            current: index,
+            total: run.keywords.length,
+            completed: keywordResults.length - errors.length,
+            failed: errors.length,
+            label: `${index + 1}/${run.keywords.length} 키워드 수집 중`,
           });
 
           try {
@@ -260,6 +274,13 @@
           currentKeywordIndex: run.keywords.length,
           collected: localCollected,
         });
+        await sessions.progress(run.runId, {
+          current: run.keywords.length,
+          total: run.keywords.length,
+          completed: keywordResults.length - errors.length,
+          failed: errors.length,
+          label: "1688 수집 결과 저장 중",
+        });
         const result = await postBatch(run, keywordResults, errors);
         if (run.cancelRequested) return;
         const backendCollected = Number(result?.collected);
@@ -273,6 +294,7 @@
           error: null,
           tabId: null,
         });
+        await sessions.succeed(run.runId);
       } catch (error) {
         if (!run.cancelRequested) {
           await setStatus(run, {
@@ -282,9 +304,11 @@
             completedAt: now().toISOString(),
             tabId: null,
           });
+          await sessions.fail(run.runId);
         }
       } finally {
         if (!run.keepTabOpen) await removeTab(run.tabId);
+        if (!run.keepTabOpen) runsById.delete(run.runId);
         if (activeRun === run) activeRun = null;
       }
     }
@@ -306,7 +330,6 @@
         };
       }
 
-      const previous = await storageGet(STATUS_KEY);
       const runId = createRunId();
       const startedAt = now().toISOString();
       const run = {
@@ -314,7 +337,7 @@
         keywords,
         maxResultsPerKeyword,
         backendConfig,
-        reusableTabId: previous?.status === "verification_required" ? previous.tabId : null,
+        reusableTabId: null,
         tabId: null,
         cancelRequested: false,
         keepTabOpen: false,
@@ -336,6 +359,17 @@
         },
       };
       activeRun = run;
+      runsById.set(runId, run);
+      await sessions.start({
+        runId,
+        producer: "sourcing.1688_trend",
+        classification: "background_preferred",
+        restartStrategy: "extension",
+        inputIdentity: {
+          keywordCount: keywords.length,
+          maxResults: maxResultsPerKeyword,
+        },
+      });
       await storageSet(run.status);
       Promise.resolve().then(() => executeRun(run));
       return { success: true, runId, status: "running" };
@@ -367,7 +401,9 @@
           completedAt: now().toISOString(),
           tabId: null,
         });
+        await sessions.cancel(activeRun.runId);
         await removeTab(activeRun.tabId);
+        runsById.delete(activeRun.runId);
         return { success: true, runId: activeRun.runId, status: "cancelled" };
       }
 
@@ -380,11 +416,52 @@
         tabId: null,
       };
       await storageSet(cancelled);
+      await sessions.cancel(stored.runId);
       await removeTab(stored.tabId);
       return { success: true, runId: stored.runId, status: "cancelled" };
     }
 
-    return { start, getStatus, cancel, isVerificationUrl };
+    async function restart(runId) {
+      if (activeRun?.status.status === "running") {
+        return {
+          success: false,
+          error: "collection_in_progress",
+          runId: activeRun.runId,
+        };
+      }
+      const run = runsById.get(runId);
+      const session = await sessions.get(runId);
+      if (!run || !session) throw new Error("Collection session not found");
+      if (session.restartStrategy !== "extension") {
+        throw new Error("Collection session requires a web restart");
+      }
+
+      await sessions.restart(runId);
+      run.cancelRequested = false;
+      run.keepTabOpen = false;
+      run.reusableTabId = run.tabId;
+      const restartedAt = now().toISOString();
+      run.status = {
+        ...run.status,
+        status: "running",
+        collected: 0,
+        businessDate: null,
+        error: null,
+        verificationUrl: null,
+        currentKeyword: null,
+        currentKeywordIndex: 0,
+        errors: [],
+        startedAt: restartedAt,
+        updatedAt: restartedAt,
+        completedAt: null,
+      };
+      activeRun = run;
+      await storageSet(run.status);
+      Promise.resolve().then(() => executeRun(run));
+      return { success: true, runId, status: "running" };
+    }
+
+    return { start, restart, getStatus, cancel, isVerificationUrl };
   }
 
   global.ProductScraper1688Trend = { create };

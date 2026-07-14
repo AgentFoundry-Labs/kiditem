@@ -9,6 +9,9 @@ import {
   XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
+import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
+import { recordMissingBrowserCollection } from '@/lib/browser-collection-session';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
 import {
@@ -24,6 +27,7 @@ import {
 import {
   canFallBackToServer1688,
   collect1688TrendsFromChrome,
+  TrendExtensionError,
 } from '../lib/1688-trend-extension';
 import { TrendSeedManager } from './TrendSeedManager';
 import { TrendCollectionViews } from './TrendCollectionViews';
@@ -38,6 +42,8 @@ export function TrendCollectionSection() {
     new Set(TREND_SOURCE_ORDER),
   );
   const [lastResult, setLastResult] = useState<TrendCollectResult | null>(null);
+  const [collectionRunId, setCollectionRunId] = useState<string | null>(null);
+  const collectionSession = useBrowserCollectionSession(collectionRunId);
 
   const seedsQuery = useQuery({
     queryKey: queryKeys.sourcing.trendSeeds(),
@@ -50,7 +56,7 @@ export function TrendCollectionSection() {
   const collectMutation = useMutation({
     mutationFn: async () => {
       const selected = TREND_SOURCE_ORDER.filter((source) => collectSources.has(source));
-      return collectSelectedTrendSources(selected);
+      return collectSelectedTrendSources(selected, setCollectionRunId);
     },
     onSuccess: (result) => {
       setLastResult(result);
@@ -169,6 +175,16 @@ export function TrendCollectionSection() {
           </div>
         )}
 
+        {collectionSession.data && (
+          <BrowserCollectionRunControls
+            className="mt-4"
+            session={collectionSession.data}
+            onWebRestart={async () => {
+              await collectMutation.mutateAsync();
+            }}
+          />
+        )}
+
         {lastResult && (
           <div className="mt-4 border-t border-[var(--border-subtle)] pt-4">
             <div className="flex items-center justify-between">
@@ -197,6 +213,7 @@ export function TrendCollectionSection() {
 
 async function collectSelectedTrendSources(
   selected: TrendSource[],
+  onCollectionRunId: (runId: string) => void,
 ): Promise<TrendCollectResult> {
   const serverSources = selected.filter((source) => source !== '1688');
   const serverResult = serverSources.length > 0
@@ -206,11 +223,15 @@ async function collectSelectedTrendSources(
   let businessDate = serverResult.businessDate;
 
   if (selected.includes('1688')) {
+    let extensionInput = { keywordCount: 0, maxResults: 20 };
     try {
       const targets = await fetch1688CollectionTargets();
+      extensionInput = { ...extensionInput, keywordCount: targets.length };
       const extensionResult = await collect1688TrendsFromChrome(
         targets.map((target) => target.keyword),
+        onCollectionRunId,
       );
+      onCollectionRunId(extensionResult.runId);
       businessDate = extensionResult.businessDate ?? businessDate;
       results.push({
         source: '1688',
@@ -223,6 +244,18 @@ async function collectSelectedTrendSources(
           : undefined,
       });
     } catch (error) {
+      if (error instanceof TrendExtensionError && error.runId) {
+        onCollectionRunId(error.runId);
+      }
+      if (
+        error instanceof TrendExtensionError &&
+        error.code === 'extension_missing'
+      ) {
+        const missing = await recordMissingBrowserCollection('sourcing.1688_trend', {
+          ...extensionInput,
+        });
+        onCollectionRunId(missing.runId);
+      }
       if (canFallBackToServer1688(error)) {
         const fallback = await collectTrend(['1688']);
         businessDate = fallback.businessDate || businessDate;

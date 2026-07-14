@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   detectSourcingExtensionId,
   isChromeExtensionRuntimeAvailable,
@@ -27,8 +29,15 @@ describe('1688 trend Chrome extension bridge', () => {
   });
 
   it('starts one deduplicated keyword batch and returns the persisted count', async () => {
+    const onRunStarted = vi.fn();
     mockedSend
-      .mockResolvedValueOnce({ success: true, capabilities: { sourcing1688TrendCollector: true } })
+      .mockResolvedValueOnce({
+        success: true,
+        capabilities: {
+          sourcing1688TrendCollector: true,
+          browserCollectionSessions: true,
+        },
+      })
       .mockResolvedValueOnce({ success: true, runId: 'run-1', status: 'running' })
       .mockResolvedValueOnce({
         success: true,
@@ -39,8 +48,17 @@ describe('1688 trend Chrome extension bridge', () => {
         errors: [],
       });
 
-    await expect(collect1688TrendsFromChrome([' 文具 ', '文具', '儿童玩具']))
-      .resolves.toEqual({ collected: 18, businessDate: '2026-07-13', errors: [] });
+    await expect(collect1688TrendsFromChrome(
+      [' 文具 ', '文具', '儿童玩具'],
+      onRunStarted,
+    ))
+      .resolves.toEqual({
+        runId: 'run-1',
+        collected: 18,
+        businessDate: '2026-07-13',
+        errors: [],
+      });
+    expect(onRunStarted).toHaveBeenCalledWith('run-1');
 
     expect(mockedSend).toHaveBeenNthCalledWith(
       2,
@@ -64,7 +82,13 @@ describe('1688 trend Chrome extension bridge', () => {
 
   it('surfaces search-level slider verification without falling back silently', async () => {
     mockedSend
-      .mockResolvedValueOnce({ success: true, capabilities: { sourcing1688TrendCollector: true } })
+      .mockResolvedValueOnce({
+        success: true,
+        capabilities: {
+          sourcing1688TrendCollector: true,
+          browserCollectionSessions: true,
+        },
+      })
       .mockResolvedValueOnce({ success: true, runId: 'run-2', status: 'running' })
       .mockResolvedValueOnce({
         success: true,
@@ -76,6 +100,7 @@ describe('1688 trend Chrome extension bridge', () => {
     await expect(collect1688TrendsFromChrome(['文具']))
       .rejects.toMatchObject({
         code: 'verification_required',
+        runId: 'run-2',
         message: '1688 검색 슬라이더 검증 필요',
       });
   });
@@ -85,5 +110,28 @@ describe('1688 trend Chrome extension bridge', () => {
 
     await expect(collect1688TrendsFromChrome(['文具']))
       .rejects.toMatchObject({ code: 'extension_reload_required' });
+  });
+
+  it('requires the generic browser collection-session capability', async () => {
+    mockedSend.mockResolvedValueOnce({
+      success: true,
+      capabilities: { sourcing1688TrendCollector: true },
+    });
+
+    await expect(collect1688TrendsFromChrome(['文具']))
+      .rejects.toMatchObject({ code: 'extension_reload_required' });
+  });
+
+  it('wires generic run controls and personal missing-extension alerts in the trend section', () => {
+    const source = fs.readFileSync(
+      path.resolve(
+        'src/app/(sourcing-ai)/sourcing-ai/market/components/TrendCollectionSection.tsx',
+      ),
+      'utf8',
+    );
+
+    expect(source).toContain('useBrowserCollectionSession');
+    expect(source).toContain('BrowserCollectionRunControls');
+    expect(source).toContain("recordMissingBrowserCollection('sourcing.1688_trend'");
   });
 });

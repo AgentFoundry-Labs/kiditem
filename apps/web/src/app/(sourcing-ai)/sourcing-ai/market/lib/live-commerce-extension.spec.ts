@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   detectSourcingExtensionId,
   isChromeExtensionRuntimeAvailable,
@@ -38,7 +40,10 @@ describe('live-commerce Chrome extension bridge', () => {
   it('reports readiness when the live-commerce capability is advertised', async () => {
     mockedSend.mockResolvedValueOnce({
       success: true,
-      capabilities: { sourcingLiveCommerceCollector: true },
+      capabilities: {
+        sourcingLiveCommerceCollector: true,
+        browserCollectionSessions: true,
+      },
     });
 
     await expect(fetchLiveCommerceExtensionReadiness()).resolves.toEqual({
@@ -51,10 +56,14 @@ describe('live-commerce Chrome extension bridge', () => {
     mockedSend
       .mockResolvedValueOnce({
         success: true,
-        capabilities: { sourcingLiveCommerceCollector: true },
+        capabilities: {
+          sourcingLiveCommerceCollector: true,
+          browserCollectionSessions: true,
+        },
       })
       .mockResolvedValueOnce({
         success: true,
+        runId: '00000000-0000-4000-8000-000000000123',
         source: 'douyin',
         broadcastCount: 1,
         productCount: 12,
@@ -63,6 +72,7 @@ describe('live-commerce Chrome extension bridge', () => {
 
     await expect(collectLiveCommerceFromChrome(' https://live.douyin.com/123456 '))
       .resolves.toEqual({
+        runId: '00000000-0000-4000-8000-000000000123',
         source: 'douyin',
         broadcastCount: 1,
         productCount: 12,
@@ -74,5 +84,87 @@ describe('live-commerce Chrome extension bridge', () => {
       { action: 'collectLiveCommerceUrl', url: 'https://live.douyin.com/123456' },
       90_000,
     );
+  });
+
+  it('requires the generic browser collection-session capability', async () => {
+    mockedSend.mockResolvedValueOnce({
+      success: true,
+      capabilities: { sourcingLiveCommerceCollector: true },
+    });
+
+    await expect(collectLiveCommerceFromChrome('https://live.douyin.com/123'))
+      .rejects.toMatchObject({ code: 'extension_reload_required' });
+  });
+
+  it('preserves the attention run id from the extension response', async () => {
+    mockedSend
+      .mockResolvedValueOnce({
+        success: true,
+        capabilities: {
+          sourcingLiveCommerceCollector: true,
+          browserCollectionSessions: true,
+        },
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        runId: '00000000-0000-4000-8000-000000000124',
+        status: 'attention_required',
+        error: '로그인이 필요합니다.',
+      });
+
+    await expect(collectLiveCommerceFromChrome('https://live.douyin.com/123'))
+      .rejects.toMatchObject({
+        code: 'attention_required',
+        runId: '00000000-0000-4000-8000-000000000124',
+      });
+  });
+
+  it('passes the existing run id when the user restarts from the beginning', async () => {
+    mockedSend
+      .mockResolvedValueOnce({
+        success: true,
+        capabilities: {
+          sourcingLiveCommerceCollector: true,
+          browserCollectionSessions: true,
+        },
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        runId: '00000000-0000-4000-8000-000000000124',
+        status: 'attention_required',
+        error: '로그인이 필요합니다.',
+      });
+
+    await expect(
+      collectLiveCommerceFromChrome(
+        'https://live.douyin.com/123',
+        '00000000-0000-4000-8000-000000000124',
+      ),
+    ).rejects.toMatchObject({ code: 'attention_required' });
+
+    expect(mockedSend).toHaveBeenNthCalledWith(
+      2,
+      'sourcing-extension',
+      {
+        action: 'collectLiveCommerceUrl',
+        url: 'https://live.douyin.com/123',
+        runId: '00000000-0000-4000-8000-000000000124',
+      },
+      90_000,
+    );
+  });
+
+  it('wires generic run controls, web restart, and personal missing-extension alerts', () => {
+    const source = fs.readFileSync(
+      path.resolve(
+        'src/app/(sourcing-ai)/sourcing-ai/market/components/LiveCommerceSection.tsx',
+      ),
+      'utf8',
+    );
+
+    expect(source).toContain('useBrowserCollectionSession');
+    expect(source).toContain('BrowserCollectionRunControls');
+    expect(source).toContain("recordMissingBrowserCollection('sourcing.live_commerce'");
+    expect(source).toContain('onWebRestart');
   });
 });

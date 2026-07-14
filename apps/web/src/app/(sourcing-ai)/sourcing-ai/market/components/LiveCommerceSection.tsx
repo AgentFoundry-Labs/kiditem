@@ -12,6 +12,9 @@ import {
   Radio,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
+import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
+import { recordMissingBrowserCollection } from '@/lib/browser-collection-session';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime, formatNumber } from '@/lib/utils';
 import {
@@ -24,6 +27,7 @@ import {
 import {
   collectLiveCommerceFromChrome,
   fetchLiveCommerceExtensionReadiness,
+  LiveCommerceExtensionError,
   type LiveCommerceExtensionReadiness,
 } from '../lib/live-commerce-extension';
 
@@ -39,6 +43,8 @@ export function LiveCommerceSection() {
   const queryClient = useQueryClient();
   const [taobaoLiveIds, setTaobaoLiveIds] = useState('');
   const [browserUrl, setBrowserUrl] = useState('');
+  const [collectionRunId, setCollectionRunId] = useState<string | null>(null);
+  const collectionSession = useBrowserCollectionSession(collectionRunId);
 
   const statusQuery = useQuery({
     queryKey: queryKeys.sourcing.liveCommerceStatus(),
@@ -78,8 +84,27 @@ export function LiveCommerceSection() {
   });
 
   const browserMutation = useMutation({
-    mutationFn: () => collectLiveCommerceFromChrome(browserUrl),
+    mutationFn: async ({ url, runId }: { url: string; runId?: string }) => {
+      try {
+        return await collectLiveCommerceFromChrome(url, runId);
+      } catch (error) {
+        if (error instanceof LiveCommerceExtensionError && error.runId) {
+          setCollectionRunId(error.runId);
+        }
+        if (
+          error instanceof LiveCommerceExtensionError &&
+          error.code === 'extension_missing'
+        ) {
+          const missing = await recordMissingBrowserCollection('sourcing.live_commerce',
+            liveCommerceInputIdentity(url),
+          );
+          setCollectionRunId(missing.runId);
+        }
+        throw error;
+      }
+    },
     onSuccess: (result) => {
+      setCollectionRunId(result.runId);
       refresh();
       toast.success(`${SOURCE_META[result.source].label} 방송 1개 · 상품 ${formatNumber(result.productCount)}개 저장`);
     },
@@ -176,14 +201,26 @@ export function LiveCommerceSection() {
             />
             <button
               type="button"
-              disabled={!browserUrl.trim() || !extensionStatusQuery.data?.configured || browserMutation.isPending}
-              onClick={() => browserMutation.mutate()}
+              disabled={!browserUrl.trim() || browserMutation.isPending}
+              onClick={() => browserMutation.mutate({ url: browserUrl })}
               className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-purple-600 px-3 text-xs font-bold text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-45"
             >
               {browserMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <PackageSearch size={14} />}
               방송 수집
             </button>
           </div>
+          {collectionSession.data && (
+            <BrowserCollectionRunControls
+              className="mt-3"
+              session={collectionSession.data}
+              onWebRestart={async (session) => {
+                await browserMutation.mutateAsync({
+                  url: browserUrl,
+                  runId: session.runId,
+                });
+              }}
+            />
+          )}
         </div>
       </div>
 
@@ -320,6 +357,25 @@ function SourceBadge({ source }: { source: LiveCommerceSource }) {
 
 function splitLiveIds(value: string): string[] {
   return Array.from(new Set(value.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean))).slice(0, 30);
+}
+
+function liveCommerceInputIdentity(urlValue: string): {
+  source: '1688' | 'douyin';
+  pageUrl: string;
+} {
+  const pageUrl = urlValue.trim();
+  let source: '1688' | 'douyin' = 'douyin';
+  try {
+    const url = new URL(pageUrl);
+    const host = url.hostname.toLowerCase();
+    if (host === '1688.com' || host.endsWith('.1688.com')) source = '1688';
+    url.search = '';
+    url.hash = '';
+    return { source, pageUrl: url.toString().slice(0, 500) };
+  } catch {
+    // The extension helper reports the invalid URL; the alert keeps only safe identity.
+  }
+  return { source, pageUrl: pageUrl.slice(0, 500) };
 }
 
 function errorMessage(error: unknown): string {

@@ -25,9 +25,10 @@ that contain `__tests__` or other `_`-prefixed committed paths.
   `https://staging.merchon.org`.
 - Product data sync posts to `/product-data`.
 - Live-commerce snapshots post to `/trend/live-commerce-results`.
-- Authorization uses the sourcing-only `kiditem_sourcing_ingest_token` in
-  `chrome.storage.local`, minted by the backend for the logged-in KidItem web
-  session and delivered through `chrome.runtime.sendMessage`.
+- Authorization uses the current Supabase access token delivered by the
+  logged-in KidItem web tab through `chrome.runtime.sendMessage` and stored in
+  `chrome.storage.local` for extension API calls. Do not reintroduce a separate
+  sourcing-only token route or middleware.
 - Extension ingest belongs to the backend sourcing domain.
 - Product creation happens only after backend sourcing promotion.
 - Extension code and payload naming must not imply direct `MasterProduct`
