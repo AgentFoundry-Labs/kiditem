@@ -45,6 +45,7 @@ outputs/
 .lazyweb/
 apps/*/dev-*.log
 xlsx_read.cjs
+pnpm-workspace.yaml
 
 # Python
 __pycache__/
