@@ -6,7 +6,21 @@ export interface ChannelCatalogPublicationResult {
   changes: Record<string, number>;
 }
 
+export interface ChannelCatalogChunkPublicationResult {
+  duplicate: boolean;
+  changes: Record<string, number>;
+}
+
 export interface ChannelCatalogPublicationPort {
+  publishChunk(input: {
+    organizationId: string;
+    userId: string;
+    channelAccountId: string;
+    collectionRunId: string;
+    chunkId: string;
+    products: Array<{ ordinal: number; product: CoupangCatalogProductV1 }>;
+  }): Promise<ChannelCatalogChunkPublicationResult>;
+
   publish(input: {
     organizationId: string;
     userId: string;

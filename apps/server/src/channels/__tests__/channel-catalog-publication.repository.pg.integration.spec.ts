@@ -119,6 +119,88 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     );
   });
 
+  it('publishes one stored detail chunk without inactivating unseen listings', async () => {
+    await publish(
+      await createCollectionRun(prisma),
+      SNAPSHOT_A,
+      [product('P-EXISTING', 'S-EXISTING')],
+    );
+    const collectionRunId = await createCollectionRun(prisma);
+    const products = [product('P-NEW', 'S-NEW')];
+    const chunkId = await createDetailChunk(prisma, collectionRunId, products);
+
+    const result = await publishChunk(collectionRunId, chunkId, products);
+
+    const [newListing, existingListing, chunk] = await Promise.all([
+      prisma.channelListing.findFirstOrThrow({
+        where: { channelAccountId: ACCOUNT_ID, externalId: 'P-NEW' },
+        include: { options: true, contentWorkspaces: true },
+      }),
+      prisma.channelListing.findFirstOrThrow({
+        where: { channelAccountId: ACCOUNT_ID, externalId: 'P-EXISTING' },
+      }),
+      prisma.channelScrapeChunk.findUniqueOrThrow({ where: { id: chunkId } }),
+    ]);
+    expect(result.duplicate).toBe(false);
+    expect(newListing).toMatchObject({ isActive: true, lastImportRunId: null });
+    expect(newListing.options).toEqual([
+      expect.objectContaining({ externalOptionId: 'S-NEW', isActive: true }),
+    ]);
+    expect(newListing.contentWorkspaces).toHaveLength(1);
+    expect(existingListing.isActive).toBe(true);
+    expect(chunk.publishedAt).not.toBeNull();
+    expect(chunk.publicationJson).toMatchObject({ publishedProducts: 1 });
+  });
+
+  it('replays an already published detail chunk without changing stable IDs', async () => {
+    const collectionRunId = await createCollectionRun(prisma);
+    const products = [product('P-REPLAY', 'S-REPLAY')];
+    const chunkId = await createDetailChunk(prisma, collectionRunId, products);
+    await publishChunk(collectionRunId, chunkId, products);
+    const before = await prisma.channelListing.findFirstOrThrow({
+      where: { channelAccountId: ACCOUNT_ID, externalId: 'P-REPLAY' },
+      include: { options: true },
+    });
+
+    const replay = await publishChunk(collectionRunId, chunkId, products);
+    const after = await prisma.channelListing.findFirstOrThrow({
+      where: { channelAccountId: ACCOUNT_ID, externalId: 'P-REPLAY' },
+      include: { options: true },
+    });
+
+    expect(replay.duplicate).toBe(true);
+    expect(after.id).toBe(before.id);
+    expect(after.options[0].id).toBe(before.options[0].id);
+  });
+
+  it('rolls back a detail chunk when media attachment fails', async () => {
+    const failingPublisher = new ChannelCatalogPublicationRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      {
+        publishProviderMedia: vi.fn().mockRejectedValue(new Error('media failed')),
+      },
+    );
+    const collectionRunId = await createCollectionRun(prisma);
+    const products = [product('P-ROLLBACK', 'S-ROLLBACK')];
+    const chunkId = await createDetailChunk(prisma, collectionRunId, products);
+
+    await expect(failingPublisher.publishChunk({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      collectionRunId,
+      chunkId,
+      products: products.map((item, ordinal) => ({ ordinal, product: item })),
+    })).rejects.toThrow('media failed');
+
+    expect(await prisma.channelListing.count({
+      where: { channelAccountId: ACCOUNT_ID, externalId: 'P-ROLLBACK' },
+    })).toBe(0);
+    await expect(
+      prisma.channelScrapeChunk.findUniqueOrThrow({ where: { id: chunkId } }),
+    ).resolves.toMatchObject({ publishedAt: null, publicationJson: null });
+  });
+
   it('preserves stable IDs, authored fields, and component recipes while inactivating unseen rows', async () => {
     const firstRunId = await createCollectionRun(prisma);
     await publish(firstRunId, SNAPSHOT_A, [
@@ -284,6 +366,21 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       products: products.map((item, ordinal) => ({ ordinal, product: item })),
     });
   }
+
+  async function publishChunk(
+    collectionRunId: string,
+    chunkId: string,
+    products: ReturnType<typeof product>[],
+  ) {
+    return publisher.publishChunk({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: ACCOUNT_ID,
+      collectionRunId,
+      chunkId,
+      products: products.map((item, ordinal) => ({ ordinal, product: item })),
+    });
+  }
 });
 
 async function createCollectionRun(prisma: PrismaClient): Promise<string> {
@@ -301,6 +398,30 @@ async function createCollectionRun(prisma: PrismaClient): Promise<string> {
     },
   });
   return run.id;
+}
+
+async function createDetailChunk(
+  prisma: PrismaClient,
+  collectionRunId: string,
+  products: ReturnType<typeof product>[],
+): Promise<string> {
+  const chunk = await prisma.channelScrapeChunk.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      scrapeRunId: collectionRunId,
+      kind: 'product_details',
+      sequence: 1,
+      checksum: 'd'.repeat(64),
+      itemCount: products.length,
+      payload: {
+        version: 1,
+        kind: 'product_details',
+        startOrdinal: 0,
+        products: products.map((item, ordinal) => ({ ordinal, product: item })),
+      },
+    },
+  });
+  return chunk.id;
 }
 
 function product(

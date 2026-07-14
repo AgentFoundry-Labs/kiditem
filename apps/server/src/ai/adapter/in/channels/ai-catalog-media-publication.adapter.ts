@@ -95,7 +95,10 @@ implements CatalogMediaPublicationPort {
           sourceUrl: media.sourceUrl,
           externalOptionId: media.externalOptionId,
           materializationStatus,
-          lastImportRunId: input.sourceImportRunId,
+          publicationReference: input.publicationReference,
+          ...(input.publicationReference.type === 'source_import_run'
+            ? { lastImportRunId: input.publicationReference.id }
+            : {}),
           active: true,
         };
         const asset = existing
@@ -143,7 +146,10 @@ implements CatalogMediaPublicationPort {
               metadata: {
                 ...(jsonRecord(asset.metadata) ?? {}),
                 active: false,
-                lastImportRunId: input.sourceImportRunId,
+                publicationReference: input.publicationReference,
+                ...(input.publicationReference.type === 'source_import_run'
+                  ? { lastImportRunId: input.publicationReference.id }
+                  : {}),
               },
             },
           });

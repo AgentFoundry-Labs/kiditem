@@ -5,7 +5,10 @@ export interface CatalogMediaPublicationPort {
     transaction: unknown;
     organizationId: string;
     userId: string;
-    sourceImportRunId: string;
+    publicationReference: {
+      type: 'channel_scrape_run' | 'source_import_run';
+      id: string;
+    };
     listings: Array<{
       listingId: string;
       displayName: string;
