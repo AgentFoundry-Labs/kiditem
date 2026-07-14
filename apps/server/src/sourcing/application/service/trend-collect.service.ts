@@ -246,7 +246,7 @@ export class TrendCollectService {
 
     try {
       const popularRows = await this.buildPopularBoardRows(organizationId, businessDate, capturedAt);
-      collected += await this.repository.upsertNaverPopularKeywordSnapshots(popularRows);
+      collected += await this.repository.replaceNaverPopularKeywordSnapshots(popularRows);
     } catch (error) {
       errors.push(`naver-popular: ${errorMessage(error)}`);
     }

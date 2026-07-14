@@ -157,7 +157,8 @@ export interface TrendCollectionRepositoryPort {
   deleteSeed(input: { id: string; organizationId: string }): Promise<void>;
 
   upsertNaverKeywordSnapshots(rows: NaverKeywordSnapshotUpsert[]): Promise<number>;
-  upsertNaverPopularKeywordSnapshots(rows: NaverPopularKeywordSnapshotUpsert[]): Promise<number>;
+  /** 보드×일자 스냅샷을 통째로 교체해 사라진 키워드 행도 함께 정리한다. */
+  replaceNaverPopularKeywordSnapshots(rows: NaverPopularKeywordSnapshotUpsert[]): Promise<number>;
   upsert1688HotProductSnapshots(rows: Sourcing1688HotProductSnapshotUpsert[]): Promise<number>;
   upsertShortsSnapshots(rows: ShortsSnapshotUpsert[]): Promise<number>;
 

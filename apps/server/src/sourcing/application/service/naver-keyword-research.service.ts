@@ -88,7 +88,7 @@ export class NaverKeywordResearchService {
 
       const rows = buildPopularSnapshotRows(result.boards, organizationId, businessDate, capturedAt);
       if (rows.length > 0) {
-        await this.trendRepo.upsertNaverPopularKeywordSnapshots(rows);
+        await this.trendRepo.replaceNaverPopularKeywordSnapshots(rows);
       }
     } catch (error) {
       this.logger.warn(

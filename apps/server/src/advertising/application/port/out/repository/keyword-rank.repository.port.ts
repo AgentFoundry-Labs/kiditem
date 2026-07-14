@@ -156,6 +156,14 @@ export interface SerpSnapshotRow {
   items: unknown;
 }
 
+export interface MutateLatestSerpSnapshotInput {
+  organizationId: string;
+  keyword: string;
+  capturedAt: Date;
+  /** Repository-held lock 안에서 최신 JSON을 읽고 새 JSON을 만든다. null이면 저장하지 않는다. */
+  mutateItems: (snapshot: SerpSnapshotRow) => unknown | null;
+}
+
 export interface KeywordRankRepositoryPort {
   listTrackers(organizationId: string): Promise<KeywordTrackerRow[]>;
   /**
@@ -202,8 +210,18 @@ export interface KeywordRankRepositoryPort {
   ): Promise<boolean>;
   /** 키워드×상품×일자 유니크 upsert; 처리한 행 수를 반환. */
   upsertRankSnapshots(rows: UpsertRankSnapshotInput[]): Promise<number>;
-  /** 키워드×일자당 최신본 upsert(overwrite). */
-  upsertSerpSnapshot(input: UpsertSerpSnapshotInput): Promise<{ id: string }>;
+  /**
+   * 키워드×일자당 최신본 upsert. 오래된 capturedAt은 무시하며, mergeItems는
+   * 동일 키워드 DB lock 안에서 실행되어 병렬 seller catalog 수집을 보존한다.
+   */
+  upsertSerpSnapshot(
+    input: UpsertSerpSnapshotInput,
+    mergeItems?: (existing: SerpSnapshotRow | null) => unknown,
+  ): Promise<{ id: string }>;
+  /** 최신 SERP JSON을 DB lock 안에서 원자적으로 변경. 스냅샷 없음/변경 불필요면 null. */
+  mutateLatestSerpSnapshot(
+    input: MutateLatestSerpSnapshotInput,
+  ): Promise<{ id: string } | null>;
   /** 최근 `days`일 rank fact — vendorItemId asc, businessDate asc 정렬. */
   findRankHistory(
     organizationId: string,

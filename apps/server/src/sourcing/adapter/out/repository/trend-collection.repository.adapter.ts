@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { kstInclusiveDaysStart } from '../../../../common/kst';
+import type { Prisma } from '@prisma/client';
 import type {
   NaverKeywordSnapshotRow,
   NaverKeywordSnapshotUpsert,
@@ -137,20 +137,45 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
     return rows.length;
   }
 
-  async upsertNaverPopularKeywordSnapshots(rows: NaverPopularKeywordSnapshotUpsert[]): Promise<number> {
+  async replaceNaverPopularKeywordSnapshots(rows: NaverPopularKeywordSnapshotUpsert[]): Promise<number> {
     if (rows.length === 0) return 0;
-    await this.prisma.$transaction(
-      rows.map((row) =>
-        this.prisma.naverPopularKeywordDailySnapshot.upsert({
-          where: {
-            organizationId_boardKey_businessDate_keyword: {
-              organizationId: row.organizationId,
-              boardKey: row.boardKey,
-              businessDate: row.businessDate,
-              keyword: row.keyword,
-            },
-          },
-          create: {
+    const grouped = new Map<string, NaverPopularKeywordSnapshotUpsert[]>();
+    for (const row of rows) {
+      const key = [
+        row.organizationId,
+        row.boardKey,
+        row.businessDate.toISOString().slice(0, 10),
+      ].join(':');
+      const scopeRows = grouped.get(key) ?? [];
+      scopeRows.push(row);
+      grouped.set(key, scopeRows);
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      let count = 0;
+      for (const [scopeKey, scopeRows] of [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+        const { organizationId, boardKey, businessDate } = scopeRows[0];
+        await tx.$queryRaw`
+          SELECT pg_advisory_xact_lock(hashtextextended(${`naver-popular:${scopeKey}`}, 0))::text AS "lock"
+          FROM (SELECT ${organizationId}::uuid AS organization_id) AS tenant
+          WHERE organization_id = ${organizationId}::uuid
+        `;
+        const latest = await tx.naverPopularKeywordDailySnapshot.findFirst({
+          where: { organizationId, boardKey, businessDate },
+          orderBy: { capturedAt: 'desc' },
+          select: { capturedAt: true },
+        });
+        const incomingCapturedAt = scopeRows.reduce(
+          (value, row) => (row.capturedAt > value ? row.capturedAt : value),
+          scopeRows[0].capturedAt,
+        );
+        if (latest && latest.capturedAt > incomingCapturedAt) continue;
+
+        await tx.naverPopularKeywordDailySnapshot.deleteMany({
+          where: { organizationId, boardKey, businessDate },
+        });
+        const created = await tx.naverPopularKeywordDailySnapshot.createMany({
+          data: scopeRows.map((row) => ({
             organizationId: row.organizationId,
             boardKey: row.boardKey,
             boardLabel: row.boardLabel,
@@ -160,18 +185,12 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
             keyword: row.keyword,
             linkId: row.linkId,
             capturedAt: row.capturedAt,
-          },
-          update: {
-            boardLabel: row.boardLabel,
-            cid: row.cid,
-            rank: row.rank,
-            linkId: row.linkId,
-            capturedAt: row.capturedAt,
-          },
-        }),
-      ),
-    );
-    return rows.length;
+          })),
+        });
+        count += created.count;
+      }
+      return count;
+    });
   }
 
   async upsert1688HotProductSnapshots(rows: Sourcing1688HotProductSnapshotUpsert[]): Promise<number> {

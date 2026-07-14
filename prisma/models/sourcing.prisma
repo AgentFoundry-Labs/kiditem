@@ -162,7 +162,7 @@ model NaverKeywordDailySnapshot {
 }
 
 /// @namespace Sourcing
-/// @describe 네이버 데이터랩 인기키워드 보드(출산/육아·완구/인형·문구/사무 등)의 일별 순위 스냅샷. 시드 무관하게 run당 1회 수집. 보드×순위당 1행.
+/// @describe 네이버 데이터랩 인기키워드 보드(출산/육아·완구/인형·문구/사무 등)의 일별 순위 스냅샷. 보드×키워드 identity를 사용하고 매 수집마다 보드×일자 범위를 통째로 교체한다.
 model NaverPopularKeywordDailySnapshot {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid

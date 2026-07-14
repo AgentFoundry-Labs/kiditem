@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { ReadinessCheck } from '@kiditem/shared/readiness';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
@@ -16,7 +15,7 @@ import {
   summarizeBatchScrapeProgress,
 } from '@/lib/operation-alert-lifecycle';
 import { queryKeys } from '@/lib/query-keys';
-import { collectRocketSalesRange } from '@/lib/rocket-sales-collection';
+import type { ReadinessCheck } from '@kiditem/shared/readiness';
 
 type ExtensionMessageResponse = {
   success?: boolean;
@@ -46,36 +45,6 @@ function collectHref(check: ReadinessCheck): string {
   if (check.key === 'rocket_sales') return '/sales-analysis?tab=rocket-daily';
   if (check.key === 'coupang_ads') return '/ad-ops';
   return '/dashboard';
-}
-
-function todayYmd(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
-function addDaysYmd(ymd: string, days: number): string {
-  const date = new Date(`${ymd}T00:00:00.000Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
-}
-
-function currentMonthRange(): { from: string; to: string } {
-  const now = new Date();
-  const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  const to = `${lastDay.getFullYear()}-${String(lastDay.getMonth() + 1).padStart(2, '0')}-${String(lastDay.getDate()).padStart(2, '0')}`;
-  return { from, to };
-}
-
-function rocketCollectRange(check: ReadinessCheck): { from: string; to: string } {
-  const dates = [...(check.expectedDates ?? [])].sort();
-  if (dates.length > 0) return { from: dates[0], to: dates[dates.length - 1] };
-  if (check.key === 'rocket_sales') return currentMonthRange();
-  const from = check.referenceDate ?? todayYmd();
-  return { from, to: addDaysYmd(from, 30) };
 }
 
 export function useReadinessCollection({ refetchReadiness }: UseReadinessCollectionOptions) {
@@ -128,69 +97,8 @@ export function useReadinessCollection({ refetchReadiness }: UseReadinessCollect
     }
   };
 
-  const handleRocketSalesCollect = async (check: ReadinessCheck, operationKey: string) => {
-    const { from, to } = rocketCollectRange(check);
-    setPendingKey(check.key);
-    const alert = await startOperationAlert({
-      operationKey,
-      type: 'dashboard_data_collect',
-      title: `${check.label} 수집`,
-      sourceType: 'readiness_check',
-      sourceId: check.key,
-      href: collectHref(check),
-      metadata: { checkKey: check.key, collector: 'order-extension', from, to, status: 'PA' },
-    });
-
-    try {
-      toast.info(`쿠팡 로켓 매출 동기화 시작 (${from} ~ ${to})`, { duration: 4000 });
-      const result = await collectRocketSalesRange({ from, to, status: 'PA' });
-      const rows = result.preview?.totalRows ?? result.rows.length;
-      const message =
-        rows > 0
-          ? `쿠팡 로켓 발주 ${result.poCount}건 · ${rows}행 동기화`
-          : '해당 기간 발주확정 데이터가 없습니다';
-      if (rows > 0) toast.success(message);
-      else toast.info(message);
-      if (alert) {
-        void succeedOperationAlert(operationKey, {
-          severity: rows > 0 ? undefined : 'info',
-          message,
-          metadata: {
-            checkKey: check.key,
-            collector: 'order-extension',
-            from,
-            to,
-            status: 'PA',
-            poCount: result.poCount,
-            rows,
-          },
-        });
-      }
-      await invalidateCollectedData();
-      await queryClient.invalidateQueries({ queryKey: ['dashboard', 'rocket-sales'] });
-      await queryClient.invalidateQueries({ queryKey: ['dashboard', 'rocket-orders'] });
-      await refetchReadiness();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : '쿠팡 로켓 매출 수집 실패';
-      toast.error(msg);
-      if (alert) {
-        void failOperationAlert(operationKey, {
-          message: msg,
-          metadata: { checkKey: check.key, collector: 'order-extension', from, to, status: 'PA', error: msg },
-        });
-      }
-    } finally {
-      setPendingKey(null);
-    }
-  };
-
   const handleCollect = async (check: ReadinessCheck) => {
     const operationKey = `dashboard.collect:${check.key}`;
-
-    if (check.key === 'rocket_sales') {
-      await handleRocketSalesCollect(check, operationKey);
-      return;
-    }
 
     if (check.collector === 'server') {
       await handleServerCollect(check, operationKey);

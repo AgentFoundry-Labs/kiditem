@@ -14,10 +14,10 @@ import {
   Trophy,
   XCircle,
 } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
-import type { ReadinessCheck } from '@kiditem/shared/readiness';
 import { useAdSync } from '@/app/(advertising)/ad-ops/hooks/useAdSync';
 import { cn } from '@/lib/utils';
+import type { LucideIcon } from 'lucide-react';
+import type { ReadinessCheck } from '@kiditem/shared/readiness';
 
 type DisplayMeta = { title: string; hint: string; icon: LucideIcon };
 
@@ -35,7 +35,6 @@ function getDisplay(check: ReadinessCheck): DisplayMeta {
 
 function collectLabel(check: ReadinessCheck): string {
   if (check.key === 'wing_sales') return '매출 받기';
-  if (check.key === 'rocket_sales') return '매출 동기화';
   if (check.key === 'coupang_ads') return '광고 받기';
   if (check.key === 'wing_kpi') return '순위 받기';
   if (check.key === 'coupang_products') return '상품 받기';
@@ -169,6 +168,7 @@ export function ActionCheckCard({
   const status = statusMeta(check.status);
   const missingCount = check.missingDates?.length ?? 0;
   const hasStrip = !!check.expectedDates && check.expectedDates.length > 0;
+  const canCollect = check.key !== 'rocket_sales';
 
   const subline = (() => {
     if (missingCount > 0) return `최근 ${check.expectedDates!.length}일 중 ${missingCount}일이 비어 있어요`;
@@ -215,27 +215,33 @@ export function ActionCheckCard({
           </p>
         </div>
 
-        <button
-          onClick={() => onCollect(check)}
-          disabled={pending}
-          className={cn(
-            'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
-            'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
-            'disabled:opacity-60',
-          )}
-        >
-          {pending ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              받는 중…
-            </>
-          ) : (
-            <>
-              <RefreshCw className="h-3.5 w-3.5" />
-              {collectLabel(check)}
-            </>
-          )}
-        </button>
+        {canCollect ? (
+          <button
+            onClick={() => onCollect(check)}
+            disabled={pending}
+            className={cn(
+              'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
+              'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
+              'disabled:opacity-60',
+            )}
+          >
+            {pending ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                받는 중…
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-3.5 w-3.5" />
+                {collectLabel(check)}
+              </>
+            )}
+          </button>
+        ) : (
+          <span className="shrink-0 rounded-lg bg-[var(--surface-sunken)] px-3 py-2 text-xs font-medium text-[var(--text-tertiary)]">
+            조회 전용
+          </span>
+        )}
       </div>
 
       {hasStrip && (

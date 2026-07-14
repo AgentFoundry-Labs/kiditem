@@ -79,7 +79,7 @@ function buildPorts() {
     updateSeed: vi.fn(),
     deleteSeed: vi.fn(),
     upsertNaverKeywordSnapshots: vi.fn(async (rows) => rows.length),
-    upsertNaverPopularKeywordSnapshots: vi.fn(async (rows) => rows.length),
+    replaceNaverPopularKeywordSnapshots: vi.fn(async (rows) => rows.length),
     upsert1688HotProductSnapshots: vi.fn(async (rows) => rows.length),
     upsertShortsSnapshots: vi.fn(async (rows) => rows.length),
     findNaverKeywordHistory: vi.fn(async () => []),
@@ -303,7 +303,7 @@ describe('TrendCollectService', () => {
     const result = await ports.service.collect(ORGANIZATION_ID, ['naver']);
 
     expect(result.results).toEqual([{ source: 'naver', ok: true, collected: 2 }]);
-    const rows = (ports.repository.upsertNaverPopularKeywordSnapshots as any).mock.calls[0][0];
+    const rows = (ports.repository.replaceNaverPopularKeywordSnapshots as any).mock.calls[0][0];
     expect(rows).toHaveLength(2);
     expect(rows[0]).toEqual(
       expect.objectContaining({

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { TrendCollectionRepositoryPort } from '../../port/out/repository/trend-collection.repository.port';
 import { TrendQueryService } from '../trend-query.service';
+import type { TrendCollectionRepositoryPort } from '../../port/out/repository/trend-collection.repository.port';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const BUSINESS_DATE = new Date('2026-07-13T00:00:00.000Z');
@@ -25,7 +25,7 @@ function repositoryStub(): TrendCollectionRepositoryPort {
     updateSeed: vi.fn(),
     deleteSeed: vi.fn(),
     upsertNaverKeywordSnapshots: vi.fn(async () => 0),
-    upsertNaverPopularKeywordSnapshots: vi.fn(async () => 0),
+    replaceNaverPopularKeywordSnapshots: vi.fn(async () => 0),
     upsert1688HotProductSnapshots: vi.fn(async () => 0),
     upsertShortsSnapshots: vi.fn(async () => 0),
     findNaverKeywordHistory: vi.fn(async () => []),

@@ -3,11 +3,9 @@
 import { Fragment, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, Loader2, Package, RefreshCw, Rocket } from 'lucide-react';
-import type { ReadinessResponse } from '@kiditem/shared/readiness';
 import { apiClient } from '@/lib/api-client';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import { useReadinessCollection } from '@/components/readiness/useReadinessCollection';
 
 interface RocketDay {
   date: string;
@@ -45,18 +43,6 @@ interface RocketOrder {
 }
 
 const YEAR_OPTIONS = [2024, 2025, 2026];
-
-function enumerateMonthDates(year: number, month: number): string[] {
-  const out: string[] = [];
-  for (
-    let date = new Date(Date.UTC(year, month - 1, 1));
-    date < new Date(Date.UTC(year, month, 1));
-    date.setUTCDate(date.getUTCDate() + 1)
-  ) {
-    out.push(date.toISOString().slice(0, 10));
-  }
-  return out;
-}
 
 function formatOrderDateTime(value: string): string {
   const date = new Date(value);
@@ -181,20 +167,6 @@ export default function RocketDailySales() {
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,
   });
-  const readinessQuery = useQuery({
-    queryKey: ['readiness'],
-    queryFn: () => apiClient.get<ReadinessResponse>('/api/readiness'),
-    staleTime: 15_000,
-  });
-  const rocketCheck = readinessQuery.data?.checks.find((check) => check.key === 'rocket_sales') ?? null;
-  const { pendingKey, handleCollect } = useReadinessCollection({
-    refetchReadiness: async () => {
-      await readinessQuery.refetch();
-      await refetch();
-    },
-  });
-  const collectingRocket = pendingKey === 'rocket_sales';
-
   const showLoading = isLoading && !data;
   const maxRevenue = Math.max(1, ...(data?.days.map((d) => d.revenue) ?? []));
   const avgRevenue =
@@ -212,29 +184,6 @@ export default function RocketDailySales() {
           </span>
         </div>
         <div className="flex items-center gap-2">
-          {rocketCheck && rocketCheck.status !== 'ok' && (
-            <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
-              오늘 미갱신
-            </span>
-          )}
-          <button
-            onClick={() => {
-              if (!rocketCheck) return;
-              void handleCollect({
-                ...rocketCheck,
-                expectedDates: enumerateMonthDates(year, month),
-              });
-            }}
-            disabled={!rocketCheck || collectingRocket || readinessQuery.isLoading}
-            className="flex items-center gap-1.5 rounded-lg bg-purple-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {collectingRocket ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <RefreshCw size={14} />
-            )}
-            매출 동기화
-          </button>
           <select
             value={year}
             onChange={(e) => {

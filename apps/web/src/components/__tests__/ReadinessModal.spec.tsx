@@ -1,9 +1,9 @@
+import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ReadinessResponse } from '@kiditem/shared/readiness';
 import ReadinessModal from '../ReadinessModal';
+import type { ReadinessResponse } from '@kiditem/shared/readiness';
 
 const mockApiGet = vi.hoisted(() => vi.fn());
 const mockAdSyncRun = vi.hoisted(() => vi.fn());
@@ -134,5 +134,24 @@ describe('ReadinessModal', () => {
 
     expect(await screen.findByRole('button', { name: '대시보드 열기' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '오늘 하루 보지 않기' })).not.toBeInTheDocument();
+  });
+
+  it('does not expose a Rocket sales action without a supported ingestion endpoint', async () => {
+    const response = makeReadinessResponse();
+    mockApiGet.mockResolvedValue({
+      ...response,
+      checks: [
+        {
+          ...response.checks[0],
+          key: 'rocket_sales',
+          label: '쿠팡 로켓 매출',
+        },
+      ],
+    });
+
+    render(<ReadinessModal open onClose={vi.fn()} />, { wrapper: wrapper() });
+
+    expect(await screen.findByText('조회 전용')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '매출 동기화' })).not.toBeInTheDocument();
   });
 });

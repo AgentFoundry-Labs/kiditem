@@ -1,15 +1,15 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { KeywordRankIngestHandler } from "../application/service/keyword-rank-ingest.handler";
+import {
+  buildMockKeywordRankRepo,
+  type MockKeywordRankRepo,
+} from "./test-helpers/build-mock-ports";
 import type {
   KeywordRankRepositoryPort,
   KeywordTrackerRow,
   UpsertRankSnapshotInput,
 } from "../application/port/out/repository/keyword-rank.repository.port";
 import type { ExtensionSyncDto } from "../adapter/in/http/dto";
-import {
-  buildMockKeywordRankRepo,
-  type MockKeywordRankRepo,
-} from "./test-helpers/build-mock-ports";
 
 // `keyword_rank` ingest 매칭 규칙 unit 계약:
 //   - 같은 vendorItemId 가 광고+오가닉 이중 노출이면 하나의 fact 로 fold
@@ -82,6 +82,14 @@ describe("KeywordRankIngestHandler", () => {
       async (rows: UpsertRankSnapshotInput[]) => rows.length,
     );
     repo.upsertSerpSnapshot.mockResolvedValue({ id: "serp-1" });
+    repo.mutateLatestSerpSnapshot.mockImplementation(async (input) => {
+      const snapshot = await repo.findLatestSerp(
+        input.organizationId,
+        input.keyword,
+      );
+      if (!snapshot) return null;
+      return input.mutateItems(snapshot) === null ? null : { id: "serp-1" };
+    });
     repo.touchTrackerCaptured.mockResolvedValue(undefined);
   });
 
@@ -253,6 +261,7 @@ describe("KeywordRankIngestHandler", () => {
           sellerCatalogs: [],
         },
       }),
+      expect.any(Function),
     );
   });
 
@@ -304,11 +313,12 @@ describe("KeywordRankIngestHandler", () => {
           ],
         }),
       }),
+      expect.any(Function),
     );
   });
 
   it("merges a selected overlapping seller catalog into its existing keyword snapshot", async () => {
-    repo.findLatestSerp.mockResolvedValue({
+    const existingSnapshot = {
       keyword: "문구 세트",
       businessDate: new Date("2026-07-14T00:00:00.000Z"),
       capturedAt: new Date("2026-07-14T03:00:00.000Z"),
@@ -323,7 +333,8 @@ describe("KeywordRankIngestHandler", () => {
         ],
         sellerCatalogs: [],
       },
-    });
+    };
+    repo.findLatestSerp.mockResolvedValue(existingSnapshot);
     const payload = {
       type: "competitor_seller_catalog",
       timestamp: "2026-07-14T04:00:00.000Z",
@@ -356,26 +367,33 @@ describe("KeywordRankIngestHandler", () => {
       "organization-1",
       "문구 세트",
     );
-    expect(repo.upsertSerpSnapshot).toHaveBeenCalledWith(
+    expect(repo.mutateLatestSerpSnapshot).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: "organization-1",
         keyword: "문구 세트",
-        itemCount: 1,
-        pagesScanned: 2,
-        items: expect.objectContaining({
-          serpItems: [expect.objectContaining({ sellerId: "seller-1" })],
-          sellerCatalogs: [
-            expect.objectContaining({
-              sellerId: "seller-1",
-              products: [
-                expect.objectContaining({
-                  vendorItemId: "catalog-1",
-                  imageUrl: "https://thumbnail.example/catalog-on-demand.jpg",
-                }),
-              ],
-            }),
-          ],
-        }),
+        capturedAt: new Date("2026-07-14T04:00:00.000Z"),
+        mutateItems: expect.any(Function),
+      }),
+    );
+    const mutation = repo.mutateLatestSerpSnapshot.mock.calls[0][0];
+    const savedItems = mutation.mutateItems(existingSnapshot) as {
+      serpItems: Record<string, unknown>[];
+      sellerCatalogs: Array<Record<string, unknown>>;
+    };
+    expect(savedItems).toEqual(
+      expect.objectContaining({
+        serpItems: [expect.objectContaining({ sellerId: "seller-1" })],
+        sellerCatalogs: [
+          expect.objectContaining({
+            sellerId: "seller-1",
+            products: [
+              expect.objectContaining({
+                vendorItemId: "catalog-1",
+                imageUrl: "https://thumbnail.example/catalog-on-demand.jpg",
+              }),
+            ],
+          }),
+        ],
       }),
     );
     expect(result.results).toEqual([
@@ -384,7 +402,7 @@ describe("KeywordRankIngestHandler", () => {
   });
 
   it("adds seller identity only to server-selected overlapping products", async () => {
-    repo.findLatestSerp.mockResolvedValue({
+    const existingSnapshot = {
       keyword: "문구 세트",
       businessDate: new Date("2026-07-14T00:00:00.000Z"),
       capturedAt: new Date("2026-07-14T03:00:00.000Z"),
@@ -405,7 +423,8 @@ describe("KeywordRankIngestHandler", () => {
         ],
         sellerCatalogs: [],
       },
-    });
+    };
+    repo.findLatestSerp.mockResolvedValue(existingSnapshot);
     const payload = {
       type: "competitor_seller_identity",
       data: [
@@ -425,14 +444,17 @@ describe("KeywordRankIngestHandler", () => {
       "organization-1",
     );
 
-    const saved = repo.upsertSerpSnapshot.mock.calls[0][0];
-    const savedItems = (saved.items as { serpItems: Record<string, unknown>[] })
-      .serpItems;
+    const mutation = repo.mutateLatestSerpSnapshot.mock.calls[0][0];
+    const saved = mutation.mutateItems(existingSnapshot) as {
+      serpItems: Record<string, unknown>[];
+    };
+    const savedItems = saved.serpItems;
     expect(savedItems[0]).toMatchObject({
       vendorItemId: "overlap-1",
       sellerName: "문구대장",
       sellerId: "seller-1",
       sellerStoreUrl: "https://shop.coupang.com/seller-1",
+      sellerIdentityCapturedAt: "2026-07-14T03:30:00.000Z",
     });
     expect(savedItems[1]).toMatchObject({
       vendorItemId: "not-selected",
@@ -442,6 +464,58 @@ describe("KeywordRankIngestHandler", () => {
     expect(result.results).toEqual([
       expect.objectContaining({ resolvedProductCount: 1 }),
     ]);
+  });
+
+  it("does not let a stale seller catalog overwrite the latest SERP snapshot", async () => {
+    repo.findLatestSerp.mockResolvedValue({
+      keyword: "문구 세트",
+      businessDate: new Date("2026-07-14T00:00:00.000Z"),
+      capturedAt: new Date("2026-07-14T05:00:00.000Z"),
+      pagesScanned: 2,
+      itemCount: 1,
+      items: {
+        serpItems: [],
+        sellerCatalogs: [
+          {
+            sellerId: "seller-1",
+            sellerName: "최신 판매자",
+            sellerStoreUrl: "https://shop.coupang.com/seller-1",
+            totalProductCount: 1,
+            collectedProductCount: 1,
+            isTruncated: false,
+            sort: "newest",
+            capturedAt: "2026-07-14T05:00:00.000Z",
+            products: [
+              {
+                sourceRank: 1,
+                vendorItemId: "latest-1",
+                name: "최신 상품",
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const payload = {
+      type: "competitor_seller_catalog",
+      data: [
+        {
+          keyword: "문구 세트",
+          sellerId: "seller-1",
+          sellerStoreUrl: "https://shop.coupang.com/seller-1",
+          capturedAt: "2026-07-14T04:00:00.000Z",
+          products: [{ vendorItemId: "catalog-1", name: "오래된 상품" }],
+        },
+      ],
+    } as ExtensionSyncDto;
+
+    const result = await handler.executeSellerCatalogs(
+      payload,
+      "organization-1",
+    );
+
+    expect(result.results).toEqual([]);
+    expect(repo.mutateLatestSerpSnapshot).toHaveBeenCalledOnce();
   });
 
   it("skips malformed SERP items defensively without failing the ingest", async () => {
@@ -466,6 +540,7 @@ describe("KeywordRankIngestHandler", () => {
     // 깨진 항목은 SERP 저장에서도 제외되고 itemCount 는 파싱된 항목 기준.
     expect(repo.upsertSerpSnapshot).toHaveBeenCalledWith(
       expect.objectContaining({ itemCount: 1 }),
+      expect.any(Function),
     );
     expect(result.results[0].serpSaved).toBe(true);
   });

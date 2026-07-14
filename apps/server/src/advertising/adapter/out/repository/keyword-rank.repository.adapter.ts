@@ -14,6 +14,7 @@ import { currentBusinessDate } from "../../../domain/business-date";
 import type {
   KeywordRankRepositoryPort,
   KeywordTrackerRow,
+  MutateLatestSerpSnapshotInput,
   OwnVendorItem,
   RankHistoryRow,
   RankOverviewSnapshotRow,
@@ -109,7 +110,14 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     capturedAt: Date,
   ): Promise<void> {
     await this.prisma.coupangKeywordTracker.updateMany({
-      where: { id, organizationId },
+      where: {
+        id,
+        organizationId,
+        OR: [
+          { lastCapturedAt: null },
+          { lastCapturedAt: { lte: capturedAt } },
+        ],
+      },
       data: { lastCapturedAt: capturedAt },
     });
   }
@@ -209,22 +217,47 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
   }
 
   async upsertRankSnapshots(rows: UpsertRankSnapshotInput[]): Promise<number> {
-    let count = 0;
-    for (const row of rows) {
-      await this.prisma.coupangKeywordRankDailySnapshot.upsert({
-        where: {
+    if (rows.length === 0) return 0;
+    const orderedRows = [...rows].sort((a, b) =>
+      [
+        a.organizationId,
+        a.keyword,
+        a.vendorItemId,
+        a.businessDate.toISOString(),
+      ]
+        .join(':')
+        .localeCompare(
+          [
+            b.organizationId,
+            b.keyword,
+            b.vendorItemId,
+            b.businessDate.toISOString(),
+          ].join(':'),
+        ),
+    );
+    return this.prisma.$transaction(async (tx) => {
+      let count = 0;
+      for (const row of orderedRows) {
+        await this.acquireSnapshotLock(
+          tx,
+          row.organizationId,
+          `keyword-rank:${row.organizationId}:${row.keyword}:${row.vendorItemId}:${row.businessDate.toISOString().slice(0, 10)}`,
+        );
+        const where = {
           organizationId_keyword_vendorItemId_businessDate: {
             organizationId: row.organizationId,
             keyword: row.keyword,
             vendorItemId: row.vendorItemId,
             businessDate: row.businessDate,
           },
-        },
-        create: {
-          organizationId: row.organizationId,
-          keyword: row.keyword,
-          vendorItemId: row.vendorItemId,
-          businessDate: row.businessDate,
+        };
+        const existing = await tx.coupangKeywordRankDailySnapshot.findUnique({
+          where,
+          select: { id: true, capturedAt: true },
+        });
+        if (existing && existing.capturedAt > row.capturedAt) continue;
+
+        const data = {
           productId: row.productId,
           itemId: row.itemId,
           productName: row.productName,
@@ -236,53 +269,139 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
           priceKrw: row.priceKrw,
           reviewCount: row.reviewCount,
           capturedAt: row.capturedAt,
-        },
-        update: {
-          productId: row.productId,
-          itemId: row.itemId,
-          productName: row.productName,
-          overallRank: row.overallRank,
-          organicRank: row.organicRank,
-          adRank: row.adRank,
-          page: row.page,
-          positionInPage: row.positionInPage,
-          priceKrw: row.priceKrw,
-          reviewCount: row.reviewCount,
-          capturedAt: row.capturedAt,
-        },
-        select: { id: true },
-      });
-      count += 1;
-    }
-    return count;
+        };
+        if (existing) {
+          await tx.coupangKeywordRankDailySnapshot.update({
+            where: { id: existing.id },
+            data,
+            select: { id: true },
+          });
+        } else {
+          await tx.coupangKeywordRankDailySnapshot.create({
+            data: {
+              organizationId: row.organizationId,
+              keyword: row.keyword,
+              vendorItemId: row.vendorItemId,
+              businessDate: row.businessDate,
+              ...data,
+            },
+            select: { id: true },
+          });
+        }
+        count += 1;
+      }
+      return count;
+    });
   }
 
-  upsertSerpSnapshot(input: UpsertSerpSnapshotInput): Promise<{ id: string }> {
-    const items = input.items as Prisma.InputJsonValue;
-    return this.prisma.coupangKeywordSerpDailySnapshot.upsert({
-      where: {
+  async upsertSerpSnapshot(
+    input: UpsertSerpSnapshotInput,
+    mergeItems?: (existing: SerpSnapshotRow | null) => unknown,
+  ): Promise<{ id: string }> {
+    return this.prisma.$transaction(async (tx) => {
+      await this.acquireSnapshotLock(
+        tx,
+        input.organizationId,
+        `keyword-serp:${input.organizationId}:${input.keyword}`,
+      );
+      const where = {
         organizationId_keyword_businessDate: {
           organizationId: input.organizationId,
           keyword: input.keyword,
           businessDate: input.businessDate,
         },
-      },
-      create: {
-        organizationId: input.organizationId,
-        keyword: input.keyword,
-        businessDate: input.businessDate,
+      };
+      const existing = await tx.coupangKeywordSerpDailySnapshot.findUnique({
+        where,
+        select: {
+          id: true,
+          keyword: true,
+          businessDate: true,
+          capturedAt: true,
+          pagesScanned: true,
+          itemCount: true,
+          items: true,
+        },
+      });
+      if (existing && existing.capturedAt > input.capturedAt) {
+        return { id: existing.id };
+      }
+
+      const existingSnapshot = existing
+        ? {
+            keyword: existing.keyword,
+            businessDate: existing.businessDate,
+            capturedAt: existing.capturedAt,
+            pagesScanned: existing.pagesScanned,
+            itemCount: existing.itemCount,
+            items: existing.items,
+          }
+        : null;
+      const items = (mergeItems
+        ? mergeItems(existingSnapshot)
+        : input.items) as Prisma.InputJsonValue;
+      const data = {
         items,
         itemCount: input.itemCount,
         pagesScanned: input.pagesScanned,
         capturedAt: input.capturedAt,
-      },
-      update: {
-        items,
-        itemCount: input.itemCount,
-        pagesScanned: input.pagesScanned,
-        capturedAt: input.capturedAt,
-      },
-      select: { id: true },
+      };
+      if (existing) {
+        return tx.coupangKeywordSerpDailySnapshot.update({
+          where: { id: existing.id },
+          data,
+          select: { id: true },
+        });
+      }
+      return tx.coupangKeywordSerpDailySnapshot.create({
+        data: {
+          organizationId: input.organizationId,
+          keyword: input.keyword,
+          businessDate: input.businessDate,
+          ...data,
+        },
+        select: { id: true },
+      });
+    });
+  }
+
+  async mutateLatestSerpSnapshot(
+    input: MutateLatestSerpSnapshotInput,
+  ): Promise<{ id: string } | null> {
+    return this.prisma.$transaction(async (tx) => {
+      await this.acquireSnapshotLock(
+        tx,
+        input.organizationId,
+        `keyword-serp:${input.organizationId}:${input.keyword}`,
+      );
+      const snapshot = await tx.coupangKeywordSerpDailySnapshot.findFirst({
+        where: { organizationId: input.organizationId, keyword: input.keyword },
+        orderBy: [{ businessDate: "desc" }, { capturedAt: "desc" }],
+        select: {
+          id: true,
+          keyword: true,
+          businessDate: true,
+          capturedAt: true,
+          pagesScanned: true,
+          itemCount: true,
+          items: true,
+        },
+      });
+      if (!snapshot) return null;
+      const items = input.mutateItems({
+        keyword: snapshot.keyword,
+        businessDate: snapshot.businessDate,
+        capturedAt: snapshot.capturedAt,
+        pagesScanned: snapshot.pagesScanned,
+        itemCount: snapshot.itemCount,
+        items: snapshot.items,
+      });
+      if (items === null) return null;
+      return tx.coupangKeywordSerpDailySnapshot.update({
+        where: { id: snapshot.id },
+        data: { items: items as Prisma.InputJsonValue },
+        select: { id: true },
+      });
     });
   }
 
@@ -342,6 +461,22 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     const { organizationId, keyword, businessDate } = rows[0];
 
     return this.prisma.$transaction(async (tx) => {
+      await this.acquireSnapshotLock(
+        tx,
+        organizationId,
+        `wing-sales-rank:${organizationId}:${keyword}:${businessDate.toISOString().slice(0, 10)}`,
+      );
+      const latest = await tx.coupangWingSalesRankDailySnapshot.findFirst({
+        where: { organizationId, keyword, businessDate },
+        orderBy: { capturedAt: "desc" },
+        select: { capturedAt: true },
+      });
+      const incomingCapturedAt = rows.reduce(
+        (latestCapturedAt, row) =>
+          row.capturedAt > latestCapturedAt ? row.capturedAt : latestCapturedAt,
+        rows[0].capturedAt,
+      );
+      if (latest && latest.capturedAt > incomingCapturedAt) return 0;
       await tx.coupangWingSalesRankDailySnapshot.deleteMany({
         where: {
           organizationId,
@@ -431,7 +566,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
   ): Promise<SerpSnapshotRow | null> {
     return this.prisma.coupangKeywordSerpDailySnapshot.findFirst({
       where: { organizationId, keyword },
-      orderBy: { businessDate: "desc" },
+      orderBy: [{ businessDate: "desc" }, { capturedAt: "desc" }],
       select: {
         keyword: true,
         businessDate: true,
@@ -476,5 +611,17 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     });
     if (!tracker) throw new NotFoundException("Keyword tracker not found");
     return tracker;
+  }
+
+  private async acquireSnapshotLock(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    lockKey: string,
+  ): Promise<void> {
+    await tx.$queryRaw`
+      SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
+      FROM (SELECT ${organizationId}::uuid AS organization_id) AS tenant
+      WHERE organization_id = ${organizationId}::uuid
+    `;
   }
 }

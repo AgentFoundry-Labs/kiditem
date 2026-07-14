@@ -194,34 +194,34 @@ export class KeywordRankIngestHandler {
       }
 
       await this.keywordRankRepo.upsertRankSnapshots(rankRows);
-      const existingSnapshot = await this.keywordRankRepo.findLatestSerp(
-        organizationId,
-        keyword,
-      );
-      const existingEnvelope = this.readSnapshotEnvelope(
-        existingSnapshot?.items,
-      );
-      const sellerCatalogs = this.mergeSellerCatalogs(
-        existingSnapshot &&
-          existingSnapshot.businessDate.getTime() === businessDate.getTime()
-          ? existingEnvelope.sellerCatalogs
-          : [],
-        incomingSellerCatalogs,
-      );
-      await this.keywordRankRepo.upsertSerpSnapshot({
+      const serpItems = items.map((item) => ({ ...item }));
+      const snapshotInput = {
         organizationId,
         keyword,
         businessDate,
-        items: {
-          serpItems: items.map((item) => ({ ...item })),
-          sellerCatalogs,
-        },
+        items: { serpItems, sellerCatalogs: incomingSellerCatalogs },
         itemCount: items.length,
         pagesScanned:
           toNumberOrNull(row.pagesScanned) ??
           items.reduce((max, item) => Math.max(max, item.page ?? 0), 0),
         capturedAt,
-      });
+      };
+      await this.keywordRankRepo.upsertSerpSnapshot(
+        snapshotInput,
+        (existingSnapshot) => {
+          const existingEnvelope = this.readSnapshotEnvelope(
+            existingSnapshot?.items,
+          );
+          const sellerCatalogs = this.mergeSellerCatalogs(
+            existingSnapshot &&
+              existingSnapshot.businessDate.getTime() === businessDate.getTime()
+              ? existingEnvelope.sellerCatalogs
+              : [],
+            incomingSellerCatalogs,
+          );
+          return { serpItems, sellerCatalogs };
+        },
+      );
       await this.keywordRankRepo.touchTrackerCaptured(
         tracker.id,
         organizationId,
@@ -258,33 +258,35 @@ export class KeywordRankIngestHandler {
       const keyword = cleanString(row.keyword);
       const catalog = this.parseSellerCatalogs([row])[0];
       if (!keyword || !catalog) continue;
-      const snapshot = await this.keywordRankRepo.findLatestSerp(
+      const capturedAt = new Date(catalog.capturedAt);
+      const saved = await this.keywordRankRepo.mutateLatestSerpSnapshot({
         organizationId,
         keyword,
-      );
-      if (!snapshot) {
+        capturedAt,
+        mutateItems: (snapshot) => {
+          const envelope = this.readSnapshotEnvelope(snapshot.items);
+          const previous = envelope.sellerCatalogs.find(
+            (existing) => existing.sellerId === catalog.sellerId,
+          );
+          if (
+            previous &&
+            new Date(previous.capturedAt).getTime() > capturedAt.getTime()
+          ) {
+            return null;
+          }
+          const sellerCatalogs = this.mergeSellerCatalogs(
+            envelope.sellerCatalogs,
+            [catalog],
+          );
+          return { serpItems: envelope.serpItems, sellerCatalogs };
+        },
+      });
+      if (!saved) {
         this.logger.warn(
-          `competitor_seller_catalog skipped without SERP snapshot (keyword=${keyword})`,
+          `competitor_seller_catalog skipped without a fresh SERP snapshot (keyword=${keyword})`,
         );
         continue;
       }
-      const envelope = this.readSnapshotEnvelope(snapshot.items);
-      const sellerCatalogs = this.mergeSellerCatalogs(envelope.sellerCatalogs, [
-        catalog,
-      ]);
-      const capturedAt = new Date(catalog.capturedAt);
-      await this.keywordRankRepo.upsertSerpSnapshot({
-        organizationId,
-        keyword,
-        businessDate: snapshot.businessDate,
-        items: {
-          serpItems: envelope.serpItems,
-          sellerCatalogs,
-        },
-        itemCount: snapshot.itemCount,
-        pagesScanned: snapshot.pagesScanned,
-        capturedAt,
-      });
       results.push({
         keyword,
         sellerId: catalog.sellerId,
@@ -331,12 +333,6 @@ export class KeywordRankIngestHandler {
       saved: true;
     }> = [];
     for (const [keyword, identities] of byKeyword) {
-      const snapshot = await this.keywordRankRepo.findLatestSerp(
-        organizationId,
-        keyword,
-      );
-      if (!snapshot) continue;
-      const envelope = this.readSnapshotEnvelope(snapshot.items);
       const identityByProductKey = new Map(
         identities.map((identity) => [
           cleanString(identity.productKey)!,
@@ -344,36 +340,47 @@ export class KeywordRankIngestHandler {
         ]),
       );
       let resolvedProductCount = 0;
-      const serpItems = envelope.serpItems.map((item) => {
-        const key = this.snapshotProductKey(item);
-        const identity = identityByProductKey.get(key);
-        if (!identity) return item;
-        resolvedProductCount += 1;
-        return {
-          ...item,
-          sellerName: cleanString(identity.sellerName),
-          sellerId: cleanString(identity.sellerId),
-          sellerStoreUrl: cleanString(identity.sellerStoreUrl),
-        };
-      });
-      if (resolvedProductCount === 0) continue;
       const capturedAt =
-        identities
+        [...identities, { capturedAt: payload.timestamp }]
           .map((identity) => cleanString(identity.capturedAt))
           .filter((value): value is string => Boolean(value))
           .map((value) => new Date(value))
           .filter((value) => Number.isFinite(value.getTime()))
           .sort((a, b) => a.getTime() - b.getTime())
-          .at(-1) ?? snapshot.capturedAt;
-      await this.keywordRankRepo.upsertSerpSnapshot({
+          .at(-1) ?? new Date();
+      const saved = await this.keywordRankRepo.mutateLatestSerpSnapshot({
         organizationId,
         keyword,
-        businessDate: snapshot.businessDate,
-        items: { serpItems, sellerCatalogs: envelope.sellerCatalogs },
-        itemCount: snapshot.itemCount,
-        pagesScanned: snapshot.pagesScanned,
         capturedAt,
+        mutateItems: (snapshot) => {
+          const envelope = this.readSnapshotEnvelope(snapshot.items);
+          const serpItems = envelope.serpItems.map((item) => {
+            const key = this.snapshotProductKey(item);
+            const identity = identityByProductKey.get(key);
+            if (!identity) return item;
+            const previousCapturedAt = cleanString(
+              item.sellerIdentityCapturedAt,
+            );
+            if (
+              previousCapturedAt &&
+              new Date(previousCapturedAt).getTime() > capturedAt.getTime()
+            ) {
+              return item;
+            }
+            resolvedProductCount += 1;
+            return {
+              ...item,
+              sellerName: cleanString(identity.sellerName),
+              sellerId: cleanString(identity.sellerId),
+              sellerStoreUrl: cleanString(identity.sellerStoreUrl),
+              sellerIdentityCapturedAt: capturedAt.toISOString(),
+            };
+          });
+          if (resolvedProductCount === 0) return null;
+          return { serpItems, sellerCatalogs: envelope.sellerCatalogs };
+        },
       });
+      if (!saved) continue;
       results.push({ keyword, resolvedProductCount, saved: true });
     }
     return { success: true, results };
@@ -426,7 +433,17 @@ export class KeywordRankIngestHandler {
     const bySellerId = new Map(
       existing.map((catalog) => [catalog.sellerId, catalog]),
     );
-    for (const catalog of incoming) bySellerId.set(catalog.sellerId, catalog);
+    for (const catalog of incoming) {
+      const previous = bySellerId.get(catalog.sellerId);
+      if (
+        previous &&
+        new Date(previous.capturedAt).getTime() >
+          new Date(catalog.capturedAt).getTime()
+      ) {
+        continue;
+      }
+      bySellerId.set(catalog.sellerId, catalog);
+    }
     return [...bySellerId.values()];
   }
 

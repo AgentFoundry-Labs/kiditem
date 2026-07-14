@@ -210,6 +210,7 @@ export function buildMockKeywordRankRepo(): MockKeywordRankRepo {
     hasOwnVendorItem: vi.fn(),
     upsertRankSnapshots: vi.fn(),
     upsertSerpSnapshot: vi.fn(),
+    mutateLatestSerpSnapshot: vi.fn(),
     findRankHistory: vi.fn(),
     findRankOverviewSnapshots: vi.fn(),
     replaceWingSalesRankSnapshots: vi.fn(),

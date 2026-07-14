@@ -1,4 +1,3 @@
-import { apiClient } from '@/lib/api-client';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 
 export type RocketPoStatusCode = 'RP' | 'PA' | 'RI' | 'CI' | '';
@@ -17,20 +16,6 @@ interface CollectResponse {
   poCount?: number;
   error?: string;
   pendingLogin?: boolean;
-}
-
-interface RocketPreview {
-  rows: unknown[];
-  totalRows: number;
-  fullyConfirmed: number;
-  shortRows: number;
-  matchedSkus: number;
-}
-
-export interface RocketSalesCollectionResult {
-  rows: RocketConfirmSourceRow[];
-  poCount: number;
-  preview: RocketPreview | null;
 }
 
 export async function detectRocketOrderExtensionId(requiredCapability: string): Promise<string> {
@@ -73,49 +58,4 @@ export async function collectRocketPoRowsFromExtension({
     });
   }
   return { rows: res.rows, poCount: res.poCount ?? 0 };
-}
-
-export async function collectRocketSalesRange({
-  from,
-  to,
-  status = 'PA',
-}: {
-  from: string;
-  to: string;
-  status?: RocketPoStatusCode;
-}): Promise<RocketSalesCollectionResult> {
-  const { rows, poCount } = await collectRocketPoRowsFromExtension({
-    from,
-    to,
-    status,
-    dateType: 'PURCHASE_ORDER_DATE',
-  });
-  if (rows.length === 0) return { rows, poCount: 0, preview: null };
-
-  const confirmedRows = rows.filter(isRocketConfirmedSalesRow);
-  if (confirmedRows.length === 0) {
-    throw new Error(
-      '쿠팡 로켓 매출은 발주확정 데이터만 동기화합니다. 현재 수집된 행이 발주확정이 아니어서 저장하지 않았습니다. Chrome 확장프로그램을 새로고침한 뒤 다시 시도해주세요.',
-    );
-  }
-
-  const confirmedPoCount = new Set(
-    confirmedRows.map((row) => String(row.poNumber ?? '').trim()).filter(Boolean),
-  ).size;
-
-  const preview = await apiClient.post<RocketPreview>('/api/orders/rocket/confirm-preview', {
-    rows: confirmedRows,
-    revenueRefreshRange: { from, to },
-  });
-  return { rows: confirmedRows, poCount: confirmedPoCount || poCount, preview };
-}
-
-function isRocketConfirmedSalesRow(row: RocketConfirmSourceRow): boolean {
-  if (row.businessDateBasis !== 'ordered_at') return false;
-  return isConfirmedStatus(row.poStatusCode) || isConfirmedStatus(row.poStatus);
-}
-
-function isConfirmedStatus(value: unknown): boolean {
-  const normalized = String(value ?? '').replace(/\s+/g, '').trim().toUpperCase();
-  return normalized === 'PA' || normalized.includes('발주확정');
 }

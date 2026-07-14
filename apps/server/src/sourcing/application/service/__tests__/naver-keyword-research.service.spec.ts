@@ -54,7 +54,7 @@ function makeService(history: NaverPopularKeywordSnapshotRow[], boards: NaverDat
   } as unknown as NaverDatalabPopularKeywordPort;
   const trendRepo = {
     findPopularKeywordHistory: vi.fn(async () => history),
-    upsertNaverPopularKeywordSnapshots: vi.fn(async () => boards[0].ranks.length),
+    replaceNaverPopularKeywordSnapshots: vi.fn(async () => boards[0].ranks.length),
   } as unknown as TrendCollectionRepositoryPort;
   const noop = {} as unknown;
   const service = new NaverKeywordResearchService(
@@ -86,8 +86,8 @@ describe('NaverKeywordResearchService.searchPopularKeywords NEW/급상승', () =
     expect(ranks[2]).toMatchObject({ keyword: '토미카', isNew: false, previousRank: 1, rankDelta: -2 });
 
     // 오늘 순위를 일별 스냅샷으로 저장한다
-    expect(trendRepo.upsertNaverPopularKeywordSnapshots).toHaveBeenCalledOnce();
-    const savedRows = (trendRepo.upsertNaverPopularKeywordSnapshots as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(trendRepo.replaceNaverPopularKeywordSnapshots).toHaveBeenCalledOnce();
+    const savedRows = (trendRepo.replaceNaverPopularKeywordSnapshots as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(savedRows).toHaveLength(3);
     expect(savedRows[0]).toMatchObject({ organizationId: 'org-1', boardKey: 'toys_dolls', keyword: '레고', rank: 1 });
   });
