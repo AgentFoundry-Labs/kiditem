@@ -59,7 +59,6 @@ export function useCancelOperation(options: UseCancelOperationOptions = {}) {
         queryClient.invalidateQueries({ queryKey: queryKeys.productContent.all }),
         queryClient.invalidateQueries({ queryKey: queryKeys.thumbnails.all }),
         queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.all }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.coupangImageSync.all }),
       ]);
       if (showToast) {
         toast.success(getCancelOperationToastMessage(response));

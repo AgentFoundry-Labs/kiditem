@@ -148,8 +148,9 @@ the supported workflow and verification counts.
 - Confirmed ChannelSku component replacement validates tenant ownership before
   deletion, then locks, deletes, recreates, and updates status atomically. It
   never writes `MasterProduct.currentStock`.
-- Coupang image synchronization is a separate media workflow. It does not
-  create, refresh, or confirm ChannelSku matching rows.
+- Wing catalog collection attaches provider media to the listing content
+  workspace. It preserves existing content selection and never creates,
+  refreshes, or confirms ChannelSku component recipes.
 - Wing and Rocket are separate `ChannelAccount` rows (`channel='coupang'` and
   `channel='rocket'`). Never infer the channel from an account display name.
 - Rocket purchase-order quantity decisions are deferred. Do not add Rocket

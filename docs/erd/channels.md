@@ -13,6 +13,7 @@
 | ChannelAdTargetDailySnapshot | `channel_ad_target_daily_snapshots` | 채널 광고 타겟(캠페인/키워드/상품)의 일별 정규화 fact. 기간 view 는 SUM 으로 derive. |
 | ChannelListingDailySnapshot | `channel_listing_daily_snapshots` | 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert. |
 | ChannelListingOptionDailySnapshot | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
+| ChannelScrapeChunk | `channel_scrape_chunks` | Browser catalog collection payloads kept in JSONB until an atomic publication succeeds. |
 | ChannelScrapeRun | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
 | ChannelScrapeSnapshot | `channel_scrape_snapshots` | 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존. |
 | ChannelSkuComponent | `channel_sku_components` | Confirmed channel-SKU recipe. mappingSource: product_code \| barcode \| manual. |
@@ -159,10 +160,26 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  ChannelScrapeChunk {
+    String id PK
+    String organizationId FK
+    String scrapeRunId FK
+    String kind
+    Int sequence
+    String checksum
+    Int itemCount
+    Json payload
+    DateTime publishedAt
+    Json publicationJson
+    DateTime createdAt
+    DateTime updatedAt
+  }
   ChannelScrapeRun {
     String id PK
     String organizationId FK
     String channelAccountId FK
+    String clientRunKey
+    String sourceImportRunId FK
     String channel
     String source
     String pageType
@@ -244,6 +261,7 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  ChannelScrapeRun ||--o{ ChannelScrapeChunk : "scrapeRun"
   ChannelScrapeRun o|--o{ ChannelScrapeSnapshot : "scrapeRun"
   ChannelScrapeSnapshot o|--o{ ChannelAccountDailyKpiSnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelAdTargetDailySnapshot : "rawSnapshot"
@@ -266,8 +284,10 @@ erDiagram
 | ChannelListingOptionDailySnapshot | listing | references external | Core | ChannelListing |
 | ChannelListingOptionDailySnapshot | listingOption | references external | Core | ChannelListingOption |
 | ChannelListingOptionDailySnapshot | organization | references external | Core | Organization |
+| ChannelScrapeChunk | organization | references external | Core | Organization |
 | ChannelScrapeRun | channelAccount | references external | Core | ChannelAccount |
 | ChannelScrapeRun | organization | references external | Core | Organization |
+| ChannelScrapeRun | sourceImportRun | references external | Core | SourceImportRun |
 | ChannelScrapeSnapshot | listing | references external | Core | ChannelListing |
 | ChannelScrapeSnapshot | listingOption | references external | Core | ChannelListingOption |
 | ChannelScrapeSnapshot | organization | references external | Core | Organization |

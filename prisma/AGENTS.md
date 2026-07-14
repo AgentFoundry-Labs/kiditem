@@ -78,14 +78,14 @@ constraints on the same logical keys.
 
 Current active-row uniqueness includes:
 
-- `master_products(organization_id, legacy_code)`
-- `product_options(master_id, option_name)` including the null-option case
-- `product_options(organization_id, barcode)`
-- `product_options(organization_id, legacy_code)`
+- `master_products(organization_id, code)`
 - `channel_listings(organization_id, channel_account_id, external_id)`
-- `product_preparations(organization_id, source_candidate_id)`
-- `product_preparations(organization_id, master_id)` only when
-  `is_current_for_master=true`
+- active source-backed `channel_listings(organization_id, source_candidate_id,
+  channel_account_id)`
+- active `product_preparations(organization_id, source_candidate_id,
+  channel_account_id)`
+- `channel_sku_components(channel_sku_id, master_product_id)`
+- one primary `supplier_products(master_product_id)` row
 
 Service code should use `findFirst({ where: { ..., isDeleted: false } })`
 instead of `findUnique(...)` assumptions over partial keys.

@@ -43,9 +43,9 @@ KidItem Dev Data/
 `latest.json` and `latest.txt` may be absent until the first scraper bundle is
 published.
 
-Bundles may include `payloads/coupang-image-sync-from-db.json` when a publisher
-has run Wing image sync. That file stores replayable Wing image rows and
-external Coupang CDN URLs, not image binaries or local object-storage URLs.
+Bundles replay advertising, traffic, and item-winner scraper payloads. Wing
+registered-product catalog and provider media are reconstructed through the
+authenticated browser catalog-collection flow, not a Drive image payload.
 
 ## Agent Setup Steps
 

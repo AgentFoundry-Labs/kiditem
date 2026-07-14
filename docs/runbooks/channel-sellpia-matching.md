@@ -6,14 +6,14 @@ Use this runbook to replace KidItem's physical inventory snapshot from Sellpia,
 import one Coupang Wing account's independent product/SKU metadata, and define
 the exact Sellpia components consumed by one sale of each channel SKU.
 
-Release `0.1.9` has one stock authority: a completed Sellpia full-snapshot
-import writes `InventorySku.currentStock`. Matching and availability are reads
+Release `0.1.8` has one stock authority: a completed Sellpia full-snapshot
+import writes `MasterProduct.currentStock`. Matching and availability are reads
 over that snapshot; they do not adjust, reserve, or deduct stock. See
-[KidItem Architecture](../ARCHITECTURE.md#sellpia-authoritative-inventory-and-channel-capacity-019).
+[KidItem Architecture](../ARCHITECTURE.md#sellpia-authoritative-inventory-and-channel-capacity-018).
 
 ## Prerequisites
 
-- Confirm the repository root `VERSION` is `0.1.9`.
+- Confirm the repository root `VERSION` is `0.1.8`.
 - Sign in to the intended KidItem organization. Organization scope comes from
   the authenticated session, not an upload field.
 - Select an active Wing `ChannelAccount` whose stored `channel` is exactly
@@ -33,7 +33,7 @@ over that snapshot; they do not adjust, reserve, or deduct stock. See
 
 - Import Sellpia first, then Wing. This makes every mapping and availability
   read use the latest completed physical snapshot.
-- One `InventorySku` represents one Sellpia product code. A completed import
+- One `MasterProduct` represents one Sellpia product code. A completed import
   replaces the organization's full snapshot; a previously known code absent
   from the new file keeps its UUID and component references but gets
   `currentStock = 0`.
@@ -45,7 +45,7 @@ over that snapshot; they do not adjust, reserve, or deduct stock. See
 - Never infer recipe quantities from text such as `4개`, `8개`, `묶음`, or a
   product name. An operator must verify and save the complete recipe.
 - Candidate ranking is evidence only. Never auto-confirm a candidate.
-- Do not directly edit `InventorySku`, `ChannelListing`,
+- Do not directly edit `MasterProduct`, `ChannelListing`,
   `ChannelListingOption`, `ChannelSkuComponent`, or `SourceImportRun` rows.
 - Do not translate imports or recipes into product stock, transfer/picking/
   return stock deltas, purchase orders, or Rocket actions.
@@ -69,11 +69,12 @@ over that snapshot; they do not adjust, reserve, or deduct stock. See
 5. Open `/inventory` or `/inventory-hub?tab=status`. Confirm the table,
    summaries, asset values, and latest-import timestamp are based on
    `GET /api/inventory/sellpia-skus`.
-6. Open `/inventory-hub?tab=history` and confirm the completed run appears from
+6. In the same `/inventory-hub?tab=sellpia-sync` tab, confirm the completed run
+   appears in import history from
    `GET /api/inventory/sellpia-sync/import-runs`.
 
 The import is atomic and fenced by its `SourceImportRun` attempt token. It is
-the only operation in KidItem that writes `InventorySku.currentStock`.
+the only operation in KidItem that writes `MasterProduct.currentStock`.
 
 ## 2. Import Wing Product And SKU Metadata
 
@@ -115,7 +116,7 @@ reject the workbook.
    | `검색 결과` | The operator's explicit Sellpia search result. |
 
 5. Add one or more verified Sellpia rows. Every component needs a positive
-   integer quantity; one recipe supports at most 50 unique InventorySku rows.
+   integer quantity; one recipe supports at most 50 unique `MasterProduct` rows.
 6. Click **구성 저장**. The endpoint validates tenant ownership and replaces
    the complete recipe atomically.
 7. Close and reopen the row. Confirm component IDs/codes and quantities round
@@ -134,11 +135,11 @@ C -> X x 1 + Y x 2
 
 ## 4. Verify Channel Sellable Capacity
 
-Open `/inventory-hub?tab=availability` or `/stock-ops`. The backend calculates
+Open `/inventory-hub?tab=rocket-events` or `/stock-ops`. The backend calculates
 each confirmed ChannelSku as:
 
 ```text
-component capacity = floor(InventorySku.currentStock / component.quantity)
+component capacity = floor(MasterProduct.currentStock / component.quantity)
 sellableStock = minimum component capacity in the complete recipe
 ```
 
@@ -162,10 +163,10 @@ Both importers hash the original bytes with SHA-256.
   file hash.
 - Re-uploading completed identical bytes returns the existing run with
   `duplicate = true` and zero change counters.
-- A duplicate does not rewrite InventorySku, ChannelProduct, ChannelSku, or
+- A duplicate does not rewrite MasterProduct, ChannelProduct, ChannelSku, or
   component rows.
 - A different Sellpia workbook replaces current metadata/stock while
-  preserving InventorySku identity by product code.
+  preserving MasterProduct identity by product code.
 - A different Wing workbook updates account-specific metadata while preserving
   stable channel identities and confirmed recipes.
 
@@ -176,9 +177,9 @@ verify duplicate responses, stable IDs/recipes, and unchanged currentStock.
 
 | Check | Expected |
 |---|---:|
-| Release | `0.1.9` |
+| Release | `0.1.8` |
 | Sellpia completed run rows | 1,964 |
-| Final InventorySku rows | 1,964 |
+| Final MasterProduct rows | 1,964 |
 | Wing valid + skipped rows | 2,244 |
 | Wing completed run rows / ChannelSkus | 2,241 |
 | Distinct ChannelProducts | 1,225 |
@@ -205,7 +206,7 @@ force the clean baseline.
 | Fresh identical `running` import returns 409 | Another attempt owns the file; wait and refresh. Never edit the run row. |
 | Import process crashed | Re-upload identical bytes after the 30-minute lease. The new attempt token fences the stale worker. |
 | Run is `failed` | Correct the cause and retry identical bytes; the importer reclaims the run atomically. |
-| Component save returns 400 | Remove invalid/duplicate quantities or foreign/missing InventorySku rows and retry. The old recipe remains on failure. |
+| Component save returns 400 | Remove invalid/duplicate quantities or foreign/missing MasterProduct rows and retry. The old recipe remains on failure. |
 | Mapping row returns 404 | Confirm organization/account scope and completed `coupang_wing_catalog` provenance. |
 | Availability is null | Confirm the complete recipe; do not substitute zero or guess capacity. |
 
@@ -230,7 +231,6 @@ rtk npm run build --workspace=packages/shared
 rtk npm run build --workspace=apps/server
 rtk npm run build --workspace=apps/web
 rtk npm run check:conventions
-rtk npm run check:channel-sku-identity
 rtk npm run check:schema-artifact-sync
 ```
 
@@ -243,10 +243,9 @@ controllers.
 
 Stop and report instead of modifying rows manually when:
 
-- `VERSION` is not `0.1.9` or UI/API versions differ;
-- the `0.1.9` reconstruction is requested against staging or production before
-  its pre-schema local-only gate has been replaced by an approved persistent
-  data preservation migration;
+- `VERSION` is not `0.1.8` or UI/API versions differ;
+- a staging or production rebuild is attempted outside the guarded GitHub
+  Actions reset/finalize workflow;
 - either approved workbook is missing, modified unexpectedly, or cannot remain
   outside git;
 - the intended organization has no active `channel='coupang'` account;
@@ -263,7 +262,7 @@ Stop and report instead of modifying rows manually when:
 Fill runtime IDs from actual responses; do not invent them.
 
 ```text
-Release: 0.1.9
+Release: 0.1.8
 Sellpia run: <run.id>; rows 1964; duplicate re-upload confirmed
 Wing run: <run.id>; parents 1225; SKUs 2241; skipped 3; duplicate re-upload confirmed
 Initial matching: unmatched 2086 / needs review 155 / matched 0

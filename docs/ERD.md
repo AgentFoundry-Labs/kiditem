@@ -27,7 +27,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Advertising](erd/advertising.md) | 5 |
 | [AgentOS](erd/agentos.md) | 17 |
 | [AI](erd/ai.md) | 19 |
-| [Channels](erd/channels.md) | 9 |
+| [Channels](erd/channels.md) | 10 |
 | [Core](erd/core.md) | 10 |
 | [Finance](erd/finance.md) | 5 |
 | [Inventory](erd/inventory.md) | 7 |
@@ -85,6 +85,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ChannelAdTargetDailySnapshot | Channels | `channel_ad_target_daily_snapshots` | 채널 광고 타겟(캠페인/키워드/상품)의 일별 정규화 fact. 기간 view 는 SUM 으로 derive. |
 | ChannelListingDailySnapshot | Channels | `channel_listing_daily_snapshots` | 채널 listing 의 일별 정규화 상태. 반복 scrape 는 businessDate row 를 upsert. |
 | ChannelListingOptionDailySnapshot | Channels | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
+| ChannelScrapeChunk | Channels | `channel_scrape_chunks` | Browser catalog collection payloads kept in JSONB until an atomic publication succeeds. |
 | ChannelScrapeRun | Channels | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
 | ChannelScrapeSnapshot | Channels | `channel_scrape_snapshots` | 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존. |
 | ChannelSkuComponent | Channels | `channel_sku_components` | Confirmed channel-SKU recipe. mappingSource: product_code \| barcode \| manual. |
@@ -122,7 +123,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Shipment | Orders | `shipments` | - |
 | ShipmentItem | Orders | `shipment_items` | Order-line shipment detail. |
 | UnshippedItem | Orders | `unshipped_items` | - |
-| CandidateImage | Sourcing | `sourcing_candidate_images` | 소싱 후보의 이미지 갤러리. 승격 시 MasterProductImage로 clone. |
+| CandidateImage | Sourcing | `sourcing_candidate_images` | 소싱 후보가 소유하는 이미지 갤러리. 소싱 콘텐츠와 썸네일 생성 입력으로 사용한다. |
 | SourcingCandidate | Sourcing | `sourcing_candidates` | 외부 플랫폼에서 스크랩한 소싱 후보. MasterProduct와 분리된 sourcing inbox. |
 | SourcingWorkspaceSnapshot | Sourcing | `sourcing_workspace_snapshots` | 조직/KST 날짜/scope 단위의 소싱 AI 결과 캐시. 오늘의 추천/키워드 분석 결과를 최신 1개로 재사용한다. |
 | PurchaseOrder | Supply | `purchase_orders` | 발주 state machine (draft→pending→ordered→shipped→received). 입고 검수 필드 포함 (receivedQty, defectQty). 단위는 CNY(Decimal 12,2). |
@@ -779,10 +780,26 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  ChannelScrapeChunk {
+    String id PK
+    String organizationId FK
+    String scrapeRunId FK
+    String kind
+    Int sequence
+    String checksum
+    Int itemCount
+    Json payload
+    DateTime publishedAt
+    Json publicationJson
+    DateTime createdAt
+    DateTime updatedAt
+  }
   ChannelScrapeRun {
     String id PK
     String organizationId FK
     String channelAccountId FK
+    String clientRunKey
+    String sourceImportRunId FK
     String channel
     String source
     String pageType
@@ -1937,6 +1954,7 @@ erDiagram
   ChannelListingOption ||--o{ ChannelSkuComponent : "channelSku"
   ChannelListingOption o|--o{ OrderLineItem : "listingOption"
   ChannelListingOption o|--o{ OrderReturnLineItem : "listingOption"
+  ChannelScrapeRun ||--o{ ChannelScrapeChunk : "scrapeRun"
   ChannelScrapeRun o|--o{ ChannelScrapeSnapshot : "scrapeRun"
   ChannelScrapeSnapshot o|--o{ ChannelAccountDailyKpiSnapshot : "rawSnapshot"
   ChannelScrapeSnapshot o|--o{ ChannelAdTargetDailySnapshot : "rawSnapshot"
@@ -2018,6 +2036,7 @@ erDiagram
   Organization ||--o{ ChannelListingDailySnapshot : "organization"
   Organization ||--o{ ChannelListingOption : "organization"
   Organization ||--o{ ChannelListingOptionDailySnapshot : "organization"
+  Organization ||--o{ ChannelScrapeChunk : "organization"
   Organization ||--o{ ChannelScrapeRun : "organization"
   Organization ||--o{ ChannelScrapeSnapshot : "organization"
   Organization ||--o{ ChannelSkuComponent : "organization"
@@ -2085,6 +2104,7 @@ erDiagram
   Shipment ||--o{ ShipmentItem : "shipment"
   SourceImportRun o|--o{ ChannelListing : "lastImportRun"
   SourceImportRun o|--o{ ChannelListingOption : "lastImportRun"
+  SourceImportRun o|--o{ ChannelScrapeRun : "sourceImportRun"
   SourceImportRun o|--o{ MasterProduct : "lastImportRun"
   SourcingCandidate ||--o{ CandidateImage : "candidate"
   SourcingCandidate o|--o{ ChannelListing : "sourceCandidate"

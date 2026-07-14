@@ -47,7 +47,9 @@ in Supply, but the backend capability owner is finance.
 ## Boundary Rules
 
 - Do not use `prisma.profitLoss.*` in live read paths.
-- Do not use `ProductOption.shippingCost` as live shipping source.
+- Live channel-SKU pricing comes from `ChannelListingOption` and the shared
+  pricing resolver. Component purchase cost falls back to mapped
+  `MasterProduct.purchasePrice`; do not restore removed `ProductOption` reads.
 - Do not add date-range support without updating DTOs, services, tests, and
   this contract.
 - Raw SQL uses Prisma tagged templates only.

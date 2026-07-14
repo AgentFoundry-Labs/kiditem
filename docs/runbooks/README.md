@@ -17,8 +17,8 @@ Runbooks are different from concept docs:
 Current runbooks:
 
 - [Sellpia/Channel SKU Matching](channel-sellpia-matching.md) — import the
-  Sellpia-authoritative InventorySku snapshot and account-scoped Wing catalog,
-  confirm exact ChannelSku component recipes, and verify the `0.1.9` baseline.
+  Sellpia-authoritative MasterProduct snapshot and account-scoped Wing catalog,
+  confirm exact ChannelSku component recipes, and verify the `0.1.8` baseline.
 - [Sellpia Inventory And Rocket Read-Only Boundary](sellpia-rocket-inventory-sync.md)
   — operate the preserved inventory views and local-only reset/bootstrap while
   keeping Rocket PO monitoring read-only and delivery decisions deferred.
@@ -43,9 +43,9 @@ Current runbooks:
 - [Staging Seed Data](staging-seed-data.md) — historical first-rollout notes and
   non-destructive seed import guidance. Staging DB reset/restore now belongs to
   the DB baseline runbook.
-- [Playwriter Wing Image Sync](playwriter-wing-image-sync.md) — set up the
-  local Playwriter CLI/session required by `/product-pipeline/thumbnail-generation`
-  image sync and Wing thumbnail registration.
+- [Coupang Wing Catalog Collection](coupang-wing-catalog-collection.md) — collect
+  authenticated Wing products, options, and provider media through the Chrome
+  extension into registered products.
 - [Google Drive Dev Data](google-drive-dev-data.md) — set up `KidItem Dev Data`
   through Google Drive Desktop for profile sync and Coupang bundle replay.
 - [Coupang Scraper Publish](coupang-scraper-publish.md) — export scraper output

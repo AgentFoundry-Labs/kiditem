@@ -205,9 +205,9 @@ export async function createPendingEditJob(
 
 /**
  * Build a pending thumbnail generation for a sourcing candidate workspace.
- * Candidate-bound rows intentionally have no `masterId`; they become product
- * gallery images only if promotion copies a selected candidate into
- * `MasterProductImage`.
+ * Candidate-bound rows intentionally have no `masterId`; registration may
+ * branch selected content into the account-scoped listing workspace without
+ * cloning the candidate or its generation job.
  */
 export async function createPendingCandidateJob(
   prisma: PrismaService,
