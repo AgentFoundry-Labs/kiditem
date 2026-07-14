@@ -101,9 +101,7 @@ export function CoupangCatalogImportPanel() {
                 )}
                 {server.publication && (
                   <span>
-                    이미지 준비 {formatNumber(server.publication.changes.readyImageCount ?? 0)} ·
-                    {' '}복사 대기 {formatNumber(server.publication.changes.pendingImageCount ?? 0)} ·
-                    {' '}실패 {formatNumber(server.publication.changes.failedImageCount ?? 0)}
+                    이미지 URL {formatNumber(server.publication.changes.imageCount ?? 0)}개 연결
                   </span>
                 )}
                 {isComplete && <span className="text-emerald-700">DB 반영 완료</span>}

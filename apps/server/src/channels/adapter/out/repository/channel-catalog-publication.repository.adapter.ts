@@ -638,9 +638,6 @@ function zeroChanges(): Record<string, number> {
     updatedSkuCount: 0,
     deactivatedSkuCount: 0,
     imageCount: 0,
-    pendingImageCount: 0,
-    readyImageCount: 0,
-    failedImageCount: 0,
     inactivatedImageCount: 0,
   };
 }

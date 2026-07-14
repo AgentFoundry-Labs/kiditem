@@ -4,7 +4,7 @@ import { AgentOsModule } from '../../agent-os/agent-os.module';
 import { AutomationModule } from '../../automation/automation.module';
 import { AiModule } from '../ai.module';
 import { AiWingRegistrationCapabilityAdapter } from '../adapter/in/agent/ai-wing-registration-capability.adapter';
-import { AiCatalogMediaPublicationAdapter } from '../adapter/in/channels/ai-catalog-media-publication.adapter';
+import { AiCatalogMediaPublicationRepositoryAdapter } from '../adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { CATALOG_MEDIA_PUBLICATION_PORT } from '../../channels/application/port/out/cross-domain/catalog-media-publication.port';
 import { DetailPageContentGenerationSinkAdapter } from '../adapter/out/direct-output/detail-page-content-generation-sink.adapter';
 import { ThumbnailGenerationSinkAdapter } from '../adapter/out/direct-output/thumbnail-generation-sink.adapter';
@@ -27,7 +27,6 @@ import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repos
 import { ThumbnailTrackingRepositoryAdapter } from '../adapter/out/repository/thumbnail-tracking.repository.adapter';
 import { ThumbnailWingRepositoryAdapter } from '../adapter/out/repository/thumbnail-wing.repository.adapter';
 import { AiGenerationCancellationService } from '../application/service/ai-generation-cancellation.service';
-import { CatalogMediaMaterializationWorker } from '../application/service/catalog-media-materialization-worker.service';
 import { ContentWorkspaceThumbnailSelectionService } from '../application/service/content-workspace-thumbnail-selection.service';
 import { RegistrationContentWorkspaceService } from '../application/service/registration-content-workspace.service';
 import { ProductGenerationAiService } from '../application/service/product-generation-ai.service';
@@ -120,7 +119,6 @@ describe('AiModule hexagonal wiring contract', () => {
       expectExistingBinding(providers, token as symbol, adapter);
     });
     expect(providers).toContain(ContentWorkspaceThumbnailSelectionService);
-    expect(providers).toContain(CatalogMediaMaterializationWorker);
   });
 
   it('exports AI owner-side incoming ports through application services', () => {
@@ -133,7 +131,7 @@ describe('AiModule hexagonal wiring contract', () => {
       [AI_WORKSPACE_ARCHIVE_PORT, SourcingWorkspaceArchiveService],
       [AI_GENERATION_CANCELLATION_PORT, AiGenerationCancellationService],
       [REGISTRATION_CONTENT_WORKSPACE_PORT, RegistrationContentWorkspaceService],
-      [CATALOG_MEDIA_PUBLICATION_PORT, AiCatalogMediaPublicationAdapter],
+      [CATALOG_MEDIA_PUBLICATION_PORT, AiCatalogMediaPublicationRepositoryAdapter],
     ].forEach(([token, adapter]) => {
       expectExistingBinding(providers, token as symbol, adapter);
     });

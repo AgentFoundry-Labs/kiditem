@@ -29,6 +29,10 @@ code:
 - listing media uses the existing
   `ContentGenerationGroup(groupType='workspace_assets') -> ContentAsset` path;
   no `ContentWorkspaceAsset` model is added;
+- catalog publication stores provider URLs only. Image bytes are fetched
+  lazily through the existing guarded image-fetch port when thumbnail or
+  detail-page work actually needs them; catalog sync does not pre-download
+  provider images;
 - the registered-products route already reads `ChannelListing`, so the UI work
   adds account selection, import controls, progress, and invalidation rather
   than another read-model cutover;
@@ -60,7 +64,7 @@ not provide the required behavior:
 None of these paths creates a complete registered-product catalog. A product
 that exists only in Wing therefore cannot become a valid KidItem registered
 product with parent metadata, sellable options, a content workspace, and
-immediately usable images.
+immediately usable image references.
 
 The live Wing inspection performed for this design found:
 
@@ -105,8 +109,10 @@ The current local database also demonstrates the ownership mismatch:
   primary provider image as the current thumbnail.
 - Allow AI workflows to use provider images immediately after catalog
   publication.
-- Materialize external provider images into managed storage without making a
-  single image-copy failure roll back the catalog.
+- Keep provider originals as external URLs during catalog sync and fetch
+  their bytes only when a thumbnail or detail-page operation needs them.
+- Persist only the selected or derived managed asset required by the editing
+  operation; do not pre-download the full provider catalog.
 - Preserve KidItem-authored fields, content history, and confirmed
   `ChannelSkuComponent` recipes across imports.
 - Mark listings and options missing from a successfully completed full
@@ -120,7 +126,7 @@ The current local database also demonstrates the ownership mismatch:
 - Inferring Sellpia mappings from product names, barcodes, or images.
 - Creating or modifying `ChannelSkuComponent` recipes during catalog import.
 - Mutating marketplace stock or Sellpia stock.
-- Treating image materialization as a prerequisite for catalog publication.
+- Pre-downloading provider images during or after catalog publication.
 - Adding direct database access to the frontend or extension.
 - Storing KidItem API credentials or database credentials in the extension.
 - Making a private Wing endpoint or DOM selector silently authoritative when
@@ -164,7 +170,8 @@ The rejected alternatives were:
     in that chunk.
 11. Only one successfully finalized full snapshot may deactivate unseen
     listings, options, or provider assets.
-12. An image-copy failure cannot roll back or hide a valid catalog.
+12. A later on-demand image-fetch failure cannot roll back or hide a valid
+    catalog.
 13. Every listing has at most one active listing-owned `ContentWorkspace`.
 14. Every imported provider image is immediately available as a `ContentAsset`
     in the listing workspace's `workspace_assets` generation group.
@@ -189,7 +196,9 @@ Wing authenticated tab
   -> full-snapshot completeness validation
   -> final absence reconciliation + SourceImportRun completion
   -> registered-products ChannelListing read model
-  -> asynchronous ContentAsset materialization worker
+  -> thumbnail/detail operation
+       -> guarded on-demand provider URL fetch
+       -> selected or derived managed output when required
 ```
 
 The web application owns KidItem authentication and the selected channel
@@ -319,16 +328,17 @@ Provider images reuse the existing workspace-owned
 `ContentGenerationGroup(groupType='workspace_assets')`. Provider
 `ContentAsset` rows use stable keys derived from workspace, role, optional
 external option ID, and normalized source URL. Their metadata holds
-`sourceType`, `sourceUrl`, `externalOptionId`, `lastImportRunId`, active state,
-and materialization state:
+`sourceType`, `sourceUrl`, `externalOptionId`, `lastImportRunId`, and active
+state. For a provider original, `url` remains the normalized external URL and
+`storageKey`, MIME type, dimensions, and file size remain null because catalog
+publication has not fetched the bytes.
 
-- `pending`: the external URL is immediately usable and managed storage copy
-  is waiting;
-- `ready`: `url` points at the managed copy and `storageKey` is populated;
-- `failed`: the external URL remains usable and the copy can be retried.
-
-Assets unrelated to provider materialization have no Coupang source metadata
-and are therefore outside the worker queue.
+Thumbnail and detail-page operations resolve the provider URL through the
+existing guarded image-fetch port only when bytes are required. They validate
+the fetched content and persist a selected or derived managed asset when that
+operation requires a durable output. The provider source asset itself remains
+URL-backed, so synchronizing 1,000 products does not create 1,000 speculative
+downloads.
 
 The first active `primary` media record becomes the current workspace
 thumbnail selection during the same publication transaction. Existing manual
@@ -488,30 +498,23 @@ The channels application service coordinates channel and AI ownership through
 transaction-aware ports. The channel repository does not write AI tables
 directly, and the AI module does not take over channel identity.
 
-## Image Materialization
+## Lazy Provider Image Fetching
 
-The publication transaction inserts provider assets with the external URL and
-`metadata.materializationStatus = pending`. This is the immediate logical
-link: the registered-products UI and AI input selector can use the image as
-soon as the catalog transaction commits.
+The publication transaction inserts provider assets with the external URL.
+This is the complete catalog-media write: it does not enqueue a background
+copy, write a managed storage object, or add materialization state.
 
-A deterministic server worker leases pending or retryable failed assets,
-fetches the source URL through the existing image-fetch port, validates the
-MIME type, writes the bytes through the existing image-storage port, and then
-sets:
+When a thumbnail selection, thumbnail edit, crop, AI image operation, or
+detail-page image operation needs bytes, it first uses a managed storage image
+when the selected input already has one. Otherwise it fetches the provider URL
+through the existing guarded image-fetch port, including URL safety, response
+size, and MIME validation. The operation then stores only the durable selected
+or derived output required by its own contract.
 
-- `url` to the managed URL;
-- `storageKey` to the managed key;
-- `metadata.materializationStatus` to `ready`;
-- materialization timestamps and attempt information.
-
-Failure sets `metadata.materializationStatus = failed`, records a bounded
-diagnostic and retry time, and leaves `url` on the external provider URL.
-Retries are per asset. A failed copy never changes the import run back to
-failed and never hides the listing.
-
-The asset row itself is the durable work queue. A separate external queue or
-outbox is not introduced for this release.
+An on-demand fetch failure is reported by that editing operation and does not
+change catalog publication state or hide the registered-product card. No
+background worker, asset queue, or catalog-wide retry loop is introduced for
+provider originals in this release.
 
 ## Registered Products Experience
 
@@ -525,7 +528,7 @@ The primary interaction is:
 2. click `쿠팡 전체 상품 가져오기`;
 3. connect to the authenticated Wing tab through the extension;
 4. display discovery, detail hydration, chunk upload, validation, publication,
-   and image materialization progress;
+   and provider-image URL attachment progress;
 5. invalidate and refetch the listing query whenever another detail chunk is
    published and once more after final reconciliation.
 
@@ -539,7 +542,7 @@ Progress includes:
 - latest publication time, processing rate, and estimated remaining time;
 - current phase and recoverable error;
 - created, updated, and inactivated listing/SKU counts;
-- provider image `ready`, `pending`, and `failed` counts.
+- attached provider image URL count.
 
 The listing UI contract is:
 
@@ -549,8 +552,8 @@ The listing UI contract is:
 - deleted/inactive tab uses `isActive = false`;
 - each card shows current thumbnail, display or registered name, external
   product ID, channel account, state, and option count;
-- external provider URL is rendered until materialization changes the same
-  asset to its managed URL;
+- external provider URL is rendered directly until an explicit content
+  operation selects or creates a separate managed asset;
 - no manual image-sync button is required for imported catalog images;
 - cards published by an active run show `쿠팡 동기화 중` until final
   reconciliation completes.
@@ -638,8 +641,9 @@ The implementation sequence is:
 3. implement resumable run storage and completeness validation;
 4. add idempotent per-detail-chunk publication into existing channel listing
    and option models;
-5. attach media through existing workspace generation groups and assets;
-6. implement provider asset materialization, leases, and retries;
+5. attach URL-only media through existing workspace generation groups and
+   assets, and verify on-demand image fetching in thumbnail/detail operations;
+6. remove catalog-wide provider-image materialization and its worker;
 7. implement the extension discovery/hydration/resume collector;
 8. add import controls, stored/published progress, ETA, and per-chunk live
    query invalidation to registered products;
@@ -702,10 +706,13 @@ No automatic Sellpia mapping is performed.
 - absent listing/SKU/media deactivation and later reactivation;
 - KidItem-authored operational fields and component recipes remain unchanged;
 - one active listing workspace;
-- all provider assets attach immediately;
+- all provider asset URLs attach immediately without managed storage writes;
 - initial provider primary selection and manual-selection preservation;
 - duplicate completed snapshot is a no-op;
-- failed materialization retains the external URL and retries idempotently.
+- thumbnail/detail operations fetch an external source lazily and persist only
+  their selected or derived managed output;
+- an on-demand fetch failure leaves the catalog asset URL and publication
+  state unchanged.
 
 ### Web tests
 
@@ -715,7 +722,7 @@ No automatic Sellpia mapping is performed.
 - discovery, detail-stored, DB-published, processing-rate, and ETA progress;
 - one card per listing using `listingId`;
 - active and inactive tabs;
-- external-to-managed image URL transition;
+- provider URL thumbnail rendering without a catalog-time download;
 - no legacy `masterId` group dependency.
 
 ### Required repository gates
@@ -742,10 +749,12 @@ No automatic Sellpia mapping is performed.
    registered-products result agree for the selected account, subject only to
    explicitly reported validation failures that prevent publication.
 6. Newly discovered products appear on registered-products immediately after
-   finalize.
+   each committed detail chunk.
 7. Primary and additional provider images are immediately visible and
-   available to AI through the listing workspace.
-8. Image materialization failure affects only that image and can be retried.
+   available by URL through the listing workspace, with no catalog-wide
+   pre-download.
+8. Thumbnail and detail-page operations fetch provider bytes only on demand;
+   a fetch failure affects only that requested operation.
 9. A later complete snapshot inactivates absent listings/options without
    deleting mappings or content history.
 10. No registered-products path depends on legacy `masterId` groups or a

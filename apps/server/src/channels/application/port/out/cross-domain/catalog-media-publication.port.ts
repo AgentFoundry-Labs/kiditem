@@ -16,9 +16,6 @@ export interface CatalogMediaPublicationPort {
     }>;
   }): Promise<{
     imageCount: number;
-    pendingImageCount: number;
-    readyImageCount: number;
-    failedImageCount: number;
     inactivatedImageCount: number;
   }>;
 }

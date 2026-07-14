@@ -24,12 +24,12 @@ import { ThumbnailTrackingController } from './adapter/in/http/thumbnail-trackin
 
 // adapter/in/agent
 import { AiWingRegistrationCapabilityAdapter } from './adapter/in/agent/ai-wing-registration-capability.adapter';
-import { AiCatalogMediaPublicationAdapter } from './adapter/in/channels/ai-catalog-media-publication.adapter';
 
 // adapter/out
 import { DetailPageContentGenerationSinkAdapter } from './adapter/out/direct-output/detail-page-content-generation-sink.adapter';
 import { ThumbnailGenerationSinkAdapter } from './adapter/out/direct-output/thumbnail-generation-sink.adapter';
 import { AiOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
+import { AiCatalogMediaPublicationRepositoryAdapter } from './adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { CoupangProductSalesScrapeAdapter } from './adapter/out/coupang/coupang-product-sales-scrape.adapter';
 import { DetailPageGeminiMediaAdapter } from './adapter/out/gemini/detail-page-gemini-media.adapter';
 import { GeminiTextCompletionAdapter } from './adapter/out/gemini/gemini-text-completion.adapter';
@@ -99,7 +99,6 @@ import { ContentWorkspaceThumbnailSelectionService } from './application/service
 import { RegistrationContentWorkspaceService } from './application/service/registration-content-workspace.service';
 import { SourcingWorkspaceArchiveService } from './application/service/sourcing-workspace-archive.service';
 import { AiGenerationCancellationService } from './application/service/ai-generation-cancellation.service';
-import { CatalogMediaMaterializationWorker } from './application/service/catalog-media-materialization-worker.service';
 
 // application/port — in
 import { AI_WING_REGISTRATION_CAPABILITY_PORT } from './application/port/in/capability/wing-registration.port';
@@ -176,7 +175,6 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     ImageEditDirectGenerationExecutorService,
     ImageEditDirectGenerationJobService,
     AiGenerationCancellationService,
-    CatalogMediaMaterializationWorker,
     ImageAssetOperationService,
     DetailPageAiService,
     DetailPageGenerationService,
@@ -217,7 +215,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     ThumbnailVisionAiService,
     ThumbnailWingService,
     AiWingRegistrationCapabilityAdapter,
-    AiCatalogMediaPublicationAdapter,
+    AiCatalogMediaPublicationRepositoryAdapter,
 
     // outgoing adapters
     DetailPageContentGenerationSinkAdapter,
@@ -333,7 +331,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     { provide: AI_OPERATION_ALERT_PORT, useExisting: AiOperationAlertAdapter },
     {
       provide: CATALOG_MEDIA_PUBLICATION_PORT,
-      useExisting: AiCatalogMediaPublicationAdapter,
+      useExisting: AiCatalogMediaPublicationRepositoryAdapter,
     },
 
     {

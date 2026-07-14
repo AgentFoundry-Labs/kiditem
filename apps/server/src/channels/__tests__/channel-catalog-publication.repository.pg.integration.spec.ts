@@ -2,8 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AiCatalogMediaPublicationAdapter } from '../../ai/adapter/in/channels/ai-catalog-media-publication.adapter';
-import { CatalogMediaMaterializationWorker } from '../../ai/application/service/catalog-media-materialization-worker.service';
+import { AiCatalogMediaPublicationRepositoryAdapter } from '../../ai/adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -26,7 +25,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     await prisma.$connect();
     publisher = new ChannelCatalogPublicationRepositoryAdapter(
       prisma as unknown as PrismaService,
-      new AiCatalogMediaPublicationAdapter(),
+      new AiCatalogMediaPublicationRepositoryAdapter(),
     );
   });
 
@@ -269,49 +268,25 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     expect(absentAfter.options[0].isActive).toBe(false);
   });
 
-  it('materializes pending provider assets without replacing their stable asset identity', async () => {
+  it('keeps provider media as an external URL without downloading a managed copy', async () => {
     await publish(
       await createCollectionRun(prisma),
       SNAPSHOT_A,
       [product('P-1', 'S-1')],
     );
-    const before = await prisma.contentAsset.findFirstOrThrow({
+    const asset = await prisma.contentAsset.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID },
     });
-    const worker = new CatalogMediaMaterializationWorker(
-      prisma as unknown as PrismaService,
-      {
-        fetchImage: vi.fn().mockResolvedValue({
-          buffer: Buffer.from('provider-image'),
-          mimeType: 'image/jpeg',
-          storageKey: null,
-        }),
-        fetchTrustedStorageImage: vi.fn(),
-        assertSupportedMime: vi.fn(),
-        extForMime: vi.fn().mockReturnValue('jpg'),
-      },
-      {
-        save: vi.fn().mockResolvedValue('https://storage.example/managed.jpg'),
-        copy: vi.fn(),
-        delete: vi.fn(),
-        extractKey: vi.fn(),
-      },
-    );
-
-    await worker.tick();
-
-    const after = await prisma.contentAsset.findUniqueOrThrow({ where: { id: before.id } });
-    expect(after).toMatchObject({
-      id: before.id,
-      url: 'https://storage.example/managed.jpg',
-      storageKey: `content-assets/coupang/${TEST_ORGANIZATION_ID}/${before.id}.jpg`,
-      mimeType: 'image/jpeg',
-      fileSize: Buffer.byteLength('provider-image'),
+    expect(asset).toMatchObject({
+      url: 'https://example.com/P-1.jpg',
+      storageKey: null,
+      mimeType: null,
+      fileSize: null,
     });
-    expect(after.metadata).toMatchObject({
+    expect(asset.metadata).toMatchObject({
       sourceUrl: 'https://example.com/P-1.jpg',
-      materializationStatus: 'ready',
     });
+    expect(asset.metadata).not.toHaveProperty('materializationStatus');
   });
 
   it('rejects an external option moving to another parent and rolls back publication', async () => {

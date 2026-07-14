@@ -4,19 +4,14 @@ import { Prisma, type ContentAsset } from '@prisma/client';
 import type { CoupangCatalogMediaV1 } from '@kiditem/shared/coupang-catalog-snapshot';
 import type { CatalogMediaPublicationPort } from '../../../../channels/application/port/out/cross-domain/catalog-media-publication.port';
 
-type ProviderAssetState = 'pending' | 'ready' | 'failed';
-
 @Injectable()
-export class AiCatalogMediaPublicationAdapter
+export class AiCatalogMediaPublicationRepositoryAdapter
 implements CatalogMediaPublicationPort {
   async publishProviderMedia(
     input: Parameters<CatalogMediaPublicationPort['publishProviderMedia']>[0],
   ) {
     const tx = transactionClient(input.transaction);
     let imageCount = 0;
-    let pendingImageCount = 0;
-    let readyImageCount = 0;
-    let failedImageCount = 0;
     let inactivatedImageCount = 0;
 
     for (const listing of input.listings) {
@@ -88,13 +83,11 @@ implements CatalogMediaPublicationPort {
         desiredKeys.add(assetKey);
         const existing = providerAssets.find((asset) => asset.assetKey === assetKey);
         const existingMetadata = jsonRecord(existing?.metadata) ?? {};
-        const materializationStatus = providerState(existing, existingMetadata);
         const metadata = {
-          ...existingMetadata,
+          ...withoutMaterializationMetadata(existingMetadata),
           sourceType: 'coupang_catalog',
           sourceUrl: media.sourceUrl,
           externalOptionId: media.externalOptionId,
-          materializationStatus,
           publicationReference: input.publicationReference,
           ...(input.publicationReference.type === 'source_import_run'
             ? { lastImportRunId: input.publicationReference.id }
@@ -110,7 +103,12 @@ implements CatalogMediaPublicationPort {
                 },
               },
               data: {
-                url: existing.storageKey ? existing.url : media.sourceUrl,
+                url: media.sourceUrl,
+                storageKey: null,
+                mimeType: null,
+                width: null,
+                height: null,
+                fileSize: null,
                 role: media.role,
                 sortOrder: media.sortOrder,
                 metadata,
@@ -133,9 +131,6 @@ implements CatalogMediaPublicationPort {
             });
         activeAssets.push(asset);
         imageCount += 1;
-        if (materializationStatus === 'ready') readyImageCount += 1;
-        else if (materializationStatus === 'failed') failedImageCount += 1;
-        else pendingImageCount += 1;
       }
 
       const absentIds = providerAssets
@@ -201,9 +196,6 @@ implements CatalogMediaPublicationPort {
 
     return {
       imageCount,
-      pendingImageCount,
-      readyImageCount,
-      failedImageCount,
       inactivatedImageCount,
     };
   }
@@ -234,14 +226,6 @@ function providerAssetKey(workspaceId: string, media: CoupangCatalogMediaV1): st
   return `coupang-provider:${workspaceId}:${hash}`;
 }
 
-function providerState(
-  existing: ContentAsset | undefined,
-  metadata: Record<string, unknown>,
-): ProviderAssetState {
-  if (existing?.storageKey) return 'ready';
-  return metadata.materializationStatus === 'failed' ? 'failed' : 'pending';
-}
-
 function isCoupangProviderAsset(asset: ContentAsset): boolean {
   return isProviderMetadata(asset.metadata);
 }
@@ -254,6 +238,24 @@ function jsonRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+function withoutMaterializationMetadata(
+  metadata: Record<string, unknown>,
+): Record<string, unknown> {
+  const result = { ...metadata };
+  for (const key of [
+    'materializationStatus',
+    'materializedAtMs',
+    'materializationLeaseToken',
+    'materializationLeaseExpiresAtMs',
+    'materializationAttemptCount',
+    'materializationError',
+    'nextMaterializationAttemptAtMs',
+  ]) {
+    delete result[key];
+  }
+  return result;
 }
 
 function normalizeContentTitle(value: string): string {
