@@ -1,7 +1,7 @@
 // Inventory-side read model for the dashboard. Encapsulates the Prisma
 // reads behind the inventory tile: grade counts, unread alerts, active
 // product counts, per-listing profit metrics (shared helper), inventory
-// stock rows for the JS-side needReorder count, last-7d grade history,
+// Sellpia zero-stock and channel-SKU mapping-attention counts, last-7d grade history,
 // low-CTR thumbnail count, and A-grade master products with their
 // channel-listing review counts.
 //
@@ -16,7 +16,6 @@ import type {
   DashboardInventoryRepositoryPort,
   DashboardPerListingMetrics,
   GradeCountRow,
-  InventoryStockRow,
   GradeChangeRow,
   AGradeReviewRow,
 } from '../../../application/port/out/repository/dashboard-inventory.repository.port';
@@ -30,19 +29,18 @@ export class DashboardInventoryRepositoryAdapter
   async countActiveProductsByGrade(
     organizationId: string,
   ): Promise<GradeCountRow[]> {
-    const rows = await this.prisma.masterProduct.groupBy({
+    const rows = await this.prisma.channelListing.groupBy({
       by: ['abcGrade'],
-      _count: true,
+      _count: { id: true },
       where: {
         organizationId,
-        isDeleted: false,
+        isActive: true,
         abcGrade: { in: ['A', 'B', 'C'] },
-        listings: { some: { organizationId, isDeleted: false } },
       },
     });
     return rows.map((r) => ({
       abcGrade: r.abcGrade,
-      count: r._count,
+      count: r._count.id,
     } satisfies GradeCountRow));
   }
 
@@ -76,17 +74,16 @@ export class DashboardInventoryRepositoryAdapter
   }
 
   async countActiveProducts(organizationId: string): Promise<number> {
-    return this.prisma.masterProduct.count({
-      where: { organizationId, isDeleted: false },
+    return this.prisma.channelListing.count({
+      where: { organizationId, isActive: true },
     });
   }
 
   async countChannelLinkedProducts(organizationId: string): Promise<number> {
-    return this.prisma.masterProduct.count({
+    return this.prisma.channelListing.count({
       where: {
         organizationId,
-        isDeleted: false,
-        listings: { some: { organizationId, isDeleted: false } },
+        isActive: true,
       },
     });
   }
@@ -99,13 +96,40 @@ export class DashboardInventoryRepositoryAdapter
     return buildPerListingMetrics(this.prisma, organizationId, monthStart, monthEnd);
   }
 
-  async findInventoryStockRows(
-    organizationId: string,
-  ): Promise<InventoryStockRow[]> {
-    return this.prisma.inventory.findMany({
-      where: { organizationId, currentStock: { gt: 0 } },
-      select: { currentStock: true, reorderPoint: true },
+  countOutOfStockMasterProducts(organizationId: string): Promise<number> {
+    return this.prisma.masterProduct.count({
+      where: {
+        organizationId,
+        isActive: true,
+        currentStock: 0,
+      },
     });
+  }
+
+  countMappingAttentionChannelSkus(organizationId: string): Promise<number> {
+    return this.prisma.channelListingOption.count({
+      where: {
+        organizationId,
+        isActive: true,
+        mappingStatus: { in: ['unmatched', 'needs_review'] },
+        listing: { is: { organizationId, isActive: true } },
+      },
+    });
+  }
+
+  async countChannelSkusByMappingStatus(
+    organizationId: string,
+  ): Promise<Array<{ mappingStatus: string; count: number }>> {
+    const rows = await this.prisma.channelListingOption.groupBy({
+      by: ['mappingStatus'],
+      where: {
+        organizationId,
+        isActive: true,
+        listing: { is: { organizationId, isActive: true } },
+      },
+      _count: { id: true },
+    });
+    return rows.map((row) => ({ mappingStatus: row.mappingStatus, count: row._count.id }));
   }
 
   async findGradeHistory(
@@ -129,20 +153,16 @@ export class DashboardInventoryRepositoryAdapter
   ): Promise<AGradeReviewRow[]> {
     // 2-hop tenant scope: master.organizationId +
     // listings.organizationId on the nested filter.
-    const masters = await this.prisma.masterProduct.findMany({
-      where: { organizationId, isDeleted: false, abcGrade: 'A' },
-      include: {
-        listings: {
-          where: { organizationId },
-          select: { _count: { select: { reviews: true } } },
-        },
+    const listings = await this.prisma.channelListing.findMany({
+      where: {
+        organizationId,
+        isActive: true,
+        abcGrade: 'A',
       },
+      select: { _count: { select: { reviews: true } } },
     });
-    return masters.map((m) => ({
-      reviewCount: m.listings.reduce(
-        (sum, l) => sum + l._count.reviews,
-        0,
-      ),
+    return listings.map((listing) => ({
+      reviewCount: listing._count.reviews,
     } satisfies AGradeReviewRow));
   }
 }

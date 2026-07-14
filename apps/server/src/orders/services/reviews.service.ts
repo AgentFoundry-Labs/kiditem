@@ -40,8 +40,8 @@ export class ReviewsService {
    *   (no listing) cannot be displayed in the listing/product table and are
    *   surfaced only via `summary.totalReviewCount` (not yet — also excluded
    *   for now to keep summary consistent with rows).
-   * - One row per listing. `productId = master.id ?? listingId` so the UI key
-   *   stays stable even when the listing has no master attached.
+   * - One row per listing. `productId` is the listing ID; Sellpia physical
+   *   Master rows are not registered-product identity.
    * - `recentReviews` counts reviews in the last 30 days.
    * - `orderCount` is intentionally 0 in R3. Real per-listing order counts
    *   require a `ChannelListingOption ↔ OrderLineItem` join across the order
@@ -160,14 +160,15 @@ export class ReviewsService {
   ): Promise<Map<string, ListingDisplay>> {
     if (listingIds.length === 0) return new Map();
     const rows = await this.prisma.channelListing.findMany({
-      where: { id: { in: listingIds }, organizationId, isDeleted: false },
+      where: { id: { in: listingIds }, organizationId, isActive: true },
       select: {
         id: true,
         channelName: true,
-        master: { select: { id: true, name: true, abcGrade: true } },
+        displayName: true,
+        abcGrade: true,
         options: {
-          select: { option: { select: { sku: true } } },
-          where: { option: { isDeleted: false } },
+          select: { sellerSku: true },
+          where: { isActive: true },
           orderBy: { createdAt: 'asc' },
           take: 1,
         },
@@ -177,11 +178,11 @@ export class ReviewsService {
     const map = new Map<string, ListingDisplay>();
     for (const row of rows) {
       map.set(row.id, {
-        masterId: row.master?.id ?? null,
-        productName: row.master?.name ?? row.channelName ?? null,
-        sku: row.options[0]?.option?.sku ?? null,
+        masterId: null,
+        productName: row.displayName ?? row.channelName ?? null,
+        sku: row.options[0]?.sellerSku ?? null,
         companyName: row.organization?.name ?? null,
-        grade: row.master?.abcGrade ?? null,
+        grade: row.abcGrade,
       });
     }
     return map;

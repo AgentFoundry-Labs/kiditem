@@ -653,7 +653,7 @@ export default function Dashboard() {
       {inventoryHasErr ? (
         <DashboardSectionError msg={friendlyError(inventoryError) ?? undefined} onRetry={refetchInventory} />
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           <Link href="/product-hub?tab=cleanup" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
             <div className="text-sm font-bold mb-1 text-slate-900">적자 상품</div>
             <div className="text-2xl font-extrabold tabular-nums text-slate-900">{inventoryData.warnings.minusProducts}<span className="text-sm ml-0.5">개</span></div>
@@ -668,6 +668,22 @@ export default function Dashboard() {
             <div className="text-sm font-bold mb-1 text-slate-900">광고비 초과</div>
             <div className="text-2xl font-extrabold tabular-nums text-slate-900">{inventoryData.warnings.highAdProducts}<span className="text-sm ml-0.5">개</span></div>
             <div className="text-xs mt-1 text-slate-400">광고비율 15% 초과</div>
+          </Link>
+          <Link href="/stock-ops?tab=sellpia-zero" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
+            <div className="text-sm font-bold mb-1 text-slate-900">셀피아 재고 0</div>
+            <div className="text-2xl font-extrabold tabular-nums text-slate-900">
+              <span data-warning-count="out-of-stock">{inventoryData.warnings.outOfStockSkus}</span>
+              <span className="text-sm ml-0.5">건</span>
+            </div>
+            <div className="text-xs mt-1 text-slate-400">최신 셀피아 스냅샷</div>
+          </Link>
+          <Link href="/product-hub/matching" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
+            <div className="text-sm font-bold mb-1 text-slate-900">매칭 확인 필요</div>
+            <div className="text-2xl font-extrabold tabular-nums text-slate-900">
+              <span data-warning-count="mapping-attention">{inventoryData.warnings.mappingAttentionSkus}</span>
+              <span className="text-sm ml-0.5">건</span>
+            </div>
+            <div className="text-xs mt-1 text-slate-400">미매칭·검토 필요 채널 SKU</div>
           </Link>
         </div>
       )}

@@ -73,6 +73,7 @@ export default function ThumbnailGrid({
     : displayedSourceUrls.map((url) => ({
         url,
         kind: 'source' as const,
+        generatedGenerationId: null,
         generatedCandidateId: null,
       }));
   const sourceImageCount = Math.min(thumbnails.length, MAX_THUMBNAIL_IMAGES);

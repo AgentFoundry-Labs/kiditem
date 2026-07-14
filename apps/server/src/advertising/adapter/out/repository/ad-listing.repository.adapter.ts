@@ -1,8 +1,12 @@
-// Listing + master hydrated read model and the Coupang extension-sync
-// listing map. Sole owner of the `ChannelListing` + `MasterProduct` join
-// shape used by hub / campaign / benchmark / action read models.
+// Listing-owned advertising metadata and the Coupang extension-sync listing
+// map. The outward read model keeps its historical `masterProduct` key, but
+// every value now comes from ChannelListing.
 
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   AdListingRepositoryPort,
@@ -24,37 +28,38 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
     if (ids.length === 0) return new Map();
 
     const listings = await this.prisma.channelListing.findMany({
-      where: { id: { in: ids }, organizationId, isDeleted: false },
-      select: { id: true, externalId: true, channelName: true, masterId: true },
+      where: {
+        id: { in: ids },
+        organizationId,
+        isActive: true,
+      },
+      select: {
+        id: true,
+        externalId: true,
+        channelName: true,
+        displayName: true,
+        abcGrade: true,
+        adTier: true,
+        healthScore: true,
+      },
     });
-    const masterIds = Array.from(
-      new Set(listings.map((listing) => listing.masterId)),
-    );
-    const masters =
-      masterIds.length > 0
-        ? await this.prisma.masterProduct.findMany({
-            where: { id: { in: masterIds }, organizationId },
-            select: {
-              id: true,
-              code: true,
-              name: true,
-              abcGrade: true,
-              adTier: true,
-              healthScore: true,
-            },
-          })
-        : [];
-
-    const masterMap = new Map(masters.map((master) => [master.id, master]));
     const out = new Map<string, ScopedAdListingReadModel>();
     for (const listing of listings) {
-      const master = masterMap.get(listing.masterId);
-      if (!master) continue;
       out.set(listing.id, {
         id: listing.id,
         externalId: listing.externalId,
         channelName: listing.channelName,
-        masterProduct: master,
+        masterProduct: {
+          id: listing.id,
+          code: listing.externalId,
+          name:
+            listing.displayName ??
+            listing.channelName ??
+            listing.externalId,
+          abcGrade: listing.abcGrade,
+          adTier: listing.adTier,
+          healthScore: listing.healthScore,
+        },
       });
     }
     return out;
@@ -65,7 +70,7 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
     organizationId: string,
   ): Promise<boolean> {
     const row = await this.prisma.channelListing.findFirst({
-      where: { id: listingId, organizationId, isDeleted: false },
+      where: { id: listingId, organizationId, isActive: true },
       select: { id: true },
     });
     return row != null;
@@ -76,13 +81,8 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
     organizationId: string,
     nextTier: string | null,
   ): Promise<boolean> {
-    const listing = await this.prisma.channelListing.findFirst({
-      where: { id: listingId, organizationId, isDeleted: false },
-      select: { masterId: true },
-    });
-    if (!listing) return false;
-    const updated = await this.prisma.masterProduct.updateMany({
-      where: { id: listing.masterId, organizationId },
+    const updated = await this.prisma.channelListing.updateMany({
+      where: { id: listingId, organizationId, isActive: true },
       data: { adTier: nextTier },
     });
     return updated.count === 1;
@@ -90,23 +90,36 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
 
   async buildAdSyncListingMap(
     organizationId: string,
+    channelAccountId?: string,
   ): Promise<AdSyncListingMap> {
+    const account = await this.resolveCoupangAccount(
+      organizationId,
+      channelAccountId,
+    );
+
     const [options, listings] = await Promise.all([
       this.prisma.channelListingOption.findMany({
         where: {
           organizationId,
           isActive: true,
-          listing: { organizationId, channel: 'coupang', isDeleted: false },
+          listing: {
+            organizationId,
+            channelAccountId: account.id,
+            isActive: true,
+          },
         },
         select: {
           id: true,
           externalOptionId: true,
           listingId: true,
-          optionId: true,
         },
       }),
       this.prisma.channelListing.findMany({
-        where: { organizationId, isDeleted: false, channel: 'coupang' },
+        where: {
+          organizationId,
+          channelAccountId: account.id,
+          isActive: true,
+        },
         select: { id: true, externalId: true },
       }),
     ]);
@@ -123,7 +136,6 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
       externalOptionIdMap.set(option.externalOptionId, {
         listingId: option.listingId,
         listingOptionId: option.id,
-        optionId: option.optionId ?? null,
         externalId: listing.externalId,
       });
     }
@@ -133,6 +145,49 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
       externalIdMap.set(listing.externalId, { listingId: listing.id });
     }
 
-    return { externalOptionIdMap, externalIdMap };
+    return {
+      channelAccountId: account.id,
+      externalOptionIdMap,
+      externalIdMap,
+    };
+  }
+
+  private async resolveCoupangAccount(
+    organizationId: string,
+    channelAccountId?: string,
+  ): Promise<{ id: string }> {
+    if (channelAccountId) {
+      const account = await this.prisma.channelAccount.findFirst({
+        where: {
+          id: channelAccountId,
+          organizationId,
+          channel: 'coupang',
+          status: 'active',
+        },
+        select: { id: true },
+      });
+      if (!account) {
+        throw new NotFoundException(
+          '선택한 활성 쿠팡 채널 계정을 찾을 수 없습니다.',
+        );
+      }
+      return account;
+    }
+
+    const accounts = await this.prisma.channelAccount.findMany({
+      where: { organizationId, channel: 'coupang', status: 'active' },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+      take: 2,
+      select: { id: true },
+    });
+    if (accounts.length === 0) {
+      throw new NotFoundException('활성 쿠팡 채널 계정을 찾을 수 없습니다.');
+    }
+    if (accounts.length > 1) {
+      throw new BadRequestException(
+        '활성 쿠팡 채널 계정이 여러 개입니다. channelAccountId를 지정해주세요.',
+      );
+    }
+    return accounts[0];
   }
 }

@@ -39,11 +39,13 @@ describe('ThumbnailGrid', () => {
           {
             url: 'https://cdn.example.com/product.jpg',
             kind: 'source',
+            generatedGenerationId: null,
             generatedCandidateId: null,
           },
           {
             url: 'https://cdn.example.com/generated.jpg',
             kind: 'generated',
+            generatedGenerationId: 'generation-1',
             generatedCandidateId: 'candidate-1',
           },
         ]}

@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProductCard from './ProductCard';
 import type { SourcedProduct } from '../../lib/sourcing-api';
 
+const { useKidsPlayfulInProgressMock } = vi.hoisted(() => ({
+  useKidsPlayfulInProgressMock: vi.fn(),
+}));
+
 vi.mock('@/app/(product-pipeline)/product-pipeline/_shared/hooks/useGenerateDetailPage', () => ({
   useGenerateDetailPage: () => ({ mutate: vi.fn(), isPending: false }),
 }));
@@ -12,7 +16,7 @@ vi.mock('@/app/(product-pipeline)/product-pipeline/_shared/hooks/useKidsPlayfulF
 }));
 
 vi.mock('@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate', () => ({
-  useKidsPlayfulInProgress: () => null,
+  useKidsPlayfulInProgress: (...args: unknown[]) => useKidsPlayfulInProgressMock(...args),
 }));
 
 vi.mock('sonner', () => ({
@@ -36,7 +40,6 @@ function productFixture(overrides: Partial<SourcedProduct> = {}): SourcedProduct
     thumbnail_url: 'https://cdn.example.com/product.jpg',
     imageUrl: 'https://cdn.example.com/product.jpg',
     images: [],
-    promotedMasterId: null,
     price_krw: null,
     cost_cny: null,
     image_count: 1,
@@ -50,6 +53,43 @@ function productFixture(overrides: Partial<SourcedProduct> = {}): SourcedProduct
 describe('ProductCard quick processing action', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useKidsPlayfulInProgressMock.mockReturnValue(null);
+  });
+
+  it('keeps collected generation candidate-scoped when registration state exists', () => {
+    render(
+      <ProductCard
+        product={productFixture({
+          promotedMasterId: 'legacy-master-1',
+          productPreparation: {
+            id: 'preparation-1',
+            sourceCandidateId: 'candidate-1',
+            channelAccountId: 'account-1',
+            sourceContentWorkspaceId: 'workspace-1',
+            channelListingId: 'listing-1',
+            status: 'registered',
+            selectedThumbnailUrl: null,
+            selectedThumbnailGenerationId: null,
+            selectedThumbnailGenerationCandidateId: null,
+            selectedDetailPageGenerationId: null,
+            selectedDetailPageArtifactId: null,
+            selectedDetailPageRevisionId: null,
+            updatedAt: '2026-07-13T00:00:00.000Z',
+          },
+        } as Partial<SourcedProduct> & { promotedMasterId: string })}
+        isProcessing={false}
+        isDeleting={false}
+        onDelete={vi.fn()}
+        onNavigate={vi.fn()}
+        onOpenEditor={vi.fn()}
+        onOpenQuickProcess={vi.fn()}
+        quickProcessSelectedCount={0}
+      />,
+    );
+
+    expect(useKidsPlayfulInProgressMock).toHaveBeenCalledWith('candidate-1', {
+      sourceCandidateId: 'candidate-1',
+    });
   });
 
   it('opens the selected-product quick processing modal from the collected product card', () => {

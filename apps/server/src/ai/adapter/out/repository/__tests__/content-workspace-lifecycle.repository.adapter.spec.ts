@@ -1,14 +1,120 @@
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { ContentWorkspaceLifecycleRepositoryAdapter } from '../content-workspace-lifecycle.repository.adapter';
 
+function transactional<T extends Record<string, unknown>>(scope: T): T & {
+  $transaction: ReturnType<typeof vi.fn>;
+  $queryRaw: ReturnType<typeof vi.fn>;
+} {
+  const prisma = scope as T & {
+    $transaction: ReturnType<typeof vi.fn>;
+    $queryRaw: ReturnType<typeof vi.fn>;
+  };
+  prisma.$queryRaw = vi.fn().mockResolvedValue([{ id: 'locked' }]);
+  prisma.$transaction = vi.fn((callback: (tx: T) => unknown) => callback(scope));
+  return prisma;
+}
+
 describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
+  it('rejects contradictory owner fields before creating a workspace', async () => {
+    const tx = {
+      contentWorkspace: {
+        findFirst: vi.fn(),
+        create: vi.fn(),
+      },
+    };
+    const prisma = {
+      ...tx,
+      $transaction: vi.fn((callback: (scope: typeof tx) => unknown) => callback(tx)),
+    };
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never);
+
+    await expect(repository.ensureActiveWorkspace({
+      organizationId: 'org-1',
+      ownerType: 'direct_detail_page',
+      sourceCandidateId: 'candidate-1',
+      channelListingId: null,
+      originWorkspaceId: null,
+      displayName: 'Kids rain boots',
+      normalizedTitle: 'kidsrainboots',
+      createdByUserId: 'user-1',
+    })).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(tx.contentWorkspace.create).not.toHaveBeenCalled();
+  });
+
+  it('validates a candidate owner in the same organization inside the write transaction', async () => {
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([]),
+      contentWorkspace: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn(),
+      },
+    };
+    const prisma = {
+      ...tx,
+      $transaction: vi.fn((callback: (scope: typeof tx) => unknown) => callback(tx)),
+    };
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never);
+
+    await expect(repository.ensureActiveWorkspace({
+      organizationId: 'org-1',
+      ownerType: 'sourcing_candidate',
+      sourceCandidateId: 'candidate-foreign',
+      channelListingId: null,
+      originWorkspaceId: null,
+      displayName: 'Kids rain boots',
+      normalizedTitle: 'kidsrainboots',
+      createdByUserId: 'user-1',
+    })).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(prisma.$transaction).toHaveBeenCalledOnce();
+    expect(tx.$queryRaw).toHaveBeenCalledOnce();
+    expect(tx.contentWorkspace.create).not.toHaveBeenCalled();
+  });
+
+  it('locks a valid candidate owner before creating its workspace', async () => {
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'candidate-1' }]),
+      contentWorkspace: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({
+          id: 'workspace-1',
+          displayName: 'Kids rain boots',
+          normalizedTitle: 'kidsrainboots',
+        }),
+      },
+    };
+    const prisma = {
+      ...tx,
+      $transaction: vi.fn((callback: (scope: typeof tx) => unknown) => callback(tx)),
+    };
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never);
+
+    await repository.ensureActiveWorkspace({
+      organizationId: 'org-1',
+      ownerType: 'sourcing_candidate',
+      sourceCandidateId: 'candidate-1',
+      channelListingId: null,
+      originWorkspaceId: null,
+      displayName: 'Kids rain boots',
+      normalizedTitle: 'kidsrainboots',
+      createdByUserId: 'user-1',
+    });
+
+    expect(tx.$queryRaw).toHaveBeenCalledOnce();
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.contentWorkspace.create.mock.invocationCallOrder[0],
+    );
+  });
+
   it('recovers active workspace creation when a concurrent request wins the unique key', async () => {
     const raced = {
       id: 'workspace-1',
       displayName: '키즈 터치등',
       normalizedTitle: '키즈터치등',
     };
-    const prisma = {
+    const prisma = transactional({
       contentWorkspace: {
         findFirst: vi.fn()
           .mockResolvedValueOnce(null)
@@ -17,14 +123,15 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
           code: 'P2002',
         })),
       },
-    };
+    });
     const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never);
 
     await expect(repository.ensureActiveWorkspace({
       organizationId: 'org-1',
       ownerType: 'direct_detail_page',
       sourceCandidateId: null,
-      targetMasterId: null,
+      channelListingId: null,
+      originWorkspaceId: null,
       displayName: '키즈 터치등',
       normalizedTitle: '키즈터치등',
       createdByUserId: 'user-1',
@@ -38,10 +145,47 @@ describe('ContentWorkspaceLifecycleRepositoryAdapter', () => {
         status: 'active',
         isDeleted: false,
         sourceCandidateId: null,
-        targetMasterId: null,
+        channelListingId: null,
       },
     }));
     expect(prisma.contentWorkspace.findFirst).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses channel listing identity for the active workspace key', async () => {
+    const existing = {
+      id: 'workspace-1',
+      displayName: 'Kids rain boots',
+      normalizedTitle: 'kidsrainboots',
+    };
+    const prisma = transactional({
+      contentWorkspace: {
+        findFirst: vi.fn().mockResolvedValue(existing),
+        create: vi.fn(),
+      },
+    });
+    prisma.$queryRaw
+      .mockResolvedValueOnce([{ id: 'listing-1', sourceCandidateId: 'candidate-1' }])
+      .mockResolvedValueOnce([{ id: 'source-workspace-1', sourceCandidateId: 'candidate-1' }]);
+    const repository = new ContentWorkspaceLifecycleRepositoryAdapter(prisma as never);
+
+    await repository.ensureActiveWorkspace({
+      organizationId: 'org-1',
+      ownerType: 'channel_listing',
+      sourceCandidateId: null,
+      channelListingId: 'listing-1',
+      originWorkspaceId: 'source-workspace-1',
+      displayName: 'Kids rain boots',
+      normalizedTitle: 'kidsrainboots',
+      createdByUserId: 'user-1',
+    });
+
+    expect(prisma.contentWorkspace.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        organizationId: 'org-1',
+        ownerType: 'channel_listing',
+        channelListingId: 'listing-1',
+      }),
+    }));
   });
 
   it('lists only registered-product workspaces, excluding sourcing candidate workspaces', async () => {

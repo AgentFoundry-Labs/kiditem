@@ -64,9 +64,8 @@ export interface DetailPagePrefillDto {
 
 export interface DetailPageGenerationDto {
   id: string;
-  productId: string | null;
   sourceCandidateId: string | null;
-  contentWorkspaceId: string | null;
+  contentWorkspaceId: string;
   templateId: DetailPageTemplateId;
   productName: string;
   rawInput: DetailPageRawInput;

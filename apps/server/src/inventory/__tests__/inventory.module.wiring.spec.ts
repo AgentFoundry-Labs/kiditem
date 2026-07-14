@@ -1,41 +1,42 @@
 import 'reflect-metadata';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { describe, it, expect } from 'vitest';
-import { InventoryModule } from '../inventory.module';
-import { InventoryAssetsController } from '../adapter/in/http/inventory-assets.controller';
-import { InventoryItemsController } from '../adapter/in/http/inventory-items.controller';
-import { InventoryStockMutationsController } from '../adapter/in/http/inventory-stock-mutations.controller';
+import { describe, expect, it } from 'vitest';
 import { CoupangShipmentsController } from '../adapter/in/http/coupang-shipments.controller';
-import { InventoryTransactionsController } from '../adapter/in/http/inventory-transactions.controller';
+import { InventorySkuSnapshotController } from '../adapter/in/http/inventory-sku-snapshot.controller';
+import { PickingController } from '../adapter/in/http/picking.controller';
+import { SellpiaInventoryImportController } from '../adapter/in/http/sellpia-inventory-import.controller';
+import { SellpiaReceiptBatchController } from '../adapter/in/http/sellpia-receipt-batch.controller';
+import { TransfersController } from '../adapter/in/http/transfers.controller';
 import { UnshippedController } from '../adapter/in/http/unshipped.controller';
 import { WarehousesController } from '../adapter/in/http/warehouses.controller';
-import { TransfersController } from '../adapter/in/http/transfers.controller';
-import { AuditsController } from '../adapter/in/http/audits.controller';
-import { PickingController } from '../adapter/in/http/picking.controller';
-import { RocketInventoryController } from '../adapter/in/http/rocket-inventory.controller';
-import { SellpiaReceiptBatchController } from '../adapter/in/http/sellpia-receipt-batch.controller';
-import { SellpiaSyncController } from '../adapter/in/http/sellpia-sync.controller';
-import { InventoryService } from '../application/service/inventory.service';
-import { SellpiaSyncService } from '../application/service/sellpia-sync.service';
+import { ConfirmedOrdersRepositoryAdapter } from '../adapter/out/repository/confirmed-orders.repository.adapter';
+import { SellpiaMasterImportRepositoryAdapter } from '../adapter/out/repository/sellpia-master-import.repository.adapter';
+import { InventorySkuSnapshotListRepositoryAdapter } from '../adapter/out/repository/inventory-sku-snapshot-list.repository.adapter';
+import { SellpiaMasterProductReadRepositoryAdapter } from '../adapter/out/repository/sellpia-master-product-read.repository.adapter';
+import { PickingRepositoryAdapter } from '../adapter/out/repository/picking.repository.adapter';
+import { SellpiaReceiptBatchRepositoryAdapter } from '../adapter/out/repository/sellpia-receipt-batch.repository.adapter';
+import { TransfersRepositoryAdapter } from '../adapter/out/repository/transfers.repository.adapter';
+import { UnshippedRepositoryAdapter } from '../adapter/out/repository/unshipped.repository.adapter';
+import { WarehousesRepositoryAdapter } from '../adapter/out/repository/warehouses.repository.adapter';
+import { INVENTORY_SKU_SNAPSHOT_LIST_PORT } from '../application/port/in/stock/inventory-sku-snapshot-list.port';
+import { SELLPIA_MASTER_PRODUCT_READ_PORT } from '../application/port/in/stock/sellpia-master-product-read.port';
+import { SELLPIA_INVENTORY_IMPORT_PORT } from '../application/port/in/stock/sellpia-inventory-import.port';
+import { SELLPIA_RECEIPT_BATCH_PORT } from '../application/port/in/stock/sellpia-receipt-batch.port';
+import { SELLPIA_MASTER_IMPORT_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-master-import.repository.port';
+import { INVENTORY_SKU_SNAPSHOT_LIST_REPOSITORY_PORT } from '../application/port/out/repository/inventory-sku-snapshot-list.repository.port';
+import { SELLPIA_MASTER_PRODUCT_READ_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-master-product-read.repository.port';
+import { SELLPIA_RECEIPT_BATCH_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-receipt-batch.repository.port';
+import { InventorySkuSnapshotListService } from '../application/service/inventory-sku-snapshot-list.service';
+import { SellpiaMasterProductReadService } from '../application/service/sellpia-master-product-read.service';
+import { PickingService } from '../application/service/picking.service';
+import { SellpiaInventoryImportService } from '../application/service/sellpia-inventory-import.service';
+import { SellpiaReceiptBatchService } from '../application/service/sellpia-receipt-batch.service';
+import { TransfersService } from '../application/service/transfers.service';
 import { UnshippedService } from '../application/service/unshipped.service';
 import { WarehousesService } from '../application/service/warehouses.service';
-import { TransfersService } from '../application/service/transfers.service';
-import { AuditsService } from '../application/service/audits.service';
-import { PickingService } from '../application/service/picking.service';
-import { InventoryQueryRepositoryAdapter } from '../adapter/out/repository/inventory-query.repository.adapter';
-import { InventoryRepositoryAdapter } from '../adapter/out/repository/inventory.repository.adapter';
-import { SellpiaSyncRepositoryAdapter } from '../adapter/out/repository/sellpia-sync.repository.adapter';
-import { WarehousesRepositoryAdapter } from '../adapter/out/repository/warehouses.repository.adapter';
-import { TransfersRepositoryAdapter } from '../adapter/out/repository/transfers.repository.adapter';
-import { AuditsRepositoryAdapter } from '../adapter/out/repository/audits.repository.adapter';
-import { PickingRepositoryAdapter } from '../adapter/out/repository/picking.repository.adapter';
-import { ConfirmedOrdersRepositoryAdapter } from '../adapter/out/repository/confirmed-orders.repository.adapter';
-import { BundleStockAdapter } from '../adapter/out/products/bundle-stock.adapter';
-import { ProductOptionProvisionAdapter } from '../adapter/out/products/product-option-provision.adapter';
-import { INVENTORY_PORT } from '../application/port/in/stock/inventory.port';
+import { InventoryModule } from '../inventory.module';
 
-// NestJS @Module / @Controller metadata keys (stable across Nest 10/11).
 const IMPORTS_KEY = 'imports';
 const CONTROLLERS_KEY = 'controllers';
 const PROVIDERS_KEY = 'providers';
@@ -43,118 +44,119 @@ const EXPORTS_KEY = 'exports';
 const PATH_KEY = 'path';
 const INVENTORY_ROOT = path.resolve(__dirname, '..');
 
-const INVENTORY_HTTP_CONTROLLER_FILES = [
-  ['InventoryItemsController', 'inventory-items.controller.ts'],
-  ['InventoryTransactionsController', 'inventory-transactions.controller.ts'],
-  ['InventoryStockMutationsController', 'inventory-stock-mutations.controller.ts'],
-  ['InventoryAssetsController', 'inventory-assets.controller.ts'],
+const FORBIDDEN_LEGACY_FILES = [
+  'adapter/in/http/inventory-items.controller.ts',
+  'adapter/in/http/inventory-assets.controller.ts',
+  'adapter/in/http/inventory-stock-mutations.controller.ts',
+  'adapter/in/http/inventory-transactions.controller.ts',
+  'adapter/in/http/rocket-inventory.controller.ts',
+  'adapter/in/http/audits.controller.ts',
+  'application/service/inventory.service.ts',
+  'application/service/audits.service.ts',
+  'adapter/out/repository/inventory.repository.adapter.ts',
+  'adapter/out/repository/inventory-query.repository.adapter.ts',
+  'adapter/out/repository/audits.repository.adapter.ts',
 ] as const;
 
-// Architecture-guard companion to inventory.architecture.spec.ts and the
-// dev:server boot check listed in the inventory AGENTS.md verification gate.
-// This spec freezes only the @Module()/@Controller() metadata so a missing
-// provider, a stray legacy controller, or an accidental route rename fails
-// here at vitest time before reaching dev:server boot.
-describe('InventoryModule capability wiring', () => {
-  it('imports nothing capability-shaped beyond Prisma + Products', () => {
-    const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, InventoryModule) ?? [];
-    expect(imports).toHaveLength(2);
+describe('InventoryModule authoritative capability wiring', () => {
+  it('imports only Prisma infrastructure', () => {
+    expect(Reflect.getMetadata(IMPORTS_KEY, InventoryModule) ?? []).toHaveLength(1);
   });
 
-  it('mounts every capability controller from adapter/in/http', () => {
+  it('mounts only snapshot/import and record-only capability controllers', () => {
     const controllers: unknown[] = Reflect.getMetadata(CONTROLLERS_KEY, InventoryModule) ?? [];
-    expect(new Set(controllers)).toEqual(
-      new Set([
-        InventoryTransactionsController,
-        InventoryAssetsController,
-        InventoryItemsController,
-        InventoryStockMutationsController,
-        CoupangShipmentsController,
-        RocketInventoryController,
-        SellpiaSyncController,
-        SellpiaReceiptBatchController,
-        UnshippedController,
-        WarehousesController,
-        TransfersController,
-        AuditsController,
-        PickingController,
-      ]),
-    );
+    expect(new Set(controllers)).toEqual(new Set([
+      InventorySkuSnapshotController,
+      SellpiaInventoryImportController,
+      SellpiaReceiptBatchController,
+      UnshippedController,
+      WarehousesController,
+      TransfersController,
+      PickingController,
+      CoupangShipmentsController,
+    ]));
   });
 
-  it('splits /api/inventory HTTP routes by route family', () => {
-    const moduleSource = readFileSync(path.join(INVENTORY_ROOT, 'inventory.module.ts'), 'utf8');
-
-    for (const [className, fileName] of INVENTORY_HTTP_CONTROLLER_FILES) {
-      expect(
-        existsSync(path.join(INVENTORY_ROOT, 'adapter/in/http', fileName)),
-        `${fileName} should own a route family under /api/inventory`,
-      ).toBe(true);
-      expect(moduleSource).toContain(className);
-    }
-  });
-
-  it('registers static /api/inventory GET families before item id routes', () => {
-    const controllers: unknown[] = Reflect.getMetadata(CONTROLLERS_KEY, InventoryModule) ?? [];
-    expect(controllers.indexOf(InventoryTransactionsController)).toBeLessThan(
-      controllers.indexOf(InventoryItemsController),
-    );
-    expect(controllers.indexOf(InventoryAssetsController)).toBeLessThan(
-      controllers.indexOf(InventoryItemsController),
-    );
-  });
-
-  it('declares every repository adapter as a provider', () => {
+  it('declares retained repositories and services', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, InventoryModule) ?? [];
-    for (const cls of [
-      InventoryQueryRepositoryAdapter,
-      InventoryRepositoryAdapter,
+    for (const provider of [
+      SellpiaMasterImportRepositoryAdapter,
+      InventorySkuSnapshotListRepositoryAdapter,
+      SellpiaMasterProductReadRepositoryAdapter,
+      SellpiaReceiptBatchRepositoryAdapter,
+      UnshippedRepositoryAdapter,
       WarehousesRepositoryAdapter,
       TransfersRepositoryAdapter,
-      AuditsRepositoryAdapter,
       PickingRepositoryAdapter,
       ConfirmedOrdersRepositoryAdapter,
-      SellpiaSyncRepositoryAdapter,
-      BundleStockAdapter,
-      ProductOptionProvisionAdapter,
-    ]) {
-      expect(providers).toContain(cls);
-    }
-  });
-
-  it('declares every application service as a provider', () => {
-    const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, InventoryModule) ?? [];
-    for (const cls of [
-      InventoryService,
-      SellpiaSyncService,
+      InventorySkuSnapshotListService,
+      SellpiaMasterProductReadService,
+      SellpiaInventoryImportService,
+      SellpiaReceiptBatchService,
       UnshippedService,
       WarehousesService,
       TransfersService,
-      AuditsService,
       PickingService,
     ]) {
-      expect(providers).toContain(cls);
+      expect(providers).toContain(provider);
     }
   });
 
-  it('exports only INVENTORY_PORT for cross-module consumers', () => {
-    const exports_: unknown[] = Reflect.getMetadata(EXPORTS_KEY, InventoryModule) ?? [];
-    expect(exports_).toEqual([INVENTORY_PORT]);
+  it('binds and exports only authoritative owner reads', () => {
+    const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, InventoryModule) ?? [];
+    expect(providers).toContainEqual({
+      provide: INVENTORY_SKU_SNAPSHOT_LIST_PORT,
+      useExisting: InventorySkuSnapshotListService,
+    });
+    expect(providers).toContainEqual({
+      provide: INVENTORY_SKU_SNAPSHOT_LIST_REPOSITORY_PORT,
+      useExisting: InventorySkuSnapshotListRepositoryAdapter,
+    });
+    expect(providers).toContainEqual({
+      provide: SELLPIA_MASTER_PRODUCT_READ_PORT,
+      useExisting: SellpiaMasterProductReadService,
+    });
+    expect(providers).toContainEqual({
+      provide: SELLPIA_MASTER_PRODUCT_READ_REPOSITORY_PORT,
+      useExisting: SellpiaMasterProductReadRepositoryAdapter,
+    });
+    expect(Reflect.getMetadata(EXPORTS_KEY, InventoryModule) ?? [])
+      .toEqual([SELLPIA_MASTER_PRODUCT_READ_PORT]);
   });
 
-  it('keeps public /api route prefixes for inventory + every capability', () => {
-    expect(Reflect.getMetadata(PATH_KEY, InventoryTransactionsController)).toBe('inventory');
-    expect(Reflect.getMetadata(PATH_KEY, InventoryAssetsController)).toBe('inventory');
-    expect(Reflect.getMetadata(PATH_KEY, InventoryItemsController)).toBe('inventory');
-    expect(Reflect.getMetadata(PATH_KEY, InventoryStockMutationsController)).toBe('inventory');
-    expect(Reflect.getMetadata(PATH_KEY, CoupangShipmentsController)).toBe('coupang-shipments');
-    expect(Reflect.getMetadata(PATH_KEY, RocketInventoryController)).toBe('inventory/rocket');
-    expect(Reflect.getMetadata(PATH_KEY, SellpiaSyncController)).toBe('inventory/sellpia-sync');
+  it('keeps the Sellpia importer and receipt tracker isolated', () => {
+    const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, InventoryModule) ?? [];
+    expect(providers).toContainEqual({
+      provide: SELLPIA_INVENTORY_IMPORT_PORT,
+      useExisting: SellpiaInventoryImportService,
+    });
+    expect(providers).toContainEqual({
+      provide: SELLPIA_MASTER_IMPORT_REPOSITORY_PORT,
+      useExisting: SellpiaMasterImportRepositoryAdapter,
+    });
+    expect(providers).toContainEqual({
+      provide: SELLPIA_RECEIPT_BATCH_PORT,
+      useExisting: SellpiaReceiptBatchService,
+    });
+    expect(providers).toContainEqual({
+      provide: SELLPIA_RECEIPT_BATCH_REPOSITORY_PORT,
+      useExisting: SellpiaReceiptBatchRepositoryAdapter,
+    });
+  });
+
+  it('has no executable legacy inventory runtime', () => {
+    expect(FORBIDDEN_LEGACY_FILES.filter((file) =>
+      existsSync(path.join(INVENTORY_ROOT, file)))).toEqual([]);
+  });
+
+  it('preserves the public routes that remain truthful', () => {
+    expect(Reflect.getMetadata(PATH_KEY, InventorySkuSnapshotController)).toBe('inventory');
+    expect(Reflect.getMetadata(PATH_KEY, SellpiaInventoryImportController)).toBe('inventory/sellpia-sync');
     expect(Reflect.getMetadata(PATH_KEY, SellpiaReceiptBatchController)).toBe('inventory/sellpia-receipt-batches');
     expect(Reflect.getMetadata(PATH_KEY, UnshippedController)).toBe('unshipped');
     expect(Reflect.getMetadata(PATH_KEY, WarehousesController)).toBe('warehouses');
     expect(Reflect.getMetadata(PATH_KEY, TransfersController)).toBe('stock-transfers');
-    expect(Reflect.getMetadata(PATH_KEY, AuditsController)).toBe('stock-audits');
     expect(Reflect.getMetadata(PATH_KEY, PickingController)).toBe('picking');
+    expect(Reflect.getMetadata(PATH_KEY, CoupangShipmentsController)).toBe('coupang-shipments');
   });
 });

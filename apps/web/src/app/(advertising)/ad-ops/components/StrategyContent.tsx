@@ -20,19 +20,17 @@ import { queryKeys } from "@/lib/query-keys";
 import { formatKRW, formatNumber } from "@/lib/utils";
 import { exportCampaignXlsx } from "../lib/xlsx-export";
 import type {
+  AdsListItem,
   AdStrategyAction,
   AdWeeklyPlan,
   ChannelStateSignal,
 } from "@kiditem/shared/advertising";
+import { AdsHubDataSchema } from "@kiditem/shared/advertising";
+import {
+  ChannelSkuAvailabilityListResponseSchema,
+  type ChannelSkuAvailabilityItem,
+} from "@kiditem/shared/channel-sku-availability";
 import type { RegisterCampaignPayload } from "../hooks/useAdOpsData";
-
-interface GradeProduct {
-  id: string;
-  name: string;
-  adTier: string | null;
-  abcGrade: string | null;
-  t14?: { revenue: number; salesQty: number; orders: number };
-}
 
 interface StrategyContentProps {
   strategy: AdWeeklyPlan | null;
@@ -116,9 +114,6 @@ function ChannelStateChips({ state }: { state: ChannelStateSignal }) {
   if (state.saleStatus && state.saleStatus.toLowerCase() !== "active") {
     chips.push({ label: `판매 ${state.saleStatus}`, tone: "warn" });
   }
-  if (state.primaryOption?.stockQty === 0) {
-    chips.push({ label: "옵션 재고 0", tone: "danger" });
-  }
   if (chips.length === 0) chips.push({ label: "채널 관측", tone: "neutral" });
 
   const toneStyle = {
@@ -148,6 +143,56 @@ function ChannelStateChips({ state }: { state: ChannelStateSignal }) {
   );
 }
 
+function ChannelSkuStockEvidence({
+  items,
+  isLoading,
+}: {
+  items: ChannelSkuAvailabilityItem[];
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <div className="rounded-lg p-2.5 text-[10px]" style={{ background: "var(--surface-raised)", color: "var(--text-tertiary)", border: "1px solid var(--border-subtle)" }}>
+        채널 SKU 판매 가능 재고 확인 중
+      </div>
+    );
+  }
+
+  const visibleItems = items.length > 0 ? items : [null];
+  return (
+    <div className="rounded-lg p-2.5 space-y-1.5" style={{ background: "var(--surface-raised)", border: "1px solid var(--border-subtle)" }}>
+      <div className="text-[9px] font-bold uppercase" style={{ color: "var(--text-secondary)" }}>
+        채널 SKU 판매 가능 재고
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {visibleItems.map((item) => {
+          const stock = item?.sku.sellableStock ?? null;
+          const label = item
+            ? item.sku.optionName ?? item.sku.sellerSku ?? item.sku.externalSkuId
+            : null;
+          const text = stock === null ? "판매 가능 재고 미확인" : `판매 가능 ${formatNumber(stock)}개`;
+          const style = stock === 0
+            ? { background: "var(--danger-subtle)", color: "var(--danger)" }
+            : stock === null
+              ? { background: "var(--warning-soft)", color: "var(--warning)" }
+              : { background: "var(--surface-sunken)", color: "var(--text-secondary)" };
+          return (
+            <span
+              key={item?.sku.id ?? "unknown"}
+              className="px-1.5 py-px rounded text-[10px] font-semibold"
+              style={style}
+              title={label ?? undefined}
+            >
+              {label ? <>{label} · </> : null}
+              <span>{text}</span>
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ProductStrategyRow({
   action,
   gradeBudget,
@@ -166,6 +211,26 @@ function ProductStrategyRow({
   const productBudget = gradeCount > 0 ? Math.round(gradeBudget / gradeCount) : 0;
   const recBudget = recommendedBudget(action, productBudget);
   const tone = actionTone(action.actionType);
+  const availabilityParams = {
+    search: action.listing.externalId,
+    page: "1",
+    limit: "100",
+  };
+  const availabilityQuery = useQuery({
+    queryKey: queryKeys.channelSkuAvailability.list(availabilityParams),
+    queryFn: () => {
+      const params = new URLSearchParams(availabilityParams);
+      return apiClient.getParsed(
+        `/api/channels/sku-availability?${params.toString()}`,
+        ChannelSkuAvailabilityListResponseSchema,
+      );
+    },
+    enabled: expanded,
+    staleTime: 30_000,
+  });
+  const exactAvailability = (availabilityQuery.data?.items ?? []).filter(
+    (item) => item.product.id === action.listing.listingId,
+  );
 
   return (
     <div className="hover:bg-[var(--surface-sunken)]/50 transition-colors">
@@ -196,6 +261,10 @@ function ProductStrategyRow({
 
       {expanded && (
         <div className="px-4 pb-3 space-y-2">
+          <ChannelSkuStockEvidence
+            items={exactAvailability}
+            isLoading={availabilityQuery.isLoading}
+          />
           {action.channelState && <ChannelStateChips state={action.channelState} />}
           <div className="rounded-lg p-2.5" style={{ background: `${color}06`, border: `1px solid ${color}18` }}>
             <div className="flex items-center gap-1.5 mb-0.5">
@@ -234,18 +303,16 @@ function GradeCardPanel({
   const [filter, setFilter] = useState<"all" | "ad" | "noad">("all");
   const [search, setSearch] = useState("");
 
-  const { data: products = [] } = useQuery({
-    queryKey: queryKeys.products.list({ grade: cfg.grade, limit: "200" }),
-    queryFn: () =>
-      apiClient
-        .get<{ items: GradeProduct[] }>(`/api/products?grade=${cfg.grade}&limit=200`)
-        .then((r) => r.items),
+  const { data: adsHub } = useQuery({
+    queryKey: queryKeys.ads.list(),
+    queryFn: () => apiClient.getParsed('/api/ads/hub', AdsHubDataSchema),
   });
+  const products = (adsHub?.products ?? []).filter((product) => product.grade === cfg.grade);
 
   const adProducts = products.filter((p) => p.adTier);
   const noAdProducts = products.filter((p) => !p.adTier);
   const filteredProducts = (filter === "ad" ? adProducts : filter === "noad" ? noAdProducts : products)
-    .filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase()));
+    .filter((p) => !search || adsProductName(p).toLowerCase().includes(search.toLowerCase()));
   const filteredActions = filter === "noad"
     ? []
     : gradeActions.filter((a) => !search || actionName(a).toLowerCase().includes(search.toLowerCase()));
@@ -389,12 +456,12 @@ function GradeCardPanel({
               }
               const { product: p } = row;
               return (
-                <div key={p.id} className="flex items-center gap-3 px-4 py-3">
+                <div key={p.listingId} className="flex items-center gap-3 px-4 py-3">
                   <div className="min-w-0 flex-1">
-                    <div className="text-[14px] font-semibold truncate" style={{ color: "var(--text-primary)" }}>{p.name}</div>
-                    {p.t14 && p.t14.revenue > 0 && (
+                    <div className="text-[14px] font-semibold truncate" style={{ color: "var(--text-primary)" }}>{adsProductName(p)}</div>
+                    {p.metrics.revenue > 0 && (
                       <div className="text-[12px] tabular-nums mt-0.5" style={{ color: "var(--text-tertiary)" }}>
-                        14일 매출 {formatKRW(p.t14.revenue)}원
+                        광고 매출 {formatKRW(p.metrics.revenue)}원
                       </div>
                     )}
                   </div>
@@ -439,6 +506,10 @@ function GradeCardPanel({
       )}
     </div>
   );
+}
+
+function adsProductName(product: AdsListItem): string {
+  return product.channelName ?? product.masterProduct.name;
 }
 
 export default function StrategyContent({

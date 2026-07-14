@@ -25,16 +25,16 @@ export class ThumbnailAnalysisQueryService {
   ) {}
 
   async findAllWithAnalysis(organizationId: string): Promise<ThumbnailAnalysisListResponse> {
-    const [masters, analyses] = await Promise.all([
-      this.repository.findAllAnalysisMasters(organizationId),
+    const [workspaces, analyses] = await Promise.all([
+      this.repository.findAllAnalysisWorkspaces(organizationId),
       this.repository.findAnalysesForOrganization(organizationId),
     ]);
 
-    return buildAnalysisListResponse(masters, analyses);
+    return buildAnalysisListResponse(workspaces, analyses);
   }
 
   async getSummary(organizationId: string): Promise<ThumbnailAnalysisSummary> {
     const summaryRows = await this.repository.getAnalysisSummaryRows(organizationId);
-    return buildAnalysisSummary(summaryRows.masterCount, summaryRows.rows);
+    return buildAnalysisSummary(summaryRows.workspaceCount, summaryRows.rows);
   }
 }

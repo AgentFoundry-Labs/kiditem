@@ -26,13 +26,13 @@ export interface ContentAssetListRepositoryInput {
   organizationId: string;
   page: number;
   limit: number;
-  productId: string | null;
+  contentWorkspaceId: string | null;
   generationId: string | null;
 }
 
 export interface ContentAssetListRow {
   id: string;
-  generationGroupId: string;
+  originGenerationGroupId: string | null;
   url: string;
   assetType: string;
   role: string | null;
@@ -41,9 +41,9 @@ export interface ContentAssetListRow {
   metadata: unknown;
   createdAt: Date;
   updatedAt: Date;
-  generationGroup: {
-    targetMaster: { id: string; code: string; name: string } | null;
-  };
+  originGenerationGroup: {
+    contentWorkspace: { id: string; displayName: string };
+  } | null;
 }
 
 export interface RecordDetailPageInputAssetsInput {
@@ -69,6 +69,11 @@ export interface SyncGenerationImageUsagesInput {
 }
 
 export interface ContentAssetLibraryRepositoryPort {
+  deleteAsset(input: {
+    organizationId: string;
+    contentAssetId: string;
+    deletedAt: Date;
+  }): Promise<{ status: 'deleted' | 'in_use' | 'not_found' }>;
   recordDetailPageInputAssets(
     input: RecordDetailPageInputAssetsInput,
   ): Promise<PersistedContentAssetRef[]>;

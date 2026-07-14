@@ -1,33 +1,18 @@
 export const CONTENT_ARCHIVE_REPOSITORY_PORT = Symbol('CONTENT_ARCHIVE_REPOSITORY_PORT');
 
 export type ContentArchiveContentType = 'detail_page' | 'image';
-export type ContentArchiveLinkState = 'linked' | 'unlinked';
 
 export interface ContentArchiveRepositoryQuery {
   contentType?: ContentArchiveContentType | null;
-  linkState?: ContentArchiveLinkState | null;
   status?: string | null;
   sourceCandidateId?: string | null;
-  productId?: string | null;
-}
-
-export interface ContentArchiveProductRow {
-  id: string;
-  code: string;
-  name: string;
-  thumbnailUrl: string | null;
-  imageUrl: string | null;
-}
-
-export interface ContentArchiveGroupRow {
-  id: string;
-  title: string | null;
-  groupType: string;
+  contentWorkspaceId?: string | null;
 }
 
 export interface ContentArchiveGenerationRow {
   id: string;
   generationGroupId: string;
+  contentWorkspaceId: string;
   contentType: string;
   templateId: string | null;
   generationInput: unknown;
@@ -39,12 +24,17 @@ export interface ContentArchiveGenerationRow {
   errorMessage: string | null;
   createdAt: Date;
   updatedAt: Date;
+  contentWorkspace: {
+    id: string;
+    ownerType: string;
+    sourceCandidateId: string | null;
+    channelListingId: string | null;
+    displayName: string;
+  };
   generationGroup: {
     id: string;
-    title: string;
+    title: string | null;
     groupType: string;
-    targetMasterId: string | null;
-    targetMaster: ContentArchiveProductRow | null;
   };
   assetUsages: Array<{
     contentAsset: {
@@ -66,7 +56,6 @@ export interface ContentArchiveGenerationRow {
   }>;
   detailPageArtifact: {
     id: string;
-    sourceCandidateId: string | null;
     isDeleted: boolean;
     currentRevisionId: string | null;
     currentRevision: {
@@ -82,64 +71,18 @@ export interface ContentArchiveGenerationRow {
   } | null;
 }
 
-export type ContentArchiveDeleteResult =
-  | { status: 'deleted'; deletedGenerations: number; deletedAssets: number }
-  | { status: 'workspace_not_found' };
-
-export type ContentArchiveDeleteGroupResult =
-  | { status: 'deleted'; deletedGenerations: number; deletedAssets: number }
-  | { status: 'group_not_found' }
-  | { status: 'workspace_not_found' };
-
 export interface ContentArchiveRepositoryPort {
   listWorkspaceGenerations(input: {
     organizationId: string;
     query: ContentArchiveRepositoryQuery;
   }): Promise<ContentArchiveGenerationRow[]>;
-  findProduct(input: {
-    organizationId: string;
-    productId: string;
-  }): Promise<ContentArchiveProductRow | null>;
-  listProductWorkspaceGenerations(input: {
-    organizationId: string;
-    productId: string;
-    query: ContentArchiveRepositoryQuery;
-    page: number;
-    limit: number;
-  }): Promise<{ total: number; rows: ContentArchiveGenerationRow[] }>;
-  findGroup(input: {
-    organizationId: string;
-    groupId: string;
-  }): Promise<ContentArchiveGroupRow | null>;
-  listGroupWorkspaceGenerations(input: {
-    organizationId: string;
-    groupId: string;
-    query: ContentArchiveRepositoryQuery;
-    page: number;
-    limit: number;
-  }): Promise<{ total: number; rows: ContentArchiveGenerationRow[] }>;
-  deleteProductWorkspace(input: {
-    organizationId: string;
-    productId: string;
-  }): Promise<ContentArchiveDeleteResult>;
-  deleteGroupWorkspace(input: {
-    organizationId: string;
-    groupId: string;
-  }): Promise<ContentArchiveDeleteGroupResult>;
   findSourcingCandidate(input: {
     organizationId: string;
     candidateId: string;
-  }): Promise<{ id: string; promotedMasterId: string | null } | null>;
+  }): Promise<{ id: string } | null>;
   listSourcingCandidateGenerations(input: {
     organizationId: string;
     candidateId: string;
-    query: ContentArchiveRepositoryQuery;
-    page: number;
-    limit: number;
-  }): Promise<{ total: number; rows: ContentArchiveGenerationRow[] }>;
-  listPromotedProductGenerations(input: {
-    organizationId: string;
-    productId: string;
     query: ContentArchiveRepositoryQuery;
     page: number;
     limit: number;

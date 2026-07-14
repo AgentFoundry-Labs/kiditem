@@ -1,6 +1,7 @@
 export const PURCHASE_ORDER_DRAFT_PORT = Symbol('PURCHASE_ORDER_DRAFT_PORT');
 
 export interface PurchaseOrderDraftRecommendation {
+  masterProductId: string;
   productName: string;
   supplierName: string;
   supplierId?: string | null;

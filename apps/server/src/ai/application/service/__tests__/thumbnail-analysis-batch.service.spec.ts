@@ -11,14 +11,12 @@ const ORGANIZATION_ID = 'organization-1';
 const P1 = '7d000000-0000-4000-8000-000000000101';
 const P2 = '7d000000-0000-4000-8000-000000000102';
 
-function masterRow(id: string) {
+function workspaceRow(id: string) {
   return {
     id,
     name: `Product ${id}`,
     imageUrl: `https://example.com/${id}.jpg`,
-    thumbnailUrl: null,
     category: 'toys',
-    images: [],
     createdAt: new Date('2026-01-01T00:00:00Z'),
   };
 }
@@ -26,7 +24,7 @@ function masterRow(id: string) {
 function analysisRow(id: string, over: Record<string, unknown> = {}) {
   return {
     id: `analysis-${id}`,
-    masterId: id,
+    contentWorkspaceId: id,
     organizationId: ORGANIZATION_ID,
     imageUrl: `https://example.com/${id}.jpg`,
     overallScore: 80,
@@ -43,33 +41,26 @@ function analysisRow(id: string, over: Record<string, unknown> = {}) {
     complianceAnalyzedAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
-    master: {
-      id,
-      name: `Product ${id}`,
-      imageUrl: `https://example.com/${id}.jpg`,
-      thumbnailUrl: null,
-      images: [],
-    },
     ...over,
   };
 }
 
-function makeRepositoryMock(masters: Array<ReturnType<typeof masterRow>>) {
+function makeRepositoryMock(workspaces: Array<ReturnType<typeof workspaceRow>>) {
   return {
-    findMastersForBatch: vi.fn(async (ids: string[]) =>
-      masters.filter((m) => ids.includes(m.id)),
+    findWorkspacesForBatch: vi.fn(async (ids: string[]) =>
+      workspaces.filter((workspace) => ids.includes(workspace.id)),
     ),
-    findMasterForAnalysis: vi.fn(async (id: string) =>
-      masters.find((m) => m.id === id) ?? null,
+    findWorkspaceForAnalysis: vi.fn(async (id: string) =>
+      workspaces.find((workspace) => workspace.id === id) ?? null,
     ),
-    upsertAnalysis: vi.fn(async (input: { masterId: string }) =>
-      analysisRow(input.masterId),
+    upsertAnalysis: vi.fn(async (input: { contentWorkspaceId: string }) =>
+      analysisRow(input.contentWorkspaceId),
     ),
-    findAllAnalysisMasters: vi.fn(async () => []),
+    findAllAnalysisWorkspaces: vi.fn(async () => []),
     findAnalysesForOrganization: vi.fn(async () => []),
-    getAnalysisSummaryRows: vi.fn(async () => ({ masterCount: 0, rows: [] })),
-    findMastersForPreInspect: vi.fn(async () => []),
-    findRecomposeMaster: vi.fn(async () => null),
+    getAnalysisSummaryRows: vi.fn(async () => ({ workspaceCount: 0, rows: [] })),
+    findWorkspacesForPreInspect: vi.fn(async () => []),
+    findRecomposeWorkspace: vi.fn(async () => null),
   };
 }
 
@@ -143,7 +134,7 @@ function makeRecomposeMock() {
 }
 
 function makeBatch(opts: { failChunk?: boolean } = {}) {
-  const repository = makeRepositoryMock([masterRow(P1), masterRow(P2)]);
+  const repository = makeRepositoryMock([workspaceRow(P1), workspaceRow(P2)]);
   const vision = makeVisionMock(opts);
   const recompose = makeRecomposeMock();
   const analyzer = new ThumbnailAnalysisAnalyzerService(
@@ -179,8 +170,9 @@ describe('ThumbnailAnalysisBatchService', () => {
     const result = await batch.analyzeBatch([P1, P2], ORGANIZATION_ID, 'quality');
     expect(result).toHaveLength(2);
     expect(repository.upsertAnalysis).toHaveBeenCalledTimes(2);
-    // upsert path takes masterId from input and binds organizationId via create.organization.connect.
-    const calls = repository.upsertAnalysis.mock.calls.map((c: { masterId: string }[]) => c[0].masterId);
+    const calls = repository.upsertAnalysis.mock.calls.map(
+      (call: Array<{ contentWorkspaceId: string }>) => call[0].contentWorkspaceId,
+    );
     expect(calls).toContain(P1);
     expect(calls).toContain(P2);
   });

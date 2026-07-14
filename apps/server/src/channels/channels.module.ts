@@ -1,42 +1,43 @@
 import { Module } from '@nestjs/common';
-import { AgentOsModule } from '../agent-os/agent-os.module';
 import { AutomationModule } from '../automation/automation.module';
-import { ProductsModule } from '../products/products.module';
+import { AiModule } from '../ai/ai.module';
+import { InventoryModule } from '../inventory/inventory.module';
 import { ChannelRegistrationCapabilityAdapter } from './adapter/in/agent/channel-registration-capability.adapter';
 import { ChannelSyncController } from './adapter/in/http/channel-sync.controller';
 import { ChannelDashboardController } from './adapter/in/http/channel-dashboard.controller';
-import { ChannelReconciliationController } from './adapter/in/http/channel-reconciliation.controller';
 import { ChannelAccountController } from './adapter/in/http/channel-account.controller';
 import { ChannelAccountListController } from './adapter/in/http/channel-account-list.controller';
 import { ChannelListingController } from './adapter/in/http/channel-listing.controller';
+import { ChannelCatalogImportController } from './adapter/in/http/channel-catalog-import.controller';
+import { ChannelCatalogCollectionController } from './adapter/in/http/channel-catalog-collection.controller';
+import { ChannelSkuMappingController } from './adapter/in/http/channel-sku-mapping.controller';
+import { ChannelSkuAvailabilityController } from './adapter/in/http/channel-sku-availability.controller';
 import { CoupangProviderAdapter } from './adapter/out/coupang/coupang-provider.adapter';
 import { ChannelAccountRepositoryAdapter } from './adapter/out/repository/channel-account.repository.adapter';
 import { ChannelDashboardRepositoryAdapter } from './adapter/out/repository/channel-dashboard.repository.adapter';
 import { ChannelListingRepositoryAdapter } from './adapter/out/repository/channel-listing.repository.adapter';
 import { MarketplaceRegistrationRepositoryAdapter } from './adapter/out/repository/marketplace-registration.repository.adapter';
-import { ChannelsProductMasterBarcodeAdapter } from './adapter/out/products/product-master-barcode.adapter';
-import { ChannelRegistrationRuntimeHandler } from './adapter/out/runtime/channel-registration-runtime.handler';
 import { ChannelSyncRepositoryAdapter } from './adapter/out/repository/channel-sync.repository.adapter';
-import { ChannelReconciliationMatcherRepositoryAdapter } from './adapter/out/repository/channel-reconciliation-matcher.repository.adapter';
-import { ChannelReconciliationQueryRepositoryAdapter } from './adapter/out/repository/channel-reconciliation-query.repository.adapter';
-import { ChannelReconciliationResolutionRepositoryAdapter } from './adapter/out/repository/channel-reconciliation-resolution.repository.adapter';
-import { ChannelReconciliationScanRepositoryAdapter } from './adapter/out/repository/channel-reconciliation-scan.repository.adapter';
+import { ChannelCatalogImportRepositoryAdapter } from './adapter/out/repository/channel-catalog-import.repository.adapter';
+import { ChannelCatalogCollectionRepositoryAdapter } from './adapter/out/repository/channel-catalog-collection.repository.adapter';
+import { ChannelCatalogPublicationRepositoryAdapter } from './adapter/out/repository/channel-catalog-publication.repository.adapter';
+import { ChannelSkuMappingRepositoryAdapter } from './adapter/out/repository/channel-sku-mapping.repository.adapter';
+import { ChannelsSellpiaMasterProductReadAdapter } from './adapter/out/inventory/sellpia-master-product-read.adapter';
 import { ChannelSyncService } from './application/service/channel-sync.service';
 import { ChannelDashboardService } from './application/service/channel-dashboard.service';
 import { ChannelListingQueryService } from './application/service/channel-listing-query.service';
 import { ChannelAccountQueryService } from './application/service/channel-account-query.service';
 import { MarketplaceRegistrationService } from './application/service/marketplace-registration.service';
-import { ChannelReconciliationMatcherService } from './application/service/channel-reconciliation-matcher.service';
-import { ChannelReconciliationQueryService } from './application/service/channel-reconciliation-query.service';
-import { ChannelReconciliationResolutionService } from './application/service/channel-reconciliation-resolution.service';
-import { ChannelReconciliationScanService } from './application/service/channel-reconciliation-scan.service';
-import { ChannelReconciliationService } from './application/service/channel-reconciliation.service';
 import { ChannelAccountService } from './application/service/channel-account.service';
+import { ChannelCatalogImportService } from './application/service/channel-catalog-import.service';
+import { ChannelCatalogCollectionService } from './application/service/channel-catalog-collection.service';
+import { ChannelSkuMappingService } from './application/service/channel-sku-mapping.service';
+import { ChannelSkuAvailabilityService } from './application/service/channel-sku-availability.service';
 import { COUPANG_PROVIDER_PORT } from './application/port/out/provider/coupang-provider.port';
 import { ChannelsOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { CHANNELS_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
-import { CHANNELS_PRODUCT_MASTER_BARCODE_PORT } from './application/port/out/cross-domain/product-master-barcode.port';
 import { CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT } from './application/port/in/capability/marketplace-registration.port';
+import { CHANNEL_CATALOG_IMPORT_PORT } from './application/port/in/channel-catalog-import.port';
 import {
   CHANNEL_ACCOUNT_REPOSITORY_PORT,
   COUPANG_CREDENTIALS_PORT,
@@ -47,22 +48,26 @@ import {
   MARKETPLACE_REGISTRATION_REPOSITORY_PORT,
 } from './application/port/out/repository/channel-listing.repository.port';
 import { CHANNEL_SYNC_REPOSITORY_PORT } from './application/port/out/repository/channel-sync.repository.port';
-import {
-  CHANNEL_RECONCILIATION_MATCHER_PORT,
-  CHANNEL_RECONCILIATION_QUERY_REPOSITORY_PORT,
-  CHANNEL_RECONCILIATION_RESOLUTION_REPOSITORY_PORT,
-  CHANNEL_RECONCILIATION_SCAN_REPOSITORY_PORT,
-} from './application/port/out/repository/channel-reconciliation.repository.port';
+import { CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT } from './application/port/out/repository/channel-catalog-import.repository.port';
+import { CHANNEL_CATALOG_COLLECTION_REPOSITORY_PORT } from './application/port/out/repository/channel-catalog-collection.repository.port';
+import { CHANNEL_CATALOG_PUBLICATION_PORT } from './application/port/out/repository/channel-catalog-publication.port';
+import { CHANNEL_CATALOG_COLLECTION_PORT } from './application/port/in/channel-catalog-collection.port';
+import { CHANNEL_SKU_MAPPING_REPOSITORY_PORT } from './application/port/out/repository/channel-sku-mapping.repository.port';
+import { CHANNELS_SELLPIA_MASTER_PRODUCT_READ_PORT } from './application/port/out/cross-domain/sellpia-master-product-read.port';
+import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku-availability.port';
 
 @Module({
-  imports: [AgentOsModule, AutomationModule, ProductsModule],
+  imports: [AutomationModule, InventoryModule, AiModule],
   controllers: [
     ChannelSyncController,
     ChannelDashboardController,
-    ChannelReconciliationController,
     ChannelAccountController,
     ChannelAccountListController,
     ChannelListingController,
+    ChannelCatalogImportController,
+    ChannelCatalogCollectionController,
+    ChannelSkuMappingController,
+    ChannelSkuAvailabilityController,
   ],
   providers: [
     ChannelSyncService,
@@ -70,32 +75,26 @@ import {
     ChannelListingQueryService,
     ChannelAccountQueryService,
     MarketplaceRegistrationService,
-    ChannelReconciliationMatcherService,
-    ChannelReconciliationQueryService,
-    ChannelReconciliationResolutionService,
-    ChannelReconciliationScanService,
-    ChannelReconciliationService,
     ChannelAccountService,
+    ChannelCatalogImportService,
+    ChannelCatalogCollectionService,
+    ChannelSkuMappingService,
+    ChannelSkuAvailabilityService,
     ChannelRegistrationCapabilityAdapter,
-    ChannelRegistrationRuntimeHandler,
     CoupangProviderAdapter,
     ChannelsOperationAlertAdapter,
-    ChannelsProductMasterBarcodeAdapter,
     ChannelAccountRepositoryAdapter,
     ChannelDashboardRepositoryAdapter,
     ChannelListingRepositoryAdapter,
     MarketplaceRegistrationRepositoryAdapter,
     ChannelSyncRepositoryAdapter,
-    ChannelReconciliationMatcherRepositoryAdapter,
-    ChannelReconciliationQueryRepositoryAdapter,
-    ChannelReconciliationResolutionRepositoryAdapter,
-    ChannelReconciliationScanRepositoryAdapter,
+    ChannelCatalogImportRepositoryAdapter,
+    ChannelCatalogCollectionRepositoryAdapter,
+    ChannelCatalogPublicationRepositoryAdapter,
+    ChannelSkuMappingRepositoryAdapter,
+    ChannelsSellpiaMasterProductReadAdapter,
     { provide: COUPANG_PROVIDER_PORT, useExisting: CoupangProviderAdapter },
     { provide: CHANNELS_OPERATION_ALERT_PORT, useExisting: ChannelsOperationAlertAdapter },
-    {
-      provide: CHANNELS_PRODUCT_MASTER_BARCODE_PORT,
-      useExisting: ChannelsProductMasterBarcodeAdapter,
-    },
     { provide: CHANNEL_ACCOUNT_REPOSITORY_PORT, useExisting: ChannelAccountRepositoryAdapter },
     { provide: COUPANG_CREDENTIALS_PORT, useExisting: ChannelAccountRepositoryAdapter },
     { provide: CHANNEL_DASHBOARD_REPOSITORY_PORT, useExisting: ChannelDashboardRepositoryAdapter },
@@ -110,22 +109,42 @@ import {
     },
     { provide: CHANNEL_SYNC_REPOSITORY_PORT, useExisting: ChannelSyncRepositoryAdapter },
     {
-      provide: CHANNEL_RECONCILIATION_MATCHER_PORT,
-      useExisting: ChannelReconciliationMatcherRepositoryAdapter,
+      provide: CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT,
+      useExisting: ChannelCatalogImportRepositoryAdapter,
     },
     {
-      provide: CHANNEL_RECONCILIATION_QUERY_REPOSITORY_PORT,
-      useExisting: ChannelReconciliationQueryRepositoryAdapter,
+      provide: CHANNEL_CATALOG_IMPORT_PORT,
+      useExisting: ChannelCatalogImportService,
     },
     {
-      provide: CHANNEL_RECONCILIATION_RESOLUTION_REPOSITORY_PORT,
-      useExisting: ChannelReconciliationResolutionRepositoryAdapter,
+      provide: CHANNEL_CATALOG_COLLECTION_REPOSITORY_PORT,
+      useExisting: ChannelCatalogCollectionRepositoryAdapter,
     },
     {
-      provide: CHANNEL_RECONCILIATION_SCAN_REPOSITORY_PORT,
-      useExisting: ChannelReconciliationScanRepositoryAdapter,
+      provide: CHANNEL_CATALOG_PUBLICATION_PORT,
+      useExisting: ChannelCatalogPublicationRepositoryAdapter,
+    },
+    {
+      provide: CHANNEL_CATALOG_COLLECTION_PORT,
+      useExisting: ChannelCatalogCollectionService,
+    },
+    {
+      provide: CHANNEL_SKU_MAPPING_REPOSITORY_PORT,
+      useExisting: ChannelSkuMappingRepositoryAdapter,
+    },
+    {
+      provide: CHANNELS_SELLPIA_MASTER_PRODUCT_READ_PORT,
+      useExisting: ChannelsSellpiaMasterProductReadAdapter,
+    },
+    {
+      provide: CHANNEL_SKU_AVAILABILITY_PORT,
+      useExisting: ChannelSkuAvailabilityService,
     },
   ],
-  exports: [ChannelReconciliationService, COUPANG_PROVIDER_PORT],
+  exports: [
+    COUPANG_PROVIDER_PORT,
+    CHANNEL_SKU_AVAILABILITY_PORT,
+    CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT,
+  ],
 })
 export class ChannelsModule {}

@@ -31,7 +31,6 @@ export interface UpsertAdTargetDailyInput extends AdTargetDailyMetrics {
 
   listingId?: string | null;
   listingOptionId?: string | null;
-  optionId?: string | null;
   externalId?: string | null;
   externalOptionId?: string | null;
 

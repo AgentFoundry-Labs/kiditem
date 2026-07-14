@@ -222,6 +222,20 @@ describe('ReadinessService', () => {
       lte: new Date('2026-05-01T00:00:00.000Z'),
     });
     expect(adsQuery.where.businessDate.lte).toEqual(new Date('2026-05-01T00:00:00.000Z'));
+    expect(prisma.masterProduct.count).toHaveBeenCalledWith({
+      where: {
+        organizationId: ORGANIZATION_ID,
+        isActive: true,
+      },
+    });
+    expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
+      where: {
+        organizationId: ORGANIZATION_ID,
+        isActive: true,
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: { updatedAt: true },
+    });
 
     const wingSales = status.checks.find((check) => check.key === 'wing_sales');
     const coupangAds = status.checks.find((check) => check.key === 'coupang_ads');

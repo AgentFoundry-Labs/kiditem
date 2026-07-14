@@ -33,6 +33,7 @@ interface ProductBasicsTabProps {
   selectedRegistrationThumbnailUrl?: string | null;
   selectedDetailPageGenerationId?: string | null;
   selectedDetailPageSummary?: SelectedDetailPageSummary | null;
+  readOnly?: boolean;
 }
 
 export default function ProductBasicsTab({
@@ -49,6 +50,7 @@ export default function ProductBasicsTab({
   selectedRegistrationThumbnailUrl,
   selectedDetailPageGenerationId,
   selectedDetailPageSummary,
+  readOnly = false,
 }: ProductBasicsTabProps) {
   const registrationThumbnailUrl =
     selectedRegistrationThumbnailUrl === undefined
@@ -266,6 +268,7 @@ export default function ProductBasicsTab({
             <KcImageField
               value={draft.kcCertificationImageUrl}
               busy={!isEditing && isKcImageSaving}
+              readOnly={readOnly}
               onChange={(value) => {
                 if (isEditing) {
                   onDraftChange('kcCertificationImageUrl', value);

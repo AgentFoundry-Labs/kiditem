@@ -10,53 +10,53 @@ import {
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import {
-  collectProductImageUrls,
   extractImageUrls,
   resolveProcessedUrl,
-  type PreviewResponse,
-  type ProductDetail,
 } from '../lib/editor-data';
+import { contentWorkspacesApi } from '../../../lib/content-workspaces-api';
 
-export function useEditorData(productId: string) {
+interface ContentAssetListResponse {
+  items: Array<{ url: string }>;
+}
+
+export function useEditorData(contentWorkspaceId: string) {
   return useQuery({
-    queryKey: queryKeys.sourcing.preview(productId),
+    queryKey: queryKeys.contentWorkspaces.detail(contentWorkspaceId),
     queryFn: async () => {
-      const [detail, preview, cssRes] = await Promise.all([
-        apiClient.get<ProductDetail>(`/api/products/masters/${productId}`),
-        apiClient
-          .get<PreviewResponse>(`/api/products/${productId}/preview`)
-          .catch(() => ({ data: {}, template: null }) as PreviewResponse),
+      const [workspace, assets, cssRes] = await Promise.all([
+        contentWorkspacesApi.get(contentWorkspaceId),
+        apiClient.get<ContentAssetListResponse>(
+          `/api/ai/content-assets?contentWorkspaceId=${encodeURIComponent(contentWorkspaceId)}&limit=100`,
+        ),
         fetch('/templates-styles.css')
           .then((r) => (r.ok ? r.text() : ''))
           .catch(() => ''),
       ]);
 
-      const rawDataValue = detail.rawData ?? detail.raw_data ?? null;
-      const processedDataValue = detail.processedData ?? detail.processed_data ?? null;
-
-      const productName =
-        processedDataValue && typeof processedDataValue.title === 'string'
-          ? processedDataValue.title
-          : detail.name ?? '상품명 미지정';
-
-      const rawImages = Array.from(new Set([
-        ...extractImageUrls(rawDataValue),
-        ...collectProductImageUrls(detail.images, detail.imageUrl, detail.thumbnailUrl),
-      ]));
-      const processedImages = extractImageUrls(processedDataValue);
+      const current = workspace.history.find(
+        (item) => item.id === workspace.currentDetailPageGenerationId,
+      ) ?? workspace.history[0] ?? null;
+      const productName = workspace.displayName || '상품명 미지정';
+      const rawImages = Array.from(new Set(assets.items.map((asset) => asset.url)));
+      const processedImages = current
+        ? Array.from(new Set([
+            ...Object.values(current.processedImages),
+            ...extractImageUrls(current.detailPageData),
+          ]))
+        : [];
 
       let previewData: DetailPageData = placeholderDetailPageData;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let templateConfig: any = getTemplate('bold-vertical');
 
-      if (preview.template !== null && preview.data) {
+      if (current?.templateId && current.detailPageData) {
         try {
-          const parsed = parseDetailPageData(preview.data);
+          const parsed = parseDetailPageData(current.detailPageData);
           parsed.images = parsed.images.map(resolveProcessedUrl);
           parsed.sizeImages = parsed.sizeImages.map(resolveProcessedUrl);
           parsed.detailImages = parsed.detailImages.map(resolveProcessedUrl);
           if (parsed.heroBanner) parsed.heroBanner = resolveProcessedUrl(parsed.heroBanner);
-          templateConfig = getTemplate(preview.template.replace(/_/g, '-'));
+          templateConfig = getTemplate(current.templateId.replace(/_/g, '-'));
           previewData = parsed;
         } catch {
           // draftContent may contain only editor metadata such as editedHtml.

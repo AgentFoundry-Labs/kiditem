@@ -18,22 +18,41 @@ export class ThumbnailWingRepositoryAdapter implements ThumbnailWingRepositoryPo
           orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
         },
       },
-    });
+    }).then((generation) =>
+      generation
+        ? { ...generation, masterId: generation.contentWorkspaceId }
+        : null,
+    );
   }
 
   findRegistrableMaster(masterId: string, organizationId: string) {
-    return this.prisma.masterProduct.findFirst({
-      where: { id: masterId, organizationId, isDeleted: false },
-      select: {
-        name: true,
-        listings: {
-          where: { organizationId, channel: 'coupang', isDeleted: false },
-          select: { channelName: true, createdAt: true },
-          orderBy: { createdAt: 'asc' },
-          take: 1,
+    return this.prisma.contentWorkspace.findFirst({
+      where: {
+        id: masterId,
+        organizationId,
+        isDeleted: false,
+        status: 'active',
+        channelListing: {
+          is: {
+            isActive: true,
+            channelAccount: { is: { channel: 'coupang' } },
+          },
         },
       },
-    });
+      select: {
+        displayName: true,
+        channelListing: { select: { channelName: true } },
+      },
+    }).then((workspace) =>
+      workspace
+        ? {
+            name: workspace.displayName,
+            listings: workspace.channelListing
+              ? [{ channelName: workspace.channelListing.channelName }]
+              : [],
+          }
+        : null,
+    );
   }
 
   findGenerationWithLatestAttempt(id: string, organizationId: string) {

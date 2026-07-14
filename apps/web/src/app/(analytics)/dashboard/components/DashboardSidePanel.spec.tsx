@@ -198,4 +198,18 @@ describe('DashboardSidePanel', () => {
     const stored = usePanelStore.getState().byId[panelAlert.id];
     expect(stored?.kind === 'alert' ? stored.isRead : false).toBe(true);
   });
+
+  it('routes legacy stock-low alerts to factual Sellpia zero-stock status', () => {
+    render(
+      <DashboardSidePanel
+        alerts={[makeAlert({ type: 'stock_low', href: null })]}
+        queryClient={makeQueryClient()}
+      />,
+    );
+
+    expect(screen.getByRole('link')).toHaveAttribute(
+      'href',
+      '/stock-ops?tab=sellpia-zero',
+    );
+  });
 });

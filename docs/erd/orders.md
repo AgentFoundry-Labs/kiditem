@@ -17,6 +17,7 @@
 | Review | `reviews` | - |
 | Settlement | `settlements` | 월별 정산 (예상 vs 실제 비교). |
 | Shipment | `shipments` | - |
+| ShipmentItem | `shipment_items` | Order-line shipment detail. |
 | UnshippedItem | `unshipped_items` | - |
 
 ## Mermaid ER Diagram
@@ -41,7 +42,7 @@ erDiagram
   Order {
     String id PK
     String organizationId FK
-    String platform
+    String channelAccountId FK
     String externalOrderId
     String externalNumber
     String customerName
@@ -58,7 +59,6 @@ erDiagram
     String shippingCompany
     Int shippingPrice
     Int totalPrice
-    String listingId FK
     Json metadata
     DateTime createdAt
     DateTime updatedAt
@@ -68,7 +68,6 @@ erDiagram
     String organizationId FK
     String orderId FK
     String listingOptionId FK
-    String optionId FK
     String productName
     String optionName
     String sku
@@ -85,7 +84,7 @@ erDiagram
     String id PK
     String organizationId FK
     String orderId FK
-    String platform
+    String channelAccountId FK
     String externalReturnId
     String type
     String status
@@ -106,8 +105,10 @@ erDiagram
     String organizationId FK
     String returnId FK
     String orderLineItemId FK
-    String optionId FK
+    String listingOptionId FK
     String productName
+    String optionName
+    String externalSku
     Int quantity
     Json metadata
     DateTime createdAt
@@ -145,8 +146,6 @@ erDiagram
     String id PK
     String organizationId FK
     String orderId FK
-    String listingId FK
-    String optionId FK
     String trackingNo
     String courierCode
     String courierName
@@ -158,13 +157,22 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  ShipmentItem {
+    String id PK
+    String organizationId FK
+    String shipmentId FK
+    String orderLineItemId FK
+    Int quantity
+    DateTime createdAt
+  }
   UnshippedItem {
     String id PK
     String organizationId FK
     String orderId FK
-    String listingId FK
-    String optionId FK
+    String orderLineItemId FK
     String productName
+    String optionName
+    String externalSku
     Int quantity
     DateTime orderDate
     Int delayDays
@@ -176,10 +184,13 @@ erDiagram
   Order o|--o{ CSRecord : "order"
   Order ||--o{ OrderLineItem : "order"
   Order o|--o{ OrderReturn : "order"
-  Order o|--o{ Shipment : "order"
+  Order ||--o{ Shipment : "order"
   Order ||--o{ UnshippedItem : "order"
   OrderLineItem o|--o{ OrderReturnLineItem : "orderLineItem"
+  OrderLineItem ||--o{ ShipmentItem : "orderLineItem"
+  OrderLineItem ||--o{ UnshippedItem : "orderLineItem"
   OrderReturn ||--o{ OrderReturnLineItem : "return"
+  Shipment ||--o{ ShipmentItem : "shipment"
 ```
 
 ## External References
@@ -188,21 +199,18 @@ erDiagram
 |---|---|---|---|---|
 | CSRecord | listing | references external | Core | ChannelListing |
 | CSRecord | organization | references external | Core | Organization |
-| Order | listing | references external | Core | ChannelListing |
+| Order | channelAccount | references external | Core | ChannelAccount |
 | Order | organization | references external | Core | Organization |
 | OrderLineItem | listingOption | references external | Core | ChannelListingOption |
-| OrderLineItem | option | references external | Core | ProductOption |
 | OrderLineItem | organization | references external | Core | Organization |
+| OrderReturn | channelAccount | references external | Core | ChannelAccount |
 | OrderReturn | organization | references external | Core | Organization |
-| OrderReturnLineItem | option | references external | Core | ProductOption |
+| OrderReturnLineItem | listingOption | references external | Core | ChannelListingOption |
 | OrderReturnLineItem | organization | references external | Core | Organization |
 | Review | listing | references external | Core | ChannelListing |
 | Review | organization | references external | Core | Organization |
 | Settlement | organization | references external | Core | Organization |
-| Shipment | listing | references external | Core | ChannelListing |
-| Shipment | option | references external | Core | ProductOption |
 | Shipment | organization | references external | Core | Organization |
 | Shipment | warehouse | references external | Inventory | Warehouse |
-| UnshippedItem | listing | references external | Core | ChannelListing |
-| UnshippedItem | option | references external | Core | ProductOption |
+| ShipmentItem | organization | references external | Core | Organization |
 | UnshippedItem | organization | references external | Core | Organization |

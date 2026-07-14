@@ -8,6 +8,12 @@ const USER_ID = '99999999-9999-9999-9999-999999999999';
 
 function makePrisma() {
   const tx = {
+    $queryRaw: vi.fn()
+      .mockResolvedValueOnce([{ id: GENERATION_ID }])
+      .mockResolvedValue([
+        { id: 'asset-1' },
+        { id: 'asset-2' },
+      ]),
     contentAsset: {
       createMany: vi.fn().mockResolvedValue({ count: 2 }),
       findMany: vi.fn().mockResolvedValue([
@@ -44,6 +50,67 @@ function makePrisma() {
 }
 
 describe('ContentAssetLibraryRepositoryAdapter', () => {
+  it('does not soft-delete an asset with active usages or a current active-workspace selection', async () => {
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'asset-1' }]),
+      contentAsset: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'asset-1',
+          _count: { usages: 1, thumbnailSelections: 1 },
+        }),
+        updateMany: vi.fn(),
+      },
+    };
+    const prisma = {
+      $transaction: vi.fn((operation: (scope: typeof tx) => unknown) => operation(tx)),
+    };
+    const repository = new ContentAssetLibraryRepositoryAdapter(prisma as never);
+
+    await expect(repository.deleteAsset({
+      organizationId: ORG,
+      contentAssetId: 'asset-1',
+      deletedAt: new Date('2026-07-12T00:00:00.000Z'),
+    })).resolves.toEqual({ status: 'in_use' });
+    expect(tx.$queryRaw).toHaveBeenCalledOnce();
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.contentAsset.findFirst.mock.invocationCallOrder[0],
+    );
+    expect(tx.contentAsset.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'asset-1',
+        organizationId: ORG,
+        isDeleted: false,
+      },
+      select: {
+        id: true,
+        _count: {
+          select: {
+            usages: {
+              where: {
+                contentGeneration: {
+                  organizationId: ORG,
+                  isDeleted: false,
+                },
+              },
+            },
+            thumbnailSelections: {
+              where: {
+                currentForWorkspace: {
+                  is: {
+                    organizationId: ORG,
+                    status: 'active',
+                    isDeleted: false,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(tx.contentAsset.updateMany).not.toHaveBeenCalled();
+  });
+
   it('dedupes detail-page input image URLs into group-scoped content assets', async () => {
     const { prisma, tx } = makePrisma();
     const storage = {
@@ -72,7 +139,7 @@ describe('ContentAssetLibraryRepositoryAdapter', () => {
       data: [
         expect.objectContaining({
           organizationId: ORG,
-          generationGroupId: GROUP_ID,
+          originGenerationGroupId: GROUP_ID,
           createdByUserId: USER_ID,
           assetKey: expect.stringMatching(new RegExp(`^group-url:${GROUP_ID}:`)),
           url: 'http://storage.local/kiditem/detail-page-inputs/a.jpg',
@@ -80,6 +147,7 @@ describe('ContentAssetLibraryRepositoryAdapter', () => {
           assetType: 'image',
           role: 'source',
           sortOrder: 0,
+          metadata: expect.objectContaining({ urlHash: expect.any(String) }),
         }),
         expect.objectContaining({
           url: 'https://example.com/b.jpg',
@@ -102,6 +170,13 @@ describe('ContentAssetLibraryRepositoryAdapter', () => {
       imageUrls: ['https://example.com/a.jpg', 'https://example.com/b.jpg'],
     });
 
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.$queryRaw.mock.invocationCallOrder[1],
+    );
+    expect(tx.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
+      tx.contentGenerationAssetUsage.deleteMany.mock.invocationCallOrder[0],
+    );
     expect(tx.contentGenerationAssetUsage.deleteMany).toHaveBeenCalledWith({
       where: { organizationId: ORG, contentGenerationId: GENERATION_ID },
     });
@@ -114,7 +189,24 @@ describe('ContentAssetLibraryRepositoryAdapter', () => {
     });
   });
 
-  it('lists assets through product and generation filters', async () => {
+  it('rejects usage replacement when an asset cannot be locked as active', async () => {
+    const { prisma, tx } = makePrisma();
+    tx.$queryRaw.mockResolvedValueOnce([{ id: 'asset-1' }]);
+    const repository = new ContentAssetLibraryRepositoryAdapter(prisma as never);
+
+    await expect(repository.syncGenerationImageUsages({
+      organizationId: ORG,
+      generationGroupId: GROUP_ID,
+      contentGenerationId: GENERATION_ID,
+      createdByUserId: USER_ID,
+      imageUrls: ['https://example.com/a.jpg', 'https://example.com/b.jpg'],
+    })).rejects.toThrow('Content asset selection changed while usages were being updated.');
+
+    expect(tx.contentGenerationAssetUsage.deleteMany).not.toHaveBeenCalled();
+    expect(tx.contentGenerationAssetUsage.createMany).not.toHaveBeenCalled();
+  });
+
+  it('lists assets through workspace and generation filters', async () => {
     const prisma = {
       contentAsset: {
         count: vi.fn().mockResolvedValue(0),
@@ -127,7 +219,7 @@ describe('ContentAssetLibraryRepositoryAdapter', () => {
       organizationId: ORG,
       page: 2,
       limit: 10,
-      productId: 'master-1',
+      contentWorkspaceId: 'workspace-1',
       generationId: 'generation-1',
     });
 
@@ -135,7 +227,7 @@ describe('ContentAssetLibraryRepositoryAdapter', () => {
       where: {
         organizationId: ORG,
         isDeleted: false,
-        generationGroup: { targetMasterId: 'master-1' },
+        originGenerationGroup: { contentWorkspaceId: 'workspace-1' },
         usages: { some: { contentGenerationId: 'generation-1' } },
       },
       skip: 10,

@@ -4,23 +4,34 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Deploy this ref, show staging status, or rollback to an existing GHCR tag.
+        description: Deploy this ref, finalize a guarded rebuild, show status, or roll back.
         type: choice
         required: true
         default: deploy
         options:
           - deploy
+          - finalize-rebuild
           - status
           - rollback
+      deployment_target:
+        description: Shared database target. This workflow accepts staging only.
+        type: choice
+        required: true
+        default: staging
+        options:
+          - staging
+      destructive_reset:
+        description: Exact RESET_STAGING_DATA confirmation for rebuild deploys and finalization.
+        required: false
+        type: string
+      rebuild_run_id:
+        description: Originating destructive deploy run ID; required for finalize-rebuild.
+        required: false
+        type: string
       image_tag:
         description: Existing GHCR tag for rollback. Use a git SHA tag, not "staging".
         required: false
         type: string
-      accept_data_loss:
-        description: Allow Prisma db push --accept-data-loss for reviewed contract cleanup deploys.
-        required: false
-        type: boolean
-        default: false
       allow_downtime_for_space:
         description: Stop the current staging stack if image pull needs active-layer disk space.
         required: false
@@ -164,7 +175,25 @@ jobs:
           : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
           npx prisma generate
 
+      - name: Validate staging rebuild confirmation
+        if: inputs.destructive_reset != ''
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          DEPLOYMENT_TARGET: ${{ inputs.deployment_target }}
+          REBUILD_TARGET: ${{ inputs.deployment_target }}
+          GITHUB_ENVIRONMENT: staging
+          DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
+          EXPECTED_RESET_CONFIRMATION: RESET_STAGING_DATA
+          REBUILD_EXPECTED_DATABASE_HOST: ${{ secrets.STAGING_REBUILD_EXPECTED_DATABASE_HOST }}
+          REBUILD_EXPECTED_SUPABASE_PROJECT_REF: ${{ secrets.STAGING_REBUILD_EXPECTED_SUPABASE_PROJECT_REF }}
+          REBUILD_ORGANIZATION_ID: ${{ vars.STAGING_REBUILD_ORGANIZATION_ID }}
+          REBUILD_ORGANIZATION_SLUG: ${{ vars.STAGING_REBUILD_ORGANIZATION_SLUG }}
+          REBUILD_COUPANG_ACCOUNT_ID: ${{ vars.STAGING_REBUILD_COUPANG_ACCOUNT_ID }}
+          REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID: ${{ secrets.STAGING_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID }}
+        run: npm run inventory:rebuild -- guard
+
       - name: Run pre-schema data migrations
+        if: inputs.destructive_reset == ''
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
           DATA_MIGRATION_TARGET: staging
@@ -174,109 +203,129 @@ jobs:
           : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
           npm run data:migrate -- up --phase pre-schema
 
-      - name: Check staging data-loss preflight
+      - name: Prepare SSH for guarded rebuild
+        if: inputs.destructive_reset != ''
+        env:
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          : "${STAGING_SSH_KEY:?Set staging secret STAGING_SSH_KEY}"
+          : "${STAGING_SSH_KNOWN_HOSTS:?Set staging secret STAGING_SSH_KNOWN_HOSTS}"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/kiditem-staging
+          chmod 600 ~/.ssh/kiditem-staging
+          printf '%s\n' "$STAGING_SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Sync staging rebuild control script
+        if: inputs.destructive_reset != ''
+        env:
+          STAGING_HOST: ${{ vars.STAGING_HOST }}
+          STAGING_USER: ${{ vars.STAGING_USER }}
+          STAGING_REMOTE_DIR: ${{ vars.STAGING_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          : "${STAGING_HOST:?Set staging variable STAGING_HOST}"
+          STAGING_USER="${STAGING_USER:-ubuntu}"
+          STAGING_REMOTE_DIR="${STAGING_REMOTE_DIR:-/opt/kiditem}"
+          target="${STAGING_USER}@${STAGING_HOST}"
+          remote_dir_q="$(printf '%q' "$STAGING_REMOTE_DIR")"
+          tar -czf - deploy/staging/remote-deploy.sh \
+            | ssh -i ~/.ssh/kiditem-staging "$target" \
+                "mkdir -p ${remote_dir_q}/deploy/staging && tar -xzf - -C ${remote_dir_q} && chmod +x ${remote_dir_q}/deploy/staging/remote-deploy.sh"
+
+      - name: Quiesce staging application traffic
+        id: quiesce
+        if: inputs.destructive_reset != ''
+        env:
+          STAGING_HOST: ${{ vars.STAGING_HOST }}
+          STAGING_USER: ${{ vars.STAGING_USER }}
+          STAGING_REMOTE_DIR: ${{ vars.STAGING_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          STAGING_USER="${STAGING_USER:-ubuntu}"
+          STAGING_REMOTE_DIR="${STAGING_REMOTE_DIR:-/opt/kiditem}"
+          q() { printf '%q' "$1"; }
+          ssh -i ~/.ssh/kiditem-staging "${STAGING_USER}@${STAGING_HOST}" \
+            "cd $(q "$STAGING_REMOTE_DIR") && ./deploy/staging/remote-deploy.sh quiesce"
+
+      - name: Export approved Coupang replay bundle
+        if: inputs.destructive_reset != ''
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          DEPLOYMENT_TARGET: ${{ inputs.deployment_target }}
+          REBUILD_TARGET: ${{ inputs.deployment_target }}
+          GITHUB_ENVIRONMENT: staging
+          DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
+          EXPECTED_RESET_CONFIRMATION: RESET_STAGING_DATA
+          REBUILD_DEPLOYED_SHA: ${{ needs.prepare.outputs.git_sha }}
+          REBUILD_ORGANIZATION_ID: ${{ vars.STAGING_REBUILD_ORGANIZATION_ID }}
+          REBUILD_COUPANG_ACCOUNT_ID: ${{ vars.STAGING_REBUILD_COUPANG_ACCOUNT_ID }}
+          REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID: ${{ secrets.STAGING_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID }}
+          REBUILD_BUNDLE_PATH: ${{ runner.temp }}/authoritative-rebuild.json
+        run: npm run inventory:rebuild -- export-coupang --origin-run-id "${{ github.run_id }}"
+
+      - name: Preserve private rebuild bundle for one day
+        if: inputs.destructive_reset != ''
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: authoritative-rebuild-${{ github.run_id }}-staging
+          path: ${{ runner.temp }}/authoritative-rebuild.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Cross destructive reset boundary
+        id: reset_boundary
+        if: inputs.destructive_reset != ''
+        run: echo "started=true" >> "$GITHUB_OUTPUT"
+
+      - name: Rebuild staging database from final schema
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
         run: |
           set -euo pipefail
           : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
-          echo "Checking channel_listings_org_account_external_id_key duplicate groups"
-          node <<'NODE'
-          const fs = require('node:fs');
-          const { Client } = require('pg');
-
-          const client = new Client({ connectionString: process.env.DATABASE_URL });
-
-          (async () => {
-            await client.connect();
-            const result = await client.query(`
-              WITH duplicate_groups AS (
-                SELECT organization_id,
-                       channel_account_id,
-                       external_id,
-                       count(*)::int AS row_count
-                FROM channel_listings
-                WHERE is_deleted = false
-                  AND channel_account_id IS NOT NULL
-                GROUP BY organization_id,
-                         channel_account_id,
-                         external_id
-                HAVING count(*) > 1
-              )
-              SELECT count(*)::int AS duplicate_groups,
-                     COALESCE(sum(row_count - 1), 0)::int AS duplicate_rows
-              FROM duplicate_groups
-            `);
-            const row = result.rows[0] ?? { duplicate_groups: 0, duplicate_rows: 0 };
-            const duplicateGroups = Number(row.duplicate_groups);
-            const duplicateRows = Number(row.duplicate_rows);
-            if (duplicateGroups > 0 || duplicateRows > 0) {
-              throw new Error(
-                `channel_listings_org_account_external_id_key is unsafe: ${duplicateGroups} duplicate group(s), ${duplicateRows} extra row(s).`,
-              );
-            }
-            fs.appendFileSync(process.env.GITHUB_ENV, 'CHANNEL_LISTING_ACCOUNT_UNIQUE_PREFLIGHT=ok\n');
-            console.log('channel_listings_org_account_external_id_key preflight passed: no duplicate groups.');
-          })().finally(() => client.end()).catch((error) => {
-            console.error(error instanceof Error ? error.message : String(error));
-            process.exit(1);
-          });
-          NODE
-
-      - name: Apply staging Prisma schema
-        env:
-          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
-          ACCEPT_DATA_LOSS: ${{ inputs.accept_data_loss }}
-        run: |
-          set -euo pipefail
-          : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
-          node <<'NODE'
-          const raw = process.env.DATABASE_URL || '';
-          let target = raw;
-          try {
-            const url = new URL(raw);
-            target = `${url.hostname} ${url.pathname}`;
-          } catch {}
-          if (/\bprod(?:uction)?\b/i.test(target)) {
-            console.error('DATABASE_URL host/path looks production-like');
-            process.exit(2);
-          }
-          NODE
-          db_push_log="$(mktemp)"
-          if npx prisma db push 2>&1 | tee "$db_push_log"; then
-            rm -f "$db_push_log"
-          elif [ "${ACCEPT_DATA_LOSS}" = "true" ]; then
-            echo "::warning::Running Prisma db push with --accept-data-loss for a reviewed staging contract cleanup."
-            npx prisma db push --accept-data-loss
+          if [ -n "$DESTRUCTIVE_RESET" ]; then
+            npx prisma db push --force-reset
           else
-            if CHANNEL_LISTING_ACCOUNT_UNIQUE_PREFLIGHT="${CHANNEL_LISTING_ACCOUNT_UNIQUE_PREFLIGHT:-}" node - "$db_push_log" <<'NODE'
-          const fs = require('node:fs');
-          const logPath = process.argv[2];
-          const text = fs.readFileSync(logPath, 'utf8');
-          const bullet = String.fromCharCode(0x2022);
-          const warnings = text
-            .split('\n')
-            .map((line) => line.trim())
-            .filter((line) => line.startsWith(bullet));
-          const knownWarning = 'A unique constraint covering the columns `[organization_id,channel_account_id,external_id]` on the table `channel_listings` will be added.';
-          const safeKnownWarning =
-            process.env.CHANNEL_LISTING_ACCOUNT_UNIQUE_PREFLIGHT === 'ok'
-            && warnings.length === 1
-            && warnings[0].includes(knownWarning);
-          process.exit(safeKnownWarning ? 0 : 1);
-          NODE
-            then
-              echo "::warning::Auto-accepting reviewed staging unique constraint after duplicate preflight."
-              npx prisma db push --accept-data-loss
-            else
-              echo "::error::Prisma db push requires reviewed data-loss handling." >&2
-              exit 1
-            fi
-            rm -f "$db_push_log"
+            npx prisma db push
           fi
+
+      - name: Generate Prisma client after schema push
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?Set staging secret STAGING_DATABASE_URL}"
           npx prisma generate
 
+      - name: Bootstrap staging authentication and account baseline
+        if: inputs.destructive_reset != ''
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          DEPLOYMENT_TARGET: ${{ inputs.deployment_target }}
+          REBUILD_TARGET: ${{ inputs.deployment_target }}
+          GITHUB_ENVIRONMENT: staging
+          DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
+          EXPECTED_RESET_CONFIRMATION: RESET_STAGING_DATA
+          REBUILD_DEPLOYED_SHA: ${{ needs.prepare.outputs.git_sha }}
+          REBUILD_ORGANIZATION_ID: ${{ vars.STAGING_REBUILD_ORGANIZATION_ID }}
+          REBUILD_ORGANIZATION_NAME: ${{ vars.STAGING_REBUILD_ORGANIZATION_NAME }}
+          REBUILD_ORGANIZATION_SLUG: ${{ vars.STAGING_REBUILD_ORGANIZATION_SLUG }}
+          REBUILD_USER_ID: ${{ vars.STAGING_REBUILD_USER_ID }}
+          REBUILD_USER_EMAIL: ${{ secrets.STAGING_REBUILD_USER_EMAIL }}
+          REBUILD_USER_NAME: ${{ vars.STAGING_REBUILD_USER_NAME }}
+          REBUILD_COUPANG_ACCOUNT_ID: ${{ vars.STAGING_REBUILD_COUPANG_ACCOUNT_ID }}
+          REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID: ${{ secrets.STAGING_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID }}
+          REBUILD_COUPANG_ACCOUNT_NAME: ${{ vars.STAGING_REBUILD_COUPANG_ACCOUNT_NAME }}
+          REBUILD_ROCKET_ACCOUNT_ID: ${{ vars.STAGING_REBUILD_ROCKET_ACCOUNT_ID }}
+          REBUILD_ROCKET_EXTERNAL_ACCOUNT_ID: ${{ secrets.STAGING_REBUILD_ROCKET_EXTERNAL_ACCOUNT_ID }}
+          REBUILD_ROCKET_ACCOUNT_NAME: ${{ vars.STAGING_REBUILD_ROCKET_ACCOUNT_NAME }}
+        run: npm run inventory:rebuild -- bootstrap --origin-run-id "${{ github.run_id }}"
+
       - name: Run post-schema data migrations
+        if: inputs.destructive_reset == ''
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
           DATA_MIGRATION_TARGET: staging
@@ -433,6 +482,7 @@ jobs:
           exit 1
 
       - name: Verify staging data migration status
+        if: inputs.destructive_reset == ''
         env:
           DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
         run: |
@@ -441,6 +491,7 @@ jobs:
           npm run data:migrate -- status
 
       - name: Tag successful staging deploy
+        if: inputs.destructive_reset == ''
         env:
           APP_VERSION: ${{ needs.prepare.outputs.app_version }}
           GIT_SHA: ${{ needs.prepare.outputs.git_sha }}
@@ -501,6 +552,20 @@ jobs:
           ssh -i ~/.ssh/kiditem-staging "${STAGING_USER}@${STAGING_HOST}" \
             "cd $(q "$STAGING_REMOTE_DIR") && ./deploy/staging/remote-deploy.sh status"
 
+      - name: Resume previous staging runtime after pre-reset failure
+        if: failure() && inputs.destructive_reset != '' && (steps.quiesce.outcome == 'success' || steps.quiesce.outcome == 'failure') && steps.reset_boundary.outputs.started != 'true'
+        env:
+          STAGING_HOST: ${{ vars.STAGING_HOST }}
+          STAGING_USER: ${{ vars.STAGING_USER }}
+          STAGING_REMOTE_DIR: ${{ vars.STAGING_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          STAGING_USER="${STAGING_USER:-ubuntu}"
+          STAGING_REMOTE_DIR="${STAGING_REMOTE_DIR:-/opt/kiditem}"
+          q() { printf '%q' "$1"; }
+          ssh -i ~/.ssh/kiditem-staging "${STAGING_USER}@${STAGING_HOST}" \
+            "cd $(q "$STAGING_REMOTE_DIR") && ./deploy/staging/remote-deploy.sh resume"
+
       - name: Write staging deployment summary
         if: always()
         env:
@@ -518,6 +583,142 @@ jobs:
             echo "- API image: \`${API_IMAGE}\`"
             echo "- Web image: \`${WEB_IMAGE}\`"
             echo "- URL: ${STAGING_URL:-unset}"
+            echo "- Runbook: \`docs/runbooks/staging-deploy.md\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  finalize_rebuild:
+    name: Finalize staging authoritative rebuild
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'finalize-rebuild'
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Resolve originating rebuild run
+        id: origin
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REBUILD_RUN_ID: ${{ inputs.rebuild_run_id }}
+        run: |
+          set -euo pipefail
+          case "$REBUILD_RUN_ID" in
+            ''|*[!0-9]*) echo "rebuild_run_id must be the originating numeric workflow run ID" >&2; exit 2 ;;
+          esac
+          run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${REBUILD_RUN_ID}")"
+          workflow_path="$(jq -r '.path' <<<"$run_json")"
+          event="$(jq -r '.event' <<<"$run_json")"
+          conclusion="$(jq -r '.conclusion' <<<"$run_json")"
+          head_sha="$(jq -r '.head_sha' <<<"$run_json")"
+          [[ "$workflow_path" == ".github/workflows/staging-deploy.yml" ]] || { echo "origin run belongs to $workflow_path" >&2; exit 2; }
+          [[ "$event" == "workflow_dispatch" && "$conclusion" == "success" ]] || { echo "origin run must be a successful workflow_dispatch" >&2; exit 2; }
+          [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "origin run has invalid head SHA" >&2; exit 2; }
+          jobs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${REBUILD_RUN_ID}/jobs?per_page=100")"
+          deploy_jobs="$(jq '[.jobs[] | select(.name == "Deploy to staging" and .conclusion == "success")] | length' <<<"$jobs_json")"
+          [[ "$deploy_jobs" == "1" ]] || { echo "origin run did not complete exactly one staging deploy job" >&2; exit 2; }
+          artifacts_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${REBUILD_RUN_ID}/artifacts?per_page=100")"
+          artifact_name="authoritative-rebuild-${REBUILD_RUN_ID}-staging"
+          artifacts="$(jq --arg name "$artifact_name" '[.artifacts[] | select(.name == $name and .expired == false)] | length' <<<"$artifacts_json")"
+          [[ "$artifacts" == "1" ]] || { echo "origin run does not expose exactly one live staging rebuild artifact" >&2; exit 2; }
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout originating rebuild SHA
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ steps.origin.outputs.head_sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install finalization dependencies
+        run: npm ci --ignore-scripts --fetch-timeout=600000 --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000 --no-audit --no-fund
+
+      - name: Generate Prisma client for finalization
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: npx prisma generate
+
+      - name: Validate staging finalization binding
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          DEPLOYMENT_TARGET: ${{ inputs.deployment_target }}
+          REBUILD_TARGET: ${{ inputs.deployment_target }}
+          GITHUB_ENVIRONMENT: staging
+          DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
+          EXPECTED_RESET_CONFIRMATION: RESET_STAGING_DATA
+          REBUILD_RUN_ID: ${{ inputs.rebuild_run_id }}
+          REBUILD_EXPECTED_DATABASE_HOST: ${{ secrets.STAGING_REBUILD_EXPECTED_DATABASE_HOST }}
+          REBUILD_EXPECTED_SUPABASE_PROJECT_REF: ${{ secrets.STAGING_REBUILD_EXPECTED_SUPABASE_PROJECT_REF }}
+          REBUILD_ORGANIZATION_ID: ${{ vars.STAGING_REBUILD_ORGANIZATION_ID }}
+          REBUILD_ORGANIZATION_SLUG: ${{ vars.STAGING_REBUILD_ORGANIZATION_SLUG }}
+          REBUILD_COUPANG_ACCOUNT_ID: ${{ vars.STAGING_REBUILD_COUPANG_ACCOUNT_ID }}
+          REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID: ${{ secrets.STAGING_REBUILD_COUPANG_EXTERNAL_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          case "$REBUILD_RUN_ID" in
+            ''|*[!0-9]*) echo "rebuild_run_id must be the originating numeric workflow run ID" >&2; exit 2 ;;
+          esac
+          npm run inventory:rebuild -- guard
+
+      - name: Download private rebuild bundle from originating run
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: authoritative-rebuild-${{ inputs.rebuild_run_id }}-staging
+          path: ${{ runner.temp }}/authoritative-rebuild
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ inputs.rebuild_run_id }}
+
+      - name: Replay approved Coupang snapshots through authenticated endpoint
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          DEPLOYMENT_TARGET: ${{ inputs.deployment_target }}
+          REBUILD_TARGET: ${{ inputs.deployment_target }}
+          REBUILD_DEPLOYED_SHA: ${{ steps.origin.outputs.head_sha }}
+          GITHUB_ENVIRONMENT: staging
+          DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
+          EXPECTED_RESET_CONFIRMATION: RESET_STAGING_DATA
+          REBUILD_ORGANIZATION_ID: ${{ vars.STAGING_REBUILD_ORGANIZATION_ID }}
+          REBUILD_COUPANG_ACCOUNT_ID: ${{ vars.STAGING_REBUILD_COUPANG_ACCOUNT_ID }}
+          REBUILD_USER_ID: ${{ vars.STAGING_REBUILD_USER_ID }}
+          REBUILD_USER_EMAIL: ${{ secrets.STAGING_REBUILD_USER_EMAIL }}
+          REBUILD_API_URL: ${{ vars.STAGING_REBUILD_EXPECTED_API_ORIGIN }}
+          REBUILD_EXPECTED_API_ORIGIN: ${{ vars.STAGING_REBUILD_EXPECTED_API_ORIGIN }}
+          SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
+          REBUILD_EXPECTED_SUPABASE_PROJECT_REF: ${{ secrets.STAGING_REBUILD_EXPECTED_SUPABASE_PROJECT_REF }}
+          SUPABASE_SECRET_KEY: ${{ secrets.STAGING_SUPABASE_SECRET_KEY }}
+          REBUILD_BUNDLE_PATH: ${{ runner.temp }}/authoritative-rebuild/authoritative-rebuild.json
+        run: npm run inventory:rebuild -- replay-coupang --origin-run-id "${{ inputs.rebuild_run_id }}"
+
+      - name: Verify imported facts and mark staging ready
+        env:
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          DEPLOYMENT_TARGET: ${{ inputs.deployment_target }}
+          REBUILD_TARGET: ${{ inputs.deployment_target }}
+          REBUILD_DEPLOYED_SHA: ${{ steps.origin.outputs.head_sha }}
+          GITHUB_ENVIRONMENT: staging
+          DESTRUCTIVE_RESET: ${{ inputs.destructive_reset }}
+          EXPECTED_RESET_CONFIRMATION: RESET_STAGING_DATA
+          REBUILD_ORGANIZATION_ID: ${{ vars.STAGING_REBUILD_ORGANIZATION_ID }}
+          REBUILD_COUPANG_ACCOUNT_ID: ${{ vars.STAGING_REBUILD_COUPANG_ACCOUNT_ID }}
+          REBUILD_EXPECTED_ACTIVE_MASTERS: ${{ vars.STAGING_REBUILD_EXPECTED_ACTIVE_MASTERS }}
+          REBUILD_EXPECTED_LISTINGS: ${{ vars.STAGING_REBUILD_EXPECTED_LISTINGS }}
+          REBUILD_EXPECTED_CHANNEL_SKUS: ${{ vars.STAGING_REBUILD_EXPECTED_CHANNEL_SKUS }}
+          REBUILD_BUNDLE_PATH: ${{ runner.temp }}/authoritative-rebuild/authoritative-rebuild.json
+        run: npm run inventory:rebuild -- verify-ready --origin-run-id "${{ inputs.rebuild_run_id }}"
+
+      - name: Write staging rebuild finalization summary
+        if: always()
+        env:
+          REBUILD_RUN_ID: ${{ inputs.rebuild_run_id }}
+        run: |
+          {
+            echo "## Staging authoritative rebuild finalization"
+            echo
+            echo "- Originating run: \`${REBUILD_RUN_ID}\`"
+            echo "- Result: \`${{ job.status }}\`"
             echo "- Runbook: \`docs/runbooks/staging-deploy.md\`"
           } >> "$GITHUB_STEP_SUMMARY"
 

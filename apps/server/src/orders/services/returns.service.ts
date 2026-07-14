@@ -89,7 +89,20 @@ export class ReturnsService {
     receiptId: number,
     organizationId: string,
   ): Promise<{ message: string; data: unknown }> {
-    const result = await this.coupang.approveReturn(organizationId, receiptId);
+    const ret = await this.prisma.orderReturn.findFirst({
+      where: {
+        organizationId,
+        externalReturnId: String(receiptId),
+        channelAccount: { channel: 'coupang', status: 'active' },
+      },
+      select: { channelAccountId: true },
+    });
+    if (!ret?.channelAccountId) throw new NotFoundException('OrderReturn not found');
+    const result = await this.coupang.approveReturn(
+      organizationId,
+      ret.channelAccountId,
+      receiptId,
+    );
     return { message: '반품 승인 완료', data: result };
   }
 }

@@ -1,6 +1,9 @@
 export const AI_WORKSPACE_ARCHIVE_PORT = Symbol('AI_WORKSPACE_ARCHIVE_PORT');
 
 export interface AiWorkspaceArchiveScope {
+  contentWorkspace: {
+    updateMany(args: any): Promise<{ count: number }>;
+  };
   contentGeneration: {
     findMany(args: any): Promise<Array<{ id: string }>>;
     updateMany(args: any): Promise<{ count: number }>;

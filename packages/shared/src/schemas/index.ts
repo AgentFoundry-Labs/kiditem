@@ -18,16 +18,6 @@ export {
   GetMasterImagesResponseSchema,
   UpdateMasterImagesRequestSchema,
   UploadMasterImageResponseSchema,
-  MoneyRangeSchema,
-  MasterSchema,
-  ProductOptionSchema,
-  BundleComponentSchema,
-  MasterWithOptionsSchema,
-  OptionWithComponentsSchema,
-  ProductCatalogListItemSchema,
-  ProductCatalogDetailSchema,
-  ProductCatalogCountsSchema,
-  ProductCatalogListResponseSchema,
 } from './product.js';
 export type {
   MasterImageRole,
@@ -35,16 +25,6 @@ export type {
   GetMasterImagesResponse,
   UpdateMasterImagesRequest,
   UploadMasterImageResponse,
-  MoneyRange,
-  Master,
-  ProductOption,
-  BundleComponent,
-  MasterWithOptions,
-  OptionWithComponents,
-  ProductCatalogListItem,
-  ProductCatalogDetail,
-  ProductCatalogCounts,
-  ProductCatalogListResponse,
 } from './product.js';
 
 // Order (Plan A.5 — channel-agnostic; W3 — UI-ready response schemas)
@@ -82,42 +62,6 @@ export type {
   OrderActionResponse,
   OrderPipelineResponse,
 } from './order.js';
-
-// Inventory
-export {
-  InventorySchema,
-  InventoryStatusSchema,
-  InventoryListItemSchema,
-  InventorySummarySchema,
-  InventoryListResponseSchema,
-  StockTransactionTypeSchema,
-  StockTransactionSchema,
-  StockOperationResultSchema,
-  TransactionListItemSchema,
-  TransactionListResponseSchema,
-  TransactionSummarySchema,
-  ReceiveStockInputSchema,
-  IssueStockInputSchema,
-  AdjustStockInputSchema,
-  UpdateInventoryMetadataInputSchema,
-} from './inventory.js';
-export type {
-  Inventory,
-  InventoryStatus,
-  InventoryListItem,
-  InventorySummary,
-  InventoryListResponse,
-  StockTransactionType,
-  StockTransaction,
-  StockOperationResult,
-  TransactionListItem,
-  TransactionListResponse,
-  TransactionSummary,
-  ReceiveStockInput,
-  IssueStockInput,
-  AdjustStockInput,
-  UpdateInventoryMetadataInput,
-} from './inventory.js';
 
 // Workflow
 export { WorkflowTemplateSchema, WorkflowRunSchema, WorkflowStepRunSchema } from './workflow.js';

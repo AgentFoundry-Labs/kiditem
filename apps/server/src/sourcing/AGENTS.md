@@ -1,10 +1,10 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# sourcing — Product Discovery + Candidate Promotion
+# sourcing — Product Discovery + Account Registration
 
 `src/sourcing/` owns Chinese new-product discovery: scraper ingest from
 Alibaba/1688, `SourcingCandidate` workspaces, manual product registration
-candidates, and candidate-to-master promotion handoff. Supplier registry and
+candidates, and the account-scoped product-registration state machine. Supplier registry and
 procurement live in `src/supply/`; supplier payments live in `src/finance/`.
 
 ## Folder Map
@@ -15,10 +15,11 @@ sourcing/
 ├── adapter/in/http/        # extension ingest, scrape, candidate workspace DTO/controllers
 ├── adapter/out/
 │   ├── agent/              # sourcing Agent OS gateway adapter
-│   ├── ai/                 # AI archive/workspace adapter
+│   ├── ai/                 # AI archive/workspace and registration-content adapters
 │   ├── automation/         # operation-alert adapter
-│   ├── products/           # products promotion bridge
-│   └── repository/         # candidate repository + transaction adapter
+│   ├── channels/           # account-scoped marketplace registration bridge
+│   ├── products/           # legacy products compatibility bridge
+│   └── repository/         # candidate + product-preparation repositories
 ├── application/
 │   ├── port/out/           # local outbound ports + transaction handle
 │   └── service/            # use-case orchestration
@@ -35,8 +36,9 @@ sourcing/
 - Candidate product generation: `POST /api/sourcing/product-generation`
 - Candidate detail/read/delete: `GET /api/sourcing/:id`,
   `DELETE /api/sourcing/candidates/:id`
-- Candidate promotion, quick AI processing, and rejection:
-  `/api/sourcing/candidates/:id/*`
+- Product preparation: `POST /api/sourcing/candidates/:id/preparations`,
+  `PATCH /api/sourcing/preparations/:id`, and preparation submit/cancel routes
+- Candidate rejection and quick AI processing: `/api/sourcing/candidates/:id/*`
 
 Route shape is frozen.
 
@@ -44,35 +46,42 @@ Route shape is frozen.
 
 - `SourcingCandidate` is the raw opportunity workspace.
 - `CandidateImage` stores source images attached to a candidate.
-- `ProductPreparation` records the selected thumbnail/detail inputs after
-  promotion.
-- `MasterProduct` creation is owned by products and reached only through a
-  sourcing outgoing products port.
+- `ProductPreparation` owns draft, submitting, failed, registered, and
+  cancelled state for one candidate/account registration attempt. Submission
+  payloads are canonicalized, hashed, and frozen before provider IO.
+- `ChannelListing` registration is owned by Channels and reached only through
+  a sourcing outgoing registration port. Registration never creates or returns
+  a `MasterProduct`.
 - AI-generated detail pages, thumbnails, and content assets remain owned by the
   AI domain.
 
-## Promotion Flow
+## Registration Flow
 
 ```text
 candidate command
-  -> SourcingPromotionService.promote
-  -> sourcing repository transaction + candidate row lock
-  -> SOURCING_PRODUCTS_CATALOG_PORT.promoteCandidate(tx, ...)
-  -> ProductPreparation write
-  -> after commit: SOURCING_AGENT_GATEWAY_PORT.notifyPromoted
-  -> AI post-promotion generation port
+  -> ProductRegistrationService.createDraft/updateDraft
+  -> ProductPreparation repository + candidate/preparation row locks
+  -> submit freezes canonical payload/hash/idempotency key
+  -> reconcile or create through CHANNEL_PRODUCT_REGISTRATION_PORT
+  -> final sourcing transaction resolves the account listing
+  -> REGISTRATION_CONTENT_WORKSPACE_PORT branches selected AI content
+  -> ProductPreparation becomes registered
 ```
 
-Promotion is atomic inside the sourcing repository transaction. The repository
-adapter performs tenant-scoped pre-checks, tagged-template row locks, candidate
-status changes, detail-page attachment, and preparation writes.
+Provider calls occur outside database transactions. Retries reuse the frozen
+submission key and reconcile recorded provider identity before create. Listing
+resolution, content branching, and the registered transition commit in one
+sourcing-owned finalization transaction.
 
 ## Cross-Domain Ports
 
 - Sourcing delegates scrape/product-generation work through
   `SOURCING_AGENT_GATEWAY_PORT`.
-- Candidate promotion calls products through `SOURCING_PRODUCTS_CATALOG_PORT`,
-  whose adapter consumes products' `PRODUCT_MASTER_PROMOTION_PORT`.
+- Product registration calls Channels through
+  `CHANNEL_PRODUCT_REGISTRATION_PORT` and branches AI content through
+  `REGISTRATION_CONTENT_WORKSPACE_PORT`.
+- `SOURCING_PRODUCTS_CATALOG_PORT` is legacy compatibility only; new
+  registration flows must not call it.
 - Generated-content archive/delete calls AI through
   `SOURCING_AI_WORKSPACE_ARCHIVE_PORT`.
 - Operation-alert lifecycle writes go through
@@ -128,7 +137,8 @@ by importing sourcing application services directly.
   DTOs, concrete `adapter/out/**` implementations, AI services, products
   services, or automation services.
 - Extension ingest writes only `SourcingCandidate` and `CandidateImage`;
-  `MasterProduct` is created only during promotion.
+  registration state belongs to `ProductPreparation` and account-scoped
+  `ChannelListing` rows, never candidate status.
 - Product-less detail generation uses direct AI content workspaces and must not
   create collected-product `SourcingCandidate` rows.
 - Candidate delete archives the active source-candidate workspace and related
@@ -136,12 +146,6 @@ by importing sourcing application services directly.
   listings, orders, inventory, or finance data.
 - Physical storage deletion is a retention/GC concern and must re-check active
   references before deleting objects.
-- Promote/reject from non-`sourced` states is a domain error; concurrent
-  promotion losers surface as conflict.
-
-## Transitional Exceptions
-
-- The route shape is frozen while frontend product-pipeline screens depend on
-  it.
-- The promotion transaction currently enforces 1:1 candidate-to-master behavior
-  even though the schema still leaves room for future N:1 promotion.
+- Candidate status is only `sourced|rejected`. Registration state is derived
+  from preparations/listings; concurrent active-draft losers surface as
+  conflict.

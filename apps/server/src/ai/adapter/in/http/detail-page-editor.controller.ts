@@ -27,13 +27,11 @@ export class DetailPageEditorController {
   @Throttle({ default: { limit: 300, ttl: 60_000 } })
   list(
     @CurrentOrganization() organizationId: string,
-    @Query('productId') productId?: string,
     @Query('sourceCandidateId') sourceCandidateId?: string,
     @Query('contentWorkspaceId') contentWorkspaceId?: string,
     @Query('templateId') templateId?: string,
   ) {
     return this.service.list(organizationId, {
-      productId,
       sourceCandidateId,
       contentWorkspaceId,
       templateId,

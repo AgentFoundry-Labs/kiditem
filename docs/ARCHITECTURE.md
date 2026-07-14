@@ -83,24 +83,24 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/activity-events` | Owner Capability | Activity event read endpoint. |
 | `apps/server/src/advertising` | Owner Domain | Coupang ad operations, scrape ingest, daily facts, strategy/action generation. |
 | `apps/server/src/agent-os` | Platform | Agent catalog, queue, runtime, policy, cost, and observability. |
-| `apps/server/src/ai` | Owner Domain | Image/text/detail-page/thumbnail AI provider and Agent OS output boundaries. |
+| `apps/server/src/ai` | Owner Domain | Image/text/detail-page/thumbnail AI provider, content-workspace ownership/branching, and Agent OS output boundaries. |
 | `apps/server/src/analytics` | Owner Read Model | Dashboard, statistics, traffic, and supplier-stats reporting. |
 | `apps/server/src/auth` | Platform Capability | Guards, decorators, middleware, and `/api/auth/me`. |
 | `apps/server/src/automation` | Platform | Workflows, alerts, action board, marketplace install, and panel projection. |
-| `apps/server/src/channels` | Owner Domain | Marketplace account, listing, order, return, sync, and reconciliation provider boundaries. |
+| `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped registration/listing, order, return, catalog import, ChannelSku-to-Sellpia component matching, and sellable-capacity projection boundaries. |
 | `apps/server/src/chat` | Platform Capability | CopilotKit bridge and Claude CLI adapter. |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
 | `apps/server/src/finance` | Owner Domain | P&L, sales analysis, manual ledger, costs, payments, plans, settlements. |
-| `apps/server/src/inventory` | Owner Domain | Stock, unshipped, warehouses, transfers, audits, and picking. |
+| `apps/server/src/inventory` | Owner Domain | Sellpia-authoritative physical MasterProduct snapshot import/read plus unshipped, warehouses, and record-only transfer/picking/receipt capabilities. |
 | `apps/server/src/orders` | Owner Domain | Orders, returns, CS, reviews, and return-transfer operations. |
 | `apps/server/src/organizations` | Platform Capability | Organization listing surface. |
 | `apps/server/src/operation-cancellation` | Platform | Cross-owner durable cancellation endpoint and orchestration. |
 | `apps/server/src/prisma` | Platform Support | `PrismaModule` and `PrismaService` only. |
-| `apps/server/src/products` | Owner Domain | Catalog families, physical SKU options, bundle composition, categories compatibility. |
+| `apps/server/src/products` | Owner Domain | Catalog families/options, stock-free bundle composition, and categories compatibility. |
 | `apps/server/src/readiness` | Platform Capability | Readiness checks and health-style operational surface. |
 | `apps/server/src/rules` | Owner Domain | Business rules HTTP orchestration and Agent OS delegation. |
-| `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery (scraper ingest, SourcingCandidate inbox, candidate→master promotion). |
+| `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery (scraper ingest and SourcingCandidate inbox) plus the account-scoped ProductPreparation registration state machine. |
 | `apps/server/src/supply` | Owner Domain | Supplier registry, master-supplier policy, purchase-order procurement. Extracted from sourcing/ during issue #192 follow-up Track A PR 1. |
 | `apps/server/src/test-helpers` | Test Support | Test-only Prisma and seed helpers. |
 | `apps/server/src/types` | Platform Support | Ambient/server TypeScript types. |
@@ -124,16 +124,16 @@ folders are intentionally absent from this map.
 | `apps/server/src/analytics/supplier-stats` | Flat | supplier report service. |
 | `apps/server/src/auth` | Flat | guards/decorators/middleware/controller. |
 | `apps/server/src/automation` | Hexagonal | port/adapter lanes complete; 6 outgoing repository ports + `OPERATION_ALERT_PORT` owner-side incoming port published from `application/port/in/` for cross-domain producers; architecture + module wiring specs freeze invariants; `WorkflowRunnerService` PrismaService carve-out documented for the executor framework. |
-| `apps/server/src/channels` | Hexagonal | provider APIs use `application/port/out` plus `adapter/out/coupang`. |
+| `apps/server/src/channels` | Hexagonal | Provider APIs use `application/port/out` plus `adapter/out/coupang`; catalog import and matching use repository ports plus an Inventory-owned read-port bridge. |
 | `apps/server/src/channels/adapters` | Flat | compatibility shims only; new provider work uses `adapter/out/coupang/`. |
 | `apps/server/src/chat` | Flat | controller/service/Claude CLI adapter. |
 | `apps/server/src/feature-gate` | Flat | endpoint/config capability. |
 | `apps/server/src/finance` | Flat | controllers/services/DTO plus folded finance capabilities. |
-| `apps/server/src/inventory` | Hexagonal | reference owner-domain structure for stock mutations. |
+| `apps/server/src/inventory` | Hexagonal | Sellpia snapshot single-writer, read projections, and record-only operation capabilities behind ports/adapters. |
 | `apps/server/src/orders` | Flat | controllers/services/DTO plus folded order capabilities. |
 | `apps/server/src/organizations` | Flat | controller/service capability. |
 | `apps/server/src/operation-cancellation` | Hexagonal | HTTP endpoint plus application service; consumes Automation, Agent OS, and AI owner-side ports only. |
-| `apps/server/src/products` | Hexagonal | catalog and bundle-stock behavior uses adapter/application/domain lanes. |
+| `apps/server/src/products` | Hexagonal | catalog and stock-free bundle-composition behavior uses adapter/application/domain lanes. |
 | `apps/server/src/products/categories` | Flat | `/api/categories` compatibility capability under products ownership. |
 | `apps/server/src/readiness` | Flat | readiness controller/service. |
 | `apps/server/src/rules` | Flat | HTTP orchestration delegates execution to Agent OS ports. |
@@ -174,15 +174,15 @@ Initial domain capability targets:
 
 | Owner | Resources | Tools | Workflows | Sinks |
 |---|---|---|---|---|
-| `sourcing` | Duplicate URL/candidate lookup, candidate read context. | Product URL scrape through browser/runtime, search result scrape. | Duplicate-check → scrape → candidate ingest → alert/detail routing. | Candidate ingest, candidate rejection, candidate promotion handoff. |
-| `ai` | Workspace/generation/detail-page read context. | OCR, image classification, image/text/detail generation, vision analysis. | Media generation jobs and post-promotion content generation. | Generation output projection, asset usage projection, workspace archive. |
+| `sourcing` | Duplicate URL/candidate/preparation lookup and read context. | Product URL scrape through browser/runtime, search result scrape. | Duplicate-check → scrape → candidate ingest → preparation → account registration. | Candidate ingest/rejection and preparation lifecycle/finalization. |
+| `ai` | Workspace/generation/detail-page read context. | OCR, image classification, image/text/detail generation, vision analysis. | Media generation jobs and candidate-to-listing content branching. | Generation output, asset usage, current-thumbnail, and workspace archive projections. |
 | `finance` | Margin, commission, cost, settlement, and plan lookups. | Margin/category profitability calculations, pandas-style research adapters when needed. | Reconciliation and profitability analysis runs. | Manual ledger entries, settlement/payment projections. |
-| `products` | Master product, option, bundle, preparation, and category reads. | Catalog normalization and compatibility helpers. | Candidate-to-master preparation flows when deterministic. | Master creation/update, option/bundle writes, preparation attachment. |
-| `channels` | Channel account/listing/order/status reads. | Marketplace provider calls, listing validation, Wing/Coupang browser runtime steps. | Product registration/listing sync/reconciliation flows. | Listing registration/update projection, channel order/status ingestion. |
+| `products` | Master product, catalog option, bundle composition, and category reads. | Catalog normalization and compatibility helpers. | Catalog normalization flows when deterministic. | Master creation/update and option/bundle writes; never stock or registration-state writes. |
+| `channels` | Channel account/listing/order/status and nullable SKU-availability reads. | Marketplace provider calls, listing validation, Wing/Coupang browser runtime steps, component-capacity calculation. | Product registration/listing sync and ChannelSku component-matching flows. | Listing registration/update projection, channel order/status ingestion. |
 | `rules` | Rule set and evaluation context reads. | Rule evaluation/suggestion tools that may invoke Agent OS from rules entrypoints. | Scheduled policy sweeps when deterministic. | Rule/action recommendation projection. |
 | `advertising` | Ad account/campaign/daily fact reads. | Scrape ingest normalization, strategy metrics calculations. | Daily fact ingest and deterministic alert workflows. | Ad fact/action/strategy projections. |
 | `supply` | Supplier, supplier-product, and purchase-order reads. | Supplier matching, procurement calculation helpers. | Purchase-order preparation/approval flows. | Supplier attach, purchase-order creation/update. |
-| `inventory` | Stock, warehouse, transfer, audit, and picking reads. | Stock calculation and allocation helpers. | Transfer/audit/picking deterministic flows. | Stock transaction writes; inventory remains the single stock writer. |
+| `inventory` | Sellpia physical MasterProduct snapshot/history, warehouse, transfer, receipt, unshipped, and picking reads. | Workbook parsing and snapshot normalization. | Atomic Sellpia full-snapshot replacement and record-only transfer/picking flows. | A completed Sellpia import is the only physical `MasterProduct.currentStock` writer. |
 | `orders` | Order, return, CS, review, and return-transfer reads. | Return/CS classification helpers, channel-agnostic order calculations. | Return and CS operational workflows. | Order/return status projections through order-owned commands. |
 
 Flat owner capabilities use this shape:
@@ -324,9 +324,9 @@ Notable route subtrees:
 - `apps/web/src/app/(product-pipeline)/product-pipeline/registered-products`
   owns `/product-pipeline/registered-products`, the marketplace registered
   product management surface backed by active `ChannelListing` rows with
-  `ChannelAccount` and `MasterProduct` context. Generated content history lives
-  in `ContentWorkspace`; source-candidate workspaces are reached from collected
-  product detail instead of this list.
+  `ChannelAccount` and immutable source-candidate provenance. Generated content
+  history lives in listing-owned `ContentWorkspace` rows; source-candidate
+  workspaces are reached from collected product detail instead of this list.
 - `apps/web/src/app/(product-pipeline)/product-pipeline/productgenerate`
   owns `/product-pipeline/productgenerate`, the sidebar product registration
   entrypoint. This is the only product-pipeline route that creates collected
@@ -389,6 +389,123 @@ groups or ungrouped routes.
 Frontend route code must not add `app/api/**/route.ts`, import Prisma/`pg`/DB
 clients, send `organizationId` in API payloads, or call backend APIs with raw
 `fetch`.
+
+## Account-Scoped Registration And Content Ownership (`0.1.8`)
+
+Sourcing owns registration intent and state in `ProductPreparation`; Channels
+owns the selected marketplace account, provider submission, and resulting
+`ChannelListing`; AI owns candidate/listing content workspaces. Registration no
+longer promotes a candidate into `MasterProduct`.
+
+```text
+SourcingCandidate (status: sourced | rejected)
+  -> ProductPreparation draft for a selected ChannelAccount
+  -> canonical payload JSON + SHA-256 + stable submission key are frozen
+  -> persist the key as Coupang externalVendorSku and reconcile by key/provider ID
+  -> call provider outside the DB tx only when reconciliation proves this is new
+  -> one final DB tx resolves/reactivates the account-scoped ChannelListing
+     + branches selected content into a listing-owned ContentWorkspace
+     + marks ProductPreparation registered
+```
+
+The canonical APIs are candidate preparation create, preparation update,
+submit, and cancel. In 0.1.8, `POST /api/sourcing/candidates/:id/promote` is a
+deprecated alias for draft creation and returns only
+`{ preparationId, status: 'draft' }`. The 0.1.8 database retains the old
+candidate-wide active-preparation uniqueness for rollback compatibility, so a
+second-account draft reports a deterministic conflict until that legacy
+constraint is removed in 0.1.9.
+
+The release data-migration chain rewrites only legacy `promoted` candidate rows
+to `sourced`; rolling-deploy read projections perform the same normalization
+until every environment has recorded the migration.
+
+`ContentWorkspace.ownerType` is `sourcing_candidate`, `channel_listing`, or
+`direct_detail_page`. Registration branches selected artifact/revision metadata
+and HTML, reuses storage URLs and the same managed thumbnail asset, and does not
+clone generation jobs/candidates. Current-thumbnail selection may adopt an
+existing content asset, a succeeded generation candidate, or an external URL
+that first passes the guarded fetch/storage boundary. Asset deletion and GC
+must reject active generation usage or any thumbnail selection.
+
+## Sellpia-Authoritative Inventory And Channel Capacity (`0.1.8`)
+
+Sellpia is the upstream inventory service and a completed full-workbook import
+is KidItem's only stock writer. Inventory owns the physical Sellpia
+`MasterProduct.currentStock` snapshot;
+Channels owns each marketplace account's independent product/SKU metadata,
+explicit component recipes, and sellable-capacity projection. Products owns
+catalog data and has no stock fields or bundle-stock materialization.
+
+Existing channel Prisma/table names remain stable while the logical contracts
+are explicit:
+
+| Logical contract | Prisma model | Physical table | Identity / authority |
+|---|---|---|---|
+| `ChannelProduct` | `ChannelListing` | `channel_listings` | Organization + ChannelAccount + external product ID; channel price/name metadata is account-specific. |
+| `ChannelSku` | `ChannelListingOption` | `channel_listing_options` | Organization + ChannelAccount + external SKU ID; its product-option compatibility link is not inventory truth. |
+| Physical Sellpia product | `MasterProduct` | `master_products` | Organization + Sellpia product code; `current_stock` is written only by a completed Sellpia snapshot import. |
+| `ChannelSkuComponent` | `ChannelSkuComponent` | `channel_sku_components` | Exact positive quantity of one physical MasterProduct consumed by one sale of one ChannelSku. |
+| `SourceImportRun` | `SourceImportRun` | `source_import_runs` | Workbook provenance, SHA-256 idempotency, and attempt fencing scoped by organization/source/account. |
+
+Release `0.1.8` cuts directly to this final schema. Removed legacy inventory
+owners and mapping tables are not dual-written or retained as runtime shadows.
+
+```text
+Sellpia complete export
+  -> POST /api/inventory/sellpia-sync/import
+  -> atomic physical MasterProduct full snapshot replacement
+  -> absent known Sellpia codes inactive + currentStock = 0
+  -> GET /api/inventory/sellpia-skus and /sellpia-sync/import-runs
+
+Marketplace catalog export + selected ChannelAccount
+  -> account-scoped ChannelProduct / ChannelSku metadata upsert
+  -> operator confirms the complete ChannelSkuComponent recipe
+  -> GET /api/channels/sku-availability
+  -> sellableStock = min(floor(component.currentStock / component.quantity))
+```
+
+A confirmed recipe is the only mapping truth. Candidate ranking is live
+evidence and never auto-confirms. A recipe such as one Sellpia SKU times eight
+has capacity `floor(currentStock / 8)`; a mixed recipe uses the minimum of all
+component capacities. Unmapped and review-required Channel SKUs return
+`sellableStock = null`; a mapped recipe with no capacity returns zero. The
+projection exposes component capacities and bottlenecks but never reserves or
+deducts stock.
+
+`ProductOption` and product bundle composition remain catalog concepts. They do
+not own current/reserved/safety/reorder/available stock, and a product bundle
+has no separately maintained stock. `StockTransfer`, `PickingItem`, and
+`ReturnTransfer` reference the physical `MasterProduct` only to record operations; their
+create/update/complete flows do not change `currentStock`.
+
+The existing `/inventory`, `/inventory-hub`, and `/stock-ops` routes are
+preserved as views over Sellpia snapshots, import history, assets, channel
+availability, mapping attention, and record-only operations. Manual receive,
+issue, adjust, reserve, release, restock, stock-ledger, and Rocket inventory
+mutation surfaces are not part of the architecture.
+
+Rocket is another channel account (`channel='rocket'`), not a special inventory
+balance. `/rocket-orders` currently performs read-only PO summary collection
+through the operator extension. Delivery/confirmation quantity decisions and
+server-side confirm/reserve/generate actions are explicitly deferred; a future
+implementation must use Rocket ChannelSku recipes and the same nullable
+Sellpia-backed capacity projection.
+
+The approved development workbook imports 1,964 physical Sellpia
+MasterProducts and 1,225 Wing ChannelProducts / 2,241 ChannelSkus, with three
+invalid Wing rows skipped on a clean first import. Shared environments use the
+guarded `0.1.8` final-schema rebuild: exact environment-bound reset token,
+sanitized private Coupang replay artifact, traffic quiesce, minimum auth/account
+bootstrap, authenticated Sellpia-then-Wing imports, authenticated replay, and
+exact acceptance checks. The application remains `snapshot_required` until
+those checks mark the environment ready; there is no legacy inventory mapping
+backfill or warning-accepted transition path.
+
+Operational upload order, recovery rules, exact baseline counts, and local
+reset/bootstrap steps live in the
+[channel/Sellpia matching runbook](runbooks/channel-sellpia-matching.md) and
+[inventory/Rocket boundary runbook](runbooks/sellpia-rocket-inventory-sync.md).
 
 ## Data And Tenant Rules
 

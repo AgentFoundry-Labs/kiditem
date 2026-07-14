@@ -18,7 +18,7 @@ export class ContentArchiveLinkageController {
       limit: query.limit,
       contentType: query.contentType ?? null,
       status: query.status ?? null,
-      productId: query.productId ?? null,
+      contentWorkspaceId: query.contentWorkspaceId ?? null,
     });
   }
 }

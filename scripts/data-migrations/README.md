@@ -21,7 +21,11 @@ not release boundaries. Each migration exports a `DataMigration` with:
 - `id`: `v<VERSION>:<sequence>_<name>`
 - `releaseVersion`: the same root `VERSION` without `v`
 - `name`: human-readable purpose
-- `run(tx)`: idempotent Prisma transaction body
+- `phase`: optional `pre-schema` or `post-schema`; omitted migrations default to
+  `post-schema`.
+- `run(tx, context)`: idempotent Prisma transaction body. `context.target` is
+  the already validated CLI target (`local`, `staging`, or `production`), so a
+  migration never has to infer its target from ambient environment variables.
 
 The runner records each execution in `data_migration_runs` with git SHA,
 Prisma schema hash, affected rows, details, and failure text.
@@ -32,3 +36,17 @@ Run:
 npm run data:migrate -- status
 npm run data:migrate -- up --target local --confirm APPLY_DATA_MIGRATIONS
 ```
+
+Mutating `local` and `staging` runs require the ordinary
+`APPLY_DATA_MIGRATIONS` confirmation and reject database URLs whose host or
+path looks like production. A `production` target is accepted only when all of
+these independent boundaries hold:
+
+- `GITHUB_ACTIONS=true`;
+- `DATA_MIGRATION_CONFIRM=APPLY_DATA_MIGRATIONS`;
+- `DATA_MIGRATION_PRODUCTION_CONFIRM=DEPLOY_PRODUCTION`.
+
+Release `0.1.8` is a schema-only database rebuild. It deliberately has no data
+migration: legacy product, inventory, option, and identity-map rows are not
+read or transformed. The guarded reset creates the final schema, after which
+approved Sellpia and channel sources are replayed through application imports.

@@ -6,7 +6,14 @@ import { usePeriodSelector } from '@/hooks/usePeriodSelector';
 import PeriodSelector from '@/components/ui/PeriodSelector';
 import { apiClient } from "@/lib/api-client";
 import { isApiError } from "@/lib/api-error";
+import { fetchAllSellpiaInventorySkus } from '@/app/(inventory)/_shared/inventory-api';
+import { fetchAllChannelListingsForReport } from '@/lib/channel-listings-report';
+import { mapProfitLossReportRow } from '@/lib/profit-loss-report';
+import type { PLData } from '@kiditem/shared/finance';
 import ReportList from "./components/ReportList";
+
+const REPORT_DATA_KEYS = ['products', 'profitloss', 'inventory', 'ads'] as const;
+type ReportDataKey = (typeof REPORT_DATA_KEYS)[number];
 
 export default function ReportsPage() {
   const [generating, setGenerating] = useState<string | null>(null);
@@ -17,17 +24,37 @@ export default function ReportsPage() {
     try {
       const XLSX = await import("xlsx");
 
-      const periodParam = period ? `period=${period}` : '';
-      const [productsRes, profitLoss, inventoryRes, adsData] = await Promise.all([
-        apiClient.get<{ items: any[]; total: number }>(`/api/products${periodParam ? `?${periodParam}` : ''}`),
-        apiClient.get<any>(`/api/profit-loss${periodParam ? `?${periodParam}` : ''}`),
-        apiClient.get<{ items: any[]; total: number }>('/api/inventory'),
-        apiClient.get<any>(`/api/ads${periodParam ? `?${periodParam}` : ''}`),
-      ]);
-
-      const products = productsRes.items;
-      const inventory = inventoryRes.items;
-      const hasData = products.length > 0 || (Array.isArray(profitLoss) && profitLoss.length > 0) || inventory.length > 0;
+      const periodParam = period ? `?period=${period}` : '';
+      const needed: ReportDataKey[] = type === 'full'
+        ? [...REPORT_DATA_KEYS]
+        : [type as ReportDataKey];
+      const responses = await Promise.all(needed.map(async (key) => {
+        if (key === 'inventory') {
+          return { key, data: await fetchAllSellpiaInventorySkus() };
+        }
+        if (key === 'products') {
+          return { key, data: await fetchAllChannelListingsForReport() };
+        }
+        const path = key === 'profitloss'
+            ? `/api/profit-loss${periodParam}`
+            : '/api/ads/hub';
+        return { key, data: await apiClient.get<unknown>(path) };
+      }));
+      const dataMap = Object.fromEntries(
+        responses.map(({ key, data }) => [key, data]),
+      ) as Partial<Record<ReportDataKey, unknown>>;
+      const products = Array.isArray(dataMap.products) ? dataMap.products : [];
+      const profitLoss = Array.isArray(dataMap.profitloss) ? dataMap.profitloss : [];
+      const inventory = Array.isArray(dataMap.inventory) ? dataMap.inventory : [];
+      const adsData = dataMap.ads as { products?: unknown[] } | undefined;
+      const hasData = responses.some(({ data }) => Array.isArray(data)
+        ? data.length > 0
+        : Boolean(data && typeof data === 'object' && (
+            (Array.isArray((data as { items?: unknown[] }).items)
+              && (data as { items: unknown[] }).items.length > 0)
+            || (Array.isArray((data as { products?: unknown[] }).products)
+              && (data as { products: unknown[] }).products.length > 0)
+          )));
 
       if (!hasData) {
         toast.warning('선택 기간의 데이터가 없습니다. 다른 기간을 선택해주세요.');
@@ -39,43 +66,55 @@ export default function ReportsPage() {
       if (type === "full" || type === "products") {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const ws1 = XLSX.utils.json_to_sheet(products.map((p: any) => ({
-          등급: p.abcGrade, 상품명: p.name, SKU: p.sku, 카테고리: p.category,
-          회사: p.organization, 판매가: p.sellPrice, 매입가: p.costPrice,
-          매출: p.revenue, 순이익: p.netProfit, "이익률(%)": p.profitRate,
-          "광고비율(%)": p.adRate, 재고: p.currentStock, 상태: p.status,
+          마켓: p.channel,
+          계정: p.channelAccountName,
+          등록상품명: p.listingName,
+          채널상품명: p.channelName,
+          외부상품번호: p.externalId,
+          판매가: p.channelPrice,
+          상태: p.status,
+          노출상태: p.exposureStatus,
+          옵션수: p.optionCount,
+          재고매칭상태: p.mappingStatus,
         })));
         XLSX.utils.book_append_sheet(wb, ws1, "상품목록");
       }
 
       if (type === "full" || type === "profitloss") {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const ws2 = XLSX.utils.json_to_sheet((Array.isArray(profitLoss) ? profitLoss : []).map((d: any) => ({
-          등급: d.grade, 상품명: d.productName, 회사: d.organization,
-          매출: d.revenue, 매입원가: d.costOfGoods, 수수료: d.commission,
-          배송비: d.shippingCost, 광고비: d.adCost, 순이익: d.netProfit,
-          "이익률(%)": d.profitRate, 주문수: d.orderCount,
-        })));
+        const ws2 = XLSX.utils.json_to_sheet(
+          (profitLoss as PLData[]).map(mapProfitLossReportRow),
+        );
         XLSX.utils.book_append_sheet(wb, ws2, "손익표");
       }
 
       if (type === "full" || type === "inventory") {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const ws3 = XLSX.utils.json_to_sheet(inventory.map((i: any) => ({
-          상품명: i.productName, SKU: i.sku, 회사: i.organization,
-          현재고: i.currentStock, 적정재고: i.optimalStock, 발주점: i.reorderPoint,
-          일평균판매: i.avgDailySales, 남은일수: i.daysRemaining,
-          추천발주량: i.recommendedOrder, 상태: i.status,
+          셀피아상품코드: i.code,
+          상품명: i.name,
+          옵션: i.optionName,
+          바코드: i.barcode,
+          현재고: i.currentStock,
+          매입가: i.purchasePrice,
+          판매가: i.salePrice,
+          재고자산가치: i.stockValue,
+          최근반영: i.lastImportedAt,
         })));
         XLSX.utils.book_append_sheet(wb, ws3, "재고현황");
       }
 
       if (type === "full" || type === "ads") {
-        const adProducts = adsData?.products ?? [];
+        const adProducts = Array.isArray(adsData?.products) ? adsData.products : [];
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const ws4 = XLSX.utils.json_to_sheet(adProducts.map((a: any) => ({
-          등급: a.grade, 광고등급: a.adTier, 상품명: a.name, 회사: a.organization,
-          광고비: a.spend, 광고매출: a.adRevenue, "ROAS(%)": a.roas,
-          "CTR(%)": a.ctr, "전환율(%)": a.convRate, "광고비율(%)": a.adRate,
+          등급: a.grade,
+          광고등급: a.adTier,
+          상품명: a.channelName ?? a.masterProduct?.name,
+          셀피아상품코드: a.masterProduct?.code,
+          광고비: a.metrics?.spend,
+          광고매출: a.metrics?.revenue,
+          "ROAS(%)": a.metrics?.roas,
+          "CTR(%)": a.metrics?.ctr,
+          "전환율(%)": a.metrics?.cvr,
         })));
         XLSX.utils.book_append_sheet(wb, ws4, "광고현황");
       }
@@ -97,7 +136,7 @@ export default function ReportsPage() {
     { type: "full", title: "통합 리포트", desc: "상품 + 손익 + 재고 + 광고 전체", color: "bg-purple-600 hover:bg-purple-700" },
     { type: "products", title: "상품 리포트", desc: "전체 상품 목록, 등급, 손익 요약", color: "bg-slate-600 hover:bg-slate-700" },
     { type: "profitloss", title: "손익 리포트", desc: "상품별 손익 상세 (매출~순이익)", color: "bg-green-600 hover:bg-green-700" },
-    { type: "inventory", title: "재고 리포트", desc: "재고 현황, 발주 추천, 적정 재고", color: "bg-orange-600 hover:bg-orange-700" },
+    { type: "inventory", title: "재고 리포트", desc: "셀피아 재고 스냅샷과 재고 자산", color: "bg-orange-600 hover:bg-orange-700" },
     { type: "ads", title: "광고 리포트", desc: "광고 효율, ROAS, 비용 분석", color: "bg-purple-600 hover:bg-purple-700" },
   ];
 

@@ -87,19 +87,19 @@ describe('ProcurementService — PO status lifecycle', () => {
     expect(procurement.createDraft).toHaveBeenCalledOnce();
   });
 
-  it('maps repository option ownership failure to the existing IDOR error message', async () => {
+  it('maps repository Master ownership failure to the IDOR error message', async () => {
     vi.mocked(procurement.createDraft).mockResolvedValue({
       ok: false,
-      reason: 'option_not_found',
-      missingOptionIds: ['option-2'],
+      reason: 'master_product_not_found',
+      missingMasterProductIds: ['master-2'],
     });
 
     await expect(
       service.create('organization-1', {
         supplierName: 'Other Supplier',
-        items: [{ productName: 'Widget', optionId: 'option-2', quantity: 10, unitPriceCny: 50 }],
+        items: [{ productName: 'Widget', masterProductId: 'master-2', quantity: 10, unitPriceCny: 50 }],
       }),
-    ).rejects.toThrow('발주 항목의 옵션을 찾을 수 없거나 권한이 없습니다: option-2');
+    ).rejects.toThrow('발주 항목의 셀피아 상품을 찾을 수 없거나 권한이 없습니다: master-2');
 
     expect(procurement.createDraft).toHaveBeenCalledOnce();
   });

@@ -56,7 +56,7 @@ export const ROLE_LABELS: Record<string, string> = {
 
 export function getActionTaskRole(taskKey: string): string {
   if (/ad|roas|campaign/.test(taskKey)) return 'ad';
-  if (/stock|reorder|inventory/.test(taskKey)) return 'inventory';
+  if (/stock|inventory|mapping/.test(taskKey)) return 'inventory';
   if (/profit|category|grade|deficit|price/.test(taskKey)) return 'finance';
   if (/sync|scrape|ctr|csv|thumbnail|review/.test(taskKey)) return 'data';
   return 'ad';

@@ -44,8 +44,11 @@ time.
 ```typescript
 return items.map((item) => ({
   id: item.id,
-  name: item.name,
-} satisfies ProductCatalogListItem));
+  url: item.url,
+  role: item.role,
+  label: item.label,
+  sortOrder: item.sortOrder,
+} satisfies MasterImageItem));
 ```
 
 Prisma `JsonValue` fields must be narrowed during mapping, for example

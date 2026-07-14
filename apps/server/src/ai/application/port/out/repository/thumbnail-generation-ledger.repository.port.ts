@@ -282,11 +282,8 @@ export interface ThumbnailGenerationLedgerRepositoryPort {
   removeCandidate(input: {
     id: string;
     organizationId: string;
-    candidateId: string;
     candidateUrl: string;
-    selectedUrl: string | null;
-    remainingAfterDelete: number;
-  }): Promise<void>;
+  }): Promise<{ generationDeleted: boolean; remaining: number } | null>;
   resetGenerationForReEdit(input: {
     id: string;
     organizationId: string;

@@ -32,12 +32,27 @@ export class TransfersService implements TransfersPort {
     organizationId: string,
     dto: CreateStockTransferInput,
   ): Promise<StockTransferRow> {
-    const option = await this.repository.findOptionForTransfer(dto.optionId, organizationId);
-    if (!option) throw new NotFoundException('Option not found');
+    const masterProduct = await this.repository.findMasterProductForTransfer(
+      dto.masterProductId,
+      organizationId,
+    );
+    if (!masterProduct) throw new NotFoundException('MasterProduct not found');
+
+    const warehouseIds = [...new Set([
+      dto.fromWarehouseId,
+      dto.toWarehouseId,
+    ])];
+    const organizationWarehouseIds = await this.repository.findWarehouseIdsForTransfer(
+      warehouseIds,
+      organizationId,
+    );
+    if (organizationWarehouseIds.length !== warehouseIds.length) {
+      throw new NotFoundException('Warehouse not found');
+    }
 
     return this.repository.createStockTransfer(organizationId, {
-      optionId: dto.optionId,
-      optionName: option.optionName ?? '',
+      masterProductId: dto.masterProductId,
+      optionName: masterProduct.optionName,
       fromWarehouseId: dto.fromWarehouseId,
       toWarehouseId: dto.toWarehouseId,
       quantity: dto.quantity,

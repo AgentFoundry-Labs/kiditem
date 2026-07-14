@@ -36,40 +36,6 @@
   --scrollbar-thumb-hover: #94a3b8;
 }
 
-.dark {
-  color-scheme: dark;
-  --background: #0b0f17;
-  --surface: #111827;
-  --surface-sunken: #0f172a;
-  --surface-raised: #1f2937;
-  --foreground: #f1f5f9;
-  --card: var(--surface);
-  --card-foreground: #f1f5f9;
-  --card-bg: var(--surface);
-  --border: #1f2937;
-  --border-subtle: #111827;
-  --border-strong: #374151;
-  --accent: #60a5fa;
-  --muted: #94a3b8;
-  --primary: #a78bfa;
-  --primary-hover: #c4b5fd;
-  --primary-soft: rgba(167, 139, 250, 0.14);
-  --primary-contrast: #0b0f17;
-  --text-primary: #f1f5f9;
-  --text-secondary: #cbd5e1;
-  --text-tertiary: #94a3b8;
-  --text-muted: #64748b;
-  --text-quaternary: var(--text-muted);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
-  --success: #34d399;
-  --danger: #f87171;
-  --warning: #fbbf24;
-  --overlay: rgba(0, 0, 0, 0.72);
-  --scrollbar-thumb: #374151;
-  --scrollbar-thumb-hover: #4b5563;
-}
-
 /* Thumbnail AI page theme tokens — scoped to .thumb-theme to avoid affecting other pages */
 .thumb-theme {
   --thumb-card-bg: #ffffff;

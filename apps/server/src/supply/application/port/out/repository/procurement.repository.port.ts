@@ -27,7 +27,7 @@ export type PurchaseOrderListQuery = {
 export type PurchaseOrderItemCommand = {
   productName: string;
   productId?: string;
-  optionId?: string;
+  masterProductId: string;
   quantity: number;
   unitPriceCny: number;
 };
@@ -67,7 +67,7 @@ export type PurchaseOrderRecord = {
 
 export type PurchaseOrderCheckoutSnapshotItem = {
   productName: string;
-  optionId: string | null;
+  masterProductId: string;
   quantity: number;
   unitPriceCny: string;
 };
@@ -92,7 +92,7 @@ export type PurchaseOrderListResult = {
 export type CreateDraftPurchaseOrderResult =
   | { ok: true; order: unknown }
   | { ok: false; reason: 'supplier_not_found' }
-  | { ok: false; reason: 'option_not_found'; missingOptionIds: string[] };
+  | { ok: false; reason: 'master_product_not_found'; missingMasterProductIds: string[] };
 
 export type PurchaseOrderStatusUpdate = {
   status: string;

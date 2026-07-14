@@ -25,7 +25,6 @@ export interface ProductTargetRollup {
   campaignName: string | null;
   listingId: string | null;
   listingOptionId: string | null;
-  optionId: string | null;
   externalId: string | null;
   externalOptionId: string | null;
   keyword: string | null;

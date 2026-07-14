@@ -20,7 +20,8 @@ export interface ContentWorkspaceSummary {
   id: string;
   ownerType: string;
   sourceCandidateId: string | null;
-  targetMasterId: string | null;
+  channelListingId: string | null;
+  originWorkspaceId: string | null;
   displayName: string;
   normalizedTitle: string;
   status: string;
@@ -31,6 +32,11 @@ export interface ContentWorkspaceSummary {
   currentDetailPageArtifactId: string | null;
   currentDetailPageRevisionId: string | null;
   currentDetailPageGenerationId: string | null;
+  currentThumbnailSelection: {
+    id: string;
+    contentAssetId: string;
+    url: string;
+  } | null;
   createdAt: string;
   updatedAt: string;
   history: ContentWorkspaceHistoryItem[];
@@ -73,12 +79,10 @@ export const contentWorkspacesApi = {
   async create(input: {
     title: string;
     sourceCandidateId?: string | null;
-    targetMasterId?: string | null;
   }): Promise<ContentWorkspaceSummary> {
     return apiClient.post<ContentWorkspaceSummary>('/api/ai/content-workspaces', {
       title: input.title,
       ...(input.sourceCandidateId ? { sourceCandidateId: input.sourceCandidateId } : {}),
-      ...(input.targetMasterId ? { targetMasterId: input.targetMasterId } : {}),
     });
   },
 
@@ -102,6 +106,22 @@ export const contentWorkspacesApi = {
     return apiClient.patch<ContentWorkspaceSummary>(
       `/api/ai/content-workspaces/${encodeURIComponent(id)}/current-detail-page`,
       { contentGenerationId },
+    );
+  },
+
+  async selectCurrentThumbnail(
+    id: string,
+    selection:
+      | { contentAssetId: string }
+      | {
+          sourceThumbnailGenerationId: string;
+          sourceThumbnailCandidateId: string;
+        }
+      | { externalUrl: string },
+  ): Promise<ContentWorkspaceSummary> {
+    return apiClient.patch<ContentWorkspaceSummary>(
+      `/api/ai/content-workspaces/${encodeURIComponent(id)}/current-thumbnail`,
+      selection,
     );
   },
 };

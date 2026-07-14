@@ -1,37 +1,39 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# product-hub - Catalog Product Operations
+# product-hub - Read-only Sellpia Product Catalog
 
-`app/(catalog)/product-hub/` owns the public product catalog list, product
-detail, product options, and catalog-local product actions. It backs
-`/product-hub`, `/product-hub/[id]`, and `/product-hub/options`.
+`app/(catalog)/product-hub/` owns `/product-hub` and
+`/product-hub/[masterProductId]` as the operator-facing catalog for the latest
+Sellpia inventory snapshot. `/product-hub/options` preserves its existing URL
+while reusing the channel SKU matching workspace.
 
 ## Data Flow
 
 ```text
 React Query + apiClient
-  -> /api/products/*
-  -> /api/products/options/*
-  -> queryKeys.products, productOptions
+  -> GET /api/inventory/sellpia-skus
+  -> GET /api/inventory/sellpia-skus/:masterProductId
+  -> GET /api/channels/sku-availability
+  -> queryKeys.inventory, channelSkuAvailability
 ```
 
 ## State Rules
 
-- Use `queryKeys.products.*` for master product reads and invalidation.
-- Keep product action mutations in route-local hooks.
-- Put pure grading/export/page-model helpers in `lib/` and cover behavior with
-  focused tests when rules change.
-- Product option mutations invalidate `queryKeys.productOptions.all`.
+- Use `queryKeys.inventory.snapshot(...)` for paged list reads and the
+  `queryKeys.inventory.snapshots()` family for detail reads.
+- Preserve server paging, search, stock status, and active status parameters.
+- Render Sellpia identity, option name, barcode, current stock, source prices,
+  active state, and last-import provenance as read-only facts.
+- Link inventory import work to `/inventory-hub?tab=sellpia-sync` and component
+  matching work to `/product-hub/matching`.
 
 ## Boundary Rules
 
-- Do not add a sibling legacy products implementation scope or public products
-  alias route.
-- Do not create sourcing candidates or generated content workspaces here.
-- Do not duplicate backend catalog or traffic-upload validation rules in UI
-  state.
-- Workflow actions shown on product detail pages are backend workflow triggers;
-  browser code does not implement workflow execution.
+- No manual MasterProduct create/update/delete, inventory adjustment, traffic
+  upload, grading, workflow action, or legacy product-option management.
+- Do not call `/api/products*` or introduce a catalog-owned stock balance.
+- Do not infer or persist channel mappings from the catalog list/detail.
+- Keep all edited UI light-only; do not add `dark:` variants.
 
 ## Verification
 

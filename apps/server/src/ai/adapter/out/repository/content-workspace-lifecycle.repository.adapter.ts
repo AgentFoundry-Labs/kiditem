@@ -1,5 +1,5 @@
-import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   ContentWorkspaceLifecycleRepositoryPort,
@@ -16,46 +16,33 @@ implements ContentWorkspaceLifecycleRepositoryPort {
   async ensureActiveWorkspace(
     input: EnsureContentWorkspaceInput,
   ): Promise<{ id: string; displayName: string; normalizedTitle: string }> {
+    assertValidOwnerShape(input);
     const where = activeWorkspaceWhere(input);
-    const existing = await this.prisma.contentWorkspace.findFirst({
-      where,
-      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-      select: {
-        id: true,
-        displayName: true,
-        normalizedTitle: true,
-      },
-    });
-    if (existing) return existing;
-
     try {
-      return await this.prisma.contentWorkspace.create({
-        data: {
-          organizationId: input.organizationId,
-          ownerType: input.ownerType,
-          sourceCandidateId: input.sourceCandidateId,
-          targetMasterId: input.targetMasterId,
-          displayName: input.displayName,
-          normalizedTitle: input.normalizedTitle,
-          status: 'active',
-          createdByUserId: input.createdByUserId,
-        },
-        select: {
-          id: true,
-          displayName: true,
-          normalizedTitle: true,
-        },
+      return await this.prisma.$transaction(async (tx) => {
+        await validateOwnerReferences(tx, input);
+        const existing = await findActiveWorkspace(tx, where);
+        if (existing) return existing;
+        return tx.contentWorkspace.create({
+          data: {
+            organizationId: input.organizationId,
+            ownerType: input.ownerType,
+            sourceCandidateId: input.sourceCandidateId,
+            channelListingId: input.channelListingId,
+            originWorkspaceId: input.originWorkspaceId,
+            displayName: input.displayName,
+            normalizedTitle: input.normalizedTitle,
+            status: 'active',
+            createdByUserId: input.createdByUserId,
+          },
+          select: workspaceIdentitySelect,
+        });
       });
     } catch (error) {
       if (!isUniqueConstraintError(error)) throw error;
-      const raced = await this.prisma.contentWorkspace.findFirst({
-        where,
-        orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-        select: {
-          id: true,
-          displayName: true,
-          normalizedTitle: true,
-        },
+      const raced = await this.prisma.$transaction(async (tx) => {
+        await validateOwnerReferences(tx, input);
+        return findActiveWorkspace(tx, where);
       });
       if (!raced) throw error;
       return raced;
@@ -78,17 +65,25 @@ implements ContentWorkspaceLifecycleRepositoryPort {
         id: true,
         ownerType: true,
         sourceCandidateId: true,
-        targetMasterId: true,
+        channelListingId: true,
+        originWorkspaceId: true,
         displayName: true,
         normalizedTitle: true,
         status: true,
         currentDetailPageArtifactId: true,
         currentDetailPageRevisionId: true,
+        currentThumbnailSelectionId: true,
         createdAt: true,
         updatedAt: true,
         _count: { select: { contentGenerations: true } },
         currentDetailPageArtifact: {
           select: { sourceContentGenerationId: true },
+        },
+        currentThumbnailSelection: {
+          select: {
+            id: true,
+            contentAsset: { select: { id: true, url: true } },
+          },
         },
       },
     }) as Promise<ContentWorkspaceSnapshot | null>;
@@ -201,6 +196,96 @@ implements ContentWorkspaceLifecycleRepositoryPort {
   }
 }
 
+const workspaceIdentitySelect = {
+  id: true,
+  displayName: true,
+  normalizedTitle: true,
+} as const;
+
+function findActiveWorkspace(
+  tx: Prisma.TransactionClient,
+  where: Prisma.ContentWorkspaceWhereInput,
+) {
+  return tx.contentWorkspace.findFirst({
+    where,
+    orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+    select: workspaceIdentitySelect,
+  });
+}
+
+function assertValidOwnerShape(input: EnsureContentWorkspaceInput): void {
+  const hasSource = input.sourceCandidateId !== null;
+  const hasListing = input.channelListingId !== null;
+  const hasOrigin = input.originWorkspaceId !== null;
+  const valid = input.ownerType === 'sourcing_candidate'
+    ? hasSource && !hasListing && !hasOrigin
+    : input.ownerType === 'channel_listing'
+      ? !hasSource && hasListing
+      : !hasSource && !hasListing && !hasOrigin;
+  if (!valid) {
+    throw new BadRequestException('Content workspace owner fields do not match ownerType.');
+  }
+}
+
+async function validateOwnerReferences(
+  tx: Prisma.TransactionClient,
+  input: EnsureContentWorkspaceInput,
+): Promise<void> {
+  if (input.ownerType === 'sourcing_candidate') {
+    const candidate = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id
+      FROM sourcing_candidates
+      WHERE id = ${input.sourceCandidateId!}::uuid
+        AND organization_id = ${input.organizationId}::uuid
+        AND is_deleted = false
+      FOR UPDATE
+    `);
+    if (candidate.length !== 1) {
+      throw new NotFoundException('Sourcing candidate owner not found.');
+    }
+    return;
+  }
+
+  if (input.ownerType === 'direct_detail_page') return;
+
+  const listingRows = await tx.$queryRaw<Array<{
+    id: string;
+    sourceCandidateId: string | null;
+  }>>(Prisma.sql`
+    SELECT id, source_candidate_id AS "sourceCandidateId"
+    FROM channel_listings
+    WHERE id = ${input.channelListingId!}::uuid
+      AND organization_id = ${input.organizationId}::uuid
+      AND is_active = true
+    FOR UPDATE
+  `);
+  const listing = listingRows[0];
+  if (!listing || listingRows.length !== 1) {
+    throw new NotFoundException('Channel listing owner not found.');
+  }
+  if (!input.originWorkspaceId) return;
+  const originRows = await tx.$queryRaw<Array<{
+    id: string;
+    sourceCandidateId: string | null;
+  }>>(Prisma.sql`
+    SELECT id, source_candidate_id AS "sourceCandidateId"
+    FROM content_workspaces
+    WHERE id = ${input.originWorkspaceId}::uuid
+      AND organization_id = ${input.organizationId}::uuid
+      AND owner_type = 'sourcing_candidate'
+      AND status = 'active'
+      AND is_deleted = false
+    FOR UPDATE
+  `);
+  const origin = originRows[0];
+  if (!origin || originRows.length !== 1) {
+    throw new NotFoundException('Origin content workspace not found.');
+  }
+  if (!listing.sourceCandidateId || listing.sourceCandidateId !== origin.sourceCandidateId) {
+    throw new BadRequestException('Listing and origin workspace source candidates do not match.');
+  }
+}
+
 function activeWorkspaceWhere(input: EnsureContentWorkspaceInput): Prisma.ContentWorkspaceWhereInput {
   return {
     organizationId: input.organizationId,
@@ -210,9 +295,12 @@ function activeWorkspaceWhere(input: EnsureContentWorkspaceInput): Prisma.Conten
     isDeleted: false,
     ...(input.ownerType === 'sourcing_candidate'
       ? { sourceCandidateId: input.sourceCandidateId }
-      : input.ownerType === 'master_product'
-        ? { targetMasterId: input.targetMasterId }
-        : { sourceCandidateId: null, targetMasterId: null }),
+      : input.ownerType === 'channel_listing'
+        ? { channelListingId: input.channelListingId }
+        : {
+            sourceCandidateId: null,
+            channelListingId: null,
+          }),
   };
 }
 
@@ -228,6 +316,12 @@ function workspaceInclude() {
     },
     currentDetailPageRevision: {
       select: { id: true, revisionType: true, createdAt: true },
+    },
+    currentThumbnailSelection: {
+      select: {
+        id: true,
+        contentAsset: { select: { id: true, url: true } },
+      },
     },
     _count: { select: { contentGenerations: true } },
     contentGenerations: {

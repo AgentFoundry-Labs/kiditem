@@ -31,7 +31,9 @@ function makeTrackingRow(overrides: Partial<ThumbnailTrackingRow> = {}) {
     salesAfter: null,
     listing: {
       id: LISTING_ID,
-      master: { id: MASTER_ID, name: '테스트 상품' },
+      displayName: '테스트 상품',
+      channelName: '쿠팡 상품명',
+      externalId: 'vendor-item-1',
     },
     ...overrides,
   };
@@ -49,7 +51,8 @@ function makeRepository(): ThumbnailTrackingRepositoryPort {
       salesBefore: null,
       listing: {
         channelName: '쿠팡 상품명',
-        master: { name: '마스터 상품명' },
+        displayName: '테스트 상품',
+        externalId: 'vendor-item-1',
       },
     }),
     upsertDailySnapshot: vi.fn().mockResolvedValue({
@@ -120,7 +123,7 @@ describe('ThumbnailTrackingService', () => {
       originalScore: 92,
     })).resolves.toMatchObject({
       id: TRACKING_ID,
-      productId: MASTER_ID,
+      productId: LISTING_ID,
       productName: '테스트 상품',
       generationId: GENERATION_ID,
     });

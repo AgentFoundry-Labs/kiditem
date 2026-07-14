@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  thumbnailSubjectFromParams,
   thumbnailSubjectQueryParams,
   thumbnailSubjectToDtoIdentity,
   type ThumbnailSubject,
@@ -47,13 +48,25 @@ describe('ThumbnailSubject identity', () => {
     const subject: ThumbnailSubject = {
       kind: 'content-workspace',
       workspaceId: 'workspace-1',
-      targetMasterId: null,
-      sourceCandidateId: null,
     };
 
     expect(thumbnailSubjectQueryParams(subject)).toEqual({
       contentWorkspaceId: 'workspace-1',
     });
+    expect(thumbnailSubjectToDtoIdentity(subject)).toEqual({
+      productId: null,
+      sourceCandidateId: null,
+      contentWorkspaceId: 'workspace-1',
+    });
+  });
+
+  it('does not leak legacy product or candidate aliases into workspace-owned work', () => {
+    const subject = thumbnailSubjectFromParams({
+      contentWorkspaceId: 'workspace-1',
+      productId: 'legacy-master-1',
+      sourceCandidateId: 'candidate-1',
+    });
+
     expect(thumbnailSubjectToDtoIdentity(subject)).toEqual({
       productId: null,
       sourceCandidateId: null,

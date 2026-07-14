@@ -17,7 +17,6 @@
 
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-import { resolvePricing } from '../../../../../common/option-pricing-resolver';
 import type {
   ProfitCalculationRepositoryPort,
   RangeProfitMetrics,
@@ -46,11 +45,18 @@ export class ProfitCalculationRepositoryAdapter
           select: {
             quantity: true,
             totalPrice: true,
-            option: {
+            listingOption: {
               select: {
-                costPrice: true,
+                costPriceOverride: true,
                 commissionRate: true,
+                shippingCost: true,
                 otherCost: true,
+                components: {
+                  select: {
+                    quantity: true,
+                    masterProduct: { select: { purchasePrice: true } },
+                  },
+                },
               },
             },
           },
@@ -66,15 +72,25 @@ export class ProfitCalculationRepositoryAdapter
     const orderCount = orders.length;
 
     for (const o of orders) {
-      shippingCost += o.shippingPrice || 0;
+      // Channel ingestion stores a missing provider shipping value as 0.
+      // A positive order-level value is actual order evidence and must not be
+      // combined with the configured per-option fallback.
+      const hasOrderShippingEvidence = o.shippingPrice > 0;
+      if (hasOrderShippingEvidence) shippingCost += o.shippingPrice;
       for (const li of o.lineItems) {
         revenue += li.totalPrice || 0;
-        const p = li.option;
+        const p = li.listingOption;
         if (!p) continue;
-        const resolved = resolvePricing({ option: p });
-        costOfGoods += resolved.costPrice * li.quantity;
-        commission += (li.totalPrice || 0) * resolved.commissionRate;
-        otherCost += resolved.otherCost * li.quantity;
+        const componentCost = p.components.reduce(
+          (sum, component) => sum + (component.masterProduct.purchasePrice ?? 0) * component.quantity,
+          0,
+        );
+        costOfGoods += (p.costPriceOverride ?? componentCost) * li.quantity;
+        commission += (li.totalPrice || 0) * Number(p.commissionRate ?? 0);
+        otherCost += (p.otherCost ?? 0) * li.quantity;
+        if (!hasOrderShippingEvidence) {
+          shippingCost += (p.shippingCost ?? 0) * li.quantity;
+        }
       }
     }
 

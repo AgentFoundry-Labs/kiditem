@@ -1,7 +1,7 @@
 // Outgoing port for the inventory dashboard read model. Bundles the
 // Prisma reads that hydrate gradeCount, alerts, totalProducts,
-// channelLinkedProducts, per-listing metrics (warnings), inventory rows
-// for needReorder, grade history for the 7-day delta, low-CTR thumbnail
+// channelLinkedProducts, per-listing metrics (warnings), Sellpia zero-stock
+// and channel-SKU mapping-attention counts, grade history for the 7-day delta, low-CTR thumbnail
 // count, and A-grade master products with their channel-listing review
 // counts (lowReviewProducts).
 
@@ -14,11 +14,6 @@ export const DASHBOARD_INVENTORY_REPOSITORY_PORT = Symbol(
 export interface GradeCountRow {
   abcGrade: string | null;
   count: number;
-}
-
-export interface InventoryStockRow {
-  currentStock: number;
-  reorderPoint: number;
 }
 
 export interface GradeChangeRow {
@@ -50,7 +45,11 @@ export interface DashboardInventoryRepositoryPort {
     monthStart: Date,
     monthEnd: Date,
   ): Promise<DashboardPerListingMetrics[]>;
-  findInventoryStockRows(organizationId: string): Promise<InventoryStockRow[]>;
+  countOutOfStockMasterProducts(organizationId: string): Promise<number>;
+  countMappingAttentionChannelSkus(organizationId: string): Promise<number>;
+  countChannelSkusByMappingStatus(
+    organizationId: string,
+  ): Promise<Array<{ mappingStatus: string; count: number }>>;
   findGradeHistory(
     organizationId: string,
     since: Date,

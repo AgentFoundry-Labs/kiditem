@@ -20,17 +20,28 @@ export class ReturnTransfersService {
 
     return this.prisma.returnTransfer.findMany({
       where,
-      include: { option: true },
+      include: { masterProduct: true },
       orderBy: { createdAt: 'desc' },
     });
   }
 
   async create(organizationId: string, dto: CreateReturnTransferDto) {
-    const option = await this.prisma.productOption.findFirst({
-      where: { id: dto.optionId, organizationId, isDeleted: false },
+    const masterProduct = await this.prisma.masterProduct.findFirst({
+      where: {
+        id: dto.masterProductId,
+        organizationId,
+        isActive: true,
+      },
       select: { optionName: true },
     });
-    if (!option) throw new NotFoundException('Option not found');
+    if (!masterProduct) throw new NotFoundException('MasterProduct not found');
+    if (dto.orderId) {
+      const order = await this.prisma.order.findFirst({
+        where: { id: dto.orderId, organizationId },
+        select: { id: true },
+      });
+      if (!order) throw new NotFoundException('Order not found');
+    }
 
     const rtNumber = this.generateRtNumber();
 
@@ -39,13 +50,13 @@ export class ReturnTransfersService {
         organizationId,
         rtNumber,
         orderId: dto.orderId,
-        optionId: dto.optionId,
-        optionName: option.optionName,
+        masterProductId: dto.masterProductId,
+        optionName: masterProduct.optionName,
         quantity: dto.quantity,
         condition: dto.condition ?? 'good',
         notes: dto.notes,
       },
-      include: { option: true },
+      include: { masterProduct: true },
     });
   }
 
@@ -64,7 +75,7 @@ export class ReturnTransfersService {
         ...(dto.disposedQty !== undefined && { disposedQty: dto.disposedQty }),
         ...(dto.processedBy !== undefined && { processedBy: dto.processedBy }),
       },
-      include: { option: true },
+      include: { masterProduct: true },
     });
   }
 }

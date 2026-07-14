@@ -1,22 +1,26 @@
-import { fetchAllInventoryItems } from '../../_shared/inventory-api';
-import type { InventoryListItem, InventoryStatus } from '@kiditem/shared/inventory';
+import { fetchAllSellpiaInventorySkus } from '../../_shared/inventory-api';
+import type {
+  InventorySkuSnapshotItem,
+  InventorySkuStockStatus,
+} from '@kiditem/shared/inventory';
 
-export async function fetchAllInventoryForExport(status?: InventoryStatus): Promise<InventoryListItem[]> {
-  return fetchAllInventoryItems({ status });
+export async function fetchAllInventoryForExport(
+  stockStatus?: InventorySkuStockStatus,
+  query?: string,
+): Promise<InventorySkuSnapshotItem[]> {
+  return fetchAllSellpiaInventorySkus({ stockStatus, query });
 }
 
-export function toInventoryExportRows(items: InventoryListItem[]) {
-  return items.map((d) => ({
-    상품명: d.masterName,
-    옵션: d.optionName ?? '',
-    SKU: d.sku,
-    종류: d.kind,
-    현재고: d.currentStock,
-    가용재고: d.availableStock,
-    안전재고: d.safetyStock,
-    발주시점: d.reorderPoint,
-    리드타임_일: d.leadTimeDays ?? '',
-    창고: d.warehouseLocation ?? '',
-    상태: d.status,
+export function toInventoryExportRows(items: InventorySkuSnapshotItem[]) {
+  return items.map((item) => ({
+    셀피아상품코드: item.code,
+    상품명: item.name,
+    옵션: item.optionName ?? '',
+    바코드: item.barcode ?? '',
+    현재고: item.currentStock,
+    매입가: item.purchasePrice ?? '',
+    판매가: item.salePrice ?? '',
+    재고자산: item.stockValue ?? '',
+    최종가져오기: item.lastImportedAt ?? '',
   }));
 }

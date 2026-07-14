@@ -16,6 +16,7 @@ import type {
   AdAccountKpiRepositoryPort,
   UpsertAccountKpiInput,
 } from '../../../application/port/out/repository/ad-account-kpi.repository.port';
+import { adIngestRepositoryClient } from './ad-ingest-transaction-context';
 
 @Injectable()
 export class AdAccountKpiRepositoryAdapter
@@ -27,6 +28,11 @@ export class AdAccountKpiRepositoryAdapter
     organizationId: string,
     period: AdPeriod,
   ): Promise<AdAccountKpiDayRow[]> {
+    const channelAccountId = await this.findActiveCoupangAccountId(
+      organizationId,
+    );
+    if (!channelAccountId) return [];
+
     const cutoff = periodCutoff(period);
     const rows = await this.prisma.$queryRaw<
       Array<{
@@ -49,6 +55,7 @@ export class AdAccountKpiRepositoryAdapter
         (normalized_json->>'orders')::int                           AS "orders"
       FROM channel_account_daily_kpi_snapshots
       WHERE organization_id = ${organizationId}::uuid
+        AND channel_account_id = ${channelAccountId}::uuid
         AND source = 'coupang_ads'
         AND kpi_type = 'coupang_ads_daily'
         AND business_date >= ${cutoff}
@@ -77,11 +84,11 @@ export class AdAccountKpiRepositoryAdapter
         ? Prisma.DbNull
         : (input.rawJson as Prisma.InputJsonValue);
 
-    return this.prisma.channelAccountDailyKpiSnapshot.upsert({
+    return adIngestRepositoryClient(this.prisma).channelAccountDailyKpiSnapshot.upsert({
       where: {
-        organizationId_channel_source_businessDate_kpiType: {
+        organizationId_channelAccountId_source_businessDate_kpiType: {
           organizationId: input.organizationId,
-          channel: input.channel,
+          channelAccountId: input.channelAccountId,
           source: input.source,
           businessDate: input.businessDate,
           kpiType: input.kpiType,
@@ -89,6 +96,7 @@ export class AdAccountKpiRepositoryAdapter
       },
       create: {
         organizationId: input.organizationId,
+        channelAccountId: input.channelAccountId,
         channel: input.channel,
         source: input.source,
         kpiType: input.kpiType,
@@ -119,5 +127,20 @@ export class AdAccountKpiRepositoryAdapter
       },
       select: { id: true },
     });
+  }
+
+  private async findActiveCoupangAccountId(
+    organizationId: string,
+  ): Promise<string | null> {
+    const account = await this.prisma.channelAccount.findFirst({
+      where: { organizationId, channel: 'coupang', status: 'active' },
+      orderBy: [
+        { isPrimary: 'desc' },
+        { updatedAt: 'desc' },
+        { id: 'asc' },
+      ],
+      select: { id: true },
+    });
+    return account?.id ?? null;
   }
 }

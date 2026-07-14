@@ -7,13 +7,26 @@ interface KcImageFieldProps {
   value: string;
   busy?: boolean;
   onChange: (value: string) => void;
+  readOnly?: boolean;
 }
 
-export function KcImageField({ value, busy = false, onChange }: KcImageFieldProps) {
+export function KcImageField({ value, busy = false, onChange, readOnly = false }: KcImageFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const hasImage = value.trim().length > 0;
   const isBusy = isProcessing || busy;
+
+  if (readOnly) {
+    return hasImage ? (
+      <img
+        src={value}
+        alt="KC 인증 이미지"
+        className="h-24 w-24 shrink-0 rounded-lg border border-slate-200 bg-slate-50 object-contain"
+      />
+    ) : (
+      <span className="text-sm font-semibold text-slate-400">미등록</span>
+    );
+  }
 
   const handleFile = async (file: File | undefined | null) => {
     if (!file) return;

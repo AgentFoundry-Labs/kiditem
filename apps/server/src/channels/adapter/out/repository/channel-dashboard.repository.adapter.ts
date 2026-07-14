@@ -20,7 +20,7 @@ import type { ChannelDashboardRepositoryPort } from '../../../application/port/o
  * - organizationId is threaded from `@CurrentOrganization()` and required on every read.
  *   Raw-SQL aggregations bind `${organizationId}::uuid` as a 2-hop tenant predicate
  *   on every joined tenant-owned table (`orders`, `order_line_items`,
- *   `channel_listings`, `master_products`) — never rely on a single
+ *   `channel_listing_options`, `channel_listings`) — never rely on a single
  *   `o.organization_id` filter to gate downstream JOINs (defense-in-depth against
  *   stray FK invariants between tenants). See channels/AGENTS.md R1/R2/R3
  *   risk rule.
@@ -116,29 +116,29 @@ export class ChannelDashboardRepositoryAdapter implements ChannelDashboardReposi
       orderCount: bigint;
     };
     // 2-hop tenant predicate (R1): bind ${organizationId}::uuid on every joined
-    // tenant-owned table (orders, order_line_items, channel_listings,
-    // master_products) — without this, a stray Order.listing_id pointing at
-    // another tenant's ChannelListing (or that listing's MasterProduct) would
-    // surface foreign sellerProductId / sellerProductName. See channels/AGENTS.md.
+    // tenant-owned table (orders, order_line_items, channel_listing_options,
+    // channel_listings). Channel products are independent marketplace metadata;
+    // ranking resolves them through the ordered ChannelSku, never MasterProduct.
     const rows = await this.prisma.$queryRaw<Row[]>`
       SELECT cl.external_id AS "sellerProductId",
-             mp.name AS "sellerProductName",
+             COALESCE(cl.channel_name, cl.display_name, cl.external_id) AS "sellerProductName",
              SUM(oli.total_price)::bigint AS revenue,
              COUNT(DISTINCT o.id)::bigint AS "orderCount"
       FROM orders o
       JOIN order_line_items oli ON oli.order_id = o.id
-      JOIN channel_listings cl ON cl.id = o.listing_id
-      JOIN master_products mp ON mp.id = cl.master_id
+      JOIN channel_listing_options clo ON clo.id = oli.listing_option_id
+      JOIN channel_listings cl ON cl.id = clo.listing_id
       WHERE o.organization_id = ${organizationId}::uuid
-        AND oli.organization_id = ${organizationId}::uuid
-        AND cl.organization_id = ${organizationId}::uuid
-        AND mp.organization_id = ${organizationId}::uuid
-        AND o.ordered_at >= ${from} AND o.ordered_at < ${to}
-        AND o.listing_id IS NOT NULL
-      GROUP BY cl.external_id, mp.name
-      ORDER BY revenue DESC
-      LIMIT 10
-    `;
+          AND oli.organization_id = ${organizationId}::uuid
+          AND clo.organization_id = ${organizationId}::uuid
+          AND cl.organization_id = ${organizationId}::uuid
+          AND cl.channel_account_id = o.channel_account_id
+          AND o.ordered_at >= ${from} AND o.ordered_at < ${to}
+          AND oli.listing_option_id IS NOT NULL
+      GROUP BY cl.id, cl.external_id, COALESCE(cl.channel_name, cl.display_name, cl.external_id)
+        ORDER BY revenue DESC
+        LIMIT 10
+      `;
     return rows.map((r) => ({
       sellerProductId: r.sellerProductId,
       sellerProductName: r.sellerProductName,

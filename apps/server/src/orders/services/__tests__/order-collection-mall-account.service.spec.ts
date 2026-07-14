@@ -39,6 +39,16 @@ describe('OrderCollectionMallAccountService', () => {
       '아트공구',
       '테크빌교육',
       '베네피아물',
+      '도매꾹',
+      '롯데ON',
+      '보리보리',
+      '올웨이즈',
+      '웅진클래스몰',
+      '카카오',
+      '토스',
+      '티쳐몰',
+      'GS샵',
+      '쿠팡직배송',
     ]);
     expect(accounts[0]).toMatchObject({
       configured: false,

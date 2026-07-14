@@ -44,12 +44,17 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
 
   beforeEach(async () => {
     tx = {
-      order: { upsert: vi.fn() },
-      orderLineItem: { upsert: vi.fn() },
+      order: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn(),
+        update: vi.fn(),
+      },
+      orderLineItem: { upsert: vi.fn(), findFirst: vi.fn() },
       channelListingOption: { findFirst: vi.fn() },
     };
     prisma = {
       $transaction: vi.fn(async (cb: any) => cb(tx)),
+      channelAccount: { findFirst: vi.fn().mockResolvedValue({ id: 'account-1' }) },
     };
     const coupangPortStub = makeCoupangPortStub();
     const m = await Test.createTestingModule({
@@ -65,7 +70,7 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
   });
 
   it('upserts Order with platform=coupang + externalOrderId=shipmentBoxId', async () => {
-    tx.order.upsert.mockResolvedValue({ id: 'order-1', organizationId: 'c1' });
+    tx.order.create.mockResolvedValue({ id: 'order-1', organizationId: 'c1' });
     tx.channelListingOption.findFirst.mockResolvedValue(null);
     tx.orderLineItem.upsert.mockResolvedValue({});
 
@@ -82,17 +87,23 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
     } as any, 'c1');
 
     expect(prisma.$transaction).toHaveBeenCalled();
-    const upsertArgs = tx.order.upsert.mock.calls[0][0];
-    expect(upsertArgs.where).toEqual({
-      organizationId_platform_externalOrderId: { organizationId: 'c1', platform: 'coupang', externalOrderId: 'SBX-100' },
+    expect(tx.order.findFirst).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'c1',
+        channelAccountId: 'account-1',
+        externalOrderId: 'SBX-100',
+      },
+      select: { id: true },
     });
-    expect(upsertArgs.create.externalNumber).toBe('CO-200');
-    expect(upsertArgs.create.totalPrice).toBe(2000);
-    expect(upsertArgs.create.customerName).toBe('Alice');
+    const createArgs = tx.order.create.mock.calls[0][0];
+    expect(createArgs.data.channelAccountId).toBe('account-1');
+    expect(createArgs.data.externalNumber).toBe('CO-200');
+    expect(createArgs.data.totalPrice).toBe(2000);
+    expect(createArgs.data.customerName).toBe('Alice');
   });
 
   it('payload.status=NONE_TRACKING → DB 에는 DEPARTURE 로 정규화 (regression)', async () => {
-    tx.order.upsert.mockResolvedValue({ id: 'order-nt' });
+    tx.order.create.mockResolvedValue({ id: 'order-nt' });
     tx.channelListingOption.findFirst.mockResolvedValue(null);
     tx.orderLineItem.upsert.mockResolvedValue({});
 
@@ -103,17 +114,15 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
       orderItems: [{ vendorItemId: 'V1', sellerProductName: 'Toy', shippingCount: 1, salesPrice: 100, orderPrice: 100 }],
     } as any, 'c1');
 
-    const upsertArgs = tx.order.upsert.mock.calls[0][0];
-    expect(upsertArgs.create.status).toBe('DEPARTURE');
-    expect(upsertArgs.update.status).toBe('DEPARTURE');
+    expect(tx.order.create.mock.calls[0][0].data.status).toBe('DEPARTURE');
   });
 
-  it('vendorItemId match → optionId denormalized on OrderLineItem', async () => {
-    tx.order.upsert.mockResolvedValue({ id: 'order-1' });
+  it('vendorItemId match links the account-scoped listing option without ProductOption ownership', async () => {
+    tx.order.create.mockResolvedValue({ id: 'order-1' });
     tx.channelListingOption.findFirst.mockResolvedValue({
       id: 'lo-1',
-      optionId: 'opt-1',
-      option: { sku: 'SKU-1', optionName: 'Red' },
+      sellerSku: 'SKU-1',
+      itemName: 'Red',
     });
     tx.orderLineItem.upsert.mockResolvedValue({});
 
@@ -123,13 +132,13 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
     } as any, 'c1');
 
     const liArgs = tx.orderLineItem.upsert.mock.calls[0][0];
-    expect(liArgs.create.optionId).toBe('opt-1');
+    expect(liArgs.create).not.toHaveProperty('optionId');
     expect(liArgs.create.listingOptionId).toBe('lo-1');
     expect(liArgs.create.sku).toBe('SKU-1');
   });
 
   it('vendorItemId no match → optionId null', async () => {
-    tx.order.upsert.mockResolvedValue({ id: 'order-1' });
+    tx.order.create.mockResolvedValue({ id: 'order-1' });
     tx.channelListingOption.findFirst.mockResolvedValue(null);
     tx.orderLineItem.upsert.mockResolvedValue({});
 
@@ -139,13 +148,13 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
     } as any, 'c1');
 
     const liArgs = tx.orderLineItem.upsert.mock.calls[0][0];
-    expect(liArgs.create.optionId).toBeNull();
+    expect(liArgs.create).not.toHaveProperty('optionId');
     expect(liArgs.create.listingOptionId).toBeNull();
-    expect(liArgs.create.sku).toBeNull();
+    expect(liArgs.create.sku).toBe('UNKNOWN');
   });
 
   it('totalPrice computed from sum(orderItems.orderPrice)', async () => {
-    tx.order.upsert.mockResolvedValue({ id: 'order-1' });
+    tx.order.create.mockResolvedValue({ id: 'order-1' });
     tx.channelListingOption.findFirst.mockResolvedValue(null);
     tx.orderLineItem.upsert.mockResolvedValue({});
 
@@ -157,12 +166,11 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
       ],
     } as any, 'c1');
 
-    const upsertArgs = tx.order.upsert.mock.calls[0][0];
-    expect(upsertArgs.create.totalPrice).toBe(300);
+    expect(tx.order.create.mock.calls[0][0].data.totalPrice).toBe(300);
   });
 
   it('null vendorItemId → BadRequestException (계약 명시화, upsert key 충돌 방지)', async () => {
-    tx.order.upsert.mockResolvedValue({ id: 'order-1' });
+    tx.order.create.mockResolvedValue({ id: 'order-1' });
 
     await expect(
       (service as any).syncSingleOrder({
@@ -178,7 +186,7 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
   });
 
   it('paidAt 누락 → create.paidAt = null', async () => {
-    tx.order.upsert.mockResolvedValue({ id: 'order-1' });
+    tx.order.create.mockResolvedValue({ id: 'order-1' });
     tx.channelListingOption.findFirst.mockResolvedValue(null);
     tx.orderLineItem.upsert.mockResolvedValue({});
 
@@ -188,12 +196,11 @@ describe('ChannelSyncService.syncSingleOrder (Plan A.5)', () => {
       orderItems: [{ vendorItemId: 'V1', sellerProductName: 'A', shippingCount: 1, salesPrice: 100, orderPrice: 100 }],
     } as any, 'c1');
 
-    const args = tx.order.upsert.mock.calls[0][0];
-    expect(args.create.paidAt).toBeNull();
+    expect(tx.order.create.mock.calls[0][0].data.paidAt).toBeNull();
   });
 
   it('orderLineItem upsert 실패 시 transaction 전체 rollback (callback throw 전파)', async () => {
-    tx.order.upsert.mockResolvedValue({ id: 'order-1' });
+    tx.order.create.mockResolvedValue({ id: 'order-1' });
     tx.channelListingOption.findFirst.mockResolvedValue(null);
     tx.orderLineItem.upsert.mockRejectedValue(new Error('FK violation'));
 
@@ -216,14 +223,20 @@ describe('ChannelSyncService.syncSingleReturn (Plan A.5)', () => {
   beforeEach(async () => {
     tx = {
       order: { findFirst: vi.fn() },
-      orderReturn: { upsert: vi.fn() },
+      orderReturn: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn(),
+        update: vi.fn(),
+      },
       orderReturnLineItem: {
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
         create: vi.fn(),
       },
+      orderLineItem: { findFirst: vi.fn() },
     };
     prisma = {
       $transaction: vi.fn(async (cb: any) => cb(tx)),
+      channelAccount: { findFirst: vi.fn().mockResolvedValue({ id: 'account-1' }) },
     };
     const coupangPortStub = makeCoupangPortStub();
     const m = await Test.createTestingModule({
@@ -240,7 +253,7 @@ describe('ChannelSyncService.syncSingleReturn (Plan A.5)', () => {
 
   it('upserts OrderReturn with type from receiptType', async () => {
     tx.order.findFirst.mockResolvedValue({ id: 'order-1' });
-    tx.orderReturn.upsert.mockResolvedValue({ id: 'ret-1' });
+    tx.orderReturn.create.mockResolvedValue({ id: 'ret-1' });
 
     await (service as any).syncSingleReturn({
       receiptId: 'RCT-1',
@@ -254,18 +267,24 @@ describe('ChannelSyncService.syncSingleReturn (Plan A.5)', () => {
       items: [],
     } as any, 'c1');
 
-    const args = tx.orderReturn.upsert.mock.calls[0][0];
-    expect(args.where).toEqual({
-      organizationId_platform_externalReturnId: { organizationId: 'c1', platform: 'coupang', externalReturnId: 'RCT-1' },
+    expect(tx.orderReturn.findFirst).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'c1',
+        channelAccountId: 'account-1',
+        externalReturnId: 'RCT-1',
+      },
+      select: { id: true },
     });
-    expect(args.create.type).toBe('RETURN');
-    expect(args.create.requesterName).toBe('Alice');
-    expect(args.create.orderId).toBe('order-1');
+    const args = tx.orderReturn.create.mock.calls[0][0].data;
+    expect(args.channelAccountId).toBe('account-1');
+    expect(args.type).toBe('RETURN');
+    expect(args.requesterName).toBe('Alice');
+    expect(args.orderId).toBe('order-1');
   });
 
   it('items JSON → OrderReturnLineItem rows', async () => {
     tx.order.findFirst.mockResolvedValue(null);
-    tx.orderReturn.upsert.mockResolvedValue({ id: 'ret-1' });
+    tx.orderReturn.create.mockResolvedValue({ id: 'ret-1' });
     tx.orderReturnLineItem.create.mockResolvedValue({});
 
     await (service as any).syncSingleReturn({
@@ -290,7 +309,7 @@ describe('ChannelSyncService.syncSingleReturn (Plan A.5)', () => {
 
   it('items 빈 배열 → deleteMany 만 호출, create 0회', async () => {
     tx.order.findFirst.mockResolvedValue(null);
-    tx.orderReturn.upsert.mockResolvedValue({ id: 'ret-1' });
+    tx.orderReturn.create.mockResolvedValue({ id: 'ret-1' });
 
     await (service as any).syncSingleReturn({
       receiptId: 'RCT-3',
@@ -348,7 +367,10 @@ describe('ChannelSyncService.syncOrders (KST adapter boundary)', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    prisma = { $transaction: vi.fn() };
+    prisma = {
+      $transaction: vi.fn(),
+      channelAccount: { findFirst: vi.fn().mockResolvedValue({ id: 'account-1' }) },
+    };
     coupangPortStub = makeCoupangPortStub();
     const m = await Test.createTestingModule({
       providers: [
@@ -373,6 +395,7 @@ describe('ChannelSyncService.syncOrders (KST adapter boundary)', () => {
 
     expect(coupangPortStub.getOrderSheets).toHaveBeenCalledWith(
       'c1',
+      'account-1',
       expect.objectContaining({
         createdAtFrom: '2026-04-18T09:00:00+09:00',
         createdAtTo: '2026-04-25T09:30:00+09:00',

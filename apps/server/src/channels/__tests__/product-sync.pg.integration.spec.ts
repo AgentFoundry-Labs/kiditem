@@ -76,6 +76,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
   let prisma: PrismaClient;
   let service: ChannelSyncService;
   let coupangPort: CoupangProviderPort;
+  let channelAccountId: string;
   const organizationId = TEST_ORGANIZATION_ID;
 
   beforeAll(async () => {
@@ -123,6 +124,17 @@ describe('Product sync (PG integration, Wave C1)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    const account = await prisma.channelAccount.create({
+      data: {
+        organizationId,
+        channel: 'coupang',
+        name: 'Primary Wing',
+        externalAccountId: 'PRODUCT-SYNC-PRIMARY',
+        isPrimary: true,
+        status: 'active',
+      },
+    });
+    channelAccountId = account.id;
   });
 
   afterEach(() => {
@@ -131,22 +143,13 @@ describe('Product sync (PG integration, Wave C1)', () => {
   });
 
   async function seedListing(externalId: string) {
-    const master = await prisma.masterProduct.create({
-      data: {
-        organizationId,
-        code: `M-${externalId}`,
-        name: `Master ${externalId}`,
-        optionCounter: 0,
-      },
-    });
     return prisma.channelListing.create({
       data: {
         organizationId,
-        masterId: master.id,
-        channel: 'coupang',
+        channelAccountId,
         externalId,
       },
-      select: { id: true, masterId: true },
+      select: { id: true, channelAccountId: true },
     });
   }
 
@@ -218,7 +221,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
     expect(afterFirst.map((o) => o.externalOptionId)).toEqual(['9001', '9002']);
     expect(afterFirst[0].itemName).toBe('Pink');
     expect(afterFirst[0].salePrice).toBe(10000);
-    expect(afterFirst[0].optionId).toBeNull();
+    expect(afterFirst[0].mappingStatus).toBe('unmatched');
 
     const r2 = await service.syncProducts(organizationId);
     expect(r2.synced).toBe(1);
@@ -321,7 +324,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
     vi.mocked(coupangPort.getSellerProduct).mockImplementationOnce(async () => {
       await prisma.channelListing.update({
         where: { id: listing.id },
-        data: { isDeleted: true, deletedAt: new Date() },
+        data: { isActive: false },
       });
       return detailOk({
         sellerProductId: 360,
@@ -338,7 +341,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
     expect(result.details?.[0]).toContain('no longer active');
 
     const after = await prisma.channelListing.findUnique({ where: { id: listing.id } });
-    expect(after?.isDeleted).toBe(true);
+    expect(after?.isActive).toBe(false);
     expect(after?.channelName).toBeNull();
     const options = await prisma.channelListingOption.findMany({ where: { listingId: listing.id } });
     expect(options).toHaveLength(0);

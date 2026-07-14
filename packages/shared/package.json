@@ -25,6 +25,16 @@
       "import": "./dist/product-content/index.js",
       "require": "./dist/product-content/index.cjs"
     },
+    "./sourcing": {
+      "types": "./dist/sourcing/index.d.ts",
+      "import": "./dist/sourcing/index.js",
+      "require": "./dist/sourcing/index.cjs"
+    },
+    "./channel-listing": {
+      "types": "./dist/channel-listing.d.ts",
+      "import": "./dist/channel-listing.js",
+      "require": "./dist/channel-listing.cjs"
+    },
     "./order": {
       "types": "./dist/order.d.ts",
       "import": "./dist/order.js",
@@ -100,15 +110,30 @@
       "import": "./dist/channel-dashboard.js",
       "require": "./dist/channel-dashboard.cjs"
     },
-    "./channel-reconciliation": {
-      "types": "./dist/channel-reconciliation.d.ts",
-      "import": "./dist/channel-reconciliation.js",
-      "require": "./dist/channel-reconciliation.cjs"
-    },
     "./channel-account": {
       "types": "./dist/channel-account.d.ts",
       "import": "./dist/channel-account.js",
       "require": "./dist/channel-account.cjs"
+    },
+    "./channel-sku-matching": {
+      "types": "./dist/channel-sku-matching.d.ts",
+      "import": "./dist/channel-sku-matching.js",
+      "require": "./dist/channel-sku-matching.cjs"
+    },
+    "./channel-sku-availability": {
+      "types": "./dist/channel-sku-availability.d.ts",
+      "import": "./dist/channel-sku-availability.js",
+      "require": "./dist/channel-sku-availability.cjs"
+    },
+    "./source-import": {
+      "types": "./dist/source-import.d.ts",
+      "import": "./dist/source-import.js",
+      "require": "./dist/source-import.cjs"
+    },
+    "./coupang-catalog-snapshot": {
+      "types": "./dist/coupang-catalog-snapshot.d.ts",
+      "import": "./dist/coupang-catalog-snapshot.js",
+      "require": "./dist/coupang-catalog-snapshot.cjs"
     },
     "./agent-os": {
       "types": "./dist/agent-os.d.ts",
@@ -183,7 +208,8 @@
       "schemas": ["dist/schemas/index.d.ts"],
       "product": ["dist/product/index.d.ts"],
       "product-content": ["dist/product-content/index.d.ts"],
-      "sourcing": ["dist/product-content/index.d.ts"],
+      "sourcing": ["dist/sourcing/index.d.ts"],
+      "channel-listing": ["dist/channel-listing.d.ts"],
       "order": ["dist/order.d.ts"],
       "inventory": ["dist/inventory.d.ts"],
       "ai": ["dist/ai.d.ts"],
@@ -199,8 +225,11 @@
       "action-task": ["dist/action-task.d.ts"],
       "supplier-stats": ["dist/supplier-stats.d.ts"],
       "channel-dashboard": ["dist/channel-dashboard.d.ts"],
-      "channel-reconciliation": ["dist/channel-reconciliation.d.ts"],
       "channel-account": ["dist/channel-account.d.ts"],
+      "channel-sku-matching": ["dist/channel-sku-matching.d.ts"],
+      "channel-sku-availability": ["dist/channel-sku-availability.d.ts"],
+      "source-import": ["dist/source-import.d.ts"],
+      "coupang-catalog-snapshot": ["dist/coupang-catalog-snapshot.d.ts"],
       "agent-os": ["dist/agent-os.d.ts"],
       "workflow": ["dist/workflow.d.ts"],
       "common": ["dist/common.d.ts"],

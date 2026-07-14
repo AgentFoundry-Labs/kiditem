@@ -37,9 +37,8 @@ export default function ProductCard({
   isQuickProcessingSelected = false,
 }: Props) {
   // KP 진행 중 row 가 있으면 카드 상단에 progress 배지 (다시 들어와도 유지).
-  const generationTargetId = product.promotedMasterId ?? product.id;
-  const kpInProgress = useKidsPlayfulInProgress(generationTargetId, {
-    sourceCandidateId: product.promotedMasterId ? null : product.id,
+  const kpInProgress = useKidsPlayfulInProgress(product.id, {
+    sourceCandidateId: product.id,
   });
   const generateBusy = isQuickProcessingSelected || isProcessing || !!kpInProgress;
 

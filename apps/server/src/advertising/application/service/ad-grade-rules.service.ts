@@ -63,7 +63,7 @@ export class AdGradeRulesService {
       const primary = listing.primaryOption;
       const margin = calcOptionMargin(primary);
       const adBudgetLimit = margin > 0 ? margin * 0.35 : 0;
-      const stock = primary?.availableStock ?? 0;
+      const sellableStock = primary?.sellableStock ?? null;
       const profitRate = profitRateByListing.get(listing.id) ?? 0;
       const summary = hydratedListingToSummary(listing);
       const name = listing.masterProduct.name;
@@ -71,7 +71,7 @@ export class AdGradeRulesService {
       const recs: Array<{ rule: string; reason: string; priority: Priority }> = [];
 
       // ═══ 공통 긴급 규칙 ═══
-      if (stock === 0 && listing.masterProduct.adTier && spend > 0) {
+      if (sellableStock === 0 && listing.masterProduct.adTier && spend > 0) {
         recs.push({
           rule: '긴급: 재고0 광고ON',
           reason: '재고 없음 — 광고 즉시 중단. 재입고 확인 후 재개',
@@ -321,8 +321,8 @@ function normalizeGrade(raw: 'A' | 'B' | 'C' | null | undefined): 'A' | 'B' | 'C
  */
 function calcOptionMargin(option: HydratedListing['primaryOption']): number {
   if (!option) return 0;
-  const cost = option.costPrice ?? 0;
-  const sell = option.sellPrice ?? 0;
+  const cost = option.purchaseCost ?? 0;
+  const sell = option.salePrice ?? 0;
   if (sell <= 0 || cost <= 0) return 0;
   return sell - cost;
 }

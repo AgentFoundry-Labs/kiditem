@@ -9,12 +9,13 @@
 
 | Model | Table | Description |
 |---|---|---|
-| ContentAsset | `content_assets` | Generated/editable media workspace asset. Product gallery adoption copies selected rows into MasterProductImage. |
+| ContentAsset | `content_assets` | Organization-scoped managed media with optional generation-group provenance. |
 | ContentGeneration | `content_generations` | - |
 | ContentGenerationAssetUsage | `content_generation_asset_usages` | Current image assets used by a generated content row. Asset location stays on ContentAsset; this table is the replace-on-save usage set. |
-| ContentGenerationGroup | `content_generation_groups` | Same-input generation group. Product-less groups are standalone generated-content workspaces; product-bound groups remain candidate lineage inside a Master workspace. |
+| ContentGenerationGroup | `content_generation_groups` | Same-input generation group owned by a content workspace. |
 | ContentGenerationSource | `content_generation_sources` | Generation-level provenance. The source of a generated work unit can be a sourcing candidate, input asset, or another generation. |
-| ContentWorkspace | `content_workspaces` | Product content workspace. Detail-page and thumbnail generations for the same owner/title accumulate here as versioned content history before or after MasterProduct creation. |
+| ContentWorkspace | `content_workspaces` | Product content workspace owned by a sourcing candidate, channel listing, or direct detail page. |
+| ContentWorkspaceThumbnailSelection | `content_workspace_thumbnail_selections` | Stable workspace-owned thumbnail adoption with optional generation provenance. |
 | DetailPageArtifact | `detail_page_artifacts` | Candidate-centered editable detail-page artifact. One artifact owns the user-visible draft line; revisions keep generated/manual HTML history. |
 | DetailPageRevision | `detail_page_revisions` | Append-only detail-page HTML revision. Editor saves create rows; DetailPageArtifact.currentRevisionId selects the active version. |
 | ProductPreparation | `product_preparations` | Product pipeline preparation state. Stores operator-confirmed registration inputs and selected generated assets before marketplace listing. |
@@ -35,7 +36,7 @@ erDiagram
   ContentAsset {
     String id PK
     String organizationId FK
-    String generationGroupId FK
+    String originGenerationGroupId FK
     String createdByUserId FK
     String assetKey
     String url
@@ -91,7 +92,7 @@ erDiagram
     String id PK
     String organizationId FK
     String groupType
-    String targetMasterId FK
+    String contentWorkspaceId FK
     String baseContentGenerationId FK
     String title
     String inputFingerprint
@@ -119,24 +120,34 @@ erDiagram
     String organizationId FK
     String ownerType
     String sourceCandidateId FK
-    String targetMasterId FK
+    String channelListingId FK
+    String originWorkspaceId FK
     String displayName
     String normalizedTitle
     String status
     String currentDetailPageArtifactId FK
     String currentDetailPageRevisionId FK
+    String currentThumbnailSelectionId FK
     String createdByUserId FK
     Boolean isDeleted
     DateTime deletedAt
     DateTime createdAt
     DateTime updatedAt
   }
+  ContentWorkspaceThumbnailSelection {
+    String id PK
+    String organizationId FK
+    String contentWorkspaceId FK
+    String contentAssetId FK
+    String sourceThumbnailGenerationId FK
+    String sourceThumbnailCandidateId FK
+    String createdByUserId FK
+    DateTime createdAt
+  }
   DetailPageArtifact {
     String id PK
     String organizationId FK
     String contentWorkspaceId FK
-    String sourceCandidateId FK
-    String targetMasterId FK
     String sourceContentGenerationId FK
     String currentRevisionId FK
     String title
@@ -164,12 +175,11 @@ erDiagram
     String id PK
     String organizationId FK
     String sourceCandidateId FK
-    String masterId FK
-    String contentWorkspaceId FK
+    String channelAccountId FK
+    String sourceContentWorkspaceId FK
+    String channelListingId FK
     String displayName
     String status
-    Boolean isCurrentForMaster
-    DateTime appliedToMasterAt
     String selectedThumbnailUrl
     String selectedThumbnailGenerationId FK
     String selectedThumbnailGenerationCandidateId FK
@@ -177,6 +187,15 @@ erDiagram
     String selectedDetailPageRevisionId FK
     String selectedDetailPageGenerationId FK
     Json registrationInput
+    String submissionKey
+    String providerSubmissionId
+    String lastError
+    Json registrationResult
+    Json submissionPayloadJson
+    String submissionPayloadHash
+    String providerOutcome
+    String submissionLeaseToken
+    DateTime submissionLeaseClaimedAt
     String createdByUserId FK
     Boolean isDeleted
     DateTime deletedAt
@@ -201,7 +220,7 @@ erDiagram
   ThumbnailAnalysis {
     String id PK
     String organizationId FK
-    String masterId FK,UK
+    String contentWorkspaceId FK,UK
     String imageUrl
     Int overallScore
     String grade
@@ -221,7 +240,6 @@ erDiagram
   ThumbnailGeneration {
     String id PK
     String organizationId FK
-    String masterId FK
     String sourceCandidateId FK
     String contentWorkspaceId FK
     String originalUrl
@@ -284,7 +302,6 @@ erDiagram
     String label
     Int sortOrder
     String source
-    String masterImageId FK
     String candidateImageId FK
     String sourceThumbnailCandidateId FK
     String mimeType
@@ -343,6 +360,7 @@ erDiagram
   }
   ContentAsset ||--o{ ContentGenerationAssetUsage : "contentAsset"
   ContentAsset o|--o{ ContentGenerationSource : "contentAsset"
+  ContentAsset ||--o{ ContentWorkspaceThumbnailSelection : "contentAsset"
   ContentGeneration ||--o{ ContentGenerationAssetUsage : "contentGeneration"
   ContentGeneration o|--o{ ContentGenerationGroup : "baseContentGeneration"
   ContentGeneration ||--o{ ContentGenerationSource : "contentGeneration"
@@ -350,12 +368,17 @@ erDiagram
   ContentGeneration o|--o{ DetailPageArtifact : "sourceContentGeneration"
   ContentGeneration o|--o{ DetailPageRevision : "contentGeneration"
   ContentGeneration o|--o{ ProductPreparation : "selectedDetailPageGeneration"
-  ContentGenerationGroup ||--o{ ContentAsset : "generationGroup"
+  ContentGenerationGroup o|--o{ ContentAsset : "originGenerationGroup"
   ContentGenerationGroup ||--o{ ContentGeneration : "generationGroup"
-  ContentWorkspace o|--o{ ContentGeneration : "contentWorkspace"
-  ContentWorkspace o|--o{ DetailPageArtifact : "contentWorkspace"
-  ContentWorkspace o|--o{ ProductPreparation : "contentWorkspace"
-  ContentWorkspace o|--o{ ThumbnailGeneration : "contentWorkspace"
+  ContentWorkspace ||--o{ ContentGeneration : "contentWorkspace"
+  ContentWorkspace ||--o{ ContentGenerationGroup : "contentWorkspace"
+  ContentWorkspace o|--o{ ContentWorkspace : "originWorkspace"
+  ContentWorkspace ||--o{ ContentWorkspaceThumbnailSelection : "contentWorkspace"
+  ContentWorkspace ||--o{ DetailPageArtifact : "contentWorkspace"
+  ContentWorkspace ||--o{ ProductPreparation : "sourceContentWorkspace"
+  ContentWorkspace ||--o{ ThumbnailAnalysis : "contentWorkspace"
+  ContentWorkspace ||--o{ ThumbnailGeneration : "contentWorkspace"
+  ContentWorkspaceThumbnailSelection o|--o| ContentWorkspace : "currentThumbnailSelection"
   DetailPageArtifact o|--o{ ContentGeneration : "detailPageArtifact"
   DetailPageArtifact o|--o{ ContentWorkspace : "currentDetailPageArtifact"
   DetailPageArtifact ||--o{ DetailPageRevision : "artifact"
@@ -363,12 +386,14 @@ erDiagram
   DetailPageRevision o|--o{ ContentWorkspace : "currentDetailPageRevision"
   DetailPageRevision o|--o{ DetailPageArtifact : "currentRevision"
   DetailPageRevision o|--o{ ProductPreparation : "selectedDetailPageRevision"
+  ThumbnailGeneration o|--o{ ContentWorkspaceThumbnailSelection : "sourceGeneration"
   ThumbnailGeneration o|--o{ ProductPreparation : "selectedThumbnailGeneration"
   ThumbnailGeneration ||--o{ ThumbnailGenerationCandidate : "generation"
   ThumbnailGeneration ||--o{ ThumbnailGenerationEvent : "generation"
   ThumbnailGeneration ||--o{ ThumbnailGenerationInputImage : "generation"
   ThumbnailGeneration ||--o{ ThumbnailRegistrationAttempt : "generation"
   ThumbnailGeneration ||--o{ ThumbnailTracking : "generation"
+  ThumbnailGenerationCandidate o|--o{ ContentWorkspaceThumbnailSelection : "sourceCandidate"
   ThumbnailGenerationCandidate o|--o{ ProductPreparation : "selectedThumbnailGenerationCandidate"
   ThumbnailGenerationCandidate o|--o{ ThumbnailGenerationInputImage : "sourceThumbnailCandidate"
   ThumbnailTracking ||--o{ ThumbnailTrackingDailySnapshot : "tracking"
@@ -385,28 +410,26 @@ erDiagram
 | ContentGeneration | triggeredByUser | references external | Core | User |
 | ContentGenerationAssetUsage | organization | references external | Core | Organization |
 | ContentGenerationGroup | organization | references external | Core | Organization |
-| ContentGenerationGroup | targetMaster | references external | Core | MasterProduct |
 | ContentGenerationSource | organization | references external | Core | Organization |
 | ContentGenerationSource | sourceCandidate | references external | Sourcing | SourcingCandidate |
+| ContentWorkspace | channelListing | references external | Core | ChannelListing |
 | ContentWorkspace | createdByUser | references external | Core | User |
 | ContentWorkspace | organization | references external | Core | Organization |
 | ContentWorkspace | sourceCandidate | references external | Sourcing | SourcingCandidate |
-| ContentWorkspace | targetMaster | references external | Core | MasterProduct |
+| ContentWorkspaceThumbnailSelection | createdByUser | references external | Core | User |
+| ContentWorkspaceThumbnailSelection | organization | references external | Core | Organization |
 | DetailPageArtifact | createdByUser | references external | Core | User |
 | DetailPageArtifact | organization | references external | Core | Organization |
-| DetailPageArtifact | sourceCandidate | references external | Sourcing | SourcingCandidate |
-| DetailPageArtifact | targetMaster | references external | Core | MasterProduct |
 | DetailPageRevision | createdByUser | references external | Core | User |
 | DetailPageRevision | organization | references external | Core | Organization |
+| ProductPreparation | channelAccount | references external | Core | ChannelAccount |
+| ProductPreparation | channelListing | references external | Core | ChannelListing |
 | ProductPreparation | createdByUser | references external | Core | User |
-| ProductPreparation | master | references external | Core | MasterProduct |
 | ProductPreparation | organization | references external | Core | Organization |
 | ProductPreparation | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | Thumbnail | listing | references external | Core | ChannelListing |
 | Thumbnail | organization | references external | Core | Organization |
-| ThumbnailAnalysis | master | references external | Core | MasterProduct |
 | ThumbnailAnalysis | organization | references external | Core | Organization |
-| ThumbnailGeneration | master | references external | Core | MasterProduct |
 | ThumbnailGeneration | organization | references external | Core | Organization |
 | ThumbnailGeneration | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | ThumbnailGeneration | triggeredByUser | references external | Core | User |
@@ -414,7 +437,6 @@ erDiagram
 | ThumbnailGenerationEvent | actor | references external | Core | User |
 | ThumbnailGenerationEvent | organization | references external | Core | Organization |
 | ThumbnailGenerationInputImage | candidateImage | references external | Sourcing | CandidateImage |
-| ThumbnailGenerationInputImage | masterImage | references external | Core | MasterProductImage |
 | ThumbnailGenerationInputImage | organization | references external | Core | Organization |
 | ThumbnailRegistrationAttempt | organization | references external | Core | Organization |
 | ThumbnailTracking | listing | references external | Core | ChannelListing |

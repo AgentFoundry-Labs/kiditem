@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { AdExposureService } from '../ad-exposure.service';
-import type { ExposureScoreInput, HydratedListing, InventoryRow } from '../../../domain/model/strategy-types';
+import type { ExposureScoreInput, HydratedListing } from '../../../domain/model/strategy-types';
 import type { ExposureProductScore } from '@kiditem/shared/advertising';
 
 // ─────────────────────────────────────────────
@@ -22,14 +22,7 @@ const listing: HydratedListing = {
   primaryOption: null,
 };
 
-const baseInv: InventoryRow = {
-  optionId: 'O1',
-  listingId: 'L1',
-  availableStock: 50,
-  costPrice: 5000,
-  sellPrice: 10000,
-  commissionRate: null,
-};
+const baseAvailability = { sellableStock: 50 };
 
 // 모든 score 가 만점에 가깝게 나오는 ideal input (각 score 가 70+ 이도록).
 const idealInput: ExposureScoreInput = {
@@ -47,10 +40,10 @@ const idealInput: ExposureScoreInput = {
       cvr: 0.1, // 10% (* 100 = 10 ≥ 5 → cvrScore 30) — sum=100 → cap
     },
   },
-  inventory: { ...baseInv, availableStock: 100 },
+  availability: { ...baseAvailability, sellableStock: 100 },
   reviewStats: { totalReviews: 100, recentReviews: 20, avgRating: 5 },
   trafficContext: { maxT14: 100000, t14Rev: 100000, t14PrevRev: 50000, t14Orders: 50 },
-  fulfillmentContext: { leadTime: 0, profitRate: 20 },
+  fulfillmentContext: { leadTime: null, profitRate: 20 },
 };
 
 const buildInput = (overrides: Partial<ExposureScoreInput> = {}): ExposureScoreInput => ({
@@ -93,18 +86,18 @@ describe('AdExposureService.calculateScores', () => {
         listingId: 'L1',
         metrics: { spend: 10000, impressions: 10000, clicks: 30, conversions: 0, revenue: 20000, ctr: 0.003, roas: 200, cvr: 0 },
       }, // spend>0 → no skip; roas=200 → 20, ctr=0.3 → 20, cvr=0 → 0 → adScore=40
-      fulfillmentContext: { leadTime: 0, profitRate: 0 }, // leadScore=40, stock=100>50 → 30, profit≥0 → 10 → fulfillment=80? wait stock from inventory
-      inventory: { ...baseInv, availableStock: 100 }, // stock=100 → stockScore=30
+      fulfillmentContext: { leadTime: null, profitRate: 0 },
+      availability: { ...baseAvailability, sellableStock: 100 },
       // info: healthScore=80, adTier='1차' → 80+20=100 → cap 100
     });
     // sales (idealInput trafficContext): maxT14=100000, t14Rev=100000, prev=50000 (>1.1 → 20), orders=50>0 → 20
     //   t14Pct = (100000/100000)*60 = 60; growth=20; orders=20 → sum=100 → cap 100
     // review: 10 (already computed)
     // ad: 40 (computed above)
-    // fulfillment: lead=40 (leadTime=0), stock=30 (>50), profit=10 (≥0) → 80
+    // fulfillment: lead=20 (replenishment policy unknown), stock=30 (>50), profit=10 (≥0) → 60
     // info: 100
-    // total = 100*.25 + 10*.2 + 40*.25 + 80*.2 + 100*.1 = 25+2+10+16+10 = 63
-    expect(result.totalScore).toBe(63);
+    // total = 100*.25 + 10*.2 + 40*.25 + 60*.2 + 100*.1 = 25+2+10+12+10 = 59
+    expect(result.totalScore).toBe(59);
   });
 
   it('calculateAdScore returns 50 when spend=0 (광고 OFF 중립값)', () => {
@@ -140,7 +133,7 @@ describe('AdExposureService.calculateScores', () => {
   it('calculateFulfillmentScore: leadTime=null → 20 (정보 없음 중립)', () => {
     const result = service.calculateScores({
       ...idealInput,
-      inventory: { ...baseInv, availableStock: 0 },
+      availability: { ...baseAvailability, sellableStock: 0 },
       fulfillmentContext: { leadTime: null, profitRate: -5 },
     });
     const fulfillmentFactor = result.factors.find((f) => f.factor === 'fulfillment')!;
@@ -148,14 +141,21 @@ describe('AdExposureService.calculateScores', () => {
     expect(fulfillmentFactor.score).toBe(20);
   });
 
-  it('calculateFulfillmentScore: leadTime≥3 → 10', () => {
-    const result = service.calculateScores({
+  it('unknown sellableStock is neutral and is not scored as sold out', () => {
+    const unknown = service.calculateScores({
       ...idealInput,
-      fulfillmentContext: { leadTime: 5, profitRate: 15 },
+      availability: { sellableStock: null },
+      fulfillmentContext: { leadTime: null, profitRate: 0 },
     });
-    const fulfillmentFactor = result.factors.find((f) => f.factor === 'fulfillment')!;
-    // leadScore=10, stock=100>50 → 30, profit>10 → 30 → 70
-    expect(fulfillmentFactor.score).toBe(70);
+    const soldOut = service.calculateScores({
+      ...idealInput,
+      availability: { sellableStock: 0 },
+      fulfillmentContext: { leadTime: null, profitRate: 0 },
+    });
+
+    const unknownScore = unknown.factors.find((f) => f.factor === 'fulfillment')!.score;
+    const soldOutScore = soldOut.factors.find((f) => f.factor === 'fulfillment')!.score;
+    expect(unknownScore).toBeGreaterThan(soldOutScore);
   });
 
   it('calculateInfoScore: healthScore null + adTier null → 0', () => {
@@ -198,15 +198,15 @@ describe('AdExposureService.calculateScores', () => {
     expect(salesFactor.score).toBe(60);
   });
 
-  it('inventory null → stock defaults to 0 (fulfillment stockScore=0)', () => {
+  it('availability null → stock evidence stays unknown', () => {
     const result = service.calculateScores({
       ...idealInput,
-      inventory: null,
-      fulfillmentContext: { leadTime: 0, profitRate: 0 },
+      availability: null,
+      fulfillmentContext: { leadTime: null, profitRate: 0 },
     });
     const fulfillmentFactor = result.factors.find((f) => f.factor === 'fulfillment')!;
-    // leadScore=40 (leadTime=0), stockScore=0, profitScore=10 (≥0) → 50
-    expect(fulfillmentFactor.score).toBe(50);
+    // leadScore=20, unknown stockScore=10, profitScore=10 (≥0) → 40
+    expect(fulfillmentFactor.score).toBe(40);
   });
 
   it('reviewStats null → all review scores zero', () => {

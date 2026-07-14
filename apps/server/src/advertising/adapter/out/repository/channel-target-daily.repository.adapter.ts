@@ -18,6 +18,7 @@ import {
   spreadMetricsForCreate,
   spreadMetricsForUpdate,
 } from './daily-fact-helpers';
+import { withAdIngestRepositoryTransaction } from './ad-ingest-transaction-context';
 
 const AD_TARGET_METRIC_KEYS: ReadonlyArray<keyof AdTargetDailyMetrics> = [
   'spend',
@@ -44,7 +45,6 @@ const AD_TARGET_DESCRIPTOR_KEYS: ReadonlyArray<
     | 'dailyBudget'
     | 'listingId'
     | 'listingOptionId'
-    | 'optionId'
     | 'externalId'
     | 'externalOptionId'
   >
@@ -60,7 +60,6 @@ const AD_TARGET_DESCRIPTOR_KEYS: ReadonlyArray<
   'dailyBudget',
   'listingId',
   'listingOptionId',
-  'optionId',
   'externalId',
   'externalOptionId',
 ];
@@ -92,7 +91,7 @@ export class ChannelTargetDailyRepositoryAdapter
       AD_TARGET_DESCRIPTOR_KEYS,
     );
 
-    return this.prisma.$transaction(async (tx) => {
+    return withAdIngestRepositoryTransaction(this.prisma, async (tx) => {
       const row = await tx.channelAdTargetDailySnapshot.upsert({
         where: {
           organizationId_channel_businessDate_targetType_targetKey: {
@@ -111,7 +110,6 @@ export class ChannelTargetDailyRepositoryAdapter
           targetKey: input.targetKey,
           listingId: input.listingId ?? null,
           listingOptionId: input.listingOptionId ?? null,
-          optionId: input.optionId ?? null,
           externalId: input.externalId ?? null,
           externalOptionId: input.externalOptionId ?? null,
           campaignId: input.campaignId ?? null,

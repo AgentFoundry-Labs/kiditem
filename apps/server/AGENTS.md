@@ -44,10 +44,10 @@ LLM/media/storage/fetch boundary, or large-file pressure.
 
 | Owner | Scope |
 |---|---|
-| `products` | catalog, options, categories compatibility, bundle stock |
+| `products` | catalog, options, categories compatibility, bundle composition |
 | `sourcing` | Chinese product discovery, candidate inbox, promotion |
 | `supply` | suppliers, master-supplier policy, purchase orders |
-| `inventory` | inventory, warehouses, transfers, audits, picking |
+| `inventory` | Sellpia inventory snapshot, warehouses, transfer/picking records |
 | `orders` | orders, returns, CS/reviews, return-transfer surfaces |
 | `finance` | P&L, settlements, supplier payments, cost/plan analytics |
 | `advertising` | ad operations, scrape ingest, ad actions |

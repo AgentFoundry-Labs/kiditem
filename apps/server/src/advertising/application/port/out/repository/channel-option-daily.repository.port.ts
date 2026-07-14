@@ -24,7 +24,6 @@ export interface ListingOptionDailyUpsertInput extends ListingOptionDailyState {
   organizationId: string;
   listingId: string;
   listingOptionId: string;
-  optionId?: string | null;
   channel: string;
   externalId: string;
   externalOptionId: string;

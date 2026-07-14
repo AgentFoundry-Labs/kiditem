@@ -45,31 +45,34 @@ describe('ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping 
           {
             quantity: 1,
             totalPrice: 10000,
-            option: {
-              costPrice: 5000,
+            listingOption: {
+              costPriceOverride: 5000,
               commissionRate: 0.1,
               shippingCost: 999,
               otherCost: 0,
+              components: [],
             },
           },
           {
             quantity: 2,
             totalPrice: 20000,
-            option: {
-              costPrice: 5000,
+            listingOption: {
+              costPriceOverride: 5000,
               commissionRate: 0.1,
               shippingCost: 999,
               otherCost: 0,
+              components: [],
             },
           },
           {
             quantity: 1,
             totalPrice: 5000,
-            option: {
-              costPrice: 5000,
+            listingOption: {
+              costPriceOverride: 5000,
               commissionRate: 0.1,
               shippingCost: 999,
               otherCost: 0,
+              components: [],
             },
           },
         ],
@@ -89,7 +92,7 @@ describe('ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping 
           {
             quantity: 1,
             totalPrice: 10000,
-            option: { costPrice: 5000, commissionRate: 0.1, shippingCost: 999, otherCost: 0 },
+            listingOption: { costPriceOverride: 5000, commissionRate: 0.1, shippingCost: 999, otherCost: 0, components: [] },
           },
         ],
       },
@@ -99,7 +102,7 @@ describe('ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping 
           {
             quantity: 1,
             totalPrice: 8000,
-            option: { costPrice: 4000, commissionRate: 0.1, shippingCost: 999, otherCost: 0 },
+            listingOption: { costPriceOverride: 4000, commissionRate: 0.1, shippingCost: 999, otherCost: 0, components: [] },
           },
         ],
       },
@@ -121,9 +124,39 @@ describe('ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping 
     expect(result.revenue).toBe(0);
   });
 
+  it('falls back to listing-option shipping only when imported order shipping is absent', async () => {
+    const prisma = makePrisma([
+      {
+        // Channel order ingestion stores a missing provider shipping value as 0.
+        shippingPrice: 0,
+        lineItems: [
+          {
+            quantity: 2,
+            totalPrice: 20000,
+            listingOption: {
+              costPriceOverride: 5000,
+              commissionRate: 0.1,
+              shippingCost: 3000,
+              otherCost: 0,
+              components: [],
+            },
+          },
+        ],
+      },
+    ]);
+
+    const result = await makeAdapter(prisma).calculateForRange(
+      'organization-1',
+      new Date('2026-04-01T00:00:00Z'),
+      new Date('2026-05-01T00:00:00Z'),
+    );
+
+    expect(result.shippingCost).toBe(6000);
+  });
+
   it('status filter (cancelled/returned/refunded) excludes shipping accumulation via order.findMany where', async () => {
     const findManyMock = vi.fn().mockResolvedValue([
-      { shippingPrice: 3000, lineItems: [{ quantity: 1, totalPrice: 10000, option: { costPrice: 5000, commissionRate: 0.1, otherCost: 0 } }] },
+      { shippingPrice: 3000, lineItems: [{ quantity: 1, totalPrice: 10000, listingOption: { costPriceOverride: 5000, commissionRate: 0.1, otherCost: 0, components: [] } }] },
     ]);
     const prisma: PrismaMock = {
       order: { findMany: findManyMock },

@@ -1,46 +1,48 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# web/catalog - Product Hub and Channel Matching
+# web/catalog - Sellpia Product Hub and Channel SKU Matching
 
-`app/(catalog)/` owns catalog product browsing/editing, product options, product
-hub detail pages, and Coupang-to-KidItem matching. Public product URLs live
-under `/product-hub`. Do not add a sibling `products/` route or implementation
-scope; product hub implementation code lives under `product-hub/`. This group
-does not own sourcing candidate promotion, generated content workspaces, or
-marketplace ingest.
-
-Verify list/detail UI through `/product-hub` and `/product-hub/[id]`.
+`app/(catalog)/` owns the read-only Sellpia product catalog and the operator
+workspace that maps marketplace channel SKUs to the Sellpia products they
+consume. Public URLs remain under `/product-hub`.
 
 ## Owned Surfaces
 
-- Product and product option lists/details under `/product-hub`
-- Product hub detail panels and catalog activity context
-- Manual channel reconciliation to active product options
-- Product export helpers and catalog-only grading helpers
+- Sellpia `MasterProduct` snapshot list/detail under `/product-hub`
+- Coupang Wing catalog upload and account-scoped channel SKU component matching
+  under `/product-hub/matching`
+- `/product-hub/options` as a compatibility URL for the same matching workspace
 
 ## Data Flow
 
 ```text
 React Query + apiClient
-  -> /api/products/*
-  -> /api/products/options/*
-  -> /api/channels/reconciliation/coupang/*
-  -> queryKeys.products, productOptions, channelReconciliation
+  -> GET /api/inventory/sellpia-skus
+  -> GET /api/inventory/sellpia-skus/:masterProductId
+  -> GET /api/channels/accounts
+  -> POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing
+  -> GET /api/channels/sku-mappings
+  -> GET /api/channels/sku-mappings/:channelSkuId/candidates
+  -> PUT /api/channels/sku-mappings/:channelSkuId/components
+  -> GET /api/channels/sku-availability
+  -> queryKeys.inventory, channelAccounts, channelSkuMappings, channelSkuAvailability
 ```
 
 ## State Rules
 
-- Prefer focused product/option API helpers under route-local `lib/`.
-- Product option mutations invalidate `queryKeys.productOptions.all`.
-- Product mutations invalidate the relevant `queryKeys.products.*` family.
-- Reconciliation uses shared channel-reconciliation contracts and never sends
-  `organizationId`.
+- `/product-hub` is a read-only projection of the latest Sellpia full-snapshot
+  import. It never creates, edits, deletes, or adjusts physical products.
+- One physical `MasterProduct` is one Sellpia product-code row, including its
+  option name when Sellpia distinguishes the option at that code.
+- Channel matching uses focused account, source-import, and channel SKU
+  matching contracts and never sends `organizationId`.
+- Candidate rows are suggestions. Only a saved `ChannelSkuComponent` recipe is
+  matching truth.
 
 ## Boundary Rules
 
-- Do not create `MasterProduct` from a Coupang reconciliation row.
-- Do not pull sourcing raw rows or generated content workspace behavior into
-  catalog routes.
-- Workflow runs shown on product pages are context actions; workflow engine
-  behavior remains backend/automation-owned.
-- Traffic uploads must stay aligned with backend upload contracts.
+- Do not call removed `/api/products*` routes or recreate `ProductOption` CRUD.
+- Do not infer a channel SKU link from names, barcodes, or candidate rank.
+- Do not edit Sellpia stock, source prices, or channel prices in catalog routes.
+- Sourcing candidates, generated content workspaces, marketplace ingest,
+  Rocket operations, and purchase orders remain in their owner domains.

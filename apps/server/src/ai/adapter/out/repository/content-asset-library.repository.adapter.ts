@@ -1,4 +1,5 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Optional } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { groupUrlAssetKey, hashContentAssetUrl } from '../../../domain/content-asset-key';
 import {
@@ -23,6 +24,70 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
     @Inject(IMAGE_STORAGE_PORT)
     private readonly imageStorage?: ImageStoragePort,
   ) {}
+
+  async deleteAsset(input: {
+    organizationId: string;
+    contentAssetId: string;
+    deletedAt: Date;
+  }): Promise<{ status: 'deleted' | 'in_use' | 'not_found' }> {
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id
+        FROM content_assets
+        WHERE id = ${input.contentAssetId}::uuid
+          AND organization_id = ${input.organizationId}::uuid
+          AND is_deleted = false
+        FOR UPDATE
+      `);
+      if (locked.length !== 1) return { status: 'not_found' as const };
+      const asset = await tx.contentAsset.findFirst({
+        where: {
+          id: input.contentAssetId,
+          organizationId: input.organizationId,
+          isDeleted: false,
+        },
+        select: {
+          id: true,
+          _count: {
+            select: {
+              usages: {
+                where: {
+                  contentGeneration: {
+                    organizationId: input.organizationId,
+                    isDeleted: false,
+                  },
+                },
+              },
+              thumbnailSelections: {
+                where: {
+                  currentForWorkspace: {
+                    is: {
+                      organizationId: input.organizationId,
+                      status: 'active',
+                      isDeleted: false,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+      if (!asset) return { status: 'not_found' as const };
+      if (asset._count.usages > 0 || asset._count.thumbnailSelections > 0) {
+        return { status: 'in_use' as const };
+      }
+      const deleted = await tx.contentAsset.updateMany({
+        where: {
+          id: asset.id,
+          organizationId: input.organizationId,
+          isDeleted: false,
+        },
+        data: { isDeleted: true, deletedAt: input.deletedAt },
+      });
+      return { status: deleted.count === 1 ? 'deleted' as const : 'not_found' as const };
+    });
+  }
 
   recordDetailPageInputAssets(
     input: RecordDetailPageInputAssetsInput,
@@ -97,8 +162,8 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
     const where = {
       organizationId: input.organizationId,
       isDeleted: false,
-      ...(input.productId
-        ? { generationGroup: { targetMasterId: input.productId } }
+      ...(input.contentWorkspaceId
+        ? { originGenerationGroup: { contentWorkspaceId: input.contentWorkspaceId } }
         : {}),
       ...(input.generationId
         ? { usages: { some: { contentGenerationId: input.generationId } } }
@@ -113,7 +178,7 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
         take: input.limit,
         select: {
           id: true,
-          generationGroupId: true,
+          originGenerationGroupId: true,
           url: true,
           assetType: true,
           role: true,
@@ -122,14 +187,10 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
           metadata: true,
           createdAt: true,
           updatedAt: true,
-          generationGroup: {
+          originGenerationGroup: {
             select: {
-              targetMaster: {
-                select: {
-                  id: true,
-                  code: true,
-                  name: true,
-                },
+              contentWorkspace: {
+                select: { id: true, displayName: true },
               },
             },
           },
@@ -156,7 +217,7 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
       const hash = hashContentAssetUrl(url);
       return {
         organizationId: input.organizationId,
-        generationGroupId: input.generationGroupId,
+        originGenerationGroupId: input.generationGroupId,
         createdByUserId: input.createdByUserId,
         assetKey: groupUrlAssetKey(input.generationGroupId, url),
         url,
@@ -174,7 +235,7 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
     return scope.contentAsset.findMany({
       where: {
         organizationId: input.organizationId,
-        generationGroupId: input.generationGroupId,
+        originGenerationGroupId: input.generationGroupId,
         assetKey: { in: data.map((item) => item.assetKey) },
         isDeleted: false,
       },
@@ -198,13 +259,45 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
       contentAssetIds: string[];
     },
   ): Promise<void> {
+    const uniqueAssetIds = [...new Set(input.contentAssetIds)].sort();
+    const rawScope = scope as ContentAssetLibraryWriteScope & {
+      $queryRaw<T>(query: Prisma.Sql): Promise<T>;
+    };
+    const lockedGeneration = await rawScope.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id
+      FROM content_generations
+      WHERE id = ${input.contentGenerationId}::uuid
+        AND organization_id = ${input.organizationId}::uuid
+        AND is_deleted = false
+      FOR UPDATE
+    `);
+    if (lockedGeneration.length !== 1) {
+      throw new ConflictException(
+        'Content generation changed while usages were being updated.',
+      );
+    }
+    if (uniqueAssetIds.length > 0) {
+      const locked = await rawScope.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id
+        FROM content_assets
+        WHERE organization_id = ${input.organizationId}::uuid
+          AND id IN (${Prisma.join(uniqueAssetIds)})
+          AND is_deleted = false
+        ORDER BY id
+        FOR UPDATE
+      `);
+      if (locked.length !== uniqueAssetIds.length) {
+        throw new ConflictException(
+          'Content asset selection changed while usages were being updated.',
+        );
+      }
+    }
     await scope.contentGenerationAssetUsage.deleteMany({
       where: {
         organizationId: input.organizationId,
         contentGenerationId: input.contentGenerationId,
       },
     });
-    const uniqueAssetIds = [...new Set(input.contentAssetIds)];
     if (uniqueAssetIds.length === 0) return;
     await scope.contentGenerationAssetUsage.createMany({
       skipDuplicates: true,

@@ -15,18 +15,39 @@ export class ConfirmedOrdersRepositoryAdapter implements ConfirmedOrdersPort {
       where: { organizationId, status: 'confirmed' },
       include: {
         lineItems: {
-          include: { option: { select: { sku: true, optionName: true } } },
+          select: {
+            productName: true,
+            quantity: true,
+            listingOption: {
+              select: {
+                organizationId: true,
+                components: {
+                  select: {
+                    masterProductId: true,
+                    quantity: true,
+                    masterProduct: {
+                      select: {
+                        code: true,
+                        name: true,
+                        optionName: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       },
     });
     return rows.map((order) => ({
       id: order.id,
       lineItems: order.lineItems.map((li) => ({
-        optionId: li.optionId,
         productName: li.productName,
-        sku: li.sku,
         quantity: li.quantity,
-        option: li.option ? { sku: li.option.sku } : null,
+        listingOption: li.listingOption?.organizationId === organizationId
+          ? { components: li.listingOption.components }
+          : null,
       })),
     }));
   }

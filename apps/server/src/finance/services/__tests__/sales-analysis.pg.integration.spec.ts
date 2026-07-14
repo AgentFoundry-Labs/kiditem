@@ -141,15 +141,30 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
   it('perf baseline — 1000 orders + lineItems across 2 channels < 2s', async () => {
     const coup = await setupChannelFixture(TEST_ORGANIZATION_ID, 'coupang', 'PERF-C');
     const naver = await setupChannelFixture(TEST_ORGANIZATION_ID, 'naver', 'PERF-N');
-    const orderData = Array.from({ length: 1000 }, (_, i) => ({
-      organizationId: TEST_ORGANIZATION_ID,
-      externalOrderId: `PERF-${i}`,
-      platform: 'coupang',
-      orderedAt: new Date(`2026-04-${String((i % 28) + 1).padStart(2, '0')}T00:00:00Z`),
-      status: 'accepted',
-      totalPrice: 10000,
-      shippingPrice: 3000,
-    }));
+    const [coupListing, naverListing] = await Promise.all([
+      prisma.channelListing.findUniqueOrThrow({
+        where: { id: coup.listingId },
+        select: { channelAccountId: true },
+      }),
+      prisma.channelListing.findUniqueOrThrow({
+        where: { id: naver.listingId },
+        select: { channelAccountId: true },
+      }),
+    ]);
+    const orderData = Array.from({ length: 1000 }, (_, i) => {
+      const channelAccountId = i % 10 < 7
+        ? coupListing.channelAccountId
+        : naverListing.channelAccountId;
+      return {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId,
+        externalOrderId: `PERF-${i}`,
+        orderedAt: new Date(`2026-04-${String((i % 28) + 1).padStart(2, '0')}T00:00:00Z`),
+        status: 'accepted',
+        totalPrice: 10000,
+        shippingPrice: 3000,
+      };
+    });
     await prisma.order.createMany({ data: orderData });
     const orders = await prisma.order.findMany({
       where: { organizationId: TEST_ORGANIZATION_ID, externalOrderId: { startsWith: 'PERF-' } },
@@ -163,7 +178,6 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         quantity: 1,
         totalPrice: 10000,
-        optionId: target.optionId,
         listingOptionId: target.listingOptionId,
       }];
     });

@@ -334,9 +334,9 @@ does not deploy automatically; an operator triggers the workflow manually. Do
 not create a long-lived `staging` branch; staging is a GitHub Environment, not a
 separate source branch.
 
-Only the real deploy/rollback/status jobs declare GitHub Environment `staging`.
-Build and preparation jobs intentionally avoid it so GitHub creates a single
-staging deployment record for one `operation=deploy` run.
+Only deploy/finalize-rebuild/rollback/status jobs declare GitHub Environment
+`staging`. Build and preparation jobs intentionally avoid it. The destructive
+deploy and its later finalization are separately protected staging operations.
 
 The deployable app release is recorded in root [`VERSION`](../../VERSION).
 Package-local `version` fields are package metadata and are not the staging
@@ -372,37 +372,57 @@ deploy/staging/nginx.conf
 deploy/staging/remote-deploy.sh
 ```
 
-Before the EC2 image swap, the deploy job first runs pre-schema data migrations
-that must change existing database shape before Prisma sees the new schema:
+Normal deploys keep the ordered pre-schema migration, non-destructive
+`prisma db push`, and post-schema migration path. Release `0.1.8` also exposes
+one explicit authoritative rebuild path:
 
-```bash
-npm run data:migrate -- up --phase pre-schema
+```text
+operation: deploy
+deployment_target: staging
+destructive_reset: RESET_STAGING_DATA
 ```
 
-with `DATA_MIGRATION_TARGET=staging` and
-`DATA_MIGRATION_CONFIRM=APPLY_DATA_MIGRATIONS`. It then applies the Prisma
-schema to the staging Supabase database with `npx prisma db push`. The default
-workflow input keeps `accept_data_loss=false`, so destructive Prisma changes
-still block the deploy. A reviewed contract-cleanup deploy may set
-`accept_data_loss=true`, which runs `npx prisma db push --accept-data-loss` only
-for that manual staging run. Use it only after the expand/backfill release has a
-succeeded `data_migration_runs` ledger row and the PR explicitly calls out the
-columns or tables being dropped.
+The workflow validates the exact token inside GitHub Environment `staging`.
+The destructive order is: quiesce application traffic, export the selected
+Coupang account as sanitized replay payloads, upload the private one-day
+artifact, then cross the reset boundary by applying the final Prisma schema
+with `--force-reset`. Only after that does it create the configured
+organization, Supabase user mirror, active membership, and channel-account
+baseline. It then starts the application with
+`inventory.rebuild.status=snapshot_required`. No source workbook is read from
+the repository or stored in the artifact.
 
-After schema push, the workflow runs post-schema data migrations before the image
-swap so new application code starts with any required backfill already present:
+After the deploy finishes, an authenticated operator must:
 
-```bash
-npm run data:migrate -- up --phase post-schema
-```
+1. Open `/inventory-hub?tab=sellpia-sync` and import the approved Sellpia
+   workbook. Wait for a completed `sellpia_inventory` run.
+2. Open `/product-hub/matching`, choose the configured Coupang account, and
+   import the approved Wing workbook. Wait for a completed
+   `coupang_wing_catalog` run. Sellpia must complete first.
+3. Confirm the Environment variables `STAGING_REBUILD_EXPECTED_*` match the
+   approved import manifest, not a guessed or copied total.
+4. Trigger the same workflow with:
+
+   ```text
+   operation: finalize-rebuild
+   deployment_target: staging
+   destructive_reset: RESET_STAGING_DATA
+   rebuild_run_id: <originating deploy run ID>
+   ```
+
+Finalization downloads only that run's staging artifact, replays Coupang data
+through authenticated `POST /api/ads/extension/sync`, verifies the completed
+Sellpia/Wing import order and exact imported/replayed counts, and marks the
+environment ready. Missing credentials, imports, expected counts, artifact,
+or a target/run/count mismatch fails closed and keeps snapshot-required state.
 
 Each durable data migration is grouped by the application release in root
 [`VERSION`](../../VERSION) that requires it, for example
 `scripts/data-migrations/v0.1.0/001_<name>.ts`, and records a row in
 `data_migration_runs` with migration id, release version, status, git SHA,
 Prisma schema hash, affected rows, details, and error text when a run fails.
-After the new containers pass the EC2 smoke check, the
-workflow verifies the migration ledger with:
+After a normal non-destructive deploy passes the EC2 smoke check, the workflow
+verifies the migration ledger with:
 
 ```bash
 npm run data:migrate -- status
@@ -537,6 +557,7 @@ curl -I http://<ec2-public-ip>/login
 curl -I https://<real-staging-domain>/login
 curl -I https://<real-staging-domain>/api/auth/me
 npm run data:migrate -- status --database-url "$STAGING_DATABASE_URL"
+npm run inventory:rebuild -- guard # only with the exact GitHub Actions rebuild env
 ```
 
 Expected results:
@@ -555,9 +576,9 @@ Expected results:
   at `/product-pipeline/detail-pages/:generationId/editor`, with
   `sourceCandidateId` and `returnTo` query params when the source is a collected
   product.
-- Contract-cleanup deploys that intentionally dropped columns were run with
-  `accept_data_loss=true`, and the workflow log shows the explicit warning
-  before Prisma schema apply.
+- A guarded rebuild log records its origin run ID, one-day artifact, quiesce,
+  final-schema reset, minimum bootstrap, and snapshot-required state. A later
+  finalization log records exact import/replay acceptance before ready state.
 
 ## Blocker Criteria
 
@@ -572,10 +593,12 @@ Stop and report instead of guessing if:
     then be fixed or rerun from GitHub Actions so the file bind mount cannot
     keep a stale config inode.
 - Supabase connection errors mention the production project.
-- `npx prisma db push` reports destructive changes or asks for
-  `--accept-data-loss` during a normal deploy. Stop unless the PR is a reviewed
-  contract cleanup with confirmed backfill ledger rows; in that case rerun the
-  manual staging deploy with `accept_data_loss=true`.
+- `destructive_reset` is non-empty but is not exactly `RESET_STAGING_DATA`, or
+  `deployment_target` is not `staging`.
+- After traffic is quiesced, the private export is incomplete, contains a
+  disallowed payload, or cannot be uploaded before the reset boundary.
+- A finalization run cannot prove the originating run ID, protected
+  Environment, Sellpia-before-Wing import order, or every configured count.
 - `npm run data:migrate -- up` fails or writes a `failed` ledger row.
 - Any seed/import/baseline step would target production by accident.
 - DB baseline export/restore would use the public app asset bucket instead of
@@ -595,5 +618,7 @@ Report:
 - Supabase Storage bucket name used for staging.
 - DB baseline profile id and `deployments/current-db.json` state, if operated.
 - Data migration ledger statuses from `data_migration_runs`.
+- Rebuild origin run ID, snapshot-required/ready status, and exact acceptance
+  counts when the guarded rebuild path was used.
 - Compose service status.
 - Verification commands and results.

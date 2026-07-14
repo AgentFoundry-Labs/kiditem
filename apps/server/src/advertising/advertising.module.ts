@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AgentOsModule } from '../agent-os/agent-os.module';
 import { AutomationModule } from '../automation/automation.module';
+import { ChannelsModule } from '../channels/channels.module';
 
 import { AdvertisingActionsController } from './adapter/in/http/advertising-actions.controller';
 import { AdvertisingCampaignsController } from './adapter/in/http/advertising-campaigns.controller';
@@ -29,6 +30,7 @@ import { ChannelOptionDailyRepositoryAdapter } from './adapter/out/repository/ch
 import { ChannelTargetDailyRepositoryAdapter } from './adapter/out/repository/channel-target-daily.repository.adapter';
 // adapter/out/automation
 import { OperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
+import { AdIngestTransactionAdapter } from './adapter/out/repository/ad-ingest-transaction.adapter';
 
 // application/service + handlers
 import { AdvertisingService } from './application/service/advertising.service';
@@ -68,6 +70,7 @@ import { CHANNEL_LISTING_DAILY_REPOSITORY_PORT } from './application/port/out/re
 import { CHANNEL_OPTION_DAILY_REPOSITORY_PORT } from './application/port/out/repository/channel-option-daily.repository.port';
 import { CHANNEL_TARGET_DAILY_REPOSITORY_PORT } from './application/port/out/repository/channel-target-daily.repository.port';
 import { OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
+import { AD_INGEST_TRANSACTION_PORT } from './application/port/out/transaction/ad-ingest-transaction.port';
 
 // `application/port/out/*` ports bound to their adapters via `useExisting`
 // so application services depend on tokens, not concrete classes. Mirrors
@@ -87,10 +90,11 @@ const REPOSITORY_PORT_BINDINGS = [
   { provide: CHANNEL_OPTION_DAILY_REPOSITORY_PORT, useExisting: ChannelOptionDailyRepositoryAdapter },
   { provide: CHANNEL_TARGET_DAILY_REPOSITORY_PORT, useExisting: ChannelTargetDailyRepositoryAdapter },
   { provide: OPERATION_ALERT_PORT, useExisting: OperationAlertAdapter },
+  { provide: AD_INGEST_TRANSACTION_PORT, useExisting: AdIngestTransactionAdapter },
 ];
 
 @Module({
-  imports: [PrismaModule, AgentOsModule, AutomationModule],
+  imports: [PrismaModule, AgentOsModule, AutomationModule, ChannelsModule],
   controllers: [
     AdvertisingConfigController,
     AdvertisingOverviewController,
@@ -119,6 +123,7 @@ const REPOSITORY_PORT_BINDINGS = [
     ChannelTargetDailyRepositoryAdapter,
     // adapter/out/automation
     OperationAlertAdapter,
+    AdIngestTransactionAdapter,
     // application/service
     AdvertisingService,
     AdCampaignsService,

@@ -6,8 +6,9 @@ import { zIsoDate } from './common.js';
  *
  * Backend `SupplierStatsService` 의 `getSalesBySupplier` / `getProductSales` / `getHistory`
  * 리포트 응답과 프론트 supplier-hub 화면 파싱 계약을 함께 고정한다.
- * optionId-based aggregation (SupplierProduct(optionId) + MasterSupplierProduct(masterId)).
- * MasterSupplierProduct 경로는 schema 상 `supplyPrice` 필드 없으므로 nullable.
+ * ChannelListingOption recipe -> physical MasterProduct -> primary SupplierProduct
+ * aggregation contract. Bundle revenue is cost-weighted once; lines without a
+ * complete primary-supplier/cost policy are exposed as unallocated revenue.
  */
 
 export const SupplierSalesRowSchema = z.object({
@@ -26,6 +27,7 @@ export const SupplierSalesSummarySchema = z.object({
   totalOrders: z.number().int(),
   totalQuantity: z.number().int(),
   totalRevenue: z.number().int(),
+  unallocatedRevenue: z.number().int(),
 });
 export type SupplierSalesSummary = z.infer<typeof SupplierSalesSummarySchema>;
 
@@ -36,13 +38,11 @@ export const SupplierSalesReportSchema = z.object({
 export type SupplierSalesReport = z.infer<typeof SupplierSalesReportSchema>;
 
 export const SupplierProductSalesRowSchema = z.object({
-  optionId: z.string().uuid(),
-  sku: z.string().nullable(),
-  optionName: z.string().nullable(),
   masterId: z.string().uuid(),
   masterCode: z.string(),
   masterName: z.string(),
-  supplyPrice: z.number().int().nullable(),
+  optionName: z.string().nullable(),
+  supplyPrice: z.number().int(),
   minOrderQty: z.number().int(),
   totalOrders: z.number().int(),
   totalQuantity: z.number().int(),

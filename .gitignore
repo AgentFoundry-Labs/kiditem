@@ -75,6 +75,11 @@ coverage/
 
 # Codex local skill install target. Shared skill sources live under tools/codex/.
 .agents/
+.understand-anything/
+
+# Local marketplace/inventory workbooks — approved inputs stay off git.
+docs/references/Coupang_detailinfo_*.xlsx
+docs/references/exported-list*.xls*
 
 # Tools
 .claude-flow/
@@ -89,4 +94,5 @@ data/
 prisma/init.sql
 tools/telegram-bot/
 .superpowers/
+.worktrees/
 docs/superpowers/plans/

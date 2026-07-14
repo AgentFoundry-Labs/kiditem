@@ -1,9 +1,9 @@
 import type {
   AdAggregateRow,
   HydratedListing,
-  InventoryRow,
   ListingMetricsRow,
 } from './model/strategy-types';
+import type { ChannelSkuAvailabilityItem } from '@kiditem/shared/channel-sku-availability';
 
 /**
  * Pure helpers used to assemble strategy context. No Prisma, no NestJS DI.
@@ -112,22 +112,39 @@ export function adAggregatesToMetricSnapshots(adGroups: AdAggregateRow[]) {
   }));
 }
 
-/** InventoryRow map → listingId → first optionId (primary option). */
-export function firstOptionByListing(inventory: Map<string, InventoryRow>): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const [optionId, row] of inventory) {
-    if (!map.has(row.listingId)) map.set(row.listingId, optionId);
+export function computeChannelSkuPurchaseCost(
+  components: Array<{ purchasePrice: number | null; quantity: number }>,
+): number | null {
+  if (components.length === 0 || components.some((component) => component.purchasePrice === null)) {
+    return null;
   }
-  return map;
+  return components.reduce(
+    (total, component) => total + component.purchasePrice! * component.quantity,
+    0,
+  );
 }
 
-/** Sum of `availableStock` across all options that belong to a listing. */
-export function sumListingStock(inventory: Map<string, InventoryRow>, listingId: string): number {
-  let total = 0;
-  for (const row of inventory.values()) {
-    if (row.listingId === listingId) total += row.availableStock;
-  }
-  return total;
+export function applyChannelSkuAvailability(
+  listings: HydratedListing[],
+  availability: ChannelSkuAvailabilityItem[],
+): HydratedListing[] {
+  const availabilityBySkuId = new Map(
+    availability.map((item) => [item.sku.id, item]),
+  );
+  return listings.map((listing) => {
+    if (!listing.primaryOption) return listing;
+    const item = availabilityBySkuId.get(listing.primaryOption.listingOptionId);
+    if (!item) return listing;
+    return {
+      ...listing,
+      primaryOption: {
+        ...listing.primaryOption,
+        sellableStock: item.sku.sellableStock,
+        purchaseCost: computeChannelSkuPurchaseCost(item.components),
+        salePrice: item.sku.salePrice,
+      },
+    };
+  });
 }
 
 /**
@@ -135,15 +152,15 @@ export function sumListingStock(inventory: Map<string, InventoryRow>, listingId:
  * from the original ad-strategy.service. Note this is `× 100` for display,
  * unlike ad-grade-rules which uses a 0..1 ratio internally.
  */
-export function computeListingProfitRate(inv: InventoryRow | null): number {
-  if (!inv) return 0;
-  const sell = inv.sellPrice ?? 0;
+export function computeListingProfitRate(option: HydratedListing['primaryOption']): number {
+  if (!option) return 0;
+  const sell = option.salePrice ?? 0;
   if (sell <= 0) return 0;
   // Unknown cost is neutral for exposure scoring; treating it as free stock
   // would incorrectly boost the product as highly profitable.
-  if (inv.costPrice == null) return 0;
-  const cost = inv.costPrice;
-  const commission = inv.commissionRate != null ? Number(inv.commissionRate) : 0;
+  if (option.purchaseCost == null) return 0;
+  const cost = option.purchaseCost;
+  const commission = option.commissionRate != null ? Number(option.commissionRate) : 0;
   return Math.round(((sell - cost - sell * commission) / sell) * 100);
 }
 

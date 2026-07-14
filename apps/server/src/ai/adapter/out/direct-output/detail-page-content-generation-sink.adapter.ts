@@ -83,11 +83,6 @@ export class DetailPageContentGenerationSinkAdapter
 
     const row = await this.prisma.contentGeneration.findFirst({
       where: { id: input.sourceResourceId, organizationId: input.organizationId },
-      include: {
-        generationGroup: {
-          select: { targetMasterId: true },
-        },
-      },
     });
     if (!row) {
       this.logger.warn(
@@ -202,23 +197,23 @@ export class DetailPageContentGenerationSinkAdapter
 
   private async ensureDetailPageArtifact(input: {
     organizationId: string;
-    row: Prisma.ContentGenerationGetPayload<{
-      include: { generationGroup: { select: { targetMasterId: true } } };
-    }>;
+    row: {
+      id: string;
+      detailPageArtifactId: string | null;
+      contentWorkspaceId: string;
+      triggeredByUserId: string | null;
+    };
     productName: string;
     requestId: string;
     runId: string | undefined;
   }): Promise<string> {
     if (input.row.detailPageArtifactId) return input.row.detailPageArtifactId;
-    const contentWorkspaceId =
-      (input.row as { contentWorkspaceId?: string | null }).contentWorkspaceId ?? null;
+    const contentWorkspaceId = input.row.contentWorkspaceId;
 
     const artifact = await this.prisma.detailPageArtifact.create({
       data: {
         organizationId: input.organizationId,
         contentWorkspaceId,
-        sourceCandidateId: input.row.sourceCandidateId,
-        targetMasterId: input.row.generationGroup.targetMasterId,
         sourceContentGenerationId: input.row.id,
         title: input.productName,
         status: 'generated',
@@ -230,19 +225,17 @@ export class DetailPageContentGenerationSinkAdapter
       },
       select: { id: true },
     });
-    if (contentWorkspaceId) {
-      await (this.prisma as unknown as ContentWorkspaceWriter).contentWorkspace.updateMany({
-        where: {
-          id: contentWorkspaceId,
-          organizationId: input.organizationId,
-          isDeleted: false,
-        },
-        data: {
-          currentDetailPageArtifactId: artifact.id,
-          status: 'active',
-        },
-      });
-    }
+    await (this.prisma as unknown as ContentWorkspaceWriter).contentWorkspace.updateMany({
+      where: {
+        id: contentWorkspaceId,
+        organizationId: input.organizationId,
+        isDeleted: false,
+      },
+      data: {
+        currentDetailPageArtifactId: artifact.id,
+        status: 'active',
+      },
+    });
     return artifact.id;
   }
 

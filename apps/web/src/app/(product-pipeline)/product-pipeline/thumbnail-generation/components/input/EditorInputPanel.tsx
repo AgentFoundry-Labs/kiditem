@@ -28,6 +28,7 @@ interface Props {
   mode: EditorMode;
   editCase?: EditUseCase | null;
   productId: string | null;
+  contentWorkspaceId?: string | null;
   slots: Slot[];
   onSlotsChange: (updater: (prev: Slot[]) => Slot[]) => void;
   fallbackProductImage?: string | null;
@@ -65,6 +66,7 @@ export function EditorInputPanel({
   mode,
   editCase = null,
   productId,
+  contentWorkspaceId = null,
   slots,
   onSlotsChange,
   fallbackProductImage = null,
@@ -247,6 +249,7 @@ export function EditorInputPanel({
                 <SlotCard
                   slot={productSlot}
                   productId={productId}
+                  contentWorkspaceId={contentWorkspaceId}
                   hubImages={hubImages}
                   hubImagesLoading={hubImagesLoading}
                   fallbackValue={fallbackProductImage}
@@ -274,6 +277,7 @@ export function EditorInputPanel({
                 <SlotCard
                   slot={packagingSlot}
                   productId={productId}
+                  contentWorkspaceId={contentWorkspaceId}
                   hubImages={hubImages}
                   hubImagesLoading={hubImagesLoading}
                   onPickSlot={pickSlot}
@@ -299,6 +303,7 @@ export function EditorInputPanel({
                   key={slot.id}
                   slot={slot}
                   productId={productId}
+                  contentWorkspaceId={contentWorkspaceId}
                   hubImages={hubImages}
                   hubImagesLoading={hubImagesLoading}
                   onPickSlot={pickSlot}
@@ -311,6 +316,7 @@ export function EditorInputPanel({
                 <AddSlotTile
                   role="color_variant"
                   productId={productId}
+                  contentWorkspaceId={contentWorkspaceId}
                   hubImages={hubImages}
                   hubImagesLoading={hubImagesLoading}
                   remainingSlots={(GROUP_MAX.color_variant ?? 8) - countByKind(slots, 'color_variant')}
@@ -340,6 +346,7 @@ export function EditorInputPanel({
                   key={slot.id}
                   slot={slot}
                   productId={productId}
+                  contentWorkspaceId={contentWorkspaceId}
                   hubImages={hubImages}
                   hubImagesLoading={hubImagesLoading}
                   availableTabs={['upload', 'other']}
@@ -353,6 +360,7 @@ export function EditorInputPanel({
                 <AddSlotTile
                   role="bundle_item"
                   productId={productId}
+                  contentWorkspaceId={contentWorkspaceId}
                   hubImages={hubImages}
                   hubImagesLoading={hubImagesLoading}
                   availableTabs={['upload', 'other']}
@@ -375,6 +383,7 @@ export function EditorInputPanel({
               <SlotCard
                 slot={productSlot}
                 productId={productId}
+                contentWorkspaceId={contentWorkspaceId}
                 hubImages={hubImages}
                 hubImagesLoading={hubImagesLoading}
                 fallbackValue={fallbackProductImage}
@@ -473,6 +482,7 @@ export function EditorInputPanel({
                 <SlotCard
                   slot={productSlot}
                   productId={productId}
+                  contentWorkspaceId={contentWorkspaceId}
                   hubImages={hubImages}
                   hubImagesLoading={hubImagesLoading}
                   fallbackValue={fallbackProductImage}
@@ -490,6 +500,7 @@ export function EditorInputPanel({
                 <SlotCard
                   slot={referenceSlot}
                   productId={productId}
+                  contentWorkspaceId={contentWorkspaceId}
                   hubImages={hubImages}
                   hubImagesLoading={hubImagesLoading}
                   onPickSlot={pickSlot}

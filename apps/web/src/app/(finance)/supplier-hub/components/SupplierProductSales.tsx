@@ -111,7 +111,7 @@ export default function SupplierProductSales() {
             </thead>
             <tbody >
               {products.map((p) => (
-                  <tr key={p.optionId} className="hover:bg-slate-50">
+                  <tr key={p.masterId} className="hover:bg-slate-50">
                     <td className="px-4 py-3 font-medium text-slate-900 max-w-[200px] truncate">{p.masterName}{p.optionName ? ` / ${p.optionName}` : ''}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{p.supplyPrice == null ? '-' : formatKRW(p.supplyPrice)}</td>
                     <td className="px-4 py-3 text-right tabular-nums font-semibold">{formatKRW(p.totalRevenue)}</td>

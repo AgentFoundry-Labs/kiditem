@@ -20,54 +20,85 @@ describe('AdAction flow (PG integration)', () => {
   async function seedListingWithOption(params: {
     organizationId: string;
     abcGrade?: string | null;
-    availableStock?: number | null;
+    sellableStock?: number | null;
     costPrice?: number | null;
     sellPrice?: number | null;
     commissionRate?: number | null;
     externalIdSuffix?: string;
   }) {
     const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const channelAccount =
+      (await prisma.channelAccount.findFirst({
+        where: {
+          organizationId: params.organizationId,
+          channel: 'coupang',
+          externalAccountId: 'advertising-pg',
+        },
+      })) ??
+      (await prisma.channelAccount.create({
+        data: {
+          organizationId: params.organizationId,
+          channel: 'coupang',
+          name: 'Advertising PG Coupang',
+          externalAccountId: 'advertising-pg',
+          isPrimary: true,
+        },
+      }));
+    const importRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: params.organizationId,
+        sourceType: 'coupang_wing_catalog',
+        channelAccountId: channelAccount.id,
+        fileName: 'advertising-pg.xlsx',
+        fileHash: `advertising-pg-${unique}`,
+        status: 'completed',
+        rowCount: 1,
+        importedAt: new Date(),
+      },
+    });
     const master = await prisma.masterProduct.create({
       data: {
         organizationId: params.organizationId,
         code: `M-${unique}`,
         name: `Master ${unique}`,
-        abcGrade: params.abcGrade ?? null,
-        optionCounter: 0,
-      },
-    });
-    const option = await prisma.productOption.create({
-      data: {
-        organizationId: params.organizationId,
-        masterId: master.id,
-        sku: `SKU-${unique}`,
-        optionName: `Option ${unique}`,
-        availableStock: params.availableStock ?? null,
-        costPrice: params.costPrice ?? null,
-        sellPrice: params.sellPrice ?? null,
-        commissionRate: params.commissionRate ?? null,
+        currentStock: params.sellableStock ?? 0,
+        purchasePrice: params.costPrice ?? null,
       },
     });
     const listing = await prisma.channelListing.create({
       data: {
         organizationId: params.organizationId,
-        masterId: master.id,
-        channel: 'coupang',
+        channelAccountId: channelAccount.id,
         externalId: `EXT-${unique}${params.externalIdSuffix ?? ''}`,
+        lastImportRunId: importRun.id,
+        abcGrade: params.abcGrade ?? null,
       },
     });
-    // H3 — AdAction's $queryRaw joins target-daily → channel_listing_options
-    // → product_options to surface ABC grade + option pricing. Make sure the
-    // ChannelListingOption row exists so the join lands.
     const listingOption = await prisma.channelListingOption.create({
       data: {
         organizationId: params.organizationId,
         listingId: listing.id,
-        optionId: option.id,
         externalOptionId: `VID-${unique}`,
+        salePrice: params.sellPrice ?? null,
+        costPriceOverride: params.costPrice ?? null,
+        commissionRate: params.commissionRate ?? null,
+        mappingStatus: params.sellableStock == null ? 'unmatched' : 'matched',
+        lastImportRunId: importRun.id,
         isActive: true,
       },
     });
+    if (params.sellableStock != null) {
+      await prisma.channelSkuComponent.create({
+        data: {
+          organizationId: params.organizationId,
+          channelSkuId: listingOption.id,
+          masterProductId: master.id,
+          quantity: 1,
+          mappingSource: 'test',
+        },
+      });
+    }
+    const option = listingOption;
     return { master, option, listing, listingOption };
   }
 
@@ -131,7 +162,6 @@ describe('AdAction flow (PG integration)', () => {
         targetKey,
         listingId: params.listingId,
         listingOptionId: params.listingOptionId ?? null,
-        optionId: params.optionId ?? null,
         externalId: params.externalId,
         campaignName: params.campaignName ?? null,
         keyword: params.keyword ?? null,
@@ -176,7 +206,7 @@ describe('AdAction flow (PG integration)', () => {
       const { listing, option, listingOption } = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
-        availableStock: 0,
+        sellableStock: 0,
       });
       await seedSnapshot({
         organizationId: TEST_ORGANIZATION_ID,
@@ -288,7 +318,7 @@ describe('AdAction flow (PG integration)', () => {
       const { listing, option, listingOption } = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
-        availableStock: 100,
+        sellableStock: 100,
       });
       await seedSnapshot({
         organizationId: TEST_ORGANIZATION_ID,
@@ -318,7 +348,7 @@ describe('AdAction flow (PG integration)', () => {
       const { listing, option, listingOption } = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'C',
-        availableStock: 50,
+        sellableStock: 50,
       });
       await seedSnapshot({
         organizationId: TEST_ORGANIZATION_ID,
@@ -349,7 +379,7 @@ describe('AdAction flow (PG integration)', () => {
       const { listing, option, listingOption } = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
-        availableStock: 0,
+        sellableStock: 0,
       });
       await seedSnapshot({
         organizationId: TEST_ORGANIZATION_ID,
@@ -384,7 +414,7 @@ describe('AdAction flow (PG integration)', () => {
       const { listing, option, listingOption } = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
-        availableStock: 0,
+        sellableStock: 0,
       });
       await seedSnapshot({
         organizationId: TEST_ORGANIZATION_ID,
@@ -428,7 +458,7 @@ describe('AdAction flow (PG integration)', () => {
       const { listing, option, listingOption } = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
-        availableStock: 0,
+        sellableStock: 0,
       });
       await seedSnapshot({
         organizationId: TEST_ORGANIZATION_ID,
@@ -458,7 +488,7 @@ describe('AdAction flow (PG integration)', () => {
       const { listing, option, listingOption } = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
-        availableStock: 0,
+        sellableStock: 0,
       });
       await seedSnapshot({
         organizationId: TEST_ORGANIZATION_ID,
@@ -490,7 +520,7 @@ describe('AdAction flow (PG integration)', () => {
       const mine = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
-        availableStock: 0,
+        sellableStock: 0,
       });
       await seedSnapshot({
         organizationId: TEST_ORGANIZATION_ID,
@@ -506,7 +536,7 @@ describe('AdAction flow (PG integration)', () => {
       const other = await seedListingWithOption({
         organizationId: OTHER_ORGANIZATION_ID,
         abcGrade: 'B',
-        availableStock: 0,
+        sellableStock: 0,
         externalIdSuffix: '-other',
       });
       await seedSnapshot({
@@ -529,38 +559,31 @@ describe('AdAction flow (PG integration)', () => {
       expect(otherCount).toBe(0);
     });
 
-    it('#12 generateActions does not propagate cross-tenant listing references from corrupt target rows', async () => {
+    it('#12 composite tenant FK rejects cross-tenant listing references', async () => {
       const foreign = await seedListingWithOption({
         organizationId: OTHER_ORGANIZATION_ID,
         abcGrade: 'A',
       });
-      const corruptTarget = await seedSnapshot({
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: foreign.listing.id,
-        listingOptionId: foreign.listingOption.id,
-        optionId: foreign.option.id,
-        pageType: 'keyword',
-        externalId: 'CORRUPT-KW',
-        keyword: 'corrupt keyword',
-        spend: 6000,
-        conversions: 0,
-      });
-
-      const result = await adActionService.generateActions(TEST_ORGANIZATION_ID);
-
-      expect(result.generated).toBe(1);
-      const action = await prisma.adAction.findFirstOrThrow({
-        where: { organizationId: TEST_ORGANIZATION_ID },
-      });
-      expect(action.adTargetDailyId).toBe(corruptTarget.id);
-      expect(action.listingId).toBeNull();
+      await expect(
+        seedSnapshot({
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId: foreign.listing.id,
+          listingOptionId: foreign.listingOption.id,
+          optionId: foreign.option.id,
+          pageType: 'keyword',
+          externalId: 'CORRUPT-KW',
+          keyword: 'corrupt keyword',
+          spend: 6000,
+          conversions: 0,
+        }),
+      ).rejects.toThrow(/foreign key/i);
     });
 
     it('#13 markRunning on another tenant id → NotFoundException', async () => {
       const other = await seedListingWithOption({
         organizationId: OTHER_ORGANIZATION_ID,
         abcGrade: 'B',
-        availableStock: 0,
+        sellableStock: 0,
       });
       await seedSnapshot({
         organizationId: OTHER_ORGANIZATION_ID,

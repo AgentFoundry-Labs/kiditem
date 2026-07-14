@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ChannelReconciliationService } from '../../../../application/service/channel-reconciliation.service';
 import { ChannelSyncService } from '../../../../application/service/channel-sync.service';
 
 const ORGANIZATION_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
@@ -105,59 +104,6 @@ describe('ChannelSyncService operation alerts', () => {
       expect.objectContaining({
         href: '/orders',
         metadata: { error: 'Coupang timeout' },
-      }),
-    );
-  });
-});
-
-describe('ChannelReconciliationService operation alerts', () => {
-  it('wraps image-listing queue rebuild in an operation alert', async () => {
-    const operationAlerts = makeOperationAlerts();
-    const service = new ChannelReconciliationService(
-      {} as never,
-      {} as never,
-      {} as never,
-      operationAlerts as never,
-    );
-    vi.spyOn(service, 'syncFromImageSyncedListings').mockResolvedValue({
-      runId: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
-      totalCount: 5,
-      alreadyLinkedCount: 2,
-      autoLinkedCount: 1,
-      needsReviewCount: 1,
-      conflictCount: 1,
-      errorCount: 0,
-      optionLinkedCount: 3,
-      optionLinkAmbiguousCount: 0,
-      optionLinkNoCandidateCount: 1,
-    });
-
-    await service.syncFromImageSyncedListingsWithAlert(ORGANIZATION_ID, USER.id);
-
-    expect(operationAlerts.start).toHaveBeenCalledWith(
-      expect.objectContaining({
-        organizationId: ORGANIZATION_ID,
-        actorUserId: USER.id,
-        operationKey: 'channel-reconciliation:sync-from-image-listings',
-        type: 'channel_reconciliation_sync',
-        title: '이미지 동기화 데이터 점검',
-        sourceType: 'channel_reconciliation',
-        sourceId: 'sync-from-image-listings',
-        href: '/product-hub/matching',
-      }),
-    );
-    expect(operationAlerts.succeed).toHaveBeenCalledWith(
-      ORGANIZATION_ID,
-      'channel-reconciliation:sync-from-image-listings',
-      expect.objectContaining({
-        href: '/product-hub/matching',
-        severity: 'warning',
-        metadata: expect.objectContaining({
-          runId: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
-          totalCount: 5,
-          needsReviewCount: 1,
-          conflictCount: 1,
-        }),
       }),
     );
   });

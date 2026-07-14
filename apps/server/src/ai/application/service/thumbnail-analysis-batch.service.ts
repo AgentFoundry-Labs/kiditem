@@ -5,7 +5,6 @@ import type {
   ThumbnailAnalysisResult,
 } from '@kiditem/shared/ai';
 import type { AnalysisScope } from './thumbnail-analysis-requests';
-import { resolveMasterThumbnailImage } from '../../domain/thumbnail-master-image';
 import {
   ThumbnailVisionAiService,
   type ThumbnailAiItem,
@@ -14,7 +13,7 @@ import { ThumbnailRecomposeService } from './thumbnail-recompose.service';
 import {
   THUMBNAIL_ANALYSIS_REPOSITORY_PORT,
   type ThumbnailAnalysisComplianceFacet,
-  type ThumbnailAnalysisMasterRow,
+  type ThumbnailAnalysisWorkspaceRow,
   type ThumbnailAnalysisQualityFacet,
   type ThumbnailAnalysisRepositoryPort,
 } from '../port/out/repository/thumbnail-analysis.repository.port';
@@ -70,21 +69,20 @@ export class ThumbnailAnalysisBatchService {
     const results: ThumbnailAnalysisResult[] = [];
 
     try {
-      const masters = await this.repository.findMastersForBatch(productIds, organizationId);
-      const masterMap = new Map(masters.map((m) => [m.id, m]));
+      const workspaces = await this.repository.findWorkspacesForBatch(productIds, organizationId);
+      const workspaceMap = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
 
       // 표시 가능한 이미지가 있는 product 만 vision batch 대상.
       const items: ThumbnailAiItem[] = [];
       for (const productId of productIds) {
-        const master = masterMap.get(productId);
-        if (!master) continue;
-        const imageUrl = resolveMasterThumbnailImage(master);
-        if (!imageUrl) continue;
+        const workspace = workspaceMap.get(productId);
+        if (!workspace) continue;
+        const imageUrl = workspace.imageUrl;
         items.push({
-          productId: master.id,
-          productName: master.name,
+          productId: workspace.id,
+          productName: workspace.name,
           imageUrl,
-          category: master.category ?? null,
+          category: workspace.category ?? null,
         });
       }
 
@@ -114,11 +112,11 @@ export class ThumbnailAnalysisBatchService {
           // verifier 쪽이 동시 호출 부담 — 안정성 우선 sequential.
           for (const item of chunk) {
             if (signal.aborted) break;
-            const master = masterMap.get(item.productId);
-            if (!master) continue;
+            const workspace = workspaceMap.get(item.productId);
+            if (!workspace) continue;
             try {
               const saved = await this.persistChunkResult({
-                master,
+                workspace,
                 imageUrl: item.imageUrl,
                 scope,
                 qualityResult: qualityMap.get(item.productId),
@@ -216,7 +214,7 @@ export class ThumbnailAnalysisBatchService {
    * shape 의 row 반환.
    */
   private async persistChunkResult(input: {
-    master: ThumbnailAnalysisMasterRow & { name: string; category: string | null; createdAt: Date };
+    workspace: ThumbnailAnalysisWorkspaceRow;
     imageUrl: string;
     scope: AnalysisScope;
     qualityResult: ThumbnailAnalysisQualityFacet | undefined;
@@ -225,16 +223,16 @@ export class ThumbnailAnalysisBatchService {
     organizationId: string;
     signal?: AbortSignal;
   }): Promise<ThumbnailAnalysisResult | null> {
-    const { master, imageUrl, scope, qualityResult, complianceResult, recompose, organizationId, signal } = input;
+    const { workspace, imageUrl, scope, qualityResult, complianceResult, recompose, organizationId, signal } = input;
     const wantsQuality = scope === 'all' || scope === 'quality';
     const wantsCompliance = scope === 'all' || scope === 'compliance';
 
     if (wantsQuality && !qualityResult) {
       // quality 결과 누락은 partial-success. 다른 chunk product 영향 없음.
-      this.logger.warn(`persistChunkResult: quality result missing for ${master.id}`);
+      this.logger.warn(`persistChunkResult: quality result missing for ${workspace.id}`);
     }
     if (wantsCompliance && !complianceResult) {
-      this.logger.warn(`persistChunkResult: compliance result missing for ${master.id}`);
+      this.logger.warn(`persistChunkResult: compliance result missing for ${workspace.id}`);
     }
 
     // imageSpec 은 chunk batch 결과에 없음 — sharp pixel mask 가 별도라
@@ -244,12 +242,12 @@ export class ThumbnailAnalysisBatchService {
       try {
         imageSpec = await this.vision.checkImageSpec(imageUrl);
       } catch (err) {
-        this.logger.warn(`imageSpec skip ${master.id}: ${err instanceof Error ? err.message : String(err)}`);
+        this.logger.warn(`imageSpec skip ${workspace.id}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
     const upserted = await this.repository.upsertAnalysis({
-      masterId: master.id,
+      contentWorkspaceId: workspace.id,
       organizationId,
       imageUrl,
       qualityResult,
@@ -257,7 +255,7 @@ export class ThumbnailAnalysisBatchService {
       imageSpec,
       recompose,
     });
-    return toAnalysisResult(upserted, master);
+    return toAnalysisResult(upserted, workspace);
   }
 
   private isAbortError(err: unknown): boolean {

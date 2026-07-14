@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildRegistrationThumbnailOptions,
+  selectedThumbnailGenerationId,
   selectedThumbnailGenerationCandidateId,
 } from './registration-selection';
 
@@ -10,6 +11,7 @@ describe('sourcing registration thumbnail selection', () => {
       sourceImageUrls: ['https://cdn.example.com/source-a.jpg', 'https://cdn.example.com/source-b.jpg'],
       generations: [
         {
+          id: 'generated-generation-1',
           candidates: [
             { id: 'generated-candidate-1', url: 'https://cdn.example.com/generated-a.jpg' },
           ],
@@ -22,11 +24,18 @@ describe('sourcing registration thumbnail selection', () => {
       { url: 'https://cdn.example.com/source-b.jpg', kind: 'source' },
       { url: 'https://cdn.example.com/generated-a.jpg', kind: 'generated' },
     ]);
+    expect(options[2]).toEqual({
+      url: 'https://cdn.example.com/generated-a.jpg',
+      kind: 'generated',
+      generatedGenerationId: 'generated-generation-1',
+      generatedCandidateId: 'generated-candidate-1',
+    });
   });
 
   it('resolves a generated candidate id only after the operator explicitly selects that URL', () => {
     const generations = [
       {
+        id: 'generated-generation-1',
         candidates: [
           { id: 'generated-candidate-1', url: 'https://cdn.example.com/generated-a.jpg' },
         ],
@@ -40,5 +49,8 @@ describe('sourcing registration thumbnail selection', () => {
     expect(
       selectedThumbnailGenerationCandidateId('https://cdn.example.com/generated-a.jpg', generations),
     ).toBe('generated-candidate-1');
+    expect(
+      selectedThumbnailGenerationId('https://cdn.example.com/generated-a.jpg', generations),
+    ).toBe('generated-generation-1');
   });
 });

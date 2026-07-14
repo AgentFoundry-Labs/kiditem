@@ -1,29 +1,32 @@
 'use client';
 
-import { AlertTriangle } from 'lucide-react';
+import { useState } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { Gauge } from 'lucide-react';
+import { queryKeys } from '@/lib/query-keys';
+import { formatNumber } from '@/lib/utils';
+import { channelSkuAvailabilityKeyParams, listChannelSkuAvailability } from '../../_shared/inventory-api';
+import { ErrorState, LoadingState, ProjectionCard, SimpleTable } from './ZeroItems';
 
 export default function DeadStock() {
-  return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-xl border border-slate-200 p-8">
-        <div className="flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
-          <div className="space-y-2">
-            <h2 className="text-lg font-semibold text-slate-800">
-              악성재고 분석은 준비 중입니다
-            </h2>
-            <p className="text-sm text-slate-600 leading-relaxed">
-              악성재고 판정은 판매속도 / 최종판매일 지표 연결 후 제공됩니다.
-              현재 재고 상태(<code className="px-1 rounded bg-slate-100 text-slate-700">healthy</code>
-              {' / '}
-              <code className="px-1 rounded bg-slate-100 text-slate-700">low</code>
-              {' / '}
-              <code className="px-1 rounded bg-slate-100 text-slate-700">out</code>)
-              만으로는 악성재고를 판정하지 않습니다.
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  const [page, setPage] = useState(1);
+  const params = { status: 'all' as const, hasBottleneck: true, page, limit: 100 };
+  const { data, isLoading, error } = useQuery({
+    queryKey: queryKeys.channelSkuAvailability.list(channelSkuAvailabilityKeyParams(params)),
+    queryFn: () => listChannelSkuAvailability(params),
+    placeholderData: keepPreviousData,
+  });
+  const rows = (data?.items ?? []).flatMap((item) => item.components
+    .filter((component) => component.isBottleneck)
+    .map((component) => [
+      item.channelAccount.name,
+      item.sku.optionName ?? item.sku.sellerSku ?? item.sku.externalSkuId,
+      component.code,
+      `${formatNumber(component.currentStock)}개 ÷ ${formatNumber(component.quantity)}`,
+      `${formatNumber(component.componentCapacity)}개`,
+    ]));
+
+  return <ProjectionCard title="구성품 병목" description="서버가 계산한 채널 SKU별 최저 구성품 용량입니다. 화면에서 재고 공식을 다시 계산하지 않습니다." icon={Gauge}>
+    {error ? <ErrorState /> : isLoading ? <LoadingState /> : <SimpleTable headings={['채널', '옵션 SKU', '병목 Sellpia 코드', '현재고 / 필요수량', '구성품 용량']} rows={rows} empty="확인할 병목 구성품이 없습니다." pagination={{ page: data?.page ?? page, limit: data?.limit ?? 100, total: data?.total ?? 0, onPageChange: setPage }} />}
+  </ProjectionCard>;
 }

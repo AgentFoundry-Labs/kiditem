@@ -20,7 +20,6 @@ import type { ProductEditState } from '../../../lib/product-workspace-types';
 interface ThumbnailWorkspaceTabProps {
   editData: ProductEditState;
   productId: string;
-  promotedMasterId: string | null;
   contentWorkspaceId?: string | null;
   thumbnailUrl?: string | null;
   thumbnailSourceCandidateId?: string | null;
@@ -33,11 +32,11 @@ interface ThumbnailWorkspaceTabProps {
     selectedThumbnail: RegistrationThumbnailOption | null;
   }) => Promise<void> | void;
   thumbnailGenerationReturnHref: string;
+  canSaveConfiguration?: boolean;
 }
 
 export default function ThumbnailWorkspaceTab({
   editData,
-  promotedMasterId,
   contentWorkspaceId = null,
   thumbnailUrl = null,
   thumbnailSourceCandidateId = null,
@@ -47,6 +46,7 @@ export default function ThumbnailWorkspaceTab({
   onThumbnailPreviewImagesChange,
   onSaveThumbnailConfiguration,
   thumbnailGenerationReturnHref,
+  canSaveConfiguration = true,
 }: ThumbnailWorkspaceTabProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -61,8 +61,7 @@ export default function ThumbnailWorkspaceTab({
       null,
   );
   const thumbnailGenerations = useSourcingThumbnailGenerations({
-    productId: promotedMasterId,
-    sourceCandidateId: promotedMasterId ? null : thumbnailSourceCandidateId,
+    sourceCandidateId: thumbnailSourceCandidateId,
     contentWorkspaceId,
   });
   const sourceOptions = useMemo(
@@ -138,8 +137,7 @@ export default function ThumbnailWorkspaceTab({
       productDescription: editData.name,
       extraParams: {
         uploadKey,
-        productId: promotedMasterId,
-        sourceCandidateId: promotedMasterId ? null : thumbnailSourceCandidateId,
+        sourceCandidateId: thumbnailSourceCandidateId,
         contentWorkspaceId,
         fullPage: '1',
       },
@@ -205,6 +203,7 @@ export default function ThumbnailWorkspaceTab({
     ({
       url,
       kind: 'source',
+      generatedGenerationId: null,
       generatedCandidateId: null,
     } satisfies RegistrationThumbnailOption);
 
@@ -241,6 +240,7 @@ export default function ThumbnailWorkspaceTab({
         }}
         onEditSelectedImage={() => openEditor('edit')}
         onSaveConfiguration={handleSaveConfiguration}
+        canSaveConfiguration={canSaveConfiguration}
         onRegisterRepresentative={handleRegisterRepresentative}
         onAddImages={handleAddImages}
         onRemoveImage={handleRemovePreviewImage}

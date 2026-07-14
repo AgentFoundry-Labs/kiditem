@@ -85,6 +85,7 @@
 
   function pickNameFromRow(row) {
     const direct =
+      row.querySelector("a.ip-title") ||
       row.querySelector("td.column-info .item-title") ||
       row.querySelector('[class*="item-title"]') ||
       row.querySelector('[class*="product-name"]') ||
@@ -189,6 +190,66 @@
     return rows;
   }
 
+  function parseCatalogDiscoveryPage() {
+    const collector = globalThis.KidItemCoupangCatalog;
+    if (!collector) {
+      return { success: false, error: "쿠팡 카탈로그 수집 모듈을 불러오지 못했습니다" };
+    }
+    if (isLoginPage()) {
+      return { success: false, pendingLogin: true, error: "쿠팡 Wing 로그인이 필요합니다" };
+    }
+
+    const rows = Array.from(
+      document.querySelectorAll("tr.inventory-line[data-inventory]"),
+    );
+    const records = rows.map((row) => {
+      const image =
+        row.querySelector("td.column-image img[src]") ||
+        row.querySelector('img[src*="coupangcdn.com"]') ||
+        row.querySelector("img[src]");
+      return {
+        externalProductId: row.getAttribute("data-inventory")?.trim() || "",
+        registeredName: pickNameFromRow(row) || null,
+        primaryImageUrl: collector.normalizeImageUrl(
+          image?.getAttribute("src") || image?.src || "",
+        ),
+      };
+    }).filter((record) => record.externalProductId);
+
+    if (records.length === 0) {
+      return { success: false, error: "Wing 등록상품 행을 찾을 수 없습니다" };
+    }
+    const missingTitle = records.find((record) => !record.registeredName);
+    if (missingTitle) {
+      return {
+        success: false,
+        error: `Wing 상품명 선택자(a.ip-title)가 비어 있습니다: ${missingTitle.externalProductId}`,
+      };
+    }
+
+    const bodyText = document.body?.innerText || "";
+    const totalMatch =
+      bodyText.match(/(?:전체|총)\s*([\d,]+)\s*(?:건|개)/) ||
+      bodyText.match(/([\d,]+)\s*(?:건|개)\s*(?:의|중)/);
+    const totalItems = totalMatch
+      ? Number(totalMatch[1].replace(/,/g, ""))
+      : null;
+    const url = new URL(location.href);
+    const page = Number(url.searchParams.get("page") || "1");
+    const pageSize = Number(url.searchParams.get("countPerPage") || records.length);
+    if (!Number.isInteger(totalItems) || totalItems <= 0) {
+      return { success: false, error: "Wing 전체 등록상품 수를 확인할 수 없습니다" };
+    }
+
+    return {
+      success: true,
+      page,
+      pageSize,
+      totalItems,
+      records,
+    };
+  }
+
   async function scrapeImagePage() {
     if (isLoginPage()) {
       return {
@@ -224,6 +285,18 @@
 
   // ── 총 페이지 수 추출 ──
   function getTotalPages() {
+    const bodyText = document.body?.innerText || "";
+    const totalMatch =
+      bodyText.match(/(?:전체|총)\s*([\d,]+)\s*(?:건|개)/) ||
+      bodyText.match(/([\d,]+)\s*(?:건|개)\s*(?:의|중)/);
+    if (totalMatch) {
+      const totalCount = Number(totalMatch[1].replace(/,/g, ""));
+      const perPage = Number(new URL(location.href).searchParams.get("countPerPage")) || 50;
+      if (Number.isInteger(totalCount) && totalCount > 0) {
+        return Math.ceil(totalCount / perPage);
+      }
+    }
+
     // 페이지네이션 영역에서 마지막 페이지 번호
     const pageLinks = document.querySelectorAll('[class*="pagination"] a, [class*="paging"] a, [class*="page-num"], .pagination a, .paging a, [class*="page"] button, [class*="page"] a');
     let max = 1;
@@ -387,6 +460,18 @@
     if (msg.action === "scrapeInventoryImagePage") {
       scrapeImagePage().then(sendResponse);
       return true; // async
+    }
+
+    if (msg.action === "collectCoupangCatalogDiscoveryPage") {
+      waitForSelector("tr.inventory-line[data-inventory]", 20000)
+        .then(() => sleep(500))
+        .then(() => parseCatalogDiscoveryPage())
+        .then(sendResponse)
+        .catch((error) => sendResponse({
+          success: false,
+          error: error?.message || "Wing 등록상품 페이지 수집 실패",
+        }));
+      return true;
     }
 
     if (msg.action === "scrapeInventoryList") {

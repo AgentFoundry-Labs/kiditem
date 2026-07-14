@@ -26,18 +26,22 @@ export type ActionCandidate = {
   payload: Record<string, unknown>;
 };
 
+export type ChannelSkuAdEvidence = {
+  sellableStock: number | null;
+  purchaseCost: number | null;
+  salePrice: number | null;
+};
+
 /**
  * Derive a candidate from one latest target-daily row. Implements the 5
  * rules over the target-daily column shape.
  *
- * `optionDailyStockMap` provides the latest channel-observed `stockQty` per
- * `listingOptionId` so Rule 1 can fire even when the in-memory live
- * `ProductOption.availableStock` is non-zero (channel may have observed
- * sold-out before our internal counter updated).
+ * `channelSkuCapacityMap` provides canonical component-derived capacity per
+ * `listingOptionId`. `null` means mapping/stock evidence is unknown.
  */
 export function createActionCandidate(
   row: LatestTargetRow,
-  optionDailyStockMap: Map<string, number | null>,
+  channelSkuEvidenceMap: Map<string, ChannelSkuAdEvidence>,
 ): ActionCandidate | null {
   const grade = row.abcGrade || 'C';
   // Per-row ROAS for rule decisions — daily target row holds today's revenue
@@ -46,8 +50,12 @@ export function createActionCandidate(
   // ratio that may live in metaJson).
   const roas = recomputeRoas(row.revenue, row.spend) ?? 0;
   const profitRateNum = calcProfitRate({
-    costPrice: row.optionCostPrice,
-    sellPrice: row.optionSellPrice,
+    costPrice: row.listingOptionId
+      ? channelSkuEvidenceMap.get(row.listingOptionId)?.purchaseCost ?? null
+      : null,
+    sellPrice: row.listingOptionId
+      ? channelSkuEvidenceMap.get(row.listingOptionId)?.salePrice ?? null
+      : null,
     commissionRate: row.optionCommissionRate,
   });
   const targetLabel =
@@ -65,16 +73,8 @@ export function createActionCandidate(
     row.dailyBudget > 0 &&
     row.listingOptionId !== null
   ) {
-    const observedStockQty = optionDailyStockMap.has(row.listingOptionId)
-      ? optionDailyStockMap.get(row.listingOptionId)
-      : undefined;
-    const liveStock = row.optionAvailableStock;
-    // Rule fires when EITHER the live internal stock OR the latest daily
-    // observed channel stock is exactly 0. (`null`/undefined means "not
-    // observed" → don't fire.)
-    const liveZero = liveStock === 0;
-    const observedZero = observedStockQty === 0;
-    if (liveZero || observedZero) {
+    const sellableStock = channelSkuEvidenceMap.get(row.listingOptionId)?.sellableStock;
+    if (sellableStock === 0) {
       return {
         adTargetDailyId: row.id,
         listingId: row.listingId,

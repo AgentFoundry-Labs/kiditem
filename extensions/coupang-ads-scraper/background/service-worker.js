@@ -1,5 +1,7 @@
 // KIDITEM OS — Background Service Worker
 
+importScripts("../shared/coupang-catalog-collector.js", "coupang-catalog-import.js");
+
 const API_URL = "http://localhost:4000";
 const AUTH_TOKEN_KEY = "kiditem_auth_token";
 const AD_ACTION_URL = "https://advertising.coupang.com/dashboard?kiditemExecuteActions=1#kiditemExecuteActions=1";
@@ -44,6 +46,7 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "storage-cleanup") cleanupStorage();
   if (alarm.name === "auto-scrape") autoScrape();
+  KidItemCoupangCatalogImport.handleAlarm(alarm, coupangCatalogImportDependencies());
 });
 
 function cleanupStorage() {
@@ -223,9 +226,37 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         coupangKeywordSuggestions: true,
         coupangKeywordSuggestionSource: "coupang-search-page",
         coupangProductNameTokens: true,
+        coupangCatalogSnapshot: true,
+        coupangCatalogSnapshotSource: "wing-inventory-v1",
       },
     });
     return;
+  }
+
+  if (msg.action === "startCoupangCatalogImport") {
+    KidItemCoupangCatalogImport.start(msg, coupangCatalogImportDependencies())
+      .then((result) => sendResponse(result))
+      .catch((e) => sendResponse({ success: false, error: e?.message || "쿠팡 상품 수집 시작 실패" }));
+    return true;
+  }
+
+  if (msg.action === "getCoupangCatalogImportStatus") {
+    KidItemCoupangCatalogImport.getStatus(
+      typeof msg.runId === "string" ? msg.runId : null,
+      coupangCatalogImportDependencies(),
+    )
+      .then((result) => sendResponse(result))
+      .catch((e) => sendResponse({ status: "error", runId: msg.runId, error: e?.message || "쿠팡 상품 수집 상태 조회 실패" }));
+    return true;
+  }
+
+  if (msg.action === "cancelCoupangCatalogImport") {
+    KidItemCoupangCatalogImport.cancel(
+      typeof msg.runId === "string" ? msg.runId : null,
+    )
+      .then((result) => sendResponse(result))
+      .catch((e) => sendResponse({ success: false, error: e?.message || "쿠팡 상품 수집 중단 실패" }));
+    return true;
   }
 
   if (msg.action === "scrapeCoupangImageRows") {
@@ -345,6 +376,16 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true; // async
   }
 });
+
+function coupangCatalogImportDependencies() {
+  return {
+    activateTab,
+    authedFetch,
+    notifyDashboard,
+    sendTabMessage,
+    updateTabAndWait,
+  };
+}
 
 async function searchWingCatalogProducts(message) {
   const keyword = typeof message.keyword === "string" ? message.keyword.trim() : "";

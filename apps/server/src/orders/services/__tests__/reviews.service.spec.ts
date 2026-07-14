@@ -6,8 +6,6 @@ const OTHER_ORGANIZATION_ID = 'b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e';
 const LISTING_HEALTHY = '11111111-1111-4111-8111-111111111111';
 const LISTING_NEEDS_RATING = '22222222-2222-4222-8222-222222222222';
 const LISTING_NEEDS_VOLUME = '33333333-3333-4333-8333-333333333333';
-const MASTER_HEALTHY = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-const MASTER_NEEDS_RATING = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
 interface PrismaMock {
   review: {
@@ -50,7 +48,7 @@ describe('ReviewsService.list', () => {
     });
   });
 
-  it('aggregates per listing with master display + 30-day recent count', async () => {
+  it('aggregates per listing with listing-owned display + 30-day recent count', async () => {
     const prisma = makePrismaMock();
     // 1st groupBy call = full aggregates; 2nd call = recent (30d) aggregates.
     prisma.review.groupBy
@@ -76,15 +74,17 @@ describe('ReviewsService.list', () => {
       {
         id: LISTING_HEALTHY,
         channelName: 'Healthy Listing',
-        master: { id: MASTER_HEALTHY, name: 'Healthy Toy', abcGrade: 'A' },
-        options: [{ option: { sku: 'M-00000001-01' } }],
+        displayName: 'Healthy Toy',
+        abcGrade: 'A',
+        options: [{ sellerSku: 'M-00000001-01' }],
         organization: { name: 'KidItem Co' },
       },
       {
         id: LISTING_NEEDS_RATING,
         channelName: 'Needs Rating',
-        master: { id: MASTER_NEEDS_RATING, name: 'Low Rated Toy', abcGrade: 'C' },
-        options: [{ option: { sku: 'M-00000002-01' } }],
+        displayName: 'Low Rated Toy',
+        abcGrade: 'C',
+        options: [{ sellerSku: 'M-00000002-01' }],
         organization: { name: 'KidItem Co' },
       },
     ]);
@@ -95,8 +95,8 @@ describe('ReviewsService.list', () => {
     expect(res.total).toBe(2);
     expect(res.items).toHaveLength(2);
     expect(res.items.map((i) => i.productId)).toEqual([
-      MASTER_HEALTHY,
-      MASTER_NEEDS_RATING,
+      LISTING_HEALTHY,
+      LISTING_NEEDS_RATING,
     ]);
     const healthy = res.items[0];
     expect(healthy.listingId).toBe(LISTING_HEALTHY);
@@ -233,8 +233,9 @@ describe('ReviewsService.list', () => {
       {
         id: LISTING_HEALTHY,
         channelName: 'Healthy Listing',
-        master: { id: MASTER_HEALTHY, name: 'Healthy Toy', abcGrade: 'A' },
-        options: [{ option: { sku: 'M-00000001-01' } }],
+        displayName: 'Healthy Toy',
+        abcGrade: 'A',
+        options: [{ sellerSku: 'M-00000001-01' }],
         organization: { name: 'KidItem Co' },
       },
     ]);
@@ -266,8 +267,9 @@ describe('ReviewsService.list', () => {
       {
         id: LISTING_HEALTHY,
         channelName: 'Healthy Listing',
-        master: { id: MASTER_HEALTHY, name: 'Healthy Toy', abcGrade: 'A' },
-        options: [{ option: { sku: 'M-00000001-01' } }],
+        displayName: 'Healthy Toy',
+        abcGrade: 'A',
+        options: [{ sellerSku: 'M-00000001-01' }],
         organization: { name: 'KidItem Co' },
       },
     ]);

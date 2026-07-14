@@ -192,6 +192,6 @@ describe('ai architecture ratchet', () => {
     expect(
       hits,
       'replace this with owner-side incoming ports in PR 2A',
-    ).toEqual([aiRel('adapter/out/channels/coupang-image-reconciliation.adapter.ts')]);
+    ).toEqual([]);
   });
 });

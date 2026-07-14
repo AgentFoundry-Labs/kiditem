@@ -7,8 +7,7 @@ import { resolvePricing } from '../../common/option-pricing-resolver';
 const EXCLUDED_ORDER_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
 
 /**
- * Map ChannelListing.channel (platform) → ChannelAnalysis.channelType.
- * ChannelListing does NOT have channelType field; derive from channel value.
+ * Map ChannelAccount.channel (platform) → ChannelAnalysis.channelType.
  */
 const CHANNEL_TYPE_MAP: Record<string, 'marketplace' | 'direct' | 'other'> = {
   coupang: 'marketplace',
@@ -32,7 +31,7 @@ function resolveChannelType(channel: string): 'marketplace' | 'direct' | 'other'
  * are SUMs over `businessDate`.
  *
  * Data flow:
- *   Order (+ shippingPrice) → OrderLineItem → ChannelListingOption.listing.channel
+ *   Order (+ shippingPrice) → OrderLineItem → ChannelListingOption.listing.channelAccount.channel
  *   + OrderReturnLineItem INNER JOIN Order (3-hop IDOR)
  *   + ChannelListingDailySnapshot.groupBy(['listingId'], _sum.adSpend)
  *     → listingId→channel map
@@ -72,11 +71,25 @@ export class SalesAnalysisService {
             select: {
               quantity: true,
               totalPrice: true,
-              option: {
-                select: { costPrice: true, commissionRate: true, otherCost: true },
-              },
               listingOption: {
-                select: { listing: { select: { id: true, channel: true } } },
+                select: {
+                  costPriceOverride: true,
+                  commissionRate: true,
+                  shippingCost: true,
+                  otherCost: true,
+                  components: {
+                    select: {
+                      quantity: true,
+                      masterProduct: { select: { purchasePrice: true } },
+                    },
+                  },
+                  listing: {
+                    select: {
+                      id: true,
+                      channelAccount: { select: { channel: true } },
+                    },
+                  },
+                },
               },
             },
           },
@@ -102,7 +115,11 @@ export class SalesAnalysisService {
             select: {
               order: { select: { id: true } },
               listingOption: {
-                select: { listing: { select: { channel: true } } },
+                select: {
+                  listing: {
+                    select: { channelAccount: { select: { channel: true } } },
+                  },
+                },
               },
             },
           },
@@ -138,17 +155,21 @@ export class SalesAnalysisService {
       adListingIds.length > 0
         ? await this.prisma.channelListing.findMany({
             where: { id: { in: adListingIds }, organizationId },
-            select: { id: true, channel: true },
+            select: {
+              id: true,
+              channelAccount: { select: { channel: true } },
+            },
           })
         : [];
     const listingIdToChannel = new Map<string, string>(
-      listings.map((l) => [l.id, l.channel]),
+      listings.map((l) => [l.id, l.channelAccount.channel]),
     );
 
     // Build returned order set per channel (distinct Order count).
     const returnOrderSets = new Map<string, Set<string>>();
     for (const rli of returnOrderIdRows) {
-      const channel = rli.orderLineItem?.listingOption?.listing?.channel;
+      const channel =
+        rli.orderLineItem?.listingOption?.listing?.channelAccount.channel;
       const orderId = rli.orderLineItem?.order?.id;
       if (!channel || !orderId) continue;
       if (!returnOrderSets.has(channel)) returnOrderSets.set(channel, new Set());
@@ -185,7 +206,7 @@ export class SalesAnalysisService {
       );
 
       for (const li of o.lineItems) {
-        const channel = li.listingOption?.listing?.channel;
+        const channel = li.listingOption?.listing?.channelAccount.channel;
         if (!channel) continue;
         let g = groups.get(channel);
         if (!g) {
@@ -202,7 +223,22 @@ export class SalesAnalysisService {
         }
 
         g.orderIds.add(o.id);
-        const resolved = resolvePricing({ option: li.option ?? {} });
+        const componentCost =
+          li.listingOption?.components.reduce(
+            (sum, component) =>
+              sum +
+              (component.masterProduct.purchasePrice ?? 0) * component.quantity,
+            0,
+          ) ?? 0;
+        const resolved = resolvePricing({
+          option: {
+            costPrice:
+              li.listingOption?.costPriceOverride ?? componentCost,
+            commissionRate: li.listingOption?.commissionRate,
+            shippingCost: li.listingOption?.shippingCost,
+            otherCost: li.listingOption?.otherCost,
+          },
+        });
         const lineRevenue = li.totalPrice || 0;
         g.totalRevenue += lineRevenue;
         g.totalCogs += Math.round(resolved.costPrice * li.quantity);

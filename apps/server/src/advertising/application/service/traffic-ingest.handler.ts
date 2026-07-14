@@ -64,6 +64,7 @@ export class TrafficIngestHandler {
 
     const scrapeRun = await this.scrapeRepo.createRun({
       organizationId,
+      channelAccountId: map.channelAccountId,
       channel: 'coupang',
       source: 'wing',
       pageType: 'traffic',
@@ -113,7 +114,6 @@ export class TrafficIngestHandler {
           externalOptionId: externalOptionIdRaw,
           listingId: match.listingId,
           listingOptionId: match.listingOptionId,
-          optionId: match.optionId,
           matchStatus,
           rawJson: item as Record<string, unknown>,
         });
@@ -176,6 +176,7 @@ export class TrafficIngestHandler {
         };
         await this.accountKpiRepo.upsertAccountKpi({
           organizationId,
+          channelAccountId: map.channelAccountId,
           channel: 'coupang',
           source: 'wing',
           kpiType: 'wing_dashboard',
