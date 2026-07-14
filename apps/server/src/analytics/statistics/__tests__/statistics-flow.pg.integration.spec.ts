@@ -104,10 +104,24 @@ describe('Statistics flow (PG integration)', () => {
       data: {
         organizationId,
         listingId: listingL1.listingId,
-        optionId: optM1b,
         externalOptionId: `${prefix}-VI-L1B`,
+        costPriceOverride: 4_000,
+        commissionRate: 0.1,
       },
       select: { id: true },
+    });
+    await prisma.channelListingOption.update({
+      where: { id: listingL1.listingOptionId },
+      data: { costPriceOverride: 5_000 },
+    });
+    await prisma.channelSkuComponent.create({
+      data: {
+        organizationId,
+        channelSkuId: listingL1b.id,
+        masterProductId: masterM1,
+        quantity: 1,
+        mappingSource: 'manual',
+      },
     });
     const listingL2 = await setupChannelListing(prisma, {
       organizationId,
@@ -221,8 +235,8 @@ describe('Statistics flow (PG integration)', () => {
         listingId: listingL1,
         externalId: 'TEST-EXT-L1',
         channelName: 'TEST L1',
-        masterId: expect.any(String),
-        masterCode: 'TEST-M-001',
+        masterId: listingL1,
+        masterCode: 'TEST-EXT-L1',
         productName: 'TEST Master M1',
         category: '유아용품',
         grade: 'A',
@@ -237,8 +251,8 @@ describe('Statistics flow (PG integration)', () => {
         listingId: listingL2,
         externalId: 'TEST-EXT-L2',
         channelName: 'TEST L2',
-        masterId: expect.any(String),
-        masterCode: 'TEST-M-002',
+        masterId: listingL2,
+        masterCode: 'TEST-EXT-L2',
         productName: 'TEST Master M2',
         category: '완구',
         grade: 'B',
@@ -367,8 +381,8 @@ describe('Statistics flow (PG integration)', () => {
     expect(result.daily.reduce((sum, row) => sum + row.qty, 0)).toBe(7);
   });
 
-  it('repurchase keeps receiver-level and master-level behavior on current schema', async () => {
-    const { masterM1, masterM2 } = await seedStatisticsFixture();
+  it('repurchase keeps receiver-level and listing-level behavior on current schema', async () => {
+    const { listingL1, listingL2 } = await seedStatisticsFixture();
 
     const result = await service.repurchase(TEST_ORGANIZATION_ID, '2026-04');
 
@@ -379,7 +393,7 @@ describe('Statistics flow (PG integration)', () => {
       totalOrders: 3,
       repeatProducts: [
         {
-          masterId: masterM2,
+          masterId: listingL2,
           productName: 'TEST Master M2',
           category: '완구',
           orderCount: 2,
@@ -394,10 +408,10 @@ describe('Statistics flow (PG integration)', () => {
         },
       ],
     });
-    expect(result.repeatProducts.map((item) => item.masterId)).not.toContain(masterM1);
+    expect(result.repeatProducts.map((item) => item.masterId)).not.toContain(listingL1);
   });
 
-  it('repurchase skips order lines for an imported ChannelProduct without a MasterProduct', async () => {
+  it('repurchase includes an imported listing without a component mapping', async () => {
     const account = await prisma.channelAccount.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -425,8 +439,6 @@ describe('Statistics flow (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: account.id,
-        masterId: null,
-        channel: 'coupang',
         externalId: 'EXT-UNLINKED-REPURCHASE',
         channelName: 'Wing import only',
         status: 'active',
@@ -437,9 +449,7 @@ describe('Statistics flow (PG integration)', () => {
     const listingOption = await prisma.channelListingOption.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: account.id,
         listingId: listing.id,
-        optionId: null,
         externalOptionId: 'VI-UNLINKED-REPURCHASE',
         lastImportRunId: importRun.id,
       },
@@ -450,14 +460,13 @@ describe('Statistics flow (PG integration)', () => {
       const order = await prisma.order.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
-          platform: 'coupang',
+          channelAccountId: account.id,
           externalOrderId: `REPURCHASE-UNLINKED-${index + 1}`,
           orderedAt: new Date(`2026-04-${15 + index}T03:00:00.000Z`),
           status: 'accepted',
           shippingPrice: 0,
           totalPrice: 10_000,
           receiverName,
-          listingId: listing.id,
         },
         select: { id: true },
       });
@@ -466,7 +475,6 @@ describe('Statistics flow (PG integration)', () => {
           organizationId: TEST_ORGANIZATION_ID,
           orderId: order.id,
           listingOptionId: listingOption.id,
-          optionId: null,
           productName: 'Wing import only',
           quantity: 1,
           unitPrice: 10_000,
@@ -478,7 +486,14 @@ describe('Statistics flow (PG integration)', () => {
 
     const result = await service.repurchase(TEST_ORGANIZATION_ID, '2026-04');
 
-    expect(result.repeatProducts).toEqual([]);
+    expect(result.repeatProducts).toEqual([
+      {
+        masterId: listing.id,
+        productName: 'Wing import only',
+        category: null,
+        orderCount: 2,
+      },
+    ]);
   });
 
   it('never leaks other-organization live metrics into the requested tenant', async () => {
@@ -501,8 +516,8 @@ describe('Statistics flow (PG integration)', () => {
           totalPrice: IDOR_SENTINEL,
           optionId: await prisma.channelListingOption.findFirstOrThrow({
             where: { organizationId: OTHER_ORGANIZATION_ID, listingId: other.listingL1 },
-            select: { optionId: true },
-          }).then((row) => row.optionId),
+            select: { id: true },
+          }).then((row) => row.id),
           listingOptionId: await prisma.channelListingOption.findFirstOrThrow({
             where: { organizationId: OTHER_ORGANIZATION_ID, listingId: other.listingL1 },
             select: { id: true },

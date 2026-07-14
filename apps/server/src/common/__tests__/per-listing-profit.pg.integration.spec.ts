@@ -22,7 +22,7 @@ import {
  * Plan F1 T1 — buildPerListingMetrics (PG integration).
  *
  * Verifies the helper produces correct per-listing rollups from Order +
- * OrderLineItem + ChannelListing + MasterProduct + ProductOption + Ad,
+ * OrderLineItem + ChannelListing + ChannelListingOption + component mappings + daily ad facts,
  * with organizationId scoping and revenue-weighted shipping (R-1).
  */
 describe('buildPerListingMetrics (PG integration)', () => {
@@ -190,7 +190,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
     expect(result[0].orderCount).toBe(1);                     // 3 excluded orders dropped
   });
 
-  it('T6: skips an imported ChannelProduct without a MasterProduct', async () => {
+  it('T6: reports an imported listing without a component mapping', async () => {
     const account = await prisma.channelAccount.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -218,8 +218,6 @@ describe('buildPerListingMetrics (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: account.id,
-        masterId: null,
-        channel: 'coupang',
         externalId: 'EXT-UNLINKED-T6',
         channelName: 'Wing import only',
         status: 'active',
@@ -230,9 +228,7 @@ describe('buildPerListingMetrics (PG integration)', () => {
     const listingOption = await prisma.channelListingOption.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: account.id,
         listingId: listing.id,
-        optionId: null,
         externalOptionId: 'VI-UNLINKED-T6',
         lastImportRunId: importRun.id,
       },
@@ -241,13 +237,12 @@ describe('buildPerListingMetrics (PG integration)', () => {
     const order = await prisma.order.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        platform: 'coupang',
+        channelAccountId: account.id,
         externalOrderId: 'PERLIST-T-6',
         orderedAt: new Date('2026-04-15T03:00:00.000Z'),
         status: 'accepted',
         shippingPrice: 0,
         totalPrice: 10_000,
-        listingId: listing.id,
       },
       select: { id: true },
     });
@@ -256,7 +251,6 @@ describe('buildPerListingMetrics (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         orderId: order.id,
         listingOptionId: listingOption.id,
-        optionId: null,
         productName: 'Wing import only',
         quantity: 1,
         unitPrice: 10_000,
@@ -272,7 +266,17 @@ describe('buildPerListingMetrics (PG integration)', () => {
       TO,
     );
 
-    expect(result).toEqual([]);
+    expect(result).toEqual([
+      expect.objectContaining({
+        listingId: listing.id,
+        externalId: 'EXT-UNLINKED-T6',
+        masterId: listing.id,
+        masterCode: 'EXT-UNLINKED-T6',
+        masterName: 'Wing import only',
+        revenue: 10_000,
+        costOfGoods: 0,
+      }),
+    ]);
   });
 
   it('T4: cross-organization isolation — OTHER sentinel never leaks into TEST', async () => {

@@ -87,22 +87,6 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
       optionId: ownOption.id,
       externalOptionId: 'ACT-NEG-VI',
     });
-    const ownAccount = await prisma.channelAccount.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channel: 'coupang',
-        name: 'Own account',
-        externalAccountId: 'ACT-OWN',
-      },
-    });
-    await prisma.channelListing.update({
-      where: { id: ownListing.listingId },
-      data: { channelAccountId: ownAccount.id },
-    });
-    await prisma.channelListingOption.update({
-      where: { id: ownListing.listingOptionId },
-      data: { channelAccountId: ownAccount.id },
-    });
     await seedOrderWithLineItems(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       externalOrderId: 'ACT-NEG-ORD',
@@ -123,10 +107,10 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
       date: currentMonthIso(5),
       spend: 5_000,
     });
-    await prisma.inventorySku.create({
+    await prisma.masterProduct.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        sellpiaProductCode: 'ACT-OWN-ZERO',
+        code: 'ACT-OWN-ZERO',
         name: 'Own zero stock',
         currentStock: 0,
       },
@@ -153,26 +137,10 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
       optionId: foreignOption.id,
       externalOptionId: 'ACT-FGN-VI',
     });
-    const foreignAccount = await prisma.channelAccount.create({
+    await prisma.masterProduct.create({
       data: {
         organizationId: OTHER_ORGANIZATION_ID,
-        channel: 'coupang',
-        name: 'Foreign account',
-        externalAccountId: 'ACT-FGN',
-      },
-    });
-    await prisma.channelListing.update({
-      where: { id: foreignListing.listingId },
-      data: { channelAccountId: foreignAccount.id },
-    });
-    await prisma.channelListingOption.update({
-      where: { id: foreignListing.listingOptionId },
-      data: { channelAccountId: foreignAccount.id },
-    });
-    await prisma.inventorySku.create({
-      data: {
-        organizationId: OTHER_ORGANIZATION_ID,
-        sellpiaProductCode: 'ACT-FGN-ZERO',
+        code: 'ACT-FGN-ZERO',
         name: 'Foreign zero stock',
         currentStock: 0,
       },
@@ -205,7 +173,6 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
       'h-minus-ad-stop',
       'h-ad-bid',
       'h-zero-stock',
-      'h-mapping-attention',
       'h-ad-rate',
       'analyze-deficit',
       'analyze-ad',
@@ -214,11 +181,10 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
     const minusTask = result.find((task) => task.taskKey === 'h-minus-ad-stop');
     const highAdTask = result.find((task) => task.taskKey === 'h-ad-bid');
     const zeroStockTask = result.find((task) => task.taskKey === 'h-zero-stock');
-    const mappingTask = result.find((task) => task.taskKey === 'h-mapping-attention');
 
     expect(minusTask?.relatedProducts).toEqual([
       {
-        id: ownMaster.id,
+        id: ownListing.listingId,
         name: 'Own Negative',
         metric: '이익률',
         value: '-30%',
@@ -226,14 +192,14 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
     ]);
     expect(highAdTask?.relatedProducts).toEqual([
       {
-        id: ownMaster.id,
+        id: ownListing.listingId,
         name: 'Own Negative',
         metric: '광고비율',
         value: '50%',
       },
     ]);
     expect(zeroStockTask?.relatedProducts).toEqual([]);
-    expect(mappingTask?.relatedProducts).toEqual([]);
+    expect(taskKeys).not.toContain('h-mapping-attention');
 
     const allRelatedNames = result.flatMap((task) => task.relatedProducts.map((row) => row.name));
     expect(allRelatedNames).toContain('Own Negative');
@@ -250,10 +216,10 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
   });
 
   it('keeps the zero-stock review link when the live metrics array is empty', async () => {
-    await prisma.inventorySku.create({
+    await prisma.masterProduct.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        sellpiaProductCode: 'ACT-STOCK-ONLY',
+        code: 'ACT-STOCK-ONLY',
         name: 'Stock Only',
         currentStock: 0,
       },

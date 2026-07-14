@@ -30,27 +30,50 @@ describe('UnshippedRepositoryAdapter (PG integration)', () => {
   });
 
   it('returns only the active organization rows and derives its summary within that boundary', async () => {
+    const [localAccount, foreignAccount] = await Promise.all([
+      prisma.channelAccount.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channel: 'coupang',
+          name: 'Local Wing',
+          externalAccountId: 'UNSHIPPED-LOCAL',
+        },
+      }),
+      prisma.channelAccount.create({
+        data: {
+          organizationId: OTHER_ORGANIZATION_ID,
+          channel: 'coupang',
+          name: 'Foreign Wing',
+          externalAccountId: 'UNSHIPPED-FOREIGN',
+        },
+      }),
+    ]);
     const [localOrder, foreignOrder] = await Promise.all([
       prisma.order.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
-          platform: 'coupang',
+          channelAccountId: localAccount.id,
           externalOrderId: 'UNSHIPPED-LOCAL',
         },
       }),
       prisma.order.create({
         data: {
           organizationId: OTHER_ORGANIZATION_ID,
-          platform: 'coupang',
+          channelAccountId: foreignAccount.id,
           externalOrderId: 'UNSHIPPED-FOREIGN',
         },
       }),
     ]);
+    const [localDelayed, localRecent, foreignDelayed] = await Promise.all([
+      createOrderLine(TEST_ORGANIZATION_ID, localOrder.id, 'local-delayed'),
+      createOrderLine(TEST_ORGANIZATION_ID, localOrder.id, 'local-recent'),
+      createOrderLine(OTHER_ORGANIZATION_ID, foreignOrder.id, 'foreign-delayed'),
+    ]);
     await prisma.unshippedItem.createMany({
       data: [
-        row(TEST_ORGANIZATION_ID, localOrder.id, 'local-delayed', 4),
-        row(TEST_ORGANIZATION_ID, localOrder.id, 'local-recent', 1),
-        row(OTHER_ORGANIZATION_ID, foreignOrder.id, 'foreign-delayed', 9),
+        row(TEST_ORGANIZATION_ID, localOrder.id, localDelayed.id, 'local-delayed', 4),
+        row(TEST_ORGANIZATION_ID, localOrder.id, localRecent.id, 'local-recent', 1),
+        row(OTHER_ORGANIZATION_ID, foreignOrder.id, foreignDelayed.id, 'foreign-delayed', 9),
       ],
     });
 
@@ -64,12 +87,32 @@ describe('UnshippedRepositoryAdapter (PG integration)', () => {
     expect(result.total).toBe(1);
     expect(result.delayedCount).toBe(1);
   });
+
+  function createOrderLine(organizationId: string, orderId: string, productName: string) {
+    return prisma.orderLineItem.create({
+      data: {
+        organizationId,
+        orderId,
+        productName,
+        quantity: 1,
+        externalLineId: productName,
+      },
+      select: { id: true },
+    });
+  }
 });
 
-function row(organizationId: string, orderId: string, productName: string, delayDays: number) {
+function row(
+  organizationId: string,
+  orderId: string,
+  orderLineItemId: string,
+  productName: string,
+  delayDays: number,
+) {
   return {
     organizationId,
     orderId,
+    orderLineItemId,
     productName,
     quantity: 1,
     orderDate: new Date('2026-07-01T00:00:00.000Z'),

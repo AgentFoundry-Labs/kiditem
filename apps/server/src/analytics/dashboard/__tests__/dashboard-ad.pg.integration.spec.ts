@@ -68,17 +68,35 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
       Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()),
     );
 
-    const masterT = await prisma.masterProduct.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, code: 'M-T', name: 'Master T', category: 'Toy', optionCounter: 1 },
+    const accountT = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'TEST Wing',
+        externalAccountId: 'TEST-WING',
+      },
     });
     const listingT = await prisma.channelListing.create({
-      data: { organizationId: TEST_ORGANIZATION_ID, masterId: masterT.id, channel: 'coupang', externalId: 'L-T' },
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: accountT.id,
+        externalId: 'L-T',
+      },
     });
-    const masterO = await prisma.masterProduct.create({
-      data: { organizationId: OTHER_ORGANIZATION_ID, code: 'M-O', name: 'Master O', category: 'Toy', optionCounter: 1 },
+    const accountO = await prisma.channelAccount.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'OTHER Wing',
+        externalAccountId: 'OTHER-WING',
+      },
     });
     const listingO = await prisma.channelListing.create({
-      data: { organizationId: OTHER_ORGANIZATION_ID, masterId: masterO.id, channel: 'coupang', externalId: 'L-O' },
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        channelAccountId: accountO.id,
+        externalId: 'L-O',
+      },
     });
 
     // TEST daily fact — adSpend 500

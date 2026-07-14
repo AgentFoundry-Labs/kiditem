@@ -13,7 +13,6 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import { ProductPreparationRepositoryAdapter } from '../adapter/out/repository/product-preparation.repository.adapter';
 import { SourcingCandidateRepositoryAdapter } from '../adapter/out/repository/sourcing-candidate.repository.adapter';
 import type { SourcingRepositoryTransaction } from '../application/port/out/transaction/repository-transaction';
-import { ProductPreparationSelectionService } from '../application/service/product-preparation-selection.service';
 import { PRODUCT_PREPARATION_SUBMISSION_LEASE_MS } from '../domain/product-preparation-state';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
@@ -23,7 +22,6 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
   let prisma: PrismaClient;
   let repository: ProductPreparationRepositoryAdapter;
   let candidateRepository: SourcingCandidateRepositoryAdapter;
-  let selectionService: ProductPreparationSelectionService;
   let candidateId: string;
 
   beforeAll(async () => {
@@ -33,7 +31,6 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
     candidateRepository = new SourcingCandidateRepositoryAdapter(
       prisma as unknown as PrismaService,
     );
-    selectionService = new ProductPreparationSelectionService(candidateRepository);
   });
 
   afterAll(async () => prisma?.$disconnect());
@@ -76,48 +73,27 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
     })).toBe(1);
   });
 
-  it('translates the retained 0.1.8 candidate-wide unique into a deterministic second-account conflict', async () => {
-    await repository.createOrGetActiveDraft(
+  it('keeps independent active drafts for separate channel accounts', async () => {
+    const first = await repository.createOrGetActiveDraft(
       createInput(ACCOUNT_ID),
       ensureWorkspace,
       resolveSelections,
     );
 
-    await expect(
-      repository.createOrGetActiveDraft(
-        createInput(SECOND_ACCOUNT_ID),
-        ensureWorkspace,
-        resolveSelections,
-      ),
-    ).rejects.toBeInstanceOf(ConflictException);
-  });
+    const second = await repository.createOrGetActiveDraft(
+      createInput(SECOND_ACCOUNT_ID),
+      ensureWorkspace,
+      resolveSelections,
+    );
 
-  it('adopts the retained accountless draft instead of conflicting with legacy selection writes', async () => {
-    const legacy = await prisma.productPreparation.create({
-      data: {
+    expect(second.preparationId).not.toBe(first.preparationId);
+    expect(await prisma.productPreparation.count({
+      where: {
         organizationId: TEST_ORGANIZATION_ID,
         sourceCandidateId: candidateId,
-        displayName: 'Legacy selection',
         status: 'draft',
-        registrationInput: { salePrice: 19900 },
-        selectedThumbnailUrl: 'https://cdn.example.com/legacy.png',
       },
-    });
-
-    const result = await repository.createOrGetActiveDraft(
-      createInput(ACCOUNT_ID),
-      ensureWorkspace,
-      resolveSelections,
-    );
-
-    expect(result.preparationId).toBe(legacy.id);
-    expect(await prisma.productPreparation.findFirst({
-      where: { id: legacy.id, organizationId: TEST_ORGANIZATION_ID },
-      select: { channelAccountId: true, sourceContentWorkspaceId: true },
-    })).toMatchObject({
-      channelAccountId: ACCOUNT_ID,
-      sourceContentWorkspaceId: expect.any(String),
-    });
+    })).toBe(2);
   });
 
   it('freezes one canonical hash/key across retries and creates a new key after a failed edit', async () => {
@@ -605,66 +581,6 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
     expect(observation).toBe('blocked');
   });
 
-  it('holds the candidate lock through a legacy preparation edit before terminal transition checks', async () => {
-    let releaseSelection!: () => void;
-    let reportCandidateRead!: () => void;
-    const selectionRelease = new Promise<void>((resolve) => {
-      releaseSelection = resolve;
-    });
-    const candidateRead = new Promise<void>((resolve) => {
-      reportCandidateRead = resolve;
-    });
-    const findCandidateForPreparation =
-      candidateRepository.findCandidateForPreparation.bind(candidateRepository);
-    candidateRepository.findCandidateForPreparation = async (transaction, input) => {
-      const candidate = await findCandidateForPreparation(transaction, input);
-      reportCandidateRead();
-      await selectionRelease;
-      return candidate;
-    };
-
-    const selection = selectionService.updateBasics(
-      TEST_ORGANIZATION_ID,
-      candidateId,
-      { name: 'Locked preparation edit' },
-    );
-    await candidateRead;
-    const terminal = candidateRepository.runInTransaction(async (transaction) => {
-      await candidateRepository.lockCandidate(transaction, {
-        id: candidateId,
-        organizationId: TEST_ORGANIZATION_ID,
-      });
-      await repository.assertCandidateTerminalTransitionAllowed(transaction, {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceCandidateId: candidateId,
-      });
-      return candidateRepository.rejectCandidate(transaction, {
-        id: candidateId,
-        organizationId: TEST_ORGANIZATION_ID,
-        reason: 'concurrent rejection',
-        rejectedByUserId: TEST_USER_ID,
-        rejectedAt: new Date(),
-      });
-    });
-    const observation = await Promise.race([
-      terminal.then(() => 'settled' as const, () => 'settled' as const),
-      new Promise<'blocked'>((resolve) => setTimeout(() => resolve('blocked'), 100)),
-    ]);
-    releaseSelection();
-    candidateRepository.findCandidateForPreparation = findCandidateForPreparation;
-
-    await expect(selection).resolves.toMatchObject({
-      displayName: 'Locked preparation edit',
-      status: 'draft',
-    });
-    await expect(terminal).rejects.toBeInstanceOf(ConflictException);
-    expect(observation).toBe('blocked');
-    expect(await prisma.sourcingCandidate.findFirstOrThrow({
-      where: { id: candidateId, organizationId: TEST_ORGANIZATION_ID },
-      select: { status: true },
-    })).toEqual({ status: 'sourced' });
-  });
-
   function createInput(channelAccountId: string) {
     return {
       organizationId: TEST_ORGANIZATION_ID,
@@ -726,7 +642,6 @@ describe('ProductPreparationRepositoryAdapter (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: ACCOUNT_ID,
         sourceCandidateId: candidateId,
-        channel: 'coupang',
         externalId,
         displayName: 'Kids rain boots',
         status: 'active',

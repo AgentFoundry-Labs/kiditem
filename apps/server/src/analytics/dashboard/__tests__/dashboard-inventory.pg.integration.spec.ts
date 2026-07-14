@@ -54,8 +54,8 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
   }
 
   /**
-   * Seed a basic 2-master + 1-Sellpia-SKU + 1-alert layout for TEST,
-   * and 5-master + 5-Sellpia-SKU + 3-alert for OTHER (no order data).
+   * Seed a basic 2-Sellpia-master + 1-alert layout for TEST,
+   * and 5-Sellpia-master + 3-alert for OTHER (no order data).
    * Used by T1/T2/T3 (IDOR cases that don't touch warnings).
    */
   async function seedBaseStructure() {
@@ -65,13 +65,9 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     const masterT2 = await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID, code: 'M-T-2', name: 'Master T2', abcGrade: 'B',
     });
-    await prisma.inventorySku.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sellpiaProductCode: 'SP-T-1',
-        name: 'Sellpia T1',
-        currentStock: 10,
-      },
+    await prisma.masterProduct.update({
+      where: { id: masterT1.id },
+      data: { currentStock: 10 },
     });
     await prisma.alert.create({
       data: {
@@ -86,13 +82,9 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
         organizationId: OTHER_ORGANIZATION_ID, code: `M-O-${i}`, name: `Master O${i}`,
         abcGrade: i <= 3 ? 'A' : 'B',
       });
-      await prisma.inventorySku.create({
-        data: {
-          organizationId: OTHER_ORGANIZATION_ID,
-          sellpiaProductCode: `SP-O-${i}`,
-          name: `Sellpia O${i}`,
-          currentStock: 1,
-        },
+      await prisma.masterProduct.update({
+        where: { id: masterO.id },
+        data: { currentStock: 1 },
       });
     }
     for (let i = 1; i <= 3; i++) {
@@ -106,14 +98,14 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     }
   }
 
-  it('T1: TEST sees only TEST products, alerts, gradeCount', async () => {
+  it('T1: TEST sees only TEST listings, alerts, and grades', async () => {
     await seedBaseStructure();
     const ctx = buildDashboardContext();
     const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
 
-    expect(result.totalProducts).toBe(2);
+    expect(result.totalProducts).toBe(0);
     expect(result.channelLinkedProducts).toBe(0);
-    expect(result.channelUnlinkedProducts).toBe(2);
+    expect(result.channelUnlinkedProducts).toBe(0);
     expect(result.gradeCount.A ?? 0).toBe(0);
     expect(result.gradeCount.B ?? 0).toBe(0);
     expect(result.alerts.length).toBe(1);
@@ -155,9 +147,9 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
 
     const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
 
-    expect(result.totalProducts).toBe(2);
+    expect(result.totalProducts).toBe(1);
     expect(result.channelLinkedProducts).toBe(1);
-    expect(result.channelUnlinkedProducts).toBe(1);
+    expect(result.channelUnlinkedProducts).toBe(0);
     expect(result.gradeCount.A).toBe(1);
     expect(result.gradeCount.B ?? 0).toBe(0);
   });
@@ -167,7 +159,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     const ctx = buildDashboardContext();
     const result = await service.getSummary(ctx, OTHER_ORGANIZATION_ID);
 
-    expect(result.totalProducts).toBe(5);
+    expect(result.totalProducts).toBe(0);
     expect(result.gradeCount.A ?? 0).toBe(0);
     expect(result.gradeCount.B ?? 0).toBe(0);
     expect(result.alerts.length).toBe(3);

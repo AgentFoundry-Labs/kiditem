@@ -108,7 +108,6 @@ describe('Order sync (PG integration)', () => {
       include: { lineItems: true },
     });
     expect(orders).toHaveLength(1);
-    expect(orders[0].platform).toBe('coupang');
     expect(orders[0].channelAccountId).toBe(channelAccountId);
     expect(orders[0].externalOrderId).toBe('SBX-1');
     expect(orders[0].externalNumber).toBe('CO-1');
@@ -157,41 +156,21 @@ describe('Order sync (PG integration)', () => {
   });
 
   it('vendorItemId match links listingOption and preserves provider SKU without ProductOption ownership', async () => {
-    const master = await prisma.masterProduct.create({
-      data: {
-        organizationId,
-        code: `M-${Date.now()}`,
-        name: 'Master',
-        optionCounter: 1,
-      },
-    });
-    const option = await prisma.productOption.create({
-      data: {
-        organizationId,
-        masterId: master.id,
-        sku: `SKU-${Date.now()}`,
-        optionName: 'Red',
-        isBundle: false,
-      },
-    });
+    const sellerSku = `SKU-${Date.now()}`;
     const listing = await prisma.channelListing.create({
       data: {
         organizationId,
-        masterId: master.id,
         channelAccountId,
-        channel: 'coupang',
         externalId: `LST-${Date.now()}`,
       },
     });
     const listingOption = await prisma.channelListingOption.create({
       data: {
         organizationId,
-        channelAccountId,
         listingId: listing.id,
-        optionId: option.id,
         externalOptionId: 'V_KNOWN',
         itemName: 'Red',
-        sellerSku: option.sku,
+        sellerSku,
       },
     });
 
@@ -219,11 +198,10 @@ describe('Order sync (PG integration)', () => {
     });
     expect(lineItems).toHaveLength(1);
     expect(lineItems[0].listingOptionId).toBe(listingOption.id);
-    expect(lineItems[0].optionId).toBeNull();
-    expect(lineItems[0].sku).toBe(option.sku);
+    expect(lineItems[0].sku).toBe(sellerSku);
   });
 
-  it('vendorItemId no match → optionId/listingOptionId null (graceful)', async () => {
+  it('vendorItemId no match → listingOptionId null (graceful)', async () => {
     await (service as any).syncSingleOrder(
       {
         shipmentBoxId: 'SBX-3',
@@ -247,7 +225,6 @@ describe('Order sync (PG integration)', () => {
       where: { organizationId },
     });
     expect(lineItems).toHaveLength(1);
-    expect(lineItems[0].optionId).toBeNull();
     expect(lineItems[0].listingOptionId).toBeNull();
   });
 
@@ -275,7 +252,6 @@ describe('Order sync (PG integration)', () => {
       include: { lineItems: true },
     });
     expect(returns).toHaveLength(1);
-    expect(returns[0].platform).toBe('coupang');
     expect(returns[0].channelAccountId).toBe(channelAccountId);
     expect(returns[0].externalReturnId).toBe('RCT-1');
     expect(returns[0].type).toBe('RETURN');

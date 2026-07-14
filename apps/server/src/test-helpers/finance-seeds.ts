@@ -68,12 +68,23 @@ export async function setupProductOption(
     otherCost?: number;
   },
 ): Promise<{ id: string }> {
+  const master = await prisma.masterProduct.findFirstOrThrow({
+    where: { id: opts.masterId, organizationId: opts.organizationId },
+    select: { rawJson: true },
+  });
+  const rawJson =
+    master.rawJson &&
+    typeof master.rawJson === 'object' &&
+    !Array.isArray(master.rawJson)
+      ? master.rawJson
+      : {};
   await prisma.masterProduct.updateMany({
     where: { id: opts.masterId, organizationId: opts.organizationId },
     data: {
       purchasePrice: opts.costPrice ?? 5000,
       optionName: opts.sku,
       rawJson: {
+        ...rawJson,
         testPricing: {
           commissionRate: opts.commissionRate ?? 0.1,
           otherCost: opts.otherCost ?? 0,
@@ -124,7 +135,7 @@ export async function setupChannelListing(
   });
   const master = await prisma.masterProduct.findFirstOrThrow({
     where: { id: opts.masterId, organizationId: opts.organizationId },
-    select: { rawJson: true },
+    select: { name: true, rawJson: true },
   });
   const pricing =
     master.rawJson &&
@@ -136,15 +147,44 @@ export async function setupChannelListing(
     !Array.isArray(master.rawJson.testPricing)
       ? master.rawJson.testPricing
       : {};
+  const metadata =
+    master.rawJson &&
+    typeof master.rawJson === 'object' &&
+    !Array.isArray(master.rawJson) &&
+    'testMetadata' in master.rawJson &&
+    master.rawJson.testMetadata &&
+    typeof master.rawJson.testMetadata === 'object' &&
+    !Array.isArray(master.rawJson.testMetadata)
+      ? master.rawJson.testMetadata
+      : {};
   const listing = await prisma.channelListing.create({
     data: {
       organizationId: opts.organizationId,
       channelAccountId: channelAccount.id,
       externalId: opts.externalId,
+      displayName: master.name,
+      category:
+        'category' in metadata && typeof metadata.category === 'string'
+          ? metadata.category
+          : null,
+      abcGrade:
+        'abcGrade' in metadata && typeof metadata.abcGrade === 'string'
+          ? metadata.abcGrade
+          : null,
       ...(opts.channelName !== undefined && { channelName: opts.channelName }),
     },
     select: { id: true },
   });
+
+  if ('thumbnailUrl' in metadata && typeof metadata.thumbnailUrl === 'string') {
+    await prisma.thumbnail.create({
+      data: {
+        organizationId: opts.organizationId,
+        listingId: listing.id,
+        imageUrl: metadata.thumbnailUrl,
+      },
+    });
+  }
 
   const listingOption = await prisma.channelListingOption.create({
     data: {

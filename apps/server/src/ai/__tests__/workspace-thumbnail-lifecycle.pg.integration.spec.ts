@@ -67,7 +67,7 @@ describe('workspace thumbnail lifecycle (PG integration)', () => {
     const asset = await prisma.contentAsset.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        generationGroupId: group.id,
+        originGenerationGroupId: group.id,
         assetKey: groupUrlAssetKey(group.id, 'https://cdn.example.com/archive-current.png'),
         url: 'https://cdn.example.com/archive-current.png',
         usages: {
@@ -266,9 +266,18 @@ describe('workspace thumbnail lifecycle (PG integration)', () => {
   it('serializes concurrent candidate removals and derives the terminal generation state in-transaction', async () => {
     const firstUrl = 'https://cdn.example.com/remove-first.png';
     const secondUrl = 'https://cdn.example.com/remove-second.png';
+    const workspace = await prisma.contentWorkspace.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        ownerType: 'direct_detail_page',
+        displayName: 'Concurrent candidate removal',
+        normalizedTitle: 'concurrentcandidateremoval',
+      },
+    });
     const generation = await prisma.thumbnailGeneration.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
+        contentWorkspaceId: workspace.id,
         status: 'succeeded',
         phase: 'ready',
         selectedUrl: firstUrl,

@@ -43,7 +43,7 @@ implements SourcingWorkspaceArchiveRepositoryPort {
         organizationId: input.organizationId,
         isDeleted: false,
         OR: [
-          { sourceCandidateId: input.sourceCandidateId },
+          { contentWorkspace: { sourceCandidateId: input.sourceCandidateId } },
           ...(generationIds.length > 0
             ? [{ sourceContentGenerationId: { in: generationIds } }]
             : []),
@@ -181,7 +181,7 @@ function contentGenerationSourceCandidateWhere(input: ArchiveSourcingWorkspaceIn
     OR: [
       { sourceCandidateId: input.sourceCandidateId },
       { sources: { some: { sourceCandidateId: input.sourceCandidateId } } },
-      { detailPageArtifact: { is: { sourceCandidateId: input.sourceCandidateId } } },
+      { contentWorkspace: { sourceCandidateId: input.sourceCandidateId } },
     ],
   };
 }

@@ -188,7 +188,7 @@ export class RegistrationContentWorkspaceRepositoryAdapter
       FROM channel_listings
       WHERE id = ${input.listingId}::uuid
         AND organization_id = ${input.organizationId}::uuid
-        AND is_deleted = false
+        AND is_active = true
       FOR UPDATE
     `);
     const listing = listingRows[0];

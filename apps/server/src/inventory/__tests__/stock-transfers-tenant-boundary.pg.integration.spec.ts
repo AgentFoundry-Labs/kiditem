@@ -12,7 +12,7 @@ import {
 import { TransfersRepositoryAdapter } from '../adapter/out/repository/transfers.repository.adapter';
 import { TransfersService } from '../application/service/transfers.service';
 
-const INVENTORY_SKU_ID = '10000000-0000-4000-8000-000000000001';
+const MASTER_PRODUCT_ID = '10000000-0000-4000-8000-000000000001';
 const OWN_WAREHOUSE_ID = '10000000-0000-4000-8000-000000000002';
 const FOREIGN_WAREHOUSE_ID = '10000000-0000-4000-8000-000000000003';
 
@@ -35,11 +35,11 @@ describe('stock transfer tenant boundary (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    await prisma.inventorySku.create({
+    await prisma.masterProduct.create({
       data: {
-        id: INVENTORY_SKU_ID,
+        id: MASTER_PRODUCT_ID,
         organizationId: TEST_ORGANIZATION_ID,
-        sellpiaProductCode: 'SP-TRANSFER',
+        code: 'SP-TRANSFER',
         name: '이동 상품',
         currentStock: 10,
       },
@@ -64,7 +64,7 @@ describe('stock transfer tenant boundary (PG integration)', () => {
 
   it('rejects a foreign destination warehouse without creating a transfer', async () => {
     await expect(service.create(TEST_ORGANIZATION_ID, {
-      inventorySkuId: INVENTORY_SKU_ID,
+      masterProductId: MASTER_PRODUCT_ID,
       fromWarehouseId: OWN_WAREHOUSE_ID,
       toWarehouseId: FOREIGN_WAREHOUSE_ID,
       quantity: 1,
@@ -77,7 +77,7 @@ describe('stock transfer tenant boundary (PG integration)', () => {
     await expect(prisma.stockTransfer.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        inventorySkuId: INVENTORY_SKU_ID,
+        masterProductId: MASTER_PRODUCT_ID,
         fromWarehouseId: OWN_WAREHOUSE_ID,
         toWarehouseId: FOREIGN_WAREHOUSE_ID,
         quantity: 1,

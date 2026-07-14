@@ -89,32 +89,13 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
       externalSkuId: 'S-REVIEW',
       mappingStatus: 'needs_review',
     });
-    const staleLegacyMatch = await createQueueSku({
-      externalProductId: 'P-NEEDLE-LEGACY-OPTION',
-      externalSkuId: 'S-LEGACY-OPTION',
+    const staleAdvisoryMatch = await createQueueSku({
+      externalProductId: 'P-NEEDLE-STALE-ADVISORY',
+      externalSkuId: 'S-STALE-ADVISORY',
       mappingStatus: 'matched',
     });
     await prisma.channelSkuComponent.create({
       data: component(matched.sku.id, inventory.id, 1),
-    });
-    const master = await prisma.masterProduct.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        code: `M-${randomUUID()}`,
-        name: 'Legacy master',
-      },
-    });
-    const productOption = await prisma.productOption.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        masterId: master.id,
-        sku: `SKU-${randomUUID()}`,
-        optionName: 'Legacy option',
-      },
-    });
-    await prisma.channelListingOption.update({
-      where: { id: staleLegacyMatch.sku.id },
-      data: { optionId: productOption.id },
     });
     await createQueueSku({
       channelAccountId: ACCOUNT_B,
@@ -129,27 +110,7 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
       externalProductId: 'P-NEEDLE-OTHER',
       externalSkuId: 'S-OTHER',
     });
-    await createLegacySkuWithoutProvenance('P-NEEDLE-NO-PROVENANCE');
-    const reconciliationRun = await prisma.channelReconciliationRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channel: 'coupang',
-        source: 'wing_inventory',
-        status: 'completed',
-      },
-    });
-    await prisma.channelReconciliationItem.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        lastSeenRunId: reconciliationRun.id,
-        channel: 'coupang',
-        source: 'wing_inventory',
-        itemType: 'channel_option',
-        itemKey: 'option:P-NEEDLE-LEGACY:S-OLD',
-        externalId: 'P-NEEDLE-LEGACY',
-        externalOptionId: 'S-OLD',
-      },
-    });
+    await createSkuWithoutImportProvenance('P-NEEDLE-NO-PROVENANCE');
 
     const result = await service.list(TEST_ORGANIZATION_ID, {
       channelAccountId: ACCOUNT_A,
@@ -170,7 +131,7 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     expect(result.items).toHaveLength(1);
     expect(result.items[0]?.sku.id).toBe(matched.sku.id);
     expect(result.counts).toEqual({ all: 3, unmatched: 1, needsReview: 1, matched: 1 });
-    expect(unmapped.items.map((item) => item.sku.id)).toEqual([staleLegacyMatch.sku.id]);
+    expect(unmapped.items.map((item) => item.sku.id)).toEqual([staleAdvisoryMatch.sku.id]);
     expect(unmapped.items[0]?.sku.mappingStatus).toBe('unmatched');
     expect(unmapped.items.some((item) => item.sku.id === review.sku.id)).toBe(false);
   });
@@ -220,7 +181,7 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     const target = await createQueueSku({ sellerSku: 'SP-X' });
     const x = await createInventorySku('SP-X', '8801234567890', 13);
     const y = await createInventorySku('SP-Y', '8801234567891', 29);
-    const stockBefore = new Map((await prisma.inventorySku.findMany()).map((row) => [
+    const stockBefore = new Map((await prisma.masterProduct.findMany()).map((row) => [
       row.id,
       row.currentStock,
     ]));
@@ -260,7 +221,7 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     expect(cleared.components).toEqual([]);
     expect(cleared.sku.mappingStatus).toBe('needs_review');
     expect(await componentState(target.sku.id)).toEqual([]);
-    const stockAfter = new Map((await prisma.inventorySku.findMany()).map((row) => [
+    const stockAfter = new Map((await prisma.masterProduct.findMany()).map((row) => [
       row.id,
       row.currentStock,
     ]));
@@ -299,7 +260,7 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
         component(outOfStock.sku.id, z.id, 8),
       ],
     });
-    const stockBefore = new Map((await prisma.inventorySku.findMany()).map((row) => [
+    const stockBefore = new Map((await prisma.masterProduct.findMany()).map((row) => [
       row.id,
       row.currentStock,
     ]));
@@ -404,13 +365,13 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
       OTHER_ORGANIZATION_ID,
       [mixed.sku.id],
     ))).toEqual([]);
-    expect(new Map((await prisma.inventorySku.findMany()).map((row) => [
+    expect(new Map((await prisma.masterProduct.findMany()).map((row) => [
       row.id,
       row.currentStock,
     ]))).toEqual(stockBefore);
   });
 
-  it('validates the full request and tenant InventorySku ownership before deletion', async () => {
+  it('validates the full request and tenant MasterProduct ownership before deletion', async () => {
     const target = await createQueueSku();
     const local = await createInventorySku('SP-LOCAL');
     const foreign = await createInventorySku(
@@ -570,7 +531,6 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     })).toMatchObject({
       id: componentRow.id,
       channelSkuId: target.sku.id,
-      inventorySkuId: inventory.id,
       masterProductId: inventory.id,
       quantity: 5,
     });
@@ -619,7 +579,6 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
       data: {
         organizationId,
         channelAccountId,
-        channel: 'coupang',
         externalId: input.externalProductId ?? `P-${suffix}`,
         channelName: input.registeredName ?? 'Registered product',
         displayName: input.displayName ?? 'Display product',
@@ -630,7 +589,6 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     const sku = await prisma.channelListingOption.create({
       data: {
         organizationId,
-        channelAccountId,
         listingId: listing.id,
         externalOptionId: input.externalSkuId ?? `S-${suffix}`,
         itemName: input.optionName ?? 'Blue',
@@ -645,20 +603,18 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     return { listing, sku };
   }
 
-  async function createLegacySkuWithoutProvenance(externalProductId: string) {
+  async function createSkuWithoutImportProvenance(externalProductId: string) {
     const suffix = randomUUID();
     const listing = await prisma.channelListing.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: ACCOUNT_A,
-        channel: 'coupang',
         externalId: externalProductId,
       },
     });
     return prisma.channelListingOption.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: ACCOUNT_A,
         listingId: listing.id,
         externalOptionId: `LEGACY-${suffix}`,
       },
@@ -672,55 +628,25 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     organizationId = TEST_ORGANIZATION_ID,
     purchasePrice: number | null = null,
   ) {
-    return prisma.$transaction(async (tx) => {
-      const id = randomUUID();
-      const inventory = await tx.inventorySku.create({
-        data: {
-          id,
-          organizationId,
-          sellpiaProductCode,
-          name: `${sellpiaProductCode} item`,
-          optionName: null,
-          barcode,
-          currentStock,
-          purchasePrice,
-        },
-      });
-      await tx.masterProduct.create({
-        data: {
-          id,
-          organizationId,
-          code: `SELLPIA-TEST-${randomUUID()}`,
-          name: `${sellpiaProductCode} item`,
-          sellpiaProductCode,
-          sellpiaName: `${sellpiaProductCode} item`,
-          sellpiaBarcode: barcode,
-          currentStock,
-          purchasePrice,
-          isActive: true,
-          isTemporary: true,
-          temporaryReason: 'sellpia_master_cutover',
-          lifecycleState: 'inventory_staged',
-        },
-      });
-      await tx.inventorySkuMasterProductMap.create({
-        data: {
-          organizationId,
-          inventorySkuId: id,
-          masterProductId: id,
-          resolution: 'shared_uuid',
-        },
-      });
-      return inventory;
+    return prisma.masterProduct.create({
+      data: {
+        organizationId,
+        code: sellpiaProductCode,
+        name: `${sellpiaProductCode} item`,
+        optionName: null,
+        barcode,
+        currentStock,
+        purchasePrice,
+        isActive: true,
+      },
     });
   }
 
-  function component(channelSkuId: string, inventorySkuId: string, quantity: number) {
+  function component(channelSkuId: string, masterProductId: string, quantity: number) {
     return {
       organizationId: TEST_ORGANIZATION_ID,
       channelSkuId,
-      inventorySkuId,
-      masterProductId: inventorySkuId,
+      masterProductId,
       quantity,
       mappingSource: 'manual',
       createdBy: TEST_USER_ID,
@@ -732,7 +658,7 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
       where: { organizationId: TEST_ORGANIZATION_ID, channelSkuId },
       orderBy: { masterProductId: 'asc' },
     });
-    return rows.map((row) => [row.masterProductId!, row.quantity]);
+    return rows.map((row) => [row.masterProductId, row.quantity]);
   }
 
   function sortedRecipe(rows: Array<[string, number]>): Array<[string, number]> {

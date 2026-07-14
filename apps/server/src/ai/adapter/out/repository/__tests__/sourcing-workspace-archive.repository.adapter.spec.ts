@@ -55,7 +55,7 @@ describe('SourcingWorkspaceArchiveRepositoryAdapter', () => {
         OR: [
           { sourceCandidateId: CANDIDATE_ID },
           { sources: { some: { sourceCandidateId: CANDIDATE_ID } } },
-          { detailPageArtifact: { is: { sourceCandidateId: CANDIDATE_ID } } },
+          { contentWorkspace: { sourceCandidateId: CANDIDATE_ID } },
         ],
       },
       select: { id: true },
@@ -80,7 +80,7 @@ describe('SourcingWorkspaceArchiveRepositoryAdapter', () => {
         organizationId: ORG,
         isDeleted: false,
         OR: [
-          { sourceCandidateId: CANDIDATE_ID },
+          { contentWorkspace: { sourceCandidateId: CANDIDATE_ID } },
           { sourceContentGenerationId: { in: ['generation-1', 'generation-2'] } },
         ],
       },

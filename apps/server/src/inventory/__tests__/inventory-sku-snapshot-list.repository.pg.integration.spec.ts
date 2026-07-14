@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -55,9 +54,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
     await expect(prisma.masterProduct.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        code: `M-${randomUUID()}`,
-        sellpiaProductCode: 'SP-FOREIGN-RUN',
-        sellpiaName: '타 조직 provenance',
+        code: 'SP-FOREIGN-RUN',
         name: '타 조직 provenance',
         currentStock: 1,
         isActive: true,
@@ -68,12 +65,10 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       data: [
         {
           organizationId: TEST_ORGANIZATION_ID,
-          code: `M-${randomUUID()}`,
-          sellpiaProductCode: 'SP-002',
-          sellpiaName: '검색 상품',
+          code: 'SP-002',
           name: '검색 상품',
           optionName: '파랑',
-          sellpiaBarcode: '8800000000002',
+          barcode: '8800000000002',
           currentStock: 8,
           isActive: true,
           purchasePrice: 1_000,
@@ -82,9 +77,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
         },
         {
           organizationId: TEST_ORGANIZATION_ID,
-          code: `M-${randomUUID()}`,
-          sellpiaProductCode: 'SP-001',
-          sellpiaName: '품절 상품',
+          code: 'SP-001',
           name: '품절 상품',
           currentStock: 0,
           isActive: true,
@@ -93,9 +86,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
         },
         {
           organizationId: TEST_ORGANIZATION_ID,
-          code: `M-${randomUUID()}`,
-          sellpiaProductCode: 'ZZ-001',
-          sellpiaName: '기타 상품',
+          code: 'ZZ-001',
           name: '기타 상품',
           optionName: '빨강',
           currentStock: 2,
@@ -105,9 +96,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
         },
         {
           organizationId: OTHER_ORGANIZATION_ID,
-          code: `M-${randomUUID()}`,
-          sellpiaProductCode: 'SP-LEAK',
-          sellpiaName: '검색 상품 유출',
+          code: 'SP-LEAK',
           name: '검색 상품 유출',
           optionName: '파랑',
           currentStock: 999,

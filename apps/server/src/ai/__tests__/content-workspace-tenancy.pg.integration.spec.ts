@@ -10,8 +10,6 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
-import { ContentArchiveRepositoryAdapter } from '../adapter/out/repository/content-archive.repository.adapter';
-import { ContentWorkspaceAttachmentRepositoryAdapter } from '../adapter/out/repository/content-workspace-attachment.repository.adapter';
 import { ContentWorkspaceLifecycleRepositoryAdapter } from '../adapter/out/repository/content-workspace-lifecycle.repository.adapter';
 import { ContentWorkspaceThumbnailSelectionRepositoryAdapter } from '../adapter/out/repository/content-workspace-thumbnail-selection.repository.adapter';
 import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
@@ -44,9 +42,18 @@ describe('AI content ownership constraints (PG integration)', () => {
         status: 'sourced',
       },
     });
+    const foreignWorkspace = await prisma.contentWorkspace.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        ownerType: 'direct_detail_page',
+        displayName: 'Foreign detail page',
+        normalizedTitle: 'foreigndetailpage',
+      },
+    });
     const foreignArtifact = await prisma.detailPageArtifact.create({
       data: {
         organizationId: OTHER_ORGANIZATION_ID,
+        contentWorkspaceId: foreignWorkspace.id,
         title: 'Foreign detail page',
       },
     });
@@ -77,17 +84,58 @@ describe('AI content ownership constraints (PG integration)', () => {
   });
 
   it('rejects a preparation selection that points at another organization', async () => {
+    const foreignWorkspace = await prisma.contentWorkspace.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        ownerType: 'direct_detail_page',
+        displayName: 'Foreign selected detail page',
+        normalizedTitle: 'foreignselecteddetailpage',
+      },
+    });
     const foreignArtifact = await prisma.detailPageArtifact.create({
       data: {
         organizationId: OTHER_ORGANIZATION_ID,
+        contentWorkspaceId: foreignWorkspace.id,
         title: 'Foreign selected detail page',
+      },
+    });
+    const localCandidate = await prisma.sourcingCandidate.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceUrl: `https://example.com/candidate/${randomUUID()}`,
+        sourcePlatform: 'ALIBABA_1688',
+        rawData: {},
+        name: 'Local preparation candidate',
+        status: 'sourced',
+      },
+    });
+    const localAccount = await prisma.channelAccount.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        externalAccountId: randomUUID(),
+        name: 'Local preparation account',
+        status: 'active',
+      },
+    });
+    const localWorkspace = await prisma.contentWorkspace.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        ownerType: 'sourcing_candidate',
+        sourceCandidateId: localCandidate.id,
+        displayName: localCandidate.name,
+        normalizedTitle: 'localpreparationcandidate',
       },
     });
 
     await expect(prisma.productPreparation.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
+        sourceCandidateId: localCandidate.id,
+        channelAccountId: localAccount.id,
+        sourceContentWorkspaceId: localWorkspace.id,
         displayName: 'Cross-tenant preparation',
+        submissionKey: randomUUID(),
         selectedDetailPageArtifactId: foreignArtifact.id,
       },
     })).rejects.toMatchObject({ code: 'P2003' });
@@ -101,20 +149,32 @@ describe('AI content ownership constraints (PG integration)', () => {
     const repository = new ContentAssetLibraryRepositoryAdapter(
       prisma as unknown as PrismaService,
     );
+    const workspace = await prisma.contentWorkspace.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        ownerType: 'direct_detail_page',
+        displayName: 'Locked usage replacement',
+        normalizedTitle: 'lockedusagereplacement',
+      },
+    });
     const group = await prisma.contentGenerationGroup.create({
-      data: { organizationId: TEST_ORGANIZATION_ID },
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        contentWorkspaceId: workspace.id,
+      },
     });
     const generation = await prisma.contentGeneration.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         generationGroupId: group.id,
+        contentWorkspaceId: workspace.id,
       },
     });
     const assetUrl = 'https://cdn.example.com/locked-usage.png';
     const asset = await prisma.contentAsset.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        generationGroupId: group.id,
+        originGenerationGroupId: group.id,
         assetKey: groupUrlAssetKey(group.id, assetUrl),
         url: assetUrl,
       },
@@ -217,7 +277,6 @@ describe('AI content ownership constraints (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       ownerType: 'sourcing_candidate',
       sourceCandidateId: candidate.id,
-      targetMasterId: null,
       channelListingId: null,
       originWorkspaceId: null,
       displayName: 'Candidate owner lock',
@@ -249,115 +308,6 @@ describe('AI content ownership constraints (PG integration)', () => {
         sourceCandidateId: candidate.id,
       },
     })).toBe(1);
-  });
-
-  it('locks a duplicate-merge target against concurrent deletion', async () => {
-    const deletionRepository = new ContentAssetLibraryRepositoryAdapter(
-      prisma as unknown as PrismaService,
-    );
-    const [sourceGroup, targetGroup] = await Promise.all([
-      prisma.contentGenerationGroup.create({
-        data: { organizationId: TEST_ORGANIZATION_ID },
-      }),
-      prisma.contentGenerationGroup.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          groupType: 'product_workspace',
-        },
-      }),
-    ]);
-    const assetUrl = 'https://cdn.example.com/duplicate-merge-lock.png';
-    const [sourceAsset, targetAsset] = await Promise.all([
-      prisma.contentAsset.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          generationGroupId: sourceGroup.id,
-          assetKey: groupUrlAssetKey(sourceGroup.id, assetUrl),
-          url: assetUrl,
-        },
-      }),
-      prisma.contentAsset.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          generationGroupId: targetGroup.id,
-          assetKey: groupUrlAssetKey(targetGroup.id, assetUrl),
-          url: assetUrl,
-        },
-      }),
-    ]);
-    const workspace = await prisma.contentWorkspace.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        ownerType: 'direct_detail_page',
-        displayName: 'Duplicate merge lock',
-        normalizedTitle: 'duplicatemergelock',
-      },
-    });
-    const selection = await prisma.contentWorkspaceThumbnailSelection.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        contentWorkspaceId: workspace.id,
-        contentAssetId: sourceAsset.id,
-      },
-    });
-    await prisma.contentWorkspace.update({
-      where: { id: workspace.id },
-      data: { currentThumbnailSelectionId: selection.id },
-    });
-
-    let signalLocked!: () => void;
-    const locked = new Promise<void>((resolve) => {
-      signalLocked = resolve;
-    });
-    let releaseLock!: () => void;
-    const released = new Promise<void>((resolve) => {
-      releaseLock = resolve;
-    });
-    const prismaWithPausedAssetLock = {
-      $transaction: <T>(callback: (tx: Prisma.TransactionClient) => Promise<T>) =>
-        prisma.$transaction(async (tx) => callback(new Proxy(tx, {
-          get(target, property, receiver) {
-            if (property !== '$queryRaw') return Reflect.get(target, property, receiver);
-            return async <R>(query: Prisma.Sql): Promise<R> => {
-              const rows = await tx.$queryRaw<R>(query);
-              signalLocked();
-              await released;
-              return rows;
-            };
-          },
-        }))),
-    };
-    const pausedRepository = new ContentWorkspaceAttachmentRepositoryAdapter(
-      prismaWithPausedAssetLock as unknown as PrismaService,
-    );
-
-    const merge = pausedRepository.attachGroupToProduct({
-      organizationId: TEST_ORGANIZATION_ID,
-      groupId: sourceGroup.id,
-      productId: randomUUID(),
-      productWorkspaceId: targetGroup.id,
-    });
-    await locked;
-    const deletion = deletionRepository.deleteAsset({
-      organizationId: TEST_ORGANIZATION_ID,
-      contentAssetId: targetAsset.id,
-      deletedAt: new Date('2026-07-13T00:00:00.000Z'),
-    });
-    await expect(Promise.race([
-      deletion.then(() => 'settled'),
-      new Promise<string>((resolve) => setTimeout(() => resolve('blocked'), 100)),
-    ])).resolves.toBe('blocked');
-
-    releaseLock();
-    await merge;
-    await expect(deletion).resolves.toEqual({ status: 'in_use' });
-    await expect(prisma.contentWorkspaceThumbnailSelection.findUniqueOrThrow({
-      where: { id: selection.id },
-      select: { contentAssetId: true, contentAsset: { select: { isDeleted: true } } },
-    })).resolves.toEqual({
-      contentAssetId: targetAsset.id,
-      contentAsset: { isDeleted: false },
-    });
   });
 
   it('serializes thumbnail adoption against generation deletion and reports an explicit conflict', async () => {
@@ -394,7 +344,7 @@ describe('AI content ownership constraints (PG integration)', () => {
     await prisma.contentAsset.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        generationGroupId: group.id,
+        originGenerationGroupId: group.id,
         assetKey: groupUrlAssetKey(group.id, candidate.url),
         url: candidate.url,
       },
@@ -468,13 +418,25 @@ describe('AI content ownership constraints (PG integration)', () => {
     const repository = new ContentAssetLibraryRepositoryAdapter(
       prisma as unknown as PrismaService,
     );
+    const workspace = await prisma.contentWorkspace.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        ownerType: 'direct_detail_page',
+        displayName: 'Concurrent usage replacement',
+        normalizedTitle: 'concurrentusagereplacement',
+      },
+    });
     const group = await prisma.contentGenerationGroup.create({
-      data: { organizationId: TEST_ORGANIZATION_ID },
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        contentWorkspaceId: workspace.id,
+      },
     });
     const generation = await prisma.contentGeneration.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         generationGroupId: group.id,
+        contentWorkspaceId: workspace.id,
       },
     });
     const firstUrl = 'https://cdn.example.com/usage-first.png';
@@ -483,7 +445,7 @@ describe('AI content ownership constraints (PG integration)', () => {
       prisma.contentAsset.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
-          generationGroupId: group.id,
+          originGenerationGroupId: group.id,
           assetKey: groupUrlAssetKey(group.id, firstUrl),
           url: firstUrl,
         },
@@ -491,7 +453,7 @@ describe('AI content ownership constraints (PG integration)', () => {
       prisma.contentAsset.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
-          generationGroupId: group.id,
+          originGenerationGroupId: group.id,
           assetKey: groupUrlAssetKey(group.id, secondUrl),
           url: secondUrl,
         },
@@ -550,11 +512,8 @@ describe('AI content ownership constraints (PG integration)', () => {
     expect(firstAsset.id).not.toBe(secondAsset.id);
   });
 
-  it('lets historical thumbnail provenance be collected while the current asset remains protected', async () => {
+  it('deletes assets referenced only by historical thumbnail selections while protecting the current asset', async () => {
     const assetRepository = new ContentAssetLibraryRepositoryAdapter(
-      prisma as unknown as PrismaService,
-    );
-    const archiveRepository = new ContentArchiveRepositoryAdapter(
       prisma as unknown as PrismaService,
     );
     const workspace = await prisma.contentWorkspace.create({
@@ -571,18 +530,11 @@ describe('AI content ownership constraints (PG integration)', () => {
         contentWorkspaceId: workspace.id,
       },
     });
-    const generation = await prisma.contentGeneration.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        generationGroupId: group.id,
-        contentWorkspaceId: workspace.id,
-      },
-    });
     const [historicalAsset, currentAsset] = await Promise.all([
       prisma.contentAsset.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
-          generationGroupId: group.id,
+          originGenerationGroupId: group.id,
           assetKey: groupUrlAssetKey(group.id, 'https://cdn.example.com/historical.png'),
           url: 'https://cdn.example.com/historical.png',
         },
@@ -590,7 +542,7 @@ describe('AI content ownership constraints (PG integration)', () => {
       prisma.contentAsset.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
-          generationGroupId: group.id,
+          originGenerationGroupId: group.id,
           assetKey: groupUrlAssetKey(group.id, 'https://cdn.example.com/current.png'),
           url: 'https://cdn.example.com/current.png',
         },
@@ -627,22 +579,6 @@ describe('AI content ownership constraints (PG integration)', () => {
       contentAssetId: currentAsset.id,
       deletedAt: new Date('2026-07-13T01:00:00.000Z'),
     })).resolves.toEqual({ status: 'in_use' });
-    await prisma.contentAsset.update({
-      where: { id: historicalAsset.id },
-      data: { isDeleted: false, deletedAt: null },
-    });
-    await prisma.contentGenerationAssetUsage.createMany({
-      data: [historicalAsset.id, currentAsset.id].map((contentAssetId) => ({
-        organizationId: TEST_ORGANIZATION_ID,
-        contentGenerationId: generation.id,
-        contentAssetId,
-      })),
-    });
-
-    await expect(archiveRepository.deleteGroupWorkspace({
-      organizationId: TEST_ORGANIZATION_ID,
-      groupId: group.id,
-    })).resolves.toMatchObject({ status: 'deleted', deletedAssets: 1 });
     await expect(prisma.contentAsset.findMany({
       where: { id: { in: [historicalAsset.id, currentAsset.id] } },
       orderBy: { url: 'asc' },

@@ -130,7 +130,6 @@ describe('RegistrationContentWorkspaceRepositoryAdapter (PG integration)', () =>
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: account.id,
         sourceCandidateId: candidate.id,
-        channel: 'coupang',
         externalId: randomUUID(),
         channelName: candidate.name,
         status: 'active',
