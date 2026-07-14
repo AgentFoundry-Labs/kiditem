@@ -44,7 +44,7 @@ Coupang registeredName
   -> Inventory findByNormalizedNames(organizationId, keys)
   -> active physical MasterProduct rows
   -> candidate ranking reason exact_normalized_name
-  -> advisory status needs_review
+  -> advisory status needs_review (화면 문구: 확인 필요)
   -> no ChannelSkuComponent write
 ```
 
@@ -63,7 +63,7 @@ Coupang registeredName
 
 - 저장된 구성품이 없는 SKU만 상태 새로고침 대상이다.
 - 기존 정확한 코드 또는 고유 바코드 자동 매칭이 성공하면 기존 동작대로 `matched`와 수량 1 구성품을 저장한다.
-- 자동 식별자 매칭이 성공하지 않았고 정규화 등록상품명 후보가 하나 이상이면 `needs_review`로 저장한다.
+- 자동 식별자 매칭이 성공하지 않았고 정규화 등록상품명 후보가 하나 이상이면 `needs_review`(화면 문구: `확인 필요`)로 저장한다.
 - 정규화 이름 후보만으로 `ChannelSkuComponent`를 만들거나 `quantity = 1`을 저장하지 않는다.
 - 명시적 매칭 해제 후에도 정규화 이름 후보가 남아 있으면 advisory 상태는 `needs_review`로 돌아간다.
 - 일반 `name_suggestion`과 수동 검색 결과만 있는 경우는 기존대로 `unmatched`다.
