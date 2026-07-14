@@ -2,20 +2,23 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuthSession } from '../AuthProvider';
+import { EXTENSION_AUTH_REQUIRED_EVENT } from '@/lib/extension-auth';
 
 type AuthChangeHandler = (event: string, session: unknown) => void;
 
 const getSessionMock = vi.hoisted(() => vi.fn());
+const refreshSessionMock = vi.hoisted(() => vi.fn());
 const onAuthStateChangeMock = vi.hoisted(() => vi.fn());
 const unsubscribeMock = vi.hoisted(() => vi.fn());
 const replaceMock = vi.hoisted(() => vi.fn());
 const consumeSignOutReasonMock = vi.hoisted(() => vi.fn());
-const syncSourcingExtensionAuthMock = vi.hoisted(() => vi.fn());
+const syncExtensionAuthMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/supabase/client', () => ({
   createSupabaseBrowserClient: () => ({
     auth: {
       getSession: getSessionMock,
+      refreshSession: refreshSessionMock,
       onAuthStateChange: onAuthStateChangeMock,
     },
   }),
@@ -25,8 +28,9 @@ vi.mock('@/lib/supabase/refresh', () => ({
   consumeSignOutReason: () => consumeSignOutReasonMock(),
 }));
 
-vi.mock('@/lib/sourcing-extension-auth', () => ({
-  syncSourcingExtensionAuth: (session: unknown) => syncSourcingExtensionAuthMock(session),
+vi.mock('@/lib/extension-auth', () => ({
+  EXTENSION_AUTH_REQUIRED_EVENT: 'kiditem:extension-auth-required',
+  syncExtensionAuth: (session: unknown) => syncExtensionAuthMock(session),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -54,13 +58,16 @@ describe('AuthProvider', () => {
 
   beforeEach(() => {
     getSessionMock.mockReset();
+    refreshSessionMock.mockReset();
     onAuthStateChangeMock.mockReset();
     unsubscribeMock.mockReset();
     replaceMock.mockReset();
     consumeSignOutReasonMock.mockReset();
-    syncSourcingExtensionAuthMock.mockReset();
+    syncExtensionAuthMock.mockReset();
 
     getSessionMock.mockResolvedValue({ data: { session: null } });
+    refreshSessionMock.mockResolvedValue({ data: { session: null }, error: null });
+    syncExtensionAuthMock.mockResolvedValue({});
     onAuthStateChangeMock.mockImplementation((handler: AuthChangeHandler) => {
       lastHandler = handler;
       return { data: { subscription: { unsubscribe: unsubscribeMock } } };
@@ -89,7 +96,7 @@ describe('AuthProvider', () => {
       expect(observed?.isLoading).toBe(false);
     });
     expect(getSessionMock).toHaveBeenCalledTimes(1);
-    expect(syncSourcingExtensionAuthMock).toHaveBeenCalledWith(session);
+    expect(syncExtensionAuthMock).toHaveBeenCalledWith(session);
   });
 
   it('AP2a: SIGNED_OUT + reason="session_expired" → queryClient.clear + replace(/login?reason=...)', async () => {
@@ -111,7 +118,7 @@ describe('AuthProvider', () => {
       lastHandler?.('SIGNED_OUT', null);
     });
 
-    expect(syncSourcingExtensionAuthMock).toHaveBeenCalledWith(null);
+    expect(syncExtensionAuthMock).toHaveBeenCalledWith(null);
     expect(clearSpy).toHaveBeenCalled();
     expect(replaceMock).toHaveBeenCalledWith(
       `/login?reason=session_expired&next=${encodeURIComponent('/inventory?page=2')}`,
@@ -183,7 +190,7 @@ describe('AuthProvider', () => {
     await waitFor(() => {
       expect(observed?.session).toEqual(newSession);
     });
-    expect(syncSourcingExtensionAuthMock).toHaveBeenCalledWith(newSession);
+    expect(syncExtensionAuthMock).toHaveBeenCalledWith(newSession);
     expect(replaceMock).not.toHaveBeenCalled();
     expect(clearSpy).not.toHaveBeenCalled();
   });
@@ -221,5 +228,62 @@ describe('AuthProvider', () => {
     unmount();
 
     expect(unsubscribeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('AP7: extension auth-required events coalesce one forced refresh and resync', async () => {
+    const rotated = { access_token: 'rotated', user: { id: 'u1' } };
+    refreshSessionMock.mockResolvedValue({
+      data: { session: rotated },
+      error: null,
+    });
+    renderWithProvider(<div />);
+    await waitFor(() => expect(onAuthStateChangeMock).toHaveBeenCalled());
+    syncExtensionAuthMock.mockClear();
+
+    await act(async () => {
+      window.dispatchEvent(new Event(EXTENSION_AUTH_REQUIRED_EVENT));
+      window.dispatchEvent(new Event(EXTENSION_AUTH_REQUIRED_EVENT));
+    });
+
+    await waitFor(() => expect(refreshSessionMock).toHaveBeenCalledTimes(1));
+    expect(syncExtensionAuthMock).toHaveBeenCalledWith(rotated);
+  });
+
+  it('AP8: online recovery reads the current session and resyncs extensions', async () => {
+    const current = { access_token: 'current', user: { id: 'u1' } };
+    getSessionMock
+      .mockResolvedValueOnce({ data: { session: null } })
+      .mockResolvedValueOnce({ data: { session: current } });
+    renderWithProvider(<div />);
+    await waitFor(() => expect(getSessionMock).toHaveBeenCalledTimes(1));
+    syncExtensionAuthMock.mockClear();
+
+    await act(async () => {
+      window.dispatchEvent(new Event('online'));
+    });
+
+    await waitFor(() => expect(getSessionMock).toHaveBeenCalledTimes(2));
+    expect(syncExtensionAuthMock).toHaveBeenCalledWith(current);
+  });
+
+  it('AP9: visible-tab recovery resyncs the current session', async () => {
+    const current = { access_token: 'visible', user: { id: 'u1' } };
+    getSessionMock
+      .mockResolvedValueOnce({ data: { session: null } })
+      .mockResolvedValueOnce({ data: { session: current } });
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    });
+    renderWithProvider(<div />);
+    await waitFor(() => expect(getSessionMock).toHaveBeenCalledTimes(1));
+    syncExtensionAuthMock.mockClear();
+
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    await waitFor(() => expect(getSessionMock).toHaveBeenCalledTimes(2));
+    expect(syncExtensionAuthMock).toHaveBeenCalledWith(current);
   });
 });
