@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../prisma/prisma.service';
+import { kstBusinessDate } from '../../../../../common/kst';
 import type {
   WingTrafficAggregationRepositoryPort,
   WingTrafficMetrics,
@@ -21,8 +22,9 @@ import type {
  * Wing/Drive numbers when Order data is absent.
  *
  * Multi-tenant: every read binds `organizationId`. Date columns are
- * `@db.Date`; callers pass UTC-midnight `Date` instants which compare cleanly
- * against the calendar-date column.
+ * `@db.Date`; incoming dashboard boundaries are KST instants, so this adapter
+ * converts them to UTC-midnight business-date keys before every date-column
+ * comparison.
  */
 @Injectable()
 export class WingTrafficAggregationRepositoryAdapter
@@ -35,10 +37,12 @@ export class WingTrafficAggregationRepositoryAdapter
     from: Date,
     to: Date,
   ): Promise<WingTrafficMetrics> {
+    const businessFrom = kstBusinessDate(from);
+    const businessTo = kstBusinessDate(to);
     const agg = await this.prisma.channelListingDailySnapshot.aggregate({
       where: {
         organizationId,
-        businessDate: { gte: from, lt: to },
+        businessDate: { gte: businessFrom, lt: businessTo },
       },
       _sum: {
         trafficRevenue: true,
@@ -93,12 +97,14 @@ export class WingTrafficAggregationRepositoryAdapter
     from: Date,
     to: Date,
   ): Promise<WingTrafficMetrics> {
+    const businessFrom = kstBusinessDate(from);
+    const businessTo = kstBusinessDate(to);
     const rows = await this.prisma.channelAccountDailyKpiSnapshot.findMany({
       where: {
         organizationId,
         source: 'wing',
         kpiType: 'wing_dashboard',
-        businessDate: { gte: from, lt: to },
+        businessDate: { gte: businessFrom, lt: businessTo },
       },
       select: { normalizedJson: true, lastObservedAt: true },
     });
@@ -152,11 +158,13 @@ export class WingTrafficAggregationRepositoryAdapter
     from: Date,
     to: Date,
   ): Promise<CoupangAdsMetrics> {
+    const businessFrom = kstBusinessDate(from);
+    const businessTo = kstBusinessDate(to);
     const rows = await this.prisma.channelAccountDailyKpiSnapshot.findMany({
       where: {
         organizationId,
         kpiType: 'coupang_ads_daily',
-        businessDate: { gte: from, lt: to },
+        businessDate: { gte: businessFrom, lt: businessTo },
       },
       select: { normalizedJson: true, lastObservedAt: true },
     });
@@ -257,7 +265,8 @@ export class WingTrafficAggregationRepositoryAdapter
     since: Date,
     until?: Date,
   ): Promise<WingDailyTrendRow[]> {
-    const upperBound = until ?? null;
+    const businessSince = kstBusinessDate(since);
+    const upperBound = until ? kstBusinessDate(until) : null;
     const rows = await this.prisma.$queryRaw<WingDailyTrendRow[]>(Prisma.sql`
       SELECT
         TO_CHAR(business_date, 'YYYY-MM-DD') AS date,
@@ -267,7 +276,7 @@ export class WingTrafficAggregationRepositoryAdapter
         COALESCE(SUM(traffic_visitors), 0)::int AS visitors
       FROM channel_listing_daily_snapshots
       WHERE organization_id = ${organizationId}::uuid
-        AND business_date >= ${since}::date
+        AND business_date >= ${businessSince}::date
         ${upperBound ? Prisma.sql`AND business_date < ${upperBound}::date` : Prisma.empty}
       GROUP BY 1
       ORDER BY 1
@@ -280,7 +289,9 @@ export class WingTrafficAggregationRepositoryAdapter
         organizationId,
         source: 'wing',
         kpiType: 'wing_dashboard',
-        businessDate: until ? { gte: since, lt: until } : { gte: since },
+        businessDate: upperBound
+          ? { gte: businessSince, lt: upperBound }
+          : { gte: businessSince },
       },
       select: { businessDate: true, normalizedJson: true },
       orderBy: { businessDate: 'asc' },
@@ -312,13 +323,15 @@ export class WingTrafficAggregationRepositoryAdapter
     since: Date,
     until?: Date,
   ): Promise<CoupangAdsDailyRow[]> {
+    const businessSince = kstBusinessDate(since);
+    const businessUntil = until ? kstBusinessDate(until) : null;
     const rows = await this.prisma.channelAccountDailyKpiSnapshot.findMany({
       where: {
         organizationId,
         kpiType: 'coupang_ads_daily',
-        businessDate: until
-          ? { gte: since, lt: until }
-          : { gte: since },
+        businessDate: businessUntil
+          ? { gte: businessSince, lt: businessUntil }
+          : { gte: businessSince },
       },
       select: { businessDate: true, normalizedJson: true },
       orderBy: { businessDate: 'asc' },

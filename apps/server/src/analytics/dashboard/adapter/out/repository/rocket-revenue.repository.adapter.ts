@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../../../../prisma/prisma.service";
+import { kstBusinessDate } from "../../../../../common/kst";
 import type {
   RocketRevenueRepositoryPort,
   RocketRevenueMetrics,
@@ -14,9 +15,9 @@ import type {
  * Reads `rocket_supply_daily_snapshots` (발주금액=공급가, 입고예정일 KST 기준 일별
  * fact). The dashboard surfaces this as a separate revenue lane from Wing.
  *
- * Multi-tenant: every read binds `organizationId`. `business_date` is `@db.Date`;
- * callers pass UTC-midnight `Date` instants that compare cleanly against the
- * calendar-date column.
+ * Multi-tenant: every read binds `organizationId`. `business_date` is
+ * `@db.Date`; incoming dashboard boundaries are normalized to UTC-midnight
+ * KST business-date keys before comparison.
  */
 @Injectable()
 export class RocketRevenueRepositoryAdapter implements RocketRevenueRepositoryPort {
@@ -42,10 +43,12 @@ export class RocketRevenueRepositoryAdapter implements RocketRevenueRepositoryPo
     from: Date,
     to: Date,
   ): Promise<RocketRevenueMetrics> {
+    const businessFrom = kstBusinessDate(from);
+    const businessTo = kstBusinessDate(to);
     const agg = await this.prisma.rocketSupplyDailySnapshot.aggregate({
       where: {
         organizationId,
-        businessDate: { gte: from, lt: to },
+        businessDate: { gte: businessFrom, lt: businessTo },
       },
       _sum: { revenueKrw: true, poCount: true, itemQty: true },
       _max: { updatedAt: true },
@@ -66,10 +69,14 @@ export class RocketRevenueRepositoryAdapter implements RocketRevenueRepositoryPo
     since: Date,
     until?: Date,
   ): Promise<RocketDailyRow[]> {
+    const businessSince = kstBusinessDate(since);
+    const businessUntil = until ? kstBusinessDate(until) : null;
     const rows = await this.prisma.rocketSupplyDailySnapshot.findMany({
       where: {
         organizationId,
-        businessDate: until ? { gte: since, lt: until } : { gte: since },
+        businessDate: businessUntil
+          ? { gte: businessSince, lt: businessUntil }
+          : { gte: businessSince },
       },
       orderBy: { businessDate: "asc" },
       select: {
@@ -106,9 +113,10 @@ export class RocketRevenueRepositoryAdapter implements RocketRevenueRepositoryPo
     organizationId: string,
     date: Date,
   ): Promise<RocketOrderRow[]> {
-    const dayEnd = new Date(date.getTime() + 24 * 3600 * 1000);
+    const businessDate = kstBusinessDate(date);
+    const dayEnd = new Date(businessDate.getTime() + 24 * 3600 * 1000);
     const rows = await this.prisma.rocketPurchaseOrder.findMany({
-      where: { organizationId, businessDate: { gte: date, lt: dayEnd } },
+      where: { organizationId, businessDate: { gte: businessDate, lt: dayEnd } },
       orderBy: { orderAmount: "desc" },
       select: RocketRevenueRepositoryAdapter.ORDER_SELECT,
     });
@@ -121,10 +129,12 @@ export class RocketRevenueRepositoryAdapter implements RocketRevenueRepositoryPo
     to: Date,
     status?: string,
   ): Promise<RocketOrderRow[]> {
+    const businessFrom = kstBusinessDate(from);
+    const businessTo = kstBusinessDate(to);
     const rows = await this.prisma.rocketPurchaseOrder.findMany({
       where: {
         organizationId,
-        businessDate: { gte: from, lt: to },
+        businessDate: { gte: businessFrom, lt: businessTo },
         ...(status ? { status } : {}),
       },
       orderBy: [{ businessDate: "desc" }, { orderAmount: "desc" }],

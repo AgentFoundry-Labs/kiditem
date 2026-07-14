@@ -17,6 +17,7 @@
 
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../../prisma/prisma.service';
+import { kstBusinessDate } from '../../../../../common/kst';
 import type {
   ProfitCalculationRepositoryPort,
   RangeProfitMetrics,
@@ -33,6 +34,8 @@ export class ProfitCalculationRepositoryAdapter
     from: Date,
     to: Date,
   ): Promise<RangeProfitMetrics> {
+    const businessFrom = kstBusinessDate(from);
+    const businessTo = kstBusinessDate(to);
     const orders = await this.prisma.order.findMany({
       where: {
         organizationId,
@@ -97,7 +100,7 @@ export class ProfitCalculationRepositoryAdapter
     const adAgg = await this.prisma.channelListingDailySnapshot.aggregate({
       where: {
         organizationId,
-        businessDate: { gte: from, lt: to },
+        businessDate: { gte: businessFrom, lt: businessTo },
       },
       _sum: {
         adSpend: true,
