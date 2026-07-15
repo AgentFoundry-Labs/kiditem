@@ -11,6 +11,7 @@ import {
 import {
   countLabel,
   groupHistoryByDay,
+  hasSellpiaTransmissionRequest,
   type ConversionHistoryItem,
 } from '../lib/order-collection-page-model';
 
@@ -73,7 +74,7 @@ export function GeneratedFilesSection({
     [items, selectedIds],
   );
   const selectedUnsentItems = useMemo(
-    () => selectedItems.filter((item) => !item.sentAt),
+    () => selectedItems.filter((item) => !hasSellpiaTransmissionRequest(item)),
     [selectedItems],
   );
   const allPageSelected =
@@ -151,7 +152,7 @@ export function GeneratedFilesSection({
                   className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {bulkAction === 'send' ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-                  선택 전송 ({formatNumber(selectedUnsentItems.length)})
+                  선택 전송 요청 ({formatNumber(selectedUnsentItems.length)})
                 </button>
                 <button
                   type="button"
@@ -208,8 +209,8 @@ export function GeneratedFilesSection({
             aria-label="전송 상태 필터"
           >
             <option value="all">전체 상태</option>
-            <option value="unsent">미전송만</option>
-            <option value="sent">전송됨만</option>
+            <option value="waiting">전송 대기만</option>
+            <option value="requested">전송 요청됨만</option>
           </select>
           <select
             value={sortKey}
@@ -303,12 +304,12 @@ export function GeneratedFilesSection({
                           {item.fileName}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3">
-                          {item.sentAt ? (
+                          {hasSellpiaTransmissionRequest(item) ? (
                             <span
                               className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700"
-                              title={formatDateTime(item.sentAt)}
+                              title={formatDateTime(item.transmissionRequestedAt!)}
                             >
-                              전송 완료
+                              전송 요청됨
                             </span>
                           ) : (
                             <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
@@ -340,9 +341,9 @@ export function GeneratedFilesSection({
                               )}
                               {sellpiaSendingId === item.id
                                 ? '전송 중'
-                                : item.sentAt
-                                  ? '다시 전송'
-                                  : '셀피아 전송'}
+                                : hasSellpiaTransmissionRequest(item)
+                                  ? '다시 전송 요청'
+                                  : '셀피아 전송 요청'}
                             </button>
                             <button
                               type="button"

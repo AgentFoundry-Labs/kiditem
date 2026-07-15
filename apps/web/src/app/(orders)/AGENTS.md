@@ -49,3 +49,7 @@ React Query + apiClient
   action endpoints.
 - Extension-backed queries that render local error UI may suppress the global
   React Query error toast with query meta.
+- A successful order-collector extension submit is a Sellpia transmission
+  request, not proof of Sellpia acceptance. Only `{ success: true, submitted:
+  true }` schedules `order_transmission_requested`; raw mall collection does
+  not schedule inventory refresh or mutate stock locally.

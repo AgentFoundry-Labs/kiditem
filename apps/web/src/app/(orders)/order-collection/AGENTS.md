@@ -14,6 +14,10 @@ manage local generated-file history.
   responses.
 - Local generated file history and seen-row detection may use browser storage
   for operator convenience only.
+- Successful Sellpia submission persists local `transmissionRequestedAt`, then
+  requests `order_transmission_requested`, then invalidates freshness/history.
+  Normalize legacy `sentAt` while reading only; new writes use
+  `transmissionRequestedAt`.
 - Mall account reads/writes go through route-local API helpers.
 
 ## Boundary Rules
@@ -23,6 +27,9 @@ manage local generated-file history.
 - Do not expose unmasked personal data in preview tables unless backend and
   route policy explicitly allow it.
 - Keep extension capabilities aligned with `extensions/order-collector`.
+- Do not label an extension submit as accepted or completed, auto-resend it,
+  debounce refresh requests in the client, mutate stock locally, or infer
+  freshness. The server owns transmission settle/coalescing policy.
 
 ## Verification
 

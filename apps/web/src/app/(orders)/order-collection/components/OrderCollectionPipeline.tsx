@@ -4,7 +4,7 @@ import { cn, formatNumber } from '@/lib/utils';
 export interface OrderCollectionPipelineSummary {
   todayOrders: number;
   waiting: number;
-  sent: number;
+  transmissionRequested: number;
   trackingSent: number;
   done: number;
 }
@@ -16,7 +16,7 @@ const STAGES: Array<{
 }> = [
   { key: 'todayOrders', label: '오늘 주문', tone: 'slate' },
   { key: 'waiting', label: '셀피아 전송 대기', tone: 'amber' },
-  { key: 'sent', label: '셀피아 전송', tone: 'purple' },
+  { key: 'transmissionRequested', label: '셀피아 전송 요청됨', tone: 'purple' },
   { key: 'trackingSent', label: '셀피아 송장 전송', tone: 'sky' },
   { key: 'done', label: '완료', tone: 'emerald' },
 ];
@@ -27,15 +27,21 @@ export function OrderCollectionPipeline({
   summary: OrderCollectionPipelineSummary;
 }) {
   return (
-    <div className="flex items-stretch gap-1.5 overflow-x-auto pb-1">
-      {STAGES.map((stage, index) => (
-        <div key={stage.key} className="contents">
-          {index > 0 ? (
-            <ChevronRight size={18} className="flex-none self-center text-slate-300" />
-          ) : null}
-          <PipelineStage label={stage.label} value={summary[stage.key]} tone={stage.tone} />
-        </div>
-      ))}
+    <div className="space-y-2">
+      <div className="flex items-stretch gap-1.5 overflow-x-auto pb-1">
+        {STAGES.map((stage, index) => (
+          <div key={stage.key} className="contents">
+            {index > 0 ? (
+              <ChevronRight size={18} className="flex-none self-center text-slate-300" />
+            ) : null}
+            <PipelineStage label={stage.label} value={summary[stage.key]} tone={stage.tone} />
+          </div>
+        ))}
+      </div>
+      <p className="text-xs text-slate-500">
+        전송 요청은 셀피아 접수 완료를 의미하지 않습니다. 다음 자동 셀피아 재고 최신화가 실제
+        재고 반영을 검증합니다.
+      </p>
     </div>
   );
 }

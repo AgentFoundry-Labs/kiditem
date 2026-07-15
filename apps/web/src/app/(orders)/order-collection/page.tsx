@@ -24,15 +24,13 @@ import {
   useOrderAutoDetect,
 } from './hooks/use-order-auto-detect';
 import { useOrderCollectionSessionControls } from './hooks/use-order-collection-session-controls';
+import { useSellpiaOrderTransmission } from './hooks/use-sellpia-order-transmission';
 import { createBrowserMallCollector } from './lib/browser-mall-collection';
 import { createGeneratedFileActionLock } from './lib/generated-file-action-lock';
 import { isDuplicateGeneratedFile } from './lib/generated-file-dedup';
 import { runWithConcurrency } from './lib/order-collection-concurrency';
 import { downloadOrderCollectionFile } from './lib/order-collection-download';
-import {
-  sendOrderFileToSellpiaViaExtension,
-  type OrderCollectionExtensionRun,
-} from './lib/order-collection-extension';
+import { type OrderCollectionExtensionRun } from './lib/order-collection-extension';
 import {
   ICECREAM_MALL_KEY,
   MAX_HISTORY_ITEMS,
@@ -77,7 +75,6 @@ export default function OrderCollectionPage() {
   const [mallSettingsOpen, setMallSettingsOpen] = useState(false);
   const [mallPasswordLoading, setMallPasswordLoading] = useState(false);
   const [mallPasswordVisible, setMallPasswordVisible] = useState(false);
-  const [sellpiaSendingId, setSellpiaSendingId] = useState<string | null>(null);
   const [bulkAction, setBulkAction] = useState<GeneratedFilesBulkAction>(null);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
 
@@ -136,6 +133,15 @@ export default function OrderCollectionPage() {
 
   const { events, logActivity, clearMallErrorActivity, failedMallAccounts } =
     useOrderActivityEvents(mallAccounts);
+
+  const handleTransmissionRequested = useCallback((file: ConversionHistoryItem) => {
+    setHistory((current) =>
+      current.map((entry) => (entry.id === file.id ? file : entry)),
+    );
+  }, []);
+  const sellpiaTransmission = useSellpiaOrderTransmission({
+    onTransmissionRequested: handleTransmissionRequested,
+  });
 
   const markCollecting = useCallback((mallKey: string, collecting: boolean) => {
     setCollectingKeys((current) => {
@@ -454,30 +460,11 @@ export default function OrderCollectionPage() {
       return false;
     }
     sellpiaSendLockRef.current = true;
-    setSellpiaSendingId(item.id);
     try {
-      const shopName = item.mallName ?? '아이스크림몰';
-      const result = await sendOrderFileToSellpiaViaExtension({
-        shopName,
-        fileName: item.fileName,
-        blob: item.blob,
+      return await sellpiaTransmission.transmit(item, {
+        showSuccessToast: options.showSuccessToast,
       });
-      const updatedItem = { ...item, sentAt: Date.now() };
-      setHistory((current) =>
-        current.map((entry) => (entry.id === item.id ? updatedItem : entry)),
-      );
-      await saveGeneratedOrderFile(updatedItem).catch(() => {
-        toast.warning('전송은 완료됐지만 전송 상태를 저장하지 못했습니다.');
-      });
-      if (options.showSuccessToast !== false) {
-        toast.success(`셀피아 전송 완료 — ${result.shop ?? shopName}`);
-      }
-      return true;
-    } catch (err) {
-      toast.error(friendlyError(err) ?? '셀피아 전송 실패');
-      return false;
     } finally {
-      setSellpiaSendingId(null);
       sellpiaSendLockRef.current = false;
       releaseAction?.();
     }
@@ -496,7 +483,7 @@ export default function OrderCollectionPage() {
         }
       }
       if (successCount > 0) {
-        toast.success(`선택 파일 ${formatNumber(successCount)}개 셀피아 전송 완료`);
+        toast.success(`선택 파일 ${formatNumber(successCount)}개 셀피아 전송 요청됨`);
       }
     } finally {
       setBulkAction(null);
@@ -689,7 +676,7 @@ export default function OrderCollectionPage() {
       <GeneratedFilesSection
         items={history}
         bulkAction={bulkAction}
-        sellpiaSendingId={sellpiaSendingId}
+        sellpiaSendingId={sellpiaTransmission.sendingId}
         onDelete={(item) => void handleDeleteGeneratedFile(item)}
         onDeleteSelected={(items) => void handleDeleteSelected(items)}
         onDownload={downloadOrderCollectionFile}

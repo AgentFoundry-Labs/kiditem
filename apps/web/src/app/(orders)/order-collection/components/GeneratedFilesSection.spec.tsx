@@ -23,7 +23,7 @@ function generatedFile(
     mallKey: overrides.mallKey,
     mallName: overrides.mallName,
     orderNumbers: overrides.orderNumbers,
-    sentAt: overrides.sentAt,
+    transmissionRequestedAt: overrides.transmissionRequestedAt,
   };
 }
 
@@ -58,7 +58,7 @@ describe('GeneratedFilesSection', () => {
         fileName: '아이스크림-전송.xlsx',
         mallKey: 'icecream-mall',
         mallName: '아이스크림몰',
-        sentAt: Date.UTC(2026, 6, 14, 1),
+        transmissionRequestedAt: Date.UTC(2026, 6, 14, 1),
       }),
       generatedFile('unsent', {
         fileName: '키드키즈-대기.xlsx',
@@ -74,8 +74,8 @@ describe('GeneratedFilesSection', () => {
     expect(screen.queryByText('아이스크림-전송.xlsx')).not.toBeInTheDocument();
 
     await user.clear(screen.getByRole('searchbox', { name: '생성 파일 검색' }));
-    await user.selectOptions(screen.getByRole('combobox', { name: '전송 상태 필터' }), 'sent');
-    expect(screen.getByText('전송 완료')).toBeInTheDocument();
+    await user.selectOptions(screen.getByRole('combobox', { name: '전송 상태 필터' }), 'requested');
+    expect(screen.getByText('전송 요청됨')).toBeInTheDocument();
     await user.selectOptions(screen.getByRole('combobox', { name: '몰 필터' }), 'kidkids');
     expect(screen.getByText('조건에 맞는 생성 파일이 없습니다.')).toBeInTheDocument();
     expect(screen.getByText('0 / 2개')).toBeInTheDocument();
@@ -83,11 +83,11 @@ describe('GeneratedFilesSection', () => {
 
   it('selects rows and delegates supported bulk actions', async () => {
     const user = userEvent.setup();
-    const items = [generatedFile('a'), generatedFile('b', { sentAt: 200 })];
+    const items = [generatedFile('a'), generatedFile('b', { transmissionRequestedAt: 200 })];
     const callbacks = renderSection(items);
 
     await user.click(screen.getByRole('checkbox', { name: 'a.xlsx 선택' }));
-    await user.click(screen.getByRole('button', { name: '선택 전송 (1)' }));
+    await user.click(screen.getByRole('button', { name: '선택 전송 요청 (1)' }));
     expect(callbacks.onSendSelectedToSellpia).toHaveBeenCalledWith([items[0]]);
 
     await user.click(screen.getByRole('button', { name: '선택 다운로드 (1)' }));
