@@ -94,7 +94,7 @@ function renderSection(
 }
 
 describe("MallAccountSection", () => {
-  it("renders compact account cards with today and new-order stats", () => {
+  it("renders compact account cards with today and transmission-waiting stats", () => {
     const account = mallAccount("icecream-mall", { name: "아이스크림몰" });
     const stats = new Map<string, MallCollectionStat>([
       [
@@ -119,7 +119,9 @@ describe("MallAccountSection", () => {
     expect(screen.getByText("17")).toBeInTheDocument();
     expect(screen.getByText("12")).toBeInTheDocument();
     expect(screen.getByText("당일")).toBeInTheDocument();
-    expect(screen.getByText("신규")).toBeInTheDocument();
+    expect(screen.getByText("전송 대기")).toBeInTheDocument();
+    expect(screen.getByTitle("오늘 주문 중 셀피아 전송 대기")).toBeInTheDocument();
+    expect(screen.queryByText("신규")).not.toBeInTheDocument();
     expect(screen.queryByText("누적 주문")).not.toBeInTheDocument();
     expect(screen.queryByText("operator")).not.toBeInTheDocument();
   });

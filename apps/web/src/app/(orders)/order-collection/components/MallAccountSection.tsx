@@ -305,7 +305,7 @@ export function MallAccountSection({
                         </div>
                         <div
                           className="px-2 py-3.5 text-center"
-                          title="오늘 주문 중 셀피아 미전송"
+                          title="오늘 주문 중 셀피아 전송 대기"
                         >
                           <div
                             className={cn(
@@ -318,7 +318,7 @@ export function MallAccountSection({
                             {formatNumber(collectionStat?.newRows ?? 0)}
                           </div>
                           <div className="mt-1 text-[10px] text-slate-400">
-                            신규
+                            전송 대기
                           </div>
                         </div>
                       </div>
