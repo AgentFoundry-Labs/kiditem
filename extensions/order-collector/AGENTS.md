@@ -48,6 +48,15 @@ conversion.
   fields `downopt=2` and `downtype=excel` to
   `/product_search.down.html`. The existing `https://*.sellpia.com/*` host
   permission covers this authenticated same-origin request.
+- Reuse requires an exact matching tab with `active === false`. If every match
+  is active, create a separate inactive managed tab; never execute the download
+  request in the user's foreground tab.
+- The `inventory.sellpia` lifecycle requires a valid caller run ID and forces
+  deferred terminal handling even when an untrusted message omits or falsifies
+  `deferTerminal`. Successful download stays running until import finalization.
+- Attach extension-created tabs to the run as owned immediately after creation,
+  before readiness checks or page execution, so restart and cancellation can
+  reclaim them.
 - Validate the observed `#div_prod_down #downForm` selector/request contract
   before downloading. Do not depend on translated visible labels for runtime
   selection.

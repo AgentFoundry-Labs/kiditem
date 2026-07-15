@@ -29,6 +29,7 @@ const sellpiaInventoryLifecycle = KidItemOrderCollectionLifecycle.create({
   classification: "background_preferred",
   restartStrategy: "extension",
   requireRunId: true,
+  forceDeferredTerminal: true,
   deferredLabel: "Sellpia workbook downloaded · import in progress",
   failedLabel: "Sellpia inventory import failed",
   succeededLabel: "Sellpia inventory import completed",

@@ -338,7 +338,8 @@
 
     async function findOrCreateTab() {
       const tabs = await chromeApi.tabs.query({ url: INVENTORY_PAGE_MATCHES });
-      const existing = tabs.find((tab) => Number.isInteger(tab?.id));
+      const existing = tabs.find((tab) =>
+        Number.isInteger(tab?.id) && tab.active === false);
       if (existing) return { tab: existing, created: false };
       const tab = await chromeApi.tabs.create({ url: INVENTORY_PAGE_URL, active: false });
       return { tab, created: true };
@@ -347,6 +348,7 @@
     async function collect(collection) {
       let tab = null;
       let created = false;
+      let attached = false;
       let keepOpen = false;
       try {
         const located = await findOrCreateTab();
@@ -354,6 +356,10 @@
         created = located.created;
         if (!Number.isInteger(tab?.id) || !Number.isInteger(tab?.windowId)) {
           return publicFailure("sellpia_network_failed");
+        }
+        if (created) {
+          await collection.attachTab(tab, { owned: true });
+          attached = true;
         }
         await waitForTabReady(chromeApi, tab.id, timeoutMs);
         const injected = await withTimeout(
@@ -368,7 +374,7 @@
         if (!result || result.success !== true) {
           const failure = publicFailure(result?.errorCode);
           if (failure.errorCode === "sellpia_login_required") {
-            await collection.attachTab(tab, { owned: created });
+            if (!attached) await collection.attachTab(tab, { owned: false });
             keepOpen = true;
           }
           return failure;

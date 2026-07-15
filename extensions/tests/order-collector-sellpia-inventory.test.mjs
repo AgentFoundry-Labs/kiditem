@@ -140,6 +140,16 @@ function createPageDocument({ login = false, drift = false } = {}) {
   };
 }
 
+function createMutableLoginDocument(state) {
+  const authenticated = createPageDocument();
+  return {
+    querySelector(selector) {
+      if (selector === 'input[type="password"]' && state.login) return {};
+      return authenticated.querySelector(selector);
+    },
+  };
+}
+
 function createRuntime({
   existingTab = null,
   document = createPageDocument(),
@@ -158,6 +168,7 @@ function createRuntime({
     executeErrors: [],
   };
   const tabs = existingTab ? [existingTab] : [];
+  let nextTabId = 71;
   let context;
 
   const chrome = {
@@ -168,7 +179,8 @@ function createRuntime({
       },
       async create(properties) {
         calls.create.push(structuredClone(properties));
-        const tab = { id: 71, windowId: 9, status: 'complete', ...properties };
+        while (tabs.some((tab) => tab.id === nextTabId)) nextTabId += 1;
+        const tab = { id: nextTabId++, windowId: 9, status: 'complete', ...properties };
         tabs.push(tab);
         return { ...tab };
       },
@@ -177,6 +189,8 @@ function createRuntime({
       },
       async remove(tabId) {
         calls.remove.push(tabId);
+        const index = tabs.findIndex((tab) => tab.id === tabId);
+        if (index >= 0) tabs.splice(index, 1);
       },
     },
     scripting: {
@@ -232,12 +246,20 @@ function createRuntime({
       calls.attachTab.push({ tab: structuredClone(tab), attachment: structuredClone(attachment) });
     },
   };
-  return { calls, collector, collection };
+  return { calls, chrome, collector, collection, tabs };
 }
 
-function createLifecycleRuntime() {
+function createLifecycleRuntime({ closeTab = async () => {} } = {}) {
   const source = readFileSync(lifecyclePath, 'utf8');
-  const calls = { start: [], restart: [], attention: [], fail: [], succeed: [] };
+  const calls = {
+    start: [],
+    restart: [],
+    attachTab: [],
+    closedTabs: [],
+    attention: [],
+    fail: [],
+    succeed: [],
+  };
   const sessions = new Map();
   const view = (session) => structuredClone(session);
   const sessionManager = {
@@ -259,12 +281,30 @@ function createLifecycleRuntime() {
     async restart(runId, options) {
       calls.restart.push({ runId, options: structuredClone(options) });
       const session = sessions.get(runId);
+      if (
+        options?.closeManagedTab === true
+        && Number.isInteger(session._managedTabId)
+        && session._managedTabCloseOnRestart !== false
+      ) {
+        calls.closedTabs.push(session._managedTabId);
+        await closeTab(session._managedTabId);
+      }
+      delete session._managedTabId;
+      delete session._managedWindowId;
+      delete session._managedTabCloseOnRestart;
       session.status = 'running';
       session.attempt += 1;
       session.attention = null;
       return view(session);
     },
-    async attachTab() {},
+    async attachTab(runId, attachment) {
+      calls.attachTab.push({ runId, attachment: structuredClone(attachment) });
+      const session = sessions.get(runId);
+      session._managedTabId = attachment.tabId;
+      session._managedWindowId = attachment.windowId;
+      session._managedTabCloseOnRestart = attachment.closeOnRestart !== false;
+      return view(session);
+    },
     async progress(runId, progress) {
       const session = sessions.get(runId);
       session.status = 'running';
@@ -290,7 +330,19 @@ function createLifecycleRuntime() {
       session.status = 'succeeded';
       return view(session);
     },
-    async cancel() { return null; },
+    async cancel(runId, options) {
+      const session = sessions.get(runId);
+      if (
+        options?.closeManagedTab === true
+        && Number.isInteger(session?._managedTabId)
+        && session._managedTabCloseOnRestart !== false
+      ) {
+        calls.closedTabs.push(session._managedTabId);
+        await closeTab(session._managedTabId);
+      }
+      if (session) session.status = 'cancelled';
+      return session ? view(session) : null;
+    },
   };
   const context = vm.createContext({ console, crypto: { randomUUID: () => 'must-not-be-used' } });
   vm.runInContext(source, context, { filename: lifecyclePath });
@@ -300,6 +352,7 @@ function createLifecycleRuntime() {
     classification: 'background_preferred',
     restartStrategy: 'extension',
     requireRunId: true,
+    forceDeferredTerminal: true,
     deferredLabel: 'Sellpia workbook downloaded · import in progress',
     classifyFailure(result) {
       if (result?.errorCode === 'sellpia_login_required') return 'marketplace_login';
@@ -331,6 +384,7 @@ test('declares the exact inventory command, manifest host, module, producer, and
   assert.match(worker, /collectSellpiaInventory:\s*true/);
   assert.match(worker, /msg\?\.action === ["']collectSellpiaInventory["']/);
   assert.match(worker, /producer:\s*["']inventory\.sellpia["']/);
+  assert.match(worker, /forceDeferredTerminal:\s*true/);
   assert.match(lifecycle, /options\.producer/);
   assert.match(source, /https:\/\/kiditem\.sellpia\.com\/product_list_total\.html/);
   assert.match(source, /\/product_search\.down\.html/);
@@ -372,6 +426,49 @@ test('persists the caller run ID before work and restarts the same inventory pro
     restarted.collectionSession.progress.label,
     'Sellpia workbook downloaded · import in progress',
   );
+});
+
+test('hard-forces deferred terminal behavior when the external command omits or falsifies the flag', async () => {
+  for (const deferTerminal of [undefined, false]) {
+    const runtime = createLifecycleRuntime();
+    const message = {
+      action: 'collectSellpiaInventory',
+      runId: RUN_ID,
+      ...(deferTerminal === undefined ? {} : { deferTerminal }),
+    };
+
+    const collected = await runtime.lifecycle.run(
+      message,
+      { sourceOrigin: 'https://kiditem.sellpia.com', sourceAccountKey: 'kiditem' },
+      async () => ({ success: true, workbookBase64: 'bounded-test-bytes' }),
+    );
+
+    assert.equal(collected.collectionSession.status, 'running');
+    assert.equal(collected.collectionSession.progress.current, 1);
+    assert.equal(runtime.calls.succeed.length, 0);
+
+    const finalized = await runtime.lifecycle.finalize(
+      RUN_ID,
+      'succeeded',
+      'Sellpia inventory import completed',
+    );
+    assert.equal(finalized.status, 'succeeded');
+    assert.deepEqual(runtime.calls.succeed, [RUN_ID]);
+  }
+});
+
+test('rejects an invalid inventory run ID before creating a browser session', async () => {
+  const runtime = createLifecycleRuntime();
+
+  const result = await runtime.lifecycle.run(
+    { action: 'collectSellpiaInventory', runId: 'not-a-claim-token', deferTerminal: true },
+    { sourceOrigin: 'https://kiditem.sellpia.com', sourceAccountKey: 'kiditem' },
+    async () => ({ success: true }),
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.error, 'Collection run ID is required');
+  assert.deepEqual(runtime.calls.start, []);
 });
 
 test('rejects same-run restart under a different fixed Sellpia source identity', async () => {
@@ -448,7 +545,46 @@ test('downloads raw workbook bytes from the fixed POST contract in an inactive c
   assert.equal(target, '/product_search.down.html');
   assert.equal(options.method, 'POST');
   assert.equal(options.body.toString(), 'downopt=2&downtype=excel');
-  assert.deepEqual(runtime.calls.attachTab, []);
+  assert.deepEqual(runtime.calls.attachTab, [{
+    tab: { id: 71, windowId: 9, status: 'complete', url: PAGE_URL, active: false },
+    attachment: { owned: true },
+  }]);
+  assert.deepEqual(runtime.calls.remove, [71]);
+});
+
+test('persists a newly created inactive tab before readiness checks or page execution', async () => {
+  const runtime = createRuntime();
+  let releaseAttachment;
+  let attachmentStarted;
+  const started = new Promise((resolve) => {
+    attachmentStarted = resolve;
+  });
+  const attachmentGate = new Promise((resolve) => {
+    releaseAttachment = resolve;
+  });
+  runtime.collection.attachTab = async (tab, attachment) => {
+    runtime.calls.attachTab.push({
+      tab: structuredClone(tab),
+      attachment: structuredClone(attachment),
+    });
+    attachmentStarted();
+    await attachmentGate;
+  };
+
+  const pending = runtime.collector.collect(runtime.collection);
+  const attachmentObserved = await Promise.race([
+    started.then(() => true),
+    new Promise((resolve) => setTimeout(() => resolve(false), 50)),
+  ]);
+
+  assert.equal(attachmentObserved, true);
+  assert.deepEqual(runtime.calls.create, [{ url: PAGE_URL, active: false }]);
+  assert.equal(runtime.calls.executeScript.length, 0);
+  assert.deepEqual(runtime.calls.attachTab[0].attachment, { owned: true });
+
+  releaseAttachment();
+  const result = await pending;
+  assert.equal(result.success, true);
   assert.deepEqual(runtime.calls.remove, [71]);
 });
 
@@ -510,6 +646,77 @@ test('reuses an existing Sellpia page without activating, focusing, or closing i
   assert.deepEqual(runtime.calls.remove, []);
   assert.deepEqual(runtime.calls.attachTab, []);
   assert.equal(runtime.calls.executeScript[0].target.tabId, 55);
+});
+
+test('never executes in an active matching Sellpia tab and creates a separate inactive tab', async () => {
+  const foregroundTab = {
+    id: 55,
+    windowId: 4,
+    url: PAGE_URL,
+    active: true,
+    status: 'complete',
+  };
+  const runtime = createRuntime({ existingTab: foregroundTab });
+
+  const result = await runtime.collector.collect(runtime.collection);
+
+  assert.equal(result.success, true);
+  assert.deepEqual(runtime.calls.create, [{ url: PAGE_URL, active: false }]);
+  assert.equal(runtime.calls.executeScript.length, 1);
+  assert.equal(runtime.calls.executeScript[0].target.tabId, 71);
+  assert.deepEqual(runtime.calls.attachTab, [{
+    tab: { id: 71, windowId: 9, status: 'complete', url: PAGE_URL, active: false },
+    attachment: { owned: true },
+  }]);
+  assert.deepEqual(runtime.calls.remove, [71]);
+  assert.deepEqual(runtime.tabs.map((tab) => tab.id), [55]);
+});
+
+test('same-run restart closes the owned login tab and creates a fresh inactive managed tab', async () => {
+  const pageState = { login: true };
+  const browser = createRuntime({ document: createMutableLoginDocument(pageState) });
+  const sessions = createLifecycleRuntime({
+    closeTab: (tabId) => browser.chrome.tabs.remove(tabId),
+  });
+  const message = { action: 'collectSellpiaInventory', runId: RUN_ID, deferTerminal: true };
+  const identity = {
+    sourceOrigin: 'https://kiditem.sellpia.com',
+    sourceAccountKey: 'kiditem',
+  };
+
+  const attention = await sessions.lifecycle.run(
+    message,
+    identity,
+    (collection) => browser.collector.collect(collection),
+  );
+  assert.equal(attention.collectionSession.status, 'attention_required');
+  assert.deepEqual(browser.tabs.map((tab) => tab.id), [71]);
+
+  pageState.login = false;
+  const restarted = await sessions.lifecycle.run(
+    message,
+    identity,
+    (collection) => browser.collector.collect(collection),
+  );
+
+  assert.equal(restarted.collectionSession.status, 'running');
+  assert.deepEqual(sessions.calls.closedTabs, [71]);
+  assert.deepEqual(browser.calls.create, [
+    { url: PAGE_URL, active: false },
+    { url: PAGE_URL, active: false },
+  ]);
+  assert.deepEqual(
+    sessions.calls.attachTab.map((call) => ({
+      tabId: call.attachment.tabId,
+      closeOnRestart: call.attachment.closeOnRestart,
+    })),
+    [
+      { tabId: 71, closeOnRestart: true },
+      { tabId: 72, closeOnRestart: true },
+    ],
+  );
+  assert.deepEqual(browser.calls.remove, [71, 72]);
+  assert.deepEqual(browser.tabs, []);
 });
 
 test('parses encoded and quoted workbook filenames without returning response headers', async () => {
@@ -699,6 +906,9 @@ test('maps bounded fetch aborts to background attention without retaining the cr
   assert.equal(result.errorCode, 'sellpia_background_timeout');
   assert.equal(result.error, 'Sellpia background download timed out.');
   assert.equal(result.pendingLogin, undefined);
-  assert.deepEqual(runtime.calls.attachTab, []);
+  assert.deepEqual(runtime.calls.attachTab, [{
+    tab: { id: 71, windowId: 9, status: 'complete', url: PAGE_URL, active: false },
+    attachment: { owned: true },
+  }]);
   assert.deepEqual(runtime.calls.remove, [71]);
 });

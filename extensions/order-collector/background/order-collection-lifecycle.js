@@ -58,6 +58,7 @@
     const classification = options.classification || "background_preferred";
     const restartStrategy = options.restartStrategy || "web";
     const requireRunId = options.requireRunId === true;
+    const forceDeferredTerminal = options.forceDeferredTerminal === true;
     const createRunId = options.createRunId || (() => root.crypto.randomUUID());
     const classifyFailure = options.classifyFailure || (() => null);
     const deferredLabel = options.deferredLabel || "브라우저 수집 완료 · 파일 생성 중";
@@ -140,7 +141,10 @@
           });
           return { ...result, runId, collectionSession };
         }
-        if (message?.deferTerminal === true && result.success !== false) {
+        if (
+          (forceDeferredTerminal || message?.deferTerminal === true)
+          && result.success !== false
+        ) {
           const collectionSession = await sessions.progress(runId, {
             current: 1,
             total: 2,
