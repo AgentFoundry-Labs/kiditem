@@ -94,4 +94,24 @@ describe('sellpiaInventoryFreshnessApi', () => {
       manualFreshExportConfirmed: 'true',
     });
   });
+
+  it('reads the authoritative completed inventory basis independently of paged attempt history', async () => {
+    const latestImport = {
+      id: '33333333-3333-4333-8333-333333333333',
+      fileName: 'authoritative.xls',
+    };
+    apiClient.getParsed.mockResolvedValueOnce({ latestImport });
+    const api = sellpiaInventoryFreshnessApi as typeof sellpiaInventoryFreshnessApi & {
+      getCurrentBasis?: () => Promise<unknown>;
+    };
+
+    expect(typeof api.getCurrentBasis).toBe('function');
+    if (!api.getCurrentBasis) return;
+
+    await expect(api.getCurrentBasis()).resolves.toBe(latestImport);
+    expect(apiClient.getParsed).toHaveBeenCalledWith(
+      '/api/inventory/sellpia-skus?page=1&limit=1',
+      expect.anything(),
+    );
+  });
 });

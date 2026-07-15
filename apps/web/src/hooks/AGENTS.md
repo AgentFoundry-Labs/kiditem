@@ -12,7 +12,8 @@ needs them.
 - Period selector state shared by operational screens.
 - Legacy/shared product-image hooks that are genuinely cross-route.
 - Sellpia freshness/history server state, including authenticated
-  `refetchInterval` polling and invalidation after drawer actions.
+  `refetchInterval` polling, the authoritative latest completed inventory
+  basis, and full derived-projection invalidation after manual import.
 
 ## State Rules
 

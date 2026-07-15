@@ -10,7 +10,9 @@ import {
   type SellpiaInventoryImportResponse,
 } from '@kiditem/shared/source-import';
 import {
+  InventorySkuSnapshotListResponseSchema,
   SellpiaImportRunListResponseSchema,
+  type SellpiaImportRunSummary,
   type SellpiaImportRunListResponse,
 } from '@kiditem/shared/inventory';
 import { apiClient } from './api-client';
@@ -18,6 +20,7 @@ import { apiClient } from './api-client';
 const FRESHNESS_PATH = '/api/inventory/sellpia-freshness';
 const IMPORT_PATH = '/api/inventory/sellpia-sync/import';
 const HISTORY_PATH = '/api/inventory/sellpia-sync/import-runs';
+const CURRENT_BASIS_PATH = '/api/inventory/sellpia-skus?page=1&limit=1';
 
 function claimPath(claimToken: string, action: string): string {
   return `${FRESHNESS_PATH}/claims/${encodeURIComponent(claimToken)}/${action}`;
@@ -44,6 +47,14 @@ function appendWorkbook(form: FormData, file: File): void {
 export const sellpiaInventoryFreshnessApi = {
   getState: () =>
     apiClient.getParsed(FRESHNESS_PATH, SellpiaInventoryFreshnessViewSchema),
+
+  async getCurrentBasis(): Promise<SellpiaImportRunSummary | null> {
+    const response = await apiClient.getParsed(
+      CURRENT_BASIS_PATH,
+      InventorySkuSnapshotListResponseSchema,
+    );
+    return response.latestImport;
+  },
 
   listHistory: (params: { page?: number; limit?: number } = {}) =>
     apiClient.getParsed(

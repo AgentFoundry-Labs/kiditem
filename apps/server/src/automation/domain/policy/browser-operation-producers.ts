@@ -15,9 +15,13 @@ export interface BrowserOperationProducerDefinition {
   href: string;
 }
 
+type CollectionProducerDefinition = BrowserOperationProducerDefinition & {
+  appendCollectionRun?: boolean;
+};
+
 const COLLECTION_PRODUCERS = new Map<
   BrowserCollectionProducer,
-  BrowserOperationProducerDefinition
+  CollectionProducerDefinition
 >([
   ['dashboard.wing_sales', { title: '쿠팡 Wing 데이터 수집', href: '/dashboard' }],
   [
@@ -66,11 +70,21 @@ const COLLECTION_PRODUCERS = new Map<
   ['orders.mall', { title: '주문 데이터 수집', href: '/order-collection' }],
   [
     'inventory.sellpia',
-    { title: 'Sellpia 재고 갱신', href: '/inventory-hub?tab=overview' },
+    {
+      title: 'Sellpia 재고 갱신',
+      href: '/inventory-hub?tab=overview',
+      appendCollectionRun: false,
+    },
   ],
 ]);
 
 const BROWSER_COLLECTION_OPERATION_KEY = /^browser-collection:(.+)$/;
+const SELLPIA_QUALITY_OPERATION_KEY =
+  /^sellpia-inventory-quality:[a-f0-9]{64}:[a-z0-9_.-]{1,100}$/;
+const SELLPIA_QUALITY_PRODUCER: BrowserOperationProducerDefinition = {
+  title: 'Sellpia 재고 품질 확인 필요',
+  href: '/inventory-hub?tab=overview',
+};
 
 export function isBrowserOperationProducer(
   input: BrowserOperationProducerInput,
@@ -81,6 +95,16 @@ export function isBrowserOperationProducer(
 export function resolveBrowserOperationProducer(
   input: BrowserOperationProducerInput,
 ): BrowserOperationProducerDefinition | null {
+  if (
+    input.type === 'sellpia_inventory_quality' &&
+    input.sourceType === 'sellpia_inventory_import' &&
+    typeof input.sourceId === 'string' &&
+    BrowserCollectionRunIdSchema.safeParse(input.sourceId).success &&
+    SELLPIA_QUALITY_OPERATION_KEY.test(input.operationKey)
+  ) {
+    return SELLPIA_QUALITY_PRODUCER;
+  }
+
   if (
     input.type !== 'browser_collection' ||
     input.sourceType !== 'browser_collection_session' ||
@@ -104,6 +128,9 @@ export function resolveBrowserOperationProducer(
   }
 
   const collectionRun = operationKeyMatch[1];
+  if (producer.appendCollectionRun === false) {
+    return { title: producer.title, href: producer.href };
+  }
   const separator = producer.href.includes('?') ? '&' : '?';
   return {
     title: producer.title,

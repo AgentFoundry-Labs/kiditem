@@ -94,6 +94,25 @@ describe('SellpiaInventoryImport', () => {
     );
   });
 
+  it('resets the manual attestation when the operator replaces the selected file', async () => {
+    const user = userEvent.setup();
+    renderImport();
+    await chooseFile(user);
+    expect(screen.getByRole('button', { name: '재고 가져오기' })).toBeEnabled();
+
+    await user.upload(
+      screen.getByLabelText('Sellpia 재고 파일'),
+      new File(['replacement'], 'replacement.xls', {
+        type: 'application/vnd.ms-excel',
+      }),
+    );
+
+    expect(
+      screen.getByLabelText(/방금 Sellpia에서 내보낸 최신 재고 파일/),
+    ).not.toBeChecked();
+    expect(screen.getByRole('button', { name: '재고 가져오기' })).toBeDisabled();
+  });
+
   it('renders the completed run and replacement counts after import', async () => {
     const user = userEvent.setup();
     renderImport();

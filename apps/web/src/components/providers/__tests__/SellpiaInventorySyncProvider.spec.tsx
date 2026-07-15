@@ -1,9 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { queryKeys } from '@/lib/query-keys';
 
 const api = vi.hoisted(() => ({
   getState: vi.fn(),
+  getCurrentBasis: vi.fn(),
   listHistory: vi.fn(),
   claimDue: vi.fn(),
   heartbeat: vi.fn(),
@@ -46,7 +48,9 @@ vi.mock('@/components/sellpia-inventory', () => ({
   },
 }));
 
-import { SellpiaInventorySyncProvider } from '../SellpiaInventorySyncProvider';
+import * as providerModule from '../SellpiaInventorySyncProvider';
+
+const { SellpiaInventorySyncProvider } = providerModule;
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
 const dueState = {
@@ -79,6 +83,46 @@ const claimed = {
     },
   },
 };
+const IMPORT_RUN_ID = '33333333-3333-4333-8333-333333333333';
+
+function completedImport(issues: Array<{
+  code: string;
+  severity: 'warning' | 'error';
+  count: number;
+  sampleRowNumbers: number[];
+  sampleProductCodes: string[];
+}> = []) {
+  return {
+    run: {
+      id: IMPORT_RUN_ID,
+      sourceType: 'sellpia_inventory' as const,
+      channelAccountId: null,
+      fileName: 'inventory.xls',
+      fileHash: 'a'.repeat(64),
+      status: 'completed' as const,
+      rowCount: 42,
+      importedAt: '2026-07-16T00:02:00.000Z',
+      lastVerifiedAt: '2026-07-16T00:02:00.000Z',
+      verificationCount: 1,
+      lastTrigger: 'ttl_expired' as const,
+      freshnessGeneration: '2',
+      manualFreshExportConfirmedAt: null,
+      manualFreshExportConfirmedBy: null,
+      qualityReport: { issues },
+      errorCode: null,
+      errorMessage: null,
+      createdAt: '2026-07-16T00:02:00.000Z',
+      updatedAt: '2026-07-16T00:02:00.000Z',
+    },
+    duplicate: false,
+    outcome: 'published' as const,
+    changes: {
+      createdMasterProductCount: 1,
+      updatedMasterProductCount: 41,
+      inactivatedMasterProductCount: 0,
+    },
+  };
+}
 
 function renderProvider(children: React.ReactNode = null) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -97,12 +141,13 @@ describe('SellpiaInventorySyncProvider', () => {
     vi.clearAllMocks();
     auth.useAuth.mockReturnValue({ status: 'ready', user: { organizationId: 'org-1', role: 'owner' } });
     api.getState.mockResolvedValue(dueState);
+    api.getCurrentBasis.mockResolvedValue(null);
     api.listHistory.mockResolvedValue({ items: [], total: 0, page: 1, limit: 20 });
     api.claimDue.mockResolvedValue(claimed);
     api.heartbeat.mockResolvedValue(claimed.state);
-    api.importBrowser.mockResolvedValue({
-      run: { fileHash: 'a'.repeat(64), qualityReport: { issues: [] } },
-    });
+    api.fail.mockResolvedValue(dueState);
+    api.cancel.mockResolvedValue(dueState);
+    api.importBrowser.mockResolvedValue(completedImport());
     extension.collectSellpiaInventory.mockResolvedValue({
       file: new File(['workbook'], 'inventory.xls'),
       extensionId: 'extension-id',
@@ -176,6 +221,16 @@ describe('SellpiaInventorySyncProvider', () => {
     Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
   });
 
+  it('uses the complete local lock name as the in-memory deduplication identity', () => {
+    const lockName = (providerModule as typeof providerModule & {
+      sellpiaInventoryLockName?: (organizationId: string) => string;
+    }).sellpiaInventoryLockName;
+
+    expect(typeof lockName).toBe('function');
+    if (!lockName) return;
+    expect(lockName('org-1')).toBe('kiditem:sellpia-inventory:org-1');
+  });
+
   it('heartbeats every 20 seconds while the 90-second owner lease remains active', async () => {
     vi.useFakeTimers();
     extension.collectSellpiaInventory.mockReturnValue(new Promise(() => undefined));
@@ -217,6 +272,44 @@ describe('SellpiaInventorySyncProvider', () => {
     expect(api.importBrowser).not.toHaveBeenCalled();
     expect(api.cancel).not.toHaveBeenCalled();
     expect(extension.finalizeSellpiaInventorySession).not.toHaveBeenCalled();
+  });
+
+  it('abandons after delayed alert progress before starting the upload', async () => {
+    let resolveProgress!: () => void;
+    alerts.progressOperationAlert.mockReturnValueOnce(new Promise<void>((resolve) => {
+      resolveProgress = resolve;
+    }));
+    const mounted = renderProvider();
+    await waitFor(() => expect(alerts.progressOperationAlert).toHaveBeenCalled());
+
+    mounted.unmount();
+    await act(async () => resolveProgress());
+    await waitFor(() => expect(invalidateSellpiaInventory).toHaveBeenCalled());
+
+    expect(api.importBrowser).not.toHaveBeenCalled();
+    expect(extension.finalizeSellpiaInventorySession).not.toHaveBeenCalled();
+  });
+
+  it('abandons after a delayed upload without finalizing or publishing quality alerts', async () => {
+    let resolveUpload!: (value: ReturnType<typeof completedImport>) => void;
+    api.importBrowser.mockReturnValueOnce(new Promise((resolve) => {
+      resolveUpload = resolve;
+    }));
+    const mounted = renderProvider();
+    await waitFor(() => expect(api.importBrowser).toHaveBeenCalled());
+
+    mounted.unmount();
+    await act(async () => resolveUpload(completedImport([{
+      code: 'snapshot_churn',
+      severity: 'warning',
+      count: 3,
+      sampleRowNumbers: [2],
+      sampleProductCodes: ['SKU-1'],
+    }])));
+    await waitFor(() => expect(invalidateSellpiaInventory).toHaveBeenCalled());
+
+    expect(extension.finalizeSellpiaInventorySession).not.toHaveBeenCalled();
+    expect(alerts.requireAttentionOperationAlert).not.toHaveBeenCalled();
   });
 
   it('abandons the owner lease on logout without cancelling or importing', async () => {
@@ -264,6 +357,23 @@ describe('SellpiaInventorySyncProvider', () => {
     expect(api.heartbeat).toHaveBeenCalledTimes(4);
   });
 
+  it('retries a transient claim failure on the next successful freshness poll', async () => {
+    api.claimDue
+      .mockRejectedValueOnce(new Error('temporary claim failure'))
+      .mockResolvedValueOnce({ claimed: false, state: dueState });
+    const mounted = renderProvider();
+    await waitFor(() => expect(api.claimDue).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    await act(async () => {
+      await mounted.client.refetchQueries({
+        queryKey: queryKeys.inventory.freshness(),
+      });
+    });
+
+    await waitFor(() => expect(api.claimDue).toHaveBeenCalledTimes(2));
+  });
+
   it('lets only the claiming provider explicitly cancel both the extension and server lease', async () => {
     extension.collectSellpiaInventory.mockReturnValue(new Promise(() => undefined));
     renderProvider();
@@ -278,15 +388,26 @@ describe('SellpiaInventorySyncProvider', () => {
 
     await waitFor(() => expect(api.cancel).toHaveBeenCalledWith(RUN_ID));
     expect(extension.cancelSellpiaInventorySession).toHaveBeenCalledWith({ runId: RUN_ID });
+    expect(alerts.cancelOperationAlert).toHaveBeenCalledWith(
+      `browser-collection:${RUN_ID}`,
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          browserCollection: true,
+          collectionAttempt: 1,
+          collectionUpdatedAt: expect.any(Number),
+        }),
+      }),
+    );
   });
 
   it('uploads, finalizes, invalidates projections, and deduplicates quality alerts by hash and warning code', async () => {
-    api.importBrowser.mockResolvedValue({
-      run: {
-        fileHash: 'a'.repeat(64),
-        qualityReport: { issues: [{ code: `${'a'.repeat(64)}:snapshot_churn`, severity: 'warning', count: 3 }] },
-      },
-    });
+    api.importBrowser.mockResolvedValue(completedImport([{
+      code: `${'a'.repeat(64)}:snapshot_churn`,
+      severity: 'warning',
+      count: 3,
+      sampleRowNumbers: [2],
+      sampleProductCodes: ['SKU-1'],
+    }]));
 
     renderProvider();
 
@@ -302,12 +423,117 @@ describe('SellpiaInventorySyncProvider', () => {
     });
     expect(invalidateSellpiaInventory).toHaveBeenCalled();
     expect(alerts.startOperationAlert).toHaveBeenCalledWith(expect.objectContaining({
-      operationKey: `sellpia-inventory-quality:${'a'.repeat(64)}:snapshot_churn`,
+      operationKey: `browser-collection:${RUN_ID}`,
+      type: 'browser_collection',
+      sourceType: 'browser_collection_session',
+      sourceId: 'inventory.sellpia',
+      href: '/inventory-hub?tab=overview',
+      metadata: expect.objectContaining({
+        browserCollection: true,
+        collectionAttempt: 1,
+        collectionUpdatedAt: expect.any(Number),
+        claimToken: RUN_ID,
+        generation: '2',
+      }),
     }));
+    expect(alerts.startOperationAlert).toHaveBeenCalledWith(expect.objectContaining({
+      operationKey: `sellpia-inventory-quality:${'a'.repeat(64)}:snapshot_churn`,
+      type: 'sellpia_inventory_quality',
+      sourceType: 'sellpia_inventory_import',
+      sourceId: IMPORT_RUN_ID,
+      href: '/inventory-hub?tab=overview',
+      metadata: expect.objectContaining({
+        browserCollection: true,
+        collectionAttempt: 1,
+        collectionUpdatedAt: expect.any(Number),
+        fileHash: 'a'.repeat(64),
+        warningCode: 'snapshot_churn',
+      }),
+    }));
+    expect(alerts.progressOperationAlert).toHaveBeenCalledWith(
+      `browser-collection:${RUN_ID}`,
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          browserCollection: true,
+          collectionAttempt: 1,
+          collectionUpdatedAt: expect.any(Number),
+        }),
+      }),
+    );
+    expect(alerts.succeedOperationAlert).toHaveBeenCalledWith(
+      `browser-collection:${RUN_ID}`,
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          browserCollection: true,
+          collectionAttempt: 1,
+          collectionUpdatedAt: expect.any(Number),
+        }),
+      }),
+    );
     expect(alerts.requireAttentionOperationAlert).toHaveBeenCalledWith(
       `sellpia-inventory-quality:${'a'.repeat(64)}:snapshot_churn`,
-      expect.objectContaining({ severity: 'warning' }),
+      expect.objectContaining({
+        severity: 'warning',
+        metadata: expect.objectContaining({
+          browserCollection: true,
+          collectionAttempt: 1,
+          collectionUpdatedAt: expect.any(Number),
+          fileHash: 'a'.repeat(64),
+          warningCode: 'snapshot_churn',
+        }),
+      }),
     );
+    const automaticStart = alerts.startOperationAlert.mock.calls.find(
+      ([input]) => input.operationKey === `browser-collection:${RUN_ID}`,
+    )?.[0];
+    const qualityStart = alerts.startOperationAlert.mock.calls.find(
+      ([input]) => input.operationKey.startsWith('sellpia-inventory-quality:'),
+    )?.[0];
+    const progressMetadata = alerts.progressOperationAlert.mock.calls[0]?.[1]?.metadata;
+    const successMetadata = alerts.succeedOperationAlert.mock.calls[0]?.[1]?.metadata;
+    const qualityAttentionMetadata =
+      alerts.requireAttentionOperationAlert.mock.calls[0]?.[1]?.metadata;
+    expect(progressMetadata.collectionUpdatedAt).toBeGreaterThan(
+      automaticStart.metadata.collectionUpdatedAt,
+    );
+    expect(successMetadata.collectionUpdatedAt).toBeGreaterThan(
+      progressMetadata.collectionUpdatedAt,
+    );
+    expect(qualityAttentionMetadata.collectionUpdatedAt).toBeGreaterThan(
+      qualityStart.metadata.collectionUpdatedAt,
+    );
+  });
+
+  it('continues inventory upload and finalization when alert progress transport fails', async () => {
+    alerts.progressOperationAlert.mockRejectedValueOnce(
+      new Error('alert transport unavailable'),
+    );
+
+    renderProvider();
+
+    await waitFor(() => expect(api.importBrowser).toHaveBeenCalled());
+    await waitFor(() => expect(extension.finalizeSellpiaInventorySession).toHaveBeenCalled());
+    expect(api.fail).not.toHaveBeenCalled();
+  });
+
+  it('does not fail a completed inventory import when quality alert transport fails', async () => {
+    api.importBrowser.mockResolvedValue(completedImport([{
+      code: 'snapshot_churn',
+      severity: 'warning',
+      count: 3,
+      sampleRowNumbers: [2],
+      sampleProductCodes: ['SKU-1'],
+    }]));
+    alerts.requireAttentionOperationAlert.mockRejectedValueOnce(
+      new Error('quality alert transport unavailable'),
+    );
+
+    renderProvider();
+
+    await waitFor(() => expect(alerts.requireAttentionOperationAlert).toHaveBeenCalled());
+    await waitFor(() => expect(invalidateSellpiaInventory).toHaveBeenCalled());
+    expect(extension.finalizeSellpiaInventorySession).toHaveBeenCalled();
+    expect(api.fail).not.toHaveBeenCalled();
   });
 
   it('fails the server claim and extension session when upload fails', async () => {
@@ -322,6 +548,16 @@ describe('SellpiaInventorySyncProvider', () => {
       { extensionId: 'extension-id', runId: RUN_ID },
       'failed',
       'upload failed',
+    );
+    expect(alerts.failOperationAlert).toHaveBeenCalledWith(
+      `browser-collection:${RUN_ID}`,
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          browserCollection: true,
+          collectionAttempt: 1,
+          collectionUpdatedAt: expect.any(Number),
+        }),
+      }),
     );
   });
 

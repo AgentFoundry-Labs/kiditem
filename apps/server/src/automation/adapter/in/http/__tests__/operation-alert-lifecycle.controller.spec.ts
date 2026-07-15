@@ -8,6 +8,10 @@ const USER_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 const OTHER_USER_ID = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
 const COLLECTION_RUN_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const OPERATION_KEY = `browser-collection:${COLLECTION_RUN_ID}`;
+const SELLPIA_FILE_HASH = 'a'.repeat(64);
+const SELLPIA_IMPORT_RUN_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+const SELLPIA_QUALITY_OPERATION_KEY =
+  `sellpia-inventory-quality:${SELLPIA_FILE_HASH}:snapshot_churn`;
 const COLLECTION_ORDERING_METADATA = {
   browserCollection: true,
   collectionAttempt: 1,
@@ -123,6 +127,115 @@ describe('OperationAlertLifecycleController.start', () => {
     expect(result.actorUserId).toBe(USER_ID);
     expect(result.startedAt).toBe('2026-05-09T00:00:00.000Z');
     expect(result.createdAt).toBe('2026-05-09T00:00:00.000Z');
+  });
+
+  it('accepts the Sellpia automatic producer through the real controller with its exact canonical href', async () => {
+    const { controller, service } = makeController();
+    service.findByOperationKey.mockResolvedValueOnce(null);
+    service.start.mockResolvedValueOnce(alertRow({
+      title: 'Sellpia 재고 갱신',
+      sourceId: 'inventory.sellpia',
+      href: '/inventory-hub?tab=overview',
+      metadata: COLLECTION_ORDERING_METADATA,
+    }));
+
+    await controller.start(
+      {
+        operationKey: OPERATION_KEY,
+        type: 'browser_collection',
+        title: 'client title ignored',
+        sourceType: 'browser_collection_session',
+        sourceId: 'inventory.sellpia',
+        href: '/settings',
+        metadata: COLLECTION_ORDERING_METADATA,
+      },
+      ORGANIZATION_ID,
+      { id: USER_ID } as any,
+    );
+
+    expect(service.start).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Sellpia 재고 갱신',
+      href: '/inventory-hub?tab=overview',
+      metadata: COLLECTION_ORDERING_METADATA,
+    }));
+  });
+
+  it('accepts stable Sellpia quality start and attention transitions through the real controller', async () => {
+    const { controller, service } = makeController();
+    const qualityRow = alertRow({
+      operationKey: SELLPIA_QUALITY_OPERATION_KEY,
+      type: 'sellpia_inventory_quality',
+      title: 'Sellpia 재고 품질 확인 필요',
+      sourceType: 'sellpia_inventory_import',
+      sourceId: SELLPIA_IMPORT_RUN_ID,
+      href: '/inventory-hub?tab=overview',
+      metadata: {
+        ...COLLECTION_ORDERING_METADATA,
+        fileHash: SELLPIA_FILE_HASH,
+        warningCode: 'snapshot_churn',
+      },
+    });
+    service.findByOperationKey
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(qualityRow);
+    service.start.mockResolvedValueOnce(qualityRow);
+    service.attention.mockResolvedValueOnce(alertRow({
+      ...qualityRow,
+      status: 'pending',
+      severity: 'warning',
+    }));
+
+    await controller.start(
+      {
+        operationKey: SELLPIA_QUALITY_OPERATION_KEY,
+        type: 'sellpia_inventory_quality',
+        title: 'client title ignored',
+        sourceType: 'sellpia_inventory_import',
+        sourceId: SELLPIA_IMPORT_RUN_ID,
+        href: '/settings',
+        metadata: {
+          ...COLLECTION_ORDERING_METADATA,
+          fileHash: SELLPIA_FILE_HASH,
+          warningCode: 'snapshot_churn',
+        },
+      },
+      ORGANIZATION_ID,
+      { id: USER_ID } as any,
+    );
+    await controller.update(
+      SELLPIA_QUALITY_OPERATION_KEY,
+      {
+        status: 'pending',
+        severity: 'warning',
+        metadata: {
+          ...COLLECTION_ORDERING_METADATA,
+          collectionUpdatedAt:
+            COLLECTION_ORDERING_METADATA.collectionUpdatedAt + 1,
+          fileHash: SELLPIA_FILE_HASH,
+          warningCode: 'snapshot_churn',
+        },
+      },
+      ORGANIZATION_ID,
+      { id: USER_ID } as any,
+    );
+
+    expect(service.start).toHaveBeenCalledWith(expect.objectContaining({
+      operationKey: SELLPIA_QUALITY_OPERATION_KEY,
+      title: 'Sellpia 재고 품질 확인 필요',
+      href: '/inventory-hub?tab=overview',
+    }));
+    expect(service.attention).toHaveBeenCalledWith(
+      ORGANIZATION_ID,
+      SELLPIA_QUALITY_OPERATION_KEY,
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          fileHash: SELLPIA_FILE_HASH,
+          warningCode: 'snapshot_churn',
+          collectionUpdatedAt:
+            COLLECTION_ORDERING_METADATA.collectionUpdatedAt + 1,
+        }),
+      }),
+    );
   });
 
   it('returns 400 for a forged browser collection producer', async () => {

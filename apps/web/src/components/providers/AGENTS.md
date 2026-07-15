@@ -13,8 +13,10 @@ here affect every route.
 - Auth session state and SIGNED_OUT redirect ownership
 - React Query devtools lazy loading policy
 - One authenticated Sellpia inventory coordinator. It deduplicates claims with
-  the Web Locks API plus an in-memory guard, heartbeats only its claim, and
-  leaves unmounted/tab-closed leases to expire without cancellation.
+  the Web Locks API plus an in-memory guard keyed by the same local lock name,
+  heartbeats only its claim, and leaves unmounted/tab-closed leases to expire
+  without cancellation. Claim attempts retry on each authenticated freshness
+  poll even when React Query structurally shares the state object.
 
 ## State Rules
 
@@ -36,6 +38,9 @@ here affect every route.
   or handled auth-required errors.
 - `BrowserCollectionProvider` excludes `inventory.sellpia`; only the claimant
   coordinator may upload/finalize/cancel that run or own its operation alert.
+- Sellpia Operation Alerts carry monotonic ordering metadata on every
+  transition and are best-effort observability; alert transport failure never
+  changes inventory success or failure.
 
 ## Verification
 

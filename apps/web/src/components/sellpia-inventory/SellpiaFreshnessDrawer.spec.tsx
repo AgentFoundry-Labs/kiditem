@@ -75,6 +75,7 @@ describe('SellpiaFreshnessDrawer', () => {
         open
         onOpenChange={vi.fn()}
         state={baseState}
+        currentBasis={verifiedRun}
         history={[preDownloadFailure, verifiedRun]}
         userRole="member"
         ownerClaimToken={null}
@@ -102,6 +103,7 @@ describe('SellpiaFreshnessDrawer', () => {
         open
         onOpenChange={vi.fn()}
         state={baseState}
+        currentBasis={null}
         history={[]}
         userRole="owner"
         ownerClaimToken={RUN_ID}
@@ -125,6 +127,7 @@ describe('SellpiaFreshnessDrawer', () => {
         open
         onOpenChange={vi.fn()}
         state={{ ...baseState, activeSync: null, status: 'refresh_required' }}
+        currentBasis={null}
         history={[]}
         userRole="admin"
         ownerClaimToken={null}
@@ -138,5 +141,67 @@ describe('SellpiaFreshnessDrawer', () => {
     const submit = screen.getByRole('button', { name: '수동 파일 가져오기' });
     expect(submit).toBeDisabled();
     expect(screen.queryByLabelText(/비밀번호|쿠키/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the authoritative completed basis when the first 20 attempts are failures', () => {
+    const failures = Array.from({ length: 20 }, (_, index) => ({
+      ...preDownloadFailure,
+      id: `22222222-2222-4222-8222-${String(index).padStart(12, '0')}`,
+    }));
+
+    render(
+      <SellpiaFreshnessDrawer
+        open
+        onOpenChange={vi.fn()}
+        state={{ ...baseState, activeSync: null, status: 'failed' }}
+        currentBasis={{ ...verifiedRun, fileName: 'authoritative.xls' }}
+        history={failures}
+        userRole="member"
+        ownerClaimToken={null}
+        onCancel={vi.fn()}
+        onConfirmBinding={vi.fn()}
+        onRequestRefresh={vi.fn()}
+        onManualImport={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('authoritative.xls')).toBeInTheDocument();
+    expect(screen.getByText('1개 경고')).toBeInTheDocument();
+  });
+
+  it('resets manual attestation when the selected file changes', () => {
+    render(
+      <SellpiaFreshnessDrawer
+        open
+        onOpenChange={vi.fn()}
+        state={{ ...baseState, activeSync: null, status: 'refresh_required' }}
+        currentBasis={null}
+        history={[]}
+        userRole="admin"
+        ownerClaimToken={null}
+        onCancel={vi.fn()}
+        onConfirmBinding={vi.fn()}
+        onRequestRefresh={vi.fn()}
+        onManualImport={vi.fn()}
+      />,
+    );
+
+    const input = screen.getByLabelText('Sellpia 재고 파일');
+    const confirmation = screen.getByLabelText(
+      /방금 Sellpia에서 내보낸 최신 재고 파일/,
+    );
+    const submit = screen.getByRole('button', { name: '수동 파일 가져오기' });
+    fireEvent.change(input, {
+      target: { files: [new File(['first'], 'first.xls')] },
+    });
+    fireEvent.click(confirmation);
+    expect(submit).toBeEnabled();
+
+    fireEvent.change(input, {
+      target: { files: [new File(['second'], 'second.xls')] },
+    });
+
+    expect(confirmation).not.toBeChecked();
+    expect(submit).toBeDisabled();
   });
 });

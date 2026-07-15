@@ -36,10 +36,12 @@ automation/
 - Marketplace installs: `/api/marketplace/*`
 - Live Ops panel stream/snapshot/backfill: `/api/panel/*`
 
-Browser operation producer policy registers `inventory.sellpia` at
+Browser operation producer policy registers `inventory.sellpia` and stable
+Sellpia quality-warning operation keys at the exact canonical href
 `/inventory-hub?tab=overview`. The authenticated web freshness coordinator is
-the sole owner of that producer's alert lifecycle; generic browser-session
-reconciliation must not publish a second alert for the same run.
+the sole owner of those alert lifecycles; generic browser-session reconciliation
+must not publish a second alert for the same run. Every browser lifecycle
+transition carries monotonic collection-attempt ordering metadata.
 
 ## Main Data Models
 

@@ -31,14 +31,15 @@ React Query + inventory API helpers
 ## State Rules
 
 - Use `(inventory)/_shared/inventory-api.ts` for shared inventory API wrappers.
-- A successful Sellpia import invalidates snapshot, import-history, asset, and
-  channel-availability query families.
+- A successful Sellpia import invalidates freshness/history, snapshot, asset,
+  matching, channel-availability, product, and purchase-order query families.
 - Barcode printing may use browser print APIs only in the existing inventory
   print helper.
 - Keep projection helpers pure and covered by focused tests.
 - Sellpia automatic and manual attempts share the global freshness drawer and
   one import-run history. Manual upload requires explicit fresh-export
-  attestation, and pre-download failures render without file provenance.
+  attestation bound to the currently selected file, and pre-download failures
+  render without file provenance.
 
 ## Boundary Rules
 

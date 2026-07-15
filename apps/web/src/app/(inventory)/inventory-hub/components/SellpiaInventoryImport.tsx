@@ -87,6 +87,7 @@ export default function SellpiaInventoryImport() {
               disabled={loading}
               onChange={(event) => {
                 setFile(event.target.files?.[0] ?? null);
+                setManualFreshExportConfirmed(false);
                 setResult(null);
                 setError(null);
               }}

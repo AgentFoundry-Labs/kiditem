@@ -40,7 +40,10 @@ export function SellpiaManualImportForm({
         type="file"
         accept={SELLPIA_WORKBOOK_ACCEPT}
         disabled={submitting}
-        onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+        onChange={(event) => {
+          setFile(event.target.files?.[0] ?? null);
+          setConfirmed(false);
+        }}
         className="block w-full text-sm text-[var(--text-secondary)]"
       />
       <label className="flex items-start gap-2 text-sm text-[var(--text-primary)]">

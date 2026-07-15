@@ -12,6 +12,7 @@ export function SellpiaFreshnessDrawer({
   open,
   onOpenChange,
   state,
+  currentBasis,
   history,
   isHistoryLoading,
   userRole,
@@ -24,6 +25,7 @@ export function SellpiaFreshnessDrawer({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   state: SellpiaInventoryFreshnessView;
+  currentBasis: SellpiaImportRunSummary | null;
   history: SellpiaImportRunSummary[];
   isHistoryLoading?: boolean;
   userRole: string;
@@ -33,9 +35,6 @@ export function SellpiaFreshnessDrawer({
   onRequestRefresh: () => void;
   onManualImport: (file: File, confirmed: true) => Promise<unknown>;
 }) {
-  const currentBasis = history.find(
-    (run) => run.status === 'completed' && run.lastVerifiedAt !== null,
-  );
   const canConfirmBinding =
     !state.sourceBinding.confirmed && ['owner', 'admin'].includes(userRole);
   const canControl = Boolean(

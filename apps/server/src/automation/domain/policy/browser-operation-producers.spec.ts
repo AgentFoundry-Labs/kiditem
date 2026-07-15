@@ -30,7 +30,23 @@ describe('browser operation producer policy', () => {
       }),
     ).toEqual({
       title: 'Sellpia 재고 갱신',
-      href: `/inventory-hub?tab=overview&collectionRun=${runId}`,
+      href: '/inventory-hub?tab=overview',
+    });
+  });
+
+  it('registers stable Sellpia quality warnings at the exact canonical drawer route', () => {
+    const fileHash = 'a'.repeat(64);
+
+    expect(
+      resolveBrowserOperationProducer({
+        operationKey: `sellpia-inventory-quality:${fileHash}:snapshot_churn`,
+        type: 'sellpia_inventory_quality',
+        sourceType: 'sellpia_inventory_import',
+        sourceId: '33333333-3333-4333-8333-333333333333',
+      }),
+    ).toEqual({
+      title: 'Sellpia 재고 품질 확인 필요',
+      href: '/inventory-hub?tab=overview',
     });
   });
 });
