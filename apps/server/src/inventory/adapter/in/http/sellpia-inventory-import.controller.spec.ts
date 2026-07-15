@@ -1,11 +1,16 @@
 import 'reflect-metadata';
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { BadRequestException, RequestMethod } from '@nestjs/common';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import { describe, expect, it, vi } from 'vitest';
-import * as XLSX from 'xlsx';
+import { SellpiaInventoryImportDto } from './dto/sellpia-inventory-import.dto';
 import { SellpiaInventoryImportController } from './sellpia-inventory-import.controller';
 import type { SellpiaInventoryImportPort } from '../../../application/port/in/stock/sellpia-inventory-import.port';
+
+const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
+const USER_ID = '00000000-0000-4000-8000-000000000002';
+const CLAIM_TOKEN = '00000000-0000-4000-8000-000000000003';
 
 describe('SellpiaInventoryImportController', () => {
   it('exposes exactly POST inventory/sellpia-sync/import', () => {
@@ -25,43 +30,106 @@ describe('SellpiaInventoryImportController', () => {
     const controller = new SellpiaInventoryImportController(makePort());
 
     expect(() => controller.importWorkbook(
-      '00000000-0000-4000-8000-000000000001',
-      { id: '00000000-0000-4000-8000-000000000002' } as never,
+      ORGANIZATION_ID,
+      { id: USER_ID } as never,
+      browserDto(),
       undefined,
     )).toThrow(BadRequestException);
   });
 
-  it('parses the original buffer, computes lowercase SHA-256, and passes current tenant/user without exportedAt', async () => {
+  it('passes raw bytes, MIME, filename, browser execution, and authenticated scope', async () => {
     const port = makePort();
     const controller = new SellpiaInventoryImportController(port);
-    const buffer = workbookBuffer([
-      ['상품코드', '상품명', '재고'],
-      ['SP-001', '상품', 5],
-    ]);
-    const organizationId = '00000000-0000-4000-8000-000000000001';
-    const userId = '00000000-0000-4000-8000-000000000002';
+    const buffer = Buffer.from('raw workbook bytes');
 
     await controller.importWorkbook(
-      organizationId,
-      { id: userId } as never,
-      { buffer, originalname: 'SELLPIA.XLS' },
+      ORGANIZATION_ID,
+      { id: USER_ID } as never,
+      browserDto(),
+      {
+        buffer,
+        originalname: 'SELLPIA.XLS',
+        mimetype: 'application/vnd.ms-excel',
+      },
     );
 
     expect(port.importInventory).toHaveBeenCalledWith({
-      organizationId,
-      userId,
-      fileName: 'SELLPIA.XLS',
-      fileHash: createHash('sha256').update(buffer).digest('hex'),
-      headers: ['상품코드', '상품명', '재고'],
-      rows: [expect.objectContaining({
-        rowNumber: 2,
-        sellpiaProductCode: 'SP-001',
-        currentStock: 5,
-      })],
+      organizationId: ORGANIZATION_ID,
+      userId: USER_ID,
+      file: {
+        buffer,
+        fileName: 'SELLPIA.XLS',
+        mimeType: 'application/vnd.ms-excel',
+      },
+      execution: {
+        kind: 'browser',
+        claimToken: CLAIM_TOKEN,
+        activeGeneration: '7',
+        trigger: 'ttl_expired',
+        sourceOrigin: 'https://kiditem.sellpia.com',
+        sourceAccountKey: 'kiditem',
+      },
     });
-    const passed = port.importInventory.mock.calls[0]?.[0];
-    expect(passed).not.toHaveProperty('effectiveExportedAt');
-    expect(passed?.fileHash).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('passes an explicitly attested manual execution without browser fields', async () => {
+    const port = makePort();
+    const controller = new SellpiaInventoryImportController(port);
+
+    await controller.importWorkbook(
+      ORGANIZATION_ID,
+      { id: USER_ID } as never,
+      Object.assign(new SellpiaInventoryImportDto(), {
+        kind: 'manual' as const,
+        manualFreshExportConfirmed: true as const,
+      }),
+      {
+        buffer: Buffer.from('상품코드,재고\nSP-1,1'),
+        originalname: 'sellpia.csv',
+        mimetype: 'text/csv',
+      },
+    );
+
+    expect(port.importInventory).toHaveBeenCalledWith(expect.objectContaining({
+      execution: { kind: 'manual', manualFreshExportConfirmed: true },
+    }));
+  });
+
+  it('validates browser multipart strings and rejects malformed claim metadata', async () => {
+    const valid = plainToInstance(SellpiaInventoryImportDto, {
+      kind: 'browser',
+      claimToken: CLAIM_TOKEN,
+      activeGeneration: '9007199254740993',
+      trigger: 'purchase_preflight',
+      sourceOrigin: 'https://kiditem.sellpia.com',
+      sourceAccountKey: 'kiditem',
+    });
+    expect(await validate(valid)).toEqual([]);
+
+    const invalid = plainToInstance(SellpiaInventoryImportDto, {
+      kind: 'browser',
+      claimToken: 'not-a-uuid',
+      activeGeneration: '-1',
+      trigger: 'unknown',
+      sourceOrigin: 'https://evil.example',
+      sourceAccountKey: 'other',
+    });
+    expect(await validate(invalid)).not.toEqual([]);
+  });
+
+  it('transforms only the manual string literal true to boolean true', async () => {
+    const valid = plainToInstance(SellpiaInventoryImportDto, {
+      kind: 'manual',
+      manualFreshExportConfirmed: 'true',
+    });
+    expect(valid.manualFreshExportConfirmed).toBe(true);
+    expect(await validate(valid)).toEqual([]);
+
+    const invalid = plainToInstance(SellpiaInventoryImportDto, {
+      kind: 'manual',
+      manualFreshExportConfirmed: 'false',
+    });
+    expect(await validate(invalid)).not.toEqual([]);
   });
 
   it('caps the multer file interceptor at 10 MiB', () => {
@@ -70,16 +138,21 @@ describe('SellpiaInventoryImportController', () => {
   });
 });
 
+function browserDto(): SellpiaInventoryImportDto {
+  return Object.assign(new SellpiaInventoryImportDto(), {
+    kind: 'browser' as const,
+    claimToken: CLAIM_TOKEN,
+    activeGeneration: '7',
+    trigger: 'ttl_expired' as const,
+    sourceOrigin: 'https://kiditem.sellpia.com' as const,
+    sourceAccountKey: 'kiditem' as const,
+  });
+}
+
 function makePort() {
   return {
     importInventory: vi
       .fn<SellpiaInventoryImportPort['importInventory']>()
       .mockResolvedValue({} as never),
   };
-}
-
-function workbookBuffer(rows: unknown[][]): Buffer {
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), 'Sheet1');
-  return Buffer.from(XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }));
 }

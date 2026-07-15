@@ -221,7 +221,7 @@ implements InventorySkuSnapshotListRepositoryPort {
       this.prisma.sourceImportRun.findMany({
         where,
         select: IMPORT_RUN_SELECT,
-        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+        orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
         skip: query.skip,
         take: query.take,
       }),

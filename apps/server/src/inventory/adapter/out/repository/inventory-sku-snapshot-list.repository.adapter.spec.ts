@@ -145,6 +145,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
     });
 
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
       select: expect.objectContaining({
         fileHash: true,
         lastVerifiedAt: true,

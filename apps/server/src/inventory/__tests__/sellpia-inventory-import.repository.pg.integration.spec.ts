@@ -1,34 +1,41 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { ConflictException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { SellpiaMasterImportRepositoryAdapter } from '../adapter/out/repository/sellpia-master-import.repository.adapter';
+import { ConfirmedChannelComponentReferenceRepositoryAdapter } from '../adapter/out/repository/confirmed-channel-component-reference.repository.adapter';
+import { SellpiaImportRunRepositoryAdapter } from '../adapter/out/repository/sellpia-import-run.repository.adapter';
+import { SellpiaSnapshotPublicationRepositoryAdapter } from '../adapter/out/repository/sellpia-snapshot-publication.repository.adapter';
+import { SellpiaInventoryFileValidator } from '../application/service/sellpia-inventory-file.validator';
 import { SellpiaInventoryImportService } from '../application/service/sellpia-inventory-import.service';
-import type { ParsedSellpiaInventoryRow } from '../application/service/sellpia-inventory-workbook.parser';
+import { parseSellpiaInventoryWorkbook } from '../application/service/sellpia-inventory-workbook.parser';
+import type { SellpiaImportExecution } from '../application/port/in/stock/sellpia-inventory-import.port';
 import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
-  OTHER_ORGANIZATION_ID,
-  OTHER_USER_ID,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 
-const REPRESENTATIVE_ROW_COUNT = 1_964;
-
-describe('SellpiaMasterImportRepositoryAdapter (PG integration)', () => {
+describe('Sellpia unified import repositories (PG integration)', () => {
   let prisma: PrismaClient;
-  let repository: SellpiaMasterImportRepositoryAdapter;
+  let runRepository: SellpiaImportRunRepositoryAdapter;
+  let publication: SellpiaSnapshotPublicationRepositoryAdapter;
   let service: SellpiaInventoryImportService;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    repository = new SellpiaMasterImportRepositoryAdapter(
-      prisma as unknown as PrismaService,
+    const prismaService = prisma as unknown as PrismaService;
+    runRepository = new SellpiaImportRunRepositoryAdapter(prismaService);
+    publication = new SellpiaSnapshotPublicationRepositoryAdapter(prismaService);
+    service = new SellpiaInventoryImportService(
+      runRepository,
+      publication,
+      new ConfirmedChannelComponentReferenceRepositoryAdapter(prismaService),
+      new SellpiaInventoryFileValidator(),
     );
-    service = new SellpiaInventoryImportService(repository);
   });
 
   afterAll(async () => {
@@ -40,231 +47,65 @@ describe('SellpiaMasterImportRepositoryAdapter (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
-  it('publishes a representative Sellpia snapshot directly to MasterProduct', async () => {
-    const rows = makeRows(REPRESENTATIVE_ROW_COUNT);
-    rows[0] = makeRow(0, {
-      sellpiaProductCode: 'SP-DUP-A',
-      name: '같은 이름',
-      barcode: '001234567890',
-    });
-    rows[1] = makeRow(1, {
-      sellpiaProductCode: 'SP-DUP-B',
-      name: '같은 이름',
-      barcode: '001234567890',
-    });
+  it('atomically publishes one snapshot and verifies its claimed generation', async () => {
+    const execution = await activateGeneration(1n, 'initial_snapshot');
 
-    const result = await importSnapshot(rows, fileHash('representative'));
-    const [masters, duplicateMetadataRows, run] = await Promise.all([
-      prisma.masterProduct.count({
-        where: { organizationId: TEST_ORGANIZATION_ID },
-      }),
+    const result = await service.importInventory(browserInput(workbook([
+      row('SP-001', 7),
+      row('SP-002', 3),
+    ]), execution));
+
+    const [masters, state, run] = await Promise.all([
       prisma.masterProduct.findMany({
-        where: {
-          organizationId: TEST_ORGANIZATION_ID,
-          code: { in: ['SP-DUP-A', 'SP-DUP-B'] },
-        },
+        where: { organizationId: TEST_ORGANIZATION_ID },
         orderBy: { code: 'asc' },
       }),
-      prisma.sourceImportRun.findUniqueOrThrow({
-        where: { id: result.run.id },
+      prisma.sellpiaInventoryState.findUniqueOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID },
       }),
+      prisma.sourceImportRun.findUniqueOrThrow({ where: { id: result.run.id } }),
     ]);
-
-    expect(masters).toBe(REPRESENTATIVE_ROW_COUNT);
-    expect(duplicateMetadataRows).toHaveLength(2);
-    expect(new Set(duplicateMetadataRows.map((row) => row.id))).toHaveLength(2);
-    expect(result.changes).toEqual({
-      createdMasterProductCount: REPRESENTATIVE_ROW_COUNT,
-      updatedMasterProductCount: 0,
-      inactivatedMasterProductCount: 0,
-    });
-    expect(run.publicationSequence).toBe(1n);
-  });
-
-  it('copies final Sellpia fields to the MasterProduct stock owner', async () => {
-    const row = makeRow(7, {
-      sellpiaProductCode: 'SP-SOURCE-FIELDS',
-      name: '소스 상품명',
-      optionName: '블루',
-      barcode: '001234567890',
-      currentStock: 17,
-      purchasePrice: 1_200,
-      salePrice: 2_300,
-      rawJson: { source: 'sellpia' },
-    });
-
-    const result = await importSnapshot([row], fileHash('source-fields'));
-    const master = await prisma.masterProduct.findFirstOrThrow({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        code: row.sellpiaProductCode,
-      },
-    });
-
-    expect(master).toMatchObject({
-      code: row.sellpiaProductCode,
-      name: row.name,
-      optionName: row.optionName,
-      barcode: row.barcode,
-      currentStock: row.currentStock,
-      purchasePrice: row.purchasePrice,
-      salePrice: row.salePrice,
-      isActive: true,
-      rawJson: row.rawJson,
-      lastImportRunId: result.run.id,
-    });
-  });
-
-  it('replaces the snapshot, inactivates absent Masters, and preserves recipe references', async () => {
-    await importSnapshot(
-      [
-        makeRow(0, { sellpiaProductCode: 'SP-KEEP', currentStock: 2 }),
-        makeRow(1, { sellpiaProductCode: 'SP-ABSENT', currentStock: 8 }),
-        makeRow(2, { sellpiaProductCode: 'SP-ALSO-ABSENT', currentStock: 3 }),
-      ],
-      fileHash('snapshot-one'),
-    );
-    const absentBefore = await prisma.masterProduct.findFirstOrThrow({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        code: 'SP-ABSENT',
-      },
-    });
-    const component = await createComponentReference(absentBefore.id);
-    const otherOrganizationMaster = await prisma.masterProduct.create({
-      data: {
-        organizationId: OTHER_ORGANIZATION_ID,
-        code: 'SP-KEEP',
-        name: '다른 조직',
-        currentStock: 777,
-      },
-    });
-
-    const result = await importSnapshot(
-      [
-        makeRow(0, {
-          sellpiaProductCode: 'SP-KEEP',
-          name: '변경된 이름',
-          optionName: '변경된 옵션',
-          barcode: '000011112222',
-          currentStock: 22,
-          purchasePrice: 1_200,
-          salePrice: 2_300,
-          rawJson: { source: 'second snapshot' },
-        }),
-        makeRow(1, { sellpiaProductCode: 'SP-CREATED', currentStock: 4 }),
-      ],
-      fileHash('snapshot-two'),
-    );
-
-    const [keep, absentAfter, componentAfter, otherAfter] = await Promise.all([
-      prisma.masterProduct.findFirstOrThrow({
-        where: { organizationId: TEST_ORGANIZATION_ID, code: 'SP-KEEP' },
-      }),
-      prisma.masterProduct.findUniqueOrThrow({
-        where: { id: absentBefore.id },
-      }),
-      prisma.channelSkuComponent.findUniqueOrThrow({
-        where: { id: component.id },
-      }),
-      prisma.masterProduct.findUniqueOrThrow({
-        where: { id: otherOrganizationMaster.id },
-      }),
+    expect(masters.map(({ code, currentStock }) => [code, currentStock])).toEqual([
+      ['SP-001', 7],
+      ['SP-002', 3],
     ]);
-
-    expect(keep).toMatchObject({
-      name: '변경된 이름',
-      optionName: '변경된 옵션',
-      barcode: '000011112222',
-      currentStock: 22,
-      purchasePrice: 1_200,
-      salePrice: 2_300,
-      rawJson: { source: 'second snapshot' },
-      lastImportRunId: result.run.id,
-      isActive: true,
+    expect(run).toMatchObject({
+      status: 'completed',
+      verificationCount: 1,
+      freshnessGeneration: 1n,
+      publicationSequence: 1n,
     });
-    expect(absentAfter).toMatchObject({
-      id: absentBefore.id,
-      currentStock: 0,
-      isActive: false,
-      lastImportRunId: result.run.id,
-    });
-    expect(componentAfter).toMatchObject({
-      id: component.id,
-      masterProductId: absentBefore.id,
-    });
-    expect(otherAfter).toMatchObject({ currentStock: 777, isActive: true });
-    expect(result.changes).toEqual({
-      createdMasterProductCount: 1,
-      updatedMasterProductCount: 1,
-      inactivatedMasterProductCount: 2,
+    expect(state).toMatchObject({
+      verifiedGeneration: 1n,
+      activeGeneration: null,
+      activeSyncToken: null,
+      lastCompletedImportRunId: result.run.id,
+      lastAttemptStatus: 'completed',
     });
   });
 
-  it('reactivates a reappearing code with the same MasterProduct identity', async () => {
-    await importSnapshot(
-      [makeRow(0, { sellpiaProductCode: 'SP-RETURN', currentStock: 5 })],
-      fileHash('reappearance-first'),
-    );
-    const before = await prisma.masterProduct.findFirstOrThrow({
-      where: { organizationId: TEST_ORGANIZATION_ID, code: 'SP-RETURN' },
-    });
-
-    await importSnapshot(
-      [makeRow(1, { sellpiaProductCode: 'SP-OTHER', currentStock: 8 })],
-      fileHash('reappearance-absent'),
-    );
-    await importSnapshot(
-      [
-        makeRow(2, {
-          sellpiaProductCode: 'SP-RETURN',
-          name: '다시 들어온 상품',
-          currentStock: 13,
-        }),
-      ],
-      fileHash('reappearance-returned'),
-    );
-
-    const [after, runs] = await Promise.all([
-      prisma.masterProduct.findFirstOrThrow({
-        where: { organizationId: TEST_ORGANIZATION_ID, code: 'SP-RETURN' },
-      }),
-      prisma.sourceImportRun.findMany({
-        where: {
-          organizationId: TEST_ORGANIZATION_ID,
-          sourceType: 'sellpia_inventory',
-          status: 'completed',
-        },
-        orderBy: { publicationSequence: 'asc' },
-        select: { publicationSequence: true },
-      }),
-    ]);
-
-    expect(after).toMatchObject({
-      id: before.id,
-      name: '다시 들어온 상품',
-      currentStock: 13,
-      isActive: true,
-    });
-    expect(runs.map((run) => run.publicationSequence)).toEqual([1n, 2n, 3n]);
-  });
-
-  it('returns a completed same-hash import as an idempotent duplicate', async () => {
-    const hash = fileHash('same-hash');
-    const first = await importSnapshot([makeRow(0)], hash);
+  it('never writes stock for the first or second completed same-hash execution', async () => {
+    const bytes = workbook([row('SP-001', 7)]);
+    const firstExecution = await activateGeneration(1n, 'initial_snapshot');
+    const first = await service.importInventory(browserInput(bytes, firstExecution));
     const before = await prisma.masterProduct.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID },
     });
 
-    const duplicate = await importSnapshot(
-      [makeRow(0, { name: 'must not be written', currentStock: 999 })],
-      hash,
-    );
-    const after = await prisma.masterProduct.findUniqueOrThrow({
-      where: { id: before.id },
+    const orderExecution = await activateGeneration(2n, 'order_transmission_requested');
+    const scheduled = await service.importInventory(browserInput(bytes, orderExecution));
+    expect(scheduled.outcome).toBe('same_hash_confirmation_scheduled');
+    expect(scheduled.run.verificationCount).toBe(1);
+
+    const confirmationExecution = await activateGeneration(3n, 'same_hash_confirmation');
+    const verified = await service.importInventory(browserInput(bytes, confirmationExecution));
+    const after = await prisma.masterProduct.findUniqueOrThrow({ where: { id: before.id } });
+    const state = await prisma.sellpiaInventoryState.findUniqueOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID },
     });
 
-    expect(duplicate).toMatchObject({
+    expect(verified).toMatchObject({
+      outcome: 'same_hash_verified',
       duplicate: true,
       changes: {
         createdMasterProductCount: 0,
@@ -272,305 +113,364 @@ describe('SellpiaMasterImportRepositoryAdapter (PG integration)', () => {
         inactivatedMasterProductCount: 0,
       },
     });
-    expect(duplicate.run.id).toBe(first.run.id);
+    expect(verified.run.id).toBe(first.run.id);
+    expect(verified.run.verificationCount).toBe(2);
     expect(after).toEqual(before);
+    expect(await prisma.sourceImportRun.count()).toBe(1);
+    expect(state).toMatchObject({ verifiedGeneration: 3n, requestedGeneration: 3n });
+  });
+
+  it('reverifies ordinary browser and manual same-hash files without stock writes', async () => {
+    const bytes = workbook([row('SP-STABLE', 5)]);
+    const initial = await activateGeneration(1n, 'initial_snapshot');
+    await service.importInventory(browserInput(bytes, initial));
+    const before = await prisma.masterProduct.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    });
+
+    const ttl = await activateGeneration(2n, 'ttl_expired');
+    const ttlResult = await service.importInventory(browserInput(bytes, ttl));
+    const manualResult = await service.importInventory(manualInput(bytes));
+    const after = await prisma.masterProduct.findUniqueOrThrow({ where: { id: before.id } });
+
+    expect(ttlResult).toMatchObject({
+      outcome: 'same_hash_verified',
+      duplicate: true,
+      run: { verificationCount: 2 },
+    });
+    expect(manualResult).toMatchObject({
+      outcome: 'same_hash_verified',
+      duplicate: true,
+      run: {
+        verificationCount: 3,
+        manualFreshExportConfirmedBy: TEST_USER_ID,
+      },
+    });
+    expect(manualResult.run.manualFreshExportConfirmedAt).not.toBeNull();
+    expect(after).toEqual(before);
+  });
+
+  it('hard-blocks 30 percent row/code loss and preserves the completed snapshot', async () => {
+    const firstExecution = await activateGeneration(1n, 'initial_snapshot');
+    await service.importInventory(browserInput(
+      workbook(Array.from({ length: 10 }, (_, index) => row(`SP-${index}`, index))),
+      firstExecution,
+    ));
+    const before = await prisma.masterProduct.findMany({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      orderBy: { code: 'asc' },
+    });
+
+    const secondExecution = await activateGeneration(2n, 'manual_request');
+    await expect(service.importInventory(browserInput(
+      workbook(Array.from({ length: 7 }, (_, index) => row(`SP-${index}`, 999))),
+      secondExecution,
+    ))).rejects.toThrow('quality thresholds');
+
+    const [after, runs, state] = await Promise.all([
+      prisma.masterProduct.findMany({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+        orderBy: { code: 'asc' },
+      }),
+      prisma.sourceImportRun.findMany({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.sellpiaInventoryState.findUniqueOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+      }),
+    ]);
+    expect(after).toEqual(before);
+    expect(runs.map(({ status }) => status)).toEqual(['completed', 'failed']);
+    expect(runs[1]?.qualityReport).toMatchObject({
+      issues: expect.arrayContaining([
+        expect.objectContaining({ code: 'row_loss_threshold_exceeded' }),
+        expect.objectContaining({ code: 'active_code_loss_threshold_exceeded' }),
+      ]),
+    });
+    expect(state).toMatchObject({
+      verifiedGeneration: 1n,
+      failedGeneration: 2n,
+      lastCompletedImportRunId: runs[0]?.id,
+    });
+  });
+
+  it('stores stable warning identities derived from the file hash and warning code', async () => {
+    const bytes = Buffer.from([
+      '상품코드,상품명,재고,바코드,매입가,판매가',
+      'SP-WARN,,1,,,',
+    ].join('\n'));
+    const execution = await activateGeneration(1n, 'initial_snapshot');
+
+    const result = await service.importInventory(browserInput(bytes, execution));
+
+    const codes = result.run.qualityReport?.issues.map(({ code }) => code);
+    expect(codes).toEqual([
+      `${sha256(bytes)}:missing_name`,
+      `${sha256(bytes)}:missing_barcode`,
+      `${sha256(bytes)}:missing_price`,
+    ]);
+  });
+
+  it('fences a stale generation after its file run was claimed', async () => {
+    const bytes = workbook([row('SP-STALE', 1)]);
+    const staleExecution = await activateGeneration(1n, 'initial_snapshot');
+    const fileHash = await sha256(bytes);
+    const claim = await runRepository.claimFileRun({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      fileName: 'sellpia.csv',
+      fileHash,
+      execution: staleExecution,
+    });
+    if (claim.kind !== 'started') throw new Error('Expected a started file run');
+    await activateGeneration(2n, 'manual_request');
+    const parsed = parseSellpiaInventoryWorkbook(bytes);
+
+    await expect(publication.publishSnapshot({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      runId: claim.runId,
+      attemptToken: claim.attemptToken,
+      fileHash,
+      execution: staleExecution,
+      rows: parsed.rows,
+      qualityFacts: parsed.qualityFacts,
+      confirmedReferencedProductCodes: [],
+    })).rejects.toBeInstanceOf(ConflictException);
+    expect(await prisma.masterProduct.count()).toBe(0);
+  });
+
+  it('verifies only the claimed generation and leaves a higher request pending', async () => {
+    const execution = await activateGeneration(1n, 'initial_snapshot');
+    await prisma.sellpiaInventoryState.update({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      data: {
+        requestedGeneration: 2n,
+        refreshRequestedAt: new Date(),
+        refreshReason: 'manual_request',
+        syncNotBefore: new Date(),
+      },
+    });
+
+    await service.importInventory(browserInput(
+      workbook([row('SP-PENDING', 3)]),
+      execution,
+    ));
+
+    expect(await prisma.sellpiaInventoryState.findUniqueOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).toMatchObject({
+      requestedGeneration: 2n,
+      verifiedGeneration: 1n,
+      activeGeneration: null,
+      refreshReason: 'manual_request',
+    });
+  });
+
+  it('rejects manual/browser collision and browser source mismatch before creating a run', async () => {
+    const liveBrowser = await activateGeneration(1n, 'initial_snapshot');
+    await expect(service.importInventory(manualInput(workbook([row('SP-1', 1)]))))
+      .rejects.toBeInstanceOf(ConflictException);
+
+    await expect(runRepository.claimFileRun({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      fileName: 'sellpia.csv',
+      fileHash: await sha256(workbook([row('SP-2', 2)])),
+      execution: {
+        ...liveBrowser,
+        sourceOrigin: 'https://wrong.example',
+      } as never,
+    })).rejects.toBeInstanceOf(ConflictException);
+    expect(await prisma.sourceImportRun.count()).toBe(0);
+  });
+
+  it('lets an attested manual file reclaim an expired lease without creating source binding', async () => {
+    await activateGeneration(1n, 'initial_snapshot');
+    await prisma.sellpiaInventoryState.update({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      data: { activeSyncLeaseExpiresAt: new Date(Date.now() - 1) },
+    });
+
+    const result = await service.importInventory(manualInput(workbook([row('SP-1', 4)])));
+    const [run, state] = await Promise.all([
+      prisma.sourceImportRun.findUniqueOrThrow({ where: { id: result.run.id } }),
+      prisma.sellpiaInventoryState.findUniqueOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+      }),
+    ]);
+    expect(run).toMatchObject({
+      manualFreshExportConfirmedBy: TEST_USER_ID,
+      freshnessGeneration: 1n,
+      verificationCount: 1,
+    });
+    expect(run.manualFreshExportConfirmedAt).not.toBeNull();
+    expect(state).toMatchObject({
+      sourceOrigin: 'https://kiditem.sellpia.com',
+      sourceAccountKey: 'kiditem',
+      verifiedGeneration: 1n,
+      activeSyncToken: null,
+    });
+
+    await resetDb(prisma);
+    await seedBaseFixture(prisma);
+    await expect(service.importInventory(manualInput(workbook([row('SP-2', 2)]))))
+      .rejects.toBeInstanceOf(ConflictException);
+    expect(await prisma.sellpiaInventoryState.count()).toBe(0);
+  });
+
+  it('reclaims the same running file immediately after its browser lease expires', async () => {
+    const bytes = workbook([row('SP-RECLAIM', 6)]);
+    const browserExecution = await activateGeneration(1n, 'initial_snapshot');
+    const browserClaim = await runRepository.claimFileRun({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      fileName: 'sellpia.csv',
+      fileHash: sha256(bytes),
+      execution: browserExecution,
+    });
+    expect(browserClaim.kind).toBe('started');
+    await prisma.sellpiaInventoryState.update({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      data: { activeSyncLeaseExpiresAt: new Date(Date.now() - 1) },
+    });
+
+    const reclaimed = await service.importInventory(manualInput(bytes));
+
+    expect(reclaimed.outcome).toBe('published');
+    expect(reclaimed.run.id).toBe(
+      browserClaim.kind === 'started' ? browserClaim.runId : undefined,
+    );
     expect(await prisma.sourceImportRun.count()).toBe(1);
   });
 
-  it('scopes identical file hashes and Master codes independently by organization', async () => {
-    const hash = fileHash('cross-org');
-    const testResult = await importSnapshot([makeRow(0)], hash);
-    const otherResult = await service.importInventory({
-      organizationId: OTHER_ORGANIZATION_ID,
-      userId: OTHER_USER_ID,
-      fileName: 'sellpia.xls',
-      fileHash: hash,
-      headers: ['상품코드', '재고'],
-      rows: [makeRow(0, { currentStock: 55 })],
+  it('records invalid downloaded bytes while preserving the previous completed basis', async () => {
+    const firstExecution = await activateGeneration(1n, 'initial_snapshot');
+    const first = await service.importInventory(browserInput(
+      workbook([row('SP-KEEP', 8)]),
+      firstExecution,
+    ));
+    const before = await prisma.masterProduct.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID },
     });
+    const invalidExecution = await activateGeneration(2n, 'manual_request');
 
-    expect(testResult.duplicate).toBe(false);
-    expect(otherResult.duplicate).toBe(false);
-    expect(otherResult.run.id).not.toBe(testResult.run.id);
-    expect(await prisma.sourceImportRun.count()).toBe(2);
-    expect(await prisma.masterProduct.count()).toBe(2);
-  });
+    await expect(service.importInventory(browserInput(
+      Buffer.from('<html><body>Sellpia login secret</body></html>'),
+      invalidExecution,
+    ))).rejects.toThrow();
 
-  it('serializes concurrent publications within the organization/source lane', async () => {
-    await Promise.all([
-      importSnapshot(
-        [makeRow(0, { sellpiaProductCode: 'SP-CONCURRENT-A' })],
-        fileHash('concurrent-a'),
-      ),
-      importSnapshot(
-        [makeRow(1, { sellpiaProductCode: 'SP-CONCURRENT-B' })],
-        fileHash('concurrent-b'),
-      ),
-    ]);
-
-    const [runs, activeCount] = await Promise.all([
-      prisma.sourceImportRun.findMany({
+    const [after, state, failed] = await Promise.all([
+      prisma.masterProduct.findUniqueOrThrow({ where: { id: before.id } }),
+      prisma.sellpiaInventoryState.findUniqueOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+      }),
+      prisma.sourceImportRun.findFirstOrThrow({
         where: {
           organizationId: TEST_ORGANIZATION_ID,
-          sourceType: 'sellpia_inventory',
-          status: 'completed',
+          status: 'failed',
         },
-        orderBy: { publicationSequence: 'asc' },
-        select: { publicationSequence: true },
-      }),
-      prisma.masterProduct.count({
-        where: { organizationId: TEST_ORGANIZATION_ID, isActive: true },
       }),
     ]);
-
-    expect(runs.map((run) => run.publicationSequence)).toEqual([1n, 2n]);
-    expect(activeCount).toBe(1);
+    expect(after).toEqual(before);
+    expect(state).toMatchObject({
+      lastCompletedImportRunId: first.run.id,
+      verifiedGeneration: 1n,
+      failedGeneration: 2n,
+    });
+    expect(failed).toMatchObject({
+      errorCode: 'sellpia_invalid_workbook',
+      errorMessage: 'Sellpia inventory workbook validation failed',
+    });
+    expect(failed.errorMessage).not.toContain('secret');
   });
 
-  it('keeps a recent run running and compare-and-set reclaims one stale worker', async () => {
-    const hash = fileHash('stale-running');
-    const oldToken = randomUUID();
-    const run = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceType: 'sellpia_inventory',
-        channelAccountId: null,
-        fileName: 'sellpia.xls',
-        fileHash: hash,
-        status: 'running',
-        rowCount: 1,
-        createdBy: TEST_USER_ID,
-        attemptToken: oldToken,
-        updatedAt: new Date(Date.now() - 29 * 60 * 1_000),
-      },
-    });
-
-    expect(await claim(hash)).toEqual({ kind: 'running' });
-    await prisma.sourceImportRun.update({
-      where: { id: run.id },
-      data: { updatedAt: new Date(Date.now() - 31 * 60 * 1_000) },
-    });
-
-    const claims = await Promise.all([claim(hash), claim(hash)]);
-    expect(claims.map((value) => value.kind).sort()).toEqual([
-      'running',
-      'started',
-    ]);
-    const started = claims.find((value) => value.kind === 'started');
-    expect(started).toMatchObject({ kind: 'started', runId: run.id });
-    if (started?.kind !== 'started') throw new Error('Expected reclaimed run');
-    expect(started.attemptToken).not.toBe(oldToken);
-  });
-
-  it('compare-and-set retries a failed run with the same ID and a rotated fence token', async () => {
-    const hash = fileHash('failed-retry');
-    const oldToken = randomUUID();
-    const run = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceType: 'sellpia_inventory',
-        channelAccountId: null,
-        fileName: 'sellpia.xls',
-        fileHash: hash,
-        status: 'failed',
-        rowCount: 1,
-        createdBy: TEST_USER_ID,
-        attemptToken: oldToken,
-      },
-    });
-
-    const retried = await claim(hash);
-
-    expect(retried).toMatchObject({ kind: 'started', runId: run.id });
-    if (retried.kind !== 'started') throw new Error('Expected retried run');
-    expect(retried.attemptToken).not.toBe(oldToken);
-    expect(await claim(hash)).toEqual({ kind: 'running' });
-  });
-
-  it('prevents a stale worker from publishing or failing a reclaimed run', async () => {
-    const hash = fileHash('fenced-worker');
-    const staleToken = randomUUID();
-    const run = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceType: 'sellpia_inventory',
-        channelAccountId: null,
-        fileName: 'sellpia.xls',
-        fileHash: hash,
-        status: 'running',
-        rowCount: 1,
-        createdBy: TEST_USER_ID,
-        attemptToken: staleToken,
-        updatedAt: new Date(Date.now() - 31 * 60 * 1_000),
-      },
-    });
-    const currentWorker = await claim(hash);
-    if (currentWorker.kind !== 'started') {
-      throw new Error('Expected current worker to reclaim the run');
-    }
-
-    await expect(
-      repository.replaceSellpiaSnapshot({
-        organizationId: TEST_ORGANIZATION_ID,
-        runId: run.id,
-        attemptToken: staleToken,
-        rows: [makeRow(0, { sellpiaProductCode: 'SP-STALE' })],
-      }),
-    ).rejects.toThrow();
-    await repository.markImportFailed(
-      TEST_ORGANIZATION_ID,
-      run.id,
-      staleToken,
-    );
-    expect(await prisma.masterProduct.count()).toBe(0);
-
-    const currentResult = await repository.replaceSellpiaSnapshot({
-      organizationId: TEST_ORGANIZATION_ID,
-      runId: run.id,
-      attemptToken: currentWorker.attemptToken,
-      rows: [
-        makeRow(0, {
-          sellpiaProductCode: 'SP-CURRENT',
-          currentStock: 12,
-        }),
-      ],
-    });
-    const lateResult = await repository.replaceSellpiaSnapshot({
-      organizationId: TEST_ORGANIZATION_ID,
-      runId: run.id,
-      attemptToken: staleToken,
-      rows: [makeRow(0, { sellpiaProductCode: 'SP-STALE' })],
-    });
-
-    expect(currentResult.duplicate).toBe(false);
-    expect(lateResult.duplicate).toBe(true);
-    expect(
-      await prisma.masterProduct.findMany({
-        select: { code: true, currentStock: true },
-      }),
-    ).toEqual([{ code: 'SP-CURRENT', currentStock: 12 }]);
-    expect(
-      await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: run.id } }),
-    ).toMatchObject({
-      status: 'completed',
-      attemptToken: currentWorker.attemptToken,
-    });
-  });
-
-  it('rolls back partial MasterProduct upserts and marks the run failed', async () => {
-    const original = await prisma.masterProduct.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        code: 'SP-00000',
-        name: 'before failure',
-        currentStock: 9,
-      },
-    });
-    const rows = makeRows(501);
-    rows[500] = makeRow(500, {
-      rawJson: { cannotSerialize: BigInt(1) },
-    });
-    const hash = fileHash('rollback-after-first-batch');
-
-    await expect(importSnapshot(rows, hash)).rejects.toThrow();
-
-    expect(
-      await prisma.masterProduct.findUniqueOrThrow({ where: { id: original.id } }),
-    ).toMatchObject({
-      code: 'SP-00000',
-      name: 'before failure',
-      currentStock: 9,
-      isActive: true,
-    });
-    expect(await prisma.masterProduct.count()).toBe(1);
-    expect(
-      await prisma.sourceImportRun.findFirstOrThrow({
-        where: { organizationId: TEST_ORGANIZATION_ID, fileHash: hash },
-      }),
-    ).toMatchObject({ status: 'failed' });
-  });
-
-  async function importSnapshot(
-    rows: ParsedSellpiaInventoryRow[],
-    hash: string,
+  async function activateGeneration(
+    generation: bigint,
+    trigger:
+      | 'initial_snapshot'
+      | 'ttl_expired'
+      | 'manual_request'
+      | 'order_transmission_requested'
+      | 'same_hash_confirmation',
   ) {
-    return service.importInventory({
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      fileName: 'sellpia.xls',
-      fileHash: hash,
-      headers: ['상품코드', '상품명', '재고'],
-      rows,
-    });
-  }
-
-  function claim(hash: string) {
-    return repository.claimSellpiaImport({
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      fileName: 'sellpia.xls',
-      fileHash: hash,
-      rowCount: 1,
-    });
-  }
-
-  async function createComponentReference(masterProductId: string) {
-    const channelAccount = await prisma.channelAccount.create({
-      data: {
+    const claimToken = randomUUID();
+    await prisma.sellpiaInventoryState.upsert({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      create: {
         organizationId: TEST_ORGANIZATION_ID,
-        channel: 'coupang',
-        name: 'Sellpia reference account',
-        externalAccountId: `sellpia-reference-${randomUUID()}`,
+        sourceOrigin: 'https://kiditem.sellpia.com',
+        sourceAccountKey: 'kiditem',
+        requestedGeneration: generation,
+        verifiedGeneration: generation - 1n,
+        refreshRequestedAt: new Date(),
+        refreshReason: trigger,
+        syncNotBefore: new Date(),
+        activeSyncToken: claimToken,
+        activeSyncOwnerUserId: TEST_USER_ID,
+        activeSyncStartedAt: new Date(),
+        activeSyncLeaseExpiresAt: new Date(Date.now() + 90_000),
+        activeGeneration: generation,
+        freshnessFence: randomUUID(),
+      },
+      update: {
+        requestedGeneration: generation,
+        refreshRequestedAt: new Date(),
+        refreshReason: trigger,
+        syncNotBefore: new Date(),
+        activeSyncToken: claimToken,
+        activeSyncOwnerUserId: TEST_USER_ID,
+        activeSyncStartedAt: new Date(),
+        activeSyncLeaseExpiresAt: new Date(Date.now() + 90_000),
+        activeGeneration: generation,
+        freshnessFence: randomUUID(),
       },
     });
-    const listing = await prisma.channelListing.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: channelAccount.id,
-        externalId: `listing-${randomUUID()}`,
-      },
-    });
-    const channelSku = await prisma.channelListingOption.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: listing.id,
-        externalOptionId: `option-${randomUUID()}`,
-      },
-    });
-    return prisma.channelSkuComponent.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelSkuId: channelSku.id,
-        masterProductId,
-        quantity: 1,
-        mappingSource: 'manual',
-      },
-    });
+    return {
+      kind: 'browser' as const,
+      claimToken,
+      activeGeneration: generation.toString(),
+      trigger,
+      sourceOrigin: 'https://kiditem.sellpia.com' as const,
+      sourceAccountKey: 'kiditem' as const,
+    };
   }
 });
 
-function makeRows(count: number): ParsedSellpiaInventoryRow[] {
-  return Array.from({ length: count }, (_, index) => makeRow(index));
-}
-
-function makeRow(
-  index: number,
-  overrides: Partial<ParsedSellpiaInventoryRow> = {},
-): ParsedSellpiaInventoryRow {
+function browserInput(
+  buffer: Buffer,
+  execution: Extract<SellpiaImportExecution, { kind: 'browser' }>,
+) {
   return {
-    rowNumber: index + 2,
-    sellpiaProductCode: `SP-${String(index).padStart(5, '0')}`,
-    name: `상품 ${index}`,
-    optionName: index % 2 === 0 ? null : `옵션 ${index}`,
-    barcode: `880${String(index).padStart(10, '0')}`,
-    currentStock: index % 100,
-    purchasePrice: index * 10,
-    salePrice: index * 20,
-    rawJson: { index },
-    ...overrides,
+    organizationId: TEST_ORGANIZATION_ID,
+    userId: TEST_USER_ID,
+    file: { buffer, fileName: 'sellpia.csv', mimeType: 'text/csv' },
+    execution,
   };
 }
 
-function fileHash(label: string): string {
-  return createHash('sha256').update(label).digest('hex');
+function manualInput(buffer: Buffer) {
+  return {
+    organizationId: TEST_ORGANIZATION_ID,
+    userId: TEST_USER_ID,
+    file: { buffer, fileName: 'sellpia.csv', mimeType: 'text/csv' },
+    execution: { kind: 'manual' as const, manualFreshExportConfirmed: true as const },
+  };
+}
+
+function workbook(rows: string[]): Buffer {
+  return Buffer.from([
+    '상품코드,상품명,재고,바코드,매입가,판매가',
+    ...rows,
+  ].join('\n'));
+}
+
+function row(code: string, stock: number): string {
+  const digits = code.replace(/\D/g, '').padStart(10, '0').slice(-10);
+  return `${code},상품 ${code},${stock},880${digits},100,200`;
+}
+
+function sha256(buffer: Buffer): string {
+  return createHash('sha256').update(buffer).digest('hex');
 }

@@ -160,15 +160,25 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       rowCount: 1,
       importedAt: new Date('2026-07-11T00:00:00.000Z'),
       createdAt: new Date('2026-07-11T00:00:00.000Z'),
+      updatedAt: new Date('2026-07-15T00:00:00.000Z'),
     });
-    const failed = await createRun({
-      organizationId: TEST_ORGANIZATION_ID,
-      fileName: 'failed.xls',
-      fileHash: 'c'.repeat(64),
-      status: 'failed',
-      rowCount: 2,
-      importedAt: null,
-      createdAt: new Date('2026-07-12T00:00:00.000Z'),
+    const failed = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'sellpia_inventory',
+        channelAccountId: null,
+        fileName: null,
+        fileHash: null,
+        status: 'failed',
+        rowCount: 0,
+        importedAt: null,
+        lastTrigger: 'manual_request',
+        freshnessGeneration: 2n,
+        errorCode: 'sellpia_network_failed',
+        errorMessage: 'network failed',
+        createdAt: new Date('2026-07-12T00:00:00.000Z'),
+        updatedAt: new Date('2026-07-13T00:00:00.000Z'),
+      },
     });
     await prisma.sourceImportRun.create({
       data: {
@@ -197,8 +207,16 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       limit: 50,
     });
 
-    expect(history.items.map(({ id }) => id)).toEqual([failed.id, older.id]);
-    expect(history.items[0]).toMatchObject({ status: 'failed', importedAt: null });
+    expect(history.items.map(({ id }) => id)).toEqual([older.id, failed.id]);
+    expect(history.items[1]).toMatchObject({
+      status: 'failed',
+      fileName: null,
+      fileHash: null,
+      importedAt: null,
+      lastTrigger: 'manual_request',
+      freshnessGeneration: '2',
+      errorCode: 'sellpia_network_failed',
+    });
   });
 
   function createRun(input: {
@@ -209,6 +227,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
     rowCount: number;
     importedAt: Date | null;
     createdAt: Date;
+    updatedAt?: Date;
   }) {
     return prisma.sourceImportRun.create({
       data: {
@@ -221,6 +240,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
         rowCount: input.rowCount,
         importedAt: input.importedAt,
         createdAt: input.createdAt,
+        updatedAt: input.updatedAt,
       },
     });
   }

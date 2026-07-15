@@ -14,8 +14,11 @@ import {
 } from '../../test-helpers/real-prisma';
 import { SellpiaMasterProductReadRepositoryAdapter } from '../../inventory/adapter/out/repository/sellpia-master-product-read.repository.adapter';
 import { SellpiaMasterProductReadService } from '../../inventory/application/service/sellpia-master-product-read.service';
-import { SellpiaMasterImportRepositoryAdapter } from '../../inventory/adapter/out/repository/sellpia-master-import.repository.adapter';
+import { ConfirmedChannelComponentReferenceRepositoryAdapter } from '../../inventory/adapter/out/repository/confirmed-channel-component-reference.repository.adapter';
+import { SellpiaImportRunRepositoryAdapter } from '../../inventory/adapter/out/repository/sellpia-import-run.repository.adapter';
+import { SellpiaSnapshotPublicationRepositoryAdapter } from '../../inventory/adapter/out/repository/sellpia-snapshot-publication.repository.adapter';
 import { SellpiaInventoryImportService } from '../../inventory/application/service/sellpia-inventory-import.service';
+import { SellpiaInventoryFileValidator } from '../../inventory/application/service/sellpia-inventory-file.validator';
 import { ChannelsSellpiaMasterProductReadAdapter } from '../adapter/out/inventory/sellpia-master-product-read.adapter';
 import { ChannelSkuMappingRepositoryAdapter } from '../adapter/out/repository/channel-sku-mapping.repository.adapter';
 import { ChannelSkuMappingService } from '../application/service/channel-sku-mapping.service';
@@ -52,7 +55,10 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
       new ChannelsSellpiaMasterProductReadAdapter(inventoryOwner),
     );
     inventoryImport = new SellpiaInventoryImportService(
-      new SellpiaMasterImportRepositoryAdapter(prismaService),
+      new SellpiaImportRunRepositoryAdapter(prismaService),
+      new SellpiaSnapshotPublicationRepositoryAdapter(prismaService),
+      new ConfirmedChannelComponentReferenceRepositoryAdapter(prismaService),
+      new SellpiaInventoryFileValidator(),
     );
   });
 
@@ -506,24 +512,45 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     const componentRow = await prisma.channelSkuComponent.create({
       data: component(target.sku.id, inventory.id, 5),
     });
+    const claimToken = randomUUID();
+    await prisma.sellpiaInventoryState.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceOrigin: 'https://kiditem.sellpia.com',
+        sourceAccountKey: 'kiditem',
+        requestedGeneration: 1n,
+        verifiedGeneration: 0n,
+        refreshRequestedAt: new Date(),
+        refreshReason: 'manual_request',
+        syncNotBefore: new Date(),
+        activeSyncToken: claimToken,
+        activeSyncOwnerUserId: TEST_USER_ID,
+        activeSyncStartedAt: new Date(),
+        activeSyncLeaseExpiresAt: new Date(Date.now() + 90_000),
+        activeGeneration: 1n,
+      },
+    });
+    const buffer = Buffer.from([
+      '상품코드,상품명,옵션명,재고,바코드,매입가,판매가',
+      'SP-PRESERVE,Updated metadata,Updated option,99,001234567890,100,200',
+    ].join('\n'));
 
     await inventoryImport.importInventory({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
-      fileName: 'sellpia.xlsx',
-      fileHash: createHash('sha256').update('metadata-reimport').digest('hex'),
-      headers: ['상품코드', '상품명', '재고'],
-      rows: [{
-        rowNumber: 2,
-        sellpiaProductCode: 'SP-PRESERVE',
-        name: 'Updated metadata',
-        optionName: 'Updated option',
-        barcode: '001234567890',
-        currentStock: 99,
-        purchasePrice: 100,
-        salePrice: 200,
-        rawJson: { revision: 2 },
-      }],
+      file: {
+        buffer,
+        fileName: 'sellpia.csv',
+        mimeType: 'text/csv',
+      },
+      execution: {
+        kind: 'browser',
+        claimToken,
+        activeGeneration: '1',
+        trigger: 'manual_request',
+        sourceOrigin: 'https://kiditem.sellpia.com',
+        sourceAccountKey: 'kiditem',
+      },
     });
 
     expect(await prisma.channelSkuComponent.findUniqueOrThrow({

@@ -12,7 +12,9 @@ import { TransfersController } from '../adapter/in/http/transfers.controller';
 import { UnshippedController } from '../adapter/in/http/unshipped.controller';
 import { WarehousesController } from '../adapter/in/http/warehouses.controller';
 import { ConfirmedOrdersRepositoryAdapter } from '../adapter/out/repository/confirmed-orders.repository.adapter';
-import { SellpiaMasterImportRepositoryAdapter } from '../adapter/out/repository/sellpia-master-import.repository.adapter';
+import { ConfirmedChannelComponentReferenceRepositoryAdapter } from '../adapter/out/repository/confirmed-channel-component-reference.repository.adapter';
+import { SellpiaImportRunRepositoryAdapter } from '../adapter/out/repository/sellpia-import-run.repository.adapter';
+import { SellpiaSnapshotPublicationRepositoryAdapter } from '../adapter/out/repository/sellpia-snapshot-publication.repository.adapter';
 import { SellpiaInventoryFreshnessRepositoryAdapter } from '../adapter/out/repository/sellpia-inventory-freshness.repository.adapter';
 import { InventorySkuSnapshotListRepositoryAdapter } from '../adapter/out/repository/inventory-sku-snapshot-list.repository.adapter';
 import { SellpiaMasterProductReadRepositoryAdapter } from '../adapter/out/repository/sellpia-master-product-read.repository.adapter';
@@ -28,7 +30,9 @@ import { SELLPIA_RECEIPT_BATCH_PORT } from '../application/port/in/stock/sellpia
 import { SELLPIA_INVENTORY_FRESHNESS_PORT } from '../application/port/in/stock/sellpia-inventory-freshness.port';
 import { SELLPIA_INVENTORY_FRESHNESS_GATE_PORT } from '../application/port/in/stock/sellpia-inventory-freshness-gate.port';
 import { SELLPIA_INVENTORY_REFRESH_REQUEST_PORT } from '../application/port/in/stock/sellpia-inventory-refresh-request.port';
-import { SELLPIA_MASTER_IMPORT_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-master-import.repository.port';
+import { CONFIRMED_CHANNEL_COMPONENT_REFERENCE_PORT } from '../application/port/out/cross-domain/confirmed-channel-component-reference.port';
+import { SELLPIA_IMPORT_RUN_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-import-run.repository.port';
+import { SELLPIA_SNAPSHOT_PUBLICATION_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-snapshot-publication.repository.port';
 import { INVENTORY_SKU_SNAPSHOT_LIST_REPOSITORY_PORT } from '../application/port/out/repository/inventory-sku-snapshot-list.repository.port';
 import { SELLPIA_MASTER_PRODUCT_READ_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-master-product-read.repository.port';
 import { SELLPIA_RECEIPT_BATCH_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-receipt-batch.repository.port';
@@ -37,6 +41,7 @@ import { InventorySkuSnapshotListService } from '../application/service/inventor
 import { SellpiaMasterProductReadService } from '../application/service/sellpia-master-product-read.service';
 import { PickingService } from '../application/service/picking.service';
 import { SellpiaInventoryImportService } from '../application/service/sellpia-inventory-import.service';
+import { SellpiaInventoryFileValidator } from '../application/service/sellpia-inventory-file.validator';
 import { SellpiaReceiptBatchService } from '../application/service/sellpia-receipt-batch.service';
 import { SellpiaInventoryFreshnessService } from '../application/service/sellpia-inventory-freshness.service';
 import { TransfersService } from '../application/service/transfers.service';
@@ -63,6 +68,8 @@ const FORBIDDEN_LEGACY_FILES = [
   'adapter/out/repository/inventory.repository.adapter.ts',
   'adapter/out/repository/inventory-query.repository.adapter.ts',
   'adapter/out/repository/audits.repository.adapter.ts',
+  'adapter/out/repository/sellpia-master-import.repository.adapter.ts',
+  'application/port/out/repository/sellpia-master-import.repository.port.ts',
 ] as const;
 
 describe('InventoryModule authoritative capability wiring', () => {
@@ -88,7 +95,9 @@ describe('InventoryModule authoritative capability wiring', () => {
   it('declares retained repositories and services', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, InventoryModule) ?? [];
     for (const provider of [
-      SellpiaMasterImportRepositoryAdapter,
+      SellpiaImportRunRepositoryAdapter,
+      SellpiaSnapshotPublicationRepositoryAdapter,
+      ConfirmedChannelComponentReferenceRepositoryAdapter,
       SellpiaInventoryFreshnessRepositoryAdapter,
       InventorySkuSnapshotListRepositoryAdapter,
       SellpiaMasterProductReadRepositoryAdapter,
@@ -101,6 +110,7 @@ describe('InventoryModule authoritative capability wiring', () => {
       InventorySkuSnapshotListService,
       SellpiaMasterProductReadService,
       SellpiaInventoryImportService,
+      SellpiaInventoryFileValidator,
       SellpiaInventoryFreshnessService,
       SellpiaReceiptBatchService,
       UnshippedService,
@@ -139,8 +149,16 @@ describe('InventoryModule authoritative capability wiring', () => {
       useExisting: SellpiaInventoryImportService,
     });
     expect(providers).toContainEqual({
-      provide: SELLPIA_MASTER_IMPORT_REPOSITORY_PORT,
-      useExisting: SellpiaMasterImportRepositoryAdapter,
+      provide: SELLPIA_IMPORT_RUN_REPOSITORY_PORT,
+      useExisting: SellpiaImportRunRepositoryAdapter,
+    });
+    expect(providers).toContainEqual({
+      provide: SELLPIA_SNAPSHOT_PUBLICATION_REPOSITORY_PORT,
+      useExisting: SellpiaSnapshotPublicationRepositoryAdapter,
+    });
+    expect(providers).toContainEqual({
+      provide: CONFIRMED_CHANNEL_COMPONENT_REFERENCE_PORT,
+      useExisting: ConfirmedChannelComponentReferenceRepositoryAdapter,
     });
     expect(providers).toContainEqual({
       provide: SELLPIA_RECEIPT_BATCH_PORT,
