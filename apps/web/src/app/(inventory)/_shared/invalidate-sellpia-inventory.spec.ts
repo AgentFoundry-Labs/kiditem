@@ -13,11 +13,14 @@ describe('invalidateSellpiaInventory', () => {
       queryKeys.inventory.snapshots(),
       queryKeys.inventory.assets(),
       queryKeys.inventory.importRuns(),
+      queryKeys.inventory.freshness(),
+      queryKeys.inventory.history(),
       queryKeys.channelSkuAvailability.all,
       queryKeys.channelSkuMappings.lists(),
       queryKeys.dashboard.inventory(),
       queryKeys.products.all,
       queryKeys.ads.all,
+      queryKeys.purchaseOrders.all,
     ]));
   });
 });

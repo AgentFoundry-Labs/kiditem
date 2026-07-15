@@ -12,6 +12,9 @@ here affect every route.
 - Global QueryCache error toast behavior
 - Auth session state and SIGNED_OUT redirect ownership
 - React Query devtools lazy loading policy
+- One authenticated Sellpia inventory coordinator. It deduplicates claims with
+  the Web Locks API plus an in-memory guard, heartbeats only its claim, and
+  leaves unmounted/tab-closed leases to expire without cancellation.
 
 ## State Rules
 
@@ -31,6 +34,8 @@ here affect every route.
 - Do not add route-specific query defaults here.
 - Do not show generic global error toasts for transient dev fetch/chunk failures
   or handled auth-required errors.
+- `BrowserCollectionProvider` excludes `inventory.sellpia`; only the claimant
+  coordinator may upload/finalize/cancel that run or own its operation alert.
 
 ## Verification
 

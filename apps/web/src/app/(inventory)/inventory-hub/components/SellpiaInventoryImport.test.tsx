@@ -10,8 +10,8 @@ import type { SellpiaInventoryImportResponse } from '@kiditem/shared/source-impo
 const importSellpiaInventory = vi.hoisted(() => vi.fn());
 const invalidateSellpiaInventory = vi.hoisted(() => vi.fn());
 
-vi.mock('../lib/sellpia-inventory-import-api', () => ({
-  importSellpiaInventory,
+vi.mock('@/lib/sellpia-inventory-freshness-api', () => ({
+  sellpiaInventoryFreshnessApi: { importManual: importSellpiaInventory },
 }));
 
 vi.mock('../../_shared/invalidate-sellpia-inventory', () => ({
@@ -65,6 +65,7 @@ async function chooseFile(
       type: 'application/vnd.ms-excel',
     }),
   );
+  await user.click(screen.getByLabelText(/방금 Sellpia에서 내보낸 최신 재고 파일/));
 }
 
 beforeEach(() => {
@@ -107,6 +108,7 @@ describe('SellpiaInventoryImport', () => {
     expect(screen.getByText('1,800')).toBeInTheDocument();
     expect(screen.getByText('44')).toBeInTheDocument();
     expect(importSellpiaInventory).toHaveBeenCalledTimes(1);
+    expect(importSellpiaInventory).toHaveBeenCalledWith(expect.any(File), true);
     expect(invalidateSellpiaInventory).toHaveBeenCalledTimes(1);
   });
 

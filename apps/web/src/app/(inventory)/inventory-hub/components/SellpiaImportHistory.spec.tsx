@@ -36,7 +36,7 @@ describe('SellpiaImportHistory', () => {
         },
         {
           id: '00000000-0000-4000-8000-000000000002',
-          fileName: 'bad.xls',
+          fileName: null,
           status: 'failed',
           rowCount: 0,
           importedAt: null,
@@ -50,7 +50,7 @@ describe('SellpiaImportHistory', () => {
     renderHistory();
 
     expect(await screen.findByText('ok.xls')).toBeInTheDocument();
-    expect(screen.getByText('bad.xls')).toBeInTheDocument();
+    expect(screen.getByText('다운로드 전 실패')).toBeInTheDocument();
     expect(screen.getByText('완료')).toBeInTheDocument();
     expect(screen.getByText('실패')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /입고|출고|조정/ })).not.toBeInTheDocument();

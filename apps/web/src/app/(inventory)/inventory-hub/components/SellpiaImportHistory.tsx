@@ -24,7 +24,7 @@ export default function SellpiaImportHistory() {
   const [page, setPage] = useState(1);
   const params = { page, limit: PAGE_SIZE };
   const { data, isLoading, error } = useQuery({
-    queryKey: queryKeys.inventory.importRunList(sellpiaImportRunKeyParams(params)),
+    queryKey: queryKeys.inventory.historyList(sellpiaImportRunKeyParams(params)),
     queryFn: () => listSellpiaImportRuns(params),
     placeholderData: keepPreviousData,
   });
@@ -59,7 +59,7 @@ export default function SellpiaImportHistory() {
                 const Icon = meta.icon;
                 return (
                   <tr key={run.id}>
-                    <td className="font-medium">{run.fileName}</td>
+                    <td className="font-medium">{run.fileName ?? '다운로드 전 실패'}</td>
                     <td>
                       <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium', meta.style)}>
                         <Icon className="h-3.5 w-3.5" aria-hidden="true" /> {meta.label}

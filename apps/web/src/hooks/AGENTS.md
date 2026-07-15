@@ -11,6 +11,8 @@ needs them.
 - `useAuth()` reads `/api/auth/me` through React Query.
 - Period selector state shared by operational screens.
 - Legacy/shared product-image hooks that are genuinely cross-route.
+- Sellpia freshness/history server state, including authenticated
+  `refetchInterval` polling and invalidation after drawer actions.
 
 ## State Rules
 

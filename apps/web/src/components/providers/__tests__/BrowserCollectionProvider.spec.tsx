@@ -110,6 +110,25 @@ describe('BrowserCollectionProvider', () => {
     ).toEqual(current);
   });
 
+  it('leaves inventory.sellpia sessions to the authenticated freshness coordinator', async () => {
+    const sellpia = session({ producer: 'inventory.sellpia' });
+    mockListSessions.mockResolvedValue([sellpia]);
+    const { queryClient } = renderProvider();
+
+    await waitFor(() => expect(mockListSessions).toHaveBeenCalledTimes(1));
+    expect(mockSyncAlert).not.toHaveBeenCalled();
+    expect(
+      queryClient.getQueryData(queryKeys.browserCollection.session(RUN_ID)),
+    ).toBeUndefined();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(BROWSER_COLLECTION_SESSION_EVENT, { detail: sellpia }),
+      );
+    });
+    expect(mockSyncAlert).not.toHaveBeenCalled();
+  });
+
   it('rejects malformed custom session events before alert synchronization', async () => {
     renderProvider();
     await waitFor(() => expect(mockListSessions).toHaveBeenCalledTimes(1));

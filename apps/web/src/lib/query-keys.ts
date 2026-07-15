@@ -55,6 +55,10 @@ export const queryKeys = {
     importRuns: () => [...queryKeys.inventory.all, 'sellpia-import-runs'] as const,
     importRunList: (params: Record<string, string>) =>
       [...queryKeys.inventory.importRuns(), params] as const,
+    freshness: () => [...queryKeys.inventory.all, 'sellpia-freshness'] as const,
+    history: () => [...queryKeys.inventory.all, 'sellpia-history'] as const,
+    historyList: (params: Record<string, string>) =>
+      [...queryKeys.inventory.history(), params] as const,
     receiptBatches: () => [...queryKeys.inventory.all, 'sellpia-receipt-batches'] as const,
   },
   dashboard: {

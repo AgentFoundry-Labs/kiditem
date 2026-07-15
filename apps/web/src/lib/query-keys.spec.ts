@@ -69,6 +69,13 @@ describe('Sellpia authoritative inventory query keys', () => {
       { page: '2', limit: '50' },
     ]);
     expect(queryKeys.inventory.importRuns()).toEqual(['inventory', 'sellpia-import-runs']);
+    expect(queryKeys.inventory.freshness()).toEqual(['inventory', 'sellpia-freshness']);
+    expect(queryKeys.inventory.history()).toEqual(['inventory', 'sellpia-history']);
+    expect(queryKeys.inventory.historyList({ page: '1', limit: '20' })).toEqual([
+      'inventory',
+      'sellpia-history',
+      { page: '1', limit: '20' },
+    ]);
     expect(queryKeys.channelSkuAvailability.lists()).toEqual([
       'channelSkuAvailability',
       'list',

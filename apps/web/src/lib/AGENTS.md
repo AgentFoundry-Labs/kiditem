@@ -31,6 +31,11 @@ multiple route groups.
   remain route/domain-owned.
 - Supabase files in `lib/supabase/` own browser auth client creation and
   refresh/sign-out coordination, not database access.
+- `sellpia-inventory-extension.ts` is the only Sellpia inventory command
+  adapter. React code passes the claimed token as the extension `runId` and
+  never sends extension messages directly.
+- `sellpia-inventory-freshness-api.ts` owns freshness leases, browser/manual
+  upload, source binding, refresh requests, and unified attempt history.
 
 ## Boundary Rules
 

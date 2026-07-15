@@ -64,6 +64,10 @@ const COLLECTION_PRODUCERS = new Map<
     { title: '라이브커머스 수집', href: '/sourcing-ai/market' },
   ],
   ['orders.mall', { title: '주문 데이터 수집', href: '/order-collection' }],
+  [
+    'inventory.sellpia',
+    { title: 'Sellpia 재고 갱신', href: '/inventory-hub?tab=overview' },
+  ],
 ]);
 
 const BROWSER_COLLECTION_OPERATION_KEY = /^browser-collection:(.+)$/;

@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, FileSpreadsheet, Loader2, Upload } from 'lucide-react';
 import { SELLPIA_WORKBOOK_ACCEPT } from '@kiditem/shared/inventory';
 import { formatNumber } from '@/lib/utils';
-import { importSellpiaInventory } from '../lib/sellpia-inventory-import-api';
+import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
 import { invalidateSellpiaInventory } from '../../_shared/invalidate-sellpia-inventory';
 import type { SellpiaInventoryImportResponse } from '@kiditem/shared/source-import';
 
@@ -38,6 +38,7 @@ export default function SellpiaInventoryImport() {
   const [result, setResult] = useState<SellpiaInventoryImportResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [manualFreshExportConfirmed, setManualFreshExportConfirmed] = useState(false);
 
   async function importInventory() {
     if (!file) return;
@@ -46,7 +47,8 @@ export default function SellpiaInventoryImport() {
     setError(null);
     setResult(null);
     try {
-      const response = await importSellpiaInventory(file);
+      if (!manualFreshExportConfirmed) return;
+      const response = await sellpiaInventoryFreshnessApi.importManual(file, true);
       await invalidateSellpiaInventory(queryClient);
       setResult(response);
     } catch (cause) {
@@ -91,9 +93,19 @@ export default function SellpiaInventoryImport() {
               className="mt-2 block w-full rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm text-[var(--text-secondary)] file:mr-3 file:rounded-md file:border-0 file:bg-[var(--primary-soft)] file:px-3 file:py-1.5 file:font-medium file:text-[var(--primary)]"
             />
           </label>
+          <label className="flex items-start gap-2 text-sm text-[var(--text-primary)] md:col-span-2">
+            <input
+              type="checkbox"
+              checked={manualFreshExportConfirmed}
+              disabled={loading}
+              onChange={(event) => setManualFreshExportConfirmed(event.target.checked)}
+              className="mt-0.5"
+            />
+            이 파일이 방금 Sellpia에서 내보낸 최신 재고 파일임을 확인합니다.
+          </label>
           <button
             type="button"
-            disabled={!file || loading}
+            disabled={!file || !manualFreshExportConfirmed || loading}
             onClick={importInventory}
             className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[var(--primary)] px-4 text-sm font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
           >

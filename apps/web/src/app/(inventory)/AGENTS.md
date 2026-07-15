@@ -36,6 +36,9 @@ React Query + inventory API helpers
 - Barcode printing may use browser print APIs only in the existing inventory
   print helper.
 - Keep projection helpers pure and covered by focused tests.
+- Sellpia automatic and manual attempts share the global freshness drawer and
+  one import-run history. Manual upload requires explicit fresh-export
+  attestation, and pre-download failures render without file provenance.
 
 ## Boundary Rules
 

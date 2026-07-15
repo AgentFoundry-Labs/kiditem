@@ -36,6 +36,11 @@ automation/
 - Marketplace installs: `/api/marketplace/*`
 - Live Ops panel stream/snapshot/backfill: `/api/panel/*`
 
+Browser operation producer policy registers `inventory.sellpia` at
+`/inventory-hub?tab=overview`. The authenticated web freshness coordinator is
+the sole owner of that producer's alert lifecycle; generic browser-session
+reconciliation must not publish a second alert for the same run.
+
 ## Main Data Models
 
 - `WorkflowTemplate` defines trusted workflow DAGs.
