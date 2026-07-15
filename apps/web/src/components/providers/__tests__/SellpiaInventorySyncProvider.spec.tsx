@@ -136,6 +136,17 @@ function renderProvider(children: React.ReactNode = null) {
   };
 }
 
+function expectNoStaleClaimSideEffects() {
+  expect(api.heartbeat).not.toHaveBeenCalled();
+  expect(extension.collectSellpiaInventory).not.toHaveBeenCalled();
+  expect(api.importBrowser).not.toHaveBeenCalled();
+  expect(extension.finalizeSellpiaInventorySession).not.toHaveBeenCalled();
+  expect(extension.cancelSellpiaInventorySession).not.toHaveBeenCalled();
+  expect(api.cancel).not.toHaveBeenCalled();
+  expect(api.fail).not.toHaveBeenCalled();
+  expect(alerts.startOperationAlert).not.toHaveBeenCalled();
+}
+
 describe('SellpiaInventorySyncProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -179,6 +190,56 @@ describe('SellpiaInventorySyncProvider', () => {
     await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
 
     expect(api.claimDue).not.toHaveBeenCalled();
+  });
+
+  it('abandons a delayed claim response after logout without stale follow-on side effects', async () => {
+    let resolveClaim!: (value: typeof claimed) => void;
+    api.claimDue.mockReturnValueOnce(new Promise((resolve) => {
+      resolveClaim = resolve;
+    }));
+    const mounted = renderProvider();
+    await waitFor(() => expect(api.claimDue).toHaveBeenCalledTimes(1));
+
+    auth.useAuth.mockReturnValue({ status: 'anonymous', user: null });
+    mounted.rerender(
+      <QueryClientProvider client={mounted.client}>
+        <SellpiaInventorySyncProvider />
+      </QueryClientProvider>,
+    );
+    await act(async () => {
+      resolveClaim(claimed);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    expectNoStaleClaimSideEffects();
+  });
+
+  it('abandons an old-organization delayed claim while the new organization claim remains pending', async () => {
+    let resolveOldClaim!: (value: typeof claimed) => void;
+    api.claimDue
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveOldClaim = resolve;
+      }))
+      .mockReturnValueOnce(new Promise(() => undefined));
+    const mounted = renderProvider();
+    await waitFor(() => expect(api.claimDue).toHaveBeenCalledTimes(1));
+
+    auth.useAuth.mockReturnValue({
+      status: 'ready',
+      user: { organizationId: 'org-2', role: 'owner' },
+    });
+    mounted.rerender(
+      <QueryClientProvider client={mounted.client}>
+        <SellpiaInventorySyncProvider />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(api.claimDue).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      resolveOldClaim(claimed);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    expectNoStaleClaimSideEffects();
   });
 
   it('claims once across two mounted coordinators and uses claimToken as the extension runId', async () => {

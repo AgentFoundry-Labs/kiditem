@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { queryKeys } from '@/lib/query-keys';
 const api = vi.hoisted(() => ({
   getState: vi.fn(),
   getCurrentBasis: vi.fn(),
@@ -89,5 +90,55 @@ describe('useSellpiaInventoryFreshness', () => {
 
     await waitFor(() => expect(result.current.currentBasis).toEqual(currentBasis));
     expect(api.getCurrentBasis).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps snapshot responses and drawer basis summaries in separate cache entries', async () => {
+    const snapshotResponse = {
+      items: [],
+      total: 0,
+      page: 1,
+      limit: 1,
+      summary: {
+        totalSkus: 0,
+        inStockSkus: 0,
+        outOfStockSkus: 0,
+        totalUnits: 0,
+        pricedAssetValue: 0,
+        unpricedSkuCount: 0,
+      },
+      latestImport: null,
+    };
+    const currentBasis = {
+      id: '33333333-3333-4333-8333-333333333333',
+      fileName: 'authoritative.xls',
+      fileHash: 'a'.repeat(64),
+      status: 'completed' as const,
+      rowCount: 42,
+      importedAt: '2026-07-16T00:00:00.000Z',
+      lastVerifiedAt: '2026-07-16T00:00:00.000Z',
+      verificationCount: 1,
+      lastTrigger: 'ttl_expired' as const,
+      freshnessGeneration: '1',
+      manualFreshExportConfirmedAt: null,
+      manualFreshExportConfirmedBy: null,
+      qualityReport: { issues: [] },
+      errorCode: null,
+      errorMessage: null,
+      createdAt: '2026-07-16T00:00:00.000Z',
+      updatedAt: '2026-07-16T00:00:00.000Z',
+    };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const snapshotKey = queryKeys.inventory.snapshot({ page: '1', limit: '1' });
+    const currentBasisKey = queryKeys.inventory.currentBasis();
+    client.setQueryData(snapshotKey, snapshotResponse);
+    api.getCurrentBasis.mockResolvedValueOnce(currentBasis);
+    const { result } = renderHook(
+      () => useSellpiaInventoryFreshness({ enabled: true }),
+      { wrapper: wrapper(client) },
+    );
+
+    await waitFor(() => expect(result.current.currentBasis).toEqual(currentBasis));
+    expect(client.getQueryData(snapshotKey)).toEqual(snapshotResponse);
+    expect(client.getQueryData(currentBasisKey)).toEqual(currentBasis);
   });
 });

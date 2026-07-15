@@ -7,6 +7,7 @@ export async function invalidateSellpiaInventory(queryClient: QueryClient): Prom
     queryClient.invalidateQueries({ queryKey: queryKeys.inventory.assets() }),
     queryClient.invalidateQueries({ queryKey: queryKeys.inventory.importRuns() }),
     queryClient.invalidateQueries({ queryKey: queryKeys.inventory.freshness() }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.inventory.currentBasis() }),
     queryClient.invalidateQueries({ queryKey: queryKeys.inventory.history() }),
     queryClient.invalidateQueries({ queryKey: queryKeys.channelSkuAvailability.all }),
     queryClient.invalidateQueries({ queryKey: queryKeys.channelSkuMappings.all }),

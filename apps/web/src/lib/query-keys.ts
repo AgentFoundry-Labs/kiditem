@@ -56,6 +56,7 @@ export const queryKeys = {
     importRunList: (params: Record<string, string>) =>
       [...queryKeys.inventory.importRuns(), params] as const,
     freshness: () => [...queryKeys.inventory.all, 'sellpia-freshness'] as const,
+    currentBasis: () => [...queryKeys.inventory.all, 'sellpia-current-basis'] as const,
     history: () => [...queryKeys.inventory.all, 'sellpia-history'] as const,
     historyList: (params: Record<string, string>) =>
       [...queryKeys.inventory.history(), params] as const,

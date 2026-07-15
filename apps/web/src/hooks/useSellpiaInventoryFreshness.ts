@@ -22,7 +22,7 @@ export function useSellpiaInventoryFreshness({ enabled }: { enabled: boolean }) 
     enabled,
   });
   const currentBasis = useQuery({
-    queryKey: queryKeys.inventory.snapshot({ page: '1', limit: '1' }),
+    queryKey: queryKeys.inventory.currentBasis(),
     queryFn: sellpiaInventoryFreshnessApi.getCurrentBasis,
     enabled,
   });

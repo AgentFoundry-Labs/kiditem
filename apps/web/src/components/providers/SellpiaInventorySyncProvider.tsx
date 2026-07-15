@@ -124,7 +124,31 @@ export function SellpiaInventorySyncProvider({
   const cancelledClaims = useRef(new Set<string>());
   const abandonedClaims = useRef(new Set<string>());
   const alertUpdatedAtByClaim = useRef(new Map<string, number>());
-  const mounted = useRef(true);
+  const mounted = useRef(false);
+  const activeLockNameRef = useRef<string | null>(null);
+  const authContextRef = useRef({
+    status: authStatus,
+    userId: user?.id ?? null,
+    organizationId: user?.organizationId ?? null,
+    enabled,
+    epoch: 0,
+  });
+  const currentAuthContext = authContextRef.current;
+  if (
+    currentAuthContext.status !== authStatus
+    || currentAuthContext.userId !== (user?.id ?? null)
+    || currentAuthContext.organizationId !== (user?.organizationId ?? null)
+  ) {
+    authContextRef.current = {
+      status: authStatus,
+      userId: user?.id ?? null,
+      organizationId: user?.organizationId ?? null,
+      enabled,
+      epoch: currentAuthContext.epoch + 1,
+    };
+  }
+  const authEpoch = authContextRef.current.epoch;
+  const observedAuthEpochRef = useRef(authEpoch);
 
   const nextAlertMetadata = useCallback((
     claimToken: string,
@@ -154,23 +178,28 @@ export function SellpiaInventorySyncProvider({
         abandonedClaims.current.add(ownerClaimTokenRef.current);
       }
       stopHeartbeatRef.current?.();
-      if (user?.organizationId) {
-        inFlightByLockName.delete(sellpiaInventoryLockName(user.organizationId));
+      if (activeLockNameRef.current) {
+        inFlightByLockName.delete(activeLockNameRef.current);
+        activeLockNameRef.current = null;
       }
     };
-  }, [user?.organizationId]);
+  }, []);
 
   useEffect(() => {
-    if (enabled || !ownerClaimTokenRef.current) return;
-    abandonedClaims.current.add(ownerClaimTokenRef.current);
+    if (observedAuthEpochRef.current === authEpoch) return;
+    observedAuthEpochRef.current = authEpoch;
+    if (ownerClaimTokenRef.current) {
+      abandonedClaims.current.add(ownerClaimTokenRef.current);
+    }
     stopHeartbeatRef.current?.();
-    if (user?.organizationId) {
-      inFlightByLockName.delete(sellpiaInventoryLockName(user.organizationId));
+    if (activeLockNameRef.current) {
+      inFlightByLockName.delete(activeLockNameRef.current);
+      activeLockNameRef.current = null;
     }
     ownerClaimTokenRef.current = null;
     extensionIdRef.current = null;
     setOwnerClaimToken(null);
-  }, [enabled, user?.organizationId]);
+  }, [authEpoch]);
 
   const cancelOwnedSync = useCallback(async (claimToken: string) => {
     if (ownerClaimTokenRef.current !== claimToken) return;
@@ -196,15 +225,33 @@ export function SellpiaInventorySyncProvider({
 
   const coordinate = useCallback(async () => {
     const organizationId = user?.organizationId;
-    if (!organizationId) return;
+    const claimedAuthContext = authContextRef.current;
+    if (
+      !organizationId
+      || !claimedAuthContext.enabled
+      || claimedAuthContext.organizationId !== organizationId
+    ) return;
+    const authContextIsCurrent = () => {
+      const authContext = authContextRef.current;
+      return mounted.current
+        && authContext.epoch === claimedAuthContext.epoch
+        && authContext.enabled
+        && authContext.organizationId === organizationId;
+    };
     const claim = await sellpiaInventoryFreshnessApi.claimDue();
+    if (!authContextIsCurrent()) {
+      if (claim.claimed) abandonedClaims.current.add(claim.claimToken);
+      return;
+    }
     if (!claim.claimed) {
       cacheFreshnessIfChanged(queryClient, claim.state);
       return;
     }
 
     const { claimToken } = claim;
-    if (shouldStopClaim(claimToken)) {
+    const claimIsStopped = () =>
+      !authContextIsCurrent() || shouldStopClaim(claimToken);
+    if (claimIsStopped()) {
       abandonedClaims.current.add(claimToken);
       return;
     }
@@ -224,9 +271,9 @@ export function SellpiaInventorySyncProvider({
     let leaseExpiresAt = Date.parse(claim.leaseExpiresAt);
     let heartbeatStopped = false;
     const heartbeatTimer = window.setInterval(() => {
-      if (heartbeatStopped || Date.now() >= leaseExpiresAt) return;
+      if (heartbeatStopped || claimIsStopped() || Date.now() >= leaseExpiresAt) return;
       void sellpiaInventoryFreshnessApi.heartbeat(claimToken).then((state) => {
-        if (!shouldStopClaim(claimToken) && state.activeSync?.runId === claimToken) {
+        if (!claimIsStopped() && state.activeSync?.runId === claimToken) {
           leaseExpiresAt = Date.parse(state.activeSync.leaseExpiresAt);
           queryClient.setQueryData(queryKeys.inventory.freshness(), state);
         }
@@ -239,6 +286,7 @@ export function SellpiaInventorySyncProvider({
     stopHeartbeatRef.current = stopHeartbeat;
 
     try {
+      if (claimIsStopped()) return;
       await bestEffortAlert(() => startOperationAlert({
         operationKey: `browser-collection:${claimToken}`,
         type: 'browser_collection',
@@ -253,11 +301,11 @@ export function SellpiaInventorySyncProvider({
           generation: claim.activeGeneration,
         }),
       }));
-      if (shouldStopClaim(claimToken)) return;
+      if (claimIsStopped()) return;
 
       const collected = await collectSellpiaInventory({ runId: claimToken });
       extensionIdRef.current = collected.extensionId;
-      if (shouldStopClaim(claimToken)) return;
+      if (claimIsStopped()) return;
       await bestEffortAlert(() => progressOperationAlert(
         `browser-collection:${claimToken}`,
         {
@@ -266,7 +314,7 @@ export function SellpiaInventorySyncProvider({
           metadata: nextAlertMetadata(claimToken),
         },
       ));
-      if (shouldStopClaim(claimToken)) return;
+      if (claimIsStopped()) return;
 
       let imported;
       try {
@@ -276,19 +324,19 @@ export function SellpiaInventorySyncProvider({
           trigger,
         });
       } catch (error) {
-        if (shouldStopClaim(claimToken)) return;
+        if (claimIsStopped()) return;
         const details = errorDetails(error);
         await sellpiaInventoryFreshnessApi.fail(claimToken, {
           errorCode: details.code,
           errorMessage: details.message,
         }).catch(() => undefined);
-        if (shouldStopClaim(claimToken)) return;
+        if (claimIsStopped()) return;
         await finalizeSellpiaInventorySession(
           { extensionId: collected.extensionId, runId: claimToken },
           'failed',
           details.message,
         ).catch(() => undefined);
-        if (shouldStopClaim(claimToken)) return;
+        if (claimIsStopped()) return;
         await bestEffortAlert(() => failOperationAlert(
           `browser-collection:${claimToken}`,
           {
@@ -300,7 +348,7 @@ export function SellpiaInventorySyncProvider({
         return;
       }
 
-      if (shouldStopClaim(claimToken)) return;
+      if (claimIsStopped()) return;
       let extensionFinalized = true;
       try {
         await finalizeSellpiaInventorySession(
@@ -310,7 +358,7 @@ export function SellpiaInventorySyncProvider({
         );
       } catch (error) {
         extensionFinalized = false;
-        if (shouldStopClaim(claimToken)) return;
+        if (claimIsStopped()) return;
         await bestEffortAlert(() => failOperationAlert(
           `browser-collection:${claimToken}`,
           {
@@ -320,7 +368,7 @@ export function SellpiaInventorySyncProvider({
           },
         ));
       }
-      if (shouldStopClaim(claimToken)) return;
+      if (claimIsStopped()) return;
 
       if (extensionFinalized) {
         await bestEffortAlert(() => succeedOperationAlert(
@@ -331,12 +379,12 @@ export function SellpiaInventorySyncProvider({
             metadata: nextAlertMetadata(claimToken),
           },
         ));
-        if (shouldStopClaim(claimToken)) return;
+        if (claimIsStopped()) return;
       }
 
       const fileHash = imported.run.fileHash;
       for (const issue of imported.run.qualityReport?.issues ?? []) {
-        if (shouldStopClaim(claimToken)) return;
+        if (claimIsStopped()) return;
         const warningIdentity = issue.code.startsWith(`${fileHash}:`)
           ? issue.code
           : `${fileHash}:${issue.code}`;
@@ -354,7 +402,7 @@ export function SellpiaInventorySyncProvider({
           severity: issue.severity,
           metadata: nextAlertMetadata(claimToken, qualityMetadata),
         }));
-        if (shouldStopClaim(claimToken)) return;
+        if (claimIsStopped()) return;
         await bestEffortAlert(() => requireAttentionOperationAlert(
           operationKey,
           {
@@ -365,13 +413,13 @@ export function SellpiaInventorySyncProvider({
         ));
       }
     } catch (error) {
-      if (shouldStopClaim(claimToken)) return;
+      if (claimIsStopped()) return;
       const details = errorDetails(error);
       await sellpiaInventoryFreshnessApi.fail(claimToken, {
         errorCode: details.code,
         errorMessage: details.message,
       }).catch(() => undefined);
-      if (shouldStopClaim(claimToken)) return;
+      if (claimIsStopped()) return;
       await bestEffortAlert(() => failOperationAlert(
         `browser-collection:${claimToken}`,
         {
@@ -385,7 +433,9 @@ export function SellpiaInventorySyncProvider({
       ));
     } finally {
       stopHeartbeat();
-      stopHeartbeatRef.current = null;
+      if (stopHeartbeatRef.current === stopHeartbeat) {
+        stopHeartbeatRef.current = null;
+      }
       await invalidateSellpiaInventory(queryClient);
       if (ownerClaimTokenRef.current === claimToken) {
         ownerClaimTokenRef.current = null;
@@ -401,7 +451,17 @@ export function SellpiaInventorySyncProvider({
       return;
     }
     const lockName = sellpiaInventoryLockName(user.organizationId);
-    void serializeClaim(lockName, coordinate).catch(() => undefined);
+    activeLockNameRef.current = lockName;
+    void serializeClaim(lockName, coordinate)
+      .catch(() => undefined)
+      .finally(() => {
+        if (
+          activeLockNameRef.current === lockName
+          && !inFlightByLockName.has(lockName)
+        ) {
+          activeLockNameRef.current = null;
+        }
+      });
   }, [
     coordinate,
     enabled,
