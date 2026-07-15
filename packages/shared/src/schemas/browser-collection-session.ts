@@ -16,6 +16,7 @@ export const BROWSER_COLLECTION_PRODUCERS = [
   'sourcing.1688_trend',
   'sourcing.live_commerce',
   'orders.mall',
+  'inventory.sellpia',
 ] as const;
 
 export const BROWSER_COLLECTION_STATES = [
@@ -29,6 +30,7 @@ export const BROWSER_COLLECTION_STATES = [
 
 export const BROWSER_COLLECTION_ATTENTION_REASONS = [
   'extension_missing',
+  'extension_outdated',
   'kiditem_auth',
   'marketplace_login',
   'captcha',
