@@ -62,6 +62,7 @@ implements ChannelsSellpiaMasterProductReadPort {
       barcode: row.barcode,
       currentStock: row.currentStock,
       purchasePrice: row.purchasePrice,
+      isActive: row.isActive,
     }));
   }
 }

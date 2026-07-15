@@ -161,6 +161,18 @@ describe('rankSellpiaMasterProductCandidates', () => {
     expect(results[0]?.reason).toBe('unique_barcode');
   });
 
+  it('never ranks inactive MasterProducts as discovery candidates', () => {
+    const inactive = { ...sku('inactive', 'SP-INACTIVE'), isActive: false };
+
+    const results = rank({
+      evidence: { ...baseEvidence, sellerSku: 'SP-INACTIVE' },
+      exactCodeCandidates: [inactive],
+      manualSearchCandidates: [inactive],
+    });
+
+    expect(results).toEqual([]);
+  });
+
   it('orders stably by reason, then Sellpia code, then ID and assigns ordinal ranks', () => {
     const results = rank({
       evidence: { ...baseEvidence, modelNumber: 'SP-EXACT' },
@@ -219,5 +231,6 @@ function sku(
     barcode,
     currentStock: 3,
     purchasePrice: null,
+    isActive: true,
   };
 }

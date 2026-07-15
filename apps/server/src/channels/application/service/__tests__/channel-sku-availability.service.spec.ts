@@ -168,6 +168,34 @@ describe('ChannelSkuAvailabilityService', () => {
     expect(result[0]?.sku.sellableStock).toBe(4);
   });
 
+  it('keeps a confirmed recipe visible but gives it zero capacity when one component is inactive', async () => {
+    const repository = makeRepository();
+    repository.findByChannelSkuIds.mockResolvedValue([
+      row(skuIds[0]!, [
+        component(inventoryIds[0]!, 1),
+        component(inventoryIds[1]!, 2),
+      ]),
+    ]);
+    const inventory = makeInventory();
+    inventory.findByIds.mockResolvedValue([
+      inventorySku(inventoryIds[0]!, 4),
+      inventorySku(inventoryIds[1]!, 0, false),
+    ]);
+    const service = new ChannelSkuAvailabilityService(repository, inventory);
+
+    const [result] = await service.findByChannelSkuIds(organizationId, [skuIds[0]!]);
+
+    expect(result?.sku.mappingStatus).toBe('matched');
+    expect(result?.sku.sellableStock).toBe(0);
+    expect(result?.components[1]).toMatchObject({
+      masterProductId: inventoryIds[1],
+      currentStock: 0,
+      isActive: false,
+      componentCapacity: 0,
+    });
+    expect(result?.warnings).toContain('component_inactive');
+  });
+
   it('hydrates exact listing IDs without mutating mapping or stock state', async () => {
     const repository = makeRepository();
     repository.findByListingIds.mockResolvedValue([
@@ -264,7 +292,7 @@ function component(masterProductId: string, quantity: number) {
   return { masterProductId, quantity, mappingSource: 'manual' };
 }
 
-function inventorySku(id: string, currentStock: number) {
+function inventorySku(id: string, currentStock: number, isActive = true) {
   return {
     id,
     sellpiaProductCode: `SP-${id}`,
@@ -273,5 +301,6 @@ function inventorySku(id: string, currentStock: number) {
     barcode: null,
     currentStock,
     purchasePrice: 1_000,
+    isActive,
   };
 }

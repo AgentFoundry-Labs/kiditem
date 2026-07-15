@@ -132,7 +132,7 @@ export class ChannelSkuMappingService {
       id: candidate.id,
       code: candidate.sellpiaProductCode,
       barcode: candidate.barcode,
-      isActive: true,
+      isActive: candidate.isActive,
     }));
     const updates = evidenceRows.map((evidence) => {
       const match = resolveChannelSkuAutomaticMatch({
@@ -198,9 +198,15 @@ export class ChannelSkuMappingService {
     if (parsed.data.components.length > 0) {
       const ids = parsed.data.components.map(({ masterProductId }) => masterProductId);
       const owned = await this.inventory.findByIds(organizationId, ids);
-      const ownedIds = new Set(owned.map(({ id }) => id.toLowerCase()));
-      if (ids.some((id) => !ownedIds.has(id.toLowerCase()))) {
+      const ownedById = new Map(owned.map((masterProduct) => [
+        masterProduct.id.toLowerCase(),
+        masterProduct,
+      ]));
+      if (ids.some((id) => !ownedById.has(id.toLowerCase()))) {
         throw new BadRequestException('One or more MasterProduct components do not belong to this organization');
+      }
+      if (ids.some((id) => !ownedById.get(id.toLowerCase())!.isActive)) {
+        throw new BadRequestException('Inactive MasterProducts cannot be added to a component recipe');
       }
       nextStatus = 'matched';
     } else {

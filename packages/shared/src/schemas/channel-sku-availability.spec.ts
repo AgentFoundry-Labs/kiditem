@@ -46,6 +46,7 @@ describe('channel SKU availability contracts', () => {
           updatedAt: '2026-07-12T00:00:00.000Z',
         },
         components: [],
+        warnings: [],
       }],
       total: 1,
       page: 1,
@@ -94,11 +95,13 @@ describe('channel SKU availability contracts', () => {
           barcode: null,
           currentStock: 80,
           purchasePrice: 1_500,
+          isActive: true,
           quantity: 8,
           mappingSource: 'manual',
           componentCapacity: 10,
           isBottleneck: true,
         }],
+        warnings: [],
       }],
       total: 1,
       page: 1,
@@ -117,6 +120,62 @@ describe('channel SKU availability contracts', () => {
       isBottleneck: true,
       purchasePrice: 1_500,
     });
+  });
+
+  it('preserves inactive confirmed component evidence with a bounded warning', () => {
+    const parsed = ChannelSkuAvailabilityListResponseSchema.parse({
+      items: [{
+        channelAccount: { id: channelAccountId, channel: 'coupang', name: 'Wing' },
+        product: {
+          id: productId,
+          externalProductId: 'P-001',
+          registeredName: null,
+          displayName: null,
+          status: null,
+        },
+        sku: {
+          id: channelSkuId,
+          externalSkuId: 'S-001',
+          sellerSku: null,
+          optionName: null,
+          barcode: null,
+          modelNumber: null,
+          salePrice: null,
+          status: 'on_sale',
+          mappingStatus: 'matched',
+          sellableStock: 0,
+          updatedAt: '2026-07-12T00:00:00.000Z',
+        },
+        components: [{
+          masterProductId,
+          code: 'SP-INACTIVE',
+          name: 'Inactive item',
+          optionName: null,
+          barcode: null,
+          currentStock: 0,
+          purchasePrice: 1_500,
+          isActive: false,
+          quantity: 1,
+          mappingSource: 'manual',
+          componentCapacity: 0,
+          isBottleneck: true,
+        }],
+        warnings: ['component_inactive'],
+      }],
+      total: 1,
+      page: 1,
+      limit: 50,
+      summary: {
+        total: 1,
+        inStock: 0,
+        outOfStock: 1,
+        unmatched: 0,
+        needsReview: 0,
+      },
+    });
+
+    expect(parsed.items[0]?.components[0]?.isActive).toBe(false);
+    expect(parsed.items[0]?.warnings).toEqual(['component_inactive']);
   });
 
   it('strictly validates public list queries', () => {

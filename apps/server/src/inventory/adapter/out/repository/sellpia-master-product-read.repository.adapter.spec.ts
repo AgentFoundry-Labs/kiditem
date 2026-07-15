@@ -5,6 +5,35 @@ import { SellpiaMasterProductReadRepositoryAdapter } from './sellpia-master-prod
 const organizationId = '00000000-0000-4000-8000-000000000001';
 
 describe('SellpiaMasterProductReadRepositoryAdapter', () => {
+  it('tenant-scopes exact ID reads without discarding inactive identities', async () => {
+    const inactive = {
+      ...stagedMaster('master-1', 'SP-1', 'Inactive'),
+      currentStock: 0,
+      isActive: false,
+    };
+    const findMany = vi.fn().mockResolvedValue([inactive]);
+    const repository = new SellpiaMasterProductReadRepositoryAdapter(prismaWith(findMany));
+
+    const rows = await repository.findByIds(organizationId, ['master-1']);
+
+    expect(findMany).toHaveBeenCalledWith({
+      where: {
+        organizationId,
+        id: { in: ['master-1'] },
+      },
+      select: expect.objectContaining({
+        id: true,
+        currentStock: true,
+        isActive: true,
+      }),
+    });
+    expect(rows).toEqual([expect.objectContaining({
+      id: 'master-1',
+      currentStock: 0,
+      isActive: false,
+    })]);
+  });
+
   it('tenant-scopes identifier reads to active physical Sellpia Masters', async () => {
     const findMany = vi.fn().mockResolvedValue([
       stagedMaster('master-1', 'SP-1', 'First'),
@@ -77,6 +106,23 @@ describe('SellpiaMasterProductReadRepositoryAdapter', () => {
     expect(statement.text).toContain("'[[:space:]]+'");
     expect(statement.values).toEqual([organizationId, '아기컵+빨대']);
     expect(rows.map(({ id }) => id)).toEqual(['master-1', 'master-2']);
+  });
+
+  it('keeps manual search tenant-scoped and active-only', async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      stagedMaster('master-1', 'SP-1', 'Active result'),
+    ]);
+    const repository = new SellpiaMasterProductReadRepositoryAdapter(prismaWith(findMany));
+
+    await repository.search(organizationId, 'result', 20);
+
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        organizationId,
+        isActive: true,
+      }),
+      take: 20,
+    }));
   });
 });
 

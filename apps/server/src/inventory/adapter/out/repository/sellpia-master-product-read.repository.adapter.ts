@@ -39,14 +39,14 @@ implements SellpiaMasterProductReadRepositoryPort {
     organizationId: string,
     codes: string[],
   ): Promise<SellpiaMasterProductReadModel[]> {
-    return this.find({ organizationId, code: { in: codes } });
+    return this.findActive({ organizationId, code: { in: codes } });
   }
 
   async findByBarcodes(
     organizationId: string,
     barcodes: string[],
   ): Promise<SellpiaMasterProductReadModel[]> {
-    return this.find({ organizationId, barcode: { in: barcodes } });
+    return this.findActive({ organizationId, barcode: { in: barcodes } });
   }
 
   async findByNormalizedNames(
@@ -105,10 +105,16 @@ implements SellpiaMasterProductReadRepositoryPort {
     where: Prisma.MasterProductWhereInput,
   ): Promise<SellpiaMasterProductReadModel[]> {
     const rows = await this.prisma.masterProduct.findMany({
-      where: { ...where, isActive: true },
+      where,
       select: SELLPIA_MASTER_SELECT,
     });
     return rows.map(toReadModel);
+  }
+
+  private findActive(
+    where: Prisma.MasterProductWhereInput,
+  ): Promise<SellpiaMasterProductReadModel[]> {
+    return this.find({ ...where, isActive: true });
   }
 }
 

@@ -26,6 +26,7 @@ const component = {
   barcode: '8801234567890',
   currentStock: 17,
   purchasePrice: 1_500,
+  isActive: true,
   quantity: 1,
   mappingSource: 'exact_sellpia_code',
   componentCapacity: 17,
@@ -59,6 +60,7 @@ const listItem = {
     updatedAt: '2026-07-11T00:00:00.000Z',
   },
   components: [component],
+  warnings: [],
 };
 
 describe('channel SKU matching contracts', () => {
@@ -123,6 +125,36 @@ describe('channel SKU matching contracts', () => {
 
     expect(() => ReplaceChannelSkuComponentsInputSchema.parse({
       components: [{ masterProductId, quantity: 1, currentStock: 17 }],
+    })).toThrow();
+  });
+
+  it('publishes bounded inactive-component review evidence', () => {
+    const parsed = ChannelSkuMappingListResponseSchema.parse({
+      items: [{
+        ...listItem,
+        components: [{ ...component, currentStock: 0, isActive: false }],
+        warnings: ['component_inactive'],
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+      counts: { all: 1, unmatched: 0, needsReview: 0, matched: 1 },
+    });
+
+    expect(parsed.items[0]?.components[0]).toMatchObject({
+      currentStock: 0,
+      isActive: false,
+    });
+    expect(parsed.items[0]?.warnings).toEqual(['component_inactive']);
+    expect(() => ChannelSkuMappingListResponseSchema.parse({
+      items: [{
+        ...listItem,
+        warnings: ['component_inactive', 'component_inactive'],
+      }],
+      total: 1,
+      page: 1,
+      limit: 20,
+      counts: { all: 1, unmatched: 0, needsReview: 0, matched: 1 },
     })).toThrow();
   });
 

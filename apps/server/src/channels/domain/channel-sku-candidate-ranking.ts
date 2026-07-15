@@ -15,6 +15,7 @@ export type CandidateSellpiaMasterProduct = {
   barcode: string | null;
   currentStock: number;
   purchasePrice: number | null;
+  isActive: boolean;
 };
 
 export type RankedSellpiaMasterProductCandidate = CandidateSellpiaMasterProduct & {
@@ -177,6 +178,7 @@ function dedupeCandidates(
 }
 
 function keepStronger(matches: Map<string, CandidateMatch>, incoming: CandidateMatch): void {
+  if (!incoming.candidate.isActive) return;
   const current = matches.get(incoming.candidate.id);
   if (!current || compareStrength(incoming, current) < 0) {
     matches.set(incoming.candidate.id, incoming);

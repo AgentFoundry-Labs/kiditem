@@ -92,16 +92,18 @@ export async function hydrateChannelSkuAvailabilityRows(
   return rows.map((row) => {
     const projectedComponents = row.componentRefs.map((component) => {
       const masterProduct = inventoryById.get(component.masterProductId)!;
+      const currentStock = masterProduct.isActive ? masterProduct.currentStock : 0;
       return {
         masterProduct,
         component,
+        currentStock,
         componentCapacity: Math.floor(
-          masterProduct.currentStock / component.quantity,
+          currentStock / component.quantity,
         ),
       };
     });
     const sellableStock = projectChannelSkuSellableStock(projectedComponents.map((entry) => ({
-      currentStock: entry.masterProduct.currentStock,
+      currentStock: entry.currentStock,
       quantity: entry.component.quantity,
     })));
 
@@ -124,13 +126,17 @@ export async function hydrateChannelSkuAvailabilityRows(
         name: entry.masterProduct.name,
         optionName: entry.masterProduct.optionName,
         barcode: entry.masterProduct.barcode,
-        currentStock: entry.masterProduct.currentStock,
+        currentStock: entry.currentStock,
         purchasePrice: entry.masterProduct.purchasePrice,
+        isActive: entry.masterProduct.isActive,
         quantity: entry.component.quantity,
         mappingSource: entry.component.mappingSource,
         componentCapacity: entry.componentCapacity,
         isBottleneck: entry.componentCapacity === sellableStock,
       })),
+      warnings: projectedComponents.some(({ masterProduct }) => !masterProduct.isActive)
+        ? ['component_inactive']
+        : [],
     } satisfies ChannelSkuAvailabilityItem;
   });
 }

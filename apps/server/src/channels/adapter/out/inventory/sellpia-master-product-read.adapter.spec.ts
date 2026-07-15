@@ -5,7 +5,7 @@ import { ChannelsSellpiaMasterProductReadAdapter } from './sellpia-master-produc
 const organizationId = '00000000-0000-4000-8000-000000000001';
 
 describe('ChannelsSellpiaMasterProductReadAdapter', () => {
-  it('preserves nullable purchase price as channel availability evidence', async () => {
+  it('preserves active state and nullable purchase price as channel availability evidence', async () => {
     const owner = {
       findByIds: vi.fn().mockResolvedValue([{
         id: '00000000-0000-4000-8000-000000000002',
@@ -13,10 +13,10 @@ describe('ChannelsSellpiaMasterProductReadAdapter', () => {
         name: 'Sellpia item',
         optionName: null,
         barcode: null,
-        currentStock: 8,
+        currentStock: 0,
         purchasePrice: 1_500,
         salePrice: 2_500,
-        isActive: true,
+        isActive: false,
         lastImportRunId: null,
       }]),
     } as unknown as SellpiaMasterProductReadPort;
@@ -27,6 +27,7 @@ describe('ChannelsSellpiaMasterProductReadAdapter', () => {
     ]);
 
     expect(result[0]?.purchasePrice).toBe(1_500);
+    expect(result[0]?.isActive).toBe(false);
   });
 
   it('forwards normalized-name batches through the Inventory owner port', async () => {

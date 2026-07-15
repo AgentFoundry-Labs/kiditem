@@ -377,6 +377,66 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     ]))).toEqual(stockBefore);
   });
 
+  it('preserves inactive confirmed evidence at zero capacity and blocks new inactive recipes', async () => {
+    const target = await createQueueSku({
+      sellerSku: 'SP-INACTIVE',
+      mappingStatus: 'matched',
+    });
+    const active = await createInventorySku('SP-ACTIVE', null, 4);
+    const inactive = await createInventorySku('SP-INACTIVE', null, 9);
+    await prisma.masterProduct.update({
+      where: { id: inactive.id },
+      data: { currentStock: 0, isActive: false },
+    });
+    await prisma.channelSkuComponent.createMany({
+      data: [
+        component(target.sku.id, active.id, 1),
+        component(target.sku.id, inactive.id, 1),
+      ],
+    });
+
+    const [visible] = await availability.findByChannelSkuIds(
+      TEST_ORGANIZATION_ID,
+      [target.sku.id],
+    );
+    const candidates = await service.candidates(
+      TEST_ORGANIZATION_ID,
+      target.sku.id,
+      {},
+    );
+
+    expect(visible?.sku).toMatchObject({
+      mappingStatus: 'matched',
+      sellableStock: 0,
+    });
+    expect(visible?.components).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        masterProductId: inactive.id,
+        currentStock: 0,
+        isActive: false,
+        componentCapacity: 0,
+      }),
+    ]));
+    expect(visible?.warnings).toEqual(['component_inactive']);
+    expect(candidates.items.some(({ masterProductId }) =>
+      masterProductId === inactive.id)).toBe(false);
+
+    await expect(service.replaceComponents(
+      TEST_ORGANIZATION_ID,
+      TEST_USER_ID,
+      target.sku.id,
+      { components: [{ masterProductId: inactive.id, quantity: 1 }] },
+    )).rejects.toBeInstanceOf(BadRequestException);
+    expect(await componentState(target.sku.id)).toEqual(sortedRecipe([
+      [active.id, 1],
+      [inactive.id, 1],
+    ]));
+    expect(await availability.findByChannelSkuIds(
+      OTHER_ORGANIZATION_ID,
+      [target.sku.id],
+    )).toEqual([]);
+  });
+
   it('validates the full request and tenant MasterProduct ownership before deletion', async () => {
     const target = await createQueueSku();
     const local = await createInventorySku('SP-LOCAL');

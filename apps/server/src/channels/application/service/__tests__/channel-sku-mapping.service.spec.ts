@@ -48,11 +48,13 @@ describe('ChannelSkuMappingService', () => {
       barcode: '8801234567890',
       currentStock: 7,
       purchasePrice: 1_000,
+      isActive: true,
       quantity: 2,
       mappingSource: 'manual',
       componentCapacity: 3,
       isBottleneck: true,
     });
+    expect(result.items[0]?.warnings).toEqual([]);
     expect(result.items[0]?.sku.sellableStock).toBe(3);
     expect(result.items[0]?.sku.updatedAt).toBe('2026-07-11T00:00:00.000Z');
   });
@@ -281,6 +283,21 @@ describe('ChannelSkuMappingService', () => {
     expect(repository.replaceComponents).not.toHaveBeenCalled();
   });
 
+  it('rejects an inactive MasterProduct before deleting current components', async () => {
+    const repository = makeRepository();
+    repository.findEvidence.mockResolvedValue(evidence());
+    const inventory = makeInventory();
+    inventory.findByIds.mockResolvedValue([
+      inventorySku(inventorySkuId, { currentStock: 0, isActive: false }),
+    ]);
+    const service = new ChannelSkuMappingService(repository, inventory);
+
+    await expect(service.replaceComponents(organizationId, userId, channelSkuId, {
+      components: [{ masterProductId: inventorySkuId, quantity: 1 }],
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(repository.replaceComponents).not.toHaveBeenCalled();
+  });
+
   it('persists a nonempty manual recipe as matched with the authenticated user', async () => {
     const repository = makeRepository();
     repository.findEvidence.mockResolvedValue(evidence());
@@ -479,5 +496,6 @@ function inventorySkuBase(id: string) {
     barcode: '8801234567890',
     currentStock: 7,
     purchasePrice: 1_000,
+    isActive: true,
   };
 }
