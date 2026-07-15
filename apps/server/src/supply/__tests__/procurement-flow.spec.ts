@@ -258,6 +258,7 @@ describe('ProcurementController purchase submission boundary', () => {
       },
       rows: [],
       editedQuantities: {},
+      clampEditedQuantities: true,
     };
 
     await controller.handleAction(
@@ -274,6 +275,7 @@ describe('ProcurementController purchase submission boundary', () => {
         collection: body.collection,
         rows: body.rows,
         editedQuantities: body.editedQuantities,
+        clampEditedQuantities: true,
       },
     });
   });

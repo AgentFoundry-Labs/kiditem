@@ -19,8 +19,8 @@ import {
 import type { RocketPurchasePreviewPort } from '../port/in/procurement/rocket-purchase-preview.port';
 import {
   RocketPreviewQuantityExceededError,
-  assertRocketPreviewEditedQuantity,
   previewRocketCapacity,
+  resolveRocketPreviewEditedQuantity,
 } from '../../domain/policy/rocket-capacity-preview';
 
 @Injectable()
@@ -50,8 +50,12 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
         collectionRunId: request.collection.collectionRunId,
         catalog: null,
         rows: request.rows.map((row) => {
-          const editedQuantity = request.editedQuantities[row.poLineId] ?? null;
-          assertRocketPreviewEditedQuantity(row.poLineId, editedQuantity, 0);
+          const editedQuantity = resolveRocketPreviewEditedQuantity(
+            row.poLineId,
+            request.editedQuantities[row.poLineId] ?? null,
+            0,
+            request.clampEditedQuantities === true,
+          );
           return {
             poLineId: row.poLineId,
             poNumber: row.poNumber,
@@ -123,6 +127,7 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
       rows: translatePreviewPolicy(() => previewRocketCapacity({
         rows: previewRows,
         editedQuantities: request.editedQuantities,
+        clampEditedQuantities: request.clampEditedQuantities,
       })),
     };
   }

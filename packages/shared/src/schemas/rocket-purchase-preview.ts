@@ -52,6 +52,7 @@ export const RocketPurchasePreviewRequestSchema = z.object({
     z.string().min(1).max(300),
     z.number().int().nonnegative().max(10_000_000),
   ).default({}),
+  clampEditedQuantities: z.boolean().optional(),
 }).strict().superRefine((value, ctx) => {
   const lineIds = value.rows.map(({ poLineId }) => poLineId);
   if (new Set(lineIds).size !== lineIds.length) {

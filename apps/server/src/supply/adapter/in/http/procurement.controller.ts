@@ -86,6 +86,9 @@ export class ProcurementController {
           collection: body.collection!,
           rows: body.rows!,
           editedQuantities: body.editedQuantities ?? {},
+          ...(body.clampEditedQuantities !== undefined && {
+            clampEditedQuantities: body.clampEditedQuantities,
+          }),
         },
       });
     }

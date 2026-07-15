@@ -163,4 +163,66 @@ describe('RocketPurchaseWorkspace', () => {
       .toEqual({ [lineB.poLineId]: 2 });
     expect(screen.getByRole('spinbutton', { name: '1002 검토수량' })).toHaveValue(2);
   });
+
+  it('asks the server to jointly clamp retained edits that share component stock', async () => {
+    vi.mocked(collectRocketPoRowsFromExtension).mockResolvedValue({
+      collection: {
+        collectionRunId: '22222222-2222-4222-8222-222222222222',
+        vendorId: 'VENDOR-1',
+        listPagesRead: 1,
+        totalListPages: 1,
+        truncated: false,
+        detailPoCount: 2,
+        failedPoNumbers: [],
+      },
+      rows: [lineA, lineB],
+      poCount: 2,
+    });
+    const baseline = {
+      collectionRunId: '22222222-2222-4222-8222-222222222222',
+      catalog: null,
+      rows: [previewRow(lineA, 10), previewRow(lineB, 9)],
+    };
+    vi.mocked(previewRocketPurchases)
+      .mockResolvedValueOnce(baseline)
+      .mockResolvedValueOnce(baseline)
+      .mockResolvedValueOnce({
+        ...baseline,
+        rows: [
+          {
+            ...previewRow(lineA, 10),
+            editedQuantity: 10,
+            recommendedQuantity: 10,
+          },
+          {
+            ...previewRow(lineB, 0),
+            editedQuantity: 0,
+            recommendedQuantity: 0,
+          },
+        ],
+      });
+    const user = userEvent.setup();
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+
+    await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
+    const editA = await screen.findByRole('spinbutton', { name: '1001 검토수량' });
+    const editB = screen.getByRole('spinbutton', { name: '1002 검토수량' });
+    await user.clear(editA);
+    await user.type(editA, '10');
+    await user.clear(editB);
+    await user.type(editB, '9');
+    await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
+
+    await waitFor(() => expect(previewRocketPurchases).toHaveBeenCalledTimes(3));
+    expect(vi.mocked(previewRocketPurchases).mock.calls[2]?.[0]).toMatchObject({
+      editedQuantities: {
+        [lineA.poLineId]: 10,
+        [lineB.poLineId]: 9,
+      },
+      clampEditedQuantities: true,
+    });
+    expect(screen.getByRole('spinbutton', { name: '1001 검토수량' })).toHaveValue(10);
+    expect(screen.getByRole('spinbutton', { name: '1002 검토수량' })).toHaveValue(0);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
 });

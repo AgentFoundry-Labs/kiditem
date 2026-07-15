@@ -157,6 +157,41 @@ describe('RocketPurchasePreviewService', () => {
     },
   );
 
+  it.each(['collection_incomplete', 'vendor_mismatch'] as const)(
+    'clamps a retained edit to zero for a %s blocked row when explicitly requested',
+    async (blockingReason) => {
+      const deps = dependencies();
+      vi.mocked(deps.catalog.publishAndResolve).mockResolvedValue({
+        blockingReason,
+        catalog: null,
+        identities: [],
+      });
+      const service = new RocketPurchasePreviewService(
+        deps.catalog,
+        deps.availability,
+        deps.freshness,
+      );
+
+      const result = await service.preview({
+        organizationId,
+        userId,
+        request: {
+          ...request(),
+          editedQuantities: { [poLineId]: 1 },
+          clampEditedQuantities: true,
+        } as never,
+      });
+
+      expect(result.rows[0]).toMatchObject({
+        maxQuantity: 0,
+        editedQuantity: 0,
+        recommendedQuantity: 0,
+        reason: blockingReason,
+      });
+      expect(deps.availability.findByChannelSkuIds).not.toHaveBeenCalled();
+    },
+  );
+
   it('surfaces stale inventory before returning any capacity recommendation', async () => {
     const deps = dependencies();
     vi.mocked((deps.freshness as unknown as {

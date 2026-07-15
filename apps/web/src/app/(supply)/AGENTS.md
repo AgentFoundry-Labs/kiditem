@@ -51,8 +51,10 @@ logged-in order-collector extension
   stale browser rows.
 - Every recollection first sends an unedited preview to learn the current gated
   backend maxima. Edit keys are intersected with the fresh PO line IDs, clamped
-  to that response, and only then reapplied through a second valid preview when
-  retained edits exist.
+  to that response, and only then reapplied with the backend's explicit joint
+  clamp mode when retained edits exist. UI state uses the effective edited
+  quantities returned by that second preview because multiple rows may share
+  the same component stock.
 - Changing the selected Rocket ChannelAccount remounts the workspace so dates,
   errors, preview rows, and edits never cross account boundaries.
 - Release `0.1.19` keeps `로켓 발주 확정` visibly disabled and states that the

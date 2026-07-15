@@ -51,16 +51,12 @@ export function RocketPurchaseWorkspace({
             collection: collected.collection,
             rows: collected.rows,
             editedQuantities: clampedEdits,
+            clampEditedQuantities: true,
           });
-      const latestMaxByLine = new Map(result.rows.map((row) =>
-        [row.poLineId, row.maxQuantity]));
-      setEditedQuantities(Object.fromEntries(Object.entries(clampedEdits).flatMap(
-        ([poLineId, editedQuantity]) => {
-          const latestMax = latestMaxByLine.get(poLineId);
-          return latestMax === undefined
-            ? []
-            : [[poLineId, Math.min(editedQuantity, latestMax)]];
-        },
+      setEditedQuantities(Object.fromEntries(result.rows.flatMap((row) =>
+        row.editedQuantity === null
+          ? []
+          : [[row.poLineId, row.editedQuantity]],
       )));
       setPreview(result);
     } catch (cause) {

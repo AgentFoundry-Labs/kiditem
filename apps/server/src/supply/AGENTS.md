@@ -79,6 +79,10 @@ Route shape is frozen.
   vendor, mapping, inactive-component, and zero-capacity rows. The pure domain
   policy throws only framework-neutral outcomes; the application service owns
   HTTP exception translation.
+- Preview edits are strict by default. The explicit `clampEditedQuantities`
+  request mode jointly clamps retained edits in the same stable ETA/PO/line
+  allocation order, so rows sharing a component cannot each retain an
+  independently valid but collectively impossible quantity.
 
 ## Cross-Domain Ports
 

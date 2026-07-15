@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNumber, IsUUID, IsInt, IsPositive, IsIn, IsArray, ArrayMinSize, ArrayMaxSize, ValidateIf, ValidateNested, MinLength, MaxLength, IsUrl, IsObject } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsUUID, IsInt, IsPositive, IsIn, IsArray, ArrayMinSize, ArrayMaxSize, ValidateIf, ValidateNested, MinLength, MaxLength, IsUrl, IsObject, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 import type {
   RocketPoCatalogRow,
@@ -81,4 +81,8 @@ export class PurchaseOrderActionBodyDto {
   @ValidateIf(o => o.action === 'previewRocket')
   @IsObject() @IsOptional()
   editedQuantities?: Record<string, number>;
+
+  @ValidateIf(o => o.action === 'previewRocket')
+  @IsBoolean() @IsOptional()
+  clampEditedQuantities?: boolean;
 }

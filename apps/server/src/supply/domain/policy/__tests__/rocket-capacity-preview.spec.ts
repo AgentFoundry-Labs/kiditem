@@ -95,6 +95,51 @@ describe('previewRocketCapacity', () => {
     }));
   });
 
+  it('jointly clamps retained edits in stable allocation order when explicitly requested', () => {
+    const sharedStock = 10;
+    const rows = previewRocketCapacity({
+      rows: [
+        {
+          ...earlierRow,
+          orderQuantity: 1,
+          components: [{ ...earlierRow.components[0]!, currentStock: sharedStock }],
+        },
+        {
+          ...laterRow,
+          orderQuantity: 1,
+          components: [{ ...laterRow.components[0]!, currentStock: sharedStock }],
+        },
+      ],
+      editedQuantities: {
+        'line-earlier': 10,
+        'line-later': 9,
+      },
+      clampEditedQuantities: true,
+    } as Parameters<typeof previewRocketCapacity>[0] & {
+      clampEditedQuantities: boolean;
+    });
+
+    expect(rows.map((row) => ({
+      poLineId: row.poLineId,
+      maxQuantity: row.maxQuantity,
+      editedQuantity: row.editedQuantity,
+      recommendedQuantity: row.recommendedQuantity,
+    }))).toEqual([
+      {
+        poLineId: 'line-earlier',
+        maxQuantity: 10,
+        editedQuantity: 10,
+        recommendedQuantity: 10,
+      },
+      {
+        poLineId: 'line-later',
+        maxQuantity: 0,
+        editedQuantity: 0,
+        recommendedQuantity: 0,
+      },
+    ]);
+  });
+
   it('keeps the domain policy independent of NestJS', () => {
     const source = readFileSync(
       new URL('../rocket-capacity-preview.ts', import.meta.url),

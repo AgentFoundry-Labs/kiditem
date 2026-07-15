@@ -43,6 +43,7 @@ export type RocketCapacityPreviewRow = {
 export function previewRocketCapacity(input: {
   rows: RocketCapacityPreviewInputRow[];
   editedQuantities: Record<string, number>;
+  clampEditedQuantities?: boolean;
 }): RocketCapacityPreviewRow[] {
   const remainingStock = new Map<string, number>();
   for (const component of input.rows.flatMap(({ components }) => components)) {
@@ -55,28 +56,49 @@ export function previewRocketCapacity(input: {
 
   return [...input.rows]
     .sort(compareRows)
-    .map((row) => allocateRow(row, input.editedQuantities, remainingStock));
+    .map((row) => allocateRow(
+      row,
+      input.editedQuantities,
+      remainingStock,
+      input.clampEditedQuantities === true,
+    ));
 }
 
 function allocateRow(
   row: RocketCapacityPreviewInputRow,
   editedQuantities: Record<string, number>,
   remainingStock: Map<string, number>,
+  clampEditedQuantities: boolean,
 ): RocketCapacityPreviewRow {
-  const editedQuantity = editedQuantities[row.poLineId] ?? null;
+  const requestedEditedQuantity = editedQuantities[row.poLineId] ?? null;
   if (!row.channelSkuId || row.components.length === 0) {
-    assertRocketPreviewEditedQuantity(row.poLineId, editedQuantity, 0);
+    const editedQuantity = resolveRocketPreviewEditedQuantity(
+      row.poLineId,
+      requestedEditedQuantity,
+      0,
+      clampEditedQuantities,
+    );
     return result(row, editedQuantity, 0, 0, 'mapping_required');
   }
   if (row.components.some(({ isActive }) => !isActive)) {
-    assertRocketPreviewEditedQuantity(row.poLineId, editedQuantity, 0);
+    const editedQuantity = resolveRocketPreviewEditedQuantity(
+      row.poLineId,
+      requestedEditedQuantity,
+      0,
+      clampEditedQuantities,
+    );
     return result(row, editedQuantity, 0, 0, 'component_inactive');
   }
 
   const maxQuantity = Math.min(...row.components.map((component) => Math.floor(
     (remainingStock.get(component.masterProductId) ?? 0) / component.quantity,
   )));
-  assertRocketPreviewEditedQuantity(row.poLineId, editedQuantity, maxQuantity);
+  const editedQuantity = resolveRocketPreviewEditedQuantity(
+    row.poLineId,
+    requestedEditedQuantity,
+    maxQuantity,
+    clampEditedQuantities,
+  );
   const recommendedQuantity = editedQuantity ?? Math.min(row.orderQuantity, maxQuantity);
   for (const component of row.components) {
     remainingStock.set(
@@ -90,10 +112,24 @@ function allocateRow(
     editedQuantity,
     recommendedQuantity,
     maxQuantity,
-    editedQuantity === null && recommendedQuantity < row.orderQuantity
+    (requestedEditedQuantity !== null && editedQuantity !== requestedEditedQuantity)
+      || (editedQuantity === null && recommendedQuantity < row.orderQuantity)
       ? 'insufficient_capacity'
       : null,
   );
+}
+
+export function resolveRocketPreviewEditedQuantity(
+  poLineId: string,
+  editedQuantity: number | null,
+  maxQuantity: number,
+  clampEditedQuantity: boolean,
+): number | null {
+  if (clampEditedQuantity && editedQuantity !== null) {
+    return Math.min(editedQuantity, maxQuantity);
+  }
+  assertRocketPreviewEditedQuantity(poLineId, editedQuantity, maxQuantity);
+  return editedQuantity;
 }
 
 export function assertRocketPreviewEditedQuantity(

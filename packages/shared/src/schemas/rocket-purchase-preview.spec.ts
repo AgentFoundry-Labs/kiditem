@@ -75,6 +75,15 @@ describe('Rocket purchase preview contract', () => {
     })).toThrow();
   });
 
+  it('accepts an explicit joint clamp request while keeping strict mode as the default', () => {
+    expect(RocketPurchasePreviewRequestSchema.parse(request()))
+      .not.toHaveProperty('clampEditedQuantities');
+    expect(RocketPurchasePreviewRequestSchema.parse({
+      ...request(),
+      clampEditedQuantities: true,
+    })).toMatchObject({ clampEditedQuantities: true });
+  });
+
   it('parses preview-only row reasons without a submission or artifact payload', () => {
     const response = RocketPurchasePreviewResponseSchema.parse({
       collectionRunId: RUN_ID,
