@@ -25,6 +25,7 @@ const ZIP_CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
 const ZIP_END_SIGNATURE = 0x06054b50;
 const ZIP_LOCAL_FILE_SIGNATURE = 0x04034b50;
 const ZIP_DATA_DESCRIPTOR_SIGNATURE = 0x08074b50;
+const ZIP64_EXTRA_FIELD_ID = 0x0001;
 const ZIP_END_MIN_BYTES = 22;
 const ZIP_MAX_COMMENT_BYTES = 0xffff;
 const ZIP_DATA_DESCRIPTOR_FLAG = 0x0008;
@@ -114,6 +115,9 @@ function isBoundedXlsxPackage(buffer: Buffer): boolean {
       || buffer.readUInt32LE(localHeaderOffset) !== ZIP_LOCAL_FILE_SIGNATURE
     ) return false;
 
+    const centralExtraOffset = cursor + 46 + nameLength;
+    if (!hasSafeZipExtraFields(buffer, centralExtraOffset, extraLength)) return false;
+
     const name = normalizeZipEntryName(
       buffer.subarray(cursor + 46, cursor + 46 + nameLength).toString('utf8'),
     );
@@ -126,6 +130,8 @@ function isBoundedXlsxPackage(buffer: Buffer): boolean {
     const localExtraLength = buffer.readUInt16LE(localHeaderOffset + 28);
     const dataOffset = localHeaderOffset + 30 + localNameLength + localExtraLength;
     if (dataOffset > centralDirectoryOffset) return false;
+    const localExtraOffset = localHeaderOffset + 30 + localNameLength;
+    if (!hasSafeZipExtraFields(buffer, localExtraOffset, localExtraLength)) return false;
     const localName = normalizeZipEntryName(
       buffer
         .subarray(localHeaderOffset + 30, localHeaderOffset + 30 + localNameLength)
@@ -184,6 +190,25 @@ function isBoundedXlsxPackage(buffer: Buffer): boolean {
     && [...names].some((name) => /^xl\/worksheets\/[^/]+\.xml$/i.test(name));
   return hasRequiredPackageStructure
     && compressedEntries.every((entry) => hasExactExpandedSize(buffer, entry));
+}
+
+function hasSafeZipExtraFields(
+  buffer: Buffer,
+  offset: number,
+  length: number,
+): boolean {
+  const end = offset + length;
+  if (end > buffer.length) return false;
+  let cursor = offset;
+  while (cursor < end) {
+    if (cursor + 4 > end) return false;
+    const id = buffer.readUInt16LE(cursor);
+    const payloadLength = buffer.readUInt16LE(cursor + 2);
+    cursor += 4;
+    if (id === ZIP64_EXTRA_FIELD_ID || cursor + payloadLength > end) return false;
+    cursor += payloadLength;
+  }
+  return cursor === end;
 }
 
 function normalizeZipEntryName(name: string): string | null {

@@ -129,6 +129,74 @@ describe('SellpiaInventoryFileValidator', () => {
   });
 
   it.each([
+    ['central', {
+      centralExtra: zipExtraField(
+        0x0001,
+        zip64Sizes(32 * 1024 * 1024 + 1, 0),
+      ),
+    }],
+    ['local', {
+      localExtra: zipExtraField(
+        0x0001,
+        zip64Sizes(32 * 1024 * 1024 + 1, 0),
+      ),
+    }],
+  ])('rejects a %s ZIP64 extra field that overrides bounded header sizes', (_label, extra) => {
+    expect(() => validator.validate({
+      buffer: zipBuffer(xlsxPackageEntries({
+        extraEntries: [{
+          name: 'xl/sharedStrings.xml',
+          content: Buffer.from('tiny'),
+          ...extra,
+        }],
+      })),
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })).toThrow(BadRequestException);
+  });
+
+  it.each([
+    ['central truncated header', { centralExtra: Buffer.from([0x55, 0x54, 0x01]) }],
+    ['local truncated header', { localExtra: Buffer.from([0x55, 0x54, 0x01]) }],
+    [
+      'central truncated payload',
+      { centralExtra: Buffer.from([0x55, 0x54, 0x04, 0x00, 0x01]) },
+    ],
+    [
+      'local truncated payload',
+      { localExtra: Buffer.from([0x55, 0x54, 0x04, 0x00, 0x01]) },
+    ],
+  ])('rejects a malformed %s extra-field region', (_label, extra) => {
+    expect(() => validator.validate({
+      buffer: zipBuffer(xlsxPackageEntries({
+        extraEntries: [{
+          name: 'xl/sharedStrings.xml',
+          content: Buffer.from('tiny'),
+          ...extra,
+        }],
+      })),
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })).toThrow(BadRequestException);
+  });
+
+  it('accepts a structurally valid timestamp extra field in both ZIP headers', () => {
+    const timestampExtra = zipExtraField(
+      0x5455,
+      Buffer.from([0x01, 0x00, 0x00, 0x00, 0x00]),
+    );
+    expect(() => validator.validate({
+      buffer: zipBuffer(xlsxPackageEntries({
+        extraEntries: [{
+          name: 'xl/sharedStrings.xml',
+          content: Buffer.from('tiny'),
+          centralExtra: timestampExtra,
+          localExtra: timestampExtra,
+        }],
+      })),
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })).not.toThrow();
+  });
+
+  it.each([
     ['encrypted flag', { flags: 0x0001 }],
     ['unsupported flag', { flags: 0x0040 }],
     ['unsupported method', { compressionMethod: 12 as never }],
@@ -176,6 +244,8 @@ type ZipEntry = {
   localCompressedSize?: number;
   localUncompressedSize?: number;
   dataDescriptor?: boolean;
+  centralExtra?: Buffer;
+  localExtra?: Buffer;
 };
 
 function xlsxPackageEntries(input: {
@@ -202,6 +272,8 @@ function zipBuffer(entries: ZipEntry[]): Buffer {
   for (const entry of entries) {
     const name = Buffer.from(entry.name);
     const localName = Buffer.from(entry.localName ?? entry.name);
+    const localExtra = entry.localExtra ?? Buffer.alloc(0);
+    const centralExtra = entry.centralExtra ?? Buffer.alloc(0);
     const content = entry.content ?? Buffer.alloc(0);
     const compressionMethod = entry.compressionMethod ?? 0;
     const flags = entry.flags ?? (entry.dataDescriptor ? 0x0008 : 0);
@@ -222,6 +294,7 @@ function zipBuffer(entries: ZipEntry[]): Buffer {
       22,
     );
     local.writeUInt16LE(localName.length, 26);
+    local.writeUInt16LE(localExtra.length, 28);
     const central = Buffer.alloc(46);
     central.writeUInt32LE(0x02014b50, 0);
     central.writeUInt16LE(20, 4);
@@ -231,13 +304,18 @@ function zipBuffer(entries: ZipEntry[]): Buffer {
     central.writeUInt32LE(compressed.length, 20);
     central.writeUInt32LE(uncompressedSize, 24);
     central.writeUInt16LE(name.length, 28);
+    central.writeUInt16LE(centralExtra.length, 30);
     central.writeUInt32LE(localOffset, 42);
     const descriptor = entry.dataDescriptor
       ? dataDescriptor(compressed.length, uncompressedSize)
       : Buffer.alloc(0);
-    localParts.push(local, localName, compressed, descriptor);
-    centralParts.push(central, name);
-    localOffset += local.length + localName.length + compressed.length + descriptor.length;
+    localParts.push(local, localName, localExtra, compressed, descriptor);
+    centralParts.push(central, name, centralExtra);
+    localOffset += local.length
+      + localName.length
+      + localExtra.length
+      + compressed.length
+      + descriptor.length;
   }
   const centralDirectory = Buffer.concat(centralParts);
   const end = Buffer.alloc(22);
@@ -247,6 +325,20 @@ function zipBuffer(entries: ZipEntry[]): Buffer {
   end.writeUInt32LE(centralDirectory.length, 12);
   end.writeUInt32LE(localOffset, 16);
   return Buffer.concat([...localParts, centralDirectory, end]);
+}
+
+function zipExtraField(id: number, payload: Buffer): Buffer {
+  const header = Buffer.alloc(4);
+  header.writeUInt16LE(id, 0);
+  header.writeUInt16LE(payload.length, 2);
+  return Buffer.concat([header, payload]);
+}
+
+function zip64Sizes(uncompressedSize: number, compressedSize: number): Buffer {
+  const sizes = Buffer.alloc(16);
+  sizes.writeBigUInt64LE(BigInt(uncompressedSize), 0);
+  sizes.writeBigUInt64LE(BigInt(compressedSize), 8);
+  return sizes;
 }
 
 function dataDescriptor(compressedSize: number, uncompressedSize: number): Buffer {
