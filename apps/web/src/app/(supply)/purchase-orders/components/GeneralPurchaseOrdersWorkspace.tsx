@@ -163,6 +163,7 @@ export function GeneralPurchaseOrdersWorkspace({
         page={page}
         pageSize={PAGE_SIZE}
         total={total}
+        selectedOrderId={orderId}
         onPageChange={setPage}
         onStatusChange={handleStatusChange}
         onSubmit={handleSubmit}

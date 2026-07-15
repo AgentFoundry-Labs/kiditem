@@ -80,6 +80,19 @@ describe('resolveOperationsRedirect', () => {
     );
   });
 
+  it('preserves unrelated keys that share names with object prototype properties', () => {
+    const searchParams = Object.fromEntries([
+      ['constructor', 'constructor-value'],
+      ['toString', 'to-string-value'],
+      ['__proto__', 'proto-value'],
+      ['search', 'hat'],
+    ]);
+
+    expect(resolveOperationsRedirect('/inventory', searchParams)).toBe(
+      '/inventory-hub?tab=inventory&__proto__=proto-value&constructor=constructor-value&search=hat&toString=to-string-value',
+    );
+  });
+
   it('removes stale legacy view state when a compatibility alias chooses a canonical view', () => {
     expect(resolveOperationsRedirect('/inventory-hub', {
       tab: 'status',

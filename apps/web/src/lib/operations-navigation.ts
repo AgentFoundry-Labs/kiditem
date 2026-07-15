@@ -89,7 +89,10 @@ export function resolveOperationsRedirect(
   }
 
   const unrelatedKeys = Object.keys(searchParams)
-    .filter((key) => !resolved.consumed.has(key) && !(key in resolved.canonical) && searchParams[key] !== undefined)
+    .filter((key) =>
+      !resolved.consumed.has(key)
+      && !Object.prototype.hasOwnProperty.call(resolved.canonical, key)
+      && searchParams[key] !== undefined)
     .sort();
   for (const key of unrelatedKeys) {
     const value = searchParams[key];

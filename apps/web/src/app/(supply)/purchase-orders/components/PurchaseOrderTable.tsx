@@ -35,6 +35,7 @@ interface PurchaseOrderTableProps {
   page: number;
   pageSize: number;
   total: number;
+  selectedOrderId?: string;
   onPageChange: (page: number) => void;
   onStatusChange: (id: string, newStatus: string) => void;
   onSubmit: (id: string) => void;
@@ -45,7 +46,7 @@ interface PurchaseOrderTableProps {
   onDelete: (id: string) => void;
 }
 
-export function PurchaseOrderTable({ orders, loading, actionLoading, page, pageSize, total, onPageChange, onStatusChange, onSubmit, onReconcile, onDelete }: PurchaseOrderTableProps) {
+export function PurchaseOrderTable({ orders, loading, actionLoading, page, pageSize, total, selectedOrderId, onPageChange, onStatusChange, onSubmit, onReconcile, onDelete }: PurchaseOrderTableProps) {
   if (loading) {
     return (
       <div className="animate-pulse space-y-2 py-4">
@@ -92,9 +93,19 @@ export function PurchaseOrderTable({ orders, loading, actionLoading, page, pageS
               const canDelete = (order.status === 'draft' || order.status === 'pending')
                 && !attempt;
               const isActioning = actionLoading === order.id;
+              const isSelected = selectedOrderId === order.id;
 
               return (
-                <tr key={order.id}>
+                <tr
+                  key={order.id}
+                  aria-selected={isSelected}
+                  className={cn(
+                    'transition-colors',
+                    isSelected
+                      ? 'bg-purple-50 ring-1 ring-inset ring-purple-200'
+                      : 'hover:bg-slate-50',
+                  )}
+                >
                   <td>
                     <span className={cn('inline-flex px-2 py-0.5 text-xs font-medium rounded-full', statusInfo.color)}>
                       {statusInfo.label}
