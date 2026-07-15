@@ -5,8 +5,8 @@ Consult this document first instead of relying on memorized knowledge.
 `app/(catalog)/product-hub/` owns `/product-hub` and
 `/product-hub/[masterProductId]` as the operator-facing catalog for the latest
 Sellpia inventory snapshot. `/product-hub?view=list|options` is the canonical
-workspace; `/product-hub/options` temporarily renders the extracted read-only
-options workspace until redirects are introduced.
+workspace; `/product-hub/options` redirects to its read-only options view while
+preserving unrelated query state.
 
 ## Data Flow
 
@@ -27,15 +27,15 @@ React Query + apiClient
   them.
 - Render Sellpia identity, option name, barcode, current stock, source prices,
   active state, and last-import provenance as read-only facts.
-- Keep `/product-hub/options` visually distinct from channel SKU matching and
-  back its search, stock, active-state, refresh, and paging controls with the
-  same Sellpia snapshot query.
+- Keep the canonical options view visually distinct from channel SKU matching
+  and back its search, stock, active-state, refresh, and paging controls with
+  the same Sellpia snapshot query.
 - Link inventory import work to `/inventory-hub?tab=overview` and component
   matching work to `/product-hub/matching`.
 - The canonical shell owns the only `h1`, uses URL-authoritative view selection,
   and unmounts the inactive list/options workspace. The extracted options
-  workspace renders `h2` below that shell and `h1` only in the temporary live
-  compatibility route.
+  workspace renders `h2` below that shell; the compatibility route renders no
+  workspace content.
 
 ## Boundary Rules
 

@@ -2,8 +2,9 @@ Consult this document first instead of relying on memorized knowledge.
 
 # web/inventory - Sellpia Snapshot, Warehouses, Fulfillment Records
 
-`app/(inventory)/` owns canonical `/inventory-hub`, the temporary `/inventory`
-compatibility surface, `/stock-ops`, warehouses, and Coupang shipment support.
+`app/(inventory)/` owns canonical `/inventory-hub`, query-aware redirects for
+legacy `/inventory`, `/stock-ops`, `/unshipped-items`, and `/outbound` URLs,
+warehouses, and Coupang shipment support.
 The displayed stock is the latest completed Sellpia snapshot stored on
 physical `MasterProduct` rows.
 
@@ -12,8 +13,8 @@ physical `MasterProduct` rows.
 - Sellpia snapshot list, import history, freshness, and asset reporting
 - Channel availability, zero-stock, bottleneck, and mapping-attention views
 - Warehouse metadata and record-only transfer/picking/return views
-- Temporary unshipped/outbound compatibility routes; canonical composition is
-  owned by `/order-hub`
+- Query-aware unshipped/outbound redirects; canonical composition is owned by
+  `/order-hub`
 - Coupang shipment file helpers and browser print support
 
 ## Data Flow
@@ -45,7 +46,8 @@ React Query + inventory API helpers
   `view=assets|transfer|return`. Both selectors preserve unrelated URL state
   and unmount inactive workspaces.
 - The inventory table is implemented once in `InventoryWorkspace`; `/inventory`
-  only renders that compatibility component until route redirects are added.
+  redirects to `/inventory-hub?tab=inventory` while preserving unrelated query
+  state.
 - The canonical header renders compact freshness; import attempts and history
   remain in the single shared freshness drawer rather than route-local panels.
 

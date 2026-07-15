@@ -12,8 +12,6 @@ preview workspace and component-capacity decisions belong to Supply.
   calls, timers, or workspace content.
 - Preserve unrelated query values and let canonical `tab=rocket` win over old
   tab/view state.
-- Rocket components and local history utilities may remain only when imported
-  by the canonical Supply workspace.
 
 ## Boundary Rules
 

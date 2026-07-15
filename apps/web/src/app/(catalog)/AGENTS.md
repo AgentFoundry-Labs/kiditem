@@ -11,7 +11,9 @@ consume. Public URLs remain under `/product-hub`.
 - Sellpia `MasterProduct` snapshot list/detail under `/product-hub`
 - Coupang Wing catalog upload and account-scoped channel SKU component matching
   under `/product-hub/matching`
-- A dedicated read-only Sellpia option table under `/product-hub/options`
+- A dedicated read-only Sellpia option table under canonical
+  `/product-hub?view=options`; `/product-hub/options` is a compatibility
+  redirect.
 
 ## Data Flow
 
@@ -32,8 +34,9 @@ React Query + apiClient
 
 - `/product-hub` is a read-only projection of the latest Sellpia full-snapshot
   import. It never creates, edits, deletes, or adjusts physical products.
-- `/product-hub/options` presents the same authoritative snapshot in the legacy
-  option-management table shape without restoring removed option mutations.
+- The canonical options view presents the same authoritative snapshot in the
+  legacy option-management table shape without restoring removed option
+  mutations.
 - One physical `MasterProduct` is one Sellpia product-code row, including its
   option name when Sellpia distinguishes the option at that code.
 - Channel matching uses focused account, source-import, and channel SKU
