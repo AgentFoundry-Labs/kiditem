@@ -41,10 +41,12 @@ describe('product hub final inventory ownership boundary', () => {
     expect(source).not.toContain('dark:');
   });
 
-  it('keeps the option URL as an alias for the existing channel SKU matching workspace', () => {
+  it('keeps the option URL as a dedicated read-only Sellpia option workspace', () => {
     const source = readFileSync(join(productHubRoot, 'options/page.tsx'), 'utf8');
 
-    expect(source).toContain("from '../matching/page'");
+    expect(source).toContain('useProductHubPageState');
+    expect(source).toContain('SellpiaOptionTable');
+    expect(source).not.toContain("from '../matching/page'");
     expect(source).not.toContain('/api/products/options');
   });
 });

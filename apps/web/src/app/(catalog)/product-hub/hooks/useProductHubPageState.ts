@@ -43,7 +43,7 @@ export function useProductHubPageState() {
     [queryParams],
   );
 
-  const { data, error, isLoading, isPlaceholderData } = useQuery({
+  const { data, error, isFetching, isLoading, isPlaceholderData, refetch } = useQuery({
     queryKey: queryKeys.inventory.snapshot(queryKeyParams),
     queryFn: () => apiClient.getParsed(
       `/api/inventory/sellpia-skus?${queryParams.toString()}`,
@@ -73,9 +73,11 @@ export function useProductHubPageState() {
       : null,
     goToPage,
     handleSearch,
+    isFetching,
     isLoading,
     isPlaceholderData,
     page,
+    refetch,
     search,
     setActiveStatus: (value: SellpiaMasterActiveStatus) => {
       setActiveStatus(value);

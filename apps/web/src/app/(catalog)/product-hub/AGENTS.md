@@ -4,8 +4,8 @@ Consult this document first instead of relying on memorized knowledge.
 
 `app/(catalog)/product-hub/` owns `/product-hub` and
 `/product-hub/[masterProductId]` as the operator-facing catalog for the latest
-Sellpia inventory snapshot. `/product-hub/options` preserves its existing URL
-while reusing the channel SKU matching workspace.
+Sellpia inventory snapshot. `/product-hub/options` preserves the dedicated
+option-management table experience as a read-only projection of that snapshot.
 
 ## Data Flow
 
@@ -24,13 +24,16 @@ React Query + apiClient
 - Preserve server paging, search, stock status, and active status parameters.
 - Render Sellpia identity, option name, barcode, current stock, source prices,
   active state, and last-import provenance as read-only facts.
+- Keep `/product-hub/options` visually distinct from channel SKU matching and
+  back its search, stock, active-state, refresh, and paging controls with the
+  same Sellpia snapshot query.
 - Link inventory import work to `/inventory-hub?tab=sellpia-sync` and component
   matching work to `/product-hub/matching`.
 
 ## Boundary Rules
 
 - No manual MasterProduct create/update/delete, inventory adjustment, traffic
-  upload, grading, workflow action, or legacy product-option management.
+  upload, grading, workflow action, or legacy product-option mutation.
 - Do not call `/api/products*` or introduce a catalog-owned stock balance.
 - Do not infer or persist channel mappings from the catalog list/detail.
 - Keep all edited UI light-only; do not add `dark:` variants.
