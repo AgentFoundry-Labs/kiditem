@@ -18,6 +18,17 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(organizationId: string, query: PurchaseOrderListQuery) {
+    await this.prisma.$executeRaw`
+      UPDATE purchase_order_submission_attempts
+      SET
+        status = 'provider_unknown',
+        error_code = 'prepared_intent_expired',
+        error_message = 'Prepared provider intent exceeded the reconciliation window.',
+        updated_at = CURRENT_TIMESTAMP
+      WHERE organization_id = ${organizationId}::uuid
+        AND status = 'prepared'
+        AND created_at <= CURRENT_TIMESTAMP - INTERVAL '15 minutes'
+    `;
     const page = query.page ?? 1;
     const limit = query.limit ?? 50;
     const supplierId = query.supplierId ?? query.supplier;
@@ -25,6 +36,7 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
 
     const where: Prisma.PurchaseOrderWhereInput = {
       organizationId,
+      ...(query.orderId ? { id: query.orderId } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(supplierId ? { supplierId } : {}),
     };
@@ -32,7 +44,26 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
     const [items, total, grouped, summaryOrders] = await Promise.all([
       this.prisma.purchaseOrder.findMany({
         where,
-        include: { items: true, supplier: true },
+        include: {
+          items: true,
+          supplier: true,
+          submissionAttempts: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: {
+              id: true,
+              idempotencyKey: true,
+              status: true,
+              providerReference: true,
+              errorCode: true,
+              errorMessage: true,
+              reconciliationOutcome: true,
+              reconciledAt: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          },
+        },
         orderBy: { orderDate: 'desc' },
         skip,
         take: limit,
@@ -53,7 +84,10 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
     ]);
 
     return {
-      items,
+      items: items.map(({ submissionAttempts, ...order }) => ({
+        ...order,
+        latestSubmissionAttempt: submissionAttempts?.[0] ?? null,
+      })),
       total,
       page,
       limit,

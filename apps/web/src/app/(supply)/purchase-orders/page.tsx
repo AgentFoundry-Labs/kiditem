@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
-import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import CreateOrderModal from './components/CreateOrderModal';
@@ -12,40 +11,8 @@ import { PurchaseOrderHeader } from './components/PurchaseOrderHeader';
 import { PurchaseOrderKpiCards } from './components/PurchaseOrderKpiCards';
 import { PurchaseOrderFilterTabs } from './components/PurchaseOrderFilterTabs';
 import { PurchaseOrderTable } from './components/PurchaseOrderTable';
-
-export interface PurchaseOrderItem {
-  id: string;
-  productName: string;
-  quantity: number;
-  unitPriceCny: string;
-}
-
-export interface Supplier {
-  id: string;
-  name: string;
-}
-
-export interface PurchaseOrder {
-  id: string;
-  supplierName: string;
-  totalAmountCny: string;
-  status: string;
-  orderDate: string;
-  expectedDeliveryDate: string | null;
-  trackingNumber: string | null;
-  items: PurchaseOrderItem[];
-  supplier: Supplier | null;
-}
-
-interface Counts {
-  all: number;
-  draft: number;
-  pending: number;
-  ordered: number;
-  shipped: number;
-  received: number;
-  cancelled: number;
-}
+import { purchaseOrdersApi } from './lib/purchase-orders-api';
+import { usePurchaseOrderSubmission } from './hooks/usePurchaseOrderSubmission';
 
 export default function PurchaseOrdersPage() {
   const queryClient = useQueryClient();
@@ -54,29 +21,11 @@ export default function PurchaseOrdersPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const PAGE_SIZE = 20;
+  const submission = usePurchaseOrderSubmission();
 
   const { data: orderData, isLoading: loading, isFetching, error: queryError } = useQuery({
     queryKey: queryKeys.purchaseOrders.list({ page: String(page), filter }),
-    queryFn: async () => {
-      const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
-      const backendStatus = filter === 'all' || filter === 'waiting' ? undefined : filter;
-      if (backendStatus) params.set('status', backendStatus);
-
-      const data = await apiClient.get<{ items: PurchaseOrder[]; counts?: Counts; total?: number }>(
-        `/api/purchase-orders?${params}`,
-      );
-      let fetchedItems: PurchaseOrder[] = data.items || [];
-
-      if (filter === 'waiting') {
-        fetchedItems = fetchedItems.filter((o) => o.status === 'draft' || o.status === 'pending');
-      }
-
-      const counts = data.counts || { all: 0, draft: 0, pending: 0, ordered: 0, shipped: 0, received: 0, cancelled: 0 };
-      const waitingTotal = (counts.draft || 0) + (counts.pending || 0);
-      const total = filter === 'waiting' ? waitingTotal : (data.total || 0);
-
-      return { items: fetchedItems, counts, total };
-    },
+    queryFn: () => purchaseOrdersApi.list({ page, limit: PAGE_SIZE, filter }),
     placeholderData: previousData => previousData,
   });
   const isRefreshing = isFetching && !loading;
@@ -88,7 +37,10 @@ export default function PurchaseOrdersPage() {
 
   const statusMutation = useMutation({
     mutationFn: (vars: { id: string; status: string }) =>
-      apiClient.post<unknown>('/api/purchase-orders', { action: 'updateStatus', id: vars.id, status: vars.status }),
+      purchaseOrdersApi.updateStatus({
+        purchaseOrderId: vars.id,
+        status: vars.status,
+      }),
     onMutate: (vars) => setActionLoading(vars.id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.all }),
     onError: (err) => toast.error(isApiError(err) ? err.detail : '상태 변경에 실패했습니다.'),
@@ -97,10 +49,28 @@ export default function PurchaseOrdersPage() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) =>
-      apiClient.post<unknown>('/api/purchase-orders', { action: 'delete', id }),
+      purchaseOrdersApi.delete(id),
     onMutate: (id) => setActionLoading(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.all }),
     onError: (err) => toast.error(isApiError(err) ? err.detail : '삭제에 실패했습니다.'),
+    onSettled: () => setActionLoading(null),
+  });
+
+  const reconciliationMutation = useMutation({
+    mutationFn: (vars: {
+      id: string;
+      outcome: 'provider_succeeded' | 'provider_failed';
+    }) => purchaseOrdersApi.reconcile({
+      purchaseOrderId: vars.id,
+      outcome: vars.outcome,
+    }),
+    onMutate: (vars) => setActionLoading(vars.id),
+    onSuccess: () => queryClient.invalidateQueries({
+      queryKey: queryKeys.purchaseOrders.all,
+    }),
+    onError: (err) => toast.error(
+      isApiError(err) ? err.detail : '외부 주문 확인 반영에 실패했습니다.',
+    ),
     onSettled: () => setActionLoading(null),
   });
 
@@ -108,6 +78,19 @@ export default function PurchaseOrdersPage() {
   const handleDelete = (id: string) => {
     if (!confirm('이 발주를 삭제하시겠습니까?')) return;
     deleteMutation.mutate(id);
+  };
+  const handleSubmit = (id: string) => {
+    void submission.submit(id).catch(() => undefined);
+  };
+  const handleReconcile = (
+    id: string,
+    outcome: 'provider_succeeded' | 'provider_failed',
+  ) => {
+    const message = outcome === 'provider_succeeded'
+      ? '외부 주문이 실제로 생성되었음을 확인했습니까?'
+      : '외부 주문이 생성되지 않았음을 확인했습니까?';
+    if (!confirm(message)) return;
+    reconciliationMutation.mutate({ id, outcome });
   };
 
   const totalAmount = orders.reduce((sum, o) => sum + parseFloat(o.totalAmountCny || '0'), 0);
@@ -156,12 +139,14 @@ export default function PurchaseOrdersPage() {
       <PurchaseOrderTable
         orders={orders}
         loading={loading && !orderData}
-        actionLoading={actionLoading}
+        actionLoading={submission.submittingId ?? actionLoading}
         page={page}
         pageSize={PAGE_SIZE}
         total={total}
         onPageChange={setPage}
         onStatusChange={handleStatusChange}
+        onSubmit={handleSubmit}
+        onReconcile={handleReconcile}
         onDelete={handleDelete}
       />
       </div>

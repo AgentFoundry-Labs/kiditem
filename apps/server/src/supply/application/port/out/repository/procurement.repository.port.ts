@@ -22,6 +22,20 @@ export type PurchaseOrderListQuery = {
   status?: string;
   supplier?: string;
   supplierId?: string;
+  orderId?: string;
+};
+
+export type PurchaseOrderSubmissionAttemptSummary = {
+  id: string;
+  idempotencyKey: string;
+  status: string;
+  providerReference: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  reconciliationOutcome: string | null;
+  reconciledAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 export type PurchaseOrderItemCommand = {

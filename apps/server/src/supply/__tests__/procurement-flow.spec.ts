@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProcurementService } from '../application/service/procurement.service';
 import { BadRequestException } from '@nestjs/common';
 import type { ProcurementRepositoryPort } from '../application/port/out/repository/procurement.repository.port';
+import { ProcurementController } from '../adapter/in/http/procurement.controller';
 
 function makeRepository(): ProcurementRepositoryPort {
   return {
@@ -133,13 +134,10 @@ describe('ProcurementService — PO status lifecycle', () => {
       supplier: null,
     });
 
-    await service.updateStatus('organization-1', 'po-1', 'ordered');
-    expect(procurement.updateStatusScoped).toHaveBeenCalledWith(
-      'organization-1',
-      'po-1',
-      'pending',
-      { status: 'ordered' },
-    );
+    await expect(
+      service.updateStatus('organization-1', 'po-1', 'ordered'),
+    ).rejects.toThrow('submit');
+    expect(procurement.updateStatusScoped).not.toHaveBeenCalled();
   });
 
   it('updateStatus ordered→shipped → valid transition', async () => {
@@ -215,5 +213,71 @@ describe('ProcurementService — PO status lifecycle', () => {
     await expect(service.delete('organization-1', 'po-1')).rejects.toThrow(BadRequestException);
 
     expect(procurement.deleteScoped).not.toHaveBeenCalled();
+  });
+});
+
+describe('ProcurementController purchase submission boundary', () => {
+  it('passes the caller key and authenticated actor to the common submission port', async () => {
+    const procurement = {
+      findAll: vi.fn(),
+      create: vi.fn(),
+      updateStatus: vi.fn(),
+      delete: vi.fn(),
+    };
+    const submissions = {
+      submit: vi.fn().mockResolvedValue({ orderId: 'po-1', status: 'ordered' }),
+      reconcile: vi.fn(),
+    };
+    const Controller = ProcurementController as unknown as new (
+      procurement: typeof procurement,
+      submissions: typeof submissions,
+    ) => ProcurementController;
+    const controller = new Controller(procurement, submissions);
+
+    await controller.handleAction(
+      'organization-1',
+      { id: '00000000-0000-4000-8000-000000000001' } as never,
+      {
+        action: 'submit',
+        id: '0187e942-9098-7382-9a22-c5b821f2f5d1',
+        idempotencyKey: 'stable-submit-key',
+      } as never,
+    );
+
+    expect(submissions.submit).toHaveBeenCalledWith({
+      organizationId: 'organization-1',
+      purchaseOrderId: '0187e942-9098-7382-9a22-c5b821f2f5d1',
+      idempotencyKey: 'stable-submit-key',
+      userId: '00000000-0000-4000-8000-000000000001',
+    });
+  });
+
+  it('ignores a client actor override when reconciling and records CurrentUser', async () => {
+    const submissions = { submit: vi.fn(), reconcile: vi.fn() };
+    const Controller = ProcurementController as unknown as new (
+      procurement: Record<string, unknown>,
+      submissions: typeof submissions,
+    ) => ProcurementController;
+    const controller = new Controller({}, submissions);
+
+    await controller.handleAction(
+      'organization-1',
+      { id: 'authenticated-user' } as never,
+      {
+        action: 'reconcileSubmission',
+        id: '0187e942-9098-7382-9a22-c5b821f2f5d1',
+        outcome: 'provider_succeeded',
+        providerReference: '1688-1',
+        userId: 'client-forged-user',
+      } as never,
+    );
+
+    expect(submissions.reconcile).toHaveBeenCalledWith({
+      organizationId: 'organization-1',
+      purchaseOrderId: '0187e942-9098-7382-9a22-c5b821f2f5d1',
+      userId: 'authenticated-user',
+      outcome: 'provider_succeeded',
+      providerReference: '1688-1',
+    });
   });
 });

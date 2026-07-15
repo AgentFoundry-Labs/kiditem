@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AgentOsModule } from '../agent-os/agent-os.module';
+import { InventoryModule } from '../inventory/inventory.module';
 
 import { SupplyAgentCapabilityAdapter } from './adapter/in/agent/supply-agent-capability.adapter';
 import { SuppliersController } from './adapter/in/http/suppliers.controller';
@@ -14,11 +15,13 @@ import { Alibaba1688CheckoutRuntimeAdapter } from './adapter/out/runtime/alibaba
 import { OrderAgentRuntimeHandler } from './adapter/out/runtime/order-agent-runtime.handler';
 import { SupplierRepositoryAdapter } from './adapter/out/repository/supplier.repository.adapter';
 import { ProcurementRepositoryAdapter } from './adapter/out/repository/procurement.repository.adapter';
+import { PurchaseOrderSubmissionTransactionAdapter } from './adapter/out/transaction/purchase-order-submission.transaction.adapter';
 import { PURCHASE_ORDER_DRAFT_PORT } from './application/port/in/procurement/purchase-order-draft.port';
 import { PURCHASE_ORDER_SUBMISSION_PORT } from './application/port/in/procurement/purchase-order-submission.port';
 import { SUPPLIER_REPOSITORY_PORT } from './application/port/out/repository/supplier.repository.port';
 import { PROCUREMENT_REPOSITORY_PORT } from './application/port/out/repository/procurement.repository.port';
 import { PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT } from './application/port/out/runtime/purchase-order-checkout-runtime.port';
+import { PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT } from './application/port/out/transaction/purchase-order-submission.transaction.port';
 
 /**
  * Supply owns supplier registry, master-supplier policy, and purchase-order
@@ -27,7 +30,7 @@ import { PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT } from './application/port/out/run
  * finance/; supplier-stats stays in analytics/.
  */
 @Module({
-  imports: [PrismaModule, AgentOsModule],
+  imports: [PrismaModule, AgentOsModule, InventoryModule],
   controllers: [SuppliersController, ProcurementController],
   providers: [
     SuppliersService,
@@ -39,6 +42,7 @@ import { PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT } from './application/port/out/run
     OrderAgentRuntimeHandler,
     SupplierRepositoryAdapter,
     ProcurementRepositoryAdapter,
+    PurchaseOrderSubmissionTransactionAdapter,
     { provide: PURCHASE_ORDER_DRAFT_PORT, useExisting: PurchaseOrderDraftService },
     {
       provide: PURCHASE_ORDER_SUBMISSION_PORT,
@@ -49,6 +53,10 @@ import { PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT } from './application/port/out/run
     {
       provide: PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT,
       useExisting: Alibaba1688CheckoutRuntimeAdapter,
+    },
+    {
+      provide: PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT,
+      useExisting: PurchaseOrderSubmissionTransactionAdapter,
     },
   ],
 })

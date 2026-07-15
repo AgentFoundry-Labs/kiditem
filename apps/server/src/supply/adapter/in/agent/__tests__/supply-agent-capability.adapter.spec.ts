@@ -218,6 +218,8 @@ describe('SupplyAgentCapabilityAdapter', () => {
     expect(submissions.submit).toHaveBeenCalledWith({
       organizationId: 'org-1',
       purchaseOrderId: PURCHASE_ORDER_ID,
+      idempotencyKey: `org-1:supply.submit_purchase_order:${PURCHASE_ORDER_ID}`,
+      userId: 'user-1',
       externalOrderPlatform: 'ALIBABA_1688',
       externalOrderId: '1688-ORDER-1',
       externalOrderUrl: 'https://trade.1688.com/order/1688-ORDER-1.html',
@@ -250,5 +252,79 @@ describe('SupplyAgentCapabilityAdapter', () => {
         },
       ],
     });
+  });
+
+  it('reuses the handler key during execution and propagates the authenticated actor', async () => {
+    const register = vi.fn();
+    const submissions = {
+      submit: vi.fn().mockResolvedValue({
+        orderId: PURCHASE_ORDER_ID,
+        status: 'ordered',
+        externalOrderPlatform: null,
+        externalOrderId: null,
+        externalOrderUrl: null,
+        href: `/purchase-orders?orderId=${PURCHASE_ORDER_ID}`,
+      }),
+    } as unknown as PurchaseOrderSubmissionPort;
+    const adapter = new SupplyAgentCapabilityAdapter(
+      { register } as unknown as AgentCapabilityRegistry,
+      { createFromRecommendation: vi.fn() } as unknown as PurchaseOrderDraftPort,
+      submissions,
+    );
+    adapter.onModuleInit();
+    const handler = register.mock.calls
+      .map((call) => call[0])
+      .find((candidate) => candidate.key === 'supply.submit_purchase_order');
+    const execution = {
+      organizationId: 'org-1',
+      conversationId: 'conversation-1',
+      agentInstanceId: 'agent-order-1',
+      agentType: 'order',
+      requestId: 'request-stable',
+      runId: 'run-1',
+      requestedByUserId: 'user-authenticated',
+      input: { purchaseOrderId: PURCHASE_ORDER_ID },
+    };
+
+    const key = handler.idempotencyKey(execution);
+    await handler.execute(execution);
+    await handler.execute({ ...execution, runId: 'run-2' });
+
+    expect(key).toBe(`org-1:supply.submit_purchase_order:${PURCHASE_ORDER_ID}`);
+    expect(submissions.submit).toHaveBeenCalledTimes(2);
+    expect(submissions.submit).toHaveBeenNthCalledWith(1, {
+      organizationId: 'org-1',
+      purchaseOrderId: PURCHASE_ORDER_ID,
+      idempotencyKey: key,
+      userId: 'user-authenticated',
+    });
+    expect(submissions.submit).toHaveBeenNthCalledWith(2, {
+      organizationId: 'org-1',
+      purchaseOrderId: PURCHASE_ORDER_ID,
+      idempotencyKey: key,
+      userId: 'user-authenticated',
+    });
+  });
+
+  it('rejects submission execution without an authenticated actor', async () => {
+    const register = vi.fn();
+    const submissions = { submit: vi.fn() } as unknown as PurchaseOrderSubmissionPort;
+    const adapter = new SupplyAgentCapabilityAdapter(
+      { register } as unknown as AgentCapabilityRegistry,
+      { createFromRecommendation: vi.fn() } as unknown as PurchaseOrderDraftPort,
+      submissions,
+    );
+    adapter.onModuleInit();
+    const handler = register.mock.calls
+      .map((call) => call[0])
+      .find((candidate) => candidate.key === 'supply.submit_purchase_order');
+
+    await expect(handler.execute({
+      organizationId: 'org-1',
+      agentInstanceId: 'agent-order-1',
+      agentType: 'order',
+      input: { purchaseOrderId: PURCHASE_ORDER_ID },
+    })).rejects.toThrow('authenticated actor');
+    expect(submissions.submit).not.toHaveBeenCalled();
   });
 });

@@ -35,6 +35,11 @@ export class ProcurementService {
   }
 
   async updateStatus(organizationId: string, id: string, newStatus: string) {
+    if (newStatus === 'ordered') {
+      throw new BadRequestException(
+        'Use the purchase-order submit action for pending → ordered transitions.',
+      );
+    }
     const order = await this.procurement.findScopedStatus(organizationId, id);
     if (!order) {
       throw new BadRequestException('발주를 찾을 수 없습니다');
@@ -90,76 +95,6 @@ export class ProcurementService {
         throw new BadRequestException('발주를 찾을 수 없습니다');
       }
       return pending;
-    }
-
-    throw new BadRequestException(
-      '임시저장 또는 대기 상태의 발주만 제출할 수 있습니다',
-    );
-  }
-
-  async submitPurchaseOrder(
-    organizationId: string,
-    id: string,
-    externalOrder?: {
-      externalOrderPlatform?: string | null;
-      externalOrderId?: string | null;
-      externalOrderUrl?: string | null;
-    },
-  ) {
-    const orderedUpdate = {
-      status: 'ordered',
-      ...(externalOrder?.externalOrderPlatform !== undefined && {
-        externalOrderPlatform: externalOrder.externalOrderPlatform,
-      }),
-      ...(externalOrder?.externalOrderId !== undefined && {
-        externalOrderId: externalOrder.externalOrderId,
-      }),
-      ...(externalOrder?.externalOrderUrl !== undefined && {
-        externalOrderUrl: externalOrder.externalOrderUrl,
-      }),
-    };
-    const order = await this.procurement.findScopedStatus(organizationId, id);
-    if (!order) {
-      throw new BadRequestException('발주를 찾을 수 없습니다');
-    }
-
-    if (order.status === 'ordered') {
-      return order;
-    }
-
-    if (order.status === 'draft') {
-      const pending = await this.procurement.updateStatusScoped(
-        organizationId,
-        id,
-        'draft',
-        { status: 'pending' },
-      );
-      if (!pending) {
-        throw new BadRequestException('발주를 찾을 수 없습니다');
-      }
-      const ordered = await this.procurement.updateStatusScoped(
-        organizationId,
-        id,
-        'pending',
-        orderedUpdate,
-      );
-      if (!ordered) {
-        throw new BadRequestException('발주를 찾을 수 없습니다');
-      }
-      return ordered;
-    }
-
-    if (order.status === 'pending') {
-      const ordered = await this.procurement.updateStatusScoped(
-        organizationId,
-        id,
-        'pending',
-        orderedUpdate,
-      );
-      if (!ordered) {
-        throw new BadRequestException('발주를 찾을 수 없습니다');
-      }
-      return ordered;
     }
 
     throw new BadRequestException(

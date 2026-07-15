@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNumber, IsUUID, IsInt, IsPositive, IsIn, IsArray, ArrayMinSize, ValidateIf, ValidateNested, MinLength } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsUUID, IsInt, IsPositive, IsIn, IsArray, ArrayMinSize, ValidateIf, ValidateNested, MinLength, MaxLength, IsUrl } from 'class-validator';
 import { Type } from 'class-transformer';
 
 class PurchaseOrderItemDto {
@@ -13,7 +13,7 @@ class PurchaseOrderItemDto {
  * organizationId 는 `req.authUser.organizationId` 에서 주입 — DTO 에는 포함하지 않는다.
  */
 export class PurchaseOrderActionBodyDto {
-  @IsIn(['create', 'updateStatus', 'delete'])
+  @IsIn(['create', 'updateStatus', 'delete', 'submit', 'reconcileSubmission'])
   action: string;
 
   @ValidateIf(o => o.action === 'create')
@@ -32,9 +32,33 @@ export class PurchaseOrderActionBodyDto {
   @IsString() @IsOptional() expectedDeliveryDate?: string;
 
   // updateStatus / delete 전용
-  @ValidateIf(o => o.action === 'updateStatus' || o.action === 'delete')
+  @ValidateIf(o => ['updateStatus', 'delete', 'submit', 'reconcileSubmission'].includes(o.action))
   @IsUUID() id?: string;
 
   @ValidateIf(o => o.action === 'updateStatus')
   @IsString() status?: string;
+
+  @ValidateIf(o => o.action === 'submit')
+  @IsString() @MinLength(1) @MaxLength(200)
+  idempotencyKey?: string;
+
+  @ValidateIf(o => o.action === 'submit')
+  @IsString() @MaxLength(40) @IsOptional()
+  externalOrderPlatform?: string | null;
+
+  @ValidateIf(o => o.action === 'submit')
+  @IsString() @MaxLength(120) @IsOptional()
+  externalOrderId?: string | null;
+
+  @ValidateIf(o => o.action === 'submit')
+  @IsUrl() @IsOptional()
+  externalOrderUrl?: string | null;
+
+  @ValidateIf(o => o.action === 'reconcileSubmission')
+  @IsIn(['provider_succeeded', 'provider_failed'])
+  outcome?: 'provider_succeeded' | 'provider_failed';
+
+  @ValidateIf(o => o.action === 'reconcileSubmission')
+  @IsString() @MaxLength(120) @IsOptional()
+  providerReference?: string | null;
 }

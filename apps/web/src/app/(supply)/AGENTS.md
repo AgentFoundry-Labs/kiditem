@@ -25,6 +25,14 @@ React Query + apiClient
 
 - Supplier mutations invalidate `queryKeys.suppliers.all`.
 - Purchase-order mutations invalidate `queryKeys.purchaseOrders.all`.
+- `pending -> ordered` uses the submission hook with a browser-created stable
+  idempotency key; it never uses generic status mutation.
+- Only `SELLPIA_SYNC_REQUIRED` may request/join a Sellpia refresh, wait for one
+  completed fresh generation, and retry exactly once with the same key. A
+  second gate error, provider/identity/inactive/login/quality failure, or
+  reconciliation-required result is never auto-retried.
+- `provider_unknown` is displayed as an explicit reconciliation state; the UI
+  records operator-confirmed success/failure through `reconcileSubmission`.
 - Filter/page state belongs in the route; backend owns status transitions and
   totals.
 - Keep purchase-order creation payloads aligned with backend DTO semantics.

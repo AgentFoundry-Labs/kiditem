@@ -3,7 +3,7 @@
 import { Package, Trash2 } from 'lucide-react';
 import { Pagination } from '@/components/ui/Pagination';
 import { cn, formatKRW } from '@/lib/utils';
-import type { PurchaseOrder } from '../page';
+import type { PurchaseOrder } from '../lib/purchase-orders-api';
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
   draft: { label: '임시저장', color: 'bg-slate-100 text-slate-700' },
@@ -37,10 +37,15 @@ interface PurchaseOrderTableProps {
   total: number;
   onPageChange: (page: number) => void;
   onStatusChange: (id: string, newStatus: string) => void;
+  onSubmit: (id: string) => void;
+  onReconcile: (
+    id: string,
+    outcome: 'provider_succeeded' | 'provider_failed',
+  ) => void;
   onDelete: (id: string) => void;
 }
 
-export function PurchaseOrderTable({ orders, loading, actionLoading, page, pageSize, total, onPageChange, onStatusChange, onDelete }: PurchaseOrderTableProps) {
+export function PurchaseOrderTable({ orders, loading, actionLoading, page, pageSize, total, onPageChange, onStatusChange, onSubmit, onReconcile, onDelete }: PurchaseOrderTableProps) {
   if (loading) {
     return (
       <div className="animate-pulse space-y-2 py-4">
@@ -80,7 +85,12 @@ export function PurchaseOrderTable({ orders, loading, actionLoading, page, pageS
             {orders.map((order) => {
               const statusInfo = STATUS_MAP[order.status] || { label: order.status, color: 'bg-slate-100 text-slate-700' };
               const nextStatus = NEXT_STATUS[order.status];
-              const canDelete = order.status === 'draft' || order.status === 'pending';
+              const attempt = order.latestSubmissionAttempt;
+              const providerUnknown = attempt?.status === 'provider_unknown';
+              const providerFailed = attempt?.status === 'provider_failed';
+              const needsReconciliation = providerUnknown || providerFailed;
+              const canDelete = (order.status === 'draft' || order.status === 'pending')
+                && !attempt;
               const isActioning = actionLoading === order.id;
 
               return (
@@ -89,6 +99,16 @@ export function PurchaseOrderTable({ orders, loading, actionLoading, page, pageS
                     <span className={cn('inline-flex px-2 py-0.5 text-xs font-medium rounded-full', statusInfo.color)}>
                       {statusInfo.label}
                     </span>
+                    {providerUnknown ? (
+                      <p className="mt-1 max-w-[180px] text-xs font-medium text-amber-700">
+                        외부 주문 생성됨 · 반영 확인 필요
+                      </p>
+                    ) : null}
+                    {providerFailed ? (
+                      <p className="mt-1 max-w-[180px] text-xs font-medium text-red-700">
+                        외부 주문 실패 · 재시도 전 확인 필요
+                      </p>
+                    ) : null}
                   </td>
                   <td className="font-medium text-slate-900">
                     {order.supplier?.name || order.supplierName}
@@ -114,15 +134,37 @@ export function PurchaseOrderTable({ orders, loading, actionLoading, page, pageS
                   </td>
                   <td>
                     <div className="flex items-center gap-1">
-                      {nextStatus && (
+                      {nextStatus && !needsReconciliation && (
                         <button
-                          onClick={() => onStatusChange(order.id, nextStatus)}
+                          onClick={() => nextStatus === 'ordered'
+                            ? onSubmit(order.id)
+                            : onStatusChange(order.id, nextStatus)}
                           disabled={isActioning}
                           className="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded disabled:opacity-50"
                         >
                           {isActioning ? '...' : TRANSITION_LABELS[nextStatus]}
                         </button>
                       )}
+                      {needsReconciliation ? (
+                        <>
+                          {providerUnknown ? (
+                            <button
+                              onClick={() => onReconcile(order.id, 'provider_succeeded')}
+                              disabled={isActioning}
+                              className="rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                            >
+                              외부 주문 확인
+                            </button>
+                          ) : null}
+                          <button
+                            onClick={() => onReconcile(order.id, 'provider_failed')}
+                            disabled={isActioning}
+                            className="rounded bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200 disabled:opacity-50"
+                          >
+                            외부 주문 없음
+                          </button>
+                        </>
+                      ) : null}
                       {canDelete && (
                         <button
                           onClick={() => onDelete(order.id)}

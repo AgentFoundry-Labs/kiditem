@@ -3,6 +3,7 @@ import { ProcurementRepositoryAdapter } from '../procurement.repository.adapter'
 
 function makePrisma() {
   return {
+    $executeRaw: vi.fn().mockResolvedValue(0),
     purchaseOrder: {
       findMany: vi.fn().mockResolvedValue([]),
       count: vi.fn().mockResolvedValue(0),
@@ -33,15 +34,46 @@ describe('ProcurementRepositoryAdapter', () => {
     prisma.purchaseOrder.groupBy.mockResolvedValue([{ status: 'draft', _count: { id: 1 } }]);
     const adapter = new ProcurementRepositoryAdapter(prisma as never);
 
-    const result = await adapter.list('organization-1', { page: 2, limit: 10, status: 'draft', supplierId: 'supplier-1' });
+    const result = await adapter.list('organization-1', {
+      page: 2,
+      limit: 10,
+      status: 'draft',
+      supplierId: 'supplier-1',
+      orderId: 'po-1',
+    });
 
     expect(prisma.purchaseOrder.findMany).toHaveBeenCalledWith({
-      where: { organizationId: 'organization-1', status: 'draft', supplierId: 'supplier-1' },
-      include: { items: true, supplier: true },
+      where: {
+        organizationId: 'organization-1',
+        id: 'po-1',
+        status: 'draft',
+        supplierId: 'supplier-1',
+      },
+      include: {
+        items: true,
+        supplier: true,
+        submissionAttempts: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            idempotencyKey: true,
+            status: true,
+            providerReference: true,
+            errorCode: true,
+            errorMessage: true,
+            reconciliationOutcome: true,
+            reconciledAt: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        },
+      },
       orderBy: { orderDate: 'desc' },
       skip: 10,
       take: 10,
     });
+    expect(prisma.$executeRaw).toHaveBeenCalledOnce();
     expect(result).toMatchObject({
       total: 1,
       page: 2,
@@ -49,6 +81,42 @@ describe('ProcurementRepositoryAdapter', () => {
       counts: { all: 1, draft: 1, pending: 0, ordered: 0, shipped: 0, received: 0, cancelled: 0 },
       summary: { orderCount: 1, totalQuantity: 5, totalAmountCny: 12.5 },
     });
+  });
+
+  it('returns only the latest durable submission-attempt summary', async () => {
+    const prisma = makePrisma();
+    const attempt = {
+      id: 'attempt-2',
+      idempotencyKey: 'submit-2',
+      status: 'provider_unknown',
+      providerReference: null,
+      errorCode: 'provider_response_unknown',
+      errorMessage: 'timeout',
+      reconciliationOutcome: null,
+      reconciledAt: null,
+      createdAt: new Date('2026-07-16T00:00:00.000Z'),
+      updatedAt: new Date('2026-07-16T00:01:00.000Z'),
+    };
+    prisma.purchaseOrder.findMany
+      .mockResolvedValueOnce([{
+        id: 'po-1',
+        status: 'pending',
+        items: [],
+        supplier: null,
+        submissionAttempts: [attempt],
+      }])
+      .mockResolvedValueOnce([]);
+    const adapter = new ProcurementRepositoryAdapter(prisma as never);
+
+    const result = await adapter.list('organization-1', {});
+
+    expect(result.items).toEqual([{
+      id: 'po-1',
+      status: 'pending',
+      items: [],
+      supplier: null,
+      latestSubmissionAttempt: attempt,
+    }]);
   });
 
   it('validates supplier and physical Master ownership before creating purchase order', async () => {

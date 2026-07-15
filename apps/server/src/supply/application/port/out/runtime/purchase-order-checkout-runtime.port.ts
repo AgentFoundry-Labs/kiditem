@@ -5,7 +5,28 @@ export const PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT = Symbol(
 export interface SubmitPurchaseOrderCheckoutInput {
   organizationId: string;
   purchaseOrderId: string;
+  idempotencyKey: string;
   purchaseOrder: PurchaseOrderCheckoutSnapshot;
+}
+
+export class PurchaseOrderCheckoutProviderFailedError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'PurchaseOrderCheckoutProviderFailedError';
+  }
+}
+
+export class PurchaseOrderCheckoutProviderUnknownError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'PurchaseOrderCheckoutProviderUnknownError';
+  }
 }
 
 export interface SubmitPurchaseOrderCheckoutResult {

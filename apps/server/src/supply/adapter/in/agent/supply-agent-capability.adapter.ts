@@ -1,4 +1,4 @@
-import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit, UnauthorizedException } from '@nestjs/common';
 import { z } from 'zod';
 import { AgentCapabilityRegistry } from '../../../../agent-os/application/service/agent-capability-registry.service';
 import {
@@ -9,7 +9,10 @@ import {
   PURCHASE_ORDER_SUBMISSION_PORT,
   type PurchaseOrderSubmissionPort,
 } from '../../../application/port/in/procurement/purchase-order-submission.port';
-import type { AgentCapabilityHandler } from '../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
+import type {
+  AgentCapabilityExecutionInput,
+  AgentCapabilityHandler,
+} from '../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
 
 const PurchaseOrderDraftInputSchema = z.object({
   recommendationArtifactId: z.string().uuid().optional(),
@@ -77,6 +80,16 @@ function purchaseOrderDraftIdempotencyKey(input: {
   );
 }
 
+export function purchaseOrderSubmissionIdempotencyKey(
+  executionInput: AgentCapabilityExecutionInput,
+): string {
+  return [
+    executionInput.organizationId,
+    'supply.submit_purchase_order',
+    String(executionInput.input.purchaseOrderId),
+  ].join(':');
+}
+
 @Injectable()
 export class SupplyAgentCapabilityAdapter implements OnModuleInit {
   constructor(
@@ -128,20 +141,33 @@ export class SupplyAgentCapabilityAdapter implements OnModuleInit {
       outputSchema: PurchaseOrderSubmissionOutputSchema,
       sideEffects: ['external_write', 'db_write'],
       approvalRisk: 'high',
-      idempotencyKey: ({ organizationId, input }) =>
-        [
+      idempotencyKey: purchaseOrderSubmissionIdempotencyKey,
+      execute: async (executionInput) => {
+        const {
           organizationId,
-          'supply.submit_purchase_order',
-          String(input.purchaseOrderId),
-        ].join(':'),
-      execute: async ({ organizationId, input }) => {
+          input,
+          requestedByUserId,
+        } = executionInput;
+        if (!requestedByUserId) {
+          throw new UnauthorizedException(
+            'Purchase submission requires an authenticated actor.',
+          );
+        }
         const parsed = PurchaseOrderSubmissionInputSchema.parse(input);
         const result = await this.submissions.submit({
           organizationId,
           purchaseOrderId: parsed.purchaseOrderId,
-          externalOrderPlatform: parsed.externalOrderPlatform,
-          externalOrderId: parsed.externalOrderId,
-          externalOrderUrl: parsed.externalOrderUrl,
+          idempotencyKey: purchaseOrderSubmissionIdempotencyKey(executionInput),
+          userId: requestedByUserId,
+          ...(parsed.externalOrderPlatform !== undefined && {
+            externalOrderPlatform: parsed.externalOrderPlatform,
+          }),
+          ...(parsed.externalOrderId !== undefined && {
+            externalOrderId: parsed.externalOrderId,
+          }),
+          ...(parsed.externalOrderUrl !== undefined && {
+            externalOrderUrl: parsed.externalOrderUrl,
+          }),
         });
         const externalOrderPlatform =
           result.externalOrderPlatform ?? 'ALIBABA_1688';
