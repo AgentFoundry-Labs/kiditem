@@ -16,12 +16,14 @@ export function usePurchaseOrderSubmission() {
   const mutation = useMutation({
     mutationFn: (input: SubmitPurchaseOrderRequest) =>
       submitPurchaseOrderWithFreshnessRecovery(input),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.all });
+    onSuccess: () => {
       toast.success('발주가 확정되었습니다.');
     },
     onError: (error) => {
       toast.error(friendlyError(error) ?? '발주 확정에 실패했습니다.');
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.all });
     },
   });
 

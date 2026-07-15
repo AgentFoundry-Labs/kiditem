@@ -33,6 +33,9 @@ React Query + apiClient
   reconciliation-required result is never auto-retried.
 - `provider_unknown` is displayed as an explicit reconciliation state; the UI
   records operator-confirmed success/failure through `reconcileSubmission`.
+- Submission settlement invalidates purchase-order queries on both success and
+  error because provider failures may persist a terminal attempt before the API
+  rejects.
 - Filter/page state belongs in the route; backend owns status transitions and
   totals.
 - Keep purchase-order creation payloads aligned with backend DTO semantics.

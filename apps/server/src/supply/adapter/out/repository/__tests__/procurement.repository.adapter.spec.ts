@@ -302,20 +302,4 @@ describe('ProcurementRepositoryAdapter', () => {
     expect(updated).toBeNull();
   });
 
-  it('deletes only when the current database status is still deletable', async () => {
-    const prisma = makePrisma();
-    prisma.purchaseOrder.deleteMany.mockResolvedValue({ count: 1 });
-    const adapter = new ProcurementRepositoryAdapter(prisma as never);
-
-    const deleted = await adapter.deleteScoped('organization-1', 'po-1');
-
-    expect(prisma.purchaseOrder.deleteMany).toHaveBeenCalledWith({
-      where: {
-        id: 'po-1',
-        organizationId: 'organization-1',
-        status: { in: ['draft', 'pending'] },
-      },
-    });
-    expect(deleted).toBe(true);
-  });
 });

@@ -25,10 +25,6 @@ function snapshot() {
 
 function harness(options: { runtime?: boolean } = {}) {
   const procurement = {
-    preparePurchaseOrderSubmission: vi.fn().mockResolvedValue({
-      id: ORDER_ID,
-      status: 'pending',
-    }),
     getPurchaseOrderCheckoutSnapshot: vi.fn().mockResolvedValue(snapshot()),
   };
   const freshness = {
@@ -39,6 +35,7 @@ function harness(options: { runtime?: boolean } = {}) {
     }),
   };
   const transaction = {
+    prepareDraft: vi.fn().mockResolvedValue({ id: ORDER_ID, status: 'pending' }),
     prepare: vi.fn().mockResolvedValue({
       kind: options.runtime ? 'created' : 'providerless',
       attempt: options.runtime
@@ -108,7 +105,16 @@ describe('PurchaseOrderSubmissionService', () => {
       externalOrderId: 'manual-1',
     });
 
-    expect(procurement.preparePurchaseOrderSubmission).toHaveBeenCalledBefore(
+    expect(transaction.prepareDraft).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      purchaseOrderId: ORDER_ID,
+      userId: 'user-1',
+      idempotencyKey: 'submit-1',
+    });
+    expect(transaction.prepareDraft).toHaveBeenCalledBefore(
+      procurement.getPurchaseOrderCheckoutSnapshot,
+    );
+    expect(transaction.prepareDraft).toHaveBeenCalledBefore(
       freshness.assertFreshAndActive,
     );
     expect(freshness.assertFreshAndActive).toHaveBeenCalledWith({
@@ -134,6 +140,55 @@ describe('PurchaseOrderSubmissionService', () => {
         externalOrderUrl: null,
       },
     });
+  });
+
+  it('rejects a whitespace-only key before any draft mutation or lookup', async () => {
+    const { service, procurement, freshness, transaction } = harness();
+
+    await expect(service.submit({
+      organizationId: 'org-1',
+      purchaseOrderId: ORDER_ID,
+      idempotencyKey: '   ',
+      userId: 'user-1',
+    })).rejects.toThrow('idempotency');
+
+    expect(transaction.prepareDraft).not.toHaveBeenCalled();
+    expect(procurement.getPurchaseOrderCheckoutSnapshot).not.toHaveBeenCalled();
+    expect(freshness.assertFreshAndActive).not.toHaveBeenCalled();
+  });
+
+  it('rejects an inactive actor before draft mutation reaches checkout lookup', async () => {
+    const { service, procurement, transaction } = harness();
+    transaction.prepareDraft.mockRejectedValue(
+      new AppException(403, 'UNAUTHORIZED', 'inactive actor'),
+    );
+
+    await expect(service.submit({
+      organizationId: 'org-1',
+      purchaseOrderId: ORDER_ID,
+      idempotencyKey: 'submit-1',
+      userId: 'inactive-user',
+    })).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+
+    expect(procurement.getPurchaseOrderCheckoutSnapshot).not.toHaveBeenCalled();
+    expect(transaction.prepare).not.toHaveBeenCalled();
+  });
+
+  it('preserves reference-safe cross-tenant errors on the common HTTP and Agent port', async () => {
+    const { service, procurement, transaction } = harness();
+    transaction.prepareDraft.mockRejectedValue(
+      new AppException(422, 'PURCHASE_REFERENCE_INVALID', 'invalid reference'),
+    );
+
+    await expect(service.submit({
+      organizationId: 'other-org',
+      purchaseOrderId: ORDER_ID,
+      idempotencyKey: 'submit-1',
+      userId: 'user-1',
+    })).rejects.toMatchObject({ code: 'PURCHASE_REFERENCE_INVALID' });
+
+    expect(procurement.getPurchaseOrderCheckoutSnapshot).not.toHaveBeenCalled();
+    expect(transaction.prepare).not.toHaveBeenCalled();
   });
 
   it('commits a prepared intent before calling the provider and forwards the same key', async () => {

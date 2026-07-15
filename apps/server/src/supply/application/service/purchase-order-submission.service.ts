@@ -1,6 +1,6 @@
 import { AppException } from '@kiditem/shared/server-errors';
 import { ErrorCodes } from '@kiditem/shared/errors';
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Optional } from '@nestjs/common';
 import {
   SELLPIA_INVENTORY_FRESHNESS_GATE_PORT,
   type SellpiaInventoryFreshnessGatePort,
@@ -41,10 +41,13 @@ implements PurchaseOrderSubmissionPort {
   async submit(
     input: SubmitPurchaseOrderInput,
   ): Promise<SubmitPurchaseOrderResult> {
-    await this.procurement.preparePurchaseOrderSubmission(
-      input.organizationId,
-      input.purchaseOrderId,
-    );
+    const idempotencyKey = cleanKey(input.idempotencyKey);
+    await this.transaction.prepareDraft({
+      organizationId: input.organizationId,
+      purchaseOrderId: input.purchaseOrderId,
+      userId: input.userId,
+      idempotencyKey,
+    });
     const purchaseOrder = await this.procurement.getPurchaseOrderCheckoutSnapshot(
       input.organizationId,
       input.purchaseOrderId,
@@ -70,7 +73,7 @@ implements PurchaseOrderSubmissionPort {
       organizationId: input.organizationId,
       purchaseOrderId: input.purchaseOrderId,
       masterProductIds,
-      idempotencyKey: cleanKey(input.idempotencyKey),
+      idempotencyKey,
       userId: input.userId,
       freshnessFence: gate.fence,
       freshnessLastVerifiedAt: gate.lastVerifiedAt,
@@ -89,14 +92,14 @@ implements PurchaseOrderSubmissionPort {
       const provider = await this.checkoutRuntime.submit({
         organizationId: input.organizationId,
         purchaseOrderId: input.purchaseOrderId,
-        idempotencyKey: cleanKey(input.idempotencyKey),
+        idempotencyKey,
         purchaseOrder,
       });
       const order = await this.transaction.completeProviderSuccess({
         organizationId: input.organizationId,
         purchaseOrderId: input.purchaseOrderId,
         attemptId: prepared.attempt.id,
-        idempotencyKey: cleanKey(input.idempotencyKey),
+        idempotencyKey,
         provider,
       });
       return toResult(order);
@@ -107,7 +110,7 @@ implements PurchaseOrderSubmissionPort {
           organizationId: input.organizationId,
           purchaseOrderId: input.purchaseOrderId,
           attemptId: prepared.attempt.id,
-          idempotencyKey: cleanKey(input.idempotencyKey),
+          idempotencyKey,
           errorCode: error.code,
           errorMessage: message,
         });
@@ -118,7 +121,7 @@ implements PurchaseOrderSubmissionPort {
         organizationId: input.organizationId,
         purchaseOrderId: input.purchaseOrderId,
         attemptId: prepared.attempt.id,
-        idempotencyKey: cleanKey(input.idempotencyKey),
+        idempotencyKey,
         errorCode: error instanceof PurchaseOrderCheckoutProviderUnknownError
           ? error.code
           : 'provider_response_unknown',
@@ -158,7 +161,11 @@ function optionalString(value: string | null | undefined): string | null {
 
 function cleanKey(value: string): string {
   const key = value.trim();
-  if (!key) throw new Error('Purchase submission idempotency key is required.');
+  if (!key) {
+    throw new BadRequestException(
+      'Purchase submission idempotency key is required.',
+    );
+  }
   return key;
 }
 

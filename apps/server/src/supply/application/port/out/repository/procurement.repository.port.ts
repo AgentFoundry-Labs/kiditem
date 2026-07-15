@@ -136,9 +136,4 @@ export interface ProcurementRepositoryPort {
     expectedStatus: string,
     update: PurchaseOrderStatusUpdate,
   ): Promise<unknown | null>;
-  findScopedForDelete(
-    organizationId: string,
-    id: string,
-  ): Promise<{ id: string; status: string } | null>;
-  deleteScoped(organizationId: string, id: string): Promise<boolean>;
 }

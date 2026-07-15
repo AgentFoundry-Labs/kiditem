@@ -30,6 +30,24 @@ export type PurchaseOrderSubmissionExternalOrder = {
   externalOrderUrl: string | null;
 };
 
+export type PreparePurchaseOrderDraftInput = {
+  organizationId: string;
+  purchaseOrderId: string;
+  userId: string;
+  idempotencyKey: string;
+};
+
+export type DeletePurchaseOrderInput = {
+  organizationId: string;
+  purchaseOrderId: string;
+};
+
+export type DeletePurchaseOrderResult =
+  | { kind: 'deleted'; order: { id: string; status: string } }
+  | { kind: 'not_found' }
+  | { kind: 'not_deletable' }
+  | { kind: 'unresolved_attempt' };
+
 export type PreparePurchaseOrderSubmissionInput = {
   organizationId: string;
   purchaseOrderId: string;
@@ -84,6 +102,12 @@ export type ReconcilePurchaseOrderSubmissionTransactionInput = {
 };
 
 export interface PurchaseOrderSubmissionTransactionPort {
+  prepareDraft(
+    input: PreparePurchaseOrderDraftInput,
+  ): Promise<{ id: string; status: string }>;
+  deletePurchaseOrder(
+    input: DeletePurchaseOrderInput,
+  ): Promise<DeletePurchaseOrderResult>;
   prepare(
     input: PreparePurchaseOrderSubmissionInput,
   ): Promise<PreparePurchaseOrderSubmissionResult>;

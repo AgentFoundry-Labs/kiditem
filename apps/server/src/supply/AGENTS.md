@@ -51,6 +51,12 @@ Route shape is frozen.
 - External checkout writes a durable `prepared` attempt before provider IO.
   Only the transaction creator may call the provider; every observer of an
   unresolved attempt must reconcile and must not call the provider again.
+- Normalize the caller idempotency key and validate the active actor inside the
+  locked submission lane before a draft can mutate to `pending`.
+- A fresh `prepared` attempt is in flight and cannot be reconciled. Only
+  `provider_unknown` or `provider_failed` may be reconciled.
+- Purchase-order deletion uses the same row lock as submission and rejects any
+  unresolved provider attempt so cascade deletion cannot erase its intent.
 - Prepared attempts older than 15 database minutes become `provider_unknown`.
   Providerless ordering, attempt creation, terminal recording, and
   reconciliation stay organization-scoped and row-locked.

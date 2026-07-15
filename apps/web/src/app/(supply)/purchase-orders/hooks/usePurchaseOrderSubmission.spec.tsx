@@ -49,4 +49,22 @@ describe('usePurchaseOrderSubmission', () => {
     });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['purchaseOrders'] });
   });
+
+  it('invalidates purchase orders after a terminal provider error is persisted', async () => {
+    vi.mocked(submitPurchaseOrderWithFreshnessRecovery)
+      .mockRejectedValueOnce(new Error('provider response unknown'));
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+      .mockResolvedValue(undefined);
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => usePurchaseOrderSubmission(), { wrapper });
+
+    await act(async () => {
+      await expect(result.current.submit('po-1'))
+        .rejects.toThrow('provider response unknown');
+    });
+
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['purchaseOrders'] });
+  });
 });

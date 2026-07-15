@@ -67,6 +67,47 @@ function makePrisma(input: {
   };
 }
 
+function makeLockedOrderPrisma(input: {
+  orderStatus?: string;
+  membership?: { id: string } | null;
+  unresolvedAttemptCount?: number;
+  attempt?: Record<string, unknown> | null;
+} = {}) {
+  const order = [{ id: ORDER_ID, status: input.orderStatus ?? 'draft' }];
+  const tx = {
+    $queryRaw: vi.fn()
+      .mockResolvedValueOnce(order)
+      .mockResolvedValueOnce(input.attempt ? [input.attempt] : []),
+    organizationMembership: {
+      findFirst: vi.fn().mockResolvedValue(
+        input.membership === undefined ? { id: 'membership-1' } : input.membership,
+      ),
+    },
+    purchaseOrderSubmissionAttempt: {
+      count: vi.fn().mockResolvedValue(input.unresolvedAttemptCount ?? 0),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
+    purchaseOrder: {
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+      findFirst: vi.fn().mockResolvedValue({
+        id: ORDER_ID,
+        status: 'ordered',
+        externalOrderPlatform: 'ALIBABA_1688',
+        externalOrderId: '1688-1',
+        externalOrderUrl: null,
+      }),
+    },
+  };
+  return {
+    tx,
+    prisma: {
+      $transaction: vi.fn(async (operation: (client: typeof tx) => unknown) =>
+        operation(tx)),
+    },
+  };
+}
+
 function prepareInput(requiresProvider = true) {
   return {
     organizationId: 'org-1',
@@ -87,6 +128,108 @@ function prepareInput(requiresProvider = true) {
 }
 
 describe('PurchaseOrderSubmissionTransactionAdapter', () => {
+  it('validates the active actor before mutating draft to pending', async () => {
+    const { prisma, tx } = makeLockedOrderPrisma();
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+
+    await adapter.prepareDraft({
+      organizationId: 'org-1',
+      purchaseOrderId: ORDER_ID,
+      userId: 'user-1',
+      idempotencyKey: 'submit-1',
+    });
+
+    expect(tx.organizationMembership.findFirst).toHaveBeenCalledBefore(
+      tx.purchaseOrder.updateMany,
+    );
+    expect(tx.purchaseOrder.updateMany).toHaveBeenCalledWith({
+      where: { id: ORDER_ID, organizationId: 'org-1', status: 'draft' },
+      data: { status: 'pending' },
+    });
+  });
+
+  it('rejects an inactive actor without mutating draft status', async () => {
+    const { prisma, tx } = makeLockedOrderPrisma({ membership: null });
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+
+    await expect(adapter.prepareDraft({
+      organizationId: 'org-1',
+      purchaseOrderId: ORDER_ID,
+      userId: 'inactive-user',
+      idempotencyKey: 'submit-1',
+    })).rejects.toBeInstanceOf(AppException);
+    expect(tx.purchaseOrder.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-normalized idempotency key without mutating draft status', async () => {
+    const { prisma, tx } = makeLockedOrderPrisma();
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+
+    await expect(adapter.prepareDraft({
+      organizationId: 'org-1',
+      purchaseOrderId: ORDER_ID,
+      userId: 'user-1',
+      idempotencyKey: '   ',
+    })).rejects.toThrow('idempotency');
+    expect(tx.purchaseOrder.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('returns the reference-safe error before mutating a cross-tenant order', async () => {
+    const { prisma, tx } = makeLockedOrderPrisma();
+    tx.$queryRaw.mockReset().mockResolvedValueOnce([]);
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+
+    await expect(adapter.prepareDraft({
+      organizationId: 'other-org',
+      purchaseOrderId: ORDER_ID,
+      userId: 'user-1',
+      idempotencyKey: 'submit-1',
+    })).rejects.toMatchObject({ code: 'PURCHASE_REFERENCE_INVALID' });
+    expect(tx.purchaseOrder.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('atomically blocks deletion while an unresolved provider intent exists', async () => {
+    const { prisma, tx } = makeLockedOrderPrisma({
+      orderStatus: 'pending',
+      unresolvedAttemptCount: 1,
+    });
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+
+    const result = await adapter.deletePurchaseOrder({
+      organizationId: 'org-1',
+      purchaseOrderId: ORDER_ID,
+    });
+
+    expect(result).toEqual({ kind: 'unresolved_attempt' });
+    expect(tx.purchaseOrder.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects reconciliation while a prepared provider owner is still fresh', async () => {
+    const { prisma, tx } = makeLockedOrderPrisma({
+      orderStatus: 'pending',
+      attempt: {
+        id: 'attempt-1',
+        idempotencyKey: 'submit-1',
+        status: 'prepared',
+        providerReference: null,
+        reconciliationOutcome: null,
+        createdAt: new Date('2026-07-16T00:04:00.000Z'),
+        databaseNow: new Date('2026-07-16T00:05:00.000Z'),
+      },
+    });
+    const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);
+
+    await expect(adapter.reconcile({
+      organizationId: 'org-1',
+      purchaseOrderId: ORDER_ID,
+      userId: 'user-1',
+      outcome: 'provider_failed',
+    })).rejects.toMatchObject({
+      code: 'PURCHASE_SUBMISSION_RECONCILIATION_REQUIRED',
+    });
+    expect(tx.purchaseOrderSubmissionAttempt.updateMany).not.toHaveBeenCalled();
+  });
+
   it('locks freshness and purchase-order rows before atomically ordering a providerless order', async () => {
     const { prisma, tx } = makePrisma();
     const adapter = new PurchaseOrderSubmissionTransactionAdapter(prisma as never);

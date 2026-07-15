@@ -6,6 +6,9 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   CompletePurchaseOrderProviderFailureInput,
   CompletePurchaseOrderProviderSuccessInput,
+  DeletePurchaseOrderInput,
+  DeletePurchaseOrderResult,
+  PreparePurchaseOrderDraftInput,
   PreparePurchaseOrderSubmissionInput,
   PreparePurchaseOrderSubmissionResult,
   PurchaseOrderSubmissionAttemptState,
@@ -13,6 +16,7 @@ import type {
   PurchaseOrderSubmissionTransactionPort,
   ReconcilePurchaseOrderSubmissionTransactionInput,
 } from '../../../application/port/out/transaction/purchase-order-submission.transaction.port';
+import { isDeletablePurchaseOrderStatus } from '../../../domain/policy/purchase-order-status';
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 const PREPARED_RECONCILIATION_MS = 15 * 60_000;
@@ -44,10 +48,81 @@ export class PurchaseOrderSubmissionTransactionAdapter
 implements PurchaseOrderSubmissionTransactionPort {
   constructor(private readonly prisma: PrismaService) {}
 
+  prepareDraft(
+    input: PreparePurchaseOrderDraftInput,
+  ): Promise<{ id: string; status: string }> {
+    return this.prisma.$transaction(async (tx) => {
+      assertNormalizedIdempotencyKey(input.idempotencyKey);
+      const order = await lockOrder(tx, input.organizationId, input.purchaseOrderId);
+      if (!order) throw referenceInvalid();
+      await assertActor(tx, input.organizationId, input.userId);
+
+      if (order.status === 'pending' || order.status === 'ordered') return order;
+      if (order.status !== 'draft') {
+        throw new BadRequestException(
+          'Only draft or pending purchase orders may be submitted.',
+        );
+      }
+
+      const updated = await tx.purchaseOrder.updateMany({
+        where: {
+          id: input.purchaseOrderId,
+          organizationId: input.organizationId,
+          status: 'draft',
+        },
+        data: { status: 'pending' },
+      });
+      if (updated.count !== 1) throw referenceInvalid();
+      return { id: order.id, status: 'pending' };
+    }, TRANSACTION_OPTIONS);
+  }
+
+  deletePurchaseOrder(
+    input: DeletePurchaseOrderInput,
+  ): Promise<DeletePurchaseOrderResult> {
+    return this.prisma.$transaction(async (tx) => {
+      const order = await lockOrder(tx, input.organizationId, input.purchaseOrderId);
+      if (!order) return { kind: 'not_found' as const };
+      if (!isDeletablePurchaseOrderStatus(order.status)) {
+        return { kind: 'not_deletable' as const };
+      }
+
+      const unresolvedAttempts = await tx.purchaseOrderSubmissionAttempt.count({
+        where: {
+          organizationId: input.organizationId,
+          purchaseOrderId: input.purchaseOrderId,
+          status: {
+            in: [
+              'prepared',
+              'provider_succeeded',
+              'provider_failed',
+              'provider_unknown',
+            ],
+          },
+        },
+      });
+      if (unresolvedAttempts > 0) return { kind: 'unresolved_attempt' as const };
+
+      const deleted = await tx.purchaseOrder.deleteMany({
+        where: {
+          id: input.purchaseOrderId,
+          organizationId: input.organizationId,
+          status: order.status,
+        },
+      });
+      if (deleted.count !== 1) return { kind: 'not_found' as const };
+      return {
+        kind: 'deleted' as const,
+        order: { id: order.id, status: order.status },
+      };
+    }, TRANSACTION_OPTIONS);
+  }
+
   prepare(
     input: PreparePurchaseOrderSubmissionInput,
   ): Promise<PreparePurchaseOrderSubmissionResult> {
     return this.prisma.$transaction(async (tx) => {
+      assertNormalizedIdempotencyKey(input.idempotencyKey);
       const freshness = await lockFreshness(tx, input.organizationId);
       const order = await lockOrder(tx, input.organizationId, input.purchaseOrderId);
       if (!order) throw referenceInvalid();
@@ -102,7 +177,12 @@ implements PurchaseOrderSubmissionTransactionPort {
         },
       });
       if (latest) {
-        const promoted = await promoteExpiredPrepared(tx, input, freshness, latest);
+        const promoted = await promoteExpiredPrepared(
+          tx,
+          input,
+          freshness.databaseNow,
+          latest,
+        );
         const mayStartAfterReconciledFailure =
           promoted.status === 'reconciled'
           && promoted.reconciliationOutcome === 'provider_failed'
@@ -200,8 +280,17 @@ implements PurchaseOrderSubmissionTransactionPort {
         LIMIT 1
         FOR UPDATE
       `;
-      const attempt = attempts[0];
-      if (!attempt || attempt.status === 'reconciled') throw reconciliationRequired();
+      const lockedAttempt = attempts[0];
+      if (!lockedAttempt) throw reconciliationRequired();
+      const attempt = await promoteExpiredPrepared(
+        tx,
+        input,
+        lockedAttempt.databaseNow,
+        lockedAttempt,
+      );
+      if (attempt.status !== 'provider_unknown' && attempt.status !== 'provider_failed') {
+        throw reconciliationRequired();
+      }
 
       const providerReference = cleanOptional(input.providerReference)
         ?? attempt.providerReference;
@@ -216,7 +305,7 @@ implements PurchaseOrderSubmissionTransactionPort {
           status: 'reconciled',
           reconciliationOutcome: input.outcome,
           providerReference,
-          reconciledAt: attempt.databaseNow,
+          reconciledAt: lockedAttempt.databaseNow,
           reconciledBy: input.userId,
         },
       });
@@ -410,13 +499,13 @@ async function assertPurchaseItems(
 
 async function promoteExpiredPrepared(
   tx: Prisma.TransactionClient,
-  input: PreparePurchaseOrderSubmissionInput,
-  freshness: LockedFreshnessRow,
+  input: { organizationId: string; purchaseOrderId: string },
+  databaseNow: Date,
   attempt: LockedAttemptRow,
 ): Promise<LockedAttemptRow> {
   if (
     attempt.status !== 'prepared'
-    || freshness.databaseNow.getTime() - attempt.createdAt.getTime()
+    || databaseNow.getTime() - attempt.createdAt.getTime()
       < PREPARED_RECONCILIATION_MS
   ) {
     return attempt;
@@ -437,6 +526,14 @@ async function promoteExpiredPrepared(
   return update.count === 1
     ? { ...attempt, status: 'provider_unknown' }
     : attempt;
+}
+
+function assertNormalizedIdempotencyKey(value: string): void {
+  if (!value || value !== value.trim()) {
+    throw new BadRequestException(
+      'Purchase submission idempotency key must be normalized and nonblank.',
+    );
+  }
 }
 
 function attemptWhere(

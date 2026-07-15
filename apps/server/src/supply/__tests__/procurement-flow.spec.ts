@@ -10,9 +10,13 @@ function makeRepository(): ProcurementRepositoryPort {
     createDraft: vi.fn(),
     findScopedStatus: vi.fn(),
     updateStatusScoped: vi.fn(),
-    findScopedForDelete: vi.fn(),
-    deleteScoped: vi.fn(),
   } as unknown as ProcurementRepositoryPort;
+}
+
+function makeSubmissionTransaction() {
+  return {
+    deletePurchaseOrder: vi.fn(),
+  };
 }
 
 const MOCK_ORDER_DRAFT = {
@@ -30,10 +34,16 @@ const MOCK_ORDER_DRAFT = {
 describe('ProcurementService — PO status lifecycle', () => {
   let service: ProcurementService;
   let procurement: ProcurementRepositoryPort;
+  let transaction: ReturnType<typeof makeSubmissionTransaction>;
 
   beforeEach(() => {
     procurement = makeRepository();
-    service = new ProcurementService(procurement);
+    transaction = makeSubmissionTransaction();
+    const Service = ProcurementService as unknown as new (
+      repository: ProcurementRepositoryPort,
+      submissionTransaction: typeof transaction,
+    ) => ProcurementService;
+    service = new Service(procurement, transaction);
   });
 
   it('create PO delegates draft creation to the outgoing repository port', async () => {
@@ -192,27 +202,36 @@ describe('ProcurementService — PO status lifecycle', () => {
   });
 
   it('delete draft PO → ok', async () => {
-    vi.mocked(procurement.findScopedForDelete).mockResolvedValue({ id: 'po-1', status: 'draft' });
-    vi.mocked(procurement.deleteScoped).mockResolvedValue(true);
+    transaction.deletePurchaseOrder.mockResolvedValue({
+      kind: 'deleted',
+      order: { id: 'po-1', status: 'draft' },
+    });
 
     const result = await service.delete('organization-1', 'po-1');
-    expect(procurement.deleteScoped).toHaveBeenCalledWith('organization-1', 'po-1');
+    expect(transaction.deletePurchaseOrder).toHaveBeenCalledWith({
+      organizationId: 'organization-1',
+      purchaseOrderId: 'po-1',
+    });
     expect(result).toEqual({ id: 'po-1', status: 'draft' });
   });
 
   it('delete non-draft PO → throws BadRequestException', async () => {
-    vi.mocked(procurement.findScopedForDelete).mockResolvedValue({ id: 'po-1', status: 'shipped' });
+    transaction.deletePurchaseOrder.mockResolvedValue({ kind: 'not_deletable' });
 
     await expect(service.delete('organization-1', 'po-1')).rejects.toThrow(BadRequestException);
-    expect(procurement.deleteScoped).not.toHaveBeenCalled();
   });
 
   it('delete wrong organization → not found, no mutation', async () => {
-    vi.mocked(procurement.findScopedForDelete).mockResolvedValue(null);
+    transaction.deletePurchaseOrder.mockResolvedValue({ kind: 'not_found' });
 
     await expect(service.delete('organization-1', 'po-1')).rejects.toThrow(BadRequestException);
+  });
 
-    expect(procurement.deleteScoped).not.toHaveBeenCalled();
+  it('delete pending PO with unresolved provider intent → rejects without deletion', async () => {
+    transaction.deletePurchaseOrder.mockResolvedValue({ kind: 'unresolved_attempt' });
+
+    await expect(service.delete('organization-1', 'po-1'))
+      .rejects.toThrow('외부 주문 시도');
   });
 });
 

@@ -208,20 +208,6 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
     });
   }
 
-  findScopedForDelete(organizationId: string, id: string) {
-    return this.prisma.purchaseOrder.findFirst({
-      where: { id, organizationId },
-      select: { id: true, status: true },
-    });
-  }
-
-  async deleteScoped(organizationId: string, id: string) {
-    const { count } = await this.prisma.purchaseOrder.deleteMany({
-      where: { id, organizationId, status: { in: ['draft', 'pending'] } },
-    });
-    return count > 0;
-  }
-
   private async findMissingOwnedMasterProductIds(
     organizationId: string,
     command: PurchaseOrderCreateCommand,
