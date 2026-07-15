@@ -47,4 +47,3 @@ if (process.argv.includes('--check')) {
     }),
   );
 }
-
