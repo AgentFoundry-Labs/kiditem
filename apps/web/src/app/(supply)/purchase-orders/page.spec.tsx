@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import { purchaseOrdersApi } from './lib/purchase-orders-api';
@@ -26,6 +27,7 @@ vi.mock('./hooks/usePurchaseOrderSubmission', () => ({
 }));
 
 const rocketAccountId = '11111111-1111-4111-8111-111111111111';
+const secondRocketAccountId = '33333333-3333-4333-8333-333333333333';
 
 describe('PurchaseOrdersPage Rocket preview route', () => {
   beforeEach(() => {
@@ -62,6 +64,15 @@ describe('PurchaseOrdersPage Rocket preview route', () => {
         sellerId: null,
         isPrimary: false,
       },
+      {
+        id: secondRocketAccountId,
+        channel: 'rocket',
+        name: '두 번째 로켓 공급사',
+        externalAccountId: null,
+        vendorId: 'ROCKET-2',
+        sellerId: null,
+        isPrimary: false,
+      },
     ]);
     vi.mocked(usePurchaseOrderSubmission).mockReturnValue({
       submit: vi.fn(),
@@ -84,5 +95,28 @@ describe('PurchaseOrdersPage Rocket preview route', () => {
     expect(screen.getByRole('button', { name: '미리보기 다시 계산' })).toBeEnabled();
     expect(screen.getByRole('button', { name: '로켓 발주 확정' })).toBeDisabled();
     expect(screen.getByText('0.1.19에서는 검토만 가능')).toBeInTheDocument();
+  });
+
+  it('remounts account-scoped workspace state when the Rocket account changes', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <PurchaseOrdersPage />
+      </QueryClientProvider>,
+    );
+    const selector = await screen.findByRole('combobox', { name: '로켓 채널 계정' });
+    const startDate = screen.getByLabelText('조회 시작일');
+    await user.clear(startDate);
+    await user.type(startDate, '2026-01-01');
+    expect(startDate).toHaveValue('2026-01-01');
+
+    await user.selectOptions(selector, secondRocketAccountId);
+
+    await waitFor(() => expect(screen.getByLabelText('조회 시작일'))
+      .toHaveValue(new Date().toISOString().slice(0, 10)));
+    expect(selector).toHaveValue(secondRocketAccountId);
   });
 });

@@ -49,9 +49,12 @@ logged-in order-collector extension
 - Rocket preview quantities are editable only up to the backend-recomputed
   maximum. Recalculation must collect a fresh evidence run instead of reusing
   stale browser rows.
-- Before a recollection is submitted, edit keys are intersected with the fresh
-  PO line IDs and retained values are clamped to the latest known backend max;
-  the returned backend maxima clamp retained UI state again.
+- Every recollection first sends an unedited preview to learn the current gated
+  backend maxima. Edit keys are intersected with the fresh PO line IDs, clamped
+  to that response, and only then reapplied through a second valid preview when
+  retained edits exist.
+- Changing the selected Rocket ChannelAccount remounts the workspace so dates,
+  errors, preview rows, and edits never cross account boundaries.
 - Release `0.1.19` keeps `로켓 발주 확정` visibly disabled and states that the
   workspace is review-only.
 

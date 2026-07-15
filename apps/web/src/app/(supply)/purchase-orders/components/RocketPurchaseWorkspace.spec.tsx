@@ -96,7 +96,7 @@ describe('RocketPurchaseWorkspace', () => {
     expect(screen.queryByText(/예약 완료|확정 파일 생성|제출 완료/)).not.toBeInTheDocument();
   });
 
-  it('drops disappeared edits and clamps retained edits to the latest backend max', async () => {
+  it('gets an unedited fresh max before dropping and clamping retained edits', async () => {
     vi.mocked(collectRocketPoRowsFromExtension)
       .mockResolvedValueOnce({
         collection: {
@@ -134,6 +134,15 @@ describe('RocketPurchaseWorkspace', () => {
         collectionRunId: '33333333-3333-4333-8333-333333333333',
         catalog: null,
         rows: [previewRow(lineB, 2)],
+      })
+      .mockResolvedValueOnce({
+        collectionRunId: '33333333-3333-4333-8333-333333333333',
+        catalog: null,
+        rows: [{
+          ...previewRow(lineB, 2),
+          editedQuantity: 2,
+          recommendedQuantity: 2,
+        }],
       });
     const user = userEvent.setup();
     render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
@@ -144,11 +153,14 @@ describe('RocketPurchaseWorkspace', () => {
     await user.clear(editA);
     await user.type(editA, '3');
     await user.clear(editB);
-    await user.type(editB, '9');
+    await user.type(editB, '4');
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
-    await waitFor(() => expect(previewRocketPurchases).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(previewRocketPurchases).toHaveBeenCalledTimes(3));
     expect(vi.mocked(previewRocketPurchases).mock.calls[1]?.[0].editedQuantities)
-      .toEqual({ [lineB.poLineId]: 4 });
+      .toEqual({});
+    expect(vi.mocked(previewRocketPurchases).mock.calls[2]?.[0].editedQuantities)
+      .toEqual({ [lineB.poLineId]: 2 });
+    expect(screen.getByRole('spinbutton', { name: '1002 검토수량' })).toHaveValue(2);
   });
 });

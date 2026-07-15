@@ -24,27 +24,37 @@ export function RocketPurchaseWorkspace({
     setError(null);
     try {
       const collected = await collectRocketPoRowsFromExtension({ from, to, status: 'RP' });
-      const priorMaxByLine = new Map(
-        preview?.rows.map((row) => [row.poLineId, row.maxQuantity]) ?? [],
-      );
       const retainedEdits = Object.fromEntries(collected.rows.flatMap((row) => {
         if (!Object.hasOwn(editedQuantities, row.poLineId)) return [];
-        const editedQuantity = editedQuantities[row.poLineId]!;
-        const priorMax = priorMaxByLine.get(row.poLineId);
-        return [[
-          row.poLineId,
-          priorMax === undefined ? editedQuantity : Math.min(editedQuantity, priorMax),
-        ]];
+        return [[row.poLineId, editedQuantities[row.poLineId]!]];
       }));
-      const result = await previewRocketPurchases({
+      const currentCapacity = await previewRocketPurchases({
         channelAccountId,
         collection: collected.collection,
         rows: collected.rows,
-        editedQuantities: retainedEdits,
+        editedQuantities: {},
       });
+      const currentMaxByLine = new Map(currentCapacity.rows.map((row) =>
+        [row.poLineId, row.maxQuantity]));
+      const clampedEdits = Object.fromEntries(Object.entries(retainedEdits).flatMap(
+        ([poLineId, editedQuantity]) => {
+          const currentMax = currentMaxByLine.get(poLineId);
+          return currentMax === undefined
+            ? []
+            : [[poLineId, Math.min(editedQuantity, currentMax)]];
+        },
+      ));
+      const result = Object.keys(clampedEdits).length === 0
+        ? currentCapacity
+        : await previewRocketPurchases({
+            channelAccountId,
+            collection: collected.collection,
+            rows: collected.rows,
+            editedQuantities: clampedEdits,
+          });
       const latestMaxByLine = new Map(result.rows.map((row) =>
         [row.poLineId, row.maxQuantity]));
-      setEditedQuantities(Object.fromEntries(Object.entries(retainedEdits).flatMap(
+      setEditedQuantities(Object.fromEntries(Object.entries(clampedEdits).flatMap(
         ([poLineId, editedQuantity]) => {
           const latestMax = latestMaxByLine.get(poLineId);
           return latestMax === undefined

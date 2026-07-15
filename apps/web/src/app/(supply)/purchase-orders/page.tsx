@@ -166,7 +166,10 @@ export default function PurchaseOrdersPage() {
                 ))}
               </select>
             </label>
-            <RocketPurchaseWorkspace channelAccountId={selectedRocketAccount.id} />
+            <RocketPurchaseWorkspace
+              key={selectedRocketAccount.id}
+              channelAccountId={selectedRocketAccount.id}
+            />
           </>
         ) : rocketAccountsQuery.isLoading ? (
           <p className="text-sm text-slate-500">로켓 계정을 불러오는 중입니다.</p>
