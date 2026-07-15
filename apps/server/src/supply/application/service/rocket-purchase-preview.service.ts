@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import {
   RocketPurchasePreviewRequestSchema,
   type RocketPurchasePreviewRequest,
@@ -17,7 +17,11 @@ import {
   type SellpiaInventoryFreshnessGatePort,
 } from '../../../inventory/application/port/in/stock/sellpia-inventory-freshness-gate.port';
 import type { RocketPurchasePreviewPort } from '../port/in/procurement/rocket-purchase-preview.port';
-import { previewRocketCapacity } from '../../domain/policy/rocket-capacity-preview';
+import {
+  RocketPreviewQuantityExceededError,
+  assertRocketPreviewEditedQuantity,
+  previewRocketCapacity,
+} from '../../domain/policy/rocket-capacity-preview';
 
 @Injectable()
 export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
@@ -42,23 +46,27 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
       request,
     });
     if (catalog.blockingReason) {
-      return {
+      return translatePreviewPolicy(() => ({
         collectionRunId: request.collection.collectionRunId,
         catalog: null,
-        rows: request.rows.map((row) => ({
-          poLineId: row.poLineId,
-          poNumber: row.poNumber,
-          productNo: row.productNo,
-          productName: row.productName,
-          orderQuantity: row.orderQty,
-          recommendedQuantity: 0,
-          maxQuantity: 0,
-          editedQuantity: request.editedQuantities[row.poLineId] ?? null,
-          reason: catalog.blockingReason,
-          channelSkuId: null,
-          components: [],
-        })),
-      };
+        rows: request.rows.map((row) => {
+          const editedQuantity = request.editedQuantities[row.poLineId] ?? null;
+          assertRocketPreviewEditedQuantity(row.poLineId, editedQuantity, 0);
+          return {
+            poLineId: row.poLineId,
+            poNumber: row.poNumber,
+            productNo: row.productNo,
+            productName: row.productName,
+            orderQuantity: row.orderQty,
+            recommendedQuantity: 0,
+            maxQuantity: 0,
+            editedQuantity,
+            reason: catalog.blockingReason,
+            channelSkuId: null,
+            components: [],
+          };
+        }),
+      }));
     }
 
     const identityByLine = new Map(catalog.identities.map((identity) =>
@@ -88,23 +96,45 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
         })) ?? [],
       };
     });
-    const activeMasterProductIds = [...new Set(previewRows.flatMap(({ components }) =>
-      components.filter(({ isActive }) => isActive)
-        .map(({ masterProductId }) => masterProductId)))];
-    if (activeMasterProductIds.length > 0) {
-      await this.freshness.assertFreshAndActive({
+    const masterProductIds = [...new Set(previewRows.flatMap(({ components }) =>
+      components.map(({ masterProductId }) => masterProductId)))];
+    if (masterProductIds.length > 0) {
+      const gated = await this.freshness.readFreshCapacity({
         organizationId: input.organizationId,
-        masterProductIds: activeMasterProductIds,
+        masterProductIds,
       });
+      const productById = new Map(gated.products.map((product) =>
+        [product.masterProductId, product]));
+      for (const row of previewRows) {
+        row.components = row.components.map((component) => {
+          const product = productById.get(component.masterProductId)!;
+          return {
+            ...component,
+            currentStock: product.currentStock,
+            isActive: product.isActive,
+          };
+        });
+      }
     }
 
     return {
       collectionRunId: request.collection.collectionRunId,
       catalog: catalog.catalog,
-      rows: previewRocketCapacity({
+      rows: translatePreviewPolicy(() => previewRocketCapacity({
         rows: previewRows,
         editedQuantities: request.editedQuantities,
-      }),
+      })),
     };
+  }
+}
+
+function translatePreviewPolicy<T>(operation: () => T): T {
+  try {
+    return operation();
+  } catch (error) {
+    if (error instanceof RocketPreviewQuantityExceededError) {
+      throw new BadRequestException(error.message);
+    }
+    throw error;
   }
 }

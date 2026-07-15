@@ -12,6 +12,7 @@ state, finance settlement state, or catalog product editing.
 - Purchase order list, status update, delete, and create modal
 - Purchase-order counts and status filters
 - Coupang Rocket collection and component-capacity preview workspace
+- Active Rocket ChannelAccount selector on the real `/purchase-orders` route
 
 ## Data Flow
 
@@ -48,6 +49,9 @@ logged-in order-collector extension
 - Rocket preview quantities are editable only up to the backend-recomputed
   maximum. Recalculation must collect a fresh evidence run instead of reusing
   stale browser rows.
+- Before a recollection is submitted, edit keys are intersected with the fresh
+  PO line IDs and retained values are clamped to the latest known backend max;
+  the returned backend maxima clamp retained UI state again.
 - Release `0.1.19` keeps `로켓 발주 확정` visibly disabled and states that the
   workspace is review-only.
 

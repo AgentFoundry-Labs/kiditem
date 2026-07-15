@@ -24,12 +24,34 @@ export function RocketPurchaseWorkspace({
     setError(null);
     try {
       const collected = await collectRocketPoRowsFromExtension({ from, to, status: 'RP' });
+      const priorMaxByLine = new Map(
+        preview?.rows.map((row) => [row.poLineId, row.maxQuantity]) ?? [],
+      );
+      const retainedEdits = Object.fromEntries(collected.rows.flatMap((row) => {
+        if (!Object.hasOwn(editedQuantities, row.poLineId)) return [];
+        const editedQuantity = editedQuantities[row.poLineId]!;
+        const priorMax = priorMaxByLine.get(row.poLineId);
+        return [[
+          row.poLineId,
+          priorMax === undefined ? editedQuantity : Math.min(editedQuantity, priorMax),
+        ]];
+      }));
       const result = await previewRocketPurchases({
         channelAccountId,
         collection: collected.collection,
         rows: collected.rows,
-        editedQuantities,
+        editedQuantities: retainedEdits,
       });
+      const latestMaxByLine = new Map(result.rows.map((row) =>
+        [row.poLineId, row.maxQuantity]));
+      setEditedQuantities(Object.fromEntries(Object.entries(retainedEdits).flatMap(
+        ([poLineId, editedQuantity]) => {
+          const latestMax = latestMaxByLine.get(poLineId);
+          return latestMax === undefined
+            ? []
+            : [[poLineId, Math.min(editedQuantity, latestMax)]];
+        },
+      )));
       setPreview(result);
     } catch (cause) {
       setError(friendlyError(cause) ?? '로켓 발주 미리보기를 계산하지 못했습니다.');

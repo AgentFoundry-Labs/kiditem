@@ -83,6 +83,10 @@ change stock.
   deterministic order/purchase refresh requests and
   `SELLPIA_INVENTORY_FRESHNESS_GATE_PORT` for the final fresh-and-active
   purchase assertion. Consumers do not control leases or read persistence.
+- `SELLPIA_INVENTORY_FRESHNESS_GATE_PORT.readFreshCapacity` returns component
+  `currentStock` and active state from the same Inventory-owned freshness lock,
+  fence, and verified generation. Rocket preview consumers must allocate from
+  this gated snapshot rather than a stock value read before the gate.
 - External domains do not inject warehouse, transfer, or picking
   services directly.
 
@@ -90,6 +94,8 @@ change stock.
 
 - Inventory owns the ten-minute Sellpia freshness policy, generation fence,
   source binding, and organization/source advisory lock.
+- Capacity snapshots acquired through the freshness gate are serialized with
+  full Sellpia snapshot publication by that same organization/source lock.
 - Browser collection claims use a 90-second lease. Only the authenticated
   user who owns a live lease may heartbeat, fail, or cancel it; another user
   may claim only after expiry.

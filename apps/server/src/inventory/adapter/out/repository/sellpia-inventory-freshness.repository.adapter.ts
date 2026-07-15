@@ -162,13 +162,13 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
 
   findMasterProducts(
     masterProductIds: string[],
-  ): Promise<Array<{ id: string; isActive: boolean }>> {
+  ): Promise<Array<{ id: string; isActive: boolean; currentStock: number }>> {
     return this.tx.masterProduct.findMany({
       where: {
         organizationId: this.organizationId,
         id: { in: masterProductIds },
       },
-      select: { id: true, isActive: true },
+      select: { id: true, isActive: true, currentStock: true },
     });
   }
 }

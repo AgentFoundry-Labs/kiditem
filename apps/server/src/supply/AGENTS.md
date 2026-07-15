@@ -68,10 +68,17 @@ Route shape is frozen.
   Channels-owned port, resolves confirmed component recipes through
   `CHANNEL_SKU_AVAILABILITY_PORT`, and applies the Inventory freshness gate
   before calculating quantities.
+- Rocket allocation replaces any earlier projected stock with Inventory's
+  same-generation gated capacity snapshot before calculation. A refresh cannot
+  bless quantities copied from an older generation.
 - Rocket preview allocation is a pure in-memory policy over shared component
   stock. It may return mapping, inactive-component, insufficient-capacity, or
   collection/account blocking reasons, but it never reserves, deducts, commits,
   confirms, persists a workbook, or calls a purchase provider.
+- Edited quantities are bounded before every result, including collection,
+  vendor, mapping, inactive-component, and zero-capacity rows. The pure domain
+  policy throws only framework-neutral outcomes; the application service owns
+  HTTP exception translation.
 
 ## Cross-Domain Ports
 

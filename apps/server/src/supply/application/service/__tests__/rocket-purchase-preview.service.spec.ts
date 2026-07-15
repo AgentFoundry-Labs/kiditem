@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { AppException } from '@kiditem/shared/server-errors';
+import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type { RocketPoCatalogPort } from '../../../../channels/application/port/in/rocket-po-catalog.port';
 import type { ChannelSkuAvailabilityPort } from '../../../../channels/application/port/in/channel-sku-availability.port';
@@ -62,6 +63,13 @@ function dependencies() {
       lastVerifiedAt: '2026-07-16T00:00:00.000Z',
       expiresAt: '2026-07-16T00:10:00.000Z',
     }),
+    readFreshCapacity: vi.fn().mockResolvedValue({
+      fence: '77777777-7777-4777-8777-777777777777',
+      generation: '1',
+      lastVerifiedAt: '2026-07-16T00:00:00.000Z',
+      expiresAt: '2026-07-16T00:10:00.000Z',
+      products: [{ masterProductId, currentStock: 5, isActive: true }],
+    }),
   } as unknown as SellpiaInventoryFreshnessGatePort;
   return { catalog, availability, freshness };
 }
@@ -86,7 +94,9 @@ describe('RocketPurchasePreviewService', () => {
       organizationId,
       [channelSkuId],
     );
-    expect(deps.freshness.assertFreshAndActive).toHaveBeenCalledWith({
+    expect((deps.freshness as unknown as {
+      readFreshCapacity: ReturnType<typeof vi.fn>;
+    }).readFreshCapacity).toHaveBeenCalledWith({
       organizationId,
       masterProductIds: [masterProductId],
     });
@@ -118,13 +128,40 @@ describe('RocketPurchasePreviewService', () => {
 
       expect(result.rows[0]?.reason).toBe(blockingReason);
       expect(deps.availability.findByChannelSkuIds).not.toHaveBeenCalled();
-      expect(deps.freshness.assertFreshAndActive).not.toHaveBeenCalled();
+      expect((deps.freshness as unknown as {
+        readFreshCapacity: ReturnType<typeof vi.fn>;
+      }).readFreshCapacity).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['collection_incomplete', 'vendor_mismatch'] as const)(
+    'rejects a positive edited quantity before returning a %s blocked row',
+    async (blockingReason) => {
+      const deps = dependencies();
+      vi.mocked(deps.catalog.publishAndResolve).mockResolvedValue({
+        blockingReason,
+        catalog: null,
+        identities: [],
+      });
+      const service = new RocketPurchasePreviewService(
+        deps.catalog,
+        deps.availability,
+        deps.freshness,
+      );
+      const edited = request();
+      edited.editedQuantities = { [poLineId]: 1 };
+
+      await expect(service.preview({ organizationId, userId, request: edited }))
+        .rejects.toBeInstanceOf(BadRequestException);
+      expect(deps.availability.findByChannelSkuIds).not.toHaveBeenCalled();
     },
   );
 
   it('surfaces stale inventory before returning any capacity recommendation', async () => {
     const deps = dependencies();
-    vi.mocked(deps.freshness.assertFreshAndActive).mockRejectedValue(
+    vi.mocked((deps.freshness as unknown as {
+      readFreshCapacity: ReturnType<typeof vi.fn>;
+    }).readFreshCapacity).mockRejectedValue(
       new AppException(409, 'SELLPIA_SYNC_REQUIRED', 'fresh snapshot required'),
     );
     const service = new RocketPurchasePreviewService(
@@ -135,6 +172,32 @@ describe('RocketPurchasePreviewService', () => {
 
     await expect(service.preview({ organizationId, userId, request: request() }))
       .rejects.toMatchObject({ code: 'SELLPIA_SYNC_REQUIRED' });
+  });
+
+  it('allocates from the gated generation when stock refreshes after availability read', async () => {
+    const deps = dependencies();
+    vi.mocked((deps.freshness as unknown as {
+      readFreshCapacity: ReturnType<typeof vi.fn>;
+    }).readFreshCapacity).mockResolvedValue({
+      fence: '88888888-8888-4888-8888-888888888888',
+      generation: '2',
+      lastVerifiedAt: '2026-07-16T00:01:00.000Z',
+      expiresAt: '2026-07-16T00:11:00.000Z',
+      products: [{ masterProductId, currentStock: 0, isActive: true }],
+    });
+    const service = new RocketPurchasePreviewService(
+      deps.catalog,
+      deps.availability,
+      deps.freshness,
+    );
+
+    const result = await service.preview({ organizationId, userId, request: request() });
+
+    expect(result.rows[0]).toMatchObject({
+      maxQuantity: 0,
+      recommendedQuantity: 0,
+      reason: 'insufficient_capacity',
+    });
   });
 
   it('contains no commitment, provider, workbook, attempt, or inventory mutation lane', () => {

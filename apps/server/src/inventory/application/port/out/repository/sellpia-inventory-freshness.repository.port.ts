@@ -46,7 +46,7 @@ export interface SellpiaInventoryFreshnessRepositoryTransaction {
 
   findMasterProducts(
     masterProductIds: string[],
-  ): Promise<Array<{ id: string; isActive: boolean }>>;
+  ): Promise<Array<{ id: string; isActive: boolean; currentStock: number }>>;
 }
 
 export interface SellpiaInventoryFreshnessRepositoryPort {

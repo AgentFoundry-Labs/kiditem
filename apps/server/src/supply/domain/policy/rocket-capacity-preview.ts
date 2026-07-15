@@ -1,8 +1,19 @@
-import { BadRequestException } from '@nestjs/common';
 import type {
   RocketPurchasePreviewComponent,
   RocketPurchasePreviewReason,
 } from '@kiditem/shared/rocket-purchase-preview';
+
+export class RocketPreviewQuantityExceededError extends Error {
+  override readonly name = 'RocketPreviewQuantityExceededError';
+
+  constructor(
+    readonly poLineId: string,
+    readonly editedQuantity: number,
+    readonly maxQuantity: number,
+  ) {
+    super(`Edited quantity for ${poLineId} exceeds remaining component capacity`);
+  }
+}
 
 export type RocketCapacityPreviewInputRow = {
   poLineId: string;
@@ -54,20 +65,18 @@ function allocateRow(
 ): RocketCapacityPreviewRow {
   const editedQuantity = editedQuantities[row.poLineId] ?? null;
   if (!row.channelSkuId || row.components.length === 0) {
+    assertRocketPreviewEditedQuantity(row.poLineId, editedQuantity, 0);
     return result(row, editedQuantity, 0, 0, 'mapping_required');
   }
   if (row.components.some(({ isActive }) => !isActive)) {
+    assertRocketPreviewEditedQuantity(row.poLineId, editedQuantity, 0);
     return result(row, editedQuantity, 0, 0, 'component_inactive');
   }
 
   const maxQuantity = Math.min(...row.components.map((component) => Math.floor(
     (remainingStock.get(component.masterProductId) ?? 0) / component.quantity,
   )));
-  if (editedQuantity !== null && editedQuantity > maxQuantity) {
-    throw new BadRequestException(
-      `Edited quantity for ${row.poLineId} exceeds remaining component capacity`,
-    );
-  }
+  assertRocketPreviewEditedQuantity(row.poLineId, editedQuantity, maxQuantity);
   const recommendedQuantity = editedQuantity ?? Math.min(row.orderQuantity, maxQuantity);
   for (const component of row.components) {
     remainingStock.set(
@@ -85,6 +94,20 @@ function allocateRow(
       ? 'insufficient_capacity'
       : null,
   );
+}
+
+export function assertRocketPreviewEditedQuantity(
+  poLineId: string,
+  editedQuantity: number | null,
+  maxQuantity: number,
+): void {
+  if (editedQuantity !== null && editedQuantity > maxQuantity) {
+    throw new RocketPreviewQuantityExceededError(
+      poLineId,
+      editedQuantity,
+      maxQuantity,
+    );
+  }
 }
 
 function result(

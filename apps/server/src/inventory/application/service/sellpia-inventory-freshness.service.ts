@@ -232,6 +232,57 @@ implements
     organizationId: string;
     masterProductIds: string[];
   }): Promise<{ fence: string; lastVerifiedAt: string; expiresAt: string }> {
+    const snapshot = await this.readFreshProducts(input);
+    if (snapshot.products.some((product) => !product.isActive)) {
+      throw new AppException(
+        422,
+        ErrorCodes.PURCHASE.ITEM_INACTIVE,
+        'A purchase item is inactive in the Sellpia inventory snapshot.',
+      );
+    }
+    return freshnessMetadata(snapshot.state);
+  }
+
+  async readFreshCapacity(input: {
+    organizationId: string;
+    masterProductIds: string[];
+  }): Promise<{
+    fence: string;
+    generation: string;
+    lastVerifiedAt: string;
+    expiresAt: string;
+    products: Array<{
+      masterProductId: string;
+      currentStock: number;
+      isActive: boolean;
+    }>;
+  }> {
+    const snapshot = await this.readFreshProducts(input);
+    const metadata = freshnessMetadata(snapshot.state);
+    if (snapshot.state.verifiedGeneration === null) throw syncRequired();
+    const byId = new Map(snapshot.products.map((product) => [product.id, product]));
+    return {
+      ...metadata,
+      generation: snapshot.state.verifiedGeneration.toString(),
+      products: snapshot.masterProductIds.map((masterProductId) => {
+        const product = byId.get(masterProductId)!;
+        return {
+          masterProductId,
+          currentStock: product.currentStock,
+          isActive: product.isActive,
+        };
+      }),
+    };
+  }
+
+  private readFreshProducts(input: {
+    organizationId: string;
+    masterProductIds: string[];
+  }): Promise<{
+    state: SellpiaInventoryFreshnessState;
+    masterProductIds: string[];
+    products: Array<{ id: string; isActive: boolean; currentStock: number }>;
+  }> {
     if (
       input.masterProductIds.length === 0
       || input.masterProductIds.some((id) => !isUuid(id))
@@ -254,27 +305,13 @@ implements
           && state.refreshRequestedAt > state.lastVerifiedAt
         )
       ) {
-        throw new AppException(
-          409,
-          ErrorCodes.INVENTORY.SELLPIA_SYNC_REQUIRED,
-          'A fresh Sellpia inventory snapshot is required before purchase.',
-        );
-      }
-
-      if (products.some((product) => !product.isActive)) {
-        throw new AppException(
-          422,
-          ErrorCodes.PURCHASE.ITEM_INACTIVE,
-          'A purchase item is inactive in the Sellpia inventory snapshot.',
-        );
+        throw syncRequired();
       }
 
       return {
-        fence: state.freshnessFence,
-        lastVerifiedAt: state.lastVerifiedAt.toISOString(),
-        expiresAt: new Date(
-          state.lastVerifiedAt.getTime() + SELLPIA_FRESHNESS_TTL_MS,
-        ).toISOString(),
+        state,
+        masterProductIds,
+        products,
       };
     });
   }
@@ -297,6 +334,25 @@ implements
       operation,
     );
   }
+}
+
+function freshnessMetadata(state: SellpiaInventoryFreshnessState) {
+  if (state.lastVerifiedAt === null) throw syncRequired();
+  return {
+    fence: state.freshnessFence,
+    lastVerifiedAt: state.lastVerifiedAt.toISOString(),
+    expiresAt: new Date(
+      state.lastVerifiedAt.getTime() + SELLPIA_FRESHNESS_TTL_MS,
+    ).toISOString(),
+  };
+}
+
+function syncRequired(): AppException {
+  return new AppException(
+    409,
+    ErrorCodes.INVENTORY.SELLPIA_SYNC_REQUIRED,
+    'A fresh Sellpia inventory snapshot is required before purchase.',
+  );
 }
 
 function expectation(

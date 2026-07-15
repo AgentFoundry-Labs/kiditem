@@ -576,6 +576,34 @@ describe('SellpiaInventoryFreshnessService', () => {
     });
     expect(repository.lastMasterProductIds).toEqual([MASTER_ID]);
   });
+
+  it('reads component stock under the same Inventory-owned freshness lock', async () => {
+    repository.seedState({
+      sourceAccountKey: 'kiditem',
+      lastVerifiedAt: new Date('2026-07-14T23:59:00.000Z'),
+      verifiedGeneration: 7n,
+      freshnessFence: '00000000-0000-4000-8000-000000000207',
+    });
+    repository.seedMaster(ORG_ID, MASTER_ID, true, 7);
+    const capacityReader = service as unknown as {
+      readFreshCapacity(input: {
+        organizationId: string;
+        masterProductIds: string[];
+      }): Promise<unknown>;
+    };
+
+    expect(typeof capacityReader.readFreshCapacity).toBe('function');
+    await expect(capacityReader.readFreshCapacity({
+      organizationId: ORG_ID,
+      masterProductIds: [MASTER_ID, MASTER_ID],
+    })).resolves.toEqual({
+      fence: '00000000-0000-4000-8000-000000000207',
+      generation: '7',
+      lastVerifiedAt: '2026-07-14T23:59:00.000Z',
+      expiresAt: '2026-07-15T00:09:00.000Z',
+      products: [{ masterProductId: MASTER_ID, currentStock: 7, isActive: true }],
+    });
+  });
 });
 
 async function expectCode(promise: Promise<unknown>, code: string) {
@@ -591,7 +619,10 @@ async function expectCode(promise: Promise<unknown>, code: string) {
 class MemoryFreshnessRepository
 implements SellpiaInventoryFreshnessRepositoryPort {
   private readonly states = new Map<string, SellpiaInventoryFreshnessState>();
-  private readonly masters = new Map<string, Map<string, boolean>>();
+  private readonly masters = new Map<
+    string,
+    Map<string, { isActive: boolean; currentStock: number }>
+  >();
   private tail: Promise<void> = Promise.resolve();
   initializeCount = 0;
   lockCount = 0;
@@ -642,9 +673,14 @@ implements SellpiaInventoryFreshnessRepositoryPort {
     });
   }
 
-  seedMaster(organizationId: string, id: string, isActive: boolean) {
+  seedMaster(
+    organizationId: string,
+    id: string,
+    isActive: boolean,
+    currentStock = 0,
+  ) {
     const byOrganization = this.masters.get(organizationId) ?? new Map();
-    byOrganization.set(id, isActive);
+    byOrganization.set(id, { isActive, currentStock });
     this.masters.set(organizationId, byOrganization);
   }
 
@@ -696,8 +732,8 @@ implements SellpiaInventoryFreshnessRepositoryPort {
     this.lastMasterProductIds = ids;
     const byOrganization = this.masters.get(organizationId) ?? new Map();
     return ids.flatMap((id) => {
-      const isActive = byOrganization.get(id);
-      return isActive === undefined ? [] : [{ id, isActive }];
+      const product = byOrganization.get(id);
+      return product === undefined ? [] : [{ id, ...product }];
     });
   }
 }

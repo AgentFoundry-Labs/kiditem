@@ -2,8 +2,11 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { z } from 'zod';
+import { ChannelAccountListItemSchema } from '@kiditem/shared/channel-account';
 import { RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
+import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import CreateOrderModal from './components/CreateOrderModal';
@@ -11,17 +14,31 @@ import { PurchaseOrderHeader } from './components/PurchaseOrderHeader';
 import { PurchaseOrderKpiCards } from './components/PurchaseOrderKpiCards';
 import { PurchaseOrderFilterTabs } from './components/PurchaseOrderFilterTabs';
 import { PurchaseOrderTable } from './components/PurchaseOrderTable';
+import { RocketPurchaseWorkspace } from './components/RocketPurchaseWorkspace';
 import { purchaseOrdersApi } from './lib/purchase-orders-api';
 import { usePurchaseOrderSubmission } from './hooks/usePurchaseOrderSubmission';
+
+const ChannelAccountListSchema = z.array(ChannelAccountListItemSchema);
 
 export default function PurchaseOrdersPage() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [selectedRocketAccountId, setSelectedRocketAccountId] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const PAGE_SIZE = 20;
   const submission = usePurchaseOrderSubmission();
+
+  const rocketAccountsQuery = useQuery({
+    queryKey: queryKeys.channelAccounts.active(),
+    queryFn: () => apiClient.getParsed('/api/channels/accounts', ChannelAccountListSchema),
+  });
+  const rocketAccounts = (rocketAccountsQuery.data ?? [])
+    .filter((account) => account.channel === 'rocket');
+  const selectedRocketAccount = rocketAccounts.find(
+    ({ id }) => id === selectedRocketAccountId,
+  ) ?? rocketAccounts[0] ?? null;
 
   const { data: orderData, isLoading: loading, isFetching, error: queryError } = useQuery({
     queryKey: queryKeys.purchaseOrders.list({ page: String(page), filter }),
@@ -127,6 +144,36 @@ export default function PurchaseOrdersPage() {
         onRefresh={refreshData}
         onCreateOrder={() => setShowCreateModal(true)}
       />
+      <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+        <div>
+          <h2 className="font-bold text-slate-900">쿠팡 로켓 발주 미리보기</h2>
+          <p className="text-sm text-slate-500">
+            활성 로켓 계정을 선택하고 Sellpia 최신 재고 기준 검토수량을 계산합니다.
+          </p>
+        </div>
+        {selectedRocketAccount ? (
+          <>
+            <label className="block max-w-md space-y-1 text-sm font-semibold text-slate-600">
+              <span>로켓 채널 계정</span>
+              <select
+                aria-label="로켓 채널 계정"
+                value={selectedRocketAccount.id}
+                onChange={(event) => setSelectedRocketAccountId(event.target.value)}
+                className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
+              >
+                {rocketAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>{account.name}</option>
+                ))}
+              </select>
+            </label>
+            <RocketPurchaseWorkspace channelAccountId={selectedRocketAccount.id} />
+          </>
+        ) : rocketAccountsQuery.isLoading ? (
+          <p className="text-sm text-slate-500">로켓 계정을 불러오는 중입니다.</p>
+        ) : (
+          <p className="text-sm text-amber-700">활성 로켓 채널 계정이 없습니다.</p>
+        )}
+      </section>
       {isRefreshing && (
         <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm" aria-live="polite">
           <RefreshCw size={14} className="animate-spin text-purple-600" />
