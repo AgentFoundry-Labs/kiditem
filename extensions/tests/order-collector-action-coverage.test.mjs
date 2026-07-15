@@ -96,10 +96,12 @@ test('every automatic collector explicitly attaches its inactive tab to its own 
   }
 });
 
-test('order worker imports session lifecycle and exposes all generic controls', () => {
+test('order worker imports session lifecycle and focused Sellpia inventory producer before dispatch', () => {
   const worker = readFileSync(workerPath, 'utf8');
-  assert.match(worker, /importScripts\([\s\S]*collection-session\.js[\s\S]*interactive-tabs\.js[\s\S]*order-collection-lifecycle\.js/);
+  assert.match(worker, /importScripts\([\s\S]*collection-session\.js[\s\S]*interactive-tabs\.js[\s\S]*order-collection-lifecycle\.js[\s\S]*sellpia-inventory\.js/);
   assert.match(worker, /browserCollectionSessions:\s*true/);
+  assert.match(worker, /collectSellpiaInventory:\s*true/);
+  assert.match(worker, /msg\?\.action === ["']collectSellpiaInventory["']/);
   for (const action of [
     'listCollectionSessions',
     'getCollectionSession',
@@ -111,10 +113,11 @@ test('order worker imports session lifecycle and exposes all generic controls', 
   }
 });
 
-test('order collector manifest enables persisted sessions at version 0.1.65', () => {
+test('order collector manifest enables Sellpia inventory sessions at version 0.1.66', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  assert.equal(manifest.version, '0.1.65');
+  assert.equal(manifest.version, '0.1.66');
   assert.ok(manifest.permissions.includes('storage'));
+  assert.ok(manifest.host_permissions.includes('https://*.sellpia.com/*'));
 });
 
 test('every web automatic order message carries its local runId explicitly', () => {

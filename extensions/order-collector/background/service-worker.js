@@ -2,6 +2,7 @@ importScripts(
   "collection-session.js",
   "interactive-tabs.js",
   "order-collection-lifecycle.js",
+  "sellpia-inventory.js",
 );
 
 const KIDITEM_WEB_URL_PATTERNS = ["http://localhost:3000/*"];
@@ -12,10 +13,51 @@ const collectionSessions = KidItemCollectionSession.create({
 });
 const orderCollectionLifecycle = KidItemOrderCollectionLifecycle.create({
   sessions: collectionSessions,
-  isAttentionError: isMallAccessError,
+  producer: "orders.mall",
+  classification: "background_preferred",
+  restartStrategy: "web",
+  classifyFailure(value) {
+    const error = value?.error || value;
+    return value?.pendingLogin === true || isMallAccessError(error)
+      ? "marketplace_login"
+      : null;
+  },
 });
+const sellpiaInventoryLifecycle = KidItemOrderCollectionLifecycle.create({
+  sessions: collectionSessions,
+  producer: "inventory.sellpia",
+  classification: "background_preferred",
+  restartStrategy: "extension",
+  requireRunId: true,
+  deferredLabel: "Sellpia workbook downloaded · import in progress",
+  failedLabel: "Sellpia inventory import failed",
+  succeededLabel: "Sellpia inventory import completed",
+  classifyFailure(value) {
+    if (value?.errorCode === "sellpia_login_required") return "marketplace_login";
+    if (value?.errorCode === "sellpia_background_timeout") return "background_timeout";
+    return null;
+  },
+});
+const sellpiaInventory = KidItemSellpiaInventory.create({ chrome });
 const interactiveTabs = KidItemInteractiveTabs.create({ chrome });
 const INTERACTIVE_TAB_REASONS = KidItemInteractiveTabs.reasons;
+
+async function lifecycleForRun(runId) {
+  const session = await collectionSessions.get(runId);
+  if (session?.producer === "inventory.sellpia") return sellpiaInventoryLifecycle;
+  if (session?.producer === "orders.mall") return orderCollectionLifecycle;
+  return null;
+}
+
+async function cancelCollectionSession(runId) {
+  const lifecycle = await lifecycleForRun(runId);
+  return lifecycle ? lifecycle.cancel(runId) : null;
+}
+
+async function finalizeCollectionSession(runId, status, message) {
+  const lifecycle = await lifecycleForRun(runId);
+  return lifecycle ? lifecycle.finalize(runId, status, message) : null;
+}
 
 const ICECREAM_MALL_URL = "https://po.i-screammall.co.kr/main.do";
 const ICECREAM_MALL_TAB_MATCHES = [
@@ -128,7 +170,7 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
     return respond(collectionSessions.get(msg.runId));
   }
   if (msg?.action === "cancelCollectionSession") {
-    return respond(orderCollectionLifecycle.cancel(msg.runId));
+    return respond(cancelCollectionSession(msg.runId));
   }
   if (msg?.action === "openCollectionAttentionTab") {
     return respond(collectionSessions.openAttentionTab(msg.runId));
@@ -141,7 +183,7 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
     if (!status || typeof msg.message !== "string" || msg.message.length < 1 || msg.message.length > 300) {
       return respond(Promise.reject(new Error("Invalid collection finalization")));
     }
-    return respond(orderCollectionLifecycle.finalize(msg.runId, status, msg.message));
+    return respond(finalizeCollectionSession(msg.runId, status, msg.message));
   }
 
   if (msg?.action === "ping") {
@@ -157,12 +199,24 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
         listRocketPos: true,
         collectKakaoOrders: true,
         collectSellpiaDeliTracking: true,
+        collectSellpiaInventory: true,
         browserCollectionSessions: true,
         uploadDomeggookTracking: true,
         uploadOnchTracking: true,
       },
     });
     return false;
+  }
+
+  if (msg?.action === "collectSellpiaInventory") {
+    return respond(sellpiaInventoryLifecycle.run(
+      msg,
+      {
+        sourceOrigin: "https://kiditem.sellpia.com",
+        sourceAccountKey: "kiditem",
+      },
+      (collection) => sellpiaInventory.collect(collection),
+    ));
   }
 
   if (msg?.action === "collectSellpiaDeliTracking") {

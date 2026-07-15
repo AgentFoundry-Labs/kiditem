@@ -33,6 +33,9 @@ const expectedLegacyFiles = [
   'apps/web/src/app/(advertising)/ad-ops/hooks/useAdSync.ts',
   'apps/web/src/app/(analytics)/dashboard/page.tsx',
 ];
+const automaticFocusSafeFiles = [
+  'extensions/order-collector/background/sellpia-inventory.js',
+];
 
 function countFocusTokens(source) {
   return focusTokens.reduce(
@@ -58,5 +61,12 @@ test('legacy automatic collector focus counts never increase', () => {
       actual <= limit,
       `${relativePath} has ${actual} focus tokens, exceeding its limit of ${limit}`,
     );
+  }
+});
+
+test('new automatic collectors contain no focus-changing primitives', () => {
+  for (const relativePath of automaticFocusSafeFiles) {
+    const source = fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
+    assert.equal(countFocusTokens(source), 0, relativePath);
   }
 });
