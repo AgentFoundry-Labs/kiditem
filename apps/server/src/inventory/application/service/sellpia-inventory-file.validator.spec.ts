@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { deflateRawSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
 import { SellpiaInventoryFileValidator } from './sellpia-inventory-file.validator';
@@ -50,7 +51,132 @@ describe('SellpiaInventoryFileValidator', () => {
       mimeType: 'application/vnd.ms-excel',
     })).toThrow(BadRequestException);
   });
+
+  it('rejects an arbitrary ZIP that is not an XLSX package', () => {
+    expect(() => validator.validate({
+      buffer: zipBuffer([{ name: 'hello.txt' }]),
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })).toThrow(BadRequestException);
+  });
+
+  it('rejects an XLSX ZIP entry whose declared expansion exceeds the per-entry limit', () => {
+    expect(() => validator.validate({
+      buffer: zipBuffer(xlsxPackageEntries({
+        worksheetUncompressedSize: 32 * 1024 * 1024 + 1,
+      })),
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })).toThrow(BadRequestException);
+  });
+
+  it('rejects an XLSX ZIP whose aggregate declared expansion exceeds the total limit', () => {
+    expect(() => validator.validate({
+      buffer: zipBuffer(xlsxPackageEntries({
+        worksheetUncompressedSize: 24 * 1024 * 1024,
+        extraEntries: [
+          { name: 'xl/sharedStrings.xml', uncompressedSize: 24 * 1024 * 1024 },
+          { name: 'xl/styles.xml', uncompressedSize: 24 * 1024 * 1024 },
+        ],
+      })),
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })).toThrow(BadRequestException);
+  });
+
+  it('rejects a deflate entry whose actual expansion exceeds its declared size', () => {
+    expect(() => validator.validate({
+      buffer: zipBuffer(xlsxPackageEntries({
+        extraEntries: [{
+          name: 'xl/sharedStrings.xml',
+          content: Buffer.alloc(1024 * 1024),
+          compressionMethod: 8,
+          uncompressedSize: 1,
+        }],
+      })),
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })).toThrow(BadRequestException);
+  });
+
+  it('rejects an XLSX ZIP with an excessive entry count', () => {
+    expect(() => validator.validate({
+      buffer: zipBuffer(xlsxPackageEntries({
+        extraEntries: Array.from({ length: 252 }, (_, index) => ({
+          name: `xl/media/empty-${index}.bin`,
+        })),
+      })),
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })).toThrow(BadRequestException);
+  });
+
+  it('keeps the compressed upload envelope bounded at 10 MiB', () => {
+    expect(() => validator.validate({
+      buffer: Buffer.concat([Buffer.from('d0cf11e0a1b11ae1', 'hex'), Buffer.alloc(10 * 1024 * 1024)]),
+      mimeType: 'application/vnd.ms-excel',
+    })).toThrow(BadRequestException);
+  });
 });
+
+type ZipEntry = {
+  name: string;
+  uncompressedSize?: number;
+  content?: Buffer;
+  compressionMethod?: 0 | 8;
+};
+
+function xlsxPackageEntries(input: {
+  worksheetUncompressedSize?: number;
+  extraEntries?: ZipEntry[];
+} = {}): ZipEntry[] {
+  return [
+    { name: '[Content_Types].xml' },
+    { name: '_rels/.rels' },
+    { name: 'xl/workbook.xml' },
+    { name: 'xl/_rels/workbook.xml.rels' },
+    {
+      name: 'xl/worksheets/sheet1.xml',
+      uncompressedSize: input.worksheetUncompressedSize,
+    },
+    ...(input.extraEntries ?? []),
+  ];
+}
+
+function zipBuffer(entries: ZipEntry[]): Buffer {
+  const localParts: Buffer[] = [];
+  const centralParts: Buffer[] = [];
+  let localOffset = 0;
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name);
+    const content = entry.content ?? Buffer.alloc(0);
+    const compressionMethod = entry.compressionMethod ?? 0;
+    const compressed = compressionMethod === 8 ? deflateRawSync(content) : content;
+    const uncompressedSize = entry.uncompressedSize ?? content.length;
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(compressionMethod, 8);
+    local.writeUInt32LE(compressed.length, 18);
+    local.writeUInt32LE(uncompressedSize, 22);
+    local.writeUInt16LE(name.length, 26);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(compressionMethod, 10);
+    central.writeUInt32LE(compressed.length, 20);
+    central.writeUInt32LE(uncompressedSize, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt32LE(localOffset, 42);
+    localParts.push(local, name, compressed);
+    centralParts.push(central, name);
+    localOffset += local.length + name.length + compressed.length;
+  }
+  const centralDirectory = Buffer.concat(centralParts);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(centralDirectory.length, 12);
+  end.writeUInt32LE(localOffset, 16);
+  return Buffer.concat([...localParts, centralDirectory, end]);
+}
 
 function xlsxBuffer(): Buffer {
   const workbook = XLSX.utils.book_new();

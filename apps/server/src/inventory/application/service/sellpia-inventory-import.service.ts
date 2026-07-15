@@ -52,38 +52,13 @@ export class SellpiaInventoryImportService implements SellpiaInventoryImportPort
     }
 
     const execution = publicationExecution(input, claim);
+    let parsed: ReturnType<typeof parseSellpiaInventoryWorkbook>;
     try {
       this.fileValidator.validate({
         buffer: input.file.buffer,
         mimeType: input.file.mimeType,
       });
-      const parsed = parseSellpiaInventoryWorkbook(input.file.buffer);
-
-      if (claim.kind === 'completed') {
-        return await this.publication.verifySameHash({
-          organizationId: input.organizationId,
-          userId: input.userId,
-          runId: claim.runId,
-          fileHash,
-          execution,
-        });
-      }
-
-      const confirmedReferencedProductCodes =
-        await this.references.listReferencedSellpiaProductCodes(
-          input.organizationId,
-        );
-      return await this.publication.publishSnapshot({
-        organizationId: input.organizationId,
-        userId: input.userId,
-        runId: claim.runId,
-        attemptToken: claim.attemptToken,
-        fileHash,
-        execution,
-        rows: parsed.rows,
-        qualityFacts: parsed.qualityFacts,
-        confirmedReferencedProductCodes,
-      });
+      parsed = parseSellpiaInventoryWorkbook(input.file.buffer);
     } catch (error) {
       if (claim.kind === 'started') {
         try {
@@ -102,6 +77,34 @@ export class SellpiaInventoryImportService implements SellpiaInventoryImportPort
       }
       throw error;
     }
+
+    if (claim.kind === 'completed') {
+      return this.publication.verifySameHash({
+        organizationId: input.organizationId,
+        userId: input.userId,
+        runId: claim.runId,
+        fileHash,
+        execution,
+      });
+    }
+
+    // Confirmed references affect warning evidence only. Publication integrity
+    // and hard quality thresholds do not depend on this pre-transaction read.
+    const confirmedReferencedProductCodes =
+      await this.references.listReferencedSellpiaProductCodes(
+        input.organizationId,
+      );
+    return this.publication.publishSnapshot({
+      organizationId: input.organizationId,
+      userId: input.userId,
+      runId: claim.runId,
+      attemptToken: claim.attemptToken,
+      fileHash,
+      execution,
+      rows: parsed.rows,
+      qualityFacts: parsed.qualityFacts,
+      confirmedReferencedProductCodes,
+    });
   }
 }
 

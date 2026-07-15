@@ -184,6 +184,16 @@ export function planRefreshRequest(
     : state.requestedGeneration;
 
   if (reason === 'order_transmission_requested') {
+    if (
+      !advancesGeneration
+      && state.refreshReason === 'same_hash_confirmation'
+    ) {
+      return {
+        requestedGeneration,
+        failedGeneration: state.failedGeneration,
+        freshnessFence,
+      };
+    }
     const isJoiningPendingOrder = !advancesGeneration
       && state.refreshReason === 'order_transmission_requested'
       && state.refreshRequestedAt !== null;

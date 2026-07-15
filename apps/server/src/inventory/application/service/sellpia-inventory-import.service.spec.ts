@@ -181,6 +181,37 @@ describe('SellpiaInventoryImportService', () => {
     }));
   });
 
+  it('leaves a reference database failure non-terminal so the generation lease can be retried', async () => {
+    const { service, repository, publication, references } = makeService();
+    const referenceFailure = new Error('reference database unavailable');
+    repository.claimFileRun.mockResolvedValue({
+      kind: 'started',
+      runId: RUN_ID,
+      attemptToken: ATTEMPT_TOKEN,
+    });
+    references.listReferencedSellpiaProductCodes.mockRejectedValue(referenceFailure);
+
+    await expect(service.importInventory(browserInput)).rejects.toBe(referenceFailure);
+
+    expect(repository.markRunFailed).not.toHaveBeenCalled();
+    expect(publication.publishSnapshot).not.toHaveBeenCalled();
+  });
+
+  it('leaves a publication infrastructure failure non-terminal for fenced retry', async () => {
+    const { service, repository, publication } = makeService();
+    const publicationFailure = new Error('publication transaction timed out');
+    repository.claimFileRun.mockResolvedValue({
+      kind: 'started',
+      runId: RUN_ID,
+      attemptToken: ATTEMPT_TOKEN,
+    });
+    publication.publishSnapshot.mockRejectedValue(publicationFailure);
+
+    await expect(service.importInventory(browserInput)).rejects.toBe(publicationFailure);
+
+    expect(repository.markRunFailed).not.toHaveBeenCalled();
+  });
+
   it('rejects a coalesced running file without parsing or publishing it', async () => {
     const { service, repository, publication } = makeService();
     repository.claimFileRun.mockResolvedValue({ kind: 'running' });

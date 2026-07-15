@@ -3,9 +3,11 @@ import { ConflictException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import { ConfirmedChannelComponentReferenceRepositoryAdapter } from '../adapter/out/repository/confirmed-channel-component-reference.repository.adapter';
+import { SellpiaInventoryFreshnessRepositoryAdapter } from '../adapter/out/repository/sellpia-inventory-freshness.repository.adapter';
 import { SellpiaImportRunRepositoryAdapter } from '../adapter/out/repository/sellpia-import-run.repository.adapter';
 import { SellpiaSnapshotPublicationRepositoryAdapter } from '../adapter/out/repository/sellpia-snapshot-publication.repository.adapter';
 import { SellpiaInventoryFileValidator } from '../application/service/sellpia-inventory-file.validator';
+import { SellpiaInventoryFreshnessService } from '../application/service/sellpia-inventory-freshness.service';
 import { SellpiaInventoryImportService } from '../application/service/sellpia-inventory-import.service';
 import { parseSellpiaInventoryWorkbook } from '../application/service/sellpia-inventory-workbook.parser';
 import type { SellpiaImportExecution } from '../application/port/in/stock/sellpia-inventory-import.port';
@@ -23,6 +25,7 @@ describe('Sellpia unified import repositories (PG integration)', () => {
   let runRepository: SellpiaImportRunRepositoryAdapter;
   let publication: SellpiaSnapshotPublicationRepositoryAdapter;
   let service: SellpiaInventoryImportService;
+  let freshnessService: SellpiaInventoryFreshnessService;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -30,6 +33,9 @@ describe('Sellpia unified import repositories (PG integration)', () => {
     const prismaService = prisma as unknown as PrismaService;
     runRepository = new SellpiaImportRunRepositoryAdapter(prismaService);
     publication = new SellpiaSnapshotPublicationRepositoryAdapter(prismaService);
+    freshnessService = new SellpiaInventoryFreshnessService(
+      new SellpiaInventoryFreshnessRepositoryAdapter(prismaService),
+    );
     service = new SellpiaInventoryImportService(
       runRepository,
       publication,
@@ -118,6 +124,97 @@ describe('Sellpia unified import repositories (PG integration)', () => {
     expect(after).toEqual(before);
     expect(await prisma.sourceImportRun.count()).toBe(1);
     expect(state).toMatchObject({ verifiedGeneration: 3n, requestedGeneration: 3n });
+  });
+
+  it('keeps a scheduled confirmation authoritative when an order arrives before execution', async () => {
+    const bytes = workbook([row('SP-BOUNDED', 7)]);
+    await service.importInventory(browserInput(
+      bytes,
+      await activateGeneration(1n, 'initial_snapshot'),
+    ));
+    await service.importInventory(browserInput(
+      bytes,
+      await activateGeneration(2n, 'order_transmission_requested'),
+    ));
+    const scheduled = await prisma.sellpiaInventoryState.findUniqueOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    });
+
+    await freshnessService.requestRefresh({
+      organizationId: TEST_ORGANIZATION_ID,
+      reason: 'order_transmission_requested',
+    });
+    const coalesced = await prisma.sellpiaInventoryState.findUniqueOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    });
+    expect(coalesced).toMatchObject({
+      requestedGeneration: 3n,
+      refreshRequestedAt: scheduled.refreshRequestedAt,
+      refreshReason: 'same_hash_confirmation',
+      syncNotBefore: scheduled.syncNotBefore,
+    });
+
+    await prisma.sellpiaInventoryState.update({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      data: { syncNotBefore: new Date(Date.now() - 1) },
+    });
+    const claim = await freshnessService.claimDue({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+    });
+    if (!claim.claimed) throw new Error('Expected confirmation generation claim');
+
+    const verified = await service.importInventory(browserInput(bytes, {
+      kind: 'browser',
+      claimToken: claim.claimToken,
+      activeGeneration: claim.activeGeneration,
+      trigger: 'order_transmission_requested',
+      sourceOrigin: 'https://kiditem.sellpia.com',
+      sourceAccountKey: 'kiditem',
+    }));
+    const finalState = await prisma.sellpiaInventoryState.findUniqueOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    });
+
+    expect(verified.outcome).toBe('same_hash_verified');
+    expect(finalState).toMatchObject({
+      requestedGeneration: 3n,
+      verifiedGeneration: 3n,
+      activeGeneration: null,
+    });
+    expect(await prisma.sourceImportRun.count()).toBe(1);
+  });
+
+  it('preserves a newer pending generation when an active order sees the same hash', async () => {
+    const bytes = workbook([row('SP-PENDING-META', 4)]);
+    await service.importInventory(browserInput(
+      bytes,
+      await activateGeneration(1n, 'initial_snapshot'),
+    ));
+    const orderExecution = await activateGeneration(2n, 'order_transmission_requested');
+    const pendingRequestedAt = new Date('2026-07-15T03:00:00.000Z');
+    const pendingNotBefore = new Date('2026-07-15T03:05:00.000Z');
+    await prisma.sellpiaInventoryState.update({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      data: {
+        requestedGeneration: 3n,
+        refreshRequestedAt: pendingRequestedAt,
+        refreshReason: 'purchase_preflight',
+        syncNotBefore: pendingNotBefore,
+      },
+    });
+
+    await service.importInventory(browserInput(bytes, orderExecution));
+
+    expect(await prisma.sellpiaInventoryState.findUniqueOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).toMatchObject({
+      requestedGeneration: 3n,
+      refreshRequestedAt: pendingRequestedAt,
+      refreshReason: 'purchase_preflight',
+      syncNotBefore: pendingNotBefore,
+      activeGeneration: null,
+    });
   });
 
   it('reverifies ordinary browser and manual same-hash files without stock writes', async () => {
@@ -384,6 +481,77 @@ describe('Sellpia unified import repositories (PG integration)', () => {
       errorMessage: 'Sellpia inventory workbook validation failed',
     });
     expect(failed.errorMessage).not.toContain('secret');
+  });
+
+  it('rolls back partial publication writes and permits reclaim after an infrastructure failure', async () => {
+    const initialBytes = workbook([row('SP-ROLLBACK', 8)]);
+    const replacementBytes = workbook([row('SP-ROLLBACK', 9)]);
+    const initial = await service.importInventory(browserInput(
+      initialBytes,
+      await activateGeneration(1n, 'initial_snapshot'),
+    ));
+    const before = await prisma.masterProduct.findMany({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      orderBy: { code: 'asc' },
+    });
+    const execution = await activateGeneration(2n, 'manual_request');
+    const fileHash = sha256(replacementBytes);
+    const claim = await runRepository.claimFileRun({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      fileName: 'sellpia.csv',
+      fileHash,
+      execution,
+    });
+    if (claim.kind !== 'started') throw new Error('Expected replacement run claim');
+    const parsed = parseSellpiaInventoryWorkbook(replacementBytes);
+    const rows = Array.from({ length: 501 }, (_, index) => ({
+      ...parsed.rows[0]!,
+      sellpiaProductCode: index === 0 ? 'SP-ROLLBACK' : `SP-ROLLBACK-${index}`,
+      currentStock: index === 500 ? 2_147_483_648 : 9,
+    }));
+
+    await expect(publication.publishSnapshot({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      runId: claim.runId,
+      attemptToken: claim.attemptToken,
+      fileHash,
+      execution,
+      rows,
+      qualityFacts: parsed.qualityFacts,
+      confirmedReferencedProductCodes: [],
+    })).rejects.toThrow();
+
+    const [afterFailure, stateAfterFailure, runAfterFailure] = await Promise.all([
+      prisma.masterProduct.findMany({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+        orderBy: { code: 'asc' },
+      }),
+      prisma.sellpiaInventoryState.findUniqueOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+      }),
+      prisma.sourceImportRun.findUniqueOrThrow({ where: { id: claim.runId } }),
+    ]);
+    expect(afterFailure).toEqual(before);
+    expect(stateAfterFailure).toMatchObject({
+      lastCompletedImportRunId: initial.run.id,
+      verifiedGeneration: 1n,
+      activeGeneration: 2n,
+      activeSyncToken: execution.claimToken,
+    });
+    expect(runAfterFailure.status).toBe('running');
+
+    await prisma.sellpiaInventoryState.update({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      data: { activeSyncLeaseExpiresAt: new Date(Date.now() - 1) },
+    });
+    const retried = await service.importInventory(manualInput(replacementBytes));
+    expect(retried.outcome).toBe('published');
+    expect(retried.run.id).toBe(claim.runId);
+    expect((await prisma.masterProduct.findUniqueOrThrow({
+      where: { id: before[0]!.id },
+    })).currentStock).toBe(9);
   });
 
   async function activateGeneration(

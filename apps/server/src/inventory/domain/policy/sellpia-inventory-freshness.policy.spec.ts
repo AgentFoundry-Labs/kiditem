@@ -66,6 +66,32 @@ describe('Sellpia inventory freshness policy', () => {
     );
   });
 
+  it('preserves a pending same-hash confirmation when another order coalesces before claim', () => {
+    const confirmationRequestedAt = new Date('2026-07-15T00:01:00.000Z');
+    const confirmationNotBefore = new Date('2026-07-15T00:04:00.000Z');
+    const state = makeState({
+      requestedGeneration: 3n,
+      verifiedGeneration: 1n,
+      refreshRequestedAt: confirmationRequestedAt,
+      refreshReason: 'same_hash_confirmation',
+      syncNotBefore: confirmationNotBefore,
+    });
+
+    const patch = planRefreshRequest(
+      state,
+      'order_transmission_requested',
+      new Date('2026-07-15T00:02:00.000Z'),
+      '00000000-0000-4000-8000-000000000022',
+    );
+
+    expect({ ...state, ...patch }).toMatchObject({
+      requestedGeneration: 3n,
+      refreshRequestedAt: confirmationRequestedAt,
+      refreshReason: 'same_hash_confirmation',
+      syncNotBefore: confirmationNotBefore,
+    });
+  });
+
   it('creates only one follow-up generation while a generation is active', () => {
     const active = makeState({
       requestedGeneration: 2n,

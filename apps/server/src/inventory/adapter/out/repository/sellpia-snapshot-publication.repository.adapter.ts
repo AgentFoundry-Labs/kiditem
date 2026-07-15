@@ -158,8 +158,12 @@ implements SellpiaSnapshotPublicationRepositoryPort {
       }
 
       const now = new Date();
-      if (input.execution.trigger === 'order_transmission_requested') {
-        const nextGeneration = state.requestedGeneration > generation
+      const currentGenerationReason = state.requestedGeneration === generation
+        ? state.refreshReason
+        : null;
+      if (currentGenerationReason === 'order_transmission_requested') {
+        const hasNewerPendingGeneration = state.requestedGeneration > generation;
+        const nextGeneration = hasNewerPendingGeneration
           ? state.requestedGeneration
           : generation + 1n;
         const scheduled = await tx.sourceImportRun.updateMany({
@@ -171,18 +175,23 @@ implements SellpiaSnapshotPublicationRepositoryPort {
             status: 'completed',
           },
           data: {
-            lastTrigger: input.execution.trigger,
+            lastTrigger: currentGenerationReason,
             freshnessGeneration: generation,
           },
         });
         if (scheduled.count !== 1) {
           throw new ConflictException('Sellpia same-hash scheduling lost its run fence');
         }
+        const confirmationRequest = hasNewerPendingGeneration
+          ? {}
+          : {
+              requestedGeneration: nextGeneration,
+              refreshRequestedAt: now,
+              refreshReason: 'same_hash_confirmation',
+              syncNotBefore: new Date(now.getTime() + SAME_HASH_CONFIRMATION_DELAY_MS),
+            };
         await updateStateWithFence(tx, state, input, generation, {
-          requestedGeneration: nextGeneration,
-          refreshRequestedAt: now,
-          refreshReason: 'same_hash_confirmation',
-          syncNotBefore: new Date(now.getTime() + SAME_HASH_CONFIRMATION_DELAY_MS),
+          ...confirmationRequest,
           activeSyncToken: null,
           activeSyncOwnerUserId: null,
           activeSyncStartedAt: null,
@@ -218,7 +227,7 @@ implements SellpiaSnapshotPublicationRepositoryPort {
         data: {
           lastVerifiedAt: now,
           verificationCount: { increment: 1 },
-          lastTrigger: input.execution.trigger,
+          lastTrigger: currentGenerationReason ?? run.lastTrigger,
           freshnessGeneration: generation,
           manualFreshExportConfirmedAt:
             input.execution.kind === 'manual' ? now : run.manualFreshExportConfirmedAt,
