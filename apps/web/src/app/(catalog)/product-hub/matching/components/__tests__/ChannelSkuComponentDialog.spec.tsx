@@ -38,6 +38,7 @@ function component(
     barcode: '8801234567890',
     currentStock: 8,
     purchasePrice: 1500,
+    isActive: true,
     quantity: 1,
     mappingSource: 'manual',
     componentCapacity: 8,
@@ -92,6 +93,7 @@ function item(
       updatedAt: '2026-07-11T00:00:00.000Z',
     },
     components: [component({ quantity: 4 })],
+    warnings: [],
     ...overrides,
   };
 }

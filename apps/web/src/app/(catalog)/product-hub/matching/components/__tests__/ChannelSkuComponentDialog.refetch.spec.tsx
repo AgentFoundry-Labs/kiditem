@@ -54,12 +54,14 @@ const target: ChannelSkuMappingListItem = {
       barcode: null,
       currentStock: 4,
       purchasePrice: 1000,
+      isActive: true,
       quantity: 2,
       mappingSource: 'manual',
       componentCapacity: 2,
       isBottleneck: true,
     },
   ],
+  warnings: [],
 };
 
 function candidateResponse(

@@ -40,12 +40,14 @@ const item: ChannelSkuMappingListItem = {
       barcode: '8801234567890',
       currentStock: 8,
       purchasePrice: 1500,
+      isActive: true,
       quantity: 4,
       mappingSource: 'manual',
       componentCapacity: 2,
       isBottleneck: true,
     },
   ],
+  warnings: [],
 };
 
 describe('MappingStatusTabs', () => {

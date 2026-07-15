@@ -15,6 +15,8 @@ import type {
 
 const QUEUE_SOURCE_TYPE = 'coupang_wing_catalog';
 const REPLACEMENT_TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
+const INVALID_MASTER_COMPONENT_MESSAGE =
+  'MasterProduct component is missing or belongs to another organization';
 
 function mappingRowSelect(organizationId: string) {
   return {
@@ -400,6 +402,11 @@ implements ChannelSkuMappingRepositoryPort {
 
       const matched = eligible.filter((update) => update.component !== undefined);
       if (matched.length > 0) {
+        await lockActiveMasterProducts(
+          tx,
+          organizationId,
+          matched.map((update) => update.component!.masterProductId),
+        );
         await tx.channelSkuComponent.createMany({
           data: matched.map((update) => ({
             organizationId,
@@ -461,6 +468,11 @@ implements ChannelSkuMappingRepositoryPort {
           throw new NotFoundException('ChannelSku mapping was not found');
         }
 
+        await lockActiveMasterProducts(
+          tx,
+          input.organizationId,
+          input.components.map(({ masterProductId }) => masterProductId),
+        );
         await tx.channelSkuComponent.deleteMany({
           where: {
             organizationId: input.organizationId,
@@ -489,10 +501,32 @@ implements ChannelSkuMappingRepositoryPort {
       }, REPLACEMENT_TRANSACTION_OPTIONS);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
-        throw new BadRequestException('MasterProduct component is missing or belongs to another organization');
+        throw new BadRequestException(INVALID_MASTER_COMPONENT_MESSAGE);
       }
       throw error;
     }
+  }
+}
+
+async function lockActiveMasterProducts(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  masterProductIds: string[],
+): Promise<void> {
+  const ids = [...new Set(masterProductIds.map((id) => id.toLowerCase()))].sort();
+  if (ids.length === 0) return;
+  const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id
+    FROM master_products
+    WHERE organization_id = ${organizationId}::uuid
+      AND id IN (${Prisma.join(ids.map((id) => Prisma.sql`${id}::uuid`))})
+      AND is_active = TRUE
+    ORDER BY id
+    FOR UPDATE
+  `);
+  const lockedIds = new Set(locked.map(({ id }) => id.toLowerCase()));
+  if (ids.some((id) => !lockedIds.has(id))) {
+    throw new BadRequestException(INVALID_MASTER_COMPONENT_MESSAGE);
   }
 }
 

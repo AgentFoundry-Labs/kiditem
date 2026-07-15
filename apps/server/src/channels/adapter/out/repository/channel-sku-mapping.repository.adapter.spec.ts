@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 import { ChannelSkuMappingRepositoryAdapter } from './channel-sku-mapping.repository.adapter';
@@ -211,7 +212,9 @@ describe('ChannelSkuMappingRepositoryAdapter status refresh', () => {
   it('persists only the final Sellpia Master component identity', async () => {
     const createMany = vi.fn().mockResolvedValue({ count: 1 });
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: ids[2] }]),
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{ id: ids[2] }])
+        .mockResolvedValueOnce([{ id: ids[0] }]),
       channelSkuComponent: {
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
         createMany,
@@ -243,13 +246,51 @@ describe('ChannelSkuMappingRepositoryAdapter status refresh', () => {
         createdBy: ids[3],
       }],
     });
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
+    const masterLock = tx.$queryRaw.mock.calls[1]?.[0];
+    expect(masterLock.text).toContain('FROM master_products');
+    expect(masterLock.text).toContain('organization_id =');
+    expect(masterLock.text).toContain('is_active = TRUE');
+    expect(masterLock.text).toContain('ORDER BY id');
+    expect(masterLock.text).toContain('FOR UPDATE');
+  });
+
+  it('rejects a missing, foreign, or inactive manual component before deleting the recipe', async () => {
+    const deleteMany = vi.fn().mockResolvedValue({ count: 1 });
+    const createMany = vi.fn().mockResolvedValue({ count: 1 });
+    const tx = {
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{ id: ids[2] }])
+        .mockResolvedValueOnce([]),
+      channelSkuComponent: { deleteMany, createMany },
+      channelListingOption: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const repository = new ChannelSkuMappingRepositoryAdapter({
+      $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)),
+    } as unknown as PrismaService);
+
+    await expect(repository.replaceComponents({
+      organizationId,
+      channelSkuId: ids[2]!,
+      userId: ids[3]!,
+      components: [{ masterProductId: ids[0]!, quantity: 1 }],
+      mappingSource: 'manual',
+      nextStatus: 'matched',
+    })).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(deleteMany).not.toHaveBeenCalled();
+    expect(createMany).not.toHaveBeenCalled();
   });
 
   it('locks the refresh batch and skips a SKU that gained a confirmed recipe', async () => {
     const createMany = vi.fn().mockResolvedValue({ count: 1 });
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const tx = {
-      $queryRaw: vi.fn().mockResolvedValue([{ id: ids[0] }, { id: ids[1] }]),
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{ id: ids[0] }, { id: ids[1] }])
+        .mockResolvedValueOnce([{ id: ids[2] }]),
       channelSkuComponent: {
         findMany: vi.fn().mockResolvedValue([{ channelSkuId: ids[1] }]),
         createMany,
@@ -291,6 +332,37 @@ describe('ChannelSkuMappingRepositoryAdapter status refresh', () => {
       where: { organizationId, id: { in: [ids[0]] } },
       data: { mappingStatus: 'matched' },
     });
+  });
+
+  it('rejects an inactive automatic component before creating any recipe rows', async () => {
+    const createMany = vi.fn().mockResolvedValue({ count: 1 });
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const tx = {
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{ id: ids[0] }])
+        .mockResolvedValueOnce([]),
+      channelSkuComponent: {
+        findMany: vi.fn().mockResolvedValue([]),
+        createMany,
+      },
+      channelListingOption: { updateMany },
+    };
+    const repository = new ChannelSkuMappingRepositoryAdapter({
+      $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)),
+    } as unknown as PrismaService);
+
+    await expect(repository.applyAutomaticMatches(organizationId, [{
+      channelSkuId: ids[0]!,
+      mappingStatus: 'matched',
+      component: {
+        masterProductId: ids[2]!,
+        quantity: 1,
+        mappingSource: 'product_code',
+      },
+    }])).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(createMany).not.toHaveBeenCalled();
+    expect(updateMany).not.toHaveBeenCalled();
   });
 });
 

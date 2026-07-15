@@ -20,6 +20,7 @@ import { SellpiaSnapshotPublicationRepositoryAdapter } from '../../inventory/ada
 import { SellpiaInventoryImportService } from '../../inventory/application/service/sellpia-inventory-import.service';
 import { SellpiaInventoryFileValidator } from '../../inventory/application/service/sellpia-inventory-file.validator';
 import { ChannelsSellpiaMasterProductReadAdapter } from '../adapter/out/inventory/sellpia-master-product-read.adapter';
+import type { ChannelsSellpiaMasterProductReadPort } from '../application/port/out/cross-domain/sellpia-master-product-read.port';
 import { ChannelSkuMappingRepositoryAdapter } from '../adapter/out/repository/channel-sku-mapping.repository.adapter';
 import { ChannelSkuMappingService } from '../application/service/channel-sku-mapping.service';
 import { ChannelSkuAvailabilityService } from '../application/service/channel-sku-availability.service';
@@ -33,6 +34,7 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
   let repository: ChannelSkuMappingRepositoryAdapter;
   let service: ChannelSkuMappingService;
   let availability: ChannelSkuAvailabilityService;
+  let inventoryRead: ChannelsSellpiaMasterProductReadAdapter;
   let inventoryImport: SellpiaInventoryImportService;
   let runA: string;
   let runB: string;
@@ -46,13 +48,11 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     const inventoryOwner = new SellpiaMasterProductReadService(
       new SellpiaMasterProductReadRepositoryAdapter(prismaService),
     );
-    service = new ChannelSkuMappingService(
-      repository,
-      new ChannelsSellpiaMasterProductReadAdapter(inventoryOwner),
-    );
+    inventoryRead = new ChannelsSellpiaMasterProductReadAdapter(inventoryOwner);
+    service = new ChannelSkuMappingService(repository, inventoryRead);
     availability = new ChannelSkuAvailabilityService(
       repository,
-      new ChannelsSellpiaMasterProductReadAdapter(inventoryOwner),
+      inventoryRead,
     );
     inventoryImport = new SellpiaInventoryImportService(
       new SellpiaImportRunRepositoryAdapter(prismaService),
@@ -437,6 +437,64 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     )).toEqual([]);
   });
 
+  it('keeps the prior recipe when a manual component becomes inactive after the service pre-read', async () => {
+    const target = await createQueueSku({ mappingStatus: 'matched' });
+    const previous = await createInventorySku('SP-PREVIOUS');
+    const raced = await createInventorySku('SP-RACED-MANUAL');
+    await prisma.channelSkuComponent.create({
+      data: component(target.sku.id, previous.id, 3),
+    });
+    const racingService = new ChannelSkuMappingService(repository, inventoryWith({
+      findByIds: async (organizationId, masterProductIds) => {
+        const activeRows = await inventoryRead.findByIds(organizationId, masterProductIds);
+        await prisma.masterProduct.update({
+          where: { id: raced.id },
+          data: { currentStock: 0, isActive: false },
+        });
+        return activeRows;
+      },
+    }));
+
+    await expect(racingService.replaceComponents(
+      TEST_ORGANIZATION_ID,
+      TEST_USER_ID,
+      target.sku.id,
+      { components: [{ masterProductId: raced.id, quantity: 1 }] },
+    )).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(await componentState(target.sku.id)).toEqual([[previous.id, 3]]);
+    expect(await prisma.channelListingOption.findUniqueOrThrow({
+      where: { id: target.sku.id },
+    })).toMatchObject({ mappingStatus: 'matched' });
+  });
+
+  it('creates no automatic recipe when the component becomes inactive after discovery', async () => {
+    const target = await createQueueSku({
+      sellerSku: 'SP-RACED-AUTOMATIC',
+      mappingStatus: 'unmatched',
+    });
+    const raced = await createInventorySku('SP-RACED-AUTOMATIC');
+    const racingService = new ChannelSkuMappingService(repository, inventoryWith({
+      findBySellpiaCodes: async (organizationId, codes) => {
+        const activeRows = await inventoryRead.findBySellpiaCodes(organizationId, codes);
+        await prisma.masterProduct.update({
+          where: { id: raced.id },
+          data: { currentStock: 0, isActive: false },
+        });
+        return activeRows;
+      },
+    }));
+
+    await expect(racingService.refreshStatuses(TEST_ORGANIZATION_ID, {
+      channelAccountId: ACCOUNT_A,
+    })).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(await componentState(target.sku.id)).toEqual([]);
+    expect(await prisma.channelListingOption.findUniqueOrThrow({
+      where: { id: target.sku.id },
+    })).toMatchObject({ mappingStatus: 'unmatched' });
+  });
+
   it('validates the full request and tenant MasterProduct ownership before deletion', async () => {
     const target = await createQueueSku();
     const local = await createInventorySku('SP-LOCAL');
@@ -750,5 +808,22 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
 
   function sortedRecipe(rows: Array<[string, number]>): Array<[string, number]> {
     return [...rows].sort(([left], [right]) => left.localeCompare(right));
+  }
+
+  function inventoryWith(
+    overrides: Partial<ChannelsSellpiaMasterProductReadPort>,
+  ): ChannelsSellpiaMasterProductReadPort {
+    return {
+      findByIds: (organizationId, ids) => inventoryRead.findByIds(organizationId, ids),
+      findBySellpiaCodes: (organizationId, codes) =>
+        inventoryRead.findBySellpiaCodes(organizationId, codes),
+      findByBarcodes: (organizationId, barcodes) =>
+        inventoryRead.findByBarcodes(organizationId, barcodes),
+      findByNormalizedNames: (organizationId, names) =>
+        inventoryRead.findByNormalizedNames(organizationId, names),
+      search: (organizationId, query, limit) =>
+        inventoryRead.search(organizationId, query, limit),
+      ...overrides,
+    };
   }
 });

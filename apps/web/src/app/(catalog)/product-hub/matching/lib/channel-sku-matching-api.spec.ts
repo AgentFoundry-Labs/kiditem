@@ -74,6 +74,7 @@ const mappingResponse = {
         updatedAt: now,
       },
       components: [],
+      warnings: [],
     },
   ],
   total: 1,

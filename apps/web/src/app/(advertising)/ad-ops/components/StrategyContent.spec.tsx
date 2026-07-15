@@ -80,6 +80,7 @@ function availabilityResponse(sellableStock: number | null) {
           updatedAt: '2026-07-12T00:00:00.000Z',
         },
         components: [],
+        warnings: [],
       },
     ],
     total: 1,
