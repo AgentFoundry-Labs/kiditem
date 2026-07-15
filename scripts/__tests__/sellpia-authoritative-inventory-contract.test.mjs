@@ -50,8 +50,8 @@ function modelBlock(source, modelName) {
 }
 
 describe('Sellpia authoritative final-schema contract', () => {
-  it('uses one 0.1.8 rebuild release without preservation migrations', () => {
-    assert.equal(readFileSync(join(repoRoot, 'VERSION'), 'utf8').trim(), '0.1.8');
+  it('keeps the 0.1.8 rebuild boundary through the current release without preservation migrations', () => {
+    assert.equal(readFileSync(join(repoRoot, 'VERSION'), 'utf8').trim(), '0.1.18');
     assert.doesNotMatch(migrationRegistry, /v0\.1\.9/);
     assert.doesNotMatch(migrationRegistry, /buildSellpiaMasterIdentityMap/);
     assert.doesNotMatch(migrationRegistry, /repointChannelSkuComponents/);

@@ -1,9 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { BrowserCollectionRunIdSchema } from '@kiditem/shared/browser-collection-session';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, CheckCircle2, Loader2, Sunrise, X } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 import type { ReadinessResponse } from '@kiditem/shared/readiness';
+import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
+import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
 import { apiClient } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import {
@@ -18,6 +22,7 @@ import {
   type AutoOpenWhen,
 } from './readiness/readiness-modal-model';
 import { ActionCheckCard, AdSyncRow, CompactOkRow } from './readiness/ReadinessRows';
+import { readinessCollectionProducer } from './readiness/readiness-extension-collection';
 import { useReadinessCollection } from './readiness/useReadinessCollection';
 
 interface ReadinessModalProps {
@@ -34,6 +39,14 @@ export default function ReadinessModal({
   onClose,
   autoOpenWhen = 'anyIssue',
 }: ReadinessModalProps = {}) {
+  const searchParams = useSearchParams();
+  const collectionRunResult = BrowserCollectionRunIdSchema.safeParse(
+    searchParams.get('collectionRun'),
+  );
+  const collectionRun = collectionRunResult.success
+    ? collectionRunResult.data
+    : null;
+  const collectionSessionQuery = useBrowserCollectionSession(collectionRun);
   const [internalOpen, setInternalOpen] = useState(false);
   const isControlled = controlledOpen !== undefined;
   const open = isControlled ? controlledOpen : internalOpen;
@@ -44,9 +57,19 @@ export default function ReadinessModal({
     refetchOnWindowFocus: false,
   });
   const view = buildReadinessModalViewModel(query.data);
-  const { pendingKey, handleCollect } = useReadinessCollection({
+  const { pendingKey, activeSession, handleCollect } = useReadinessCollection({
     refetchReadiness: () => query.refetch(),
   });
+  const displayedCollectionSession = collectionRun
+    ? collectionSessionQuery.data
+    : activeSession;
+  const restartCheck = displayedCollectionSession
+    ? view.checks.find(
+        (check) =>
+          readinessCollectionProducer(check.key) ===
+          displayedCollectionSession.producer,
+      )
+    : null;
 
   const setOpen = (value: boolean) => {
     if (isControlled) {
@@ -59,11 +82,15 @@ export default function ReadinessModal({
   useEffect(() => {
     if (isControlled) return;
     if (!query.data) return;
+    if (collectionRun) {
+      setInternalOpen(true);
+      return;
+    }
     if (!shouldAutoOpen(query.data, autoOpenWhen)) return;
     if (isDismissedForToday()) return;
     if (isDismissedForSession()) return;
     setInternalOpen(true);
-  }, [query.data, isControlled, autoOpenWhen]);
+  }, [query.data, isControlled, autoOpenWhen, collectionRun]);
 
   const close = () => {
     if (!isControlled) {
@@ -141,6 +168,22 @@ export default function ReadinessModal({
           ) : (
             <>
               <div className="space-y-2.5">
+                {displayedCollectionSession && (
+                  <BrowserCollectionRunControls
+                    session={displayedCollectionSession}
+                    onWebRestart={async (session) => {
+                      if (!restartCheck || restartCheck.key === 'rocket_sales') {
+                        return;
+                      }
+                      await handleCollect(restartCheck, session.runId);
+                    }}
+                    webRestartUnavailableMessage={
+                      !restartCheck || restartCheck.key === 'rocket_sales'
+                        ? '해당 수집 항목에서 다시 실행해주세요.'
+                        : undefined
+                    }
+                  />
+                )}
                 {view.actionChecks.map((check) => (
                   <ActionCheckCard
                     key={check.key}

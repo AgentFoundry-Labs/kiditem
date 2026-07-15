@@ -27,12 +27,12 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Advertising](erd/advertising.md) | 5 |
 | [AgentOS](erd/agentos.md) | 17 |
 | [AI](erd/ai.md) | 19 |
-| [Channels](erd/channels.md) | 10 |
+| [Channels](erd/channels.md) | 17 |
 | [Core](erd/core.md) | 10 |
 | [Finance](erd/finance.md) | 5 |
 | [Inventory](erd/inventory.md) | 7 |
 | [Orders](erd/orders.md) | 10 |
-| [Sourcing](erd/sourcing.md) | 3 |
+| [Sourcing](erd/sourcing.md) | 10 |
 | [Supply](erd/supply.md) | 5 |
 | [System](erd/system.md) | 9 |
 
@@ -89,6 +89,13 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ChannelScrapeRun | Channels | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
 | ChannelScrapeSnapshot | Channels | `channel_scrape_snapshots` | 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존. |
 | ChannelSkuComponent | Channels | `channel_sku_components` | Confirmed channel-SKU recipe. mappingSource: product_code \| barcode \| manual. |
+| CoupangKeywordRankDailySnapshot | Channels | `coupang_keyword_rank_daily_snapshots` | 쿠팡 검색 키워드×상품(vendorItemId) 일별 순위 fact. 순위 null = 스캔한 페이지 내 미노출(순위권 밖). overallRank 는 광고 포함 전체 순위, organicRank 는 오가닉만, adRank 는 광고만 센 순위. |
+| CoupangKeywordSerpDailySnapshot | Channels | `coupang_keyword_serp_daily_snapshots` | 쿠팡 검색 키워드별 SERP 전체 캡처(키워드-일자당 최신본 upsert). items 는 DOM 순서 그대로의 결과 리스트 JSON — 경쟁사 노출 확인·순위 재계산용. |
+| CoupangKeywordTracker | Channels | `coupang_keyword_trackers` | 쿠팡 검색 키워드별 자사 상품 순위 추적 대상. 확장이 www.coupang.com 검색결과(SERP)를 수집할 키워드 정의. vendorItemIds 는 명시 추적 타깃(빈 배열 = 자사 카탈로그 자동매칭만). |
+| CoupangRepresentativeKeywordOverride | Channels | `coupang_representative_keyword_overrides` | 자사 쿠팡 상품(vendorItemId)별 사용자가 직접 지정한 대표 검색 키워드. 없으면 쿠팡 카테고리와 Wing 28일 지표로 자동 추천한다. |
+| CoupangWingSalesRankDailySnapshot | Channels | `coupang_wing_sales_rank_daily_snapshots` | Wing 상품 매칭 API의 키워드별 최근 28일 판매량순에서 자사 vendorItemId가 차지한 일별 순위. salesRank null은 수집 범위 밖이며 판매량·조회·매출 지표도 같은 Wing 응답에서 저장한다. |
+| CoupangWingTrackedProduct | Channels | `coupang_wing_tracked_products` | 쿠팡 Wing 카탈로그 경쟁상품 추적 대상. 상품분석(wing-catalog)에서 사용자가 추적 등록한 카탈로그 상품(자사/경쟁 무관). sourceKeyword = 지표 갱신 시 재검색할 키워드. |
+| CoupangWingTrackedProductDailySnapshot | Channels | `coupang_wing_tracked_product_daily_snapshots` | 쿠팡 Wing 추적상품 일별 지표 스냅샷(상품×일자당 최신본 upsert). Wing 카탈로그 28일 지표(클릭 pv·판매·매출·전환) + 판매가·리뷰. |
 | RocketPurchaseOrder | Channels | `rocket_purchase_orders` | 쿠팡 로켓 발주 단건(per-PO) 상세 — 매출분석 드릴다운(일자→발주→품목)용. items 는 발주서 품목(SKU) 라인 JSON(표시 전용). |
 | RocketSupplyDailySnapshot | Channels | `rocket_supply_daily_snapshots` | 쿠팡 로켓(공급사 발주) 일별 매출 fact. po-web 발주리스트의 발주금액(공급가)을 입고예정일(KST) 기준으로 집계한 값으로, 윙 매출과 분리된 로켓 매출 소스. |
 | CategoryMapping | Core | `category_mappings` | - |
@@ -124,8 +131,15 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ShipmentItem | Orders | `shipment_items` | Order-line shipment detail. |
 | UnshippedItem | Orders | `unshipped_items` | - |
 | CandidateImage | Sourcing | `sourcing_candidate_images` | 소싱 후보가 소유하는 이미지 갤러리. 소싱 콘텐츠와 썸네일 생성 입력으로 사용한다. |
+| LiveCommerceBroadcastDailySnapshot | Sourcing | `live_commerce_broadcast_daily_snapshots` | 타오바오 공식 API 또는 로그인된 1688·도우인 브라우저 화면에서 수집한 라이브 방송 일별 스냅샷. source와 broadcastId가 외부 방송 식별자를 이룬다. |
+| LiveCommerceProductDailySnapshot | Sourcing | `live_commerce_product_daily_snapshots` | 중국 라이브 방송에 노출된 상품의 일별 스냅샷. broadcastId로 방송 스냅샷과 논리적으로 연결하고 상품 단위 비교를 지원한다. |
+| NaverKeywordDailySnapshot | Sourcing | `naver_keyword_daily_snapshots` | 네이버 키워드(검색광고 월검색량 + 데이터랩 검색어트렌드) 일별 스냅샷. 시드 키워드당 하루 1행(최신본 upsert). trendRatio 는 latestRatio 반올림(0-100). |
+| NaverPopularKeywordDailySnapshot | Sourcing | `naver_popular_keyword_daily_snapshots` | 네이버 데이터랩 인기키워드 보드(출산/육아·완구/인형·문구/사무 등)의 일별 순위 스냅샷. 시드 무관하게 run당 1회 수집. 보드×순위당 1행. |
+| ShortsTrendDailySnapshot | Sourcing | `shorts_trend_daily_snapshots` | 쇼츠트렌드(shortstrend.co.kr) 급상승 쇼츠 일별 스냅샷. rank 는 소스 노출 순위, videoKey 는 영상 식별자. video×일자당 1행. |
+| Sourcing1688HotProductDailySnapshot | Sourcing | `sourcing_1688_hot_product_daily_snapshots` | 1688 키워드별 핫셀링 offer 일별 스냅샷. sourceKeyword 는 시드 키워드, rank 는 해당 키워드 결과셋 내 monthlySales 내림차순 순위. offer×일자당 1행. |
 | SourcingCandidate | Sourcing | `sourcing_candidates` | 외부 플랫폼에서 스크랩한 소싱 후보. MasterProduct와 분리된 sourcing inbox. |
 | SourcingWorkspaceSnapshot | Sourcing | `sourcing_workspace_snapshots` | 조직/KST 날짜/scope 단위의 소싱 AI 결과 캐시. 오늘의 추천/키워드 분석 결과를 최신 1개로 재사용한다. |
+| TrendSeedKeyword | Sourcing | `trend_seed_keywords` | 문구·완구 시장 트렌드 정기 수집의 시드 키워드. sources 로 몰별(naver/shorts/1688) 수집 대상을 제어. keywordCn 은 1688 中文 검색어(null이면 keyword 사용). |
 | PurchaseOrder | Supply | `purchase_orders` | 발주 state machine (draft→pending→ordered→shipped→received). 입고 검수 필드 포함 (receivedQty, defectQty). 단위는 CNY(Decimal 12,2). |
 | PurchaseOrderItem | Supply | `purchase_order_items` | - |
 | Supplier | Supply | `suppliers` | - |
@@ -963,6 +977,118 @@ erDiagram
     String createdByUserId FK
     DateTime createdAt
   }
+  CoupangKeywordRankDailySnapshot {
+    String id PK
+    String organizationId FK
+    String keyword
+    String vendorItemId
+    DateTime businessDate
+    String productId
+    String itemId
+    String productName
+    Int overallRank
+    Int organicRank
+    Int adRank
+    Int page
+    Int positionInPage
+    Int priceKrw
+    Int reviewCount
+    String source
+    DateTime capturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  CoupangKeywordSerpDailySnapshot {
+    String id PK
+    String organizationId FK
+    String keyword
+    DateTime businessDate
+    Json items
+    Int itemCount
+    Int pagesScanned
+    DateTime capturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  CoupangKeywordTracker {
+    String id PK
+    String organizationId FK
+    String keyword
+    StringArray vendorItemIds
+    Int maxPages
+    Boolean enabled
+    DateTime lastCapturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  CoupangRepresentativeKeywordOverride {
+    String id PK
+    String organizationId FK
+    String vendorItemId
+    String keyword
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  CoupangWingSalesRankDailySnapshot {
+    String id PK
+    String organizationId FK
+    String keyword
+    String vendorItemId
+    DateTime businessDate
+    String productId
+    String itemId
+    String productName
+    String categoryHierarchy
+    Int salesRank
+    Int salesLast28d
+    Int viewsLast28d
+    Int revenueLast28d
+    Decimal conversionRate28d
+    Int salePrice
+    Int reviewCount
+    Int keywordSalesLast28d
+    Int keywordViewsLast28d
+    Decimal keywordConversionRate28d
+    Int pagesScanned
+    Int collectedCount
+    Int totalResults
+    DateTime capturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  CoupangWingTrackedProduct {
+    String id PK
+    String organizationId FK
+    String productId
+    String itemId
+    String vendorItemId
+    String productName
+    String imagePath
+    String brandName
+    String categoryHierarchy
+    String sourceKeyword
+    Boolean enabled
+    DateTime lastCapturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  CoupangWingTrackedProductDailySnapshot {
+    String id PK
+    String organizationId FK
+    String trackedProductId FK
+    DateTime businessDate
+    Int salePriceKrw
+    Int ratingCount
+    Decimal ratingAverage
+    Int pvLast28Day
+    Int salesLast28d
+    Int estimatedRevenue28d
+    Decimal conversionRate28d
+    String sourceKeyword
+    DateTime capturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   CSRecord {
     String id PK
     String organizationId FK
@@ -1093,6 +1219,43 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  LiveCommerceBroadcastDailySnapshot {
+    String id PK
+    String organizationId FK
+    DateTime businessDate
+    String source
+    String broadcastId
+    String title
+    String broadcasterId
+    String broadcasterName
+    String status
+    Int viewerCount
+    Int likeCount
+    DateTime startedAt
+    DateTime endedAt
+    String coverImageUrl
+    String sourceUrl
+    DateTime capturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  LiveCommerceProductDailySnapshot {
+    String id PK
+    String organizationId FK
+    DateTime businessDate
+    String source
+    String broadcastId
+    String productId
+    Int rank
+    String title
+    Decimal priceCny
+    Int salesCount
+    String imageUrl
+    String sourceUrl
+    DateTime capturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   ManualLedger {
     String id PK
     String organizationId FK
@@ -1153,6 +1316,37 @@ erDiagram
     String status
     String error
     Json payload
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  NaverKeywordDailySnapshot {
+    String id PK
+    String organizationId FK
+    String keyword
+    DateTime businessDate
+    Int monthlyTotalSearchCount
+    Int monthlyPcSearchCount
+    Int monthlyMobileSearchCount
+    String competitionIndex
+    Int averageAdRank
+    Int trendRatio
+    Int trendDelta
+    String source
+    DateTime capturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  NaverPopularKeywordDailySnapshot {
+    String id PK
+    String organizationId FK
+    String boardKey
+    String boardLabel
+    String cid
+    DateTime businessDate
+    Int rank
+    String keyword
+    String linkId
+    DateTime capturedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -1517,6 +1711,26 @@ erDiagram
     Int quantity
     DateTime createdAt
   }
+  ShortsTrendDailySnapshot {
+    String id PK
+    String organizationId FK
+    DateTime businessDate
+    String videoKey
+    Int rank
+    String title
+    String channelName
+    Int viewCount
+    Int likeCount
+    Int commentCount
+    String keyword
+    DateTime publishedAt
+    String thumbnailUrl
+    String videoUrl
+    String source
+    DateTime capturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   SourceImportRun {
     String id PK
     String organizationId FK
@@ -1530,6 +1744,25 @@ erDiagram
     String createdBy
     String attemptToken
     BigInt publicationSequence
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  Sourcing1688HotProductDailySnapshot {
+    String id PK
+    String organizationId FK
+    DateTime businessDate
+    String offerId
+    String sourceKeyword
+    Int rank
+    String title
+    Decimal priceCny
+    Int monthlySales
+    String repurchaseRate
+    String tradeScore
+    String supplierName
+    String imageUrl
+    String sourceUrl
+    DateTime capturedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -1801,6 +2034,16 @@ erDiagram
     String errorMessage
     DateTime createdAt
   }
+  TrendSeedKeyword {
+    String id PK
+    String organizationId FK
+    String keyword
+    String keywordCn
+    StringArray sources
+    Boolean enabled
+    DateTime createdAt
+    DateTime updatedAt
+  }
   UnshippedItem {
     String id PK
     String organizationId FK
@@ -1981,6 +2224,7 @@ erDiagram
   ContentWorkspace ||--o{ ThumbnailAnalysis : "contentWorkspace"
   ContentWorkspace ||--o{ ThumbnailGeneration : "contentWorkspace"
   ContentWorkspaceThumbnailSelection o|--o| ContentWorkspace : "currentThumbnailSelection"
+  CoupangWingTrackedProduct ||--o{ CoupangWingTrackedProductDailySnapshot : "trackedProduct"
   DetailPageArtifact o|--o{ ContentGeneration : "detailPageArtifact"
   DetailPageArtifact o|--o{ ContentWorkspace : "currentDetailPageArtifact"
   DetailPageArtifact ||--o{ DetailPageRevision : "artifact"
@@ -2047,14 +2291,25 @@ erDiagram
   Organization ||--o{ ContentGenerationSource : "organization"
   Organization ||--o{ ContentWorkspace : "organization"
   Organization ||--o{ ContentWorkspaceThumbnailSelection : "organization"
+  Organization ||--o{ CoupangKeywordRankDailySnapshot : "organization"
+  Organization ||--o{ CoupangKeywordSerpDailySnapshot : "organization"
+  Organization ||--o{ CoupangKeywordTracker : "organization"
+  Organization ||--o{ CoupangRepresentativeKeywordOverride : "organization"
+  Organization ||--o{ CoupangWingSalesRankDailySnapshot : "organization"
+  Organization ||--o{ CoupangWingTrackedProduct : "organization"
+  Organization ||--o{ CoupangWingTrackedProductDailySnapshot : "organization"
   Organization ||--o{ CSRecord : "organization"
   Organization ||--o{ DetailPageArtifact : "organization"
   Organization ||--o{ DetailPageRevision : "organization"
   Organization ||--o{ ExecutionWorker : "organization"
   Organization ||--o{ GradeHistory : "organization"
   Organization ||--o{ LegalEntity : "organization"
+  Organization ||--o{ LiveCommerceBroadcastDailySnapshot : "organization"
+  Organization ||--o{ LiveCommerceProductDailySnapshot : "organization"
   Organization ||--o{ ManualLedger : "organization"
   Organization ||--o{ MasterProduct : "organization"
+  Organization ||--o{ NaverKeywordDailySnapshot : "organization"
+  Organization ||--o{ NaverPopularKeywordDailySnapshot : "organization"
   Organization ||--o{ Order : "organization"
   Organization ||--o{ OrderLineItem : "organization"
   Organization ||--o{ OrderReturn : "organization"
@@ -2077,7 +2332,9 @@ erDiagram
   Organization ||--o{ Settlement : "organization"
   Organization ||--o{ Shipment : "organization"
   Organization ||--o{ ShipmentItem : "organization"
+  Organization ||--o{ ShortsTrendDailySnapshot : "organization"
   Organization ||--o{ SourceImportRun : "organization"
+  Organization ||--o{ Sourcing1688HotProductDailySnapshot : "organization"
   Organization ||--o{ SourcingCandidate : "organization"
   Organization ||--o{ SourcingWorkspaceSnapshot : "organization"
   Organization ||--o{ StockAudit : "organization"
@@ -2095,6 +2352,7 @@ erDiagram
   Organization ||--o{ ThumbnailRegistrationAttempt : "organization"
   Organization ||--o{ ThumbnailTracking : "organization"
   Organization ||--o{ ThumbnailTrackingDailySnapshot : "organization"
+  Organization ||--o{ TrendSeedKeyword : "organization"
   Organization ||--o{ UnshippedItem : "organization"
   Organization ||--o{ Warehouse : "organization"
   Organization ||--o{ WorkflowTemplate : "organization"

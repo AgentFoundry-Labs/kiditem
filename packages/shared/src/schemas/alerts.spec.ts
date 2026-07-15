@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   AlertItemSchema,
   AlertKindSchema,
+  AlertOperationLifecycleStatusSchema,
   AlertStatusSchema,
+  UpdateOperationAlertRequestSchema,
 } from './alerts.js';
 
 const ALERT_ID = '00000000-0000-0000-0000-000000000001';
@@ -81,5 +83,20 @@ describe('Alert ledger schemas', () => {
   it('rejects unknown canonical ledger values', () => {
     expect(() => AlertKindSchema.parse('task')).toThrow();
     expect(() => AlertStatusSchema.parse('queued')).toThrow();
+  });
+
+  it('accepts pending as an operation lifecycle status', () => {
+    expect(AlertOperationLifecycleStatusSchema.parse('pending')).toBe(
+      'pending',
+    );
+  });
+
+  it('does not accept a client-supplied lifecycle href override', () => {
+    const parsed = UpdateOperationAlertRequestSchema.parse({
+      status: 'succeeded',
+      href: '/settings',
+    });
+
+    expect(parsed).not.toHaveProperty('href');
   });
 });

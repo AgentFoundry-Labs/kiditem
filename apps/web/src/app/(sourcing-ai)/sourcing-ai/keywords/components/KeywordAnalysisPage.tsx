@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, Filter, Loader2, RefreshCw, Search, TrendingUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, Filter, Loader2, Plus, RefreshCw, Search, TrendingUp, X } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
 import {
   compareNaverDatalabSearchTrends,
@@ -93,6 +93,11 @@ type KeywordAnalysisSnapshotPayload = {
   meta: SourcingWorkspaceSnapshotMeta;
 };
 
+const EXCLUDE_STORAGE_KEY = 'kiditem_keyword_exclude';
+const DEFAULT_EXCLUDED_KEYWORDS = ['물티슈', '포켓몬카드'];
+const DEFAULT_RANK_LIMIT = '20';
+const normalizeExclude = (value: string) => value.replace(/\s+/g, '').toLowerCase();
+
 export function KeywordAnalysisPage() {
   const [boards, setBoards] = useState<NaverDatalabPopularKeywordBoard[]>([]);
   const [timeUnit, setTimeUnit] = useState<NaverDatalabTimeUnit>('date');
@@ -101,10 +106,12 @@ export function KeywordAnalysisPage() {
   const [device, setDevice] = useState<'all' | NaverDatalabDevice>('all');
   const [keywordQuery, setKeywordQuery] = useState('');
   const [selectedBoardKey, setSelectedBoardKey] = useState<BoardFilterKey>('all');
-  const [rankLimit, setRankLimit] = useState('10');
+  const [rankLimit, setRankLimit] = useState(DEFAULT_RANK_LIMIT);
   const [focusMode, setFocusMode] = useState<FocusMode>('all');
   const [notice, setNotice] = useState<string | null>(null);
   const [loadingPopular, setLoadingPopular] = useState(false);
+  const [excludedKeywords, setExcludedKeywords] = useState<string[]>(DEFAULT_EXCLUDED_KEYWORDS);
+  const [excludeInput, setExcludeInput] = useState('');
   const [trendText, setTrendText] = useState('포켓몬카드\n레고\n슬라임\n잔디인형');
   const [trendItems, setTrendItems] = useState<NaverDatalabKeywordTrend[]>([]);
   const [loadingTrends, setLoadingTrends] = useState(false);
@@ -135,6 +142,10 @@ export function KeywordAnalysisPage() {
   const relatedRequestIdRef = useRef(0);
   const didAutoLoadKeywordAnalysisRef = useRef(false);
 
+  const excludeSet = useMemo(
+    () => new Set(excludedKeywords.map(normalizeExclude)),
+    [excludedKeywords],
+  );
   const visibleBoards = useMemo(() => {
     const rankCap = Number(rankLimit);
     return boards
@@ -142,9 +153,13 @@ export function KeywordAnalysisPage() {
       .filter((board) => matchesFocusMode(board.key, focusMode))
       .map((board) => ({
         ...board,
-        ranks: board.ranks.filter((rank) => rank.rank <= rankCap),
+        // 제외 키워드를 걸러낸 뒤 상위 rankCap 개만 남기고 순번을 다시 매긴다.
+        ranks: board.ranks
+          .filter((rank) => !excludeSet.has(normalizeExclude(rank.keyword)))
+          .slice(0, rankCap)
+          .map((rank, index) => ({ ...rank, rank: index + 1 })),
       }));
-  }, [boards, focusMode, rankLimit, selectedBoardKey]);
+  }, [boards, focusMode, rankLimit, selectedBoardKey, excludeSet]);
   const rows = useMemo(() => visibleBoards.flatMap((board) => board.ranks.map((rank) => ({ board, rank }))), [visibleBoards]);
   const interestKeywordTargets = useMemo(() => (
     (interestPayload?.result.targets ?? []).filter((target) => target.type === 'keyword' && target.keyword)
@@ -156,11 +171,40 @@ export function KeywordAnalysisPage() {
     return Array.from(new Set([...fromBoards, '포켓몬카드', '레고', '슬라임', '잔디인형'])).slice(0, 4);
   }, [boards]);
 
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(EXCLUDE_STORAGE_KEY);
+      if (saved) setExcludedKeywords(JSON.parse(saved) as string[]);
+    } catch {
+      /* localStorage 접근 불가 시 기본값 유지 */
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(EXCLUDE_STORAGE_KEY, JSON.stringify(excludedKeywords));
+    } catch {
+      /* noop */
+    }
+  }, [excludedKeywords]);
+
+  const addExcludedKeyword = (raw: string) => {
+    const keyword = raw.trim();
+    if (!keyword) return;
+    setExcludedKeywords((prev) =>
+      prev.some((item) => normalizeExclude(item) === normalizeExclude(keyword)) ? prev : [...prev, keyword],
+    );
+    setExcludeInput('');
+  };
+  const removeExcludedKeyword = (keyword: string) => {
+    setExcludedKeywords((prev) => prev.filter((item) => item !== keyword));
+  };
+
   const loadPopularKeywords = async (overrides: Partial<{
     timeUnit: NaverDatalabTimeUnit;
     gender: 'all' | NaverDatalabGender;
     age: string;
     device: 'all' | NaverDatalabDevice;
+    rankLimit: string;
   }> = {}) => {
     const requestId = popularRequestIdRef.current + 1;
     popularRequestIdRef.current = requestId;
@@ -168,6 +212,7 @@ export function KeywordAnalysisPage() {
     const nextGender = overrides.gender ?? gender;
     const nextAge = overrides.age ?? age;
     const nextDevice = overrides.device ?? device;
+    const nextRankLimit = overrides.rankLimit ?? rankLimit;
 
     setLoadingPopular(true);
     setNotice(null);
@@ -178,7 +223,7 @@ export function KeywordAnalysisPage() {
         gender: nextGender === 'all' ? undefined : nextGender,
         device: nextDevice === 'all' ? undefined : nextDevice,
         ages: nextAge === 'all' ? undefined : [nextAge],
-        limit: 20,
+        limit: Number(nextRankLimit),
       });
       if (popularRequestIdRef.current !== requestId) return;
       setBoards(response.boards);
@@ -202,6 +247,12 @@ export function KeywordAnalysisPage() {
   const changeTimeUnit = (value: NaverDatalabTimeUnit) => {
     setTimeUnit(value);
     void loadPopularKeywords({ timeUnit: value });
+  };
+
+  const changeRankLimit = (value: string) => {
+    setRankLimit(value);
+    // 표시 개수를 늘리면 네이버에서 그만큼(페이지네이션) 더 받아와야 하므로 재조회.
+    void loadPopularKeywords({ rankLimit: value });
   };
 
   const changeGender = (value: 'all' | NaverDatalabGender) => {
@@ -490,7 +541,8 @@ export function KeywordAnalysisPage() {
     setAge(payload.input.filters.age);
     setDevice(payload.input.filters.device);
     setSelectedBoardKey(payload.input.filters.selectedBoardKey);
-    setRankLimit(payload.input.filters.rankLimit);
+    // rankLimit(표시 개수)은 스냅샷에서 복원하지 않는다. 항상 기본값(20)으로 시작하고
+    // 50/100은 그때그때 "더 보기"로만 쓴다. (매 로드 50 유지 = 30요청/느림 방지)
     setFocusMode(payload.input.filters.focusMode);
     setBoards(payload.result.boards);
     setKeywordQuery(payload.input.keywordQuery);
@@ -532,7 +584,15 @@ export function KeywordAnalysisPage() {
   useEffect(() => {
     if (!dailySnapshotHydrated || didAutoLoadKeywordAnalysisRef.current) return;
     didAutoLoadKeywordAnalysisRef.current = true;
-    if (boards.length === 0) void loadPopularKeywords();
+    // 저장된 스냅샷의 보드가 현재 구성(boardKeys)과 다르거나(보드 추가/삭제 후 stale),
+    // 기본 표시개수보다 적게 담겨 있으면 옛 데이터 대신 기본 표시개수(20)로 새로 불러온다.
+    const configuredKeys = new Set<string>(boardKeys);
+    const maxBoardItems = boards.reduce((max, board) => Math.max(max, board.ranks.length), 0);
+    const snapshotUsable =
+      boards.length === configuredKeys.size &&
+      boards.every((board) => configuredKeys.has(board.key)) &&
+      maxBoardItems >= Number(DEFAULT_RANK_LIMIT);
+    if (!snapshotUsable) void loadPopularKeywords();
   }, [dailySnapshotHydrated]);
 
   useEffect(() => {
@@ -733,7 +793,7 @@ export function KeywordAnalysisPage() {
           onAgeChange={changeAge}
           onDeviceChange={changeDevice}
           onBoardChange={setSelectedBoardKey}
-          onRankLimitChange={setRankLimit}
+          onRankLimitChange={changeRankLimit}
           onFocusModeChange={setFocusMode}
           onRefresh={() => void loadPopularKeywords()}
         />
@@ -759,6 +819,28 @@ export function KeywordAnalysisPage() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-1">
+                <span className="text-xs font-bold text-[var(--text-tertiary)]">표시</span>
+                <div className="inline-flex items-center gap-0.5 rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] p-0.5">
+                  {['10', '20', '50', '100'].map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => changeRankLimit(value)}
+                      disabled={loadingPopular}
+                      aria-pressed={rankLimit === value}
+                      className={cn(
+                        'rounded-md px-2.5 py-1.5 text-xs font-black transition disabled:cursor-not-allowed disabled:opacity-60',
+                        rankLimit === value
+                          ? 'bg-[#ff5a1f] text-white'
+                          : 'text-[var(--text-secondary)] hover:bg-[var(--surface)]',
+                      )}
+                    >
+                      {value}개
+                    </button>
+                  ))}
+                </div>
+              </div>
               <span className="rounded-md bg-[var(--surface-sunken)] px-3 py-2 text-xs font-black text-[var(--text-secondary)]">
                 {filterLabel(gender, age)} · {timeUnitLabel(timeUnit)}
               </span>
@@ -770,6 +852,53 @@ export function KeywordAnalysisPage() {
               >
                 {loadingPopular ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
                 순위 갱신
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-1.5 rounded-md bg-[var(--surface-sunken)] px-3 py-2">
+            <span className="mr-1 inline-flex items-center gap-1 text-xs font-bold text-[var(--text-tertiary)]">
+              <Filter size={13} /> 제외 키워드
+            </span>
+            {excludedKeywords.length === 0 ? (
+              <span className="text-xs font-medium text-[var(--text-quaternary)]">없음 — 오른쪽에서 추가하세요</span>
+            ) : (
+              excludedKeywords.map((keyword) => (
+                <span
+                  key={keyword}
+                  className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs font-bold text-[var(--text-secondary)]"
+                >
+                  {keyword}
+                  <button
+                    type="button"
+                    onClick={() => removeExcludedKeyword(keyword)}
+                    aria-label={`${keyword} 제외 해제`}
+                    className="text-[var(--text-tertiary)] transition hover:text-red-600"
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              ))
+            )}
+            <div className="ml-auto inline-flex items-center gap-1.5">
+              <input
+                value={excludeInput}
+                onChange={(event) => setExcludeInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    addExcludedKeyword(excludeInput);
+                  }
+                }}
+                placeholder="뺄 키워드 입력"
+                className="h-8 w-32 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+              <button
+                type="button"
+                onClick={() => addExcludedKeyword(excludeInput)}
+                className="inline-flex h-8 items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 text-xs font-bold text-[var(--text-secondary)] transition hover:bg-[var(--border-subtle)]"
+              >
+                <Plus size={12} /> 추가
               </button>
             </div>
           </div>

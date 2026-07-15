@@ -92,6 +92,14 @@ export const queryKeys = {
     benchmark: (period?: string | number) => [...queryKeys.ads.all, 'benchmark', period] as const,
     collectStatus: () => [...queryKeys.ads.all, 'collect', 'status'] as const,
     scrapeTargets: () => [...queryKeys.ads.all, 'scrapeTargets'] as const,
+    keywordRank: () => [...queryKeys.ads.all, 'keywordRank'] as const,
+    keywordRankTrackers: () => [...queryKeys.ads.keywordRank(), 'trackers'] as const,
+    keywordRankHistory: (keyword: string, days: number) =>
+      [...queryKeys.ads.keywordRank(), 'history', keyword, days] as const,
+    keywordRankProducts: (days: number) =>
+      [...queryKeys.ads.keywordRank(), 'products', days] as const,
+    keywordRankSerp: (keyword: string) =>
+      [...queryKeys.ads.keywordRank(), 'serp', keyword] as const,
     config: () => [...queryKeys.ads.all, 'config'] as const,
     extensionStatus: () => [...queryKeys.ads.all, 'extension', 'status'] as const,
   },
@@ -204,6 +212,19 @@ export const queryKeys = {
     detail: (id: string) => [...queryKeys.sourcing.all, 'detail', id] as const,
     preview: (id: string) => [...queryKeys.sourcing.all, 'preview', id] as const,
     scrapeUrlStatus: (url: string) => [...queryKeys.sourcing.all, 'scrape-url-status', url] as const,
+    liveNaverMarket: () => [...queryKeys.sourcing.all, 'market', 'naver-live'] as const,
+    trend: () => [...queryKeys.sourcing.all, 'trend'] as const,
+    trendSeeds: () => [...queryKeys.sourcing.all, 'trend', 'seeds'] as const,
+    trendNaverKeywords: (days: number) => [...queryKeys.sourcing.all, 'trend', 'naver-keywords', days] as const,
+    trendPopularKeywords: (days: number) => [...queryKeys.sourcing.all, 'trend', 'popular-keywords', days] as const,
+    trend1688Hot: (days: number) => [...queryKeys.sourcing.all, 'trend', '1688-hot', days] as const,
+    trendShorts: (days: number) => [...queryKeys.sourcing.all, 'trend', 'shorts', days] as const,
+    liveCommerceStatus: () => [...queryKeys.sourcing.all, 'live-commerce', 'status'] as const,
+    liveCommerceExtensionStatus: () => [...queryKeys.sourcing.all, 'live-commerce', 'extension-status'] as const,
+    liveCommerceSnapshots: (days: number) => [...queryKeys.sourcing.all, 'live-commerce', 'snapshots', days] as const,
+    competitors: (days: number) => [...queryKeys.sourcing.all, 'competitors', days] as const,
+    competitorCollectionStatus: (runId: string | null) =>
+      [...queryKeys.sourcing.all, 'competitors', 'collection-status', runId] as const,
   },
   productContent: {
     all: ['content-archive'] as const,
@@ -319,6 +340,11 @@ export const queryKeys = {
   },
   alerts: {
     all: ['alerts'] as const,
+  },
+  browserCollection: {
+    all: ['browser-collection'] as const,
+    session: (runId: string) =>
+      [...queryKeys.browserCollection.all, 'session', runId] as const,
   },
   settlements: {
     all: ['settlements'] as const,

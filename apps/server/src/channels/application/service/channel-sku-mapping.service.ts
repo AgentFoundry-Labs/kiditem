@@ -15,6 +15,7 @@ import {
 import {
   extractExplicitOptionCodeTokens,
   normalizeIdentifier,
+  normalizeRegisteredName,
   rankSellpiaMasterProductCandidates,
   statusForUnmappedCandidates,
   type CandidateSellpiaMasterProduct,
@@ -109,14 +110,21 @@ export class ChannelSkuMappingService {
     );
     const exactCodes = distinctTrimmed(evidenceRows.flatMap(exactCodeEvidence));
     const identifiers = distinctNormalizedIdentifiers(evidenceRows);
-    const [exactCodeCandidates, identifierCandidates] = await Promise.all([
-      exactCodes.length
-        ? this.inventory.findBySellpiaCodes(organizationId, exactCodes)
-        : Promise.resolve([]),
-      identifiers.length
-        ? this.inventory.findByBarcodes(organizationId, identifiers)
-        : Promise.resolve([]),
-    ]);
+    const normalizedNames = [...new Set(evidenceRows
+      .map((evidence) => normalizeRegisteredName(evidence.registeredName))
+      .filter((value): value is string => value !== null))];
+    const [exactCodeCandidates, identifierCandidates, normalizedNameCandidates] =
+      await Promise.all([
+        exactCodes.length
+          ? this.inventory.findBySellpiaCodes(organizationId, exactCodes)
+          : Promise.resolve([]),
+        identifiers.length
+          ? this.inventory.findByBarcodes(organizationId, identifiers)
+          : Promise.resolve([]),
+        normalizedNames.length
+          ? this.inventory.findByNormalizedNames(organizationId, normalizedNames)
+          : Promise.resolve([]),
+      ]);
     const automaticMasters = dedupeCandidates([
       ...exactCodeCandidates,
       ...identifierCandidates,
@@ -131,10 +139,24 @@ export class ChannelSkuMappingService {
         productCode: evidence.sellerSku,
         barcode: evidence.barcode,
       }, automaticMasters);
-      if (match.status !== 'matched') {
+      if (match.status === 'needs_review') {
         return {
           channelSkuId: evidence.channelSkuId,
-          mappingStatus: match.status,
+          mappingStatus: 'needs_review' as const,
+        };
+      }
+      if (match.status === 'unmatched') {
+        const nameCandidates = rankSellpiaMasterProductCandidates({
+          evidence,
+          exactCodeCandidates: [],
+          identifierCandidates: [],
+          normalizedNameCandidates,
+          nameSuggestionCandidates: [],
+          manualSearchCandidates: [],
+        });
+        return {
+          channelSkuId: evidence.channelSkuId,
+          mappingStatus: statusForUnmappedCandidates(nameCandidates),
         };
       }
       return {
@@ -231,22 +253,33 @@ export class ChannelSkuMappingService {
   ): Promise<{
     exactCodeCandidates: CandidateSellpiaMasterProduct[];
     identifierCandidates: CandidateSellpiaMasterProduct[];
+    normalizedNameCandidates: CandidateSellpiaMasterProduct[];
     nameSuggestionCandidates: CandidateSellpiaMasterProduct[];
     manualSearchCandidates: CandidateSellpiaMasterProduct[];
   }> {
     const exactCodes = distinctTrimmed(exactCodeEvidence(evidence));
     const identifiers = distinctNormalizedIdentifiers([evidence]);
+    const normalizedName = normalizeRegisteredName(evidence.registeredName);
     const suggestionQueries = includeSuggestions
       ? distinctTrimmed([evidence.optionName, ...evidence.productNames]).slice(0, 3)
       : [];
     const trimmedManualSearch = manualSearch?.trim() ?? '';
-    const [exactCodeCandidates, identifierCandidates, suggestions, manualSearchCandidates] =
+    const [
+      exactCodeCandidates,
+      identifierCandidates,
+      normalizedNameCandidates,
+      suggestions,
+      manualSearchCandidates,
+    ] =
       await Promise.all([
         exactCodes.length
           ? this.inventory.findBySellpiaCodes(organizationId, exactCodes)
           : Promise.resolve([]),
         identifiers.length
           ? this.inventory.findByBarcodes(organizationId, identifiers)
+          : Promise.resolve([]),
+        normalizedName
+          ? this.inventory.findByNormalizedNames(organizationId, [normalizedName])
           : Promise.resolve([]),
         Promise.all(suggestionQueries.map((query) =>
           this.inventory.search(organizationId, query, 10))),
@@ -257,6 +290,7 @@ export class ChannelSkuMappingService {
     return {
       exactCodeCandidates,
       identifierCandidates,
+      normalizedNameCandidates,
       nameSuggestionCandidates: dedupeCandidates(suggestions.flat()),
       manualSearchCandidates,
     };

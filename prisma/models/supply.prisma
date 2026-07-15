@@ -30,10 +30,10 @@ model Supplier {
 /// @namespace Supply
 /// @describe 공급사별 Sellpia 물리 상품 단위 공급가/주공급처 정책.
 model SupplierProduct {
-  id              String  @id @default(uuid()) @db.Uuid
-  organizationId  String  @map("organization_id") @db.Uuid
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
   supplierId      String   @map("supplier_id") @db.Uuid
-  masterProductId String  @map("master_product_id") @db.Uuid
+  masterProductId String   @map("master_product_id") @db.Uuid
   supplyPrice     Int      @default(0) @map("supply_price")
   minOrderQty     Int      @default(1) @map("min_order_qty")
   isPrimary       Boolean  @default(false) @map("is_primary")

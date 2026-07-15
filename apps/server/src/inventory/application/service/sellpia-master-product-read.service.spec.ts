@@ -27,6 +27,26 @@ describe('SellpiaMasterProductReadService', () => {
     expect(repository.search).toHaveBeenCalledOnce();
     expect(repository.search).toHaveBeenCalledWith(organizationId, 'product', 100);
   });
+
+  it('deduplicates normalized names and skips an empty normalized-name read', async () => {
+    const repository = makeRepository();
+    const service = new SellpiaMasterProductReadService(repository);
+
+    await service.findByNormalizedNames(organizationId, [
+      '아기컵',
+      ' 아기컵 ',
+      '',
+      '빨대컵',
+    ]);
+    await expect(service.findByNormalizedNames(organizationId, [' ', '']))
+      .resolves.toEqual([]);
+
+    expect(repository.findByNormalizedNames).toHaveBeenCalledOnce();
+    expect(repository.findByNormalizedNames).toHaveBeenCalledWith(
+      organizationId,
+      ['아기컵', '빨대컵'],
+    );
+  });
 });
 
 function makeRepository() {
@@ -36,6 +56,9 @@ function makeRepository() {
     findByCodes: vi.fn<SellpiaMasterProductReadRepositoryPort['findByCodes']>()
       .mockResolvedValue([]),
     findByBarcodes: vi.fn<SellpiaMasterProductReadRepositoryPort['findByBarcodes']>()
+      .mockResolvedValue([]),
+    findByNormalizedNames: vi
+      .fn<SellpiaMasterProductReadRepositoryPort['findByNormalizedNames']>()
       .mockResolvedValue([]),
     search: vi.fn<SellpiaMasterProductReadRepositoryPort['search']>()
       .mockResolvedValue([]),

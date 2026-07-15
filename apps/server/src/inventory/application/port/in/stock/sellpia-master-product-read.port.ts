@@ -28,6 +28,10 @@ export interface SellpiaMasterProductReadPort {
     organizationId: string,
     barcodes: string[],
   ): Promise<SellpiaMasterProductReadModel[]>;
+  findByNormalizedNames(
+    organizationId: string,
+    normalizedNames: string[],
+  ): Promise<SellpiaMasterProductReadModel[]>;
   search(
     organizationId: string,
     query: string,

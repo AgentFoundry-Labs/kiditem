@@ -1,9 +1,19 @@
+importScripts("collection-session.js");
+importScripts("interactive-tabs.js");
+importScripts("1688-trend-collector.js");
+importScripts("live-commerce-collector.js");
+
 const DEFAULT_API = "http://localhost:4000/api/sourcing/extension";
 const EXTRACT_TIMEOUT_MS = 20000;
-const INGEST_TOKEN_KEY = "kiditem_sourcing_ingest_token";
-const INGEST_TOKEN_EXPIRES_AT_KEY = "kiditem_sourcing_ingest_token_expires_at";
-const INGEST_TOKEN_MAX_EXPIRES_AT_KEY = "kiditem_sourcing_ingest_token_max_expires_at";
-const RENEW_WINDOW_MS = 5 * 60 * 1000;
+const AUTH_TOKEN_KEY = "kiditem_auth_token";
+const LEGACY_AUTH_TOKEN_KEYS = [
+  "kiditem_sourcing_ingest_token",
+  "kiditem_sourcing_ingest_token_expires_at",
+  "kiditem_sourcing_ingest_token_max_expires_at",
+];
+const AUTH_REQUIRED_EVENT = "kiditem:extension-auth-required";
+const AUTH_REFRESH_TIMEOUT_MS = 10_000;
+const TREND_KEEPALIVE_PORT = "kiditem-1688-trend-keepalive";
 const ALLOWED_WEB_ORIGINS = new Set([
   "http://localhost:3000",
   "https://staging.merchon.org",
@@ -13,9 +23,14 @@ const ALLOWED_API_BASES = new Set([
   "http://127.0.0.1:4000/api/sourcing/extension",
   "https://staging.merchon.org/api/sourcing/extension",
 ]);
+const KIDITEM_WEB_URL_PATTERNS = [
+  "http://localhost:3000/*",
+  "https://staging.merchon.org/*",
+];
 
 let apiBase = DEFAULT_API;
 let pendingCollect = null;
+let authRefreshInFlight = null;
 
 function getLocal(keys) {
   return new Promise((resolve) => {
@@ -52,37 +67,79 @@ function isAllowedExternalSender(sender) {
   }
 }
 
-async function getIngestToken(apiBaseForRenewal) {
-  const stored = await getLocal([
-    INGEST_TOKEN_KEY,
-    INGEST_TOKEN_EXPIRES_AT_KEY,
-    INGEST_TOKEN_MAX_EXPIRES_AT_KEY,
-  ]);
-  const token = stored[INGEST_TOKEN_KEY];
-  if (typeof token !== "string" || !token.trim()) return null;
+async function getAuthToken() {
+  const stored = await getLocal(AUTH_TOKEN_KEY);
+  const token = stored[AUTH_TOKEN_KEY];
+  return typeof token === "string" && token.trim() ? token : null;
+}
 
-  const expiresAt = Date.parse(stored[INGEST_TOKEN_EXPIRES_AT_KEY] || "");
-  if (!Number.isFinite(expiresAt) || expiresAt - Date.now() > RENEW_WINDOW_MS) {
-    return token;
-  }
+function waitForAuthTokenChange(previousToken) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (token) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      chrome.storage.onChanged.removeListener(handleStorageChange);
+      resolve(token);
+    };
+    const handleStorageChange = (changes, areaName) => {
+      if (areaName !== "local") return;
+      const nextToken = changes[AUTH_TOKEN_KEY]?.newValue;
+      if (
+        typeof nextToken === "string" &&
+        nextToken.trim() &&
+        nextToken !== previousToken
+      ) {
+        finish(nextToken);
+      }
+    };
+    const timer = setTimeout(() => finish(null), AUTH_REFRESH_TIMEOUT_MS);
+    chrome.storage.onChanged.addListener(handleStorageChange);
+    getAuthToken().then((currentToken) => {
+      if (currentToken && currentToken !== previousToken) finish(currentToken);
+    });
+  });
+}
 
-  try {
-    const resp = await fetch(`${apiBaseForRenewal}/session/renew`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!resp.ok) return token;
-    const next = await resp.json();
-    if (typeof next.token !== "string") return token;
-    await setLocal({
-      [INGEST_TOKEN_KEY]: next.token,
-      [INGEST_TOKEN_EXPIRES_AT_KEY]: next.expiresAt || null,
-      [INGEST_TOKEN_MAX_EXPIRES_AT_KEY]: next.maxExpiresAt || null,
-    });
-    return next.token;
-  } catch {
-    return token;
-  }
+async function notifyKidItemAuthRequired() {
+  const tabs = await chrome.tabs.query({ url: KIDITEM_WEB_URL_PATTERNS });
+  await Promise.all(
+    tabs
+      .filter((tab) => tab?.id)
+      .map((tab) =>
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: (eventName) =>
+            window.dispatchEvent(new CustomEvent(eventName)),
+          args: [AUTH_REQUIRED_EVENT],
+        }).catch(() => null),
+      ),
+  );
+}
+
+function requestFreshAuthToken(previousToken) {
+  if (authRefreshInFlight) return authRefreshInFlight;
+  authRefreshInFlight = (async () => {
+    const changedToken = waitForAuthTokenChange(previousToken);
+    await notifyKidItemAuthRequired().catch(() => null);
+    return changedToken;
+  })().finally(() => {
+    authRefreshInFlight = null;
+  });
+  return authRefreshInFlight;
+}
+
+async function fetchKidItem(url, init = {}, allowAuthRetry = true) {
+  const token = await getAuthToken();
+  const headers = new Headers(init.headers || {});
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const response = await fetch(url, { ...init, headers });
+  if (response.status !== 401 || !allowAuthRetry) return response;
+
+  const nextToken = await requestFreshAuthToken(token);
+  if (!nextToken || nextToken === token) return response;
+  return fetchKidItem(url, init, false);
 }
 
 async function backendRequestConfig() {
@@ -91,7 +148,8 @@ async function backendRequestConfig() {
     return { ok: false, error: "허용되지 않은 KidItem API 주소입니다." };
   }
   const headers = { "Content-Type": "application/json" };
-  const token = await getIngestToken(base);
+  let token = await getAuthToken();
+  if (!token) token = await requestFreshAuthToken(null);
   if (token) headers.Authorization = `Bearer ${token}`;
   if (!headers.Authorization) {
     return {
@@ -99,7 +157,98 @@ async function backendRequestConfig() {
       error: "KidItem 웹 앱에서 로그인 후 다시 시도해주세요.",
     };
   }
-  return { ok: true, base, headers };
+  return { ok: true, base, headers, request: fetchKidItem };
+}
+
+const collectionSessions = KidItemCollectionSession.create({
+  chrome,
+  storageKey: "kiditem_collection_sessions",
+  webUrlPatterns: KIDITEM_WEB_URL_PATTERNS,
+});
+
+const trendCollector = ProductScraper1688Trend.create({
+  chrome,
+  getBackendRequestConfig: backendRequestConfig,
+  ensureContentScripts: injectContentScripts,
+  sessions: collectionSessions,
+});
+
+const liveCommerceCollector = ProductScraperLiveCommerce.create({
+  chrome,
+  getBackendRequestConfig: backendRequestConfig,
+  ensureContentScripts: injectLiveCommerceContentScripts,
+  sessions: collectionSessions,
+});
+
+async function cancelCollectionSession(runId) {
+  const session = await collectionSessions.get(runId);
+  if (!session) return null;
+  if (session.producer === "sourcing.1688_trend") {
+    await trendCollector.cancel(runId);
+  } else if (session.producer === "sourcing.live_commerce") {
+    await liveCommerceCollector.cancel(runId);
+  } else {
+    throw new Error("Unsupported collection producer");
+  }
+  return collectionSessions.get(runId);
+}
+
+async function restartCollectionSession(runId) {
+  const session = await collectionSessions.get(runId);
+  if (!session) throw new Error("Collection session not found");
+  if (session.producer === "sourcing.1688_trend") {
+    await trendCollector.restart(runId);
+    return collectionSessions.get(runId);
+  }
+  if (session.producer === "sourcing.live_commerce") {
+    await collectionSessions.requireAttention(runId, {
+      reason: "manual_confirmation",
+      message: "현재 방송 URL을 확인한 뒤 처음부터 다시 수집해주세요.",
+    });
+    return collectionSessions.get(runId);
+  }
+  throw new Error("Unsupported collection producer");
+}
+
+// MV3 service workers may be suspended during a multi-keyword 1688 run.
+// The KidItem host content script sends a small heartbeat while the page is
+// open so in-flight extraction promises and external response channels stay
+// alive until the batch finishes.
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== TREND_KEEPALIVE_PORT) return;
+  port.onMessage.addListener(() => {
+    // Receiving the port message is the keepalive signal; no response needed.
+  });
+});
+
+function validateTrendStartMessage(msg) {
+  if (!Array.isArray(msg?.keywords) || msg.keywords.length < 1 || msg.keywords.length > 20) {
+    return { ok: false, error: "keywords must contain 1 to 20 strings" };
+  }
+  const keywords = [];
+  for (const raw of msg.keywords) {
+    if (typeof raw !== "string") {
+      return { ok: false, error: "each keyword must be a string" };
+    }
+    const keyword = raw.trim();
+    if (!keyword || keyword.length > 100) {
+      return { ok: false, error: "each keyword must contain 1 to 100 characters" };
+    }
+    keywords.push(keyword);
+  }
+
+  const requestedLimit = msg.maxResultsPerKeyword === undefined
+    ? 20
+    : msg.maxResultsPerKeyword;
+  if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 20) {
+    return { ok: false, error: "maxResultsPerKeyword must be an integer from 1 to 20" };
+  }
+  return { ok: true, keywords, maxResultsPerKeyword: requestedLimit };
+}
+
+function validateOptionalRunId(value) {
+  return value === undefined ||
+    (typeof value === "string" && value.length > 0 && value.length <= 200);
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -113,14 +262,89 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     sendResponse({ success: false, error: "forbidden_origin" });
     return;
   }
+  if (!msg || typeof msg !== "object" || Array.isArray(msg)) {
+    sendResponse({ success: false, error: "invalid_message" });
+    return;
+  }
+
+  const respond = (promise) => {
+    Promise.resolve(promise)
+      .then(sendResponse)
+      .catch((error) =>
+        sendResponse({
+          success: false,
+          error: error?.message || "Collection session request failed",
+        }),
+      );
+    return true;
+  };
+
+  if (msg.action === "listCollectionSessions") {
+    return respond(collectionSessions.list());
+  }
+  if (msg.action === "getCollectionSession") {
+    return respond(collectionSessions.get(msg.runId));
+  }
+  if (msg.action === "cancelCollectionSession") {
+    return respond(cancelCollectionSession(msg.runId));
+  }
+  if (msg.action === "openCollectionAttentionTab") {
+    return respond(collectionSessions.openAttentionTab(msg.runId));
+  }
+  if (msg.action === "restartCollectionSession") {
+    return respond(restartCollectionSession(msg.runId));
+  }
 
   if (msg.action === "ping") {
     sendResponse({
       success: true,
       version: chrome.runtime.getManifest().version,
-      capabilities: { sourcingProductScraper: true },
+      capabilities: {
+        sourcingProductScraper: true,
+        sourcing1688TrendCollector: true,
+        sourcingLiveCommerceCollector: true,
+        browserCollectionSessions: true,
+      },
     });
     return;
+  }
+
+  if (msg.action === "start1688TrendCollection") {
+    const validated = validateTrendStartMessage(msg);
+    if (!validated.ok) {
+      sendResponse({ success: false, error: validated.error });
+      return;
+    }
+    trendCollector
+      .start(validated.keywords, validated.maxResultsPerKeyword)
+      .then(sendResponse);
+    return true;
+  }
+
+  if (msg.action === "get1688TrendCollectionStatus") {
+    if (!validateOptionalRunId(msg.runId)) {
+      sendResponse({ success: false, error: "invalid runId" });
+      return;
+    }
+    trendCollector.getStatus(msg.runId).then(sendResponse);
+    return true;
+  }
+
+  if (msg.action === "cancel1688TrendCollection") {
+    if (!validateOptionalRunId(msg.runId)) {
+      sendResponse({ success: false, error: "invalid runId" });
+      return;
+    }
+    trendCollector.cancel(msg.runId).then(sendResponse);
+    return true;
+  }
+
+  if (msg.action === "collectLiveCommerceUrl") {
+    if (!validateOptionalRunId(msg.runId)) {
+      sendResponse({ success: false, error: "invalid runId" });
+      return;
+    }
+    return respond(liveCommerceCollector.collect(msg.url, msg.runId));
   }
 
   if (msg.action === "setAuthToken") {
@@ -133,21 +357,19 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     if (approvedMessageApiBase) apiBase = approvedMessageApiBase;
     chrome.storage.local.set({
       ...(approvedMessageApiBase ? { apiBase: approvedMessageApiBase } : {}),
-      [INGEST_TOKEN_KEY]: token,
-      [INGEST_TOKEN_EXPIRES_AT_KEY]: typeof msg.expiresAt === "string" ? msg.expiresAt : null,
-      [INGEST_TOKEN_MAX_EXPIRES_AT_KEY]:
-        typeof msg.maxExpiresAt === "string" ? msg.maxExpiresAt : null,
+      [AUTH_TOKEN_KEY]: token,
     }, () => {
-      sendResponse({ success: true });
+      chrome.storage.local.remove(LEGACY_AUTH_TOKEN_KEYS, () => {
+        sendResponse({ success: true });
+      });
     });
     return true;
   }
 
   if (msg.action === "clearAuthToken") {
     chrome.storage.local.remove([
-      INGEST_TOKEN_KEY,
-      INGEST_TOKEN_EXPIRES_AT_KEY,
-      INGEST_TOKEN_MAX_EXPIRES_AT_KEY,
+      AUTH_TOKEN_KEY,
+      ...LEGACY_AUTH_TOKEN_KEYS,
     ], () => {
       sendResponse({ success: true });
     });
@@ -261,6 +483,20 @@ async function injectContentScripts(tabId) {
   }
 }
 
+async function injectLiveCommerceContentScripts(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["live-commerce-extractor.js", "live-commerce-content.js"],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    return true;
+  } catch (error) {
+    console.log("[bg] live commerce script injection failed:", error.message);
+    return false;
+  }
+}
+
 async function handleProductData(data, tabId) {
   if (data._detail_url && data.source_platform === "1688") {
     const desc = await fetchDescriptionContent(data._detail_url, data.source_url);
@@ -292,7 +528,7 @@ async function sendToBackend(productData) {
     const config = await backendRequestConfig();
     if (!config.ok) return config;
     const url = `${config.base}/product-data`;
-    const resp = await fetch(url, {
+    const resp = await config.request(url, {
       method: "POST",
       headers: config.headers,
       body: JSON.stringify(productData),
@@ -321,7 +557,7 @@ async function sendDescriptionToBackend(data) {
   try {
     const config = await backendRequestConfig();
     if (!config.ok) return;
-    await fetch(`${config.base}/product-data`, {
+    await config.request(`${config.base}/product-data`, {
       method: "POST",
       headers: config.headers,
       body: JSON.stringify({ ...data, page_type: "description" }),

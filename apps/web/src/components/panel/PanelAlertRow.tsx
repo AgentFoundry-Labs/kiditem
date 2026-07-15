@@ -33,15 +33,29 @@ function severityIcon(severity: string) {
  * long-running work — the lifecycle ledger introduced in PR #209.
  * `signal` alerts (broadcast warnings/info) skip this badge entirely.
  */
-function operationStatusBadge(status: string): { label: string; className: string; Icon: typeof Loader2 } | null {
+function operationStatusBadge(
+  status: string,
+  sourceType: string | null,
+): { label: string; className: string; Icon: typeof Loader2 } | null {
   switch (status) {
     case 'running':
-    case 'pending':
       return {
-        label: status === 'pending' ? '대기 중' : '진행 중',
+        label: '진행 중',
         className: 'bg-blue-50 text-blue-600',
         Icon: Loader2,
       };
+    case 'pending':
+      return sourceType === 'browser_collection_session'
+        ? {
+            label: '확인 필요',
+            className: 'bg-amber-50 text-amber-700',
+            Icon: AlertTriangle,
+          }
+        : {
+            label: '대기 중',
+            className: 'bg-blue-50 text-blue-600',
+            Icon: Loader2,
+          };
     case 'succeeded':
       return { label: '완료', className: 'bg-emerald-50 text-emerald-600', Icon: CheckCircle2 };
     case 'failed':
@@ -65,7 +79,9 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
   const upsertItem = usePanelStore((s) => s.upsertItem);
 
   const isOperation = item.alertKind === 'operation';
-  const badge = isOperation ? operationStatusBadge(item.status) : null;
+  const badge = isOperation
+    ? operationStatusBadge(item.status, item.sourceType)
+    : null;
   const href = item.href;
   const isActiveOperation =
     isOperation && (item.status === 'running' || item.status === 'pending');
@@ -78,7 +94,10 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
   // orphaned task whose context (success/fail/cancel) is not yet known.
   const canPromote =
     item.actionTaskId == null && !isActiveOperation;
-  const canCancel = isActiveOperation && Boolean(item.operationKey);
+  const canCancel =
+    isActiveOperation &&
+    Boolean(item.operationKey) &&
+    item.sourceType !== 'browser_collection_session';
   const canDismiss =
     !isOperation || (item.status !== 'running' && item.status !== 'pending');
 

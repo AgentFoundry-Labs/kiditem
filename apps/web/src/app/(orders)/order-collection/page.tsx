@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileSpreadsheet, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
+import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
 import { FilePreviewSection } from './components/FilePreviewSection';
@@ -22,12 +23,16 @@ import {
   AUTO_INTERVAL_OPTIONS_MIN,
   useOrderAutoDetect,
 } from './hooks/use-order-auto-detect';
+import { useOrderCollectionSessionControls } from './hooks/use-order-collection-session-controls';
 import { createBrowserMallCollector } from './lib/browser-mall-collection';
 import { createGeneratedFileActionLock } from './lib/generated-file-action-lock';
 import { isDuplicateGeneratedFile } from './lib/generated-file-dedup';
 import { runWithConcurrency } from './lib/order-collection-concurrency';
 import { downloadOrderCollectionFile } from './lib/order-collection-download';
-import { sendOrderFileToSellpiaViaExtension } from './lib/order-collection-extension';
+import {
+  sendOrderFileToSellpiaViaExtension,
+  type OrderCollectionExtensionRun,
+} from './lib/order-collection-extension';
 import {
   ICECREAM_MALL_KEY,
   MAX_HISTORY_ITEMS,
@@ -82,6 +87,8 @@ export default function OrderCollectionPage() {
     meta: { suppressGlobalErrorToast: true },
   });
   const mallAccounts = mallAccountsQuery.data ?? [];
+  const sessionControls = useOrderCollectionSessionControls(mallAccounts);
+  const collectionSession = sessionControls.session;
   const mallLoading = mallAccountsQuery.isLoading;
   const mallError = mallAccountsQuery.error instanceof Error
     ? mallAccountsQuery.error.message
@@ -160,14 +167,6 @@ export default function OrderCollectionPage() {
     [addGeneratedFile, mallAccounts],
   );
 
-  const autoDetect = useOrderAutoDetect({
-    mallAccounts,
-    addGeneratedFile,
-    collectBrowserMall,
-    markCollecting,
-    logActivity,
-  });
-
   const refreshMallAccounts = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.orders.collectionMalls() });
   }, [queryClient]);
@@ -212,23 +211,55 @@ export default function OrderCollectionPage() {
   ]);
 
   const collectAccount = useCallback(
-    async (account: OrderCollectionMallAccount) => {
+    async (account: OrderCollectionMallAccount, run?: OrderCollectionExtensionRun) => {
       markCollecting(account.key, true);
+      let activeRun = run;
       try {
-        const collected = await collectBrowserMall(account);
+        if (!activeRun) {
+          activeRun = await sessionControls.prepareRun(account) ?? undefined;
+        }
+        if (!activeRun) {
+          throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
+        }
+        const collected = await collectBrowserMall(account, activeRun);
+        await sessionControls.finalizeRun(
+          activeRun,
+          'succeeded',
+          `${account.name} 수집 및 파일 생성 완료`,
+        );
         clearMallErrorActivity(account.name);
         if (collected.rowCount === 0) logActivity('empty', account.name);
         return collected;
       } catch (err) {
         const message = friendlyError(err) ?? '브라우저 수집 실패';
-        logActivity('error', account.name, message);
+        if (activeRun) {
+          await sessionControls.finalizeRun(
+            activeRun,
+            'failed',
+            `${account.name} 파일 생성 실패: ${message}`,
+          ).catch((finalizeError) => {
+            console.warn('[order-collection] failed to finalize collection session', finalizeError);
+          });
+        }
+        if (!activeRun?.signal?.aborted) {
+          logActivity('error', account.name, message);
+        }
         throw err;
       } finally {
+        if (activeRun) sessionControls.releaseRun(account.key, activeRun.runId);
         markCollecting(account.key, false);
       }
     },
-    [clearMallErrorActivity, collectBrowserMall, logActivity, markCollecting],
+    [clearMallErrorActivity, collectBrowserMall, logActivity, markCollecting, sessionControls],
   );
+
+  const autoDetect = useOrderAutoDetect({
+    mallAccounts,
+    addGeneratedFile,
+    collectAccount,
+    markCollecting,
+    logActivity,
+  });
 
   const handleBrowserCollectAll = async () => {
     const targets = mallAccounts.filter(
@@ -279,7 +310,10 @@ export default function OrderCollectionPage() {
     setBrowserCollecting(false);
   };
 
-  const handleBrowserCollectMall = async (account: OrderCollectionMallAccount) => {
+  const handleBrowserCollectMall = async (
+    account: OrderCollectionMallAccount,
+    existingRunId?: string,
+  ) => {
     if (!account.enabled) {
       toast.error(`${account.name} 계정이 중지되어 있습니다.`);
       return;
@@ -289,15 +323,46 @@ export default function OrderCollectionPage() {
       return;
     }
     setState('converting');
+    let run: OrderCollectionExtensionRun | null = null;
     try {
-      const collected = await collectAccount(account);
+      run = await sessionControls.prepareRun(account, existingRunId);
+      if (!run) {
+        setState('error');
+        toast.error('주문수집 확장프로그램을 찾을 수 없습니다.');
+        return;
+      }
+      const collected = await collectAccount(account, run);
       setState('success');
       if (collected.masked) toast.warning('화면 표는 일부 개인정보가 마스킹되어 있습니다.');
       if (collected.rowCount > 0) toast.success(`${account.name} 수집 완료`);
     } catch (err) {
-      setState('error');
-      toast.error(friendlyError(err) ?? '브라우저 수집 실패');
+      if (run?.signal?.aborted) {
+        setState('idle');
+        toast.info(`${account.name} 수집을 중단했습니다.`);
+      } else {
+        setState('error');
+        toast.error(friendlyError(err) ?? '브라우저 수집 실패');
+      }
     }
+  };
+
+  const handleCancelMall = async (account: OrderCollectionMallAccount) => {
+    try {
+      const requested = await sessionControls.cancelRun(account);
+      if (!requested) {
+        toast.warning(`${account.name}에서 중단할 수집을 찾지 못했습니다.`);
+      }
+    } catch (err) {
+      toast.error(friendlyError(err) ?? `${account.name} 수집 중단에 실패했습니다.`);
+    }
+  };
+
+  const restartCollectionSession = async (
+    session: NonNullable<typeof collectionSession>,
+  ) => {
+    const account = sessionControls.restartAccount;
+    if (!account) return;
+    await handleBrowserCollectMall(account, session.runId);
   };
 
   const handleModalUpload = async ({
@@ -566,9 +631,17 @@ export default function OrderCollectionPage() {
         autoNextRunAt={autoDetect.nextRunAt}
         autoRunning={autoDetect.running}
         browserCollecting={browserCollecting}
+        cancellingKeys={sessionControls.cancellingKeys}
         collectingKeys={collectingKeys}
         configuredMallCount={configuredMallCount}
         conversionState={state}
+        collectionControls={collectionSession ? (
+          <BrowserCollectionRunControls
+            session={collectionSession}
+            onWebRestart={restartCollectionSession}
+            webRestartUnavailableMessage={sessionControls.webRestartUnavailableMessage}
+          />
+        ) : undefined}
         enabledMallCount={enabledMallCount}
         failedMallCount={failedMallAccounts.length}
         mallAccounts={mallAccounts}
@@ -583,6 +656,7 @@ export default function OrderCollectionPage() {
         selectedMall={selectedMall}
         onAutoIntervalChange={autoDetect.changeInterval}
         onCollectAll={() => void handleBrowserCollectAll()}
+        onCancelMall={(account) => void handleCancelMall(account)}
         onCollectMall={(account) => void handleBrowserCollectMall(account)}
         onDraftChange={setMallDraft}
         onOpenMall={() => {

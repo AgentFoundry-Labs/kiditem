@@ -3,13 +3,16 @@ Consult this document first instead of relying on memorized knowledge.
 # coupang-ads-scraper — Coupang Wing + Ad-Center Extension
 
 `extensions/coupang-ads-scraper/` collects Coupang Wing catalog and ad-center
-data, executes approved ad actions, and supports explicit Wing page automation.
+data plus public Coupang search evidence, executes approved ad actions, and
+supports explicit Wing page automation.
 
 ## Owned Surfaces
 
 - Resumable Coupang Wing full-catalog collection: products, sellable options,
   and provider media
 - Coupang ad-center scrape and approved action execution
+- Public Coupang keyword SERP collection, bounded product-detail seller
+  resolution, and server-selected seller-shop catalog collection
 - Extension popup/manual control UI
 - Host bridge status exposed to committed KidItem web origins
 
@@ -29,7 +32,8 @@ data, executes approved ad actions, and supports explicit Wing page automation.
 - `externally_connectable` is limited to committed KidItem web origins.
 - `content/host-bridge.js` may expose extension id and status only.
 - Never expose `kiditem_auth_token` through host bridge or page-world messages.
-- Marketplace DOM automation runs only on Wing or advertising Coupang origins.
+- Marketplace DOM automation runs only on committed Wing, advertising, public
+  Coupang search/product-detail, or server-selected seller-shop origins.
 - Service worker owns long-running batch status in `chrome.storage.local`.
 - Content scripts report results to the service worker instead of owning global
   progress.
@@ -38,6 +42,11 @@ data, executes approved ad actions, and supports explicit Wing page automation.
 
 - Wing catalog collection stays on Wing inventory and product-detail URLs.
 - Ad action execution stays on `advertising.coupang.com`.
+- Public SERP collection stays on Coupang search URLs; seller enrichment may
+  fetch only exact `www.coupang.com/vp/products/{id}` links discovered in that
+  SERP and must remain bounded and rate-limited.
+- Seller-shop catalog collection stays on exact `shop.coupang.com` URLs selected
+  by the backend from resolved competitor identities and must remain bounded.
 - Do not add generic arbitrary URL fetch or navigation executors.
 - Login-required states return explicit user-facing errors, not silent success.
 - Keep action execution idempotent from the backend perspective.

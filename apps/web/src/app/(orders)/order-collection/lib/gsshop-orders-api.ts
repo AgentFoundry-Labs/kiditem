@@ -2,6 +2,7 @@ import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extensi
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
+import type { OrderCollectionExtensionRun } from './order-collection-extension';
 
 interface GsshopCollectResponse {
   success?: boolean;
@@ -17,10 +18,10 @@ interface GsshopCollectResponse {
  * (주소=도로명/전체주소 기본값) 를 자동 실행해 GS가 클라이언트에서 조립한 직송주문 엑셀(.xlsx)을 가져온다.
  * 조회결과가 없으면 empty:true. 확장 서비스워커(MAIN world)가 createObjectURL 후킹으로 blob 캡처.
  */
-export async function collectGsshopXlsxFromExtension(): Promise<
+export async function collectGsshopXlsxFromExtension(run?: OrderCollectionExtensionRun): Promise<
   { xlsxBase64: string; fileName: string } | { empty: true }
 > {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = run?.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 partners.gsshop.com 에 로그인한 뒤 다시 시도하세요.',
@@ -28,7 +29,11 @@ export async function collectGsshopXlsxFromExtension(): Promise<
   }
   const res = await sendToExtension<GsshopCollectResponse>(
     extensionId,
-    { action: 'collectGsshopOrders' },
+    {
+      action: 'collectGsshopOrders',
+      date: run?.date,
+      runId: run?.runId ?? globalThis.crypto.randomUUID(),
+    },
     150000, // GS 는 조회+상세 fetch 후 클라이언트 엑셀 조립이라 넉넉히
   );
   if (res?.empty) return { empty: true };

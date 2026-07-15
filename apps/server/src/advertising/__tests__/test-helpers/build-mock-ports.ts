@@ -22,6 +22,7 @@ import type { ChannelListingDailyRepositoryPort } from '../../application/port/o
 import type { ChannelOptionDailyRepositoryPort } from '../../application/port/out/repository/channel-option-daily.repository.port';
 import type { ChannelTargetDailyRepositoryPort } from '../../application/port/out/repository/channel-target-daily.repository.port';
 import type { ScrapeTargetRepositoryPort } from '../../application/port/out/repository/scrape-target.repository.port';
+import type { KeywordRankRepositoryPort } from '../../application/port/out/repository/keyword-rank.repository.port';
 import type { OperationAlertPort } from '../../application/port/out/cross-domain/operation-alert.port';
 
 /** Vitest mock variant of every method on `AdBenchmarkRepositoryPort`. */
@@ -187,6 +188,35 @@ export function buildMockScrapeTargetRepo(): MockScrapeTargetRepo {
     create: vi.fn(),
     markScraped: vi.fn(),
     softDelete: vi.fn(),
+  };
+}
+
+export type MockKeywordRankRepo = {
+  [K in keyof KeywordRankRepositoryPort]: ReturnType<typeof vi.fn>;
+};
+
+export function buildMockKeywordRankRepo(): MockKeywordRankRepo {
+  return {
+    listTrackers: vi.fn(),
+    upsertTrackerByKeyword: vi.fn(),
+    updateTracker: vi.fn(),
+    deleteTracker: vi.fn(),
+    getTrackerByKeyword: vi.fn(),
+    touchTrackerCaptured: vi.fn(),
+    listOwnVendorItems: vi.fn(),
+    listRepresentativeKeywordOverrides: vi.fn(),
+    upsertRepresentativeKeywordOverride: vi.fn(),
+    deleteRepresentativeKeywordOverride: vi.fn(),
+    hasOwnVendorItem: vi.fn(),
+    upsertRankSnapshots: vi.fn(),
+    upsertSerpSnapshot: vi.fn(),
+    mutateLatestSerpSnapshot: vi.fn(),
+    findRankHistory: vi.fn(),
+    findRankOverviewSnapshots: vi.fn(),
+    replaceWingSalesRankSnapshots: vi.fn(),
+    findWingSalesRankSnapshots: vi.fn(),
+    findLatestSerp: vi.fn(),
+    findRecentSerpSnapshots: vi.fn(),
   };
 }
 

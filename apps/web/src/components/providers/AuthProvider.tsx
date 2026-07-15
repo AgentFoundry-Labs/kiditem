@@ -4,9 +4,13 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
-import { syncSourcingExtensionAuth } from '@/lib/sourcing-extension-auth';
+import {
+  EXTENSION_AUTH_REQUIRED_EVENT,
+  syncExtensionAuth,
+} from '@/lib/extension-auth';
 import { consumeSignOutReason } from '@/lib/supabase/refresh';
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
+import { BrowserCollectionProvider } from './BrowserCollectionProvider';
 
 type AuthContextValue = {
   /** 현재 Supabase 세션. null = 로그아웃 상태 또는 초기 로딩. */
@@ -44,17 +48,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const supabase = createSupabaseBrowserClient();
     let cancelled = false;
+    let refreshInFlight: Promise<void> | null = null;
+
+    const syncCurrentSession = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!cancelled) await syncExtensionAuth(data.session);
+    };
+
+    const refreshAndSyncSession = () => {
+      if (refreshInFlight) return refreshInFlight;
+      const operation = (async () => {
+        const { data, error } = await supabase.auth.refreshSession();
+        if (!error && data.session && !cancelled) {
+          await syncExtensionAuth(data.session);
+        }
+      })();
+      refreshInFlight = operation.finally(() => {
+        refreshInFlight = null;
+      });
+      return refreshInFlight;
+    };
+
+    const handleSessionRecovery = () => {
+      void syncCurrentSession();
+    };
+    const handleVisibilityRecovery = () => {
+      if (document.visibilityState === 'visible') handleSessionRecovery();
+    };
+    const handleExtensionAuthRequired = () => {
+      void refreshAndSyncSession();
+    };
 
     supabase.auth.getSession().then(({ data }) => {
       if (!cancelled) {
         setState({ session: data.session, isLoading: false });
-        void syncSourcingExtensionAuth(data.session);
+        void syncExtensionAuth(data.session);
       }
     });
 
     function handle(event: AuthChangeEvent, next: Session | null) {
       setState({ session: next, isLoading: false });
-      void syncSourcingExtensionAuth(next);
+      void syncExtensionAuth(next);
 
       switch (event) {
         case 'SIGNED_OUT': {
@@ -90,14 +124,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(handle);
 
+    window.addEventListener('online', handleSessionRecovery);
+    window.addEventListener('focus', handleSessionRecovery);
+    document.addEventListener('visibilitychange', handleVisibilityRecovery);
+    window.addEventListener(
+      EXTENSION_AUTH_REQUIRED_EVENT,
+      handleExtensionAuthRequired,
+    );
+
     return () => {
       cancelled = true;
       subscription.unsubscribe();
+      window.removeEventListener('online', handleSessionRecovery);
+      window.removeEventListener('focus', handleSessionRecovery);
+      document.removeEventListener('visibilitychange', handleVisibilityRecovery);
+      window.removeEventListener(
+        EXTENSION_AUTH_REQUIRED_EVENT,
+        handleExtensionAuthRequired,
+      );
     };
     // queryClient 와 router 는 referentially stable. 매 render 마다 unsubscribe/resubscribe
     // 하지 않기 위해 deps 를 비워둔다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return <AuthContext.Provider value={state}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={state}>
+      <BrowserCollectionProvider enabled={Boolean(state.session)}>
+        {children}
+      </BrowserCollectionProvider>
+    </AuthContext.Provider>
+  );
 }

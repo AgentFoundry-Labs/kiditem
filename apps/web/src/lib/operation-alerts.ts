@@ -24,6 +24,7 @@ import type {
   UpdateOperationAlertRequest,
 } from '@kiditem/shared/alerts';
 import { apiClient } from './api-client';
+import { isApiError } from './api-error';
 
 export type OperationAlertHandle = {
   operationKey: string;
@@ -45,7 +46,6 @@ export interface StartOperationAlertInput {
 export interface UpdateOperationAlertInput {
   status: AlertOperationLifecycleStatus;
   message?: string | null;
-  href?: string | null;
   progress?: number | null;
   severity?: AlertSeverity;
   metadata?: Record<string, unknown>;
@@ -82,7 +82,6 @@ export async function updateOperationAlert(
   const body: UpdateOperationAlertRequest = {
     status: input.status,
     message: input.message ?? undefined,
-    href: input.href ?? undefined,
     progress: input.progress ?? undefined,
     severity: input.severity,
     metadata: input.metadata,
@@ -93,11 +92,11 @@ export async function updateOperationAlert(
       body,
     );
   } catch (err) {
-    // 404 = no matching alert (caller never started one, or it was already
-    // closed by another tab). Log + swallow so the calling hook can finish
-    // its own state machine.
-    console.warn(`[operation-alerts] update ${input.status} failed`, err);
-    return null;
+    if (isApiError(err) && err.status === 404) {
+      console.warn(`[operation-alerts] update ${input.status} not found`, err);
+      return null;
+    }
+    throw err;
   }
 }
 
@@ -120,3 +119,13 @@ export const progressOperationAlert = (
   operationKey: string,
   patch: Omit<UpdateOperationAlertInput, 'status'> = {},
 ) => updateOperationAlert(operationKey, { ...patch, status: 'running' });
+
+export const requireAttentionOperationAlert = (
+  operationKey: string,
+  patch: Omit<UpdateOperationAlertInput, 'status'> = {},
+) =>
+  updateOperationAlert(operationKey, {
+    ...patch,
+    status: 'pending',
+    severity: patch.severity ?? 'warning',
+  });

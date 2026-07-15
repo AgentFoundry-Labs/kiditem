@@ -184,8 +184,9 @@ STAGING_NAVER_DATALAB_BASE_URL=https://openapi.naver.com
 STAGING_NAVER_DATALAB_WEB_BASE_URL=https://datalab.naver.com
 STAGING_NAVER_SEARCHAD_BASE_URL=https://api.searchad.naver.com
 STAGING_TMAPI_BASE_URL=https://api.tmapi.top
-STAGING_SOURCING_EXTENSION_TOKEN_TTL_SECONDS=1800
-STAGING_SOURCING_EXTENSION_TOKEN_MAX_SECONDS=86400
+STAGING_SOURCING_PLAYWRIGHT_CDP_ENDPOINT=<managed-browser-cdp-endpoint>
+STAGING_TAOBAO_TOP_BASE_URL=https://eco.taobao.com/router/rest
+STAGING_TAOBAO_TOP_TIMEOUT_MS=15000
 STAGING_DB_BASELINE_BUCKET=kiditem-staging-db-baselines
 STAGING_DB_BASELINE_S3_ENDPOINT=https://<project-ref>.storage.supabase.co/storage/v1/s3
 STAGING_DB_BASELINE_S3_REGION=ap-northeast-2
@@ -205,7 +206,6 @@ STAGING_DIRECT_URL=<optional direct database URL, if this environment uses one>
 STAGING_S3_ACCESS_KEY=<app-asset-s3-access-key-id>
 STAGING_S3_SECRET_KEY=<app-asset-s3-secret-access-key>
 STAGING_CHANNEL_CREDENTIALS_ENCRYPTION_KEY=<32-byte-base64-or-hex-key>
-STAGING_SOURCING_EXTENSION_TOKEN_SECRET=<random-secret>
 STAGING_GEMINI_API_KEY=<gemini-api-key>
 STAGING_NAVER_DATALAB_CLIENT_ID=<naver-datalab-client-id>
 STAGING_NAVER_DATALAB_CLIENT_SECRET=<naver-datalab-client-secret>
@@ -213,6 +213,8 @@ STAGING_NAVER_SEARCHAD_API_KEY=<naver-searchad-api-key>
 STAGING_NAVER_SEARCHAD_SECRET_KEY=<naver-searchad-secret-key>
 STAGING_NAVER_SEARCHAD_CUSTOMER_ID=<naver-searchad-customer-id>
 STAGING_TMAPI_TOKEN=<tmapi-token>
+STAGING_TAOBAO_TOP_APP_KEY=<taobao-top-app-key>
+STAGING_TAOBAO_TOP_APP_SECRET=<taobao-top-app-secret>
 STAGING_DB_BASELINE_S3_ACCESS_KEY=<private-db-baseline-s3-access-key-id>
 STAGING_DB_BASELINE_S3_SECRET_KEY=<private-db-baseline-s3-secret-access-key>
 ```
@@ -250,8 +252,9 @@ gh variable set STAGING_NAVER_DATALAB_BASE_URL --env staging --body "https://ope
 gh variable set STAGING_NAVER_DATALAB_WEB_BASE_URL --env staging --body "https://datalab.naver.com"
 gh variable set STAGING_NAVER_SEARCHAD_BASE_URL --env staging --body "https://api.searchad.naver.com"
 gh variable set STAGING_TMAPI_BASE_URL --env staging --body "https://api.tmapi.top"
-gh variable set STAGING_SOURCING_EXTENSION_TOKEN_TTL_SECONDS --env staging --body "1800"
-gh variable set STAGING_SOURCING_EXTENSION_TOKEN_MAX_SECONDS --env staging --body "86400"
+gh variable set STAGING_SOURCING_PLAYWRIGHT_CDP_ENDPOINT --env staging --body "<managed-browser-cdp-endpoint>"
+gh variable set STAGING_TAOBAO_TOP_BASE_URL --env staging --body "https://eco.taobao.com/router/rest"
+gh variable set STAGING_TAOBAO_TOP_TIMEOUT_MS --env staging --body "15000"
 gh variable set STAGING_DB_BASELINE_BUCKET --env staging --body "kiditem-staging-db-baselines"
 gh variable set STAGING_DB_BASELINE_S3_ENDPOINT --env staging --body "https://<project-ref>.storage.supabase.co/storage/v1/s3"
 gh variable set STAGING_DB_BASELINE_S3_REGION --env staging --body "ap-northeast-2"
@@ -264,7 +267,6 @@ printf '%s' '<optional-direct-database-url>' | gh secret set STAGING_DIRECT_URL 
 printf '%s' '<app-asset-s3-access-key-id>' | gh secret set STAGING_S3_ACCESS_KEY --env staging
 printf '%s' '<app-asset-s3-secret-access-key>' | gh secret set STAGING_S3_SECRET_KEY --env staging
 printf '%s' '<32-byte-base64-or-hex-key>' | gh secret set STAGING_CHANNEL_CREDENTIALS_ENCRYPTION_KEY --env staging
-openssl rand -base64 48 | gh secret set STAGING_SOURCING_EXTENSION_TOKEN_SECRET --env staging
 printf '%s' '<gemini-api-key>' | gh secret set STAGING_GEMINI_API_KEY --env staging
 printf '%s' '<naver-datalab-client-id>' | gh secret set STAGING_NAVER_DATALAB_CLIENT_ID --env staging
 printf '%s' '<naver-datalab-client-secret>' | gh secret set STAGING_NAVER_DATALAB_CLIENT_SECRET --env staging
@@ -272,6 +274,8 @@ printf '%s' '<naver-searchad-api-key>' | gh secret set STAGING_NAVER_SEARCHAD_AP
 printf '%s' '<naver-searchad-secret-key>' | gh secret set STAGING_NAVER_SEARCHAD_SECRET_KEY --env staging
 printf '%s' '<naver-searchad-customer-id>' | gh secret set STAGING_NAVER_SEARCHAD_CUSTOMER_ID --env staging
 printf '%s' '<tmapi-token>' | gh secret set STAGING_TMAPI_TOKEN --env staging
+printf '%s' '<taobao-top-app-key>' | gh secret set STAGING_TAOBAO_TOP_APP_KEY --env staging
+printf '%s' '<taobao-top-app-secret>' | gh secret set STAGING_TAOBAO_TOP_APP_SECRET --env staging
 printf '%s' '<private-db-baseline-s3-access-key-id>' | gh secret set STAGING_DB_BASELINE_S3_ACCESS_KEY --env staging
 printf '%s' '<private-db-baseline-s3-secret-access-key>' | gh secret set STAGING_DB_BASELINE_S3_SECRET_KEY --env staging
 ```

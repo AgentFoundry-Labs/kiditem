@@ -119,8 +119,8 @@ model PickingItem {
   verifiedAt      DateTime? @map("verified_at") @db.Timestamptz
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  pickingList  PickingList   @relation(fields: [pickingListId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pickingList   PickingList   @relation(fields: [pickingListId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   masterProduct MasterProduct @relation("PickingItemMasterProduct", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@index([pickingListId])

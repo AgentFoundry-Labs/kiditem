@@ -5,23 +5,26 @@ import {
   CheckCircle2,
   ChevronDown,
   Database,
+  LineChart,
   Loader2,
   Megaphone,
   Package,
   RefreshCw,
-  ShoppingBag,
+  Rocket,
   Trophy,
   XCircle,
 } from 'lucide-react';
+import { useAdSync } from '@/app/(advertising)/ad-ops/hooks/useAdSync';
+import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
+import { cn } from '@/lib/utils';
 import type { LucideIcon } from 'lucide-react';
 import type { ReadinessCheck } from '@kiditem/shared/readiness';
-import { useAdSync } from '@/app/(advertising)/ad-ops/hooks/useAdSync';
-import { cn } from '@/lib/utils';
 
 type DisplayMeta = { title: string; hint: string; icon: LucideIcon };
 
 const DISPLAY: Record<string, DisplayMeta> = {
-  wing_sales: { title: '어제의 주문', hint: '매출·방문·장바구니', icon: ShoppingBag },
+  wing_sales: { title: '일별 매출', hint: '매출·방문·장바구니', icon: LineChart },
+  rocket_sales: { title: '쿠팡 로켓', hint: '발주확정 매출', icon: Rocket },
   coupang_ads: { title: '광고 성과', hint: '클릭·전환·지출', icon: Megaphone },
   coupang_products: { title: '상품 목록', hint: '등록된 SKU 동기화', icon: Package },
   wing_kpi: { title: '아이템위너 순위', hint: '경쟁 현황', icon: Trophy },
@@ -29,6 +32,14 @@ const DISPLAY: Record<string, DisplayMeta> = {
 
 function getDisplay(check: ReadinessCheck): DisplayMeta {
   return DISPLAY[check.key] ?? { title: check.label, hint: check.detail, icon: Database };
+}
+
+function collectLabel(check: ReadinessCheck): string {
+  if (check.key === 'wing_sales') return '매출 받기';
+  if (check.key === 'coupang_ads') return '광고 받기';
+  if (check.key === 'wing_kpi') return '순위 받기';
+  if (check.key === 'coupang_products') return '상품 받기';
+  return '지금 받기';
 }
 
 function statusMeta(status: ReadinessCheck['status']) {
@@ -158,9 +169,11 @@ export function ActionCheckCard({
   const status = statusMeta(check.status);
   const missingCount = check.missingDates?.length ?? 0;
   const hasStrip = !!check.expectedDates && check.expectedDates.length > 0;
+  const canCollect = check.key !== 'rocket_sales';
 
   const subline = (() => {
     if (missingCount > 0) return `최근 ${check.expectedDates!.length}일 중 ${missingCount}일이 비어 있어요`;
+    if (check.key === 'rocket_sales' && check.status === 'stale') return '오늘 로켓 매출이 아직 갱신되지 않았어요';
     if (check.status === 'stale') return '어제 데이터가 아직 반영되지 않았어요';
     return meta.hint;
   })();
@@ -203,27 +216,33 @@ export function ActionCheckCard({
           </p>
         </div>
 
-        <button
-          onClick={() => onCollect(check)}
-          disabled={pending}
-          className={cn(
-            'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
-            'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
-            'disabled:opacity-60',
-          )}
-        >
-          {pending ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              받는 중…
-            </>
-          ) : (
-            <>
-              <RefreshCw className="h-3.5 w-3.5" />
-              지금 받기
-            </>
-          )}
-        </button>
+        {canCollect ? (
+          <button
+            onClick={() => onCollect(check)}
+            disabled={pending}
+            className={cn(
+              'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
+              'bg-[var(--primary)] text-[var(--primary-contrast)] hover:bg-[var(--primary-hover)]',
+              'disabled:opacity-60',
+            )}
+          >
+            {pending ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                받는 중…
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-3.5 w-3.5" />
+                {collectLabel(check)}
+              </>
+            )}
+          </button>
+        ) : (
+          <span className="shrink-0 rounded-lg bg-[var(--surface-sunken)] px-3 py-2 text-xs font-medium text-[var(--text-tertiary)]">
+            조회 전용
+          </span>
+        )}
       </div>
 
       {hasStrip && (
@@ -254,7 +273,7 @@ export function ActionCheckCard({
 }
 
 export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
-  const { loading, run } = useAdSync({ onComplete });
+  const { collectionSession, loading, run } = useAdSync({ onComplete });
 
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] transition-all">
@@ -271,12 +290,12 @@ export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
             운영중 캠페인을 자동 순회하며 캠페인별 상품 데이터를 수집해요
           </p>
           <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
-            새 탭에서 자동 처리 - 수 분 소요될 수 있어요
+            백그라운드에서 자동 처리 - 수 분 소요될 수 있어요
           </p>
         </div>
 
         <button
-          onClick={run}
+          onClick={() => void run()}
           disabled={loading}
           className={cn(
             'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold transition',
@@ -297,6 +316,13 @@ export function AdSyncRow({ onComplete }: { onComplete: () => void }) {
           )}
         </button>
       </div>
+      {collectionSession?.data && (
+        <BrowserCollectionRunControls
+          session={collectionSession.data}
+          onWebRestart={(session) => run(session.runId)}
+          className="mx-4 mb-4"
+        />
+      )}
     </div>
   );
 }

@@ -522,9 +522,9 @@ model ProductPreparation {
   id             String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
 
-  sourceCandidateId        String @map("source_candidate_id") @db.Uuid
-  channelAccountId         String @map("channel_account_id") @db.Uuid
-  sourceContentWorkspaceId String @map("source_content_workspace_id") @db.Uuid
+  sourceCandidateId        String  @map("source_candidate_id") @db.Uuid
+  channelAccountId         String  @map("channel_account_id") @db.Uuid
+  sourceContentWorkspaceId String  @map("source_content_workspace_id") @db.Uuid
   channelListingId         String? @map("channel_listing_id") @db.Uuid
 
   displayName String @map("display_name")

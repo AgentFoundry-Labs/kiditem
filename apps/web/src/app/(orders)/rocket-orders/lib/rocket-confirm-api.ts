@@ -40,7 +40,13 @@ export async function listRocketPosFromExtension(
     error?: string;
   }>(
     extensionId,
-    { action: 'listRocketPos', from, to, status: statusCode },
+    {
+      action: 'listRocketPos',
+      from,
+      to,
+      status: statusCode,
+      runId: globalThis.crypto.randomUUID(),
+    },
     70_000,
   );
   if (!response?.success || !response.pos) {

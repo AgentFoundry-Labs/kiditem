@@ -3,6 +3,7 @@ import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extensi
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
+import type { OrderCollectionExtensionRun } from './order-collection-extension';
 
 /** 카카오(톡스토어) OMS `_search` 응답 한 건 (배송준비중 statusCode 301). 확장이 raw 그대로 넘긴다. */
 export interface KakaoOrder {
@@ -32,8 +33,8 @@ interface KakaoCollectResponse {
  * order-collector 확장으로 카카오쇼핑 판매자센터(shopping-seller.kakao.com) 주문을 로그인 세션에서 가져온다.
  * ⭐OMS `_search` API 스크랩 — 다운로드 없이 배송준비중(301)만, PII 언마스킹된 상태로 반환.
  */
-export async function collectKakaoOrdersFromExtension(date?: string): Promise<KakaoOrder[]> {
-  const extensionId = await detectOrderCollectionExtensionId();
+export async function collectKakaoOrdersFromExtension(date?: string, run?: OrderCollectionExtensionRun): Promise<KakaoOrder[]> {
+  const extensionId = run?.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 shopping-seller.kakao.com 에 로그인한 뒤 다시 시도하세요.',
@@ -41,7 +42,11 @@ export async function collectKakaoOrdersFromExtension(date?: string): Promise<Ka
   }
   const res = await sendToExtension<KakaoCollectResponse>(
     extensionId,
-    { action: 'collectKakaoOrders', date }, // "YYYY-MM-DD" 면 그날 결제분만
+    {
+      action: 'collectKakaoOrders',
+      date: date ?? run?.date,
+      runId: run?.runId ?? globalThis.crypto.randomUUID(),
+    }, // "YYYY-MM-DD" 면 그날 결제분만
     130000,
   );
   if (!res?.success || !Array.isArray(res.orders)) {

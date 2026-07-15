@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CoupangCatalogCollectionRun } from '@kiditem/shared/coupang-catalog-snapshot';
 import {
   buildCoupangCatalogProgress,
-  shouldInvalidatePublishedListings,
+  resolveCoupangCatalogError,
 } from './coupang-catalog-progress';
 
 describe('Coupang catalog progress', () => {
@@ -49,11 +49,20 @@ describe('Coupang catalog progress', () => {
     expect(progress.etaLabel).toBeNull();
   });
 
-  it('invalidates listing queries only when an observed run publishes more cards', () => {
-    expect(shouldInvalidatePublishedListings(40, 60)).toBe(true);
-    expect(shouldInvalidatePublishedListings(60, 60)).toBe(false);
-    expect(shouldInvalidatePublishedListings(60, 40)).toBe(false);
-    expect(shouldInvalidatePublishedListings(null, 60)).toBe(false);
+  it('hides a previous server attempt error while the browser collection is active', () => {
+    expect(resolveCoupangCatalogError({
+      browserActive: true,
+      extensionError: null,
+      startError: null,
+      serverError: 'active user tab is collection-protected',
+    })).toBeNull();
+
+    expect(resolveCoupangCatalogError({
+      browserActive: false,
+      extensionError: null,
+      startError: null,
+      serverError: 'active user tab is collection-protected',
+    })).toBe('active user tab is collection-protected');
   });
 });
 

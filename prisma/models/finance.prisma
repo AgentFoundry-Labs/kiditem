@@ -49,8 +49,8 @@ model GradeHistory {
   reason         String   @default("auto")
   calculatedAt   DateTime @default(now()) @map("calculated_at") @db.Timestamptz
 
-  listing      ChannelListing  @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  listing      ChannelListing @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([listingId])
   @@index([organizationId])

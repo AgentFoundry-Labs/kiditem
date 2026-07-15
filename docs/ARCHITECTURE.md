@@ -46,6 +46,40 @@ types use `export type Foo = z.infer<typeof FooSchema>`. Existing violations
 remain protected by the baseline checker until migrated, and new aliases should
 not be added for them.
 
+### Browser Collection Session Boundary
+
+`@kiditem/shared/browser-collection-session` is the focused public contract for
+browser-owned collection runs. It defines the allowlisted producers, UUID run
+identity, attempt/`updatedAt` ordering, bounded primitive input identity, public
+progress/attention state, and explicit control commands. Public session views
+never contain managed Chrome tab/window handles or raw response, HTML, payload,
+file, row, credential, cookie, token, password, or secret material.
+
+The canonical Manifest V3 session manager lives at
+`extensions/shared/collection-session.js`; the sync gate generates identical
+extension-local copies for the Coupang, sourcing, and order collectors. Each
+extension persists its own private session map in `chrome.storage.local` so a
+suspended service worker can recover `_managedTabId` and `_managedWindowId`.
+Those handles stay private to the extension manager and are removed by the
+public-view projection before events or command responses leave the extension.
+Full-map mutations are serialized per adapter/storage key.
+
+The authenticated app shell mounts one global `BrowserCollectionProvider`.
+It validates extension events, orders them by attempt then `updatedAt`, updates
+the matching React Query session cache only when newer, and serializes alert
+synchronization across duplicate KidItem tabs. Polling and control responses
+use the same monotonic cache policy, so restart/cancel responses replace stale
+attention state without allowing an older attempt to overwrite it.
+
+Automation owns the canonical personal operation-alert boundary for browser
+collections. The HTTP controller binds organization and actor from the auth
+session, canonicalizes the producer title/link, and refuses another actor's
+operation key. Repository ownership checks also cover existence races. Alert
+metadata carries the collection attempt and update timestamp; Automation
+rejects stale transitions and prevents a late running start from reopening a
+terminal alert. Only a verified HTTP 404 authorizes web start-then-update
+recovery.
+
 ## Backend Directory Architecture
 
 Backend folders are owner domains, owner capabilities, platforms, or support
@@ -297,7 +331,7 @@ Kinds:
 
 | Path | Kind | Routes / Notes |
 |---|---|---|
-| `apps/web/src/app/(advertising)` | Route Group | `ad-ops` |
+| `apps/web/src/app/(advertising)` | Route Group | `ad-ops`, `rank-tracking` |
 | `apps/web/src/app/(analytics)` | Route Group | `dashboard` |
 | `apps/web/src/app/(automation)` | Route Group | `_shared`, `action-board`, `agents`, `marketplace`, `workflows` |
 | `apps/web/src/app/(catalog)` | Route Group | `product-hub`, `product-hub/[id]`, `product-hub/matching`, `product-hub/options`; product hub implementation code lives under `product-hub/`. |

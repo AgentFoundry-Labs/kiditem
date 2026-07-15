@@ -112,8 +112,15 @@ reject the workbook.
    | `상품코드 일치` | Exact Sellpia code evidence from seller SKU, full model number, or explicit option-code token. |
    | `고유 식별자` | One Sellpia row has the same normalized 8-14 digit barcode/model identifier. |
    | `중복 식별자` | Multiple Sellpia rows share the identifier; the operator must choose. |
+   | `등록상품명 일치` | Coupang registered name and Sellpia name are equal after NFKC, lowercase, and whitespace removal. |
    | `이름 제안` | Name similarity for display only. |
    | `검색 결과` | The operator's explicit Sellpia search result. |
+
+   `needs_review` is displayed as **확인 필요**. It means strong evidence exists,
+   but no operator-confirmed component recipe exists yet. A `등록상품명 일치`
+   candidate never creates a component or infers quantity. If multiple active
+   Sellpia Masters share the normalized name, the dialog shows every candidate
+   and leaves the SKU in **확인 필요** until an operator saves a recipe.
 
 5. Add one or more verified Sellpia rows. Every component needs a positive
    integer quantity; one recipe supports at most 50 unique `MasterProduct` rows.

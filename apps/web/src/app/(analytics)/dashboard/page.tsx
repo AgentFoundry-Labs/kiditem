@@ -25,8 +25,11 @@ import {
 import { ActionTaskListSchema } from '@kiditem/shared/action-task';
 import { z } from 'zod';
 import { apiClient } from '@/lib/api-client';
+import { recordMissingBrowserCollection } from '@/lib/browser-collection-session';
 import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
+import { detectExtensionId } from '@/lib/extension-bridge';
 import PageSkeleton from '@/components/ui/PageSkeleton';
+import { runReadinessExtensionCollection } from '@/components/readiness/readiness-extension-collection';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW, formatNumber, formatDateTime } from '@/lib/utils';
 import { friendlyError } from '@/lib/api-error';
@@ -151,7 +154,7 @@ export default function Dashboard() {
 
   const aiActions = actionTasks.filter(t => t.type === 'ai');
 
-  // 트래픽 데이터가 없으면 Wing 매출분석 페이지를 자동으로 열어 익스텐션 동기화 유도.
+  // 트래픽 데이터가 없으면 Wing 매출분석 수집을 백그라운드로 요청한다.
   // Drive replay 또는 Wing 동기화 데이터가 이미 있으면 트리거하지 않는다.
   useEffect(() => {
     if (!salesBaseline?.trafficKpi?.needsScrape) return;
@@ -164,10 +167,49 @@ export default function Dashboard() {
     const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
     const today = now.toISOString().slice(0, 10);
     const wingUrl = `https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date=${monthStart}&end_date=${today}`;
-    window.open(wingUrl, '_blank');
     safeStorageSet('local', COOLDOWN_KEY, String(Date.now()));
-    toast.info('Wing 매출분석 페이지를 열어 데이터를 수집합니다. 잠시 후 새로고침하세요.', { duration: 8000 });
-  }, [salesBaseline?.trafficKpi?.needsScrape, salesBaseline?.effectivePeriod?.revenueSource]);
+    void (async () => {
+      const extensionId = await detectExtensionId();
+      if (!extensionId) {
+        await recordMissingBrowserCollection('dashboard.wing_sales', {
+          trigger: 'dashboard_traffic',
+        });
+        toast.warning('Wing 트래픽 수집 익스텐션을 찾을 수 없습니다.');
+        return;
+      }
+      const session = await runReadinessExtensionCollection({
+        check: {
+          key: 'wing_sales',
+          label: 'Wing 월간 매출·트래픽',
+          status: 'missing',
+          detail: '현재 월 트래픽 데이터 수집',
+          lastSyncedAt: null,
+          count: null,
+          collector: 'extension',
+          collectEndpoint: null,
+          scrapeUrls: [wingUrl],
+          referenceDate: today,
+          expectedDates: null,
+          missingDates: null,
+        },
+        producer: 'dashboard.wing_sales',
+        extensionId,
+        runId: crypto.randomUUID(),
+      });
+      if (session.status === 'succeeded') {
+        toast.success('Wing 매출·트래픽 수집이 완료되었습니다.');
+        await queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.all });
+      } else if (session.status === 'attention_required') {
+        toast.warning(session.attention?.message ?? 'Wing 확인이 필요합니다.');
+      }
+    })().catch((error) => {
+      toast.error(error instanceof Error ? error.message : 'Wing 트래픽 수집 실패');
+    });
+  }, [
+    queryClient,
+    salesBaseline?.trafficKpi?.needsScrape,
+    salesBaseline?.effectivePeriod?.revenueSource,
+  ]);
 
   // Gate initial render on inventoryData (totalProducts in header blocks layout)
   const loading = inventoryLoading || salesBaselineLoading || adBaselineLoading;

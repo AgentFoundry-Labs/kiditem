@@ -182,9 +182,9 @@ model Shipment {
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  order        Order       @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  warehouse    Warehouse?  @relation(fields: [warehouseId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  order        Order          @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  warehouse    Warehouse?     @relation(fields: [warehouseId, organizationId], references: [id, organizationId], onDelete: Restrict)
   items        ShipmentItem[]
 
   @@unique([id, organizationId], map: "shipments_id_org_key")
@@ -233,9 +233,9 @@ model UnshippedItem {
   notifiedAt      DateTime? @map("notified_at") @db.Timestamptz
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  order         Order           @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  orderLineItem OrderLineItem   @relation(fields: [orderLineItemId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  order         Order         @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  orderLineItem OrderLineItem @relation(fields: [orderLineItemId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@index([organizationId])
   @@index([orderId])

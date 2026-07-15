@@ -7,16 +7,17 @@ describe('Sidebar product pipeline navigation', () => {
 
     expect(sourcingAgent?.items.map((item) => [item.href, item.label])).toEqual([
       ['/sourcing-ai', '소싱 홈'],
-      ['/sourcing-ai/recommendations', '오늘의 추천'],
-      ['/sourcing-ai/keywords', '키워드 분석'],
       ['/sourcing-ai/market', '시장 분석'],
+      ['/sourcing-ai/keywords', '키워드 분석'],
+      ['/sourcing-ai/category-sourcing', '카테고리 소싱'],
       ['/sourcing-ai/competitor-analysis', '경쟁업체 분석'],
       ['/sourcing-ai/wing-catalog', '쿠팡 상품 분석'],
-      ['/sourcing-ai/category-sourcing', '카테고리 소싱'],
+      ['/sourcing-ai/product-tracking', '상품 추적'],
+      ['/sourcing-ai/recommendations', '오늘의 추천'],
       ['/sourcing-ai/wholesale-search', '도매 상품 검색'],
       ['/sourcing-ai/validation', '상품 검증'],
-      ['/sourcing-ai/settings', '소싱 설정'],
       ['/sourcing-ai/final-selection', '최종 선택'],
+      ['/sourcing-ai/settings', '소싱 설정'],
     ]);
   });
 
@@ -42,6 +43,7 @@ describe('Sidebar product pipeline navigation', () => {
     expect(marketingAgentIndex).toBe(productAgentIndex + 1);
     expect(marketingAgent?.items.map((item) => [item.href, item.label])).toEqual([
       ['/ad-ops', '광고전략 AI'],
+      ['/rank-tracking', '쿠팡 순위추적'],
     ]);
     expect(topSection.items.some((item) => item.href === '/ad-ops')).toBe(false);
   });

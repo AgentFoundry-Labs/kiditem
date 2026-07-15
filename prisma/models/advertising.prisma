@@ -33,7 +33,6 @@ model AdAction {
   executionTasks ExecutionTask[]
 
   @@index([listingOptionId])
-
   @@index([organizationId, approvalStatus])
   @@index([executeStatus])
   @@index([externalId])

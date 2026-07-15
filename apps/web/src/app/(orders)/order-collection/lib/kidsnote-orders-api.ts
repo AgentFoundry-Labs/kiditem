@@ -3,6 +3,7 @@ import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extensi
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
+import type { OrderCollectionExtensionRun } from './order-collection-extension';
 
 export interface KidsnoteOrderItem {
   productName: string;
@@ -50,8 +51,9 @@ export async function collectKidsnoteOrdersFromExtension(
   to: string,
   status = '',
   withDetail = false,
+  run?: OrderCollectionExtensionRun,
 ): Promise<{ orders: KidsnoteOrder[]; count: number }> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = run?.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 shop.kidsnote.com 관리자에 로그인한 뒤 다시 시도하세요.',
@@ -59,7 +61,14 @@ export async function collectKidsnoteOrdersFromExtension(
   }
   const res = await sendToExtension<CollectResponse>(
     extensionId,
-    { action: 'collectKidsnoteOrders', from, to, status, withDetail },
+    {
+      action: 'collectKidsnoteOrders',
+      from,
+      to,
+      status,
+      withDetail,
+      runId: run?.runId ?? globalThis.crypto.randomUUID(),
+    },
     withDetail ? 200000 : 90000,
   );
   if (!res?.success || !res.orders) {

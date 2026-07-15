@@ -4,13 +4,14 @@ import {
   Controller,
   Header,
   Post,
+  Req,
   Res,
   StreamableFile,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 
 import type { MulterFile } from '../../common/types';
 import {
@@ -54,9 +55,14 @@ export class OrderCollectionController {
   ].join(', '))
   async convertCoupangDirectship(
     @Body() body: CoupangDirectInput,
+    @Req() request: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<StreamableFile> {
-    const result = await this.coupangDirectshipService.generate(body);
+    const abortController = new AbortController();
+    request.once('aborted', () => abortController.abort());
+    const result = await this.coupangDirectshipService.generate(body, {
+      signal: abortController.signal,
+    });
     response.setHeader('Content-Disposition', contentDispositionAttachment(result.fileName));
     response.setHeader('Content-Type', 'application/vnd.ms-excel');
     response.setHeader('X-Order-Collection-Source-Rows', String(result.poCount));

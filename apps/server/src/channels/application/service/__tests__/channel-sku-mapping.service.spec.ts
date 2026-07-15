@@ -141,6 +141,33 @@ describe('ChannelSkuMappingService', () => {
     expect(result.items[0]).not.toHaveProperty('inventorySkuId');
   });
 
+  it('ranks a strict registered-name match ahead of general name suggestions', async () => {
+    const repository = makeRepository();
+    repository.findEvidence.mockResolvedValue(evidence({
+      registeredName: '아기 컵 + 빨대',
+      productNames: ['아기 컵 + 빨대', '노출 상품명'],
+    }));
+    const inventory = makeInventory();
+    inventory.findByNormalizedNames.mockResolvedValue([
+      inventorySku(inventorySkuId, { name: '아기컵+빨대' }),
+    ]);
+    inventory.search.mockResolvedValue([
+      inventorySku(secondInventorySkuId, { name: '일반 제안' }),
+    ]);
+    const service = new ChannelSkuMappingService(repository, inventory);
+
+    const result = await service.candidates(organizationId, channelSkuId, {});
+
+    expect(inventory.findByNormalizedNames).toHaveBeenCalledWith(
+      organizationId,
+      ['아기컵+빨대'],
+    );
+    expect(result.items[0]).toMatchObject({
+      masterProductId: inventorySkuId,
+      reason: 'exact_normalized_name',
+    });
+  });
+
   it('atomically applies exact-code and unique-barcode matches to only unmapped SKUs', async () => {
     const repository = makeRepository();
     repository.listUnmappedEvidence.mockResolvedValue([
@@ -195,6 +222,26 @@ describe('ChannelSkuMappingService', () => {
     ]);
     expect(repository.updateUnmappedStatuses).not.toHaveBeenCalled();
     expect(result).toEqual({ all: 2, unmatched: 0, needsReview: 0, matched: 2 });
+  });
+
+  it('refreshes a name-only SKU to needs_review without creating a component', async () => {
+    const repository = makeRepository();
+    repository.listUnmappedEvidence.mockResolvedValue([
+      evidence({ registeredName: ' 아기 컵 ', productNames: ['아기 컵'] }),
+    ]);
+    const inventory = makeInventory();
+    inventory.findByNormalizedNames.mockResolvedValue([
+      inventorySku(inventorySkuId, { name: '아기컵' }),
+      inventorySku(secondInventorySkuId, { name: '아기 컵' }),
+    ]);
+    const service = new ChannelSkuMappingService(repository, inventory);
+
+    await service.refreshStatuses(organizationId, {});
+
+    expect(repository.applyAutomaticMatches).toHaveBeenCalledWith(organizationId, [{
+      channelSkuId,
+      mappingStatus: 'needs_review',
+    }]);
   });
 
   it.each([
@@ -274,6 +321,24 @@ describe('ChannelSkuMappingService', () => {
     }));
   });
 
+  it('returns an explicitly unmapped name candidate to needs_review', async () => {
+    const repository = makeRepository();
+    repository.findEvidence.mockResolvedValue(evidence({ registeredName: '아기 컵' }));
+    repository.findOne.mockResolvedValue(mappingRow([], channelSkuId, 'needs_review'));
+    const inventory = makeInventory();
+    inventory.findByNormalizedNames.mockResolvedValue([
+      inventorySku(inventorySkuId, { name: '아기컵' }),
+    ]);
+    const service = new ChannelSkuMappingService(repository, inventory);
+
+    await service.replaceComponents(organizationId, userId, channelSkuId, { components: [] });
+
+    expect(repository.replaceComponents).toHaveBeenCalledWith(expect.objectContaining({
+      components: [],
+      nextStatus: 'needs_review',
+    }));
+  });
+
   it('propagates repository mutation errors without returning false success', async () => {
     const mutationError = new Error('transaction rolled back');
     const repository = makeRepository();
@@ -336,6 +401,9 @@ function makeInventory() {
     findByBarcodes: vi
       .fn<ChannelsSellpiaMasterProductReadPort['findByBarcodes']>()
       .mockResolvedValue([]),
+    findByNormalizedNames: vi
+      .fn<ChannelsSellpiaMasterProductReadPort['findByNormalizedNames']>()
+      .mockResolvedValue([]),
     search: vi.fn<ChannelsSellpiaMasterProductReadPort['search']>().mockResolvedValue([]),
   };
 }
@@ -388,6 +456,7 @@ function evidence(
     sellerSku: null,
     modelNumber: null,
     barcode: null,
+    registeredName: null,
     productNames: [],
     optionName: null,
     ...overrides,

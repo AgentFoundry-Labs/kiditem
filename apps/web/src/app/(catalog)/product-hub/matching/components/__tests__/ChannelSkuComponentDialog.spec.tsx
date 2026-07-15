@@ -151,6 +151,10 @@ describe('ChannelSkuComponentDialog', () => {
         reason: 'ambiguous_identifier',
       }),
       candidate({
+        masterProductId: '00000000-0000-4000-8000-000000000006',
+        reason: 'exact_normalized_name',
+      }),
+      candidate({
         masterProductId: '00000000-0000-4000-8000-000000000004',
         reason: 'name_suggestion',
       }),
@@ -165,6 +169,7 @@ describe('ChannelSkuComponentDialog', () => {
     expect(screen.getByText('상품코드 일치')).toBeInTheDocument();
     expect(screen.getByText('고유 식별자')).toBeInTheDocument();
     expect(screen.getByText('중복 식별자')).toBeInTheDocument();
+    expect(screen.getByText('등록상품명 일치')).toBeInTheDocument();
     expect(screen.getByText('이름 제안')).toBeInTheDocument();
     expect(screen.getByText('검색 결과')).toBeInTheDocument();
   });
@@ -211,6 +216,15 @@ describe('ChannelSkuComponentDialog', () => {
     await user.click(screen.getByRole('button', { name: 'SP-002 구성에 추가' }));
 
     expect(screen.getByLabelText('SP-002 수량')).toHaveValue('1');
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('does not auto-add or save an exact registered-name candidate', () => {
+    mockCandidates([candidate({ reason: 'exact_normalized_name' })]);
+
+    renderDialog(item({ components: [] }));
+
+    expect(screen.queryByLabelText('SP-002 수량')).not.toBeInTheDocument();
     expect(mutateAsync).not.toHaveBeenCalled();
   });
 

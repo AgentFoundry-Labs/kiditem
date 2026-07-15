@@ -158,9 +158,6 @@ same-origin `/api/*` routing.
 | `PORT` | API runtime | Yes | NestJS | `4000` for the API container. |
 | `DATABASE_URL` | API runtime | Yes | Prisma adapter | Main application database URL. |
 | `SUPABASE_URL` | Auth | Yes | Supabase JWT/JWKS middleware | Must match the project issuing browser session cookies. |
-| `SOURCING_EXTENSION_TOKEN_SECRET` | Auth/Sourcing | Yes in production | Sourcing extension ingest token signer | Server-only HMAC secret for short-lived extension ingest tokens. Local dev falls back to an ephemeral boot secret. |
-| `SOURCING_EXTENSION_TOKEN_TTL_SECONDS` | Auth/Sourcing | Optional | Sourcing extension ingest token signer | Defaults to `1800` seconds. |
-| `SOURCING_EXTENSION_TOKEN_MAX_SECONDS` | Auth/Sourcing | Optional | Sourcing extension ingest token signer | Defaults to `86400` seconds, allowing long runs without indefinite credentials. |
 | `CORS_ORIGINS` | API runtime | Yes in production | Nest CORS | Comma-separated public origins. Same-origin `/api/*` still works through nginx. |
 | `API_SELF_URL` | API runtime | Optional | Action board service | Defaults to `http://localhost:4000`. Set if self-calls need the public or container URL. |
 
@@ -183,6 +180,16 @@ same-origin `/api/*` routing.
 | `S3_BUCKET` | API runtime | Yes in production | Storage service | Bucket name. |
 | `S3_PUBLIC_URL` | API runtime | Recommended | Storage service | Public object URL base. If missing, service derives it from endpoint and bucket. |
 | `S3_REGION` | API runtime | Optional | Storage service | Defaults to `us-east-1`; staging uses `ap-northeast-2`. |
+
+## Sourcing Trend Providers
+
+| Variable | Required when | Consumed by | Notes |
+|---|---:|---|---|
+| `YOUTUBE_API_KEY` | Direct YouTube Shorts trend collection is enabled | Sourcing Shorts provider adapter | Server-only YouTube Data API v3 key. When configured, keyword searches collect up to 30 days of short-form candidates and the query API derives 7-day or 30-day rankings. Restrict the key to YouTube Data API v3 and, where possible, the API server IP. When absent, the legacy Shortstrend snapshot provider remains active. |
+| `TAOBAO_TOP_APP_KEY` | Taobao Live official collection is enabled | Sourcing Taobao Live adapter | Alibaba TOP application key. The supported live metadata/content/item APIs do not require seller OAuth, but the AppKey must have access to those APIs. |
+| `TAOBAO_TOP_APP_SECRET` | Taobao Live official collection is enabled | Sourcing Taobao Live adapter | Server-only TOP signing secret. Never expose it to the web app, extension, logs, or Agent OS prompts. |
+| `TAOBAO_TOP_BASE_URL` | A non-production TOP gateway is needed | Sourcing Taobao Live adapter | Optional; defaults to `https://eco.taobao.com/router/rest`. |
+| `TAOBAO_TOP_TIMEOUT_MS` | Custom Taobao TOP timeout is needed | Sourcing Taobao Live adapter | Optional positive integer; defaults to 15000ms. |
 
 ## Staging DB Baseline Operations
 
@@ -315,7 +322,7 @@ The deployed API blocks current Coupang Wing scraping paths when
 | `PLAYWRITER_BROWSER_PROFILE_DIR` | Custom Chrome profile needed | Coupang inventory scrape adapter | Local/operator use. |
 | `PLAYWRITER_DIRECT_PORT` | Custom Chrome CDP port needed | Coupang inventory scrape adapter | Defaults to `9222`. |
 | `PUPPETEER_EXECUTABLE_PATH` | Puppeteer render path uses a non-default browser | Render image controller | Docker server image sets `/usr/bin/chromium`; staging API builds install Chromium and smoke-check Puppeteer launch after deploy. |
-| `SOURCING_PLAYWRIGHT_CDP_ENDPOINT` | Sourcing URL scrape should reuse a logged-in managed browser session | Sourcing Playwright runtime | Optional CDP endpoint such as `http://127.0.0.1:9222`. Use a dedicated managed browser/profile where the user has completed 1688 login or verification; do not point production at a personal default Chrome profile. |
+| `SOURCING_PLAYWRIGHT_CDP_ENDPOINT` | Sourcing URL scrape or the 1688 keyword browser fallback should reuse a managed browser session | Sourcing Playwright runtime; direct 1688 keyword search adapter | Optional loopback CDP endpoint such as `http://127.0.0.1:9222`. Use a dedicated managed automation profile; never point it at a personal default Chrome profile. A saved login and a request-level CAPTCHA/user-validation challenge are separate states, so complete any challenge in this managed browser. |
 | `SOURCING_PLAYWRIGHT_USER_DATA_DIR` | Sourcing URL scrape needs a prepared browser login session | Sourcing Playwright runtime | Defaults to `.kiditem/playwright/sourcing`. Use a dedicated automation profile, not a personal default Chrome profile. |
 | `SOURCING_PLAYWRIGHT_HEADLESS` | Local sourcing scrape login/profile debugging | Sourcing Playwright runtime | Defaults to `true`; set `false` while preparing or debugging the 1688/Alibaba profile. |
 

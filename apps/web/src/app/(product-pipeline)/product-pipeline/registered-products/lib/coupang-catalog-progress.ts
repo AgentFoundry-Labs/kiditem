@@ -49,11 +49,15 @@ export function buildCoupangCatalogProgress(
   };
 }
 
-export function shouldInvalidatePublishedListings(
-  previous: number | null,
-  next: number,
-): boolean {
-  return previous !== null && next > previous;
+export function resolveCoupangCatalogError(input: {
+  browserActive: boolean;
+  extensionError: string | null;
+  startError: string | null;
+  serverError: string | null;
+}): string | null {
+  if (input.startError) return input.startError;
+  if (input.browserActive) return null;
+  return input.extensionError || input.serverError;
 }
 
 function formatEta(minutes: number): string {

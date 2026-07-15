@@ -20,7 +20,7 @@ import { useTodayRecommendationRows } from '../lib/use-today-recommendation-rows
 import { resolveCoupangCatalogImageUrl } from '../wing-catalog/lib/wing-catalog-extension';
 import { HomeRankingBoard } from './SellochSourcingHomeRankings';
 import { SellochMarketAnalysisPage } from './SellochMarketAnalysisPage';
-import { SellochCompetitorAnalysisPage } from './SellochCompetitorAnalysisPage';
+import { CompetitorTrackingPage } from '../competitor-analysis/components/CompetitorTrackingPage';
 import { RealtimeSourcingTerminal } from './SellochRealtimeTerminal';
 import { SellochFinalSelectionPage } from './SellochFinalSelectionPage';
 import { SellochWholesaleCoupangMatches } from './SellochWholesaleCoupangMatches';
@@ -84,7 +84,7 @@ export function SellochSourcingPage({ kind }: { kind: SellochSourcingPageKind })
         {kind === 'recommendations' && <RecommendationsPage />}
         {kind === 'keywords' && <KeywordsPage />}
         {kind === 'market' && <MarketPage />}
-        {kind === 'competitor' && <SellochCompetitorAnalysisPage />}
+        {kind === 'competitor' && <CompetitorTrackingPage />}
         {kind === 'category' && <CategoryPage />}
         {kind === 'wholesale' && <WholesalePage />}
         {kind === 'validation' && <ValidationPage />}

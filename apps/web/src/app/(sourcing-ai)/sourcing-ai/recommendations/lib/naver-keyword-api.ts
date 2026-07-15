@@ -77,13 +77,25 @@ export type NaverDatalabPopularKeywordBoardKey =
   | 'birth_kids'
   | 'toys_dolls'
   | 'stationery_office'
-  | 'kids_fashion';
+  | 'kids_fashion'
+  | 'toys_block'
+  | 'toys_action'
+  | 'fancy_sticker'
+  | 'fancy_goods'
+  | 'stationery_writing'
+  | 'toys_roleplay'
+  | 'toys_puzzle'
+  | 'fancy_diary'
+  | 'stationery_note';
 
 export interface NaverDatalabPopularKeywordRank {
   rank: number;
   keyword: string;
   linkId: string | null;
   categories: string[];
+  isNew?: boolean;
+  previousRank?: number | null;
+  rankDelta?: number | null;
 }
 
 export interface NaverDatalabPopularKeywordBoard {

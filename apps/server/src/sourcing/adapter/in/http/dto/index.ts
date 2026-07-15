@@ -24,3 +24,22 @@ export {
   SourcingWorkspaceSnapshotRecentQueryDto,
   SourcingWorkspaceSnapshotParamsDto,
 } from './naver-keyword-research.dto';
+export {
+  CollectTrendDto,
+  TrendHistoryQueryDto,
+  UpdateTrendSeedDto,
+  UpsertTrendSeedDto,
+} from './trend-collection.dto';
+export {
+  Extension1688TrendErrorDto,
+  Extension1688TrendItemDto,
+  Extension1688TrendKeywordResultDto,
+  IngestExtension1688TrendResultsDto,
+} from './extension-1688-trend.dto';
+export {
+  CollectTaobaoLiveDto,
+  ExtensionLiveCommerceBroadcastDto,
+  ExtensionLiveCommerceProductDto,
+  IngestExtensionLiveCommerceDto,
+  LiveCommerceQueryDto,
+} from './live-commerce.dto';

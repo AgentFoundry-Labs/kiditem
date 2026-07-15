@@ -1,16 +1,27 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Database, Loader2, RefreshCw, Square } from 'lucide-react';
+import { BrowserCollectionRunIdSchema } from '@kiditem/shared/browser-collection-session';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Database, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
+import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
+import {
+  sendBrowserCollectionControl,
+  syncBrowserCollectionAlert,
+  updateBrowserCollectionSessionCache,
+} from '@/lib/browser-collection-session';
 import { formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
 import { useCoupangCatalogImport } from '../hooks/useCoupangCatalogImport';
-import { buildCoupangCatalogProgress } from '../lib/coupang-catalog-progress';
+import {
+  buildCoupangCatalogProgress,
+  resolveCoupangCatalogError,
+} from '../lib/coupang-catalog-progress';
 import { channelListingsApi } from '../lib/channel-listings-api';
 
 export function CoupangCatalogImportPanel() {
+  const queryClient = useQueryClient();
   const accountsQuery = useQuery({
     queryKey: queryKeys.channelAccounts.active(),
     queryFn: () => channelListingsApi.listAccounts(),
@@ -21,7 +32,9 @@ export function CoupangCatalogImportPanel() {
     [accountsQuery.data],
   );
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
-  const catalogImport = useCoupangCatalogImport(selectedAccountId);
+  const [isStopping, setIsStopping] = useState(false);
+  const [linkedRunId] = useState(readCollectionRunId);
+  const catalogImport = useCoupangCatalogImport(selectedAccountId, linkedRunId);
   const completedToastRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -42,13 +55,22 @@ export function CoupangCatalogImportPanel() {
 
   const server = catalogImport.serverStatus;
   const extension = catalogImport.extensionStatus;
+  const collectionSession = catalogImport.collectionSession.data;
   const isComplete = server?.status === 'completed';
   const isRunning = server?.status === 'running' && extension?.status === 'running';
+  const browserActive =
+    collectionSession?.status === 'running' ||
+    collectionSession?.status === 'attention_required';
+  const isCollecting = browserActive || isRunning;
   const canResume = server?.status === 'running' &&
     (!extension || extension.status === 'idle' || extension.status === 'error' || extension.status === 'cancelled');
   const progress = server ? buildCoupangCatalogProgress(server, Date.now()) : null;
-  const error = extension?.error || errorMessage(catalogImport.startError) ||
-    errorMessage(catalogImport.cancelError) || server?.error?.message || null;
+  const error = resolveCoupangCatalogError({
+    browserActive,
+    extensionError: extension?.error ?? null,
+    startError: errorMessage(catalogImport.startError),
+    serverError: server?.error?.message ?? null,
+  });
 
   const handleStart = async () => {
     try {
@@ -59,12 +81,29 @@ export function CoupangCatalogImportPanel() {
     }
   };
 
-  const handleCancel = async () => {
+  const handleStop = async () => {
+    const runId = collectionSession?.runId ?? server?.id ?? catalogImport.activeRun?.runId;
+    if (!runId || isStopping) return;
+    setIsStopping(true);
     try {
-      await catalogImport.cancel();
-      toast.success('쿠팡 상품 수집을 중단했습니다. 같은 실행에서 다시 재개할 수 있습니다.');
+      const response = await sendBrowserCollectionControl(
+        runId,
+        'cancelCollectionSession',
+      );
+      if (response?.status === 'cancelled') {
+        updateBrowserCollectionSessionCache(queryClient, response);
+        await syncBrowserCollectionAlert(response);
+        toast.success('쿠팡 상품 수집을 중단했습니다.');
+      } else {
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.browserCollection.session(runId),
+        });
+        toast.success('쿠팡 상품 수집 중단을 요청했습니다.');
+      }
     } catch (cause) {
       toast.error(errorMessage(cause) || '쿠팡 상품 수집을 중단하지 못했습니다.');
+    } finally {
+      setIsStopping(false);
     }
   };
 
@@ -85,7 +124,7 @@ export function CoupangCatalogImportPanel() {
               )}
             </div>
             <p className="mt-0.5 text-xs font-medium text-slate-600">
-              Wing의 상품·옵션·이미지를 수집해 이 등록 상품 목록에 바로 반영합니다.
+              Wing의 상품·옵션·이미지를 DB에 순차 반영하고 완료 후 목록을 갱신합니다.
             </p>
             {server && (
               <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-semibold text-slate-600" aria-live="polite">
@@ -132,18 +171,27 @@ export function CoupangCatalogImportPanel() {
               <option key={account.id} value={account.id}>{account.name}</option>
             ))}
           </select>
-          {isRunning && (
-            <button
-              type="button"
-              onClick={handleCancel}
-              disabled={catalogImport.isCancelling}
-              className="flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-            >
-              <Square size={12} />
-              중단
-            </button>
-          )}
-          {!isRunning && (
+          {isCollecting ? (
+            <>
+              <button
+                type="button"
+                disabled
+                className="flex h-8 items-center gap-1.5 rounded-md bg-emerald-100 px-3 text-xs font-bold text-emerald-700"
+              >
+                <Loader2 size={13} className="animate-spin" />
+                {collectionSession?.status === 'attention_required' ? '확인 필요' : '수집 중'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleStop()}
+                disabled={isStopping}
+                className="flex h-8 items-center gap-1.5 rounded-md border border-red-200 bg-white px-3 text-xs font-bold text-red-600 hover:bg-red-50 disabled:opacity-60"
+              >
+                {isStopping && <Loader2 size={13} className="animate-spin" />}
+                수집 중단
+              </button>
+            </>
+          ) : (
             <button
               type="button"
               onClick={handleStart}
@@ -159,9 +207,25 @@ export function CoupangCatalogImportPanel() {
             </button>
           )}
         </div>
+        {collectionSession && (
+          <BrowserCollectionRunControls
+            session={collectionSession}
+            onWebRestart={handleStart}
+            className="basis-full"
+            showCancel={false}
+          />
+        )}
       </div>
     </section>
   );
+}
+
+function readCollectionRunId(): string | null {
+  if (typeof window === 'undefined') return null;
+  const parsed = BrowserCollectionRunIdSchema.safeParse(
+    new URLSearchParams(window.location.search).get('collectionRun'),
+  );
+  return parsed.success ? parsed.data : null;
 }
 
 function phaseLabel(phase: string): string {

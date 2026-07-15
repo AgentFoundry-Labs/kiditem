@@ -49,8 +49,8 @@ export class SourcingKeywordResearchController {
   @Post('datalab/popular-keywords')
   searchPopularKeywords(
     @Body() body: SearchNaverDatalabPopularKeywordsDto,
-    @CurrentOrganization() _organizationId: string,
+    @CurrentOrganization() organizationId: string,
   ) {
-    return this.naverKeywordResearch.searchPopularKeywords(body);
+    return this.naverKeywordResearch.searchPopularKeywords(body, organizationId);
   }
 }

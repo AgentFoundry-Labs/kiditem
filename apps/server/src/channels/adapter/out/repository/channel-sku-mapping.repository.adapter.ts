@@ -630,13 +630,15 @@ function toEvidenceRow(row: {
   itemName: string | null;
   listing: { channelName: string | null; displayName: string | null };
 }): UnmappedChannelSkuEvidenceRow {
+  const registeredName = row.listing.channelName?.trim() || null;
   return {
     channelSkuId: row.id,
     sellerSku: row.sellerSku,
     modelNumber: row.modelNumber,
     barcode: row.barcode,
+    registeredName,
     optionName: row.itemName,
-    productNames: [row.listing.channelName, row.listing.displayName]
+    productNames: [registeredName, row.listing.displayName]
       .map((value) => value?.trim())
       .filter((value): value is string => Boolean(value)),
   };

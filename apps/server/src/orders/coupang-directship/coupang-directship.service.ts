@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 
 const execFileAsync = promisify(execFile);
 
@@ -44,12 +44,20 @@ export interface CoupangDirectResult {
   rowCount: number;
 }
 
-const PYTHON_BIN = process.env.PYTHON_BIN || 'python3';
 const TRANSPORT_LABEL: Record<string, string> = { SHIPMENT: '쉽먼트', MILKRUN: '밀크런' };
+
+interface GenerateOptions {
+  signal?: AbortSignal;
+}
 
 @Injectable()
 export class CoupangDirectshipService {
-  async generate(input: CoupangDirectInput): Promise<CoupangDirectResult> {
+  private readonly logger = new Logger(CoupangDirectshipService.name);
+
+  async generate(
+    input: CoupangDirectInput,
+    options: GenerateOptions = {},
+  ): Promise<CoupangDirectResult> {
     const transport = String(input?.transport ?? '').toUpperCase();
     if (transport !== 'SHIPMENT' && transport !== 'MILKRUN') {
       throw new BadRequestException('운송유형(transport)은 SHIPMENT 또는 MILKRUN 이어야 합니다.');
@@ -74,15 +82,25 @@ export class CoupangDirectshipService {
       let stdout = '';
       try {
         const res = await execFileAsync(
-          PYTHON_BIN,
+          resolvePythonBin(),
           [scriptPath, tplPath, inputPath, outPath, transport],
-          { timeout: 120_000, maxBuffer: 8 * 1024 * 1024 },
+          {
+            timeout: 120_000,
+            maxBuffer: 8 * 1024 * 1024,
+            signal: options.signal,
+          },
         );
         stdout = res.stdout ?? '';
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = childProcessErrorMessage(err);
+        this.logger.error(`Coupang direct-shipment workbook generation failed: ${message}`);
+        if (/ModuleNotFoundError|No module named|ENOENT/.test(message)) {
+          throw new BadRequestException(
+            '쿠팡직배송 Python 런타임이 준비되지 않았습니다. 서버 개발 환경을 다시 시작해주세요.',
+          );
+        }
         throw new BadRequestException(
-          `쿠팡직배송 엑셀 생성 실패: ${message}. 서버에 python3 + xlrd/xlwt/xlutils 가 필요합니다.`,
+          '쿠팡직배송 엑셀 생성에 실패했습니다. 잠시 후 다시 시도해주세요.',
         );
       }
       const buffer = readFileSync(outPath);
@@ -104,6 +122,18 @@ export class CoupangDirectshipService {
       }
     }
   }
+}
+
+function resolvePythonBin(): string {
+  return process.env.PYTHON_BIN || join(__dirname, '../../../.venv/bin/python');
+}
+
+function childProcessErrorMessage(error: unknown): string {
+  if (typeof error === 'object' && error !== null && 'stderr' in error) {
+    const stderr = String(error.stderr ?? '').trim();
+    if (stderr) return stderr;
+  }
+  return error instanceof Error ? error.message : String(error);
 }
 
 function isConfirmedPurchaseOrder(po: CoupangDirectPo): boolean {

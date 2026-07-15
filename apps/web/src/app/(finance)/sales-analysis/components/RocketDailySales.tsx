@@ -29,6 +29,9 @@ interface RocketItem {
 
 interface RocketOrder {
   poSeq: number;
+  businessDate: string;
+  orderedAt: string;
+  expectedInboundDate: string | null;
   status: string | null;
   vendorName: string | null;
   centerName: string | null;
@@ -40,6 +43,13 @@ interface RocketOrder {
 }
 
 const YEAR_OPTIONS = [2024, 2025, 2026];
+
+function formatOrderDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())} ${p(date.getHours())}:${p(date.getMinutes())}`;
+}
 
 /** 특정 날짜의 발주 목록 + 발주별 품목(SKU) 드릴다운 */
 function OrdersPanel({ date }: { date: string }) {
@@ -87,6 +97,12 @@ function OrdersPanel({ date }: { date: string }) {
               <span className="flex-none w-28 text-right font-semibold tabular-nums text-slate-800">
                 {formatKRW(po.orderAmount)}원
               </span>
+              <span className="hidden flex-none text-[11px] tabular-nums text-slate-500 lg:inline">
+                발주 {formatOrderDateTime(po.orderedAt)}
+              </span>
+              <span className="hidden flex-none text-[11px] tabular-nums text-slate-500 xl:inline">
+                입고 {po.expectedInboundDate ?? '-'}
+              </span>
               <span className="hidden flex-none rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500 sm:inline">
                 {po.status}
               </span>
@@ -118,6 +134,9 @@ function OrdersPanel({ date }: { date: string }) {
                     </tbody>
                   </table>
                 )}
+                <div className="pt-1.5 text-[10px] text-slate-400">
+                  발주일 {formatOrderDateTime(po.orderedAt)} · 입고예정일 {po.expectedInboundDate ?? '-'}
+                </div>
                 {po.vendorName && (
                   <div className="pt-1.5 text-[10px] text-slate-400">
                     {po.vendorName}
@@ -148,7 +167,6 @@ export default function RocketDailySales() {
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,
   });
-
   const showLoading = isLoading && !data;
   const maxRevenue = Math.max(1, ...(data?.days.map((d) => d.revenue) ?? []));
   const avgRevenue =
@@ -236,13 +254,13 @@ export default function RocketDailySales() {
               <Rocket size={32} className="mx-auto mb-3 opacity-20" />
               <p className="text-sm font-medium">데이터 없음</p>
               <p className="text-xs mt-1">
-                공급사허브(po-web) 발주리스트를 수집하면 발주일 기준 일별 매출이 쌓입니다
+                상단의 매출 동기화로 발주일 기준 발주확정 데이터를 수집하면 일별 매출이 쌓입니다
               </p>
             </div>
           ) : (
             <div className="bg-white rounded-xl border border-slate-200 p-6">
               <div className="text-xs font-semibold text-slate-500 mb-4">
-                {year}년 {month}월 일별 발주금액 — 쿠팡 로켓(공급사 발주) 기준
+                {year}년 {month}월 일별 발주금액 — 발주일 기준
               </div>
               <div className="flex items-end gap-1 h-48">
                 {data.days.map((d) => {
@@ -257,7 +275,7 @@ export default function RocketDailySales() {
                       className="flex-1 flex flex-col items-center gap-1 group relative"
                     >
                       <div className="absolute bottom-full mb-1 hidden group-hover:block bg-slate-800 text-white text-[10px] rounded-lg px-2.5 py-1.5 whitespace-nowrap z-10 shadow-lg pointer-events-none">
-                        <div className="font-semibold">{d.date}</div>
+                        <div className="font-semibold">발주일 {d.date}</div>
                         <div>{formatKRW(d.revenue)}원</div>
                         <div className="text-slate-300">발주 {formatNumber(d.poCount)}건 · 수량 {formatNumber(d.itemQty)}개</div>
                       </div>
@@ -282,7 +300,7 @@ export default function RocketDailySales() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="text-left px-4 py-3 text-[12px] font-semibold text-slate-500">날짜 (클릭 → 발주 내역)</th>
+                    <th className="text-left px-4 py-3 text-[12px] font-semibold text-slate-500">발주일 (클릭 → 발주 내역)</th>
                     <th className="text-right px-4 py-3 text-[12px] font-semibold text-slate-500">발주금액</th>
                     <th className="text-right px-4 py-3 text-[12px] font-semibold text-slate-500">발주 건수</th>
                     <th className="text-right px-4 py-3 text-[12px] font-semibold text-slate-500">발주 수량</th>

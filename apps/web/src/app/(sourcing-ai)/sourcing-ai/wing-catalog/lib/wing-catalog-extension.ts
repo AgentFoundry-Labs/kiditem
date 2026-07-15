@@ -57,11 +57,14 @@ export interface WingCatalogSummary {
 
 interface KidItemExtensionPingResponse {
   success?: boolean;
+  version?: string;
   capabilities?: {
     wingCatalogSearch?: boolean;
+    browserCollectionSessions?: boolean;
   };
 }
 
+export const WING_CATALOG_EXTENSION_MIN_VERSION = '1.2.33';
 export const WING_CATALOG_EXTENSION_REQUIRED =
   'KIDITEM 쿠팡 확장프로그램을 설치/새로고침한 뒤 다시 실행하세요.';
 export const WING_CATALOG_CHROME_REQUIRED =
@@ -82,7 +85,11 @@ export async function searchWingCatalogProducts(input: {
   if (!extensionId) throw new Error(WING_CATALOG_EXTENSION_REQUIRED);
 
   const ping = await sendToExtension<KidItemExtensionPingResponse>(extensionId, { action: 'ping' });
-  if (!ping?.capabilities?.wingCatalogSearch) {
+  if (
+    !ping?.capabilities?.wingCatalogSearch ||
+    !ping.capabilities.browserCollectionSessions ||
+    !isExtensionVersionAtLeast(ping.version, WING_CATALOG_EXTENSION_MIN_VERSION)
+  ) {
     throw new Error(WING_CATALOG_EXTENSION_RELOAD_REQUIRED);
   }
 
@@ -105,6 +112,27 @@ export async function searchWingCatalogProducts(input: {
     ...response,
     rows: Array.isArray(response.rows) ? response.rows : [],
   };
+}
+
+function isExtensionVersionAtLeast(
+  current: string | undefined,
+  minimum: string,
+): boolean {
+  if (!current) return false;
+  const currentParts = current
+    .split('.')
+    .map((part) => Number.parseInt(part, 10) || 0);
+  const minimumParts = minimum
+    .split('.')
+    .map((part) => Number.parseInt(part, 10) || 0);
+  const size = Math.max(currentParts.length, minimumParts.length);
+  for (let index = 0; index < size; index += 1) {
+    const currentValue = currentParts[index] ?? 0;
+    const minimumValue = minimumParts[index] ?? 0;
+    if (currentValue > minimumValue) return true;
+    if (currentValue < minimumValue) return false;
+  }
+  return true;
 }
 
 export function buildWingCatalogSummary(rows: WingCatalogProduct[]): WingCatalogSummary {

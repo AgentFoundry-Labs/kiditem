@@ -2,6 +2,7 @@ import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extensi
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
+import type { OrderCollectionExtensionRun } from './order-collection-extension';
 
 interface BoriboriCollectResponse {
   success?: boolean;
@@ -17,8 +18,9 @@ interface BoriboriCollectResponse {
  */
 export async function collectBoriboriXlsxFromExtension(options?: {
   password?: string;
+  run?: OrderCollectionExtensionRun;
 }): Promise<{ xlsxBase64: string; fileName: string }> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = options?.run?.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 seller-club.co.kr 에 로그인한 뒤 다시 시도하세요.',
@@ -26,7 +28,12 @@ export async function collectBoriboriXlsxFromExtension(options?: {
   }
   const res = await sendToExtension<BoriboriCollectResponse>(
     extensionId,
-    { action: 'collectBoriboriOrders', password: options?.password ?? '' },
+    {
+      action: 'collectBoriboriOrders',
+      date: options?.run?.date,
+      password: options?.password ?? '',
+      runId: options?.run?.runId ?? globalThis.crypto.randomUUID(),
+    },
     130000,
   );
   if (!res?.success || !res.xlsxBase64) {

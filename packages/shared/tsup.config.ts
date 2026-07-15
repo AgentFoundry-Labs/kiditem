@@ -41,6 +41,7 @@ export default defineConfig({
     'src/readiness.ts',
     'src/auth.ts',
     'src/operation-cancellation.ts',
+    'src/browser-collection-session.ts',
   ],
   format: ['esm', 'cjs'],
   dts: true,

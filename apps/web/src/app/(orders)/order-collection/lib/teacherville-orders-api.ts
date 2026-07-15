@@ -2,6 +2,7 @@ import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extensi
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
+import type { OrderCollectionExtensionRun } from './order-collection-extension';
 
 interface TeachervilleCollectResponse {
   success?: boolean;
@@ -15,11 +16,11 @@ interface TeachervilleCollectResponse {
  * order-collector 확장이 티쳐몰(퍼스트몰 selleradmin) 출고 전 주문을 셀피아 양식(엑셀 템플릿 117 "티쳐몰 주문서")
  * 으로 다운로드한다. order_process/excel_down 페이지-fetch → SpreadsheetML(36컬럼) base64 반환.
  */
-export async function collectTeachervilleXlsxFromExtension(): Promise<{
+export async function collectTeachervilleXlsxFromExtension(run?: OrderCollectionExtensionRun): Promise<{
   xlsxBase64: string;
   fileName: string;
 }> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = run?.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 shop.teacherville.co.kr 에 로그인한 뒤 다시 시도하세요.',
@@ -27,7 +28,11 @@ export async function collectTeachervilleXlsxFromExtension(): Promise<{
   }
   const res = await sendToExtension<TeachervilleCollectResponse>(
     extensionId,
-    { action: 'collectTeachervilleOrders' },
+    {
+      action: 'collectTeachervilleOrders',
+      date: run?.date,
+      runId: run?.runId ?? globalThis.crypto.randomUUID(),
+    },
     130000,
   );
   if (!res?.success || !res.xlsxBase64) {

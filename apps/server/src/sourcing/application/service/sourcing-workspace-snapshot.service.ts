@@ -167,7 +167,7 @@ function assertKeywordAnalysisPayload(
   assertString(input.keywordQuery, 'input.keywordQuery', 120);
   assertString(input.trendText, 'input.trendText', 1_000);
 
-  assertArray(result.boards, 'result.boards', 5);
+  assertArray(result.boards, 'result.boards', 20);
   assertArray(result.trendItems, 'result.trendItems', 50);
   if (result.relatedSearchSeed !== null) {
     assertString(result.relatedSearchSeed, 'result.relatedSearchSeed', 80);

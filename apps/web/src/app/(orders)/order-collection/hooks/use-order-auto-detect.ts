@@ -39,7 +39,7 @@ export const AUTO_INTERVAL_OPTIONS_MIN = [5, 10, 15, 30, 60] as const;
 interface UseOrderAutoDetectOptions {
   mallAccounts: OrderCollectionMallAccount[];
   addGeneratedFile: (item: ConversionHistoryItem) => void;
-  collectBrowserMall: (
+  collectAccount: (
     account: OrderCollectionMallAccount,
   ) => Promise<BrowserMallCollectionResult>;
   markCollecting: (mallKey: string, collecting: boolean) => void;
@@ -49,7 +49,7 @@ interface UseOrderAutoDetectOptions {
 export function useOrderAutoDetect({
   mallAccounts,
   addGeneratedFile,
-  collectBrowserMall,
+  collectAccount,
   markCollecting,
   logActivity,
 }: UseOrderAutoDetectOptions) {
@@ -111,7 +111,7 @@ export function useOrderAutoDetect({
             addSeenOrderKeys(account.key, diff.newRowKeys);
             toast.success(`${account.name} 새 주문 ${formatNumber(diff.newOrderCount)}건 감지`);
           } else {
-            const collected = await collectBrowserMall(account);
+            const collected = await collectAccount(account);
             if (collected.rowCount === 0) logActivity('empty', account.name);
           }
         } catch (err) {
@@ -127,7 +127,7 @@ export function useOrderAutoDetect({
       busyRef.current = false;
       setRunning(false);
     }
-  }, [addGeneratedFile, collectBrowserMall, logActivity, mallAccounts, markCollecting]);
+  }, [addGeneratedFile, collectAccount, logActivity, mallAccounts, markCollecting]);
 
   useEffect(() => {
     const savedInterval = Number(window.localStorage.getItem(AUTO_INTERVAL_KEY));

@@ -1,5 +1,5 @@
-import { SellochSourcingPage } from '../components/SellochSourcingPage';
+import { MarketIntelligencePage } from './components/MarketIntelligencePage';
 
 export default function SourcingMarketPage() {
-  return <SellochSourcingPage kind="market" />;
+  return <MarketIntelligencePage />;
 }

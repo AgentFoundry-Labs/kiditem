@@ -133,6 +133,15 @@ model Organization {
   channelAdTargetDailySnapshots   ChannelAdTargetDailySnapshot[]
   channelAccountDailyKpiSnapshots ChannelAccountDailyKpiSnapshot[]
 
+  // Channels — Coupang keyword and competitor rank tracking
+  coupangRepresentativeKeywordOverrides   CoupangRepresentativeKeywordOverride[]
+  coupangKeywordTrackers                  CoupangKeywordTracker[]
+  coupangKeywordRankDailySnapshots        CoupangKeywordRankDailySnapshot[]
+  coupangKeywordSerpDailySnapshots        CoupangKeywordSerpDailySnapshot[]
+  coupangWingSalesRankDailySnapshots      CoupangWingSalesRankDailySnapshot[]
+  coupangWingTrackedProducts              CoupangWingTrackedProduct[]
+  coupangWingTrackedProductDailySnapshots CoupangWingTrackedProductDailySnapshot[]
+
   // Additional back-relations for FK rename additions
   gradeHistory GradeHistory[] // Task 8 Step 2 adds organizationId to GradeHistory
 
@@ -140,6 +149,15 @@ model Organization {
   sourcingCandidates         SourcingCandidate[]
   candidateImages            CandidateImage[]
   sourcingWorkspaceSnapshots SourcingWorkspaceSnapshot[]
+
+  // Sourcing — market trend and live-commerce snapshots
+  trendSeedKeywords                    TrendSeedKeyword[]
+  naverKeywordDailySnapshots           NaverKeywordDailySnapshot[]
+  naverPopularKeywordDailySnapshots    NaverPopularKeywordDailySnapshot[]
+  sourcing1688HotProductDailySnapshots Sourcing1688HotProductDailySnapshot[]
+  shortsTrendDailySnapshots            ShortsTrendDailySnapshot[]
+  liveCommerceBroadcastDailySnapshots  LiveCommerceBroadcastDailySnapshot[]
+  liveCommerceProductDailySnapshots    LiveCommerceProductDailySnapshot[]
 
   @@map("organizations")
 }
@@ -328,32 +346,32 @@ model CategoryMapping {
 /// @namespace Core
 /// @describe One Sellpia product-code row and its latest imported current stock.
 model MasterProduct {
-  id             String  @id @default(uuid()) @db.Uuid
-  organizationId String  @map("organization_id") @db.Uuid
-  code           String
-  name           String
-  optionName     String? @map("option_name")
-  barcode        String?
-  currentStock   Int     @default(0) @map("current_stock")
-  purchasePrice  Int?    @map("purchase_price")
-  salePrice      Int?    @map("sale_price")
-  isActive       Boolean @default(true) @map("is_active")
-  rawJson        Json?   @map("raw_json")
+  id              String  @id @default(uuid()) @db.Uuid
+  organizationId  String  @map("organization_id") @db.Uuid
+  code            String
+  name            String
+  optionName      String? @map("option_name")
+  barcode         String?
+  currentStock    Int     @default(0) @map("current_stock")
+  purchasePrice   Int?    @map("purchase_price")
+  salePrice       Int?    @map("sale_price")
+  isActive        Boolean @default(true) @map("is_active")
+  rawJson         Json?   @map("raw_json")
   lastImportRunId String? @map("last_import_run_id") @db.Uuid
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  lastImportRun       SourceImportRun?    @relation("MasterProductLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  provenanceCandidate SourcingCandidate?  @relation("SourcingCandidateProvenance")
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lastImportRun        SourceImportRun?      @relation("MasterProductLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  provenanceCandidate  SourcingCandidate?    @relation("SourcingCandidateProvenance")
   channelSkuComponents ChannelSkuComponent[]
-  supplierProducts    SupplierProduct[]   @relation("SupplierProductMasterProduct")
-  purchaseOrderItems  PurchaseOrderItem[] @relation("PurchaseOrderItemMasterProduct")
-  stockTransfers      StockTransfer[]     @relation("StockTransferMasterProduct")
-  pickingItems        PickingItem[]       @relation("PickingItemMasterProduct")
-  returnTransfers     ReturnTransfer[]    @relation("ReturnTransferMasterProduct")
-  processingCosts     ProcessingCost[]
+  supplierProducts     SupplierProduct[]     @relation("SupplierProductMasterProduct")
+  purchaseOrderItems   PurchaseOrderItem[]   @relation("PurchaseOrderItemMasterProduct")
+  stockTransfers       StockTransfer[]       @relation("StockTransferMasterProduct")
+  pickingItems         PickingItem[]         @relation("PickingItemMasterProduct")
+  returnTransfers      ReturnTransfer[]      @relation("ReturnTransferMasterProduct")
+  processingCosts      ProcessingCost[]
 
   @@unique([organizationId, code])
   @@unique([id, organizationId], map: "master_products_id_org_key")
@@ -367,9 +385,9 @@ model MasterProduct {
 /// @namespace Core
 /// @describe 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등.
 model ChannelListing {
-  id                String @id @default(uuid()) @db.Uuid
-  organizationId    String @map("organization_id") @db.Uuid
-  channelAccountId  String @map("channel_account_id") @db.Uuid
+  id                String  @id @default(uuid()) @db.Uuid
+  organizationId    String  @map("organization_id") @db.Uuid
+  channelAccountId  String  @map("channel_account_id") @db.Uuid
   sourceCandidateId String? @map("source_candidate_id") @db.Uuid
 
   externalId String @map("external_id")

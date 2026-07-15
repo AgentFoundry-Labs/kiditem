@@ -65,6 +65,7 @@ export type UnmappedChannelSkuEvidenceRow = {
   sellerSku: string | null;
   modelNumber: string | null;
   barcode: string | null;
+  registeredName: string | null;
   productNames: string[];
   optionName: string | null;
 };

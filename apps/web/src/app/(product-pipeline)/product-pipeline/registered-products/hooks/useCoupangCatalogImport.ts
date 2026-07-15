@@ -7,15 +7,19 @@ import {
   type CoupangCatalogBrowserStatus,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { useAuthSession } from '@/components/providers/AuthProvider';
+import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
+import {
+  findBrowserCollectionSession,
+  syncBrowserCollectionAlert,
+  updateBrowserCollectionSessionCache,
+} from '@/lib/browser-collection-session';
 import { safeStorageGet, safeStorageRemove, safeStorageSet } from '@/lib/browser-storage';
 import { detectExtensionId } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
 import {
-  cancelCoupangCatalogBrowser,
   getCoupangCatalogBrowserStatus,
   startCoupangCatalogBrowser,
 } from '../lib/coupang-catalog-import';
-import { shouldInvalidatePublishedListings } from '../lib/coupang-catalog-progress';
 import { channelListingsApi } from '../lib/channel-listings-api';
 
 const STORAGE_KEY = 'kiditem:coupang-catalog-import:active-run';
@@ -25,16 +29,26 @@ type ActiveRun = {
   runId: string;
 };
 
-export function useCoupangCatalogImport(channelAccountId: string | null) {
+export function useCoupangCatalogImport(
+  channelAccountId: string | null,
+  linkedRunId: string | null = null,
+) {
   const queryClient = useQueryClient();
   const { session } = useAuthSession();
   const [activeRun, setActiveRun] = useState<ActiveRun | null>(() => readActiveRun());
   const [extensionId, setExtensionId] = useState<string | null>(null);
+  const collectionSession = useBrowserCollectionSession(
+    activeRun?.runId ?? linkedRunId,
+  );
   const completedRunRef = useRef<string | null>(null);
-  const publishedProgressRef = useRef<{
-    runId: string;
-    publishedProducts: number;
-  } | null>(null);
+  const cancelledAlertSyncRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (activeRun || !channelAccountId || !linkedRunId) return;
+    const linked = { channelAccountId, runId: linkedRunId };
+    setActiveRun(linked);
+    writeActiveRun(linked);
+  }, [activeRun, channelAccountId, linkedRunId]);
 
   const serverStatusQuery = useQuery({
     queryKey: activeRun
@@ -99,6 +113,22 @@ export function useCoupangCatalogImport(channelAccountId: string | null) {
         accessToken: session?.access_token,
       });
       setExtensionId(detected);
+      try {
+        const [browserStatus, genericSession] = await Promise.all([
+          getCoupangCatalogBrowserStatus(detected, run.id),
+          findBrowserCollectionSession(run.id),
+        ]);
+        queryClient.setQueryData(
+          queryKeys.coupangCatalogImports.extension(run.id),
+          browserStatus,
+        );
+        if (genericSession) {
+          updateBrowserCollectionSessionCache(queryClient, genericSession);
+          await syncBrowserCollectionAlert(genericSession);
+        }
+      } catch (error) {
+        console.warn('[coupang-catalog] post-start session sync failed', error);
+      }
       return run;
     },
     onSuccess: (run) => {
@@ -108,37 +138,11 @@ export function useCoupangCatalogImport(channelAccountId: string | null) {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.coupangCatalogImports.extension(run.id),
       });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.browserCollection.session(run.id),
+      });
     },
   });
-
-  const cancelMutation = useMutation({
-    mutationFn: async () => {
-      if (!activeRun) return;
-      const detected = extensionId ?? await detectExtensionId();
-      if (!detected) throw new Error('KIDITEM 쿠팡 확장프로그램을 찾을 수 없습니다.');
-      setExtensionId(detected);
-      await cancelCoupangCatalogBrowser(detected, activeRun.runId);
-    },
-  });
-
-  useEffect(() => {
-    const server = serverStatusQuery.data;
-    if (!server) return;
-    const previous = publishedProgressRef.current;
-    if (
-      previous?.runId === server.id &&
-      shouldInvalidatePublishedListings(
-        previous.publishedProducts,
-        server.progress.publishedProducts,
-      )
-    ) {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all });
-    }
-    publishedProgressRef.current = {
-      runId: server.id,
-      publishedProducts: server.progress.publishedProducts,
-    };
-  }, [queryClient, serverStatusQuery.data]);
 
   useEffect(() => {
     const server = serverStatusQuery.data;
@@ -148,26 +152,37 @@ export function useCoupangCatalogImport(channelAccountId: string | null) {
     void queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all });
   }, [queryClient, serverStatusQuery.data]);
 
+  useEffect(() => {
+    const session = collectionSession.data;
+    if (session?.status !== 'cancelled') return;
+    const ordering = `${session.runId}:${session.attempt}:${session.updatedAt}`;
+    if (cancelledAlertSyncRef.current === ordering) return;
+    cancelledAlertSyncRef.current = ordering;
+    void syncBrowserCollectionAlert(session).catch((error) => {
+      if (cancelledAlertSyncRef.current === ordering) {
+        cancelledAlertSyncRef.current = null;
+      }
+      console.warn('[coupang-catalog] cancellation alert sync failed', error);
+    });
+  }, [collectionSession.data]);
+
   const reset = () => {
     setActiveRun(null);
     setExtensionId(null);
     completedRunRef.current = null;
-    publishedProgressRef.current = null;
+    cancelledAlertSyncRef.current = null;
     safeStorageRemove('local', STORAGE_KEY);
     startMutation.reset();
-    cancelMutation.reset();
   };
 
   return {
     activeRun,
     serverStatus: serverStatusQuery.data ?? null,
     extensionStatus: extensionStatusQuery.data ?? null,
+    collectionSession,
     isStarting: startMutation.isPending,
-    isCancelling: cancelMutation.isPending,
     startError: startMutation.error,
-    cancelError: cancelMutation.error,
     start: startMutation.mutateAsync,
-    cancel: cancelMutation.mutateAsync,
     reset,
   };
 }

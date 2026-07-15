@@ -1,4 +1,5 @@
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import type { OrderCollectionExtensionRun } from './order-collection-extension';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 
@@ -209,8 +210,9 @@ interface SellpiaTrackingResponse {
 export async function collectSellpiaDeliTrackingFromExtension(options?: {
   startDate?: string;
   endDate?: string;
+  run?: OrderCollectionExtensionRun;
 }): Promise<SellpiaTrackingRow[]> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = options?.run?.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. extensions/order-collector를 Chrome에 로드하고 kiditem.sellpia.com에 로그인한 뒤 다시 시도하세요.',
@@ -222,6 +224,7 @@ export async function collectSellpiaDeliTrackingFromExtension(options?: {
       action: 'collectSellpiaDeliTracking',
       startDate: options?.startDate ?? null,
       endDate: options?.endDate ?? null,
+      runId: options?.run?.runId ?? globalThis.crypto.randomUUID(),
     },
     90000,
   );

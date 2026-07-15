@@ -42,8 +42,72 @@
       doExtract();
       sendResponse({ ok: true });
     }
+    if (msg.type === "TRIGGER_1688_TREND_EXTRACT") {
+      collect1688TrendSearch(msg.maxResults).then(sendResponse);
+      return true;
+    }
     return true;
   });
+
+  function is1688VerificationPage() {
+    try {
+      const url = new URL(location.href);
+      if (url.pathname.indexOf("/punish") !== -1) return true;
+      if (url.searchParams.get("action") === "captcha") return true;
+    } catch (e) {}
+
+    const bodyText = (document.body && document.body.innerText || "").slice(0, 5000);
+    return /(?:滑块|验证码|安全验证|访问异常|unusual\s+traffic|captcha)/i.test(bodyText);
+  }
+
+  async function collect1688TrendSearch(maxResults) {
+    const requested = Number(maxResults);
+    const limit = Number.isFinite(requested)
+      ? Math.max(1, Math.min(20, Math.floor(requested)))
+      : 20;
+
+    if (ProductScraper.common.detectPlatform() !== "1688") {
+      return { ok: false, error: "not_1688" };
+    }
+
+    let best = null;
+    let unchangedAttempts = 0;
+    for (let attempt = 0; attempt < 12; attempt++) {
+      if (is1688VerificationPage()) {
+        return {
+          ok: false,
+          status: "verification_required",
+          verificationUrl: location.href,
+        };
+      }
+
+      const next = ProductScraper.alibaba1688.extractTrendSearch(limit);
+      if (next && (!best || next.items.length > best.items.length)) {
+        best = next;
+        unchangedAttempts = 0;
+      } else {
+        unchangedAttempts++;
+      }
+
+      if (best && best.items.length >= limit) break;
+      if (best && best.items.length > 0 && unchangedAttempts >= 3) break;
+
+      window.scrollTo({
+        top: Math.min(
+          document.documentElement.scrollHeight,
+          (attempt + 1) * Math.max(window.innerHeight, 800)
+        ),
+        behavior: "instant",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 750));
+    }
+
+    window.scrollTo({ top: 0, behavior: "instant" });
+    if (!best) {
+      return { ok: false, error: "search_results_not_rendered" };
+    }
+    return { ok: true, ...best };
+  }
 
   function run() {
     if (!alive()) return;

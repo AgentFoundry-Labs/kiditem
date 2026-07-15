@@ -110,3 +110,202 @@ model SourcingWorkspaceSnapshot {
   @@unique([organizationId, scope, businessDate])
   @@map("sourcing_workspace_snapshots")
 }
+
+/// @namespace Sourcing
+/// @describe 문구·완구 시장 트렌드 정기 수집의 시드 키워드. sources 로 몰별(naver/shorts/1688) 수집 대상을 제어. keywordCn 은 1688 中文 검색어(null이면 keyword 사용).
+model TrendSeedKeyword {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  keyword   String
+  keywordCn String?  @map("keyword_cn")
+  sources   String[] @default(["naver", "shorts", "1688"])
+  enabled   Boolean  @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, keyword])
+  @@index([organizationId])
+  @@map("trend_seed_keywords")
+}
+
+/// @namespace Sourcing
+/// @describe 네이버 키워드(검색광고 월검색량 + 데이터랩 검색어트렌드) 일별 스냅샷. 시드 키워드당 하루 1행(최신본 upsert). trendRatio 는 latestRatio 반올림(0-100).
+model NaverKeywordDailySnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  keyword        String
+  businessDate   DateTime @map("business_date") @db.Date
+
+  monthlyTotalSearchCount  Int?    @map("monthly_total_search_count")
+  monthlyPcSearchCount     Int?    @map("monthly_pc_search_count")
+  monthlyMobileSearchCount Int?    @map("monthly_mobile_search_count")
+  competitionIndex         String? @map("competition_index")
+  averageAdRank            Int?    @map("average_ad_rank")
+  trendRatio               Int?    @map("trend_ratio")
+  trendDelta               Int?    @map("trend_delta")
+
+  source     String   @default("naver")
+  capturedAt DateTime @map("captured_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, keyword, businessDate])
+  @@index([organizationId, keyword, businessDate])
+  @@map("naver_keyword_daily_snapshots")
+}
+
+/// @namespace Sourcing
+/// @describe 네이버 데이터랩 인기키워드 보드(출산/육아·완구/인형·문구/사무 등)의 일별 순위 스냅샷. 보드×키워드 identity를 사용하고 매 수집마다 보드×일자 범위를 통째로 교체한다.
+model NaverPopularKeywordDailySnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  boardKey       String   @map("board_key")
+  boardLabel     String?  @map("board_label")
+  cid            String?
+  businessDate   DateTime @map("business_date") @db.Date
+
+  rank    Int
+  keyword String
+  linkId  String? @map("link_id")
+
+  capturedAt DateTime @map("captured_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, boardKey, businessDate, keyword])
+  @@index([organizationId, boardKey, businessDate])
+  @@map("naver_popular_keyword_daily_snapshots")
+}
+
+/// @namespace Sourcing
+/// @describe 1688 키워드별 핫셀링 offer 일별 스냅샷. sourceKeyword 는 시드 키워드, rank 는 해당 키워드 결과셋 내 monthlySales 내림차순 순위. offer×일자당 1행.
+model Sourcing1688HotProductDailySnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  businessDate   DateTime @map("business_date") @db.Date
+  offerId        String   @map("offer_id")
+  sourceKeyword  String   @map("source_keyword")
+
+  rank           Int?
+  title          String?
+  priceCny       Decimal? @map("price_cny") @db.Decimal(12, 2)
+  monthlySales   Int?     @map("monthly_sales")
+  repurchaseRate String?  @map("repurchase_rate")
+  tradeScore     String?  @map("trade_score")
+  supplierName   String?  @map("supplier_name")
+  imageUrl       String?  @map("image_url")
+  sourceUrl      String?  @map("source_url")
+
+  capturedAt DateTime @map("captured_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, businessDate, offerId])
+  @@index([organizationId, businessDate])
+  @@map("sourcing_1688_hot_product_daily_snapshots")
+}
+
+/// @namespace Sourcing
+/// @describe 쇼츠트렌드(shortstrend.co.kr) 급상승 쇼츠 일별 스냅샷. rank 는 소스 노출 순위, videoKey 는 영상 식별자. video×일자당 1행.
+model ShortsTrendDailySnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  businessDate   DateTime @map("business_date") @db.Date
+  videoKey       String   @map("video_key")
+
+  rank         Int?
+  title        String?
+  channelName  String?   @map("channel_name")
+  viewCount    Int?      @map("view_count")
+  likeCount    Int?      @map("like_count")
+  commentCount Int?      @map("comment_count")
+  keyword      String?
+  publishedAt  DateTime? @map("published_at") @db.Timestamptz
+  thumbnailUrl String?   @map("thumbnail_url")
+  videoUrl     String?   @map("video_url")
+
+  source     String   @default("shortstrend")
+  capturedAt DateTime @map("captured_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, businessDate, videoKey])
+  @@index([organizationId, businessDate])
+  @@map("shorts_trend_daily_snapshots")
+}
+
+/// @namespace Sourcing
+/// @describe 타오바오 공식 API 또는 로그인된 1688·도우인 브라우저 화면에서 수집한 라이브 방송 일별 스냅샷. source와 broadcastId가 외부 방송 식별자를 이룬다.
+model LiveCommerceBroadcastDailySnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  businessDate   DateTime @map("business_date") @db.Date
+  source         String
+  broadcastId    String   @map("broadcast_id")
+
+  title           String?
+  broadcasterId   String?   @map("broadcaster_id")
+  broadcasterName String?   @map("broadcaster_name")
+  status          String?
+  viewerCount     Int?      @map("viewer_count")
+  likeCount       Int?      @map("like_count")
+  startedAt       DateTime? @map("started_at") @db.Timestamptz
+  endedAt         DateTime? @map("ended_at") @db.Timestamptz
+  coverImageUrl   String?   @map("cover_image_url")
+  sourceUrl       String?   @map("source_url")
+  capturedAt      DateTime  @map("captured_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, businessDate, source, broadcastId])
+  @@index([organizationId, source, businessDate])
+  @@map("live_commerce_broadcast_daily_snapshots")
+}
+
+/// @namespace Sourcing
+/// @describe 중국 라이브 방송에 노출된 상품의 일별 스냅샷. broadcastId로 방송 스냅샷과 논리적으로 연결하고 상품 단위 비교를 지원한다.
+model LiveCommerceProductDailySnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  businessDate   DateTime @map("business_date") @db.Date
+  source         String
+  broadcastId    String   @map("broadcast_id")
+  productId      String   @map("product_id")
+
+  rank       Int?
+  title      String?
+  priceCny   Decimal? @map("price_cny") @db.Decimal(12, 2)
+  salesCount Int?     @map("sales_count")
+  imageUrl   String?  @map("image_url")
+  sourceUrl  String?  @map("source_url")
+  capturedAt DateTime @map("captured_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, businessDate, source, broadcastId, productId])
+  @@index([organizationId, source, businessDate], map: "live_commerce_product_source_date_idx")
+  @@index([organizationId, source, productId], map: "live_commerce_product_source_product_idx")
+  @@map("live_commerce_product_daily_snapshots")
+}

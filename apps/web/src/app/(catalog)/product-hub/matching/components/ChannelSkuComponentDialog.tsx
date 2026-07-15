@@ -34,6 +34,7 @@ const CANDIDATE_REASON_LABEL: Record<ChannelSkuMatchCandidateReason, string> = {
   exact_sellpia_code: '상품코드 일치',
   unique_barcode: '고유 식별자',
   ambiguous_identifier: '중복 식별자',
+  exact_normalized_name: '등록상품명 일치',
   name_suggestion: '이름 제안',
   manual_search: '검색 결과',
 };

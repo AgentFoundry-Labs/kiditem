@@ -3,9 +3,11 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BarChart3, Loader2, RefreshCw } from 'lucide-react';
+import type { ReadinessResponse } from '@kiditem/shared/readiness';
 import { apiClient } from '@/lib/api-client';
 import { formatKRW, formatNumber } from '@/lib/utils';
 import PageSkeleton from '@/components/ui/PageSkeleton';
+import { useReadinessCollection } from '@/components/readiness/useReadinessCollection';
 
 interface DayRevenue {
   date: string;
@@ -39,6 +41,20 @@ export default function WingDailySales() {
     refetchOnWindowFocus: true,
     refetchInterval: 15_000,
   });
+  const readinessQuery = useQuery({
+    queryKey: ['readiness'],
+    queryFn: () => apiClient.get<ReadinessResponse>('/api/readiness'),
+    staleTime: 15_000,
+  });
+  const salesCheck = readinessQuery.data?.checks.find((check) => check.key === 'wing_sales') ?? null;
+  const missingSalesDays = salesCheck?.missingDates?.length ?? 0;
+  const { pendingKey, handleCollect } = useReadinessCollection({
+    refetchReadiness: async () => {
+      await readinessQuery.refetch();
+      await refetch();
+    },
+  });
+  const collectingSales = pendingKey === 'wing_sales';
 
   const showLoading = isLoading && !data;
   const maxRevenue = Math.max(1, ...(data?.days.map((d) => d.revenue) ?? []));
@@ -52,6 +68,25 @@ export default function WingDailySales() {
           <h1 className="page-title">Wing 일별 매출</h1>
         </div>
         <div className="flex items-center gap-2">
+          {salesCheck && missingSalesDays > 0 && (
+            <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+              누락 {missingSalesDays}일
+            </span>
+          )}
+          <button
+            onClick={() => {
+              if (salesCheck) void handleCollect(salesCheck);
+            }}
+            disabled={!salesCheck || collectingSales || readinessQuery.isLoading}
+            className="flex items-center gap-1.5 rounded-lg bg-purple-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {collectingSales ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <RefreshCw size={14} />
+            )}
+            매출 받기
+          </button>
           <select
             value={year}
             onChange={(e) => setYear(Number(e.target.value))}
@@ -120,7 +155,7 @@ export default function WingDailySales() {
               <BarChart3 size={32} className="mx-auto mb-3 opacity-20" />
               <p className="text-sm font-medium">데이터 없음</p>
               <p className="text-xs mt-1">
-                Wing 익스텐션 팝업에서 &ldquo;일별 수집&rdquo;을 실행하면 데이터가 쌓입니다
+                상단의 매출 받기로 누락 날짜를 수집하면 데이터가 쌓입니다
               </p>
             </div>
           ) : (

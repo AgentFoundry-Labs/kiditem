@@ -28,6 +28,7 @@ test('service worker exposes the resumable Coupang catalog import actions', () =
     assert.match(worker, new RegExp(`msg\\.action === ["']${action}["']`));
   }
   assert.match(worker, /coupangCatalogSnapshot:\s*true/);
+  assert.match(worker, /browserCollectionSessions:\s*true/);
   assert.match(inventoryContent, /collectCoupangCatalogDiscoveryPage/);
 });
 
@@ -56,4 +57,26 @@ test('runtime uploads all three durable chunk kinds and finalizes through the AP
   assert.match(runtime, /manifest_confirmation/);
   assert.match(runtime, /\/finalize/);
   assert.match(runtime, /chrome\.alarms\.create/);
+});
+
+test('catalog login pauses its browser session and clears the alarm', () => {
+  const runtime = fs.readFileSync(runtimePath, 'utf8');
+
+  assert.match(runtime, /collectionSessions\.attachTab/);
+  assert.match(runtime, /collectionSessions\.requireAttention/);
+  assert.match(runtime, /status:\s*["']attention_required["']/);
+  assert.match(runtime, /await clearAlarm\(\)/);
+  assert.match(runtime, /async function restart\(/);
+  assert.doesNotMatch(runtime, /\bactivateTab\s*\(/);
+  assert.doesNotMatch(runtime, /active:\s*true/);
+  assert.doesNotMatch(runtime, /focused:\s*true/);
+});
+
+test('an already-completed catalog run closes its collection session immediately', () => {
+  const runtime = fs.readFileSync(runtimePath, 'utf8');
+
+  assert.match(runtime, /if \(state\.status === ["']done["']\) \{/);
+  assert.match(runtime, /collectionSessions\.succeed\(runId\)/);
+  assert.match(runtime, /if \(restarted\.status === ["']done["']\) \{/);
+  assert.match(runtime, /collectionSessions\.succeed\(restarted\.runId\)/);
 });

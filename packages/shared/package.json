@@ -200,6 +200,11 @@
       "import": "./dist/operation-cancellation.js",
       "require": "./dist/operation-cancellation.cjs"
     },
+    "./browser-collection-session": {
+      "types": "./dist/browser-collection-session.d.ts",
+      "import": "./dist/browser-collection-session.js",
+      "require": "./dist/browser-collection-session.cjs"
+    },
     "./internal/*": null
   },
   "types": "./dist/index.d.ts",
@@ -242,7 +247,8 @@
       "inspection": ["dist/inspection.d.ts"],
       "readiness": ["dist/readiness.d.ts"],
       "auth": ["dist/auth.d.ts"],
-      "operation-cancellation": ["dist/operation-cancellation.d.ts"]
+      "operation-cancellation": ["dist/operation-cancellation.d.ts"],
+      "browser-collection-session": ["dist/browser-collection-session.d.ts"]
     }
   },
   "main": "./dist/index.cjs",

@@ -97,7 +97,8 @@ describe('NaverDatalabPopularKeywordAdapter', () => {
   });
 
   it.each([
-    ['date', 'startDate=2026-05-21', 'endDate=2026-05-21', '2026.05.21.'],
+    // 'date'(일간)는 최근 단일일이 네이버 집계 지연으로 비어, 최근 7일 범위로 조회한다.
+    ['date', 'startDate=2026-05-15', 'endDate=2026-05-21', '2026.05.15. ~ 2026.05.21.'],
     ['week', 'startDate=2026-05-15', 'endDate=2026-05-21', '2026.05.15. ~ 2026.05.21.'],
     ['month', 'startDate=2026-04-21', 'endDate=2026-05-21', '2026.04.21. ~ 2026.05.21.'],
   ] as const)('uses the expected default %s range for category keyword ranks', async (timeUnit, startParam, endParam, displayRange) => {

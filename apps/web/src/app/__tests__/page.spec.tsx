@@ -7,6 +7,7 @@ import { ApiError } from '@/lib/api-error';
 // Mock next/navigation BEFORE importing the page (page uses useRouter)
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 // Mock dynamic charts (jsdom can't render Recharts)

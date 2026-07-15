@@ -2,6 +2,7 @@ import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extensi
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
+import type { OrderCollectionExtensionRun } from './order-collection-extension';
 
 interface AlwayzCollectResponse {
   success?: boolean;
@@ -17,10 +18,10 @@ interface AlwayzCollectResponse {
  * 를 "엑셀추출하기"로 자동 실행해, 앱이 클라이언트에서 조립한 주문 엑셀(.xlsx)을 가져온다.
  * 신규 주문이 없으면 empty:true. 확장 서비스워커(MAIN world)가 createObjectURL 후킹으로 blob 캡처.
  */
-export async function collectAlwayzXlsxFromExtension(): Promise<
+export async function collectAlwayzXlsxFromExtension(run?: OrderCollectionExtensionRun): Promise<
   { xlsxBase64: string; fileName: string } | { empty: true }
 > {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = run?.extensionId ?? await detectOrderCollectionExtensionId();
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. extensions/order-collector 를 Chrome 에 로드하고 alwayzseller.ilevit.com 에 로그인한 뒤 다시 시도하세요.',
@@ -28,7 +29,11 @@ export async function collectAlwayzXlsxFromExtension(): Promise<
   }
   const res = await sendToExtension<AlwayzCollectResponse>(
     extensionId,
-    { action: 'collectAlwayzOrders' },
+    {
+      action: 'collectAlwayzOrders',
+      date: run?.date,
+      runId: run?.runId ?? globalThis.crypto.randomUUID(),
+    },
     130000, // 엑셀추출(클라이언트 조립)이라 넉넉히
   );
   if (res?.empty) return { empty: true };
