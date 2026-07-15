@@ -99,7 +99,7 @@ function workbookResponse({
   };
 }
 
-function createPageDocument({ login = false, drift = false } = {}) {
+function createPageDocument({ login = false, drift = false, buttonOutsideForm = false } = {}) {
   if (login) {
     return {
       querySelector(selector) {
@@ -114,6 +114,7 @@ function createPageDocument({ login = false, drift = false } = {}) {
       return selector === 'option[value="2"]' ? {} : null;
     },
   };
+  const downloadButton = {};
   const form = {
     getAttribute(name) {
       if (name === 'method') return 'post';
@@ -123,13 +124,15 @@ function createPageDocument({ login = false, drift = false } = {}) {
     querySelector(selector) {
       if (selector === '#downopt[name="downopt"]') return downopt;
       if (selector === '[name="downtype"][value="excel"]') return {};
-      if (selector === '#down_act') return {};
+      if (selector === '#down_act') return buttonOutsideForm ? null : downloadButton;
       return null;
     },
   };
   const modal = {
     querySelector(selector) {
-      return selector === '#downForm' ? form : null;
+      if (selector === '#downForm') return form;
+      if (selector === '#down_act') return downloadButton;
+      return null;
     },
   };
   return {
@@ -650,6 +653,17 @@ test('downloads raw workbook bytes from the fixed POST contract in an inactive c
     attachment: { owned: true },
   }]);
   assert.deepEqual(runtime.calls.remove, [71]);
+});
+
+test('accepts the live Sellpia contract with the download button beside the form', async () => {
+  const runtime = createRuntime({
+    document: createPageDocument({ buttonOutsideForm: true }),
+  });
+
+  const result = await runtime.collector.collect(runtime.collection);
+
+  assert.equal(result.success, true);
+  assert.equal(runtime.calls.fetch.length, 1);
 });
 
 test('persists a newly created inactive tab before readiness checks or page execution', async () => {

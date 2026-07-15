@@ -83,7 +83,7 @@
       const optionSelector = form?.querySelector('#downopt[name="downopt"]');
       const optionProduct = optionSelector?.querySelector('option[value="2"]');
       const excelFormat = form?.querySelector('[name="downtype"][value="excel"]');
-      const downloadAction = form?.querySelector("#down_act");
+      const downloadAction = modal?.querySelector("#down_act");
       if (!form || !optionProduct || !excelFormat || !downloadAction) return false;
       const method = (form.getAttribute("method") || "").trim().toLowerCase();
       let action;
