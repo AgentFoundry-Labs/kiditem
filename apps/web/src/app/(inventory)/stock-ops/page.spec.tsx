@@ -27,10 +27,10 @@ describe('StockOpsPage', () => {
       '재고자산',
       '가져오기 상태',
     ]) {
-      expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: label })).toBeInTheDocument();
     }
-    expect(screen.queryByRole('button', { name: '악성재고' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '미송수량' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '잔존재고' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: '악성재고' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: '미송수량' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: '잔존재고' })).not.toBeInTheDocument();
   });
 });

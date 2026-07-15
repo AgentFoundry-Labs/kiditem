@@ -73,7 +73,13 @@ const EMPTY_COUNTS: PurchaseOrderCounts = {
 };
 
 export const purchaseOrdersApi = {
-  async list(input: { page: number; limit: number; filter: string }) {
+  async list(input: {
+    page: number;
+    limit: number;
+    filter: string;
+    orderId?: string;
+    supplierId?: string;
+  }) {
     const params = new URLSearchParams({
       page: String(input.page),
       limit: String(input.limit),
@@ -81,6 +87,8 @@ export const purchaseOrdersApi = {
     if (input.filter !== 'all' && input.filter !== 'waiting') {
       params.set('status', input.filter);
     }
+    if (input.orderId) params.set('orderId', input.orderId);
+    if (input.supplierId) params.set('supplierId', input.supplierId);
     const data = await apiClient.get<{
       items?: PurchaseOrder[];
       counts?: PurchaseOrderCounts;

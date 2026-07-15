@@ -4,6 +4,8 @@ import InventoryHubPage from './page';
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
+  usePathname: () => '/inventory-hub',
+  useRouter: () => ({ push: vi.fn() }),
 }));
 
 vi.mock('next/dynamic', () => ({
@@ -12,21 +14,27 @@ vi.mock('next/dynamic', () => ({
   },
 }));
 
+vi.mock('./components/InventoryOperationWorkspaces', () => ({
+  InventoryOverviewWorkspace: () => <div>overview</div>,
+  InventoryAttentionWorkspace: () => <div>attention</div>,
+  InventoryHistoryWorkspace: () => <div>history</div>,
+}));
+
+vi.mock('./components/InventoryWorkspace', () => ({
+  InventoryWorkspace: () => <div>inventory</div>,
+}));
+
 describe('InventoryHubPage', () => {
   it('uses the develop inventory tab order without a direct stock mutation tab', async () => {
     render(<InventoryHubPage />);
-    const tabs = within(screen.getByTestId('tab-layout-tabs')).getAllByRole('button');
+    const tabs = within(screen.getByTestId('tab-layout-tabs')).getAllByRole('tab');
     expect(tabs.map((tab) => tab.textContent)).toEqual([
-      '재고 현황',
-      '발주 관리',
-      '입출고',
-      'Sellpia 동기화',
-      '로켓 수동 처리',
-      '수불부',
-      '재고 실사',
-      '재고자산',
+      '개요',
+      '재고',
+      '확인 필요',
+      '기록',
     ]);
-    expect(screen.queryByRole('button', { name: '가져오기 이력' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '채널 가용재고' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Sellpia 동기화' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: '로켓 수동 처리' })).not.toBeInTheDocument();
   });
 });

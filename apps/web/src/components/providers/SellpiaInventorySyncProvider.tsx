@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { usePathname } from 'next/navigation';
 import type {
   SellpiaInventoryCollectionFailureCode,
   SellpiaInventoryFreshnessView,
@@ -28,6 +29,7 @@ import {
   SellpiaFreshnessDrawer,
   SellpiaFreshnessStatus,
 } from '@/components/sellpia-inventory';
+import { SellpiaInventorySyncContext } from '@/components/sellpia-inventory/SellpiaInventorySyncContext';
 
 export const SELLPIA_HEARTBEAT_INTERVAL_MS = 20_000;
 export const SELLPIA_LEASE_MS = 90_000;
@@ -113,6 +115,7 @@ export function SellpiaInventorySyncProvider({
   children?: React.ReactNode;
 }) {
   const queryClient = useQueryClient();
+  const pathname = usePathname();
   const { status: authStatus, user } = useAuth();
   const enabled = authStatus === 'ready' && Boolean(user?.organizationId);
   const freshness = useSellpiaInventoryFreshness({ enabled });
@@ -470,16 +473,26 @@ export function SellpiaInventorySyncProvider({
     user?.organizationId,
   ]);
 
+  const contextValue = enabled && freshness.state
+    ? { state: freshness.state, openDrawer: () => setDrawerOpen(true) }
+    : null;
+  const usesInlineStatus = [
+    '/inventory-hub',
+    '/purchase-orders',
+    '/order-hub',
+    '/product-hub/matching',
+  ].includes(pathname);
+
   return (
-    <>
+    <SellpiaInventorySyncContext.Provider value={contextValue}>
       {children}
       {enabled && freshness.state ? (
         <>
-          <SellpiaFreshnessStatus
+          {usesInlineStatus ? null : <SellpiaFreshnessStatus
             status={freshness.state.status}
             lastVerifiedAt={freshness.state.lastVerifiedAt}
             onOpen={() => setDrawerOpen(true)}
-          />
+          />}
           <SellpiaFreshnessDrawer
             open={drawerOpen}
             onOpenChange={setDrawerOpen}
@@ -496,6 +509,6 @@ export function SellpiaInventorySyncProvider({
           />
         </>
       ) : null}
-    </>
+    </SellpiaInventorySyncContext.Provider>
   );
 }

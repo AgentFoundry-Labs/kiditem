@@ -71,7 +71,10 @@ export function ChannelSkuMappingTable({
               </tr>
             ) : (
               items.map((item) => {
-                const status = STATUS_VIEW[item.sku.mappingStatus];
+                const hasInactiveComponent = item.warnings.includes('component_inactive');
+                const status = hasInactiveComponent
+                  ? { label: '매칭 확인 필요', className: 'bg-amber-100 text-amber-800' }
+                  : STATUS_VIEW[item.sku.mappingStatus];
                 const productName =
                   item.product.registeredName ?? item.product.displayName ?? '상품명 없음';
                 return (
@@ -166,6 +169,11 @@ export function ChannelSkuMappingTable({
                       >
                         {status.label}
                       </span>
+                      {hasInactiveComponent ? (
+                        <p className="mt-2 text-xs font-semibold text-amber-700">
+                          비활성 구성품 포함
+                        </p>
+                      ) : null}
                       <button
                         type="button"
                         aria-label={`${item.sku.externalSkuId} Sellpia 구성 편집`}

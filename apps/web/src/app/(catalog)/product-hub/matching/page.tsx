@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, RefreshCw, Search, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
+import { useUrlControlledTab } from '@/hooks/useUrlControlledTab';
+import { SellpiaWorkspaceFreshnessStatus } from '@/components/sellpia-inventory';
 import { ChannelSkuComponentDialog } from './components/ChannelSkuComponentDialog';
 import { ChannelSkuMappingTable } from './components/ChannelSkuMappingTable';
 import { CoupangWingCatalogImportDialog } from './components/CoupangWingCatalogImportDialog';
@@ -29,10 +31,15 @@ const EMPTY_COUNTS: ChannelSkuMappingCounts = {
   needsReview: 0,
   matched: 0,
 };
+const MAPPING_STATUS_VALUES = ['all', 'unmatched', 'needs_review', 'matched'] as const;
 
 export default function MatchingPage() {
   const [selectedAccountId, setSelectedAccountId] = useState('');
-  const [mappingStatus, setMappingStatus] = useState<MappingStatusFilter>('all');
+  const [mappingStatus, setMappingStatus] = useUrlControlledTab({
+    key: 'status',
+    values: MAPPING_STATUS_VALUES,
+    defaultValue: 'all',
+  });
   const [searchText, setSearchText] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -126,6 +133,7 @@ export default function MatchingPage() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <SellpiaWorkspaceFreshnessStatus />
           <button
             type="button"
             onClick={handleManualRefresh}
@@ -203,7 +211,7 @@ export default function MatchingPage() {
           active={mappingStatus}
           counts={counts}
           onChange={(status) => {
-            setMappingStatus(status);
+            setMappingStatus(status as MappingStatusFilter);
             setPage(1);
           }}
         />

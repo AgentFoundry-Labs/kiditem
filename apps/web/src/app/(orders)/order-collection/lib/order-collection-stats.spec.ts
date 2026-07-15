@@ -202,6 +202,7 @@ describe("buildOrderCollectionPipelineSummary", () => {
       todayOrders: 4,
       waiting: 2,
       transmissionRequested: 2,
+      inventoryPending: 2,
       trackingSent: 0,
       done: 0,
     });

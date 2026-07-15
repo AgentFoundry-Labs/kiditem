@@ -70,6 +70,13 @@ vi.mock('@/components/GlobalConfirmDialog', () => ({
 
 vi.mock('@/components/QuickActionFab', () => ({
   default: () => <div data-testid="quick-action" />,
+  isQuickActionFabSuppressed: (pathname: string) => [
+    '/inventory-hub',
+    '/purchase-orders',
+    '/order-hub',
+    '/product-hub',
+    '/product-hub/matching',
+  ].includes(pathname),
 }));
 
 function renderLayout() {
@@ -145,6 +152,40 @@ describe('AppLayout auth gate', () => {
     expect(usePanelStreamMock).toHaveBeenCalledTimes(1);
     expect(readinessMock).toHaveBeenCalledTimes(1);
     expect(generationWatcherMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    '/inventory-hub',
+    '/purchase-orders',
+    '/order-hub',
+    '/product-hub',
+    '/product-hub/matching',
+  ])('does not mount the quick action button on %s', (pathname) => {
+    usePathnameMock.mockReturnValue(pathname);
+    useAuthMock.mockReturnValue({
+      status: 'ready',
+      user: { id: 'user-1', organizationId: 'org-1' },
+      isLoading: false,
+      logout: vi.fn(),
+    });
+
+    renderLayout();
+
+    expect(screen.queryByTestId('quick-action')).not.toBeInTheDocument();
+  });
+
+  it('keeps the quick action button on unrelated protected routes', () => {
+    usePathnameMock.mockReturnValue('/dashboard');
+    useAuthMock.mockReturnValue({
+      status: 'ready',
+      user: { id: 'user-1', organizationId: 'org-1' },
+      isLoading: false,
+      logout: vi.fn(),
+    });
+
+    renderLayout();
+
+    expect(screen.getByTestId('quick-action')).toBeInTheDocument();
   });
 
   it('shows organization guidance without starting background runtime when membership is missing', () => {

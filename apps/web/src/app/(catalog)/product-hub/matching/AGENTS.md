@@ -45,6 +45,13 @@ React Query + apiClient
   mapping queue and component-recipe editor.
 - Component replacement, confirmed unmap, and explicit status refresh also
   invalidate channel availability immediately.
+- `status=all|unmatched|needs_review|matched` is URL-authoritative and preserves
+  account, search, and page parameters.
+- Inactive mapped components surface as an availability warning under
+  `매칭 확인 필요`; the warning does not rewrite persisted mapping status and
+  never saves a recipe without the operator action.
+- The standalone matching header owns one compact Sellpia freshness status;
+  the shared provider still owns the single drawer.
 
 ## Cross-Domain Dependencies
 

@@ -19,11 +19,13 @@ export function SellpiaFreshnessStatus({
   lastVerifiedAt,
   now,
   onOpen,
+  placement = 'floating',
 }: {
   status: SellpiaInventoryFreshnessStatus;
   lastVerifiedAt: string | null;
   now?: Date;
   onOpen: () => void;
+  placement?: 'floating' | 'inline';
 }) {
   const meta = STATUS_META[status];
   const age = lastVerifiedAt ? timeAgo(lastVerifiedAt, now) : '확인 전';
@@ -33,7 +35,10 @@ export function SellpiaFreshnessStatus({
       type="button"
       onClick={onOpen}
       aria-label={`Sellpia 재고 상태: ${meta.label}`}
-      className="fixed bottom-5 right-5 z-40 inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-xs font-medium shadow-lg"
+      className={cn(
+        'inline-flex items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-xs font-medium',
+        placement === 'floating' && 'fixed bottom-5 right-5 z-40 shadow-lg',
+      )}
     >
       <RefreshCw
         aria-hidden="true"

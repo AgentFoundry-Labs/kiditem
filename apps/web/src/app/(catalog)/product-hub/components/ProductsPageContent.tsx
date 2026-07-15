@@ -9,9 +9,10 @@ import { ProductRowCard } from './ProductRowCard';
 import { ProductsColumnHeader } from './ProductsColumnHeader';
 import { ChannelSkuInventorySummary } from './ChannelSkuInventorySummary';
 
-export default function ProductsPageContent() {
+export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
   const state = useProductHubPageState();
   const data = state.data;
+  const Heading = headingLevel === 1 ? 'h1' : 'h2';
 
   if (state.isLoading && !data) return <PageSkeleton variant="table" />;
 
@@ -23,9 +24,9 @@ export default function ProductsPageContent() {
             <Package size={20} className="text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-extrabold tracking-tight text-[var(--text-primary)]">
+            <Heading className="text-2xl font-extrabold tracking-tight text-[var(--text-primary)]">
               상품 카탈로그
-            </h1>
+            </Heading>
             <p className="mt-0.5 text-xs font-medium text-[var(--text-tertiary)]">
               Sellpia 재고 데이터 기준 · 읽기 전용
             </p>
@@ -33,7 +34,7 @@ export default function ProductsPageContent() {
         </div>
         <div className="flex items-center gap-2">
           <Link
-            href="/inventory-hub?tab=sellpia-sync"
+            href="/inventory-hub?tab=overview"
             className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[var(--surface-sunken)] px-4 text-[13px] font-semibold text-[var(--text-secondary)]"
           >
             <Upload size={14} /> Sellpia 가져오기

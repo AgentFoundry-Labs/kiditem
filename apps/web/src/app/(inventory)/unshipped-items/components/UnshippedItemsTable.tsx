@@ -2,7 +2,16 @@
 
 import { Truck } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { UnshippedItem } from '../page';
+
+export interface UnshippedItem {
+  id: string;
+  orderId: string;
+  productName: string;
+  quantity: number;
+  orderDate: string;
+  delayDays: number;
+  reason: string | null;
+}
 
 interface Props {
   items: UnshippedItem[];

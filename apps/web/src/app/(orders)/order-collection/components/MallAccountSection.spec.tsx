@@ -126,6 +126,37 @@ describe("MallAccountSection", () => {
     expect(screen.queryByText("operator")).not.toBeInTheDocument();
   });
 
+  it("classifies every account once from configuration and pending collection state", () => {
+    const needsAction = mallAccount("kidsnote", { name: "키즈노트" });
+    const collectable = mallAccount("domeggook", { name: "도매꾹" });
+    const needsSetup = mallAccount("kakao", {
+      name: "카카오",
+      configured: false,
+      loginId: null,
+      hasPassword: false,
+    });
+    const stats = new Map<string, MallCollectionStat>([
+      [needsAction.key, {
+        key: needsAction.key,
+        name: needsAction.name,
+        files: 1,
+        orderRows: 3,
+        newRows: 2,
+        productRows: 3,
+        latestAt: Date.now(),
+      }],
+    ]);
+
+    renderSection([needsAction, collectable, needsSetup], stats);
+
+    expect(screen.getByRole("heading", { name: /조치 필요/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /수집 가능/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /설정 필요/ })).toBeInTheDocument();
+    for (const name of ["키즈노트", "도매꾹", "카카오"]) {
+      expect(screen.getAllByRole("article", { name: `${name} 계정 카드` })).toHaveLength(1);
+    }
+  });
+
   it("never enables collection for a disabled extension-session mall", async () => {
     const user = userEvent.setup();
     const account = mallAccount("kidsnote", {
@@ -210,7 +241,10 @@ describe("MallAccountSection", () => {
 
   it("wires route collectionRun recovery and same-run restart", () => {
     const routeRoot = path.resolve(import.meta.dirname, "..");
-    const page = readFileSync(path.join(routeRoot, "page.tsx"), "utf8");
+    const workspace = readFileSync(
+      path.resolve(routeRoot, "../order-hub/components/OrderCollectionWorkspace.tsx"),
+      "utf8",
+    );
     const collector = readFileSync(
       path.join(routeRoot, "lib/browser-mall-collection.ts"),
       "utf8",
@@ -220,13 +254,13 @@ describe("MallAccountSection", () => {
       "utf8",
     );
 
-    expect(page).toContain("BrowserCollectionRunControls");
+    expect(workspace).toContain("BrowserCollectionRunControls");
     expect(sessionHook).toContain("useBrowserCollectionSession");
     expect(sessionHook).toContain("collectionRun");
     expect(sessionHook).toContain("globalThis.crypto.randomUUID()");
     expect(sessionHook).toContain("'orders.mall'");
-    expect(page).toMatch(/handleBrowserCollectMall\(account,\s*session\.runId\)/);
-    expect(page).toContain('webRestartUnavailableMessage');
+    expect(workspace).toMatch(/handleBrowserCollectMall\(account,\s*session\.runId\)/);
+    expect(workspace).toContain('webRestartUnavailableMessage');
     expect(sessionHook).toContain("mallAccounts.find((account) => account.key === mallKey)");
     expect(collector).toContain("runId");
     expect(collector).toContain("extensionId");

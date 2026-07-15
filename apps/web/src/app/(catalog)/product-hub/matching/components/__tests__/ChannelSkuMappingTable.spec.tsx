@@ -79,6 +79,25 @@ describe('MappingStatusTabs', () => {
 });
 
 describe('ChannelSkuMappingTable', () => {
+  it('derives an operator review warning from inactive components without changing saved status', () => {
+    render(
+      <ChannelSkuMappingTable
+        items={[{ ...item, warnings: ['component_inactive'] }]}
+        total={1}
+        page={1}
+        limit={50}
+        loading={false}
+        emptyMessage="비어 있음"
+        onPageChange={vi.fn()}
+        onEdit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('매칭 확인 필요')).toBeInTheDocument();
+    expect(screen.getByText('비활성 구성품 포함')).toBeInTheDocument();
+    expect(item.sku.mappingStatus).toBe('matched');
+  });
+
   it('renders the complete channel/Sellpia read model and edit action', async () => {
     const onEdit = vi.fn();
     const user = userEvent.setup();

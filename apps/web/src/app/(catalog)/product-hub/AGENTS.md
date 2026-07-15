@@ -4,8 +4,9 @@ Consult this document first instead of relying on memorized knowledge.
 
 `app/(catalog)/product-hub/` owns `/product-hub` and
 `/product-hub/[masterProductId]` as the operator-facing catalog for the latest
-Sellpia inventory snapshot. `/product-hub/options` preserves the dedicated
-option-management table experience as a read-only projection of that snapshot.
+Sellpia inventory snapshot. `/product-hub?view=list|options` is the canonical
+workspace; `/product-hub/options` temporarily renders the extracted read-only
+options workspace until redirects are introduced.
 
 ## Data Flow
 
@@ -22,13 +23,17 @@ React Query + apiClient
 - Use `queryKeys.inventory.snapshot(...)` for paged list reads and the
   `queryKeys.inventory.snapshots()` family for detail reads.
 - Preserve server paging, search, stock status, and active status parameters.
+  List search, filters, and page are URL-owned so changing `view` never drops
+  them.
 - Render Sellpia identity, option name, barcode, current stock, source prices,
   active state, and last-import provenance as read-only facts.
 - Keep `/product-hub/options` visually distinct from channel SKU matching and
   back its search, stock, active-state, refresh, and paging controls with the
   same Sellpia snapshot query.
-- Link inventory import work to `/inventory-hub?tab=sellpia-sync` and component
+- Link inventory import work to `/inventory-hub?tab=overview` and component
   matching work to `/product-hub/matching`.
+- The canonical shell owns the only `h1`, uses URL-authoritative view selection,
+  and unmounts the inactive list/options workspace.
 
 ## Boundary Rules
 

@@ -10,6 +10,20 @@ import MatchingPage from './page';
 import type { ChannelAccountListItem } from '@kiditem/shared/channel-account';
 import type { ChannelSkuMappingListItem } from '@kiditem/shared/channel-sku-matching';
 
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/product-hub/matching',
+  useRouter: () => ({ push: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+vi.mock('@/hooks/useUrlControlledTab', async () => {
+  const React = await import('react');
+  return {
+    useUrlControlledTab: ({ defaultValue }: { defaultValue: string }) =>
+      React.useState(defaultValue),
+  };
+});
+
 vi.mock('./hooks/useChannelSkuMappings', () => ({
   useChannelAccounts: vi.fn(),
   useChannelSkuMappings: vi.fn(),

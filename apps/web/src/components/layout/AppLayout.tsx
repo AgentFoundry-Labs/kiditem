@@ -13,7 +13,7 @@ import { usePanelStream } from '@/components/panel/hooks/usePanelStream';
 import ReadinessModal from '@/components/ReadinessModal';
 import GlobalConfirmDialog from '@/components/GlobalConfirmDialog';
 import GenerationCompletionWatcher from '@/components/GenerationCompletionWatcher';
-import QuickActionFab from '@/components/QuickActionFab';
+import QuickActionFab, { isQuickActionFabSuppressed } from '@/components/QuickActionFab';
 import { useAuth } from '@/hooks/useAuth';
 import RebuildReadinessBanner from '@/components/RebuildReadinessBanner';
 
@@ -135,7 +135,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {showAutoReadinessModal && <ReadinessModal autoOpenWhen="collectionIssue" />}
       <GlobalConfirmDialog />
       <GenerationCompletionWatcher />
-      {isEditorRoute ? null : <QuickActionFab />}
+      {isEditorRoute || isQuickActionFabSuppressed(pathname) ? null : <QuickActionFab />}
     </div>
   );
 

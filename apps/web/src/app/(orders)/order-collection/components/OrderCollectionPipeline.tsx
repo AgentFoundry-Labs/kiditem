@@ -5,6 +5,7 @@ export interface OrderCollectionPipelineSummary {
   todayOrders: number;
   waiting: number;
   transmissionRequested: number;
+  inventoryPending: number;
   trackingSent: number;
   done: number;
 }
@@ -15,8 +16,9 @@ const STAGES: Array<{
   tone: 'slate' | 'amber' | 'purple' | 'sky' | 'emerald';
 }> = [
   { key: 'todayOrders', label: '오늘 주문', tone: 'slate' },
-  { key: 'waiting', label: '셀피아 전송 대기', tone: 'amber' },
-  { key: 'transmissionRequested', label: '셀피아 전송 요청됨', tone: 'purple' },
+  { key: 'waiting', label: 'Sellpia 전송 필요', tone: 'amber' },
+  { key: 'transmissionRequested', label: '전송 요청됨', tone: 'purple' },
+  { key: 'inventoryPending', label: '재고 반영 대기', tone: 'sky' },
   { key: 'trackingSent', label: '셀피아 송장 전송', tone: 'sky' },
   { key: 'done', label: '완료', tone: 'emerald' },
 ];

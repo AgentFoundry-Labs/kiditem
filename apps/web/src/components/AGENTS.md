@@ -17,8 +17,9 @@ UI primitives. Route-local UI should stay inside `src/app/(group)/route/`.
 - Prefer props for route-specific actions over importing route-local APIs.
 - `sellpia-inventory/` is the app-shell freshness surface: one compact status,
   one drawer, per-file manual attestation fallback, authoritative completed
-  current basis, and unified history. It never requests or stores Sellpia
-  passwords or cookies.
+  current basis, and unified history. Canonical high-density workspaces render
+  the compact status inline while the app shell suppresses its floating copy;
+  all placements open the same single drawer.
 
 ## Styling Rules
 

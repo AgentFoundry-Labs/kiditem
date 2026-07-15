@@ -1,11 +1,11 @@
 import { Suspense } from 'react';
 import PageSkeleton from '@/components/ui/PageSkeleton';
-import ProductsPageContent from './components/ProductsPageContent';
+import { ProductHubWorkspace } from './components/ProductHubWorkspace';
 
 export default function ProductHubPage() {
   return (
     <Suspense fallback={<PageSkeleton variant="table" />}>
-      <ProductsPageContent />
+      <ProductHubWorkspace />
     </Suspense>
   );
 }

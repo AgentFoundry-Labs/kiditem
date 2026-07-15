@@ -7,6 +7,12 @@ import { purchaseOrdersApi } from './lib/purchase-orders-api';
 import { usePurchaseOrderSubmission } from './hooks/usePurchaseOrderSubmission';
 import PurchaseOrdersPage from './page';
 
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/purchase-orders',
+  useRouter: () => ({ push: vi.fn() }),
+  useSearchParams: () => new URLSearchParams('tab=rocket'),
+}));
+
 vi.mock('@/lib/api-client', () => ({
   apiClient: { getParsed: vi.fn() },
 }));

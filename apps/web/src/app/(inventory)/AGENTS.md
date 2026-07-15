@@ -2,17 +2,18 @@ Consult this document first instead of relying on memorized knowledge.
 
 # web/inventory - Sellpia Snapshot, Warehouses, Fulfillment Records
 
-`app/(inventory)/` owns the preserved `/inventory`, `/inventory-hub`, and
-`/stock-ops` views plus warehouses, unshipped/outbound views, and Coupang
-shipment support. The displayed stock is the latest completed Sellpia snapshot
-stored on physical `MasterProduct` rows.
+`app/(inventory)/` owns canonical `/inventory-hub`, the temporary `/inventory`
+compatibility surface, `/stock-ops`, warehouses, and Coupang shipment support.
+The displayed stock is the latest completed Sellpia snapshot stored on
+physical `MasterProduct` rows.
 
 ## Owned Surfaces
 
 - Sellpia snapshot list, import history, freshness, and asset reporting
 - Channel availability, zero-stock, bottleneck, and mapping-attention views
 - Warehouse metadata and record-only transfer/picking/return views
-- Unshipped/outbound operational read views
+- Temporary unshipped/outbound compatibility routes; canonical composition is
+  owned by `/order-hub`
 - Coupang shipment file helpers and browser print support
 
 ## Data Flow
@@ -40,6 +41,13 @@ React Query + inventory API helpers
   one import-run history. Manual upload requires explicit fresh-export
   attestation bound to the currently selected file, and pre-download failures
   render without file provenance.
+- `/inventory-hub` owns `tab=overview|inventory|attention|history`; history owns
+  `view=assets|transfer|return`. Both selectors preserve unrelated URL state
+  and unmount inactive workspaces.
+- The inventory table is implemented once in `InventoryWorkspace`; `/inventory`
+  only renders that compatibility component until route redirects are added.
+- The canonical header renders compact freshness; import attempts and history
+  remain in the single shared freshness drawer rather than route-local panels.
 
 ## Boundary Rules
 

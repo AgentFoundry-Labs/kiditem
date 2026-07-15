@@ -3,7 +3,10 @@ Consult this document first instead of relying on memorized knowledge.
 # web/order-status-hub - Order Status Read Models
 
 `order-status-hub/` owns read-model screens for delivery search, sync checks,
-order comparison, order inventory risk, and order status projections.
+order comparison, order inventory risk, and order status projections. The
+canonical `/order-hub` composes delivery search under Shipping and the other
+read models under Exceptions; these components keep `h2` headings below the
+shell.
 
 ## State Rules
 

@@ -209,6 +209,7 @@ export function buildOrderCollectionPipelineSummary(
     todayOrders: 0,
     waiting: 0,
     transmissionRequested: 0,
+    inventoryPending: 0,
     trackingSent: 0,
     done: 0,
   };
@@ -219,6 +220,7 @@ export function buildOrderCollectionPipelineSummary(
     summary.todayOrders += orderCount;
     if (hasSellpiaTransmissionRequest(item)) {
       summary.transmissionRequested += orderCount;
+      summary.inventoryPending += orderCount;
     } else {
       summary.waiting += orderCount;
     }

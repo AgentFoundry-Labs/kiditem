@@ -25,6 +25,26 @@ import { isTrackingSupportedMall } from "../lib/icecream-tracking-api";
 import type { MallCollectionStat } from "../lib/order-collection-stats";
 import type { OrderCollectionMallAccount } from "../lib/order-mall-account-api";
 
+type MallAccountGroup = "action" | "collectable" | "setup";
+
+const MALL_ACCOUNT_GROUPS: Array<{ id: MallAccountGroup; label: string }> = [
+  { id: "action", label: "조치 필요" },
+  { id: "collectable", label: "수집 가능" },
+  { id: "setup", label: "설정 필요" },
+];
+
+export function classifyMallAccount(
+  account: OrderCollectionMallAccount,
+  collectionStat: MallCollectionStat | undefined,
+  collectionActive = false,
+): MallAccountGroup {
+  if (!account.configured || !account.enabled || !isBrowserCollectableMall(account)) {
+    return "setup";
+  }
+  if (collectionActive || (collectionStat?.newRows ?? 0) > 0) return "action";
+  return "collectable";
+}
+
 interface MallAccountSectionProps {
   collectionControls?: ReactNode;
   mallAccounts: OrderCollectionMallAccount[];
@@ -224,9 +244,22 @@ export function MallAccountSection({
               불러오는 중
             </div>
           ) : (
-            <div className="overflow-x-auto pb-1">
-              <div className="grid min-w-[720px] grid-cols-5 gap-3">
-                {mallAccounts.map((account) => {
+            <div className="space-y-5 overflow-x-auto pb-1">
+              {MALL_ACCOUNT_GROUPS.map((group) => {
+                const groupedAccounts = mallAccounts.filter((account) =>
+                  classifyMallAccount(
+                    account,
+                    mallCollectionStats.get(account.key),
+                    collectingKeys.has(account.key) || cancellingKeys.has(account.key),
+                  ) === group.id,
+                );
+                return (
+                  <section key={group.id} aria-labelledby={`mall-group-${group.id}`}>
+                    <h3 id={`mall-group-${group.id}`} className="mb-2 text-xs font-semibold text-slate-600">
+                      {group.label} <span className="text-slate-400">{groupedAccounts.length}</span>
+                    </h3>
+                    <div className="grid min-w-[720px] grid-cols-5 gap-3">
+                {groupedAccounts.map((account) => {
                   const isOpenAccount =
                     mallSettingsOpen && selectedMall?.key === account.key;
                   const isCollectingAccount = collectingKeys.has(account.key);
@@ -410,7 +443,10 @@ export function MallAccountSection({
                     </article>
                   );
                 })}
-              </div>
+                    </div>
+                  </section>
+                );
+              })}
             </div>
           )}
         </div>

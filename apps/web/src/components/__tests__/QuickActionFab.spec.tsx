@@ -1,8 +1,23 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import QuickActionFab from '../QuickActionFab';
+import QuickActionFab, { isQuickActionFabSuppressed } from '../QuickActionFab';
 
 describe('QuickActionFab', () => {
+  it.each([
+    '/inventory-hub',
+    '/purchase-orders',
+    '/order-hub',
+    '/product-hub',
+    '/product-hub/matching',
+  ])('marks %s as a high-density route', (pathname) => {
+    expect(isQuickActionFabSuppressed(pathname)).toBe(true);
+  });
+
+  it('keeps the action button on unrelated routes', () => {
+    expect(isQuickActionFabSuppressed('/dashboard')).toBe(false);
+    expect(isQuickActionFabSuppressed('/product-hub/product-1')).toBe(false);
+  });
+
   it('hides action items until the trigger is pressed', () => {
     render(<QuickActionFab />);
     expect(screen.queryByRole('link', { name: '상품 생성' })).not.toBeInTheDocument();

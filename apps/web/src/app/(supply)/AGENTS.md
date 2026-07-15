@@ -13,6 +13,8 @@ state, finance settlement state, or catalog product editing.
 - Purchase-order counts and status filters
 - Coupang Rocket collection and component-capacity preview workspace
 - Active Rocket ChannelAccount selector on the real `/purchase-orders` route
+- Canonical `/purchase-orders?tab=general|rocket` workspace with one heading
+  and inactive-tab unmounting
 
 ## Data Flow
 
@@ -43,8 +45,9 @@ logged-in order-collector extension
 - Submission settlement invalidates purchase-order queries on both success and
   error because provider failures may persist a terminal attempt before the API
   rejects.
-- Filter/page state belongs in the route; backend owns status transitions and
-  totals.
+- General purchase filters and paging belong in the route and preserve
+  `orderId`/`supplierId`; backend owns status transitions and totals. The
+  top-level `tab` query key is URL-authoritative and preserves those filters.
 - Keep purchase-order creation payloads aligned with backend DTO semantics.
 - Rocket preview quantities are editable only up to the backend-recomputed
   maximum. Recalculation must collect a fresh evidence run instead of reusing

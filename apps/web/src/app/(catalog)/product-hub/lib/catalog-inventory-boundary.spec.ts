@@ -28,7 +28,7 @@ describe('product hub final inventory ownership boundary', () => {
     expect(source).toContain('/api/inventory/sellpia-skus');
     expect(source).not.toContain('/api/products');
     expect(source).not.toContain('queryKeys.products');
-    expect(source).not.toContain('ProductOption');
+    expect(source).not.toMatch(/\bProductOption(?:Schema|Create|Update|Delete)\b/);
   });
 
   it('is read-only and light-only outside the dedicated matching workspace', () => {
@@ -42,11 +42,16 @@ describe('product hub final inventory ownership boundary', () => {
   });
 
   it('keeps the option URL as a dedicated read-only Sellpia option workspace', () => {
-    const source = readFileSync(join(productHubRoot, 'options/page.tsx'), 'utf8');
+    const pageSource = readFileSync(join(productHubRoot, 'options/page.tsx'), 'utf8');
+    const workspaceSource = readFileSync(
+      join(productHubRoot, 'components/ProductOptionsWorkspace.tsx'),
+      'utf8',
+    );
 
-    expect(source).toContain('useProductHubPageState');
-    expect(source).toContain('SellpiaOptionTable');
-    expect(source).not.toContain("from '../matching/page'");
-    expect(source).not.toContain('/api/products/options');
+    expect(pageSource).toContain('ProductOptionsWorkspace');
+    expect(workspaceSource).toContain('useProductHubPageState');
+    expect(workspaceSource).toContain('SellpiaOptionTable');
+    expect(workspaceSource).not.toContain("from '../matching/page'");
+    expect(workspaceSource).not.toContain('/api/products/options');
   });
 });
