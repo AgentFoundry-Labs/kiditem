@@ -341,11 +341,7 @@ export function hasLiveLease(
   state: SellpiaInventoryFreshnessState,
   now: Date,
 ): boolean {
-  return state.activeSyncToken !== null
-    && state.activeSyncOwnerUserId !== null
-    && state.activeGeneration !== null
-    && state.activeSyncStartedAt !== null
-    && state.activeSyncLeaseExpiresAt !== null
+  return state.activeSyncLeaseExpiresAt !== null
     && state.activeSyncLeaseExpiresAt > now;
 }
 

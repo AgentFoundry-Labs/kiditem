@@ -26,7 +26,7 @@ implements SellpiaInventoryFreshnessRepositoryPort {
   withLockedState<T>(
     input: {
       organizationId: string;
-      initialState: SellpiaInventoryFreshnessState;
+      createInitialState: () => SellpiaInventoryFreshnessState;
     },
     operation: (
       transaction: SellpiaInventoryFreshnessRepositoryTransaction,
@@ -37,9 +37,10 @@ implements SellpiaInventoryFreshnessRepositoryPort {
       await tx.$queryRaw`
         SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
       `;
+      const initialState = input.createInitialState();
       await tx.sellpiaInventoryState.upsert({
         where: { organizationId: input.organizationId },
-        create: toCreateData(input.initialState),
+        create: toCreateData(initialState),
         update: {},
       });
       await tx.$queryRaw`

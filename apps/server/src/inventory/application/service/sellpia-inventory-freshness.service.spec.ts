@@ -53,6 +53,29 @@ describe('SellpiaInventoryFreshnessService', () => {
     expect(repository.initializeCount).toBe(1);
   });
 
+  it('timestamps lazy initialization after the organization lock is acquired', async () => {
+    repository.onLockAcquired = () => {
+      vi.setSystemTime(new Date('2026-07-15T00:00:30.000Z'));
+    };
+
+    const view = await service.getState({ organizationId: ORG_ID, userId: USER_ID });
+
+    expect(view.refreshRequestedAt).toBe('2026-07-15T00:00:30.000Z');
+  });
+
+  it('derives GET freshness from the time the lock is acquired', async () => {
+    repository.seedState({
+      lastVerifiedAt: new Date('2026-07-14T23:50:00.001Z'),
+    });
+    repository.onLockAcquired = () => {
+      vi.setSystemTime(new Date('2026-07-15T00:00:00.001Z'));
+    };
+
+    const view = await service.getState({ organizationId: ORG_ID, userId: USER_ID });
+
+    expect(view.status).toBe('refresh_required');
+  });
+
   it('serializes BigInt generations as decimal strings', async () => {
     repository.seedState({
       requestedGeneration: 9_007_199_254_740_993n,
@@ -85,6 +108,28 @@ describe('SellpiaInventoryFreshnessService', () => {
     });
     expect(view.syncNotBefore).toBe('2026-07-15T00:05:00.000Z');
     expect(view.requestedGeneration).toBe('2');
+  });
+
+  it('starts an order settle window from the time the lock is acquired', async () => {
+    repository.seedState({
+      requestedGeneration: 1n,
+      verifiedGeneration: 1n,
+      lastVerifiedAt: new Date('2026-07-14T23:59:00.000Z'),
+    });
+    repository.onLockAcquired = () => {
+      vi.setSystemTime(new Date('2026-07-15T00:00:30.000Z'));
+    };
+
+    const view = await service.requestRefresh({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      reason: 'order_transmission_requested',
+    });
+
+    expect(view).toMatchObject({
+      refreshRequestedAt: '2026-07-15T00:00:30.000Z',
+      syncNotBefore: '2026-07-15T00:02:30.000Z',
+    });
   });
 
   it('atomically creates only one ttl_expired generation for concurrent claimers', async () => {
@@ -287,6 +332,201 @@ describe('SellpiaInventoryFreshnessService', () => {
     expect(repository.state(ORG_ID).activeSyncOwnerUserId).toBe(OTHER_USER_ID);
   });
 
+  it('blocks an ownerless future lease and reclaims it at exact expiry', async () => {
+    repository.seedState({
+      requestedGeneration: 2n,
+      verifiedGeneration: 1n,
+      activeGeneration: 2n,
+      activeSyncToken: '00000000-0000-4000-8000-000000000101',
+      activeSyncOwnerUserId: null,
+      activeSyncStartedAt: new Date('2026-07-15T00:00:00.000Z'),
+      activeSyncLeaseExpiresAt: new Date('2026-07-15T00:01:30.000Z'),
+    });
+
+    await expect(service.claimDue({ organizationId: ORG_ID, userId: USER_ID }))
+      .resolves.toMatchObject({ claimed: false });
+
+    vi.setSystemTime(new Date('2026-07-15T00:01:30.000Z'));
+    await expect(service.claimDue({ organizationId: ORG_ID, userId: USER_ID }))
+      .resolves.toMatchObject({
+        claimed: true,
+        activeGeneration: '2',
+        state: { activeSync: { canControl: true } },
+      });
+  });
+
+  it('starts a claim lease from the time the lock is acquired', async () => {
+    repository.seedPendingState();
+    repository.onLockAcquired = () => {
+      vi.setSystemTime(new Date('2026-07-15T00:00:45.000Z'));
+    };
+
+    await expect(service.claimDue({ organizationId: ORG_ID, userId: USER_ID }))
+      .resolves.toMatchObject({
+        claimed: true,
+        leaseExpiresAt: '2026-07-15T00:02:15.000Z',
+      });
+  });
+
+  it('starts a heartbeat lease extension from the time the lock is acquired', async () => {
+    const claimToken = '00000000-0000-4000-8000-000000000102';
+    repository.seedState({
+      requestedGeneration: 2n,
+      verifiedGeneration: 1n,
+      activeGeneration: 2n,
+      activeSyncToken: claimToken,
+      activeSyncOwnerUserId: USER_ID,
+      activeSyncStartedAt: new Date('2026-07-15T00:00:00.000Z'),
+      activeSyncLeaseExpiresAt: new Date('2026-07-15T00:01:30.000Z'),
+    });
+    repository.onLockAcquired = () => {
+      vi.setSystemTime(new Date('2026-07-15T00:00:20.000Z'));
+    };
+
+    const view = await service.heartbeat({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      claimToken,
+    });
+
+    expect(view.activeSync?.leaseExpiresAt).toBe('2026-07-15T00:01:50.000Z');
+  });
+
+  it('does not revive a lease that expires while waiting for the lock', async () => {
+    const claimToken = '00000000-0000-4000-8000-000000000103';
+    vi.setSystemTime(new Date('2026-07-15T00:01:29.999Z'));
+    repository.seedState({
+      requestedGeneration: 2n,
+      verifiedGeneration: 1n,
+      activeGeneration: 2n,
+      activeSyncToken: claimToken,
+      activeSyncOwnerUserId: USER_ID,
+      activeSyncStartedAt: new Date('2026-07-15T00:00:00.000Z'),
+      activeSyncLeaseExpiresAt: new Date('2026-07-15T00:01:30.000Z'),
+    });
+    repository.onLockAcquired = () => {
+      vi.setSystemTime(new Date('2026-07-15T00:01:30.000Z'));
+    };
+
+    await expect(service.heartbeat({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      claimToken,
+    })).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('does not fail or cancel a lease that expires while waiting for the lock', async () => {
+    const claimToken = '00000000-0000-4000-8000-000000000104';
+    vi.setSystemTime(new Date('2026-07-15T00:01:29.999Z'));
+    repository.seedState({
+      requestedGeneration: 2n,
+      verifiedGeneration: 1n,
+      activeGeneration: 2n,
+      activeSyncToken: claimToken,
+      activeSyncOwnerUserId: USER_ID,
+      activeSyncStartedAt: new Date('2026-07-15T00:00:00.000Z'),
+      activeSyncLeaseExpiresAt: new Date('2026-07-15T00:01:30.000Z'),
+    });
+    repository.onLockAcquired = () => {
+      vi.setSystemTime(new Date('2026-07-15T00:01:30.000Z'));
+    };
+
+    await expect(service.fail({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      claimToken,
+      errorCode: 'sellpia_network_failed',
+      errorMessage: 'expired while waiting',
+    })).rejects.toBeInstanceOf(ConflictException);
+    await expect(service.cancel({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      claimToken,
+    })).rejects.toBeInstanceOf(ConflictException);
+    expect(repository.failedAttempts).toHaveLength(0);
+  });
+
+  it('rejects a snapshot crossing the exact ttl while waiting for the lock', async () => {
+    repository.seedState({
+      sourceAccountKey: 'kiditem',
+      lastVerifiedAt: new Date('2026-07-14T23:50:00.001Z'),
+    });
+    repository.seedMaster(ORG_ID, MASTER_ID, true);
+    repository.onLockAcquired = () => {
+      vi.setSystemTime(new Date('2026-07-15T00:00:00.001Z'));
+    };
+
+    await expectCode(
+      service.assertFreshAndActive({
+        organizationId: ORG_ID,
+        masterProductIds: [MASTER_ID],
+      }),
+      'SELLPIA_SYNC_REQUIRED',
+    );
+  });
+
+  it('rejects empty and malformed references before entering the lock', async () => {
+    repository.seedState({
+      sourceAccountKey: 'kiditem',
+      lastVerifiedAt: new Date('2026-07-14T23:50:00.000Z'),
+    });
+
+    await expectCode(
+      service.assertFreshAndActive({
+        organizationId: ORG_ID,
+        masterProductIds: [],
+      }),
+      'PURCHASE_REFERENCE_INVALID',
+    );
+    await expectCode(
+      service.assertFreshAndActive({
+        organizationId: ORG_ID,
+        masterProductIds: ['not-a-uuid'],
+      }),
+      'PURCHASE_REFERENCE_INVALID',
+    );
+    expect(repository.lockCount).toBe(0);
+  });
+
+  it('rejects stale missing and foreign references before freshness', async () => {
+    repository.seedState({
+      sourceAccountKey: 'kiditem',
+      lastVerifiedAt: new Date('2026-07-14T23:50:00.000Z'),
+    });
+    repository.seedMaster(OTHER_ORG_ID, FOREIGN_MASTER_ID, true);
+
+    await expectCode(
+      service.assertFreshAndActive({
+        organizationId: ORG_ID,
+        masterProductIds: [MASTER_ID],
+      }),
+      'PURCHASE_REFERENCE_INVALID',
+    );
+    await expectCode(
+      service.assertFreshAndActive({
+        organizationId: ORG_ID,
+        masterProductIds: [FOREIGN_MASTER_ID],
+      }),
+      'PURCHASE_REFERENCE_INVALID',
+    );
+  });
+
+  it('keeps freshness ahead of inactive status for a valid reference', async () => {
+    repository.seedState({
+      sourceAccountKey: 'kiditem',
+      lastVerifiedAt: new Date('2026-07-14T23:50:00.000Z'),
+    });
+    repository.seedMaster(ORG_ID, MASTER_ID, false);
+
+    await expectCode(
+      service.assertFreshAndActive({
+        organizationId: ORG_ID,
+        masterProductIds: [MASTER_ID],
+      }),
+      'SELLPIA_SYNC_REQUIRED',
+    );
+  });
+
   it('separates stale, inactive, and cross-tenant purchase failures', async () => {
     repository.seedState({
       sourceAccountKey: 'kiditem',
@@ -354,13 +594,15 @@ implements SellpiaInventoryFreshnessRepositoryPort {
   private readonly masters = new Map<string, Map<string, boolean>>();
   private tail: Promise<void> = Promise.resolve();
   initializeCount = 0;
+  lockCount = 0;
+  onLockAcquired: (() => void) | null = null;
   failedAttempts: FailedSellpiaInventoryAttempt[] = [];
   lastMasterProductIds: string[] = [];
 
   async withLockedState<T>(
     input: {
       organizationId: string;
-      initialState: SellpiaInventoryFreshnessState;
+      createInitialState: () => SellpiaInventoryFreshnessState;
     },
     operation: (
       transaction: SellpiaInventoryFreshnessRepositoryTransaction,
@@ -373,8 +615,10 @@ implements SellpiaInventoryFreshnessRepositoryPort {
     });
     await previous;
     try {
+      this.lockCount += 1;
+      this.onLockAcquired?.();
       if (!this.states.has(input.organizationId)) {
-        this.states.set(input.organizationId, { ...input.initialState });
+        this.states.set(input.organizationId, { ...input.createInitialState() });
         this.initializeCount += 1;
       }
       return await operation(new MemoryFreshnessTransaction(this, input.organizationId));

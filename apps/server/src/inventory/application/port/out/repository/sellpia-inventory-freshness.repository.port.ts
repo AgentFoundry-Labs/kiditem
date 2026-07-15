@@ -53,7 +53,7 @@ export interface SellpiaInventoryFreshnessRepositoryPort {
   withLockedState<T>(
     input: {
       organizationId: string;
-      initialState: SellpiaInventoryFreshnessState;
+      createInitialState: () => SellpiaInventoryFreshnessState;
     },
     operation: (
       transaction: SellpiaInventoryFreshnessRepositoryTransaction,

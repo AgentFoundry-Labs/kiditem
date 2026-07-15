@@ -55,9 +55,9 @@ implements
   ) {}
 
   async getState(input: ActorScope): Promise<SellpiaInventoryFreshnessView> {
-    const now = new Date();
-    return this.withLockedState(input.organizationId, now, async (transaction) => {
+    return this.withLockedState(input.organizationId, async (transaction) => {
       const state = await transaction.getState();
+      const now = new Date();
       return toFreshnessView(state, now, input.userId);
     });
   }
@@ -74,17 +74,16 @@ implements
     ) {
       throw new BadRequestException('Invalid Sellpia source binding');
     }
-    const now = new Date();
-    return this.withLockedState(input.organizationId, now, async (transaction) => {
+    return this.withLockedState(input.organizationId, async (transaction) => {
       const state = await transaction.getState();
       if (isSourceBindingConfirmed(state)) {
-        return toFreshnessView(state, now, input.userId);
+        return toFreshnessView(state, new Date(), input.userId);
       }
       const updated = await transaction.compareAndSetState({
         expected: expectation(state),
         patch: planSourceBindingConfirmation(state, randomUUID()),
       });
-      return toFreshnessView(updated, now, input.userId);
+      return toFreshnessView(updated, new Date(), input.userId);
     });
   }
 
@@ -93,13 +92,12 @@ implements
   async requestRefresh(
     input: ActorRefreshInput | CrossDomainRefreshInput,
   ): Promise<SellpiaInventoryFreshnessView | void> {
-    const now = new Date();
     const userId = 'userId' in input ? input.userId : null;
     const view = await this.withLockedState(
       input.organizationId,
-      now,
       async (transaction) => {
         const state = await transaction.getState();
+        const now = new Date();
         const updated = await transaction.compareAndSetState({
           expected: expectation(state),
           patch: planRefreshRequest(
@@ -116,9 +114,9 @@ implements
   }
 
   async claimDue(input: ActorScope): Promise<SellpiaInventoryClaimResponse> {
-    const now = new Date();
-    return this.withLockedState(input.organizationId, now, async (transaction) => {
+    return this.withLockedState(input.organizationId, async (transaction) => {
       const state = await transaction.getState();
+      const now = new Date();
       const claimToken = randomUUID();
       const decision = planClaim(state, {
         now,
@@ -149,9 +147,9 @@ implements
   async heartbeat(input: ActorScope & {
     claimToken: string;
   }): Promise<SellpiaInventoryFreshnessView> {
-    const now = new Date();
-    return this.withLockedState(input.organizationId, now, async (transaction) => {
+    return this.withLockedState(input.organizationId, async (transaction) => {
       const state = await transaction.getState();
+      const now = new Date();
       const patch = planHeartbeat(state, {
         ...input,
         now,
@@ -171,10 +169,10 @@ implements
     errorCode: SellpiaInventoryCollectionFailureCode;
     errorMessage: string;
   }): Promise<SellpiaInventoryFreshnessView> {
-    const now = new Date();
     const errorMessage = sanitizeErrorMessage(input.errorMessage);
-    return this.withLockedState(input.organizationId, now, async (transaction) => {
+    return this.withLockedState(input.organizationId, async (transaction) => {
       const state = await transaction.getState();
+      const now = new Date();
       const patch = planFailure(state, {
         ...input,
         errorMessage,
@@ -213,9 +211,9 @@ implements
   async cancel(input: ActorScope & {
     claimToken: string;
   }): Promise<SellpiaInventoryFreshnessView> {
-    const now = new Date();
-    return this.withLockedState(input.organizationId, now, async (transaction) => {
+    return this.withLockedState(input.organizationId, async (transaction) => {
       const state = await transaction.getState();
+      const now = new Date();
       const patch = planCancel(state, {
         ...input,
         now,
@@ -234,9 +232,19 @@ implements
     organizationId: string;
     masterProductIds: string[];
   }): Promise<{ fence: string; lastVerifiedAt: string; expiresAt: string }> {
-    const now = new Date();
-    return this.withLockedState(input.organizationId, now, async (transaction) => {
+    if (
+      input.masterProductIds.length === 0
+      || input.masterProductIds.some((id) => !isUuid(id))
+    ) {
+      throw referenceInvalid();
+    }
+    const masterProductIds = [...new Set(input.masterProductIds)];
+    return this.withLockedState(input.organizationId, async (transaction) => {
       const state = await transaction.getState();
+      const products = await transaction.findMasterProducts(masterProductIds);
+      if (products.length !== masterProductIds.length) throw referenceInvalid();
+
+      const now = new Date();
       if (
         !isSourceBindingConfirmed(state)
         || deriveFreshnessStatus(state, now) !== 'fresh'
@@ -253,15 +261,6 @@ implements
         );
       }
 
-      const masterProductIds = [...new Set(input.masterProductIds)];
-      if (
-        masterProductIds.length === 0
-        || masterProductIds.some((id) => !isUuid(id))
-      ) {
-        throw referenceInvalid();
-      }
-      const products = await transaction.findMasterProducts(masterProductIds);
-      if (products.length !== masterProductIds.length) throw referenceInvalid();
       if (products.some((product) => !product.isActive)) {
         throw new AppException(
           422,
@@ -282,7 +281,6 @@ implements
 
   private withLockedState<T>(
     organizationId: string,
-    now: Date,
     operation: (
       transaction: SellpiaInventoryFreshnessRepositoryTransaction,
     ) => Promise<T>,
@@ -290,9 +288,9 @@ implements
     return this.repository.withLockedState(
       {
         organizationId,
-        initialState: createInitialFreshnessState({
+        createInitialState: () => createInitialFreshnessState({
           organizationId,
-          now,
+          now: new Date(),
           freshnessFence: randomUUID(),
         }),
       },

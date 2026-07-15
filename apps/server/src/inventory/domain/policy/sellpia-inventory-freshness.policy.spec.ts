@@ -156,6 +156,34 @@ describe('Sellpia inventory freshness policy', () => {
       claimInput,
     )).toEqual({ kind: 'joined' });
   });
+
+  it('blocks an ownerless future lease and reclaims it at exact expiry', () => {
+    const orphanedLease = makeState({
+      requestedGeneration: 2n,
+      verifiedGeneration: 1n,
+      activeGeneration: 2n,
+      activeSyncToken: '00000000-0000-4000-8000-000000000070',
+      activeSyncOwnerUserId: null,
+      activeSyncStartedAt: NOW,
+      activeSyncLeaseExpiresAt: new Date('2026-07-15T00:01:30.000Z'),
+    });
+    const claimInput = {
+      now: NOW,
+      userId: '00000000-0000-4000-8000-000000000071',
+      claimToken: '00000000-0000-4000-8000-000000000072',
+      freshnessFence: '00000000-0000-4000-8000-000000000073',
+    };
+
+    expect(planClaim(orphanedLease, claimInput)).toEqual({ kind: 'joined' });
+    expect(planClaim(orphanedLease, {
+      ...claimInput,
+      now: new Date('2026-07-15T00:01:30.000Z'),
+    })).toMatchObject({
+      kind: 'claimed',
+      generation: 2n,
+      patch: { activeSyncOwnerUserId: claimInput.userId },
+    });
+  });
 });
 
 function makeState(
