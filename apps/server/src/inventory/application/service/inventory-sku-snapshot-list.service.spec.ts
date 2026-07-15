@@ -34,11 +34,16 @@ describe('InventorySkuSnapshotListService', () => {
         unpricedSkuCount: 1,
       },
       latestImport: {
-        id: runId,
-        fileName: 'exported-list (3).xls',
+        ...repositoryRun({
+          fileName: 'exported-list (3).xls',
+          fileHash: 'a'.repeat(64),
+          importedAt: new Date('2026-07-12T00:00:00.000Z'),
+          lastVerifiedAt: new Date('2026-07-12T00:00:00.000Z'),
+          verificationCount: 1,
+          lastTrigger: 'legacy_manual_import',
+        }),
         status: 'completed',
         rowCount: 1_964,
-        importedAt: new Date('2026-07-12T00:00:00.000Z'),
       },
     });
     const service = new InventorySkuSnapshotListService(repository);
@@ -87,9 +92,21 @@ describe('InventorySkuSnapshotListService', () => {
       latestImport: {
         id: runId,
         fileName: 'exported-list (3).xls',
+        fileHash: 'a'.repeat(64),
         status: 'completed',
         rowCount: 1_964,
         importedAt: '2026-07-12T00:00:00.000Z',
+        lastVerifiedAt: '2026-07-12T00:00:00.000Z',
+        verificationCount: 1,
+        lastTrigger: 'legacy_manual_import',
+        freshnessGeneration: null,
+        manualFreshExportConfirmedAt: null,
+        manualFreshExportConfirmedBy: null,
+        qualityReport: null,
+        errorCode: null,
+        errorMessage: null,
+        createdAt: '2026-07-12T00:00:00.000Z',
+        updatedAt: '2026-07-12T00:01:00.000Z',
       },
     });
   });
@@ -129,15 +146,18 @@ describe('InventorySkuSnapshotListService', () => {
     expect(result.latestImport).toBeNull();
   });
 
-  it('maps Sellpia import history without accepting tenant input', async () => {
+  it('maps nullable provenance and decimal-string generations without tenant input', async () => {
     const repository = makeRepository();
     repository.listImportRuns.mockResolvedValueOnce({
       rows: [{
-        id: runId,
-        fileName: 'sellpia.xls',
-        status: 'failed',
-        rowCount: 10,
-        importedAt: null,
+        ...repositoryRun({
+          fileName: null,
+          fileHash: null,
+          freshnessGeneration: 9_007_199_254_740_993n,
+          lastTrigger: 'manual_request',
+          errorCode: 'sellpia_network_failed',
+          errorMessage: 'network failed',
+        }),
       }],
       total: 1,
     });
@@ -152,10 +172,22 @@ describe('InventorySkuSnapshotListService', () => {
     expect(result).toEqual({
       items: [{
         id: runId,
-        fileName: 'sellpia.xls',
+        fileName: null,
+        fileHash: null,
         status: 'failed',
-        rowCount: 10,
+        rowCount: 0,
         importedAt: null,
+        lastVerifiedAt: null,
+        verificationCount: 0,
+        lastTrigger: 'manual_request',
+        freshnessGeneration: '9007199254740993',
+        manualFreshExportConfirmedAt: null,
+        manualFreshExportConfirmedBy: null,
+        qualityReport: null,
+        errorCode: 'sellpia_network_failed',
+        errorMessage: 'network failed',
+        createdAt: '2026-07-12T00:00:00.000Z',
+        updatedAt: '2026-07-12T00:01:00.000Z',
       }],
       total: 1,
       page: 2,
@@ -215,6 +247,43 @@ function emptySummary() {
     totalUnits: 0,
     pricedAssetValue: 0,
     unpricedSkuCount: 0,
+  };
+}
+
+function repositoryRun(
+  overrides: Partial<{
+    fileName: string | null;
+    fileHash: string | null;
+    status: 'running' | 'completed' | 'failed';
+    rowCount: number;
+    importedAt: Date | null;
+    lastVerifiedAt: Date | null;
+    verificationCount: number;
+    lastTrigger: 'legacy_manual_import' | 'manual_request' | null;
+    freshnessGeneration: bigint | null;
+    errorCode: string | null;
+    errorMessage: string | null;
+  }> = {},
+) {
+  return {
+    id: runId,
+    fileName: null,
+    fileHash: null,
+    status: 'failed' as const,
+    rowCount: 0,
+    importedAt: null,
+    lastVerifiedAt: null,
+    verificationCount: 0,
+    lastTrigger: null,
+    freshnessGeneration: null,
+    manualFreshExportConfirmedAt: null,
+    manualFreshExportConfirmedBy: null,
+    qualityReport: null,
+    errorCode: null,
+    errorMessage: null,
+    createdAt: new Date('2026-07-12T00:00:00.000Z'),
+    updatedAt: new Date('2026-07-12T00:01:00.000Z'),
+    ...overrides,
   };
 }
 

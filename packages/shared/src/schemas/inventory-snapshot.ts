@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
 import { SourceImportStatusSchema } from './source-import.js';
+import {
+  SellpiaInventoryGenerationSchema,
+  SellpiaInventoryQualityReportSchema,
+  SellpiaInventoryRefreshReasonSchema,
+} from './sellpia-inventory-freshness.js';
 
 export const InventorySkuStockStatusSchema = z.enum([
   'all',
@@ -63,10 +68,51 @@ export type InventorySkuSnapshotSummary = z.infer<
 
 export const SellpiaImportRunSummarySchema = z.object({
   id: z.string().uuid(),
-  fileName: z.string().min(1),
+  fileName: z.string().min(1).nullable(),
+  fileHash: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
   status: SourceImportStatusSchema,
   rowCount: z.number().int().nonnegative(),
   importedAt: zIsoDate.nullable(),
+  lastVerifiedAt: zIsoDate.nullable(),
+  verificationCount: z.number().int().nonnegative(),
+  lastTrigger: SellpiaInventoryRefreshReasonSchema.nullable(),
+  freshnessGeneration: SellpiaInventoryGenerationSchema.nullable(),
+  manualFreshExportConfirmedAt: zIsoDate.nullable(),
+  manualFreshExportConfirmedBy: z.string().uuid().nullable(),
+  qualityReport: SellpiaInventoryQualityReportSchema.nullable(),
+  errorCode: z.string().trim().min(1).max(100).nullable(),
+  errorMessage: z.string().trim().min(1).max(300).nullable(),
+  createdAt: zIsoDate,
+  updatedAt: zIsoDate,
+}).strict().superRefine((run, ctx) => {
+  const missingFileName = run.fileName === null;
+  const missingFileHash = run.fileHash === null;
+  if (missingFileName !== missingFileHash) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: missingFileName ? ['fileName'] : ['fileHash'],
+      message: 'File name and hash must be present or null together',
+    });
+  }
+  if (!missingFileName || !missingFileHash) return;
+  if (
+    run.status !== 'failed'
+    || run.rowCount !== 0
+    || run.importedAt !== null
+    || run.lastVerifiedAt !== null
+    || run.verificationCount !== 0
+    || run.manualFreshExportConfirmedAt !== null
+    || run.manualFreshExportConfirmedBy !== null
+    || run.qualityReport !== null
+    || run.errorCode === null
+    || run.errorMessage === null
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['fileName'],
+      message: 'Null file provenance is reserved for pre-download failures',
+    });
+  }
 });
 export type SellpiaImportRunSummary = z.infer<typeof SellpiaImportRunSummarySchema>;
 

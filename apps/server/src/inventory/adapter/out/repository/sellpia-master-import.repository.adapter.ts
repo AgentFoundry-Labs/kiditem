@@ -7,7 +7,10 @@ import type {
   SellpiaMasterImportRepositoryPort,
 } from '../../../application/port/out/repository/sellpia-master-import.repository.port';
 import type { ParsedSellpiaInventoryRow } from '../../../application/service/sellpia-inventory-workbook.parser';
-import type { SellpiaInventoryImportResponse } from '@kiditem/shared/source-import';
+import {
+  VerifiedSellpiaSourceImportRunSchema,
+  type SellpiaInventoryImportResponse,
+} from '@kiditem/shared/source-import';
 
 const SOURCE_TYPE = 'sellpia_inventory';
 const STALE_AFTER_MS = 30 * 60 * 1_000;
@@ -213,6 +216,9 @@ implements SellpiaMasterImportRepositoryPort {
           status: 'completed',
           rowCount: input.rows.length,
           importedAt,
+          lastVerifiedAt: importedAt,
+          verificationCount: 1,
+          lastTrigger: 'legacy_manual_import',
           publicationSequence,
         },
       });
@@ -396,20 +402,32 @@ function importResponse(
   duplicate: boolean,
   changes: SellpiaInventoryImportResponse['changes'],
 ): SellpiaInventoryImportResponse {
+  const verifiedRun = VerifiedSellpiaSourceImportRunSchema.parse({
+    id: run.id,
+    sourceType: 'sellpia_inventory',
+    channelAccountId: null,
+    fileName: run.fileName,
+    fileHash: run.fileHash,
+    status: run.status,
+    rowCount: run.rowCount,
+    importedAt: run.importedAt?.toISOString() ?? null,
+    lastVerifiedAt: run.lastVerifiedAt?.toISOString() ?? null,
+    verificationCount: run.verificationCount,
+    lastTrigger: run.lastTrigger,
+    freshnessGeneration: run.freshnessGeneration?.toString() ?? null,
+    manualFreshExportConfirmedAt:
+      run.manualFreshExportConfirmedAt?.toISOString() ?? null,
+    manualFreshExportConfirmedBy: run.manualFreshExportConfirmedBy,
+    qualityReport: run.qualityReport,
+    errorCode: run.errorCode,
+    errorMessage: run.errorMessage,
+    createdAt: run.createdAt.toISOString(),
+    updatedAt: run.updatedAt.toISOString(),
+  });
   return {
-    run: {
-      id: run.id,
-      sourceType: 'sellpia_inventory',
-      channelAccountId: null,
-      fileName: run.fileName,
-      fileHash: run.fileHash,
-      status: run.status as 'completed',
-      rowCount: run.rowCount,
-      importedAt: run.importedAt?.toISOString() ?? null,
-      createdAt: run.createdAt.toISOString(),
-      updatedAt: run.updatedAt.toISOString(),
-    },
+    run: verifiedRun,
     duplicate,
+    outcome: 'published',
     changes,
   };
 }

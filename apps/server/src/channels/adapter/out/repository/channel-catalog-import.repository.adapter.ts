@@ -7,7 +7,10 @@ import {
 } from '@nestjs/common';
 import { Prisma, type SourceImportRun } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import type { CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
+import {
+  CompletedSourceArtifactRunSchema,
+  type CoupangWingCatalogImportResponse,
+} from '@kiditem/shared/source-import';
 import type {
   ChannelCatalogImportClaim,
   ChannelCatalogImportRepositoryPort,
@@ -677,19 +680,35 @@ function importResponse(
   duplicate: boolean,
   changes: CoupangWingCatalogImportResponse['changes'],
 ): CoupangWingCatalogImportResponse {
+  if (run.channelAccountId === null) {
+    throw new ConflictException(
+      'Completed Coupang Wing import is missing its channel account',
+    );
+  }
+  const completedRun = CompletedSourceArtifactRunSchema.parse({
+    id: run.id,
+    sourceType: 'coupang_wing_catalog',
+    channelAccountId: run.channelAccountId,
+    fileName: run.fileName,
+    fileHash: run.fileHash,
+    status: run.status,
+    rowCount: run.rowCount,
+    importedAt: run.importedAt?.toISOString() ?? null,
+    lastVerifiedAt: run.lastVerifiedAt?.toISOString() ?? null,
+    verificationCount: run.verificationCount,
+    lastTrigger: run.lastTrigger,
+    freshnessGeneration: run.freshnessGeneration?.toString() ?? null,
+    manualFreshExportConfirmedAt:
+      run.manualFreshExportConfirmedAt?.toISOString() ?? null,
+    manualFreshExportConfirmedBy: run.manualFreshExportConfirmedBy,
+    qualityReport: run.qualityReport,
+    errorCode: run.errorCode,
+    errorMessage: run.errorMessage,
+    createdAt: run.createdAt.toISOString(),
+    updatedAt: run.updatedAt.toISOString(),
+  });
   return {
-    run: {
-      id: run.id,
-      sourceType: 'coupang_wing_catalog',
-      channelAccountId: run.channelAccountId,
-      fileName: run.fileName,
-      fileHash: run.fileHash,
-      status: run.status as 'completed',
-      rowCount: run.rowCount,
-      importedAt: run.importedAt?.toISOString() ?? null,
-      createdAt: run.createdAt.toISOString(),
-      updatedAt: run.updatedAt.toISOString(),
-    },
+    run: completedRun,
     duplicate,
     changes,
   };

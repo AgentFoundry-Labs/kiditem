@@ -33,9 +33,19 @@ export type InventorySkuSnapshotRepositoryRow = {
 
 export type SellpiaImportRunRepositoryRow = Omit<
   SellpiaImportRunSummary,
-  'importedAt'
+  | 'importedAt'
+  | 'lastVerifiedAt'
+  | 'manualFreshExportConfirmedAt'
+  | 'freshnessGeneration'
+  | 'createdAt'
+  | 'updatedAt'
 > & {
   importedAt: Date | null;
+  lastVerifiedAt: Date | null;
+  manualFreshExportConfirmedAt: Date | null;
+  freshnessGeneration: bigint | null;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 export interface InventorySkuSnapshotListRepositoryPort {

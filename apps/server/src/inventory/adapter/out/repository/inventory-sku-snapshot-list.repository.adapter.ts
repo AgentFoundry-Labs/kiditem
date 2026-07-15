@@ -1,5 +1,9 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import {
+  SellpiaInventoryQualityReportSchema,
+  SellpiaInventoryRefreshReasonSchema,
+} from '@kiditem/shared/sellpia-inventory-freshness';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   InventorySkuSnapshotListRepositoryPort,
@@ -39,10 +43,26 @@ const SNAPSHOT_DETAIL_SELECT = {
 const IMPORT_RUN_SELECT = {
   id: true,
   fileName: true,
+  fileHash: true,
   status: true,
   rowCount: true,
   importedAt: true,
+  lastVerifiedAt: true,
+  verificationCount: true,
+  lastTrigger: true,
+  freshnessGeneration: true,
+  manualFreshExportConfirmedAt: true,
+  manualFreshExportConfirmedBy: true,
+  qualityReport: true,
+  errorCode: true,
+  errorMessage: true,
+  createdAt: true,
+  updatedAt: true,
 } as const;
+
+type ImportRunRow = Prisma.SourceImportRunGetPayload<{
+  select: typeof IMPORT_RUN_SELECT;
+}>;
 
 type SummaryRow = {
   totalSkus: bigint;
@@ -249,17 +269,21 @@ function activeStatusSql(
   return Prisma.empty;
 }
 
-function mapImportRun(row: {
-  id: string;
-  fileName: string;
-  status: string;
-  rowCount: number;
-  importedAt: Date | null;
-}): SellpiaImportRunRepositoryRow {
+function mapImportRun(row: ImportRunRow): SellpiaImportRunRepositoryRow {
   if (row.status !== 'running' && row.status !== 'completed' && row.status !== 'failed') {
     throw new InternalServerErrorException(`Unknown source import status: ${row.status}`);
   }
-  return { ...row, status: row.status };
+  return {
+    ...row,
+    status: row.status,
+    lastTrigger: row.lastTrigger === null
+      ? null
+      : SellpiaInventoryRefreshReasonSchema.parse(row.lastTrigger),
+    freshnessGeneration: row.freshnessGeneration,
+    qualityReport: SellpiaInventoryQualityReportSchema.nullable().parse(
+      row.qualityReport,
+    ),
+  };
 }
 
 function safeInteger(value: bigint, field: string): number {

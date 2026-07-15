@@ -1,5 +1,6 @@
 export * from './picking.repository.port';
 export * from './sellpia-master-import.repository.port';
+export * from './sellpia-inventory-freshness.repository.port';
 export * from './inventory-sku-snapshot-list.repository.port';
 export * from './sellpia-master-product-read.repository.port';
 export * from './sellpia-receipt-batch.repository.port';

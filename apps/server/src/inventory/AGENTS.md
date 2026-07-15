@@ -37,6 +37,8 @@ inventory/
 - Sellpia current-stock snapshot read: `GET /api/inventory/sellpia-skus`
 - Sellpia single-product snapshot read: `GET /api/inventory/sellpia-skus/:masterProductId`
 - Sellpia import-run history: `GET /api/inventory/sellpia-sync/import-runs`
+- Sellpia freshness state and browser leases:
+  `/api/inventory/sellpia-freshness/*`
 - Sellpia receipt batches: `/api/inventory/sellpia-receipt-batches/*`
 - Unshipped reads: `/api/unshipped/*`
 - Warehouses: `/api/warehouses/*`
@@ -77,8 +79,25 @@ change stock.
 
 - `InventoryModule` exports the read-only `SELLPIA_MASTER_PRODUCT_READ_PORT`
   for matching and channel-capacity consumers.
+- `InventoryModule` exports `SELLPIA_INVENTORY_REFRESH_REQUEST_PORT` for
+  deterministic order/purchase refresh requests and
+  `SELLPIA_INVENTORY_FRESHNESS_GATE_PORT` for the final fresh-and-active
+  purchase assertion. Consumers do not control leases or read persistence.
 - External domains do not inject warehouse, transfer, or picking
   services directly.
+
+## Freshness Ownership
+
+- Inventory owns the ten-minute Sellpia freshness policy, generation fence,
+  source binding, and organization/source advisory lock.
+- Browser collection claims use a 90-second lease. Only the authenticated
+  user who owns a live lease may heartbeat, fail, or cancel it; another user
+  may claim only after expiry.
+- Order-transmission refresh requests settle for two minutes and coalesce for
+  at most five minutes from the first pending transmission.
+- Every public view serializes generations as decimal strings and derives
+  `activeSync.canControl` from the authenticated user without exposing the
+  owner ID.
 
 ## Boundary Rules
 

@@ -110,4 +110,50 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       lastImportedAt: new Date('2026-07-12T00:00:00.000Z'),
     });
   });
+
+  it('maps nullable pre-download provenance and expanded history fields', async () => {
+    const row = {
+      id: UNVERIFIED_RUN_ID,
+      fileName: null,
+      fileHash: null,
+      status: 'failed',
+      rowCount: 0,
+      importedAt: null,
+      lastVerifiedAt: null,
+      verificationCount: 0,
+      lastTrigger: 'manual_request',
+      freshnessGeneration: 9_007_199_254_740_993n,
+      manualFreshExportConfirmedAt: null,
+      manualFreshExportConfirmedBy: null,
+      qualityReport: null,
+      errorCode: 'sellpia_network_failed',
+      errorMessage: 'network failed',
+      createdAt: new Date('2026-07-12T00:00:00.000Z'),
+      updatedAt: new Date('2026-07-12T00:01:00.000Z'),
+    };
+    const findMany = vi.fn().mockResolvedValue([row]);
+    const repository = new InventorySkuSnapshotListRepositoryAdapter({
+      sourceImportRun: {
+        findMany,
+        count: vi.fn().mockResolvedValue(1),
+      },
+    } as never);
+
+    const result = await repository.listImportRuns(ORGANIZATION_ID, {
+      skip: 0,
+      take: 50,
+    });
+
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      select: expect.objectContaining({
+        fileHash: true,
+        lastVerifiedAt: true,
+        freshnessGeneration: true,
+        qualityReport: true,
+        errorCode: true,
+        updatedAt: true,
+      }),
+    }));
+    expect(result.rows).toEqual([row]);
+  });
 });

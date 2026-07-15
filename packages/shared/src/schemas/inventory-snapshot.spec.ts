@@ -43,9 +43,21 @@ describe('InventorySku snapshot contracts', () => {
       latestImport: {
         id: runId,
         fileName: 'exported-list (3).xls',
+        fileHash: 'a'.repeat(64),
         status: 'completed',
         rowCount: 1_964,
         importedAt: '2026-07-12T00:00:00.000Z',
+        lastVerifiedAt: '2026-07-12T00:00:00.000Z',
+        verificationCount: 1,
+        lastTrigger: 'legacy_manual_import',
+        freshnessGeneration: null,
+        manualFreshExportConfirmedAt: null,
+        manualFreshExportConfirmedBy: null,
+        qualityReport: null,
+        errorCode: null,
+        errorMessage: null,
+        createdAt: '2026-07-12T00:00:00.000Z',
+        updatedAt: '2026-07-12T00:00:00.000Z',
       },
     })).toBeDefined();
   });
@@ -108,18 +120,38 @@ describe('InventorySku snapshot contracts', () => {
     })).toThrow();
   });
 
-  it('parses paginated Sellpia import history, including unfinished runs', () => {
-    expect(SellpiaImportRunListResponseSchema.parse({
+  it('parses nullable pre-download failures and expanded verification provenance', () => {
+    const parsed = SellpiaImportRunListResponseSchema.parse({
       items: [{
         id: runId,
-        fileName: 'exported-list (3).xls',
-        status: 'running',
+        fileName: null,
+        fileHash: null,
+        status: 'failed',
         rowCount: 0,
         importedAt: null,
+        lastVerifiedAt: null,
+        verificationCount: 0,
+        lastTrigger: 'manual_request',
+        freshnessGeneration: '9007199254740993',
+        manualFreshExportConfirmedAt: null,
+        manualFreshExportConfirmedBy: null,
+        qualityReport: null,
+        errorCode: 'sellpia_network_failed',
+        errorMessage: 'network failed',
+        createdAt: '2026-07-12T00:00:00.000Z',
+        updatedAt: '2026-07-12T00:01:00.000Z',
       }],
       total: 1,
       page: 1,
       limit: 50,
-    }).items[0]?.status).toBe('running');
+    });
+
+    expect(parsed.items[0]).toMatchObject({
+      fileName: null,
+      fileHash: null,
+      status: 'failed',
+      freshnessGeneration: '9007199254740993',
+      errorCode: 'sellpia_network_failed',
+    });
   });
 });
