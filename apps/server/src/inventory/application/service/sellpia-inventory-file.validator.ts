@@ -24,8 +24,14 @@ const MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES = 64 * 1024 * 1024;
 const ZIP_CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
 const ZIP_END_SIGNATURE = 0x06054b50;
 const ZIP_LOCAL_FILE_SIGNATURE = 0x04034b50;
+const ZIP_DATA_DESCRIPTOR_SIGNATURE = 0x08074b50;
 const ZIP_END_MIN_BYTES = 22;
 const ZIP_MAX_COMMENT_BYTES = 0xffff;
+const ZIP_DATA_DESCRIPTOR_FLAG = 0x0008;
+const ZIP_DEFLATE_OPTION_FLAGS = 0x0006;
+const ZIP_SUPPORTED_FLAGS = ZIP_DEFLATE_OPTION_FLAGS
+  | ZIP_DATA_DESCRIPTOR_FLAG
+  | 0x0800;
 
 @Injectable()
 export class SellpiaInventoryFileValidator {
@@ -73,6 +79,7 @@ function isBoundedXlsxPackage(buffer: Buffer): boolean {
     dataOffset: number;
     uncompressedSize: number;
   }> = [];
+  const localRanges: Array<{ start: number; end: number }> = [];
   let cursor = centralDirectoryOffset;
   let aggregateUncompressedSize = 0;
   for (let index = 0; index < entryCount; index += 1) {
@@ -82,6 +89,7 @@ function isBoundedXlsxPackage(buffer: Buffer): boolean {
     ) return false;
     const flags = buffer.readUInt16LE(cursor + 8);
     const compressionMethod = buffer.readUInt16LE(cursor + 10);
+    const checksum = buffer.readUInt32LE(cursor + 16);
     const compressedSize = buffer.readUInt32LE(cursor + 20);
     const uncompressedSize = buffer.readUInt32LE(cursor + 24);
     const nameLength = buffer.readUInt16LE(cursor + 28);
@@ -91,8 +99,12 @@ function isBoundedXlsxPackage(buffer: Buffer): boolean {
     const localHeaderOffset = buffer.readUInt32LE(cursor + 42);
     const recordEnd = cursor + 46 + nameLength + extraLength + entryCommentLength;
     if (
-      (flags & 0x1) !== 0
+      (flags & ~ZIP_SUPPORTED_FLAGS) !== 0
       || (compressionMethod !== 0 && compressionMethod !== 8)
+      || (
+        compressionMethod === 0
+        && (flags & ZIP_DEFLATE_OPTION_FLAGS) !== 0
+      )
       || compressedSize === 0xffffffff
       || uncompressedSize === 0xffffffff
       || uncompressedSize > MAX_ZIP_ENTRY_UNCOMPRESSED_BYTES
@@ -102,17 +114,51 @@ function isBoundedXlsxPackage(buffer: Buffer): boolean {
       || buffer.readUInt32LE(localHeaderOffset) !== ZIP_LOCAL_FILE_SIGNATURE
     ) return false;
 
-    const name = buffer.subarray(cursor + 46, cursor + 46 + nameLength).toString('utf8');
+    const name = normalizeZipEntryName(
+      buffer.subarray(cursor + 46, cursor + 46 + nameLength).toString('utf8'),
+    );
+    const localFlags = buffer.readUInt16LE(localHeaderOffset + 6);
+    const localCompressionMethod = buffer.readUInt16LE(localHeaderOffset + 8);
+    const localChecksum = buffer.readUInt32LE(localHeaderOffset + 14);
+    const localCompressedSize = buffer.readUInt32LE(localHeaderOffset + 18);
+    const localUncompressedSize = buffer.readUInt32LE(localHeaderOffset + 22);
     const localNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
     const localExtraLength = buffer.readUInt16LE(localHeaderOffset + 28);
     const dataOffset = localHeaderOffset + 30 + localNameLength + localExtraLength;
+    if (dataOffset > centralDirectoryOffset) return false;
+    const localName = normalizeZipEntryName(
+      buffer
+        .subarray(localHeaderOffset + 30, localHeaderOffset + 30 + localNameLength)
+        .toString('utf8'),
+    );
+    const usesDataDescriptor = (flags & ZIP_DATA_DESCRIPTOR_FLAG) !== 0;
     if (
-      name.length === 0
-      || name.startsWith('/')
-      || name.split('/').includes('..')
+      name === null
+      || localName === null
+      || localName !== name
+      || localFlags !== flags
+      || localCompressionMethod !== compressionMethod
+      || (
+        usesDataDescriptor
+          ? localChecksum !== 0
+            || localCompressedSize !== 0
+            || localUncompressedSize !== 0
+          : localChecksum !== checksum
+            || localCompressedSize !== compressedSize
+            || localUncompressedSize !== uncompressedSize
+      )
       || names.has(name)
       || dataOffset + compressedSize > centralDirectoryOffset
     ) return false;
+    const entryEnd = usesDataDescriptor
+      ? dataDescriptorEnd(buffer, dataOffset + compressedSize, {
+          checksum,
+          compressedSize,
+          uncompressedSize,
+          centralDirectoryOffset,
+        })
+      : dataOffset + compressedSize;
+    if (entryEnd === null) return false;
     aggregateUncompressedSize += uncompressedSize;
     if (aggregateUncompressedSize > MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES) return false;
     names.add(name);
@@ -122,9 +168,15 @@ function isBoundedXlsxPackage(buffer: Buffer): boolean {
       dataOffset,
       uncompressedSize,
     });
+    localRanges.push({ start: localHeaderOffset, end: entryEnd });
     cursor = recordEnd;
   }
   if (cursor !== endOffset) return false;
+  localRanges.sort((left, right) => left.start - right.start);
+  if (localRanges.some((range, index) => (
+    range.end > centralDirectoryOffset
+    || (index > 0 && localRanges[index - 1]!.end > range.start)
+  ))) return false;
   const hasRequiredPackageStructure = names.has('[Content_Types].xml')
     && names.has('_rels/.rels')
     && names.has('xl/workbook.xml')
@@ -132,6 +184,40 @@ function isBoundedXlsxPackage(buffer: Buffer): boolean {
     && [...names].some((name) => /^xl\/worksheets\/[^/]+\.xml$/i.test(name));
   return hasRequiredPackageStructure
     && compressedEntries.every((entry) => hasExactExpandedSize(buffer, entry));
+}
+
+function normalizeZipEntryName(name: string): string | null {
+  const normalized = name.replace(/\\/g, '/');
+  if (
+    normalized.length === 0
+    || normalized.includes('\0')
+    || normalized.startsWith('/')
+    || normalized.split('/').includes('..')
+  ) return null;
+  return normalized;
+}
+
+function dataDescriptorEnd(
+  buffer: Buffer,
+  offset: number,
+  expected: {
+    checksum: number;
+    compressedSize: number;
+    uncompressedSize: number;
+    centralDirectoryOffset: number;
+  },
+): number | null {
+  const hasSignature = offset + 4 <= expected.centralDirectoryOffset
+    && buffer.readUInt32LE(offset) === ZIP_DATA_DESCRIPTOR_SIGNATURE;
+  const payloadOffset = hasSignature ? offset + 4 : offset;
+  const end = payloadOffset + 12;
+  if (end > expected.centralDirectoryOffset) return null;
+  if (
+    buffer.readUInt32LE(payloadOffset) !== expected.checksum
+    || buffer.readUInt32LE(payloadOffset + 4) !== expected.compressedSize
+    || buffer.readUInt32LE(payloadOffset + 8) !== expected.uncompressedSize
+  ) return null;
+  return end;
 }
 
 function hasExactExpandedSize(
