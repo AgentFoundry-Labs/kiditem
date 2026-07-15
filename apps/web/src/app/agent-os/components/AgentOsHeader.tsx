@@ -45,10 +45,10 @@ export function AgentOsHeader({ ceoName, onRefresh }: Props) {
         <Link href="/sales-analysis" className="flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-white/[0.04] hover:text-white">
           <BarChart3 size={15} />
         </Link>
-        <Link href="/orders" className="flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-white/[0.04] hover:text-white">
+        <Link href="/order-hub" className="flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-white/[0.04] hover:text-white">
           <Package size={15} />
         </Link>
-        <Link href="/inventory" className="flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-white/[0.04] hover:text-white">
+        <Link href="/inventory-hub" className="flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-white/[0.04] hover:text-white">
           <Layers size={15} />
         </Link>
         <div className="mx-1 h-4 w-px bg-white/10" />

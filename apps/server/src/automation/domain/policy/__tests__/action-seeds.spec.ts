@@ -86,11 +86,11 @@ describe('generateActionTaskSeeds', () => {
     expect(seeds).toEqual(expect.arrayContaining([
       expect.objectContaining({
         taskKey: 'h-zero-stock',
-        href: '/stock-ops?tab=sellpia-zero',
+        href: '/inventory-hub?tab=attention&view=sellpia-zero',
       }),
       expect.objectContaining({
         taskKey: 'h-mapping-attention',
-        href: '/product-hub/matching',
+        href: '/product-hub/matching?status=needs_review',
       }),
     ]));
     expect(seeds.find((seed) => seed.taskKey === 'h-zero-stock')?.apiCall).toBeUndefined();

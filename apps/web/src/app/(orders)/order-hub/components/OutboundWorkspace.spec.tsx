@@ -3,7 +3,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('OutboundWorkspace', () => {
-  it('is the single outbound implementation shared by canonical and legacy routes', () => {
+  it('is the single outbound implementation behind the canonical shipping route', () => {
     const source = readFileSync(
       path.join(import.meta.dirname, 'OutboundWorkspace.tsx'),
       'utf8',
@@ -14,6 +14,7 @@ describe('OutboundWorkspace', () => {
     );
 
     expect(source).toContain('export function OutboundWorkspace');
-    expect(legacyPage).toContain('OutboundWorkspace');
+    expect(legacyPage).toContain("resolveOperationsRedirect('/outbound'");
+    expect(legacyPage).not.toContain('OutboundWorkspace');
   });
 });

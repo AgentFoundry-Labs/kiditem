@@ -41,14 +41,15 @@ describe('product hub final inventory ownership boundary', () => {
     expect(source).not.toContain('dark:');
   });
 
-  it('keeps the option URL as a dedicated read-only Sellpia option workspace', () => {
+  it('redirects the option URL to the canonical read-only Sellpia option workspace', () => {
     const pageSource = readFileSync(join(productHubRoot, 'options/page.tsx'), 'utf8');
     const workspaceSource = readFileSync(
       join(productHubRoot, 'components/ProductOptionsWorkspace.tsx'),
       'utf8',
     );
 
-    expect(pageSource).toContain('ProductOptionsWorkspace');
+    expect(pageSource).toContain("resolveOperationsRedirect('/product-hub/options'");
+    expect(pageSource).not.toContain('ProductOptionsWorkspace');
     expect(workspaceSource).toContain('useProductHubPageState');
     expect(workspaceSource).toContain('SellpiaOptionTable');
     expect(workspaceSource).not.toContain("from '../matching/page'");

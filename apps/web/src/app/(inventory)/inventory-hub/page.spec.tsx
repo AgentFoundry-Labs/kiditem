@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import InventoryHubPage from './page';
+import { InventoryHubWorkspace } from './components/InventoryHubWorkspace';
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
@@ -24,9 +24,9 @@ vi.mock('./components/InventoryWorkspace', () => ({
   InventoryWorkspace: () => <div>inventory</div>,
 }));
 
-describe('InventoryHubPage', () => {
+describe('InventoryHubWorkspace', () => {
   it('uses the develop inventory tab order without a direct stock mutation tab', async () => {
-    render(<InventoryHubPage />);
+    render(<InventoryHubWorkspace />);
     const tabs = within(screen.getByTestId('tab-layout-tabs')).getAllByRole('tab');
     expect(tabs.map((tab) => tab.textContent)).toEqual([
       '개요',

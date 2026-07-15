@@ -1,28 +1,25 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# web/stock-ops - Sellpia And Channel Inventory Projections
+# web/stock-ops - Legacy Inventory Redirect
 
-`stock-ops/` preserves `/stock-ops` as an operational view over physical
-Sellpia `MasterProduct` snapshots, channel availability, and record-only
-transfer/return workflows. It is not a stock ledger or reorder planner.
+`stock-ops/` preserves old bookmarks as a query-aware server redirect. The
+canonical Sellpia and channel inventory projections live under
+`/inventory-hub`; mapping attention lives under `/product-hub/matching`.
 
-## State Rules
+## Redirect Rules
 
-- Use React Query for source read models; do not mirror server state in local
-  stores.
-- Render Sellpia zero stock, channel zero capacity, component bottlenecks,
-  mapping attention, asset value, and import freshness from owner APIs.
-- Transfer and return record mutations invalidate their record lists, not the
-  Sellpia snapshot as though stock changed.
+- `page.tsx` remains a server component with no hooks, API calls, timers, or
+  workspace content.
+- Preserve unrelated query values while consuming legacy `tab` and `view`.
+- Both `return` and the deployed `return-transfer` alias resolve to the
+  canonical return-history view.
 
 ## Boundary Rules
 
-- Do not make order lifecycle decisions in UI projections.
-- Do not duplicate `min(floor(currentStock / quantity))` or infer bundle
-  quantities from names. Render backend availability evidence.
-- Do not expose manual `MasterProduct.currentStock` mutation controls.
-- Record forms use `masterProductId`; do not restore `InventorySku`- or
-  `ProductOption`-based stock selectors.
+- Do not restore route-local projections or import canonical workspace
+  components into this compatibility page.
+- Redirect behavior is owned by `src/lib/operations-navigation.ts` so all
+  legacy pages share one mapping contract.
 
 ## Verification
 

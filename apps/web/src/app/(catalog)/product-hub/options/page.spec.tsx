@@ -3,9 +3,10 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('/product-hub/options compatibility page', () => {
-  it('renders the extracted options workspace until redirects land', () => {
+  it('redirects to the canonical options view', () => {
     const source = readFileSync(path.join(import.meta.dirname, 'page.tsx'), 'utf8');
-    expect(source).toContain('ProductOptionsWorkspace');
-    expect(source).toContain('headingLevel={1}');
+    expect(source).toContain("resolveOperationsRedirect('/product-hub/options'");
+    expect(source).toContain('redirect(destination)');
+    expect(source).not.toContain('ProductOptionsWorkspace');
   });
 });

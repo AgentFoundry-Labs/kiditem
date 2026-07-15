@@ -1,36 +1,15 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
-import StockOpsPage from './page';
-
-vi.mock('./components/DeadStock', () => ({ default: () => <div>Bottlenecks</div> }));
-vi.mock('./components/ZeroItems', () => ({ default: () => <div>SellpiaZero</div> }));
-vi.mock('./components/OutOfStock', () => ({ default: () => <div>ChannelZero</div> }));
-vi.mock('./components/StockRetention', () => ({ default: () => <div>Value</div> }));
-vi.mock('./components/StockTransfers', () => ({ default: () => <div>Transfers</div> }));
-vi.mock('./components/ReturnTransfers', () => ({ default: () => <div>Returns</div> }));
-vi.mock('./components/MappingAttention', () => ({ default: () => <div>Mapping</div> }));
-vi.mock('./components/ImportFreshness', () => ({ default: () => <div>Freshness</div> }));
-
-vi.mock('next/navigation', () => ({
-  useSearchParams: () => new URLSearchParams(),
-}));
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { describe, expect, it } from 'vitest';
 
 describe('StockOpsPage', () => {
-  it('offers only explainable Sellpia and channel capacity projections', () => {
-    render(<StockOpsPage />);
+  it('is a server-only query-aware compatibility redirect', () => {
+    const source = readFileSync(path.join(import.meta.dirname, 'page.tsx'), 'utf8');
 
-    for (const label of [
-      'Sellpia 재고 0',
-      '채널 판매 가능 0',
-      '구성품 병목',
-      '매핑 확인',
-      '재고자산',
-      '가져오기 상태',
-    ]) {
-      expect(screen.getByRole('tab', { name: label })).toBeInTheDocument();
-    }
-    expect(screen.queryByRole('tab', { name: '악성재고' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('tab', { name: '미송수량' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('tab', { name: '잔존재고' })).not.toBeInTheDocument();
+    expect(source).toContain("resolveOperationsRedirect('/stock-ops'");
+    expect(source).toContain('redirect(destination)');
+    expect(source).not.toContain("'use client'");
+    expect(source).not.toContain('useSearchParams');
+    expect(source).not.toContain('./components/');
   });
 });

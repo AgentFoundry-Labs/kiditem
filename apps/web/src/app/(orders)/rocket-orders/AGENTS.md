@@ -1,53 +1,28 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# web/rocket-orders - Read-Only Coupang Rocket PO Monitoring
+# web/rocket-orders - Legacy Rocket PO Redirect
 
-`app/(orders)/rocket-orders/` preserves `/rocket-orders` as a read-only operator
-view of Coupang Rocket purchase-order summaries collected through the logged-in
-order-collector extension. The component-capacity preview workspace belongs to
-Supply, not this legacy monitoring route.
-
-## Owned Surfaces
-
-- PO list query by ETA range and Coupang Rocket status
-- Week, month, and chart summaries over extension-returned PO rows
-- Expandable read-only PO summary rows
-- Read/download/delete access to any pre-existing local IndexedDB file history
-
-## Data Flow
-
-```text
-order-collector extension
-  -> listRocketPos
-  -> local read-only summaries and calendars
-```
+`app/(orders)/rocket-orders/` preserves old `/rocket-orders` bookmarks as a
+query-aware server redirect to `/purchase-orders?tab=rocket`. The Rocket
+preview workspace and component-capacity decisions belong to Supply.
 
 ## State Rules
 
-- `page.tsx` keeps date/status/view/open-row state local.
-- The automatic PO list query is extension-backed and renders local errors, so
-  it uses `meta: { suppressGlobalErrorToast: true }`.
-- `rocket-confirm-file-store.ts` is browser-only legacy history and must no-op
-  when IndexedDB is unavailable.
+- `page.tsx` remains a server component with no hooks, provider calls, API
+  calls, timers, or workspace content.
+- Preserve unrelated query values and let canonical `tab=rocket` win over old
+  tab/view state.
+- Rocket components and local history utilities may remain only when imported
+  by the canonical Supply workspace.
 
 ## Boundary Rules
 
-- Do not call Coupang supplier pages directly from the web app. Collection goes
-  through `extensions/order-collector` capabilities.
-- Do not calculate or display confirm quantities, shortage reasons,
-  reservations, or stock deductions here. The read-only preview flow is owned
-  by the Supply purchase-order workspace.
+- Do not restore route-local Rocket monitoring or decision UI.
 - Do not call or recreate backend Rocket confirmation/generation endpoints.
-- Rocket is a channel identity (`channel='rocket'`), not a separate inventory
-  balance. Future decisions must use account-scoped ChannelSku recipes and the
-  Sellpia-authoritative availability projection.
-- Do not move local file history into server persistence without a scoped data
-  model and retention plan.
-- Do not show the generic global query toast for expected extension-availability
-  errors on the initial page render.
+- Redirect behavior is owned by `src/lib/operations-navigation.ts`.
 
 ## Verification
 
 ```bash
-npm exec --workspace=apps/web vitest -- run 'src/app/(orders)/rocket-orders/lib/rocket-purchase-decision-boundary.spec.ts'
+npm exec --workspace=apps/web vitest -- run src/app/__tests__/operations-redirects.spec.ts
 ```

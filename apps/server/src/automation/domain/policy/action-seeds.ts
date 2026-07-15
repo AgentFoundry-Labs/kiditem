@@ -51,7 +51,7 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
       taskKey: 'h-zero-stock', type: 'human',
       label: `셀피아 재고 0개 SKU ${metrics.outOfStockSkus}건 — 현황 확인`,
       detail: '셀피아 최신 재고 스냅샷에서 수량이 0인 SKU 확인',
-      where: '재고 운영', priority: 'high', role: 'inventory', href: '/stock-ops?tab=sellpia-zero',
+      where: '재고 운영', priority: 'high', role: 'inventory', href: '/inventory-hub?tab=attention&view=sellpia-zero',
     });
   }
   if (metrics.mappingAttentionSkus > 0) {
@@ -59,7 +59,7 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
       taskKey: 'h-mapping-attention', type: 'human',
       label: `채널 SKU 매칭 확인 ${metrics.mappingAttentionSkus}건`,
       detail: '셀피아 재고 구성품이 연결되지 않은 채널 SKU 확인',
-      where: '상품 매칭', priority: 'high', role: 'inventory', href: '/product-hub/matching',
+      where: '상품 매칭', priority: 'high', role: 'inventory', href: '/product-hub/matching?status=needs_review',
     });
   }
   if (metrics.adRate > 12) {

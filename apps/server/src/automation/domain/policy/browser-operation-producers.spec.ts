@@ -49,4 +49,20 @@ describe('browser operation producer policy', () => {
       href: '/inventory-hub?tab=overview',
     });
   });
+
+  it('routes mall order collection to the canonical collection workspace', () => {
+    const runId = '44444444-4444-4444-8444-444444444444';
+
+    expect(
+      resolveBrowserOperationProducer({
+        operationKey: `browser-collection:${runId}`,
+        type: 'browser_collection',
+        sourceType: 'browser_collection_session',
+        sourceId: 'orders.mall',
+      }),
+    ).toEqual({
+      title: '주문 데이터 수집',
+      href: `/order-hub?tab=collection&collectionRun=${runId}`,
+    });
+  });
 });

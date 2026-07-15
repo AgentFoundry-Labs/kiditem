@@ -209,7 +209,7 @@ describe('DashboardSidePanel', () => {
 
     expect(screen.getByRole('link')).toHaveAttribute(
       'href',
-      '/stock-ops?tab=sellpia-zero',
+      '/inventory-hub?tab=attention&view=sellpia-zero',
     );
   });
 });

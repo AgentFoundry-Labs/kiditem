@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { menuSections } from '../Sidebar';
+import { menuSections } from '../sidebar-menu';
 
 describe('Sidebar product pipeline navigation', () => {
   it('promotes sourcing into its own agent section', () => {
@@ -46,5 +46,33 @@ describe('Sidebar product pipeline navigation', () => {
       ['/rank-tracking', '쿠팡 순위추적'],
     ]);
     expect(topSection.items.some((item) => item.href === '/ad-ops')).toBe(false);
+  });
+
+  it('keeps one compact operations group with exactly the five canonical workspaces', () => {
+    const operations = menuSections.find((section) => section.label === '운영');
+
+    expect(operations?.items.map((item) => [item.href, item.label])).toEqual([
+      ['/product-hub', '상품 관리'],
+      ['/product-hub/matching', '상품 매칭'],
+      ['/order-hub', '주문 처리'],
+      ['/purchase-orders', '발주 관리'],
+      ['/inventory-hub', '재고 관리'],
+    ]);
+  });
+
+  it('does not expose obsolete operations hrefs from any sidebar section', () => {
+    const hrefs = menuSections.flatMap((section) => section.items.map((item) => item.href));
+
+    expect(hrefs).not.toEqual(expect.arrayContaining([
+      '/inventory',
+      '/stock-ops',
+      '/order-collection',
+      '/orders',
+      '/unshipped-items',
+      '/outbound',
+      '/order-status-hub',
+      '/rocket-orders',
+      '/product-hub/options',
+    ]));
   });
 });

@@ -67,7 +67,7 @@ const COLLECTION_PRODUCERS = new Map<
     'sourcing.live_commerce',
     { title: '라이브커머스 수집', href: '/sourcing-ai/market' },
   ],
-  ['orders.mall', { title: '주문 데이터 수집', href: '/order-collection' }],
+  ['orders.mall', { title: '주문 데이터 수집', href: '/order-hub?tab=collection' }],
   [
     'inventory.sellpia',
     {
