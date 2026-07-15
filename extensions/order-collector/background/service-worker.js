@@ -3,6 +3,7 @@ importScripts(
   "interactive-tabs.js",
   "order-collection-lifecycle.js",
   "sellpia-inventory.js",
+  "rocket-po-collection.js",
 );
 
 const KIDITEM_WEB_URL_PATTERNS = ["http://localhost:3000/*"];
@@ -42,6 +43,13 @@ const sellpiaInventoryLifecycle = KidItemOrderCollectionLifecycle.create({
 const sellpiaInventory = KidItemSellpiaInventory.create({ chrome });
 const interactiveTabs = KidItemInteractiveTabs.create({ chrome });
 const INTERACTIVE_TAB_REASONS = KidItemInteractiveTabs.reasons;
+const rocketPoCollection = KidItemRocketPoCollection.create({
+  chrome,
+  findOrCreateCoupangSupplierTab,
+  attachOrderCollectionTab,
+  waitForTabReady,
+  withTimeout,
+});
 
 async function lifecycleForRun(runId) {
   const session = await collectionSessions.get(runId);
@@ -617,27 +625,7 @@ async function clickCoupangShipmentDownloads(options) {
 
 // ── 로켓 발주확정: 발주리스트(거래처확인요청) + 상세를 풀컬럼 스크래핑 ──
 async function collectRocketPoRows({ from, to, status = "RP", dateType = "WAREHOUSING_PLAN_DATE" }, collection) {
-  const { tab, created } = await findOrCreateCoupangSupplierTab();
-  if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
-  await attachOrderCollectionTab(collection, tab, created);
-  await waitForTabReady(tab.id);
-
-  const injected = await withTimeout(
-    chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: scrapeRocketPoRows,
-      args: [from, to, status, dateType],
-    }),
-    180000,
-    "로켓 발주 수집 시간이 초과되었습니다.",
-  );
-
-  return (
-    injected[0]?.result ?? {
-      success: false,
-      error: "supplier 화면에 접근하지 못했습니다.",
-    }
-  );
+  return rocketPoCollection.collect({ from, to, status, dateType }, collection);
 }
 
 // ── 로켓 발주 목록(PO 단위, SKU 상세 없이) — 화면 리스트용 빠른 조회 ──
@@ -725,121 +713,6 @@ async function scrapeRocketPoList(from, to, statusCode) {
     return { success: true, pos: out };
   } catch (e) {
     return { success: false, error: (e && e.message) || "로켓 발주 목록 조회 실패" };
-  }
-}
-
-// supplier.coupang.com 페이지 컨텍스트에서 실행 (DOMParser + same-origin fetch + 쿠키).
-async function scrapeRocketPoRows(from, to, statusCode, dateType) {
-  try {
-    const ctrl = new RegExp("[\\u0000-\\u001F]", "g");
-    const clean = (s, n) => (s || "").replace(ctrl, " ").replace(/^\d{8,}\s*/, "").trim().slice(0, n || 80);
-    const num = (s) => Number(String(s == null ? "" : s).replace(/[^0-9.-]/g, "")) || 0;
-    const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
-    // expectedDeliveryDate/createdAt 는 UTC → KST 변환.
-    const kstDate = (iso) => {
-      if (!iso) return "";
-      const d = new Date(iso);
-      if (isNaN(d.getTime())) return String(iso).slice(0, 10);
-      d.setUTCHours(d.getUTCHours() + 9);
-      return d.toISOString().slice(0, 10);
-    };
-    const kstDateTime = (iso) => {
-      if (!iso) return "";
-      const d = new Date(iso);
-      if (isNaN(d.getTime())) return String(iso).replace("T", " ").slice(0, 19);
-      d.setUTCHours(d.getUTCHours() + 9);
-      return d.toISOString().replace("T", " ").slice(0, 19);
-    };
-    const normalizedStatus = ["RP", "PA", "RI", "CI", ""].includes(statusCode) ? statusCode : "RP";
-    const normalizedDateType =
-      dateType === "PURCHASE_ORDER_DATE" ? "PURCHASE_ORDER_DATE" : "WAREHOUSING_PLAN_DATE";
-    const businessDateBasis =
-      normalizedDateType === "PURCHASE_ORDER_DATE" ? "ordered_at" : "expected_inbound";
-    const listUrl = (p) =>
-      "/po-web/app/purchase-order/list?page=" + p +
-      "&searchDateType=" + normalizedDateType + "&searchStartDate=" + (from || "") + "&searchEndDate=" + (to || "") +
-      "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=" + normalizedStatus + "&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
-
-    const pos = [];
-    for (let p = 1; p <= 40; p++) {
-      const res = await fetch(listUrl(p), { credentials: "include", headers: { accept: "application/json" } });
-      const text = await res.text();
-      if (!res.ok || text.trim().charAt(0) === "<") {
-        if (p === 1)
-          return {
-            success: false,
-            error:
-              "쿠팡 supplier 로그인이 필요합니다. supplier.coupang.com 에 로그인한 뒤 다시 시도하세요. (발주리스트가 JSON 대신 로그인 페이지를 반환했습니다)",
-          };
-        break;
-      }
-      let j;
-      try {
-        j = JSON.parse(text);
-      } catch (e) {
-        if (p === 1) return { success: false, error: "발주리스트 응답을 해석하지 못했습니다 (supplier 로그인/세션 확인)." };
-        break;
-      }
-      const b = j.body || {};
-      const rows = b.body || [];
-      for (const o of rows) {
-        // 서버가 요청한 상태 + 날짜 기준으로 이미 필터함.
-        pos.push(o);
-      }
-      if (p >= (b.lastPageNumber || 1)) break;
-    }
-    if (pos.length === 0) return { success: true, rows: [], poCount: 0 };
-
-    const out = [];
-    const parseDetail = async (po) => {
-      try {
-        const html = await (await fetch("/scm/purchase/order/get/" + po.purchaseOrderSeq, { credentials: "include" })).text();
-        const doc = new DOMParser().parseFromString(html, "text/html");
-        const tabs = Array.from(doc.querySelectorAll("table"));
-        const rt = tabs.find((t) => /회송\s*담당자/.test(t.textContent) && /회송지/.test(t.textContent));
-        const rtRow = rt && rt.rows[1] ? Array.from(rt.rows[1].cells).map((c) => norm(c.textContent)) : ["", "", ""];
-        const st = tabs.find((t) => /상품\s*번호/.test(t.textContent) && /발주금액/.test(t.textContent));
-        const skus = st
-          ? Array.from(st.rows)
-              .map((r) => Array.from(r.cells).map((c) => norm(c.textContent)))
-              .filter((r) => /^\d+$/.test(r[0]) && r.length > 9)
-          : [];
-        for (const r of skus) {
-          out.push({
-            poNumber: String(po.purchaseOrderSeq),
-            center: po.centerName || "",
-            inboundType: po.transportTypeDescription || "",
-            poStatus: po.purchaseOrderStatusDescription || "",
-            poStatusCode: String(po.purchaseOrderStatus || po.purchaseOrderStatusCode || normalizedStatus).toUpperCase(),
-            businessDateBasis,
-            vendorName: po.vendorName || "",
-            productNo: r[1] || "",
-            barcode: (String(r[2]).match(/^\d{8,}/) || [""])[0],
-            productName: clean(r[2], 80),
-            orderQty: num(r[4]),
-            returnManager: rtRow[0] || "",
-            returnContact: rtRow[1] || "",
-            returnAddress: rtRow[2] || "",
-            purchasePrice: num(r[6]),
-            supplyPrice: num(r[7]),
-            vat: num(r[8]),
-            totalPurchase: num(r[9]),
-            expectedInboundDate: kstDate(po.expectedDeliveryDate).replace(/-/g, ""),
-            poRegisteredAt: kstDateTime(po.createdAt),
-            xdock: "N",
-          });
-        }
-      } catch (e) {
-        /* skip this PO */
-      }
-    };
-
-    for (let i = 0; i < pos.length; i += 5) {
-      await Promise.all(pos.slice(i, i + 5).map(parseDetail));
-    }
-    return { success: true, rows: out, poCount: pos.length };
-  } catch (e) {
-    return { success: false, error: String((e && e.message) || e) };
   }
 }
 

@@ -33,6 +33,10 @@ import { ChannelCatalogImportService } from './application/service/channel-catal
 import { ChannelCatalogCollectionService } from './application/service/channel-catalog-collection.service';
 import { ChannelSkuMappingService } from './application/service/channel-sku-mapping.service';
 import { ChannelSkuAvailabilityService } from './application/service/channel-sku-availability.service';
+import { RocketPoCatalogService } from './application/service/rocket-po-catalog.service';
+import { RocketPoCatalogRepositoryAdapter } from './adapter/out/repository/rocket-po-catalog.repository.adapter';
+import { ROCKET_PO_CATALOG_PORT } from './application/port/in/rocket-po-catalog.port';
+import { ROCKET_PO_CATALOG_REPOSITORY_PORT } from './application/port/out/repository/rocket-po-catalog.repository.port';
 import { COUPANG_PROVIDER_PORT } from './application/port/out/provider/coupang-provider.port';
 import { ChannelsOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { CHANNELS_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
@@ -80,6 +84,7 @@ import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku
     ChannelCatalogCollectionService,
     ChannelSkuMappingService,
     ChannelSkuAvailabilityService,
+    RocketPoCatalogService,
     ChannelRegistrationCapabilityAdapter,
     CoupangProviderAdapter,
     ChannelsOperationAlertAdapter,
@@ -93,6 +98,7 @@ import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku
     ChannelCatalogPublicationRepositoryAdapter,
     ChannelSkuMappingRepositoryAdapter,
     ChannelsSellpiaMasterProductReadAdapter,
+    RocketPoCatalogRepositoryAdapter,
     { provide: COUPANG_PROVIDER_PORT, useExisting: CoupangProviderAdapter },
     { provide: CHANNELS_OPERATION_ALERT_PORT, useExisting: ChannelsOperationAlertAdapter },
     { provide: CHANNEL_ACCOUNT_REPOSITORY_PORT, useExisting: ChannelAccountRepositoryAdapter },
@@ -140,11 +146,17 @@ import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku
       provide: CHANNEL_SKU_AVAILABILITY_PORT,
       useExisting: ChannelSkuAvailabilityService,
     },
+    {
+      provide: ROCKET_PO_CATALOG_REPOSITORY_PORT,
+      useExisting: RocketPoCatalogRepositoryAdapter,
+    },
+    { provide: ROCKET_PO_CATALOG_PORT, useExisting: RocketPoCatalogService },
   ],
   exports: [
     COUPANG_PROVIDER_PORT,
     CHANNEL_SKU_AVAILABILITY_PORT,
     CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT,
+    ROCKET_PO_CATALOG_PORT,
   ],
 })
 export class ChannelsModule {}

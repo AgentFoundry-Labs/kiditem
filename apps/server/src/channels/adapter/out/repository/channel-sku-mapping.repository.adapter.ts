@@ -13,7 +13,10 @@ import type {
   UnmappedChannelSkuEvidenceRow,
 } from '../../../application/port/out/repository/channel-sku-mapping.repository.port';
 
-const QUEUE_SOURCE_TYPE = 'coupang_wing_catalog';
+const QUEUE_SOURCE_TYPES = [
+  'coupang_wing_catalog',
+  'coupang_rocket_po_catalog',
+] as const;
 const REPLACEMENT_TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 const INVALID_MASTER_COMPONENT_MESSAGE =
   'MasterProduct component is missing or belongs to another organization';
@@ -143,7 +146,7 @@ implements ChannelSkuMappingRepositoryPort {
           AND listing.organization_id = ${organizationId}::uuid
           AND import_run.organization_id = ${organizationId}::uuid
           AND listing.is_active = TRUE
-          AND import_run.source_type = ${QUEUE_SOURCE_TYPE}
+          AND import_run.source_type IN (${Prisma.join(QUEUE_SOURCE_TYPES)})
           AND import_run.status = 'completed'
           ${query.channelAccountId
             ? Prisma.sql`AND listing.channel_account_id = ${query.channelAccountId}::uuid`
@@ -381,7 +384,7 @@ implements ChannelSkuMappingRepositoryPort {
             channelSkuIds.map((id) => Prisma.sql`${id}::uuid`),
           )})
           AND listing.is_active = TRUE
-          AND import_run.source_type = ${QUEUE_SOURCE_TYPE}
+          AND import_run.source_type IN (${Prisma.join(QUEUE_SOURCE_TYPES)})
           AND import_run.status = 'completed'
         ORDER BY sku.id
         FOR UPDATE OF sku
@@ -460,7 +463,7 @@ implements ChannelSkuMappingRepositoryPort {
             AND listing.organization_id = ${input.organizationId}::uuid
             AND account.organization_id = ${input.organizationId}::uuid
             AND listing.is_active = TRUE
-            AND import_run.source_type = ${QUEUE_SOURCE_TYPE}
+            AND import_run.source_type IN (${Prisma.join(QUEUE_SOURCE_TYPES)})
             AND import_run.status = 'completed'
           FOR UPDATE OF sku
         `;
@@ -541,7 +544,7 @@ function queueWhere(
     lastImportRun: {
       is: {
         organizationId,
-        sourceType: QUEUE_SOURCE_TYPE,
+        sourceType: { in: [...QUEUE_SOURCE_TYPES] },
         status: 'completed',
         ...(channelAccountId ? { channelAccountId } : {}),
       },

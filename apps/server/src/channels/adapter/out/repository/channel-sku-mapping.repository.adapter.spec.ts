@@ -139,7 +139,9 @@ describe('ChannelSkuMappingRepositoryAdapter status refresh', () => {
         organizationId,
         lastImportRun: { is: {
           organizationId,
-          sourceType: 'coupang_wing_catalog',
+          sourceType: {
+            in: ['coupang_wing_catalog', 'coupang_rocket_po_catalog'],
+          },
           status: 'completed',
         } },
         listing: { is: {
@@ -187,7 +189,9 @@ describe('ChannelSkuMappingRepositoryAdapter status refresh', () => {
         components: { none: { organizationId } },
         lastImportRun: { is: expect.objectContaining({
           organizationId,
-          sourceType: 'coupang_wing_catalog',
+          sourceType: {
+            in: ['coupang_wing_catalog', 'coupang_rocket_po_catalog'],
+          },
           status: 'completed',
         }) },
         listing: { is: expect.objectContaining({

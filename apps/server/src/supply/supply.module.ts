@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AgentOsModule } from '../agent-os/agent-os.module';
 import { InventoryModule } from '../inventory/inventory.module';
+import { ChannelsModule } from '../channels/channels.module';
 
 import { SupplyAgentCapabilityAdapter } from './adapter/in/agent/supply-agent-capability.adapter';
 import { SuppliersController } from './adapter/in/http/suppliers.controller';
@@ -11,6 +12,7 @@ import { SuppliersService } from './application/service/suppliers.service';
 import { ProcurementService } from './application/service/procurement.service';
 import { PurchaseOrderDraftService } from './application/service/purchase-order-draft.service';
 import { PurchaseOrderSubmissionService } from './application/service/purchase-order-submission.service';
+import { RocketPurchasePreviewService } from './application/service/rocket-purchase-preview.service';
 import { Alibaba1688CheckoutRuntimeAdapter } from './adapter/out/runtime/alibaba-1688-checkout-runtime.adapter';
 import { OrderAgentRuntimeHandler } from './adapter/out/runtime/order-agent-runtime.handler';
 import { SupplierRepositoryAdapter } from './adapter/out/repository/supplier.repository.adapter';
@@ -22,6 +24,7 @@ import { SUPPLIER_REPOSITORY_PORT } from './application/port/out/repository/supp
 import { PROCUREMENT_REPOSITORY_PORT } from './application/port/out/repository/procurement.repository.port';
 import { PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT } from './application/port/out/runtime/purchase-order-checkout-runtime.port';
 import { PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT } from './application/port/out/transaction/purchase-order-submission.transaction.port';
+import { ROCKET_PURCHASE_PREVIEW_PORT } from './application/port/in/procurement/rocket-purchase-preview.port';
 
 /**
  * Supply owns supplier registry, master-supplier policy, and purchase-order
@@ -30,13 +33,14 @@ import { PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT } from './application/port/o
  * finance/; supplier-stats stays in analytics/.
  */
 @Module({
-  imports: [PrismaModule, AgentOsModule, InventoryModule],
+  imports: [PrismaModule, AgentOsModule, InventoryModule, ChannelsModule],
   controllers: [SuppliersController, ProcurementController],
   providers: [
     SuppliersService,
     ProcurementService,
     PurchaseOrderDraftService,
     PurchaseOrderSubmissionService,
+    RocketPurchasePreviewService,
     SupplyAgentCapabilityAdapter,
     Alibaba1688CheckoutRuntimeAdapter,
     OrderAgentRuntimeHandler,
@@ -57,6 +61,10 @@ import { PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT } from './application/port/o
     {
       provide: PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT,
       useExisting: PurchaseOrderSubmissionTransactionAdapter,
+    },
+    {
+      provide: ROCKET_PURCHASE_PREVIEW_PORT,
+      useExisting: RocketPurchasePreviewService,
     },
   ],
 })

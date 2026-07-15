@@ -8,6 +8,10 @@ import {
   PURCHASE_ORDER_SUBMISSION_PORT,
   type PurchaseOrderSubmissionPort,
 } from '../../../application/port/in/procurement/purchase-order-submission.port';
+import {
+  ROCKET_PURCHASE_PREVIEW_PORT,
+  type RocketPurchasePreviewPort,
+} from '../../../application/port/in/procurement/rocket-purchase-preview.port';
 
 @Controller('purchase-orders')
 export class ProcurementController {
@@ -15,6 +19,8 @@ export class ProcurementController {
     private readonly procurementService: ProcurementService,
     @Inject(PURCHASE_ORDER_SUBMISSION_PORT)
     private readonly submissions: PurchaseOrderSubmissionPort,
+    @Inject(ROCKET_PURCHASE_PREVIEW_PORT)
+    private readonly rocketPreview: RocketPurchasePreviewPort,
   ) {}
 
   @Get()
@@ -69,6 +75,18 @@ export class ProcurementController {
         userId: user.id,
         outcome: body.outcome!,
         providerReference: body.providerReference,
+      });
+    }
+    if (body.action === 'previewRocket') {
+      return this.rocketPreview.preview({
+        organizationId,
+        userId: user.id,
+        request: {
+          channelAccountId: body.channelAccountId!,
+          collection: body.collection!,
+          rows: body.rows!,
+          editedQuantities: body.editedQuantities ?? {},
+        },
       });
     }
     throw new BadRequestException(`Unknown action: ${body.action}`);

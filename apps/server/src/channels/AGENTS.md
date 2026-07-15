@@ -85,8 +85,9 @@ Coupang provider
   -> sellableStock = min(floor(component.currentStock / component.quantity))
 ```
 
-Sellpia component matching reads only completed `coupang_wing_catalog` rows.
-Channels owns candidate ranking and atomic component replacement; Inventory
+Sellpia component matching reads completed `coupang_wing_catalog` and
+`coupang_rocket_po_catalog` rows. Channels owns candidate ranking and atomic
+component replacement; Inventory
 owns the exported read-only `SELLPIA_MASTER_PRODUCT_READ_PORT`. Candidate rows
 are live suggestions only and are never persisted or auto-confirmed.
 
@@ -123,6 +124,9 @@ the supported workflow and verification counts.
   Inventory's physical MasterProduct owner port.
 - `ChannelsModule` exports `CHANNEL_SKU_AVAILABILITY_PORT` for server consumers
   that need the same nullable capacity projection.
+- `ChannelsModule` exports `ROCKET_PO_CATALOG_PORT` for Supply to validate a
+  complete, account/vendor-scoped collection and publish its identities before
+  resolving the common ChannelSku availability projection.
 - `ChannelsModule` exports
   `CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT`; consumers must use that
   incoming capability instead of importing the registration service.
@@ -153,10 +157,10 @@ the supported workflow and verification counts.
   refreshes, or confirms ChannelSku component recipes.
 - Wing and Rocket are separate `ChannelAccount` rows (`channel='coupang'` and
   `channel='rocket'`). Never infer the channel from an account display name.
-- Rocket purchase-order quantity decisions are deferred. Do not add Rocket
-  reservation, confirmation, inventory mutation, or special stock tables to
-  this module; future Rocket SKU metadata uses the same account-scoped
-  `ChannelProduct`/`ChannelSku`/`ChannelSkuComponent` model.
+- Rocket purchase-order collection may publish completed account-scoped
+  `ChannelProduct`/`ChannelSku` identities and calculate component-capacity
+  previews. It must not add reservation, confirmation, provider submission,
+  inventory mutation, or special stock tables to this module.
 
 ## Transitional Exceptions
 

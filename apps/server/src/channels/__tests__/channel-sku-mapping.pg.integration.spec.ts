@@ -142,6 +142,40 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     expect(unmapped.items.some((item) => item.sku.id === review.sku.id)).toBe(false);
   });
 
+  it('includes completed Rocket PO catalog identities in the common mapping queue', async () => {
+    const rocketAccountId = randomUUID();
+    await prisma.channelAccount.create({
+      data: {
+        id: rocketAccountId,
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'rocket',
+        name: 'Rocket',
+        vendorId: 'ROCKET-VENDOR',
+      },
+    });
+    const rocketRun = await completedRun(
+      TEST_ORGANIZATION_ID,
+      rocketAccountId,
+      'coupang_rocket_po_catalog',
+    );
+    const rocketSku = await createQueueSku({
+      channelAccountId: rocketAccountId,
+      runId: rocketRun,
+      externalProductId: 'ROCKET-P-1',
+      externalSkuId: 'ROCKET-S-1',
+    });
+
+    const result = await service.list(TEST_ORGANIZATION_ID, {
+      channelAccountId: rocketAccountId,
+      mappingStatus: 'all',
+      page: 1,
+      limit: 10,
+    });
+
+    expect(result.items.map((item) => item.sku.id)).toEqual([rocketSku.sku.id]);
+    expect(result.items[0]?.channelAccount.channel).toBe('rocket');
+  });
+
   it('uses only sellerSku, full modelNumber, explicit option code, and normalized identifiers', async () => {
     const target = await createQueueSku({
       externalProductId: 'SP-EXTERNAL-MUST-NOT-MATCH',
@@ -685,12 +719,16 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     return { id, organizationId, channel: 'coupang', name, status: 'active' };
   }
 
-  async function completedRun(organizationId: string, channelAccountId: string) {
+  async function completedRun(
+    organizationId: string,
+    channelAccountId: string,
+    sourceType = 'coupang_wing_catalog',
+  ) {
     const run = await prisma.sourceImportRun.create({
       data: {
         organizationId,
         channelAccountId,
-        sourceType: 'coupang_wing_catalog',
+        sourceType,
         fileName: 'wing.xlsx',
         fileHash: createHash('sha256').update(randomUUID()).digest('hex'),
         status: 'completed',

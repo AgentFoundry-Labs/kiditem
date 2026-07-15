@@ -14,6 +14,8 @@ conversion.
 - Icecream Mall PO delivery inquiry grid capture.
 - Coupang supplier ASN visible-row Label/statement download triggers.
 - Supported marketplace order export capture, including Kakao Shopping Seller.
+- Coupang Rocket purchase-order list/detail collection for read-only purchase
+  quantity previews.
 - Sellpia delivery-tracking lookup and order-file upload.
 - Sellpia option-product inventory workbook download from the fixed
   `kiditem.sellpia.com` product-list contract.
@@ -66,6 +68,24 @@ conversion.
 - Only login attention retains an extension-created inactive Sellpia tab for
   the explicit generic open action. Never return cookies, credentials, response
   headers, DOM text, or raw error/response bodies.
+
+## Rocket Purchase-Order Collection Contract
+
+- `collectRocketPoRows` delegates to the extracted
+  `background/rocket-po-collection.js` collector. Keep marketplace DOM/API
+  knowledge out of the service-worker dispatcher.
+- The web app creates the collection `runId`; the extension must echo that exact
+  ID with structured evidence for list pages read, detail PO count, failed PO
+  numbers, and truncation.
+- Collect at most 20 list pages and 40 PO details per run. Limit exhaustion,
+  detail failure, or an empty detail response is incomplete evidence and must
+  block preview publication in the backend.
+- Use the non-display Rocket `vendorId` as identity. Missing or mixed vendor IDs
+  return no publishable rows; never fall back to vendor names or display text.
+- Every detail line carries a deterministic `poLineId` so collection retries
+  can be hashed and compared independently of row order.
+- This capability collects evidence only. It must not confirm a Rocket PO,
+  submit quantities, reserve stock, or mutate Sellpia inventory.
 
 ## Verification
 

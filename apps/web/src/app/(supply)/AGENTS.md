@@ -11,6 +11,7 @@ state, finance settlement state, or catalog product editing.
 - Supplier list/create/delete operations
 - Purchase order list, status update, delete, and create modal
 - Purchase-order counts and status filters
+- Coupang Rocket collection and component-capacity preview workspace
 
 ## Data Flow
 
@@ -19,6 +20,11 @@ React Query + apiClient
   -> /api/suppliers
   -> /api/purchase-orders
   -> queryKeys.suppliers and queryKeys.purchaseOrders
+
+logged-in order-collector extension
+  -> collectRocketPoRows with a browser-created runId
+  -> POST /api/purchase-orders { action: 'previewRocket', ... }
+  -> read-only quantity recommendations
 ```
 
 ## State Rules
@@ -39,6 +45,11 @@ React Query + apiClient
 - Filter/page state belongs in the route; backend owns status transitions and
   totals.
 - Keep purchase-order creation payloads aligned with backend DTO semantics.
+- Rocket preview quantities are editable only up to the backend-recomputed
+  maximum. Recalculation must collect a fresh evidence run instead of reusing
+  stale browser rows.
+- Release `0.1.19` keeps `로켓 발주 확정` visibly disabled and states that the
+  workspace is review-only.
 
 ## Boundary Rules
 
@@ -46,3 +57,5 @@ React Query + apiClient
 - Do not update supplier payments or settlements here; finance owns those
   workflows.
 - Do not send `organizationId`; backend session scope owns tenancy.
+- Do not add Rocket provider calls, confirmation routes, reservations,
+  workbooks, or local stock deductions to the preview workspace.

@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -22,11 +21,11 @@ import type {
   ChannelCatalogChunkPublicationResult,
   ChannelCatalogPublicationResult,
 } from '../../../application/port/out/repository/channel-catalog-publication.port';
+import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upsert';
 
 const CHANNEL = 'coupang';
 const COLLECTION_SOURCE = 'coupang_wing_catalog_browser';
 const SOURCE_TYPE = 'coupang_wing_catalog';
-const UPSERT_BATCH_SIZE = 500;
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 120_000 } as const;
 
 type PublishInput = Parameters<ChannelCatalogPublicationPort['publish']>[0];
@@ -43,24 +42,6 @@ type LockedChunk = {
   id: string;
   publishedAt: Date | null;
   publicationJson: Prisma.JsonValue | null;
-};
-
-type CatalogUpsertInput = {
-  organizationId: string;
-  userId: string;
-  channelAccountId: string;
-  products: Array<{ ordinal: number; product: CoupangCatalogProductV1 }>;
-  lastImportRunId: string | null;
-  publicationReference: {
-    type: 'channel_scrape_run' | 'source_import_run';
-    id: string;
-  };
-};
-
-type CatalogUpsertResult = {
-  changes: Record<string, number>;
-  externalProductIds: string[];
-  externalOptionIds: string[];
 };
 
 @Injectable()
@@ -106,7 +87,7 @@ implements ChannelCatalogPublicationPort {
         };
       }
 
-      const upserted = await upsertCatalogRows(tx, this.media, {
+      const upserted = await upsertCoupangCatalogRows(tx, this.media, {
         organizationId: input.organizationId,
         userId: input.userId,
         channelAccountId: input.channelAccountId,
@@ -219,7 +200,7 @@ implements ChannelCatalogPublicationPort {
         select: { id: true },
       });
 
-      const upserted = await upsertCatalogRows(tx, this.media, {
+      const upserted = await upsertCoupangCatalogRows(tx, this.media, {
         organizationId: input.organizationId,
         userId: input.userId,
         channelAccountId: input.channelAccountId,
@@ -271,202 +252,45 @@ implements ChannelCatalogPublicationPort {
   }
 }
 
-async function upsertCatalogRows(
+async function upsertCoupangCatalogRows(
   tx: Prisma.TransactionClient,
   mediaPublisher: CatalogMediaPublicationPort,
-  input: CatalogUpsertInput,
-): Promise<CatalogUpsertResult> {
-  const externalProductIds = input.products.map(
-    (item) => item.product.externalProductId,
-  );
-  const externalOptionIds = input.products.flatMap((item) =>
-    item.product.options.map((option) => option.externalOptionId),
-  );
-  const [existingListings, existingOptions] = await Promise.all([
-    tx.channelListing.findMany({
-      where: {
-        organizationId: input.organizationId,
-        channelAccountId: input.channelAccountId,
-        externalId: { in: externalProductIds },
-      },
-      select: { id: true, externalId: true },
-    }),
-    tx.channelListingOption.findMany({
-      where: {
-        organizationId: input.organizationId,
-        externalOptionId: { in: externalOptionIds },
-        listing: { channelAccountId: input.channelAccountId },
-      },
-      select: {
-        id: true,
-        externalOptionId: true,
-        listing: { select: { externalId: true } },
-      },
-    }),
-  ]);
-  const existingListingIds = new Set(
-    existingListings.map((listing) => listing.externalId),
-  );
-  const existingOptionIds = new Set(
-    existingOptions.map((option) => option.externalOptionId),
-  );
-  const expectedOptionOwner = new Map<string, string>();
-  for (const item of input.products) {
-    for (const option of item.product.options) {
-      expectedOptionOwner.set(option.externalOptionId, item.product.externalProductId);
-    }
-  }
-  for (const option of existingOptions) {
-    if (expectedOptionOwner.get(option.externalOptionId) !== option.listing.externalId) {
-      throw new ConflictException(
-        `Coupang option ${option.externalOptionId} cannot move to another parent`,
-      );
-    }
-  }
-
-  for (let offset = 0; offset < input.products.length; offset += UPSERT_BATCH_SIZE) {
-    const batch = input.products.slice(offset, offset + UPSERT_BATCH_SIZE);
-    const payload = JSON.stringify(batch.map(({ product }) => ({
-      id: randomUUID(),
-      ...product,
-    })));
-    await tx.$executeRaw`
-      INSERT INTO channel_listings (
-        id, organization_id, channel_account_id, external_id,
-        channel_name, display_name, category, manufacturer, brand,
-        status, raw_json, last_import_run_id, is_active, created_at, updated_at
-      )
-      SELECT
-        (record->>'id')::uuid,
-        ${input.organizationId}::uuid,
-        ${input.channelAccountId}::uuid,
-        record->>'externalProductId',
-        record->>'registeredName',
-        record->>'displayName',
-        record->>'category',
-        record->>'manufacturer',
-        record->>'brand',
-        record->>'productStatus',
-        record->'raw',
-        ${input.lastImportRunId}::uuid,
-        TRUE,
-        NOW(),
-        NOW()
-      FROM jsonb_array_elements(${payload}::jsonb) AS record
-      ON CONFLICT (organization_id, channel_account_id, external_id)
-      DO UPDATE SET
-        channel_name = EXCLUDED.channel_name,
-        display_name = EXCLUDED.display_name,
-        category = EXCLUDED.category,
-        manufacturer = EXCLUDED.manufacturer,
-        brand = EXCLUDED.brand,
-        status = EXCLUDED.status,
-        raw_json = EXCLUDED.raw_json,
-        last_import_run_id = COALESCE(
-          EXCLUDED.last_import_run_id,
-          channel_listings.last_import_run_id
-        ),
-        is_active = TRUE,
-        updated_at = NOW()
-    `;
-  }
-
-  const persistedListings = await tx.channelListing.findMany({
-    where: {
-      organizationId: input.organizationId,
-      channelAccountId: input.channelAccountId,
-      externalId: { in: externalProductIds },
-    },
-    select: { id: true, externalId: true },
+  input: {
+    organizationId: string;
+    userId: string;
+    channelAccountId: string;
+    products: Array<{ ordinal: number; product: CoupangCatalogProductV1 }>;
+    lastImportRunId: string | null;
+    publicationReference: {
+      type: 'channel_scrape_run' | 'source_import_run';
+      id: string;
+    };
+  },
+) {
+  const identities = await upsertChannelCatalogIdentities(tx, {
+    organizationId: input.organizationId,
+    channelAccountId: input.channelAccountId,
+    products: input.products.map(({ product }) => product),
+    lastImportRunId: input.lastImportRunId,
+    rawSource: 'coupang_catalog_browser',
   });
-  if (persistedListings.length !== input.products.length) {
-    throw new ConflictException('Not every Coupang parent listing was persisted');
-  }
-  const listingIds = new Map(
-    persistedListings.map((listing) => [listing.externalId, listing.id]),
-  );
-  const options = input.products.flatMap(({ product }) => {
-    const listingId = listingIds.get(product.externalProductId);
-    if (!listingId) throw new ConflictException('Published listing ID is missing');
-    return product.options.map((option) => ({
-      id: randomUUID(),
-      listingId,
-      ...option,
-      attributesJson: option.attributes,
-      rawJson: {
-        ...option.raw,
-        source: 'coupang_catalog_browser',
-        externalProductId: product.externalProductId,
-      },
-    }));
-  });
-  for (let offset = 0; offset < options.length; offset += UPSERT_BATCH_SIZE) {
-    const payload = JSON.stringify(options.slice(offset, offset + UPSERT_BATCH_SIZE));
-    await tx.$executeRaw`
-      INSERT INTO channel_listing_options (
-        id, listing_id, organization_id, external_option_id,
-        item_name, sale_price, seller_sku, barcode, model_number, status, mapping_status,
-        attributes_json, raw_json, last_import_run_id, is_active,
-        created_at, updated_at
-      )
-      SELECT
-        (record->>'id')::uuid,
-        (record->>'listingId')::uuid,
-        ${input.organizationId}::uuid,
-        record->>'externalOptionId',
-        record->>'optionName',
-        (record->>'salePrice')::integer,
-        record->>'sellerSku',
-        record->>'barcode',
-        record->>'modelNumber',
-        record->>'skuStatus',
-        'unmatched',
-        record->'attributesJson',
-        record->'rawJson',
-        ${input.lastImportRunId}::uuid,
-        TRUE,
-        NOW(),
-        NOW()
-      FROM jsonb_array_elements(${payload}::jsonb) AS record
-      ON CONFLICT (listing_id, external_option_id)
-      DO UPDATE SET
-        item_name = EXCLUDED.item_name,
-        sale_price = EXCLUDED.sale_price,
-        seller_sku = EXCLUDED.seller_sku,
-        barcode = EXCLUDED.barcode,
-        model_number = EXCLUDED.model_number,
-        status = EXCLUDED.status,
-        attributes_json = EXCLUDED.attributes_json,
-        raw_json = EXCLUDED.raw_json,
-        last_import_run_id = COALESCE(
-          EXCLUDED.last_import_run_id,
-          channel_listing_options.last_import_run_id
-        ),
-        is_active = TRUE,
-        updated_at = NOW()
-    `;
-  }
-
   const media = await mediaPublisher.publishProviderMedia({
     transaction: tx,
     organizationId: input.organizationId,
     userId: input.userId,
     publicationReference: input.publicationReference,
     listings: input.products.map(({ product }) => ({
-      listingId: listingIds.get(product.externalProductId)!,
+      listingId: identities.listingIds.get(product.externalProductId)!,
       displayName: product.displayName ?? product.registeredName ?? product.externalProductId,
       media: flattenMedia(product.media, product.options.flatMap((option) => option.media)),
     })),
   });
   return {
-    externalProductIds,
-    externalOptionIds,
+    externalProductIds: identities.externalProductIds,
+    externalOptionIds: identities.externalOptionIds,
     changes: {
-      createdProductCount: input.products.length - existingListingIds.size,
-      updatedProductCount: existingListingIds.size,
+      ...identities.changes,
       deactivatedProductCount: 0,
-      createdSkuCount: options.length - existingOptionIds.size,
-      updatedSkuCount: existingOptionIds.size,
       deactivatedSkuCount: 0,
       ...media,
     },

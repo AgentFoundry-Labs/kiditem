@@ -236,6 +236,48 @@ describe('ProcurementService — PO status lifecycle', () => {
 });
 
 describe('ProcurementController purchase submission boundary', () => {
+  it('routes previewRocket through the existing action-body endpoint with server actor scope', async () => {
+    const previews = { preview: vi.fn().mockResolvedValue({ rows: [] }) };
+    const Controller = ProcurementController as unknown as new (
+      procurement: Record<string, unknown>,
+      submissions: Record<string, unknown>,
+      previews: typeof previews,
+    ) => ProcurementController;
+    const controller = new Controller({}, {}, previews);
+    const body = {
+      action: 'previewRocket',
+      channelAccountId: '11111111-1111-4111-8111-111111111111',
+      collection: {
+        collectionRunId: '22222222-2222-4222-8222-222222222222',
+        vendorId: 'VENDOR-1',
+        listPagesRead: 1,
+        totalListPages: 1,
+        truncated: false,
+        detailPoCount: 0,
+        failedPoNumbers: [],
+      },
+      rows: [],
+      editedQuantities: {},
+    };
+
+    await controller.handleAction(
+      'organization-1',
+      { id: 'authenticated-user' } as never,
+      body as never,
+    );
+
+    expect(previews.preview).toHaveBeenCalledWith({
+      organizationId: 'organization-1',
+      userId: 'authenticated-user',
+      request: {
+        channelAccountId: body.channelAccountId,
+        collection: body.collection,
+        rows: body.rows,
+        editedQuantities: body.editedQuantities,
+      },
+    });
+  });
+
   it('passes the caller key and authenticated actor to the common submission port', async () => {
     const procurement = {
       findAll: vi.fn(),

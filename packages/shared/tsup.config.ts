@@ -28,6 +28,7 @@ export default defineConfig({
     'src/channel-sku-availability.ts',
     'src/source-import.ts',
     'src/sellpia-inventory-freshness.ts',
+    'src/rocket-purchase-preview.ts',
     'src/coupang-catalog-snapshot.ts',
     'src/agent-os.ts',
     'src/workflow.ts',

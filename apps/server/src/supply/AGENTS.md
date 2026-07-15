@@ -44,7 +44,8 @@ Route shape is frozen.
 - Status order is `draft -> pending -> ordered -> shipped -> received`.
 - Delete is allowed only from `draft` or `pending`.
 - `/api/purchase-orders` keeps the single POST action body
-  (`create | updateStatus | delete | submit | reconcileSubmission`).
+  (`create | updateStatus | delete | submit | reconcileSubmission |
+  previewRocket`).
 - `pending -> ordered` is forbidden through generic `updateStatus`; every real
   purchase uses `PurchaseOrderSubmissionPort` with an authenticated actor and
   caller-stable idempotency key.
@@ -63,6 +64,14 @@ Route shape is frozen.
 - Repository adapters own Prisma details and Sellpia `MasterProduct` ownership
   checks; application services depend on `application/port/out/*` contracts
   only.
+- `previewRocket` publishes complete Rocket PO catalog evidence through the
+  Channels-owned port, resolves confirmed component recipes through
+  `CHANNEL_SKU_AVAILABILITY_PORT`, and applies the Inventory freshness gate
+  before calculating quantities.
+- Rocket preview allocation is a pure in-memory policy over shared component
+  stock. It may return mapping, inactive-component, insufficient-capacity, or
+  collection/account blocking reasons, but it never reserves, deducts, commits,
+  confirms, persists a workbook, or calls a purchase provider.
 
 ## Cross-Domain Ports
 
@@ -84,6 +93,8 @@ Route shape is frozen.
   Inventory state/current stock, or expose that table through a Supply
   repository.
 - Do not write `SupplierPayment`.
+- Do not turn Rocket preview into an ordering path. Release `0.1.19` exposes
+  review-only quantities and keeps confirmation disabled.
 - Do not reintroduce supplier/procurement controllers, services, DTOs, or
   supply model mutations under `src/sourcing/`.
 

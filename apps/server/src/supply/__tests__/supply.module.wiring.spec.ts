@@ -20,6 +20,9 @@ import { PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT } from '../application/port/out/ru
 import { InventoryModule } from '../../inventory/inventory.module';
 import { PurchaseOrderSubmissionTransactionAdapter } from '../adapter/out/transaction/purchase-order-submission.transaction.adapter';
 import { PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT } from '../application/port/out/transaction/purchase-order-submission.transaction.port';
+import { ChannelsModule } from '../../channels/channels.module';
+import { RocketPurchasePreviewService } from '../application/service/rocket-purchase-preview.service';
+import { ROCKET_PURCHASE_PREVIEW_PORT } from '../application/port/in/procurement/rocket-purchase-preview.port';
 
 // NestJS @Module / @Controller metadata keys (stable across Nest 10/11).
 const CONTROLLERS_KEY = 'controllers';
@@ -54,6 +57,7 @@ describe('SupplyModule owner wiring', () => {
       ProcurementService,
       PurchaseOrderDraftService,
       PurchaseOrderSubmissionService,
+      RocketPurchasePreviewService,
     ]) {
       expect(providers).toContain(cls);
     }
@@ -62,6 +66,7 @@ describe('SupplyModule owner wiring', () => {
   it('imports InventoryModule so submission consumes owner-provided gate ports', () => {
     const imports: unknown[] = Reflect.getMetadata('imports', SupplyModule) ?? [];
     expect(imports).toContain(InventoryModule);
+    expect(imports).toContain(ChannelsModule);
   });
 
   it('binds outgoing repository ports to local adapters', () => {
@@ -86,6 +91,11 @@ describe('SupplyModule owner wiring', () => {
       providers,
       PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT,
       PurchaseOrderSubmissionTransactionAdapter,
+    );
+    expectBinding(
+      providers,
+      ROCKET_PURCHASE_PREVIEW_PORT,
+      RocketPurchasePreviewService,
     );
   });
 

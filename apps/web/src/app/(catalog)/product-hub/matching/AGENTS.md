@@ -1,15 +1,15 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# product-hub/matching — Coupang ChannelSku to Sellpia Matching
+# product-hub/matching — ChannelSku to Sellpia Matching
 
 `app/(catalog)/product-hub/matching/` owns `/product-hub/matching`, the operator
 workspace for importing Coupang Wing product/SKU metadata and confirming which
-Sellpia `MasterProduct` rows one channel SKU consumes.
+Sellpia `MasterProduct` rows one Coupang or Rocket channel SKU consumes.
 
 ## Owned Surfaces
 
-- Active ChannelAccount selector; only `channel === 'coupang'` accounts can
-  receive a Wing workbook in release `0.1.8`
+- Active Coupang or Rocket ChannelAccount selector; only
+  `channel === 'coupang'` accounts can receive a Wing workbook
 - Coupang Wing catalog upload
 - Server-paged all/unmatched/needs-review/matched queue
 - Live Sellpia candidate search and multi-component recipe editor
@@ -41,6 +41,8 @@ React Query + apiClient
   `{ components: [] }`.
 - A successful Wing import refreshes the imported account's advisory statuses,
   then invalidates server-paged matching lists and channel availability.
+- Completed Wing and Rocket PO catalog publications share the same server-paged
+  mapping queue and component-recipe editor.
 - Component replacement, confirmed unmap, and explicit status refresh also
   invalidate channel availability immediately.
 
@@ -62,6 +64,8 @@ React Query + apiClient
 - Do not infer component quantity from option or bundle text.
 - Wing catalog collection may attach provider media to registered products but
   must not create, refresh, or confirm ChannelSku component recipes here.
-- Rocket catalog, purchase-order, and order handling is outside this route.
+- Rocket PO identities are included in this common matching queue. Rocket PO
+  collection, preview calculation, and order handling remain outside this
+  route.
 - See the [operator runbook](../../../../../../../docs/runbooks/channel-sellpia-matching.md)
   for import order, accepted local files, recovery, and baseline counts.

@@ -42,6 +42,10 @@ import {
   CHANNEL_SKU_AVAILABILITY_PORT,
 } from '../application/port/in/channel-sku-availability.port';
 import { ChannelSkuAvailabilityService } from '../application/service/channel-sku-availability.service';
+import { RocketPoCatalogService } from '../application/service/rocket-po-catalog.service';
+import { RocketPoCatalogRepositoryAdapter } from '../adapter/out/repository/rocket-po-catalog.repository.adapter';
+import { ROCKET_PO_CATALOG_PORT } from '../application/port/in/rocket-po-catalog.port';
+import { ROCKET_PO_CATALOG_REPOSITORY_PORT } from '../application/port/out/repository/rocket-po-catalog.repository.port';
 
 const IMPORTS_KEY = 'imports';
 const CONTROLLERS_KEY = 'controllers';
@@ -74,6 +78,7 @@ describe('ChannelsModule canonical owner wiring', () => {
       COUPANG_PROVIDER_PORT,
       CHANNEL_SKU_AVAILABILITY_PORT,
       CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT,
+      ROCKET_PO_CATALOG_PORT,
     ]);
 
     const channelsRoot = path.resolve(__dirname, '..');
@@ -117,6 +122,8 @@ describe('ChannelsModule canonical owner wiring', () => {
     expect(providers).toContain(ChannelSkuAvailabilityService);
     expect(providers).toContain(ChannelsSellpiaMasterProductReadAdapter);
     expect(providers).toContain(ChannelSkuMappingRepositoryAdapter);
+    expect(providers).toContain(RocketPoCatalogService);
+    expect(providers).toContain(RocketPoCatalogRepositoryAdapter);
 
     expectBinding(providers, CHANNEL_ACCOUNT_REPOSITORY_PORT, ChannelAccountRepositoryAdapter);
     expectBinding(providers, COUPANG_CREDENTIALS_PORT, ChannelAccountRepositoryAdapter);
@@ -160,6 +167,12 @@ describe('ChannelsModule canonical owner wiring', () => {
       CHANNEL_SKU_AVAILABILITY_PORT,
       ChannelSkuAvailabilityService,
     );
+    expectBinding(
+      providers,
+      ROCKET_PO_CATALOG_REPOSITORY_PORT,
+      RocketPoCatalogRepositoryAdapter,
+    );
+    expectBinding(providers, ROCKET_PO_CATALOG_PORT, RocketPoCatalogService);
   });
 
   it('registers the account-scoped Wing catalog import controller', () => {

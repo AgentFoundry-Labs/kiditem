@@ -1,5 +1,9 @@
-import { IsString, IsOptional, IsNumber, IsUUID, IsInt, IsPositive, IsIn, IsArray, ArrayMinSize, ValidateIf, ValidateNested, MinLength, MaxLength, IsUrl } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsUUID, IsInt, IsPositive, IsIn, IsArray, ArrayMinSize, ArrayMaxSize, ValidateIf, ValidateNested, MinLength, MaxLength, IsUrl, IsObject } from 'class-validator';
 import { Type } from 'class-transformer';
+import type {
+  RocketPoCatalogRow,
+  RocketPoCollectionEvidence,
+} from '@kiditem/shared/rocket-purchase-preview';
 
 class PurchaseOrderItemDto {
   @IsString() @MinLength(1) productName: string;
@@ -13,7 +17,7 @@ class PurchaseOrderItemDto {
  * organizationId 는 `req.authUser.organizationId` 에서 주입 — DTO 에는 포함하지 않는다.
  */
 export class PurchaseOrderActionBodyDto {
-  @IsIn(['create', 'updateStatus', 'delete', 'submit', 'reconcileSubmission'])
+  @IsIn(['create', 'updateStatus', 'delete', 'submit', 'reconcileSubmission', 'previewRocket'])
   action: string;
 
   @ValidateIf(o => o.action === 'create')
@@ -61,4 +65,20 @@ export class PurchaseOrderActionBodyDto {
   @ValidateIf(o => o.action === 'reconcileSubmission')
   @IsString() @MaxLength(120) @IsOptional()
   providerReference?: string | null;
+
+  @ValidateIf(o => o.action === 'previewRocket')
+  @IsUUID()
+  channelAccountId?: string;
+
+  @ValidateIf(o => o.action === 'previewRocket')
+  @IsObject()
+  collection?: RocketPoCollectionEvidence;
+
+  @ValidateIf(o => o.action === 'previewRocket')
+  @IsArray() @ArrayMaxSize(4_000)
+  rows?: RocketPoCatalogRow[];
+
+  @ValidateIf(o => o.action === 'previewRocket')
+  @IsObject() @IsOptional()
+  editedQuantities?: Record<string, number>;
 }

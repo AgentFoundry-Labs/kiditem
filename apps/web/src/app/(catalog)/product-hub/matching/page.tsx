@@ -41,10 +41,10 @@ export default function MatchingPage() {
   const [statusRefreshWarning, setStatusRefreshWarning] = useState<string | null>(null);
 
   const accountsQuery = useChannelAccounts();
-  const wingAccounts = useMemo(
+  const channelAccounts = useMemo(
     () =>
       [...(accountsQuery.data ?? [])]
-        .filter((account) => account.channel === 'coupang')
+        .filter((account) => account.channel === 'coupang' || account.channel === 'rocket')
         .sort((left, right) => {
           if (left.isPrimary !== right.isPrimary) return left.isPrimary ? -1 : 1;
           const nameOrder = left.name.localeCompare(right.name, 'ko');
@@ -53,8 +53,8 @@ export default function MatchingPage() {
     [accountsQuery.data],
   );
   const selectedAccount =
-    wingAccounts.find((account) => account.id === selectedAccountId) ??
-    wingAccounts[0] ??
+    channelAccounts.find((account) => account.id === selectedAccountId) ??
+    channelAccounts[0] ??
     null;
 
   useEffect(() => {
@@ -138,15 +138,16 @@ export default function MatchingPage() {
             />
             새로고침
           </button>
-          <button
-            type="button"
-            onClick={() => setImportOpen(true)}
-            disabled={!selectedAccount}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-purple-600 px-3 py-2 text-sm text-white hover:bg-purple-700 disabled:opacity-50"
-          >
-            <Upload size={14} />
-            쿠팡 Wing 상품 엑셀 가져오기
-          </button>
+          {selectedAccount?.channel === 'coupang' ? (
+            <button
+              type="button"
+              onClick={() => setImportOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-purple-600 px-3 py-2 text-sm text-white hover:bg-purple-700 disabled:opacity-50"
+            >
+              <Upload size={14} />
+              쿠팡 Wing 상품 엑셀 가져오기
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -158,18 +159,18 @@ export default function MatchingPage() {
       <section aria-label="채널 SKU 필터" className="space-y-4 rounded-xl border border-slate-200 bg-white p-4">
         <div className="grid gap-3 lg:grid-cols-[minmax(240px,360px)_minmax(280px,1fr)]">
           <label className="space-y-1.5 text-xs font-semibold text-[var(--text-secondary,#475569)]">
-            <span>Wing 채널 계정</span>
+            <span>채널 계정</span>
             <select
-              aria-label="Wing 채널 계정"
+              aria-label="채널 계정"
               value={selectedAccount?.id ?? ''}
               onChange={(event) => {
                 setSelectedAccountId(event.target.value);
                 setPage(1);
               }}
-              disabled={accountsQuery.isLoading || wingAccounts.length === 0}
+              disabled={accountsQuery.isLoading || channelAccounts.length === 0}
               className="w-full rounded-lg border border-[var(--border,#cbd5e1)] bg-[var(--surface,#fff)] px-3 py-2 text-sm font-normal text-[var(--text-primary,#0f172a)] outline-none focus:border-[var(--primary,#7048e8)] disabled:opacity-50"
             >
-              {wingAccounts.map((account) => (
+              {channelAccounts.map((account) => (
                 <option key={account.id} value={account.id}>
                   {account.name}
                 </option>
@@ -213,9 +214,9 @@ export default function MatchingPage() {
           {friendlyError(accountsQuery.error)}
         </p>
       ) : null}
-      {!accountsQuery.isLoading && wingAccounts.length === 0 ? (
+      {!accountsQuery.isLoading && channelAccounts.length === 0 ? (
         <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          활성화된 coupang 채널 계정이 없습니다. 계정 설정을 먼저 확인해 주세요.
+          활성화된 coupang 또는 rocket 채널 계정이 없습니다. 계정 설정을 먼저 확인해 주세요.
         </p>
       ) : null}
       {mappingsQuery.error ? (
@@ -248,7 +249,7 @@ export default function MatchingPage() {
 
       <CoupangWingCatalogImportDialog
         open={importOpen}
-        account={selectedAccount}
+        account={selectedAccount?.channel === 'coupang' ? selectedAccount : null}
         onOpenChange={setImportOpen}
         onSuccess={() => setPage(1)}
       />

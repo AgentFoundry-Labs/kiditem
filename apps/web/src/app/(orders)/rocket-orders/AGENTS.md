@@ -4,7 +4,8 @@ Consult this document first instead of relying on memorized knowledge.
 
 `app/(orders)/rocket-orders/` preserves `/rocket-orders` as a read-only operator
 view of Coupang Rocket purchase-order summaries collected through the logged-in
-order-collector extension. Inventory-based delivery decisions are deferred.
+order-collector extension. The component-capacity preview workspace belongs to
+Supply, not this legacy monitoring route.
 
 ## Owned Surfaces
 
@@ -33,8 +34,9 @@ order-collector extension
 
 - Do not call Coupang supplier pages directly from the web app. Collection goes
   through `extensions/order-collector` capabilities.
-- Do not calculate or display confirm quantities, shortage reasons, reservations,
-  or stock deductions. The purchase-order decision flow is not implemented.
+- Do not calculate or display confirm quantities, shortage reasons,
+  reservations, or stock deductions here. The read-only preview flow is owned
+  by the Supply purchase-order workspace.
 - Do not call or recreate backend Rocket confirmation/generation endpoints.
 - Rocket is a channel identity (`channel='rocket'`), not a separate inventory
   balance. Future decisions must use account-scoped ChannelSku recipes and the

@@ -200,7 +200,7 @@ describe('/product-hub/matching', () => {
       screen.getByRole('heading', { name: '상품 매칭 센터' }),
     );
     expect(root?.children[1]).toHaveTextContent('summary 10/6/3/1');
-    expect(root?.children[2]).toContainElement(screen.getByLabelText('Wing 채널 계정'));
+    expect(root?.children[2]).toContainElement(screen.getByLabelText('채널 계정'));
     expect(root?.children[2]).toContainElement(screen.getByLabelText('채널 SKU 검색'));
     expect(root?.children[2]).toContainElement(
       screen.getByRole('group', { name: '매칭 상태 필터' }),
@@ -211,7 +211,7 @@ describe('/product-hub/matching', () => {
     ).toBeInTheDocument();
   });
 
-  it('offers only coupang accounts and deterministically picks primary, name, then ID', async () => {
+  it('offers coupang and rocket accounts and deterministically picks primary, name, then ID', async () => {
     mockQueries([
       account('99999999-9999-4999-8999-999999999999', '스마트스토어', { channel: 'smartstore', isPrimary: true }),
       account(ACCOUNT_B, '나 Wing'),
@@ -222,16 +222,17 @@ describe('/product-hub/matching', () => {
 
     render(<MatchingPage />);
 
-    const select = screen.getByLabelText('Wing 채널 계정');
+    const select = screen.getByLabelText('채널 계정');
     expect(select).toHaveValue(ACCOUNT_A);
     expect(screen.getByRole('option', { name: '가 Wing' })).toBeInTheDocument();
     expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
       '가 Wing',
       '나 Wing',
+      '쿠팡 Wing 로켓',
       '나 Wing',
     ]);
     expect(screen.queryByRole('option', { name: '스마트스토어' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('option', { name: '쿠팡 Wing 로켓' })).not.toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '쿠팡 Wing 로켓' })).toBeInTheDocument();
     await waitFor(() =>
       expect(refreshMutateAsync).toHaveBeenCalledWith({ channelAccountId: ACCOUNT_A }),
     );
@@ -276,7 +277,7 @@ describe('/product-hub/matching', () => {
     fireEvent.click(screen.getByRole('button', { name: 'next page' }));
     expect(screen.getByText('table page 2')).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText('Wing 채널 계정'), {
+    fireEvent.change(screen.getByLabelText('채널 계정'), {
       target: { value: ACCOUNT_B },
     });
     expect(vi.mocked(useChannelSkuMappings).mock.lastCall?.[0]).toEqual(
@@ -374,6 +375,24 @@ describe('/product-hub/matching', () => {
 
     await user.click(screen.getByRole('button', { name: 'edit sku-1' }));
     expect(screen.getByText('component dialog sku-1')).toBeInTheDocument();
+  });
+
+  it('never offers the Wing workbook import for a selected Rocket account', async () => {
+    const rocketId = '88888888-8888-4888-8888-888888888888';
+    mockQueries([
+      account(ACCOUNT_A, '가 Wing'),
+      account(rocketId, '쿠팡 로켓', { channel: 'rocket', isPrimary: true }),
+    ]);
+    render(<MatchingPage />);
+
+    expect(screen.getByLabelText('채널 계정')).toHaveValue(rocketId);
+    expect(screen.queryByRole('button', {
+      name: '쿠팡 Wing 상품 엑셀 가져오기',
+    })).not.toBeInTheDocument();
+    expect(screen.queryByText(/import dialog account/)).not.toBeInTheDocument();
+    await waitFor(() => expect(refreshMutateAsync).toHaveBeenCalledWith({
+      channelAccountId: rocketId,
+    }));
   });
 
   it('contains only the new component recipe workflow and fixed explanatory copy', () => {

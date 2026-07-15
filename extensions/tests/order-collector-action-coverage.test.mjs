@@ -11,6 +11,10 @@ const workerPath = path.join(
   'extensions/order-collector/background/service-worker.js',
 );
 const manifestPath = path.join(repoRoot, 'extensions/order-collector/manifest.json');
+const rocketCollectionPath = path.join(
+  repoRoot,
+  'extensions/order-collector/background/rocket-po-collection.js',
+);
 const webAppRoot = path.join(repoRoot, 'apps/web/src/app');
 const automaticCollectors = [
   'collectSellpiaDeliTracking',
@@ -88,11 +92,19 @@ test('every automatic collector explicitly attaches its inactive tab to its own 
     const next = worker.indexOf('\nasync function ', start + 1);
     const body = worker.slice(start, next === -1 ? worker.length : next);
     assert.match(body, /\([^)]*collection[^)]*\)/, `${collector} collection argument`);
-    assert.match(
-      body,
-      /await attachOrderCollectionTab\(collection, tab, created\)/,
-      `${collector} managed tab attachment`,
-    );
+    if (collector === 'collectRocketPoRows') {
+      assert.match(body, /rocketPoCollection\.collect/);
+      assert.match(
+        readFileSync(rocketCollectionPath, 'utf8'),
+        /await attachOrderCollectionTab\(collection, tab, created\)/,
+      );
+    } else {
+      assert.match(
+        body,
+        /await attachOrderCollectionTab\(collection, tab, created\)/,
+        `${collector} managed tab attachment`,
+      );
+    }
   }
 });
 
@@ -113,9 +125,9 @@ test('order worker imports session lifecycle and focused Sellpia inventory produ
   }
 });
 
-test('order collector manifest enables Sellpia inventory sessions at version 0.1.66', () => {
+test('order collector manifest enables Rocket preview collection at version 0.1.67', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  assert.equal(manifest.version, '0.1.66');
+  assert.equal(manifest.version, '0.1.67');
   assert.ok(manifest.permissions.includes('storage'));
   assert.ok(manifest.host_permissions.includes('https://*.sellpia.com/*'));
 });

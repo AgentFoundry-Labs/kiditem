@@ -135,6 +135,11 @@
       "import": "./dist/sellpia-inventory-freshness.js",
       "require": "./dist/sellpia-inventory-freshness.cjs"
     },
+    "./rocket-purchase-preview": {
+      "types": "./dist/rocket-purchase-preview.d.ts",
+      "import": "./dist/rocket-purchase-preview.js",
+      "require": "./dist/rocket-purchase-preview.cjs"
+    },
     "./coupang-catalog-snapshot": {
       "types": "./dist/coupang-catalog-snapshot.d.ts",
       "import": "./dist/coupang-catalog-snapshot.js",
@@ -240,6 +245,7 @@
       "channel-sku-availability": ["dist/channel-sku-availability.d.ts"],
       "source-import": ["dist/source-import.d.ts"],
       "sellpia-inventory-freshness": ["dist/sellpia-inventory-freshness.d.ts"],
+      "rocket-purchase-preview": ["dist/rocket-purchase-preview.d.ts"],
       "coupang-catalog-snapshot": ["dist/coupang-catalog-snapshot.d.ts"],
       "agent-os": ["dist/agent-os.d.ts"],
       "workflow": ["dist/workflow.d.ts"],
