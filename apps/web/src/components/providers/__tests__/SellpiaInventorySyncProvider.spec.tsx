@@ -53,6 +53,7 @@ import * as providerModule from '../SellpiaInventorySyncProvider';
 const { SellpiaInventorySyncProvider } = providerModule;
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
+const NEW_ORGANIZATION_RUN_ID = '22222222-2222-4222-8222-222222222222';
 const dueState = {
   status: 'refresh_required' as const,
   sourceBinding: { origin: 'https://kiditem.sellpia.com' as const, accountKey: 'kiditem' as const, confirmed: true as const },
@@ -240,6 +241,79 @@ describe('SellpiaInventorySyncProvider', () => {
     });
 
     expectNoStaleClaimSideEffects();
+  });
+
+  it('uses the new organization extension ID when the stale collector resolves last', async () => {
+    const newOrganizationClaim = {
+      ...claimed,
+      claimToken: NEW_ORGANIZATION_RUN_ID,
+      state: {
+        ...claimed.state,
+        activeSync: {
+          ...claimed.state.activeSync,
+          runId: NEW_ORGANIZATION_RUN_ID,
+        },
+      },
+    };
+    let resolveOldCollection!: (value: { file: File; extensionId: string }) => void;
+    let resolveNewCollection!: (value: { file: File; extensionId: string }) => void;
+    api.claimDue
+      .mockResolvedValueOnce(claimed)
+      .mockResolvedValueOnce(newOrganizationClaim);
+    extension.collectSellpiaInventory
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveOldCollection = resolve;
+      }))
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveNewCollection = resolve;
+      }));
+    api.importBrowser.mockReturnValueOnce(new Promise(() => undefined));
+    const mounted = renderProvider();
+    await waitFor(() => expect(extension.collectSellpiaInventory).toHaveBeenCalledWith({
+      runId: RUN_ID,
+    }));
+
+    auth.useAuth.mockReturnValue({
+      status: 'ready',
+      user: { organizationId: 'org-2', role: 'owner' },
+    });
+    mounted.rerender(
+      <QueryClientProvider client={mounted.client}>
+        <SellpiaInventorySyncProvider />
+      </QueryClientProvider>,
+    );
+    await act(async () => {
+      mounted.client.setQueryData(queryKeys.inventory.freshness(), dueState);
+    });
+    await waitFor(() => expect(extension.collectSellpiaInventory).toHaveBeenCalledWith({
+      runId: NEW_ORGANIZATION_RUN_ID,
+    }));
+
+    await act(async () => resolveNewCollection({
+      file: new File(['new-workbook'], 'new-inventory.xls'),
+      extensionId: 'new-organization-extension',
+    }));
+    await waitFor(() => expect(api.importBrowser).toHaveBeenCalledWith(
+      expect.any(File),
+      expect.objectContaining({ claimToken: NEW_ORGANIZATION_RUN_ID }),
+    ));
+    await act(async () => resolveOldCollection({
+      file: new File(['old-workbook'], 'old-inventory.xls'),
+      extensionId: 'old-organization-extension',
+    }));
+    await waitFor(() => expect(sellpiaDrawerPropsMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ownerClaimToken: NEW_ORGANIZATION_RUN_ID }),
+    ));
+    const props = sellpiaDrawerPropsMock.mock.lastCall?.[0] as {
+      onCancel: (claimToken: string) => void;
+    };
+
+    await act(async () => props.onCancel(NEW_ORGANIZATION_RUN_ID));
+
+    await waitFor(() => expect(extension.cancelSellpiaInventorySession).toHaveBeenCalledWith({
+      extensionId: 'new-organization-extension',
+      runId: NEW_ORGANIZATION_RUN_ID,
+    }));
   });
 
   it('claims once across two mounted coordinators and uses claimToken as the extension runId', async () => {

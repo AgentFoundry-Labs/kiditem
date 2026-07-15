@@ -304,8 +304,8 @@ export function SellpiaInventorySyncProvider({
       if (claimIsStopped()) return;
 
       const collected = await collectSellpiaInventory({ runId: claimToken });
-      extensionIdRef.current = collected.extensionId;
       if (claimIsStopped()) return;
+      extensionIdRef.current = collected.extensionId;
       await bestEffortAlert(() => progressOperationAlert(
         `browser-collection:${claimToken}`,
         {
