@@ -3,6 +3,42 @@
 // completed Sellpia full-snapshot import.
 
 /// @namespace Inventory
+/// @describe Organization-scoped Sellpia inventory trust state, source binding, generation fence, and active collection lease.
+model SellpiaInventoryState {
+  organizationId           String    @id @map("organization_id") @db.Uuid
+  sourceOrigin             String    @default("https://kiditem.sellpia.com") @map("source_origin")
+  sourceAccountKey         String?   @map("source_account_key")
+  lastVerifiedAt           DateTime? @map("last_verified_at") @db.Timestamptz
+  lastCompletedImportRunId String?   @map("last_completed_import_run_id") @db.Uuid
+  refreshRequestedAt       DateTime? @map("refresh_requested_at") @db.Timestamptz
+  refreshReason            String?   @map("refresh_reason")
+  syncNotBefore            DateTime? @map("sync_not_before") @db.Timestamptz
+  activeSyncToken          String?   @map("active_sync_token") @db.Uuid
+  activeSyncOwnerUserId    String?   @map("active_sync_owner_user_id") @db.Uuid
+  activeSyncStartedAt      DateTime? @map("active_sync_started_at") @db.Timestamptz
+  activeSyncLeaseExpiresAt DateTime? @map("active_sync_lease_expires_at") @db.Timestamptz
+  requestedGeneration      BigInt    @default(1) @map("requested_generation") @db.BigInt
+  activeGeneration         BigInt?   @map("active_generation") @db.BigInt
+  verifiedGeneration       BigInt    @default(0) @map("verified_generation") @db.BigInt
+  failedGeneration         BigInt?   @map("failed_generation") @db.BigInt
+  lastAttemptAt            DateTime? @map("last_attempt_at") @db.Timestamptz
+  lastAttemptStatus        String?   @map("last_attempt_status")
+  lastErrorCode            String?   @map("last_error_code")
+  lastErrorMessage         String?   @map("last_error_message")
+  freshnessFence           String    @default(uuid()) @map("freshness_fence") @db.Uuid
+  createdAt                DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization           Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lastCompletedImportRun SourceImportRun? @relation("SellpiaInventoryStateLastCompletedRun", fields: [lastCompletedImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  activeSyncOwner        User?            @relation("SellpiaInventoryStateActiveSyncOwner", fields: [activeSyncOwnerUserId], references: [id], onDelete: SetNull)
+
+  @@index([lastCompletedImportRunId])
+  @@index([activeSyncOwnerUserId])
+  @@map("sellpia_inventory_states")
+}
+
+/// @namespace Inventory
 /// @describe Warehouse-to-warehouse movement record. It never mutates MasterProduct.currentStock.
 model StockTransfer {
   id              String    @id @default(uuid()) @db.Uuid

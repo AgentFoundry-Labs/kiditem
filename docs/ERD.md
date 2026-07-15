@@ -30,10 +30,10 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Channels](erd/channels.md) | 17 |
 | [Core](erd/core.md) | 10 |
 | [Finance](erd/finance.md) | 5 |
-| [Inventory](erd/inventory.md) | 7 |
+| [Inventory](erd/inventory.md) | 8 |
 | [Orders](erd/orders.md) | 10 |
 | [Sourcing](erd/sourcing.md) | 10 |
-| [Supply](erd/supply.md) | 5 |
+| [Supply](erd/supply.md) | 6 |
 | [System](erd/system.md) | 9 |
 
 ## Model Index
@@ -116,6 +116,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | PickingItem | Inventory | `picking_items` | - |
 | PickingList | Inventory | `picking_lists` | - |
 | ReturnTransfer | Inventory | `return_transfers` | - |
+| SellpiaInventoryState | Inventory | `sellpia_inventory_states` | Organization-scoped Sellpia inventory trust state, source binding, generation fence, and active collection lease. |
 | SellpiaReceiptUploadBatch | Inventory | `sellpia_receipt_upload_batches` | Record of an operator-confirmed receipt file upload to Sellpia. |
 | StockAudit | Inventory | `stock_audits` | - |
 | StockTransfer | Inventory | `stock_transfers` | Warehouse-to-warehouse movement record. It never mutates MasterProduct.currentStock. |
@@ -134,7 +135,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | LiveCommerceBroadcastDailySnapshot | Sourcing | `live_commerce_broadcast_daily_snapshots` | 타오바오 공식 API 또는 로그인된 1688·도우인 브라우저 화면에서 수집한 라이브 방송 일별 스냅샷. source와 broadcastId가 외부 방송 식별자를 이룬다. |
 | LiveCommerceProductDailySnapshot | Sourcing | `live_commerce_product_daily_snapshots` | 중국 라이브 방송에 노출된 상품의 일별 스냅샷. broadcastId로 방송 스냅샷과 논리적으로 연결하고 상품 단위 비교를 지원한다. |
 | NaverKeywordDailySnapshot | Sourcing | `naver_keyword_daily_snapshots` | 네이버 키워드(검색광고 월검색량 + 데이터랩 검색어트렌드) 일별 스냅샷. 시드 키워드당 하루 1행(최신본 upsert). trendRatio 는 latestRatio 반올림(0-100). |
-| NaverPopularKeywordDailySnapshot | Sourcing | `naver_popular_keyword_daily_snapshots` | 네이버 데이터랩 인기키워드 보드(출산/육아·완구/인형·문구/사무 등)의 일별 순위 스냅샷. 시드 무관하게 run당 1회 수집. 보드×순위당 1행. |
+| NaverPopularKeywordDailySnapshot | Sourcing | `naver_popular_keyword_daily_snapshots` | 네이버 데이터랩 인기키워드 보드(출산/육아·완구/인형·문구/사무 등)의 일별 순위 스냅샷. 보드×키워드 identity를 사용하고 매 수집마다 보드×일자 범위를 통째로 교체한다. |
 | ShortsTrendDailySnapshot | Sourcing | `shorts_trend_daily_snapshots` | 쇼츠트렌드(shortstrend.co.kr) 급상승 쇼츠 일별 스냅샷. rank 는 소스 노출 순위, videoKey 는 영상 식별자. video×일자당 1행. |
 | Sourcing1688HotProductDailySnapshot | Sourcing | `sourcing_1688_hot_product_daily_snapshots` | 1688 키워드별 핫셀링 offer 일별 스냅샷. sourceKeyword 는 시드 키워드, rank 는 해당 키워드 결과셋 내 monthlySales 내림차순 순위. offer×일자당 1행. |
 | SourcingCandidate | Sourcing | `sourcing_candidates` | 외부 플랫폼에서 스크랩한 소싱 후보. MasterProduct와 분리된 sourcing inbox. |
@@ -142,6 +143,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | TrendSeedKeyword | Sourcing | `trend_seed_keywords` | 문구·완구 시장 트렌드 정기 수집의 시드 키워드. sources 로 몰별(naver/shorts/1688) 수집 대상을 제어. keywordCn 은 1688 中文 검색어(null이면 keyword 사용). |
 | PurchaseOrder | Supply | `purchase_orders` | 발주 state machine (draft→pending→ordered→shipped→received). 입고 검수 필드 포함 (receivedQty, defectQty). 단위는 CNY(Decimal 12,2). |
 | PurchaseOrderItem | Supply | `purchase_order_items` | - |
+| PurchaseOrderSubmissionAttempt | Supply | `purchase_order_submission_attempts` | Durable idempotency intent and reconciliation record for an external purchase-order submission. |
 | Supplier | Supply | `suppliers` | - |
 | SupplierPayment | Supply | `supplier_payments` | - |
 | SupplierProduct | Supply | `supplier_products` | 공급사별 Sellpia 물리 상품 단위 공급가/주공급처 정책. |
@@ -1573,6 +1575,22 @@ erDiagram
     Decimal unitPriceCny
     DateTime createdAt
   }
+  PurchaseOrderSubmissionAttempt {
+    String id PK
+    String organizationId FK
+    String purchaseOrderId FK
+    String idempotencyKey
+    BigInt freshnessGeneration
+    String status
+    String providerReference
+    String errorCode
+    String errorMessage
+    String reconciliationOutcome
+    DateTime reconciledAt
+    String reconciledBy FK
+    DateTime createdAt
+    DateTime updatedAt
+  }
   ReturnTransfer {
     String id PK
     String organizationId FK
@@ -1654,6 +1672,31 @@ erDiagram
     Boolean isActive
     DateTime lastScrapedAt
     DateTime createdAt
+  }
+  SellpiaInventoryState {
+    String organizationId PK,FK
+    String sourceOrigin
+    String sourceAccountKey
+    DateTime lastVerifiedAt
+    String lastCompletedImportRunId FK
+    DateTime refreshRequestedAt
+    String refreshReason
+    DateTime syncNotBefore
+    String activeSyncToken
+    String activeSyncOwnerUserId FK
+    DateTime activeSyncStartedAt
+    DateTime activeSyncLeaseExpiresAt
+    BigInt requestedGeneration
+    BigInt activeGeneration
+    BigInt verifiedGeneration
+    BigInt failedGeneration
+    DateTime lastAttemptAt
+    String lastAttemptStatus
+    String lastErrorCode
+    String lastErrorMessage
+    String freshnessFence
+    DateTime createdAt
+    DateTime updatedAt
   }
   SellpiaReceiptUploadBatch {
     String id PK
@@ -1741,6 +1784,15 @@ erDiagram
     String status
     Int rowCount
     DateTime importedAt
+    DateTime lastVerifiedAt
+    Int verificationCount
+    String lastTrigger
+    BigInt freshnessGeneration
+    DateTime manualFreshExportConfirmedAt
+    String manualFreshExportConfirmedBy FK
+    Json qualityReport
+    String errorCode
+    String errorMessage
     String createdBy
     String attemptToken
     BigInt publicationSequence
@@ -2322,12 +2374,14 @@ erDiagram
   Organization ||--o{ ProfitLoss : "organization"
   Organization ||--o{ PurchaseOrder : "organization"
   Organization ||--o{ PurchaseOrderItem : "organization"
+  Organization ||--o{ PurchaseOrderSubmissionAttempt : "organization"
   Organization ||--o{ ReturnTransfer : "organization"
   Organization ||--o{ Review : "organization"
   Organization ||--o{ RocketPurchaseOrder : "organization"
   Organization ||--o{ RocketSupplyDailySnapshot : "organization"
   Organization ||--o{ SalesPlan : "organization"
   Organization ||--o{ ScrapeTarget : "organization"
+  Organization ||--o{ SellpiaInventoryState : "organization"
   Organization ||--o{ SellpiaReceiptUploadBatch : "organization"
   Organization ||--o{ Settlement : "organization"
   Organization ||--o{ Shipment : "organization"
@@ -2358,12 +2412,14 @@ erDiagram
   Organization ||--o{ WorkflowTemplate : "organization"
   PickingList ||--o{ PickingItem : "pickingList"
   PurchaseOrder ||--o{ PurchaseOrderItem : "order"
+  PurchaseOrder ||--o{ PurchaseOrderSubmissionAttempt : "purchaseOrder"
   PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"
   Shipment ||--o{ ShipmentItem : "shipment"
   SourceImportRun o|--o{ ChannelListing : "lastImportRun"
   SourceImportRun o|--o{ ChannelListingOption : "lastImportRun"
   SourceImportRun o|--o{ ChannelScrapeRun : "sourceImportRun"
   SourceImportRun o|--o{ MasterProduct : "lastImportRun"
+  SourceImportRun o|--o{ SellpiaInventoryState : "lastCompletedImportRun"
   SourcingCandidate ||--o{ CandidateImage : "candidate"
   SourcingCandidate o|--o{ ChannelListing : "sourceCandidate"
   SourcingCandidate o|--o{ ContentGeneration : "sourceCandidate"
@@ -2403,6 +2459,9 @@ erDiagram
   User o|--o{ OrganizationMembership : "invitedBy"
   User ||--o{ OrganizationMembership : "user"
   User o|--o{ ProductPreparation : "createdByUser"
+  User o|--o{ PurchaseOrderSubmissionAttempt : "reconciler"
+  User o|--o{ SellpiaInventoryState : "activeSyncOwner"
+  User o|--o{ SourceImportRun : "manualFreshExportConfirmer"
   User o|--o{ SourcingCandidate : "rejectedByUser"
   User o|--o{ SourcingCandidate : "triggeredByUser"
   User o|--o{ ThumbnailGeneration : "triggeredByUser"

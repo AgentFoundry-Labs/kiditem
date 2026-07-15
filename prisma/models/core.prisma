@@ -16,6 +16,7 @@ model Organization {
   sourceImportRuns                SourceImportRun[]
   orders                          Order[]
   purchaseOrders                  PurchaseOrder[]
+  purchaseOrderSubmissionAttempts PurchaseOrderSubmissionAttempt[]
   profitLoss                      ProfitLoss[]
   thumbnails                      Thumbnail[]
   thumbnailAnalyses               ThumbnailAnalysis[]
@@ -77,6 +78,7 @@ model Organization {
   stockTransfers              StockTransfer[]
   stockAudits                 StockAudit[]
   sellpiaReceiptUploadBatches SellpiaReceiptUploadBatch[]
+  sellpiaInventoryState       SellpiaInventoryState?
 
   // Logistics
   shipments       Shipment[]
@@ -194,6 +196,9 @@ model User {
   createdDetailPageRevisions                 DetailPageRevision[]                 @relation("DetailPageRevisionCreatedBy")
   actorAlerts                                Alert[]                              @relation("AlertActor")
   assignedActionTasks                        ActionTask[]                         @relation("ActionTaskAssignee")
+  activeSellpiaInventoryStates               SellpiaInventoryState[]              @relation("SellpiaInventoryStateActiveSyncOwner")
+  confirmedSourceImportRuns                  SourceImportRun[]                    @relation("SourceImportRunManualFreshExportConfirmer")
+  reconciledPurchaseOrderSubmissionAttempts  PurchaseOrderSubmissionAttempt[]     @relation("PurchaseOrderSubmissionAttemptReconciler")
 
   // Agent OS — actor relations
   requestedAgentRunRequests         AgentRunRequest[]         @relation("AgentRunRequestRequestedBy")
@@ -294,34 +299,47 @@ model ChannelAccount {
 /// @namespace Core
 /// @describe Durable provenance and publication fence for Sellpia and channel full-snapshot imports.
 model SourceImportRun {
-  id                  String    @id @default(uuid()) @db.Uuid
-  organizationId      String    @map("organization_id") @db.Uuid
-  sourceType          String    @map("source_type")
-  channelAccountId    String?   @map("channel_account_id") @db.Uuid
-  fileName            String    @map("file_name")
-  fileHash            String    @map("file_hash")
-  status              String    @default("running")
-  rowCount            Int       @default(0) @map("row_count")
-  importedAt          DateTime? @map("imported_at") @db.Timestamptz
-  createdBy           String?   @map("created_by")
-  attemptToken        String    @default(uuid()) @map("attempt_token") @db.Uuid
-  publicationSequence BigInt?   @map("publication_sequence") @db.BigInt
-  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id                           String    @id @default(uuid()) @db.Uuid
+  organizationId               String    @map("organization_id") @db.Uuid
+  sourceType                   String    @map("source_type")
+  channelAccountId             String?   @map("channel_account_id") @db.Uuid
+  fileName                     String?   @map("file_name")
+  fileHash                     String?   @map("file_hash")
+  status                       String    @default("running")
+  rowCount                     Int       @default(0) @map("row_count")
+  importedAt                   DateTime? @map("imported_at") @db.Timestamptz
+  lastVerifiedAt               DateTime? @map("last_verified_at") @db.Timestamptz
+  verificationCount            Int       @default(0) @map("verification_count")
+  lastTrigger                  String?   @map("last_trigger")
+  freshnessGeneration          BigInt?   @map("freshness_generation") @db.BigInt
+  manualFreshExportConfirmedAt DateTime? @map("manual_fresh_export_confirmed_at") @db.Timestamptz
+  manualFreshExportConfirmedBy String?   @map("manual_fresh_export_confirmed_by") @db.Uuid
+  qualityReport                Json?     @map("quality_report") @db.JsonB
+  errorCode                    String?   @map("error_code")
+  errorMessage                 String?   @map("error_message")
+  createdBy                    String?   @map("created_by")
+  attemptToken                 String    @default(uuid()) @map("attempt_token") @db.Uuid
+  publicationSequence          BigInt?   @map("publication_sequence") @db.BigInt
+  createdAt                    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization      Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelAccount    ChannelAccount?        @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  masterProducts    MasterProduct[]        @relation("MasterProductLastImport")
-  channelProducts   ChannelListing[]       @relation("ChannelProductLastImport")
-  channelSkus       ChannelListingOption[] @relation("ChannelSkuLastImport")
-  channelScrapeRuns ChannelScrapeRun[]
+  organization                        Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount                      ChannelAccount?         @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  manualFreshExportConfirmer          User?                   @relation("SourceImportRunManualFreshExportConfirmer", fields: [manualFreshExportConfirmedBy], references: [id], onDelete: SetNull)
+  masterProducts                      MasterProduct[]         @relation("MasterProductLastImport")
+  channelProducts                     ChannelListing[]        @relation("ChannelProductLastImport")
+  channelSkus                         ChannelListingOption[]  @relation("ChannelSkuLastImport")
+  channelScrapeRuns                   ChannelScrapeRun[]
+  lastCompletedSellpiaInventoryStates SellpiaInventoryState[] @relation("SellpiaInventoryStateLastCompletedRun")
 
-  @@unique([organizationId, sourceType, channelAccountId, fileHash], map: "source_import_runs_org_source_account_hash_key", where: raw("channel_account_id IS NOT NULL"))
-  @@unique([organizationId, sourceType, fileHash], map: "source_import_runs_org_source_hash_null_account_key", where: raw("channel_account_id IS NULL"))
+  @@unique([organizationId, sourceType, channelAccountId, fileHash], map: "source_import_runs_org_source_account_hash_key", where: raw("channel_account_id IS NOT NULL AND file_hash IS NOT NULL"))
+  @@unique([organizationId, sourceType, fileHash], map: "source_import_runs_org_source_hash_null_account_key", where: raw("channel_account_id IS NULL AND file_hash IS NOT NULL"))
+  @@unique([organizationId, sourceType, freshnessGeneration], map: "source_import_runs_org_source_failed_generation_key", where: raw("file_hash IS NULL AND source_type = 'sellpia_inventory' AND status = 'failed' AND freshness_generation IS NOT NULL"))
   @@unique([organizationId, sourceType, publicationSequence], map: "source_import_runs_org_source_publication_key", where: raw("publication_sequence IS NOT NULL"))
   @@unique([id, organizationId], map: "source_import_runs_id_org_key")
   @@index([organizationId, sourceType, status, createdAt])
   @@index([channelAccountId])
+  @@index([manualFreshExportConfirmedBy])
   @@map("source_import_runs")
 }
 

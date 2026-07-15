@@ -113,10 +113,11 @@ model PurchaseOrder {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  supplier         Supplier?           @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  items            PurchaseOrderItem[]
-  supplierPayments SupplierPayment[]
+  organization       Organization                     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier           Supplier?                        @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  items              PurchaseOrderItem[]
+  supplierPayments   SupplierPayment[]
+  submissionAttempts PurchaseOrderSubmissionAttempt[]
 
   @@unique([id, organizationId], map: "purchase_orders_id_org_key")
   @@index([organizationId])
@@ -124,6 +125,35 @@ model PurchaseOrder {
   @@index([status])
   @@index([supplierId])
   @@map("purchase_orders")
+}
+
+/// @namespace Supply
+/// @describe Durable idempotency intent and reconciliation record for an external purchase-order submission.
+model PurchaseOrderSubmissionAttempt {
+  id                    String    @id @default(uuid()) @db.Uuid
+  organizationId        String    @map("organization_id") @db.Uuid
+  purchaseOrderId       String    @map("purchase_order_id") @db.Uuid
+  idempotencyKey        String    @map("idempotency_key")
+  freshnessGeneration   BigInt    @map("freshness_generation") @db.BigInt
+  status                String
+  providerReference     String?   @map("provider_reference")
+  errorCode             String?   @map("error_code")
+  errorMessage          String?   @map("error_message")
+  reconciliationOutcome String?   @map("reconciliation_outcome")
+  reconciledAt          DateTime? @map("reconciled_at") @db.Timestamptz
+  reconciledBy          String?   @map("reconciled_by") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  reconciler    User?         @relation("PurchaseOrderSubmissionAttemptReconciler", fields: [reconciledBy], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, purchaseOrderId, idempotencyKey])
+  @@index([organizationId])
+  @@index([purchaseOrderId])
+  @@index([reconciledBy])
+  @@map("purchase_order_submission_attempts")
 }
 
 /// @namespace Supply

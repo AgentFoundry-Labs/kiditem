@@ -12,6 +12,7 @@
 | PickingItem | `picking_items` | - |
 | PickingList | `picking_lists` | - |
 | ReturnTransfer | `return_transfers` | - |
+| SellpiaInventoryState | `sellpia_inventory_states` | Organization-scoped Sellpia inventory trust state, source binding, generation fence, and active collection lease. |
 | SellpiaReceiptUploadBatch | `sellpia_receipt_upload_batches` | Record of an operator-confirmed receipt file upload to Sellpia. |
 | StockAudit | `stock_audits` | - |
 | StockTransfer | `stock_transfers` | Warehouse-to-warehouse movement record. It never mutates MasterProduct.currentStock. |
@@ -66,6 +67,31 @@ erDiagram
     String processedBy
     DateTime createdAt
     DateTime completedAt
+    DateTime updatedAt
+  }
+  SellpiaInventoryState {
+    String organizationId PK,FK
+    String sourceOrigin
+    String sourceAccountKey
+    DateTime lastVerifiedAt
+    String lastCompletedImportRunId FK
+    DateTime refreshRequestedAt
+    String refreshReason
+    DateTime syncNotBefore
+    String activeSyncToken
+    String activeSyncOwnerUserId FK
+    DateTime activeSyncStartedAt
+    DateTime activeSyncLeaseExpiresAt
+    BigInt requestedGeneration
+    BigInt activeGeneration
+    BigInt verifiedGeneration
+    BigInt failedGeneration
+    DateTime lastAttemptAt
+    String lastAttemptStatus
+    String lastErrorCode
+    String lastErrorMessage
+    String freshnessFence
+    DateTime createdAt
     DateTime updatedAt
   }
   SellpiaReceiptUploadBatch {
@@ -139,6 +165,9 @@ erDiagram
 | PickingList | organization | references external | Core | Organization |
 | ReturnTransfer | masterProduct | references external | Core | MasterProduct |
 | ReturnTransfer | organization | references external | Core | Organization |
+| SellpiaInventoryState | activeSyncOwner | references external | Core | User |
+| SellpiaInventoryState | lastCompletedImportRun | references external | Core | SourceImportRun |
+| SellpiaInventoryState | organization | references external | Core | Organization |
 | SellpiaReceiptUploadBatch | organization | references external | Core | Organization |
 | StockAudit | organization | references external | Core | Organization |
 | StockTransfer | masterProduct | references external | Core | MasterProduct |

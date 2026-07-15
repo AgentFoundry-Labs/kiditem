@@ -160,6 +160,15 @@ erDiagram
     String status
     Int rowCount
     DateTime importedAt
+    DateTime lastVerifiedAt
+    Int verificationCount
+    String lastTrigger
+    BigInt freshnessGeneration
+    DateTime manualFreshExportConfirmedAt
+    String manualFreshExportConfirmedBy FK
+    Json qualityReport
+    String errorCode
+    String errorMessage
     String createdBy
     String attemptToken
     BigInt publicationSequence
@@ -197,6 +206,7 @@ erDiagram
   SourceImportRun o|--o{ MasterProduct : "lastImportRun"
   User o|--o{ OrganizationMembership : "invitedBy"
   User ||--o{ OrganizationMembership : "user"
+  User o|--o{ SourceImportRun : "manualFreshExportConfirmer"
 ```
 
 ## External References
@@ -299,6 +309,7 @@ erDiagram
 | Organization | organization | referenced by external | Inventory | PickingItem |
 | Organization | organization | referenced by external | Inventory | PickingList |
 | Organization | organization | referenced by external | Inventory | ReturnTransfer |
+| Organization | organization | referenced by external | Inventory | SellpiaInventoryState |
 | Organization | organization | referenced by external | Inventory | SellpiaReceiptUploadBatch |
 | Organization | organization | referenced by external | Inventory | StockAudit |
 | Organization | organization | referenced by external | Inventory | StockTransfer |
@@ -325,6 +336,7 @@ erDiagram
 | Organization | organization | referenced by external | Sourcing | TrendSeedKeyword |
 | Organization | organization | referenced by external | Supply | PurchaseOrder |
 | Organization | organization | referenced by external | Supply | PurchaseOrderItem |
+| Organization | organization | referenced by external | Supply | PurchaseOrderSubmissionAttempt |
 | Organization | organization | referenced by external | Supply | Supplier |
 | Organization | organization | referenced by external | Supply | SupplierPayment |
 | Organization | organization | referenced by external | Supply | SupplierProduct |
@@ -333,7 +345,9 @@ erDiagram
 | Organization | organization | referenced by external | System | Alert |
 | Organization | organization | referenced by external | System | BusinessRule |
 | Organization | organization | referenced by external | System | SystemSetting |
+| SourceImportRun | lastCompletedImportRun | referenced by external | Inventory | SellpiaInventoryState |
 | SourceImportRun | sourceImportRun | referenced by external | Channels | ChannelScrapeRun |
+| User | activeSyncOwner | referenced by external | Inventory | SellpiaInventoryState |
 | User | actor | referenced by external | AI | ThumbnailGenerationEvent |
 | User | actorUser | referenced by external | System | Alert |
 | User | agentInstance | references external | AgentOS | AgentInstance |
@@ -348,6 +362,7 @@ erDiagram
 | User | createdByUser | referenced by external | AI | ProductPreparation |
 | User | decidedBy | referenced by external | AgentOS | AgentApprovalRequest |
 | User | decidedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
+| User | reconciler | referenced by external | Supply | PurchaseOrderSubmissionAttempt |
 | User | rejectedByUser | referenced by external | Sourcing | SourcingCandidate |
 | User | requestedBy | referenced by external | AgentOS | AgentApprovalRequest |
 | User | requestedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
