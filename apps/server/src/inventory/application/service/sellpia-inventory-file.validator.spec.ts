@@ -9,6 +9,7 @@ describe('SellpiaInventoryFileValidator', () => {
 
   it.each([
     ['OLE2', ole2Buffer(), 'application/vnd.ms-excel'],
+    ['raw BIFF worksheet', rawBiffWorksheetBuffer(), 'application/vnd.ms-excel'],
     ['XLSX', xlsxBuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
     ['CSV', Buffer.from('\uFEFF상품코드,상품명,재고\nSP-001,상품,3'), 'text/csv'],
     ['TSV', Buffer.from('상품 코드\t상품명\t재 고\nSP-001\t상품\t3'), 'text/tab-separated-values'],
@@ -48,6 +49,67 @@ describe('SellpiaInventoryFileValidator', () => {
   it('rejects an allowed MIME type when the bytes have no supported magic', () => {
     expect(() => validator.validate({
       buffer: Buffer.from('not a Sellpia workbook'),
+      mimeType: 'application/vnd.ms-excel',
+    })).toThrow(BadRequestException);
+  });
+
+  it.each([
+    ['prefix-only BOF', rawBiffBof()],
+    [
+      'truncated record header',
+      Buffer.concat([rawBiffBof(), Buffer.from([0x04, 0x02, 0x01])]),
+    ],
+    [
+      'truncated record payload',
+      Buffer.concat([rawBiffBof(), biffRecordHeader(0x0204, 8), Buffer.alloc(1)]),
+    ],
+    [
+      'oversized record payload declaration',
+      Buffer.concat([
+        rawBiffBof(),
+        biffRecordHeader(0x0204, 8_225),
+        biffRecord(0x000a),
+      ]),
+    ],
+    [
+      'missing EOF',
+      Buffer.concat([rawBiffBof(), rawBiffLabel()]),
+    ],
+    [
+      'bytes after EOF',
+      Buffer.concat([rawBiffWorksheetBuffer(), Buffer.from([0x00])]),
+    ],
+    [
+      'wrong BOF record',
+      Buffer.concat([rawBiffLabel(), biffRecord(0x000a)]),
+    ],
+    [
+      'wrong BOF subtype',
+      Buffer.concat([rawBiffBof(0x0005), rawBiffLabel(), biffRecord(0x000a)]),
+    ],
+    [
+      'wrong BOF version',
+      Buffer.concat([
+        rawBiffBof(0x0010, 0x1234),
+        rawBiffLabel(),
+        biffRecord(0x000a),
+      ]),
+    ],
+    [
+      'nonempty EOF',
+      Buffer.concat([
+        rawBiffBof(),
+        rawBiffLabel(),
+        biffRecord(0x000a, Buffer.from([0x00])),
+      ]),
+    ],
+    [
+      'no data records',
+      Buffer.concat([rawBiffBof(), biffRecord(0x000a)]),
+    ],
+  ])('rejects a raw BIFF worksheet with %s', (_label, buffer) => {
+    expect(() => validator.validate({
+      buffer,
       mimeType: 'application/vnd.ms-excel',
     })).toThrow(BadRequestException);
   });
@@ -364,4 +426,34 @@ function ole2Buffer(): Buffer {
     Buffer.from('d0cf11e0a1b11ae1', 'hex'),
     Buffer.alloc(504),
   ]);
+}
+
+function rawBiffWorksheetBuffer(): Buffer {
+  return Buffer.concat([
+    rawBiffBof(),
+    rawBiffLabel(),
+    biffRecord(0x000a),
+  ]);
+}
+
+function rawBiffBof(subtype = 0x0010, version = 0x0000): Buffer {
+  const payload = Buffer.alloc(8);
+  payload.writeUInt16LE(version, 0);
+  payload.writeUInt16LE(subtype, 2);
+  return biffRecord(0x0809, payload);
+}
+
+function rawBiffLabel(): Buffer {
+  return biffRecord(0x0204, Buffer.alloc(8));
+}
+
+function biffRecord(type: number, payload = Buffer.alloc(0)): Buffer {
+  return Buffer.concat([biffRecordHeader(type, payload.length), payload]);
+}
+
+function biffRecordHeader(type: number, payloadLength: number): Buffer {
+  const header = Buffer.alloc(4);
+  header.writeUInt16LE(type, 0);
+  header.writeUInt16LE(payloadLength, 2);
+  return header;
 }

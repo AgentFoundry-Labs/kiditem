@@ -18,6 +18,12 @@ const ZIP_MAGICS = [
 ];
 const INSPECTION_BYTE_LIMIT = 64 * 1024;
 const MAX_COMPRESSED_BYTES = 10 * 1024 * 1024;
+const MAX_BIFF_RECORD_BYTES = 8_224;
+const MAX_BIFF_RECORD_COUNT = 1_000_000;
+const BIFF_BOF_RECORD = 0x0809;
+const BIFF_EOF_RECORD = 0x000a;
+const BIFF_LABEL_RECORD = 0x0204;
+const BIFF_WORKSHEET_SUBSTREAM = 0x0010;
 const MAX_ZIP_ENTRY_COUNT = 256;
 const MAX_ZIP_ENTRY_UNCOMPRESSED_BYTES = 32 * 1024 * 1024;
 const MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES = 64 * 1024 * 1024;
@@ -42,6 +48,7 @@ export class SellpiaInventoryFileValidator {
     if (input.buffer.length > MAX_COMPRESSED_BYTES) throw invalidEnvelope();
     if (looksLikeHtmlOrLogin(input.buffer)) throw invalidEnvelope();
     if (input.buffer.subarray(0, OLE2_MAGIC.length).equals(OLE2_MAGIC)) return;
+    if (isBoundedBiffWorksheetStream(input.buffer)) return;
     if (ZIP_MAGICS.some((magic) => input.buffer.subarray(0, magic.length).equals(magic))) {
       if (isBoundedXlsxPackage(input.buffer)) return;
       throw invalidEnvelope();
@@ -49,6 +56,53 @@ export class SellpiaInventoryFileValidator {
     if (looksLikeSellpiaDelimitedText(input.buffer)) return;
     throw invalidEnvelope();
   }
+}
+
+function isBoundedBiffWorksheetStream(buffer: Buffer): boolean {
+  let offset = 0;
+  let recordCount = 0;
+  let hasLabelRecord = false;
+
+  while (offset < buffer.length) {
+    if (offset + 4 > buffer.length) return false;
+    const type = buffer.readUInt16LE(offset);
+    const size = buffer.readUInt16LE(offset + 2);
+    const end = offset + 4 + size;
+    recordCount += 1;
+    if (
+      size > MAX_BIFF_RECORD_BYTES
+      || end > buffer.length
+      || recordCount > MAX_BIFF_RECORD_COUNT
+    ) return false;
+
+    if (recordCount === 1) {
+      if (
+        type !== BIFF_BOF_RECORD
+        || !isSupportedBiffBof(buffer, offset + 4, size)
+      ) return false;
+    } else if (type === BIFF_BOF_RECORD) {
+      return false;
+    }
+
+    if (type === BIFF_EOF_RECORD) {
+      return size === 0 && hasLabelRecord && end === buffer.length;
+    }
+    if (type === BIFF_LABEL_RECORD && size > 0) hasLabelRecord = true;
+    offset = end;
+  }
+
+  return false;
+}
+
+function isSupportedBiffBof(buffer: Buffer, offset: number, size: number): boolean {
+  if (size !== 8 && size !== 16) return false;
+  const version = buffer.readUInt16LE(offset);
+  const subtype = buffer.readUInt16LE(offset + 2);
+  return subtype === BIFF_WORKSHEET_SUBSTREAM
+    && (
+      (size === 8 && (version === 0x0000 || version === 0x0500))
+      || (size === 16 && version === 0x0600)
+    );
 }
 
 function isBoundedXlsxPackage(buffer: Buffer): boolean {
