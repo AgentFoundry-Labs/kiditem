@@ -64,7 +64,7 @@ describe('<ProductOptionsWorkspace>', () => {
     render(<ProductOptionsWorkspace />);
 
     expect(
-      screen.getByRole('heading', { name: '상품 옵션 관리' }),
+      screen.getByRole('heading', { name: '상품 옵션 관리', level: 2 }),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole('heading', { name: '상품 매칭 센터' }),
@@ -90,6 +90,34 @@ describe('<ProductOptionsWorkspace>', () => {
       '/product-hub/00000000-0000-4000-8000-000000000001',
     );
     expect(screen.queryByRole('button', { name: /수정|삭제|복원/ })).not.toBeInTheDocument();
+  });
+
+  it('renders an h1 when used by the live legacy compatibility route', () => {
+    vi.mocked(useProductHubPageState).mockReturnValue({
+      activeStatus: 'active',
+      data,
+      errorMessage: null,
+      goToPage: vi.fn(),
+      handleSearch: vi.fn(),
+      isFetching: false,
+      isLoading: false,
+      isPlaceholderData: false,
+      page: 1,
+      refetch: vi.fn(),
+      search: '',
+      setActiveStatus: vi.fn(),
+      setSearch: vi.fn(),
+      setStockStatus: vi.fn(),
+      stockStatus: 'all',
+      totalPages: 1,
+    });
+
+    render(<ProductOptionsWorkspace headingLevel={1} />);
+
+    expect(
+      screen.getByRole('heading', { name: '상품 옵션 관리', level: 1 }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2 })).not.toBeInTheDocument();
   });
 
   it('connects the restored filters and refresh action to the current snapshot query', () => {

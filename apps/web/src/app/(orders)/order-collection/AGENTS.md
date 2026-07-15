@@ -21,7 +21,9 @@ manage local generated-file history.
 - Mall account reads/writes go through route-local API helpers.
 - Every mall account is classified exactly once from connection and collection
   state under `조치 필요`, `수집 가능`, or `설정 필요`; display text is not a
-  classification input.
+  classification input. Enabled extension-session malls remain collectable
+  without stored credentials; only disabled or genuinely unsupported accounts
+  require setup.
 - Recovery states (`Sellpia 전송 필요`, `전송 요청됨`, `재고 반영 대기`) and
   actions render before activity charts in the canonical collection workspace.
 

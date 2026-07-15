@@ -176,6 +176,59 @@ describe('ChannelSkuMappingRepositoryAdapter (PG integration)', () => {
     expect(result.items[0]?.channelAccount.channel).toBe('rocket');
   });
 
+  it('lists inactive-component recipes in needs review without changing saved status or recipe', async () => {
+    const activeMaster = await createInventorySku('SP-ACTIVE-REVIEW');
+    const inactiveMaster = await createInventorySku('SP-INACTIVE-REVIEW');
+    await prisma.masterProduct.update({
+      where: { id: inactiveMaster.id },
+      data: { isActive: false },
+    });
+    const activeRecipe = await createQueueSku({
+      externalSkuId: 'S-ACTIVE-RECIPE',
+      mappingStatus: 'matched',
+    });
+    const inactiveRecipe = await createQueueSku({
+      externalSkuId: 'S-INACTIVE-RECIPE',
+      mappingStatus: 'matched',
+    });
+    const storedReview = await createQueueSku({
+      externalSkuId: 'S-STORED-REVIEW',
+      mappingStatus: 'needs_review',
+    });
+    await prisma.channelSkuComponent.createMany({
+      data: [
+        component(activeRecipe.sku.id, activeMaster.id, 1),
+        component(inactiveRecipe.sku.id, inactiveMaster.id, 2),
+      ],
+    });
+
+    const result = await service.list(TEST_ORGANIZATION_ID, {
+      channelAccountId: ACCOUNT_A,
+      mappingStatus: 'needs_review',
+      page: 1,
+      limit: 50,
+    });
+
+    expect(result.items.map((item) => item.sku.id).sort()).toEqual([
+      inactiveRecipe.sku.id,
+      storedReview.sku.id,
+    ].sort());
+    expect(result.counts).toEqual({
+      all: 3,
+      unmatched: 0,
+      needsReview: 2,
+      matched: 2,
+    });
+    expect(result.items.find((item) => item.sku.id === inactiveRecipe.sku.id)).toMatchObject({
+      sku: { mappingStatus: 'matched' },
+      warnings: ['component_inactive'],
+    });
+    expect(await componentState(inactiveRecipe.sku.id)).toEqual([[inactiveMaster.id, 2]]);
+    expect(await prisma.channelListingOption.findUniqueOrThrow({
+      where: { id: inactiveRecipe.sku.id },
+    })).toMatchObject({ mappingStatus: 'matched' });
+  });
+
   it('uses only sellerSku, full modelNumber, explicit option code, and normalized identifiers', async () => {
     const target = await createQueueSku({
       externalProductId: 'SP-EXTERNAL-MUST-NOT-MATCH',

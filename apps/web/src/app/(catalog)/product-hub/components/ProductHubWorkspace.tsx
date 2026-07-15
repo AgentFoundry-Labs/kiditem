@@ -24,7 +24,7 @@ export function ProductHubWorkspace() {
       unmountInactive
       tabs={[
         { id: 'list', label: '상품 목록', icon: Package, content: <ProductsPageContent /> },
-        { id: 'options', label: '상품 옵션', icon: Layers, content: <ProductOptionsWorkspace /> },
+        { id: 'options', label: '상품 옵션', icon: Layers, content: <ProductOptionsWorkspace headingLevel={2} /> },
       ]}
     />
   );

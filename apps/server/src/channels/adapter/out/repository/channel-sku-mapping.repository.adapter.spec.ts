@@ -10,6 +10,50 @@ const ids = Array.from(
 );
 
 describe('ChannelSkuMappingRepositoryAdapter status refresh', () => {
+  it('includes inactive-component recipes in needs-review list and count filters', async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const count = vi.fn().mockResolvedValue(0);
+    const repository = new ChannelSkuMappingRepositoryAdapter({
+      channelListingOption: { findMany, count },
+    } as unknown as PrismaService);
+
+    await repository.list(organizationId, {
+      mappingStatus: 'needs_review',
+      page: 1,
+      limit: 50,
+    });
+
+    const selectedWhere = findMany.mock.calls[0]?.[0].where;
+    const needsReviewCountWhere = count.mock.calls[3]?.[0].where;
+    for (const where of [selectedWhere, needsReviewCountWhere]) {
+      expect(where).toMatchObject({
+        AND: [
+          expect.objectContaining({ organizationId }),
+          {
+            OR: [
+              {
+                AND: [
+                  { components: { none: {} } },
+                  { mappingStatus: 'needs_review' },
+                ],
+              },
+              {
+                components: {
+                  some: {
+                    organizationId,
+                    masterProduct: {
+                      is: { organizationId, isActive: false },
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      });
+    }
+  });
+
   it('keeps the registered channel name distinct from display and option names', async () => {
     const findFirst = vi.fn().mockResolvedValue({
       id: ids[0],

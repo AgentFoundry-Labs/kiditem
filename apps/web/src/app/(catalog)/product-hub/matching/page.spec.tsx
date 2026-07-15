@@ -318,6 +318,37 @@ describe('/product-hub/matching', () => {
     );
   });
 
+  it('keeps a persisted matched recipe with an inactive component visible in the public needs-review queue', async () => {
+    const inactiveRecipe = {
+      ...mappingItem,
+      sku: { ...mappingItem.sku, externalSkuId: 'sku-inactive', mappingStatus: 'matched' as const },
+      warnings: ['component_inactive' as const],
+    };
+    vi.mocked(useChannelSkuMappings).mockReturnValue({
+      data: {
+        ...listResponse,
+        items: [inactiveRecipe],
+        total: 1,
+        counts: { all: 1, unmatched: 0, needsReview: 1, matched: 1 },
+      },
+      isLoading: false,
+      isFetching: false,
+      error: null,
+      refetch: refetchList,
+    } as ReturnType<typeof useChannelSkuMappings>);
+    const user = userEvent.setup();
+
+    render(<MatchingPage />);
+    await user.click(screen.getByRole('button', { name: 'status needs_review' }));
+
+    expect(vi.mocked(useChannelSkuMappings).mock.lastCall?.[0]).toEqual(
+      expect.objectContaining({ mappingStatus: 'needs_review' }),
+    );
+    expect(screen.getByText('counts 1/0/1/1')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'edit sku-inactive' })).toBeInTheDocument();
+    expect(inactiveRecipe.sku.mappingStatus).toBe('matched');
+  });
+
   it('renders response counts and distinguishes no catalog from a filtered empty result', () => {
     vi.mocked(useChannelSkuMappings).mockReturnValue({
       data: { ...listResponse, items: [], total: 0, counts: { all: 0, unmatched: 0, needsReview: 0, matched: 0 } },

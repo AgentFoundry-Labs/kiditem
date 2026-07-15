@@ -33,7 +33,9 @@ React Query + apiClient
 - Link inventory import work to `/inventory-hub?tab=overview` and component
   matching work to `/product-hub/matching`.
 - The canonical shell owns the only `h1`, uses URL-authoritative view selection,
-  and unmounts the inactive list/options workspace.
+  and unmounts the inactive list/options workspace. The extracted options
+  workspace renders `h2` below that shell and `h1` only in the temporary live
+  compatibility route.
 
 ## Boundary Rules
 

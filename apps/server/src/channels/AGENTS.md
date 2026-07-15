@@ -97,6 +97,12 @@ current Sellpia component capacity is zero. Mixed recipes expose all component
 capacities and bottlenecks. Capacity is a read projection and never reserves or
 deducts stock.
 
+The matching queue's `needs_review` view is also a read projection: it includes
+persisted review-required SKUs without components and confirmed recipes that
+reference an inactive `MasterProduct`. Inactive-component membership must not
+rewrite the persisted `mappingStatus`, replace the recipe, or remove the SKU
+from the persisted matched view/count.
+
 ## Fixed Import + Matching APIs
 
 - `POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing`

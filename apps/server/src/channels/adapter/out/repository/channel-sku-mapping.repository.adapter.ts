@@ -81,7 +81,7 @@ implements ChannelSkuMappingRepositoryPort {
       query.channelAccountId,
       query.search,
     );
-    const selectedWhere = withStatus(baseWhere, query.mappingStatus);
+    const selectedWhere = withStatus(baseWhere, query.mappingStatus, organizationId);
     const select = mappingRowSelect(organizationId);
     const [rows, total, all, unmatched, needsReview, matched] = await Promise.all([
       this.prisma.channelListingOption.findMany({
@@ -93,9 +93,15 @@ implements ChannelSkuMappingRepositoryPort {
       }),
       this.prisma.channelListingOption.count({ where: selectedWhere }),
       this.prisma.channelListingOption.count({ where: baseWhere }),
-      this.prisma.channelListingOption.count({ where: withStatus(baseWhere, 'unmatched') }),
-      this.prisma.channelListingOption.count({ where: withStatus(baseWhere, 'needs_review') }),
-      this.prisma.channelListingOption.count({ where: withStatus(baseWhere, 'matched') }),
+      this.prisma.channelListingOption.count({
+        where: withStatus(baseWhere, 'unmatched', organizationId),
+      }),
+      this.prisma.channelListingOption.count({
+        where: withStatus(baseWhere, 'needs_review', organizationId),
+      }),
+      this.prisma.channelListingOption.count({
+        where: withStatus(baseWhere, 'matched', organizationId),
+      }),
     ]);
     return {
       rows: rows.map(toMappingRow),
@@ -575,6 +581,7 @@ function queueWhere(
 function withStatus(
   baseWhere: Prisma.ChannelListingOptionWhereInput,
   status: ChannelSkuMappingListQuery['mappingStatus'],
+  organizationId: string,
 ): Prisma.ChannelListingOptionWhereInput {
   if (!status || status === 'all') return baseWhere;
   if (status === 'matched') {
@@ -582,7 +589,29 @@ function withStatus(
   }
   if (status === 'needs_review') {
     return {
-      AND: [baseWhere, { components: { none: {} } }, { mappingStatus: 'needs_review' }],
+      AND: [
+        baseWhere,
+        {
+          OR: [
+            {
+              AND: [
+                { components: { none: {} } },
+                { mappingStatus: 'needs_review' },
+              ],
+            },
+            {
+              components: {
+                some: {
+                  organizationId,
+                  masterProduct: {
+                    is: { organizationId, isActive: false },
+                  },
+                },
+              },
+            },
+          ],
+        },
+      ],
     };
   }
   return {

@@ -6,8 +6,9 @@ import { PAGE_SIZE, useProductHubPageState } from '../hooks/useProductHubPageSta
 import SellpiaOptionFilters from '../options/components/SellpiaOptionFilters';
 import SellpiaOptionTable from '../options/components/SellpiaOptionTable';
 
-export function ProductOptionsWorkspace() {
+export function ProductOptionsWorkspace({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
   const state = useProductHubPageState();
+  const Heading = headingLevel === 1 ? 'h1' : 'h2';
 
   return (
     <div className="space-y-4">
@@ -17,9 +18,9 @@ export function ProductOptionsWorkspace() {
             <Layers size={20} className="text-white" />
           </div>
           <div>
-            <h2 className="text-2xl font-extrabold tracking-tight text-slate-900">
+            <Heading className="text-2xl font-extrabold tracking-tight text-slate-900">
               상품 옵션 관리
-            </h2>
+            </Heading>
             <p className="mt-0.5 text-xs text-slate-500">
               Sellpia 상품코드 단위 — 상품명 / 옵션명 / 바코드 / 매입가 / 판매가 / 재고 / 활성 상태
             </p>

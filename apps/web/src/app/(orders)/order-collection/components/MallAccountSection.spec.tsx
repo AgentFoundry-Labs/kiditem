@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -129,11 +129,14 @@ describe("MallAccountSection", () => {
   it("classifies every account once from configuration and pending collection state", () => {
     const needsAction = mallAccount("kidsnote", { name: "키즈노트" });
     const collectable = mallAccount("domeggook", { name: "도매꾹" });
-    const needsSetup = mallAccount("kakao", {
+    const extensionSession = mallAccount("kakao", {
       name: "카카오",
       configured: false,
       loginId: null,
       hasPassword: false,
+    });
+    const needsSetup = mallAccount("unsupported-mall", {
+      name: "미지원몰",
     });
     const stats = new Map<string, MallCollectionStat>([
       [needsAction.key, {
@@ -147,12 +150,18 @@ describe("MallAccountSection", () => {
       }],
     ]);
 
-    renderSection([needsAction, collectable, needsSetup], stats);
+    renderSection([needsAction, collectable, extensionSession, needsSetup], stats);
 
-    expect(screen.getByRole("heading", { name: /조치 필요/ })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /수집 가능/ })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /설정 필요/ })).toBeInTheDocument();
-    for (const name of ["키즈노트", "도매꾹", "카카오"]) {
+    const actionGroup = screen.getByRole("heading", { name: /조치 필요/ }).closest("section");
+    const collectableGroup = screen.getByRole("heading", { name: /수집 가능/ }).closest("section");
+    const setupGroup = screen.getByRole("heading", { name: /설정 필요/ }).closest("section");
+    expect(actionGroup).not.toBeNull();
+    expect(collectableGroup).not.toBeNull();
+    expect(setupGroup).not.toBeNull();
+    expect(within(actionGroup!).getByRole("article", { name: "키즈노트 계정 카드" })).toBeInTheDocument();
+    expect(within(collectableGroup!).getByRole("article", { name: "카카오 계정 카드" })).toBeInTheDocument();
+    expect(within(setupGroup!).getByRole("article", { name: "미지원몰 계정 카드" })).toBeInTheDocument();
+    for (const name of ["키즈노트", "도매꾹", "카카오", "미지원몰"]) {
       expect(screen.getAllByRole("article", { name: `${name} 계정 카드` })).toHaveLength(1);
     }
   });
