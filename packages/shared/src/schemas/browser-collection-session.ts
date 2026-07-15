@@ -12,6 +12,7 @@ export const BROWSER_COLLECTION_PRODUCERS = [
   'advertising.keyword_rank',
   'advertising.competitor_catalog',
   'channels.coupang_catalog',
+  'sourcing.wing_catalog',
   'sourcing.1688_trend',
   'sourcing.live_commerce',
   'orders.mall',
@@ -170,6 +171,14 @@ export const BrowserCollectionCommandSchema = z.discriminatedUnion('action', [
     .object({
       action: z.literal('restartCollectionSession'),
       runId: BrowserCollectionRunIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('finalizeCollectionSession'),
+      runId: BrowserCollectionRunIdSchema,
+      status: z.enum(['succeeded', 'failed']),
+      message: z.string().min(1).max(300),
     })
     .strict(),
 ]);

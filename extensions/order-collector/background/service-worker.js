@@ -136,6 +136,13 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
   if (msg?.action === "restartCollectionSession") {
     return respond(collectionSessions.get(msg.runId));
   }
+  if (msg?.action === "finalizeCollectionSession") {
+    const status = msg.status === "failed" ? "failed" : msg.status === "succeeded" ? "succeeded" : null;
+    if (!status || typeof msg.message !== "string" || msg.message.length < 1 || msg.message.length > 300) {
+      return respond(Promise.reject(new Error("Invalid collection finalization")));
+    }
+    return respond(orderCollectionLifecycle.finalize(msg.runId, status, msg.message));
+  }
 
   if (msg?.action === "ping") {
     sendResponse({

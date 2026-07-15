@@ -51,6 +51,8 @@ export function useReadinessCollection({
   refetchReadiness,
 }: UseReadinessCollectionOptions) {
   const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const [activeSession, setActiveSession] =
+    useState<BrowserCollectionSessionView | null>(null);
   const queryClient = useQueryClient();
 
   const invalidateCollectedData = async () => {
@@ -95,11 +97,14 @@ export function useReadinessCollection({
     extensionId: string,
     requestedRunId?: string,
   ) => {
+    const runId = requestedRunId ?? makeRunId();
+    setActiveSession(null);
     const session = await runReadinessExtensionCollection({
       check,
       producer,
       extensionId,
-      runId: requestedRunId ?? makeRunId(),
+      runId,
+      onSession: setActiveSession,
     });
     announceSession(session);
     return session;
@@ -143,12 +148,11 @@ export function useReadinessCollection({
         requestedRunId,
       );
       if (check.key === 'coupang_ads' && session.status === 'succeeded') {
-        await runReadinessExtensionCollection({
-          check: AD_SYNC_CHECK,
-          producer: 'advertising.ad_sync',
+        await runExtensionCollection(
+          AD_SYNC_CHECK,
+          'advertising.ad_sync',
           extensionId,
-          runId: makeRunId(),
-        });
+        );
       }
 
       await invalidateCollectedData();
@@ -160,5 +164,5 @@ export function useReadinessCollection({
     }
   };
 
-  return { pendingKey, handleCollect };
+  return { pendingKey, activeSession, handleCollect };
 }

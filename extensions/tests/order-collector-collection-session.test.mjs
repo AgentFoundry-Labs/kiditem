@@ -433,3 +433,59 @@ test('hostile date-shaped input cannot enter persisted order identity', async ()
     false,
   );
 });
+
+test('web-finalized order runs stay active through conversion and then succeed', async () => {
+  const runtime = loadWorker();
+  installCollectorResult(runtime, 'collectCoupangDirectOrders', () => ({
+    success: true,
+    pos: [{ seq: 'PO-1', transport: 'SHIPMENT' }],
+    centers: {},
+  }));
+  const runId = uuid(783);
+
+  const collected = await dispatch(runtime.externalMessageListener, {
+    action: 'collectCoupangDirectOrders',
+    date: '2026-07-15',
+    runId,
+    deferTerminal: true,
+  });
+
+  assert.equal(collected.collectionSession.status, 'running');
+  assert.equal(collected.collectionSession.progress.label, '브라우저 수집 완료 · 파일 생성 중');
+
+  const finalized = await dispatch(runtime.externalMessageListener, {
+    action: 'finalizeCollectionSession',
+    runId,
+    status: 'succeeded',
+    message: '쿠팡직배송 파일 생성 완료',
+  });
+
+  assert.equal(finalized.status, 'succeeded');
+  assert.equal(finalized.progress.label, '쿠팡직배송 파일 생성 완료');
+});
+
+test('web-finalized order failures remain personal session failures', async () => {
+  const runtime = loadWorker();
+  installCollectorResult(runtime, 'collectCoupangDirectOrders', () => ({
+    success: true,
+    pos: [{ seq: 'PO-1', transport: 'SHIPMENT' }],
+    centers: {},
+  }));
+  const runId = uuid(784);
+  await dispatch(runtime.externalMessageListener, {
+    action: 'collectCoupangDirectOrders',
+    runId,
+    deferTerminal: true,
+  });
+
+  const finalized = await dispatch(runtime.externalMessageListener, {
+    action: 'finalizeCollectionSession',
+    runId,
+    status: 'failed',
+    message: '쿠팡직배송 엑셀 생성 실패',
+  });
+
+  assert.equal(finalized.status, 'failed');
+  assert.equal(finalized.progress.failed, 1);
+  assert.equal(finalized.progress.label, '쿠팡직배송 엑셀 생성 실패');
+});

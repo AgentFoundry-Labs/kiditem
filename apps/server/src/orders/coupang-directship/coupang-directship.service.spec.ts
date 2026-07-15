@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { BadRequestException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -99,6 +100,78 @@ describe('CoupangDirectshipService', () => {
           },
         ],
       }),
-    ).rejects.toThrow('python3 + xlrd/xlwt/xlutils');
+    ).rejects.toThrow('쿠팡직배송 Python 런타임이 준비되지 않았습니다.');
+  });
+
+  it('uses the repository-managed Python runtime by default', async () => {
+    const { CoupangDirectshipService } = await import('./coupang-directship.service');
+    const service = new CoupangDirectshipService();
+
+    mockedExecFile.mockImplementation((file, args, _options, callback) => {
+      expect(file).toBe(join(__dirname, '../../../.venv/bin/python'));
+      const outputPath = (args as string[])[3];
+      writeFileSync(outputPath, Buffer.from('xls-output'));
+      callback?.(null, '{"rows":1}\n', '');
+      return {} as ReturnType<typeof execFile>;
+    });
+
+    await service.generate({
+      transport: 'SHIPMENT',
+      pos: [{
+        seq: 'PO-3',
+        transport: 'SHIPMENT',
+        status: 'PA',
+        items: [{ name: 'item', qty: 1, amount: 1000 }],
+      }],
+    });
+  });
+
+  it('passes cancellation into the Python child process', async () => {
+    const { CoupangDirectshipService } = await import('./coupang-directship.service');
+    const service = new CoupangDirectshipService();
+    const abortController = new AbortController();
+
+    mockedExecFile.mockImplementation((_file, args, options, callback) => {
+      expect(options).toEqual(expect.objectContaining({ signal: abortController.signal }));
+      const outputPath = (args as string[])[3];
+      writeFileSync(outputPath, Buffer.from('xls-output'));
+      callback?.(null, '{"rows":1}\n', '');
+      return {} as ReturnType<typeof execFile>;
+    });
+
+    await service.generate({
+      transport: 'SHIPMENT',
+      pos: [{
+        seq: 'PO-4',
+        transport: 'SHIPMENT',
+        status: 'PA',
+        items: [{ name: 'item', qty: 1, amount: 1000 }],
+      }],
+    }, { signal: abortController.signal });
+  });
+
+  it('does not expose the child-process command when Python packages are missing', async () => {
+    const { CoupangDirectshipService } = await import('./coupang-directship.service');
+    const service = new CoupangDirectshipService();
+    const runtimeError = Object.assign(new Error('Command failed: python3 /private/path/generate.py'), {
+      stderr: 'ModuleNotFoundError: No module named \'xlrd\'',
+    });
+    mockedExecFile.mockImplementation((_file, _args, _options, callback) => {
+      callback?.(runtimeError, '', runtimeError.stderr);
+      return {} as ReturnType<typeof execFile>;
+    });
+
+    const result = service.generate({
+      transport: 'SHIPMENT',
+      pos: [{
+        seq: 'PO-5',
+        transport: 'SHIPMENT',
+        status: 'PA',
+        items: [{ name: 'item', qty: 1, amount: 1000 }],
+      }],
+    });
+
+    await expect(result).rejects.toThrow('쿠팡직배송 Python 런타임이 준비되지 않았습니다.');
+    await expect(result).rejects.not.toThrow('Command failed');
   });
 });

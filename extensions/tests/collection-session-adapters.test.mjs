@@ -186,6 +186,10 @@ test('start sanitizes identity and publishes only the public session view', asyn
   assert.equal(view.finishedAt, null);
   assert.equal(runtime.calls.executeScript.length, 2);
   for (const call of runtime.calls.executeScript) {
+    assert.doesNotThrow(
+      () => new Function(`return (${call.func.toString()});`),
+      'chrome.scripting.executeScript func must serialize as a standalone function expression',
+    );
     const published = call.args[0];
     assert.equal(published.inputIdentity.password, undefined);
     assert.equal(published._managedTabId, undefined);

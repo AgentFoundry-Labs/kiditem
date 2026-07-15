@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
   sendBrowserCollectionControl,
+  syncBrowserCollectionAlert,
   type BrowserCollectionControlAction,
   updateBrowserCollectionSessionCache,
 } from '@/lib/browser-collection-session';
@@ -15,6 +16,7 @@ type BrowserCollectionRunControlsProps = {
   onWebRestart: (session: BrowserCollectionSessionView) => void | Promise<void>;
   webRestartUnavailableMessage?: string;
   className?: string;
+  showCancel?: boolean;
 };
 
 export function BrowserCollectionRunControls({
@@ -22,6 +24,7 @@ export function BrowserCollectionRunControls({
   onWebRestart,
   webRestartUnavailableMessage,
   className,
+  showCancel = true,
 }: BrowserCollectionRunControlsProps) {
   const queryClient = useQueryClient();
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -37,6 +40,7 @@ export function BrowserCollectionRunControls({
       const response = await sendBrowserCollectionControl(session.runId, action);
       if (response) {
         updateBrowserCollectionSessionCache(queryClient, response);
+        await syncBrowserCollectionAlert(response);
       }
     } catch (error) {
       console.warn(`[browser-collection] ${action} failed`, error);
@@ -58,6 +62,7 @@ export function BrowserCollectionRunControls({
         );
         if (response) {
           updateBrowserCollectionSessionCache(queryClient, response);
+          await syncBrowserCollectionAlert(response);
         }
       }
     } catch (error) {
@@ -134,14 +139,16 @@ export function BrowserCollectionRunControls({
             처음부터 재실행
           </button>
         )}
-        <button
-          type="button"
-          className={buttonClassName}
-          disabled={busyAction !== null}
-          onClick={() => void runControl('cancelCollectionSession')}
-        >
-          중단
-        </button>
+        {showCancel && (
+          <button
+            type="button"
+            className={buttonClassName}
+            disabled={busyAction !== null}
+            onClick={() => void runControl('cancelCollectionSession')}
+          >
+            중단
+          </button>
+        )}
       </div>
     </div>
   );

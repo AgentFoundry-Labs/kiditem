@@ -16,8 +16,17 @@ const helperPath = path.join(
 
 function createFakeChrome(initialStorage = {}) {
   const storage = structuredClone(initialStorage);
-  const windows = new Map();
-  const tabs = new Map();
+  const userTab = {
+    id: 10,
+    windowId: 1,
+    active: true,
+    status: 'complete',
+    url: 'http://localhost:3000/product-pipeline/registered-products',
+  };
+  const windows = new Map([
+    [1, { id: 1, type: 'normal', focused: true, tabs: [userTab] }],
+  ]);
+  const tabs = new Map([[10, userTab]]);
   const calls = {
     tabsUpdate: [],
     windowsCreate: [],
@@ -154,6 +163,11 @@ test('creates one unfocused extension-owned window and navigates its active tab 
   );
   assert.equal(fake.calls.windowsUpdate.length, 0);
   assert.equal(fake.calls.windowsCreate.length, 1);
+  assert.equal(fake.tabs.get(10).active, true);
+  assert.equal(
+    fake.tabs.get(10).url,
+    'http://localhost:3000/product-pipeline/registered-products',
+  );
 });
 
 test('reattaches a live owned tab after a worker reload and rejects another run', async () => {

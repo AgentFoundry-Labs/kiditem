@@ -10,6 +10,28 @@ const mockAdSyncRun = vi.hoisted(() => vi.fn());
 const mockSearchParams = vi.hoisted(() => new URLSearchParams());
 const mockCollectionSession = vi.hoisted(() => vi.fn());
 const mockHandleCollect = vi.hoisted(() => vi.fn());
+const mockReadinessCollectionState = vi.hoisted(() => ({
+  activeSession: null as null | {
+    runId: string;
+    producer: 'dashboard.wing_sales';
+    classification: 'background_preferred';
+    status: 'running';
+    attempt: number;
+    restartStrategy: 'web';
+    progress: {
+      current: number;
+      total: number;
+      completed: number;
+      failed: number;
+      label: string;
+    };
+    inputIdentity: { trigger: string };
+    attention: null;
+    startedAt: number;
+    updatedAt: number;
+    finishedAt: null;
+  },
+}));
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,
@@ -37,6 +59,7 @@ vi.mock('../readiness/useReadinessCollection', () => ({
   useReadinessCollection: () => ({
     pendingKey: null,
     handleCollect: mockHandleCollect,
+    activeSession: mockReadinessCollectionState.activeSession,
   }),
 }));
 
@@ -111,6 +134,7 @@ describe('ReadinessModal', () => {
     mockCollectionSession.mockReset();
     mockCollectionSession.mockReturnValue({ data: null });
     mockHandleCollect.mockReset();
+    mockReadinessCollectionState.activeSession = null;
     mockSearchParams.delete('collectionRun');
     localStorage.clear();
     sessionStorage.clear();
@@ -224,6 +248,34 @@ describe('ReadinessModal', () => {
         runId,
       );
     });
+  });
+
+  it('renders stop controls for a collection started directly from the modal', async () => {
+    mockReadinessCollectionState.activeSession = {
+      runId: '22222222-2222-4222-8222-222222222222',
+      producer: 'dashboard.wing_sales',
+      classification: 'background_preferred',
+      status: 'running',
+      attempt: 1,
+      restartStrategy: 'web',
+      progress: {
+        current: 3,
+        total: 10,
+        completed: 3,
+        failed: 0,
+        label: 'Wing 매출 수집',
+      },
+      inputIdentity: { trigger: 'readiness' },
+      attention: null,
+      startedAt: 1_700_000_000_000,
+      updatedAt: 1_700_000_001_000,
+      finishedAt: null,
+    };
+
+    render(<ReadinessModal open onClose={vi.fn()} />, { wrapper: wrapper() });
+
+    expect(await screen.findByText('진행 3 / 10')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '중단' })).toBeInTheDocument();
   });
 
   it('does not pass a React click event as the ad-sync run id', async () => {

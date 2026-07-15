@@ -32,6 +32,7 @@ interface MallAccountSectionProps {
   mallSaving: boolean;
   browserCollecting: boolean;
   collectingKeys: Set<string>;
+  cancellingKeys: Set<string>;
   mallError: string | null;
   selectedMall: OrderCollectionMallAccount | null | undefined;
   mallDraft: MallAccountDraft;
@@ -54,6 +55,7 @@ interface MallAccountSectionProps {
   onRefresh: () => void;
   onOpenSettings: (account: OrderCollectionMallAccount) => void;
   onCollectMall: (account: OrderCollectionMallAccount) => void;
+  onCancelMall: (account: OrderCollectionMallAccount) => void;
   onUploadTracking: (account: OrderCollectionMallAccount) => void;
   onToggleAutoDetect: () => void;
   onAutoIntervalChange: (minutes: number) => void;
@@ -75,6 +77,7 @@ export function MallAccountSection({
   mallSaving,
   browserCollecting,
   collectingKeys,
+  cancellingKeys,
   mallError,
   selectedMall,
   mallDraft,
@@ -97,6 +100,7 @@ export function MallAccountSection({
   onRefresh,
   onOpenSettings,
   onCollectMall,
+  onCancelMall,
   onUploadTracking,
   onToggleAutoDetect,
   onAutoIntervalChange,
@@ -226,6 +230,7 @@ export function MallAccountSection({
                   const isOpenAccount =
                     mallSettingsOpen && selectedMall?.key === account.key;
                   const isCollectingAccount = collectingKeys.has(account.key);
+                  const isCancellingAccount = cancellingKeys.has(account.key);
                   const collectable =
                     account.enabled && isBrowserCollectableMall(account);
                   const autoDetectable = isAutoDetectableMall(account);
@@ -336,25 +341,44 @@ export function MallAccountSection({
                       <div className="mt-2.5 flex gap-1.5">
                         <button
                           type="button"
-                          onClick={() => onCollectMall(account)}
-                          aria-label={`${account.name} 수집`}
-                          disabled={
-                            browserCollecting ||
-                            isCollectingAccount ||
-                            conversionState === "converting" ||
-                            !collectable
+                          onClick={() =>
+                            isCollectingAccount
+                              ? onCancelMall(account)
+                              : onCollectMall(account)
                           }
+                          aria-label={`${account.name} ${
+                            isCollectingAccount
+                              ? isCancellingAccount
+                                ? "중단 중"
+                                : "중단"
+                              : "수집"
+                          }`}
+                          disabled={isCollectingAccount
+                            ? isCancellingAccount
+                            : browserCollecting ||
+                              conversionState === "converting" ||
+                              !collectable}
                           title={
-                            !account.enabled
+                            isCollectingAccount
+                              ? `${account.name} 수집 중단`
+                              : !account.enabled
                               ? "중지된 계정입니다."
                               : collectable
                                 ? `${account.name} 개별 수집`
                                 : "자동 수집 준비 중"
                           }
-                          className="inline-flex flex-1 items-center justify-center whitespace-nowrap rounded-md bg-purple-600 py-1.5 text-xs font-medium text-white transition-colors hover:bg-purple-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                          className={cn(
+                            "inline-flex flex-1 items-center justify-center gap-1 whitespace-nowrap rounded-md py-1.5 text-xs font-medium text-white transition-colors disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400",
+                            isCollectingAccount
+                              ? "bg-red-500 hover:bg-red-600"
+                              : "bg-purple-600 hover:bg-purple-700",
+                          )}
                         >
                           {isCollectingAccount ? (
-                            <Loader2 size={13} className="animate-spin" />
+                            <>
+                              <Loader2 size={13} className="animate-spin" />
+                              {isCancellingAccount ? "중단 중…" : "중단"}
+                            </>
                           ) : (
                             "수집"
                           )}

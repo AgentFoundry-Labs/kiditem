@@ -139,6 +139,7 @@ describe('readiness extension collection', () => {
 
   it('starts a run and reads its generic collection session by run ID', async () => {
     const completed = session('dashboard.wing_sales');
+    const onSession = vi.fn();
     vi.mocked(sendToExtension)
       .mockResolvedValueOnce(COMPATIBLE_PING)
       .mockResolvedValueOnce({ success: true, started: true, runId: RUN_ID })
@@ -150,6 +151,7 @@ describe('readiness extension collection', () => {
         producer: 'dashboard.wing_sales',
         extensionId: 'coupang-extension',
         runId: RUN_ID,
+        onSession,
       }),
     ).resolves.toEqual(completed);
 
@@ -167,6 +169,7 @@ describe('readiness extension collection', () => {
       runId: RUN_ID,
     });
     expect(syncBrowserCollectionAlert).toHaveBeenCalledWith(completed);
+    expect(onSession).toHaveBeenCalledWith(completed);
   });
 
   it('returns the collection result when alert synchronization is unavailable', async () => {
@@ -322,6 +325,12 @@ describe('readiness extension collection', () => {
     ]);
     expect((starts[1]?.[1] as { runId?: string }).runId).toMatch(
       /^[0-9a-f-]{36}$/i,
+    );
+    expect(result.current.activeSession).toEqual(
+      expect.objectContaining({
+        producer: 'advertising.ad_sync',
+        status: 'succeeded',
+      }),
     );
   });
 

@@ -21,6 +21,7 @@ const PRODUCERS = [
   'advertising.keyword_rank',
   'advertising.competitor_catalog',
   'channels.coupang_catalog',
+  'sourcing.wing_catalog',
   'sourcing.1688_trend',
   'sourcing.live_commerce',
   'orders.mall',
@@ -244,8 +245,23 @@ describe('BrowserCollectionCommandSchema', () => {
     { action: 'cancelCollectionSession', runId: RUN_ID },
     { action: 'openCollectionAttentionTab', runId: RUN_ID },
     { action: 'restartCollectionSession', runId: RUN_ID },
+    {
+      action: 'finalizeCollectionSession',
+      runId: RUN_ID,
+      status: 'failed',
+      message: '쿠팡직배송 엑셀 생성 실패',
+    },
   ])('accepts the $action command', (command) => {
     expect(BrowserCollectionCommandSchema.parse(command)).toEqual(command);
+  });
+
+  it('bounds web-finalized collection messages', () => {
+    expect(() => BrowserCollectionCommandSchema.parse({
+      action: 'finalizeCollectionSession',
+      runId: RUN_ID,
+      status: 'failed',
+      message: 'x'.repeat(301),
+    })).toThrow();
   });
 
   it('rejects unknown command keys and non-UUID run identities', () => {

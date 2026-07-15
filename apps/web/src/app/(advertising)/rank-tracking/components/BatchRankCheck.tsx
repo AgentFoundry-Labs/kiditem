@@ -42,11 +42,17 @@ export default function BatchRankCheck({
     collectionSessionQuery.data?.producer === "advertising.wing_rank"
       ? collectionSessionQuery.data
       : null;
+  const linkedSessionActive =
+    collectionSession?.status === "running" ||
+    collectionSession?.status === "attention_required";
+  const linkedSessionPending =
+    !!linkedRunId && collectionSessionQuery.isPending;
 
   const discoveryQuery = useQuery({
     queryKey: ["rank-tracking", "check-status", "discovery", extensionId],
     queryFn: () => getWingSalesRankCheckStatus(extensionId!, null),
-    enabled: !!extensionId && !runId && !linkedRunId,
+    enabled:
+      !!extensionId && !runId && !linkedSessionPending && !linkedSessionActive,
     refetchInterval: (query) => {
       const data = query.state.data as RankCheckStatus | undefined;
       return data && isRunning(data.status) ? false : 5000;
@@ -63,10 +69,10 @@ export default function BatchRankCheck({
   }, [discoveryQuery.data]);
 
   useEffect(() => {
-    if (!collectionSession || runId) return;
+    if (!collectionSession || !linkedSessionActive || runId) return;
     settledRunIdRef.current = null;
     setRunId(collectionSession.runId);
-  }, [collectionSession, runId]);
+  }, [collectionSession, linkedSessionActive, runId]);
 
   const statusQuery = useQuery({
     queryKey: ["rank-tracking", "check-status", extensionId, runId],

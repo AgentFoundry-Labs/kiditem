@@ -56,6 +56,7 @@ export async function collectCoupangDirectFromExtension(run?: OrderCollectionExt
       action: 'collectCoupangDirectOrders',
       date: run?.date,
       runId: run?.runId ?? globalThis.crypto.randomUUID(),
+      deferTerminal: Boolean(run?.runId),
     },
     240000, // 발주별 /scm 상세 fetch 가 많아 넉넉히
   );
@@ -69,12 +70,13 @@ export async function collectCoupangDirectFromExtension(run?: OrderCollectionExt
 export async function convertCoupangDirectToSellpiaFile(
   data: CoupangDirectData,
   transport: CoupangTransport,
-  options?: { download?: boolean },
+  options?: { download?: boolean; signal?: AbortSignal },
 ): Promise<OrderCollectionConversionResult> {
   const res = await apiClient.fetchRaw('/api/orders/collection/coupang-directship/convert', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ pos: data.pos, centers: data.centers, transport }),
+    signal: options?.signal,
   });
   if (!res.ok) {
     throw new Error((await res.text().catch(() => '')) || '쿠팡직배송 변환에 실패했습니다.');

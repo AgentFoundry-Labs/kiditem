@@ -72,6 +72,7 @@ function session(
 
 describe('browser collection alert synchronization', () => {
   beforeEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
     mockStart.mockResolvedValue({ id: 'alert-1' });
     mockUpdate.mockResolvedValue({ id: 'alert-1' });
@@ -374,6 +375,90 @@ describe('browser collection extension lookup and controls', () => {
       action: 'cancelCollectionSession',
       runId: RUN_ID,
     });
+  });
+
+  it('re-reads the session when an older extension returns only a control result', async () => {
+    const cancelled = session({
+      status: 'cancelled',
+      finishedAt: 1_700_000_002_000,
+    });
+    mockSend.mockImplementation(
+      async (extensionId: string, command: { action: string }) => {
+        if (extensionId !== 'coupang-extension') return null;
+        if (command.action === 'cancelCollectionSession') {
+          return { success: true, cancelled: true, runId: RUN_ID };
+        }
+        if (command.action === 'getCollectionSession') return cancelled;
+        return null;
+      },
+    );
+
+    await expect(
+      sendBrowserCollectionControl(RUN_ID, 'cancelCollectionSession'),
+    ).resolves.toEqual(cancelled);
+    expect(mockSend).toHaveBeenCalledTimes(6);
+    expect(mockSend).toHaveBeenCalledWith('coupang-extension', {
+      action: 'getCollectionSession',
+      runId: RUN_ID,
+    });
+  });
+
+  it('re-reads the session when cancellation closes the response port', async () => {
+    const cancelled = session({
+      status: 'cancelled',
+      finishedAt: 1_700_000_002_000,
+    });
+    mockSend.mockImplementation(
+      async (extensionId: string, command: { action: string }) => {
+        if (extensionId !== 'coupang-extension') return null;
+        return command.action === 'getCollectionSession' ? cancelled : null;
+      },
+    );
+
+    await expect(
+      sendBrowserCollectionControl(RUN_ID, 'cancelCollectionSession'),
+    ).resolves.toEqual(cancelled);
+    expect(mockSend).toHaveBeenCalledTimes(6);
+  });
+
+  it('waits for the cancelled session when the first post-control read is still running', async () => {
+    vi.useFakeTimers();
+    const cancelled = session({
+      status: 'cancelled',
+      updatedAt: 1_700_000_002_000,
+      finishedAt: 1_700_000_002_000,
+    });
+    let reads = 0;
+    mockSend.mockImplementation(
+      async (extensionId: string, command: { action: string }) => {
+        if (extensionId !== 'coupang-extension') return null;
+        if (command.action !== 'getCollectionSession') return null;
+        reads += 1;
+        return reads === 1 ? session() : cancelled;
+      },
+    );
+
+    const result = sendBrowserCollectionControl(
+      RUN_ID,
+      'cancelCollectionSession',
+    );
+    await vi.runAllTimersAsync();
+
+    await expect(result).resolves.toEqual(cancelled);
+    expect(reads).toBe(2);
+  });
+
+  it('surfaces an explicit extension control failure without reporting stale state', async () => {
+    mockSend.mockImplementation(async (extensionId: string) =>
+      extensionId === 'coupang-extension'
+        ? { success: false, error: 'cancel failed' }
+        : null,
+    );
+
+    await expect(
+      sendBrowserCollectionControl(RUN_ID, 'cancelCollectionSession'),
+    ).rejects.toThrow('cancel failed');
+    expect(mockSend).toHaveBeenCalledTimes(3);
   });
 
   it('rejects commands outside the five shared collection controls', async () => {

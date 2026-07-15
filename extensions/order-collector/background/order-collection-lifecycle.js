@@ -112,6 +112,16 @@
           });
           return { ...result, runId, collectionSession };
         }
+        if (message?.deferTerminal === true && result.success !== false) {
+          const collectionSession = await sessions.progress(runId, {
+            current: 1,
+            total: 2,
+            completed: 1,
+            failed: 0,
+            label: "브라우저 수집 완료 · 파일 생성 중",
+          });
+          return { ...result, runId, collectionSession };
+        }
         const collectionSession = result.success === false
           ? await sessions.fail(runId)
           : await sessions.succeed(runId);
@@ -151,7 +161,20 @@
       return sessions.cancel(runId, { closeManagedTab: true });
     }
 
-    return Object.freeze({ run, cancel });
+    async function finalize(runId, status, message) {
+      const current = await sessions.get(runId);
+      if (!current || current.producer !== "orders.mall") return null;
+      if (current.status === "cancelled") return current;
+      if (current.status !== "running") return current;
+      const label = typeof message === "string" ? message.trim().slice(0, 300) : "";
+      const progress = status === "failed"
+        ? { current: 2, total: 2, completed: 1, failed: 1, label: label || "주문 파일 생성 실패" }
+        : { current: 2, total: 2, completed: 2, failed: 0, label: label || "주문 파일 생성 완료" };
+      await sessions.progress(runId, progress);
+      return status === "failed" ? sessions.fail(runId) : sessions.succeed(runId);
+    }
+
+    return Object.freeze({ run, cancel, finalize });
   }
 
   root.KidItemOrderCollectionLifecycle = Object.freeze({

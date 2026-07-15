@@ -6,12 +6,14 @@ import { queryKeys } from '@/lib/query-keys';
 
 const RUN_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const mockSendControl = vi.hoisted(() => vi.fn());
+const mockSyncAlert = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/browser-collection-session', async (importOriginal) => ({
   ...(await importOriginal<
     typeof import('@/lib/browser-collection-session')
   >()),
   sendBrowserCollectionControl: mockSendControl,
+  syncBrowserCollectionAlert: mockSyncAlert,
 }));
 
 import { BrowserCollectionRunControls } from './BrowserCollectionRunControls';
@@ -78,6 +80,7 @@ describe('BrowserCollectionRunControls', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSendControl.mockResolvedValue(null);
+    mockSyncAlert.mockResolvedValue(undefined);
   });
 
   it('renders progress, attempt, and cancel while running', () => {
@@ -98,6 +101,19 @@ describe('BrowserCollectionRunControls', () => {
     expect(
       screen.queryByRole('button', { name: '확인 탭 열기' }),
     ).not.toBeInTheDocument();
+  });
+
+  it('can omit the built-in cancel when the owning panel places it beside status', () => {
+    renderWithQueryClient(
+      <BrowserCollectionRunControls
+        session={session()}
+        onWebRestart={vi.fn()}
+        showCancel={false}
+      />,
+    );
+
+    expect(screen.getByText('진행 1 / 4')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '중단' })).not.toBeInTheDocument();
   });
 
   it('renders explicit open, restart, and cancel controls for attention', () => {
@@ -281,6 +297,7 @@ describe('BrowserCollectionRunControls', () => {
     expect(
       queryClient.getQueryData(queryKeys.browserCollection.session(RUN_ID)),
     ).toEqual(cancelled);
+    expect(mockSyncAlert).toHaveBeenCalledWith(cancelled);
   });
 
   it('renders no controls after a session reaches a terminal state', () => {

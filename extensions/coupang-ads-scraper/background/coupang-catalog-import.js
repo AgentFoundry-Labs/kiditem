@@ -3,8 +3,8 @@
 
   const ALARM_NAME = "kiditem-coupang-catalog-import-step";
   const STATE_KEY = "kiditem_coupang_catalog_import";
-  const TAB_KEY = "kiditem_coupang_catalog_tab_id";
-  const WINDOW_KEY = "kiditem_coupang_catalog_window_id";
+  const LEGACY_TAB_KEY = "kiditem_coupang_catalog_tab_id";
+  const LEGACY_WINDOW_KEY = "kiditem_coupang_catalog_window_id";
   const MAX_PRODUCTS_PER_CHUNK = 20;
   const WING_LIST_URL =
     "https://wing.coupang.com/tenants/seller-web/vendor-inventory/list?searchKeywordType=ALL&searchKeywords=&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&shippingFeeSearchType=ALL&displayCategoryCodes=&listingStartTime=null&listingEndTime=null&saleEndDateSearchType=ALL&bundledShippingSearchType=ALL&upBundling=ALL&displayDeletedProduct=false&shippingMethod=ALL&exposureStatus=ALL&locale=ko_KR&sortMethod=SORT_BY_ITEM_LEVEL_UNIT_SOLD&countPerPage=50&page=1";
@@ -55,7 +55,7 @@
     await setState(state);
     if (state.status === "done") {
       await clearAlarm();
-      await closeManagedWindow();
+      await closeManagedWindow(dependencies, state.runId);
       await dependencies.collectionSessions.succeed(runId);
     }
     if (state.status === "running") {
@@ -100,7 +100,7 @@
     };
     await setState(cancelled);
     await clearAlarm();
-    await closeManagedWindow();
+    await closeManagedWindow(dependencies, cancelled.runId);
     if (dependencies?.collectionSessions) {
       await dependencies.collectionSessions.cancel(cancelled.runId);
     }
@@ -132,7 +132,7 @@
       endedAt: null,
       updatedAt: Date.now(),
     };
-    await closeManagedWindow();
+    await closeManagedWindow(dependencies, restarted.runId);
     await setState(restarted);
     if (restarted.status === "done") {
       await clearAlarm();
@@ -218,9 +218,7 @@
     const page = state.manifest ? state.currentPage + 1 : 1;
     const tab = await getOrCreateManagedTab(state, dependencies);
     const pageUrl = buildListUrl(page);
-    const loaded = await dependencies.updateTabAndWait(tab.id, pageUrl, {
-      active: false,
-    });
+    const loaded = await navigateManagedTab(state, dependencies, tab, pageUrl);
     if (!isWingListUrl(loaded?.url || "")) {
       await pauseForAttention(
         state,
@@ -302,9 +300,12 @@
 
   async function confirmManifest(state, dependencies) {
     const tab = await getOrCreateManagedTab(state, dependencies);
-    const loaded = await dependencies.updateTabAndWait(tab.id, buildListUrl(1), {
-      active: false,
-    });
+    const loaded = await navigateManagedTab(
+      state,
+      dependencies,
+      tab,
+      buildListUrl(1),
+    );
     if (!isWingListUrl(loaded?.url || "")) {
       await pauseForAttention(
         state,
@@ -387,10 +388,11 @@
     const tab = await getOrCreateManagedTab(state, dependencies);
     const products = [];
     for (const item of group) {
-      const loaded = await dependencies.updateTabAndWait(
-        tab.id,
+      const loaded = await navigateManagedTab(
+        state,
+        dependencies,
+        tab,
         buildDetailUrl(item.externalProductId),
-        { active: false },
       );
       if (!isWingDetailUrl(loaded?.url || "")) {
         await pauseForAttention(
@@ -566,7 +568,7 @@
     };
     await setState(failed);
     await clearAlarm();
-    await closeManagedWindow();
+    await closeManagedWindow(dependencies, state.runId);
     await dependencies.collectionSessions.fail(state.runId);
     try {
       await apiJson(dependencies, `${runApiPath(state)}/errors`, {
@@ -596,7 +598,7 @@
     };
     await setState(done);
     await clearAlarm();
-    await closeManagedWindow();
+    await closeManagedWindow(dependencies, state.runId);
     await dependencies.collectionSessions.succeed(state.runId);
     dependencies.notifyDashboard();
   }
@@ -714,71 +716,32 @@
   }
 
   async function getOrCreateManagedTab(state, dependencies) {
-    const data = await new Promise((resolve) => {
-      chrome.storage.local.get([TAB_KEY, WINDOW_KEY], resolve);
-        });
-        if (data?.[TAB_KEY] && data?.[WINDOW_KEY]) {
-          const tab = await getTab(data[TAB_KEY]).catch(() => null);
-          if (
-            tab?.id &&
-            tab.active !== true &&
-            tab.windowId === data[WINDOW_KEY]
-          ) {
-            await dependencies.collectionSessions.attachTab(state.runId, {
-              tabId: tab.id,
-              windowId: tab.windowId,
-        });
-        return tab;
-      }
-    }
-    await chrome.storage.local.remove([TAB_KEY, WINDOW_KEY]);
-    const tab = await new Promise((resolve, reject) => {
-      chrome.tabs.create({ url: WING_LIST_URL, active: false }, (created) => {
-        if (chrome.runtime.lastError || !created?.id) {
-          reject(new Error(chrome.runtime.lastError?.message || "Wing 수집 탭 생성 실패"));
-          return;
-        }
-        resolve(created);
-      });
-    });
-    if (!tab?.id) throw new Error("Wing 수집 탭을 만들 수 없습니다");
-    await chrome.storage.local.set({
-      [TAB_KEY]: tab.id,
-      [WINDOW_KEY]: tab.windowId,
-    });
+    await chrome.storage.local.remove([LEGACY_TAB_KEY, LEGACY_WINDOW_KEY]);
+    const owned = await dependencies.collectionWindow.getOrCreate(
+      state.runId,
+      WING_LIST_URL,
+    );
     await dependencies.collectionSessions.attachTab(state.runId, {
-      tabId: tab.id,
-      windowId: tab.windowId,
+      tabId: owned.tabId,
+      windowId: owned.windowId,
     });
-    return tab;
+    return { id: owned.tabId, windowId: owned.windowId };
   }
 
-  async function closeManagedWindow() {
-    const data = await new Promise((resolve) => {
-      chrome.storage.local.get([TAB_KEY], resolve);
-        });
-        const tabId = data?.[TAB_KEY];
-        if (tabId) {
-          const tab = await getTab(tabId).catch(() => null);
-          if (tab?.id && tab.active !== true) {
-            await new Promise((resolve) => {
-              chrome.tabs.remove(tabId, () => resolve());
-            });
-          }
-        }
-    await chrome.storage.local.remove([TAB_KEY, WINDOW_KEY]);
+  async function navigateManagedTab(state, dependencies, tab, url) {
+    const owned = await dependencies.collectionWindow.navigate(state.runId, url);
+    if (owned.tabId !== tab.id || owned.windowId !== tab.windowId) {
+      throw new Error("Wing 수집 창 소유권이 변경되었습니다");
+    }
+    return dependencies.waitForTabComplete(tab.id, {
+      expectedUrl: url,
+      timeoutMs: 45_000,
+    });
   }
 
-  function getTab(tabId) {
-    return new Promise((resolve, reject) => {
-      chrome.tabs.get(tabId, (tab) => {
-        if (chrome.runtime.lastError || !tab?.id) {
-          reject(new Error(chrome.runtime.lastError?.message || "Wing 탭 조회 실패"));
-          return;
-        }
-        resolve(tab);
-      });
-    });
+  async function closeManagedWindow(dependencies, runId) {
+    await chrome.storage.local.remove([LEGACY_TAB_KEY, LEGACY_WINDOW_KEY]);
+    return dependencies.collectionWindow.close(runId);
   }
 
   function delay(milliseconds) {

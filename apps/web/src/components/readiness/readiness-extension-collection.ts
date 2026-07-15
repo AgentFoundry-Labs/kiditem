@@ -35,6 +35,7 @@ export type ReadinessExtensionCollectionInput = {
   producer: BrowserCollectionProducer;
   extensionId: string;
   runId: string;
+  onSession?: (session: BrowserCollectionSessionView) => void;
 };
 
 export function readinessCollectionProducer(
@@ -52,6 +53,7 @@ export async function runReadinessExtensionCollection({
   producer,
   extensionId,
   runId,
+  onSession,
 }: ReadinessExtensionCollectionInput): Promise<BrowserCollectionSessionView> {
   const urls = check.scrapeUrls ?? [];
   if (urls.length === 0) throw new Error('수집 URL 없음');
@@ -94,6 +96,7 @@ export async function runReadinessExtensionCollection({
     });
     const parsed = BrowserCollectionSessionViewSchema.safeParse(response);
     if (parsed.success && parsed.data.runId === runId) {
+      onSession?.(parsed.data);
       await syncBrowserCollectionAlert(parsed.data).catch((error) => {
         console.warn('[browser-collection] alert synchronization failed', error);
       });

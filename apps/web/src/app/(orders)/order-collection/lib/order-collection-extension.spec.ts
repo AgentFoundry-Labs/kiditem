@@ -11,6 +11,7 @@ import {
   collectIcecreamMallRowsFromExtension,
   detectOrderCollectionSessionExtension,
   ensureMallLoggedInViaExtension,
+  finalizeOrderCollectionSession,
 } from './order-collection-extension';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
@@ -82,6 +83,30 @@ describe('order collection extension session bridge', () => {
       'order-extension',
       expect.objectContaining({ action: 'ensureMallLoggedIn', runId: RUN_ID }),
       45000,
+    );
+  });
+
+  it('finalizes the page-owned session after backend conversion', async () => {
+    bridge.sendToExtension.mockResolvedValue({
+      runId: RUN_ID,
+      producer: 'orders.mall',
+      status: 'failed',
+    });
+
+    await finalizeOrderCollectionSession(
+      { runId: RUN_ID, extensionId: 'order-extension' },
+      'failed',
+      '쿠팡직배송 엑셀 생성 실패',
+    );
+
+    expect(bridge.sendToExtension).toHaveBeenCalledWith(
+      'order-extension',
+      {
+        action: 'finalizeCollectionSession',
+        runId: RUN_ID,
+        status: 'failed',
+        message: '쿠팡직배송 엑셀 생성 실패',
+      },
     );
   });
 });

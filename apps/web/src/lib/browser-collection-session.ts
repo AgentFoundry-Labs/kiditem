@@ -23,7 +23,7 @@ type BrowserCollectionInputIdentity =
   BrowserCollectionSessionView['inputIdentity'];
 export type BrowserCollectionControlAction = Exclude<
   BrowserCollectionCommand['action'],
-  'listCollectionSessions' | 'getCollectionSession'
+  'listCollectionSessions' | 'getCollectionSession' | 'finalizeCollectionSession'
 >;
 
 const BROWSER_COLLECTION_TYPE = 'browser_collection';
@@ -237,6 +237,15 @@ function parseSession(value: unknown): BrowserCollectionSessionView | null {
   return parsed.success ? parsed.data : null;
 }
 
+function isExtensionFailure(
+  value: unknown,
+): value is { success: false; error?: unknown } {
+  return typeof value === 'object' &&
+    value !== null &&
+    'success' in value &&
+    value.success === false;
+}
+
 async function sendCommandToAllExtensions(
   command: BrowserCollectionCommand,
 ): Promise<unknown[]> {
@@ -307,5 +316,25 @@ export async function sendBrowserCollectionControl(
     const parsed = parseSession(response);
     return parsed?.runId === runId ? [parsed] : [];
   });
-  return preferNewestSessions(sessions)[0] ?? null;
+  const failure = responses.find(isExtensionFailure);
+  if (failure && typeof failure.error === 'string') {
+    throw new Error(failure.error);
+  }
+
+  let current: BrowserCollectionSessionView | null =
+    preferNewestSessions(sessions)[0] ?? null;
+  if (!current) current = await findBrowserCollectionSession(runId);
+  if (action !== 'cancelCollectionSession' || current?.status === 'cancelled') {
+    return current;
+  }
+
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    current = preferBrowserCollectionSession(
+      current,
+      await findBrowserCollectionSession(runId),
+    );
+    if (current?.status === 'cancelled') return current;
+  }
+  return current;
 }

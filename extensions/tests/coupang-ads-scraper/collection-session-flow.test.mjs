@@ -78,6 +78,10 @@ test('handles generic collection controls before producer actions', () => {
   assert.match(collectionRunsSource, /reason:\s*["']manual_confirmation["']/);
   assert.match(collectionRunsSource, /forceRestart:\s*true/);
   assert.match(collectionRunsSource, /options\.restartCatalog/);
+  assert.match(
+    worker,
+    /collectionRuns\s*\.\s*cancel\(msg\.runId\)[\s\S]*collectionSessions\.get\(msg\.runId\)/,
+  );
 });
 
 test('persists only allowlisted Coupang producers and advertises the capability', () => {
@@ -94,12 +98,25 @@ test('persists only allowlisted Coupang producers and advertises the capability'
     'advertising.keyword_rank',
     'advertising.competitor_catalog',
     'channels.coupang_catalog',
+    'sourcing.wing_catalog',
   ]) {
     assert.match(producerSources, new RegExp(producer.replace('.', '\\.')));
   }
   assert.match(worker, /browserCollectionSessions:\s*true/);
   assert.match(worker, /unsupported collection producer/i);
-  assert.equal(manifest.version, '1.2.33');
+  assert.equal(manifest.version, '1.2.35');
+});
+
+test('keeps single Wing catalog analysis separate from batch sales-rank collection', () => {
+  const source = functionSource(
+    'searchWingCatalogProducts',
+    'searchCoupangKeywordSuggestions',
+  );
+  assert.match(
+    source,
+    /beginWebCollection\(\s*["']sourcing\.wing_catalog["']/,
+  );
+  assert.doesNotMatch(source, /advertising\.wing_rank/);
 });
 
 test('the scrape-target producer owns one serialized silent window lifecycle', () => {
@@ -137,10 +154,11 @@ test('automatic collectors never reuse or navigate a user-active tab', () => {
   assert.match(worker, /before\?\.active && options\.allowActive !== true/);
   assert.match(worker, /throw new Error\(["']active user tab is collection-protected["']\)/);
   assert.doesNotMatch(worker, /\.catch\(\(\) => reusableTab\)/);
-  assert.ok(
-    (catalog.match(/tab\?\.id\s*&&\s*tab\.active !== true/g) || []).length >= 2,
-    'catalog tab reuse and cleanup must both preserve a user-active tab',
-  );
+  assert.match(catalog, /dependencies\.collectionWindow\.getOrCreate\(\s*state\.runId/);
+  assert.match(catalog, /dependencies\.collectionWindow\.navigate\(\s*state\.runId/);
+  assert.doesNotMatch(catalog, /chrome\.tabs\.create\(/);
+  assert.doesNotMatch(catalog, /chrome\.tabs\.update\(/);
+  assert.doesNotMatch(catalog, /chrome\.tabs\.remove\(/);
 });
 
 test('automatic rank and keyword helpers create extension-owned inactive tabs', () => {

@@ -52,6 +52,10 @@ const COLLECTION_PRODUCERS = new Map<
     },
   ],
   [
+    'sourcing.wing_catalog',
+    { title: '쿠팡 상품 분석', href: '/sourcing-ai/wing-catalog' },
+  ],
+  [
     'sourcing.1688_trend',
     { title: '1688 트렌드 수집', href: '/sourcing-ai/market' },
   ],

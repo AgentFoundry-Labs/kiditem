@@ -56,11 +56,65 @@ function renderBatchRankCheck() {
 
 describe("BatchRankCheck", () => {
   beforeEach(() => {
+    window.history.replaceState(null, "", "/rank-tracking");
     vi.mocked(getWingSalesRankCheckStatus).mockReset();
     vi.mocked(runWingSalesRankCheck).mockReset();
     mockCollectionSession.mockReset();
     mockCollectionSession.mockReturnValue({ data: null });
     mockSendCollectionControl.mockReset();
+  });
+
+  it("does not reattach a terminal collection linked from a personal alert", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      `/rank-tracking?collectionRun=${RUN_ID_1}`,
+    );
+    mockCollectionSession.mockReturnValue({
+      data: {
+        runId: RUN_ID_1,
+        producer: "advertising.wing_rank",
+        classification: "background_preferred",
+        status: "cancelled",
+        attempt: 1,
+        restartStrategy: "web",
+        progress: {
+          current: 2,
+          total: 946,
+          completed: 2,
+          failed: 0,
+          label: "비누방울",
+        },
+        inputIdentity: { scheduled: false },
+        attention: null,
+        startedAt: 1_700_000_000_000,
+        updatedAt: 1_700_000_001_000,
+        finishedAt: 1_700_000_001_000,
+      },
+    });
+    vi.mocked(getWingSalesRankCheckStatus).mockResolvedValue({
+      status: "cancelled",
+      runId: RUN_ID_1,
+      total: 946,
+      completed: 2,
+      failed: 0,
+      current: null,
+    });
+
+    renderBatchRankCheck();
+
+    await waitFor(() => {
+      expect(mockCollectionSession).toHaveBeenCalledWith(RUN_ID_1);
+    });
+    await waitFor(() => {
+      expect(getWingSalesRankCheckStatus).not.toHaveBeenCalledWith(
+        "coupang-extension",
+        RUN_ID_1,
+      );
+    });
+    expect(
+      screen.getByRole("button", { name: "전체 상품 순위 수집" }),
+    ).toBeEnabled();
   });
 
   it("restores an active extension run after the page reloads", async () => {

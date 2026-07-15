@@ -29,6 +29,7 @@ export interface OrderCollectionExtensionRun {
   runId: string;
   extensionId?: string;
   date?: string | null;
+  signal?: AbortSignal;
 }
 
 export interface MallLoginEnsureResult {
@@ -36,6 +37,21 @@ export interface MallLoginEnsureResult {
   submitted?: boolean;
   pendingLogin?: boolean;
   error?: string;
+}
+
+export async function finalizeOrderCollectionSession(
+  run: OrderCollectionExtensionRun,
+  status: 'succeeded' | 'failed',
+  message: string,
+) {
+  const extensionId = run.extensionId ?? await detectOrderCollectionSessionExtension();
+  if (!extensionId) return null;
+  return sendToExtension(extensionId, {
+    action: 'finalizeCollectionSession',
+    runId: run.runId,
+    status,
+    message: message.slice(0, 300),
+  });
 }
 
 export async function detectOrderCollectionSessionExtension(): Promise<string | null> {

@@ -57,9 +57,19 @@ export default function ReadinessModal({
     refetchOnWindowFocus: false,
   });
   const view = buildReadinessModalViewModel(query.data);
-  const { pendingKey, handleCollect } = useReadinessCollection({
+  const { pendingKey, activeSession, handleCollect } = useReadinessCollection({
     refetchReadiness: () => query.refetch(),
   });
+  const displayedCollectionSession = collectionRun
+    ? collectionSessionQuery.data
+    : activeSession;
+  const restartCheck = displayedCollectionSession
+    ? view.checks.find(
+        (check) =>
+          readinessCollectionProducer(check.key) ===
+          displayedCollectionSession.producer,
+      )
+    : null;
 
   const setOpen = (value: boolean) => {
     if (isControlled) {
@@ -158,20 +168,20 @@ export default function ReadinessModal({
           ) : (
             <>
               <div className="space-y-2.5">
-                {collectionSessionQuery.data && (
+                {displayedCollectionSession && (
                   <BrowserCollectionRunControls
-                    session={collectionSessionQuery.data}
+                    session={displayedCollectionSession}
                     onWebRestart={async (session) => {
-                      const restartCheck = view.checks.find(
-                        (check) =>
-                          readinessCollectionProducer(check.key) ===
-                          session.producer,
-                      );
                       if (!restartCheck || restartCheck.key === 'rocket_sales') {
                         return;
                       }
                       await handleCollect(restartCheck, session.runId);
                     }}
+                    webRestartUnavailableMessage={
+                      !restartCheck || restartCheck.key === 'rocket_sales'
+                        ? '해당 수집 항목에서 다시 실행해주세요.'
+                        : undefined
+                    }
                   />
                 )}
                 {view.actionChecks.map((check) => (

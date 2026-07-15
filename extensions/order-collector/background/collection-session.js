@@ -116,7 +116,7 @@
           .map((tab) =>
             chromeApi.scripting.executeScript({
               target: { tabId: tab.id },
-              func(detail) {
+              func: function publishCollectionSession(detail) {
                 window.dispatchEvent(
                   new CustomEvent('kiditem:browser-collection-session', {
                     detail,

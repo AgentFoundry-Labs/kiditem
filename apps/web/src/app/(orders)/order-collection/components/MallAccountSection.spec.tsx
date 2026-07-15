@@ -30,10 +30,15 @@ function renderSection(
   accounts: OrderCollectionMallAccount[],
   stats = new Map<string, MallCollectionStat>(),
   collectionControls?: ReactNode,
+  runState: {
+    collectingKeys?: Set<string>;
+    cancellingKeys?: Set<string>;
+  } = {},
 ) {
   const callbacks = {
     onCollectAll: vi.fn(),
     onCollectMall: vi.fn(),
+    onCancelMall: vi.fn(),
     onRetryFailedMalls: vi.fn(),
     onDraftChange: vi.fn(),
     onOpenMall: vi.fn(),
@@ -53,7 +58,8 @@ function renderSection(
       mallLoading={false}
       mallSaving={false}
       browserCollecting={false}
-      collectingKeys={new Set()}
+      collectingKeys={runState.collectingKeys ?? new Set()}
+      cancellingKeys={runState.cancellingKeys ?? new Set()}
       mallError={null}
       selectedMall={accounts[0]}
       mallDraft={{
@@ -165,6 +171,39 @@ describe("MallAccountSection", () => {
     expect(
       controls.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).not.toBe(0);
+  });
+
+  it("turns the existing collect button into a stop action while collecting", async () => {
+    const user = userEvent.setup();
+    const account = mallAccount("coupang-direct", { name: "쿠팡직배송" });
+    const callbacks = renderSection(
+      [account],
+      new Map(),
+      undefined,
+      { collectingKeys: new Set([account.key]) },
+    );
+
+    expect(screen.queryByRole("button", { name: "쿠팡직배송 수집" })).not.toBeInTheDocument();
+    const stopButton = screen.getByRole("button", { name: "쿠팡직배송 중단" });
+    await user.click(stopButton);
+
+    expect(callbacks.onCancelMall).toHaveBeenCalledWith(account);
+    expect(screen.getByRole("button", { name: "쿠팡직배송 송장 업로드" })).toBeDisabled();
+  });
+
+  it("disables the stop action while cancellation is being applied", () => {
+    const account = mallAccount("coupang-direct", { name: "쿠팡직배송" });
+    renderSection(
+      [account],
+      new Map(),
+      undefined,
+      {
+        collectingKeys: new Set([account.key]),
+        cancellingKeys: new Set([account.key]),
+      },
+    );
+
+    expect(screen.getByRole("button", { name: "쿠팡직배송 중단 중" })).toBeDisabled();
   });
 
   it("wires route collectionRun recovery and same-run restart", () => {

@@ -425,7 +425,10 @@ export function createBrowserMallCollector({
     for (const transport of transports) {
       const matchingPos = data.pos.filter((po) => String(po.transport ?? '').toUpperCase() === transport);
       if (matchingPos.length === 0) continue;
-      const result = await convertCoupangDirectToSellpiaFile(data, transport, { download: false });
+      const result = await convertCoupangDirectToSellpiaFile(data, transport, {
+        download: false,
+        signal: run.signal,
+      });
       const itemRows = result.outputRows ?? 0;
       const orderNumbers = coupangDirectOrderNumbers(matchingPos);
       const poCount = orderNumbers.length || result.sourceRows || matchingPos.length;
@@ -519,6 +522,7 @@ export function createBrowserMallCollector({
       runId: run?.runId ?? globalThis.crypto.randomUUID(),
       extensionId,
       date: run?.date ?? todayYmd(),
+      signal: run?.signal,
     };
     const today = collectionDateOf(resolvedRun);
     if (account.key === 'kidsnote') return resultFor(await generateKidsnoteSellpia(resolvedRun, today), today);

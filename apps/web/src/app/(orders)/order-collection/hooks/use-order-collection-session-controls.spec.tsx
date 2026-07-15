@@ -6,7 +6,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   detectExtension: vi.fn(),
+  finalizeSession: vi.fn(),
   recordMissing: vi.fn(),
+  sendControl: vi.fn(),
+  syncAlert: vi.fn(),
+  updateCache: vi.fn(),
   useSession: vi.fn(),
 }));
 
@@ -15,9 +19,13 @@ vi.mock('@/hooks/useBrowserCollectionSession', () => ({
 }));
 vi.mock('@/lib/browser-collection-session', () => ({
   recordMissingBrowserCollection: mocks.recordMissing,
+  sendBrowserCollectionControl: mocks.sendControl,
+  syncBrowserCollectionAlert: mocks.syncAlert,
+  updateBrowserCollectionSessionCache: mocks.updateCache,
 }));
 vi.mock('../lib/order-collection-extension', () => ({
   detectOrderCollectionSessionExtension: mocks.detectExtension,
+  finalizeOrderCollectionSession: mocks.finalizeSession,
 }));
 
 import { useOrderCollectionSessionControls } from './use-order-collection-session-controls';
@@ -75,6 +83,8 @@ describe('useOrderCollectionSessionControls', () => {
     window.history.replaceState({}, '', '/order-collection');
     mocks.useSession.mockReturnValue({ data: null });
     mocks.recordMissing.mockImplementation(async (_producer, _identity, runId) => ({ runId }));
+    mocks.syncAlert.mockResolvedValue(undefined);
+    mocks.updateCache.mockReturnValue(true);
   });
 
   it('keeps the page run id when the extension is missing', async () => {
@@ -110,7 +120,11 @@ describe('useOrderCollectionSessionControls', () => {
       run = await result.current.prepareRun(account, RUN_ID);
     });
 
-    expect(run).toEqual({ runId: RUN_ID, extensionId: 'order-extension' });
+    expect(run).toEqual({
+      runId: RUN_ID,
+      extensionId: 'order-extension',
+      signal: expect.any(AbortSignal),
+    });
     expect(mocks.recordMissing).not.toHaveBeenCalled();
   });
 
@@ -133,7 +147,110 @@ describe('useOrderCollectionSessionControls', () => {
       runId: RUN_ID,
       extensionId: 'order-extension',
       date: '2026-07-14',
+      signal: expect.any(AbortSignal),
     });
+  });
+
+  it('aborts backend work and cancels the matching extension session', async () => {
+    const cancelled = {
+      ...attentionSession('kidsnote'),
+      status: 'cancelled' as const,
+      attention: null,
+      finishedAt: 3,
+    };
+    mocks.detectExtension.mockResolvedValue('order-extension');
+    mocks.sendControl.mockResolvedValue(cancelled);
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([account]),
+      { wrapper },
+    );
+
+    let run: Awaited<ReturnType<typeof result.current.prepareRun>> | undefined;
+    await act(async () => {
+      run = await result.current.prepareRun(account, RUN_ID);
+    });
+    expect(run?.signal?.aborted).toBe(false);
+
+    await act(async () => {
+      await result.current.cancelRun(account);
+    });
+
+    expect(run?.signal?.aborted).toBe(true);
+    expect(mocks.sendControl).toHaveBeenCalledWith(RUN_ID, 'cancelCollectionSession');
+    expect(mocks.updateCache).toHaveBeenCalledWith(expect.anything(), cancelled);
+    expect(mocks.syncAlert).toHaveBeenCalledWith(cancelled);
+    expect(result.current.cancellingKeys).toContain(account.key);
+
+    act(() => result.current.releaseRun(account.key, RUN_ID));
+    expect(result.current.cancellingKeys).not.toContain(account.key);
+  });
+
+  it('finalizes conversion failure and syncs the personal alert', async () => {
+    const failed = {
+      ...attentionSession('kidsnote'),
+      status: 'failed' as const,
+      attention: null,
+      progress: {
+        current: 2,
+        total: 2,
+        completed: 1,
+        failed: 1,
+        label: '파일 생성 실패',
+      },
+      finishedAt: 3,
+    };
+    mocks.detectExtension.mockResolvedValue('order-extension');
+    mocks.finalizeSession.mockResolvedValue(failed);
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([account]),
+      { wrapper },
+    );
+
+    let run: Awaited<ReturnType<typeof result.current.prepareRun>> | undefined;
+    await act(async () => {
+      run = await result.current.prepareRun(account, RUN_ID);
+    });
+    await act(async () => {
+      await result.current.finalizeRun(
+        run!,
+        'failed',
+        '파일 생성 실패',
+      );
+    });
+
+    expect(mocks.finalizeSession).toHaveBeenCalledWith(
+      run,
+      'failed',
+      '파일 생성 실패',
+    );
+    expect(mocks.updateCache).toHaveBeenCalledWith(expect.anything(), failed);
+    expect(mocks.syncAlert).toHaveBeenCalledWith(failed);
+  });
+
+  it('keeps cancellation successful when personal-alert syncing is temporarily unavailable', async () => {
+    const cancelled = {
+      ...attentionSession('kidsnote'),
+      status: 'cancelled' as const,
+      attention: null,
+      finishedAt: 3,
+    };
+    mocks.detectExtension.mockResolvedValue('order-extension');
+    mocks.sendControl.mockResolvedValue(cancelled);
+    mocks.syncAlert.mockRejectedValue(new Error('alerts unavailable'));
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([account]),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.prepareRun(account, RUN_ID);
+    });
+
+    await expect(act(async () => {
+      await result.current.cancelRun(account);
+    })).resolves.toBeUndefined();
+
+    expect(result.current.cancellingKeys).toContain(account.key);
   });
 
   it('maps only configured route accounts to same-run restart', () => {

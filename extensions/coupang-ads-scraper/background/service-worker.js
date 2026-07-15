@@ -40,6 +40,8 @@ const KEYWORD_RANK_STATUS_KEY = "kiditem_keyword_rank_check"; // 쿠팡 검색(S
 const COMPETITOR_SELLER_CATALOG_STATUS_KEY =
   "kiditem_competitor_seller_catalog_check";
 const COLLECTION_WINDOW_STORAGE_KEY = "kiditem_coupang_collection_window";
+const CATALOG_COLLECTION_WINDOW_STORAGE_KEY =
+  "kiditem_coupang_catalog_collection_window";
 
 const kidItemAuth = KidItemAuth.create({
   chrome,
@@ -67,6 +69,10 @@ const collectionWindow = KidItemCollectionWindow.create({
       body: JSON.stringify({ action: "markScraped", id: targetId }),
     }).then(() => undefined),
   notify: notifyDashboard,
+});
+const catalogCollectionWindow = KidItemCollectionWindow.create({
+  chrome,
+  storageKey: CATALOG_COLLECTION_WINDOW_STORAGE_KEY,
 });
 const collectionRuns = KidItemCollectionRuns.create({
   chrome,
@@ -292,7 +298,11 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   if (msg.action === "getCollectionSession")
     return respond(collectionSessions.get(msg.runId));
   if (msg.action === "cancelCollectionSession")
-    return respond(collectionRuns.cancel(msg.runId));
+    return respond(
+      collectionRuns
+        .cancel(msg.runId)
+        .then(() => collectionSessions.get(msg.runId)),
+    );
   if (msg.action === "openCollectionAttentionTab")
     return respond(collectionSessions.openAttentionTab(msg.runId));
   if (msg.action === "restartCollectionSession")
@@ -643,10 +653,11 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
 function coupangCatalogImportDependencies() {
   return {
     authedFetch,
+    collectionWindow: catalogCollectionWindow,
     collectionSessions,
     notifyDashboard,
     sendTabMessage,
-    updateTabAndWait,
+    waitForTabComplete,
   };
 }
 
@@ -670,7 +681,7 @@ async function searchWingCatalogProducts(message) {
   const ownsSession = typeof message.collectionRunId !== "string";
   const runId = ownsSession
       ? await collectionRuns.beginWebCollection(
-        "advertising.wing_rank",
+        "sourcing.wing_catalog",
         {
           collectionMode: "single_catalog",
           keywordFingerprint: stableInputFingerprint(keyword),
