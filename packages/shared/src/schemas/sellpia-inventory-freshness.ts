@@ -59,13 +59,25 @@ export const SellpiaInventoryQualityReportSchema = z
   })
   .strict();
 
-const SellpiaInventorySourceBindingViewSchema = z
-  .object({
-    origin: FixedSellpiaOriginSchema,
-    accountKey: FixedSellpiaAccountKeySchema.nullable(),
-    confirmed: z.boolean(),
-  })
-  .strict();
+const SellpiaInventorySourceBindingViewSchema = z.discriminatedUnion(
+  'confirmed',
+  [
+    z
+      .object({
+        origin: FixedSellpiaOriginSchema,
+        accountKey: z.null(),
+        confirmed: z.literal(false),
+      })
+      .strict(),
+    z
+      .object({
+        origin: FixedSellpiaOriginSchema,
+        accountKey: FixedSellpiaAccountKeySchema,
+        confirmed: z.literal(true),
+      })
+      .strict(),
+  ],
+);
 
 const SellpiaInventoryActiveSyncViewSchema = z
   .object({

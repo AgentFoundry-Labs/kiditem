@@ -229,6 +229,61 @@ describe('source import contracts', () => {
     })).toThrow();
   });
 
+  it('rejects impossible state on null-artifact pre-download failures', () => {
+    const preDownloadFailure = {
+      ...run,
+      channelAccountId: null,
+      fileName: null,
+      fileHash: null,
+      status: 'failed',
+      rowCount: 0,
+      importedAt: null,
+      lastVerifiedAt: null,
+      verificationCount: 0,
+      freshnessGeneration: '2',
+      manualFreshExportConfirmedAt: null,
+      manualFreshExportConfirmedBy: null,
+      qualityReport: null,
+      errorCode: 'sellpia_login_required',
+      errorMessage: 'Sellpia login is required',
+    };
+    const invalidRuns = [
+      { ...preDownloadFailure, rowCount: 1 },
+      { ...preDownloadFailure, lastVerifiedAt: run.lastVerifiedAt },
+      { ...preDownloadFailure, verificationCount: 1 },
+      {
+        ...preDownloadFailure,
+        qualityReport: {
+          issues: [{
+            code: 'missing_name',
+            severity: 'warning',
+            count: 1,
+            sampleRowNumbers: [2],
+            sampleProductCodes: ['P-100'],
+          }],
+        },
+      },
+      {
+        ...preDownloadFailure,
+        manualFreshExportConfirmedAt: run.importedAt,
+      },
+      {
+        ...preDownloadFailure,
+        manualFreshExportConfirmedBy: '00000000-0000-4000-8000-000000000003',
+      },
+      {
+        ...preDownloadFailure,
+        channelAccountId: wingRun.channelAccountId,
+      },
+      { ...preDownloadFailure, errorCode: 'human readable error' },
+      { ...preDownloadFailure, errorCode: null },
+      { ...preDownloadFailure, errorMessage: null },
+    ];
+
+    expect(invalidRuns.map((value) => SourceImportRunSchema.safeParse(value).success))
+      .toEqual(Array.from({ length: invalidRuns.length }, () => false));
+  });
+
   it('requires completed artifact and verified Sellpia provenance', () => {
     expect(CompletedSourceArtifactRunSchema.parse(wingRun).fileHash).toBe(wingRun.fileHash);
     expect(() => CompletedSourceArtifactRunSchema.parse({

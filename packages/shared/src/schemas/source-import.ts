@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
 import {
+  SellpiaInventoryCollectionFailureCodeSchema,
   SellpiaInventoryGenerationSchema,
   SellpiaInventoryQualityReportSchema,
   SellpiaInventoryRefreshReasonSchema,
@@ -49,21 +50,83 @@ export const SourceImportRunSchema = SourceImportRunObjectSchema.superRefine(
         message: 'File name and hash must be present or null together',
       });
     }
-    if (
-      (missingFileName || missingFileHash) &&
-      (run.sourceType !== 'sellpia_inventory' || run.status !== 'failed')
-    ) {
+    if (!missingFileName || !missingFileHash) return;
+
+    if (run.sourceType !== 'sellpia_inventory' || run.status !== 'failed') {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['fileName'],
         message: 'Only pre-download Sellpia failures may omit file provenance',
       });
     }
-    if ((missingFileName || missingFileHash) && run.importedAt !== null) {
+    if (run.rowCount !== 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['rowCount'],
+        message: 'Pre-download Sellpia failures cannot have imported rows',
+      });
+    }
+    if (run.importedAt !== null) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['importedAt'],
         message: 'Pre-download Sellpia failures cannot have an import timestamp',
+      });
+    }
+    if (run.lastVerifiedAt !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['lastVerifiedAt'],
+        message: 'Pre-download Sellpia failures cannot have a verification timestamp',
+      });
+    }
+    if (run.verificationCount !== 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['verificationCount'],
+        message: 'Pre-download Sellpia failures cannot have verifications',
+      });
+    }
+    if (run.qualityReport !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['qualityReport'],
+        message: 'Pre-download Sellpia failures cannot have a quality report',
+      });
+    }
+    if (run.manualFreshExportConfirmedAt !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['manualFreshExportConfirmedAt'],
+        message: 'Pre-download Sellpia failures cannot have manual attestation',
+      });
+    }
+    if (run.manualFreshExportConfirmedBy !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['manualFreshExportConfirmedBy'],
+        message: 'Pre-download Sellpia failures cannot have a manual attestation actor',
+      });
+    }
+    if (run.channelAccountId !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['channelAccountId'],
+        message: 'Pre-download Sellpia failures cannot have a channel account',
+      });
+    }
+    if (!SellpiaInventoryCollectionFailureCodeSchema.safeParse(run.errorCode).success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['errorCode'],
+        message: 'Pre-download Sellpia failures require a collection failure code',
+      });
+    }
+    if (run.errorMessage === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['errorMessage'],
+        message: 'Pre-download Sellpia failures require an error message',
       });
     }
   },

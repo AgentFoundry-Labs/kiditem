@@ -152,6 +152,38 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
     })).toThrow();
   });
 
+  it('rejects source bindings inconsistent with their confirmation discriminant', () => {
+    const impossibleBindings = [
+      {
+        origin: 'https://kiditem.sellpia.com',
+        accountKey: 'kiditem',
+        confirmed: false,
+      },
+      {
+        origin: 'https://kiditem.sellpia.com',
+        accountKey: null,
+        confirmed: true,
+      },
+    ];
+
+    expect(impossibleBindings.map((sourceBinding) => (
+      SellpiaInventoryFreshnessViewSchema.safeParse({
+        ...createFreshnessView(),
+        sourceBinding,
+      }).success
+    ))).toEqual([false, false]);
+  });
+
+  it('rejects unknown source-binding keys', () => {
+    expect(() => SellpiaInventoryFreshnessViewSchema.parse({
+      ...createFreshnessView(),
+      sourceBinding: {
+        ...createFreshnessView().sourceBinding,
+        tenantSecret: 'secret',
+      },
+    })).toThrow();
+  });
+
   it('accepts owner-safe active sync and last-attempt details', () => {
     const parsed = SellpiaInventoryFreshnessViewSchema.parse({
       ...createFreshnessView(),
