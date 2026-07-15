@@ -122,6 +122,15 @@
             closeOnRestart: attachment.owned !== false,
           });
         },
+        async detachTab(tab, attachment = {}) {
+          if (!Number.isInteger(tab?.id)) {
+            throw new Error("Order collection tab is unavailable");
+          }
+          return sessions.detachTab(runId, {
+            tabId: tab.id,
+            closeManagedTab: attachment.owned !== false,
+          });
+        },
         progress(nextProgress) {
           return sessions.progress(runId, nextProgress);
         },

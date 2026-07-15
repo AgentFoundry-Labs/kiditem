@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const backgroundRoot = path.join(repoRoot, 'extensions/order-collector/background');
 const downloaderPath = path.join(backgroundRoot, 'sellpia-inventory.js');
+const collectionSessionPath = path.join(backgroundRoot, 'collection-session.js');
 const lifecyclePath = path.join(backgroundRoot, 'order-collection-lifecycle.js');
 const workerPath = path.join(backgroundRoot, 'service-worker.js');
 const manifestPath = path.join(repoRoot, 'extensions/order-collector/manifest.json');
@@ -160,13 +161,17 @@ function createRuntime({
   const source = sourceOrFail(downloaderPath);
   const calls = {
     attachTab: [],
+    detachTab: [],
     fetch: [],
     query: [],
     create: [],
     remove: [],
+    update: [],
+    windowUpdate: [],
     executeScript: [],
     executeErrors: [],
   };
+  const storage = {};
   const tabs = existingTab ? [existingTab] : [];
   let nextTabId = 71;
   let context;
@@ -174,6 +179,8 @@ function createRuntime({
   const chrome = {
     tabs: {
       async query(query) {
+        const patterns = Array.isArray(query?.url) ? query.url : [query?.url];
+        if (!patterns.includes(`${PAGE_URL}*`)) return [];
         calls.query.push(structuredClone(query));
         return tabs.map((tab) => ({ ...tab }));
       },
@@ -185,12 +192,37 @@ function createRuntime({
         return { ...tab };
       },
       async get(tabId) {
-        return { ...tabs.find((tab) => tab.id === tabId), status: 'complete' };
+        const tab = tabs.find((candidate) => candidate.id === tabId);
+        if (!tab) throw new Error(`No tab with id ${tabId}`);
+        return { ...tab, status: 'complete' };
       },
       async remove(tabId) {
         calls.remove.push(tabId);
         const index = tabs.findIndex((tab) => tab.id === tabId);
-        if (index >= 0) tabs.splice(index, 1);
+        if (index < 0) throw new Error(`No tab with id ${tabId}`);
+        tabs.splice(index, 1);
+      },
+      async update(tabId, properties) {
+        const tab = tabs.find((candidate) => candidate.id === tabId);
+        if (!tab) throw new Error(`No tab with id ${tabId}`);
+        calls.update.push({ tabId, properties: structuredClone(properties) });
+        Object.assign(tab, properties);
+        return { ...tab };
+      },
+    },
+    windows: {
+      async update(windowId, properties) {
+        calls.windowUpdate.push({ windowId, properties: structuredClone(properties) });
+      },
+    },
+    storage: {
+      local: {
+        async get(key) {
+          return { [key]: structuredClone(storage[key]) };
+        },
+        async set(values) {
+          Object.assign(storage, structuredClone(values));
+        },
       },
     },
     scripting: {
@@ -245,8 +277,62 @@ function createRuntime({
     async attachTab(tab, attachment) {
       calls.attachTab.push({ tab: structuredClone(tab), attachment: structuredClone(attachment) });
     },
+    async detachTab(tab, attachment) {
+      calls.detachTab.push({ tab: structuredClone(tab), attachment: structuredClone(attachment) });
+      if (attachment?.owned !== false) await chrome.tabs.remove(tab.id);
+    },
   };
-  return { calls, chrome, collector, collection, tabs };
+  return { calls, chrome, collector, collection, storage, tabs };
+}
+
+function createRealLifecycleRuntime(browser) {
+  const context = vm.createContext({
+    chrome: browser.chrome,
+    console,
+    crypto: { randomUUID: () => 'must-not-be-used' },
+    structuredClone,
+  });
+  vm.runInContext(sourceOrFail(collectionSessionPath), context, {
+    filename: collectionSessionPath,
+  });
+  vm.runInContext(sourceOrFail(lifecyclePath), context, { filename: lifecyclePath });
+  let timestamp = 100;
+  const sessions = context.KidItemCollectionSession.create({
+    chrome: browser.chrome,
+    storageKey: 'collectionSessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+    now: () => timestamp++,
+  });
+  const lifecycle = context.KidItemOrderCollectionLifecycle.create({
+    sessions,
+    producer: 'inventory.sellpia',
+    classification: 'background_preferred',
+    restartStrategy: 'extension',
+    requireRunId: true,
+    forceDeferredTerminal: true,
+    deferredLabel: 'Sellpia workbook downloaded · import in progress',
+    classifyFailure(result) {
+      if (result?.errorCode === 'sellpia_login_required') return 'marketplace_login';
+      if (result?.errorCode === 'sellpia_background_timeout') return 'background_timeout';
+      return null;
+    },
+  });
+  return { lifecycle, sessions };
+}
+
+function inventoryMessage() {
+  return { action: 'collectSellpiaInventory', runId: RUN_ID, deferTerminal: true };
+}
+
+function inventoryIdentity() {
+  return {
+    sourceOrigin: 'https://kiditem.sellpia.com',
+    sourceAccountKey: 'kiditem',
+  };
+}
+
+function storedSession(browser) {
+  return browser.storage.collectionSessions?.[RUN_ID] || null;
 }
 
 function createLifecycleRuntime({ closeTab = async () => {} } = {}) {
@@ -255,6 +341,7 @@ function createLifecycleRuntime({ closeTab = async () => {} } = {}) {
     start: [],
     restart: [],
     attachTab: [],
+    detachTab: [],
     closedTabs: [],
     attention: [],
     fail: [],
@@ -304,6 +391,19 @@ function createLifecycleRuntime({ closeTab = async () => {} } = {}) {
       session._managedWindowId = attachment.windowId;
       session._managedTabCloseOnRestart = attachment.closeOnRestart !== false;
       return view(session);
+    },
+    async detachTab(runId, options) {
+      calls.detachTab.push({ runId, options: structuredClone(options) });
+      const session = sessions.get(runId);
+      if (options?.closeManagedTab === true && Number.isInteger(options.tabId)) {
+        await closeTab(options.tabId);
+      }
+      if (session?._managedTabId === options?.tabId) {
+        delete session._managedTabId;
+        delete session._managedWindowId;
+        delete session._managedTabCloseOnRestart;
+      }
+      return session ? view(session) : null;
     },
     async progress(runId, progress) {
       const session = sessions.get(runId);
@@ -911,4 +1011,162 @@ test('maps bounded fetch aborts to background attention without retaining the cr
     attachment: { owned: true },
   }]);
   assert.deepEqual(runtime.calls.remove, [71]);
+});
+
+test('real session timeout removes and detaches the managed tab before background attention', async () => {
+  const browser = createRuntime({
+    timeoutMs: 5,
+    fetchImpl: (_target, options) => new Promise((_resolve, reject) => {
+      options.signal.addEventListener('abort', () => {
+        const error = new Error('raw timeout detail');
+        error.name = 'AbortError';
+        reject(error);
+      });
+    }),
+  });
+  const runtime = createRealLifecycleRuntime(browser);
+
+  const result = await runtime.lifecycle.run(
+    inventoryMessage(),
+    inventoryIdentity(),
+    (collection) => browser.collector.collect(collection),
+  );
+
+  assert.equal(result.errorCode, 'sellpia_background_timeout');
+  assert.equal(result.collectionSession.status, 'attention_required');
+  assert.equal(result.collectionSession.attention.reason, 'background_timeout');
+  assert.equal(result.collectionSession.attention.canOpenTab, false);
+  assert.deepEqual(browser.tabs, []);
+  assert.equal(storedSession(browser)._managedTabId, undefined);
+  assert.equal(storedSession(browser)._managedWindowId, undefined);
+  await assert.rejects(
+    runtime.sessions.openAttentionTab(RUN_ID),
+    /no managed attention tab/,
+  );
+  assert.deepEqual(browser.calls.update, []);
+  assert.deepEqual(browser.calls.windowUpdate, []);
+});
+
+test('real session keeps only a login-blocked inactive tab and opens it on explicit action', async () => {
+  const browser = createRuntime({ document: createPageDocument({ login: true }) });
+  const runtime = createRealLifecycleRuntime(browser);
+
+  const result = await runtime.lifecycle.run(
+    inventoryMessage(),
+    inventoryIdentity(),
+    (collection) => browser.collector.collect(collection),
+  );
+
+  assert.equal(result.errorCode, 'sellpia_login_required');
+  assert.equal(result.collectionSession.status, 'attention_required');
+  assert.equal(result.collectionSession.attention.reason, 'marketplace_login');
+  assert.equal(result.collectionSession.attention.canOpenTab, true);
+  assert.equal(storedSession(browser)._managedTabId, 71);
+  assert.deepEqual(browser.tabs.map((tab) => ({ id: tab.id, active: tab.active })), [
+    { id: 71, active: false },
+  ]);
+
+  await runtime.sessions.openAttentionTab(RUN_ID);
+  assert.deepEqual(browser.calls.update, [{ tabId: 71, properties: { active: true } }]);
+  assert.deepEqual(browser.calls.windowUpdate, [{ windowId: 9, properties: { focused: true } }]);
+});
+
+test('real session detaches every created tab for non-login contract, workbook, and network failures', async () => {
+  const cases = [
+    {
+      errorCode: 'sellpia_download_contract_drift',
+      options: { document: createPageDocument({ drift: true }) },
+    },
+    {
+      errorCode: 'sellpia_invalid_workbook',
+      options: {
+        fetchImpl: async () => workbookResponse({
+          bytes: Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]),
+        }),
+      },
+    },
+    {
+      errorCode: 'sellpia_network_failed',
+      options: { fetchImpl: async () => { throw new Error('raw network secret'); } },
+    },
+  ];
+
+  for (const { errorCode, options } of cases) {
+    const browser = createRuntime(options);
+    const runtime = createRealLifecycleRuntime(browser);
+    const result = await runtime.lifecycle.run(
+      inventoryMessage(),
+      inventoryIdentity(),
+      (collection) => browser.collector.collect(collection),
+    );
+
+    assert.equal(result.errorCode, errorCode);
+    assert.equal(result.collectionSession.status, 'failed');
+    assert.deepEqual(browser.tabs, []);
+    assert.equal(storedSession(browser)._managedTabId, undefined);
+    assert.equal(storedSession(browser)._managedWindowId, undefined);
+  }
+});
+
+test('real session restart and duplicate cleanup replace login ownership without stale tab capability', async () => {
+  const pageState = { login: true };
+  const browser = createRuntime({ document: createMutableLoginDocument(pageState) });
+  const runtime = createRealLifecycleRuntime(browser);
+
+  const attention = await runtime.lifecycle.run(
+    inventoryMessage(),
+    inventoryIdentity(),
+    (collection) => browser.collector.collect(collection),
+  );
+  assert.equal(attention.collectionSession.attention.canOpenTab, true);
+  assert.equal(storedSession(browser)._managedTabId, 71);
+
+  pageState.login = false;
+  const restarted = await runtime.lifecycle.run(
+    inventoryMessage(),
+    inventoryIdentity(),
+    (collection) => browser.collector.collect(collection),
+  );
+
+  assert.equal(restarted.success, true);
+  assert.equal(restarted.collectionSession.status, 'running');
+  assert.equal(restarted.collectionSession.attempt, 2);
+  assert.deepEqual(browser.calls.remove, [71, 72]);
+  assert.deepEqual(browser.tabs, []);
+  assert.equal(storedSession(browser)._managedTabId, undefined);
+  assert.equal(storedSession(browser)._managedWindowId, undefined);
+
+  const firstFinalize = await runtime.lifecycle.finalize(
+    RUN_ID,
+    'succeeded',
+    'Sellpia inventory import completed',
+  );
+  const duplicateFinalize = await runtime.lifecycle.finalize(
+    RUN_ID,
+    'succeeded',
+    'Sellpia inventory import completed',
+  );
+  assert.equal(firstFinalize.status, 'succeeded');
+  assert.equal(duplicateFinalize.status, 'succeeded');
+  assert.deepEqual(browser.tabs, []);
+});
+
+test('real session cancellation removes login ownership once and remains idempotent', async () => {
+  const browser = createRuntime({ document: createPageDocument({ login: true }) });
+  const runtime = createRealLifecycleRuntime(browser);
+  await runtime.lifecycle.run(
+    inventoryMessage(),
+    inventoryIdentity(),
+    (collection) => browser.collector.collect(collection),
+  );
+
+  const cancelled = await runtime.lifecycle.cancel(RUN_ID);
+  const duplicate = await runtime.lifecycle.cancel(RUN_ID);
+
+  assert.equal(cancelled.status, 'cancelled');
+  assert.equal(duplicate.status, 'cancelled');
+  assert.deepEqual(browser.calls.remove, [71]);
+  assert.deepEqual(browser.tabs, []);
+  assert.equal(storedSession(browser)._managedTabId, undefined);
+  assert.equal(storedSession(browser)._managedWindowId, undefined);
 });

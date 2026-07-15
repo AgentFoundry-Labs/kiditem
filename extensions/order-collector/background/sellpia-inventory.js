@@ -394,7 +394,11 @@
           : publicFailure("sellpia_network_failed");
       } finally {
         if (created && Number.isInteger(tab?.id) && !keepOpen) {
-          await chromeApi.tabs.remove(tab.id).catch(() => undefined);
+          try {
+            await collection.detachTab(tab, { owned: true });
+          } catch {
+            return publicFailure("sellpia_network_failed");
+          }
         }
       }
     }
