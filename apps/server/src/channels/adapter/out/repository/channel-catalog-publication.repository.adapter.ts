@@ -13,6 +13,10 @@ import {
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
+  CHANNEL_CATALOG_PRODUCT_PROVISIONING_PORT,
+  type ChannelCatalogProductProvisioningPort,
+} from '../../../../products/application/port/in/channel-catalog-product-provisioning.port';
+import {
   CATALOG_MEDIA_PUBLICATION_PORT,
   type CatalogMediaPublicationPort,
 } from '../../../application/port/out/cross-domain/catalog-media-publication.port';
@@ -22,6 +26,7 @@ import type {
   ChannelCatalogPublicationResult,
 } from '../../../application/port/out/repository/channel-catalog-publication.port';
 import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upsert';
+import { publishCatalogOperationalProducts } from './channel-catalog-operational-product-publication';
 
 const CHANNEL = 'coupang';
 const COLLECTION_SOURCE = 'coupang_wing_catalog_browser';
@@ -51,6 +56,8 @@ implements ChannelCatalogPublicationPort {
     private readonly prisma: PrismaService,
     @Inject(CATALOG_MEDIA_PUBLICATION_PORT)
     private readonly media: CatalogMediaPublicationPort,
+    @Inject(CHANNEL_CATALOG_PRODUCT_PROVISIONING_PORT)
+    private readonly productProvisioner: ChannelCatalogProductProvisioningPort,
   ) {}
 
   publishChunk(
@@ -87,7 +94,7 @@ implements ChannelCatalogPublicationPort {
         };
       }
 
-      const upserted = await upsertCoupangCatalogRows(tx, this.media, {
+      const upserted = await upsertCoupangCatalogRows(tx, this.media, this.productProvisioner, {
         organizationId: input.organizationId,
         userId: input.userId,
         channelAccountId: input.channelAccountId,
@@ -200,7 +207,7 @@ implements ChannelCatalogPublicationPort {
         select: { id: true },
       });
 
-      const upserted = await upsertCoupangCatalogRows(tx, this.media, {
+      const upserted = await upsertCoupangCatalogRows(tx, this.media, this.productProvisioner, {
         organizationId: input.organizationId,
         userId: input.userId,
         channelAccountId: input.channelAccountId,
@@ -255,6 +262,7 @@ implements ChannelCatalogPublicationPort {
 async function upsertCoupangCatalogRows(
   tx: Prisma.TransactionClient,
   mediaPublisher: CatalogMediaPublicationPort,
+  productProvisioner: ChannelCatalogProductProvisioningPort,
   input: {
     organizationId: string;
     userId: string;
@@ -274,6 +282,16 @@ async function upsertCoupangCatalogRows(
     lastImportRunId: input.lastImportRunId,
     rawSource: 'coupang_catalog_browser',
   });
+  const operationalProducts = await publishCatalogOperationalProducts(
+    tx,
+    productProvisioner,
+    {
+      organizationId: input.organizationId,
+      userId: input.userId,
+      products: input.products.map(({ product }) => product),
+      persistedListings: identities.persistedListings,
+    },
+  );
   const media = await mediaPublisher.publishProviderMedia({
     transaction: tx,
     organizationId: input.organizationId,
@@ -292,6 +310,7 @@ async function upsertCoupangCatalogRows(
       ...identities.changes,
       deactivatedProductCount: 0,
       deactivatedSkuCount: 0,
+      ...operationalProducts,
       ...media,
     },
   };
@@ -461,6 +480,11 @@ function zeroChanges(): Record<string, number> {
     createdSkuCount: 0,
     updatedSkuCount: 0,
     deactivatedSkuCount: 0,
+    createdMasterProductCount: 0,
+    reusedMasterProductCount: 0,
+    createdVariantCount: 0,
+    linkedProductCount: 0,
+    linkedVariantCount: 0,
     imageCount: 0,
     inactivatedImageCount: 0,
   };

@@ -3,6 +3,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AutomationModule } from '../../automation/automation.module';
+import { ProductsModule } from '../../products/products.module';
+import { CHANNEL_CATALOG_PRODUCT_PROVISIONING_PORT } from '../../products/application/port/in/channel-catalog-product-provisioning.port';
 import { ChannelsModule } from '../channels.module';
 import { ChannelRegistrationCapabilityAdapter } from '../adapter/in/agent/channel-registration-capability.adapter';
 import { ChannelAccountRepositoryAdapter } from '../adapter/out/repository/channel-account.repository.adapter';
@@ -99,6 +101,9 @@ describe('ChannelsModule canonical owner wiring', () => {
   it('imports owner modules for consumer adapters', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, ChannelsModule) ?? [];
     expect(imports).toContain(AutomationModule);
+    expect(imports).toContain(ProductsModule);
+    const exports_: unknown[] = Reflect.getMetadata('exports', ChannelsModule) ?? [];
+    expect(exports_).not.toContain(CHANNEL_CATALOG_PRODUCT_PROVISIONING_PORT);
   });
 
   it('binds every outgoing port to its local adapter', () => {

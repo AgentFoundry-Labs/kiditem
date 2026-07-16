@@ -3,6 +3,8 @@ import { Test } from '@nestjs/testing';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AiCatalogMediaPublicationRepositoryAdapter } from '../../ai/adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ChannelCatalogProductProvisioningRepositoryAdapter } from '../../products/adapter/out/repository/channel-catalog-product-provisioning.repository.adapter';
+import { ChannelCatalogProductProvisioningService } from '../../products/application/service/channel-catalog-product-provisioning.service';
 import {
   makeTestPrisma,
   resetDb,
@@ -67,6 +69,9 @@ describe('KidItem-first catalog reconciliation (PG integration)', () => {
     publisher = new ChannelCatalogPublicationRepositoryAdapter(
       prisma as unknown as PrismaService,
       new AiCatalogMediaPublicationRepositoryAdapter(),
+      new ChannelCatalogProductProvisioningService(
+        new ChannelCatalogProductProvisioningRepositoryAdapter(),
+      ),
     );
   });
 

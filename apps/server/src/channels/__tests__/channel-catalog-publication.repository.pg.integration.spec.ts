@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
+import type { CoupangCatalogProductV1 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AiCatalogMediaPublicationRepositoryAdapter } from '../../ai/adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ChannelCatalogProductProvisioningRepositoryAdapter } from '../../products/adapter/out/repository/channel-catalog-product-provisioning.repository.adapter';
+import { ChannelCatalogProductProvisioningService } from '../../products/application/service/channel-catalog-product-provisioning.service';
 import {
   makeTestPrisma,
   resetDb,
@@ -26,6 +29,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     publisher = new ChannelCatalogPublicationRepositoryAdapter(
       prisma as unknown as PrismaService,
       new AiCatalogMediaPublicationRepositoryAdapter(),
+      productProvisioner(),
     );
   });
 
@@ -89,6 +93,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       externalId: 'P-1',
       channelName: 'P-1 등록상품',
       displayName: 'P-1 노출상품',
+      masterProductId: expect.any(String),
       isActive: true,
     });
     expect(listing.options).toEqual([
@@ -97,8 +102,19 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
         itemName: '기본',
         salePrice: 12_900,
         sellerSku: 'P-1-SELLER',
-        productVariantId: null,
+        productVariantId: expect.any(String),
         isActive: true,
+      }),
+    ]);
+    const operationalProduct = await prisma.masterProduct.findUniqueOrThrow({
+      where: { id: listing.masterProductId! },
+      include: { variants: { include: { components: true } } },
+    });
+    expect(operationalProduct.originChannelListingId).toBe(listing.id);
+    expect(operationalProduct.variants).toEqual([
+      expect.objectContaining({
+        id: listing.options[0]!.productVariantId,
+        components: [],
       }),
     ]);
     expect(listing.contentWorkspaces).toHaveLength(1);
@@ -151,6 +167,156 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     expect(chunk.publicationJson).toMatchObject({ publishedProducts: 1 });
   });
 
+  it('reuses an existing product and variant only from typed seller SKU evidence', async () => {
+    const existing = await prisma.masterProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'EXACT-SELLER-PRODUCT',
+        name: 'Existing exact seller product',
+        variants: {
+          create: {
+            code: 'EXACT-SELLER-SKU',
+            name: 'Existing exact seller variant',
+            isDefault: true,
+          },
+        },
+      },
+      include: { variants: true },
+    });
+
+    await publish(await createCollectionRun(prisma), 'e'.repeat(64), [
+      product('P-EXACT-SELLER', 'O-EXACT-SELLER', {
+        sellerSku: 'EXACT-SELLER-SKU',
+        barcode: null,
+      }),
+    ]);
+
+    const listing = await prisma.channelListing.findFirstOrThrow({
+      where: { channelAccountId: ACCOUNT_ID, externalId: 'P-EXACT-SELLER' },
+      include: { options: true },
+    });
+    expect(listing.masterProductId).toBe(existing.id);
+    expect(listing.options[0]!.productVariantId).toBe(existing.variants[0]!.id);
+    expect(await prisma.masterProduct.count({
+      where: { originChannelListingId: listing.id },
+    })).toBe(0);
+  });
+
+  it('reuses a safe typed barcode recipe but rejects an alphanumeric barcode payload', async () => {
+    const inventorySku = await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'BARCODE-INVENTORY',
+        name: 'Barcode inventory',
+        barcode: '001-2345-67890',
+        currentStock: 5,
+      },
+    });
+    const existing = await prisma.masterProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'BARCODE-PRODUCT',
+        name: 'Barcode product',
+        variants: {
+          create: {
+            code: 'BARCODE-VARIANT',
+            name: 'Barcode variant',
+            isDefault: true,
+            components: {
+              create: {
+                sellpiaInventorySkuId: inventorySku.id,
+                quantity: 1,
+                source: 'manual',
+                confirmedBy: TEST_USER_ID,
+              },
+            },
+          },
+        },
+      },
+      include: { variants: true },
+    });
+
+    await publish(await createCollectionRun(prisma), 'f'.repeat(64), [
+      product('P-SAFE-BARCODE', 'O-SAFE-BARCODE', {
+        sellerSku: null,
+        barcode: '001234567890',
+      }),
+    ]);
+    const safe = await prisma.channelListing.findFirstOrThrow({
+      where: { channelAccountId: ACCOUNT_ID, externalId: 'P-SAFE-BARCODE' },
+      include: { options: true },
+    });
+    expect(safe.masterProductId).toBe(existing.id);
+    expect(safe.options[0]!.productVariantId).toBe(existing.variants[0]!.id);
+
+    await publish(await createCollectionRun(prisma), '1'.repeat(64), [
+      product('P-UNSAFE-BARCODE', 'O-UNSAFE-BARCODE', {
+        sellerSku: null,
+        barcode: 'ABC001234567890XYZ',
+      }),
+    ]);
+    const unsafe = await prisma.channelListing.findFirstOrThrow({
+      where: { channelAccountId: ACCOUNT_ID, externalId: 'P-UNSAFE-BARCODE' },
+    });
+    expect(unsafe.masterProductId).not.toBe(existing.id);
+    await expect(prisma.masterProduct.findUniqueOrThrow({
+      where: { id: unsafe.masterProductId! },
+    })).resolves.toMatchObject({ originChannelListingId: unsafe.id });
+  });
+
+  it('uses external-ID name fallbacks and ignores name or raw alias lookalikes', async () => {
+    const lookalike = await prisma.masterProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'RAW-PRODUCT-CODE',
+        name: 'normalized product name',
+        variants: {
+          create: {
+            code: 'RAW-SELLPIA-CODE',
+            name: 'Raw lookalike variant',
+            isDefault: true,
+          },
+        },
+      },
+    });
+    await publish(await createCollectionRun(prisma), '2'.repeat(64), [
+      product('P-NAME-ONLY', 'O-NAME-ONLY', {
+        registeredName: '  NORMALIZED   PRODUCT NAME ',
+        displayName: null,
+        optionName: null,
+        sellerSku: null,
+        barcode: null,
+        raw: { productCode: 'RAW-PRODUCT-CODE' },
+        optionRaw: { sellpiaCode: 'RAW-SELLPIA-CODE' },
+      }),
+      product('P-FALLBACK', 'O-FALLBACK', {
+        registeredName: null,
+        displayName: null,
+        optionName: null,
+        sellerSku: null,
+        barcode: null,
+      }),
+    ]);
+
+    const [nameOnly, fallback] = await Promise.all([
+      prisma.channelListing.findFirstOrThrow({
+        where: { channelAccountId: ACCOUNT_ID, externalId: 'P-NAME-ONLY' },
+      }),
+      prisma.channelListing.findFirstOrThrow({
+        where: { channelAccountId: ACCOUNT_ID, externalId: 'P-FALLBACK' },
+        include: { options: true },
+      }),
+    ]);
+    expect(nameOnly.masterProductId).not.toBe(lookalike.id);
+    await expect(prisma.masterProduct.findUniqueOrThrow({
+      where: { id: fallback.masterProductId! },
+      include: { variants: true },
+    })).resolves.toMatchObject({
+      name: 'P-FALLBACK',
+      variants: [expect.objectContaining({ name: 'O-FALLBACK' })],
+    });
+  });
+
   it('replays an already published detail chunk without changing stable IDs', async () => {
     const collectionRunId = await createCollectionRun(prisma);
     const products = [product('P-REPLAY', 'S-REPLAY')];
@@ -169,7 +335,9 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
 
     expect(replay.duplicate).toBe(true);
     expect(after.id).toBe(before.id);
+    expect(after.masterProductId).toBe(before.masterProductId);
     expect(after.options[0].id).toBe(before.options[0].id);
+    expect(after.options[0].productVariantId).toBe(before.options[0].productVariantId);
   });
 
   it('rolls back a detail chunk when media attachment fails', async () => {
@@ -178,6 +346,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       {
         publishProviderMedia: vi.fn().mockRejectedValue(new Error('media failed')),
       },
+      productProvisioner(),
     );
     const collectionRunId = await createCollectionRun(prisma);
     const products = [product('P-ROLLBACK', 'S-ROLLBACK')];
@@ -195,6 +364,8 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     expect(await prisma.channelListing.count({
       where: { channelAccountId: ACCOUNT_ID, externalId: 'P-ROLLBACK' },
     })).toBe(0);
+    expect(await prisma.masterProduct.count()).toBe(0);
+    expect(await prisma.productVariant.count()).toBe(0);
     await expect(
       prisma.channelScrapeChunk.findUniqueOrThrow({ where: { id: chunkId } }),
     ).resolves.toMatchObject({ publishedAt: null, publicationJson: null });
@@ -292,6 +463,124 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     expect(absentAfter.options[0].isActive).toBe(false);
   });
 
+  it('preserves a manual product and variant link committed before a waiting publication continues', async () => {
+    const listing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: ACCOUNT_ID,
+        externalId: 'P-LOCK-WINNER',
+      },
+    });
+    const option = await prisma.channelListingOption.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        externalOptionId: 'O-LOCK-WINNER',
+      },
+    });
+    const manual = await prisma.masterProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'MANUAL-LOCK-WINNER',
+        name: 'Manual lock winner',
+        variants: {
+          create: {
+            code: 'MANUAL-LOCK-WINNER-VARIANT',
+            name: 'Manual lock winner variant',
+            isDefault: true,
+          },
+        },
+      },
+      include: { variants: true },
+    });
+    let releaseLock!: () => void;
+    let markLocked!: () => void;
+    const locked = new Promise<void>((resolve) => { markLocked = resolve; });
+    const release = new Promise<void>((resolve) => { releaseLock = resolve; });
+    const manualWrite = prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`
+        SELECT id
+        FROM channel_listings
+        WHERE id = ${listing.id}::uuid
+        FOR UPDATE
+      `;
+      markLocked();
+      await release;
+      await transaction.channelListing.update({
+        where: { id: listing.id },
+        data: { masterProductId: manual.id },
+      });
+      await transaction.channelListingOption.update({
+        where: { id: option.id },
+        data: { productVariantId: manual.variants[0]!.id },
+      });
+    }, { timeout: 20_000 });
+    await locked;
+    const publication = publish(
+      await createCollectionRun(prisma),
+      '3'.repeat(64),
+      [product('P-LOCK-WINNER', 'O-LOCK-WINNER', {
+        sellerSku: null,
+        barcode: null,
+      })],
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    releaseLock();
+    await Promise.all([manualWrite, publication]);
+
+    const after = await prisma.channelListing.findUniqueOrThrow({
+      where: { id: listing.id },
+      include: { options: true },
+    });
+    expect(after.masterProductId).toBe(manual.id);
+    expect(after.options[0]!.productVariantId).toBe(manual.variants[0]!.id);
+    expect(await prisma.masterProduct.count({
+      where: { originChannelListingId: listing.id },
+    })).toBe(0);
+  });
+
+  it('publishes 1,225 listings and 2,241 options within the bulk transaction boundary', {
+    timeout: 120_000,
+  }, async () => {
+    const products = Array.from({ length: 1_225 }, (_, index) => {
+      const base = product(`P-BULK-${index}`, `O-BULK-${index}-0`, {
+        sellerSku: `SELLER-BULK-${index}-0`,
+        barcode: null,
+      });
+      const options = index < 1_016
+        ? [
+          base.options[0]!,
+          {
+            ...base.options[0]!,
+            externalOptionId: `O-BULK-${index}-1`,
+            sellerSku: `SELLER-BULK-${index}-1`,
+          },
+        ]
+        : base.options;
+      return { ...base, options, media: [] };
+    });
+
+    const result = await publish(
+      await createCollectionRun(prisma),
+      '4'.repeat(64),
+      products,
+    );
+
+    expect(result.changes).toMatchObject({
+      createdMasterProductCount: 1_225,
+      createdVariantCount: 2_241,
+      linkedProductCount: 1_225,
+      linkedVariantCount: 2_241,
+    });
+    expect(await prisma.channelListing.count({
+      where: { channelAccountId: ACCOUNT_ID, isActive: true },
+    })).toBe(1_225);
+    expect(await prisma.masterProduct.count({
+      where: { originChannelListingId: { not: null } },
+    })).toBe(1_225);
+    expect(await prisma.productVariant.count()).toBe(2_241);
+  });
+
   it('keeps provider media as an external URL without downloading a managed copy', async () => {
     await publish(
       await createCollectionRun(prisma),
@@ -341,6 +630,13 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     expect(duplicate).toMatchObject({
       sourceImportRunId: first.sourceImportRunId,
       duplicate: true,
+      changes: {
+        createdMasterProductCount: 0,
+        reusedMasterProductCount: 0,
+        createdVariantCount: 0,
+        linkedProductCount: 0,
+        linkedVariantCount: 0,
+      },
     });
     expect(await prisma.sourceImportRun.count()).toBe(1);
     await expect(
@@ -381,6 +677,12 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     });
   }
 });
+
+function productProvisioner() {
+  return new ChannelCatalogProductProvisioningService(
+    new ChannelCatalogProductProvisioningRepositoryAdapter(),
+  );
+}
 
 async function createCollectionRun(prisma: PrismaClient): Promise<string> {
   const run = await prisma.channelScrapeRun.create({
@@ -426,27 +728,41 @@ async function createDetailChunk(
 function product(
   externalProductId: string,
   externalOptionId: string,
-  overrides: { displayName?: string } = {},
-) {
+  overrides: {
+    registeredName?: string | null;
+    displayName?: string | null;
+    optionName?: string | null;
+    sellerSku?: string | null;
+    barcode?: string | null;
+    raw?: Record<string, unknown>;
+    optionRaw?: Record<string, unknown>;
+  } = {},
+): CoupangCatalogProductV1 {
   return {
     externalProductId,
-    registeredName: `${externalProductId} 등록상품`,
-    displayName: overrides.displayName ?? `${externalProductId} 노출상품`,
+    registeredName: overrides.registeredName === undefined
+      ? `${externalProductId} 등록상품`
+      : overrides.registeredName,
+    displayName: overrides.displayName === undefined
+      ? `${externalProductId} 노출상품`
+      : overrides.displayName,
     category: '완구',
     manufacturer: '제조사',
     brand: '브랜드',
     productStatus: '승인완료',
     options: [{
       externalOptionId,
-      optionName: '기본',
+      optionName: overrides.optionName === undefined ? '기본' : overrides.optionName,
       skuStatus: '판매중',
       salePrice: 12_900,
-      sellerSku: `${externalProductId}-SELLER`,
+      sellerSku: overrides.sellerSku === undefined
+        ? `${externalProductId}-SELLER`
+        : overrides.sellerSku,
       modelNumber: 'MODEL-1',
-      barcode: '001234567890',
+      barcode: overrides.barcode === undefined ? '001234567890' : overrides.barcode,
       attributes: [{ type: '색상', value: '파랑' }],
       media: [],
-      raw: { source: 'fixture-option' },
+      raw: overrides.optionRaw ?? { source: 'fixture-option' },
     }],
     media: [{
       sourceUrl: `https://example.com/${externalProductId}.jpg`,
@@ -454,6 +770,6 @@ function product(
       sortOrder: 0,
       externalOptionId: null,
     }],
-    raw: { externalProductId },
+    raw: overrides.raw ?? { externalProductId },
   };
 }

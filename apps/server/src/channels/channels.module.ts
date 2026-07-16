@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AutomationModule } from '../automation/automation.module';
 import { AiModule } from '../ai/ai.module';
+import { ProductsModule } from '../products/products.module';
 import { ChannelRegistrationCapabilityAdapter } from './adapter/in/agent/channel-registration-capability.adapter';
 import { ChannelSyncController } from './adapter/in/http/channel-sync.controller';
 import { ChannelDashboardController } from './adapter/in/http/channel-dashboard.controller';
@@ -58,7 +59,7 @@ import { CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT } from './application/port/out
 import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku-availability.port';
 
 @Module({
-  imports: [AutomationModule, AiModule],
+  imports: [AutomationModule, AiModule, ProductsModule],
   controllers: [
     ChannelSyncController,
     ChannelDashboardController,

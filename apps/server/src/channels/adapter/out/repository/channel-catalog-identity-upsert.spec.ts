@@ -43,7 +43,17 @@ describe('upsertChannelCatalogIdentities', () => {
       channelListing: {
         findMany: vi.fn()
           .mockResolvedValueOnce([])
-          .mockResolvedValueOnce([{ id: 'listing-1', externalId: 'P-1' }]),
+          .mockResolvedValueOnce([{ id: 'listing-1', externalId: 'P-1' }])
+          .mockResolvedValueOnce([{
+            id: 'listing-1',
+            externalId: 'P-1',
+            masterProductId: 'master-1',
+            options: [{
+              id: 'option-1',
+              externalOptionId: 'P-1',
+              productVariantId: 'variant-1',
+            }],
+          }]),
       },
       channelListingOption: {
         findMany: vi.fn().mockResolvedValue([]),
@@ -59,6 +69,16 @@ describe('upsertChannelCatalogIdentities', () => {
       createdSkuCount: 1,
       updatedSkuCount: 0,
     });
+    expect(result.persistedListings).toEqual([{
+      id: 'listing-1',
+      externalProductId: 'P-1',
+      masterProductId: 'master-1',
+      options: [{
+        id: 'option-1',
+        externalOptionId: 'P-1',
+        productVariantId: 'variant-1',
+      }],
+    }]);
     expect(executeRaw).toHaveBeenCalledTimes(2);
     const sql = executeRaw.mock.calls.map(([statement]) =>
       Array.isArray(statement) ? statement.join('?') : statement.sql).join('\n');
@@ -66,6 +86,8 @@ describe('upsertChannelCatalogIdentities', () => {
     expect(sql).not.toContain('channel_sku_components');
     expect(sql).not.toContain('DELETE');
     expect(sql).not.toContain('is_active = FALSE');
+    expect(sql).not.toContain('master_product_id');
+    expect(sql).not.toContain('product_variant_id');
   });
 
   it('does not allow an existing option identity to move to another parent', async () => {

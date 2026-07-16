@@ -46,6 +46,18 @@ export type ChannelCatalogIdentityUpsertResult = {
   externalProductIds: string[];
   externalOptionIds: string[];
   listingIds: Map<string, string>;
+  persistedListings: PersistedChannelCatalogListing[];
+};
+
+export type PersistedChannelCatalogListing = {
+  id: string;
+  externalProductId: string;
+  masterProductId: string | null;
+  options: Array<{
+    id: string;
+    externalOptionId: string;
+    productVariantId: string | null;
+  }>;
 };
 
 export async function upsertChannelCatalogIdentities(
@@ -213,10 +225,51 @@ export async function upsertChannelCatalogIdentities(
     `;
   }
 
+  const persistedIdentities = await tx.channelListing.findMany({
+    where: {
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      externalId: { in: externalProductIds },
+    },
+    select: {
+      id: true,
+      externalId: true,
+      masterProductId: true,
+      options: {
+        where: {
+          organizationId: input.organizationId,
+          externalOptionId: { in: externalOptionIds },
+          isActive: true,
+        },
+        select: {
+          id: true,
+          externalOptionId: true,
+          productVariantId: true,
+        },
+        orderBy: { externalOptionId: 'asc' },
+      },
+    },
+    orderBy: { externalId: 'asc' },
+  });
+  if (
+    persistedIdentities.length !== input.products.length
+    || persistedIdentities.reduce((sum, listing) => sum + listing.options.length, 0)
+      !== options.length
+  ) {
+    throw new ConflictException('Not every persisted channel identity could be reloaded');
+  }
+  const persistedIdentityOutput = persistedIdentities.map((listing) => ({
+    id: listing.id,
+    externalProductId: listing.externalId,
+    masterProductId: listing.masterProductId,
+    options: listing.options,
+  }));
+
   return {
     externalProductIds,
     externalOptionIds,
     listingIds,
+    persistedListings: persistedIdentityOutput,
     changes: {
       createdProductCount: input.products.length - existingProductIds.size,
       updatedProductCount: existingProductIds.size,

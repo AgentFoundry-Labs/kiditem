@@ -45,6 +45,9 @@ channels/
   one SKU in one `ChannelAccount`; `optionId` is not inventory matching truth.
 - `ChannelListing.masterProductId` and
   `ChannelListingOption.productVariantId` are nullable confirmed links.
+- Wing publication may consume Products' transaction-aware provisioning port
+  and conditionally fill still-null product/variant links in the same catalog
+  publication transaction.
 - Physical component quantities come only from the linked
   `ProductVariantComponent` recipe; Channels owns no recipe table.
 - Channel daily snapshots and scrape audit rows support dashboard/reporting
@@ -101,7 +104,10 @@ Coupang provider
 Matching reads completed `coupang_wing_catalog` and `coupang_rocket_po_catalog`
 rows. Channels owns candidate ranking and atomic product/variant link updates.
 Candidate rows are live suggestions only and are never persisted or
-auto-confirmed; normalized names, barcodes, rank, and AI are evidence only.
+auto-confirmed. Outside the publication boundary, normalized names, barcodes,
+rank, and AI are evidence only. Wing publication may reuse an existing
+Products identity only from a unique, non-conflicting typed seller SKU or
+safely normalized typed barcode; names, raw aliases, and AI never confirm it.
 
 A linked variant's confirmed recipe is the only capacity input. An unmatched,
 configuration-required, or review-required
@@ -167,8 +173,11 @@ product and variant links.
   consistency atomically. They never create a recipe or write
   `SellpiaInventorySku.currentStock`.
 - Wing catalog collection attaches provider media to the listing content
-  workspace. It preserves existing content selection and never creates,
-  refreshes, or confirms product links, variant links, or component recipes.
+  workspace. In the same publication transaction it may call Products to
+  create/reuse channel-origin identities, then write only still-null listing
+  and option links after tenant and parent validation. It preserves existing
+  links and content selection and never creates or changes component recipes,
+  physical stock, or inferred quantities.
 - Wing and Rocket are separate `ChannelAccount` rows (`channel='coupang'` and
   `channel='rocket'`). Never infer the channel from an account display name.
 - Rocket purchase-order collection may publish completed account-scoped
