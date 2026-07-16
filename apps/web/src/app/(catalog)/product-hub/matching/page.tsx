@@ -37,6 +37,7 @@ export default function MatchingPage() {
     () => [...(accountsQuery.data ?? [])]
       .filter((account) => account.channel === 'coupang' || account.channel === 'rocket')
       .sort((left, right) => {
+        if (left.channel !== right.channel) return left.channel === 'coupang' ? -1 : 1;
         if (left.isPrimary !== right.isPrimary) return left.isPrimary ? -1 : 1;
         const nameOrder = left.name.localeCompare(right.name, 'ko');
         return nameOrder !== 0 ? nameOrder : left.id.localeCompare(right.id);

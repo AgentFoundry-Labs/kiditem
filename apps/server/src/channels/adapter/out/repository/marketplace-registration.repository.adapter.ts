@@ -113,7 +113,7 @@ export class MarketplaceRegistrationRepositoryAdapter
         organizationId: input.organizationId,
         channelListingId: existingIdentity.id,
         activeOnly: false,
-        completedCatalogOnly: false,
+        catalogMatchingEligibleOnly: false,
       });
       if (!locked) {
         throw new ConflictException('Marketplace listing changed concurrently.');

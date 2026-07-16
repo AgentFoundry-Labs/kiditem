@@ -11,7 +11,7 @@ export async function lockChannelListingRow(
     organizationId: string;
     channelListingId: string;
     activeOnly: boolean;
-    completedCatalogOnly: boolean;
+    catalogMatchingEligibleOnly: boolean;
   },
 ): Promise<LockedChannelListingRow | null> {
   const [listing] = await tx.$queryRaw<LockedChannelListingRow[]>`
@@ -21,13 +21,21 @@ export async function lockChannelListingRow(
       AND organization_id = ${input.organizationId}::uuid
       AND (${input.activeOnly} = FALSE OR is_active = TRUE)
       AND (
-        ${input.completedCatalogOnly} = FALSE
+        ${input.catalogMatchingEligibleOnly} = FALSE
         OR last_import_run_id IN (
           SELECT id
           FROM source_import_runs
           WHERE organization_id = ${input.organizationId}::uuid
             AND status = 'completed'
             AND source_type IN ('coupang_wing_catalog', 'coupang_rocket_po_catalog')
+        )
+        OR EXISTS (
+          SELECT 1
+          FROM channel_listing_options
+          WHERE listing_id = channel_listings.id
+            AND organization_id = ${input.organizationId}::uuid
+            AND is_active = TRUE
+            AND raw_json->>'source' = 'coupang_catalog_browser'
         )
       )
     FOR UPDATE

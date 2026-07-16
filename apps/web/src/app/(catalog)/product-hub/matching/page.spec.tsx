@@ -136,6 +136,30 @@ describe('/product-hub/matching', () => {
     expect(screen.getByText('Wing 가져오기: Wing')).toBeInTheDocument();
   });
 
+  it('selects Coupang Wing before an otherwise primary Rocket account', () => {
+    const wingAccountId = '77777777-7777-4777-8777-777777777777';
+    mockQueries([
+      account({
+        id: '88888888-8888-4888-8888-888888888888',
+        channel: 'rocket',
+        name: 'Coupang Rocket',
+        isPrimary: true,
+      }),
+      account({
+        id: wingAccountId,
+        channel: 'coupang',
+        name: 'Coupang Wing',
+        isPrimary: false,
+      }),
+    ]);
+
+    render(<MatchingPage />);
+
+    expect(screen.getByRole('combobox', { name: '채널 계정' })).toHaveValue(wingAccountId);
+    expect(vi.mocked(useChannelProductMappings).mock.lastCall?.[0])
+      .toEqual(expect.objectContaining({ channelAccountId: wingAccountId }));
+  });
+
   it('does not collide account or mapping errors with empty-success states', () => {
     vi.mocked(useChannelAccounts).mockReturnValue({
       data: undefined,

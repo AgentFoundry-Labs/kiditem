@@ -35,11 +35,16 @@ React Query + apiClient
 - Recipe status and capacity are inherited read-only summaries. Recipe changes
   link to `/product-hub/[masterProductId]#variants`.
 - Coupang and Rocket catalog rows share the matching queue. Only Coupang
-  accounts receive a Wing workbook.
+  accounts receive a Wing workbook, and the initial account selection prefers
+  Coupang Wing before Rocket so a populated Wing queue is not hidden by an empty
+  Rocket account.
 - Browser catalog publication may arrive already linked through Products-owned
   channel-origin provisioning or unique typed seller-SKU/safe-barcode reuse.
   Matching remains the operator correction surface and the read-only
   recipe-attention workspace for `재고 연결 필요` rows.
+- Product-detail chunks already published by a running browser collection appear
+  immediately; full-snapshot completion is required only for absence and
+  deactivation reconciliation.
 
 ## Boundary Rules
 

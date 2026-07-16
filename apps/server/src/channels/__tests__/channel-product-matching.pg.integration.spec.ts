@@ -388,6 +388,51 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     expect(availability.map((row) => row.listing.externalId)).not.toContain('P-INACTIVE');
   });
 
+  it('exposes an atomically published browser chunk before the full snapshot completes', async () => {
+    const product = await createProduct('KI-PARTIAL-BROWSER', 'Partial browser product');
+    const listing = await createListing({
+      externalId: 'P-PARTIAL-BROWSER',
+      masterProductId: product.id,
+      lastImportRunId: null,
+    });
+    const option = await createOption(listing.id, {
+      externalOptionId: 'O-PARTIAL-BROWSER',
+      productVariantId: product.variants[0]!.id,
+      rawJson: { source: 'coupang_catalog_browser' },
+    });
+
+    const queue = await service.list(TEST_ORGANIZATION_ID);
+
+    expect(queue.products.map((row) => row.listing.id)).toContain(listing.id);
+    expect(queue.options.map((row) => row.option.id)).toContain(option.id);
+    await expect(service.productCandidates(
+      TEST_ORGANIZATION_ID,
+      listing.id,
+      {},
+    )).resolves.toMatchObject({
+      items: [expect.objectContaining({ masterProductId: product.id })],
+    });
+  });
+
+  it('allows confirmation for an atomically published browser chunk', async () => {
+    const product = await createProduct('KI-PARTIAL-CONFIRM', 'Partial confirmation');
+    const listing = await createListing({
+      externalId: 'P-PARTIAL-CONFIRM',
+      lastImportRunId: null,
+    });
+    await createOption(listing.id, {
+      externalOptionId: 'O-PARTIAL-CONFIRM',
+      rawJson: { source: 'coupang_catalog_browser' },
+    });
+
+    await service.linkProduct(TEST_ORGANIZATION_ID, listing.id, {
+      masterProductId: product.id,
+    });
+
+    await expect(prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }))
+      .resolves.toMatchObject({ masterProductId: product.id });
+  });
+
   it('links exact KidItem-first product and variant identities in the caller transaction', async () => {
     const product = await createProduct('KI-REGISTER', 'Register');
     const candidate = await prisma.sourcingCandidate.create({
@@ -623,6 +668,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     productVariantId?: string;
     isActive?: boolean;
     sellerSku?: string;
+    rawJson?: object;
   }) {
     return prisma.channelListingOption.create({
       data: {
@@ -633,6 +679,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         productVariantId: input.productVariantId,
         isActive: input.isActive ?? true,
         sellerSku: input.sellerSku,
+        rawJson: input.rawJson,
       },
     });
   }

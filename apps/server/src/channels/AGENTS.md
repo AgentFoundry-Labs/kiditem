@@ -102,7 +102,10 @@ Coupang provider
 ```
 
 Matching reads completed `coupang_wing_catalog` and `coupang_rocket_po_catalog`
-rows. Channels owns candidate ranking and atomic product/variant link updates.
+rows plus product-detail chunks already atomically published by the running Wing
+browser collection. An incomplete workbook import remains excluded, and only a
+complete full snapshot may drive absence/deactivation reconciliation. Channels
+owns candidate ranking and atomic product/variant link updates.
 Candidate rows are live suggestions only and are never persisted or
 auto-confirmed. Outside the publication boundary, normalized names, barcodes,
 rank, and AI are evidence only. Wing publication may reuse an existing

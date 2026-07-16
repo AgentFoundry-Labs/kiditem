@@ -19,6 +19,7 @@ const COMPLETED_CATALOG_SOURCE_TYPES = [
   'coupang_wing_catalog',
   'coupang_rocket_po_catalog',
 ] as const;
+const PUBLISHED_BROWSER_CATALOG_SOURCE = 'coupang_catalog_browser';
 
 function listingInclude(organizationId: string) {
   return {
@@ -472,7 +473,21 @@ function matchingListingWhere(
   return {
     organizationId,
     isActive: true,
-    lastImportRun: { is: completedCatalogRunWhere(organizationId) },
+    OR: [
+      { lastImportRun: { is: completedCatalogRunWhere(organizationId) } },
+      {
+        options: {
+          some: {
+            organizationId,
+            isActive: true,
+            rawJson: {
+              path: ['source'],
+              equals: PUBLISHED_BROWSER_CATALOG_SOURCE,
+            },
+          },
+        },
+      },
+    ],
   };
 }
 
@@ -498,7 +513,7 @@ async function lockChannelListing(
     organizationId,
     channelListingId,
     activeOnly: true,
-    completedCatalogOnly: true,
+    catalogMatchingEligibleOnly: true,
   });
 }
 
