@@ -79,13 +79,13 @@ export class SellpiaInventoryImportService implements SellpiaInventoryImportPort
     }
 
     if (claim.kind === 'completed') {
-      return this.publication.verifySameHash({
+      return toHttpResponse(await this.publication.verifySameHash({
         organizationId: input.organizationId,
         userId: input.userId,
         runId: claim.runId,
         fileHash,
         execution,
-      });
+      }));
     }
 
     // Confirmed references affect warning evidence only. Publication integrity
@@ -94,7 +94,7 @@ export class SellpiaInventoryImportService implements SellpiaInventoryImportPort
       await this.references.listReferencedSellpiaProductCodes(
         input.organizationId,
       );
-    return this.publication.publishSnapshot({
+    return toHttpResponse(await this.publication.publishSnapshot({
       organizationId: input.organizationId,
       userId: input.userId,
       runId: claim.runId,
@@ -104,8 +104,21 @@ export class SellpiaInventoryImportService implements SellpiaInventoryImportPort
       rows: parsed.rows,
       qualityFacts: parsed.qualityFacts,
       confirmedReferencedProductCodes,
-    });
+    }));
   }
+}
+
+function toHttpResponse(
+  result: Awaited<ReturnType<SellpiaSnapshotPublicationRepositoryPort['publishSnapshot']>>,
+): SellpiaInventoryImportResponse {
+  return {
+    ...result,
+    changes: {
+      createdMasterProductCount: result.changes.createdSkuCount,
+      updatedMasterProductCount: result.changes.updatedSkuCount,
+      inactivatedMasterProductCount: result.changes.inactivatedSkuCount,
+    },
+  };
 }
 
 function publicationExecution(

@@ -1,7 +1,7 @@
 export interface SellpiaInventoryFreshnessGatePort {
   assertFreshAndActive(input: {
     organizationId: string;
-    masterProductIds: string[];
+    sellpiaInventorySkuIds: string[];
   }): Promise<{
     fence: string;
     lastVerifiedAt: string;
@@ -10,14 +10,14 @@ export interface SellpiaInventoryFreshnessGatePort {
 
   readFreshCapacity(input: {
     organizationId: string;
-    masterProductIds: string[];
+    sellpiaInventorySkuIds: string[];
   }): Promise<{
     fence: string;
     generation: string;
     lastVerifiedAt: string;
     expiresAt: string;
-    products: Array<{
-      masterProductId: string;
+    inventorySkus: Array<{
+      sellpiaInventorySkuId: string;
       currentStock: number;
       isActive: boolean;
     }>;

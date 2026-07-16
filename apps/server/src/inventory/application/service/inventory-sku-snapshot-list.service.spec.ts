@@ -4,7 +4,7 @@ import type { InventorySkuSnapshotListRepositoryPort } from '../port/out/reposit
 import { InventorySkuSnapshotListService } from './inventory-sku-snapshot-list.service';
 
 const organizationId = '00000000-0000-4000-8000-000000000001';
-const masterProductId = '00000000-0000-4000-8000-000000000002';
+const sellpiaInventorySkuId = '00000000-0000-4000-8000-000000000002';
 const runId = '00000000-0000-4000-8000-000000000003';
 
 describe('InventorySkuSnapshotListService', () => {
@@ -12,7 +12,7 @@ describe('InventorySkuSnapshotListService', () => {
     const repository = makeRepository();
     repository.listSnapshot.mockResolvedValueOnce({
       rows: [{
-        masterProductId,
+        sellpiaInventorySkuId,
         code: 'SP-001',
         name: '상품',
         optionName: '파랑',
@@ -23,6 +23,8 @@ describe('InventorySkuSnapshotListService', () => {
         isActive: true,
         lastImportRunId: runId,
         lastImportedAt: new Date('2026-07-12T00:00:00.000Z'),
+        linkedVariantCount: 2,
+        linkedProductCount: 1,
       }],
       total: 1,
       summary: {
@@ -54,6 +56,7 @@ describe('InventorySkuSnapshotListService', () => {
       query: '  상품  ',
       stockStatus: 'in_stock',
       activeStatus: 'active',
+      linkStatus: 'linked',
     });
 
     expect(repository.listSnapshot).toHaveBeenCalledWith(organizationId, {
@@ -62,10 +65,11 @@ describe('InventorySkuSnapshotListService', () => {
       query: '상품',
       stockStatus: 'in_stock',
       activeStatus: 'active',
+      linkStatus: 'linked',
     });
     expect(result).toEqual({
       items: [{
-        masterProductId,
+        sellpiaInventorySkuId,
         code: 'SP-001',
         name: '상품',
         optionName: '파랑',
@@ -77,6 +81,9 @@ describe('InventorySkuSnapshotListService', () => {
         stockValue: 8_000,
         lastImportRunId: runId,
         lastImportedAt: '2026-07-12T00:00:00.000Z',
+        linkedVariantCount: 2,
+        linkedProductCount: 1,
+        linkStatus: 'linked',
       }],
       total: 1,
       page: 2,
@@ -115,7 +122,7 @@ describe('InventorySkuSnapshotListService', () => {
     const repository = makeRepository();
     repository.listSnapshot.mockResolvedValueOnce({
       rows: [{
-        masterProductId,
+        sellpiaInventorySkuId,
         code: 'SP-NULL',
         name: '가격 없음',
         optionName: null,
@@ -126,6 +133,8 @@ describe('InventorySkuSnapshotListService', () => {
         isActive: false,
         lastImportRunId: null,
         lastImportedAt: null,
+        linkedVariantCount: 0,
+        linkedProductCount: 0,
       }],
       total: 1,
       summary: emptySummary(),
@@ -141,6 +150,7 @@ describe('InventorySkuSnapshotListService', () => {
       query: undefined,
       stockStatus: 'all',
       activeStatus: 'active',
+      linkStatus: undefined,
     });
     expect(result.items[0]?.stockValue).toBeNull();
     expect(result.latestImport).toBeNull();
@@ -195,10 +205,10 @@ describe('InventorySkuSnapshotListService', () => {
     });
   });
 
-  it('reads one Sellpia MasterProduct by tenant-scoped id', async () => {
+  it('reads one Sellpia inventory SKU by tenant-scoped id', async () => {
     const repository = makeRepository();
     repository.getSnapshot.mockResolvedValueOnce({
-      masterProductId,
+      sellpiaInventorySkuId,
       code: 'SP-001',
       name: '상품',
       optionName: '파랑',
@@ -209,11 +219,13 @@ describe('InventorySkuSnapshotListService', () => {
       isActive: true,
       lastImportRunId: runId,
       lastImportedAt: new Date('2026-07-12T00:00:00.000Z'),
+      linkedVariantCount: 2,
+      linkedProductCount: 1,
     });
     const service = new InventorySkuSnapshotListService(repository);
 
-    await expect(service.getSnapshot(organizationId, masterProductId)).resolves.toEqual({
-      masterProductId,
+    await expect(service.getSnapshot(organizationId, sellpiaInventorySkuId)).resolves.toEqual({
+      sellpiaInventorySkuId,
       code: 'SP-001',
       name: '상품',
       optionName: '파랑',
@@ -225,16 +237,22 @@ describe('InventorySkuSnapshotListService', () => {
       stockValue: 8_000,
       lastImportRunId: runId,
       lastImportedAt: '2026-07-12T00:00:00.000Z',
+      linkedVariantCount: 2,
+      linkedProductCount: 1,
+      linkStatus: 'linked',
     });
-    expect(repository.getSnapshot).toHaveBeenCalledWith(organizationId, masterProductId);
+    expect(repository.getSnapshot).toHaveBeenCalledWith(
+      organizationId,
+      sellpiaInventorySkuId,
+    );
   });
 
-  it('returns a real 404 when the tenant-scoped Sellpia MasterProduct is absent', async () => {
+  it('returns a real 404 when the tenant-scoped Sellpia inventory SKU is absent', async () => {
     const repository = makeRepository();
     repository.getSnapshot.mockResolvedValueOnce(null);
     const service = new InventorySkuSnapshotListService(repository);
 
-    await expect(service.getSnapshot(organizationId, masterProductId))
+    await expect(service.getSnapshot(organizationId, sellpiaInventorySkuId))
       .rejects.toBeInstanceOf(NotFoundException);
   });
 });

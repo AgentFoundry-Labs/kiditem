@@ -1,9 +1,9 @@
-export const SELLPIA_MASTER_PRODUCT_READ_PORT = Symbol(
-  'SELLPIA_MASTER_PRODUCT_READ_PORT',
+export const SELLPIA_INVENTORY_SKU_READ_PORT = Symbol(
+  'SELLPIA_INVENTORY_SKU_READ_PORT',
 );
 
-export type SellpiaMasterProductReadModel = {
-  id: string;
+export type SellpiaInventorySkuReadModel = {
+  sellpiaInventorySkuId: string;
   code: string;
   name: string;
   optionName: string | null;
@@ -15,26 +15,26 @@ export type SellpiaMasterProductReadModel = {
   lastImportRunId: string | null;
 };
 
-export interface SellpiaMasterProductReadPort {
+export interface SellpiaInventorySkuReadPort {
   findByIds(
     organizationId: string,
     ids: string[],
-  ): Promise<SellpiaMasterProductReadModel[]>;
+  ): Promise<SellpiaInventorySkuReadModel[]>;
   findByCodes(
     organizationId: string,
     codes: string[],
-  ): Promise<SellpiaMasterProductReadModel[]>;
+  ): Promise<SellpiaInventorySkuReadModel[]>;
   findByBarcodes(
     organizationId: string,
     barcodes: string[],
-  ): Promise<SellpiaMasterProductReadModel[]>;
+  ): Promise<SellpiaInventorySkuReadModel[]>;
   findByNormalizedNames(
     organizationId: string,
     normalizedNames: string[],
-  ): Promise<SellpiaMasterProductReadModel[]>;
+  ): Promise<SellpiaInventorySkuReadModel[]>;
   search(
     organizationId: string,
     query: string,
     limit: number,
-  ): Promise<SellpiaMasterProductReadModel[]>;
+  ): Promise<SellpiaInventorySkuReadModel[]>;
 }

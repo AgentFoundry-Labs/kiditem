@@ -53,7 +53,7 @@ describe('Sellpia unified import repositories (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
-  it('atomically publishes one snapshot and verifies its claimed generation', async () => {
+  it('atomically publishes physical SKUs without manufacturing products or variants', async () => {
     const execution = await activateGeneration(1n, 'initial_snapshot');
 
     const result = await service.importInventory(browserInput(workbook([
@@ -61,8 +61,8 @@ describe('Sellpia unified import repositories (PG integration)', () => {
       row('SP-002', 3),
     ]), execution));
 
-    const [masters, state, run] = await Promise.all([
-      prisma.masterProduct.findMany({
+    const [skus, state, run, masterProductCount, productVariantCount] = await Promise.all([
+      prisma.sellpiaInventorySku.findMany({
         where: { organizationId: TEST_ORGANIZATION_ID },
         orderBy: { code: 'asc' },
       }),
@@ -70,11 +70,15 @@ describe('Sellpia unified import repositories (PG integration)', () => {
         where: { organizationId: TEST_ORGANIZATION_ID },
       }),
       prisma.sourceImportRun.findUniqueOrThrow({ where: { id: result.run.id } }),
+      prisma.masterProduct.count({ where: { organizationId: TEST_ORGANIZATION_ID } }),
+      prisma.productVariant.count({ where: { organizationId: TEST_ORGANIZATION_ID } }),
     ]);
-    expect(masters.map(({ code, currentStock }) => [code, currentStock])).toEqual([
+    expect(skus.map(({ code, currentStock }) => [code, currentStock])).toEqual([
       ['SP-001', 7],
       ['SP-002', 3],
     ]);
+    expect(masterProductCount).toBe(0);
+    expect(productVariantCount).toBe(0);
     expect(run).toMatchObject({
       status: 'completed',
       verificationCount: 1,
@@ -90,11 +94,36 @@ describe('Sellpia unified import repositories (PG integration)', () => {
     });
   });
 
+  it('inactivates an absent code with zero stock only after successful publication', async () => {
+    await service.importInventory(browserInput(
+      workbook(Array.from({ length: 5 }, (_, index) => row(`SP-${index}`, 10))),
+      await activateGeneration(1n, 'initial_snapshot'),
+    ));
+
+    const replacement = await service.importInventory(browserInput(
+      workbook(Array.from({ length: 4 }, (_, index) => row(`SP-${index}`, 20))),
+      await activateGeneration(2n, 'manual_request'),
+    ));
+
+    const absent = await prisma.sellpiaInventorySku.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, code: 'SP-4' },
+    });
+    expect(replacement).toMatchObject({
+      outcome: 'published',
+      changes: { inactivatedMasterProductCount: 1 },
+    });
+    expect(absent).toMatchObject({
+      currentStock: 0,
+      isActive: false,
+      lastImportRunId: replacement.run.id,
+    });
+  });
+
   it('never writes stock for the first or second completed same-hash execution', async () => {
     const bytes = workbook([row('SP-001', 7)]);
     const firstExecution = await activateGeneration(1n, 'initial_snapshot');
     const first = await service.importInventory(browserInput(bytes, firstExecution));
-    const before = await prisma.masterProduct.findFirstOrThrow({
+    const before = await prisma.sellpiaInventorySku.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID },
     });
 
@@ -105,7 +134,9 @@ describe('Sellpia unified import repositories (PG integration)', () => {
 
     const confirmationExecution = await activateGeneration(3n, 'same_hash_confirmation');
     const verified = await service.importInventory(browserInput(bytes, confirmationExecution));
-    const after = await prisma.masterProduct.findUniqueOrThrow({ where: { id: before.id } });
+    const after = await prisma.sellpiaInventorySku.findUniqueOrThrow({
+      where: { id: before.id },
+    });
     const state = await prisma.sellpiaInventoryState.findUniqueOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID },
     });
@@ -152,8 +183,8 @@ describe('Sellpia unified import repositories (PG integration)', () => {
       thirdExecution,
     ));
 
-    const [master, state, runs] = await Promise.all([
-      prisma.masterProduct.findFirstOrThrow({
+    const [sku, state, runs] = await Promise.all([
+      prisma.sellpiaInventorySku.findFirstOrThrow({
         where: {
           organizationId: TEST_ORGANIZATION_ID,
           code: 'SP-CYCLE',
@@ -185,7 +216,7 @@ describe('Sellpia unified import repositories (PG integration)', () => {
         inactivatedMasterProductCount: 0,
       },
     });
-    expect(master).toMatchObject({
+    expect(sku).toMatchObject({
       currentStock: 20,
       lastImportRunId: firstB.run.id,
     });
@@ -293,14 +324,16 @@ describe('Sellpia unified import repositories (PG integration)', () => {
     const bytes = workbook([row('SP-STABLE', 5)]);
     const initial = await activateGeneration(1n, 'initial_snapshot');
     await service.importInventory(browserInput(bytes, initial));
-    const before = await prisma.masterProduct.findFirstOrThrow({
+    const before = await prisma.sellpiaInventorySku.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID },
     });
 
     const ttl = await activateGeneration(2n, 'ttl_expired');
     const ttlResult = await service.importInventory(browserInput(bytes, ttl));
     const manualResult = await service.importInventory(manualInput(bytes));
-    const after = await prisma.masterProduct.findUniqueOrThrow({ where: { id: before.id } });
+    const after = await prisma.sellpiaInventorySku.findUniqueOrThrow({
+      where: { id: before.id },
+    });
 
     expect(ttlResult).toMatchObject({
       outcome: 'same_hash_verified',
@@ -325,7 +358,7 @@ describe('Sellpia unified import repositories (PG integration)', () => {
       workbook(Array.from({ length: 10 }, (_, index) => row(`SP-${index}`, index))),
       firstExecution,
     ));
-    const before = await prisma.masterProduct.findMany({
+    const before = await prisma.sellpiaInventorySku.findMany({
       where: { organizationId: TEST_ORGANIZATION_ID },
       orderBy: { code: 'asc' },
     });
@@ -337,7 +370,7 @@ describe('Sellpia unified import repositories (PG integration)', () => {
     ))).rejects.toThrow('quality thresholds');
 
     const [after, runs, state] = await Promise.all([
-      prisma.masterProduct.findMany({
+      prisma.sellpiaInventorySku.findMany({
         where: { organizationId: TEST_ORGANIZATION_ID },
         orderBy: { code: 'asc' },
       }),
@@ -407,7 +440,7 @@ describe('Sellpia unified import repositories (PG integration)', () => {
       qualityFacts: parsed.qualityFacts,
       confirmedReferencedProductCodes: [],
     })).rejects.toBeInstanceOf(ConflictException);
-    expect(await prisma.masterProduct.count()).toBe(0);
+    expect(await prisma.sellpiaInventorySku.count()).toBe(0);
   });
 
   it('verifies only the claimed generation and leaves a higher request pending', async () => {
@@ -520,7 +553,7 @@ describe('Sellpia unified import repositories (PG integration)', () => {
       workbook([row('SP-KEEP', 8)]),
       firstExecution,
     ));
-    const before = await prisma.masterProduct.findFirstOrThrow({
+    const before = await prisma.sellpiaInventorySku.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID },
     });
     const invalidExecution = await activateGeneration(2n, 'manual_request');
@@ -531,7 +564,7 @@ describe('Sellpia unified import repositories (PG integration)', () => {
     ))).rejects.toThrow();
 
     const [after, state, failed] = await Promise.all([
-      prisma.masterProduct.findUniqueOrThrow({ where: { id: before.id } }),
+      prisma.sellpiaInventorySku.findUniqueOrThrow({ where: { id: before.id } }),
       prisma.sellpiaInventoryState.findUniqueOrThrow({
         where: { organizationId: TEST_ORGANIZATION_ID },
       }),
@@ -562,7 +595,7 @@ describe('Sellpia unified import repositories (PG integration)', () => {
       initialBytes,
       await activateGeneration(1n, 'initial_snapshot'),
     ));
-    const before = await prisma.masterProduct.findMany({
+    const before = await prisma.sellpiaInventorySku.findMany({
       where: { organizationId: TEST_ORGANIZATION_ID },
       orderBy: { code: 'asc' },
     });
@@ -596,7 +629,7 @@ describe('Sellpia unified import repositories (PG integration)', () => {
     })).rejects.toThrow();
 
     const [afterFailure, stateAfterFailure, runAfterFailure] = await Promise.all([
-      prisma.masterProduct.findMany({
+      prisma.sellpiaInventorySku.findMany({
         where: { organizationId: TEST_ORGANIZATION_ID },
         orderBy: { code: 'asc' },
       }),
@@ -621,7 +654,7 @@ describe('Sellpia unified import repositories (PG integration)', () => {
     const retried = await service.importInventory(manualInput(replacementBytes));
     expect(retried.outcome).toBe('published');
     expect(retried.run.id).toBe(claim.runId);
-    expect((await prisma.masterProduct.findUniqueOrThrow({
+    expect((await prisma.sellpiaInventorySku.findUniqueOrThrow({
       where: { id: before[0]!.id },
     })).currentStock).toBe(9);
   });

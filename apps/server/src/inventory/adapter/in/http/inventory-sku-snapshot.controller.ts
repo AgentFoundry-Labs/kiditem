@@ -24,12 +24,12 @@ export class InventorySkuSnapshotController {
     return this.snapshots.listSnapshot(organizationId, query);
   }
 
-  @Get('sellpia-skus/:masterProductId')
+  @Get('sellpia-skus/:sellpiaInventorySkuId')
   getSnapshot(
     @CurrentOrganization() organizationId: string,
-    @Param('masterProductId', new ParseUUIDPipe()) masterProductId: string,
+    @Param('sellpiaInventorySkuId', new ParseUUIDPipe()) sellpiaInventorySkuId: string,
   ) {
-    return this.snapshots.getSnapshot(organizationId, masterProductId);
+    return this.snapshots.getSnapshot(organizationId, sellpiaInventorySkuId);
   }
 
   @Get('sellpia-sync/import-runs')

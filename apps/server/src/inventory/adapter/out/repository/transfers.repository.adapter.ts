@@ -9,7 +9,7 @@ import type {
 } from '../../../application/port/out/repository/transfers.repository.port';
 
 const TRANSFER_INCLUDE = {
-  masterProduct: true,
+  sellpiaInventorySku: true,
   fromWarehouse: true,
   toWarehouse: true,
 } as const;
@@ -28,13 +28,13 @@ export class TransfersRepositoryAdapter implements TransfersRepositoryPort {
     });
   }
 
-  async findMasterProductForTransfer(
-    masterProductId: string,
+  async findInventorySkuForTransfer(
+    sellpiaInventorySkuId: string,
     organizationId: string,
   ): Promise<{ optionName: string | null } | null> {
-    return this.prisma.masterProduct.findFirst({
+    return this.prisma.sellpiaInventorySku.findFirst({
       where: {
-        id: masterProductId,
+        id: sellpiaInventorySkuId,
         organizationId,
         isActive: true,
       },

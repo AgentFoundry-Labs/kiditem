@@ -1,24 +1,24 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type {
-  SellpiaMasterProductReadModel,
-  SellpiaMasterProductReadPort,
-} from '../port/in/stock/sellpia-master-product-read.port';
+  SellpiaInventorySkuReadModel,
+  SellpiaInventorySkuReadPort,
+} from '../port/in/stock/sellpia-inventory-sku-read.port';
 import {
-  SELLPIA_MASTER_PRODUCT_READ_REPOSITORY_PORT,
-  type SellpiaMasterProductReadRepositoryPort,
-} from '../port/out/repository/sellpia-master-product-read.repository.port';
+  SELLPIA_INVENTORY_SKU_READ_REPOSITORY_PORT,
+  type SellpiaInventorySkuReadRepositoryPort,
+} from '../port/out/repository/sellpia-inventory-sku-read.repository.port';
 
 @Injectable()
-export class SellpiaMasterProductReadService implements SellpiaMasterProductReadPort {
+export class SellpiaInventorySkuReadService implements SellpiaInventorySkuReadPort {
   constructor(
-    @Inject(SELLPIA_MASTER_PRODUCT_READ_REPOSITORY_PORT)
-    private readonly repository: SellpiaMasterProductReadRepositoryPort,
+    @Inject(SELLPIA_INVENTORY_SKU_READ_REPOSITORY_PORT)
+    private readonly repository: SellpiaInventorySkuReadRepositoryPort,
   ) {}
 
   findByIds(
     organizationId: string,
     ids: string[],
-  ): Promise<SellpiaMasterProductReadModel[]> {
+  ): Promise<SellpiaInventorySkuReadModel[]> {
     return this.readIdentifiers(ids, (values) =>
       this.repository.findByIds(organizationId, values));
   }
@@ -26,7 +26,7 @@ export class SellpiaMasterProductReadService implements SellpiaMasterProductRead
   findByCodes(
     organizationId: string,
     codes: string[],
-  ): Promise<SellpiaMasterProductReadModel[]> {
+  ): Promise<SellpiaInventorySkuReadModel[]> {
     return this.readIdentifiers(codes, (values) =>
       this.repository.findByCodes(organizationId, values));
   }
@@ -34,7 +34,7 @@ export class SellpiaMasterProductReadService implements SellpiaMasterProductRead
   findByBarcodes(
     organizationId: string,
     barcodes: string[],
-  ): Promise<SellpiaMasterProductReadModel[]> {
+  ): Promise<SellpiaInventorySkuReadModel[]> {
     return this.readIdentifiers(barcodes, (values) =>
       this.repository.findByBarcodes(organizationId, values));
   }
@@ -42,7 +42,7 @@ export class SellpiaMasterProductReadService implements SellpiaMasterProductRead
   findByNormalizedNames(
     organizationId: string,
     normalizedNames: string[],
-  ): Promise<SellpiaMasterProductReadModel[]> {
+  ): Promise<SellpiaInventorySkuReadModel[]> {
     return this.readIdentifiers(normalizedNames, (values) =>
       this.repository.findByNormalizedNames(organizationId, values));
   }
@@ -51,7 +51,7 @@ export class SellpiaMasterProductReadService implements SellpiaMasterProductRead
     organizationId: string,
     query: string,
     limit: number,
-  ): Promise<SellpiaMasterProductReadModel[]> {
+  ): Promise<SellpiaInventorySkuReadModel[]> {
     const normalizedQuery = query.trim();
     if (!normalizedQuery) return Promise.resolve([]);
     const cappedLimit = Number.isFinite(limit)
@@ -62,8 +62,8 @@ export class SellpiaMasterProductReadService implements SellpiaMasterProductRead
 
   private readIdentifiers(
     values: string[],
-    read: (normalized: string[]) => Promise<SellpiaMasterProductReadModel[]>,
-  ): Promise<SellpiaMasterProductReadModel[]> {
+    read: (normalized: string[]) => Promise<SellpiaInventorySkuReadModel[]>,
+  ): Promise<SellpiaInventorySkuReadModel[]> {
     const normalized = [...new Set(
       values.map((value) => value.trim()).filter(Boolean),
     )];

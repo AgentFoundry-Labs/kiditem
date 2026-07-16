@@ -38,6 +38,7 @@ export class InventorySkuSnapshotListService implements InventorySkuSnapshotList
       query: query.query?.trim() || undefined,
       stockStatus: query.stockStatus ?? 'all',
       activeStatus: query.activeStatus ?? 'active',
+      linkStatus: query.linkStatus,
     });
 
     return InventorySkuSnapshotListResponseSchema.parse({
@@ -52,10 +53,13 @@ export class InventorySkuSnapshotListService implements InventorySkuSnapshotList
 
   async getSnapshot(
     organizationId: string,
-    masterProductId: string,
+    sellpiaInventorySkuId: string,
   ): Promise<InventorySkuSnapshotItem> {
-    const row = await this.repository.getSnapshot(organizationId, masterProductId);
-    if (!row) throw new NotFoundException('Sellpia MasterProduct not found');
+    const row = await this.repository.getSnapshot(
+      organizationId,
+      sellpiaInventorySkuId,
+    );
+    if (!row) throw new NotFoundException('Sellpia inventory SKU not found');
     return InventorySkuSnapshotItemSchema.parse(mapSnapshotRow(row));
   }
 
@@ -80,7 +84,7 @@ export class InventorySkuSnapshotListService implements InventorySkuSnapshotList
 
 function mapSnapshotRow(row: InventorySkuSnapshotRepositoryRow): InventorySkuSnapshotItem {
   return {
-    masterProductId: row.masterProductId,
+    sellpiaInventorySkuId: row.sellpiaInventorySkuId,
     code: row.code,
     name: row.name,
     optionName: row.optionName,
@@ -94,6 +98,9 @@ function mapSnapshotRow(row: InventorySkuSnapshotRepositoryRow): InventorySkuSna
       : row.currentStock * row.purchasePrice,
     lastImportRunId: row.lastImportRunId,
     lastImportedAt: row.lastImportedAt?.toISOString() ?? null,
+    linkedVariantCount: row.linkedVariantCount,
+    linkedProductCount: row.linkedProductCount,
+    linkStatus: row.linkedVariantCount > 0 ? 'linked' : 'unlinked',
   } satisfies InventorySkuSnapshotItem;
 }
 

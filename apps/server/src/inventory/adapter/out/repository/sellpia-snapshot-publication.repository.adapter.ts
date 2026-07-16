@@ -15,6 +15,7 @@ import type {
 } from '../../../application/port/out/repository/sellpia-import-run.repository.port';
 import type {
   SellpiaSnapshotPublicationRepositoryPort,
+  SellpiaSnapshotPublicationResult,
 } from '../../../application/port/out/repository/sellpia-snapshot-publication.repository.port';
 import type { ParsedSellpiaInventoryRow } from '../../../application/service/sellpia-inventory-workbook.parser';
 import { evaluateSellpiaInventoryQuality } from '../../../domain/policy/sellpia-inventory-quality.policy';
@@ -33,7 +34,7 @@ type VerifyInput = Parameters<
   SellpiaSnapshotPublicationRepositoryPort['verifySameHash']
 >[0];
 type PublicationResult =
-  | { kind: 'completed'; response: SellpiaInventoryImportResponse }
+  | { kind: 'completed'; response: SellpiaSnapshotPublicationResult }
   | { kind: 'blocked'; message: string };
 
 @Injectable()
@@ -41,7 +42,7 @@ export class SellpiaSnapshotPublicationRepositoryAdapter
 implements SellpiaSnapshotPublicationRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
-  async publishSnapshot(input: PublishInput): Promise<SellpiaInventoryImportResponse> {
+  async publishSnapshot(input: PublishInput): Promise<SellpiaSnapshotPublicationResult> {
     if (input.rows.length === 0) {
       throw new BadRequestException('Sellpia inventory snapshot has no valid rows');
     }
@@ -55,7 +56,7 @@ implements SellpiaSnapshotPublicationRepositoryPort {
       assertRunningRun(run, input);
 
       const [previousActiveRows, previousRun] = await Promise.all([
-        tx.masterProduct.findMany({
+        tx.sellpiaInventorySku.findMany({
           where: { organizationId: input.organizationId, isActive: true },
           select: { code: true },
         }),
@@ -91,7 +92,7 @@ implements SellpiaSnapshotPublicationRepositoryPort {
         return { kind: 'blocked', message };
       }
 
-      const changes = await replaceMasterProducts(tx, input);
+      const changes = await replaceInventorySkus(tx, input);
       const now = new Date();
       const publicationSequence = await nextPublicationSequence(
         tx,
@@ -141,7 +142,7 @@ implements SellpiaSnapshotPublicationRepositoryPort {
     return result.response;
   }
 
-  async verifySameHash(input: VerifyInput): Promise<SellpiaInventoryImportResponse> {
+  async verifySameHash(input: VerifyInput): Promise<SellpiaSnapshotPublicationResult> {
     return this.prisma.$transaction(async (tx) => {
       await lockSellpiaLane(tx, input.organizationId);
       const [state, run] = await Promise.all([
@@ -264,11 +265,11 @@ implements SellpiaSnapshotPublicationRepositoryPort {
   }
 }
 
-async function replaceMasterProducts(
+async function replaceInventorySkus(
   tx: Prisma.TransactionClient,
   input: PublishInput,
-): Promise<SellpiaInventoryImportResponse['changes']> {
-  const existing = await tx.masterProduct.findMany({
+): Promise<SellpiaSnapshotPublicationResult['changes']> {
+  const existing = await tx.sellpiaInventorySku.findMany({
     where: {
       organizationId: input.organizationId,
       code: { in: input.rows.map((row) => row.sellpiaProductCode) },
@@ -276,23 +277,23 @@ async function replaceMasterProducts(
     select: { code: true },
   });
   const existingCodes = new Set(existing.map(({ code }) => code));
-  const createdMasterProductCount = input.rows.filter(
+  const createdSkuCount = input.rows.filter(
     (row) => !existingCodes.has(row.sellpiaProductCode),
   ).length;
-  const updatedMasterProductCount = input.rows.length - createdMasterProductCount;
+  const updatedSkuCount = input.rows.length - createdSkuCount;
 
   for (let offset = 0; offset < input.rows.length; offset += UPSERT_BATCH_SIZE) {
     const payload = JSON.stringify(
       input.rows.slice(offset, offset + UPSERT_BATCH_SIZE).map(toUpsertPayload),
     );
     await tx.$executeRaw`
-      INSERT INTO master_products (
+      INSERT INTO sellpia_inventory_skus (
         id, organization_id, code, name, option_name, barcode,
         current_stock, purchase_price, sale_price, is_active, raw_json,
         last_import_run_id, created_at, updated_at
       )
       SELECT
-        (record->>'masterProductId')::uuid,
+        (record->>'sellpiaInventorySkuId')::uuid,
         ${input.organizationId}::uuid,
         record->>'code',
         record->>'name',
@@ -323,14 +324,14 @@ async function replaceMasterProducts(
   }
 
   const completeCodes = input.rows.map((row) => row.sellpiaProductCode);
-  const inactivatedMasterProductCount = await tx.masterProduct.count({
+  const inactivatedSkuCount = await tx.sellpiaInventorySku.count({
     where: {
       organizationId: input.organizationId,
       code: { notIn: completeCodes },
       isActive: true,
     },
   });
-  await tx.masterProduct.updateMany({
+  await tx.sellpiaInventorySku.updateMany({
     where: {
       organizationId: input.organizationId,
       code: { notIn: completeCodes },
@@ -342,9 +343,9 @@ async function replaceMasterProducts(
     },
   });
   return {
-    createdMasterProductCount,
-    updatedMasterProductCount,
-    inactivatedMasterProductCount,
+    createdSkuCount,
+    updatedSkuCount,
+    inactivatedSkuCount,
   };
 }
 
@@ -560,7 +561,7 @@ async function nextPublicationSequence(
 
 function toUpsertPayload(row: ParsedSellpiaInventoryRow) {
   return {
-    masterProductId: randomUUID(),
+    sellpiaInventorySkuId: randomUUID(),
     code: row.sellpiaProductCode,
     name: row.name,
     optionName: row.optionName,
@@ -579,11 +580,11 @@ function parseGeneration(value: string): bigint {
   return BigInt(value);
 }
 
-function zeroChanges(): SellpiaInventoryImportResponse['changes'] {
+function zeroChanges(): SellpiaSnapshotPublicationResult['changes'] {
   return {
-    createdMasterProductCount: 0,
-    updatedMasterProductCount: 0,
-    inactivatedMasterProductCount: 0,
+    createdSkuCount: 0,
+    updatedSkuCount: 0,
+    inactivatedSkuCount: 0,
   };
 }
 
@@ -591,8 +592,8 @@ function importResponse(
   run: SourceImportRun,
   duplicate: boolean,
   outcome: SellpiaInventoryImportResponse['outcome'],
-  changes: SellpiaInventoryImportResponse['changes'],
-): SellpiaInventoryImportResponse {
+  changes: SellpiaSnapshotPublicationResult['changes'],
+): SellpiaSnapshotPublicationResult {
   const verifiedRun = VerifiedSellpiaSourceImportRunSchema.parse({
     id: run.id,
     sourceType: 'sellpia_inventory',

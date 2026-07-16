@@ -15,8 +15,8 @@ const ORG_ID = '00000000-0000-4000-8000-000000000001';
 const OTHER_ORG_ID = '00000000-0000-4000-8000-000000000002';
 const USER_ID = '00000000-0000-4000-8000-000000000003';
 const OTHER_USER_ID = '00000000-0000-4000-8000-000000000004';
-const MASTER_ID = '00000000-0000-4000-8000-000000000005';
-const FOREIGN_MASTER_ID = '00000000-0000-4000-8000-000000000006';
+const SKU_ID = '00000000-0000-4000-8000-000000000005';
+const FOREIGN_SKU_ID = '00000000-0000-4000-8000-000000000006';
 const INTENT_KEY = '1721000000000-kidkids-browser';
 
 describe('SellpiaInventoryFreshnessService', () => {
@@ -724,7 +724,7 @@ describe('SellpiaInventoryFreshnessService', () => {
       sourceAccountKey: 'kiditem',
       lastVerifiedAt: new Date('2026-07-14T23:50:00.001Z'),
     });
-    repository.seedMaster(ORG_ID, MASTER_ID, true);
+    repository.seedInventorySku(ORG_ID, SKU_ID, true);
     repository.onLockAcquired = () => {
       vi.setSystemTime(new Date('2026-07-15T00:00:00.001Z'));
     };
@@ -732,7 +732,7 @@ describe('SellpiaInventoryFreshnessService', () => {
     await expectCode(
       service.assertFreshAndActive({
         organizationId: ORG_ID,
-        masterProductIds: [MASTER_ID],
+        sellpiaInventorySkuIds: [SKU_ID],
       }),
       'SELLPIA_SYNC_REQUIRED',
     );
@@ -747,14 +747,14 @@ describe('SellpiaInventoryFreshnessService', () => {
     await expectCode(
       service.assertFreshAndActive({
         organizationId: ORG_ID,
-        masterProductIds: [],
+        sellpiaInventorySkuIds: [],
       }),
       'PURCHASE_REFERENCE_INVALID',
     );
     await expectCode(
       service.assertFreshAndActive({
         organizationId: ORG_ID,
-        masterProductIds: ['not-a-uuid'],
+        sellpiaInventorySkuIds: ['not-a-uuid'],
       }),
       'PURCHASE_REFERENCE_INVALID',
     );
@@ -766,19 +766,19 @@ describe('SellpiaInventoryFreshnessService', () => {
       sourceAccountKey: 'kiditem',
       lastVerifiedAt: new Date('2026-07-14T23:50:00.000Z'),
     });
-    repository.seedMaster(OTHER_ORG_ID, FOREIGN_MASTER_ID, true);
+    repository.seedInventorySku(OTHER_ORG_ID, FOREIGN_SKU_ID, true);
 
     await expectCode(
       service.assertFreshAndActive({
         organizationId: ORG_ID,
-        masterProductIds: [MASTER_ID],
+        sellpiaInventorySkuIds: [SKU_ID],
       }),
       'PURCHASE_REFERENCE_INVALID',
     );
     await expectCode(
       service.assertFreshAndActive({
         organizationId: ORG_ID,
-        masterProductIds: [FOREIGN_MASTER_ID],
+        sellpiaInventorySkuIds: [FOREIGN_SKU_ID],
       }),
       'PURCHASE_REFERENCE_INVALID',
     );
@@ -789,12 +789,12 @@ describe('SellpiaInventoryFreshnessService', () => {
       sourceAccountKey: 'kiditem',
       lastVerifiedAt: new Date('2026-07-14T23:50:00.000Z'),
     });
-    repository.seedMaster(ORG_ID, MASTER_ID, false);
+    repository.seedInventorySku(ORG_ID, SKU_ID, false);
 
     await expectCode(
       service.assertFreshAndActive({
         organizationId: ORG_ID,
-        masterProductIds: [MASTER_ID],
+        sellpiaInventorySkuIds: [SKU_ID],
       }),
       'SELLPIA_SYNC_REQUIRED',
     );
@@ -805,9 +805,9 @@ describe('SellpiaInventoryFreshnessService', () => {
       sourceAccountKey: 'kiditem',
       lastVerifiedAt: new Date('2026-07-14T23:50:00.000Z'),
     });
-    repository.seedMaster(ORG_ID, MASTER_ID, true);
+    repository.seedInventorySku(ORG_ID, SKU_ID, true);
     await expectCode(
-      service.assertFreshAndActive({ organizationId: ORG_ID, masterProductIds: [MASTER_ID] }),
+      service.assertFreshAndActive({ organizationId: ORG_ID, sellpiaInventorySkuIds: [SKU_ID] }),
       'SELLPIA_SYNC_REQUIRED',
     );
 
@@ -815,17 +815,17 @@ describe('SellpiaInventoryFreshnessService', () => {
       sourceAccountKey: 'kiditem',
       lastVerifiedAt: new Date('2026-07-14T23:59:00.000Z'),
     });
-    repository.seedMaster(ORG_ID, MASTER_ID, false);
+    repository.seedInventorySku(ORG_ID, SKU_ID, false);
     await expectCode(
-      service.assertFreshAndActive({ organizationId: ORG_ID, masterProductIds: [MASTER_ID] }),
+      service.assertFreshAndActive({ organizationId: ORG_ID, sellpiaInventorySkuIds: [SKU_ID] }),
       'PURCHASE_ITEM_INACTIVE',
     );
 
-    repository.seedMaster(OTHER_ORG_ID, FOREIGN_MASTER_ID, true);
+    repository.seedInventorySku(OTHER_ORG_ID, FOREIGN_SKU_ID, true);
     await expectCode(
       service.assertFreshAndActive({
         organizationId: ORG_ID,
-        masterProductIds: [FOREIGN_MASTER_ID],
+        sellpiaInventorySkuIds: [FOREIGN_SKU_ID],
       }),
       'PURCHASE_REFERENCE_INVALID',
     );
@@ -837,17 +837,17 @@ describe('SellpiaInventoryFreshnessService', () => {
       lastVerifiedAt: new Date('2026-07-14T23:59:00.000Z'),
       freshnessFence: '00000000-0000-4000-8000-000000000200',
     });
-    repository.seedMaster(ORG_ID, MASTER_ID, true);
+    repository.seedInventorySku(ORG_ID, SKU_ID, true);
 
     await expect(service.assertFreshAndActive({
       organizationId: ORG_ID,
-      masterProductIds: [MASTER_ID, MASTER_ID],
+      sellpiaInventorySkuIds: [SKU_ID, SKU_ID],
     })).resolves.toEqual({
       fence: '00000000-0000-4000-8000-000000000200',
       lastVerifiedAt: '2026-07-14T23:59:00.000Z',
       expiresAt: '2026-07-15T00:09:00.000Z',
     });
-    expect(repository.lastMasterProductIds).toEqual([MASTER_ID]);
+    expect(repository.lastInventorySkuIds).toEqual([SKU_ID]);
   });
 
   it('reads component stock under the same Inventory-owned freshness lock', async () => {
@@ -857,24 +857,28 @@ describe('SellpiaInventoryFreshnessService', () => {
       verifiedGeneration: 7n,
       freshnessFence: '00000000-0000-4000-8000-000000000207',
     });
-    repository.seedMaster(ORG_ID, MASTER_ID, true, 7);
+    repository.seedInventorySku(ORG_ID, SKU_ID, true, 7);
     const capacityReader = service as unknown as {
       readFreshCapacity(input: {
         organizationId: string;
-        masterProductIds: string[];
+        sellpiaInventorySkuIds: string[];
       }): Promise<unknown>;
     };
 
     expect(typeof capacityReader.readFreshCapacity).toBe('function');
     await expect(capacityReader.readFreshCapacity({
       organizationId: ORG_ID,
-      masterProductIds: [MASTER_ID, MASTER_ID],
+      sellpiaInventorySkuIds: [SKU_ID, SKU_ID],
     })).resolves.toEqual({
       fence: '00000000-0000-4000-8000-000000000207',
       generation: '7',
       lastVerifiedAt: '2026-07-14T23:59:00.000Z',
       expiresAt: '2026-07-15T00:09:00.000Z',
-      products: [{ masterProductId: MASTER_ID, currentStock: 7, isActive: true }],
+      inventorySkus: [{
+        sellpiaInventorySkuId: SKU_ID,
+        currentStock: 7,
+        isActive: true,
+      }],
     });
   });
 });
@@ -892,7 +896,7 @@ async function expectCode(promise: Promise<unknown>, code: string) {
 class MemoryFreshnessRepository
 implements SellpiaInventoryFreshnessRepositoryPort {
   private readonly states = new Map<string, SellpiaInventoryFreshnessState>();
-  private readonly masters = new Map<
+  private readonly inventorySkus = new Map<
     string,
     Map<string, { isActive: boolean; currentStock: number }>
   >();
@@ -917,7 +921,7 @@ implements SellpiaInventoryFreshnessRepositoryPort {
     note: string;
     outcome: 'submitted' | 'not_submitted';
   }> = [];
-  lastMasterProductIds: string[] = [];
+  lastInventorySkuIds: string[] = [];
 
   async withLockedState<T>(
     input: {
@@ -962,15 +966,15 @@ implements SellpiaInventoryFreshnessRepositoryPort {
     });
   }
 
-  seedMaster(
+  seedInventorySku(
     organizationId: string,
     id: string,
     isActive: boolean,
     currentStock = 0,
   ) {
-    const byOrganization = this.masters.get(organizationId) ?? new Map();
+    const byOrganization = this.inventorySkus.get(organizationId) ?? new Map();
     byOrganization.set(id, { isActive, currentStock });
-    this.masters.set(organizationId, byOrganization);
+    this.inventorySkus.set(organizationId, byOrganization);
   }
 
   state(organizationId: string): SellpiaInventoryFreshnessState {
@@ -1108,12 +1112,12 @@ implements SellpiaInventoryFreshnessRepositoryPort {
     this.failedAttempts.push(attempt);
   }
 
-  findMasters(organizationId: string, ids: string[]) {
-    this.lastMasterProductIds = ids;
-    const byOrganization = this.masters.get(organizationId) ?? new Map();
+  findInventorySkus(organizationId: string, ids: string[]) {
+    this.lastInventorySkuIds = ids;
+    const byOrganization = this.inventorySkus.get(organizationId) ?? new Map();
     return ids.flatMap((id) => {
-      const product = byOrganization.get(id);
-      return product === undefined ? [] : [{ id, ...product }];
+      const sku = byOrganization.get(id);
+      return sku === undefined ? [] : [{ id, ...sku }];
     });
   }
 }
@@ -1216,10 +1220,13 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
     this.repository.upsertFailedAttempt(input);
   }
 
-  async findMasterProducts(
-    masterProductIds: string[],
+  async findInventorySkus(
+    sellpiaInventorySkuIds: string[],
   ): Promise<Array<{ id: string; isActive: boolean }>> {
-    return this.repository.findMasters(this.organizationId, masterProductIds);
+    return this.repository.findInventorySkus(
+      this.organizationId,
+      sellpiaInventorySkuIds,
+    );
   }
 }
 

@@ -15,7 +15,7 @@ import { SellpiaInventoryFreshnessService } from '../application/service/sellpia
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { PrismaClient } from '@prisma/client';
 
-const MASTER_PRODUCT_ID = '10000000-0000-4000-8000-000000000001';
+const SELLPIA_INVENTORY_SKU_ID = '10000000-0000-4000-8000-000000000001';
 const INTENT_KEY = '1721000000000-kidkids-browser';
 const ADMIN_USER_ID = '10000000-0000-4000-8000-000000000002';
 
@@ -341,12 +341,12 @@ describe('Sellpia inventory freshness repository (PG integration)', () => {
         syncNotBefore: new Date(),
       },
     });
-    const ownMaster = await prisma.masterProduct.create({
+    const ownSku = await prisma.sellpiaInventorySku.create({
       data: {
-        id: MASTER_PRODUCT_ID,
+        id: SELLPIA_INVENTORY_SKU_ID,
         organizationId: TEST_ORGANIZATION_ID,
         code: 'SP-ORG-A',
-        name: 'Organization A master',
+        name: 'Organization A inventory SKU',
         currentStock: 5,
       },
     });
@@ -425,7 +425,7 @@ describe('Sellpia inventory freshness repository (PG integration)', () => {
     await expectCode(
       service.assertFreshAndActive({
         organizationId: OTHER_ORGANIZATION_ID,
-        masterProductIds: [ownMaster.id],
+        sellpiaInventorySkuIds: [ownSku.id],
       }),
       'PURCHASE_REFERENCE_INVALID',
     );

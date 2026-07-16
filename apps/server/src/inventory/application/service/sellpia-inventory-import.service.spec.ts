@@ -127,6 +127,33 @@ describe('SellpiaInventoryImportService', () => {
     }));
   });
 
+  it('maps private SKU publication counters to the temporary HTTP compatibility names', async () => {
+    const { service, repository, publication } = makeService();
+    repository.claimFileRun.mockResolvedValue({
+      kind: 'started',
+      runId: RUN_ID,
+      attemptToken: ATTEMPT_TOKEN,
+    });
+    publication.publishSnapshot.mockResolvedValue({
+      run: completedRun,
+      duplicate: false,
+      outcome: 'published',
+      changes: {
+        createdSkuCount: 1,
+        updatedSkuCount: 2,
+        inactivatedSkuCount: 3,
+      },
+    } as never);
+
+    await expect(service.importInventory(browserInput)).resolves.toMatchObject({
+      changes: {
+        createdMasterProductCount: 1,
+        updatedMasterProductCount: 2,
+        inactivatedMasterProductCount: 3,
+      },
+    });
+  });
+
   it('uses the internal manual claim returned by the run repository', async () => {
     const { service, repository, publication } = makeService();
     const manualInput: ImportSellpiaInventoryInput = {

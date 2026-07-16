@@ -399,13 +399,13 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
     `;
   }
 
-  findMasterProducts(
-    masterProductIds: string[],
+  findInventorySkus(
+    sellpiaInventorySkuIds: string[],
   ): Promise<Array<{ id: string; isActive: boolean; currentStock: number }>> {
-    return this.tx.masterProduct.findMany({
+    return this.tx.sellpiaInventorySku.findMany({
       where: {
         organizationId: this.organizationId,
-        id: { in: masterProductIds },
+        id: { in: sellpiaInventorySkuIds },
       },
       select: { id: true, isActive: true, currentStock: true },
     });

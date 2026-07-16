@@ -2,11 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
-  SellpiaMasterProductReadModel,
-  SellpiaMasterProductReadRepositoryPort,
-} from '../../../application/port/out/repository/sellpia-master-product-read.repository.port';
+  SellpiaInventorySkuReadModel,
+  SellpiaInventorySkuReadRepositoryPort,
+} from '../../../application/port/out/repository/sellpia-inventory-sku-read.repository.port';
 
-const SELLPIA_MASTER_SELECT = {
+const SELLPIA_INVENTORY_SKU_SELECT = {
   id: true,
   code: true,
   name: true,
@@ -19,41 +19,41 @@ const SELLPIA_MASTER_SELECT = {
   lastImportRunId: true,
 } as const;
 
-type SelectedSellpiaMaster = Prisma.MasterProductGetPayload<{
-  select: typeof SELLPIA_MASTER_SELECT;
+type SelectedSellpiaInventorySku = Prisma.SellpiaInventorySkuGetPayload<{
+  select: typeof SELLPIA_INVENTORY_SKU_SELECT;
 }>;
 
 @Injectable()
-export class SellpiaMasterProductReadRepositoryAdapter
-implements SellpiaMasterProductReadRepositoryPort {
+export class SellpiaInventorySkuReadRepositoryAdapter
+implements SellpiaInventorySkuReadRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
   async findByIds(
     organizationId: string,
     ids: string[],
-  ): Promise<SellpiaMasterProductReadModel[]> {
+  ): Promise<SellpiaInventorySkuReadModel[]> {
     return this.find({ organizationId, id: { in: ids } });
   }
 
   async findByCodes(
     organizationId: string,
     codes: string[],
-  ): Promise<SellpiaMasterProductReadModel[]> {
+  ): Promise<SellpiaInventorySkuReadModel[]> {
     return this.findActive({ organizationId, code: { in: codes } });
   }
 
   async findByBarcodes(
     organizationId: string,
     barcodes: string[],
-  ): Promise<SellpiaMasterProductReadModel[]> {
+  ): Promise<SellpiaInventorySkuReadModel[]> {
     return this.findActive({ organizationId, barcode: { in: barcodes } });
   }
 
   async findByNormalizedNames(
     organizationId: string,
     normalizedNames: string[],
-  ): Promise<SellpiaMasterProductReadModel[]> {
-    const rows = await this.prisma.$queryRaw<SelectedSellpiaMaster[]>(Prisma.sql`
+  ): Promise<SellpiaInventorySkuReadModel[]> {
+    const rows = await this.prisma.$queryRaw<SelectedSellpiaInventorySku[]>(Prisma.sql`
       SELECT
         id,
         code,
@@ -65,7 +65,7 @@ implements SellpiaMasterProductReadRepositoryPort {
         sale_price AS "salePrice",
         is_active AS "isActive",
         last_import_run_id AS "lastImportRunId"
-      FROM master_products
+      FROM sellpia_inventory_skus
       WHERE organization_id = ${organizationId}::uuid
         AND is_active = true
         AND regexp_replace(
@@ -83,8 +83,8 @@ implements SellpiaMasterProductReadRepositoryPort {
     organizationId: string,
     query: string,
     limit: number,
-  ): Promise<SellpiaMasterProductReadModel[]> {
-    const rows = await this.prisma.masterProduct.findMany({
+  ): Promise<SellpiaInventorySkuReadModel[]> {
+    const rows = await this.prisma.sellpiaInventorySku.findMany({
       where: {
         ...activeSellpiaWhere(organizationId),
         OR: [
@@ -94,7 +94,7 @@ implements SellpiaMasterProductReadRepositoryPort {
           { barcode: { contains: query, mode: 'insensitive' } },
         ],
       },
-      select: SELLPIA_MASTER_SELECT,
+      select: SELLPIA_INVENTORY_SKU_SELECT,
       orderBy: [{ code: 'asc' }, { id: 'asc' }],
       take: Math.min(100, Math.max(1, Math.trunc(limit))),
     });
@@ -102,37 +102,36 @@ implements SellpiaMasterProductReadRepositoryPort {
   }
 
   private async find(
-    where: Prisma.MasterProductWhereInput,
-  ): Promise<SellpiaMasterProductReadModel[]> {
-    const rows = await this.prisma.masterProduct.findMany({
+    where: Prisma.SellpiaInventorySkuWhereInput,
+  ): Promise<SellpiaInventorySkuReadModel[]> {
+    const rows = await this.prisma.sellpiaInventorySku.findMany({
       where,
-      select: SELLPIA_MASTER_SELECT,
+      select: SELLPIA_INVENTORY_SKU_SELECT,
     });
     return rows.map(toReadModel);
   }
 
   private findActive(
-    where: Prisma.MasterProductWhereInput,
-  ): Promise<SellpiaMasterProductReadModel[]> {
+    where: Prisma.SellpiaInventorySkuWhereInput,
+  ): Promise<SellpiaInventorySkuReadModel[]> {
     return this.find({ ...where, isActive: true });
   }
 }
 
-function activeSellpiaWhere(organizationId: string): Prisma.MasterProductWhereInput {
+function activeSellpiaWhere(
+  organizationId: string,
+): Prisma.SellpiaInventorySkuWhereInput {
   return {
     organizationId,
     isActive: true,
   };
 }
 
-function toReadModel(row: SelectedSellpiaMaster): SellpiaMasterProductReadModel {
-  if (
-    !row.code || !row.name
-  ) {
-    throw new Error(`Physical Sellpia Master ${row.id} is missing required fields`);
-  }
+function toReadModel(
+  row: SelectedSellpiaInventorySku,
+): SellpiaInventorySkuReadModel {
   return {
-    id: row.id,
+    sellpiaInventorySkuId: row.id,
     code: row.code,
     name: row.name,
     optionName: row.optionName,

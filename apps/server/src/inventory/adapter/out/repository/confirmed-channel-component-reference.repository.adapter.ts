@@ -12,14 +12,17 @@ implements ConfirmedChannelComponentReferencePort {
   async listReferencedSellpiaProductCodes(
     organizationId: string,
   ): Promise<string[]> {
-    const references = await this.prisma.channelSkuComponent.findMany({
+    const references = await this.prisma.productVariantComponent.findMany({
       where: {
         organizationId,
-        masterProduct: { organizationId },
+        productVariant: { organizationId },
+        sellpiaInventorySku: { organizationId },
       },
-      select: { masterProduct: { select: { code: true } } },
-      orderBy: [{ masterProduct: { code: 'asc' } }, { id: 'asc' }],
+      select: { sellpiaInventorySku: { select: { code: true } } },
+      orderBy: [{ sellpiaInventorySku: { code: 'asc' } }, { id: 'asc' }],
     });
-    return [...new Set(references.map(({ masterProduct }) => masterProduct.code))];
+    return [...new Set(
+      references.map(({ sellpiaInventorySku }) => sellpiaInventorySku.code),
+    )];
   }
 }

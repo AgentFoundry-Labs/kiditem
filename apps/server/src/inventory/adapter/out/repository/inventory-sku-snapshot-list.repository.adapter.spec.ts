@@ -8,7 +8,7 @@ const UNVERIFIED_RUN_ID = '00000000-0000-4000-8000-000000000003';
 describe('InventorySkuSnapshotListRepositoryAdapter', () => {
   it('reads every snapshot fact in one repeatable-read transaction and nulls unverified provenance', async () => {
     const tx = {
-      masterProduct: {
+      sellpiaInventorySku: {
         findMany: vi.fn().mockResolvedValue([{
           id: SKU_ID,
           code: 'SP-001',
@@ -20,6 +20,16 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
           salePrice: null,
           isActive: true,
           lastImportRunId: UNVERIFIED_RUN_ID,
+          variantComponents: [
+            {
+              productVariantId: 'variant-1',
+              productVariant: { masterProductId: 'product-1' },
+            },
+            {
+              productVariantId: 'variant-2',
+              productVariant: { masterProductId: 'product-1' },
+            },
+          ],
         }]),
         count: vi.fn().mockResolvedValue(1),
       },
@@ -43,7 +53,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       throw new Error('snapshot read escaped the transaction');
     });
     const prisma = {
-      masterProduct: {
+      sellpiaInventorySku: {
         findMany: outsideTransaction,
         count: outsideTransaction,
       },
@@ -70,8 +80,8 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       expect.any(Function),
       { isolationLevel: 'RepeatableRead' },
     );
-    expect(tx.masterProduct.findMany).toHaveBeenCalledOnce();
-    expect(tx.masterProduct.count).toHaveBeenCalledOnce();
+    expect(tx.sellpiaInventorySku.findMany).toHaveBeenCalledOnce();
+    expect(tx.sellpiaInventorySku.count).toHaveBeenCalledOnce();
     expect(tx.$queryRaw).toHaveBeenCalledOnce();
     expect(tx.sellpiaInventoryState.findUnique).toHaveBeenCalledOnce();
     expect(tx.sourceImportRun.findFirst).not.toHaveBeenCalled();
@@ -79,10 +89,12 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
     expect(result.rows[0]).toMatchObject({
       lastImportRunId: null,
       lastImportedAt: null,
+      linkedVariantCount: 2,
+      linkedProductCount: 1,
     });
   });
 
-  it('scopes a single snapshot read by both organization and master id', async () => {
+  it('scopes a single snapshot read by both organization and inventory SKU id', async () => {
     const findFirst = vi.fn().mockResolvedValue({
       id: SKU_ID,
       code: 'SP-001',
@@ -94,6 +106,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       salePrice: 2_000,
       isActive: true,
       lastImportRunId: UNVERIFIED_RUN_ID,
+      variantComponents: [],
       lastImportRun: {
         id: UNVERIFIED_RUN_ID,
         sourceType: 'sellpia_inventory',
@@ -103,7 +116,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       },
     });
     const repository = new InventorySkuSnapshotListRepositoryAdapter({
-      masterProduct: { findFirst },
+      sellpiaInventorySku: { findFirst },
     } as never);
 
     const result = await repository.getSnapshot(ORGANIZATION_ID, SKU_ID);
@@ -112,9 +125,11 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       where: { id: SKU_ID, organizationId: ORGANIZATION_ID },
     }));
     expect(result).toMatchObject({
-      masterProductId: SKU_ID,
+      sellpiaInventorySkuId: SKU_ID,
       lastImportRunId: UNVERIFIED_RUN_ID,
       lastImportedAt: new Date('2026-07-12T00:00:00.000Z'),
+      linkedVariantCount: 0,
+      linkedProductCount: 0,
     });
   });
 

@@ -15,7 +15,7 @@ describe('InventorySkuSnapshotController', () => {
     expect(Reflect.getMetadata('path', InventorySkuSnapshotController)).toBe('inventory');
     expect(route('listSnapshot')).toEqual(['sellpia-skus', RequestMethod.GET]);
     expect(route('getSnapshot')).toEqual([
-      'sellpia-skus/:masterProductId',
+      'sellpia-skus/:sellpiaInventorySkuId',
       RequestMethod.GET,
     ]);
     expect(route('listImportRuns')).toEqual(['sellpia-sync/import-runs', RequestMethod.GET]);
@@ -27,6 +27,7 @@ describe('InventorySkuSnapshotController', () => {
       limit: '200',
       query: '  SP-001  ',
       stockStatus: 'in_stock',
+      linkStatus: 'unlinked',
     });
     expect(await validate(valid)).toEqual([]);
     expect(valid).toMatchObject({
@@ -34,6 +35,7 @@ describe('InventorySkuSnapshotController', () => {
       limit: 200,
       query: 'SP-001',
       stockStatus: 'in_stock',
+      linkStatus: 'unlinked',
     });
 
     const invalid = plainToInstance(ListInventorySkusQueryDto, {
@@ -54,11 +56,11 @@ describe('InventorySkuSnapshotController', () => {
     const historyQuery = { page: 2, limit: 25 };
 
     await controller.listSnapshot(organizationId, snapshotQuery);
-    await controller.getSnapshot(organizationId, 'master-1');
+    await controller.getSnapshot(organizationId, 'sku-1');
     await controller.listImportRuns(organizationId, historyQuery);
 
     expect(port.listSnapshot).toHaveBeenCalledWith(organizationId, snapshotQuery);
-    expect(port.getSnapshot).toHaveBeenCalledWith(organizationId, 'master-1');
+    expect(port.getSnapshot).toHaveBeenCalledWith(organizationId, 'sku-1');
     expect(port.listImportRuns).toHaveBeenCalledWith(organizationId, historyQuery);
   });
 });

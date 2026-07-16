@@ -98,8 +98,8 @@ export interface SellpiaInventoryFreshnessRepositoryTransaction {
 
   upsertFailedAttempt(input: FailedSellpiaInventoryAttempt): Promise<void>;
 
-  findMasterProducts(
-    masterProductIds: string[],
+  findInventorySkus(
+    sellpiaInventorySkuIds: string[],
   ): Promise<Array<{ id: string; isActive: boolean; currentStock: number }>>;
 }
 

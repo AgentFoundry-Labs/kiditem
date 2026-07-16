@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { SellpiaMasterProductReadRepositoryPort } from '../port/out/repository/sellpia-master-product-read.repository.port';
-import { SellpiaMasterProductReadService } from './sellpia-master-product-read.service';
+import type { SellpiaInventorySkuReadRepositoryPort } from '../port/out/repository/sellpia-inventory-sku-read.repository.port';
+import { SellpiaInventorySkuReadService } from './sellpia-inventory-sku-read.service';
 
 const organizationId = '00000000-0000-4000-8000-000000000001';
 
-describe('SellpiaMasterProductReadService', () => {
+describe('SellpiaInventorySkuReadService', () => {
   it('trims and deduplicates requested Sellpia codes', async () => {
     const repository = makeRepository();
-    const service = new SellpiaMasterProductReadService(repository);
+    const service = new SellpiaInventorySkuReadService(repository);
 
     await service.findByCodes(organizationId, [' SP-1 ', 'SP-1', '', 'SP-2']);
 
@@ -19,7 +19,7 @@ describe('SellpiaMasterProductReadService', () => {
 
   it('does not query for blank searches and caps result size', async () => {
     const repository = makeRepository();
-    const service = new SellpiaMasterProductReadService(repository);
+    const service = new SellpiaInventorySkuReadService(repository);
 
     await expect(service.search(organizationId, '   ', 500)).resolves.toEqual([]);
     await service.search(organizationId, ' product ', 500);
@@ -30,7 +30,7 @@ describe('SellpiaMasterProductReadService', () => {
 
   it('deduplicates normalized names and skips an empty normalized-name read', async () => {
     const repository = makeRepository();
-    const service = new SellpiaMasterProductReadService(repository);
+    const service = new SellpiaInventorySkuReadService(repository);
 
     await service.findByNormalizedNames(organizationId, [
       '아기컵',
@@ -51,16 +51,16 @@ describe('SellpiaMasterProductReadService', () => {
 
 function makeRepository() {
   return {
-    findByIds: vi.fn<SellpiaMasterProductReadRepositoryPort['findByIds']>()
+    findByIds: vi.fn<SellpiaInventorySkuReadRepositoryPort['findByIds']>()
       .mockResolvedValue([]),
-    findByCodes: vi.fn<SellpiaMasterProductReadRepositoryPort['findByCodes']>()
+    findByCodes: vi.fn<SellpiaInventorySkuReadRepositoryPort['findByCodes']>()
       .mockResolvedValue([]),
-    findByBarcodes: vi.fn<SellpiaMasterProductReadRepositoryPort['findByBarcodes']>()
+    findByBarcodes: vi.fn<SellpiaInventorySkuReadRepositoryPort['findByBarcodes']>()
       .mockResolvedValue([]),
     findByNormalizedNames: vi
-      .fn<SellpiaMasterProductReadRepositoryPort['findByNormalizedNames']>()
+      .fn<SellpiaInventorySkuReadRepositoryPort['findByNormalizedNames']>()
       .mockResolvedValue([]),
-    search: vi.fn<SellpiaMasterProductReadRepositoryPort['search']>()
+    search: vi.fn<SellpiaInventorySkuReadRepositoryPort['search']>()
       .mockResolvedValue([]),
   };
 }

@@ -38,15 +38,24 @@ function inventoryRel(): string {
 }
 
 describe('Inventory architecture contract', () => {
-  it('uses Sellpia MasterProduct as the sole operational inventory identity', () => {
+  it('uses SellpiaInventorySku as the sole operational inventory identity', () => {
     const schema = readFileSync(PRISMA_INVENTORY_SCHEMA, 'utf8');
     for (const modelName of ['StockTransfer', 'PickingItem', 'ReturnTransfer']) {
       const block = schema.match(new RegExp(`model ${modelName} \\{([\\s\\S]*?)\\n\\}`))?.[1] ?? '';
-      expect(block, `${modelName} must carry masterProductId`).toContain('masterProductId');
-      expect(block, `${modelName} must relate to MasterProduct`).toContain('MasterProduct');
-      expect(block).not.toContain('inventorySkuId');
+      expect(block, `${modelName} must carry sellpiaInventorySkuId`)
+        .toContain('sellpiaInventorySkuId');
+      expect(block, `${modelName} must relate to SellpiaInventorySku`)
+        .toContain('SellpiaInventorySku');
+      expect(block).not.toContain('masterProductId');
       expect(block).not.toMatch(/\boptionId\b/);
     }
+  });
+
+  it('removes every legacy Sellpia MasterProduct read symbol and filename', () => {
+    const hits = rg(
+      `-n 'SELLPIA_MASTER_PRODUCT_READ|SellpiaMasterProductRead|sellpia-master-product-read' ${inventoryRel()} --glob '!**/__tests__/**'`,
+    );
+    expect(hits).toEqual([]);
   });
 
   it('persists organization-scoped idempotent Sellpia order transmission intents', () => {

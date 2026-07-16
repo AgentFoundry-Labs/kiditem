@@ -15,17 +15,30 @@ type PublicationScope = {
   execution: SellpiaPublicationExecution;
 };
 
+export type SellpiaSnapshotPublicationChanges = {
+  createdSkuCount: number;
+  updatedSkuCount: number;
+  inactivatedSkuCount: number;
+};
+
+export type SellpiaSnapshotPublicationResult = Omit<
+  SellpiaInventoryImportResponse,
+  'changes'
+> & {
+  changes: SellpiaSnapshotPublicationChanges;
+};
+
 export interface SellpiaSnapshotPublicationRepositoryPort {
   publishSnapshot(input: PublicationScope & {
     attemptToken: string;
     rows: ParsedSellpiaInventoryRow[];
     qualityFacts: SellpiaInventoryQualityFact[];
     confirmedReferencedProductCodes: string[];
-  }): Promise<SellpiaInventoryImportResponse>;
+  }): Promise<SellpiaSnapshotPublicationResult>;
 
   verifySameHash(
     input: PublicationScope,
-  ): Promise<SellpiaInventoryImportResponse>;
+  ): Promise<SellpiaSnapshotPublicationResult>;
 }
 
 export const SELLPIA_SNAPSHOT_PUBLICATION_REPOSITORY_PORT = Symbol(

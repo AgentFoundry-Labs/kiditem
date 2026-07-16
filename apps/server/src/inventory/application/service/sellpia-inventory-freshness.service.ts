@@ -412,10 +412,10 @@ implements
 
   async assertFreshAndActive(input: {
     organizationId: string;
-    masterProductIds: string[];
+    sellpiaInventorySkuIds: string[];
   }): Promise<{ fence: string; lastVerifiedAt: string; expiresAt: string }> {
-    const snapshot = await this.readFreshProducts(input);
-    if (snapshot.products.some((product) => !product.isActive)) {
+    const snapshot = await this.readFreshInventorySkus(input);
+    if (snapshot.inventorySkus.some((sku) => !sku.isActive)) {
       throw new AppException(
         422,
         ErrorCodes.PURCHASE.ITEM_INACTIVE,
@@ -427,55 +427,59 @@ implements
 
   async readFreshCapacity(input: {
     organizationId: string;
-    masterProductIds: string[];
+    sellpiaInventorySkuIds: string[];
   }): Promise<{
     fence: string;
     generation: string;
     lastVerifiedAt: string;
     expiresAt: string;
-    products: Array<{
-      masterProductId: string;
+    inventorySkus: Array<{
+      sellpiaInventorySkuId: string;
       currentStock: number;
       isActive: boolean;
     }>;
   }> {
-    const snapshot = await this.readFreshProducts(input);
+    const snapshot = await this.readFreshInventorySkus(input);
     const metadata = freshnessMetadata(snapshot.state);
     if (snapshot.state.verifiedGeneration === null) throw syncRequired();
-    const byId = new Map(snapshot.products.map((product) => [product.id, product]));
+    const byId = new Map(snapshot.inventorySkus.map((sku) => [sku.id, sku]));
     return {
       ...metadata,
       generation: snapshot.state.verifiedGeneration.toString(),
-      products: snapshot.masterProductIds.map((masterProductId) => {
-        const product = byId.get(masterProductId)!;
+      inventorySkus: snapshot.sellpiaInventorySkuIds.map((sellpiaInventorySkuId) => {
+        const sku = byId.get(sellpiaInventorySkuId)!;
         return {
-          masterProductId,
-          currentStock: product.currentStock,
-          isActive: product.isActive,
+          sellpiaInventorySkuId,
+          currentStock: sku.currentStock,
+          isActive: sku.isActive,
         };
       }),
     };
   }
 
-  private readFreshProducts(input: {
+  private readFreshInventorySkus(input: {
     organizationId: string;
-    masterProductIds: string[];
+    sellpiaInventorySkuIds: string[];
   }): Promise<{
     state: SellpiaInventoryFreshnessState;
-    masterProductIds: string[];
-    products: Array<{ id: string; isActive: boolean; currentStock: number }>;
+    sellpiaInventorySkuIds: string[];
+    inventorySkus: Array<{ id: string; isActive: boolean; currentStock: number }>;
   }> {
     if (
-      input.masterProductIds.length === 0
-      || input.masterProductIds.some((id) => !isUuid(id))
+      input.sellpiaInventorySkuIds.length === 0
+      || input.sellpiaInventorySkuIds.some((id) => !isUuid(id))
     ) {
       throw referenceInvalid();
     }
-    const masterProductIds = [...new Set(input.masterProductIds)];
+    const sellpiaInventorySkuIds = [...new Set(input.sellpiaInventorySkuIds)];
     return this.withLockedState(input.organizationId, async (transaction) => {
       const state = await transaction.getState();
-      const products = await transaction.findMasterProducts(masterProductIds);
-      if (products.length !== masterProductIds.length) throw referenceInvalid();
+      const inventorySkus = await transaction.findInventorySkus(
+        sellpiaInventorySkuIds,
+      );
+      if (inventorySkus.length !== sellpiaInventorySkuIds.length) {
+        throw referenceInvalid();
+      }
 
       const now = new Date();
       if (
@@ -492,8 +496,8 @@ implements
 
       return {
         state,
-        masterProductIds,
-        products,
+        sellpiaInventorySkuIds,
+        inventorySkus,
       };
     });
   }

@@ -6,12 +6,12 @@ const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 describe('ConfirmedChannelComponentReferenceRepositoryAdapter', () => {
   it('returns only organization-owned confirmed recipe references', async () => {
     const findMany = vi.fn().mockResolvedValue([
-      { masterProduct: { code: 'SP-001' } },
-      { masterProduct: { code: 'SP-001' } },
-      { masterProduct: { code: 'SP-002' } },
+      { sellpiaInventorySku: { code: 'SP-001' } },
+      { sellpiaInventorySku: { code: 'SP-001' } },
+      { sellpiaInventorySku: { code: 'SP-002' } },
     ]);
     const adapter = new ConfirmedChannelComponentReferenceRepositoryAdapter({
-      channelSkuComponent: { findMany },
+      productVariantComponent: { findMany },
     } as never);
 
     await expect(adapter.listReferencedSellpiaProductCodes(ORGANIZATION_ID))
@@ -19,10 +19,11 @@ describe('ConfirmedChannelComponentReferenceRepositoryAdapter', () => {
     expect(findMany).toHaveBeenCalledWith({
       where: {
         organizationId: ORGANIZATION_ID,
-        masterProduct: { organizationId: ORGANIZATION_ID },
+        productVariant: { organizationId: ORGANIZATION_ID },
+        sellpiaInventorySku: { organizationId: ORGANIZATION_ID },
       },
-      select: { masterProduct: { select: { code: true } } },
-      orderBy: [{ masterProduct: { code: 'asc' } }, { id: 'asc' }],
+      select: { sellpiaInventorySku: { select: { code: true } } },
+      orderBy: [{ sellpiaInventorySku: { code: 'asc' } }, { id: 'asc' }],
     });
   });
 });

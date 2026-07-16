@@ -59,7 +59,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       importedAt: new Date('2026-07-12T03:00:00.000Z'),
       createdAt: new Date('2026-07-12T03:00:00.000Z'),
     });
-    await expect(prisma.masterProduct.create({
+    await expect(prisma.sellpiaInventorySku.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         code: 'SP-FOREIGN-RUN',
@@ -69,7 +69,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
         lastImportRunId: crossTenantRun.id,
       },
     })).rejects.toThrow();
-    await prisma.masterProduct.createMany({
+    await prisma.sellpiaInventorySku.createMany({
       data: [
         {
           organizationId: TEST_ORGANIZATION_ID,
@@ -114,6 +114,61 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       ],
     });
 
+    const linkedSku = await prisma.sellpiaInventorySku.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, code: 'SP-002' },
+    });
+    const [productA, productB] = await Promise.all([
+      prisma.masterProduct.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          code: 'PRODUCT-A',
+          name: '운영 상품 A',
+        },
+      }),
+      prisma.masterProduct.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          code: 'PRODUCT-B',
+          name: '운영 상품 B',
+        },
+      }),
+    ]);
+    const variants = await Promise.all([
+      prisma.productVariant.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          masterProductId: productA.id,
+          code: 'VARIANT-A1',
+          name: '옵션 A1',
+        },
+      }),
+      prisma.productVariant.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          masterProductId: productA.id,
+          code: 'VARIANT-A2',
+          name: '옵션 A2',
+        },
+      }),
+      prisma.productVariant.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          masterProductId: productB.id,
+          code: 'VARIANT-B1',
+          name: '옵션 B1',
+        },
+      }),
+    ]);
+    await prisma.productVariantComponent.createMany({
+      data: variants.map((variant) => ({
+        organizationId: TEST_ORGANIZATION_ID,
+        productVariantId: variant.id,
+        sellpiaInventorySkuId: linkedSku.id,
+        quantity: 1,
+        source: 'manual',
+      })),
+    });
+
     const filtered = await service.listSnapshot(TEST_ORGANIZATION_ID, {
       page: 1,
       limit: 10,
@@ -136,6 +191,9 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       stockValue: 8_000,
       lastImportRunId: run.id,
       lastImportedAt: '2026-07-12T02:00:00.000Z',
+      linkedVariantCount: 3,
+      linkedProductCount: 2,
+      linkStatus: 'linked',
     });
 
     const firstPage = await service.listSnapshot(TEST_ORGANIZATION_ID, {
@@ -156,7 +214,70 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       code: 'SP-001',
       lastImportRunId: null,
       lastImportedAt: null,
+      linkedVariantCount: 0,
+      linkedProductCount: 0,
+      linkStatus: 'unlinked',
     });
+  });
+
+  it('does not treat another organization recipe with the same code as a link', async () => {
+    await prisma.sellpiaInventorySku.createMany({
+      data: [
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          code: 'SP-SAME',
+          name: '우리 재고',
+          currentStock: 3,
+        },
+        {
+          organizationId: OTHER_ORGANIZATION_ID,
+          code: 'SP-SAME',
+          name: '타 조직 재고',
+          currentStock: 5,
+        },
+      ],
+    });
+    const foreignSku = await prisma.sellpiaInventorySku.findFirstOrThrow({
+      where: { organizationId: OTHER_ORGANIZATION_ID, code: 'SP-SAME' },
+    });
+    const foreignProduct = await prisma.masterProduct.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        code: 'FOREIGN-PRODUCT',
+        name: '타 조직 상품',
+      },
+    });
+    const foreignVariant = await prisma.productVariant.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        masterProductId: foreignProduct.id,
+        code: 'FOREIGN-VARIANT',
+        name: '타 조직 옵션',
+      },
+    });
+    await prisma.productVariantComponent.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        productVariantId: foreignVariant.id,
+        sellpiaInventorySkuId: foreignSku.id,
+        quantity: 1,
+        source: 'manual',
+      },
+    });
+
+    const result = await service.listSnapshot(TEST_ORGANIZATION_ID, {
+      query: 'SP-SAME',
+      linkStatus: 'unlinked',
+    });
+
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        code: 'SP-SAME',
+        linkedVariantCount: 0,
+        linkedProductCount: 0,
+        linkStatus: 'unlinked',
+      }),
+    ]);
   });
 
   it('uses the inventory state pointer as the current import basis instead of importedAt order', async () => {
