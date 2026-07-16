@@ -70,13 +70,6 @@ vi.mock('@/components/GlobalConfirmDialog', () => ({
 
 vi.mock('@/components/QuickActionFab', () => ({
   default: () => <div data-testid="quick-action" />,
-  isQuickActionFabSuppressed: (pathname: string) => [
-    '/inventory-hub',
-    '/purchase-orders',
-    '/order-hub',
-    '/product-hub',
-    '/product-hub/matching',
-  ].includes(pathname),
 }));
 
 function renderLayout() {
@@ -160,7 +153,7 @@ describe('AppLayout auth gate', () => {
     '/order-hub',
     '/product-hub',
     '/product-hub/matching',
-  ])('does not mount the quick action button on %s', (pathname) => {
+  ])('keeps the former quick action button on %s', (pathname) => {
     usePathnameMock.mockReturnValue(pathname);
     useAuthMock.mockReturnValue({
       status: 'ready',
@@ -171,7 +164,7 @@ describe('AppLayout auth gate', () => {
 
     renderLayout();
 
-    expect(screen.queryByTestId('quick-action')).not.toBeInTheDocument();
+    expect(screen.getByTestId('quick-action')).toBeInTheDocument();
   });
 
   it('keeps the quick action button on unrelated protected routes', () => {

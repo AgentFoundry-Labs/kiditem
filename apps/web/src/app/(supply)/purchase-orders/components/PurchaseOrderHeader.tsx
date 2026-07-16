@@ -26,7 +26,7 @@ export function PurchaseOrderHeader({
       <div className="flex items-center gap-3">
         <Package size={20} className="text-purple-500" />
         <div>
-          {showHeading ? <Heading className="page-title">일반 발주</Heading> : null}
+          {showHeading ? <Heading className="page-title">발주 관리</Heading> : null}
           <p className="text-sm text-slate-500">
             {total}건 · 총 {formatKRW(totalAmountCny)} CNY
           </p>

@@ -4,12 +4,10 @@ import InventoryPage from '../(inventory)/inventory/page';
 import OutboundPage from '../(inventory)/outbound/page';
 import StockOpsPage from '../(inventory)/stock-ops/page';
 import UnshippedItemsPage from '../(inventory)/unshipped-items/page';
-import ProductHubOptionsPage from '../(catalog)/product-hub/options/page';
 import OrderCollectionPage from '../(orders)/order-collection/page';
 import OrderHubPage from '../(orders)/order-hub/page';
 import OrderStatusHubPage from '../(orders)/order-status-hub/page';
 import OrdersPage from '../(orders)/orders/page';
-import RocketOrdersPage from '../(orders)/rocket-orders/page';
 
 const mockRedirect = vi.hoisted(() => vi.fn());
 
@@ -51,8 +49,6 @@ describe('legacy operations pages', () => {
     [UnshippedItemsPage, { search: 'recipient' }, '/order-hub?tab=exceptions&view=unshipped&search=recipient'],
     [OutboundPage, { status: 'ready' }, '/order-hub?tab=shipping&status=ready'],
     [OrderStatusHubPage, { tab: 'delivery', search: 'invoice' }, '/order-hub?tab=shipping&view=delivery-search&search=invoice'],
-    [RocketOrdersPage, { supplierId: 'supplier-1' }, '/purchase-orders?tab=rocket&supplierId=supplier-1'],
-    [ProductHubOptionsPage, { search: '보넷' }, '/product-hub?view=options&search=%EB%B3%B4%EB%84%B7'],
   ] as const)('redirects a real legacy page to its query-aware canonical location', async (page, params, destination) => {
     await expectRedirect(page as RedirectPage, params, destination);
   });

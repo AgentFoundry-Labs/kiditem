@@ -48,31 +48,58 @@ describe('Sidebar product pipeline navigation', () => {
     expect(topSection.items.some((item) => item.href === '/ad-ops')).toBe(false);
   });
 
-  it('keeps one compact operations group with exactly the five canonical workspaces', () => {
-    const operations = menuSections.find((section) => section.label === '운영');
+  it('preserves the former operations sections and their child routes', () => {
+    const sectionEntries = menuSections
+      .filter((section) => [
+        '상품관리',
+        '주문관리',
+        '재고관리',
+        '출고/반품',
+        '거래처',
+        '재무/분석',
+      ].includes(section.label))
+      .map((section) => [
+        section.label,
+        section.items.map((item) => [item.href, item.label]),
+      ]);
 
-    expect(operations?.items.map((item) => [item.href, item.label])).toEqual([
-      ['/product-hub', '상품 관리'],
-      ['/product-hub/matching', '상품 매칭'],
+    expect(sectionEntries).toEqual([
+      ['상품관리', [
+        ['/product-hub', '상품 관리'],
+        ['/product-hub/matching', '상품 매칭'],
+        ['/reviews', '리뷰 관리'],
+        ['/product-hub/options', '상품 옵션 관리'],
+      ]],
+      ['주문관리', [
       ['/order-hub', '주문 처리'],
-      ['/purchase-orders', '발주 관리'],
+        ['/order-collection', '주문수집'],
+        ['/rocket-orders', '쿠팡 로켓'],
+        ['/cs-management', 'CS 관리'],
+        ['/order-status-hub', '주문 현황'],
+        ['/unshipped-items', '미배송 조회'],
+      ]],
+      ['재고관리', [
       ['/inventory-hub', '재고 관리'],
+        ['/stock-ops', '재고 분석'],
+        ['/warehouses', '창고 관리'],
+      ]],
+      ['출고/반품', [
+        ['/outbound', '출고 현황'],
+        ['/coupang-shipments', '쿠팡 쉽먼트'],
+        ['/returns', '반품 관리'],
+        ['/return-scan', '반품 스캔'],
+      ]],
+      ['거래처', [
+        ['/supplier-hub', '거래처 관리'],
+        ['/suppliers', '거래처 목록'],
+      ]],
+      ['재무/분석', [
+        ['/profit-loss', '손익 분석'],
+        ['/sales-analysis', '매출 분석'],
+        ['/finance-hub', '정산 관리'],
+      ]],
     ]);
-  });
 
-  it('does not expose obsolete operations hrefs from any sidebar section', () => {
-    const hrefs = menuSections.flatMap((section) => section.items.map((item) => item.href));
-
-    expect(hrefs).not.toEqual(expect.arrayContaining([
-      '/inventory',
-      '/stock-ops',
-      '/order-collection',
-      '/orders',
-      '/unshipped-items',
-      '/outbound',
-      '/order-status-hub',
-      '/rocket-orders',
-      '/product-hub/options',
-    ]));
+    expect(menuSections.some((section) => section.label === '운영')).toBe(false);
   });
 });

@@ -11,13 +11,17 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('./GeneralPurchaseOrdersWorkspace', () => ({
-  GeneralPurchaseOrdersWorkspace: ({ orderId, supplierId }: { orderId?: string; supplierId?: string }) => (
-    <div>general {orderId} {supplierId}</div>
+  GeneralPurchaseOrdersWorkspace: ({ orderId, supplierId, includeRocketPreview }: {
+    orderId?: string;
+    supplierId?: string;
+    includeRocketPreview?: boolean;
+  }) => (
+    <div data-testid="general-workspace"><h1>발주 관리</h1>general {orderId} {supplierId} preview {String(includeRocketPreview)}</div>
   ),
 }));
 
 vi.mock('./RocketPurchaseOrdersWorkspace', () => ({
-  RocketPurchaseOrdersWorkspace: () => <div>rocket workspace</div>,
+  RocketPurchaseOrdersWorkspace: () => <h1>쿠팡 로켓 발주</h1>,
 }));
 
 describe('<PurchaseOrdersWorkspace>', () => {
@@ -32,16 +36,21 @@ describe('<PurchaseOrdersWorkspace>', () => {
     render(<PurchaseOrdersWorkspace />);
 
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-    expect(screen.getByText('general po-1 supplier-1')).toBeInTheDocument();
-    expect(screen.queryByText('rocket workspace')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: '발주 관리' })).toBeInTheDocument();
+    expect(screen.getByTestId('general-workspace')).toHaveTextContent(
+      'general po-1 supplier-1 preview true',
+    );
+    expect(screen.queryByText('발주 운영')).not.toBeInTheDocument();
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
   });
 
-  it('mounts only the Rocket preview for tab=rocket', () => {
+  it('mounts the preserved Rocket screen without the replacement purchase shell', () => {
     navigation.params = new URLSearchParams('tab=rocket');
     render(<PurchaseOrdersWorkspace />);
 
-    expect(screen.getByText('rocket workspace')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: '쿠팡 로켓 발주' })).toBeInTheDocument();
     expect(screen.queryByText(/general/)).not.toBeInTheDocument();
-    expect(screen.getAllByRole('tabpanel')).toHaveLength(1);
+    expect(screen.queryByText('발주 운영')).not.toBeInTheDocument();
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
   });
 });

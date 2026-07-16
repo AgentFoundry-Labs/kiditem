@@ -6,22 +6,25 @@ import { RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
+import { usePurchaseOrderSubmission } from '../hooks/usePurchaseOrderSubmission';
+import { purchaseOrdersApi } from '../lib/purchase-orders-api';
 import CreateOrderModal from './CreateOrderModal';
 import { PurchaseOrderHeader } from './PurchaseOrderHeader';
 import { PurchaseOrderKpiCards } from './PurchaseOrderKpiCards';
 import { PurchaseOrderFilterTabs } from './PurchaseOrderFilterTabs';
 import { PurchaseOrderTable } from './PurchaseOrderTable';
-import { purchaseOrdersApi } from '../lib/purchase-orders-api';
-import { usePurchaseOrderSubmission } from '../hooks/usePurchaseOrderSubmission';
+import { RocketPurchasePreviewSection } from './RocketPurchasePreviewSection';
 
 export function GeneralPurchaseOrdersWorkspace({
   orderId,
   supplierId,
   headingLevel = 2,
+  includeRocketPreview = false,
 }: {
   orderId?: string;
   supplierId?: string;
   headingLevel?: 1 | 2;
+  includeRocketPreview?: boolean;
 }) {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
@@ -147,6 +150,7 @@ export function GeneralPurchaseOrdersWorkspace({
         onRefresh={refreshData}
         onCreateOrder={() => setShowCreateModal(true)}
       />
+      {includeRocketPreview ? <RocketPurchasePreviewSection /> : null}
       {isRefreshing && (
         <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm" aria-live="polite">
           <RefreshCw size={14} className="animate-spin text-purple-600" />

@@ -14,18 +14,6 @@ interface QuickAction {
 
 const FAN_RADIUS = 92;
 
-const SUPPRESSED_ROUTES = new Set([
-  '/inventory-hub',
-  '/purchase-orders',
-  '/order-hub',
-  '/product-hub',
-  '/product-hub/matching',
-]);
-
-export function isQuickActionFabSuppressed(pathname: string): boolean {
-  return SUPPRESSED_ROUTES.has(pathname);
-}
-
 const ACTIONS: QuickAction[] = [
   { label: '상품 생성', href: '/product-pipeline/productgenerate', Icon: Package, angle: 135 },
   {

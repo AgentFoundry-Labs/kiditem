@@ -11,10 +11,16 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('./ProductsPageContent', () => ({
-  default: () => <div>product list workspace</div>,
+  default: ({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) => {
+    const Heading = `h${headingLevel}` as const;
+    return <Heading>상품 카탈로그</Heading>;
+  },
 }));
 vi.mock('./ProductOptionsWorkspace', () => ({
-  ProductOptionsWorkspace: () => <div>product options workspace</div>,
+  ProductOptionsWorkspace: ({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) => {
+    const Heading = `h${headingLevel}` as const;
+    return <Heading>상품 옵션 관리</Heading>;
+  },
 }));
 
 describe('<ProductHubWorkspace>', () => {
@@ -22,13 +28,22 @@ describe('<ProductHubWorkspace>', () => {
     navigation.params = new URLSearchParams();
   });
 
-  it('switches list/options from the URL and unmounts the inactive query surface', () => {
-    navigation.params = new URLSearchParams('view=options&query=shirt');
+  it('renders the former product list without the replacement operations shell', () => {
     render(<ProductHubWorkspace />);
 
-    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-    expect(screen.getByText('product options workspace')).toBeInTheDocument();
-    expect(screen.queryByText('product list workspace')).not.toBeInTheDocument();
-    expect(screen.getAllByRole('tabpanel')).toHaveLength(1);
+    expect(screen.getByRole('heading', { level: 1, name: '상품 카탈로그' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: '상품 카탈로그' })).not.toBeInTheDocument();
+    expect(screen.queryByText('상품 운영')).not.toBeInTheDocument();
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+  });
+
+  it('renders the former options screen for the canonical view while retaining unrelated query state', () => {
+    navigation.params = new URLSearchParams('view=options&search=shirt&page=2&filter=active');
+    render(<ProductHubWorkspace />);
+
+    expect(screen.getByRole('heading', { level: 1, name: '상품 옵션 관리' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '상품 카탈로그' })).not.toBeInTheDocument();
+    expect(screen.queryByText('상품 운영')).not.toBeInTheDocument();
+    expect(navigation.params.toString()).toBe('view=options&search=shirt&page=2&filter=active');
   });
 });
