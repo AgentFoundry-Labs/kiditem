@@ -1,8 +1,5 @@
-import { redirect } from 'next/navigation';
-import { resolveOperationsRedirect, type OperationsSearchParams } from '@/lib/operations-navigation';
+import { OrderCollectionWorkspace } from '../order-hub/components/OrderCollectionWorkspace';
 
-export default async function OrderCollectionPage({ searchParams }: { searchParams: Promise<OperationsSearchParams> }) {
-  const destination = resolveOperationsRedirect('/order-collection', await searchParams);
-  if (destination) redirect(destination);
-  return null;
+export default function OrderCollectionPage() {
+  return <OrderCollectionWorkspace headingLevel={1} />;
 }

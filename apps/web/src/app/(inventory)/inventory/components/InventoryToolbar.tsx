@@ -30,7 +30,7 @@ export function InventoryToolbar({
   return (
     <div className="space-y-3">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        {showHeading ? <Heading className="page-title">재고 현황</Heading> : null}
+        {showHeading ? <Heading className="page-title">재고/발주 관리</Heading> : null}
         <div className="flex flex-wrap gap-2">
           <button
             type="button"

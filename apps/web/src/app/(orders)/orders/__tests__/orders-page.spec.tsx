@@ -3,10 +3,12 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('/orders compatibility page', () => {
-  it('redirects to the canonical processing workspace', () => {
+  it('renders the extracted processing workspace without redirecting to the replacement shell', () => {
     const source = readFileSync(path.resolve(import.meta.dirname, '../page.tsx'), 'utf8');
-    expect(source).toContain("resolveOperationsRedirect('/orders'");
-    expect(source).toContain('redirect(destination)');
-    expect(source).not.toContain('OrderProcessingWorkspace');
+    expect(source).toContain('OrderProcessingWorkspace');
+    expect(source).toContain('headingLevel={1}');
+    expect(source).toContain('includePicking={false}');
+    expect(source).not.toContain('resolveOperationsRedirect');
+    expect(source).not.toContain('redirect(');
   });
 });

@@ -1,8 +1,5 @@
-import { redirect } from 'next/navigation';
-import { resolveOperationsRedirect, type OperationsSearchParams } from '@/lib/operations-navigation';
+import { OutboundWorkspace } from '@/app/(orders)/order-hub/components/OutboundWorkspace';
 
-export default async function OutboundPage({ searchParams }: { searchParams: Promise<OperationsSearchParams> }) {
-  const destination = resolveOperationsRedirect('/outbound', await searchParams);
-  if (destination) redirect(destination);
-  return null;
+export default function OutboundPage() {
+  return <OutboundWorkspace headingLevel={1} />;
 }

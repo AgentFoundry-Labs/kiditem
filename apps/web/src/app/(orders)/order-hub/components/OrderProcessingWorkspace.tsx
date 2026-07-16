@@ -18,7 +18,13 @@ import {
 } from "../../orders/lib/order-pipeline";
 import SmartPicking from './SmartPicking';
 
-export function OrderProcessingWorkspace({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
+export function OrderProcessingWorkspace({
+  headingLevel = 2,
+  includePicking = true,
+}: {
+  headingLevel?: 1 | 2;
+  includePicking?: boolean;
+}) {
   const queryClient = useQueryClient();
   const [activeNode, setActiveNode] = useState("ACCEPT");
   const [showCompleted, setShowCompleted] = useState(false);
@@ -146,7 +152,7 @@ export function OrderProcessingWorkspace({ headingLevel = 2 }: { headingLevel?: 
         onPrintLabel={handlePrintLabel}
         onInvoice={handleInvoice}
       />
-      <SmartPicking />
+      {includePicking ? <SmartPicking /> : null}
     </div>
   );
 }

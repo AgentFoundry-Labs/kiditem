@@ -65,11 +65,11 @@ function makeAcceptResponse() {
   return { items: [orderItem], total: 1, deliveryCompanies: [] };
 }
 
-function renderPage() {
+function renderPage({ includePicking = true }: { includePicking?: boolean } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <OrderProcessingWorkspace />
+      <OrderProcessingWorkspace includePicking={includePicking} />
     </QueryClientProvider>,
   );
 }
@@ -79,6 +79,14 @@ describe('<OrderProcessingWorkspace> (W3)', () => {
     vi.restoreAllMocks();
     // Default: skip scheduled sync (hour not in SYNC_HOURS)
     vi.spyOn(global.Date.prototype, 'getHours').mockReturnValue(10);
+  });
+
+  it('can keep Smart Picking in the former dedicated hub tab', () => {
+    vi.spyOn(apiClient, 'getParsed').mockResolvedValue(emptyResponse);
+
+    renderPage({ includePicking: false });
+
+    expect(screen.queryByText('스마트 피킹')).not.toBeInTheDocument();
   });
 
   it('calls GET /api/orders?status=ACCEPT via getParsed and renders primaryProductName, displayOrderNumber, totalQuantity', async () => {
