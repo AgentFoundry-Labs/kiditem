@@ -6,7 +6,7 @@ import {
 import { PurchaseOrderSubmissionService } from '../purchase-order-submission.service';
 
 const ORDER_ID = '0187e942-9098-7382-9a22-c5b821f2f5d1';
-const MASTER_ID = '00000000-0000-4000-8000-000000000001';
+const SELLPIA_SKU_ID = '00000000-0000-4000-8000-000000000001';
 
 function snapshot() {
   return {
@@ -16,7 +16,7 @@ function snapshot() {
     totalAmountCny: '45.60',
     items: [{
       productName: 'Silicone plate',
-      masterProductId: MASTER_ID,
+      sellpiaInventorySkuId: SELLPIA_SKU_ID,
       quantity: 2,
       unitPriceCny: '22.80',
     }],
@@ -119,7 +119,7 @@ describe('PurchaseOrderSubmissionService', () => {
     );
     expect(freshness.assertFreshAndActive).toHaveBeenCalledWith({
       organizationId: 'org-1',
-      masterProductIds: [MASTER_ID],
+      sellpiaInventorySkuIds: [SELLPIA_SKU_ID],
     });
     expect(freshness.assertFreshAndActive).toHaveBeenCalledBefore(
       transaction.prepare,
@@ -127,7 +127,7 @@ describe('PurchaseOrderSubmissionService', () => {
     expect(transaction.prepare).toHaveBeenCalledWith({
       organizationId: 'org-1',
       purchaseOrderId: ORDER_ID,
-      masterProductIds: [MASTER_ID],
+      sellpiaInventorySkuIds: [SELLPIA_SKU_ID],
       idempotencyKey: 'submit-1',
       userId: 'user-1',
       freshnessFence: '00000000-0000-4000-8000-000000000099',

@@ -372,7 +372,8 @@ describe('RocketPurchaseWorkspace', () => {
   it('renders every preview reason as Korean operator guidance', async () => {
     const reasonRows = [
       ['mapping_required', '상품 매칭 필요'],
-      ['component_inactive', '비활성 Sellpia 구성품'],
+      ['configuration_required', '구성 필요'],
+      ['review_required', '검토 필요'],
       ['insufficient_capacity', 'Sellpia 재고 부족'],
       ['collection_incomplete', '수집 자료 불완전'],
       ['vendor_mismatch', '채널 계정 불일치'],

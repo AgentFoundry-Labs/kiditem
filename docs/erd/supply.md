@@ -49,7 +49,7 @@ erDiagram
     String id PK
     String organizationId FK
     String orderId FK
-    String masterProductId FK
+    String sellpiaInventorySkuId FK
     String productName
     Int quantity
     Decimal unitPriceCny
@@ -105,7 +105,7 @@ erDiagram
     String id PK
     String organizationId FK
     String supplierId FK
-    String masterProductId FK,UK
+    String sellpiaInventorySkuId FK,UK
     Int supplyPrice
     Int minOrderQty
     Boolean isPrimary
@@ -126,11 +126,11 @@ erDiagram
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
 | PurchaseOrder | organization | references external | Core | Organization |
-| PurchaseOrderItem | masterProduct | references external | Core | MasterProduct |
 | PurchaseOrderItem | organization | references external | Core | Organization |
+| PurchaseOrderItem | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
 | PurchaseOrderSubmissionAttempt | organization | references external | Core | Organization |
 | PurchaseOrderSubmissionAttempt | reconciler | references external | Core | User |
 | Supplier | organization | references external | Core | Organization |
 | SupplierPayment | organization | references external | Core | Organization |
-| SupplierProduct | masterProduct | references external | Core | MasterProduct |
 | SupplierProduct | organization | references external | Core | Organization |
+| SupplierProduct | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |

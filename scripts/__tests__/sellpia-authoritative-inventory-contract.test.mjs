@@ -64,6 +64,7 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/automation/application/service/__tests__/action-board-get-tasks.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-catalog-import.repository.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-catalog-publication.repository.pg.integration.spec.ts",
+  "apps/server/src/channels/__tests__/channel-product-matching.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/rocket-po-catalog.repository.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-sku-mapping.pg.integration.spec.ts",
   "apps/server/src/finance/services/__tests__/profit-loss.pg.integration.spec.ts",
@@ -72,6 +73,7 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/inventory/__tests__/sellpia-inventory-freshness.repository.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/sellpia-inventory-import.repository.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/stock-transfers-tenant-boundary.pg.integration.spec.ts",
+  "apps/server/src/products/__tests__/product-operations.repository.pg.integration.spec.ts",
   "apps/server/src/test-helpers/finance-seeds.ts",
   "apps/server/src/supply/__tests__/purchase-order-submission.pg.integration.spec.ts",
   "scripts/__tests__/sellpia-authoritative-inventory-contract.test.mjs",
@@ -384,27 +386,18 @@ describe("Sellpia authoritative final-schema contract", () => {
     assert.doesNotMatch(insert, /\bdeleted_at\b/);
   });
 
-  it("groups dashboard revenue by listing and resolves a component label without bundle duplication", () => {
-    assert.match(dashboardSalesRepository, /LEFT JOIN LATERAL/);
+  it("groups dashboard revenue by listing and reads labels from the linked operating product", () => {
     assert.match(
       dashboardSalesRepository,
-      /JOIN channel_sku_components csc ON csc\.channel_sku_id = label_clo\.id/,
-    );
-    assert.match(
-      dashboardSalesRepository,
-      /JOIN master_products mp ON mp\.id = csc\.master_product_id/,
+      /LEFT JOIN master_products mp ON mp\.id = cl\.master_product_id/,
     );
     assert.match(
       dashboardSalesRepository,
-      /AND csc\.organization_id = \$\{organizationId\}::uuid/,
+      /AND mp\.organization_id = \$\{organizationId\}::uuid/,
     );
-    assert.doesNotMatch(dashboardSalesRepository, /cl\.master_id/);
-    assert.doesNotMatch(
-      dashboardSalesRepository,
-      /JOIN channel_sku_components csc ON csc\.channel_sku_id = clo\.id/,
-    );
-    assert.doesNotMatch(dashboardSalesRepository, /mp\.abc_grade/);
-    assert.match(dashboardSalesRepository, /cl\.abc_grade AS grade/);
+    assert.doesNotMatch(dashboardSalesRepository, /channel_sku_components/);
+    assert.doesNotMatch(dashboardSalesRepository, /LEFT JOIN LATERAL/);
+    assert.match(dashboardSalesRepository, /mp\.abc_grade AS grade/);
     assert.match(dashboardSalesRepository, /GROUP BY cl\.id/);
   });
 });

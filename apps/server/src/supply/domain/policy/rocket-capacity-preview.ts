@@ -23,6 +23,13 @@ export type RocketCapacityPreviewInputRow = {
   plannedDeliveryDate: string;
   orderQuantity: number;
   channelSkuId: string | null;
+  masterProductId: string | null;
+  productVariantId: string | null;
+  recipeStatus:
+    | 'unmatched'
+    | 'configuration_required'
+    | 'review_required'
+    | 'matched';
   components: RocketPurchasePreviewComponent[];
 };
 
@@ -37,6 +44,8 @@ export type RocketCapacityPreviewRow = {
   editedQuantity: number | null;
   reason: RocketPurchasePreviewReason | null;
   channelSkuId: string | null;
+  masterProductId: string | null;
+  productVariantId: string | null;
   components: RocketPurchasePreviewComponent[];
 };
 
@@ -47,9 +56,9 @@ export function previewRocketCapacity(input: {
 }): RocketCapacityPreviewRow[] {
   const remainingStock = new Map<string, number>();
   for (const component of input.rows.flatMap(({ components }) => components)) {
-    const current = remainingStock.get(component.masterProductId);
+    const current = remainingStock.get(component.sellpiaInventorySkuId);
     remainingStock.set(
-      component.masterProductId,
+      component.sellpiaInventorySkuId,
       current === undefined ? component.currentStock : Math.min(current, component.currentStock),
     );
   }
@@ -71,7 +80,7 @@ function allocateRow(
   clampEditedQuantities: boolean,
 ): RocketCapacityPreviewRow {
   const requestedEditedQuantity = editedQuantities[row.poLineId] ?? null;
-  if (!row.channelSkuId || row.components.length === 0) {
+  if (!row.channelSkuId || row.recipeStatus === 'unmatched') {
     const editedQuantity = resolveRocketPreviewEditedQuantity(
       row.poLineId,
       requestedEditedQuantity,
@@ -80,18 +89,31 @@ function allocateRow(
     );
     return result(row, editedQuantity, 0, 0, 'mapping_required');
   }
-  if (row.components.some(({ isActive }) => !isActive)) {
+  if (row.recipeStatus === 'configuration_required') {
     const editedQuantity = resolveRocketPreviewEditedQuantity(
       row.poLineId,
       requestedEditedQuantity,
       0,
       clampEditedQuantities,
     );
-    return result(row, editedQuantity, 0, 0, 'component_inactive');
+    return result(row, editedQuantity, 0, 0, 'configuration_required');
+  }
+  if (
+    row.recipeStatus === 'review_required'
+    || row.components.some(({ isActive }) => !isActive)
+  ) {
+    const editedQuantity = resolveRocketPreviewEditedQuantity(
+      row.poLineId,
+      requestedEditedQuantity,
+      0,
+      clampEditedQuantities,
+    );
+    return result(row, editedQuantity, 0, 0, 'review_required');
   }
 
   const maxQuantity = Math.min(...row.components.map((component) => Math.floor(
-    (remainingStock.get(component.masterProductId) ?? 0) / component.quantity,
+    (remainingStock.get(component.sellpiaInventorySkuId) ?? 0)
+      / component.quantity,
   )));
   const editedQuantity = resolveRocketPreviewEditedQuantity(
     row.poLineId,
@@ -102,8 +124,8 @@ function allocateRow(
   const recommendedQuantity = editedQuantity ?? Math.min(row.orderQuantity, maxQuantity);
   for (const component of row.components) {
     remainingStock.set(
-      component.masterProductId,
-      (remainingStock.get(component.masterProductId) ?? 0)
+      component.sellpiaInventorySkuId,
+      (remainingStock.get(component.sellpiaInventorySkuId) ?? 0)
         - (recommendedQuantity * component.quantity),
     );
   }
@@ -164,6 +186,8 @@ function result(
     editedQuantity,
     reason,
     channelSkuId: row.channelSkuId,
+    masterProductId: row.masterProductId,
+    productVariantId: row.productVariantId,
     components: row.components,
   };
 }

@@ -10,6 +10,7 @@ const productId = '00000000-0000-4000-8000-000000000002';
 const channelSkuId = '00000000-0000-4000-8000-000000000003';
 const sellpiaInventorySkuId = '00000000-0000-4000-8000-000000000004';
 const productVariantId = '00000000-0000-4000-8000-000000000005';
+const masterProductId = '00000000-0000-4000-8000-000000000006';
 
 describe('channel SKU availability contracts', () => {
   it('freezes the calculated availability filters', () => {
@@ -46,6 +47,7 @@ describe('channel SKU availability contracts', () => {
           sellableStock: null,
           updatedAt: '2026-07-12T00:00:00.000Z',
         },
+        masterProductId: null,
         productVariantId: null,
         variantCode: null,
         variantName: null,
@@ -92,6 +94,7 @@ describe('channel SKU availability contracts', () => {
           sellableStock: 10,
           updatedAt: '2026-07-12T00:00:00.000Z',
         },
+        masterProductId,
         productVariantId,
         variantCode: 'KI-001-8',
         variantName: '8개입',
@@ -156,6 +159,7 @@ describe('channel SKU availability contracts', () => {
           sellableStock: null,
           updatedAt: '2026-07-12T00:00:00.000Z',
         },
+        masterProductId,
         productVariantId,
         variantCode: 'KI-001-DEFAULT',
         variantName: '기본',
@@ -216,6 +220,7 @@ describe('channel SKU availability contracts', () => {
           sellableStock: null,
           updatedAt: '2026-07-12T00:00:00.000Z',
         },
+        masterProductId,
         productVariantId,
         variantCode: 'KI-001-DEFAULT',
         variantName: '기본',

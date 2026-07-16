@@ -51,7 +51,7 @@ export type DeletePurchaseOrderResult =
 export type PreparePurchaseOrderSubmissionInput = {
   organizationId: string;
   purchaseOrderId: string;
-  masterProductIds: string[];
+  sellpiaInventorySkuIds: string[];
   idempotencyKey: string;
   userId: string;
   freshnessFence: string;

@@ -135,7 +135,7 @@ describe('OperationAlertLifecycleController.start', () => {
     service.start.mockResolvedValueOnce(alertRow({
       title: 'Sellpia 재고 갱신',
       sourceId: 'inventory.sellpia',
-      href: '/inventory-hub?tab=overview',
+      href: '/inventory-hub?tab=sellpia-sync',
       metadata: COLLECTION_ORDERING_METADATA,
     }));
 
@@ -155,7 +155,7 @@ describe('OperationAlertLifecycleController.start', () => {
 
     expect(service.start).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Sellpia 재고 갱신',
-      href: '/inventory-hub?tab=overview',
+      href: '/inventory-hub?tab=sellpia-sync',
       metadata: COLLECTION_ORDERING_METADATA,
     }));
   });
@@ -168,7 +168,7 @@ describe('OperationAlertLifecycleController.start', () => {
       title: 'Sellpia 재고 품질 확인 필요',
       sourceType: 'sellpia_inventory_import',
       sourceId: SELLPIA_IMPORT_RUN_ID,
-      href: '/inventory-hub?tab=overview',
+      href: '/stock-ops?tab=freshness',
       metadata: {
         ...COLLECTION_ORDERING_METADATA,
         fileHash: SELLPIA_FILE_HASH,
@@ -222,7 +222,7 @@ describe('OperationAlertLifecycleController.start', () => {
     expect(service.start).toHaveBeenCalledWith(expect.objectContaining({
       operationKey: SELLPIA_QUALITY_OPERATION_KEY,
       title: 'Sellpia 재고 품질 확인 필요',
-      href: '/inventory-hub?tab=overview',
+      href: '/stock-ops?tab=freshness',
     }));
     expect(service.attention).toHaveBeenCalledWith(
       ORGANIZATION_ID,

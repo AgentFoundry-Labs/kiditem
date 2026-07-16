@@ -19,7 +19,7 @@ Component matching is defined in
 ```text
 authenticated Sellpia full option-product export
   -> Inventory validation + fenced full-snapshot publication
-  -> MasterProduct.currentStock
+  -> SellpiaInventorySku.currentStock
 
 authenticated Rocket PO collection
   -> Channels validates active organization Rocket account + vendor identity
@@ -29,9 +29,10 @@ authenticated Rocket PO collection
   -> no submit / reserve / workbook / stock write
 ```
 
-Inventory owns freshness, publication, and `currentStock`. Channels owns
-Rocket `ChannelAccount`, observed listing/SKU identity, and operator-confirmed
-component recipes. Supply owns the preview calculation and the ordinary
+Inventory owns freshness, publication, physical `SellpiaInventorySku`, and
+`currentStock`. Channels owns Rocket `ChannelAccount` and observed listing/SKU
+identity. Products owns the operator-confirmed `ProductVariantComponent`
+recipes. Supply owns the preview calculation and the ordinary
 purchase-order submission boundary; it may compare Inventory's opaque fence but
 does not derive freshness or write inventory state.
 
@@ -105,7 +106,7 @@ calendar/list/file-history shell.
 ## Record-Only Operations
 
 `StockTransfer`, `PickingItem`, `ReturnTransfer`, and receipt/upload records may
-reference physical `MasterProduct` identities. Their status changes do not
+reference physical `SellpiaInventorySku` identities. Their status changes do not
 write `currentStock`. The next completed Sellpia full snapshot is the evidence
 for a real-world stock change.
 
@@ -120,7 +121,7 @@ for a real-world stock change.
   evidence.
 - Do not calculate preview capacity from stale cached channel availability.
 - Preserved inventory and ledger screens must remain record-only with respect
-  to `MasterProduct.currentStock`; do not add receive/issue/adjust/reserve/
+  to `SellpiaInventorySku.currentStock`; do not add receive/issue/adjust/reserve/
   release actions that write the Sellpia-owned balance.
 
 ## Failure Recovery

@@ -11,7 +11,7 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../../test-helpers/real-prisma';
 
-describe('SupplierStatsService physical-Master projection (PG)', () => {
+describe('SupplierStatsService physical Sellpia SKU projection (PG)', () => {
   let prisma: PrismaClient;
   let service: SupplierStatsService;
 
@@ -42,7 +42,7 @@ describe('SupplierStatsService physical-Master projection (PG)', () => {
     name: string,
   ) {
     const sellpiaProductCode = `SP-${suffix}`;
-    const master = await prisma.masterProduct.create({
+    const sku = await prisma.sellpiaInventorySku.create({
       data: {
         organizationId,
         code: sellpiaProductCode,
@@ -51,13 +51,13 @@ describe('SupplierStatsService physical-Master projection (PG)', () => {
         isActive: true,
       },
     });
-    return master;
+    return sku;
   }
 
   async function seedSupplierPolicy(params: {
     organizationId: string;
     supplierName: string;
-    masterProductId: string;
+    sellpiaInventorySkuId: string;
     supplyPrice: number;
     isPrimary?: boolean;
   }) {
@@ -68,7 +68,7 @@ describe('SupplierStatsService physical-Master projection (PG)', () => {
       data: {
         organizationId: params.organizationId,
         supplierId: supplier.id,
-        masterProductId: params.masterProductId,
+        sellpiaInventorySkuId: params.sellpiaInventorySkuId,
         supplyPrice: params.supplyPrice,
         minOrderQty: 1,
         isPrimary: params.isPrimary ?? true,
@@ -81,10 +81,35 @@ describe('SupplierStatsService physical-Master projection (PG)', () => {
     organizationId: string,
     suffix: string,
     components: Array<{
-      masterProductId: string;
+      sellpiaInventorySkuId: string;
       quantity: number;
     }>,
   ) {
+    const master = await prisma.masterProduct.create({
+      data: {
+        organizationId,
+        code: `MASTER-${suffix}`,
+        name: `Operating ${suffix}`,
+      },
+    });
+    const variant = await prisma.productVariant.create({
+      data: {
+        organizationId,
+        masterProductId: master.id,
+        code: `VARIANT-${suffix}`,
+        name: `Variant ${suffix}`,
+        isDefault: true,
+      },
+    });
+    await prisma.productVariantComponent.createMany({
+      data: components.map((component) => ({
+        organizationId,
+        productVariantId: variant.id,
+        sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+        quantity: component.quantity,
+        source: 'manual',
+      })),
+    });
     const channelAccount = await prisma.channelAccount.upsert({
       where: {
         organizationId_channel_externalAccountId: {
@@ -105,6 +130,7 @@ describe('SupplierStatsService physical-Master projection (PG)', () => {
       data: {
         organizationId,
         channelAccountId: channelAccount.id,
+        masterProductId: master.id,
         externalId: `PRODUCT-${suffix}`,
         channelName: `Listing ${suffix}`,
       },
@@ -113,18 +139,9 @@ describe('SupplierStatsService physical-Master projection (PG)', () => {
       data: {
         organizationId,
         listingId: listing.id,
+        productVariantId: variant.id,
         externalOptionId: `SKU-${suffix}`,
-        mappingStatus: 'matched',
       },
-    });
-    await prisma.channelSkuComponent.createMany({
-      data: components.map((component) => ({
-        organizationId,
-        channelSkuId: listingOption.id,
-        masterProductId: component.masterProductId,
-        quantity: component.quantity,
-        mappingSource: 'manual',
-      })),
     });
     return listingOption;
   }
@@ -177,18 +194,18 @@ describe('SupplierStatsService physical-Master projection (PG)', () => {
     const firstSupplier = await seedSupplierPolicy({
       organizationId: TEST_ORGANIZATION_ID,
       supplierName: 'Supplier A',
-      masterProductId: first.id,
+      sellpiaInventorySkuId: first.id,
       supplyPrice: 100,
     });
     const secondSupplier = await seedSupplierPolicy({
       organizationId: TEST_ORGANIZATION_ID,
       supplierName: 'Supplier B',
-      masterProductId: second.id,
+      sellpiaInventorySkuId: second.id,
       supplyPrice: 300,
     });
     const listingOption = await seedListingOption(TEST_ORGANIZATION_ID, 'BUNDLE', [
-      { masterProductId: first.id, quantity: 1 },
-      { masterProductId: second.id, quantity: 3 },
+      { sellpiaInventorySkuId: first.id, quantity: 1 },
+      { sellpiaInventorySkuId: second.id, quantity: 3 },
     ]);
     await seedOrderLine({
       organizationId: TEST_ORGANIZATION_ID,
@@ -225,12 +242,12 @@ describe('SupplierStatsService physical-Master projection (PG)', () => {
     await seedSupplierPolicy({
       organizationId: TEST_ORGANIZATION_ID,
       supplierName: 'Known Supplier',
-      masterProductId: known.id,
+      sellpiaInventorySkuId: known.id,
       supplyPrice: 500,
     });
     const listingOption = await seedListingOption(TEST_ORGANIZATION_ID, 'INCOMPLETE', [
-      { masterProductId: known.id, quantity: 8 },
-      { masterProductId: unknown.id, quantity: 1 },
+      { sellpiaInventorySkuId: known.id, quantity: 8 },
+      { sellpiaInventorySkuId: unknown.id, quantity: 1 },
     ]);
     await seedOrderLine({
       organizationId: TEST_ORGANIZATION_ID,
@@ -254,11 +271,11 @@ describe('SupplierStatsService physical-Master projection (PG)', () => {
     await seedSupplierPolicy({
       organizationId: TEST_ORGANIZATION_ID,
       supplierName: 'Own Supplier',
-      masterProductId: own.id,
+      sellpiaInventorySkuId: own.id,
       supplyPrice: 100,
     });
     const ownOption = await seedListingOption(TEST_ORGANIZATION_ID, 'OWN', [{
-      masterProductId: own.id,
+      sellpiaInventorySkuId: own.id,
       quantity: 1,
     }]);
     await seedOrderLine({
@@ -273,11 +290,11 @@ describe('SupplierStatsService physical-Master projection (PG)', () => {
     await seedSupplierPolicy({
       organizationId: OTHER_ORGANIZATION_ID,
       supplierName: 'Foreign Supplier',
-      masterProductId: foreign.id,
+      sellpiaInventorySkuId: foreign.id,
       supplyPrice: 100,
     });
     const foreignOption = await seedListingOption(OTHER_ORGANIZATION_ID, 'FOREIGN', [{
-      masterProductId: foreign.id,
+      sellpiaInventorySkuId: foreign.id,
       quantity: 1,
     }]);
     await seedOrderLine({
@@ -294,7 +311,7 @@ describe('SupplierStatsService physical-Master projection (PG)', () => {
     expect(report.summary.totalRevenue).toBe(1_000);
   });
 
-  it('returns Sellpia Master identity in the supplier product breakdown', async () => {
+  it('returns Sellpia inventory-SKU identity in the supplier product breakdown', async () => {
     const physical = await seedPhysicalProduct(
       TEST_ORGANIZATION_ID,
       'MALLOW',
@@ -303,11 +320,11 @@ describe('SupplierStatsService physical-Master projection (PG)', () => {
     const supplier = await seedSupplierPolicy({
       organizationId: TEST_ORGANIZATION_ID,
       supplierName: 'Supplier',
-      masterProductId: physical.id,
+      sellpiaInventorySkuId: physical.id,
       supplyPrice: 1_000,
     });
     const listingOption = await seedListingOption(TEST_ORGANIZATION_ID, 'MALLOW', [{
-      masterProductId: physical.id,
+      sellpiaInventorySkuId: physical.id,
       quantity: 8,
     }]);
     await seedOrderLine({

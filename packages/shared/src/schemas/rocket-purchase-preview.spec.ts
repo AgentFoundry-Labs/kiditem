@@ -6,6 +6,9 @@ import {
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const RUN_ID = '22222222-2222-4222-8222-222222222222';
+const MASTER_PRODUCT_ID = '33333333-3333-4333-8333-333333333333';
+const PRODUCT_VARIANT_ID = '44444444-4444-4444-8444-444444444444';
+const SELLPIA_INVENTORY_SKU_ID = '55555555-5555-4555-8555-555555555555';
 
 function request() {
   return {
@@ -99,6 +102,8 @@ describe('Rocket purchase preview contract', () => {
         editedQuantity: null,
         reason: 'collection_incomplete',
         channelSkuId: null,
+        masterProductId: null,
+        productVariantId: null,
         components: [],
       }],
     });
@@ -107,4 +112,65 @@ describe('Rocket purchase preview contract', () => {
     expect(response).not.toHaveProperty('confirmationFile');
     expect(response).not.toHaveProperty('submissionAttempt');
   });
+
+  it('keeps product, variant, and physical Sellpia identities distinct', () => {
+    const response = RocketPurchasePreviewResponseSchema.parse({
+      collectionRunId: RUN_ID,
+      catalog: null,
+      rows: [{
+        poLineId: request().rows[0]!.poLineId,
+        poNumber: '1001',
+        productNo: 'P-1',
+        productName: '로켓 상품',
+        orderQuantity: 4,
+        recommendedQuantity: 4,
+        maxQuantity: 5,
+        editedQuantity: null,
+        reason: null,
+        channelSkuId: ACCOUNT_ID,
+        masterProductId: MASTER_PRODUCT_ID,
+        productVariantId: PRODUCT_VARIANT_ID,
+        components: [{
+          sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+          quantity: 1,
+          currentStock: 5,
+          isActive: true,
+        }],
+      }],
+    });
+
+    expect(response.rows[0]).toMatchObject({
+      masterProductId: MASTER_PRODUCT_ID,
+      productVariantId: PRODUCT_VARIANT_ID,
+      components: [{ sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID }],
+    });
+    expect(response.rows[0]?.components[0]).not.toHaveProperty('masterProductId');
+  });
+
+  it.each(['configuration_required', 'review_required'] as const)(
+    'accepts the central recipe warning reason %s',
+    (reason) => {
+      const parsed = RocketPurchasePreviewResponseSchema.parse({
+        collectionRunId: RUN_ID,
+        catalog: null,
+        rows: [{
+          poLineId: request().rows[0]!.poLineId,
+          poNumber: '1001',
+          productNo: 'P-1',
+          productName: '로켓 상품',
+          orderQuantity: 4,
+          recommendedQuantity: 0,
+          maxQuantity: 0,
+          editedQuantity: null,
+          reason,
+          channelSkuId: ACCOUNT_ID,
+          masterProductId: MASTER_PRODUCT_ID,
+          productVariantId: PRODUCT_VARIANT_ID,
+          components: [],
+        }],
+      });
+
+      expect(parsed.rows[0]?.reason).toBe(reason);
+    },
+  );
 });

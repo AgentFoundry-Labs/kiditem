@@ -16,7 +16,7 @@ import type {
 
 const PurchaseOrderDraftInputSchema = z.object({
   recommendationArtifactId: z.string().uuid().optional(),
-  masterProductId: z.string().uuid(),
+  sellpiaInventorySkuId: z.string().uuid(),
   productName: z.string().min(1),
   supplierName: z.string().min(1),
   supplierId: z.string().uuid().optional(),
@@ -48,7 +48,7 @@ const PurchaseOrderSubmissionOutputSchema = z.object({
 function recommendationFromInput(input: Record<string, unknown>) {
   const parsed = PurchaseOrderDraftInputSchema.parse(input);
   return {
-    masterProductId: parsed.masterProductId,
+    sellpiaInventorySkuId: parsed.sellpiaInventorySkuId,
     productName: parsed.productName,
     supplierName: parsed.supplierName,
     supplierId: parsed.supplierId ?? null,

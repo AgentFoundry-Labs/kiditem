@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { PurchaseOrderSubmissionTransactionAdapter } from './purchase-order-submission.transaction.adapter';
 
 const ORDER_ID = '0187e942-9098-7382-9a22-c5b821f2f5d1';
-const MASTER_ID = '00000000-0000-4000-8000-000000000001';
+const SELLPIA_SKU_ID = '00000000-0000-4000-8000-000000000001';
 const FENCE = '00000000-0000-4000-8000-000000000099';
 
 function makePrisma(input: {
@@ -30,12 +30,12 @@ function makePrisma(input: {
       findFirst: vi.fn().mockResolvedValue({ id: 'membership-1' }),
     },
     purchaseOrderItem: {
-      findMany: vi.fn().mockResolvedValue([{ masterProductId: MASTER_ID }]),
+      findMany: vi.fn().mockResolvedValue([{ sellpiaInventorySkuId: SELLPIA_SKU_ID }]),
     },
-    masterProduct: {
+    sellpiaInventorySku: {
       findMany: vi.fn().mockResolvedValue(input.active === false
-        ? [{ id: MASTER_ID, isActive: false }]
-        : [{ id: MASTER_ID, isActive: true }]),
+        ? [{ id: SELLPIA_SKU_ID, isActive: false }]
+        : [{ id: SELLPIA_SKU_ID, isActive: true }]),
     },
     purchaseOrderSubmissionAttempt: {
       findFirst: vi.fn().mockResolvedValue(input.latestAttempt ?? null),
@@ -112,7 +112,7 @@ function prepareInput(requiresProvider = true) {
   return {
     organizationId: 'org-1',
     purchaseOrderId: ORDER_ID,
-    masterProductIds: [MASTER_ID],
+    sellpiaInventorySkuIds: [SELLPIA_SKU_ID],
     idempotencyKey: 'submit-1',
     userId: 'user-1',
     freshnessFence: FENCE,

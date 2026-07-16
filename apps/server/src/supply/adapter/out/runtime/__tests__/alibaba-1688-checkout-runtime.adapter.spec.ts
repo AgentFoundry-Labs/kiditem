@@ -45,7 +45,7 @@ describe('Alibaba1688CheckoutRuntimeAdapter', () => {
         items: [
           {
             productName: 'Silicone plate',
-            optionId: 'option-1',
+            sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000001',
             quantity: 2,
             unitPriceCny: '22.80',
           },
@@ -68,7 +68,7 @@ describe('Alibaba1688CheckoutRuntimeAdapter', () => {
           items: [
             {
               productName: 'Silicone plate',
-              optionId: 'option-1',
+              sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000001',
               quantity: 2,
               unitPriceCny: '22.80',
             },

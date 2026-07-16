@@ -52,6 +52,8 @@ describe('previewRocketPurchases', () => {
         editedQuantity: null,
         reason: 'mapping_required',
         channelSkuId: null,
+        masterProductId: null,
+        productVariantId: null,
         components: [],
       }],
     });

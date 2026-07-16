@@ -10,8 +10,8 @@ Release `0.1.19` keeps three different concepts separate:
    one-unit automatic recipe;
 2. normalized-name, similarity/AI, and manual-search candidates that are only
    suggestions;
-3. the persisted `ChannelSkuComponent` recipe, which is the only confirmed
-   multi-component/quantity mapping truth.
+3. the persisted `ProductVariantComponent` recipe, which is the only confirmed
+   multi-component/quantity mapping truth for a reusable KidItem variant.
 
 Inventory freshness and publication are owned by
 [Sellpia Inventory Freshness Operations](sellpia-inventory-freshness.md).
@@ -32,20 +32,24 @@ Inventory freshness and publication are owned by
 
 ## Ownership And Safety Rules
 
-- One `MasterProduct` represents one organization-owned Sellpia product code.
+- One `MasterProduct` represents one KidItem operating product. Its
+  `ProductVariant` rows are the reusable sellable units linked to channel
+  options.
+- One `SellpiaInventorySku` represents one physical Sellpia product-code row.
   Inventory alone publishes its active state and `currentStock`.
 - `ChannelListing` and `ChannelListingOption` hold account-specific marketplace
   product/SKU identity and metadata.
-- A `ChannelSkuComponent` row says how many units of one exact Sellpia product
-  are consumed by one sale of the channel SKU. A recipe may contain multiple
-  components.
+- A `ProductVariantComponent` row says how many units of one exact
+  `SellpiaInventorySku` are consumed by one sale of the variant. A recipe may
+  contain multiple components and is reused by every linked channel option.
 - Recipe reads and writes are tenant-scoped. Adding an inactive or foreign
-  MasterProduct is rejected.
+  SellpiaInventorySku is rejected.
 - A confirmed recipe that later references an inactive component remains
   persisted for diagnosis and appears in `needs_review`; its status/recipe is
-  not silently rewritten.
+  not silently rewritten. Channel recollection may relink a channel option but
+  never rewrites the variant's central recipe.
 - Import, matching, status refresh, capacity reads, and Rocket preview never
-  write `MasterProduct.currentStock`.
+  write `SellpiaInventorySku.currentStock`.
 
 ## Import Channel Identities
 
@@ -121,7 +125,7 @@ C -> X x 1 + Y x 2
 For a confirmed active recipe:
 
 ```text
-component capacity = floor(MasterProduct.currentStock / component.quantity)
+component capacity = floor(SellpiaInventorySku.currentStock / component.quantity)
 sellableStock = minimum component capacity
 ```
 

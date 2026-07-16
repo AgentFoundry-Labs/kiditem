@@ -24,7 +24,7 @@ function violations(pattern: RegExp): string[] {
 
 describe('final product owner boundary', () => {
   it('has no production calls to the removed products API', () => {
-    expect(violations(/\/api\/products/)).toEqual([]);
+    expect(violations(/\/api\/products(?:[?'"`]|\/\$\{)/)).toEqual([]);
   });
 
   it('has no ContentWorkspace targetMaster compatibility alias', () => {

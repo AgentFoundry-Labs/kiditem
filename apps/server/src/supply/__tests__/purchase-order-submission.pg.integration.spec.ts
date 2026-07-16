@@ -13,7 +13,7 @@ import {
 import { PurchaseOrderSubmissionTransactionAdapter } from '../adapter/out/transaction/purchase-order-submission.transaction.adapter';
 
 const ORDER_ID = '20000000-0000-4000-8000-000000000001';
-const MASTER_ID = '20000000-0000-4000-8000-000000000002';
+const SELLPIA_SKU_ID = '20000000-0000-4000-8000-000000000002';
 const FENCE = '20000000-0000-4000-8000-000000000003';
 let verifiedAt: Date;
 
@@ -36,12 +36,12 @@ describe('purchase-order submission transaction (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    await prisma.masterProduct.create({
+    await prisma.sellpiaInventorySku.create({
       data: {
-        id: MASTER_ID,
+        id: SELLPIA_SKU_ID,
         organizationId: TEST_ORGANIZATION_ID,
         code: 'SP-SUBMIT-1',
-        name: 'Submission master',
+        name: 'Submission SKU',
         currentStock: 10,
         isActive: true,
       },
@@ -59,8 +59,8 @@ describe('purchase-order submission transaction (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         orderId: ORDER_ID,
-        masterProductId: MASTER_ID,
-        productName: 'Submission master',
+        sellpiaInventorySkuId: SELLPIA_SKU_ID,
+        productName: 'Submission SKU',
         quantity: 1,
         unitPriceCny: 10,
       },
@@ -244,7 +244,7 @@ function submissionInput(idempotencyKey: string) {
   return {
     organizationId: TEST_ORGANIZATION_ID,
     purchaseOrderId: ORDER_ID,
-    masterProductIds: [MASTER_ID],
+    sellpiaInventorySkuIds: [SELLPIA_SKU_ID],
     idempotencyKey,
     userId: TEST_USER_ID,
     freshnessFence: FENCE,

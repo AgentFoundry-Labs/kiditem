@@ -3,7 +3,7 @@
 This is the authoritative operator runbook for Sellpia inventory freshness in
 release `0.1.19`. Sellpia is the stock source of truth. KidItem publishes only a
 validated full option-product export and never guesses, reserves, increments,
-or decrements `MasterProduct.currentStock` from an order or purchase action.
+or decrements `SellpiaInventorySku.currentStock` from an order or purchase action.
 
 ## Prerequisites
 
@@ -117,7 +117,8 @@ preservation baseline. Automatic sync and freshness controls are added to that
 UI; they do not replace existing pages or collapse their URLs:
 
 - `/product-hub` keeps the staged product-operations-center layout while its
-  rows and available inventory metrics read from the Sellpia snapshot.
+  rows read from KidItem `MasterProduct` operating products and inventory
+  metrics are calculated from linked variant recipes and the Sellpia snapshot.
   `/product-hub/[id]` keeps the read-only snapshot detail, and
   `/product-hub/matching` keeps the baseline Coupang ChannelSku
   component-recipe workspace.
@@ -262,7 +263,7 @@ Stop and report the exact blocker when:
 - extension/login recovery would require exposing credentials or session data;
 - an automatic or manual import cannot prove a complete current export;
 - a hard quality threshold fires and the source loss cannot be explained;
-- a non-Inventory runtime path writes `MasterProduct.currentStock`;
+- a non-Inventory runtime path writes `SellpiaInventorySku.currentStock`;
 - a purchase path bypasses the freshness fence or retries an ambiguous provider
   side effect;
 - Rocket exposes any actual confirmation/submission/reservation/stock action;

@@ -463,16 +463,16 @@ async function assertPurchaseItems(
   tx: Prisma.TransactionClient,
   input: PreparePurchaseOrderSubmissionInput,
 ): Promise<void> {
-  const expectedIds = [...new Set(input.masterProductIds)].sort();
+  const expectedIds = [...new Set(input.sellpiaInventorySkuIds)].sort();
   if (expectedIds.length === 0) throw referenceInvalid();
   const items = await tx.purchaseOrderItem.findMany({
     where: {
       organizationId: input.organizationId,
       orderId: input.purchaseOrderId,
     },
-    select: { masterProductId: true },
+    select: { sellpiaInventorySkuId: true },
   });
-  const actualIds = [...new Set(items.map((item) => item.masterProductId))].sort();
+  const actualIds = [...new Set(items.map((item) => item.sellpiaInventorySkuId))].sort();
   if (
     actualIds.length !== expectedIds.length
     || actualIds.some((id, index) => id !== expectedIds[index])
@@ -480,15 +480,15 @@ async function assertPurchaseItems(
     throw referenceInvalid();
   }
 
-  const products = await tx.masterProduct.findMany({
+  const inventorySkus = await tx.sellpiaInventorySku.findMany({
     where: {
       organizationId: input.organizationId,
       id: { in: expectedIds },
     },
     select: { id: true, isActive: true },
   });
-  if (products.length !== expectedIds.length) throw referenceInvalid();
-  if (products.some((product) => !product.isActive)) {
+  if (inventorySkus.length !== expectedIds.length) throw referenceInvalid();
+  if (inventorySkus.some((sku) => !sku.isActive)) {
     throw new AppException(
       422,
       ErrorCodes.PURCHASE.ITEM_INACTIVE,

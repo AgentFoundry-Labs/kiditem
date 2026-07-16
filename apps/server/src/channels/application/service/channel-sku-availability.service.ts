@@ -119,6 +119,7 @@ function toAvailabilityItem(
       displayName: row.listing.displayName,
       status: row.listing.status,
     },
+    masterProductId: row.listing.masterProductId,
     sku: {
       id: row.option.id,
       externalSkuId: row.option.externalOptionId,

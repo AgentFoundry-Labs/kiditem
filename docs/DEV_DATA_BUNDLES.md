@@ -99,7 +99,7 @@ Profile 은 어떤 bundle 을 어떤 mode 로 replay 할지 정의하는 recipe 
 - `wing-inventory-matched.xlsx`: 과거 Coupang Wing 매칭 결과 비교 snapshot.
 
 이 두 파일은 `data:dev:replay` 또는 DB import 대상이 아니다. 오늘의
-재고 권한은 Sellpia 스냅샷으로 가져온 `MasterProduct.currentStock`이고,
+재고 권한은 Sellpia 스냅샷으로 가져온 `SellpiaInventorySku.currentStock`이고,
 Wing 상품/옵션은 계정 범위 catalog import로 재구성한다. Reference Excel은
 과거 결과를 비교하는 증거일 뿐 재고나 매칭을 자동 수정하지 않는다.
 
@@ -116,7 +116,7 @@ source payload가 아니라 runtime/검증 상태다.
   이식하지 않는다.
 - completed `SourceImportRun`은 internally consistent한 synthetic test
   fixture에서만 non-null artifact metadata, import/verification timestamp,
-  verification count, generation, quality report와 대응 MasterProduct
+  verification count, generation, quality report와 대응 SellpiaInventorySku
   publication을 함께 표현할 수 있다. 공유 runtime bundle에는 raw workbook
   byte나 workbook base64를 넣지 않는다.
 - 다운로드 전 failed `SourceImportRun`은 file name/hash가 null이고 row가 0이며
@@ -420,9 +420,11 @@ select 'account_kpi', count(*) from channel_account_daily_kpi_snapshots where ch
 
 현재 재고 권한과 채널 매칭은 다음 두 층으로 검증한다.
 
-- Sellpia 권한 재고: `master_products.current_stock`
-- 채널 SKU 매칭: `channel_sku_components` 의
-  `channel_sku_id` → `master_product_id` + `quantity`
+- Sellpia 권한 재고: `sellpia_inventory_skus.current_stock`
+- 상품/옵션 연결: `channel_listings.master_product_id`와
+  `channel_listing_options.product_variant_id`
+- 중앙 레시피: `product_variant_components`의
+  `product_variant_id` → `sellpia_inventory_sku_id` + `quantity`
 - Drive reference Excel: 과거 비교 증거일 뿐 DB 재고나 매칭 권한이
   아니다.
 
@@ -435,17 +437,26 @@ select
   cl.external_id as seller_product_id,
   clo.external_option_id as vendor_item_id,
   clo.item_name,
-  clo.mapping_status,
-  mp.code as sellpia_code,
-  mp.name as master_name,
-  mp.option_name,
-  mp.current_stock,
-  csc.quantity as units_per_sale
+  case
+    when cl.master_product_id is null or clo.product_variant_id is null then 'unmatched'
+    when pvc.id is null or sisku.is_active = false then 'needs_review'
+    else 'matched'
+  end as mapping_status,
+  mp.code as operating_product_code,
+  mp.name as operating_product_name,
+  pv.code as variant_code,
+  sisku.code as sellpia_code,
+  sisku.name as sellpia_name,
+  sisku.option_name,
+  sisku.current_stock,
+  pvc.quantity as units_per_sale
 from channel_listing_options clo
 join channel_listings cl on cl.id = clo.listing_id
 join channel_accounts ca on ca.id = cl.channel_account_id
-left join channel_sku_components csc on csc.channel_sku_id = clo.id
-left join master_products mp on mp.id = csc.master_product_id
+left join master_products mp on mp.id = cl.master_product_id
+left join product_variants pv on pv.id = clo.product_variant_id
+left join product_variant_components pvc on pvc.product_variant_id = pv.id
+left join sellpia_inventory_skus sisku on sisku.id = pvc.sellpia_inventory_sku_id
 where ca.channel = 'coupang'
 order by cl.external_id, clo.external_option_id
 limit 100;

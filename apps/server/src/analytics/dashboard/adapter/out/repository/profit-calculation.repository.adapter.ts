@@ -54,10 +54,16 @@ export class ProfitCalculationRepositoryAdapter
                 commissionRate: true,
                 shippingCost: true,
                 otherCost: true,
-                components: {
+                productVariant: {
                   select: {
-                    quantity: true,
-                    masterProduct: { select: { purchasePrice: true } },
+                    components: {
+                      select: {
+                        quantity: true,
+                        sellpiaInventorySku: {
+                          select: { purchasePrice: true },
+                        },
+                      },
+                    },
                   },
                 },
               },
@@ -84,8 +90,10 @@ export class ProfitCalculationRepositoryAdapter
         revenue += li.totalPrice || 0;
         const p = li.listingOption;
         if (!p) continue;
-        const componentCost = p.components.reduce(
-          (sum, component) => sum + (component.masterProduct.purchasePrice ?? 0) * component.quantity,
+        const componentCost = (p.productVariant?.components ?? []).reduce(
+          (sum, component) => sum
+            + (component.sellpiaInventorySku.purchasePrice ?? 0)
+              * component.quantity,
           0,
         );
         costOfGoods += (p.costPriceOverride ?? componentCost) * li.quantity;

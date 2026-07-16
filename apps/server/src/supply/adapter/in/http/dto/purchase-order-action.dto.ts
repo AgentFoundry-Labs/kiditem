@@ -8,7 +8,7 @@ import type {
 class PurchaseOrderItemDto {
   @IsString() @MinLength(1) productName: string;
   @IsString() @IsOptional() productId?: string;
-  @IsUUID() masterProductId: string;
+  @IsUUID() sellpiaInventorySkuId: string;
   @IsInt() @IsPositive() quantity: number;
   @IsNumber() unitPriceCny: number;
 }

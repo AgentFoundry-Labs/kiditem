@@ -13,6 +13,8 @@ const channelAccountId = '33333333-3333-4333-8333-333333333333';
 const poLineId = '1001:P-1:8801234567890:1';
 const channelSkuId = '44444444-4444-4444-8444-444444444444';
 const masterProductId = '55555555-5555-4555-8555-555555555555';
+const productVariantId = '77777777-7777-4777-8777-777777777777';
+const sellpiaInventorySkuId = '88888888-8888-4888-8888-888888888888';
 
 function request() {
   return {
@@ -53,7 +55,12 @@ function dependencies() {
       channelAccount: { id: channelAccountId, channel: 'rocket', name: 'Rocket' },
       product: { id: 'product-1', externalProductId: 'P-1', registeredName: 'Rocket item', displayName: null, status: 'observed' },
       sku: { id: channelSkuId, externalSkuId: 'P-1', sellerSku: 'P-1', optionName: 'Rocket item', barcode: '8801234567890', modelNumber: null, salePrice: null, status: 'observed', mappingStatus: 'matched', sellableStock: 5, updatedAt: '2026-07-16T00:00:00.000Z' },
-      components: [{ masterProductId, code: 'SP-1', name: 'Sellpia', optionName: null, barcode: '8801234567890', currentStock: 5, purchasePrice: null, isActive: true, quantity: 1, mappingSource: 'manual', componentCapacity: 5, isBottleneck: true }],
+      masterProductId,
+      productVariantId,
+      variantCode: 'VAR-1',
+      variantName: 'Default',
+      recipeStatus: 'matched',
+      components: [{ sellpiaInventorySkuId, code: 'SP-1', name: 'Sellpia', optionName: null, barcode: '8801234567890', currentStock: 5, purchasePrice: null, isActive: true, quantity: 1, source: 'manual', componentCapacity: 5, isBottleneck: true }],
       warnings: [],
     }]),
   } as unknown as ChannelSkuAvailabilityPort;
@@ -68,7 +75,7 @@ function dependencies() {
       generation: '1',
       lastVerifiedAt: '2026-07-16T00:00:00.000Z',
       expiresAt: '2026-07-16T00:10:00.000Z',
-      products: [{ masterProductId, currentStock: 5, isActive: true }],
+      inventorySkus: [{ sellpiaInventorySkuId, currentStock: 5, isActive: true }],
     }),
   } as unknown as SellpiaInventoryFreshnessGatePort;
   return { catalog, availability, freshness };
@@ -98,12 +105,15 @@ describe('RocketPurchasePreviewService', () => {
       readFreshCapacity: ReturnType<typeof vi.fn>;
     }).readFreshCapacity).toHaveBeenCalledWith({
       organizationId,
-      masterProductIds: [masterProductId],
+      sellpiaInventorySkuIds: [sellpiaInventorySkuId],
     });
     expect(result.rows[0]).toMatchObject({
       poLineId,
       recommendedQuantity: 4,
       reason: null,
+      masterProductId,
+      productVariantId,
+      components: [{ sellpiaInventorySkuId }],
     });
     expect(result).not.toHaveProperty('confirmationFile');
     expect(result).not.toHaveProperty('submissionAttempt');
@@ -192,12 +202,16 @@ describe('RocketPurchasePreviewService', () => {
     },
   );
 
-  it('surfaces stale inventory before returning any capacity recommendation', async () => {
+  it.each([
+    'SELLPIA_SYNC_REQUIRED',
+    'SELLPIA_SYNC_IN_PROGRESS',
+    'SELLPIA_SYNC_FAILED',
+  ])('surfaces %s before returning any capacity recommendation', async (code) => {
     const deps = dependencies();
     vi.mocked((deps.freshness as unknown as {
       readFreshCapacity: ReturnType<typeof vi.fn>;
     }).readFreshCapacity).mockRejectedValue(
-      new AppException(409, 'SELLPIA_SYNC_REQUIRED', 'fresh snapshot required'),
+      new AppException(409, code, 'fresh snapshot required'),
     );
     const service = new RocketPurchasePreviewService(
       deps.catalog,
@@ -206,7 +220,7 @@ describe('RocketPurchasePreviewService', () => {
     );
 
     await expect(service.preview({ organizationId, userId, request: request() }))
-      .rejects.toMatchObject({ code: 'SELLPIA_SYNC_REQUIRED' });
+      .rejects.toMatchObject({ code });
   });
 
   it('allocates from the gated generation when stock refreshes after availability read', async () => {
@@ -218,7 +232,7 @@ describe('RocketPurchasePreviewService', () => {
       generation: '2',
       lastVerifiedAt: '2026-07-16T00:01:00.000Z',
       expiresAt: '2026-07-16T00:11:00.000Z',
-      products: [{ masterProductId, currentStock: 0, isActive: true }],
+      inventorySkus: [{ sellpiaInventorySkuId, currentStock: 0, isActive: true }],
     });
     const service = new RocketPurchasePreviewService(
       deps.catalog,
@@ -232,6 +246,71 @@ describe('RocketPurchasePreviewService', () => {
       maxQuantity: 0,
       recommendedQuantity: 0,
       reason: 'insufficient_capacity',
+    });
+  });
+
+  it.each([
+    ['configuration_required', 'configuration_required'],
+    ['review_required', 'review_required'],
+  ] as const)('blocks a %s variant without reading freshness', async (
+    recipeStatus,
+    reason,
+  ) => {
+    const deps = dependencies();
+    const item = (await deps.availability.findByChannelSkuIds(
+      organizationId,
+      [channelSkuId],
+    ))[0]!;
+    vi.mocked(deps.availability.findByChannelSkuIds).mockResolvedValue([{
+      ...item,
+      recipeStatus,
+      sku: { ...item.sku, mappingStatus: 'needs_review', sellableStock: null },
+      components: recipeStatus === 'configuration_required' ? [] : item.components,
+    }]);
+    const service = new RocketPurchasePreviewService(
+      deps.catalog,
+      deps.availability,
+      deps.freshness,
+    );
+
+    const result = await service.preview({ organizationId, userId, request: request() });
+
+    expect(result.rows[0]).toMatchObject({ reason, maxQuantity: 0 });
+    expect((deps.freshness as unknown as {
+      readFreshCapacity: ReturnType<typeof vi.fn>;
+    }).readFreshCapacity).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates a physical component shared by multiple PO lines before freshness read', async () => {
+    const deps = dependencies();
+    const secondLineId = '1002:P-1:8801234567890:1';
+    vi.mocked(deps.catalog.publishAndResolve).mockResolvedValue({
+      blockingReason: null,
+      catalog: null,
+      identities: [
+        { poLineId, channelSkuId },
+        { poLineId: secondLineId, channelSkuId },
+      ],
+    });
+    const input = request();
+    input.rows.push({
+      ...input.rows[0]!,
+      poLineId: secondLineId,
+      poNumber: '1002',
+    });
+    const service = new RocketPurchasePreviewService(
+      deps.catalog,
+      deps.availability,
+      deps.freshness,
+    );
+
+    await service.preview({ organizationId, userId, request: input });
+
+    expect((deps.freshness as unknown as {
+      readFreshCapacity: ReturnType<typeof vi.fn>;
+    }).readFreshCapacity).toHaveBeenCalledWith({
+      organizationId,
+      sellpiaInventorySkuIds: [sellpiaInventorySkuId],
     });
   });
 

@@ -37,7 +37,7 @@ export interface SubmitPurchaseOrderCheckoutResult {
 
 export interface PurchaseOrderCheckoutSnapshotItem {
   productName: string;
-  masterProductId: string;
+  sellpiaInventorySkuId: string;
   quantity: number;
   unitPriceCny: string;
 }

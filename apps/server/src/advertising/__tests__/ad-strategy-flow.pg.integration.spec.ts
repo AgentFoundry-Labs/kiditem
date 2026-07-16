@@ -118,43 +118,60 @@ describe('AdStrategy flow (PG integration)', () => {
         organizationId: params.organizationId,
         code: `M-${params.suffix}`,
         name: `Master ${params.suffix}`,
+        abcGrade: params.abcGrade,
+        adTier: params.adTier ?? null,
+        healthScore: params.healthScore ?? null,
+      },
+    });
+    const inventorySku = await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId: params.organizationId,
+        code: `SP-${params.suffix}`,
+        name: `Sellpia ${params.suffix}`,
         currentStock: sellableStock,
         purchasePrice: params.costPrice ?? 5000,
+      },
+    });
+    const variant = await prisma.productVariant.create({
+      data: {
+        organizationId: params.organizationId,
+        masterProductId: master.id,
+        code: `VAR-${params.suffix}`,
+        name: `Variant ${params.suffix}`,
+        isDefault: true,
+      },
+    });
+    await prisma.productVariantComponent.create({
+      data: {
+        organizationId: params.organizationId,
+        productVariantId: variant.id,
+        sellpiaInventorySkuId: inventorySku.id,
+        quantity: 1,
+        source: 'manual',
       },
     });
     const listing = await prisma.channelListing.create({
       data: {
         organizationId: params.organizationId,
         channelAccountId: channelAccount.id,
+        masterProductId: master.id,
         externalId: `EXT-${params.suffix}`,
         channelName: `Channel ${params.suffix}`,
         lastImportRunId: importRun.id,
-        abcGrade: params.abcGrade,
-        adTier: params.adTier ?? null,
-        healthScore: params.healthScore ?? null,
       },
     });
     const listingOption = await prisma.channelListingOption.create({
       data: {
         organizationId: params.organizationId,
         listingId: listing.id,
+        productVariantId: variant.id,
         externalOptionId: `VI-${params.suffix}`,
         salePrice: params.sellPrice ?? 20000,
         costPriceOverride: params.costPrice ?? 5000,
         commissionRate: params.commissionRate ?? 0.1,
         shippingCost: params.shippingCost ?? 2500,
-        mappingStatus: 'matched',
         lastImportRunId: importRun.id,
         isActive: true,
-      },
-    });
-    await prisma.channelSkuComponent.create({
-      data: {
-        organizationId: params.organizationId,
-        channelSkuId: listingOption.id,
-        masterProductId: master.id,
-        quantity: 1,
-        mappingSource: 'test',
       },
     });
     const option = listingOption;
@@ -890,7 +907,7 @@ describe('AdStrategy flow (PG integration)', () => {
         adTier: '1차',
         suffix: 'C4-MULTI',
       });
-      const earlierMaster = await prisma.masterProduct.create({
+      const earlierSku = await prisma.sellpiaInventorySku.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           code: 'SP-C4-MULTI-EARLY',
@@ -899,28 +916,36 @@ describe('AdStrategy flow (PG integration)', () => {
           purchasePrice: 5000,
         },
       });
+      const earlierVariant = await prisma.productVariant.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          masterProductId: a.master.id,
+          code: 'VAR-C4-MULTI-EARLY',
+          name: 'Variant C4 MULTI EARLY',
+        },
+      });
+      await prisma.productVariantComponent.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          productVariantId: earlierVariant.id,
+          sellpiaInventorySkuId: earlierSku.id,
+          quantity: 1,
+          source: 'manual',
+        },
+      });
       const earlierListingOption = await prisma.channelListingOption.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           listingId: a.listing.id,
+          productVariantId: earlierVariant.id,
           externalOptionId: 'VI-C4-MULTI-EARLY',
           salePrice: 20000,
           costPriceOverride: 5000,
           commissionRate: 0.1,
           shippingCost: 2500,
-          mappingStatus: 'matched',
           lastImportRunId: a.listing.lastImportRunId,
           isActive: true,
           createdAt: new Date('2026-04-01T00:00:00.000Z'),
-        },
-      });
-      await prisma.channelSkuComponent.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          channelSkuId: earlierListingOption.id,
-          masterProductId: earlierMaster.id,
-          quantity: 1,
-          mappingSource: 'test',
         },
       });
       // H3 — bake ad metrics into the 2026-04-14 listing-daily so it remains

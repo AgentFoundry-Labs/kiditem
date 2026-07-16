@@ -131,7 +131,7 @@ describe('SupplyAgentCapabilityAdapter', () => {
       runId: 'run-1',
       input: {
         recommendationArtifactId: '0187e942-9098-7382-9a22-c5b821f2f5d1',
-        masterProductId: '00000000-0000-4000-8000-000000000001',
+        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000001',
         productName: '실리콘 식판 흡착형 신제품',
         supplierName: '1688 Kids Tableware Factory',
         unitPriceCny: 22.8,
@@ -142,7 +142,7 @@ describe('SupplyAgentCapabilityAdapter', () => {
     expect(drafts.createFromRecommendation).toHaveBeenCalledWith({
       organizationId: 'org-1',
       recommendation: {
-        masterProductId: '00000000-0000-4000-8000-000000000001',
+        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000001',
         productName: '실리콘 식판 흡착형 신제품',
         supplierName: '1688 Kids Tableware Factory',
         supplierId: null,

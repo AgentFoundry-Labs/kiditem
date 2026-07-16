@@ -67,6 +67,8 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
             editedQuantity,
             reason: catalog.blockingReason,
             channelSkuId: null,
+            masterProductId: null,
+            productVariantId: null,
             components: [],
           };
         }),
@@ -92,30 +94,37 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
         plannedDeliveryDate: row.plannedDeliveryDate,
         orderQuantity: row.orderQty,
         channelSkuId,
+        masterProductId: item?.masterProductId ?? null,
+        productVariantId: item?.productVariantId ?? null,
+        recipeStatus: item?.recipeStatus ?? 'unmatched' as const,
         components: item?.components.map((component) => ({
-          masterProductId: component.masterProductId,
+          sellpiaInventorySkuId: component.sellpiaInventorySkuId,
           quantity: component.quantity,
           currentStock: component.currentStock,
           isActive: component.isActive,
         })) ?? [],
       };
     });
-    const masterProductIds = [...new Set(previewRows.flatMap(({ components }) =>
-      components.map(({ masterProductId }) => masterProductId)))];
-    if (masterProductIds.length > 0) {
+    const sellpiaInventorySkuIds = [...new Set(previewRows
+      .filter(({ recipeStatus }) => recipeStatus === 'matched')
+      .flatMap(({ components }) => components
+        .map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId)))];
+    if (sellpiaInventorySkuIds.length > 0) {
       const gated = await this.freshness.readFreshCapacity({
         organizationId: input.organizationId,
-        masterProductIds,
+        sellpiaInventorySkuIds,
       });
-      const productById = new Map(gated.products.map((product) =>
-        [product.masterProductId, product]));
+      const inventorySkuById = new Map(gated.inventorySkus.map((sku) =>
+        [sku.sellpiaInventorySkuId, sku]));
       for (const row of previewRows) {
         row.components = row.components.map((component) => {
-          const product = productById.get(component.masterProductId)!;
+          const inventorySku = inventorySkuById.get(
+            component.sellpiaInventorySkuId,
+          );
           return {
             ...component,
-            currentStock: product.currentStock,
-            isActive: product.isActive,
+            currentStock: inventorySku?.currentStock ?? 0,
+            isActive: inventorySku?.isActive ?? false,
           };
         });
       }

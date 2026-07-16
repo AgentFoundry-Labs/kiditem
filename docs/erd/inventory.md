@@ -12,11 +12,13 @@
 | PickingItem | `picking_items` | - |
 | PickingList | `picking_lists` | - |
 | ReturnTransfer | `return_transfers` | - |
+| SellpiaInventorySku | `sellpia_inventory_skus` | One physical Sellpia product-code row and its latest imported current stock. |
 | SellpiaInventoryState | `sellpia_inventory_states` | Organization-scoped Sellpia inventory trust state, source binding, generation fence, and active collection lease. |
 | SellpiaOrderTransmissionIntent | `sellpia_order_transmission_intents` | Organization-scoped idempotency fence for browser Sellpia order transmission and its post-submit inventory generation. |
+| SellpiaOrderTransmissionIntentReconciliation | `sellpia_order_transmission_intent_reconciliations` | Append-only owner/admin audit for resolving an ambiguous Sellpia order transmission outcome. |
 | SellpiaReceiptUploadBatch | `sellpia_receipt_upload_batches` | Record of an operator-confirmed receipt file upload to Sellpia. |
 | StockAudit | `stock_audits` | - |
-| StockTransfer | `stock_transfers` | Warehouse-to-warehouse movement record. It never mutates MasterProduct.currentStock. |
+| StockTransfer | `stock_transfers` | Warehouse-to-warehouse movement record. It never mutates SellpiaInventorySku.currentStock. |
 | Warehouse | `warehouses` | - |
 
 ## Mermaid ER Diagram
@@ -28,7 +30,7 @@ erDiagram
     String organizationId FK
     String pickingListId FK
     String orderId
-    String masterProductId FK
+    String sellpiaInventorySkuId FK
     String productName
     String sku
     Int quantity
@@ -57,7 +59,7 @@ erDiagram
     String organizationId FK
     String rtNumber
     String orderId
-    String masterProductId FK
+    String sellpiaInventorySkuId FK
     String optionName
     Int quantity
     String status
@@ -68,6 +70,22 @@ erDiagram
     String processedBy
     DateTime createdAt
     DateTime completedAt
+    DateTime updatedAt
+  }
+  SellpiaInventorySku {
+    String id PK
+    String organizationId FK
+    String code
+    String name
+    String optionName
+    String barcode
+    Int currentStock
+    Int purchasePrice
+    Int salePrice
+    Boolean isActive
+    Json rawJson
+    String lastImportRunId FK
+    DateTime createdAt
     DateTime updatedAt
   }
   SellpiaInventoryState {
@@ -108,6 +126,15 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SellpiaOrderTransmissionIntentReconciliation {
+    String id PK
+    String organizationId FK
+    String intentId FK
+    String reconciledBy FK
+    DateTime reconciledAt
+    String note
+    String outcome
+  }
   SellpiaReceiptUploadBatch {
     String id PK
     String organizationId FK
@@ -140,7 +167,7 @@ erDiagram
   StockTransfer {
     String id PK
     String organizationId FK
-    String masterProductId FK
+    String sellpiaInventorySkuId FK
     String optionName
     String fromWarehouseId FK
     String toWarehouseId FK
@@ -166,6 +193,10 @@ erDiagram
     DateTime updatedAt
   }
   PickingList ||--o{ PickingItem : "pickingList"
+  SellpiaInventorySku ||--o{ PickingItem : "sellpiaInventorySku"
+  SellpiaInventorySku ||--o{ ReturnTransfer : "sellpiaInventorySku"
+  SellpiaInventorySku ||--o{ StockTransfer : "sellpiaInventorySku"
+  SellpiaOrderTransmissionIntent ||--o{ SellpiaOrderTransmissionIntentReconciliation : "intent"
   Warehouse ||--o{ StockTransfer : "fromWarehouse"
   Warehouse ||--o{ StockTransfer : "toWarehouse"
 ```
@@ -174,19 +205,23 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
-| PickingItem | masterProduct | references external | Core | MasterProduct |
 | PickingItem | organization | references external | Core | Organization |
 | PickingList | organization | references external | Core | Organization |
-| ReturnTransfer | masterProduct | references external | Core | MasterProduct |
 | ReturnTransfer | organization | references external | Core | Organization |
+| SellpiaInventorySku | lastImportRun | references external | Core | SourceImportRun |
+| SellpiaInventorySku | organization | references external | Core | Organization |
+| SellpiaInventorySku | sellpiaInventorySku | referenced by external | Core | ProductVariantComponent |
+| SellpiaInventorySku | sellpiaInventorySku | referenced by external | Supply | PurchaseOrderItem |
+| SellpiaInventorySku | sellpiaInventorySku | referenced by external | Supply | SupplierProduct |
 | SellpiaInventoryState | activeSyncOwner | references external | Core | User |
 | SellpiaInventoryState | lastCompletedImportRun | references external | Core | SourceImportRun |
 | SellpiaInventoryState | organization | references external | Core | Organization |
 | SellpiaOrderTransmissionIntent | creator | references external | Core | User |
 | SellpiaOrderTransmissionIntent | organization | references external | Core | Organization |
+| SellpiaOrderTransmissionIntentReconciliation | organization | references external | Core | Organization |
+| SellpiaOrderTransmissionIntentReconciliation | reconciler | references external | Core | User |
 | SellpiaReceiptUploadBatch | organization | references external | Core | Organization |
 | StockAudit | organization | references external | Core | Organization |
-| StockTransfer | masterProduct | references external | Core | MasterProduct |
 | StockTransfer | organization | references external | Core | Organization |
 | Warehouse | organization | references external | Core | Organization |
 | Warehouse | warehouse | referenced by external | Orders | Shipment |

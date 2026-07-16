@@ -105,15 +105,15 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
       if (!supplier) return { ok: false as const, reason: 'supplier_not_found' as const };
     }
 
-    const missingMasterProductIds = await this.findMissingOwnedMasterProductIds(
+    const missingSellpiaInventorySkuIds = await this.findMissingOwnedSellpiaInventorySkuIds(
       organizationId,
       command,
     );
-    if (missingMasterProductIds.length > 0) {
+    if (missingSellpiaInventorySkuIds.length > 0) {
       return {
         ok: false as const,
-        reason: 'master_product_not_found' as const,
-        missingMasterProductIds,
+        reason: 'sellpia_inventory_sku_not_found' as const,
+        missingSellpiaInventorySkuIds,
       };
     }
 
@@ -137,7 +137,7 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
           create: command.items.map((item) => ({
             productName: item.productName,
             organizationId,
-            masterProductId: item.masterProductId,
+            sellpiaInventorySkuId: item.sellpiaInventorySkuId,
             quantity: item.quantity,
             unitPriceCny: item.unitPriceCny,
           })),
@@ -167,7 +167,7 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
         items: {
           select: {
             productName: true,
-            masterProductId: true,
+            sellpiaInventorySkuId: true,
             quantity: true,
             unitPriceCny: true,
           },
@@ -183,7 +183,7 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
       totalAmountCny: decimalString(order.totalAmountCny),
       items: order.items.map((item) => ({
         productName: item.productName,
-        masterProductId: item.masterProductId!,
+        sellpiaInventorySkuId: item.sellpiaInventorySkuId,
         quantity: item.quantity,
         unitPriceCny: decimalString(item.unitPriceCny),
       })),
@@ -208,24 +208,24 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
     });
   }
 
-  private async findMissingOwnedMasterProductIds(
+  private async findMissingOwnedSellpiaInventorySkuIds(
     organizationId: string,
     command: PurchaseOrderCreateCommand,
   ) {
-    const masterProductIds = Array.from(
-      new Set(command.items.map((item) => item.masterProductId)),
+    const sellpiaInventorySkuIds = Array.from(
+      new Set(command.items.map((item) => item.sellpiaInventorySkuId)),
     );
 
-    const owned = await this.prisma.masterProduct.findMany({
+    const owned = await this.prisma.sellpiaInventorySku.findMany({
       where: {
-        id: { in: masterProductIds },
+        id: { in: sellpiaInventorySkuIds },
         organizationId,
         isActive: true,
       },
       select: { id: true },
     });
     const ownedSet = new Set(owned.map((row) => row.id));
-    return masterProductIds.filter((id) => !ownedSet.has(id));
+    return sellpiaInventorySkuIds.filter((id) => !ownedSet.has(id));
   }
 }
 

@@ -17,6 +17,10 @@ function makePrisma() {
     },
     masterProduct: {
       count: vi.fn(),
+      findMany: vi.fn(),
+    },
+    sellpiaInventorySku: {
+      count: vi.fn(),
     },
     channelListingOption: {
       count: vi.fn(),
@@ -102,11 +106,11 @@ describe('ActionBoardService.getTasks', () => {
         profitRate: 2,
       } as any,
     ]);
-    prisma.masterProduct.count.mockResolvedValue(1);
+    prisma.sellpiaInventorySku.count.mockResolvedValue(1);
     prisma.channelListingOption.count.mockResolvedValue(2);
     prisma.thumbnail.count.mockResolvedValue(2);
-    prisma.channelListing.findMany.mockResolvedValue([
-      { _count: { reviews: 3 } },
+    prisma.masterProduct.findMany.mockResolvedValue([
+      { channelListings: [{ _count: { reviews: 3 } }] },
     ]);
     prisma.actionTask.findMany.mockResolvedValue([
       makeTask('h-zero-stock', 'high'),
@@ -123,22 +127,40 @@ describe('ActionBoardService.getTasks', () => {
       new Date('2026-03-31T15:00:00.000Z'),
       new Date('2026-04-30T15:00:00.000Z'),
     );
-    expect(prisma.masterProduct.count).toHaveBeenCalledWith({
+    expect(prisma.sellpiaInventorySku.count).toHaveBeenCalledWith({
       where: { organizationId: 'organization-1', isActive: true, currentStock: 0 },
     });
     expect(prisma.channelListingOption.count).toHaveBeenCalledWith({
       where: {
         isActive: true,
-        components: { none: {} },
+        organizationId: 'organization-1',
+        OR: [
+          { productVariantId: null },
+          { productVariant: { is: { components: { none: {} } } } },
+          {
+            productVariant: {
+              is: {
+                components: {
+                  some: { sellpiaInventorySku: { is: { isActive: false } } },
+                },
+              },
+            },
+          },
+        ],
         listing: { is: { organizationId: 'organization-1', isActive: true } },
       },
     });
     expect(prisma.thumbnail.count).toHaveBeenCalledWith({
       where: { organizationId: 'organization-1', ctr: { gt: 0, lt: 1.5 } },
     });
-    expect(prisma.channelListing.findMany).toHaveBeenCalledWith({
+    expect(prisma.masterProduct.findMany).toHaveBeenCalledWith({
       where: { organizationId: 'organization-1', isActive: true, abcGrade: 'A' },
-      select: { _count: { select: { reviews: true } } },
+      select: {
+        channelListings: {
+          where: { organizationId: 'organization-1', isActive: true },
+          select: { _count: { select: { reviews: true } } },
+        },
+      },
     });
 
     const seededTaskKeys = prisma.actionTask.upsert.mock.calls.map(
@@ -194,10 +216,10 @@ describe('ActionBoardService.getTasks', () => {
 
   it('keeps read-only inventory attention tasks when current-month live metrics are empty', async () => {
     mockedBuildPerListingMetrics.mockResolvedValue([]);
-    prisma.masterProduct.count.mockResolvedValue(1);
+    prisma.sellpiaInventorySku.count.mockResolvedValue(1);
     prisma.channelListingOption.count.mockResolvedValue(1);
     prisma.thumbnail.count.mockResolvedValue(0);
-    prisma.channelListing.findMany.mockResolvedValue([]);
+    prisma.masterProduct.findMany.mockResolvedValue([]);
     prisma.actionTask.findMany.mockResolvedValue([
       makeTask('h-zero-stock', 'high'),
       makeTask('h-mapping-attention', 'high'),

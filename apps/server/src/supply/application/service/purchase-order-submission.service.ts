@@ -52,12 +52,12 @@ implements PurchaseOrderSubmissionPort {
       input.organizationId,
       input.purchaseOrderId,
     );
-    const masterProductIds = [
-      ...new Set(purchaseOrder.items.map((item) => item.masterProductId)),
+    const sellpiaInventorySkuIds = [
+      ...new Set(purchaseOrder.items.map((item) => item.sellpiaInventorySkuId)),
     ];
     const gate = await this.freshness.assertFreshAndActive({
       organizationId: input.organizationId,
-      masterProductIds,
+      sellpiaInventorySkuIds,
     });
     const externalOrder = {
       externalOrderPlatform: optionalString(input.externalOrderPlatform),
@@ -72,7 +72,7 @@ implements PurchaseOrderSubmissionPort {
     const prepared = await this.transaction.prepare({
       organizationId: input.organizationId,
       purchaseOrderId: input.purchaseOrderId,
-      masterProductIds,
+      sellpiaInventorySkuIds,
       idempotencyKey,
       userId: input.userId,
       freshnessFence: gate.fence,

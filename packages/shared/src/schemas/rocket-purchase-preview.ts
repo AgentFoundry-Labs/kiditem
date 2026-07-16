@@ -79,7 +79,8 @@ export type RocketPurchasePreviewRequest = z.infer<
 
 export const RocketPurchasePreviewReasonSchema = z.enum([
   'mapping_required',
-  'component_inactive',
+  'configuration_required',
+  'review_required',
   'insufficient_capacity',
   'collection_incomplete',
   'vendor_mismatch',
@@ -118,7 +119,7 @@ export type RocketPoCatalogPublication = z.infer<
 >;
 
 export const RocketPurchasePreviewComponentSchema = z.object({
-  masterProductId: z.string().uuid(),
+  sellpiaInventorySkuId: z.string().uuid(),
   quantity: z.number().int().positive(),
   currentStock: z.number().int().nonnegative(),
   isActive: z.boolean(),
@@ -138,8 +139,20 @@ export const RocketPurchasePreviewRowSchema = z.object({
   editedQuantity: z.number().int().nonnegative().nullable(),
   reason: RocketPurchasePreviewReasonSchema.nullable(),
   channelSkuId: z.string().uuid().nullable(),
+  masterProductId: z.string().uuid().nullable(),
+  productVariantId: z.string().uuid().nullable(),
   components: z.array(RocketPurchasePreviewComponentSchema).max(50),
-}).strict();
+}).strict().superRefine((row, ctx) => {
+  const linkedIds = [row.masterProductId, row.productVariantId];
+  const linkedCount = linkedIds.filter((value) => value !== null).length;
+  if (linkedCount !== 0 && linkedCount !== linkedIds.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['productVariantId'],
+      message: 'Product and variant identities must be present or null together',
+    });
+  }
+});
 export type RocketPurchasePreviewRow = z.infer<
   typeof RocketPurchasePreviewRowSchema
 >;

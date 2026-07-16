@@ -52,14 +52,14 @@ describe('ProcurementService — PO status lifecycle', () => {
 
     const result = await service.create('organization-1', {
       supplierName: 'Test Supplier',
-      items: [{ productName: 'Widget', quantity: 10, unitPriceCny: 50 }],
+      items: [{ productName: 'Widget', sellpiaInventorySkuId: 'sellpia-sku-1', quantity: 10, unitPriceCny: 50 }],
     });
 
     expect(procurement.createDraft).toHaveBeenCalledWith(
       'organization-1',
       {
         supplierName: 'Test Supplier',
-        items: [{ productName: 'Widget', quantity: 10, unitPriceCny: 50 }],
+        items: [{ productName: 'Widget', sellpiaInventorySkuId: 'sellpia-sku-1', quantity: 10, unitPriceCny: 50 }],
       },
     );
     expect(result).toEqual(created);
@@ -72,7 +72,7 @@ describe('ProcurementService — PO status lifecycle', () => {
     await service.create('organization-1', {
       supplierName: 'Test Supplier',
       supplierId: 'supplier-1',
-      items: [{ productName: 'Widget', quantity: 10, unitPriceCny: 50 }],
+      items: [{ productName: 'Widget', sellpiaInventorySkuId: 'sellpia-sku-1', quantity: 10, unitPriceCny: 50 }],
     });
 
     expect(procurement.createDraft).toHaveBeenCalledWith(
@@ -91,26 +91,26 @@ describe('ProcurementService — PO status lifecycle', () => {
       service.create('organization-1', {
         supplierName: 'Other Supplier',
         supplierId: 'supplier-2',
-        items: [{ productName: 'Widget', quantity: 10, unitPriceCny: 50 }],
+        items: [{ productName: 'Widget', sellpiaInventorySkuId: 'sellpia-sku-1', quantity: 10, unitPriceCny: 50 }],
       }),
     ).rejects.toThrow(BadRequestException);
 
     expect(procurement.createDraft).toHaveBeenCalledOnce();
   });
 
-  it('maps repository Master ownership failure to the IDOR error message', async () => {
+  it('maps repository Sellpia SKU ownership failure to the IDOR error message', async () => {
     vi.mocked(procurement.createDraft).mockResolvedValue({
       ok: false,
-      reason: 'master_product_not_found',
-      missingMasterProductIds: ['master-2'],
+      reason: 'sellpia_inventory_sku_not_found',
+      missingSellpiaInventorySkuIds: ['sellpia-sku-2'],
     });
 
     await expect(
       service.create('organization-1', {
         supplierName: 'Other Supplier',
-        items: [{ productName: 'Widget', masterProductId: 'master-2', quantity: 10, unitPriceCny: 50 }],
+        items: [{ productName: 'Widget', sellpiaInventorySkuId: 'sellpia-sku-2', quantity: 10, unitPriceCny: 50 }],
       }),
-    ).rejects.toThrow('발주 항목의 셀피아 상품을 찾을 수 없거나 권한이 없습니다: master-2');
+    ).rejects.toThrow('발주 항목의 셀피아 상품을 찾을 수 없거나 권한이 없습니다: sellpia-sku-2');
 
     expect(procurement.createDraft).toHaveBeenCalledOnce();
   });

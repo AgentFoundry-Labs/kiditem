@@ -10,8 +10,11 @@ const earlierRow = {
   plannedDeliveryDate: '2026-07-20',
   orderQuantity: 4,
   channelSkuId: 'sku-1',
+  masterProductId: 'master-1',
+  productVariantId: 'variant-1',
+  recipeStatus: 'matched' as const,
   components: [{
-    masterProductId: 'master-1',
+    sellpiaInventorySkuId: 'sellpia-sku-1',
     quantity: 1,
     currentStock: 5,
     isActive: true,
@@ -49,7 +52,7 @@ describe('previewRocketCapacity', () => {
     });
     expect(rows.map((row) => row.reason)).toEqual([
       'mapping_required',
-      'component_inactive',
+      'review_required',
     ]);
   });
 

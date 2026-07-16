@@ -346,7 +346,12 @@ export async function findAutoBatchCandidates(
       organizationId,
       status: 'active',
       isDeleted: false,
-      channelListing: { is: { isActive: true, abcGrade: 'A' } },
+      channelListing: {
+        is: {
+          isActive: true,
+          masterProduct: { is: { organizationId, abcGrade: 'A' } },
+        },
+      },
     },
     select: workspaceContextSelect,
     orderBy: { updatedAt: 'desc' },

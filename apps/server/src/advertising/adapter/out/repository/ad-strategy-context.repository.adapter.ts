@@ -303,9 +303,16 @@ export class AdStrategyContextRepositoryAdapter
         externalId: true,
         channelName: true,
         displayName: true,
-        abcGrade: true,
-        adTier: true,
-        healthScore: true,
+        masterProduct: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            abcGrade: true,
+            adTier: true,
+            healthScore: true,
+          },
+        },
         options: {
           where: { isActive: true },
           orderBy: [
@@ -331,15 +338,17 @@ export class AdStrategyContextRepositoryAdapter
           externalId: r.externalId,
           channelName: r.channelName,
           masterProduct: {
-            id: r.id,
-            code: r.externalId,
-            name: r.displayName ?? r.channelName ?? r.externalId,
+            id: r.masterProduct?.id ?? r.id,
+            code: r.masterProduct?.code ?? r.externalId,
+            name: r.masterProduct?.name ?? r.displayName ?? r.channelName ?? r.externalId,
             abcGrade:
-              r.abcGrade === 'A' || r.abcGrade === 'B' || r.abcGrade === 'C'
-                ? r.abcGrade
+              r.masterProduct?.abcGrade === 'A'
+                || r.masterProduct?.abcGrade === 'B'
+                || r.masterProduct?.abcGrade === 'C'
+                ? r.masterProduct.abcGrade
                 : null,
-            adTier: r.adTier,
-            healthScore: r.healthScore,
+            adTier: r.masterProduct?.adTier ?? null,
+            healthScore: r.masterProduct?.healthScore ?? null,
           },
           primaryOption: firstClo
             ? {

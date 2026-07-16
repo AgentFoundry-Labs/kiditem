@@ -49,7 +49,7 @@ export class ActionBoardRepositoryAdapter
   }
 
   countOutOfStockMasterProducts(organizationId: string): Promise<number> {
-    return this.prisma.masterProduct.count({
+    return this.prisma.sellpiaInventorySku.count({
       where: { organizationId, isActive: true, currentStock: 0 },
     });
   }
@@ -58,7 +58,20 @@ export class ActionBoardRepositoryAdapter
     return this.prisma.channelListingOption.count({
       where: {
         isActive: true,
-        components: { none: {} },
+        organizationId,
+        OR: [
+          { productVariantId: null },
+          { productVariant: { is: { components: { none: {} } } } },
+          {
+            productVariant: {
+              is: {
+                components: {
+                  some: { sellpiaInventorySku: { is: { isActive: false } } },
+                },
+              },
+            },
+          },
+        ],
         listing: { is: { organizationId, isActive: true } },
       },
     });
@@ -73,12 +86,20 @@ export class ActionBoardRepositoryAdapter
   async findAGradeReviewCounts(
     organizationId: string,
   ): Promise<AGradeReviewRow[]> {
-    const listings = await this.prisma.channelListing.findMany({
+    const products = await this.prisma.masterProduct.findMany({
       where: { organizationId, isActive: true, abcGrade: 'A' },
-      select: { _count: { select: { reviews: true } } },
+      select: {
+        channelListings: {
+          where: { organizationId, isActive: true },
+          select: { _count: { select: { reviews: true } } },
+        },
+      },
     });
-    return listings.map((listing) => ({
-      reviewCount: listing._count.reviews,
+    return products.map((product) => ({
+      reviewCount: product.channelListings.reduce(
+        (sum, listing) => sum + listing._count.reviews,
+        0,
+      ),
     } satisfies AGradeReviewRow));
   }
 
