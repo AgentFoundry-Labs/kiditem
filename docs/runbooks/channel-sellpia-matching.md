@@ -1,138 +1,113 @@
-# Import Sellpia And Wing Data And Match Channel SKUs
+# Import Channel Data And Match Sellpia Components
 
 ## Purpose
 
-Use this runbook to replace KidItem's physical inventory snapshot from Sellpia,
-import one Coupang Wing account's independent product/SKU metadata, and define
-the exact Sellpia components consumed by one sale of each channel SKU.
+Use this runbook to import account-scoped marketplace identities and manage the
+exact Sellpia component recipe consumed by one sale of each channel SKU.
+Release `0.1.19` keeps three different concepts separate:
 
-Release `0.1.8` has one stock authority: a completed Sellpia full-snapshot
-import writes `MasterProduct.currentStock`. Matching and availability are reads
-over that snapshot; they do not adjust, reserve, or deduct stock. See
-[KidItem Architecture](../ARCHITECTURE.md#sellpia-authoritative-inventory-and-channel-capacity-018).
+1. deterministic product-code or unique-barcode evidence that can create a
+   one-unit automatic recipe;
+2. normalized-name, similarity/AI, and manual-search candidates that are only
+   suggestions;
+3. the persisted `ChannelSkuComponent` recipe, which is the only confirmed
+   multi-component/quantity mapping truth.
+
+Inventory freshness and publication are owned by
+[Sellpia Inventory Freshness Operations](sellpia-inventory-freshness.md).
 
 ## Prerequisites
 
-- Confirm the repository root `VERSION` is `0.1.8`.
-- Sign in to the intended KidItem organization. Organization scope comes from
-  the authenticated session, not an upload field.
-- Select an active Wing `ChannelAccount` whose stored `channel` is exactly
-  `coupang`. Do not identify an account by display name.
-- Keep the approved local inputs available:
+- Root `VERSION` is `0.1.19` and the organization has a completed Sellpia
+  snapshot.
+- The operator is signed in to the intended KidItem organization.
+- For Wing import, select an active account whose stored channel is exactly
+  `coupang` and keep the approved detail workbook outside Git.
+- For Rocket, select an active account whose stored channel is exactly `rocket`;
+  identities arrive only from a complete extension collection with the exact
+  vendor ID.
+- Use `/product-hub/matching`. Do not identify an account by display name and
+  do not send `organizationId` from the browser.
 
-  - `exported-list (3).xls`
-  - `Coupang_detailinfo_260711.xlsx`
+## Ownership And Safety Rules
 
-  Do not commit them, copy them into fixtures, embed their rows in a migration,
-  or stage a copy under `docs/references/`.
-- Use a clean local acceptance organization/account for the frozen counts. The
-  local-only reset/bootstrap procedure is in
-  [Sellpia Inventory And Rocket Boundary](sellpia-rocket-inventory-sync.md).
+- One `MasterProduct` represents one organization-owned Sellpia product code.
+  Inventory alone publishes its active state and `currentStock`.
+- `ChannelListing` and `ChannelListingOption` hold account-specific marketplace
+  product/SKU identity and metadata.
+- A `ChannelSkuComponent` row says how many units of one exact Sellpia product
+  are consumed by one sale of the channel SKU. A recipe may contain multiple
+  components.
+- Recipe reads and writes are tenant-scoped. Adding an inactive or foreign
+  MasterProduct is rejected.
+- A confirmed recipe that later references an inactive component remains
+  persisted for diagnosis and appears in `needs_review`; its status/recipe is
+  not silently rewritten.
+- Import, matching, status refresh, capacity reads, and Rocket preview never
+  write `MasterProduct.currentStock`.
 
-## Authority And Safety Rules
+## Import Channel Identities
 
-- Import Sellpia first, then Wing. This makes every mapping and availability
-  read use the latest completed physical snapshot.
-- One `MasterProduct` represents one Sellpia product code. A completed import
-  replaces the organization's full snapshot; a previously known code absent
-  from the new file keeps its UUID and component references but gets
-  `currentStock = 0`.
-- One `ChannelProduct` and each `ChannelSku` belong to one `ChannelAccount`.
-  Marketplace name, price, barcode, seller SKU, and external IDs stay
-  account/SKU-specific even when another channel lists the same product.
-- A saved `ChannelSkuComponent` recipe is the only confirmed mapping. Quantity
-  is the number of that exact Sellpia SKU consumed by one sale.
-- Never infer recipe quantities from text such as `4개`, `8개`, `묶음`, or a
-  product name. An operator must verify and save the complete recipe.
-- Candidate ranking is evidence only. Never auto-confirm a candidate.
-- Do not directly edit `MasterProduct`, `ChannelListing`,
-  `ChannelListingOption`, `ChannelSkuComponent`, or `SourceImportRun` rows.
-- Do not translate imports or recipes into product stock, transfer/picking/
-  return stock deltas, purchase orders, or Rocket actions.
-- Runtime import IDs belong only in the operator report; do not place them in
-  source code or fixtures.
+### Coupang Wing
 
-## 1. Import The Sellpia Snapshot
+1. Open `/product-hub/matching` and select an active `channel='coupang'`
+   account.
+2. Use **쿠팡 Wing 상품 가져오기** with the intended detail workbook. The
+   endpoint accepts XLS/XLSX up to 20 MiB, requires the `Template` sheet, and
+   locates the required header in the first 20 rows.
+3. Import account-scoped product/SKU metadata. Re-uploading identical bytes
+   reuses the completed source run; a different workbook updates metadata while
+   preserving stable identities and confirmed recipes.
+4. Refresh matching status and inspect the queue counts. Do not force historical
+   baseline counts by deleting current recipes.
 
-1. Open `/inventory-hub?tab=sellpia-sync`.
-2. Select `exported-list (3).xls` in **Sellpia 재고 가져오기**. The backend
-   accepts XLS, XLSX, or CSV up to 10 MiB and requires `상품코드` and `재고`
-   within the first 20 rows.
-3. Click **재고 가져오기** and wait for **가져오기 완료**.
-4. Record the response `run.id` outside the repository and verify:
+### Rocket
 
-   - `status = completed`;
-   - source type is `sellpia_inventory`;
-   - channel account is null;
-   - imported row count is `1,964` for the approved workbook;
-   - the UI reports created, updated, and changed-to-zero counts.
-5. Open `/inventory` or `/inventory-hub?tab=status`. Confirm the table,
-   summaries, asset values, and latest-import timestamp are based on
-   `GET /api/inventory/sellpia-skus`.
-6. In the same `/inventory-hub?tab=sellpia-sync` tab, confirm the completed run
-   appears in import history from
-   `GET /api/inventory/sellpia-sync/import-runs`.
+Rocket identities are published as part of the complete preview collection in
+`/purchase-orders?tab=rocket`. The server validates the active Rocket account,
+exact vendor identity, evidence completeness, and canonical artifact hash.
+Unseen older Rocket identities are not inactivated by a later partial date
+range. Matching uses the same component-recipe surface as Coupang.
 
-The import is atomic and fenced by its `SourceImportRun` attempt token. It is
-the only operation in KidItem that writes `MasterProduct.currentStock`.
+## Evidence And Confirmation Rules
 
-## 2. Import Wing Product And SKU Metadata
+| UI reason | Behavior |
+|---|---|
+| `상품코드 일치` | Exact Sellpia code from seller SKU/model/explicit option token. A unique active code can create the one-component `quantity=1` automatic recipe. |
+| `고유 식별자` | One active Sellpia row matches the normalized 8–14 digit model/barcode. It can create the one-component `quantity=1` automatic recipe. |
+| `중복 식별자` | More than one active Sellpia row shares the identifier. It is `needs_review`; no component is saved automatically. |
+| `등록상품명 일치` | Registered and Sellpia names are equal after NFKC, lowercase, and Unicode whitespace removal. Punctuation is retained. This is review evidence only. |
+| `이름 제안` | Search/similarity or future AI candidate derived from option/product names. It is display-only evidence. |
+| `검색 결과` | A result from the operator's explicit Sellpia search. It is a candidate, not a recipe. |
 
-1. Open `/product-hub/matching`.
-2. Select the intended active account and confirm its channel code is
-   `coupang`.
-3. Select `Coupang_detailinfo_260711.xlsx` in **쿠팡 Wing 상품 가져오기**.
-   The endpoint accepts XLS/XLSX up to 20 MiB, requires a `Template` sheet,
-   and searches the first 20 rows for the required header.
-4. Click **상품 메타데이터 가져오기**. The importer upserts only the selected
-   account's ChannelProduct/ChannelSku metadata and preserves existing recipes.
-5. Verify the approved workbook totals:
+Normalized-name equality intentionally does not remove arbitrary symbols and
+does not infer pack quantities. It reduces formatting-only differences while
+avoiding the larger false-positive set produced by punctuation stripping.
+Multiple name-equal rows are all shown for review.
 
-   - ChannelProducts created + updated: `1,225`;
-   - ChannelSkus created + updated: `2,241`;
-   - skipped rows: `3`;
-   - completed run `rowCount`: `2,241` valid SKU rows.
+AI may help rank or explain candidates, but it must never call the recipe save
+endpoint by itself. A suggestion becomes truth only after an authenticated
+operator reviews every component and saves the complete recipe. Candidate
+labels and `needs_review` are not aliases for a persisted mapping.
 
-On a clean first import, all valid rows are created. On a reused account, the
-created/updated split may differ, but the sums and identities must match. The
-three approved skips are rows without a required ID; other structural errors
-reject the workbook.
+## Confirm Or Replace A Recipe
 
-## 3. Confirm Component Recipes
+1. Filter **전체 / 미매칭 / 확인 필요 / 매칭 완료** and open **Sellpia 구성
+   매칭** for a SKU.
+2. Review channel identifiers, registered name, option, all candidate reasons,
+   current active state, and existing components.
+3. Add every physical Sellpia component consumed by one sale. Use positive
+   integer quantities only; never infer `4개`, `8개`, `묶음`, or bundle size
+   from the name alone.
+4. Save once the entire recipe is correct. The server atomically replaces the
+   recipe, records a manual mapping source, and returns `matched`.
+5. Reopen the SKU and confirm IDs/codes/quantities round-trip. Verify Sellpia
+   stock is unchanged.
+6. To remove a wrong recipe, use the explicit empty replacement. The current
+   evidence derives `needs_review` or `unmatched`; it does not invent a new
+   component.
 
-1. Click **상태 새로고침** after both imports. Page open and a successful Wing
-   import also refresh advisory status for the selected account.
-2. Use the account selector, **전체 / 미매칭 / 확인 필요 / 매칭 완료** tabs,
-   and server search. The page uses 50-row server pages.
-3. Open **Sellpia 구성 매칭** for one ChannelSku.
-4. Review evidence labels:
-
-   | UI reason | Meaning |
-   |---|---|
-   | `상품코드 일치` | Exact Sellpia code evidence from seller SKU, full model number, or explicit option-code token. |
-   | `고유 식별자` | One Sellpia row has the same normalized 8-14 digit barcode/model identifier. |
-   | `중복 식별자` | Multiple Sellpia rows share the identifier; the operator must choose. |
-   | `등록상품명 일치` | Coupang registered name and Sellpia name are equal after NFKC, lowercase, and whitespace removal. |
-   | `이름 제안` | Name similarity for display only. |
-   | `검색 결과` | The operator's explicit Sellpia search result. |
-
-   `needs_review` is displayed as **확인 필요**. It means strong evidence exists,
-   but no operator-confirmed component recipe exists yet. A `등록상품명 일치`
-   candidate never creates a component or infers quantity. If multiple active
-   Sellpia Masters share the normalized name, the dialog shows every candidate
-   and leaves the SKU in **확인 필요** until an operator saves a recipe.
-
-5. Add one or more verified Sellpia rows. Every component needs a positive
-   integer quantity; one recipe supports at most 50 unique `MasterProduct` rows.
-6. Click **구성 저장**. The endpoint validates tenant ownership and replaces
-   the complete recipe atomically.
-7. Close and reopen the row. Confirm component IDs/codes and quantities round
-   trip, mapping status is `matched`, and Sellpia `currentStock` is unchanged.
-8. To unmap, use **매칭 해제** and confirm the explicit empty replacement.
-   Advisory status returns to `needs_review` or `unmatched` from current
-   evidence.
-
-Acceptance must cover and then preserve these shapes:
+Representative acceptance shapes are:
 
 ```text
 A -> X x 1
@@ -140,142 +115,75 @@ B -> X x 8
 C -> X x 1 + Y x 2
 ```
 
-## 4. Verify Channel Sellable Capacity
+## Capacity Semantics
 
-Open `/inventory-hub?tab=rocket-events` or `/stock-ops`. The backend calculates
-each confirmed ChannelSku as:
+For a confirmed active recipe:
 
 ```text
 component capacity = floor(MasterProduct.currentStock / component.quantity)
-sellableStock = minimum component capacity in the complete recipe
+sellableStock = minimum component capacity
 ```
 
-- `B -> X x 8` consumes eight X units per sale; its capacity is
-  `floor(X.currentStock / 8)`.
-- A mixed recipe returns the minimum capacity and marks every component tied at
-  that minimum as a bottleneck.
-- A confirmed recipe with no capacity returns `sellableStock = 0`.
-- An unmatched or review-required SKU returns `sellableStock = null`, never
-  zero. Null means that capacity cannot be calculated until the recipe is
-  confirmed.
-- Reading capacity never changes current stock or creates reservations.
+- `B -> X x 8` has capacity `floor(X.currentStock / 8)`.
+- A mixed recipe reports the minimum and its bottleneck components.
+- A confirmed active recipe with no capacity returns zero.
+- Unmapped, review-only, or inactive-component recipes cannot be treated as a
+  safe sellable quantity. They remain visible for correction.
+- Capacity is a read projection. It never reserves or deducts stock.
 
-## Idempotent Re-Upload
-
-Both importers hash the original bytes with SHA-256.
-
-- Sellpia uniqueness is organization + `sellpia_inventory` + file hash, with
-  no channel account.
-- Wing uniqueness is organization + `coupang_wing_catalog` + ChannelAccount +
-  file hash.
-- Re-uploading completed identical bytes returns the existing run with
-  `duplicate = true` and zero change counters.
-- A duplicate does not rewrite MasterProduct, ChannelProduct, ChannelSku, or
-  component rows.
-- A different Sellpia workbook replaces current metadata/stock while
-  preserving MasterProduct identity by product code.
-- A different Wing workbook updates account-specific metadata while preserving
-  stable channel identities and confirmed recipes.
-
-After confirming the acceptance recipes, re-upload both approved files and
-verify duplicate responses, stable IDs/recipes, and unchanged currentStock.
-
-## Approved Clean Baseline
-
-| Check | Expected |
-|---|---:|
-| Release | `0.1.8` |
-| Sellpia completed run rows | 1,964 |
-| Final MasterProduct rows | 1,964 |
-| Wing valid + skipped rows | 2,244 |
-| Wing completed run rows / ChannelSkus | 2,241 |
-| Distinct ChannelProducts | 1,225 |
-| Skipped Wing rows | 3 |
-| Initial ChannelSkuComponent rows | 0 |
-| `needsReview` after initial refresh | 155 |
-| `unmatched` after initial refresh | 2,086 |
-| `matched` before operator confirmation | 0 |
-| Unambiguous evidence rows | 154 |
-| Ambiguous identifier rows | 1 |
-| Automatically confirmed rows | 0 |
-| currentStock writes caused by Wing import/matching/availability | 0 |
-
-Existing recipes change the status counts. Never delete real recipes merely to
-force the clean baseline.
-
-## Failure Recovery
+## Recovery
 
 | Symptom | Safe recovery |
 |---|---|
-| HTTP 400 before import | Correct the workbook/header/duplicate/number error and retry. Validation runs before an import is claimed. |
-| Wing account 404 | Select an active account in the authenticated organization. |
-| Wing account 400 | Select an account whose stored channel is `coupang`. |
-| Fresh identical `running` import returns 409 | Another attempt owns the file; wait and refresh. Never edit the run row. |
-| Import process crashed | Re-upload identical bytes after the 30-minute lease. The new attempt token fences the stale worker. |
-| Run is `failed` | Correct the cause and retry identical bytes; the importer reclaims the run atomically. |
-| Component save returns 400 | Remove invalid/duplicate quantities or foreign/missing MasterProduct rows and retry. The old recipe remains on failure. |
-| Mapping row returns 404 | Confirm organization/account scope and completed `coupang_wing_catalog` provenance. |
-| Availability is null | Confirm the complete recipe; do not substitute zero or guess capacity. |
+| Wing account not found/wrong channel | Select an active organization-owned `channel='coupang'` account. |
+| Wing workbook rejected | Correct the sheet/header/required identity problem and retry. The old metadata and recipes remain. |
+| Duplicate import | Treat `duplicate=true` as successful idempotent reuse; do not edit the source run. |
+| Ambiguous code/barcode/name | Review all candidates and save the exact full recipe manually. |
+| Only `이름 제안`/AI candidates exist | Search and verify against Sellpia. Do not mark matched merely because a suggestion looks plausible. |
+| Saved component is inactive | Keep the diagnostic evidence, identify the correct active Sellpia SKU, and atomically replace the recipe. |
+| Save rejects a component | Remove duplicate/invalid quantities and confirm every component is active and owned by the same organization. |
+| Capacity is unavailable | Fix/confirm the complete active recipe and refresh Sellpia if stale. Do not substitute zero. |
 
-## Verification Commands
-
-Run focused checks from the repository root:
+## Verification
 
 ```bash
-rtk npm exec --workspace=packages/shared vitest -- run src/schemas/source-import.spec.ts src/schemas/inventory-snapshot.spec.ts src/schemas/channel-sku-matching.spec.ts src/schemas/channel-sku-availability.spec.ts
+rtk npm exec --workspace=packages/shared vitest -- run src/schemas/channel-sku-matching.spec.ts src/schemas/channel-sku-availability.spec.ts
 rtk npm exec --workspace=apps/server vitest -- run src/inventory src/channels
-rtk npm exec --workspace=apps/web vitest -- run 'src/app/(inventory)' 'src/app/(catalog)/product-hub/matching' 'src/app/(orders)/rocket-orders/lib/rocket-purchase-decision-boundary.spec.ts' src/lib/query-keys.spec.ts
-rtk npm run test:integration --workspace=apps/server -- src/inventory/__tests__/sellpia-inventory-import.repository.pg.integration.spec.ts src/inventory/__tests__/inventory-sku-snapshot-list.repository.pg.integration.spec.ts src/channels/__tests__/channel-catalog-import.repository.pg.integration.spec.ts src/channels/__tests__/channel-sku-mapping.pg.integration.spec.ts
-```
-
-Then run the release gates:
-
-```bash
-rtk npm run test:scripts
-rtk npx prisma validate
-rtk npx prisma generate
+rtk npm run test:integration --workspace=apps/server -- src/inventory/__tests__/sellpia-inventory-import.repository.pg.integration.spec.ts src/channels/__tests__/channel-sku-mapping.pg.integration.spec.ts src/channels/__tests__/rocket-po-catalog.repository.pg.integration.spec.ts
+rtk npm exec --workspace=apps/web vitest -- run src/app/\(catalog\)/product-hub/matching src/app/\(inventory\)/inventory-hub
+rtk node --test scripts/__tests__/sellpia-authoritative-inventory-contract.test.mjs
+rtk npm run check:idor
+rtk npm run check:tenant-scope
 rtk npm run build --workspace=packages/shared
 rtk npm run build --workspace=apps/server
 rtk npm run build --workspace=apps/web
-rtk npm run check:conventions
-rtk npm run check:schema-artifact-sync
 ```
 
-Boot the API after module/route changes with `rtk npm run dev:server` and stop
-it after Nest initializes. The route map must include the snapshot, history,
-matching, and availability endpoints and no stock-mutation or Rocket-confirm
-controllers.
+Acceptance must show that exact deterministic evidence is the only automatic
+one-unit path, normalized-name/similarity/AI evidence creates no component,
+inactive recipes stay diagnosable, operator replacement is atomic, and every
+non-Inventory `currentStock` writer count is zero.
 
 ## Blockers
 
-Stop and report instead of modifying rows manually when:
-
-- `VERSION` is not `0.1.8` or UI/API versions differ;
-- a staging or production rebuild is attempted outside the guarded GitHub
-  Actions reset/finalize workflow;
-- either approved workbook is missing, modified unexpectedly, or cannot remain
-  outside git;
-- the intended organization has no active `channel='coupang'` account;
-- approved workbook totals differ from 1,964 Sellpia rows, 1,225 Wing parents,
-  2,241 valid Wing SKUs, and three skips in a clean scope;
-- an identical completed upload changes IDs, recipes, or currentStock;
-- any path except a completed Sellpia snapshot writes currentStock;
-- matching/availability creates a product, transfer, picking, return, PO, or
-  Rocket stock mutation;
-- a required verification gate fails or the API does not boot.
+Stop and report when the active organization/account cannot be established,
+channel identity provenance is incomplete, a workbook/provider artifact would
+need to be committed or logged, a recipe cannot be verified component by
+component, an inactive/foreign component bypasses validation, or a non-Inventory
+path writes stock.
 
 ## Final Report Format
 
-Fill runtime IDs from actual responses; do not invent them.
-
 ```text
-Release: 0.1.8
-Sellpia run: <run.id>; rows 1964; duplicate re-upload confirmed
-Wing run: <run.id>; parents 1225; SKUs 2241; skipped 3; duplicate re-upload confirmed
-Initial matching: unmatched 2086 / needs review 155 / matched 0
-Recipes verified: X1 / X8 / X1+Y2
-Nullable capacity and bottlenecks verified: yes
-Non-Sellpia currentStock writes: 0
+Release: 0.1.19
+Channel account: <sanitized id>; channel <coupang|rocket>
+Catalog provenance: <wing workbook|rocket collection>; rows <count>; duplicate <yes/no>
+Queue: unmatched <n>; needs review <n>; matched <n>
+Candidate evidence reviewed: code <n>; identifier <n>; normalized name <n>; suggestion/AI <n>
+Automatic one-unit recipes: <count>; suggestion-created recipes: 0
+Operator recipes verified: <component shapes>
+Inactive recipe warnings resolved/preserved: <result>
+Non-Inventory currentStock writes: 0
 Automated gates: <commands and result>
 Blockers: <none or exact blocker>
 ```

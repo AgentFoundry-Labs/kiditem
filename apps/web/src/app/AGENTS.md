@@ -44,3 +44,34 @@ route groups need it.
   route group actually imports them.
 - When adding a route group or moving a route, update `apps/web/AGENTS.md` and
   `docs/ARCHITECTURE.md`.
+
+## Canonical Operations Workspaces (`0.1.19`)
+
+The sidebar has exactly five dense operations entries:
+
+- `/product-hub` — URL-owned `view=list|options`;
+- `/product-hub/matching` — standalone channel/Sellpia recipe workspace;
+- `/order-hub` — URL-owned `tab=collection|processing|shipping|exceptions`;
+- `/purchase-orders` — URL-owned `tab=general|rocket`;
+- `/inventory-hub` — URL-owned `tab=overview|inventory|attention|history`.
+
+Canonical tabs use the allow-listed URL hooks, semantic keyboard tabs,
+`unmountInactive`, one page `h1`, and named pagination controls where paging
+exists. Dense canonical routes suppress the floating Quick Action and render one
+inline Sellpia freshness status backed by the app-wide coordinator/drawer. Do
+not mount another page component to reuse a legacy surface.
+
+`/inventory`, `/stock-ops`, `/order-collection`, `/orders`,
+`/unshipped-items`, `/outbound`, `/order-status-hub`, `/rocket-orders`, and
+`/product-hub/options` are compatibility redirects. Legacy `inventory-hub` and
+`order-hub` tab aliases also redirect to the canonical tab/view. Redirects must
+consume only legacy `tab`/`view`, let canonical mapped keys win, preserve
+unrelated and repeated query values, and avoid loops. New internal links and
+operation alerts use canonical URLs only.
+
+Sellpia freshness is shared application state, not route-local state. Pages may
+open the shared drawer or render the compact status, but must not derive TTL,
+own claim/heartbeat timers, upload browser bytes outside the coordinator, or
+write stock. Rocket under `/purchase-orders?tab=rocket` remains preview-only;
+no actual confirmation/submission/reservation/workbook/stock control may be
+introduced for release `0.1.19`.

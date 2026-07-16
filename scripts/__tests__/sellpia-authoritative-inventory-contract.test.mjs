@@ -56,7 +56,7 @@ const supply = readFileSync(
 );
 
 const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
-  "apps/server/src/inventory/adapter/out/repository/sellpia-master-import.repository.adapter.ts",
+  "apps/server/src/inventory/adapter/out/repository/sellpia-snapshot-publication.repository.adapter.ts",
   "apps/server/src/advertising/__tests__/ad-action-flow.pg.integration.spec.ts",
   "apps/server/src/advertising/__tests__/ad-strategy-flow.pg.integration.spec.ts",
   "apps/server/src/analytics/dashboard/__tests__/dashboard-inventory.pg.integration.spec.ts",
@@ -64,13 +64,16 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/automation/application/service/__tests__/action-board-get-tasks.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-catalog-import.repository.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-catalog-publication.repository.pg.integration.spec.ts",
+  "apps/server/src/channels/__tests__/rocket-po-catalog.repository.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-sku-mapping.pg.integration.spec.ts",
   "apps/server/src/finance/services/__tests__/profit-loss.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/inventory-sku-snapshot-detail.repository.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/inventory-sku-snapshot-list.repository.pg.integration.spec.ts",
+  "apps/server/src/inventory/__tests__/sellpia-inventory-freshness.repository.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/sellpia-inventory-import.repository.pg.integration.spec.ts",
   "apps/server/src/inventory/__tests__/stock-transfers-tenant-boundary.pg.integration.spec.ts",
   "apps/server/src/test-helpers/finance-seeds.ts",
+  "apps/server/src/supply/__tests__/purchase-order-submission.pg.integration.spec.ts",
   "scripts/__tests__/sellpia-authoritative-inventory-contract.test.mjs",
 ]);
 

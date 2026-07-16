@@ -1,4 +1,4 @@
-# Graph Report - schema  (2026-07-15)
+# Graph Report - schema  (2026-07-16)
 
 ## Corpus Check
 - 13 files · ~22,804 words
