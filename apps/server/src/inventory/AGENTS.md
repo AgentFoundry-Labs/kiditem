@@ -102,7 +102,10 @@ change stock.
   user who owns a live lease may heartbeat, fail, or cancel it; another user
   may claim only after expiry.
 - Order-transmission refresh requests settle for two minutes and coalesce for
-  at most five minutes from the first pending transmission.
+  at most five minutes only while the earlier order generation is still
+  pending, not failed, and still inside that cap. A new transmission after the
+  generation is verified, failed, or reaches the cap starts a new two-minute
+  settle window.
 - Before the browser invokes irreversible Sellpia order submission, Inventory
   persists an organization-scoped `prepared` transmission intent. An unresolved
   intent keeps freshness `refresh_required` and blocks collection claims. Only

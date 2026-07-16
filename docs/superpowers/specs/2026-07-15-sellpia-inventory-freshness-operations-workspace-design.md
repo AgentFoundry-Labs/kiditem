@@ -442,7 +442,9 @@ bytes만으로 다운로드 시점을 증명할 수는 없으므로 이 fallback
 
 준비된 intent가 남아 있는 동안은 다른 탭이 기존 generation을 완료해도
 최신으로 보지 않고 새 claim도 허용하지 않는다. 같은 intent key의 재호출은
-확장을 다시 실행하지 않고 운영자에게 이전 전송 결과 확인을 요구한다.
+확장을 다시 실행하지 않는다. local `transmissionRequestedAt`이 있으면 이미
+제출된 요청으로 보고 idempotent finalize만 재시도하며, marker가 없으면
+운영자에게 이전 전송 결과 확인을 요구한다.
 명시적인 `submitted: false`만 abort하여 안전하게 다시 준비할 수 있다.
 
 현재 확장은 submit button click 직후 성공을 반환하므로 기존 `sentAt`을
@@ -452,7 +454,10 @@ bytes만으로 다운로드 시점을 증명할 수는 없으므로 이 fallback
 
 Sellpia의 주문 처리 지연을 고려해 `0.1.19`의 주문 settle delay는 2분으로
 고정한다. 여러 전송이 이어지면 `syncNotBefore`를 마지막 성공 클릭 시각
-+ 2분으로 뒤로 미루되, 첫 pending 전송으로부터 최대 5분을 넘기지 않는다.
++ 2분으로 뒤로 미루되, 같은 order generation이 pending인 동안에만 첫
+pending 전송으로부터 최대 5분을 공유한다. 과거 order generation이 이미
+verified 또는 failed 상태이거나 5분 cap 경계에 도달했다면 새 전송은 현재
+시각부터 별도 2분 window를 시작한다.
 
 주문 트리거의 첫 다운로드 hash가 직전 completed hash와 다르면 정상
 publication 후 해당 active generation을 검증한다. 같으면 Sellpia 반영

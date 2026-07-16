@@ -16,7 +16,10 @@ manage local generated-file history.
   for operator convenience only.
 - Before invoking the irreversible Sellpia extension submit, durably prepare
   an intent keyed by the generated file ID; if preparation fails or returns
-  `already_prepared`, do not invoke the extension. `{ submitted: true }`
+  `already_prepared`, do not invoke the extension. An `already_prepared` file
+  with local `transmissionRequestedAt` retries only idempotent finalization;
+  without that marker it remains blocked for operator verification.
+  `{ submitted: true }`
   immediately finalizes a strictly newer freshness generation before local
   `transmissionRequestedAt` persistence and freshness/history invalidation.
   Only explicit `{ submitted: false }` aborts the intent for safe retry;

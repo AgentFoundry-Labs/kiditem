@@ -251,7 +251,11 @@ export function planOrderTransmissionFinalization(
     state.activeGeneration ?? 0n,
   ].reduce((latest, generation) => generation > latest ? generation : latest, 0n);
   const isJoiningPendingOrder = state.refreshReason === 'order_transmission_requested'
-    && state.refreshRequestedAt !== null;
+    && state.refreshRequestedAt !== null
+    && latestVisibleGeneration > state.verifiedGeneration
+    && state.failedGeneration !== latestVisibleGeneration
+    && state.refreshRequestedAt.getTime() + SELLPIA_ORDER_SETTLE_CAP_MS
+      > now.getTime();
   const firstPendingOrderAt = isJoiningPendingOrder
     ? state.refreshRequestedAt!
     : now;

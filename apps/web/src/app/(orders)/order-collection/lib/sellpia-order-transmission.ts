@@ -51,7 +51,8 @@ export async function transmitSellpiaOrder(
     throw new Error('전송 준비 상태 저장에 실패해 셀피아 전송을 시작하지 않았습니다.');
   }
 
-  if (preparation.disposition === 'already_prepared') {
+  const hasLocalSubmissionMarker = input.file.transmissionRequestedAt !== undefined;
+  if (preparation.disposition === 'already_prepared' && !hasLocalSubmissionMarker) {
     throw new Error(
       '이전 셀피아 전송 결과 확인 필요 — 셀피아 주문 내역을 확인한 뒤 처리하세요.',
     );
@@ -59,7 +60,9 @@ export async function transmitSellpiaOrder(
 
   let submittedShopName = shopName;
   let finalizationWarning = false;
-  if (preparation.disposition !== 'already_finalized') {
+  if (preparation.disposition === 'already_prepared') {
+    finalizationWarning = !await finalizeWithRetry(input);
+  } else if (preparation.disposition !== 'already_finalized') {
     const extensionResult = await input.extension.sendSellpiaOrders({
       shopName,
       fileName: input.file.fileName,
@@ -82,7 +85,8 @@ export async function transmitSellpiaOrder(
     finalizationWarning = !await finalizeWithRetry(input);
   }
 
-  const transmissionRequestedAt = (input.now ?? Date.now)();
+  const transmissionRequestedAt = input.file.transmissionRequestedAt
+    ?? (input.now ?? Date.now)();
   let file: StoredOrderCollectionFile = { ...input.file, transmissionRequestedAt };
   let persistenceWarning = false;
   try {

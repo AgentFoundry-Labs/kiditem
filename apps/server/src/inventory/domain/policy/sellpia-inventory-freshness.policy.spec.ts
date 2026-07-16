@@ -73,6 +73,97 @@ describe('Sellpia inventory freshness policy', () => {
     });
   });
 
+  it('starts a new settle window after the previous order generation was verified', () => {
+    const patch = planOrderTransmissionFinalization(
+      makeState({
+        requestedGeneration: 4n,
+        verifiedGeneration: 4n,
+        refreshReason: 'order_transmission_requested',
+        refreshRequestedAt: new Date('2026-07-14T23:50:00.000Z'),
+        syncNotBefore: new Date('2026-07-14T23:55:00.000Z'),
+        unresolvedOrderTransmissionIntentCount: 1,
+      }),
+      new Date('2026-07-15T00:03:00.000Z'),
+      '00000000-0000-4000-8000-000000000020',
+    );
+
+    expect(patch).toMatchObject({
+      requestedGeneration: 5n,
+      refreshRequestedAt: new Date('2026-07-15T00:03:00.000Z'),
+      syncNotBefore: new Date('2026-07-15T00:05:00.000Z'),
+    });
+  });
+
+  it('coalesces only with an order generation that is still pending', () => {
+    const patch = planOrderTransmissionFinalization(
+      makeState({
+        requestedGeneration: 4n,
+        verifiedGeneration: 3n,
+        refreshReason: 'order_transmission_requested',
+        refreshRequestedAt: NOW,
+        syncNotBefore: new Date('2026-07-15T00:04:30.000Z'),
+        unresolvedOrderTransmissionIntentCount: 1,
+      }),
+      new Date('2026-07-15T00:04:00.000Z'),
+      '00000000-0000-4000-8000-000000000021',
+    );
+
+    expect(patch).toMatchObject({
+      requestedGeneration: 5n,
+      refreshRequestedAt: NOW,
+      syncNotBefore: new Date('2026-07-15T00:05:00.000Z'),
+    });
+  });
+
+  it('starts a new settle window when the previous order generation failed', () => {
+    const patch = planOrderTransmissionFinalization(
+      makeState({
+        requestedGeneration: 4n,
+        verifiedGeneration: 3n,
+        failedGeneration: 4n,
+        refreshReason: 'order_transmission_requested',
+        refreshRequestedAt: new Date('2026-07-14T23:50:00.000Z'),
+        syncNotBefore: new Date('2026-07-14T23:55:00.000Z'),
+        unresolvedOrderTransmissionIntentCount: 1,
+      }),
+      new Date('2026-07-15T00:03:00.000Z'),
+      '00000000-0000-4000-8000-000000000022',
+    );
+
+    expect(patch).toMatchObject({
+      requestedGeneration: 5n,
+      refreshRequestedAt: new Date('2026-07-15T00:03:00.000Z'),
+      syncNotBefore: new Date('2026-07-15T00:05:00.000Z'),
+    });
+  });
+
+  it('starts a new settle window when the previous pending-order cap has expired', () => {
+    const capBoundary = new Date('2026-07-15T00:05:00.000Z');
+    const patch = planOrderTransmissionFinalization(
+      makeState({
+        requestedGeneration: 4n,
+        verifiedGeneration: 3n,
+        activeGeneration: 4n,
+        activeSyncToken: '00000000-0000-4000-8000-000000000025',
+        activeSyncOwnerUserId: '00000000-0000-4000-8000-000000000026',
+        activeSyncStartedAt: NOW,
+        activeSyncLeaseExpiresAt: new Date('2026-07-15T00:01:30.000Z'),
+        refreshReason: 'order_transmission_requested',
+        refreshRequestedAt: NOW,
+        syncNotBefore: capBoundary,
+        unresolvedOrderTransmissionIntentCount: 1,
+      }),
+      capBoundary,
+      '00000000-0000-4000-8000-000000000027',
+    );
+
+    expect(patch).toMatchObject({
+      requestedGeneration: 5n,
+      refreshRequestedAt: capBoundary,
+      syncNotBefore: new Date('2026-07-15T00:07:00.000Z'),
+    });
+  });
+
   it('coalesces order transmissions and caps syncNotBefore at five minutes', () => {
     const first = planRefreshRequest(
       makeState({
@@ -82,13 +173,13 @@ describe('Sellpia inventory freshness policy', () => {
       }),
       'order_transmission_requested',
       NOW,
-      '00000000-0000-4000-8000-000000000020',
+      '00000000-0000-4000-8000-000000000023',
     );
     const second = planRefreshRequest(
       { ...makeState(), ...first },
       'order_transmission_requested',
       new Date('2026-07-15T00:04:30.000Z'),
-      '00000000-0000-4000-8000-000000000021',
+      '00000000-0000-4000-8000-000000000024',
     );
 
     expect(second.requestedGeneration).toBe(2n);

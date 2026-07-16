@@ -92,8 +92,11 @@ finishes the generation that was current when the intent was prepared. Only
 `{ success: true, submitted: true }` finalizes the intent and schedules an
 `order_transmission_requested` generation strictly newer than every generation
 visible at finalization. The server then waits two minutes for Sellpia to settle
-and coalesces later successful transmissions, capped at five minutes from the
-first finalized request. A successful extension request means only that
+and coalesces later successful transmissions only while that order generation
+remains pending and non-failed, capped at five minutes from the first finalized
+request. A new transmission after verification, failure, or the exact cap
+boundary starts a new two-minute window. A
+successful extension request means only that
 transmission was requested; the later Sellpia snapshot is the acceptance and
 stock evidence.
 
