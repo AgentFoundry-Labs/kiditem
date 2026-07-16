@@ -94,7 +94,7 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
     intentKey: string;
     userId: string;
     preparedAt: Date;
-  }): Promise<'prepared' | 'already_prepared' | 'already_finalized'> {
+  }): Promise<'prepared' | 'already_prepared' | 'already_finalized' | 'not_owned'> {
     const existing = await this.tx.sellpiaOrderTransmissionIntent.findFirst({
       where: {
         organizationId: this.organizationId,
@@ -249,15 +249,23 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
       throw new ConflictException('Sellpia order transmission intent has an invalid status');
     }
     const reconciliation = intent.reconciliations[0] ?? null;
-    if (reconciliation && !isReconciliationOutcome(reconciliation.outcome)) {
-      throw new ConflictException('Sellpia order transmission reconciliation has an invalid outcome');
+    let latestReconciliation = null;
+    if (reconciliation) {
+      const outcome = reconciliation.outcome;
+      if (!isReconciliationOutcome(outcome)) {
+        throw new ConflictException('Sellpia order transmission reconciliation has an invalid outcome');
+      }
+      latestReconciliation = {
+        reconciledBy: reconciliation.reconciledBy,
+        reconciledAt: reconciliation.reconciledAt,
+        note: reconciliation.note,
+        outcome,
+      };
     }
     return {
       status: intent.status,
       finalizedGeneration: intent.finalizedGeneration,
-      latestReconciliation: reconciliation
-        ? { ...reconciliation, outcome: reconciliation.outcome }
-        : null,
+      latestReconciliation,
     };
   }
 
