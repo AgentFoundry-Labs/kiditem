@@ -10,10 +10,12 @@ import MatchingPage from './page';
 import type { ChannelAccountListItem } from '@kiditem/shared/channel-account';
 import type { ChannelSkuMappingListItem } from '@kiditem/shared/channel-sku-matching';
 
+const navigationState = vi.hoisted(() => ({ search: 'view=channel-recipes' }));
+
 vi.mock('next/navigation', () => ({
   usePathname: () => '/product-hub/matching',
   useRouter: () => ({ push: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(navigationState.search),
 }));
 
 vi.mock('@/hooks/useUrlControlledTab', async () => {
@@ -188,6 +190,7 @@ function mockQueries(accounts: ChannelAccountListItem[] = [account(ACCOUNT_A, '�
 describe('/product-hub/matching', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    navigationState.search = 'view=channel-recipes';
     refreshMutateAsync.mockResolvedValue(listResponse.counts);
     refetchList.mockResolvedValue({});
     mockQueries();
@@ -195,6 +198,23 @@ describe('/product-hub/matching', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('opens the preserved legacy matching center by default and links recipes separately', () => {
+    navigationState.search = '';
+    render(<MatchingPage />);
+
+    expect(screen.getByRole('heading', { name: '상품 매칭 센터' })).toBeInTheDocument();
+    for (const tab of ['자동 연결', '확인 필요', '충돌', '처리 완료', '제외']) {
+      expect(screen.getByRole('tab', { name: new RegExp(tab) })).toBeInTheDocument();
+    }
+    expect(screen.getByRole('button', { name: '이미지 동기화 데이터 점검' })).toBeDisabled();
+    expect(screen.getByText('총 매칭 row').parentElement?.parentElement).toHaveTextContent('10');
+    expect(screen.getByRole('link', { name: '채널 SKU 구성품 관리' })).toHaveAttribute(
+      'href',
+      '/product-hub/matching?view=channel-recipes',
+    );
+    expect(screen.getByText(/기존 이미지 동기화 점검 계약은 현재 서버에서 제공되지 않습니다/)).toBeInTheDocument();
   });
 
   it('leaves the shared app shell as the only main landmark', () => {

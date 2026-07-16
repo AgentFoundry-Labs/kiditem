@@ -8,8 +8,12 @@ import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { ChannelSkuInventorySummary } from '../components/ChannelSkuInventorySummary';
+import ActivityHistory from './components/ActivityHistory';
+import HealthDiagnosis from './components/HealthDiagnosis';
 import ProductHeader from './components/ProductHeader';
 import ProductInfoCards from './components/ProductInfoCards';
+import ProductMetrics from './components/ProductMetrics';
+import ProductSidebar from './components/ProductSidebar';
 
 export default function ProductHubDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -35,9 +39,19 @@ export default function ProductHubDetailPage() {
 
   return (
     <div className="space-y-6">
-      <ProductHeader product={product} />
-      <ProductInfoCards product={product} />
-      <ChannelSkuInventorySummary />
+      <ProductHeader />
+      <ProductMetrics product={product} />
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_18rem]">
+        <div className="min-w-0 space-y-6">
+          <ProductInfoCards product={product} />
+          <HealthDiagnosis />
+          <ActivityHistory />
+          <ChannelSkuInventorySummary />
+        </div>
+
+        <ProductSidebar product={product} />
+      </div>
     </div>
   );
 }

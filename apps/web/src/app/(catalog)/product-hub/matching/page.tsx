@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Loader2, RefreshCw, Search, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
@@ -20,6 +21,7 @@ import {
   useRefreshChannelSkuMappingStatuses,
 } from './hooks/useChannelSkuMappings';
 import type { ChannelSkuMappingCounts, ChannelSkuMappingListItem } from '@kiditem/shared/channel-sku-matching';
+import { LegacyMatchingCenter } from './components/LegacyMatchingCenter';
 
 const PAGE_LIMIT = 50;
 const SEARCH_DEBOUNCE_MS = 300;
@@ -34,6 +36,14 @@ const EMPTY_COUNTS: ChannelSkuMappingCounts = {
 const MAPPING_STATUS_VALUES = ['all', 'unmatched', 'needs_review', 'matched'] as const;
 
 export default function MatchingPage() {
+  const searchParams = useSearchParams();
+
+  return searchParams.get('view') === 'channel-recipes'
+    ? <ChannelRecipeWorkspace />
+    : <LegacyMatchingCenter />;
+}
+
+function ChannelRecipeWorkspace() {
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [mappingStatus, setMappingStatus] = useUrlControlledTab({
     key: 'status',

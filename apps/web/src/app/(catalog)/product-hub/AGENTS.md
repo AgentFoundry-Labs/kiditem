@@ -27,6 +27,14 @@ React Query + apiClient
   them.
 - Render Sellpia identity, option name, barcode, current stock, source prices,
   active state, and last-import provenance as read-only facts.
+- `/product-hub/[masterProductId]` preserves the pre-SDD detail hierarchy:
+  `워크플로우 실행`, `상품 정보`, `재고 현황`, `상품 진단`, `분석 기록`,
+  `속성`, and `링크`. Current Sellpia identifiers, import provenance, and the
+  channel SKU summary are additive to that hierarchy, not replacements for it.
+- When a preserved detail action or metric has no current server contract, keep
+  its visible position and explain the unavailable state. Do not call a removed
+  endpoint. The workflow control remains disabled until a supported product
+  workflow contract is connected to the Sellpia MasterProduct identity.
 - Keep the canonical options view visually distinct from channel SKU matching
   and back its search, stock, active-state, refresh, and paging controls with
   the same Sellpia snapshot query.
@@ -39,8 +47,8 @@ React Query + apiClient
 
 ## Boundary Rules
 
-- No manual MasterProduct create/update/delete, inventory adjustment, traffic
-  upload, grading, workflow action, or legacy product-option mutation.
+- No manual MasterProduct create/update/delete, inventory adjustment, grading,
+  unsupported workflow action, or legacy product-option mutation.
 - Do not call `/api/products*` or introduce a catalog-owned stock balance.
 - Do not infer or persist channel mappings from the catalog list/detail.
 - Keep all edited UI light-only; do not add `dark:` variants.

@@ -1,19 +1,17 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# product-hub/matching — ChannelSku to Sellpia Matching
+# product-hub/matching — Preserved Matching Center + Sellpia Recipes
 
-`app/(catalog)/product-hub/matching/` owns `/product-hub/matching`, the operator
-workspace for importing Coupang Wing product/SKU metadata and confirming which
-Sellpia `MasterProduct` rows one Coupang or Rocket channel SKU consumes.
+`app/(catalog)/product-hub/matching/` owns two additive views under
+`/product-hub/matching`:
 
-## Owned Surfaces
+- the default pre-SDD matching-center surface with `자동 연결`, `확인 필요`,
+  `충돌`, `처리 완료`, and `제외` tabs;
+- `?view=channel-recipes`, the current ChannelSku-to-Sellpia component recipe
+  workspace.
 
-- Active Coupang or Rocket ChannelAccount selector; only
-  `channel === 'coupang'` accounts can receive a Wing workbook
-- Coupang Wing catalog upload
-- Server-paged all/unmatched/needs-review/matched queue
-- Live Sellpia candidate search and multi-component recipe editor
-- Explicit confirmed unmap flow
+The sidebar opens the preserved default surface. Do not replace it with the
+recipe workspace. Link the two views explicitly instead.
 
 ## Data Flow
 
@@ -27,52 +25,41 @@ React Query + apiClient
   -> PUT /api/channels/sku-mappings/:channelSkuId/components
 ```
 
-## State Rules
+The removed legacy channel-reconciliation API is not recreated. The default
+surface adapts current `needs_review` and `matched` rows into its preserved
+table. Legacy-only distinctions (`자동 연결`, `충돌`, `제외`) remain visible
+with an explicit unavailable state. The `이미지 동기화 데이터 점검` action
+remains visible but disabled until a supported server contract exists.
+
+## Recipe State Rules
 
 - React Query owns accounts, server-paged rows, candidates, status refresh,
-  catalog import, and component replacement. Do not mirror server state in
-  Zustand.
-- Candidate rows are live computed suggestions and are never auto-saved.
-- The dialog owns a local complete-recipe draft. Adding a candidate defaults
-  its quantity to `1`; saving requires one or more unique MasterProduct rows
-  with positive integer quantities.
-- `PUT .../components` replaces the whole recipe atomically. Normal save sends
-  a nonempty recipe; the separate confirmed `매칭 해제` action sends
-  `{ components: [] }`.
-- A successful Wing import refreshes the imported account's advisory statuses,
-  then invalidates server-paged matching lists and channel availability.
-- Completed Wing and Rocket PO catalog publications share the same server-paged
-  mapping queue and component-recipe editor.
+  catalog import, and component replacement.
+- Candidate rows are suggestions and are never auto-saved.
+- A recipe draft contains unique MasterProduct rows with positive integer
+  quantities. `PUT .../components` replaces the whole recipe atomically.
+- A successful Wing import refreshes advisory statuses, then invalidates
+  matching lists, candidates, and channel availability.
 - Component replacement, confirmed unmap, and explicit status refresh also
   invalidate channel availability immediately.
-- `status=all|unmatched|needs_review|matched` is URL-authoritative and preserves
-  account, search, and page parameters.
-- Inactive mapped components surface as an availability warning under
-  `매칭 확인 필요`; the warning does not rewrite persisted mapping status and
-  never saves a recipe without the operator action.
-- The standalone matching header owns one compact Sellpia freshness status;
-  the shared provider still owns the single drawer.
-
-## Cross-Domain Dependencies
-
-- `@kiditem/shared/channel-account` provides account selector metadata.
-- `@kiditem/shared/source-import` provides Wing import results.
-- `@kiditem/shared/channel-sku-matching` provides mapping rows, candidate
-  reasons, status counts, replacement input, and the 50-component limit.
+- The recipe view retains account, search, status, and server paging controls.
+- The shared Sellpia provider owns synchronization; these views only show the
+  compact freshness control.
 
 ## Boundary Rules
 
 - All API calls go through `apiClient` + React Query.
 - Do not send `organizationId`; backend session scope owns it.
-- Do not load the complete queue into browser memory; use server page, search,
-  status, and account parameters.
-- Do not expose raw JSON or inputs for Sellpia current stock, Sellpia prices,
-  or channel prices. Component quantity is the only editable number.
-- Do not infer component quantity from option or bundle text.
-- Wing catalog collection may attach provider media to registered products but
-  must not create, refresh, or confirm ChannelSku component recipes here.
-- Rocket PO identities are included in this common matching queue. Rocket PO
-  collection, preview calculation, and order handling remain outside this
-  route.
-- See the [operator runbook](../../../../../../../docs/runbooks/channel-sellpia-matching.md)
-  for import order, accepted local files, recovery, and baseline counts.
+- Do not revive removed reconciliation, legacy ProductOption, or
+  `/api/products*` endpoints just to make preserved controls interactive.
+- Do not load the complete queue into browser memory.
+- Do not infer or save a component recipe from names, barcodes, candidate
+  rank, or the preserved legacy table.
+- Component quantity is the only editable Sellpia number.
+- Rocket PO collection, preview, and order handling remain outside this route.
+
+## Verification
+
+```bash
+npm exec --workspace=apps/web vitest -- run src/app/\(catalog\)/product-hub/matching
+```
