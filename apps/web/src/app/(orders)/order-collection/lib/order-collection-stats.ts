@@ -208,7 +208,6 @@ export function buildOrderCollectionPipelineSummary(
   const summary: OrderCollectionPipelineSummary = {
     todayOrders: 0,
     waiting: 0,
-    sent: 0,
     transmissionRequested: 0,
     inventoryPending: 0,
     trackingSent: 0,

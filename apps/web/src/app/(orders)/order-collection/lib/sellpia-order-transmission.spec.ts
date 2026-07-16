@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StoredOrderCollectionFile } from './order-generated-file-store';
 import { transmitSellpiaOrder } from './sellpia-order-transmission';
+import type { StoredOrderCollectionFile } from './order-generated-file-store';
 
 function generatedFile(): StoredOrderCollectionFile {
   return {
@@ -51,12 +51,12 @@ describe('transmitSellpiaOrder', () => {
     invalidateFreshnessHistory.mockResolvedValue(undefined);
   });
 
-  it('persists the transmission request before scheduling and invalidating freshness', async () => {
+  it('durably schedules freshness before invoking the irreversible extension submit', async () => {
     const result = await transmitSellpiaOrder(input());
 
     expect(result).toMatchObject({
       status: 'transmission_requested',
-      refreshWarning: false,
+      viewRefreshWarning: false,
       file: { transmissionRequestedAt: 1_721_000_000_000 },
     });
     expect(store.markTransmissionRequested).toHaveBeenCalledWith(
@@ -65,37 +65,50 @@ describe('transmitSellpiaOrder', () => {
     );
     expect(freshness.requestRefresh).toHaveBeenCalledWith('order_transmission_requested');
     expect(invalidateFreshnessHistory).toHaveBeenCalledOnce();
+    expect(freshness.requestRefresh.mock.invocationCallOrder[0]).toBeLessThan(
+      extension.sendSellpiaOrders.mock.invocationCallOrder[0],
+    );
     expect(extension.sendSellpiaOrders.mock.invocationCallOrder[0]).toBeLessThan(
       store.markTransmissionRequested.mock.invocationCallOrder[0],
     );
     expect(store.markTransmissionRequested.mock.invocationCallOrder[0]).toBeLessThan(
-      freshness.requestRefresh.mock.invocationCallOrder[0],
-    );
-    expect(freshness.requestRefresh.mock.invocationCallOrder[0]).toBeLessThan(
       invalidateFreshnessHistory.mock.invocationCallOrder[0],
     );
   });
 
-  it('does nothing when the extension did not submit the order file', async () => {
+  it('keeps the conservative freshness intent when the extension did not submit', async () => {
     extension.sendSellpiaOrders.mockResolvedValue({ success: true, submitted: false });
 
     await expect(transmitSellpiaOrder(input())).resolves.toEqual({
       status: 'not_submitted',
     });
     expect(store.markTransmissionRequested).not.toHaveBeenCalled();
-    expect(freshness.requestRefresh).not.toHaveBeenCalled();
+    expect(freshness.requestRefresh).toHaveBeenCalledWith('order_transmission_requested');
     expect(invalidateFreshnessHistory).not.toHaveBeenCalled();
   });
 
-  it('keeps transmission success when refresh scheduling fails', async () => {
+  it('does not invoke the extension when the durable freshness intent fails', async () => {
     freshness.requestRefresh.mockRejectedValue(new Error('offline'));
+
+    await expect(transmitSellpiaOrder(input())).rejects.toThrow(
+      '재고 최신화 예약에 실패해 셀피아 전송을 시작하지 않았습니다.',
+    );
+    expect(extension.sendSellpiaOrders).not.toHaveBeenCalled();
+    expect(store.markTransmissionRequested).not.toHaveBeenCalled();
+    expect(invalidateFreshnessHistory).not.toHaveBeenCalled();
+  });
+
+  it('keeps transmission success when the post-submit view refresh fails', async () => {
+    invalidateFreshnessHistory.mockRejectedValue(new Error('query refresh failed'));
 
     const result = await transmitSellpiaOrder(input());
 
-    expect(result.status).toBe('transmission_requested');
-    expect(result.refreshWarning).toBe(true);
-    expect(store.markTransmissionRequested).toHaveBeenCalled();
-    expect(invalidateFreshnessHistory).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      status: 'transmission_requested',
+      viewRefreshWarning: true,
+    });
+    expect(extension.sendSellpiaOrders).toHaveBeenCalledOnce();
+    expect(store.markTransmissionRequested).toHaveBeenCalledOnce();
   });
 
   it('keeps transmission success and schedules refresh when local persistence fails', async () => {

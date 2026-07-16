@@ -13,8 +13,8 @@ import {
 } from '../lib/order-generated-file-store';
 import { transmitSellpiaOrder } from '../lib/sellpia-order-transmission';
 
-const REFRESH_SCHEDULING_WARNING =
-  '셀피아 전송 요청은 완료됐지만 재고 최신화 예약에 실패했습니다. 지금 동기화를 실행하세요.';
+const VIEW_REFRESH_WARNING =
+  '셀피아 전송 요청은 완료됐지만 최신 상태를 화면에 반영하지 못했습니다. 새로고침하세요.';
 
 export function useSellpiaOrderTransmission({
   onTransmissionRequested,
@@ -54,12 +54,12 @@ export function useSellpiaOrderTransmission({
         }
 
         onTransmissionRequested(result.file);
-        if (result.refreshWarning) {
-          toast.warning(REFRESH_SCHEDULING_WARNING);
+        if (result.viewRefreshWarning) {
+          toast.warning(VIEW_REFRESH_WARNING);
         }
         if (result.persistenceWarning) {
           toast.warning('셀피아 전송 요청은 완료됐지만 전송 상태를 저장하지 못했습니다.');
-        } else if (!result.refreshWarning && options.showSuccessToast !== false) {
+        } else if (!result.viewRefreshWarning && options.showSuccessToast !== false) {
           toast.success(`셀피아 전송 요청됨 — ${result.shopName}`);
         }
         return true;

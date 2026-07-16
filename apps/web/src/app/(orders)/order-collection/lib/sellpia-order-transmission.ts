@@ -28,7 +28,7 @@ export type SellpiaOrderTransmissionResult =
   | {
       status: 'transmission_requested';
       file: StoredOrderCollectionFile;
-      refreshWarning: boolean;
+      viewRefreshWarning: boolean;
       persistenceWarning: boolean;
       shopName: string;
     };
@@ -37,6 +37,12 @@ export async function transmitSellpiaOrder(
   input: SellpiaOrderTransmissionInput,
 ): Promise<SellpiaOrderTransmissionResult> {
   const shopName = input.file.mallName ?? '아이스크림몰';
+  try {
+    await input.freshness.requestRefresh('order_transmission_requested');
+  } catch {
+    throw new Error('재고 최신화 예약에 실패해 셀피아 전송을 시작하지 않았습니다.');
+  }
+
   const extensionResult = await input.extension.sendSellpiaOrders({
     shopName,
     fileName: input.file.fileName,
@@ -62,23 +68,18 @@ export async function transmitSellpiaOrder(
     persistenceWarning = true;
   }
 
+  let viewRefreshWarning = false;
   try {
-    await input.freshness.requestRefresh('order_transmission_requested');
     await input.invalidateFreshnessHistory();
-    return {
-      status: 'transmission_requested',
-      file,
-      refreshWarning: false,
-      persistenceWarning,
-      shopName: extensionResult.shop ?? shopName,
-    };
   } catch {
-    return {
-      status: 'transmission_requested',
-      file,
-      refreshWarning: true,
-      persistenceWarning,
-      shopName: extensionResult.shop ?? shopName,
-    };
+    viewRefreshWarning = true;
   }
+
+  return {
+    status: 'transmission_requested',
+    file,
+    viewRefreshWarning,
+    persistenceWarning,
+    shopName: extensionResult.shop ?? shopName,
+  };
 }
