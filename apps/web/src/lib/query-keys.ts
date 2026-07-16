@@ -56,6 +56,10 @@ export const queryKeys = {
     importRunList: (params: Record<string, string>) =>
       [...queryKeys.inventory.importRuns(), params] as const,
     receiptBatches: () => [...queryKeys.inventory.all, 'sellpia-receipt-batches'] as const,
+    // Sellpia 상품별 소진(재고 분석)
+    productSalesAll: () => [...queryKeys.inventory.all, 'sellpia-product-sales'] as const,
+    productSales: (months?: number) =>
+      [...queryKeys.inventory.all, 'sellpia-product-sales', months ?? 0] as const,
   },
   dashboard: {
     all: ['dashboard'] as const,

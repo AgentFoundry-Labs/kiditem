@@ -32,6 +32,10 @@ const SELLPIA_STOCKMATCH_URL = "https://kiditem.sellpia.com/order_stockmatch.htm
 const SELLPIA_INVOICE_URL = "https://kiditem.sellpia.com/order_delivery_link.html";
 // 판매현황(몰별·일별 매출) — 대시보드 '몰별 매출' 섹션 소스. order_search.ajax.html(mode=selldate) 스크랩.
 const SELLPIA_SALE_SUMMARY_URL = "https://kiditem.sellpia.com/sale_summary.html?mode=main_link";
+// 상품별 이익현황 — 재고 분석 '상품별 소진' 소스. stat_action.ajax.html(mode=stat_prd_profit) 스크랩.
+const SELLPIA_PRODUCT_PROFIT_URL = "https://kiditem.sellpia.com/stat_prd_profit.html#none";
+// 통합 재고현황 — 상품별 현재고(c_stosum) 소스. stock_list_total.html(modekey=list, 본사창고 전체) 스크랩.
+const SELLPIA_STOCK_TOTAL_URL = "https://kiditem.sellpia.com/stock_list_total.html";
 // 매일 자동수집 알람 + 캐시 키(웹앱이 열릴 때 백엔드로 flush).
 const SELLPIA_SALES_CACHE_KEY = "sellpiaSaleSummaryCache";
 const SELLPIA_SALES_ALARM = "sellpiaSaleSummaryDaily";
@@ -166,6 +170,8 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
         collectKakaoOrders: true,
         collectSellpiaDeliTracking: true,
         collectSellpiaSaleSummary: true,
+        collectSellpiaProductProfit: true,
+        collectSellpiaProductStock: true,
         browserCollectionSessions: true,
         uploadDomeggookTracking: true,
         uploadOnchTracking: true,
@@ -200,6 +206,29 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
       .then((result) => sendResponse(result))
       .catch((error) => {
         sendResponse({ success: false, error: error?.message || "셀피아 판매현황 수집 실패" });
+      });
+    return true;
+  }
+
+  // 상품별 이익현황(월별 소진) 수집 — 읽기 전용. 재고 분석 '상품별 소진' 적재용.
+  if (msg?.action === "collectSellpiaProductProfit") {
+    collectSellpiaProductProfit({
+      startDate: typeof msg.startDate === "string" ? msg.startDate : null,
+      endDate: typeof msg.endDate === "string" ? msg.endDate : null,
+    })
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({ success: false, error: error?.message || "셀피아 상품별 소진 수집 실패" });
+      });
+    return true;
+  }
+
+  // 통합 재고현황(상품별 현재고) 수집 — 읽기 전용. 재고 분석 현재고/발주 알림 적재용.
+  if (msg?.action === "collectSellpiaProductStock") {
+    collectSellpiaProductStock()
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({ success: false, error: error?.message || "셀피아 재고 수집 실패" });
       });
     return true;
   }
@@ -4700,6 +4729,225 @@ async function scrapeSellpiaSaleSummary(startDate, endDate) {
       payload: { range: { from: start, to: end }, sellers },
       sellerCount: sellers.length,
       range: { start, end },
+    };
+  } catch (e) {
+    return { success: false, error: String((e && e.message) || e) };
+  }
+}
+
+async function findOrCreateSellpiaProductProfitTab() {
+  const tabs = await chrome.tabs.query({ url: SELLPIA_TAB_MATCHES });
+  const onPage = tabs.find((t) => (t.url || "").includes("stat_prd_profit"));
+  if (onPage?.id) return { tab: onPage, created: false };
+  const tab = await chrome.tabs.create({ url: SELLPIA_PRODUCT_PROFIT_URL, active: false });
+  return { tab, created: true };
+}
+
+// 셀피아 상품별 이익현황(stat_prd_profit) 월별 소진 수집. 읽기 전용(비파괴).
+async function collectSellpiaProductProfit(options = {}) {
+  const { tab, created } = await findOrCreateSellpiaProductProfitTab();
+  if (!tab?.id) return { success: false, error: "셀피아(kiditem.sellpia.com) 탭을 열 수 없습니다." };
+  let keepOpen = false;
+  try {
+    await waitForTabReady(tab.id);
+    const injected = await withTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: "MAIN", // 페이지 컨텍스트 fetch(로그인 세션 쿠키).
+        func: scrapeSellpiaProductProfit,
+        args: [options.startDate || null, options.endDate || null],
+      }),
+      90000,
+      "셀피아 상품별 이익현황 조회 시간이 초과되었습니다.",
+    );
+    return injected[0]?.result ?? { success: false, error: "셀피아 화면에 접근하지 못했습니다." };
+  } catch (e) {
+    if (isMallAccessError(e)) { keepOpen = created && options.keepTabOnLoginError === true; return mallAccessErrorResult("셀피아"); }
+    return mallGenericErrorResult("셀피아", e);
+  } finally {
+    if (created && tab.id && !keepOpen) {
+      try { await chrome.tabs.remove(tab.id); } catch { /* 이미 닫힘 */ }
+    }
+  }
+}
+
+// stat_prd_profit.html 페이지 컨텍스트에서 실행. stat_action.ajax.html(mode=stat_prd_profit)로
+// 상품별 이익현황을 받아 graph(월별 매입액,판매액,판매수량)를 상품×월별로 파싱해 반환.
+async function scrapeSellpiaProductProfit(startDate, endDate) {
+  try {
+    const p = (n) => String(n).padStart(2, "0");
+    const d = new Date();
+    // 어제까지의 마감기준(페이지 안내). 기본 최근 약 400일(≈13개월) — 완결 12개월 확보로
+    // 1/2개월 평균·추세·ABC·시즌 분류 근거 마련(재고관리).
+    const y = new Date(d.getTime() - 24 * 60 * 60 * 1000);
+    const end = endDate || `${y.getFullYear()}-${p(y.getMonth() + 1)}-${p(y.getDate())}`;
+    const s0 = new Date(d.getTime() - 400 * 24 * 60 * 60 * 1000);
+    const start = startDate || `${s0.getFullYear()}-${p(s0.getMonth() + 1)}-${p(s0.getDate())}`;
+    const body = new URLSearchParams({
+      mode: "stat_prd_profit",
+      s_date: start,
+      e_date: end,
+      in_s_date: end,
+      in_e_date: end,
+      provider: "",
+      vat_tp: "1",
+      p_str: "",
+      period_free: "false",
+      prd_cate: "",
+      prd_type: "",
+    });
+    const res = await fetch("stat_action.ajax.html", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" },
+      body: body.toString(),
+    });
+    if (!res.ok) {
+      return { success: false, error: "셀피아 상품별 이익현황 조회 실패 (HTTP " + res.status + "). 셀피아 로그인을 확인하세요." };
+    }
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return { success: false, error: "셀피아 상품별 이익현황 응답을 해석하지 못했습니다. 셀피아 로그인을 확인하세요." };
+    }
+    if (!Array.isArray(data)) {
+      return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
+    }
+    const normYm = (k) => {
+      const m = String(k).match(/^(\d{4})-(\d{1,2})$/);
+      if (!m) return null;
+      return m[1] + "-" + String(m[2]).padStart(2, "0");
+    };
+    const products = [];
+    for (const p2 of data) {
+      const graph = p2.graph || {};
+      const months = [];
+      for (const key of Object.keys(graph)) {
+        const ym = normYm(key);
+        if (!ym) continue;
+        const parts = String(graph[key]).split(",");
+        months.push({
+          yearMonth: ym,
+          inAmount: Number(parts[0]) || 0,
+          orderAmount: Number(parts[1]) || 0,
+          orderQty: Number(parts[2]) || 0,
+          inQty: 0, // graph 에는 매입수량이 없어 0 (총계는 total_in_qty)
+        });
+      }
+      if (!months.length) continue;
+      products.push({
+        productCode: String(p2.product_code || ""),
+        optionCode: String(p2.option_code || ""),
+        productName: String(p2.product_name || ""),
+        optionName: p2.option_name ? String(p2.option_name) : undefined,
+        providerName: p2.provider_name ? String(p2.provider_name) : undefined,
+        salePrice: Number(p2.sale_price) || 0,
+        buyPrice: Number(p2.buy_price) || 0,
+        barcode: p2.dp_code ? String(p2.dp_code) : undefined,
+        months,
+      });
+    }
+    return {
+      success: true,
+      payload: { range: { from: start, to: end }, products },
+      productCount: products.length,
+      range: { start, end },
+    };
+  } catch (e) {
+    return { success: false, error: String((e && e.message) || e) };
+  }
+}
+
+async function findOrCreateSellpiaStockTab() {
+  const tabs = await chrome.tabs.query({ url: SELLPIA_TAB_MATCHES });
+  const onPage = tabs.find((t) => (t.url || "").includes("stock_list_total"));
+  if (onPage?.id) return { tab: onPage, created: false };
+  const tab = await chrome.tabs.create({ url: SELLPIA_STOCK_TOTAL_URL, active: false });
+  return { tab, created: true };
+}
+
+// 셀피아 통합 재고현황(현재고) 수집. 읽기 전용(비파괴).
+async function collectSellpiaProductStock(options = {}) {
+  const { tab, created } = await findOrCreateSellpiaStockTab();
+  if (!tab?.id) return { success: false, error: "셀피아(kiditem.sellpia.com) 탭을 열 수 없습니다." };
+  let keepOpen = false;
+  try {
+    await waitForTabReady(tab.id);
+    const injected = await withTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: "MAIN", // 페이지 컨텍스트 fetch(로그인 세션 쿠키).
+        func: scrapeSellpiaProductStock,
+        args: [],
+      }),
+      90000,
+      "셀피아 재고현황 조회 시간이 초과되었습니다.",
+    );
+    return injected[0]?.result ?? { success: false, error: "셀피아 화면에 접근하지 못했습니다." };
+  } catch (e) {
+    if (isMallAccessError(e)) { keepOpen = created && options.keepTabOnLoginError === true; return mallAccessErrorResult("셀피아"); }
+    return mallGenericErrorResult("셀피아", e);
+  } finally {
+    if (created && tab.id && !keepOpen) {
+      try { await chrome.tabs.remove(tab.id); } catch { /* 이미 닫힘 */ }
+    }
+  }
+}
+
+// stock_list_total.html 페이지 컨텍스트에서 실행. modekey=list(본사창고 전체, search_all)로
+// 상품별 현재고(c_stosum)를 받아 상품×옵션으로 파싱해 반환.
+async function scrapeSellpiaProductStock() {
+  try {
+    const p = (n) => String(n).padStart(2, "0");
+    const d = new Date();
+    const today = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    const P = {
+      s_date: today, search_type: "search_all", search_value: "", prd_cate: "", prd_type: "", category: "",
+      ststat_exist: "Y", stockstatus: "STOCK_Y", stockstatus_key: "STO", stockstatus_id: "STOALL",
+      s_date_sale: today, e_date_sale: today, stock_safe: "N", makeshop_join: "N", makeshop_uid: "",
+      makeshop_status: "ALL", makeshop_category: "", not_soldout: "N", not_discontinued: "N",
+      excel_type: "sellpia_code", reg_sdate: "", reg_edate: "",
+    };
+    const body = new URLSearchParams();
+    body.set("modekey", "list");
+    for (const k in P) body.set("params[" + k + "]", P[k]);
+    const res = await fetch("stock_list_total.html", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" },
+      body: body.toString(),
+    });
+    if (!res.ok) {
+      return { success: false, error: "셀피아 재고현황 조회 실패 (HTTP " + res.status + "). 셀피아 로그인을 확인하세요." };
+    }
+    let data;
+    try { data = JSON.parse(await res.text()); } catch {
+      return { success: false, error: "셀피아 재고현황 응답을 해석하지 못했습니다. 셀피아 로그인을 확인하세요." };
+    }
+    if (!Array.isArray(data) || data[0] !== true) {
+      return { success: false, error: "셀피아 재고현황 조회 결과가 없습니다 (코드 " + (Array.isArray(data) ? data[0] : "?") + ")." };
+    }
+    // data[1]: sellpia_code 키의 객체맵(또는 배열).
+    const rowsObj = data[1];
+    const rows = Array.isArray(rowsObj) ? rowsObj : (rowsObj && typeof rowsObj === "object" ? Object.values(rowsObj) : []);
+    const items = [];
+    for (const r of rows) {
+      if (!r || !r.product_code) continue;
+      items.push({
+        productCode: String(r.product_code),
+        optionCode: String(r.option_code || ""),
+        currentStock: Number(r.c_stosum) || 0,
+        offStock: Number(r.c_offsum) || 0,
+        safeStock: Number(r.safe_stock) || 0,
+        barcode: (r.barcode || r.dp_code) ? String(r.barcode || r.dp_code) : null,
+      });
+    }
+    return {
+      success: true,
+      payload: { capturedDate: today, items },
+      itemCount: items.length,
     };
   } catch (e) {
     return { success: false, error: String((e && e.message) || e) };

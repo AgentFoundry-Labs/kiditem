@@ -4,6 +4,7 @@ import { StatisticsModule } from './statistics/statistics.module';
 import { TrafficModule } from './traffic/traffic.module';
 import { SupplierStatsModule } from './supplier-stats/supplier-stats.module';
 import { SellpiaSalesModule } from './sellpia-sales/sellpia-sales.module';
+import { SellpiaProductSalesModule } from './sellpia-product-sales/sellpia-product-sales.module';
 
 /**
  * Analytics owner root.
@@ -42,6 +43,7 @@ import { SellpiaSalesModule } from './sellpia-sales/sellpia-sales.module';
     TrafficModule,
     SupplierStatsModule,
     SellpiaSalesModule,
+    SellpiaProductSalesModule,
   ],
 })
 export class AnalyticsModule {}

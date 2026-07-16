@@ -345,6 +345,112 @@ export const SellpiaSalesSummarySchema = z.object({
   hasData: z.boolean(),
 });
 
+// ─── Sellpia 상품별 소진(재고관리) ────────────────────────────────────────
+// 상품별 이익현황(stat_prd_profit)의 월별 판매수량으로 상품별 1개월/2개월 평균
+// 소진량 + 월별 추이를 산정. 재고 분석(/stock-ops) 섹션. 메이크샵 주문 기준.
+
+// Ingest 요청(확장 크롤 결과) — 상품별 월별 배열.
+export const SellpiaProductSalesIngestMonthSchema = z.object({
+  yearMonth: z.string(), // "YYYY-MM"
+  orderQty: z.number(),
+  orderAmount: z.number(),
+  inQty: z.number(),
+  inAmount: z.number(),
+});
+export const SellpiaProductSalesIngestItemSchema = z.object({
+  productCode: z.string().min(1),
+  optionCode: z.string(),
+  productName: z.string(),
+  optionName: z.string().optional(),
+  providerName: z.string().optional(),
+  salePrice: z.number(),
+  buyPrice: z.number(),
+  barcode: z.string().optional(),
+  months: z.array(SellpiaProductSalesIngestMonthSchema),
+});
+export const SellpiaProductSalesIngestPayloadSchema = z.object({
+  range: z.object({ from: z.string(), to: z.string() }),
+  products: z.array(SellpiaProductSalesIngestItemSchema),
+});
+export const SellpiaProductSalesIngestResultSchema = z.object({
+  upserted: z.number().int().nonnegative(),
+  productCount: z.number().int().nonnegative(),
+  months: z.array(z.string()),
+});
+
+// Stock ingest 요청(확장 크롤 결과) — 상품별 현재고. POST /api/sellpia-product-sales/stock
+export const SellpiaProductStockIngestItemSchema = z.object({
+  productCode: z.string().min(1),
+  optionCode: z.string(),
+  currentStock: z.number(),
+  offStock: z.number().optional(),
+  safeStock: z.number().optional(),
+  barcode: z.string().nullable().optional(),
+});
+export const SellpiaProductStockIngestPayloadSchema = z.object({
+  capturedDate: z.string(), // "YYYY-MM-DD" (재고 기준일)
+  items: z.array(SellpiaProductStockIngestItemSchema),
+});
+export const SellpiaProductStockIngestResultSchema = z.object({
+  upserted: z.number().int().nonnegative(),
+  itemCount: z.number().int().nonnegative(),
+});
+
+// Read 응답: GET /api/sellpia-product-sales
+export const SellpiaProductSalesMonthPointSchema = z.object({
+  yearMonth: z.string(),
+  orderQty: z.number(),
+  anomaly: z.boolean().optional(), // 이상치(일회성 벌크/저가 대량) 월 — 평균/등급 산정 제외
+});
+export const SellpiaProductAbcGradeSchema = z.enum(['A', 'B', 'C']);
+export const SellpiaProductTrendSchema = z.enum(['up', 'down', 'flat']);
+export const SellpiaProductSalesRowSchema = z.object({
+  productCode: z.string(),
+  optionCode: z.string(),
+  productName: z.string(),
+  optionName: z.string().nullable(),
+  providerName: z.string().nullable(),
+  salePrice: z.number(),
+  buyPrice: z.number(),
+  barcode: z.string().nullable(),
+  monthly: z.array(SellpiaProductSalesMonthPointSchema), // 월별 추이(오름차순)
+  qty1m: z.number(), // 최근 1개월(직전 완결 월) 소진량
+  qty2m: z.number(), // 최근 2개월(직전 완결 2개월) 총 소진량
+  avg2m: z.number(), // 2개월 월평균 = qty2m / 2
+  totalQty: z.number(), // 조회범위 총 소진량
+  // ─── 재고관리 파생 지표 ───
+  abcGrade: SellpiaProductAbcGradeSchema, // 소진량 파레토 A/B/C
+  trend: SellpiaProductTrendSchema, // 최근 소진 추세
+  deadStock: z.boolean(), // 악성재고 여부(정체/급감)
+  deadStockReason: z.string().nullable(), // 악성 사유
+  seasonTag: z.string().nullable(), // 시즌 분류(여름/겨울/어린이날/신학기/상시), 근거 부족 시 null
+  anomaly: z.boolean(), // 이상치(일회성 벌크/저가 대량) 포함 — 평균/ABC/발주는 이상치 제외로 산정
+  anomalyReason: z.string().nullable(), // 이상치 사유
+  // ─── 재고 소진(발주) — 재고 수집(2단계) 후 채워짐. 미수집 시 null/false ───
+  currentStock: z.number().nullable(), // 현재고(on-hand), null=미수집
+  monthsOfStockLeft: z.number().nullable(), // 현재고 ÷ 월평균 소진(개월). null=미수집/무판매
+  reorderPoint: z.number().nullable(), // 발주점 = 월평균 × (리드타임+안전)
+  needsReorder: z.boolean(), // 발주 필요(현재고 ≤ 발주점)
+});
+export const SellpiaProductSalesSummarySchema = z.object({
+  range: z.object({ from: z.string(), to: z.string() }),
+  months: z.array(z.string()), // 조회된 연월(오름차순)
+  completeMonths: z.array(z.string()), // 평균 산정 대상 완결 월
+  products: z.array(SellpiaProductSalesRowSchema),
+  productCount: z.number(),
+  totalQty: z.number(),
+  lastCapturedAt: zIsoDate.nullable(),
+  hasData: z.boolean(),
+  // ─── 재고관리 요약 ───
+  hasStock: z.boolean(), // 재고(현재고) 수집 여부
+  stockCapturedAt: zIsoDate.nullable(), // 재고 수집 시각
+  reorderCount: z.number(), // 발주 필요 상품 수
+  deadStockCount: z.number(), // 악성재고 상품 수
+  anomalyCount: z.number(), // 이상치 포함 상품 수
+  abcCounts: z.object({ a: z.number(), b: z.number(), c: z.number() }),
+  leadTimeMonths: z.number(), // 발주점 산정 리드타임(개월) — 에코
+});
+
 // ─── Types ────────────────────────────────────────────────────────────────
 export type DashboardSalesSummary = z.infer<typeof DashboardSalesSummarySchema>;
 export type DashboardAdSummary = z.infer<typeof DashboardAdSummarySchema>;
@@ -376,3 +482,17 @@ export type SellpiaSalesDailyPoint = z.infer<typeof SellpiaSalesDailyPointSchema
 export type SellpiaSalesMall = z.infer<typeof SellpiaSalesMallSchema>;
 export type SellpiaSalesGroup = z.infer<typeof SellpiaSalesGroupSchema>;
 export type SellpiaSalesSummary = z.infer<typeof SellpiaSalesSummarySchema>;
+
+// Sellpia 상품별 소진(재고관리)
+export type SellpiaProductSalesIngestMonth = z.infer<typeof SellpiaProductSalesIngestMonthSchema>;
+export type SellpiaProductSalesIngestItem = z.infer<typeof SellpiaProductSalesIngestItemSchema>;
+export type SellpiaProductSalesIngestPayload = z.infer<typeof SellpiaProductSalesIngestPayloadSchema>;
+export type SellpiaProductSalesIngestResult = z.infer<typeof SellpiaProductSalesIngestResultSchema>;
+export type SellpiaProductStockIngestItem = z.infer<typeof SellpiaProductStockIngestItemSchema>;
+export type SellpiaProductStockIngestPayload = z.infer<typeof SellpiaProductStockIngestPayloadSchema>;
+export type SellpiaProductStockIngestResult = z.infer<typeof SellpiaProductStockIngestResultSchema>;
+export type SellpiaProductSalesMonthPoint = z.infer<typeof SellpiaProductSalesMonthPointSchema>;
+export type SellpiaProductAbcGrade = z.infer<typeof SellpiaProductAbcGradeSchema>;
+export type SellpiaProductTrend = z.infer<typeof SellpiaProductTrendSchema>;
+export type SellpiaProductSalesRow = z.infer<typeof SellpiaProductSalesRowSchema>;
+export type SellpiaProductSalesSummary = z.infer<typeof SellpiaProductSalesSummarySchema>;

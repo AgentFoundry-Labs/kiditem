@@ -27,7 +27,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Advertising](erd/advertising.md) | 5 |
 | [AgentOS](erd/agentos.md) | 17 |
 | [AI](erd/ai.md) | 19 |
-| [Channels](erd/channels.md) | 18 |
+| [channels](erd/channels.md) | 1 |
+| [Channels](erd/channels.md) | 19 |
 | [Core](erd/core.md) | 10 |
 | [Finance](erd/finance.md) | 5 |
 | [Inventory](erd/inventory.md) | 7 |
@@ -98,6 +99,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | CoupangWingTrackedProductDailySnapshot | Channels | `coupang_wing_tracked_product_daily_snapshots` | 쿠팡 Wing 추적상품 일별 지표 스냅샷(상품×일자당 최신본 upsert). Wing 카탈로그 28일 지표(클릭 pv·판매·매출·전환) + 판매가·리뷰. |
 | RocketPurchaseOrder | Channels | `rocket_purchase_orders` | 쿠팡 로켓 발주 단건(per-PO) 상세 — 매출분석 드릴다운(일자→발주→품목)용. items 는 발주서 품목(SKU) 라인 JSON(표시 전용). |
 | RocketSupplyDailySnapshot | Channels | `rocket_supply_daily_snapshots` | 쿠팡 로켓(공급사 발주) 일별 매출 fact. po-web 발주리스트의 발주금액(공급가)을 입고예정일(KST) 기준으로 집계한 값으로, 윙 매출과 분리된 로켓 매출 소스. |
+| SellpiaProductMonthlySales | Channels | `sellpia_product_monthly_sales` | Sellpia 상품별 이익현황(stat_prd_profit) 월별 판매수량(재고 소진) fact. stat_action.ajax.html(mode=stat_prd_profit)의 graph(월별 매입액/판매액/판매수량)에서 상품×옵션×연월로 수집. 재고관리용 1개월/2개월 평균 소진량 산정 소스. 메이크샵 주문 데이터 기준. |
+| SellpiaProductStock | channels | `sellpia_product_stock` | Sellpia 통합 재고현황(stock_list_total) 상품별 현재고 스냅샷. |
 | SellpiaSalesDailySnapshot | Channels | `sellpia_sales_daily_snapshots` | Sellpia 판매현황(sale_summary) 몰별·일별 매출 fact. order_search.ajax.html(mode=selldate, 주문일자 기준)에서 판매처(seller)별로 수집. channelGroup 으로 rocket(쿠팡-직배송) / others(쿠팡윙+기타 전체몰) 버킷을 구분해 대시보드 '몰별 매출' 섹션에 표시한다. price=판매금액, buy_price=매입금액, amount=판매수량. |
 | CategoryMapping | Core | `category_mappings` | - |
 | ChannelAccount | Core | `channel_accounts` | Marketplace/store account such as Coupang Wing or Naver SmartStore. Operational channel ownership is distinct from the SaaS organization. |
@@ -1656,6 +1659,39 @@ erDiagram
     DateTime lastScrapedAt
     DateTime createdAt
   }
+  SellpiaProductMonthlySales {
+    String id PK
+    String organizationId FK
+    String productCode
+    String optionCode
+    String yearMonth
+    Int orderQty
+    Int orderAmount
+    Int inQty
+    Int inAmount
+    String productName
+    String optionName
+    String providerName
+    Int salePrice
+    Int buyPrice
+    String barcode
+    DateTime capturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SellpiaProductStock {
+    String id PK
+    String organizationId FK
+    String productCode
+    String optionCode
+    Int currentStock
+    Int offStock
+    Int safeStock
+    String barcode
+    DateTime capturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   SellpiaReceiptUploadBatch {
     String id PK
     String organizationId FK
@@ -2343,6 +2379,8 @@ erDiagram
   Organization ||--o{ RocketSupplyDailySnapshot : "organization"
   Organization ||--o{ SalesPlan : "organization"
   Organization ||--o{ ScrapeTarget : "organization"
+  Organization ||--o{ SellpiaProductMonthlySales : "organization"
+  Organization ||--o{ SellpiaProductStock : "organization"
   Organization ||--o{ SellpiaReceiptUploadBatch : "organization"
   Organization ||--o{ SellpiaSalesDailySnapshot : "organization"
   Organization ||--o{ Settlement : "organization"

@@ -10,6 +10,7 @@ vi.mock('./components/StockTransfers', () => ({ default: () => <div>Transfers</d
 vi.mock('./components/ReturnTransfers', () => ({ default: () => <div>Returns</div> }));
 vi.mock('./components/MappingAttention', () => ({ default: () => <div>Mapping</div> }));
 vi.mock('./components/ImportFreshness', () => ({ default: () => <div>Freshness</div> }));
+vi.mock('./components/ProductOutflow', () => ({ default: () => <div>ProductOutflow</div> }));
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
