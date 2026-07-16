@@ -11,6 +11,8 @@ compatibility CRUD. It never owns physical stock.
 - `/api/products/masters` product-operations list/detail and metadata mutations
 - product variant create/update capabilities
 - complete `ProductVariantComponent` recipe replacement
+- transaction-aware channel-origin `MasterProduct` / `ProductVariant`
+  provisioning through the exported Products incoming port
 - focused active Sellpia recipe candidates:
   `GET /api/products/recipe-component-candidates`
 - `/api/categories`
@@ -42,6 +44,17 @@ compatibility CRUD. It never owns physical stock.
 - Recipe candidate search enters Inventory only through the exported
   `SELLPIA_INVENTORY_SKU_READ_PORT`, passes session-owned `organizationId`, and
   returns physical identity/stock facts without source prices or writers.
+- Channel-origin provisioning receives a caller-owned transaction, validates
+  every listing/option/current-link identity against `organizationId`, and may
+  create or reuse Products-owned identities. It never writes Channels-owned
+  link columns, physical stock, or inferred component recipes.
+- Automatic reuse accepts only unique, non-conflicting typed seller SKU or
+  safely normalized barcode evidence. Names, untyped raw payload fields, rank,
+  and AI never confirm an existing product, variant, or recipe.
+- A recollection never overwrites operator-edited product metadata, active
+  state, confirmed links, or recipes. Inactive origin/current products and
+  deterministic code collisions are explicit conflicts, not reactivation or
+  reuse shortcuts.
 - Creating a product creates supplied variants or one default variant when the
   request omits variants.
 - Category controllers receive `organizationId` from

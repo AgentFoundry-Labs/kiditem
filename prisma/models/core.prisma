@@ -370,33 +370,36 @@ model CategoryMapping {
 /// @namespace Core
 /// @describe KidItem-operated product identity and product-level operating metadata.
 model MasterProduct {
-  id              String    @id @default(uuid()) @db.Uuid
-  organizationId  String    @map("organization_id") @db.Uuid
-  code            String
-  name            String
-  description     String?
-  category        String?
-  brand           String?
-  tags            String[]  @default([])
-  imageUrls       String[]  @default([]) @map("image_urls")
-  abcGrade        String?   @map("abc_grade")
-  profitTag       String?   @map("profit_tag")
-  adTier          String?   @map("ad_tier")
-  adBudgetLimit   Int?      @map("ad_budget_limit")
-  healthScore     Int?      @map("health_score")
-  healthUpdatedAt DateTime? @map("health_updated_at") @db.Timestamptz
-  isActive        Boolean   @default(true) @map("is_active")
+  id                     String    @id @default(uuid()) @db.Uuid
+  organizationId         String    @map("organization_id") @db.Uuid
+  originChannelListingId String?   @map("origin_channel_listing_id") @db.Uuid
+  code                   String
+  name                   String
+  description            String?
+  category               String?
+  brand                  String?
+  tags                   String[]  @default([])
+  imageUrls              String[]  @default([]) @map("image_urls")
+  abcGrade               String?   @map("abc_grade")
+  profitTag              String?   @map("profit_tag")
+  adTier                 String?   @map("ad_tier")
+  adBudgetLimit          Int?      @map("ad_budget_limit")
+  healthScore            Int?      @map("health_score")
+  healthUpdatedAt        DateTime? @map("health_updated_at") @db.Timestamptz
+  isActive               Boolean   @default(true) @map("is_active")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  provenanceCandidate SourcingCandidate? @relation("SourcingCandidateProvenance")
-  variants            ProductVariant[]
-  channelListings     ChannelListing[]
-  processingCosts     ProcessingCost[]
+  organization         Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  provenanceCandidate  SourcingCandidate? @relation("SourcingCandidateProvenance")
+  variants             ProductVariant[]
+  channelListings      ChannelListing[]   @relation("ChannelListingOperationalProduct")
+  originChannelListing ChannelListing?    @relation("ChannelListingOriginProduct", fields: [originChannelListingId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  processingCosts      ProcessingCost[]
 
   @@unique([organizationId, code])
+  @@unique([originChannelListingId, organizationId])
   @@unique([id, organizationId], map: "master_products_id_org_key")
   @@index([organizationId])
   @@index([organizationId, isActive])
@@ -494,7 +497,8 @@ model ChannelListing {
   organization        Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   channelAccount      ChannelAccount         @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   sourceCandidate     SourcingCandidate?     @relation(fields: [sourceCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  masterProduct       MasterProduct?         @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  masterProduct       MasterProduct?         @relation("ChannelListingOperationalProduct", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  originatedMasterProduct MasterProduct?     @relation("ChannelListingOriginProduct")
   lastImportRun       SourceImportRun?       @relation("ChannelProductLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   options             ChannelListingOption[]
   contentWorkspaces   ContentWorkspace[]

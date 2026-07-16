@@ -45,13 +45,20 @@ describe('master-product operations final schema contract', () => {
       'healthScore',
       'healthUpdatedAt',
       'isActive',
+      'originChannelListingId',
       'variants',
       'channelListings',
+      'originChannelListing',
       'provenanceCandidate',
       'processingCosts',
     ]);
     assert.match(master, /@@unique\(\[organizationId, code\]\)/);
     assert.match(master, /@@unique\(\[id, organizationId\]/);
+    assert.match(master, /@@unique\(\[originChannelListingId, organizationId\]\)/);
+    assert.match(
+      master,
+      /@relation\("ChannelListingOriginProduct", fields: \[originChannelListingId, organizationId\], references: \[id, organizationId\]/,
+    );
     rejectFields(master, [
       'optionName',
       'barcode',
@@ -148,8 +155,9 @@ describe('master-product operations final schema contract', () => {
     assert.match(listing, /^\s*masterProductId\s+String\?/m);
     assert.match(
       listing,
-      /@relation\(fields: \[masterProductId, organizationId\], references: \[id, organizationId\]/,
+      /@relation\("ChannelListingOperationalProduct", fields: \[masterProductId, organizationId\], references: \[id, organizationId\]/,
     );
+    assert.match(listing, /^\s*originatedMasterProduct\s+MasterProduct\?/m);
     assert.match(option, /^\s*productVariantId\s+String\?/m);
     assert.match(
       option,
