@@ -4,7 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { collectRocketPoRowsFromExtension } from '@/lib/rocket-sales-collection';
 import { previewRocketPurchases } from '../lib/rocket-purchase-preview-api';
 import { RocketPurchaseWorkspace } from './RocketPurchaseWorkspace';
-import type { RocketPurchasePreviewRow } from '@kiditem/shared/rocket-purchase-preview';
+import type {
+  RocketPoCatalogPublication,
+  RocketPurchasePreviewRow,
+} from '@kiditem/shared/rocket-purchase-preview';
 
 vi.mock('@/lib/rocket-sales-collection', () => ({
   collectRocketPoRowsFromExtension: vi.fn(),
@@ -52,6 +55,39 @@ function previewRow(
   };
 }
 
+function catalogPublication(rowCount = 0): RocketPoCatalogPublication {
+  return {
+    run: {
+      id: '55555555-5555-4555-8555-555555555555',
+      sourceType: 'coupang_rocket_po_catalog',
+      channelAccountId: ACCOUNT_ID,
+      fileName: 'rocket-po-catalog.json',
+      fileHash: 'a'.repeat(64),
+      status: 'completed',
+      rowCount,
+      importedAt: '2026-07-16T00:00:00.000Z',
+      lastVerifiedAt: null,
+      verificationCount: 0,
+      lastTrigger: null,
+      freshnessGeneration: null,
+      manualFreshExportConfirmedAt: null,
+      manualFreshExportConfirmedBy: null,
+      qualityReport: null,
+      errorCode: null,
+      errorMessage: null,
+      createdAt: '2026-07-16T00:00:00.000Z',
+      updatedAt: '2026-07-16T00:00:00.000Z',
+    },
+    duplicate: false,
+    changes: {
+      createdProductCount: 0,
+      updatedProductCount: 0,
+      createdSkuCount: 0,
+      updatedSkuCount: 0,
+    },
+  };
+}
+
 describe('RocketPurchaseWorkspace', () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -75,7 +111,7 @@ describe('RocketPurchaseWorkspace', () => {
     });
     vi.mocked(previewRocketPurchases).mockResolvedValue({
       collectionRunId: '22222222-2222-4222-8222-222222222222',
-      catalog: null,
+      catalog: catalogPublication(),
       rows: [],
     });
   });
@@ -130,6 +166,144 @@ describe('RocketPurchaseWorkspace', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
+  it('warns when the backend blocks an otherwise locally complete zero-row collection', async () => {
+    vi.mocked(previewRocketPurchases).mockResolvedValue({
+      collectionRunId: '22222222-2222-4222-8222-222222222222',
+      catalog: null,
+      rows: [],
+    });
+    const user = userEvent.setup();
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+
+    await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '서버가 수집 결과를 차단했습니다.',
+    );
+    expect(screen.getByText('수집 결과가 차단되어 검토할 수 없습니다.')).toBeInTheDocument();
+    expect(screen.queryByText('해당 기간에 검토할 로켓 PO가 없습니다.'))
+      .not.toBeInTheDocument();
+  });
+
+  it('does not present a backend-blocked zero-row collection as a normal no-PO result', async () => {
+    vi.mocked(collectRocketPoRowsFromExtension).mockResolvedValue({
+      collection: {
+        collectionRunId: '22222222-2222-4222-8222-222222222222',
+        vendorId: '',
+        listPagesRead: 1,
+        totalListPages: 1,
+        truncated: false,
+        detailPoCount: 0,
+        failedPoNumbers: [],
+      },
+      rows: [],
+      poCount: 0,
+    });
+    vi.mocked(previewRocketPurchases).mockResolvedValue({
+      collectionRunId: '22222222-2222-4222-8222-222222222222',
+      catalog: null,
+      rows: [],
+    });
+    const user = userEvent.setup();
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+
+    await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('수집 범위가 불완전합니다.');
+    expect(screen.getByText('수집 결과가 차단되어 검토할 수 없습니다.')).toBeInTheDocument();
+    expect(screen.queryByText('해당 기간에 검토할 로켓 PO가 없습니다.'))
+      .not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      label: '목록 20페이지 제한',
+      collection: {
+        collectionRunId: '22222222-2222-4222-8222-222222222222',
+        vendorId: 'VENDOR-1',
+        listPagesRead: 20,
+        totalListPages: 20,
+        truncated: false,
+        detailPoCount: 1,
+        failedPoNumbers: [],
+      },
+      rows: [lineA],
+    },
+    {
+      label: '상세 40건 제한',
+      collection: {
+        collectionRunId: '22222222-2222-4222-8222-222222222222',
+        vendorId: 'VENDOR-1',
+        listPagesRead: 1,
+        totalListPages: 1,
+        truncated: false,
+        detailPoCount: 40,
+        failedPoNumbers: [],
+      },
+      rows: Array.from({ length: 40 }, (_, index) => ({
+        ...lineA,
+        poLineId: `${1001 + index}:P-${index}:8800000000001:1`,
+        poNumber: `${1001 + index}`,
+        productNo: `P-${index}`,
+      })),
+    },
+  ])('warns when collection reaches the server $label hard limit', async ({ collection, rows }) => {
+    vi.mocked(collectRocketPoRowsFromExtension).mockResolvedValue({
+      collection,
+      rows,
+      poCount: rows.length,
+    });
+    vi.mocked(previewRocketPurchases).mockResolvedValue({
+      collectionRunId: collection.collectionRunId,
+      catalog: null,
+      rows: [],
+    });
+    const user = userEvent.setup();
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+
+    await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('수집 범위가 불완전합니다.');
+  });
+
+  it.each([
+    {
+      label: 'retained row vendor differs from evidence',
+      rows: [{ ...lineA, vendorId: 'OTHER-VENDOR' }],
+      detailPoCount: 1,
+    },
+    {
+      label: 'detail count differs from unique retained PO count',
+      rows: [lineA, { ...lineB, poNumber: lineA.poNumber }],
+      detailPoCount: 2,
+    },
+  ])('warns when $label', async ({ rows, detailPoCount }) => {
+    vi.mocked(collectRocketPoRowsFromExtension).mockResolvedValue({
+      collection: {
+        collectionRunId: '22222222-2222-4222-8222-222222222222',
+        vendorId: 'VENDOR-1',
+        listPagesRead: 1,
+        totalListPages: 1,
+        truncated: false,
+        detailPoCount,
+        failedPoNumbers: [],
+      },
+      rows,
+      poCount: rows.length,
+    });
+    vi.mocked(previewRocketPurchases).mockResolvedValue({
+      collectionRunId: '22222222-2222-4222-8222-222222222222',
+      catalog: null,
+      rows: [],
+    });
+    const user = userEvent.setup();
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+
+    await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('수집 범위가 불완전합니다.');
+  });
+
   it('warns when the collected list or PO details are incomplete', async () => {
     vi.mocked(collectRocketPoRowsFromExtension).mockResolvedValue({
       collection: {
@@ -161,6 +335,39 @@ describe('RocketPurchaseWorkspace', () => {
     expect(screen.getByText(/상세 1\/2건/)).toBeInTheDocument();
     expect(screen.getByText(/실패 PO 1건/)).toBeInTheDocument();
   });
+
+  it.each([
+    ['collection_incomplete', '수집 범위가 불완전합니다.'],
+    ['vendor_mismatch', '선택한 로켓 채널 계정과 수집한 PO의 공급사가 일치하지 않습니다.'],
+  ] as const)(
+    'aggregates the server %s preview reason into an operator warning',
+    async (reason, warning) => {
+      vi.mocked(collectRocketPoRowsFromExtension).mockResolvedValue({
+        collection: {
+          collectionRunId: '22222222-2222-4222-8222-222222222222',
+          vendorId: 'VENDOR-1',
+          listPagesRead: 1,
+          totalListPages: 1,
+          truncated: false,
+          detailPoCount: 1,
+          failedPoNumbers: [],
+        },
+        rows: [lineA],
+        poCount: 1,
+      });
+      vi.mocked(previewRocketPurchases).mockResolvedValue({
+        collectionRunId: '22222222-2222-4222-8222-222222222222',
+        catalog: null,
+        rows: [{ ...previewRow(lineA, 0), reason }],
+      });
+      const user = userEvent.setup();
+      render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+
+      await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(warning);
+    },
+  );
 
   it('renders every preview reason as Korean operator guidance', async () => {
     const reasonRows = [

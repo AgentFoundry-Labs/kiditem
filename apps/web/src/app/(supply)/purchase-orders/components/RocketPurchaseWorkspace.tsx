@@ -1,6 +1,10 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import {
+  ROCKET_PO_DETAIL_LIMIT,
+  ROCKET_PO_LIST_PAGE_LIMIT,
+} from '@kiditem/shared/rocket-purchase-preview';
 import { collectRocketPoRowsFromExtension } from '@/lib/rocket-sales-collection';
 import { friendlyError } from '@/lib/api-error';
 import { previewRocketPurchases } from '../lib/rocket-purchase-preview-api';
@@ -22,6 +26,8 @@ interface CollectionRunSummary {
   collection: RocketPoCollectionEvidence;
   poCount: number;
   rowCount: number;
+  uniqueRowPoCount: number;
+  rowsMatchEvidenceVendor: boolean;
 }
 
 function localCalendarDay(date: Date): string {
@@ -36,11 +42,33 @@ function normalizeReviewQuantity(value: string, maxQuantity: number): number {
 }
 
 function collectionIsIncomplete(summary: CollectionRunSummary): boolean {
-  const { collection, poCount } = summary;
-  return collection.truncated
-    || collection.listPagesRead < collection.totalListPages
-    || collection.detailPoCount < poCount
-    || collection.failedPoNumbers.length > 0;
+  const { collection } = summary;
+  return collection.vendorId.length === 0
+    || collection.truncated
+    || collection.failedPoNumbers.length > 0
+    || collection.listPagesRead >= ROCKET_PO_LIST_PAGE_LIMIT
+    || collection.detailPoCount >= ROCKET_PO_DETAIL_LIMIT
+    || collection.totalListPages > collection.listPagesRead
+    || collection.detailPoCount !== summary.uniqueRowPoCount
+    || !summary.rowsMatchEvidenceVendor;
+}
+
+function aggregateCollectionWarning(
+  summary: CollectionRunSummary | null,
+  preview: RocketPurchasePreviewResponse | null,
+): string | null {
+  if (!summary) return null;
+  const previewReasons = new Set(preview?.rows.map(({ reason }) => reason) ?? []);
+  if (collectionIsIncomplete(summary) || previewReasons.has('collection_incomplete')) {
+    return '수집 범위가 불완전합니다. 누락된 PO를 확인한 뒤 다시 계산해 주세요. 공급사 식별 정보도 확인해 주세요.';
+  }
+  if (previewReasons.has('vendor_mismatch')) {
+    return '선택한 로켓 채널 계정과 수집한 PO의 공급사가 일치하지 않습니다.';
+  }
+  if (preview && preview.rows.length === 0 && preview.catalog === null) {
+    return '서버가 수집 결과를 차단했습니다. 수집 완전성과 선택한 채널 계정의 공급사를 확인해 주세요.';
+  }
+  return null;
 }
 
 export function RocketPurchaseWorkspace({
@@ -68,6 +96,10 @@ export function RocketPurchaseWorkspace({
         collection: collected.collection,
         poCount: collected.poCount,
         rowCount: collected.rows.length,
+        uniqueRowPoCount: new Set(collected.rows.map(({ poNumber }) => poNumber)).size,
+        rowsMatchEvidenceVendor: collected.rows.every(
+          ({ vendorId }) => vendorId === collected.collection.vendorId,
+        ),
       });
       const retainedEdits = Object.fromEntries(collected.rows.flatMap((row) => {
         if (!Object.hasOwn(editedQuantities, row.poLineId)) return [];
@@ -110,6 +142,8 @@ export function RocketPurchaseWorkspace({
       setLoading(false);
     }
   };
+
+  const collectionWarning = aggregateCollectionWarning(collectionRun, preview);
 
   return (
     <section aria-label="쿠팡 로켓 발주 미리보기" className="space-y-4">
@@ -173,9 +207,9 @@ export function RocketPurchaseWorkspace({
             {' · '}품목 {collectionRun.rowCount}건
             {' · '}실패 PO {collectionRun.collection.failedPoNumbers.length}건
           </p>
-          {collectionIsIncomplete(collectionRun) ? (
+          {collectionWarning ? (
             <p role="alert" className="font-semibold text-amber-700">
-              수집 범위가 불완전합니다. 누락된 PO를 확인한 뒤 다시 계산해 주세요.
+              {collectionWarning}
             </p>
           ) : null}
         </div>
@@ -183,12 +217,25 @@ export function RocketPurchaseWorkspace({
 
       {preview && preview.rows.length === 0 ? (
         <div className="rounded-xl border border-[var(--border,#e2e8f0)] bg-[var(--surface,#fff)] px-4 py-8 text-center">
-          <p className="text-sm font-semibold text-[var(--text-primary,#0f172a)]">
-            해당 기간에 검토할 로켓 PO가 없습니다.
-          </p>
-          <p className="mt-1 text-xs text-[var(--text-tertiary,#94a3b8)]">
-            조회 기간과 주문 상태를 바꾼 뒤 다시 계산해 보세요.
-          </p>
+          {collectionWarning ? (
+            <>
+              <p className="text-sm font-semibold text-amber-800">
+                수집 결과가 차단되어 검토할 수 없습니다.
+              </p>
+              <p className="mt-1 text-xs text-amber-700">
+                위 경고를 확인한 뒤 다시 수집해 주세요.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-semibold text-[var(--text-primary,#0f172a)]">
+                해당 기간에 검토할 로켓 PO가 없습니다.
+              </p>
+              <p className="mt-1 text-xs text-[var(--text-tertiary,#94a3b8)]">
+                조회 기간과 주문 상태를 바꾼 뒤 다시 계산해 보세요.
+              </p>
+            </>
+          )}
         </div>
       ) : preview ? (
         <div className="overflow-x-auto rounded-xl border border-[var(--border,#e2e8f0)] bg-[var(--surface,#fff)]">
