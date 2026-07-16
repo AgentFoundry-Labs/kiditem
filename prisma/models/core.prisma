@@ -101,6 +101,7 @@ model Organization {
   salesPlans                 SalesPlan[]
   rocketSupplyDailySnapshots RocketSupplyDailySnapshot[]
   rocketPurchaseOrders       RocketPurchaseOrder[]
+  sellpiaSalesDailySnapshots SellpiaSalesDailySnapshot[]
 
   // Ontology
   businessRules  BusinessRule[]

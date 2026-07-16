@@ -23,7 +23,7 @@ import type { ReadinessCheck } from '@kiditem/shared/readiness';
 type DisplayMeta = { title: string; hint: string; icon: LucideIcon };
 
 const DISPLAY: Record<string, DisplayMeta> = {
-  wing_sales: { title: '일별 매출', hint: '매출·방문·장바구니', icon: LineChart },
+  wing_sales: { title: '일별 매출', hint: '셀피아 몰별 매출', icon: LineChart },
   rocket_sales: { title: '쿠팡 로켓', hint: '발주확정 매출', icon: Rocket },
   coupang_ads: { title: '광고 성과', hint: '클릭·전환·지출', icon: Megaphone },
   coupang_products: { title: '상품 목록', hint: '등록된 SKU 동기화', icon: Package },

@@ -15,6 +15,8 @@ conversion.
 - Coupang supplier ASN visible-row Label/statement download triggers.
 - Supported marketplace order export capture, including Kakao Shopping Seller.
 - Sellpia delivery-tracking lookup and order-file upload.
+- Sellpia 판매현황(sale_summary) 몰별·일별 매출 조회(읽기 전용) + `chrome.alarms`
+  매일 자동수집 캐시(웹앱이 백엔드로 flush).
 - Domeggook and Onchannel tracking registration initiated from the KidItem
   order-collection page.
 - KidItem localhost extension-id discovery for order operations only.

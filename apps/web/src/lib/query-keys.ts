@@ -78,6 +78,10 @@ export const queryKeys = {
     // Health (unchanged)
     health: () =>
       [...queryKeys.dashboard.all, 'health'] as const,
+    // Sellpia 판매현황(몰별 매출)
+    sellpiaSalesAll: () => [...queryKeys.dashboard.all, 'sellpia-sales'] as const,
+    sellpiaSales: (from?: string, to?: string) =>
+      [...queryKeys.dashboard.all, 'sellpia-sales', from ?? '', to ?? ''] as const,
   },
   ads: {
     all: ['ads'] as const,

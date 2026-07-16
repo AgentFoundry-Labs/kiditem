@@ -7,6 +7,8 @@ import { apiClient } from '@/lib/api-client';
 import { recordMissingBrowserCollection } from '@/lib/browser-collection-session';
 import { detectExtensionId } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
+import { collectSellpiaSaleSummaryFromExtension } from '@/lib/sellpia-sales-collection';
+import { ingestSellpiaSales } from '@/lib/sellpia-sales-api';
 import {
   readinessCollectionProducer,
   runReadinessExtensionCollection,
@@ -119,6 +121,27 @@ export function useReadinessCollection({
       return;
     }
 
+    // 일별 매출(wing_sales) 수집은 셀피아 판매현황 수집으로 대체한다.
+    // (원래 Wing 브라우저 수집 로직은 코드에 그대로 남겨두고 여기서만 우회.)
+    // 셀피아 몰별 일별 매출을 수집·적재해 비어있는 날짜를 채운다.
+    if (check.key === 'wing_sales') {
+      setPendingKey(check.key);
+      try {
+        const payload = await collectSellpiaSaleSummaryFromExtension();
+        const result = await ingestSellpiaSales(payload);
+        toast.success(`셀피아 판매현황 ${result.businessDates.length}일 수집 완료`);
+        await invalidateCollectedData();
+        await refetchReadiness();
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : '셀피아 판매현황 수집 실패',
+        );
+      } finally {
+        setPendingKey(null);
+      }
+      return;
+    }
+
     const producer = readinessCollectionProducer(check.key);
     if (!producer) {
       toast.error('지원하지 않는 브라우저 수집 항목입니다.');
@@ -130,6 +153,7 @@ export function useReadinessCollection({
     }
 
     setPendingKey(check.key);
+
     try {
       const extensionId = await detectExtensionId();
       if (!extensionId) {

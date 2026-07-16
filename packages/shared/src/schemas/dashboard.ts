@@ -288,6 +288,63 @@ export const DashboardTrendItemSchema = z.object({
   adCost: z.number(),
 });
 
+// ─── Sellpia 판매현황(몰별 매출) ──────────────────────────────────────────
+// 대시보드 '몰별 매출' 섹션: 쿠팡 로켓(쿠팡-직배송) 단독 + 쿠팡윙·기타몰 합산(드릴다운).
+// 소스: Sellpia sale_summary(order_search.ajax.html, mode=selldate, 주문일자 기준)를
+// 확장이 판매처(seller)별로 수집 → POST /api/dashboard/sellpia-sales/ingest 로 적재.
+
+// Ingest 요청(확장 스크랩 결과) — 판매처별 일자 배열.
+export const SellpiaSalesIngestDaySchema = z.object({
+  date: z.string(), // YYYY-MM-DD (KST 캘린더 일자)
+  price: z.number(), // 판매금액
+  amount: z.number(), // 판매수량
+  buyPrice: z.number(), // 매입금액
+});
+export const SellpiaSalesIngestSellerSchema = z.object({
+  sellerId: z.string().min(1),
+  sellerName: z.string().min(1),
+  days: z.array(SellpiaSalesIngestDaySchema),
+});
+export const SellpiaSalesIngestPayloadSchema = z.object({
+  range: z.object({ from: z.string(), to: z.string() }),
+  sellers: z.array(SellpiaSalesIngestSellerSchema),
+});
+export const SellpiaSalesIngestResultSchema = z.object({
+  upserted: z.number().int().nonnegative(),
+  businessDates: z.array(z.string()),
+  sellerCount: z.number().int().nonnegative(),
+});
+
+// Read 응답: GET /api/dashboard/sellpia-sales?from&to
+export const SellpiaSalesDailyPointSchema = z.object({
+  date: z.string(), // YYYY-MM-DD
+  revenue: z.number(),
+  qty: z.number(),
+});
+export const SellpiaSalesMallSchema = z.object({
+  sellerId: z.string(),
+  sellerName: z.string(),
+  revenue: z.number(),
+  qty: z.number(),
+  cost: z.number(),
+  daily: z.array(SellpiaSalesDailyPointSchema),
+});
+export const SellpiaSalesGroupSchema = z.object({
+  revenue: z.number(),
+  qty: z.number(),
+  cost: z.number(),
+  daily: z.array(SellpiaSalesDailyPointSchema),
+  malls: z.array(SellpiaSalesMallSchema), // rocket 은 보통 1개, others 는 다수
+});
+export const SellpiaSalesSummarySchema = z.object({
+  range: z.object({ from: z.string(), to: z.string() }),
+  rocket: SellpiaSalesGroupSchema, // 쿠팡 로켓(쿠팡-직배송) 단독
+  others: SellpiaSalesGroupSchema, // 쿠팡윙 + 기타 전체몰 합산 (malls = 드릴다운)
+  totalRevenue: z.number(),
+  lastCapturedAt: zIsoDate.nullable(),
+  hasData: z.boolean(),
+});
+
 // ─── Types ────────────────────────────────────────────────────────────────
 export type DashboardSalesSummary = z.infer<typeof DashboardSalesSummarySchema>;
 export type DashboardAdSummary = z.infer<typeof DashboardAdSummarySchema>;
@@ -309,3 +366,13 @@ export type PlanAchievement = z.infer<typeof PlanAchievementSchema>;
 export type GradeChanges = z.infer<typeof GradeChangesSchema>;
 export type DataFreshness = z.infer<typeof DataFreshnessSchema>;
 export type WingAdSummary = z.infer<typeof WingAdSummarySchema>;
+
+// Sellpia 판매현황(몰별 매출)
+export type SellpiaSalesIngestDay = z.infer<typeof SellpiaSalesIngestDaySchema>;
+export type SellpiaSalesIngestSeller = z.infer<typeof SellpiaSalesIngestSellerSchema>;
+export type SellpiaSalesIngestPayload = z.infer<typeof SellpiaSalesIngestPayloadSchema>;
+export type SellpiaSalesIngestResult = z.infer<typeof SellpiaSalesIngestResultSchema>;
+export type SellpiaSalesDailyPoint = z.infer<typeof SellpiaSalesDailyPointSchema>;
+export type SellpiaSalesMall = z.infer<typeof SellpiaSalesMallSchema>;
+export type SellpiaSalesGroup = z.infer<typeof SellpiaSalesGroupSchema>;
+export type SellpiaSalesSummary = z.infer<typeof SellpiaSalesSummarySchema>;

@@ -106,6 +106,7 @@ export class ReadinessService {
       wingItemWinnerKpi,
       productCount,
       lastProduct,
+      sellpiaDailyRows,
     ] = await Promise.all([
       // wing_sales / dashboard daily — Wing 매출 대시보드 일별 데이터
       this.prisma.channelAccountDailyKpiSnapshot.findMany({
@@ -162,13 +163,35 @@ export class ReadinessService {
         orderBy: { updatedAt: 'desc' },
         select: { updatedAt: true },
       }),
+      // 일별 매출(wing_sales) readiness 원천 — 셀피아 판매현황 몰별 일별 스냅샷.
+      // businessDate 별로 데이터가 있는 날을 집계(판매처 무관 distinct).
+      this.prisma.sellpiaSalesDailySnapshot.findMany({
+        where: {
+          organizationId,
+          businessDate: { gte: rangeStartDate, lte: rangeEndDate },
+        },
+        select: { businessDate: true, capturedAt: true },
+        distinct: ['businessDate'],
+        orderBy: { businessDate: 'desc' },
+      }),
     ]);
 
-    // wing 일별 수집 — businessDate 가 schema 에서 이미 KST date 이므로 그대로 사용
+    // wing 일별 수집 — businessDate 가 schema 에서 이미 KST date 이므로 그대로 사용.
+    // (원래 Wing 기준 로직은 보존. 현재 일별 매출 상태는 아래 셀피아 기준으로 대체하고,
+    //  wingMissing 은 vestigial scrapeUrls 계산에만 남겨둔다.)
     const wingPresent = new Set(wingDailyKpiRows.map((r) => toKstDateStr(r.businessDate)));
     const wingMissing = expectedDates.filter((d) => !wingPresent.has(d));
-    const wingYesterdayOk = wingPresent.has(yesterdayKstStr);
-    const wingLastDate = wingDailyKpiRows[0]?.lastObservedAt ?? null;
+
+    // 일별 매출(wing_sales) readiness 상태 원천 — 셀피아 판매현황(몰별 일별 매출).
+    const sellpiaPresent = new Set(
+      sellpiaDailyRows.map((r) => toKstDateStr(r.businessDate)),
+    );
+    const sellpiaMissing = expectedDates.filter((d) => !sellpiaPresent.has(d));
+    const sellpiaYesterdayOk = sellpiaPresent.has(yesterdayKstStr);
+    const sellpiaLastDate = sellpiaDailyRows.reduce<Date | null>(
+      (max, r) => (!max || r.capturedAt > max ? r.capturedAt : max),
+      null,
+    );
 
     // coupang_ads 일별 수집
     const adsPresent = new Set(adsDailyKpiRows.map((r) => toKstDateStr(r.businessDate)));
@@ -190,16 +213,16 @@ export class ReadinessService {
     const checks: ReadinessCheck[] = [
       {
         key: 'wing_sales',
-        label: '쿠팡 Wing 데이터 수집',
-        status: wingMissing.length === 0 ? 'ok' : wingYesterdayOk ? 'stale' : 'missing',
+        label: '일별 매출 (셀피아 판매현황)',
+        status: sellpiaMissing.length === 0 ? 'ok' : sellpiaYesterdayOk ? 'stale' : 'missing',
         detail:
-          wingMissing.length === 0
+          sellpiaMissing.length === 0
             ? `최근 ${expectedDates.length}일치 (${rangeStartKstStr}~${yesterdayKstStr}) 모두 수집됨`
-            : !wingYesterdayOk
-              ? `최신(${yesterdayKstStr}) 미수집 — 누락 ${wingMissing.length}/${expectedDates.length}일`
-              : `누락 ${wingMissing.length}/${expectedDates.length}일 (${rangeStartKstStr}~${yesterdayKstStr})`,
-        lastSyncedAt: wingLastDate ? wingLastDate.toISOString() : null,
-        count: wingPresent.size,
+            : !sellpiaYesterdayOk
+              ? `최신(${yesterdayKstStr}) 미수집 — 누락 ${sellpiaMissing.length}/${expectedDates.length}일`
+              : `누락 ${sellpiaMissing.length}/${expectedDates.length}일 (${rangeStartKstStr}~${yesterdayKstStr})`,
+        lastSyncedAt: sellpiaLastDate ? sellpiaLastDate.toISOString() : null,
+        count: sellpiaPresent.size,
         collector: 'extension',
         collectEndpoint: null,
         // 누락된 날짜만 골라 일별 URL 생성. 누락 없으면 어제 한 번 더 수집.
@@ -214,7 +237,7 @@ export class ReadinessService {
               ],
         referenceDate: yesterdayKstStr,
         expectedDates,
-        missingDates: wingMissing,
+        missingDates: sellpiaMissing,
       },
       {
         key: 'rocket_sales',
