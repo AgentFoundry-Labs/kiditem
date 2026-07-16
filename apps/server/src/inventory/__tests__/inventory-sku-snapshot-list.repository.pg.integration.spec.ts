@@ -42,6 +42,14 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       importedAt: new Date('2026-07-12T02:00:00.000Z'),
       createdAt: new Date('2026-07-12T02:00:00.000Z'),
     });
+    await prisma.sellpiaInventoryState.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceOrigin: 'https://kiditem.sellpia.com',
+        sourceAccountKey: 'kiditem',
+        lastCompletedImportRunId: run.id,
+      },
+    });
     const crossTenantRun = await createRun({
       organizationId: OTHER_ORGANIZATION_ID,
       fileName: 'other-run.xls',
@@ -148,6 +156,46 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       code: 'SP-001',
       lastImportRunId: null,
       lastImportedAt: null,
+    });
+  });
+
+  it('uses the inventory state pointer as the current import basis instead of importedAt order', async () => {
+    const current = await createRun({
+      organizationId: TEST_ORGANIZATION_ID,
+      fileName: 'current-basis.xls',
+      fileHash: 'c'.repeat(64),
+      status: 'completed',
+      rowCount: 1,
+      importedAt: new Date('2026-07-12T01:00:00.000Z'),
+      createdAt: new Date('2026-07-12T01:00:00.000Z'),
+    });
+    await createRun({
+      organizationId: TEST_ORGANIZATION_ID,
+      fileName: 'newer-timestamp-but-not-current.xls',
+      fileHash: 'd'.repeat(64),
+      status: 'completed',
+      rowCount: 1,
+      importedAt: new Date('2026-07-12T02:00:00.000Z'),
+      createdAt: new Date('2026-07-12T02:00:00.000Z'),
+    });
+    await prisma.sellpiaInventoryState.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceOrigin: 'https://kiditem.sellpia.com',
+        sourceAccountKey: 'kiditem',
+        lastCompletedImportRunId: current.id,
+      },
+    });
+
+    const snapshot = await service.listSnapshot(TEST_ORGANIZATION_ID, {
+      page: 1,
+      limit: 10,
+      stockStatus: 'all',
+    });
+
+    expect(snapshot.latestImport).toMatchObject({
+      id: current.id,
+      fileName: 'current-basis.xls',
     });
   });
 

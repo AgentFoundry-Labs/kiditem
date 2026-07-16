@@ -126,6 +126,78 @@ describe('Sellpia unified import repositories (PG integration)', () => {
     expect(state).toMatchObject({ verifiedGeneration: 3n, requestedGeneration: 3n });
   });
 
+  it('reapplies a historical completed hash when it becomes the current workbook again', async () => {
+    const workbookB = workbook([row('SP-CYCLE', 20)]);
+    const workbookA = workbook([row('SP-CYCLE', 5)]);
+    const firstB = await service.importInventory(browserInput(
+      workbookB,
+      await activateGeneration(1n, 'initial_snapshot'),
+    ));
+    const currentA = await service.importInventory(browserInput(
+      workbookA,
+      await activateGeneration(2n, 'manual_request'),
+    ));
+
+    const thirdExecution = await activateGeneration(3n, 'manual_request');
+    await expect(publication.verifySameHash({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      runId: firstB.run.id,
+      fileHash: sha256(workbookB),
+      execution: thirdExecution,
+    })).rejects.toBeInstanceOf(ConflictException);
+
+    const reappliedB = await service.importInventory(browserInput(
+      workbookB,
+      thirdExecution,
+    ));
+
+    const [master, state, runs] = await Promise.all([
+      prisma.masterProduct.findFirstOrThrow({
+        where: {
+          organizationId: TEST_ORGANIZATION_ID,
+          code: 'SP-CYCLE',
+        },
+      }),
+      prisma.sellpiaInventoryState.findUniqueOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+      }),
+      prisma.sourceImportRun.findMany({
+        where: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sourceType: 'sellpia_inventory',
+        },
+        orderBy: { publicationSequence: 'asc' },
+      }),
+    ]);
+
+    expect(currentA.run.id).not.toBe(firstB.run.id);
+    expect(reappliedB).toMatchObject({
+      outcome: 'published',
+      duplicate: false,
+      run: {
+        id: firstB.run.id,
+        freshnessGeneration: '3',
+      },
+      changes: {
+        createdMasterProductCount: 0,
+        updatedMasterProductCount: 1,
+        inactivatedMasterProductCount: 0,
+      },
+    });
+    expect(master).toMatchObject({
+      currentStock: 20,
+      lastImportRunId: firstB.run.id,
+    });
+    expect(state).toMatchObject({
+      verifiedGeneration: 3n,
+      lastCompletedImportRunId: firstB.run.id,
+    });
+    expect(runs).toHaveLength(2);
+    expect(runs.map(({ publicationSequence }) => publicationSequence))
+      .toEqual([2n, 3n]);
+  });
+
   it('keeps a scheduled confirmation authoritative when an order arrives before execution', async () => {
     const bytes = workbook([row('SP-BOUNDED', 7)]);
     await service.importInventory(browserInput(

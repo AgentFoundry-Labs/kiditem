@@ -151,10 +151,14 @@ implements SellpiaSnapshotPublicationRepositoryPort {
       const generation = assertPublicationFence(state, input);
       if (
         run.status !== 'completed'
+        || run.sourceType !== SOURCE_TYPE
         || run.fileHash !== input.fileHash
         || run.channelAccountId !== null
+        || state.lastCompletedImportRunId !== run.id
       ) {
-        throw new ConflictException('Completed Sellpia import run does not match the file');
+        throw new ConflictException(
+          'Completed Sellpia import run is not the current snapshot basis',
+        );
       }
 
       const now = new Date();

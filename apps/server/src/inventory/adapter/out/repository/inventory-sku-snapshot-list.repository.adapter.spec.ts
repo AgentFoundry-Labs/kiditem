@@ -27,6 +27,9 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
         findFirst: vi.fn().mockResolvedValue(null),
         findMany: vi.fn().mockResolvedValue([]),
       },
+      sellpiaInventoryState: {
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
       $queryRaw: vi.fn().mockResolvedValue([{
         totalSkus: 1n,
         inStockSkus: 1n,
@@ -48,6 +51,9 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
         findFirst: outsideTransaction,
         findMany: outsideTransaction,
       },
+      sellpiaInventoryState: {
+        findUnique: outsideTransaction,
+      },
       $queryRaw: outsideTransaction,
       $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)),
     };
@@ -67,7 +73,8 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
     expect(tx.masterProduct.findMany).toHaveBeenCalledOnce();
     expect(tx.masterProduct.count).toHaveBeenCalledOnce();
     expect(tx.$queryRaw).toHaveBeenCalledOnce();
-    expect(tx.sourceImportRun.findFirst).toHaveBeenCalledOnce();
+    expect(tx.sellpiaInventoryState.findUnique).toHaveBeenCalledOnce();
+    expect(tx.sourceImportRun.findFirst).not.toHaveBeenCalled();
     expect(tx.sourceImportRun.findMany).toHaveBeenCalledOnce();
     expect(result.rows[0]).toMatchObject({
       lastImportRunId: null,

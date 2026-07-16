@@ -84,7 +84,7 @@ implements InventorySkuSnapshotListRepositoryPort {
   ) {
     return this.prisma.$transaction(async (transaction) => {
       const where = snapshotWhere(organizationId, query);
-      const [rows, total, summaryRows, latestImport] = await Promise.all([
+      const [rows, total, summaryRows, state] = await Promise.all([
         transaction.masterProduct.findMany({
           where,
           select: SNAPSHOT_SELECT,
@@ -109,18 +109,26 @@ implements InventorySkuSnapshotListRepositoryPort {
           WHERE organization_id = ${organizationId}::uuid
             ${activeStatusSql(query.activeStatus)}
         `,
-        transaction.sourceImportRun.findFirst({
-          where: {
-            organizationId,
-            sourceType: SOURCE_TYPE,
-            channelAccountId: null,
-            status: 'completed',
-          },
-          select: IMPORT_RUN_SELECT,
-          orderBy: [{ importedAt: 'desc' }, { createdAt: 'desc' }, { id: 'asc' }],
+        transaction.sellpiaInventoryState.findUnique({
+          where: { organizationId },
+          select: { lastCompletedImportRunId: true },
         }),
       ]);
       const summary = summaryRows[0] ?? emptySummaryRow();
+      // Publication can make an older hash run current again, so chronology is
+      // not an authoritative snapshot basis.
+      const latestImport = state?.lastCompletedImportRunId
+        ? await transaction.sourceImportRun.findFirst({
+            where: {
+              id: state.lastCompletedImportRunId,
+              organizationId,
+              sourceType: SOURCE_TYPE,
+              channelAccountId: null,
+              status: 'completed',
+            },
+            select: IMPORT_RUN_SELECT,
+          })
+        : null;
       const importRunIds = [...new Set(rows
         .map(({ lastImportRunId }) => lastImportRunId)
         .filter((id): id is string => id !== null))];

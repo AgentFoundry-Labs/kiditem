@@ -45,7 +45,14 @@ implements SellpiaImportRunRepositoryPort {
         },
       });
       return existing
-        ? claimExistingRun(tx, existing, input, claimedExecution, now)
+        ? claimExistingRun(
+            tx,
+            existing,
+            state.lastCompletedImportRunId,
+            input,
+            claimedExecution,
+            now,
+          )
         : createRun(tx, input, claimedExecution, now);
     }, TRANSACTION_OPTIONS);
   }
@@ -218,12 +225,16 @@ async function createRun(
 async function claimExistingRun(
   tx: Prisma.TransactionClient,
   run: SourceImportRun,
+  currentCompletedRunId: string | null,
   input: ClaimInput,
   execution: ClaimedSellpiaImportExecution,
   now: Date,
 ): Promise<SellpiaFileRunClaim> {
   const claimedExecution = input.execution.kind === 'manual' ? execution : undefined;
-  if (run.status === 'completed') {
+  // A hash identifies a durable run, but only the state pointer identifies the
+  // currently published snapshot. Historical completed hashes must be fenced
+  // and published again before they can become authoritative.
+  if (run.status === 'completed' && run.id === currentCompletedRunId) {
     return { kind: 'completed', runId: run.id, claimedExecution };
   }
   const staleBefore = new Date(now.getTime() - CLAIM_LEASE_MS);
