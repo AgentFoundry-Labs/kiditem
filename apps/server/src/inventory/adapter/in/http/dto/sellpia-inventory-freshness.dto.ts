@@ -3,6 +3,7 @@ import type {
   SellpiaInventoryCollectionFailureCode,
   SellpiaInventoryRefreshRequest,
   SellpiaOrderTransmissionIntentPrepareRequest,
+  SellpiaOrderTransmissionIntentReconcileRequest,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 
 export class SellpiaInventoryRefreshRequestDto
@@ -21,6 +22,22 @@ implements SellpiaOrderTransmissionIntentPrepareRequest {
   @MinLength(1)
   @MaxLength(500)
   intentKey!: string;
+}
+
+export class SellpiaOrderTransmissionIntentReconcileRequestDto
+implements SellpiaOrderTransmissionIntentReconcileRequest {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(500)
+  intentKey!: string;
+
+  @IsIn(['submitted', 'not_submitted'])
+  outcome!: SellpiaOrderTransmissionIntentReconcileRequest['outcome'];
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(500)
+  note!: string;
 }
 
 export class SellpiaInventoryFailRequestDto {

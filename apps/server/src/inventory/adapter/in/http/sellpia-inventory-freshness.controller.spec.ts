@@ -34,6 +34,16 @@ describe('SellpiaInventoryFreshnessController', () => {
       'order-transmission-intents/abort',
       RequestMethod.POST,
     ]);
+    const reconcile = (SellpiaInventoryFreshnessController.prototype as unknown as {
+      reconcileOrderTransmissionIntent?: (...args: never[]) => unknown;
+    }).reconcileOrderTransmissionIntent;
+    expect(reconcile).toBeTypeOf('function');
+    if (reconcile) {
+      expect([
+        Reflect.getMetadata('path', reconcile),
+        Reflect.getMetadata('method', reconcile),
+      ]).toEqual(['order-transmission-intents/reconcile', RequestMethod.POST]);
+    }
     expect(routeMetadata('claimDue')).toEqual(['claims', RequestMethod.POST]);
     expect(routeMetadata('heartbeat')).toEqual([
       'claims/:token/heartbeat',
@@ -46,7 +56,7 @@ describe('SellpiaInventoryFreshnessController', () => {
     ]);
   });
 
-  it('restricts only source binding to owner/admin at the HTTP boundary', () => {
+  it('restricts source binding and intent reconciliation to owner/admin', () => {
     expect(Reflect.getMetadata(
       ROLES_METADATA_KEY,
       SellpiaInventoryFreshnessController.prototype.confirmSourceBinding,
@@ -55,6 +65,16 @@ describe('SellpiaInventoryFreshnessController', () => {
       ROLES_METADATA_KEY,
       SellpiaInventoryFreshnessController.prototype.requestRefresh,
     )).toBeUndefined();
+    const reconcile = (SellpiaInventoryFreshnessController.prototype as unknown as {
+      reconcileOrderTransmissionIntent?: (...args: never[]) => unknown;
+    }).reconcileOrderTransmissionIntent;
+    expect(reconcile).toBeTypeOf('function');
+    if (reconcile) {
+      expect(Reflect.getMetadata(ROLES_METADATA_KEY, reconcile)).toEqual([
+        'owner',
+        'admin',
+      ]);
+    }
   });
 
   it('derives organization and actor ownership only from authenticated decorators', async () => {
@@ -76,6 +96,11 @@ describe('SellpiaInventoryFreshnessController', () => {
     });
     await controller.abortOrderTransmissionIntent(ORG_ID, USER, {
       intentKey: 'orders-1',
+    });
+    await controller.reconcileOrderTransmissionIntent(ORG_ID, USER, {
+      intentKey: 'orders-1',
+      outcome: 'not_submitted',
+      note: 'Sellpia 주문 내역에서 미접수 확인',
     });
     await controller.claimDue(ORG_ID, USER, {});
     await controller.heartbeat(ORG_ID, USER, TOKEN, {});
@@ -112,6 +137,13 @@ describe('SellpiaInventoryFreshnessController', () => {
       organizationId: ORG_ID,
       userId: USER_ID,
       intentKey: 'orders-1',
+    });
+    expect(port.reconcileOrderTransmissionIntent).toHaveBeenCalledWith({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentKey: 'orders-1',
+      outcome: 'not_submitted',
+      note: 'Sellpia 주문 내역에서 미접수 확인',
     });
     expect(port.claimDue).toHaveBeenCalledWith({ organizationId: ORG_ID, userId: USER_ID });
     expect(port.heartbeat).toHaveBeenCalledWith({
@@ -188,6 +220,18 @@ function makePort() {
         .mockResolvedValue({
           intentKey: 'orders-1',
           status: 'aborted',
+          state: view,
+        }),
+    reconcileOrderTransmissionIntent:
+      vi.fn<SellpiaInventoryFreshnessPort['reconcileOrderTransmissionIntent']>()
+        .mockResolvedValue({
+          intentKey: 'orders-1',
+          outcome: 'not_submitted',
+          status: 'aborted',
+          finalizedGeneration: null,
+          reconciledBy: USER_ID,
+          reconciledAt: '2026-07-15T00:00:00.000Z',
+          note: 'Sellpia 주문 내역에서 미접수 확인',
           state: view,
         }),
     claimDue: vi.fn<SellpiaInventoryFreshnessPort['claimDue']>()

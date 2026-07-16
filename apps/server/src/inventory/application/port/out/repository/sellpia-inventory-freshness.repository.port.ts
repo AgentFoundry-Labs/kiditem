@@ -34,6 +34,18 @@ export type SellpiaOrderTransmissionIntentRecord = {
   finalizedGeneration: bigint | null;
 };
 
+export type SellpiaOrderTransmissionIntentReconciliationRecord = {
+  reconciledBy: string;
+  reconciledAt: Date;
+  note: string;
+  outcome: 'submitted' | 'not_submitted';
+};
+
+export type SellpiaOrderTransmissionIntentReconcileRecord =
+  SellpiaOrderTransmissionIntentRecord & {
+    latestReconciliation: SellpiaOrderTransmissionIntentReconciliationRecord | null;
+  };
+
 export interface SellpiaInventoryFreshnessRepositoryTransaction {
   getState(): Promise<SellpiaInventoryFreshnessState>;
 
@@ -46,21 +58,37 @@ export interface SellpiaInventoryFreshnessRepositoryTransaction {
     intentKey: string;
     userId: string;
     preparedAt: Date;
-  }): Promise<'prepared' | 'already_prepared' | 'already_finalized'>;
+  }): Promise<'prepared' | 'already_prepared' | 'already_finalized' | 'not_owned'>;
 
   findOrderTransmissionIntent(
     intentKey: string,
+    userId: string,
   ): Promise<SellpiaOrderTransmissionIntentRecord | null>;
 
   finalizeOrderTransmissionIntent(input: {
     intentKey: string;
+    userId: string;
     finalizedGeneration: bigint;
     finalizedAt: Date;
   }): Promise<void>;
 
   abortOrderTransmissionIntent(input: {
     intentKey: string;
+    userId: string;
     abortedAt: Date;
+  }): Promise<void>;
+
+  findOrderTransmissionIntentForReconciliation(
+    intentKey: string,
+  ): Promise<SellpiaOrderTransmissionIntentReconcileRecord | null>;
+
+  reconcileOrderTransmissionIntent(input: {
+    intentKey: string;
+    userId: string;
+    reconciledAt: Date;
+    note: string;
+    outcome: 'submitted' | 'not_submitted';
+    finalizedGeneration: bigint | null;
   }): Promise<void>;
 
   hasFailedAttempt(input: {

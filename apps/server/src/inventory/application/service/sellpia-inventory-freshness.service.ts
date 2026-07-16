@@ -39,6 +39,8 @@ import type {
   SellpiaOrderTransmissionIntentAbortResponse,
   SellpiaOrderTransmissionIntentFinalizeResponse,
   SellpiaOrderTransmissionIntentPrepareResponse,
+  SellpiaOrderTransmissionIntentReconcileRequest,
+  SellpiaOrderTransmissionIntentReconcileResponse,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 import type { SellpiaInventoryFreshnessGatePort } from '../port/in/stock/sellpia-inventory-freshness-gate.port';
 import type { SellpiaInventoryFreshnessPort } from '../port/in/stock/sellpia-inventory-freshness.port';
@@ -133,6 +135,7 @@ implements
         userId: input.userId,
         preparedAt: now,
       });
+      if (disposition === 'not_owned') throw intentNotFound();
       const state = await transaction.getState();
       return {
         intentKey: input.intentKey,
@@ -146,7 +149,10 @@ implements
     intentKey: string;
   }): Promise<SellpiaOrderTransmissionIntentFinalizeResponse> {
     return this.withLockedState(input.organizationId, async (transaction) => {
-      const intent = await transaction.findOrderTransmissionIntent(input.intentKey);
+      const intent = await transaction.findOrderTransmissionIntent(
+        input.intentKey,
+        input.userId,
+      );
       if (!intent) throw intentNotFound();
       const now = new Date();
       if (intent.status === 'finalized') {
@@ -181,6 +187,7 @@ implements
       });
       await transaction.finalizeOrderTransmissionIntent({
         intentKey: input.intentKey,
+        userId: input.userId,
         finalizedGeneration,
         finalizedAt: now,
       });
@@ -198,7 +205,10 @@ implements
     intentKey: string;
   }): Promise<SellpiaOrderTransmissionIntentAbortResponse> {
     return this.withLockedState(input.organizationId, async (transaction) => {
-      const intent = await transaction.findOrderTransmissionIntent(input.intentKey);
+      const intent = await transaction.findOrderTransmissionIntent(
+        input.intentKey,
+        input.userId,
+      );
       if (!intent) throw intentNotFound();
       if (intent.status === 'finalized') {
         throw new ConflictException('Finalized Sellpia order transmission cannot be aborted');
@@ -207,6 +217,7 @@ implements
       if (intent.status === 'prepared') {
         await transaction.abortOrderTransmissionIntent({
           intentKey: input.intentKey,
+          userId: input.userId,
           abortedAt: now,
         });
       }
@@ -216,6 +227,71 @@ implements
         status: 'aborted',
         state: toFreshnessView(state, now, input.userId),
       };
+    });
+  }
+
+  async reconcileOrderTransmissionIntent(
+    input: ActorScope & SellpiaOrderTransmissionIntentReconcileRequest,
+  ): Promise<SellpiaOrderTransmissionIntentReconcileResponse> {
+    const note = input.note.trim();
+    if (!note || note.length > 500) {
+      throw new BadRequestException('Reconciliation note must be 1-500 characters');
+    }
+    return this.withLockedState(input.organizationId, async (transaction) => {
+      const intent = await transaction.findOrderTransmissionIntentForReconciliation(
+        input.intentKey,
+      );
+      if (!intent) throw intentNotFound();
+      const now = new Date();
+      if (intent.status !== 'prepared') {
+        const audit = intent.latestReconciliation;
+        if (!audit || audit.outcome !== input.outcome) {
+          throw new ConflictException('Sellpia order transmission is already resolved');
+        }
+        const state = await transaction.getState();
+        return reconciliationResponse({
+          intentKey: input.intentKey,
+          status: intent.status,
+          finalizedGeneration: intent.finalizedGeneration,
+          audit,
+          state: toFreshnessView(state, now, input.userId),
+        });
+      }
+
+      let finalizedGeneration: bigint | null = null;
+      if (input.outcome === 'submitted') {
+        const state = await transaction.getState();
+        const patch = planOrderTransmissionFinalization(state, now, randomUUID());
+        finalizedGeneration = patch.requestedGeneration ?? null;
+        if (finalizedGeneration === null) {
+          throw new ConflictException('Sellpia order transmission generation was not planned');
+        }
+        await transaction.compareAndSetState({
+          expected: expectation(state),
+          patch,
+        });
+      }
+      await transaction.reconcileOrderTransmissionIntent({
+        intentKey: input.intentKey,
+        userId: input.userId,
+        reconciledAt: now,
+        note,
+        outcome: input.outcome,
+        finalizedGeneration,
+      });
+      const updated = await transaction.getState();
+      return reconciliationResponse({
+        intentKey: input.intentKey,
+        status: input.outcome === 'submitted' ? 'finalized' : 'aborted',
+        finalizedGeneration,
+        audit: {
+          reconciledBy: input.userId,
+          reconciledAt: now,
+          note,
+          outcome: input.outcome,
+        },
+        state: toFreshnessView(updated, now, input.userId),
+      });
     });
   }
 
@@ -484,6 +560,47 @@ function lostLease(): ConflictException {
 
 function intentNotFound(): NotFoundException {
   return new NotFoundException('Sellpia order transmission intent was not found');
+}
+
+function reconciliationResponse(input: {
+  intentKey: string;
+  status: 'finalized' | 'aborted';
+  finalizedGeneration: bigint | null;
+  audit: {
+    reconciledBy: string;
+    reconciledAt: Date;
+    note: string;
+    outcome: 'submitted' | 'not_submitted';
+  };
+  state: SellpiaInventoryFreshnessView;
+}): SellpiaOrderTransmissionIntentReconcileResponse {
+  const common = {
+    intentKey: input.intentKey,
+    reconciledBy: input.audit.reconciledBy,
+    reconciledAt: input.audit.reconciledAt.toISOString(),
+    note: input.audit.note,
+    state: input.state,
+  };
+  if (input.audit.outcome === 'submitted') {
+    if (input.status !== 'finalized' || input.finalizedGeneration === null) {
+      throw new ConflictException('Submitted reconciliation has invalid terminal state');
+    }
+    return {
+      ...common,
+      outcome: 'submitted',
+      status: 'finalized',
+      finalizedGeneration: input.finalizedGeneration.toString(),
+    };
+  }
+  if (input.status !== 'aborted' || input.finalizedGeneration !== null) {
+    throw new ConflictException('Non-submitted reconciliation has invalid terminal state');
+  }
+  return {
+    ...common,
+    outcome: 'not_submitted',
+    status: 'aborted',
+    finalizedGeneration: null,
+  };
 }
 
 function referenceInvalid(): AppException {

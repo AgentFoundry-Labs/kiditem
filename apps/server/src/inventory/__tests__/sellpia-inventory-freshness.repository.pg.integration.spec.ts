@@ -17,6 +17,7 @@ import type { PrismaClient } from '@prisma/client';
 
 const MASTER_PRODUCT_ID = '10000000-0000-4000-8000-000000000001';
 const INTENT_KEY = '1721000000000-kidkids-browser';
+const ADMIN_USER_ID = '10000000-0000-4000-8000-000000000002';
 
 describe('Sellpia inventory freshness repository (PG integration)', () => {
   let prisma: PrismaClient;
@@ -215,6 +216,119 @@ describe('Sellpia inventory freshness repository (PG integration)', () => {
     })).toBe(2);
   });
 
+  it('fences normal intent idempotency and resolution to its creator', async () => {
+    await seedSameOrganizationAdmin(prisma);
+    await service.prepareOrderTransmissionIntent({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      intentKey: INTENT_KEY,
+    });
+
+    await expect(service.prepareOrderTransmissionIntent({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: ADMIN_USER_ID,
+      intentKey: INTENT_KEY,
+    })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.abortOrderTransmissionIntent({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: ADMIN_USER_ID,
+      intentKey: INTENT_KEY,
+    })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.finalizeOrderTransmissionIntent({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: ADMIN_USER_ID,
+      intentKey: INTENT_KEY,
+    })).rejects.toBeInstanceOf(NotFoundException);
+
+    await service.finalizeOrderTransmissionIntent({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      intentKey: INTENT_KEY,
+    });
+    await expect(service.finalizeOrderTransmissionIntent({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: ADMIN_USER_ID,
+      intentKey: INTENT_KEY,
+    })).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('audits idempotent owner/admin reconciliation for both terminal outcomes', async () => {
+    await seedSameOrganizationAdmin(prisma);
+    await prisma.sellpiaInventoryState.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceAccountKey: 'kiditem',
+        lastVerifiedAt: new Date(),
+        requestedGeneration: 4n,
+        verifiedGeneration: 4n,
+        refreshReason: 'legacy_manual_import',
+      },
+    });
+    await service.prepareOrderTransmissionIntent({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      intentKey: `${INTENT_KEY}-submitted`,
+    });
+    const submittedInput = {
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: ADMIN_USER_ID,
+      intentKey: `${INTENT_KEY}-submitted`,
+      outcome: 'submitted' as const,
+      note: 'Sellpia 주문 내역에서 접수 확인',
+    };
+    const submitted = await service.reconcileOrderTransmissionIntent(submittedInput);
+    const submittedRetry = await service.reconcileOrderTransmissionIntent(submittedInput);
+
+    await service.prepareOrderTransmissionIntent({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      intentKey: `${INTENT_KEY}-not-submitted`,
+    });
+    const notSubmitted = await service.reconcileOrderTransmissionIntent({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: ADMIN_USER_ID,
+      intentKey: `${INTENT_KEY}-not-submitted`,
+      outcome: 'not_submitted',
+      note: 'Sellpia 주문 내역에서 미접수 확인',
+    });
+
+    expect(submitted).toMatchObject({
+      status: 'finalized',
+      outcome: 'submitted',
+      finalizedGeneration: '5',
+      reconciledBy: ADMIN_USER_ID,
+    });
+    expect(submittedRetry).toEqual(submitted);
+    expect(notSubmitted).toMatchObject({
+      status: 'aborted',
+      outcome: 'not_submitted',
+      finalizedGeneration: null,
+      reconciledBy: ADMIN_USER_ID,
+    });
+    expect(await prisma.sellpiaInventoryState.findUniqueOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).toMatchObject({ requestedGeneration: 5n, verifiedGeneration: 4n });
+    expect(await prisma.sellpiaOrderTransmissionIntentReconciliation.findMany({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      orderBy: { reconciledAt: 'asc' },
+    })).toMatchObject([
+      {
+        reconciledBy: ADMIN_USER_ID,
+        note: submittedInput.note,
+        outcome: 'submitted',
+      },
+      {
+        reconciledBy: ADMIN_USER_ID,
+        note: 'Sellpia 주문 내역에서 미접수 확인',
+        outcome: 'not_submitted',
+      },
+    ]);
+    await expect(service.reconcileOrderTransmissionIntent({
+      ...submittedInput,
+      outcome: 'not_submitted',
+    })).rejects.toBeInstanceOf(ConflictException);
+  });
+
   it('prevents organization B from viewing, claiming, controlling, binding, or gating organization A state', async () => {
     await prisma.sellpiaInventoryState.create({
       data: {
@@ -326,4 +440,24 @@ async function expectCode(promise: Promise<unknown>, code: string) {
     expect(error).toBeInstanceOf(AppException);
     expect((error as AppException).code).toBe(code);
   }
+}
+
+async function seedSameOrganizationAdmin(prisma: PrismaClient): Promise<void> {
+  await prisma.user.create({
+    data: {
+      id: ADMIN_USER_ID,
+      email: 'inventory-admin@test.local',
+      name: 'Inventory Admin',
+      role: 'admin',
+      type: 'human',
+    },
+  });
+  await prisma.organizationMembership.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: ADMIN_USER_ID,
+      role: 'admin',
+      status: 'active',
+    },
+  });
 }

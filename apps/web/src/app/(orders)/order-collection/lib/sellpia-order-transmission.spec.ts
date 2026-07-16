@@ -42,7 +42,7 @@ describe('transmitSellpiaOrder', () => {
     vi.clearAllMocks();
     extension.sendSellpiaOrders.mockResolvedValue({
       success: true,
-      submitted: true,
+      outcome: 'submitted',
       shop: '키드키즈',
     });
     store.markTransmissionRequested.mockImplementation(
@@ -98,16 +98,36 @@ describe('transmitSellpiaOrder', () => {
   });
 
   it('aborts the prepared intent when the extension explicitly did not submit', async () => {
-    extension.sendSellpiaOrders.mockResolvedValue({ success: true, submitted: false });
+    extension.sendSellpiaOrders.mockResolvedValue({
+      success: false,
+      outcome: 'not_submitted',
+      error: '판매처를 찾지 못했습니다.',
+    });
 
     await expect(transmitSellpiaOrder(input())).resolves.toEqual({
       status: 'not_submitted',
       abortWarning: false,
+      error: '판매처를 찾지 못했습니다.',
     });
     expect(store.markTransmissionRequested).not.toHaveBeenCalled();
     expect(freshness.abortOrderTransmissionIntent).toHaveBeenCalledWith('orders-1');
     expect(freshness.finalizeOrderTransmissionIntent).not.toHaveBeenCalled();
     expect(invalidateFreshnessHistory).not.toHaveBeenCalled();
+  });
+
+  it('keeps the intent prepared when the extension result is unknown', async () => {
+    extension.sendSellpiaOrders.mockResolvedValue({
+      success: false,
+      outcome: 'unknown',
+      error: '익스텐션 응답 시간이 초과되었습니다.',
+    });
+
+    await expect(transmitSellpiaOrder(input())).rejects.toThrow(
+      '셀피아 전송 결과 확인 필요',
+    );
+    expect(freshness.abortOrderTransmissionIntent).not.toHaveBeenCalled();
+    expect(freshness.finalizeOrderTransmissionIntent).not.toHaveBeenCalled();
+    expect(store.markTransmissionRequested).not.toHaveBeenCalled();
   });
 
   it('does not invoke the extension when durable intent preparation fails', async () => {

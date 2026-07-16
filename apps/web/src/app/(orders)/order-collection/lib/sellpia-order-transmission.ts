@@ -28,7 +28,7 @@ export interface SellpiaOrderTransmissionInput {
 }
 
 export type SellpiaOrderTransmissionResult =
-  | { status: 'not_submitted'; abortWarning: boolean }
+  | { status: 'not_submitted'; abortWarning: boolean; error: string | null }
   | {
       status: 'transmission_requested';
       file: StoredOrderCollectionFile;
@@ -69,17 +69,23 @@ export async function transmitSellpiaOrder(
       blob: input.file.blob,
     });
 
-    if (!extensionResult.success) {
-      throw new Error(extensionResult.error ?? '셀피아 전송 요청에 실패했습니다.');
-    }
-    if (extensionResult.submitted !== true) {
+    if (extensionResult.outcome === 'not_submitted') {
       let abortWarning = false;
       try {
         await input.freshness.abortOrderTransmissionIntent(input.file.id);
       } catch {
         abortWarning = true;
       }
-      return { status: 'not_submitted', abortWarning };
+      return {
+        status: 'not_submitted',
+        abortWarning,
+        error: extensionResult.error,
+      };
+    }
+    if (extensionResult.outcome === 'unknown') {
+      throw new Error(
+        `셀피아 전송 결과 확인 필요 — 재전송하지 말고 Sellpia 주문 내역을 확인하세요. (${extensionResult.error})`,
+      );
     }
     submittedShopName = extensionResult.shop ?? shopName;
     finalizationWarning = !await finalizeWithRetry(input);

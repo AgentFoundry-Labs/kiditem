@@ -64,6 +64,21 @@ describe('Inventory architecture contract', () => {
     expect(schema).not.toMatch(/^enum\s+/m);
   });
 
+  it('persists append-only owner/admin reconciliation audit records', () => {
+    const schema = readFileSync(PRISMA_INVENTORY_SCHEMA, 'utf8');
+    const block = schema.match(
+      /model SellpiaOrderTransmissionIntentReconciliation \{([\s\S]*?)\n\}/,
+    )?.[1] ?? '';
+
+    expect(block).toContain('organizationId');
+    expect(block).toContain('intentId');
+    expect(block).toContain('reconciledBy');
+    expect(block).toContain('reconciledAt');
+    expect(block).toContain('note');
+    expect(block).toContain('outcome');
+    expect(block).toContain('@@index([organizationId, reconciledAt]');
+  });
+
   it('keeps Unshipped reads behind a dedicated repository adapter', () => {
     const service = readFileSync(
       path.join(INVENTORY_ROOT, 'application/service/unshipped.service.ts'),

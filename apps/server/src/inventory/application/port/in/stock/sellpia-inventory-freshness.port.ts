@@ -8,6 +8,8 @@ import type {
   SellpiaOrderTransmissionIntentFinalizeResponse,
   SellpiaOrderTransmissionIntentPrepareRequest,
   SellpiaOrderTransmissionIntentPrepareResponse,
+  SellpiaOrderTransmissionIntentReconcileRequest,
+  SellpiaOrderTransmissionIntentReconcileResponse,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 
 type ActorScope = { organizationId: string; userId: string };
@@ -35,6 +37,10 @@ export interface SellpiaInventoryFreshnessPort {
   abortOrderTransmissionIntent(
     input: ActorScope & SellpiaOrderTransmissionIntentPrepareRequest,
   ): Promise<SellpiaOrderTransmissionIntentAbortResponse>;
+
+  reconcileOrderTransmissionIntent(
+    input: ActorScope & SellpiaOrderTransmissionIntentReconcileRequest,
+  ): Promise<SellpiaOrderTransmissionIntentReconcileResponse>;
 
   claimDue(input: ActorScope): Promise<SellpiaInventoryClaimResponse>;
 

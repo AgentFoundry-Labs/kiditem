@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ErrorCodes } from '../errors/codes';
+import * as freshnessContracts from './sellpia-inventory-freshness';
 import {
   deriveSellpiaInventoryFreshness,
   SELLPIA_INVENTORY_COLLECTION_FAILURE_CODES,
@@ -253,6 +254,60 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
 });
 
 describe('Sellpia freshness mutation contracts', () => {
+  it('defines strict audited privileged reconciliation contracts', () => {
+    const contracts = freshnessContracts as typeof freshnessContracts & {
+      SellpiaOrderTransmissionIntentReconcileRequestSchema?: {
+        parse(input: unknown): unknown;
+      };
+      SellpiaOrderTransmissionIntentReconcileResponseSchema?: {
+        parse(input: unknown): unknown;
+      };
+    };
+    expect(contracts.SellpiaOrderTransmissionIntentReconcileRequestSchema).toBeDefined();
+    expect(contracts.SellpiaOrderTransmissionIntentReconcileResponseSchema).toBeDefined();
+    if (
+      !contracts.SellpiaOrderTransmissionIntentReconcileRequestSchema
+      || !contracts.SellpiaOrderTransmissionIntentReconcileResponseSchema
+    ) return;
+
+    expect(contracts.SellpiaOrderTransmissionIntentReconcileRequestSchema.parse({
+      intentKey: 'orders-1',
+      outcome: 'submitted',
+      note: 'Sellpia 주문 내역에서 접수 확인',
+    })).toBeTruthy();
+    expect(() => contracts.SellpiaOrderTransmissionIntentReconcileRequestSchema!.parse({
+      intentKey: 'orders-1',
+      outcome: 'not_submitted',
+      note: ' ',
+    })).toThrow();
+    expect(() => contracts.SellpiaOrderTransmissionIntentReconcileRequestSchema!.parse({
+      intentKey: 'orders-1',
+      outcome: 'not_submitted',
+      note: '미접수 확인',
+      reconciledBy: RUN_ID,
+    })).toThrow();
+    expect(contracts.SellpiaOrderTransmissionIntentReconcileResponseSchema.parse({
+      intentKey: 'orders-1',
+      outcome: 'submitted',
+      status: 'finalized',
+      finalizedGeneration: '5',
+      reconciledBy: RUN_ID,
+      reconciledAt: '2026-07-15T00:05:00.000Z',
+      note: 'Sellpia 주문 내역에서 접수 확인',
+      state: createFreshnessView(),
+    })).toBeTruthy();
+    expect(contracts.SellpiaOrderTransmissionIntentReconcileResponseSchema.parse({
+      intentKey: 'orders-1',
+      outcome: 'not_submitted',
+      status: 'aborted',
+      finalizedGeneration: null,
+      reconciledBy: RUN_ID,
+      reconciledAt: '2026-07-15T00:05:00.000Z',
+      note: 'Sellpia 주문 내역에서 미접수 확인',
+      state: createFreshnessView(),
+    })).toBeTruthy();
+  });
+
   it('defines strict idempotent order-transmission intent contracts', () => {
     expect(SellpiaOrderTransmissionIntentPrepareRequestSchema.parse({
       intentKey: '1721000000000-kidkids-browser',

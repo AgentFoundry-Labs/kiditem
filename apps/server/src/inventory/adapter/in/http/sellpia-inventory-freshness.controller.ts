@@ -22,6 +22,7 @@ import {
   SellpiaInventoryRefreshRequestDto,
   SellpiaInventorySourceBindingRequestDto,
   SellpiaOrderTransmissionIntentRequestDto,
+  SellpiaOrderTransmissionIntentReconcileRequestDto,
 } from './dto';
 import type { AuthUser } from '../../../../auth/auth.types';
 
@@ -105,6 +106,22 @@ export class SellpiaInventoryFreshnessController {
       organizationId,
       userId: user.id,
       intentKey: dto.intentKey,
+    });
+  }
+
+  @Post('order-transmission-intents/reconcile')
+  @Roles('owner', 'admin')
+  reconcileOrderTransmissionIntent(
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: SellpiaOrderTransmissionIntentReconcileRequestDto,
+  ) {
+    return this.freshness.reconcileOrderTransmissionIntent({
+      organizationId,
+      userId: user.id,
+      intentKey: dto.intentKey,
+      outcome: dto.outcome,
+      note: dto.note,
     });
   }
 

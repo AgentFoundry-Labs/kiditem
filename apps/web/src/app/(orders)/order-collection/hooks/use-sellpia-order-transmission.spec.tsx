@@ -57,7 +57,7 @@ describe('useSellpiaOrderTransmission', () => {
     vi.clearAllMocks();
     extension.sendOrderFileToSellpiaViaExtension.mockResolvedValue({
       success: true,
-      submitted: true,
+      outcome: 'submitted',
       shop: '키드키즈',
     });
     store.markGeneratedOrderFileTransmissionRequested.mockImplementation(
@@ -179,8 +179,9 @@ describe('useSellpiaOrderTransmission', () => {
   it('does not record or announce a transmission when the extension did not submit', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     extension.sendOrderFileToSellpiaViaExtension.mockResolvedValue({
-      success: true,
-      submitted: false,
+      success: false,
+      outcome: 'not_submitted',
+      error: '판매처를 찾지 못했습니다.',
     });
     const onTransmissionRequested = vi.fn();
     const { result } = renderHook(
@@ -195,6 +196,31 @@ describe('useSellpiaOrderTransmission', () => {
     expect(onTransmissionRequested).not.toHaveBeenCalled();
     expect(freshness.abortOrderTransmissionIntent).toHaveBeenCalledWith('orders-1');
     expect(toast.success).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith('판매처를 찾지 못했습니다.');
+  });
+
+  it('keeps an unknown extension outcome unresolved and asks for verification', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    extension.sendOrderFileToSellpiaViaExtension.mockResolvedValue({
+      success: false,
+      outcome: 'unknown',
+      error: '익스텐션 응답 시간이 초과되었습니다.',
+    });
+    const onTransmissionRequested = vi.fn();
+    const { result } = renderHook(
+      () => useSellpiaOrderTransmission({ onTransmissionRequested }),
+      { wrapper: wrapper(client) },
+    );
+
+    await act(async () => {
+      await expect(result.current.transmit(generatedFile())).resolves.toBe(false);
+    });
+
+    expect(freshness.abortOrderTransmissionIntent).not.toHaveBeenCalled();
+    expect(onTransmissionRequested).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith(
+      expect.stringContaining('셀피아 전송 결과 확인 필요'),
+    );
   });
 
   it('warns not to resend when submitted orders cannot finalize freshness', async () => {

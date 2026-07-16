@@ -53,6 +53,8 @@ export function useSellpiaOrderTransmission({
             toast.error(
               '셀피아 전송은 제출되지 않았지만 준비 상태 해제에 실패했습니다. 재시도 전에 상태를 확인하세요.',
             );
+          } else if (result.error) {
+            toast.error(result.error);
           } else {
             toast.warning('셀피아 전송 요청이 제출되지 않았습니다.');
           }

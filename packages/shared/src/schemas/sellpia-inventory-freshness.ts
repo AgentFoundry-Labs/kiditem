@@ -166,6 +166,38 @@ export const SellpiaOrderTransmissionIntentAbortResponseSchema = z
   })
   .strict();
 
+export const SellpiaOrderTransmissionIntentReconcileRequestSchema = z
+  .object({
+    intentKey: SellpiaOrderTransmissionIntentKeySchema,
+    outcome: z.enum(['submitted', 'not_submitted']),
+    note: z.string().trim().min(1).max(500),
+  })
+  .strict();
+
+const SellpiaOrderTransmissionIntentReconciliationAuditShape = {
+  intentKey: SellpiaOrderTransmissionIntentKeySchema,
+  reconciledBy: z.string().uuid(),
+  reconciledAt: IsoDateTimeStringSchema,
+  note: z.string().trim().min(1).max(500),
+  state: SellpiaInventoryFreshnessViewSchema,
+};
+
+export const SellpiaOrderTransmissionIntentReconcileResponseSchema = z
+  .discriminatedUnion('outcome', [
+    z.object({
+      ...SellpiaOrderTransmissionIntentReconciliationAuditShape,
+      outcome: z.literal('submitted'),
+      status: z.literal('finalized'),
+      finalizedGeneration: SellpiaInventoryGenerationSchema,
+    }).strict(),
+    z.object({
+      ...SellpiaOrderTransmissionIntentReconciliationAuditShape,
+      outcome: z.literal('not_submitted'),
+      status: z.literal('aborted'),
+      finalizedGeneration: z.null(),
+    }).strict(),
+  ]);
+
 export const SellpiaInventoryClaimRequestSchema = z.object({}).strict();
 export const SellpiaInventoryHeartbeatRequestSchema = z.object({}).strict();
 export const SellpiaInventoryCancelRequestSchema = z.object({}).strict();
@@ -238,6 +270,12 @@ export type SellpiaOrderTransmissionIntentFinalizeResponse = z.infer<
 >;
 export type SellpiaOrderTransmissionIntentAbortResponse = z.infer<
   typeof SellpiaOrderTransmissionIntentAbortResponseSchema
+>;
+export type SellpiaOrderTransmissionIntentReconcileRequest = z.infer<
+  typeof SellpiaOrderTransmissionIntentReconcileRequestSchema
+>;
+export type SellpiaOrderTransmissionIntentReconcileResponse = z.infer<
+  typeof SellpiaOrderTransmissionIntentReconcileResponseSchema
 >;
 export type SellpiaInventoryClaimRequest = z.infer<
   typeof SellpiaInventoryClaimRequestSchema

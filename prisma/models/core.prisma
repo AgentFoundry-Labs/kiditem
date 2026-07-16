@@ -74,12 +74,13 @@ model Organization {
   purchaseOrderItems PurchaseOrderItem[]
 
   // Warehouse & record-only inventory operations
-  warehouses                      Warehouse[]
-  stockTransfers                  StockTransfer[]
-  stockAudits                     StockAudit[]
-  sellpiaReceiptUploadBatches     SellpiaReceiptUploadBatch[]
-  sellpiaInventoryState           SellpiaInventoryState?
-  sellpiaOrderTransmissionIntents SellpiaOrderTransmissionIntent[]
+  warehouses                                    Warehouse[]
+  stockTransfers                                StockTransfer[]
+  stockAudits                                   StockAudit[]
+  sellpiaReceiptUploadBatches                   SellpiaReceiptUploadBatch[]
+  sellpiaInventoryState                         SellpiaInventoryState?
+  sellpiaOrderTransmissionIntents               SellpiaOrderTransmissionIntent[]
+  sellpiaOrderTransmissionIntentReconciliations SellpiaOrderTransmissionIntentReconciliation[]
 
   // Logistics
   shipments       Shipment[]
@@ -182,25 +183,26 @@ model User {
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  agentInstance                              AgentInstance?                       @relation(fields: [agentInstanceId], references: [id], onDelete: SetNull)
+  agentInstance                              AgentInstance?                                 @relation(fields: [agentInstanceId], references: [id], onDelete: SetNull)
   memberships                                OrganizationMembership[]
-  invitedOrganizationMemberships             OrganizationMembership[]             @relation("OrganizationMembershipInviter")
-  triggeredWorkflowRuns                      WorkflowRun[]                        @relation("WorkflowRunTriggeredBy")
-  triggeredThumbnailGenerations              ThumbnailGeneration[]                @relation("ThumbnailGenerationTriggeredBy")
-  thumbnailGenerationEvents                  ThumbnailGenerationEvent[]           @relation("ThumbnailGenerationEventActor")
-  triggeredContentGenerations                ContentGeneration[]                  @relation("ContentGenerationTriggeredBy")
-  createdContentAssets                       ContentAsset[]                       @relation("ContentAssetCreatedBy")
-  createdContentWorkspaces                   ContentWorkspace[]                   @relation("ContentWorkspaceCreatedBy")
-  createdContentWorkspaceThumbnailSelections ContentWorkspaceThumbnailSelection[] @relation("ContentWorkspaceThumbnailSelectionCreatedBy")
-  createdProductPreparations                 ProductPreparation[]                 @relation("ProductPreparationCreatedBy")
-  createdDetailPageArtifacts                 DetailPageArtifact[]                 @relation("DetailPageArtifactCreatedBy")
-  createdDetailPageRevisions                 DetailPageRevision[]                 @relation("DetailPageRevisionCreatedBy")
-  actorAlerts                                Alert[]                              @relation("AlertActor")
-  assignedActionTasks                        ActionTask[]                         @relation("ActionTaskAssignee")
-  activeSellpiaInventoryStates               SellpiaInventoryState[]              @relation("SellpiaInventoryStateActiveSyncOwner")
-  createdSellpiaOrderTransmissionIntents     SellpiaOrderTransmissionIntent[]     @relation("SellpiaOrderTransmissionIntentCreator")
-  confirmedSourceImportRuns                  SourceImportRun[]                    @relation("SourceImportRunManualFreshExportConfirmer")
-  reconciledPurchaseOrderSubmissionAttempts  PurchaseOrderSubmissionAttempt[]     @relation("PurchaseOrderSubmissionAttemptReconciler")
+  invitedOrganizationMemberships             OrganizationMembership[]                       @relation("OrganizationMembershipInviter")
+  triggeredWorkflowRuns                      WorkflowRun[]                                  @relation("WorkflowRunTriggeredBy")
+  triggeredThumbnailGenerations              ThumbnailGeneration[]                          @relation("ThumbnailGenerationTriggeredBy")
+  thumbnailGenerationEvents                  ThumbnailGenerationEvent[]                     @relation("ThumbnailGenerationEventActor")
+  triggeredContentGenerations                ContentGeneration[]                            @relation("ContentGenerationTriggeredBy")
+  createdContentAssets                       ContentAsset[]                                 @relation("ContentAssetCreatedBy")
+  createdContentWorkspaces                   ContentWorkspace[]                             @relation("ContentWorkspaceCreatedBy")
+  createdContentWorkspaceThumbnailSelections ContentWorkspaceThumbnailSelection[]           @relation("ContentWorkspaceThumbnailSelectionCreatedBy")
+  createdProductPreparations                 ProductPreparation[]                           @relation("ProductPreparationCreatedBy")
+  createdDetailPageArtifacts                 DetailPageArtifact[]                           @relation("DetailPageArtifactCreatedBy")
+  createdDetailPageRevisions                 DetailPageRevision[]                           @relation("DetailPageRevisionCreatedBy")
+  actorAlerts                                Alert[]                                        @relation("AlertActor")
+  assignedActionTasks                        ActionTask[]                                   @relation("ActionTaskAssignee")
+  activeSellpiaInventoryStates               SellpiaInventoryState[]                        @relation("SellpiaInventoryStateActiveSyncOwner")
+  createdSellpiaOrderTransmissionIntents     SellpiaOrderTransmissionIntent[]               @relation("SellpiaOrderTransmissionIntentCreator")
+  reconciledSellpiaOrderTransmissionIntents  SellpiaOrderTransmissionIntentReconciliation[] @relation("SellpiaOrderTransmissionIntentReconciler")
+  confirmedSourceImportRuns                  SourceImportRun[]                              @relation("SourceImportRunManualFreshExportConfirmer")
+  reconciledPurchaseOrderSubmissionAttempts  PurchaseOrderSubmissionAttempt[]               @relation("PurchaseOrderSubmissionAttemptReconciler")
 
   // Agent OS — actor relations
   requestedAgentRunRequests         AgentRunRequest[]         @relation("AgentRunRequestRequestedBy")

@@ -266,6 +266,7 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
       .catch((error) => {
         sendResponse({
           success: false,
+          outcome: "unknown",
           error: error?.message || "셀피아 전송 실패",
         });
       });
@@ -533,28 +534,54 @@ function mallGenericErrorResult(mallName, err) {
 // ── 셀피아 전송 (API 아님 — order_collect 화면에 판매처 선택 + 파일 주입 + 주문접수 클릭) ──
 async function sendOrderFileToSellpia({ shopName, fileName, fileBase64 }) {
   if (!fileBase64 || !fileName) {
-    return { success: false, error: "셀피아로 보낼 파일이 없습니다." };
+    return {
+      success: false,
+      outcome: "not_submitted",
+      error: "셀피아로 보낼 파일이 없습니다.",
+    };
   }
 
-  const tab = await findOrCreateSellpiaTab();
-  if (!tab.id) {
-    return { success: false, error: "셀피아 탭을 열 수 없습니다." };
+  let tab;
+  try {
+    tab = await findOrCreateSellpiaTab();
+    if (!tab.id) {
+      return {
+        success: false,
+        outcome: "not_submitted",
+        error: "셀피아 탭을 열 수 없습니다.",
+      };
+    }
+    await waitForTabReady(tab.id);
+  } catch (error) {
+    return {
+      success: false,
+      outcome: "not_submitted",
+      error: error?.message || "셀피아 주문접수 화면을 준비하지 못했습니다.",
+    };
   }
 
-  await waitForTabReady(tab.id);
-
-  const injected = await withTimeout(
-    chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: injectSellpiaOrderFile,
-      args: [{ shopName: shopName || null, fileName, fileBase64 }],
-    }),
-    45000,
-    "셀피아 주문접수 화면 주입 시간이 초과되었습니다.",
-  );
+  let injected;
+  try {
+    injected = await withTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: injectSellpiaOrderFile,
+        args: [{ shopName: shopName || null, fileName, fileBase64 }],
+      }),
+      45000,
+      "셀피아 주문접수 화면 주입 시간이 초과되었습니다.",
+    );
+  } catch (error) {
+    return {
+      success: false,
+      outcome: "unknown",
+      error: error?.message || "셀피아 주문접수 결과를 확인하지 못했습니다.",
+    };
+  }
 
   const result = injected[0]?.result ?? {
     success: false,
+    outcome: "unknown",
     error: "셀피아 주문접수 화면에 접근하지 못했습니다.",
   };
   const currentTab = await chrome.tabs.get(tab.id).catch(() => tab);
@@ -2987,6 +3014,7 @@ async function injectSellpiaOrderFile(payload) {
   if (!shopSelect || !fileInput) {
     return {
       success: false,
+      outcome: "not_submitted",
       pendingPage: true,
       error:
         "셀피아 주문접수(파일 업로드) 화면 요소를 찾지 못했습니다. order_collect 화면이 열렸는지/로그인 상태인지 확인해주세요.",
@@ -2995,6 +3023,7 @@ async function injectSellpiaOrderFile(payload) {
   if (shopName && !matched) {
     return {
       success: false,
+      outcome: "not_submitted",
       error: `셀피아 판매처 목록에서 '${shopName}' 을(를) 찾지 못했습니다. 셀피아 거래처 등록을 확인해주세요.`,
     };
   }
@@ -3013,6 +3042,7 @@ async function injectSellpiaOrderFile(payload) {
     if (!excelSelect.value) {
       return {
         success: false,
+        outcome: "not_submitted",
         shop: matched ? String(matched.textContent || "").trim() : null,
         error:
           "셀피아 엑셀양식이 자동으로 설정되지 않았습니다. 해당 판매처의 엑셀양식을 셀피아에서 먼저 설정해주세요.",
@@ -3025,7 +3055,11 @@ async function injectSellpiaOrderFile(payload) {
   try {
     bytes = base64ToBytes(fileBase64);
   } catch (error) {
-    return { success: false, error: "전송 파일 디코딩에 실패했습니다." };
+    return {
+      success: false,
+      outcome: "not_submitted",
+      error: "전송 파일 디코딩에 실패했습니다.",
+    };
   }
   const file = new File([bytes], fileName, {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -3038,6 +3072,7 @@ async function injectSellpiaOrderFile(payload) {
   if (fileInput.files.length !== 1) {
     return {
       success: false,
+      outcome: "not_submitted",
       shop: matched ? String(matched.textContent || "").trim() : null,
       error: "셀피아 파일 입력칸에 파일을 넣지 못했습니다.",
     };
@@ -3047,16 +3082,27 @@ async function injectSellpiaOrderFile(payload) {
   if (!submitButton) {
     return {
       success: false,
+      outcome: "not_submitted",
       shop: matched ? String(matched.textContent || "").trim() : null,
       fileName,
       error: "파일은 주입했지만 '주문접수' 버튼을 찾지 못했습니다.",
     };
   }
-  submitButton.click();
+  try {
+    submitButton.click();
+  } catch (error) {
+    return {
+      success: false,
+      outcome: "unknown",
+      shop: matched ? String(matched.textContent || "").trim() : null,
+      fileName,
+      error: error?.message || "주문접수 클릭 결과를 확인하지 못했습니다.",
+    };
+  }
 
   return {
     success: true,
-    submitted: true,
+    outcome: "submitted",
     shop: matched ? String(matched.textContent || "").trim() : null,
     excelFormat: excelSelect ? excelSelect.value : null,
     fileName,

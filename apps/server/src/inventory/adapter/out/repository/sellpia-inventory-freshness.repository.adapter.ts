@@ -100,8 +100,9 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
         organizationId: this.organizationId,
         intentKey: input.intentKey,
       },
-      select: { status: true },
+      select: { status: true, createdBy: true },
     });
+    if (existing && existing.createdBy !== input.userId) return 'not_owned';
     if (existing?.status === 'prepared') return 'already_prepared';
     if (existing?.status === 'finalized') return 'already_finalized';
     if (existing?.status === 'aborted') {
@@ -113,7 +114,6 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
         },
         data: {
           status: 'prepared',
-          createdBy: input.userId,
           preparedAt: input.preparedAt,
           finalizedAt: null,
           abortedAt: null,
@@ -141,7 +141,7 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
     return 'prepared';
   }
 
-  async findOrderTransmissionIntent(intentKey: string): Promise<{
+  async findOrderTransmissionIntent(intentKey: string, userId: string): Promise<{
     status: 'prepared' | 'finalized' | 'aborted';
     finalizedGeneration: bigint | null;
   } | null> {
@@ -149,6 +149,7 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
       where: {
         organizationId: this.organizationId,
         intentKey,
+        createdBy: userId,
       },
       select: { status: true, finalizedGeneration: true },
     });
@@ -168,6 +169,7 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
 
   async finalizeOrderTransmissionIntent(input: {
     intentKey: string;
+    userId: string;
     finalizedGeneration: bigint;
     finalizedAt: Date;
   }): Promise<void> {
@@ -175,6 +177,7 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
       where: {
         organizationId: this.organizationId,
         intentKey: input.intentKey,
+        createdBy: input.userId,
         status: 'prepared',
       },
       data: {
@@ -191,12 +194,14 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
 
   async abortOrderTransmissionIntent(input: {
     intentKey: string;
+    userId: string;
     abortedAt: Date;
   }): Promise<void> {
     const aborted = await this.tx.sellpiaOrderTransmissionIntent.updateMany({
       where: {
         organizationId: this.organizationId,
         intentKey: input.intentKey,
+        createdBy: input.userId,
         status: 'prepared',
       },
       data: {
@@ -207,6 +212,104 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
     if (aborted.count !== 1) {
       throw new ConflictException('Sellpia order transmission intent abort lost its fence');
     }
+  }
+
+  async findOrderTransmissionIntentForReconciliation(intentKey: string): Promise<{
+    status: 'prepared' | 'finalized' | 'aborted';
+    finalizedGeneration: bigint | null;
+    latestReconciliation: {
+      reconciledBy: string;
+      reconciledAt: Date;
+      note: string;
+      outcome: 'submitted' | 'not_submitted';
+    } | null;
+  } | null> {
+    const intent = await this.tx.sellpiaOrderTransmissionIntent.findFirst({
+      where: {
+        organizationId: this.organizationId,
+        intentKey,
+      },
+      select: {
+        status: true,
+        finalizedGeneration: true,
+        reconciliations: {
+          orderBy: [{ reconciledAt: 'desc' }, { id: 'desc' }],
+          take: 1,
+          select: {
+            reconciledBy: true,
+            reconciledAt: true,
+            note: true,
+            outcome: true,
+          },
+        },
+      },
+    });
+    if (!intent) return null;
+    if (!isIntentStatus(intent.status)) {
+      throw new ConflictException('Sellpia order transmission intent has an invalid status');
+    }
+    const reconciliation = intent.reconciliations[0] ?? null;
+    if (reconciliation && !isReconciliationOutcome(reconciliation.outcome)) {
+      throw new ConflictException('Sellpia order transmission reconciliation has an invalid outcome');
+    }
+    return {
+      status: intent.status,
+      finalizedGeneration: intent.finalizedGeneration,
+      latestReconciliation: reconciliation
+        ? { ...reconciliation, outcome: reconciliation.outcome }
+        : null,
+    };
+  }
+
+  async reconcileOrderTransmissionIntent(input: {
+    intentKey: string;
+    userId: string;
+    reconciledAt: Date;
+    note: string;
+    outcome: 'submitted' | 'not_submitted';
+    finalizedGeneration: bigint | null;
+  }): Promise<void> {
+    const intent = await this.tx.sellpiaOrderTransmissionIntent.findFirstOrThrow({
+      where: {
+        organizationId: this.organizationId,
+        intentKey: input.intentKey,
+        status: 'prepared',
+      },
+      select: { id: true },
+    });
+    const resolved = await this.tx.sellpiaOrderTransmissionIntent.updateMany({
+      where: {
+        id: intent.id,
+        organizationId: this.organizationId,
+        status: 'prepared',
+      },
+      data: input.outcome === 'submitted'
+        ? {
+            status: 'finalized',
+            finalizedGeneration: input.finalizedGeneration,
+            finalizedAt: input.reconciledAt,
+            abortedAt: null,
+          }
+        : {
+            status: 'aborted',
+            finalizedGeneration: null,
+            finalizedAt: null,
+            abortedAt: input.reconciledAt,
+          },
+    });
+    if (resolved.count !== 1) {
+      throw new ConflictException('Sellpia order transmission reconcile lost its fence');
+    }
+    await this.tx.sellpiaOrderTransmissionIntentReconciliation.create({
+      data: {
+        organizationId: this.organizationId,
+        intentId: intent.id,
+        reconciledBy: input.userId,
+        reconciledAt: input.reconciledAt,
+        note: input.note,
+        outcome: input.outcome,
+      },
+    });
   }
 
   async hasFailedAttempt(input: {
@@ -329,6 +432,18 @@ function expectationWhere(
 
 function hasOwn(object: object, key: PropertyKey): boolean {
   return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function isIntentStatus(
+  value: string,
+): value is 'prepared' | 'finalized' | 'aborted' {
+  return value === 'prepared' || value === 'finalized' || value === 'aborted';
+}
+
+function isReconciliationOutcome(
+  value: string,
+): value is 'submitted' | 'not_submitted' {
+  return value === 'submitted' || value === 'not_submitted';
 }
 
 function toCreateData(
