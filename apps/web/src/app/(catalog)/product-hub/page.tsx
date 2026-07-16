@@ -5,7 +5,7 @@ import ProductsPageContent from './components/ProductsPageContent';
 export default function ProductHubPage() {
   return (
     <Suspense fallback={<PageSkeleton variant="table" />}>
-      <ProductsPageContent />
+      <ProductsPageContent headingLevel={1} />
     </Suspense>
   );
 }

@@ -1,14 +1,16 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# web/catalog - Sellpia Product Hub and Channel SKU Matching
+# web/catalog - Product Operations Hub and Channel SKU Matching
 
-`app/(catalog)/` owns the baseline read-only Sellpia product catalog, snapshot
-detail, dedicated read-only options table, and Coupang ChannelSku-to-Sellpia
-component matching route. Public URLs remain under `/product-hub`.
+`app/(catalog)/` owns the preserved product-operations-center UI backed by the
+read-only Sellpia snapshot, snapshot detail, dedicated read-only options table,
+and Coupang ChannelSku-to-Sellpia component matching route. Public URLs remain
+under `/product-hub`.
 
 ## Owned Surfaces
 
-- Read-only Sellpia snapshot list and detail under `/product-hub`
+- Preserved product-operations-center list and read-only snapshot detail under
+  `/product-hub`
 - Coupang Wing catalog upload and account-scoped channel SKU component matching
   under `/product-hub/matching`
 - Dedicated read-only Sellpia option table under `/product-hub/options`
@@ -30,8 +32,10 @@ React Query + apiClient
 
 ## State Rules
 
-- `/product-hub` is a read-only projection of the latest Sellpia full-snapshot
-  import. It never creates, edits, deletes, or adjusts physical products.
+- `/product-hub` preserves the staged operations header, command cards,
+  category strip, filters, metrics columns, and product-row layout while
+  projecting the latest Sellpia full-snapshot import. It never creates, edits,
+  deletes, or adjusts physical products.
 - `/product-hub/options` presents the same authoritative snapshot in its
   dedicated read-only table without restoring removed option mutations.
 - One physical `MasterProduct` is one Sellpia product-code row, including its

@@ -55,8 +55,11 @@ existing screen with a consolidated workspace or compatibility redirect.
 
 Important ownership rules:
 
-- `/product-hub` keeps the baseline read-only Sellpia product catalog and
-  snapshot detail.
+- `/product-hub` keeps the staged product-operations-center composition:
+  command cards, category strip, filter toolbar, metrics columns, and product
+  rows. Its data source remains the read-only Sellpia snapshot; the UI shape
+  does not authorize legacy product mutations. `/product-hub/[id]` keeps the
+  read-only snapshot detail.
 - `/product-hub/matching` keeps the baseline Coupang ChannelSku-to-Sellpia
   component-recipe workspace.
 - `/inventory-hub`, `/inventory`, `/stock-ops`, `/order-hub`,

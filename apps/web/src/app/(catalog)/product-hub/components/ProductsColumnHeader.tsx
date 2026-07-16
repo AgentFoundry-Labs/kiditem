@@ -1,12 +1,19 @@
+'use client';
+
+const COLUMNS = ['상품', '재고', '방문', '조회', '장바구니', '주문', '판매', '매출', '광고비율'] as const;
+
 export function ProductsColumnHeader() {
   return (
-    <div className="grid grid-cols-[minmax(300px,1.5fr)_minmax(140px,.7fr)_120px_120px_100px_64px] items-center gap-4 px-6 py-2 text-[11px] font-semibold text-[var(--text-quaternary)]">
-      <span>Sellpia 상품</span>
-      <span>바코드</span>
-      <span className="text-right">매입가</span>
-      <span className="text-right">판매가</span>
-      <span className="text-right">현재 재고</span>
-      <span />
+    <div
+      role="row"
+      className="grid grid-cols-[minmax(420px,1.45fr)_repeat(8,minmax(76px,.42fr))_72px] items-center gap-4 px-6 py-3 text-[12px] font-semibold text-[var(--text-quaternary)]"
+    >
+      {COLUMNS.map((column, index) => (
+        <span key={column} role="columnheader" className={index === 0 ? undefined : 'text-right'}>
+          {column}
+        </span>
+      ))}
+      <span aria-hidden="true" />
     </div>
   );
 }

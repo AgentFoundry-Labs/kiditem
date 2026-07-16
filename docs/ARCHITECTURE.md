@@ -334,7 +334,7 @@ Kinds:
 | `apps/web/src/app/(advertising)` | Route Group | `ad-ops`, `rank-tracking` |
 | `apps/web/src/app/(analytics)` | Route Group | `dashboard` |
 | `apps/web/src/app/(automation)` | Route Group | `_shared`, `action-board`, `agents`, `marketplace`, `workflows` |
-| `apps/web/src/app/(catalog)` | Route Group | Baseline read-only Sellpia catalog and detail at `/product-hub`; dedicated read-only `/product-hub/options`; Coupang ChannelSku-to-Sellpia component matching at `/product-hub/matching`. |
+| `apps/web/src/app/(catalog)` | Route Group | Preserved product operations center at `/product-hub`, backed by the read-only Sellpia snapshot; read-only snapshot detail; dedicated read-only `/product-hub/options`; Coupang ChannelSku-to-Sellpia component matching at `/product-hub/matching`. |
 | `apps/web/src/app/(finance)` | Route Group | `_shared`, `finance-hub`, `profit-loss`, `reports`, `sales-analysis`, `supplier-hub` |
 | `apps/web/src/app/(inventory)` | Route Group | Preserved, independently reachable `/inventory-hub`, `/inventory`, `/stock-ops`, `/outbound`, and `/unshipped-items` surfaces plus warehouses and Coupang shipment support; shared Sellpia status/sync controls are additive. |
 | `apps/web/src/app/(orders)` | Route Group | Preserved, independently reachable `/order-hub`, `/order-collection`, `/orders`, `/order-status-hub`, and `/rocket-orders` surfaces plus returns, CS, reviews, picking, and return scanning; the Rocket capacity placeholder consumes the shared preview contract. |
@@ -359,9 +359,9 @@ Notable route subtrees:
   recipe links are added without replacing existing headers, tabs, tables, or
   actions.
 
-- Product list, detail, matching, and options all use the exact baseline
-  composition. `/product-hub` is the read-only Sellpia catalog,
-  `/product-hub/[id]` is the read-only snapshot detail,
+- Product list, detail, matching, and options preserve their independent
+  compositions. `/product-hub` is the staged product operations center backed
+  by the read-only Sellpia snapshot, `/product-hub/[id]` is the read-only snapshot detail,
   `/product-hub/matching` is the Coupang ChannelSku component-recipe workspace,
   and `/product-hub/options` is the dedicated read-only Sellpia options table.
   Post-baseline Sellpia features may be added without replacing or rearranging

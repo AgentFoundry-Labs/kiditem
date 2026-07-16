@@ -1,11 +1,12 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# product-hub - Read-only Sellpia Product Catalog
+# product-hub - Product Operations Center
 
-`app/(catalog)/product-hub/` owns `/product-hub` and
-`/product-hub/[masterProductId]` as the operator-facing catalog for the latest
-Sellpia inventory snapshot. `/product-hub/options` preserves the dedicated
-option-management table experience as a read-only projection of that snapshot.
+`app/(catalog)/product-hub/` owns `/product-hub` as the preserved staged product
+operations center and `/product-hub/[masterProductId]` as the read-only detail
+for the latest Sellpia inventory snapshot. `/product-hub/options` preserves the
+dedicated option-management table experience as a read-only projection of that
+snapshot.
 
 ## Data Flow
 
@@ -21,6 +22,10 @@ React Query + apiClient
 
 - Use `queryKeys.inventory.snapshot(...)` for paged list reads and the
   `queryKeys.inventory.snapshots()` family for detail reads.
+- Preserve the `/product-hub` operations-center composition: header controls,
+  command cards, category strip, filters, metrics columns, and product rows.
+  Unsupported legacy metrics remain visibly unavailable instead of replacing
+  the screen with a compact catalog.
 - Preserve server paging, search, stock status, and active status parameters.
 - Render Sellpia identity, option name, barcode, current stock, source prices,
   active state, and last-import provenance as read-only facts.

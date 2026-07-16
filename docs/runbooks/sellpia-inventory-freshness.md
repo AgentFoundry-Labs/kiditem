@@ -116,8 +116,10 @@ Commit `c9e7caf875ca82574ae566a27fe0afa35c988918` is the operations UI
 preservation baseline. Automatic sync and freshness controls are added to that
 UI; they do not replace existing pages or collapse their URLs:
 
-- `/product-hub` keeps the baseline read-only Sellpia catalog and snapshot
-  detail. `/product-hub/matching` keeps the baseline Coupang ChannelSku
+- `/product-hub` keeps the staged product-operations-center layout while its
+  rows and available inventory metrics read from the Sellpia snapshot.
+  `/product-hub/[id]` keeps the read-only snapshot detail, and
+  `/product-hub/matching` keeps the baseline Coupang ChannelSku
   component-recipe workspace.
 - Order, inventory, fulfillment, supplier, and finance sidebar routes remain
   independently reachable even when another hub reuses related components.
