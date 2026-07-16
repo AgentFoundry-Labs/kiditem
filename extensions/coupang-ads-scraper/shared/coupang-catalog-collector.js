@@ -1,6 +1,9 @@
 (function initializeCoupangCatalogCollector(root) {
   "use strict";
 
+  const MAX_ATTRIBUTES_PER_OPTION = 100;
+  const MAX_MEDIA_PER_OWNER = 100;
+
   function stableStringify(value) {
     if (value === null || typeof value !== "object") {
       return JSON.stringify(value) ?? "null";
@@ -145,7 +148,8 @@
         value: nullableText(attribute?.attributeValueName),
       }))
       .filter((attribute) => attribute.type && attribute.value)
-      .map((attribute) => ({ type: attribute.type, value: attribute.value }));
+      .map((attribute) => ({ type: attribute.type, value: attribute.value }))
+      .slice(0, MAX_ATTRIBUTES_PER_OPTION);
 
     return {
       externalOptionId,
@@ -234,7 +238,7 @@
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
-    });
+    }).slice(0, MAX_MEDIA_PER_OWNER);
   }
 
   function buildDiscoveryItems(records, page, pageSize) {
