@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { MarketplaceRegistrationRepositoryAdapter } from './marketplace-registration.repository.adapter';
 
@@ -90,5 +90,36 @@ describe('MarketplaceRegistrationRepositoryAdapter preparation registration', ()
       displayName: 'Kids rain boots',
     })).rejects.toBeInstanceOf(ConflictException);
     expect(tx.channelListing.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('normalizes exact option identities before enforcing uniqueness', async () => {
+    const findVariants = vi.fn().mockResolvedValue([]);
+    const tx = {
+      channelAccount: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'account-1', channel: 'coupang' }),
+      },
+      sourcingCandidate: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'candidate-1' }),
+      },
+      masterProduct: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'product-1' }),
+      },
+      productVariant: { findMany: findVariants },
+    };
+    const repository = new MarketplaceRegistrationRepositoryAdapter({} as never);
+
+    await expect(repository.resolveProductRegistration(tx, {
+      organizationId: 'org-1',
+      sourceCandidateId: 'candidate-1',
+      channelAccountId: 'account-1',
+      externalListingId: '427011919',
+      displayName: 'Kids rain boots',
+      masterProductId: 'product-1',
+      optionLinks: [
+        { externalOptionId: 'OPTION-1', productVariantId: 'variant-1' },
+        { externalOptionId: ' OPTION-1 ', productVariantId: 'variant-1' },
+      ],
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(findVariants).not.toHaveBeenCalled();
   });
 });

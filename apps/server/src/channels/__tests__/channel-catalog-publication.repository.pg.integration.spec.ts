@@ -97,7 +97,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
         itemName: '기본',
         salePrice: 12_900,
         sellerSku: 'P-1-SELLER',
-        mappingStatus: 'unmatched',
+        productVariantId: null,
         isActive: true,
       }),
     ]);
@@ -200,7 +200,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     ).resolves.toMatchObject({ publishedAt: null, publicationJson: null });
   });
 
-  it('preserves stable IDs, authored fields, and component recipes while inactivating unseen rows', async () => {
+  it('preserves stable IDs, confirmed links, and variant recipes while inactivating unseen rows', async () => {
     const firstRunId = await createCollectionRun(prisma);
     await publish(firstRunId, SNAPSHOT_A, [
       product('P-1', 'S-1'),
@@ -214,25 +214,50 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       where: { channelAccountId: ACCOUNT_ID, externalId: 'P-2' },
       include: { options: true },
     });
-    await prisma.channelListing.update({
-      where: { id: before.id },
-      data: { abcGrade: 'A', adBudgetLimit: 250_000, healthScore: 91 },
-    });
-    const master = await prisma.masterProduct.create({
+    const inventorySku = await prisma.sellpiaInventorySku.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         code: 'SELLPIA-1',
         name: '재고 상품',
+        currentStock: 5,
       },
     });
-    await prisma.channelSkuComponent.create({
+    const master = await prisma.masterProduct.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        channelSkuId: before.options[0].id,
-        masterProductId: master.id,
-        quantity: 2,
-        mappingSource: 'manual',
+        code: 'KI-1',
+        name: '운영 상품',
+        abcGrade: 'A',
+        adBudgetLimit: 250_000,
+        healthScore: 91,
       },
+    });
+    const variant = await prisma.productVariant.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        masterProductId: master.id,
+        code: 'KI-1-DEFAULT',
+        name: '기본 옵션',
+        isDefault: true,
+      },
+    });
+    await prisma.productVariantComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        productVariantId: variant.id,
+        sellpiaInventorySkuId: inventorySku.id,
+        quantity: 2,
+        source: 'manual',
+        confirmedBy: TEST_USER_ID,
+      },
+    });
+    await prisma.channelListing.update({
+      where: { id: before.id },
+      data: { masterProductId: master.id },
+    });
+    await prisma.channelListingOption.update({
+      where: { id: before.options[0].id },
+      data: { productVariantId: variant.id },
     });
 
     const secondRunId = await createCollectionRun(prisma);
@@ -249,21 +274,20 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
         where: { id: absentBefore.id },
         include: { options: true },
       }),
-      prisma.channelSkuComponent.findFirstOrThrow({
-        where: { channelSkuId: before.options[0].id },
+      prisma.productVariantComponent.findFirstOrThrow({
+        where: { productVariantId: variant.id },
       }),
     ]);
 
     expect(after).toMatchObject({
       id: before.id,
       displayName: '수정된 노출명',
-      abcGrade: 'A',
-      adBudgetLimit: 250_000,
-      healthScore: 91,
       isActive: true,
+      masterProductId: master.id,
     });
     expect(after.options[0].id).toBe(before.options[0].id);
-    expect(component).toMatchObject({ quantity: 2, mappingSource: 'manual' });
+    expect(after.options[0]).toMatchObject({ productVariantId: variant.id });
+    expect(component).toMatchObject({ quantity: 2, source: 'manual' });
     expect(absentAfter.isActive).toBe(false);
     expect(absentAfter.options[0].isActive).toBe(false);
   });

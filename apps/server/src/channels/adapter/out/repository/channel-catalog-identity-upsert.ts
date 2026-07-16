@@ -172,7 +172,7 @@ export async function upsertChannelCatalogIdentities(
     await tx.$executeRaw`
       INSERT INTO channel_listing_options (
         id, listing_id, organization_id, external_option_id,
-        item_name, sale_price, seller_sku, barcode, model_number, status, mapping_status,
+        item_name, sale_price, seller_sku, barcode, model_number, status,
         attributes_json, raw_json, last_import_run_id, is_active,
         created_at, updated_at
       )
@@ -187,7 +187,6 @@ export async function upsertChannelCatalogIdentities(
         record->>'barcode',
         record->>'modelNumber',
         record->>'skuStatus',
-        'unmatched',
         record->'attributesJson',
         record->'rawJson',
         ${input.lastImportRunId}::uuid,

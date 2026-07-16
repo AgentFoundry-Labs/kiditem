@@ -79,6 +79,11 @@ export interface MarketplaceRegistrationRepositoryPort {
       channelAccountId: string;
       externalListingId: string;
       displayName: string;
+      masterProductId?: string;
+      optionLinks?: Array<{
+        externalOptionId: string;
+        productVariantId: string;
+      }>;
     },
   ): Promise<{
     listingId: string;

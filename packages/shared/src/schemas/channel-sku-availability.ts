@@ -16,6 +16,16 @@ export type ChannelSkuAvailabilityStatus = z.infer<
   typeof ChannelSkuAvailabilityStatusSchema
 >;
 
+export const ChannelSkuAvailabilityRecipeStatusSchema = z.enum([
+  'unmatched',
+  'configuration_required',
+  'review_required',
+  'matched',
+]);
+export type ChannelSkuAvailabilityRecipeStatus = z.infer<
+  typeof ChannelSkuAvailabilityRecipeStatusSchema
+>;
+
 export const ChannelSkuAvailabilityQuerySchema = z.object({
   channelAccountId: z.string().uuid().optional(),
   status: ChannelSkuAvailabilityStatusSchema.default('all'),
@@ -45,6 +55,7 @@ export const ChannelSkuAvailabilityItemSchema =
     productVariantId: z.string().uuid().nullable(),
     variantCode: z.string().min(1).nullable(),
     variantName: z.string().min(1).nullable(),
+    recipeStatus: ChannelSkuAvailabilityRecipeStatusSchema,
     components: z.array(ChannelSkuAvailabilityComponentSchema),
   }).superRefine((item, ctx) => {
     const linkFields = [
@@ -58,6 +69,28 @@ export const ChannelSkuAvailabilityItemSchema =
         code: z.ZodIssueCode.custom,
         path: ['productVariantId'],
         message: 'Variant identity fields must be present or null together',
+      });
+    }
+    const expectedMappingStatus = item.recipeStatus === 'matched'
+      ? 'matched'
+      : item.recipeStatus === 'unmatched'
+        ? 'unmatched'
+        : 'needs_review';
+    if (item.sku.mappingStatus !== expectedMappingStatus) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['recipeStatus'],
+        message: 'recipeStatus must agree with the derived mappingStatus',
+      });
+    }
+    if (
+      (item.recipeStatus === 'unmatched' && item.productVariantId !== null)
+      || (item.recipeStatus !== 'unmatched' && item.productVariantId === null)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['recipeStatus'],
+        message: 'recipeStatus must agree with the ProductVariant link',
       });
     }
   });

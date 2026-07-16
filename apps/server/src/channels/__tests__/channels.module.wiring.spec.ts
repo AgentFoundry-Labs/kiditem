@@ -3,7 +3,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AutomationModule } from '../../automation/automation.module';
-import { InventoryModule } from '../../inventory/inventory.module';
 import { ChannelsModule } from '../channels.module';
 import { ChannelRegistrationCapabilityAdapter } from '../adapter/in/agent/channel-registration-capability.adapter';
 import { ChannelAccountRepositoryAdapter } from '../adapter/out/repository/channel-account.repository.adapter';
@@ -31,12 +30,10 @@ import { ChannelCatalogImportRepositoryAdapter } from '../adapter/out/repository
 import { CHANNEL_CATALOG_IMPORT_PORT } from '../application/port/in/channel-catalog-import.port';
 import { CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT } from '../application/port/out/repository/channel-catalog-import.repository.port';
 import { ChannelCatalogImportService } from '../application/service/channel-catalog-import.service';
-import { ChannelSkuMappingController } from '../adapter/in/http/channel-sku-mapping.controller';
-import { ChannelsSellpiaMasterProductReadAdapter } from '../adapter/out/inventory/sellpia-master-product-read.adapter';
-import { ChannelSkuMappingRepositoryAdapter } from '../adapter/out/repository/channel-sku-mapping.repository.adapter';
-import { ChannelSkuMappingService } from '../application/service/channel-sku-mapping.service';
-import { CHANNELS_SELLPIA_MASTER_PRODUCT_READ_PORT } from '../application/port/out/cross-domain/sellpia-master-product-read.port';
-import { CHANNEL_SKU_MAPPING_REPOSITORY_PORT } from '../application/port/out/repository/channel-sku-mapping.repository.port';
+import { ChannelProductMatchingController } from '../adapter/in/http/channel-product-matching.controller';
+import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
+import { ChannelProductMatchingService } from '../application/service/channel-product-matching.service';
+import { CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT } from '../application/port/out/repository/channel-product-matching.repository.port';
 import { ChannelSkuAvailabilityController } from '../adapter/in/http/channel-sku-availability.controller';
 import {
   CHANNEL_SKU_AVAILABILITY_PORT,
@@ -102,7 +99,6 @@ describe('ChannelsModule canonical owner wiring', () => {
   it('imports owner modules for consumer adapters', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, ChannelsModule) ?? [];
     expect(imports).toContain(AutomationModule);
-    expect(imports).toContain(InventoryModule);
   });
 
   it('binds every outgoing port to its local adapter', () => {
@@ -118,10 +114,9 @@ describe('ChannelsModule canonical owner wiring', () => {
     expect(providers).toContain(ChannelRegistrationCapabilityAdapter);
     expect(providers).toContain(ChannelCatalogImportService);
     expect(providers).toContain(ChannelCatalogImportRepositoryAdapter);
-    expect(providers).toContain(ChannelSkuMappingService);
+    expect(providers).toContain(ChannelProductMatchingService);
     expect(providers).toContain(ChannelSkuAvailabilityService);
-    expect(providers).toContain(ChannelsSellpiaMasterProductReadAdapter);
-    expect(providers).toContain(ChannelSkuMappingRepositoryAdapter);
+    expect(providers).toContain(ChannelProductMatchingRepositoryAdapter);
     expect(providers).toContain(RocketPoCatalogService);
     expect(providers).toContain(RocketPoCatalogRepositoryAdapter);
 
@@ -154,13 +149,8 @@ describe('ChannelsModule canonical owner wiring', () => {
     );
     expectBinding(
       providers,
-      CHANNELS_SELLPIA_MASTER_PRODUCT_READ_PORT,
-      ChannelsSellpiaMasterProductReadAdapter,
-    );
-    expectBinding(
-      providers,
-      CHANNEL_SKU_MAPPING_REPOSITORY_PORT,
-      ChannelSkuMappingRepositoryAdapter,
+      CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT,
+      ChannelProductMatchingRepositoryAdapter,
     );
     expectBinding(
       providers,
@@ -180,14 +170,14 @@ describe('ChannelsModule canonical owner wiring', () => {
       Reflect.getMetadata(CONTROLLERS_KEY, ChannelsModule) ?? [];
 
     expect(controllers).toContain(ChannelCatalogImportController);
-    expect(controllers).toContain(ChannelSkuMappingController);
+    expect(controllers).toContain(ChannelProductMatchingController);
     expect(controllers).toContain(ChannelSkuAvailabilityController);
   });
 
   it('does not export the mapping repository implementation', () => {
     const exports_: unknown[] = Reflect.getMetadata('exports', ChannelsModule) ?? [];
-    expect(exports_).not.toContain(ChannelSkuMappingRepositoryAdapter);
-    expect(exports_).not.toContain(CHANNEL_SKU_MAPPING_REPOSITORY_PORT);
+    expect(exports_).not.toContain(ChannelProductMatchingRepositoryAdapter);
+    expect(exports_).not.toContain(CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT);
     expect(exports_).not.toContain(ChannelSkuAvailabilityService);
   });
 });

@@ -49,6 +49,7 @@ describe('channel SKU availability contracts', () => {
         productVariantId: null,
         variantCode: null,
         variantName: null,
+        recipeStatus: 'unmatched',
         components: [],
         warnings: [],
       }],
@@ -94,6 +95,7 @@ describe('channel SKU availability contracts', () => {
         productVariantId,
         variantCode: 'KI-001-8',
         variantName: '8개입',
+        recipeStatus: 'matched',
         components: [{
           sellpiaInventorySkuId,
           code: 'SP-001',
@@ -150,13 +152,14 @@ describe('channel SKU availability contracts', () => {
           modelNumber: null,
           salePrice: null,
           status: 'on_sale',
-          mappingStatus: 'matched',
-          sellableStock: 0,
+          mappingStatus: 'needs_review',
+          sellableStock: null,
           updatedAt: '2026-07-12T00:00:00.000Z',
         },
         productVariantId,
         variantCode: 'KI-001-DEFAULT',
         variantName: '기본',
+        recipeStatus: 'review_required',
         components: [{
           sellpiaInventorySkuId,
           code: 'SP-INACTIVE',
@@ -169,7 +172,7 @@ describe('channel SKU availability contracts', () => {
           quantity: 1,
           source: 'manual',
           componentCapacity: 0,
-          isBottleneck: true,
+          isBottleneck: false,
         }],
         warnings: ['component_inactive'],
       }],
@@ -179,9 +182,9 @@ describe('channel SKU availability contracts', () => {
       summary: {
         total: 1,
         inStock: 0,
-        outOfStock: 1,
+        outOfStock: 0,
         unmatched: 0,
-        needsReview: 0,
+        needsReview: 1,
       },
     });
 

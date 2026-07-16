@@ -120,14 +120,14 @@ describe('channels architecture contract', () => {
     ).toEqual([]);
   });
 
-  it('uses final Sellpia MasterProduct names for the inventory-owner bridge', () => {
+  it('does not retain channel-owned component recipes or persisted mapping status', () => {
     const channels = channelsRel();
     const hits = rg(
-      `--type ts --files-with-matches 'InventorySku' ${channels} --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
+      `--type ts --files-with-matches 'ChannelSkuComponent|channelSkuComponent' ${channels} --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
     );
     expect(
       hits,
-      `the completed cutover must not retain transitional InventorySku owner names:\n${hits.join('\n')}`,
+      `the completed cutover must not retain channel-owned recipe persistence:\n${hits.join('\n')}`,
     ).toEqual([]);
   });
 

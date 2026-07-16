@@ -221,7 +221,7 @@ describe('Product sync (PG integration, Wave C1)', () => {
     expect(afterFirst.map((o) => o.externalOptionId)).toEqual(['9001', '9002']);
     expect(afterFirst[0].itemName).toBe('Pink');
     expect(afterFirst[0].salePrice).toBe(10000);
-    expect(afterFirst[0].mappingStatus).toBe('unmatched');
+    expect(afterFirst[0].productVariantId).toBeNull();
 
     const r2 = await service.syncProducts(organizationId);
     expect(r2.synced).toBe(1);

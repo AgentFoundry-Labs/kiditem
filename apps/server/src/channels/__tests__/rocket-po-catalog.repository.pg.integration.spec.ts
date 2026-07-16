@@ -51,7 +51,7 @@ describe('RocketPoCatalogRepositoryAdapter (PG integration)', () => {
     const firstOption = await prisma.channelListingOption.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID, externalOptionId: 'P-1' },
     });
-    const master = await prisma.masterProduct.create({
+    const inventorySku = await prisma.sellpiaInventorySku.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         code: 'SP-1',
@@ -60,15 +60,39 @@ describe('RocketPoCatalogRepositoryAdapter (PG integration)', () => {
         isActive: true,
       },
     });
-    const component = await prisma.channelSkuComponent.create({
+    const master = await prisma.masterProduct.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        channelSkuId: firstOption.id,
-        masterProductId: master.id,
-        quantity: 1,
-        mappingSource: 'manual',
-        createdBy: TEST_USER_ID,
+        code: 'KI-1',
+        name: 'KidItem product',
       },
+    });
+    const variant = await prisma.productVariant.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        masterProductId: master.id,
+        code: 'KI-1-DEFAULT',
+        name: 'Default variant',
+        isDefault: true,
+      },
+    });
+    const component = await prisma.productVariantComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        productVariantId: variant.id,
+        sellpiaInventorySkuId: inventorySku.id,
+        quantity: 1,
+        source: 'manual',
+        confirmedBy: TEST_USER_ID,
+      },
+    });
+    await prisma.channelListing.update({
+      where: { id: firstOption.listingId },
+      data: { masterProductId: master.id },
+    });
+    await prisma.channelListingOption.update({
+      where: { id: firstOption.id },
+      data: { productVariantId: variant.id },
     });
 
     await repository.publish(publishInput('b'.repeat(64), row('P-2')));
@@ -88,13 +112,13 @@ describe('RocketPoCatalogRepositoryAdapter (PG integration)', () => {
     })).toBe(2);
     expect(await prisma.channelListing.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID, externalId: 'P-1' },
-    })).toMatchObject({ isActive: true });
+    })).toMatchObject({ isActive: true, masterProductId: master.id });
     expect(await prisma.channelListingOption.findUniqueOrThrow({
       where: { id: firstOption.id },
-    })).toMatchObject({ isActive: true });
-    expect(await prisma.channelSkuComponent.findUniqueOrThrow({
+    })).toMatchObject({ isActive: true, productVariantId: variant.id });
+    expect(await prisma.productVariantComponent.findUniqueOrThrow({
       where: { id: component.id },
-    })).toMatchObject({ masterProductId: master.id, quantity: 1 });
+    })).toMatchObject({ productVariantId: variant.id, quantity: 1 });
   });
 
   it('rechecks the active organization/account/vendor boundary in publication', async () => {
