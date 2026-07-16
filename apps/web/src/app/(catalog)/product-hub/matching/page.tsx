@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Loader2, RefreshCw, Search, Upload } from 'lucide-react';
+import { ArrowLeft, Loader2, RefreshCw, Search, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
 import { useUrlControlledTab } from '@/hooks/useUrlControlledTab';
@@ -15,13 +16,13 @@ import {
   MappingStatusTabs,
   type MappingStatusFilter,
 } from './components/MappingStatusTabs';
+import { LegacyMatchingCenter } from './components/LegacyMatchingCenter';
 import {
   useChannelAccounts,
   useChannelSkuMappings,
   useRefreshChannelSkuMappingStatuses,
 } from './hooks/useChannelSkuMappings';
 import type { ChannelSkuMappingCounts, ChannelSkuMappingListItem } from '@kiditem/shared/channel-sku-matching';
-import { LegacyMatchingCenter } from './components/LegacyMatchingCenter';
 
 const PAGE_LIMIT = 50;
 const SEARCH_DEBOUNCE_MS = 300;
@@ -143,6 +144,12 @@ function ChannelRecipeWorkspace() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <Link
+            href="/product-hub/matching"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            <ArrowLeft size={14} aria-hidden="true" /> 기존 매칭 센터
+          </Link>
           <SellpiaWorkspaceFreshnessStatus />
           <button
             type="button"

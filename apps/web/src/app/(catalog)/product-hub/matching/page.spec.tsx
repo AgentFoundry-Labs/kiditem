@@ -240,6 +240,10 @@ describe('/product-hub/matching', () => {
       screen.getByRole('group', { name: '매칭 상태 필터' }),
     );
     expect(screen.getByRole('button', { name: '새로고침' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '기존 매칭 센터' })).toHaveAttribute(
+      'href',
+      '/product-hub/matching',
+    );
     expect(
       screen.getByRole('button', { name: '쿠팡 Wing 상품 엑셀 가져오기' }),
     ).toBeInTheDocument();
