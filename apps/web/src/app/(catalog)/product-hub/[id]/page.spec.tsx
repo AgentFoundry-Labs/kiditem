@@ -30,7 +30,7 @@ const product = {
   lastImportedAt: '2026-07-16T00:00:00.000Z',
 };
 
-describe('/product-hub/[id] preserved product detail', () => {
+describe('/product-hub/[id] c9 Sellpia detail', () => {
   beforeEach(() => {
     vi.mocked(useQuery).mockReturnValue({
       data: product,
@@ -39,19 +39,16 @@ describe('/product-hub/[id] preserved product detail', () => {
     } as ReturnType<typeof useQuery>);
   });
 
-  it('keeps the legacy detail workflow and section hierarchy around Sellpia facts', () => {
+  it('renders the compact Sellpia read-only detail structure', () => {
     render(<ProductHubDetailPage />);
 
-    expect(screen.getByRole('button', { name: '워크플로우 실행' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: '워크플로우 실행' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 1, name: '동물 친구들 블록' })).toBeInTheDocument();
     for (const heading of [
-      '상품 정보',
-      '재고 현황',
-      '상품 진단',
-      '분석 기록',
-      '속성',
-      '링크',
-      'Sellpia 가져오기 출처',
+      'Sellpia 상품 식별자',
+      '현재 재고',
+      '가격',
+      '동기화 출처',
     ]) {
       expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument();
     }
@@ -59,11 +56,11 @@ describe('/product-hub/[id] preserved product detail', () => {
     expect(screen.getByText('채널 SKU 전체 현황')).toBeInTheDocument();
   });
 
-  it('explains that removed analytics and workflow data are unavailable', () => {
+  it('does not render removed workflow and analytics placeholders', () => {
     render(<ProductHubDetailPage />);
 
-    expect(screen.getByText(/워크플로우 실행은 현재 Sellpia 읽기 전용 상품에서 지원하지 않습니다/)).toBeInTheDocument();
-    expect(screen.getByText(/진단 데이터가 현재 상품 스냅샷에 포함되지 않습니다/)).toBeInTheDocument();
-    expect(screen.getByText(/분석 기록 데이터가 현재 상품 스냅샷에 포함되지 않습니다/)).toBeInTheDocument();
+    expect(screen.queryByText(/워크플로우 실행은/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '상품 진단' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '분석 기록' })).not.toBeInTheDocument();
   });
 });

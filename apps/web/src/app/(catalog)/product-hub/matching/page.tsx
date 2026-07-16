@@ -1,13 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
-import { ArrowLeft, Loader2, RefreshCw, Search, Upload } from 'lucide-react';
+import { Loader2, RefreshCw, Search, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
 import { useUrlControlledTab } from '@/hooks/useUrlControlledTab';
-import { SellpiaWorkspaceFreshnessStatus } from '@/components/sellpia-inventory';
 import { ChannelSkuComponentDialog } from './components/ChannelSkuComponentDialog';
 import { ChannelSkuMappingTable } from './components/ChannelSkuMappingTable';
 import { CoupangWingCatalogImportDialog } from './components/CoupangWingCatalogImportDialog';
@@ -16,7 +13,6 @@ import {
   MappingStatusTabs,
   type MappingStatusFilter,
 } from './components/MappingStatusTabs';
-import { LegacyMatchingCenter } from './components/LegacyMatchingCenter';
 import {
   useChannelAccounts,
   useChannelSkuMappings,
@@ -37,14 +33,6 @@ const EMPTY_COUNTS: ChannelSkuMappingCounts = {
 const MAPPING_STATUS_VALUES = ['all', 'unmatched', 'needs_review', 'matched'] as const;
 
 export default function MatchingPage() {
-  const searchParams = useSearchParams();
-
-  return searchParams.get('view') === 'channel-recipes'
-    ? <ChannelRecipeWorkspace />
-    : <LegacyMatchingCenter />;
-}
-
-function ChannelRecipeWorkspace() {
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [mappingStatus, setMappingStatus] = useUrlControlledTab({
     key: 'status',
@@ -144,13 +132,6 @@ function ChannelRecipeWorkspace() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Link
-            href="/product-hub/matching"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
-          >
-            <ArrowLeft size={14} aria-hidden="true" /> 기존 매칭 센터
-          </Link>
-          <SellpiaWorkspaceFreshnessStatus />
           <button
             type="button"
             onClick={handleManualRefresh}

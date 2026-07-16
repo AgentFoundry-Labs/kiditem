@@ -24,11 +24,11 @@ React Query + apiClient
 - Preserve server paging, search, stock status, and active status parameters.
 - Render Sellpia identity, option name, barcode, current stock, source prices,
   active state, and last-import provenance as read-only facts.
-- Keep `/product-hub/options` visually distinct from channel SKU matching
-  and back its search, stock, active-state, refresh, and paging controls with
-  the same Sellpia snapshot query.
+- Keep `/product-hub/options` visually distinct from channel SKU matching and
+  back its search, stock, active-state, refresh, and paging controls with the
+  same Sellpia snapshot query.
 - Link inventory import work to `/inventory-hub?tab=sellpia-sync` and component
-  matching work to the independently reachable `/product-hub/matching` route.
+  matching work to `/product-hub/matching`.
 
 ## Boundary Rules
 

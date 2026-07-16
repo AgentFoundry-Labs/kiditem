@@ -1,21 +1,12 @@
-'use client';
-
-import { PRODUCT_OPERATIONS_GRID_CLASS } from '../lib/product-list-layout';
-
-const COLUMNS = ['상품', '재고', '방문', '조회', '장바구니', '주문', '판매', '매출', '광고비율'] as const;
-
 export function ProductsColumnHeader() {
   return (
-    <div
-      role="row"
-      className={`${PRODUCT_OPERATIONS_GRID_CLASS} px-4 py-3 text-[11px] font-semibold text-[var(--text-quaternary)] 2xl:px-6 2xl:text-[12px]`}
-    >
-      {COLUMNS.map((column, index) => (
-        <span key={column} role="columnheader" className={index === 0 ? undefined : 'text-right'}>
-          {column}
-        </span>
-      ))}
-      <span aria-hidden="true" />
+    <div className="grid grid-cols-[minmax(300px,1.5fr)_minmax(140px,.7fr)_120px_120px_100px_64px] items-center gap-4 px-6 py-2 text-[11px] font-semibold text-[var(--text-quaternary)]">
+      <span>Sellpia 상품</span>
+      <span>바코드</span>
+      <span className="text-right">매입가</span>
+      <span className="text-right">판매가</span>
+      <span className="text-right">현재 재고</span>
+      <span />
     </div>
   );
 }
