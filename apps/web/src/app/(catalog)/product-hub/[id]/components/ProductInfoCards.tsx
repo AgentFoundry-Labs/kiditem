@@ -6,7 +6,7 @@ const INVENTORY_LABELS = {
   sellable: '판매 가능',
   partial_out_of_stock: '일부 품절',
   out_of_stock: '품절',
-  configuration_required: '구성 필요',
+  configuration_required: '재고 연결 필요',
   review_required: '검토 필요',
 } as const;
 

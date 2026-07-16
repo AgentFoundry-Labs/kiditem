@@ -45,6 +45,12 @@ Consult this document first instead of relying on memorized knowledge.
   refresh, and paging state. Its stock and price fields are provider facts.
 - Candidate generation on `/product-hub/matching` never confirms a link.
   Product and variant mutations require explicit operator confirmation.
+- Products owns transaction-aware creation or exact reuse of channel-origin
+  products and variants during catalog publication. Channels owns typed exact
+  evidence extraction and the final still-null listing/option link writes.
+- Channel-origin rows without a confirmed Sellpia component recipe remain
+  visible here as `재고 연결 필요`; matching is the operator correction and
+  recipe-attention workspace.
 
 ## Boundary Rules
 
@@ -54,6 +60,7 @@ Consult this document first instead of relying on memorized knowledge.
 - Do not create catalog-owned stock balances or editable Sellpia stock/price
   inputs.
 - Do not infer product, variant, or recipe identity from display text.
+  Normalized names and AI never auto-confirm publication or matching links.
 - Channel rows may show inherited recipe status and capacity, but recipe edits
   belong only to `/product-hub/[masterProductId]`.
 - All API calls use `apiClient` + React Query and never send `organizationId`.

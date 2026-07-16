@@ -121,7 +121,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/analytics` | Owner Read Model | Dashboard, statistics, traffic, and supplier-stats reporting. |
 | `apps/server/src/auth` | Platform Capability | Guards, decorators, middleware, and `/api/auth/me`. |
 | `apps/server/src/automation` | Platform | Workflows, alerts, action board, marketplace install, and panel projection. |
-| `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped registration/listing, order, return, Wing/Rocket catalog identity, operator-confirmed product/variant links, linked-recipe diagnostics, and sellable-capacity projections. |
+| `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped registration/listing, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, conditional product/variant link writes, linked-recipe diagnostics, and sellable-capacity projections. |
 | `apps/server/src/chat` | Platform Capability | CopilotKit bridge and Claude CLI adapter. |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
@@ -131,7 +131,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/organizations` | Platform Capability | Organization listing surface. |
 | `apps/server/src/operation-cancellation` | Platform | Cross-owner durable cancellation endpoint and orchestration. |
 | `apps/server/src/prisma` | Platform Support | `PrismaModule` and `PrismaService` only. |
-| `apps/server/src/products` | Owner Domain | KidItem MasterProduct operations, reusable ProductVariant units, central ProductVariantComponent recipes, and `/api/categories` compatibility CRUD. |
+| `apps/server/src/products` | Owner Domain | KidItem MasterProduct operations, reusable ProductVariant units, central ProductVariantComponent recipes, transaction-aware channel-origin identity provisioning, and `/api/categories` compatibility CRUD. |
 | `apps/server/src/readiness` | Platform Capability | Readiness checks and health-style operational surface. |
 | `apps/server/src/rules` | Owner Domain | Business rules HTTP orchestration and Agent OS delegation. |
 | `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery (scraper ingest and SourcingCandidate inbox) plus the account-scoped ProductPreparation registration state machine. |
@@ -210,8 +210,8 @@ Initial domain capability targets:
 | `sourcing` | Duplicate URL/candidate/preparation lookup and read context. | Product URL scrape through browser/runtime, search result scrape. | Duplicate-check → scrape → candidate ingest → preparation → account registration. | Candidate ingest/rejection and preparation lifecycle/finalization. |
 | `ai` | Workspace/generation/detail-page read context. | OCR, image classification, image/text/detail generation, vision analysis. | Media generation jobs and candidate-to-listing content branching. | Generation output, asset usage, current-thumbnail, and workspace archive projections. |
 | `finance` | Margin, commission, cost, settlement, and plan lookups. | Margin/category profitability calculations, pandas-style research adapters when needed. | Reconciliation and profitability analysis runs. | Manual ledger entries, settlement/payment projections. |
-| `products` | Product operations, variants, central component recipes, and category compatibility reads. | Product/variant validation and recipe-capacity projections. | Product/variant lifecycle and complete confirmed-recipe replacement. | MasterProduct, ProductVariant, and ProductVariantComponent writes; never physical stock publication. |
-| `channels` | Channel account/listing/order/status, Wing/Rocket catalog identity, nullable product/variant links, and nullable SKU-availability reads. | Marketplace provider calls, listing validation, Wing/Coupang browser runtime steps, linked-variant capacity calculation. | Product registration/listing sync and operator-confirmed product/variant matching flows. | Listing registration/update and confirmed-link projection, channel order/status ingestion; never recipes or stock publication. |
+| `products` | Product operations, variants, central component recipes, channel-origin provenance, and category compatibility reads. | Product/variant validation, exact identity resolution, and recipe-capacity projections. | Product/variant lifecycle, transaction-aware channel-origin provisioning, and complete confirmed-recipe replacement. | MasterProduct, ProductVariant, and ProductVariantComponent writes; never channel links or physical stock publication. |
+| `channels` | Channel account/listing/order/status, Wing/Rocket catalog identity, nullable product/variant links, and nullable SKU-availability reads. | Marketplace provider calls, listing validation, typed exact-evidence extraction, Wing/Coupang browser runtime steps, and linked-variant capacity calculation. | Product registration/listing sync, atomic catalog-to-Products publication, and operator correction flows. | Listing registration/update and still-null confirmed-link projection, channel order/status ingestion; never recipes or stock publication. |
 | `rules` | Rule set and evaluation context reads. | Rule evaluation/suggestion tools that may invoke Agent OS from rules entrypoints. | Scheduled policy sweeps when deterministic. | Rule/action recommendation projection. |
 | `advertising` | Ad account/campaign/daily fact reads. | Scrape ingest normalization, strategy metrics calculations. | Daily fact ingest and deterministic alert workflows. | Ad fact/action/strategy projections. |
 | `supply` | Supplier, supplier-product, purchase-order, and submission-attempt reads. | Supplier matching, deterministic Rocket capacity preview, and procurement calculation helpers. | Freshness-fenced purchase submission and explicit provider reconciliation. | Supplier attach, purchase-order creation/update, and attempt terminal state; never freshness or stock. |
@@ -553,10 +553,15 @@ becomes `provider_unknown`; it requires explicit authenticated reconciliation
 and cannot call the provider again. The web may auto-refresh and retry once only
 for `SELLPIA_SYNC_REQUIRED`, with the same key.
 
-Channels persists account-scoped Wing and Rocket identity. A unique exact
-product code or barcode can create a one-unit recipe; normalized-name,
-similarity/AI, and manual-search results are review candidates only. Operator-
-confirmed recipes remain the capacity truth. Capacity is
+Channels persists account-scoped Wing and Rocket identity. During Wing detail
+publication, Channels calls Products' transaction-aware provisioning
+capability: a unique typed seller SKU or safely normalized typed barcode may
+reuse an active product/variant, otherwise Products creates deterministic
+channel-origin identities with no component recipe. Channels then writes only
+still-null listing/option links in the same transaction. Raw aliases,
+normalized names, similarity/AI, and manual-search results never auto-confirm
+identity or a recipe. Operator-confirmed recipes remain the capacity truth.
+Capacity is
 `min(floor(currentStock / quantity))`; inactive components keep their stored
 recipe visible in `needs_review` instead of being silently removed.
 

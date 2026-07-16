@@ -11,7 +11,7 @@ type Props = { row: ChannelOptionMatchingQueueRow };
 
 const STATUS: Record<ChannelOptionRecipeStatus, { label: string; className: string }> = {
   unmatched: { label: '미매칭', className: 'bg-slate-100 text-slate-700' },
-  configuration_required: { label: '구성 필요', className: 'bg-amber-100 text-amber-800' },
+  configuration_required: { label: '재고 연결 필요', className: 'bg-amber-100 text-amber-800' },
   review_required: { label: '검토 필요', className: 'bg-orange-100 text-orange-800' },
   matched: { label: '구성 완료', className: 'bg-emerald-100 text-emerald-800' },
 };

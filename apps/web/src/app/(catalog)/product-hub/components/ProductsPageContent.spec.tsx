@@ -106,7 +106,7 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getByRole('columnheader', { name: '광고비율' })).toBeInTheDocument();
     expect(screen.getByText('스테이지 상품')).toBeInTheDocument();
     expect(screen.getByText(/KI-001/)).toBeInTheDocument();
-    expect(screen.getAllByText('구성 필요').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('재고 연결 필요').length).toBeGreaterThan(0);
     expect(screen.getAllByText('미수집').length).toBeGreaterThan(0);
     const inventoryCard = screen.getByText('재고관리 · 현재 페이지').closest('article');
     expect(inventoryCard).not.toBeNull();

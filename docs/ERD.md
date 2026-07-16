@@ -1285,6 +1285,7 @@ erDiagram
   MasterProduct {
     String id PK
     String organizationId FK
+    String originChannelListingId FK
     String code
     String name
     String description
@@ -2291,6 +2292,7 @@ erDiagram
   ChannelListing o|--o{ ContentWorkspace : "channelListing"
   ChannelListing o|--o{ CSRecord : "listing"
   ChannelListing ||--o{ GradeHistory : "listing"
+  ChannelListing o|--o| MasterProduct : "originChannelListing"
   ChannelListing o|--o{ ProductPreparation : "channelListing"
   ChannelListing ||--o{ ProfitLoss : "listing"
   ChannelListing o|--o{ Review : "listing"

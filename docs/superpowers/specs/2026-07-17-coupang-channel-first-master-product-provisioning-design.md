@@ -1,7 +1,7 @@
 # Coupang Channel-First MasterProduct Provisioning Design
 
 Date: 2026-07-17  
-Status: Proposed design for implementation planning  
+Status: Approved and implemented  
 Release: `0.1.19` (in development; no additional version bump)
 
 ## Context
@@ -84,11 +84,15 @@ usable evidence agrees on one `MasterProduct`.
 Evidence priority is:
 
 1. the listing or option's existing confirmed link;
-2. exact `MasterProduct.code` from an explicit provider product code;
-3. exact `ProductVariant.code` from a seller SKU;
-4. exact active `SellpiaInventorySku.code` through a confirmed variant
-   component;
-5. a unique normalized barcode through a confirmed variant component.
+2. the listing's existing immutable channel-origin product;
+3. exact `ProductVariant.code` from the collector's typed `sellerSku`;
+4. a unique safely normalized typed `barcode` through a confirmed variant
+   component.
+
+The current collector does not expose typed provider product-code or Sellpia-
+code fields. Plausible `productCode` or `sellpiaCode` values found only in
+`raw` are ignored. Barcode normalization accepts only digits with spaces or
+hyphens, preserves leading zeroes, and requires 8–14 digits.
 
 An identifier that resolves to multiple products or variants is ambiguous and
 does not auto-link. Conflicting exact identifiers also do not auto-link.
@@ -114,7 +118,7 @@ transaction:
 upsert ChannelListing and ChannelListingOption source facts
   -> lock the published listing rows
   -> preserve every existing confirmed link
-  -> resolve exact deterministic product/variant targets
+  -> resolve typed seller-SKU / safe-barcode product and variant targets
   -> reuse the channel-origin product for the listing when it already exists
   -> otherwise create one channel-origin product and its variants
   -> write only still-null ChannelListing/ChannelListingOption links
@@ -137,6 +141,7 @@ The channel-origin product is seeded once:
 - category and brand: current collected values when present;
 - one variant per active collected option;
 - variant code: deterministic from the stable `ChannelListingOption.id`;
+- variant name: option name, then seller SKU, then external option ID;
 - no `ProductVariantComponent` rows.
 
 Later recollection updates channel source facts but does not overwrite
@@ -154,7 +159,7 @@ operator-managed product.
 
 - Catalog publication keeps its account-scoped advisory lock.
 - Published listing rows are locked before product resolution.
-- `(organizationId, originChannelListingId)` prevents duplicate channel-origin
+- `(originChannelListingId, organizationId)` prevents duplicate channel-origin
   products.
 - Product and variant codes are deterministic and organization-unique.
 - Link updates are conditional on a null current link. A concurrent manual
@@ -162,17 +167,23 @@ operator-managed product.
 - Replaying the same detail chunk returns its prior publication result without
   creating products or variants again.
 - Final full-snapshot publication repeats identity upserts idempotently and
-  performs absence reconciliation without changing confirmed links.
+  performs absence reconciliation without changing confirmed links. Product,
+  variant, and conditional-link writes use bounded 500-row batches; the
+  1,225-listing/2,241-option final path stays inside the existing transaction
+  timeout.
+- An inactive current or origin product, inactive generated variant, or
+  deterministic-code collision is an explicit publication conflict. The
+  system never silently reactivates or replaces operator state.
 
 ## Screen Behavior
 
 ### Registered products
 
 The existing screen and card composition stay unchanged. During a running
-collection, each increase in `publishedProducts` invalidates and refetches the
-channel-listing query. Completion performs one final invalidation. The hook
-also invalidates product-operations data so navigating to `/product-hub`
-immediately reads the new products.
+collection, each increase in `publishedProducts` invalidates and refetches both
+channel-listing and product-operations queries. Repeated polls with the same
+count do nothing. Completion performs one final invalidation of channel
+listings, product operations, product matching, and channel SKU availability.
 
 ### Product operations
 
@@ -216,7 +227,7 @@ this work does not add another Excel-only catalog path.
 
 ### Domain and service tests
 
-- exact code, seller SKU, Sellpia code, and unique barcode resolution;
+- typed seller SKU and safe unique barcode resolution;
 - ambiguous and conflicting identifiers produce no existing-product decision;
 - normalized names never auto-confirm;
 - deterministic product/variant codes are stable and within contract limits;
@@ -235,6 +246,8 @@ this work does not add another Excel-only catalog path.
 - unresolved exact evidence creates a channel-origin product but no Sellpia
   component;
 - final absence reconciliation does not delete internal products or variants;
+- a 1,225-listing/2,241-option final publication completes through bounded
+  bulk operations;
 - product-operations list shows the newly published product with
   `configuration_required` inventory.
 

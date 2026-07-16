@@ -114,6 +114,7 @@ erDiagram
   MasterProduct {
     String id PK
     String organizationId FK
+    String originChannelListingId FK
     String code
     String name
     String description
@@ -218,6 +219,7 @@ erDiagram
   ChannelAccount ||--o{ ChannelListing : "channelAccount"
   ChannelAccount o|--o{ SourceImportRun : "channelAccount"
   ChannelListing ||--o{ ChannelListingOption : "listing"
+  ChannelListing o|--o| MasterProduct : "originChannelListing"
   MasterProduct o|--o{ ChannelListing : "masterProduct"
   MasterProduct ||--o{ ProductVariant : "masterProduct"
   Organization ||--o{ CategoryMapping : "organization"

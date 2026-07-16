@@ -233,23 +233,13 @@ without a separate matching step.
 
 ### Channel-first
 
-```text
-Collect ChannelListing and ChannelListingOption
--> leave links null
--> rank MasterProduct and ProductVariant candidates
--> operator confirms links
--> capacity becomes available from the central variant recipe
-```
-
-Candidate order is:
-
-1. existing provider identity or confirmed historical link;
-2. exact barcode or explicit product/variant code;
-3. normalized registered product and option names;
-4. AI recommendation only for unresolved candidates;
-5. authorized operator confirmation.
-
-Neither normalized names nor AI may auto-save a link.
+This section is superseded by the approved
+[Coupang Channel-First MasterProduct Provisioning Design](2026-07-17-coupang-channel-first-master-product-provisioning-design.md).
+Published Coupang detail chunks now create or uniquely reuse Products-owned
+operating identities and Channels writes only still-null links in the same
+transaction. Typed seller SKU and safe barcode are the only automatic reuse
+evidence; normalized names, raw aliases, and AI never auto-save a link or
+recipe.
 
 ### Sellpia-first
 

@@ -8,7 +8,7 @@ import type { ProductVariantDetail } from '@kiditem/shared/product-operations';
 
 const WARNING_LABELS = {
   none: '구성 완료',
-  configuration_required: '구성 필요',
+  configuration_required: '재고 연결 필요',
   review_required: '검토 필요',
 } as const;
 
@@ -29,7 +29,7 @@ export default function ProductVariantPanel({ variants }: { variants: ProductVar
 
       {variants.length === 0 ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-sm font-semibold text-amber-800">
-          구성 필요 · 판매 옵션이 없습니다.
+          재고 연결 필요 · 판매 옵션이 없습니다.
         </div>
       ) : (
         <div className="grid gap-3 xl:grid-cols-2">

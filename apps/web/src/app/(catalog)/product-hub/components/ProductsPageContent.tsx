@@ -165,7 +165,7 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
           <option value="out_of_stock">품절</option>
           <option value="partial_out_of_stock">일부 품절</option>
           <option value="sellable">판매 가능</option>
-          <option value="configuration_required">구성 필요</option>
+          <option value="configuration_required">재고 연결 필요</option>
           <option value="review_required">검토 필요</option>
         </select>
         <select

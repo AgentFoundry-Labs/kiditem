@@ -36,12 +36,18 @@ React Query + apiClient
   link to `/product-hub/[masterProductId]#variants`.
 - Coupang and Rocket catalog rows share the matching queue. Only Coupang
   accounts receive a Wing workbook.
+- Browser catalog publication may arrive already linked through Products-owned
+  channel-origin provisioning or unique typed seller-SKU/safe-barcode reuse.
+  Matching remains the operator correction surface and the read-only
+  recipe-attention workspace for `재고 연결 필요` rows.
 
 ## Boundary Rules
 
 - Do not recreate channel-owned component recipes or quantity inputs.
-- Do not infer or auto-confirm product/variant identity from candidate rank,
-  code, barcode, provider identity, normalized name, or AI evidence.
+- Matching candidates never auto-confirm identity from rank, normalized name,
+  or AI evidence. The only automatic identity decision is the backend catalog
+  publication boundary's unique, non-conflicting typed seller SKU or safely
+  normalized barcode policy; raw aliases and names are never confirming.
 - Do not send `organizationId`; backend session scope owns it.
 - Wing and Rocket collection must preserve already confirmed links.
 - Rocket order collection, purchase preview, and order handling remain outside
