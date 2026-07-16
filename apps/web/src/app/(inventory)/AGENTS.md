@@ -2,8 +2,8 @@ Consult this document first instead of relying on memorized knowledge.
 
 # web/inventory - Sellpia Snapshot, Warehouses, Fulfillment Records
 
-`app/(inventory)/` owns canonical `/inventory-hub`, query-aware redirects for
-legacy `/inventory`, `/stock-ops`, `/unshipped-items`, and `/outbound` URLs,
+`app/(inventory)/` owns the preserved `/inventory-hub`, `/inventory`,
+`/stock-ops`, `/unshipped-items`, and `/outbound` operational surfaces,
 warehouses, and Coupang shipment support.
 The displayed stock is the latest completed Sellpia snapshot stored on
 physical `MasterProduct` rows.
@@ -13,8 +13,8 @@ physical `MasterProduct` rows.
 - Sellpia snapshot list, import history, freshness, and asset reporting
 - Channel availability, zero-stock, bottleneck, and mapping-attention views
 - Warehouse metadata and record-only transfer/picking/return views
-- Query-aware unshipped/outbound redirects; canonical composition is owned by
-  `/order-hub`
+- Independently reachable unshipped and outbound screens; related composition
+  in `/order-hub` does not replace them
 - Coupang shipment file helpers and browser print support
 
 ## Data Flow
@@ -42,14 +42,14 @@ React Query + inventory API helpers
   one import-run history. Manual upload requires explicit fresh-export
   attestation bound to the currently selected file, and pre-download failures
   render without file provenance.
-- `/inventory-hub` owns `tab=overview|inventory|attention|history`; history owns
-  `view=assets|transfer|return`. Both selectors preserve unrelated URL state
-  and unmount inactive workspaces.
-- The inventory table is implemented once in `InventoryWorkspace`; `/inventory`
-  redirects to `/inventory-hub?tab=inventory` while preserving unrelated query
-  state.
-- The canonical header renders compact freshness; import attempts and history
-  remain in the single shared freshness drawer rather than route-local panels.
+- `/inventory-hub` preserves its pre-SDD inventory-management tabs. New Sellpia
+  synchronization controls may be added as a tab or compact status without
+  removing the existing tabs.
+- `/inventory` and `/stock-ops` keep their own operator-facing compositions.
+  Shared projections may reuse components, but the direct routes do not become
+  redirects.
+- Compact freshness status opens the shared drawer; automatic and manual
+  attempts remain one import history regardless of which screen opened it.
 
 ## Boundary Rules
 

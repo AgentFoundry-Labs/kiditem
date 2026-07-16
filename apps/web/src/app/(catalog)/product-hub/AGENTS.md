@@ -1,12 +1,12 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# product-hub - Read-only Sellpia Product Catalog
+# product-hub - Preserved Product Operations Center
 
 `app/(catalog)/product-hub/` owns `/product-hub` and
-`/product-hub/[masterProductId]` as the operator-facing catalog for the latest
-Sellpia inventory snapshot. `/product-hub?view=list|options` is the canonical
-workspace; `/product-hub/options` redirects to its read-only options view while
-preserving unrelated query state.
+`/product-hub/[masterProductId]` as the preserved operator-facing product
+operations center and detail hierarchy. `/product-hub?view=options` and the
+independently reachable `/product-hub/options` route render the approved
+read-only Sellpia option projection.
 
 ## Data Flow
 
@@ -35,15 +35,17 @@ React Query + apiClient
   its visible position and explain the unavailable state. Do not call a removed
   endpoint. The workflow control remains disabled until a supported product
   workflow contract is connected to the Sellpia MasterProduct identity.
-- Keep the canonical options view visually distinct from channel SKU matching
+- Keep the read-only options view visually distinct from channel SKU matching
   and back its search, stock, active-state, refresh, and paging controls with
   the same Sellpia snapshot query.
-- Link inventory import work to `/inventory-hub?tab=overview` and component
-  matching work to `/product-hub/matching`.
-- The canonical shell owns the only `h1`, uses URL-authoritative view selection,
-  and unmounts the inactive list/options workspace. The extracted options
-  workspace renders `h2` below that shell; the compatibility route renders no
-  workspace content.
+- Link inventory import work to `/inventory-hub?tab=sellpia-sync` and component
+  matching work to `/product-hub/matching?view=channel-recipes`.
+- Preserve the operations-center shell, command-center cards, category and
+  status filters, product rows, and product-detail hierarchy. Sellpia identity,
+  freshness, and unsupported-state notices are additive to that composition.
+- The direct options route owns its page heading. The options query view may
+  reuse the same read-only workspace without turning the direct route into a
+  redirect.
 
 ## Boundary Rules
 

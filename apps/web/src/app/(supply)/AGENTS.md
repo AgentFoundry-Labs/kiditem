@@ -15,6 +15,8 @@ state, finance settlement state, or catalog product editing.
 - Active Rocket ChannelAccount selector on the real `/purchase-orders` route
 - Canonical `/purchase-orders?tab=general|rocket` workspace with one heading
   and inactive-tab unmounting
+- The Rocket tab is an additive deterministic preview; it does not replace or
+  redirect the preserved `/rocket-orders` operations screen
 
 ## Data Flow
 

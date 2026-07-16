@@ -2,18 +2,20 @@ Consult this document first instead of relying on memorized knowledge.
 
 # web/catalog - Sellpia Product Hub and Channel SKU Matching
 
-`app/(catalog)/` owns the read-only Sellpia product catalog and the operator
-workspace that maps marketplace channel SKUs to the Sellpia products they
-consume. Public URLs remain under `/product-hub`.
+`app/(catalog)/` owns the preserved product operations center, read-only
+Sellpia option projection, and the operator workspace that maps marketplace
+channel SKUs to the Sellpia products they consume. Public URLs remain under
+`/product-hub`.
 
 ## Owned Surfaces
 
-- Sellpia `MasterProduct` snapshot list/detail under `/product-hub`
-- Coupang Wing catalog upload and account-scoped channel SKU component matching
-  under `/product-hub/matching`
-- A dedicated read-only Sellpia option table under canonical
-  `/product-hub?view=options`; `/product-hub/options` is a compatibility
-  redirect.
+- Preserved product operations-center list under `/product-hub` and preserved
+  product detail hierarchy under `/product-hub/[masterProductId]`
+- Preserved matching center under `/product-hub/matching`, with account-scoped
+  channel SKU component matching added at `?view=channel-recipes`
+- Dedicated read-only Sellpia option tables at `/product-hub/options` and
+  `/product-hub?view=options`. Replacing the former editable option-management
+  UI with this read-only projection is an approved exception.
 
 ## Data Flow
 
@@ -32,11 +34,11 @@ React Query + apiClient
 
 ## State Rules
 
-- `/product-hub` is a read-only projection of the latest Sellpia full-snapshot
-  import. It never creates, edits, deletes, or adjusts physical products.
-- The canonical options view presents the same authoritative snapshot in the
-  legacy option-management table shape without restoring removed option
-  mutations.
+- `/product-hub` preserves the operations-center information hierarchy while
+  adapting supported facts to the current APIs. Unsupported historical metrics
+  remain visibly unavailable instead of calling removed endpoints.
+- The options views present the authoritative Sellpia snapshot in a read-only
+  table without restoring removed option mutations.
 - One physical `MasterProduct` is one Sellpia product-code row, including its
   option name when Sellpia distinguishes the option at that code.
 - Channel matching uses focused account, source-import, and channel SKU

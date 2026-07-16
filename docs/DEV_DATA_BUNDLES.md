@@ -495,11 +495,14 @@ rtk npm run dev
 | 화면 | 확인 내용 |
 |---|---|
 | `/ad-ops` | 광고/스크래퍼 데이터가 비어 있지 않고, 캠페인/전략/추천 영역이 에러 없이 렌더링되는지 |
-| `/inventory-hub?tab=inventory` | Sellpia 재고 목록/필터/검색/상세 진입이 깨지지 않는지 |
-| `/inventory-hub?tab=overview` | freshness/current basis/history drawer가 현재 조직 상태로 렌더링되는지 |
-| `/inventory-hub?tab=attention` | 품절/제로/병목/비활성 recipe 경고가 렌더링되는지 |
-| `/product-hub?view=list` / `?view=options` | 쿠팡 listing/option 과 연결된 상품/옵션 데이터가 깨지지 않는지 |
-| `/product-hub/matching` | account 범위 matching queue와 confirmed recipe가 구분되는지 |
+| `/inventory-hub?tab=status` | 보존된 재고 현황 목록/필터/검색/상세 진입이 깨지지 않는지 |
+| `/inventory-hub?tab=sellpia-sync` | freshness/current basis/history drawer가 현재 조직 상태로 렌더링되는지 |
+| `/stock-ops` | 보존된 재고 분석 탭과 추가된 freshness/mapping 경고가 함께 렌더링되는지 |
+| `/product-hub` | staging 기준 상품 운영 센터의 카드/필터/상품 행과 상세 진입이 보존되는지 |
+| `/product-hub/options` | 승인된 예외인 Sellpia 읽기 전용 옵션 표가 검색/필터/페이징과 함께 렌더링되는지 |
+| `/product-hub/matching` | 기존 매칭 센터가 기본 화면으로 보존되는지 |
+| `/product-hub/matching?view=channel-recipes` | account 범위 matching queue와 confirmed recipe가 구분되는지 |
+| `/rocket-orders` / `/purchase-orders?tab=rocket` | 기존 Rocket 운영 화면과 신규 preview가 서로 교체되지 않고 각 URL에 렌더링되는지 |
 
 확인 기준:
 

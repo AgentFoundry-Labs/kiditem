@@ -86,17 +86,21 @@ treated as a confirmed zero-capacity recipe.
 The only primary action is **미리보기 다시 계산**. **로켓 발주 확정** remains
 disabled with `0.1.19에서는 검토만 가능`.
 
-## Canonical Screens
+## Owned Screens
 
 | Route | Responsibility |
 |---|---|
 | `/purchase-orders?tab=rocket` | Account selection, authenticated collection, completeness evidence, editable deterministic preview, disabled confirmation. |
-| `/product-hub/matching` | Coupang and Rocket SKU queue; operator confirmation of exact Sellpia component recipes. |
-| `/inventory-hub?tab=overview` | Shared Sellpia freshness status, current basis, attempts, warnings, and manual fallback. |
-| `/inventory-hub?tab=attention` | Sellpia zero stock, channel capacity, bottlenecks, and inactive-recipe warnings. |
+| `/rocket-orders` | Preserved pre-SDD Rocket operations UI. It may link to the preview but is not replaced by it. |
+| `/product-hub/matching` | Preserved default product matching center. |
+| `/product-hub/matching?view=channel-recipes` | Coupang and Rocket SKU queue; operator confirmation of exact Sellpia component recipes. |
+| `/inventory-hub?tab=sellpia-sync` | Shared Sellpia freshness status, current basis, attempts, warnings, and manual fallback. |
+| `/stock-ops` | Preserved inventory analysis, including additive freshness and mapping-attention entries. |
 
-`/rocket-orders` is a compatibility URL and redirects to
-`/purchase-orders?tab=rocket`, preserving unrelated query parameters.
+The two Rocket routes have different ownership. The preview is available only
+at `/purchase-orders?tab=rocket`; direct `/rocket-orders` keeps its existing
+operator-facing screen and must not redirect to or embed the preview as a
+replacement.
 
 ## Record-Only Operations
 
@@ -115,8 +119,9 @@ for a real-world stock change.
 - Do not infer vendor identity from a display name or bypass incomplete
   evidence.
 - Do not calculate preview capacity from stale cached channel availability.
-- Do not restore manual receive/issue/adjust/reserve/release or a generic stock
-  ledger.
+- Preserved inventory and ledger screens must remain record-only with respect
+  to `MasterProduct.currentStock`; do not add receive/issue/adjust/reserve/
+  release actions that write the Sellpia-owned balance.
 
 ## Failure Recovery
 
@@ -125,7 +130,7 @@ for a real-world stock change.
 | Rocket account missing/inactive | Select or configure an active organization-owned `channel='rocket'` account. |
 | Vendor mismatch | Sign in to the intended Coupang supplier account or select the matching Rocket ChannelAccount. Recollect; do not override the ID. |
 | Missing/truncated details | Narrow the date range, restore the provider page/session, and recollect until completeness evidence is clean. |
-| SKU is unmapped | Confirm the entire recipe in `/product-hub/matching`; do not infer quantity from a title. |
+| SKU is unmapped | Confirm the entire recipe in `/product-hub/matching?view=channel-recipes`; do not infer quantity from a title. |
 | Recipe component inactive | Review and replace/confirm the recipe. Persisted mapping remains diagnosable and appears in `needs_review`. |
 | `SELLPIA_SYNC_REQUIRED` | Wait for the automatic Sellpia refresh and recompute from the fresh generation. |
 | Edited quantity rejected | Recompute the preview and keep the edit within the jointly allocated remaining capacity. |

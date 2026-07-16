@@ -47,10 +47,10 @@ provider ambiguity. A failed attempt does not publish partial rows.
 
 ## One-Time Source Binding
 
-1. Open an authenticated KidItem operations screen and use the floating
-   Sellpia freshness status. `/product-hub/matching` displays the same shared
-   status inline. The dedicated sync entry is
-   `/inventory-hub?tab=sellpia-sync`.
+1. Open an authenticated KidItem operations screen and use a compact Sellpia
+   freshness status to open the shared drawer. Matching views display the same
+   shared state without replacing the preserved matching-center UI. The
+   dedicated sync entry is `/inventory-hub?tab=sellpia-sync`.
 2. Confirm that the drawer shows origin `https://kiditem.sellpia.com` and
    account `kiditem`.
 3. As an owner or admin, choose **출처 연결 확인**.
@@ -96,6 +96,27 @@ Internal operation links return to the screen that owns the action: mall collect
 `/order-collection`, channel order results to `/orders`, channel inventory to
 `/inventory`, and inventory warnings to `/stock-ops`. This navigation contract
 does not change the server-owned TTL, lease, fence, or single-writer rules.
+
+## Operations UI Preservation
+
+The UI immediately before this freshness SDD is the preservation baseline.
+Automatic sync and freshness controls are added to that UI; they do not replace
+existing pages or collapse their URLs:
+
+- `/product-hub` keeps the product operations center and its detail hierarchy.
+- `/product-hub/matching` keeps the prior matching center by default;
+  `/product-hub/matching?view=channel-recipes` opens the Sellpia component
+  recipe workflow.
+- Order, inventory, fulfillment, supplier, and finance sidebar routes remain
+  independently reachable even when another hub reuses related components.
+- `/purchase-orders?tab=rocket` is the new preview-only workflow;
+  `/rocket-orders` keeps its prior Rocket operations UI.
+- `/product-hub/options` may keep the replacement read-only Sellpia table. This
+  is the approved exception to preserving the former editable options screen.
+
+The shared compact status/drawer and synchronization controls are additive.
+Do not remove the standard Quick Action, a page header, tabs, tables, or existing
+actions merely to expose freshness.
 
 An identical workbook is not republished. The first post-order identical hash
 schedules one `same_hash_confirmation` at least three minutes later. The next

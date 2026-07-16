@@ -45,33 +45,38 @@ route groups need it.
 - When adding a route group or moving a route, update `apps/web/AGENTS.md` and
   `docs/ARCHITECTURE.md`.
 
-## Canonical Operations Workspaces (`0.1.19`)
+## Preserved Operations Surfaces (`0.1.19`)
 
-The sidebar has exactly five dense operations entries:
+The operations UI that existed before the Sellpia freshness SDD is the
+preservation baseline. Keep its sidebar sections, independent URLs, page
+hierarchy, and primary interactions. Sellpia freshness, synchronization, and
+channel-component matching are additive capabilities; do not replace an
+existing screen with a consolidated workspace or compatibility redirect.
 
-- `/product-hub` — URL-owned `view=list|options`;
-- `/product-hub/matching` — standalone channel/Sellpia recipe workspace;
-- `/order-hub` — URL-owned `tab=collection|processing|shipping|exceptions`;
-- `/purchase-orders` — URL-owned `tab=general|rocket`;
-- `/inventory-hub` — URL-owned `tab=overview|inventory|attention|history`.
+Important ownership rules:
 
-Canonical tabs use the allow-listed URL hooks, semantic keyboard tabs,
-`unmountInactive`, one page `h1`, and named pagination controls where paging
-exists. Dense canonical routes suppress the floating Quick Action and render one
-inline Sellpia freshness status backed by the app-wide coordinator/drawer. Do
-not mount another page component to reuse a legacy surface.
+- `/product-hub` keeps the product operations-center layout. Its existing
+  product detail remains the default detail experience.
+- `/product-hub/matching` keeps the pre-SDD matching center by default;
+  `?view=channel-recipes` opens the additive Sellpia component-recipe view.
+- `/inventory-hub`, `/inventory`, `/stock-ops`, `/order-hub`,
+  `/order-collection`, `/orders`, `/unshipped-items`, `/outbound`,
+  `/order-status-hub`, and `/rocket-orders` remain independently reachable
+  operational surfaces.
+- `/purchase-orders?tab=rocket` owns only the new deterministic Rocket preview.
+  The direct `/rocket-orders` URL keeps its pre-SDD Rocket operations UI.
+- `/product-hub/options` may use the replacement read-only Sellpia option table;
+  this is the approved exception to preserving the former editable option UI.
 
-`/inventory`, `/stock-ops`, `/order-collection`, `/orders`,
-`/unshipped-items`, `/outbound`, `/order-status-hub`, `/rocket-orders`, and
-`/product-hub/options` are compatibility redirects. Legacy `inventory-hub` and
-`order-hub` tab aliases also redirect to the canonical tab/view. Redirects must
-consume only legacy `tab`/`view`, let canonical mapped keys win, preserve
-unrelated and repeated query values, and avoid loops. New internal links and
-operation alerts use canonical URLs only.
+Existing routes may share extracted components, but each route keeps its own
+operator-facing composition. Standard shell affordances such as Quick Action
+are not suppressed solely because a page is dense. Add compact Sellpia status,
+drawer entry points, and synchronization controls without removing the existing
+header, tabs, tables, or actions.
 
 Sellpia freshness is shared application state, not route-local state. Pages may
 open the shared drawer or render the compact status, but must not derive TTL,
 own claim/heartbeat timers, upload browser bytes outside the coordinator, or
-write stock. Rocket under `/purchase-orders?tab=rocket` remains preview-only;
-no actual confirmation/submission/reservation/workbook/stock control may be
-introduced for release `0.1.19`.
+write stock. Rocket preview under `/purchase-orders?tab=rocket` remains
+preview-only; no actual confirmation/submission/reservation/workbook/stock
+control may be introduced for release `0.1.19`.

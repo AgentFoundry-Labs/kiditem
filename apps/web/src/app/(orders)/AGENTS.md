@@ -14,8 +14,9 @@ explicitly documented.
 - Read-only Rocket PO list/summaries and local legacy file history
 - Returns, reviews, and CS operational screens
 - Picking/outbound widgets used by order hub screens
-- Canonical `/order-hub?tab=collection|processing|shipping|exceptions`
-  composition; exceptions owns `view=unshipped|inventory|compare|sync`
+- Preserved `/order-hub` composition and independently reachable
+  `/order-collection`, `/orders`, `/outbound`, `/unshipped-items`, and
+  `/order-status-hub` screens
 
 ## Data Flow
 
@@ -36,14 +37,12 @@ React Query + apiClient
   responses.
 - Existing local Rocket file history may use browser storage for operator
   convenience; it is not server truth or evidence that confirmation is active.
-- Canonical tab/view selection is URL-authoritative and inactive workspaces are
-  unmounted. The shell owns the only `h1`; composed workspaces use `h2`.
-- Order collection, processing, outbound, and unshipped behavior is extracted
-  into `order-hub/components`. Legacy routes are query-aware server redirects
-  to the corresponding canonical tab/view.
-- Shipping composes the single outbound implementation with delivery search.
-  Exceptions composes the unshipped and order-status read models. Channel SKU
-  recipe repair remains exclusively in `/product-hub/matching`.
+- Preserve each route's pre-SDD page composition and URL. Shared extracted
+  components may reduce duplication, but an independent route must not become a
+  redirect merely because `/order-hub` also composes related functionality.
+- Channel SKU recipe repair remains exclusively in
+  `/product-hub/matching?view=channel-recipes`; the default matching URL keeps
+  the preserved matching center.
 
 ## Boundary Rules
 

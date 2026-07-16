@@ -1,26 +1,25 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# web/rocket-orders - Legacy Rocket PO Redirect
+# web/rocket-orders - Preserved Rocket Operations
 
-`app/(orders)/rocket-orders/` preserves old `/rocket-orders` bookmarks as a
-query-aware server redirect to `/purchase-orders?tab=rocket`. The Rocket
-preview workspace and component-capacity decisions belong to Supply.
+`app/(orders)/rocket-orders/` owns the independently reachable pre-SDD Rocket
+operations UI. The deterministic component-capacity preview is an additive,
+separate surface at `/purchase-orders?tab=rocket` and belongs to Supply.
 
 ## State Rules
 
-- `page.tsx` remains a server component with no hooks, provider calls, API
-  calls, timers, or workspace content.
-- Preserve unrelated query values and let canonical `tab=rocket` win over old
-  tab/view state.
+- Preserve the existing Rocket list, collection, and local file-history
+  composition supported by the current contracts.
+- Keep Sellpia freshness status and links to the preview additive to the
+  existing page.
 
 ## Boundary Rules
 
-- Do not restore route-local Rocket monitoring or decision UI.
 - Do not call or recreate backend Rocket confirmation/generation endpoints.
-- Redirect behavior is owned by `src/lib/operations-navigation.ts`.
+- Do not embed the Supply preview as a replacement for the preserved page.
 
 ## Verification
 
 ```bash
-npm exec --workspace=apps/web vitest -- run src/app/__tests__/operations-redirects.spec.ts
+npm exec --workspace=apps/web vitest -- run src/app/\(orders\)/rocket-orders
 ```

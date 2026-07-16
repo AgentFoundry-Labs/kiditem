@@ -113,8 +113,9 @@ the reset boundary.
 
 An authenticated operator then imports Sellpia at
 `/inventory-hub?tab=sellpia-sync`, followed by Wing at
-`/product-hub/matching`. After both runs complete and approved manifest counts
-are present in `PRODUCTION_REBUILD_EXPECTED_*`, trigger:
+`/product-hub/matching?view=channel-recipes`. After both runs complete and
+approved manifest counts are present in `PRODUCTION_REBUILD_EXPECTED_*`,
+trigger:
 
 ```text
 operation: finalize-rebuild
