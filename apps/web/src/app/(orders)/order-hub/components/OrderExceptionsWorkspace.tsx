@@ -8,7 +8,7 @@ import OrderInventory from '../../order-status-hub/components/OrderInventory';
 import SyncCheck from '../../order-status-hub/components/SyncCheck';
 import { UnshippedItemsWorkspace } from './UnshippedItemsWorkspace';
 
-const EXCEPTION_VIEWS = ['unshipped', 'inventory', 'compare', 'sync'] as const;
+const EXCEPTION_VIEWS = ['unshipped', 'order-inventory', 'order-compare', 'sync-check'] as const;
 
 export function OrderExceptionsWorkspace() {
   const [view, setView] = useUrlControlledTab({
@@ -26,9 +26,9 @@ export function OrderExceptionsWorkspace() {
       unmountInactive
       tabs={[
         { id: 'unshipped', label: '미배송', icon: AlertTriangle, content: <UnshippedItemsWorkspace /> },
-        { id: 'inventory', label: '재고 위험', icon: PackageSearch, content: <OrderInventory /> },
-        { id: 'compare', label: '주문 비교', icon: GitCompare, content: <OrderCompare /> },
-        { id: 'sync', label: '동기화 확인', icon: RefreshCw, content: <SyncCheck /> },
+        { id: 'order-inventory', label: '재고 위험', icon: PackageSearch, content: <OrderInventory /> },
+        { id: 'order-compare', label: '주문 비교', icon: GitCompare, content: <OrderCompare /> },
+        { id: 'sync-check', label: '동기화 확인', icon: RefreshCw, content: <SyncCheck /> },
       ]}
     />
   );
