@@ -1,6 +1,7 @@
 (function initializeCoupangCatalogCollector(root) {
   "use strict";
 
+  const COUPANG_CATALOG_CONTRACT_REVISION = 2;
   const MAX_ATTRIBUTES_PER_OPTION = 100;
   const MAX_MEDIA_PER_OWNER = 100;
 
@@ -308,6 +309,7 @@
   }
 
   root.KidItemCoupangCatalog = {
+    contractRevision: COUPANG_CATALOG_CONTRACT_REVISION,
     buildCatalogProduct,
     buildDiscoveryItems,
     buildManifest,
