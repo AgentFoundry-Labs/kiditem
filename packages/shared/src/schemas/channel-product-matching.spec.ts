@@ -24,6 +24,39 @@ const evidence = {
   score: null,
 };
 
+const createOptionQueueRow = ({
+  linked,
+  recipeStatus,
+  capacity,
+}: {
+  linked: boolean;
+  recipeStatus: 'unmatched' | 'matched' | 'configuration_required' | 'review_required';
+  capacity: number | null;
+}) => ({
+  channelAccount: { id: listingId, channel: 'coupang', name: 'Wing' },
+  listing: { id: listingId, externalId: 'P-001', masterProductId: productId },
+  option: {
+    id: optionId,
+    externalOptionId: 'S-001',
+    itemName: '기본',
+    sellerSku: 'KI-001-DEFAULT',
+    barcode: null,
+    productVariantId: linked ? variantId : null,
+    updatedAt: '2026-07-16T00:00:00.000Z',
+  },
+  linkedVariant: linked
+    ? {
+      id: variantId,
+      masterProductId: productId,
+      code: 'KI-001-DEFAULT',
+      name: '기본',
+      optionLabel: null,
+    }
+    : null,
+  recipeStatus,
+  capacity,
+});
+
 describe('channel product and variant matching contracts', () => {
   it('freezes candidate reasons without treating suggestions as confirmation', () => {
     expect(ChannelMatchCandidateReasonSchema.options).toEqual([
@@ -188,6 +221,28 @@ describe('channel product and variant matching contracts', () => {
       recipeStatus: 'matched',
       capacity: 1,
     })).toThrow();
+  });
+
+  it.each([
+    ['unmatched with a linked variant', true, 'unmatched', null],
+    ['unmatched with capacity', false, 'unmatched', 1],
+    ['matched without capacity', true, 'matched', null],
+    ['matched without a linked variant', false, 'matched', 1],
+    ['configuration required with capacity', true, 'configuration_required', 1],
+    ['configuration required without a linked variant', false, 'configuration_required', null],
+    ['review required with capacity', true, 'review_required', 1],
+    ['review required without a linked variant', false, 'review_required', null],
+  ] as const)('rejects contradictory option recipe state: %s', (
+    _description,
+    linked,
+    recipeStatus,
+    capacity,
+  ) => {
+    expect(() => ChannelOptionMatchingQueueRowSchema.parse(createOptionQueueRow({
+      linked,
+      recipeStatus,
+      capacity,
+    }))).toThrow();
   });
 
   it('publishes derived product and option matching counts', () => {

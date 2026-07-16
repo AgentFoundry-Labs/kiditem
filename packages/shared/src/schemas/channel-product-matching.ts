@@ -212,6 +212,44 @@ export const ChannelOptionMatchingQueueRowSchema = z.object({
       message: 'linkedVariant must belong to the linked listing product',
     });
   }
+  if (row.recipeStatus === 'unmatched') {
+    if (row.option.productVariantId !== null || row.linkedVariant !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['recipeStatus'],
+        message: 'unmatched options cannot have a linked variant',
+      });
+    }
+    if (row.capacity !== null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['capacity'],
+        message: 'unmatched options cannot have capacity',
+      });
+    }
+    return;
+  }
+  if (row.option.productVariantId === null || row.linkedVariant === null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['recipeStatus'],
+      message: `${row.recipeStatus} options require a linked variant`,
+    });
+  }
+  if (row.recipeStatus === 'matched' && row.capacity === null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['capacity'],
+      message: 'matched options require capacity',
+    });
+  }
+  if (row.recipeStatus !== 'matched' && row.capacity !== null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['capacity'],
+      message: `${row.recipeStatus} options cannot have capacity`,
+    });
+  }
 });
 export type ChannelOptionMatchingQueueRow = z.infer<
   typeof ChannelOptionMatchingQueueRowSchema

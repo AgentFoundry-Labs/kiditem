@@ -266,7 +266,7 @@ export const CreateMasterProductInputSchema = z.object({
   adBudgetLimit: z.number().int().nonnegative().nullable().optional(),
   healthScore: z.number().int().min(0).max(100).nullable().optional(),
   isActive: z.boolean().optional(),
-  variants: z.array(CreateProductVariantInputSchema).optional(),
+  variants: z.array(CreateProductVariantInputSchema).min(1).optional(),
 }).strict();
 export type CreateMasterProductInput = z.infer<
   typeof CreateMasterProductInputSchema

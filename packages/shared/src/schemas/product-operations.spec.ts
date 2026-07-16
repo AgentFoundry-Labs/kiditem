@@ -145,6 +145,11 @@ describe('product operations contracts', () => {
     expect(CreateMasterProductInputSchema.parse({ code: 'KI-001', name: '식판' }).variants)
       .toBeUndefined();
     expect(() => CreateMasterProductInputSchema.parse({
+      code: 'KI-001',
+      name: '식판',
+      variants: [],
+    })).toThrow();
+    expect(() => CreateMasterProductInputSchema.parse({
       code: 'x'.repeat(101),
       name: '식판',
     })).toThrow();
