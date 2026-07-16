@@ -28,7 +28,7 @@ workflow.
 
 ## State Rules
 
-- Product lookup is search-only through the Sellpia MasterProduct snapshot.
+- Product lookup is search-only through the `SellpiaInventorySku` snapshot.
 - Do not call product detail APIs by id.
 - `ScanLogTable` columns are timestamp, barcode, product name, and status.
 - Input field stays monospace for barcode readability.

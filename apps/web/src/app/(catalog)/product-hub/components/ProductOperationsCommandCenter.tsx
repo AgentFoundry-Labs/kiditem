@@ -18,7 +18,6 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
   const configurationCount = data.items.filter((item) => item.inventoryStatus === 'configuration_required').length;
   const reviewCount = data.items.filter((item) => item.inventoryStatus === 'review_required').length;
   const warningCount = configurationCount + reviewCount;
-  const inventoryUnits = data.items.reduce((sum, item) => sum + item.inventoryUnits, 0);
   const lowProfitCount = data.items.filter((item) => item.profit !== null && item.profit < 0).length;
   const aGradeCount = data.items.filter((item) => item.abcGrade === 'A').length;
   const bGradeCount = data.items.filter((item) => item.abcGrade === 'B').length;
@@ -81,7 +80,7 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
         </div>
       </article>
 
-      <OperationsCard title="재고관리 · 현재 페이지" value={inventoryUnits} valueTone="text-teal-700">
+      <OperationsCard title="재고관리 · 현재 페이지" value="미수집" valueTone="text-teal-700">
         <Breakdown label="재고위험" value={warningCount} tone="text-teal-700" />
         <Breakdown label="품절" value={outOfStockCount} tone="text-rose-600" />
         <Breakdown label="임박 재고" value="미수집" tone="text-amber-600" />

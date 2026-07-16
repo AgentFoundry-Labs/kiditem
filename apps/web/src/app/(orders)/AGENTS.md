@@ -58,9 +58,9 @@ React Query + apiClient
 - Do not write directly to marketplace pages from the web app. Use the
   documented order-collector extension bridge.
 - Do not persist return-scan logs from `return-scan/`; that route is local-only.
-- Picking and return-transfer operations reference Sellpia `MasterProduct`
-  rows and update operational records only; do not present them as direct
-  Sellpia stock changes.
+- Picking and return-transfer operations reference physical
+  `SellpiaInventorySku` rows and update operational records only; do not
+  present them as direct Sellpia stock changes.
 - Rocket purchase-order quantity decisions, confirmation file generation, and
   reservation are deferred. Do not call or restore `/api/orders/rocket/*`
   action endpoints.

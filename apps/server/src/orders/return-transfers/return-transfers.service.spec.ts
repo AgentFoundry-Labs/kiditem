@@ -3,14 +3,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { ReturnTransfersService } from './return-transfers.service';
 
 describe('ReturnTransfersService', () => {
-  it('creates a record-only return transfer for an organization-owned physical Master', async () => {
-    const created = { id: 'return-transfer-1', masterProductId: 'master-1' };
+  it('creates a record-only return transfer for an organization-owned physical Sellpia SKU', async () => {
+    const created = { id: 'return-transfer-1', sellpiaInventorySkuId: 'sellpia-sku-1' };
     const prisma = {
-      masterProduct: {
+      sellpiaInventorySku: {
         findFirst: vi.fn().mockResolvedValue({
-          id: 'master-1',
+          id: 'sellpia-sku-1',
           optionName: '빨강',
-          sellpiaProductCode: 'SP-001',
+          code: 'SP-001',
         }),
       },
       order: { findFirst: vi.fn().mockResolvedValue({ id: 'order-1' }) },
@@ -21,16 +21,16 @@ describe('ReturnTransfersService', () => {
     const service = new ReturnTransfersService(prisma as never);
 
     await expect(service.create('org-1', {
-      masterProductId: 'master-1',
+      sellpiaInventorySkuId: 'sellpia-sku-1',
       orderId: 'order-1',
       quantity: 2,
       condition: 'good',
       notes: 'record only',
     })).resolves.toBe(created);
 
-    expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
+    expect(prisma.sellpiaInventorySku.findFirst).toHaveBeenCalledWith({
       where: {
-        id: 'master-1',
+        id: 'sellpia-sku-1',
         organizationId: 'org-1',
         isActive: true,
       },
@@ -39,24 +39,24 @@ describe('ReturnTransfersService', () => {
     expect(prisma.returnTransfer.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         organizationId: 'org-1',
-        masterProductId: 'master-1',
+        sellpiaInventorySkuId: 'sellpia-sku-1',
         optionName: '빨강',
         orderId: 'order-1',
         quantity: 2,
       }),
-      include: { masterProduct: true },
+      include: { sellpiaInventorySku: true },
     });
   });
 
-  it('rejects a MasterProduct outside the organization', async () => {
+  it('rejects a Sellpia inventory SKU outside the organization', async () => {
     const prisma = {
-      masterProduct: { findFirst: vi.fn().mockResolvedValue(null) },
+      sellpiaInventorySku: { findFirst: vi.fn().mockResolvedValue(null) },
       returnTransfer: { create: vi.fn() },
     };
     const service = new ReturnTransfersService(prisma as never);
 
     await expect(service.create('org-1', {
-      masterProductId: 'foreign-master',
+      sellpiaInventorySkuId: 'foreign-sellpia-sku',
       quantity: 1,
     })).rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.returnTransfer.create).not.toHaveBeenCalled();
@@ -84,7 +84,7 @@ describe('ReturnTransfersService', () => {
         restockedQty: 1,
         disposedQty: 1,
       },
-      include: { masterProduct: true },
+      include: { sellpiaInventorySku: true },
     });
   });
 });

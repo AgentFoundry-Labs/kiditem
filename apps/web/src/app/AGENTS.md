@@ -57,11 +57,13 @@ Important ownership rules:
 
 - `/product-hub` keeps the staged product-operations-center composition:
   command cards, category strip, filter toolbar, metrics columns, and product
-  rows. Its data source remains the read-only Sellpia snapshot; the UI shape
-  does not authorize legacy product mutations. `/product-hub/[id]` keeps the
-  read-only snapshot detail.
-- `/product-hub/matching` keeps the baseline Coupang ChannelSku-to-Sellpia
-  component-recipe workspace.
+  rows. Its list and detail data source is Products-owned `MasterProduct`;
+  product metadata create/edit and central `ProductVariant` recipes are owned
+  here. Neither `/product-hub` nor `/product-hub/[id]` initiates inventory
+  collection.
+- `/product-hub/matching` is a two-level workspace: first map a channel listing
+  to `MasterProduct`, then map its channel option to `ProductVariant`. Recipe
+  composition and calculated capacity remain read-only on this route.
 - `/inventory-hub`, `/inventory`, `/stock-ops`, `/order-hub`,
   `/order-collection`, `/orders`, `/unshipped-items`, `/outbound`,
   `/order-status-hub`, and `/rocket-orders` remain independently reachable
@@ -70,8 +72,8 @@ Important ownership rules:
   `납품 수량 판단 추후 연동` placeholder with the deterministic Sellpia
   freshness/component-capacity preview. `/purchase-orders?tab=rocket` may expose
   the same preview capability without replacing either route's layout.
-- `/product-hub/options` keeps the baseline dedicated read-only Sellpia option
-  table.
+- `/product-hub/options` keeps the dedicated complete, read-only Sellpia
+  inventory table.
 
 Existing routes may share extracted components, but each route keeps its own
 operator-facing composition. Standard shell affordances such as Quick Action

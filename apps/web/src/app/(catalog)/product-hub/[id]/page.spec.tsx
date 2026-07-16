@@ -9,10 +9,6 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@tanstack/react-query', () => ({ useQuery: vi.fn() }));
 
-vi.mock('../components/ChannelSkuInventorySummary', () => ({
-  ChannelSkuInventorySummary: () => <section>채널 SKU 전체 현황</section>,
-}));
-
 vi.mock('../components/ProductEditorDialog', () => ({
   ProductEditorDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">상품 정보 수정</div> : null,
 }));
@@ -72,10 +68,13 @@ describe('/product-hub/[id] MasterProduct detail', () => {
     expect(options.queryKey).toEqual(['products', 'operations', 'detail', product.id]);
     expect(options.queryFn.toString()).toContain('/api/products/masters/');
     expect(options.queryFn.toString()).not.toContain('/api/inventory/sellpia-skus/');
+    expect(options.queryFn.toString()).not.toContain('/api/channels/sku-availability');
+    expect(vi.mocked(useQuery)).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('heading', { level: 1, name: product.name })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '상품 운영 정보' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '판매 옵션' })).toBeInTheDocument();
     expect(screen.getByText('기본 옵션')).toBeInTheDocument();
+    expect(screen.queryByText('채널 SKU 전체 현황')).not.toBeInTheDocument();
   });
 
   it('opens product metadata editing without exposing stock editing', () => {

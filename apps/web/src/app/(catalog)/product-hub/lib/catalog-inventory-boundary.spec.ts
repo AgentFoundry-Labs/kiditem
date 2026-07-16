@@ -33,6 +33,7 @@ describe('product hub final inventory ownership boundary', () => {
     expect(source).toContain('queryKeys.products.operations');
     expect(source).toContain('/api/products/recipe-component-candidates');
     expect(source).not.toContain('/api/inventory/sellpia-skus');
+    expect(source).not.toContain('/api/channels/sku-availability');
     expect(source).not.toMatch(/\bProductOption(?:Schema|Create|Update|Delete)\b/);
   });
 

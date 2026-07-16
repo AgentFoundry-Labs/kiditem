@@ -8,7 +8,6 @@ import PageSkeleton from '@/components/ui/PageSkeleton';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
-import { ChannelSkuInventorySummary } from '../components/ChannelSkuInventorySummary';
 import { ProductEditorDialog } from '../components/ProductEditorDialog';
 import ProductHeader from './components/ProductHeader';
 import ProductInfoCards from './components/ProductInfoCards';
@@ -42,7 +41,6 @@ export default function ProductHubDetailPage() {
       <ProductHeader product={product} onEdit={() => setEditorOpen(true)} />
       <ProductInfoCards product={product} />
       <ProductVariantPanel variants={product.variants} />
-      <ChannelSkuInventorySummary />
       <ProductEditorDialog
         open={editorOpen}
         onOpenChange={setEditorOpen}

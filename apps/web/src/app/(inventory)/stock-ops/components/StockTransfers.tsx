@@ -10,12 +10,12 @@ import SellpiaMasterProductPicker from './SellpiaMasterProductPicker';
 
 interface StockTransfer {
   id: string;
-  masterProductId: string;
+  sellpiaInventorySkuId: string;
   quantity: number;
   status: string;
   notes: string | null;
   createdAt: string;
-  masterProduct: {
+  sellpiaInventorySku: {
     id: string;
     code: string;
     name: string;
@@ -29,7 +29,7 @@ interface StockTransfer {
 interface Warehouse { id: string; name: string; code: string | null }
 
 const EMPTY_FORM = {
-  masterProductId: '',
+  sellpiaInventorySkuId: '',
   fromWarehouseId: '',
   toWarehouseId: '',
   quantity: 1,
@@ -69,7 +69,7 @@ export default function StockTransfers({ readOnly = false }: { readOnly?: boolea
       </div>
       {isLoading ? <p className="py-10 text-center text-[var(--text-secondary)]">불러오는 중...</p> : (
         <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
-          <div className="overflow-x-auto"><table className="w-full min-w-[820px]"><thead><tr><th>Sellpia SKU</th><th>이동</th><th className="text-right">수량</th><th>상태</th><th>기록 시각</th></tr></thead><tbody>{transfers.length ? transfers.map((transfer) => <tr key={transfer.id}><td>{transfer.masterProduct ? <><p className="font-medium">{transfer.masterProduct.name}</p><p className="font-mono text-xs text-[var(--text-secondary)]">{transfer.masterProduct.code} · {transfer.masterProduct.optionName ?? '옵션 없음'}</p></> : <><p className="font-medium">상품 연결 없음</p><p className="font-mono text-xs text-[var(--text-secondary)]">MasterProduct ID: {transfer.masterProductId}</p></>}</td><td>{transfer.fromWarehouse.name} → {transfer.toWarehouse.name}</td><td className="text-right">{formatNumber(transfer.quantity)}개</td><td>{transfer.status}</td><td className="text-sm text-[var(--text-secondary)]">{formatDateTime(transfer.createdAt)}</td></tr>) : <tr><td colSpan={5} className="py-12 text-center text-[var(--text-secondary)]">이관 기록이 없습니다.</td></tr>}</tbody></table></div>
+          <div className="overflow-x-auto"><table className="w-full min-w-[820px]"><thead><tr><th>Sellpia SKU</th><th>이동</th><th className="text-right">수량</th><th>상태</th><th>기록 시각</th></tr></thead><tbody>{transfers.length ? transfers.map((transfer) => <tr key={transfer.id}><td>{transfer.sellpiaInventorySku ? <><p className="font-medium">{transfer.sellpiaInventorySku.name}</p><p className="font-mono text-xs text-[var(--text-secondary)]">{transfer.sellpiaInventorySku.code} · {transfer.sellpiaInventorySku.optionName ?? '옵션 없음'}</p></> : <><p className="font-medium">상품 연결 없음</p><p className="font-mono text-xs text-[var(--text-secondary)]">Sellpia SKU ID: {transfer.sellpiaInventorySkuId}</p></>}</td><td>{transfer.fromWarehouse.name} → {transfer.toWarehouse.name}</td><td className="text-right">{formatNumber(transfer.quantity)}개</td><td>{transfer.status}</td><td className="text-sm text-[var(--text-secondary)]">{formatDateTime(transfer.createdAt)}</td></tr>) : <tr><td colSpan={5} className="py-12 text-center text-[var(--text-secondary)]">이관 기록이 없습니다.</td></tr>}</tbody></table></div>
         </div>
       )}
       {!readOnly && showForm ? (
@@ -77,7 +77,7 @@ export default function StockTransfers({ readOnly = false }: { readOnly?: boolea
           <div className="modal-content max-w-lg" onClick={(event) => event.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between"><h3 className="text-lg font-semibold">이관 기록 추가</h3><button type="button" aria-label="닫기" onClick={() => setShowForm(false)}><X className="h-5 w-5" /></button></div>
             <div className="space-y-4">
-              <SellpiaMasterProductPicker value={form.masterProductId} onChange={(masterProductId) => setForm((current) => ({ ...current, masterProductId }))} label="Sellpia 재고 상품" />
+              <SellpiaMasterProductPicker value={form.sellpiaInventorySkuId} onChange={(sellpiaInventorySkuId) => setForm((current) => ({ ...current, sellpiaInventorySkuId }))} label="Sellpia 재고 상품" />
               <div className="grid grid-cols-2 gap-3">
                 <WarehouseSelect label="출발 창고" value={form.fromWarehouseId} warehouses={warehouses} onChange={(fromWarehouseId) => setForm((current) => ({ ...current, fromWarehouseId }))} />
                 <WarehouseSelect label="도착 창고" value={form.toWarehouseId} warehouses={warehouses} onChange={(toWarehouseId) => setForm((current) => ({ ...current, toWarehouseId }))} />
