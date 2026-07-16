@@ -107,9 +107,28 @@ export type ProductRecipeComponentCandidateListResponse = z.infer<
 const ProductCodeSchema = z.string().trim().min(1).max(100);
 const ProductNameSchema = z.string().trim().min(1).max(200);
 
+export const MasterProductDisplayReferenceSchema = z.object({
+  type: z.enum(['product_code', 'channel_product']),
+  label: z.string().trim().min(1).max(100),
+  value: z.string().trim().min(1).max(200),
+}).strict();
+export type MasterProductDisplayReference = z.infer<
+  typeof MasterProductDisplayReferenceSchema
+>;
+
+export const ProductVariantDisplayReferenceSchema = z.object({
+  type: z.enum(['product_variant_code', 'channel_option']),
+  label: z.string().trim().min(1).max(100),
+  value: z.string().trim().min(1).max(200),
+}).strict();
+export type ProductVariantDisplayReference = z.infer<
+  typeof ProductVariantDisplayReferenceSchema
+>;
+
 export const MasterProductOperationsMetadataSchema = z.object({
   id: z.string().uuid(),
   code: ProductCodeSchema,
+  displayReference: MasterProductDisplayReferenceSchema,
   name: ProductNameSchema,
   description: z.string().nullable(),
   category: z.string().nullable(),
@@ -154,11 +173,35 @@ export type MasterProductOperationsListItem = z.infer<
   typeof MasterProductOperationsListItemSchema
 >;
 
+export const ProductOperationsListSummarySchema = z.object({
+  abcGradeCounts: z.object({
+    A: z.number().int().nonnegative(),
+    B: z.number().int().nonnegative(),
+    C: z.number().int().nonnegative(),
+  }).strict(),
+  channelConnectionCounts: z.object({
+    connected: z.number().int().nonnegative(),
+    unconnected: z.number().int().nonnegative(),
+  }).strict(),
+  inventoryStatusCounts: z.object({
+    sellable: z.number().int().nonnegative(),
+    partial_out_of_stock: z.number().int().nonnegative(),
+    out_of_stock: z.number().int().nonnegative(),
+    configuration_required: z.number().int().nonnegative(),
+    review_required: z.number().int().nonnegative(),
+  }).strict(),
+  negativeProfitCount: z.number().int().nonnegative(),
+}).strict();
+export type ProductOperationsListSummary = z.infer<
+  typeof ProductOperationsListSummarySchema
+>;
+
 export const MasterProductOperationsListResponseSchema = z.object({
   items: z.array(MasterProductOperationsListItemSchema),
   total: z.number().int().nonnegative(),
   page: z.number().int().positive(),
   limit: z.number().int().positive(),
+  summary: ProductOperationsListSummarySchema,
 }).strict();
 export type MasterProductOperationsListResponse = z.infer<
   typeof MasterProductOperationsListResponseSchema
@@ -185,6 +228,7 @@ export type ProductVariantComponentDetail = z.infer<
 export const ProductVariantDetailSchema = z.object({
   id: z.string().uuid(),
   code: ProductCodeSchema,
+  displayReference: ProductVariantDisplayReferenceSchema,
   name: ProductNameSchema,
   optionLabel: z.string().nullable(),
   isDefault: z.boolean(),

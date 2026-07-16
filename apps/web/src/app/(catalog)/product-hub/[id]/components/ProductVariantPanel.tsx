@@ -45,7 +45,9 @@ export default function ProductVariantPanel({ variants }: { variants: ProductVar
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-xs font-bold text-[var(--primary)]">{variant.code}</span>
+                      <span className="font-mono text-xs font-bold text-[var(--primary)]">
+                        {variant.displayReference.label} {variant.displayReference.value}
+                      </span>
                       {variant.isDefault ? <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">기본</span> : null}
                       <span className={`rounded px-2 py-0.5 text-[10px] font-extrabold ${warning ? 'bg-amber-100 text-amber-800' : 'bg-emerald-50 text-emerald-700'}`}>
                         {WARNING_LABELS[variant.warningState]}

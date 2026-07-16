@@ -97,7 +97,16 @@ export function ProductEditorDialog({ open, onOpenChange, onSaved, product }: Pr
 
           <form onSubmit={submit} className="space-y-5 p-6">
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="상품 코드" required value={form.code} onChange={(code) => setForm((value) => ({ ...value, code }))} />
+              {product?.displayReference.type === 'channel_product' ? (
+                <div className="block text-sm font-semibold text-[var(--text-secondary)]">
+                  <p>{product.displayReference.label}</p>
+                  <p className="mt-1.5 flex h-10 items-center rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 font-mono text-sm text-[var(--text-primary)]">
+                    {product.displayReference.value}
+                  </p>
+                </div>
+              ) : (
+                <Field label="상품 코드" required value={form.code} onChange={(code) => setForm((value) => ({ ...value, code }))} />
+              )}
               <Field label="상품명" required value={form.name} onChange={(name) => setForm((value) => ({ ...value, name }))} />
               <Field label="카테고리" value={form.category} onChange={(category) => setForm((value) => ({ ...value, category }))} />
               <Field label="브랜드" value={form.brand} onChange={(brand) => setForm((value) => ({ ...value, brand }))} />

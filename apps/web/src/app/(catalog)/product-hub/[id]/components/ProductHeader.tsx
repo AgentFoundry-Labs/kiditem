@@ -25,7 +25,7 @@ export default function ProductHeader({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded bg-[var(--primary-soft)] px-2 py-0.5 font-mono text-xs font-bold text-[var(--primary)]">
-                {product.code}
+                {product.displayReference.label} {product.displayReference.value}
               </span>
               <span className={`rounded px-2 py-0.5 text-[11px] font-bold ${product.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                 {product.isActive ? '활성' : '비활성'}

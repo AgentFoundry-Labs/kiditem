@@ -14,7 +14,10 @@ export default function ProductInfoCards({ product }: { product: MasterProductOp
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <InfoCard title="상품 운영 정보" icon={<Tags size={16} />}>
-        <InfoRow label="상품 코드" value={<span className="font-mono">{product.code}</span>} />
+        <InfoRow
+          label={product.displayReference.label}
+          value={<span className="font-mono">{product.displayReference.value}</span>}
+        />
         <InfoRow label="카테고리" value={product.category ?? '미등록'} />
         <InfoRow label="브랜드" value={product.brand ?? '미등록'} />
         <InfoRow label="ABC 등급" value={product.abcGrade ?? '미등록'} />

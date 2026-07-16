@@ -54,6 +54,11 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         capacity: null,
       }),
     ]);
+    expect(created.displayReference).toEqual({
+      type: 'product_code',
+      label: '상품 코드',
+      value: 'KI-001',
+    });
     await expect(service.getProduct(OTHER_ORGANIZATION_ID, created.id))
       .rejects.toBeInstanceOf(NotFoundException);
     await expect(service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
@@ -63,6 +68,126 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     expect(await prisma.masterProduct.count({
       where: { organizationId: TEST_ORGANIZATION_ID, code: 'KI-001' },
     })).toBe(1);
+  });
+
+  it('displays the origin channel product number without replacing the internal CP code', async () => {
+    const channelAccountId = randomUUID();
+    await prisma.channelAccount.create({
+      data: {
+        id: channelAccountId,
+        organizationId: TEST_ORGANIZATION_ID,
+        channel: 'coupang',
+        name: 'Coupang Wing',
+      },
+    });
+    const listing = await prisma.channelListing.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId,
+        externalId: '13712531060',
+      },
+    });
+    const internalCode = `CP-${listing.id}`;
+    const product = await prisma.masterProduct.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        originChannelListingId: listing.id,
+        code: internalCode,
+        name: 'Channel-origin product',
+        variants: {
+          create: {
+            code: `CP-SKU-${randomUUID()}`,
+            name: 'Channel-origin option',
+            isDefault: true,
+          },
+        },
+      },
+    });
+    await prisma.channelListing.update({
+      where: { id: listing.id },
+      data: { masterProductId: product.id },
+    });
+    const variant = await prisma.productVariant.findFirstOrThrow({
+      where: { masterProductId: product.id },
+    });
+    await prisma.channelListingOption.create({
+      data: {
+        listingId: listing.id,
+        organizationId: TEST_ORGANIZATION_ID,
+        productVariantId: variant.id,
+        externalOptionId: '13684204503001',
+      },
+    });
+
+    const page = await service.listProducts(TEST_ORGANIZATION_ID, {
+      page: 1,
+      limit: 50,
+      periodDays: 30,
+    });
+    const listItem = page.items.find((item) => item.id === product.id);
+    const detail = await service.getProduct(TEST_ORGANIZATION_ID, product.id);
+
+    expect(listItem).toMatchObject({
+      code: internalCode,
+      displayReference: {
+        type: 'channel_product',
+        label: 'Coupang Wing 상품번호',
+        value: '13712531060',
+      },
+    });
+    expect(detail).toMatchObject({
+      code: internalCode,
+      displayReference: {
+        type: 'channel_product',
+        label: 'Coupang Wing 상품번호',
+        value: '13712531060',
+      },
+      variants: [{
+        code: variant.code,
+        displayReference: {
+          type: 'channel_option',
+          label: 'Coupang Wing 옵션번호',
+          value: '13684204503001',
+        },
+      }],
+    });
+  });
+
+  it('summarizes ABC grades across the full result instead of the current page', async () => {
+    await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+      code: 'GRADE-A-1',
+      name: 'A grade one',
+      abcGrade: 'A',
+    });
+    await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+      code: 'GRADE-A-2',
+      name: 'A grade two',
+      abcGrade: 'A',
+    });
+    await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+      code: 'GRADE-B-1',
+      name: 'B grade one',
+      abcGrade: 'B',
+    });
+
+    const page = await service.listProducts(TEST_ORGANIZATION_ID, {
+      page: 1,
+      limit: 1,
+      periodDays: 30,
+    });
+
+    expect(page.items).toHaveLength(1);
+    expect(page.total).toBe(3);
+    expect(page.summary.abcGradeCounts).toEqual({ A: 2, B: 1, C: 0 });
+    expect(page.summary.channelConnectionCounts).toEqual({ connected: 0, unconnected: 3 });
+    expect(page.summary.inventoryStatusCounts).toEqual({
+      sellable: 0,
+      partial_out_of_stock: 0,
+      out_of_stock: 0,
+      configuration_required: 3,
+      review_required: 0,
+    });
+    expect(page.summary.negativeProfitCount).toBe(0);
   });
 
   it('allows organization-local codes and rejects organization-local variant collisions', async () => {

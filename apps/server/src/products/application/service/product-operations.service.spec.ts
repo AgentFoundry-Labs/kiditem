@@ -129,7 +129,24 @@ describe('ProductOperationsService', () => {
 
 function makeRepository() {
   return {
-    listProducts: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, limit: 50 }),
+    listProducts: vi.fn().mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      limit: 50,
+      summary: {
+        abcGradeCounts: { A: 0, B: 0, C: 0 },
+        channelConnectionCounts: { connected: 0, unconnected: 0 },
+        inventoryStatusCounts: {
+          sellable: 0,
+          partial_out_of_stock: 0,
+          out_of_stock: 0,
+          configuration_required: 0,
+          review_required: 0,
+        },
+        negativeProfitCount: 0,
+      },
+    }),
     getProduct: vi.fn().mockResolvedValue({ id: productId }),
     createProduct: vi.fn().mockResolvedValue({ id: productId }),
     updateProduct: vi.fn().mockResolvedValue({ id: productId }),

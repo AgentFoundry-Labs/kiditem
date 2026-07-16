@@ -11,7 +11,12 @@ describe('<ProductVariantPanel>', () => {
     const { container } = render(<ProductVariantPanel variants={[
       {
         id: '22222222-2222-4222-8222-222222222222',
-        code: 'KI-100-PINK',
+        code: 'CP-SKU-22222222-2222-4222-8222-222222222222',
+        displayReference: {
+          type: 'channel_option',
+          label: 'Coupang Wing 옵션번호',
+          value: '13684204503001',
+        },
         name: '분홍',
         optionLabel: '색상: 분홍',
         isDefault: false,
@@ -37,6 +42,8 @@ describe('<ProductVariantPanel>', () => {
 
     expect(screen.getByText('판매 가능 6개')).toBeInTheDocument();
     expect(screen.getByText('검토 필요')).toBeInTheDocument();
+    expect(screen.getByText(/Coupang Wing 옵션번호 13684204503001/)).toBeInTheDocument();
+    expect(screen.queryByText(/CP-SKU-/)).not.toBeInTheDocument();
     expect(screen.getByText(/SP-100/)).toBeInTheDocument();
     expect(screen.getByText(/병목/)).toBeInTheDocument();
     expect(container.querySelector('#variants')).toBeInTheDocument();

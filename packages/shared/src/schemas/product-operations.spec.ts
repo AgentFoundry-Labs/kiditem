@@ -5,6 +5,7 @@ import {
   MasterProductOperationsDetailSchema,
   MasterProductOperationsListItemSchema,
   MasterProductOperationsListQuerySchema,
+  MasterProductOperationsListResponseSchema,
   ProductInventoryStatusSchema,
   ProductRecipeComponentCandidateListResponseSchema,
   ProductRecipeComponentCandidateQuerySchema,
@@ -75,6 +76,11 @@ describe('product operations contracts', () => {
     const parsed = MasterProductOperationsListItemSchema.parse({
       id: productId,
       code: 'KI-001',
+      displayReference: {
+        type: 'product_code',
+        label: '상품 코드',
+        value: 'KI-001',
+      },
       name: '키즈 식판',
       description: null,
       category: '주방',
@@ -102,12 +108,39 @@ describe('product operations contracts', () => {
     });
     expect(parsed.inventoryUnits).toBe(80);
     expect(parsed.traffic).toBeNull();
+    const response = MasterProductOperationsListResponseSchema.parse({
+      items: [parsed],
+      total: 80,
+      page: 1,
+      limit: 1,
+      summary: {
+        abcGradeCounts: { A: 23, B: 17, C: 40 },
+        channelConnectionCounts: { connected: 71, unconnected: 9 },
+        inventoryStatusCounts: {
+          sellable: 41,
+          partial_out_of_stock: 8,
+          out_of_stock: 7,
+          configuration_required: 19,
+          review_required: 5,
+        },
+        negativeProfitCount: 6,
+      },
+    });
+    expect(response.summary.abcGradeCounts.A).toBe(23);
+    expect(response.summary.channelConnectionCounts.connected).toBe(71);
+    expect(response.summary.inventoryStatusCounts.out_of_stock).toBe(7);
+    expect(response.summary.negativeProfitCount).toBe(6);
   });
 
   it('parses detail variants with central components, capacity, and warnings', () => {
     const detail = MasterProductOperationsDetailSchema.parse({
       id: productId,
       code: 'KI-001',
+      displayReference: {
+        type: 'channel_product',
+        label: 'Coupang Wing 상품번호',
+        value: '13712531060',
+      },
       name: '키즈 식판',
       description: null,
       category: '주방',
@@ -138,6 +171,11 @@ describe('product operations contracts', () => {
       variants: [{
         id: variantId,
         code: 'KI-001-DEFAULT',
+        displayReference: {
+          type: 'product_variant_code',
+          label: '옵션 코드',
+          value: 'KI-001-DEFAULT',
+        },
         name: '기본',
         optionLabel: null,
         isDefault: true,
@@ -162,6 +200,7 @@ describe('product operations contracts', () => {
     });
     expect(detail.variants[0]?.capacity).toBe(10);
     expect(detail.variants[0]?.components[0]?.sellpiaInventorySkuId).toBe(skuId);
+    expect(detail.displayReference.value).toBe('13712531060');
   });
 
   it('enforces product and variant code normalization and mutation strictness', () => {

@@ -12,21 +12,21 @@ type Props = {
 };
 
 export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props) {
-  const connectedCount = data.items.filter((item) => item.channelCount > 0).length;
-  const unconnectedCount = data.items.length - connectedCount;
-  const outOfStockCount = data.items.filter((item) => item.inventoryStatus === 'out_of_stock').length;
-  const configurationCount = data.items.filter((item) => item.inventoryStatus === 'configuration_required').length;
-  const reviewCount = data.items.filter((item) => item.inventoryStatus === 'review_required').length;
+  const { connected: connectedCount, unconnected: unconnectedCount } =
+    data.summary.channelConnectionCounts;
+  const {
+    out_of_stock: outOfStockCount,
+    configuration_required: configurationCount,
+    review_required: reviewCount,
+  } = data.summary.inventoryStatusCounts;
   const warningCount = configurationCount + reviewCount;
-  const lowProfitCount = data.items.filter((item) => item.profit !== null && item.profit < 0).length;
-  const aGradeCount = data.items.filter((item) => item.abcGrade === 'A').length;
-  const bGradeCount = data.items.filter((item) => item.abcGrade === 'B').length;
-  const cGradeCount = data.items.filter((item) => item.abcGrade === 'C').length;
+  const lowProfitCount = data.summary.negativeProfitCount;
+  const { A: aGradeCount, B: bGradeCount, C: cGradeCount } = data.summary.abcGradeCounts;
 
   return (
     <div className="space-y-2">
       <p className="px-1 text-xs font-semibold text-[var(--text-tertiary)]">
-        카탈로그 전체 수를 제외한 운영 지표는 현재 페이지 {formatNumber(data.items.length)}개 상품 기준입니다.
+        운영 지표는 전체 검색 결과 {formatNumber(data.total)}개 상품 기준입니다.
       </p>
       <section className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-5">
       <article className="flex min-h-[270px] flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-5 pb-2.5 pt-5 shadow-sm">
@@ -37,20 +37,20 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
           </p>
           <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg bg-[var(--surface-sunken)] p-2">
             <div className="min-w-0">
-              <p className="text-[11px] font-bold text-[var(--text-tertiary)]">현재 페이지 채널 연결</p>
+              <p className="text-[11px] font-bold text-[var(--text-tertiary)]">채널 연결</p>
               <p className="mt-0.5 text-sm font-extrabold text-[var(--text-primary)]">{formatNumber(connectedCount)}</p>
             </div>
             <div className="min-w-0">
-              <p className="text-[11px] font-bold text-[var(--text-tertiary)]">현재 페이지 채널 미연결</p>
+              <p className="text-[11px] font-bold text-[var(--text-tertiary)]">채널 미연결</p>
               <p className="mt-0.5 text-sm font-extrabold text-[var(--text-primary)]">{formatNumber(unconnectedCount)}</p>
             </div>
           </div>
         </div>
         <div className="mt-auto">
           <Breakdown label="신상품" value="미수집" tone="text-emerald-600" />
-          <Breakdown label="현재 페이지 A등급" value={aGradeCount} tone="text-emerald-700" />
-          <Breakdown label="현재 페이지 B등급" value={bGradeCount} tone="text-amber-600" />
-          <Breakdown label="현재 페이지 C등급" value={cGradeCount} tone="text-rose-600" />
+          <Breakdown label="A등급" value={aGradeCount} tone="text-emerald-700" />
+          <Breakdown label="B등급" value={bGradeCount} tone="text-amber-600" />
+          <Breakdown label="C등급" value={cGradeCount} tone="text-rose-600" />
         </div>
       </article>
 
@@ -58,7 +58,7 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
         <div className="flex h-full flex-col divide-y divide-[var(--border-subtle)]">
           <QuickButton
             icon={PackageX}
-            label="현재 페이지 품절 상품"
+            label="품절 상품"
             count={outOfStockCount}
             tone="blue"
             onClick={onShowOutOfStock}
@@ -73,21 +73,21 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
           </Link>
           <QuickButton
             icon={AlertTriangle}
-            label="현재 페이지 재고위험"
+            label="재고위험"
             count={warningCount}
             tone="orange"
           />
         </div>
       </article>
 
-      <OperationsCard title="재고관리 · 현재 페이지" value="미수집" valueTone="text-teal-700">
+      <OperationsCard title="재고관리" value="미수집" valueTone="text-teal-700">
         <Breakdown label="재고위험" value={warningCount} tone="text-teal-700" />
         <Breakdown label="품절" value={outOfStockCount} tone="text-rose-600" />
         <Breakdown label="임박 재고" value="미수집" tone="text-amber-600" />
         <Breakdown label="발주 필요" value="미수집" tone="text-[var(--primary)]" />
       </OperationsCard>
 
-      <OperationsCard title="손익점검 · 현재 페이지" value={lowProfitCount} valueTone="text-amber-600">
+      <OperationsCard title="손익점검" value={lowProfitCount} valueTone="text-amber-600">
         <Breakdown label="점검 대상" value={lowProfitCount} tone="text-amber-600" />
         <Breakdown label="적자상품" value={lowProfitCount} tone="text-rose-600" />
         <Breakdown label="이익률 3%↓" value="미수집" tone="text-amber-600" />
@@ -97,7 +97,7 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
       <article className="flex min-h-[270px] flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-5 pb-2.5 pt-5 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-bold text-[var(--text-tertiary)]">알림 · 현재 페이지</p>
+            <p className="text-xs font-bold text-[var(--text-tertiary)]">알림</p>
             <p className={`mt-2 text-3xl font-extrabold tabular-nums tracking-tight ${warningCount > 0 ? 'text-amber-600' : 'text-[var(--text-primary)]'}`}>
               {formatNumber(warningCount)}
             </p>

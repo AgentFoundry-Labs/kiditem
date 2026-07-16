@@ -63,7 +63,7 @@ export function ProductRowCard({ product }: { product: MasterProductOperationsLi
               {product.name}
             </Link>
             <p className="mt-1 truncate text-[11px] text-[var(--text-muted)]">
-              {product.code} · {product.brand ?? '브랜드 미등록'}
+              {product.displayReference.label} {product.displayReference.value} · {product.brand ?? '브랜드 미등록'}
             </p>
             <p className="mt-1 text-[11px] text-[var(--text-muted)]">
               옵션 {formatNumber(product.variantSummary.total)}개 · 구성 완료 {formatNumber(product.variantSummary.configured)}개

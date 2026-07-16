@@ -34,6 +34,9 @@ Consult this document first instead of relying on memorized knowledge.
   category strip, filters, metric columns, and product rows. Metrics without a
   product/variant fact source render `미수집`; do not derive them from
   organization/date/seller aggregates.
+- Command-center counts use the list response summary for the full filtered
+  result. Do not label or calculate command-center metrics as current-page
+  values; pagination applies only to the product rows.
 - Search, filters, period, and page on `/product-hub` are URL-authoritative.
 - Product create/edit mutations invalidate only the product operations list and
   affected detail keys.
@@ -51,6 +54,9 @@ Consult this document first instead of relying on memorized knowledge.
 - Channel-origin rows without a confirmed Sellpia component recipe remain
   visible here as `재고 연결 필요`; matching is the operator correction and
   recipe-attention workspace.
+- List, detail, and channel-origin edit surfaces render product and variant
+  `displayReference` values. Never expose deterministic internal `CP-*` or
+  `CP-SKU-*` codes as operator-facing product or option identifiers.
 
 ## Boundary Rules
 

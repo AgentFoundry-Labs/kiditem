@@ -21,7 +21,12 @@ vi.mock('./components/ProductVariantPanel', () => ({
 
 const product = {
   id: '11111111-1111-4111-8111-111111111111',
-  code: 'KI-100',
+  code: 'CP-11111111-1111-4111-8111-111111111111',
+  displayReference: {
+    type: 'channel_product' as const,
+    label: 'Coupang Wing 상품번호',
+    value: '13712531060',
+  },
   name: '동물 친구들 블록',
   description: '아이들을 위한 블록',
   category: '완구/놀이',
@@ -43,6 +48,11 @@ const product = {
   variants: [{
     id: '22222222-2222-4222-8222-222222222222',
     code: 'KI-100-DEFAULT',
+    displayReference: {
+      type: 'product_variant_code' as const,
+      label: '옵션 코드',
+      value: 'KI-100-DEFAULT',
+    },
     name: '기본 옵션',
     optionLabel: null,
     isDefault: true,
@@ -75,6 +85,9 @@ describe('/product-hub/[id] MasterProduct detail', () => {
     expect(screen.getByRole('heading', { name: '판매 옵션' })).toBeInTheDocument();
     expect(screen.getByText('기본 옵션')).toBeInTheDocument();
     expect(screen.queryByText('채널 SKU 전체 현황')).not.toBeInTheDocument();
+    expect(screen.getAllByText(/Coupang Wing 상품번호/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/13712531060/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/CP-11111111/)).not.toBeInTheDocument();
   });
 
   it('opens product metadata editing without exposing stock editing', () => {

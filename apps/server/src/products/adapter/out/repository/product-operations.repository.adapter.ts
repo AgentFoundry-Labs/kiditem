@@ -9,6 +9,7 @@ import type {
   MasterProductOperationsDetail,
   MasterProductOperationsListItem,
   MasterProductOperationsListQuery,
+  ProductOperationsListSummary,
   ProductVariantDetail,
 } from '@kiditem/shared/product-operations';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -27,10 +28,32 @@ const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
 function productInclude(organizationId: string, periodStart?: Date) {
   return {
+    originChannelListing: {
+      select: {
+        externalId: true,
+        channelAccount: {
+          select: { name: true },
+        },
+      },
+    },
     variants: {
       where: { organizationId },
       orderBy: [{ isDefault: 'desc' as const }, { createdAt: 'asc' as const }],
       include: {
+        channelListingOptions: {
+          where: { organizationId },
+          select: {
+            listingId: true,
+            externalOptionId: true,
+            listing: {
+              select: {
+                channelAccount: {
+                  select: { name: true },
+                },
+              },
+            },
+          },
+        },
         components: {
           where: { organizationId },
           orderBy: { createdAt: 'asc' as const },
@@ -106,11 +129,34 @@ implements ProductOperationsRepositoryPort {
       ? projected.filter((row) => row.inventoryStatus === query.inventoryStatus)
       : projected;
     const offset = (query.page - 1) * query.limit;
+    const summary = filtered.reduce<ProductOperationsListSummary>((counts, row) => {
+      if (row.abcGrade === 'A' || row.abcGrade === 'B' || row.abcGrade === 'C') {
+        counts.abcGradeCounts[row.abcGrade] += 1;
+      }
+      counts.channelConnectionCounts[
+        row.channelCount > 0 ? 'connected' : 'unconnected'
+      ] += 1;
+      counts.inventoryStatusCounts[row.inventoryStatus] += 1;
+      if (row.profit !== null && row.profit < 0) counts.negativeProfitCount += 1;
+      return counts;
+    }, {
+      abcGradeCounts: { A: 0, B: 0, C: 0 },
+      channelConnectionCounts: { connected: 0, unconnected: 0 },
+      inventoryStatusCounts: {
+        sellable: 0,
+        partial_out_of_stock: 0,
+        out_of_stock: 0,
+        configuration_required: 0,
+        review_required: 0,
+      },
+      negativeProfitCount: 0,
+    });
     return {
       items: filtered.slice(offset, offset + query.limit),
       total: filtered.length,
       page: query.page,
       limit: query.limit,
+      summary,
     };
   }
 
@@ -288,10 +334,15 @@ implements ProductOperationsRepositoryPort {
   ): Promise<ProductVariantDetail> {
     const row = await this.prisma.productVariant.findFirst({
       where: { id: productVariantId, organizationId },
-      include: productInclude(organizationId).variants.include,
+      include: {
+        ...productInclude(organizationId).variants.include,
+        masterProduct: {
+          select: { originChannelListingId: true },
+        },
+      },
     });
     if (!row) throw new NotFoundException('ProductVariant was not found');
-    return toVariantDetail(row);
+    return toVariantDetail(row, row.masterProduct.originChannelListingId);
   }
 }
 
@@ -415,13 +466,15 @@ function toDetail(row: ProductRow): MasterProductOperationsDetail {
       status: listing.status,
       isActive: listing.isActive,
     })),
-    variants: row.variants.map(toVariantDetail),
+    variants: row.variants.map((variant) =>
+      toVariantDetail(variant, row.originChannelListingId)),
   };
 }
 
 function toListItem(row: ProductRow, periodStart: Date): MasterProductOperationsListItem {
   const inventory = projectProductInventory(row.variants.map(toInventoryVariant));
-  const variants = row.variants.map(toVariantDetail);
+  const variants = row.variants.map((variant) =>
+    toVariantDetail(variant, row.originChannelListingId));
   const activeVariants = variants.filter((variant) => variant.isActive);
   const activeListings = row.channelListings.filter((listing) => listing.isActive);
   const dailyFacts = row.channelListings.flatMap(
@@ -459,6 +512,17 @@ function metadata(row: ProductRow) {
   return {
     id: row.id,
     code: row.code,
+    displayReference: row.originChannelListing
+      ? {
+          type: 'channel_product' as const,
+          label: `${row.originChannelListing.channelAccount.name} 상품번호`,
+          value: row.originChannelListing.externalId,
+        }
+      : {
+          type: 'product_code' as const,
+          label: '상품 코드',
+          value: row.code,
+        },
     name: row.name,
     description: row.description,
     category: row.category,
@@ -495,11 +559,26 @@ function toCapacityComponent(
 
 function toVariantDetail(
   variant: ProductRow['variants'][number],
+  originChannelListingId: string | null,
 ): ProductVariantDetail {
   const projection = projectVariantCapacity(variant.components.map(toCapacityComponent));
+  const originOption = originChannelListingId
+    ? variant.channelListingOptions.find((option) => option.listingId === originChannelListingId)
+    : undefined;
   return {
     id: variant.id,
     code: variant.code,
+    displayReference: originOption
+      ? {
+          type: 'channel_option',
+          label: `${originOption.listing.channelAccount.name} 옵션번호`,
+          value: originOption.externalOptionId,
+        }
+      : {
+          type: 'product_variant_code',
+          label: '옵션 코드',
+          value: variant.code,
+        },
     name: variant.name,
     optionLabel: variant.optionLabel,
     isDefault: variant.isDefault,
