@@ -1,12 +1,14 @@
 'use client';
 
+import { PRODUCT_OPERATIONS_GRID_CLASS } from '../lib/product-list-layout';
+
 const COLUMNS = ['상품', '재고', '방문', '조회', '장바구니', '주문', '판매', '매출', '광고비율'] as const;
 
 export function ProductsColumnHeader() {
   return (
     <div
       role="row"
-      className="grid grid-cols-[minmax(420px,1.45fr)_repeat(8,minmax(76px,.42fr))_72px] items-center gap-4 px-6 py-3 text-[12px] font-semibold text-[var(--text-quaternary)]"
+      className={`${PRODUCT_OPERATIONS_GRID_CLASS} px-4 py-3 text-[11px] font-semibold text-[var(--text-quaternary)] 2xl:px-6 2xl:text-[12px]`}
     >
       {COLUMNS.map((column, index) => (
         <span key={column} role="columnheader" className={index === 0 ? undefined : 'text-right'}>

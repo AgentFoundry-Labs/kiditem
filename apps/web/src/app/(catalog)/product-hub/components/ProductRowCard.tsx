@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { ArrowUpRight, Barcode, PackageSearch } from 'lucide-react';
 import { formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
+import { PRODUCT_OPERATIONS_GRID_CLASS } from '../lib/product-list-layout';
 import type { InventorySkuSnapshotItem } from '@kiditem/shared/inventory';
 
 export function ProductRowCard({ product }: { product: InventorySkuSnapshotItem }) {
@@ -10,15 +11,15 @@ export function ProductRowCard({ product }: { product: InventorySkuSnapshotItem 
   const stockTone = isOutOfStock ? 'text-rose-600' : 'text-[var(--text-primary)]';
 
   return (
-    <article className={`relative overflow-hidden rounded-2xl border px-6 py-5 shadow-sm transition hover:border-[var(--border-strong)] hover:shadow-md ${isOutOfStock ? 'border-amber-200 bg-amber-50/40' : 'border-[var(--border-subtle)] bg-[var(--card-bg)]'}`}>
+    <article className={`relative min-w-0 overflow-hidden rounded-2xl border px-4 py-4 shadow-sm transition hover:border-[var(--border-strong)] hover:shadow-md 2xl:px-6 2xl:py-5 ${isOutOfStock ? 'border-amber-200 bg-amber-50/40' : 'border-[var(--border-subtle)] bg-[var(--card-bg)]'}`}>
       {isOutOfStock ? <span className="absolute left-0 top-0 h-full w-1 bg-amber-500" aria-hidden="true" /> : null}
-      <div className="grid grid-cols-[minmax(420px,1.45fr)_repeat(8,minmax(76px,.42fr))_72px] items-center gap-4">
-        <div className="flex min-w-0 items-center gap-5">
-          <div className="w-14 shrink-0 text-center">
+      <div className={PRODUCT_OPERATIONS_GRID_CLASS}>
+        <div className="flex min-w-0 items-center gap-3 2xl:gap-5">
+          <div className="w-10 shrink-0 text-center 2xl:w-14">
             <p className="text-sm font-semibold text-[var(--text-muted)]">-</p>
             <p className="mt-1 text-[10px] font-semibold text-[var(--text-muted)]">미집계</p>
           </div>
-          <div className="flex h-[88px] w-[88px] shrink-0 items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] text-[var(--text-muted)]">
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] text-[var(--text-muted)] 2xl:h-[88px] 2xl:w-[88px]">
             <PackageSearch size={22} />
           </div>
           <div className="min-w-0">
@@ -33,7 +34,7 @@ export function ProductRowCard({ product }: { product: InventorySkuSnapshotItem 
             </div>
             <Link
               href={`/product-hub/${product.masterProductId}`}
-              className="mt-2 block truncate text-[17px] font-extrabold text-[var(--text-primary)] hover:text-[var(--primary)]"
+              className="mt-2 block truncate text-[15px] font-extrabold text-[var(--text-primary)] hover:text-[var(--primary)] 2xl:text-[17px]"
             >
               {product.name}
             </Link>
@@ -58,9 +59,9 @@ export function ProductRowCard({ product }: { product: InventorySkuSnapshotItem 
           <Link
             href={`/product-hub/${product.masterProductId}`}
             aria-label={`${product.name} 상세`}
-            className="inline-flex h-10 items-center gap-1 rounded-xl bg-[var(--surface-sunken)] px-3 text-[12px] font-bold text-[var(--text-secondary)] hover:bg-[var(--primary-soft)] hover:text-[var(--primary)]"
+            className="inline-flex h-9 w-9 items-center justify-center gap-1 rounded-xl bg-[var(--surface-sunken)] text-[12px] font-bold text-[var(--text-secondary)] hover:bg-[var(--primary-soft)] hover:text-[var(--primary)] 2xl:h-10 2xl:w-auto 2xl:px-3"
           >
-            상세 <ArrowUpRight size={12} />
+            <span className="hidden 2xl:inline">상세</span> <ArrowUpRight size={12} />
           </Link>
         </div>
       </div>
@@ -85,7 +86,7 @@ export function ProductRowCard({ product }: { product: InventorySkuSnapshotItem 
 function Metric({ value, label, tone }: { value: string; label: string; tone: string }) {
   return (
     <div className="text-right">
-      <p className={`text-[22px] font-black leading-none tabular-nums ${tone}`}>{value}</p>
+      <p className={`text-lg font-black leading-none tabular-nums 2xl:text-[22px] ${tone}`}>{value}</p>
       <p className="mt-2 text-[11px] font-medium text-[var(--text-muted)]">{label}</p>
     </div>
   );
@@ -94,7 +95,7 @@ function Metric({ value, label, tone }: { value: string; label: string; tone: st
 function UnavailableMetric({ label, detail }: { label: string; detail?: string }) {
   return (
     <div className="text-right" title={`${label} 데이터는 현재 Sellpia 스냅샷에 포함되지 않습니다.`}>
-      <p className="text-[22px] font-black leading-none text-[var(--text-quaternary)] opacity-50">—</p>
+      <p className="text-lg font-black leading-none text-[var(--text-quaternary)] opacity-50 2xl:text-[22px]">—</p>
       <p className="mt-2 text-[11px] text-[var(--text-muted)]">{detail ?? label}</p>
     </div>
   );

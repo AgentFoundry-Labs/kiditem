@@ -108,7 +108,7 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getByText('이익률 3%↓')).toBeInTheDocument();
     expect(screen.getByText('핵심상품')).toBeInTheDocument();
     expect(screen.getByText('알림')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '전체 카탈로그' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '전체 카테고리' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '완구/놀이' })).toBeDisabled();
     expect(screen.getByRole('columnheader', { name: '상품' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '재고' })).toBeInTheDocument();
@@ -117,6 +117,15 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getByText('스테이지 상품')).toBeInTheDocument();
     expect(screen.getByText(/SP-001/)).toBeInTheDocument();
     expect(screen.getByText('2,468')).toBeInTheDocument();
+
+    const commandCenter = screen.getByText('카탈로그 상품 전체').closest('section');
+    expect(commandCenter).toHaveClass('xl:grid-cols-3', '2xl:grid-cols-5');
+    const productGrid = screen.getByText('스테이지 상품').closest('article')?.firstElementChild;
+    expect(productGrid).toHaveClass(
+      'grid-cols-[minmax(280px,1.65fr)_repeat(8,minmax(48px,.4fr))_54px]',
+      '2xl:grid-cols-[minmax(420px,1.45fr)_repeat(8,minmax(76px,.42fr))_72px]',
+    );
+    expect(screen.getByText('품절 상품')).toHaveClass('whitespace-normal');
   });
 
   it('keeps the staged header shape and routes its upload icon to additive Sellpia sync', () => {

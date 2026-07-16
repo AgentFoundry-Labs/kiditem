@@ -6,7 +6,7 @@ export const PERIOD_OPTIONS = [
 ] as const;
 
 export const CATEGORY_TABS = [
-  { key: 'all', label: '전체 카탈로그' },
+  { key: 'all', label: '전체 카테고리' },
   { key: 'new', label: '신상품' },
   { key: 'season', label: '시즌상품' },
   { key: 'stationery', label: '문구/학용품' },

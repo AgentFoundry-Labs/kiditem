@@ -23,7 +23,7 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
   const issueCount = warningCount + errorCount;
 
   return (
-    <section className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-5">
+    <section className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
       <article className="flex min-h-[270px] flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-5 pb-2.5 pt-5 shadow-sm">
         <div>
           <p className="text-xs font-bold text-[var(--text-tertiary)]">카탈로그 상품 전체</p>
@@ -63,7 +63,7 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
             className="flex flex-1 items-center gap-3 bg-violet-50 px-4 py-3 text-left text-violet-700 transition-colors hover:bg-violet-100"
           >
             <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-100"><ClipboardList size={17} /></span>
-            <span className="min-w-0 flex-1 truncate text-sm font-extrabold">발주하기</span>
+            <span className="min-w-0 flex-1 whitespace-normal text-sm font-extrabold leading-tight">발주하기</span>
             <span className="rounded-lg bg-[var(--surface-sunken)] px-2.5 py-1 text-sm font-extrabold text-[var(--text-tertiary)]">계산 전</span>
           </Link>
           <QuickButton
@@ -172,7 +172,7 @@ function QuickButton({
   return (
     <button type="button" onClick={onClick} className={`flex flex-1 items-center gap-3 px-4 py-3 text-left transition-colors ${styles}`}>
       <span className={`flex h-9 w-9 items-center justify-center rounded-lg ${iconStyles}`}><Icon size={17} /></span>
-      <span className="min-w-0 flex-1 truncate text-sm font-extrabold">{label}</span>
+      <span className="min-w-0 flex-1 whitespace-normal text-sm font-extrabold leading-tight">{label}</span>
       <span className="rounded-lg bg-[var(--surface-sunken)] px-2.5 py-1 text-base font-extrabold tabular-nums text-[var(--text-primary)]">{formatNumber(count)}</span>
     </button>
   );
