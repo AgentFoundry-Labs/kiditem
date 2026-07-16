@@ -24,10 +24,7 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
   const { A: aGradeCount, B: bGradeCount, C: cGradeCount } = data.summary.abcGradeCounts;
 
   return (
-    <div className="space-y-2">
-      <p className="px-1 text-xs font-semibold text-[var(--text-tertiary)]">
-        운영 지표는 전체 검색 결과 {formatNumber(data.total)}개 상품 기준입니다.
-      </p>
+    <div>
       <section className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-5">
       <article className="flex min-h-[270px] flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-5 pb-2.5 pt-5 shadow-sm">
         <div>
