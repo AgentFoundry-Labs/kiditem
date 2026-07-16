@@ -120,11 +120,13 @@ model Organization {
   // Action Board
   actionTasks ActionTask[]
 
-  // Sellpia physical items and channel catalogs
-  masterProducts        MasterProduct[]
-  channelListings       ChannelListing[]
-  channelListingOptions ChannelListingOption[]
-  channelSkuComponents  ChannelSkuComponent[]
+  // Product operations, Sellpia physical items, and channel catalogs
+  masterProducts           MasterProduct[]
+  productVariants          ProductVariant[]
+  productVariantComponents ProductVariantComponent[]
+  sellpiaInventorySkus     SellpiaInventorySku[]
+  channelListings          ChannelListing[]
+  channelListingOptions    ChannelListingOption[]
 
   // Channels — market-data snapshots (Wave C0)
   channelScrapeRuns                  ChannelScrapeRun[]
@@ -330,7 +332,7 @@ model SourceImportRun {
   organization                        Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   channelAccount                      ChannelAccount?         @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   manualFreshExportConfirmer          User?                   @relation("SourceImportRunManualFreshExportConfirmer", fields: [manualFreshExportConfirmedBy], references: [id], onDelete: SetNull)
-  masterProducts                      MasterProduct[]         @relation("MasterProductLastImport")
+  sellpiaInventorySkus                SellpiaInventorySku[]   @relation("SellpiaInventorySkuLastImport")
   channelProducts                     ChannelListing[]        @relation("ChannelProductLastImport")
   channelSkus                         ChannelListingOption[]  @relation("ChannelSkuLastImport")
   channelScrapeRuns                   ChannelScrapeRun[]
@@ -366,42 +368,95 @@ model CategoryMapping {
 }
 
 /// @namespace Core
-/// @describe One Sellpia product-code row and its latest imported current stock.
+/// @describe KidItem-operated product identity and product-level operating metadata.
 model MasterProduct {
-  id              String  @id @default(uuid()) @db.Uuid
-  organizationId  String  @map("organization_id") @db.Uuid
+  id              String    @id @default(uuid()) @db.Uuid
+  organizationId  String    @map("organization_id") @db.Uuid
   code            String
   name            String
-  optionName      String? @map("option_name")
-  barcode         String?
-  currentStock    Int     @default(0) @map("current_stock")
-  purchasePrice   Int?    @map("purchase_price")
-  salePrice       Int?    @map("sale_price")
-  isActive        Boolean @default(true) @map("is_active")
-  rawJson         Json?   @map("raw_json")
-  lastImportRunId String? @map("last_import_run_id") @db.Uuid
+  description     String?
+  category        String?
+  brand           String?
+  tags            String[]  @default([])
+  imageUrls       String[]  @default([]) @map("image_urls")
+  abcGrade        String?   @map("abc_grade")
+  profitTag       String?   @map("profit_tag")
+  adTier          String?   @map("ad_tier")
+  adBudgetLimit   Int?      @map("ad_budget_limit")
+  healthScore     Int?      @map("health_score")
+  healthUpdatedAt DateTime? @map("health_updated_at") @db.Timestamptz
+  isActive        Boolean   @default(true) @map("is_active")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  lastImportRun        SourceImportRun?      @relation("MasterProductLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  provenanceCandidate  SourcingCandidate?    @relation("SourcingCandidateProvenance")
-  channelSkuComponents ChannelSkuComponent[]
-  supplierProducts     SupplierProduct[]     @relation("SupplierProductMasterProduct")
-  purchaseOrderItems   PurchaseOrderItem[]   @relation("PurchaseOrderItemMasterProduct")
-  stockTransfers       StockTransfer[]       @relation("StockTransferMasterProduct")
-  pickingItems         PickingItem[]         @relation("PickingItemMasterProduct")
-  returnTransfers      ReturnTransfer[]      @relation("ReturnTransferMasterProduct")
-  processingCosts      ProcessingCost[]
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  provenanceCandidate SourcingCandidate? @relation("SourcingCandidateProvenance")
+  variants            ProductVariant[]
+  channelListings     ChannelListing[]
+  processingCosts     ProcessingCost[]
 
   @@unique([organizationId, code])
   @@unique([id, organizationId], map: "master_products_id_org_key")
   @@index([organizationId])
-  @@index([organizationId, barcode])
-  @@index([lastImportRunId])
   @@index([organizationId, isActive])
   @@map("master_products")
+}
+
+/// @namespace Core
+/// @describe Reusable sellable unit beneath one MasterProduct. Code is stable organization-scoped identity.
+model ProductVariant {
+  id              String  @id @default(uuid()) @db.Uuid
+  organizationId  String  @map("organization_id") @db.Uuid
+  masterProductId String  @map("master_product_id") @db.Uuid
+  code            String
+  name            String
+  optionLabel     String? @map("option_label")
+  isDefault       Boolean @default(false) @map("is_default")
+  isActive        Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization          Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  masterProduct         MasterProduct             @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  components            ProductVariantComponent[]
+  channelListingOptions ChannelListingOption[]
+
+  @@unique([organizationId, code])
+  @@unique([id, organizationId], map: "product_variants_id_org_key")
+  @@unique([masterProductId], map: "product_variants_active_default_master_key", where: raw("is_default = true AND is_active = true"))
+  @@index([organizationId])
+  @@index([masterProductId])
+  @@index([organizationId, isActive])
+  @@map("product_variants")
+}
+
+/// @namespace Core
+/// @describe Central confirmed variant recipe. source: manual | deterministic; quantity is positive and validated by shared/service contracts.
+model ProductVariantComponent {
+  id                    String   @id @default(uuid()) @db.Uuid
+  organizationId        String   @map("organization_id") @db.Uuid
+  productVariantId      String   @map("product_variant_id") @db.Uuid
+  sellpiaInventorySkuId String   @map("sellpia_inventory_sku_id") @db.Uuid
+  quantity              Int // positive; validated by shared/service contracts
+  source                String // manual | deterministic
+  confirmedBy           String?  @map("confirmed_by") @db.Uuid
+  confirmedAt           DateTime @default(now()) @map("confirmed_at") @db.Timestamptz
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  productVariant      ProductVariant      @relation(fields: [productVariantId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  sellpiaInventorySku SellpiaInventorySku @relation(fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([productVariantId, sellpiaInventorySkuId])
+  @@index([organizationId])
+  @@index([productVariantId])
+  @@index([sellpiaInventorySkuId])
+  @@index([organizationId, productVariantId])
+  @@index([organizationId, sellpiaInventorySkuId])
+  @@map("product_variant_components")
 }
 
 /// @namespace Core
@@ -411,6 +466,7 @@ model ChannelListing {
   organizationId    String  @map("organization_id") @db.Uuid
   channelAccountId  String  @map("channel_account_id") @db.Uuid
   sourceCandidateId String? @map("source_candidate_id") @db.Uuid
+  masterProductId   String? @map("master_product_id") @db.Uuid
 
   externalId String @map("external_id")
 
@@ -430,14 +486,7 @@ model ChannelListing {
   returnCharge       Int?    @map("return_charge")
   deliveryInfo       Json?   @map("delivery_info")
 
-  // KidItem-authored listing operations; channel collection never overwrites these.
-  abcGrade        String?   @map("abc_grade")
-  profitTag       String?   @map("profit_tag")
-  adTier          String?   @map("ad_tier")
-  adBudgetLimit   Int?      @map("ad_budget_limit")
-  healthScore     Int?      @map("health_score")
-  healthUpdatedAt DateTime? @map("health_updated_at") @db.Timestamptz
-  isActive        Boolean   @default(true) @map("is_active")
+  isActive Boolean @default(true) @map("is_active")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
@@ -445,6 +494,7 @@ model ChannelListing {
   organization        Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   channelAccount      ChannelAccount         @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   sourceCandidate     SourcingCandidate?     @relation(fields: [sourceCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  masterProduct       MasterProduct?         @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
   lastImportRun       SourceImportRun?       @relation("ChannelProductLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   options             ChannelListingOption[]
   contentWorkspaces   ContentWorkspace[]
@@ -472,6 +522,8 @@ model ChannelListing {
   @@index([organizationId])
   @@index([channelAccountId])
   @@index([sourceCandidateId])
+  @@index([masterProductId])
+  @@index([organizationId, masterProductId])
   @@index([lastImportRunId])
   @@index([organizationId, channelAccountId, isActive])
   @@index([organizationId, updatedAt, id])
@@ -481,9 +533,10 @@ model ChannelListing {
 /// @namespace Core
 /// @describe One sellable SKU under a channel listing.
 model ChannelListingOption {
-  id             String @id @default(uuid()) @db.Uuid
-  listingId      String @map("listing_id") @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
+  id               String  @id @default(uuid()) @db.Uuid
+  listingId        String  @map("listing_id") @db.Uuid
+  organizationId   String  @map("organization_id") @db.Uuid
+  productVariantId String? @map("product_variant_id") @db.Uuid
 
   externalOptionId  String   @map("external_option_id") @db.VarChar(60)
   itemName          String?  @map("item_name")
@@ -496,7 +549,6 @@ model ChannelListingOption {
   barcode           String?
   modelNumber       String?  @map("model_number")
   status            String?
-  mappingStatus     String   @default("unmatched") @map("mapping_status")
   attributesJson    Json?    @map("attributes_json")
   rawJson           Json?    @map("raw_json")
   lastImportRunId   String?  @map("last_import_run_id") @db.Uuid
@@ -508,8 +560,8 @@ model ChannelListingOption {
 
   listing              ChannelListing        @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Cascade)
   organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  productVariant       ProductVariant?       @relation(fields: [productVariantId, organizationId], references: [id, organizationId], onDelete: Restrict)
   lastImportRun        SourceImportRun?      @relation("ChannelSkuLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  components           ChannelSkuComponent[]
   orderLineItems       OrderLineItem[]
   orderReturnLineItems OrderReturnLineItem[]
   adActions            AdAction[]
@@ -525,7 +577,8 @@ model ChannelListingOption {
   @@unique([id, organizationId], map: "channel_listing_options_id_org_key")
   @@index([organizationId, externalOptionId])
   @@index([externalOptionId])
-  @@index([organizationId, mappingStatus])
+  @@index([productVariantId])
+  @@index([organizationId, productVariantId])
   @@index([lastImportRunId])
   @@map("channel_listing_options")
 }

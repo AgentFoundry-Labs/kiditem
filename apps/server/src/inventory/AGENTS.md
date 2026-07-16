@@ -1,8 +1,8 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# inventory — Sellpia Master Snapshot, Warehouses, Operation Records
+# inventory — Sellpia SKU Snapshot, Warehouses, Operation Records
 
-`src/inventory/` owns the Sellpia-authoritative physical `MasterProduct`
+`src/inventory/` owns the Sellpia-authoritative physical `SellpiaInventorySku`
 snapshot and adjacent warehouse, transfer, picking, receipt, unshipped, and
 shipment-file capabilities. KidItem does not maintain a second mutable stock
 balance.
@@ -35,7 +35,7 @@ inventory/
 
 - Sellpia source-stock snapshot: `POST /api/inventory/sellpia-sync/import`
 - Sellpia current-stock snapshot read: `GET /api/inventory/sellpia-skus`
-- Sellpia single-product snapshot read: `GET /api/inventory/sellpia-skus/:masterProductId`
+- Sellpia single-SKU snapshot read: `GET /api/inventory/sellpia-skus/:sellpiaInventorySkuId`
 - Sellpia import-run history: `GET /api/inventory/sellpia-sync/import-runs`
 - Sellpia freshness state and browser leases:
   `/api/inventory/sellpia-freshness/*`
@@ -52,26 +52,26 @@ Route shape is frozen.
 
 ## Main Data Models
 
-- A physical `MasterProduct` is one Sellpia product-code row and owns the
+- A physical `SellpiaInventorySku` is one Sellpia product-code row and owns the
   current quantity in `currentStock`.
 - `SourceImportRun` records workbook provenance, idempotency, and attempt
   fencing.
 - `Warehouse` is warehouse metadata.
 - `StockTransfer`, `PickingItem`, and `ReturnTransfer` reference
-  `MasterProduct`; they record operations and never adjust `currentStock`.
+  `SellpiaInventorySku`; they record operations and never adjust `currentStock`.
 - `SellpiaReceiptUploadBatch` records receipt-upload workflow state separately
   from the stock snapshot.
 
 ## Sellpia Inventory Snapshot
 
 `POST /api/inventory/sellpia-sync/import` is the only writer of physical
-`MasterProduct.currentStock`. It is an organization-scoped full snapshot
-replacement: one valid workbook row maps to one physical `MasterProduct`, and a
+`SellpiaInventorySku.currentStock`. It is an organization-scoped full snapshot
+replacement: one valid workbook row maps to one physical `SellpiaInventorySku`, and a
 completed import marks absent known Sellpia codes inactive with zero stock
-without deleting their identity or `ChannelSkuComponent` references.
+without deleting their identity or `ProductVariantComponent` references.
 
 The replacement is atomic and fenced by its `SourceImportRun` attempt token.
-It may update only physical `MasterProduct` source metadata, `currentStock`,
+It may update only physical `SellpiaInventorySku` source metadata, `currentStock`,
 active state, and import provenance. Never translate workbook differences into
 channel, transfer, picking, return, purchase-order, or Rocket writes.
 Receipt-batch create/list/mark-uploaded behavior is separate and does not
@@ -79,8 +79,9 @@ change stock.
 
 ## Cross-Domain Ports
 
-- `InventoryModule` exports the read-only `SELLPIA_MASTER_PRODUCT_READ_PORT`
-  for matching and channel-capacity consumers.
+- `InventoryModule` exports a read-only Sellpia inventory-SKU capability for
+  product recipes, matching evidence, and capacity consumers. It never exposes
+  `MasterProduct` as a physical inventory type.
 - `InventoryModule` exports `SELLPIA_INVENTORY_REFRESH_REQUEST_PORT` for
   deterministic order/purchase refresh requests and
   `SELLPIA_INVENTORY_FRESHNESS_GATE_PORT` for the final fresh-and-active
@@ -129,4 +130,7 @@ change stock.
 - No controller or service may expose receive, issue, adjust, reserve, release,
   restock, stock-ledger, or Rocket stock-event mutations.
 - Transfer, picking, and return completion updates operational record fields
-  only; they do not write `MasterProduct.currentStock`.
+  only; they do not write `SellpiaInventorySku.currentStock`.
+- Product operations reads must enter through Products APIs. The Inventory SKU
+  list may expose linked/unlinked projections, but it must not manufacture or
+  mutate `MasterProduct` rows.

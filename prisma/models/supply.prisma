@@ -30,26 +30,26 @@ model Supplier {
 /// @namespace Supply
 /// @describe 공급사별 Sellpia 물리 상품 단위 공급가/주공급처 정책.
 model SupplierProduct {
-  id              String   @id @default(uuid()) @db.Uuid
-  organizationId  String   @map("organization_id") @db.Uuid
-  supplierId      String   @map("supplier_id") @db.Uuid
-  masterProductId String   @map("master_product_id") @db.Uuid
-  supplyPrice     Int      @default(0) @map("supply_price")
-  minOrderQty     Int      @default(1) @map("min_order_qty")
-  isPrimary       Boolean  @default(false) @map("is_primary")
-  memo            String?
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id                    String   @id @default(uuid()) @db.Uuid
+  organizationId        String   @map("organization_id") @db.Uuid
+  supplierId            String   @map("supplier_id") @db.Uuid
+  sellpiaInventorySkuId String   @map("sellpia_inventory_sku_id") @db.Uuid
+  supplyPrice           Int      @default(0) @map("supply_price")
+  minOrderQty           Int      @default(1) @map("min_order_qty")
+  isPrimary             Boolean  @default(false) @map("is_primary")
+  memo                  String?
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  supplier      Supplier      @relation(fields: [supplierId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  masterProduct MasterProduct @relation("SupplierProductMasterProduct", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier            Supplier            @relation(fields: [supplierId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  sellpiaInventorySku SellpiaInventorySku @relation("SupplierProductSellpiaInventorySku", fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
-  @@unique([supplierId, masterProductId])
-  @@unique([masterProductId], map: "supplier_products_primary_master_key", where: raw("is_primary = true"))
+  @@unique([supplierId, sellpiaInventorySkuId])
+  @@unique([sellpiaInventorySkuId], map: "supplier_products_primary_sellpia_inventory_sku_key", where: raw("is_primary = true"))
   @@index([organizationId])
   @@index([supplierId])
-  @@index([masterProductId])
+  @@index([sellpiaInventorySkuId])
   @@map("supplier_products")
 }
 
@@ -158,10 +158,10 @@ model PurchaseOrderSubmissionAttempt {
 
 /// @namespace Supply
 model PurchaseOrderItem {
-  id              String @id @default(uuid()) @db.Uuid
-  organizationId  String @map("organization_id") @db.Uuid
-  orderId         String @map("order_id") @db.Uuid
-  masterProductId String @map("master_product_id") @db.Uuid
+  id                    String @id @default(uuid()) @db.Uuid
+  organizationId        String @map("organization_id") @db.Uuid
+  orderId               String @map("order_id") @db.Uuid
+  sellpiaInventorySkuId String @map("sellpia_inventory_sku_id") @db.Uuid
 
   productName  String  @map("product_name")
   quantity     Int
@@ -169,12 +169,12 @@ model PurchaseOrderItem {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  order         PurchaseOrder @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  masterProduct MasterProduct @relation("PurchaseOrderItemMasterProduct", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  order               PurchaseOrder       @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  sellpiaInventorySku SellpiaInventorySku @relation("PurchaseOrderItemSellpiaInventorySku", fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@index([organizationId])
   @@index([orderId])
-  @@index([masterProductId])
+  @@index([sellpiaInventorySkuId])
   @@map("purchase_order_items")
 }

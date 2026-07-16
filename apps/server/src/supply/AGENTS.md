@@ -2,7 +2,7 @@ Consult this document first instead of relying on memorized knowledge.
 
 # supply — Suppliers + Procurement
 
-`src/supply/` owns supplier registry, Sellpia physical-product supplier policy
+`src/supply/` owns supplier registry, Sellpia physical-SKU supplier policy
 (`SupplierProduct`), and purchase-order procurement. Suppliers are
 organization-private. Sourcing and supply are separate because sourcing buyer
 work and vendor-manager/procurement work mutate different surfaces.
@@ -31,7 +31,7 @@ Route shape is frozen.
 ## Main Data Models
 
 - `Supplier` is organization-private supplier identity.
-- `SupplierProduct` links a Sellpia `MasterProduct` to supplier price, MOQ, and
+- `SupplierProduct` links a `SellpiaInventorySku` to supplier price, MOQ, and
   primary-supplier policy.
 - `PurchaseOrder` is procurement state.
 - `SupplierPayment` is finance-owned and must not be written from supply.
@@ -61,7 +61,7 @@ Route shape is frozen.
 - Prepared attempts older than 15 database minutes become `provider_unknown`.
   Providerless ordering, attempt creation, terminal recording, and
   reconciliation stay organization-scoped and row-locked.
-- Repository adapters own Prisma details and Sellpia `MasterProduct` ownership
+- Repository adapters own Prisma details and `SellpiaInventorySku` ownership
   checks; application services depend on `application/port/out/*` contracts
   only.
 - `previewRocket` publishes complete Rocket PO catalog evidence through the

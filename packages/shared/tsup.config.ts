@@ -26,6 +26,8 @@ export default defineConfig({
     'src/channel-account.ts',
     'src/channel-sku-matching.ts',
     'src/channel-sku-availability.ts',
+    'src/product-operations.ts',
+    'src/channel-product-matching.ts',
     'src/source-import.ts',
     'src/sellpia-inventory-freshness.ts',
     'src/rocket-purchase-preview.ts',

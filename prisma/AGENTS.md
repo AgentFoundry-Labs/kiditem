@@ -78,14 +78,23 @@ constraints on the same logical keys.
 
 Current active-row uniqueness includes:
 
-- `master_products(organization_id, code)`
+- one active default `product_variants(master_product_id)` row
 - `channel_listings(organization_id, channel_account_id, external_id)`
 - active source-backed `channel_listings(organization_id, source_candidate_id,
   channel_account_id)`
 - active `product_preparations(organization_id, source_candidate_id,
   channel_account_id)`
-- `channel_sku_components(channel_sku_id, master_product_id)`
-- one primary `supplier_products(master_product_id)` row
+- one primary `supplier_products(sellpia_inventory_sku_id)` row
+
+`MasterProduct` is the KidItem product-operations unit. `ProductVariant` is its
+reusable sellable unit, `ProductVariantComponent` is the only component recipe,
+and `SellpiaInventorySku` is the sole physical Sellpia stock owner. Never put
+`currentStock`, source prices, barcode, raw import payload, or import provenance
+back on `MasterProduct`, and never restore channel-owned component recipes.
+
+All relations among these models are organization-fenced with composite
+`[id, organizationId]` references. Nullable channel product/variant links mean
+unmatched; candidate evidence is not persisted as confirmed truth.
 
 Service code should use `findFirst({ where: { ..., isDeleted: false } })`
 instead of `findUnique(...)` assumptions over partial keys.

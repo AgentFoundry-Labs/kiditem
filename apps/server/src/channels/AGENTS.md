@@ -2,8 +2,8 @@ Consult this document first instead of relying on memorized knowledge.
 
 # channels — Marketplace Sync + SKU Matching
 
-`src/channels/` owns marketplace account settings, marketplace product/SKU
-metadata, Coupang order/return sync, Sellpia component matching, channel SKU
+`src/channels/` owns marketplace account settings, marketplace product/option
+metadata, Coupang order/return sync, product/variant matching, channel option
 sellable-capacity projections, account-scoped product registration, and channel
 dashboard reads. Provider calls are isolated behind provider adapters.
 
@@ -29,7 +29,7 @@ channels/
 - Channel account/listing APIs under `/api/channels/*`
 - Coupang product, order, and return sync entrypoints
 - Registered-product listing read model: `/api/channels/listings`
-- Channel SKU component matching: `/api/channels/sku-mappings/*`
+- Channel product and option matching capabilities
 - Channel SKU availability: `GET /api/channels/sku-availability`
 - Channel dashboard read APIs
 - The `CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT` consumed by Sourcing
@@ -43,9 +43,10 @@ channels/
 - Logical `ChannelSku` uses the existing Prisma name `ChannelListingOption` and
   physical table `channel_listing_options`. It stores independent metadata for
   one SKU in one `ChannelAccount`; `optionId` is not inventory matching truth.
-- `ChannelSkuComponent` is the confirmed mapping from one marketplace SKU to
-  one or more physical Sellpia `MasterProduct` rows with the exact positive quantity
-  consumed by one sale.
+- `ChannelListing.masterProductId` and
+  `ChannelListingOption.productVariantId` are nullable confirmed links.
+- Physical component quantities come only from the linked
+  `ProductVariantComponent` recipe; Channels owns no recipe table.
 - Channel daily snapshots and scrape audit rows support dashboard/reporting
   reads.
 - A registration-created `ChannelListing.sourceCandidateId` is immutable
@@ -80,42 +81,39 @@ Coupang provider
   -> channel repository ports
   -> ChannelListing / ChannelListingOption / Order / Return rows
   -> completed catalog SKU queue
-  -> live physical MasterProduct evidence/candidate reads
-  -> operator-confirmed ChannelSkuComponent recipe
+  -> product and variant evidence/candidate reads
+  -> operator-confirmed product and variant links
+  -> linked ProductVariantComponent recipe
   -> sellableStock = min(floor(component.currentStock / component.quantity))
 ```
 
-Sellpia component matching reads completed `coupang_wing_catalog` and
-`coupang_rocket_po_catalog` rows. Channels owns candidate ranking and atomic
-component replacement; Inventory
-owns the exported read-only `SELLPIA_MASTER_PRODUCT_READ_PORT`. Candidate rows
-are live suggestions only and are never persisted or auto-confirmed.
+Matching reads completed `coupang_wing_catalog` and `coupang_rocket_po_catalog`
+rows. Channels owns candidate ranking and atomic product/variant link updates.
+Candidate rows are live suggestions only and are never persisted or
+auto-confirmed; normalized names, barcodes, rank, and AI are evidence only.
 
-A confirmed recipe is the only capacity input. An unmapped or review-required
+A linked variant's confirmed recipe is the only capacity input. An unmatched,
+configuration-required, or review-required
 SKU has `sellableStock = null`; zero is reserved for a mapped recipe whose
 current Sellpia component capacity is zero. Mixed recipes expose all component
 capacities and bottlenecks. Capacity is a read projection and never reserves or
 deducts stock.
 
-The matching queue's `needs_review` view is also a read projection: it includes
-persisted review-required SKUs without components and confirmed recipes that
-reference an inactive `MasterProduct`. Inactive-component membership must not
-rewrite the persisted `mappingStatus`, replace the recipe, or remove the SKU
-from the persisted matched view/count.
+Matching state is derived from nullable links and linked-recipe validity. Do not
+restore persisted `mappingStatus`. Recollection updates provider facts without
+clearing confirmed product or variant links.
 
-## Fixed Import + Matching APIs
+## Import + Matching APIs
 
 - `POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing`
-- `GET /api/channels/sku-mappings`
-- `POST /api/channels/sku-mappings/status-refresh`
-- `GET /api/channels/sku-mappings/:channelSkuId/candidates`
-- `PUT /api/channels/sku-mappings/:channelSkuId/components`
 - `GET /api/channels/sku-availability`
+- matching queue reads expose product-level and option-level rows separately;
+- product link commands accept only nullable `masterProductId`;
+- option link commands accept only nullable `productVariantId`.
 
-`PUT .../components` replaces the complete recipe. A nonempty recipe is
-confirmed truth; an empty recipe is the explicit unmap operation. See the
-[operator runbook](../../../../docs/runbooks/channel-sellpia-matching.md) for
-the supported workflow and verification counts.
+Channel component replacement endpoints are not a final ownership surface.
+Products owns complete recipe replacement; Channels only confirms or clears
+product and variant links.
 
 ## Cross-Domain Ports
 
@@ -125,9 +123,8 @@ the supported workflow and verification counts.
 - Orders/returns are written to the order spine; provider actions should be
   exposed through channels-owned ports/adapters instead of direct provider HTTP
   from orders services.
-- Sellpia candidate reads use the Channels-local
-  `CHANNELS_SELLPIA_MASTER_PRODUCT_READ_PORT` anti-corruption bridge to
-  Inventory's physical MasterProduct owner port.
+- Sellpia candidate evidence uses a Channels-local anti-corruption bridge to
+  Inventory's physical `SellpiaInventorySku` read capability.
 - `ChannelsModule` exports `CHANNEL_SKU_AVAILABILITY_PORT` for server consumers
   that need the same nullable capacity projection.
 - `ChannelsModule` exports `ROCKET_PO_CATALOG_PORT` for Supply to validate a
@@ -155,12 +152,12 @@ the supported workflow and verification counts.
   semantics change.
 - Per-listing sync transactions continue on individual failure and increment
   result errors.
-- Confirmed ChannelSku component replacement validates tenant ownership before
-  deletion, then locks, deletes, recreates, and updates status atomically. It
-  never writes `MasterProduct.currentStock`.
+- Product and option link commands validate tenant ownership and parent-child
+  consistency atomically. They never create a recipe or write
+  `SellpiaInventorySku.currentStock`.
 - Wing catalog collection attaches provider media to the listing content
   workspace. It preserves existing content selection and never creates,
-  refreshes, or confirms ChannelSku component recipes.
+  refreshes, or confirms product links, variant links, or component recipes.
 - Wing and Rocket are separate `ChannelAccount` rows (`channel='coupang'` and
   `channel='rocket'`). Never infer the channel from an account display name.
 - Rocket purchase-order collection may publish completed account-scoped

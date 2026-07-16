@@ -14,17 +14,25 @@ export const InventorySkuStockStatusSchema = z.enum([
 ]);
 export type InventorySkuStockStatus = z.infer<typeof InventorySkuStockStatusSchema>;
 
-export const SellpiaMasterActiveStatusSchema = z.enum([
+export const SellpiaInventorySkuActiveStatusSchema = z.enum([
   'all',
   'active',
   'inactive',
 ]);
-export type SellpiaMasterActiveStatus = z.infer<
-  typeof SellpiaMasterActiveStatusSchema
+export type SellpiaInventorySkuActiveStatus = z.infer<
+  typeof SellpiaInventorySkuActiveStatusSchema
+>;
+
+export const SellpiaInventorySkuLinkStatusSchema = z.enum([
+  'linked',
+  'unlinked',
+]);
+export type SellpiaInventorySkuLinkStatus = z.infer<
+  typeof SellpiaInventorySkuLinkStatusSchema
 >;
 
 export const InventorySkuSnapshotItemSchema = z.object({
-  masterProductId: z.string().uuid(),
+  sellpiaInventorySkuId: z.string().uuid(),
   code: z.string().min(1),
   name: z.string().min(1),
   optionName: z.string().nullable(),
@@ -36,6 +44,9 @@ export const InventorySkuSnapshotItemSchema = z.object({
   stockValue: z.number().int().nonnegative().nullable(),
   lastImportRunId: z.string().uuid().nullable(),
   lastImportedAt: zIsoDate.nullable(),
+  linkedVariantCount: z.number().int().nonnegative(),
+  linkedProductCount: z.number().int().nonnegative(),
+  linkStatus: SellpiaInventorySkuLinkStatusSchema,
 }).strict().superRefine((value, ctx) => {
   if (value.purchasePrice === null && value.stockValue !== null) {
     ctx.addIssue({
@@ -49,6 +60,25 @@ export const InventorySkuSnapshotItemSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['stockValue'],
       message: 'Stock value is required when purchase price is present',
+    });
+  }
+  const shouldBeLinked = value.linkedVariantCount > 0;
+  if (shouldBeLinked !== (value.linkStatus === 'linked')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['linkStatus'],
+      message: 'Link status must agree with the linked variant count',
+    });
+  }
+  if (
+    (value.linkStatus === 'unlinked' && value.linkedProductCount !== 0)
+    || (value.linkStatus === 'linked' && value.linkedProductCount === 0)
+    || value.linkedProductCount > value.linkedVariantCount
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['linkedProductCount'],
+      message: 'Linked product count must agree with linked variants',
     });
   }
 });

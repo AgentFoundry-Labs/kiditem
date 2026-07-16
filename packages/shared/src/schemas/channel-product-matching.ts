@@ -1,0 +1,273 @@
+import { z } from 'zod';
+import { zIsoDate } from './common.js';
+
+export const ChannelMatchCandidateReasonSchema = z.enum([
+  'existing_identity',
+  'exact_code',
+  'unique_barcode',
+  'exact_normalized_name',
+  'ai_suggestion',
+  'manual_search',
+]);
+export type ChannelMatchCandidateReason = z.infer<
+  typeof ChannelMatchCandidateReasonSchema
+>;
+
+export const ChannelMatchEvidenceSchema = z.object({
+  providerIdentity: z.string().min(1).nullable(),
+  code: z.string().min(1).nullable(),
+  barcode: z.string().min(1).nullable(),
+  normalizedName: z.string().min(1).nullable(),
+  aiExplanation: z.string().min(1).nullable(),
+  score: z.number().min(0).max(1).nullable(),
+}).strict();
+export type ChannelMatchEvidence = z.infer<typeof ChannelMatchEvidenceSchema>;
+
+function requireCandidateEvidence(
+  candidate: {
+    reason: ChannelMatchCandidateReason;
+    evidence: ChannelMatchEvidence;
+  },
+  ctx: z.RefinementCtx,
+) {
+  const evidenceFieldByReason = {
+    existing_identity: 'providerIdentity',
+    exact_code: 'code',
+    unique_barcode: 'barcode',
+    exact_normalized_name: 'normalizedName',
+    ai_suggestion: 'aiExplanation',
+  } as const;
+  if (candidate.reason === 'manual_search') {
+    const hasEvidence = [
+      candidate.evidence.providerIdentity,
+      candidate.evidence.code,
+      candidate.evidence.barcode,
+      candidate.evidence.normalizedName,
+      candidate.evidence.aiExplanation,
+    ].some((value) => value !== null);
+    if (!hasEvidence) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['evidence'],
+        message: 'manual_search candidates require non-empty evidence',
+      });
+    }
+    return;
+  }
+  const requiredField = evidenceFieldByReason[candidate.reason];
+  if (candidate.evidence[requiredField] === null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['evidence', requiredField],
+      message: `${candidate.reason} candidates require ${requiredField} evidence`,
+    });
+  }
+}
+
+export const ChannelProductMatchCandidateSchema = z.object({
+  masterProductId: z.string().uuid(),
+  code: z.string().min(1),
+  name: z.string().min(1),
+  category: z.string().nullable(),
+  brand: z.string().nullable(),
+  reason: ChannelMatchCandidateReasonSchema,
+  evidence: ChannelMatchEvidenceSchema,
+  rank: z.number().int().positive(),
+}).strict().superRefine(requireCandidateEvidence);
+export type ChannelProductMatchCandidate = z.infer<
+  typeof ChannelProductMatchCandidateSchema
+>;
+
+export const ChannelVariantMatchCandidateSchema = z.object({
+  productVariantId: z.string().uuid(),
+  masterProductId: z.string().uuid(),
+  code: z.string().min(1),
+  name: z.string().min(1),
+  optionLabel: z.string().nullable(),
+  reason: ChannelMatchCandidateReasonSchema,
+  evidence: ChannelMatchEvidenceSchema,
+  rank: z.number().int().positive(),
+}).strict().superRefine(requireCandidateEvidence);
+export type ChannelVariantMatchCandidate = z.infer<
+  typeof ChannelVariantMatchCandidateSchema
+>;
+
+export const ChannelMatchingAccountSchema = z.object({
+  id: z.string().uuid(),
+  channel: z.string().min(1),
+  name: z.string().min(1),
+}).strict();
+export type ChannelMatchingAccount = z.infer<typeof ChannelMatchingAccountSchema>;
+
+export const ChannelProductMatchingQueueRowSchema = z.object({
+  channelAccount: ChannelMatchingAccountSchema,
+  listing: z.object({
+    id: z.string().uuid(),
+    externalId: z.string().min(1),
+    displayName: z.string().nullable(),
+    status: z.string().nullable(),
+    masterProductId: z.string().uuid().nullable(),
+    updatedAt: zIsoDate,
+  }).strict(),
+  linkedProduct: z.object({
+    id: z.string().uuid(),
+    code: z.string().min(1),
+    name: z.string().min(1),
+  }).strict().nullable(),
+  optionCount: z.number().int().nonnegative(),
+  linkedOptionCount: z.number().int().nonnegative(),
+}).strict().superRefine((row, ctx) => {
+  if ((row.listing.masterProductId === null) !== (row.linkedProduct === null)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['linkedProduct'],
+      message: 'linkedProduct must agree with masterProductId',
+    });
+  }
+  if (
+    row.listing.masterProductId !== null
+    && row.linkedProduct !== null
+    && row.listing.masterProductId !== row.linkedProduct.id
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['linkedProduct', 'id'],
+      message: 'linkedProduct id must equal masterProductId',
+    });
+  }
+});
+export type ChannelProductMatchingQueueRow = z.infer<
+  typeof ChannelProductMatchingQueueRowSchema
+>;
+
+export const ChannelOptionRecipeStatusSchema = z.enum([
+  'unmatched',
+  'matched',
+  'configuration_required',
+  'review_required',
+]);
+export type ChannelOptionRecipeStatus = z.infer<
+  typeof ChannelOptionRecipeStatusSchema
+>;
+
+export const ChannelOptionMatchingQueueRowSchema = z.object({
+  channelAccount: ChannelMatchingAccountSchema,
+  listing: z.object({
+    id: z.string().uuid(),
+    externalId: z.string().min(1),
+    masterProductId: z.string().uuid().nullable(),
+  }).strict(),
+  option: z.object({
+    id: z.string().uuid(),
+    externalOptionId: z.string().min(1),
+    itemName: z.string().nullable(),
+    sellerSku: z.string().nullable(),
+    barcode: z.string().nullable(),
+    productVariantId: z.string().uuid().nullable(),
+    updatedAt: zIsoDate,
+  }).strict(),
+  linkedVariant: z.object({
+    id: z.string().uuid(),
+    masterProductId: z.string().uuid(),
+    code: z.string().min(1),
+    name: z.string().min(1),
+    optionLabel: z.string().nullable(),
+  }).strict().nullable(),
+  recipeStatus: ChannelOptionRecipeStatusSchema,
+  capacity: z.number().int().nonnegative().nullable(),
+}).strict().superRefine((row, ctx) => {
+  if ((row.option.productVariantId === null) !== (row.linkedVariant === null)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['linkedVariant'],
+      message: 'linkedVariant must agree with productVariantId',
+    });
+  }
+  if (row.option.productVariantId !== null && row.listing.masterProductId === null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['option', 'productVariantId'],
+      message: 'An option cannot be linked while its listing is unmatched',
+    });
+  }
+  if (
+    row.option.productVariantId !== null
+    && row.linkedVariant !== null
+    && row.option.productVariantId !== row.linkedVariant.id
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['linkedVariant', 'id'],
+      message: 'linkedVariant id must equal productVariantId',
+    });
+  }
+  if (
+    row.listing.masterProductId !== null
+    && row.linkedVariant !== null
+    && row.listing.masterProductId !== row.linkedVariant.masterProductId
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['linkedVariant', 'masterProductId'],
+      message: 'linkedVariant must belong to the linked listing product',
+    });
+  }
+});
+export type ChannelOptionMatchingQueueRow = z.infer<
+  typeof ChannelOptionMatchingQueueRowSchema
+>;
+
+export const ChannelProductMatchingCountsSchema = z.object({
+  products: z.object({
+    all: z.number().int().nonnegative(),
+    matched: z.number().int().nonnegative(),
+    unmatched: z.number().int().nonnegative(),
+  }).strict(),
+  options: z.object({
+    all: z.number().int().nonnegative(),
+    matched: z.number().int().nonnegative(),
+    unmatched: z.number().int().nonnegative(),
+    configurationRequired: z.number().int().nonnegative(),
+    reviewRequired: z.number().int().nonnegative(),
+  }).strict(),
+}).strict();
+export type ChannelProductMatchingCounts = z.infer<
+  typeof ChannelProductMatchingCountsSchema
+>;
+
+export const ChannelProductMatchingQueueResponseSchema = z.object({
+  products: z.array(ChannelProductMatchingQueueRowSchema),
+  options: z.array(ChannelOptionMatchingQueueRowSchema),
+  counts: ChannelProductMatchingCountsSchema,
+}).strict();
+export type ChannelProductMatchingQueueResponse = z.infer<
+  typeof ChannelProductMatchingQueueResponseSchema
+>;
+
+export const ChannelProductCandidateListResponseSchema = z.object({
+  items: z.array(ChannelProductMatchCandidateSchema),
+}).strict();
+export type ChannelProductCandidateListResponse = z.infer<
+  typeof ChannelProductCandidateListResponseSchema
+>;
+
+export const ChannelVariantCandidateListResponseSchema = z.object({
+  items: z.array(ChannelVariantMatchCandidateSchema),
+}).strict();
+export type ChannelVariantCandidateListResponse = z.infer<
+  typeof ChannelVariantCandidateListResponseSchema
+>;
+
+export const LinkChannelListingProductInputSchema = z.object({
+  masterProductId: z.string().uuid().nullable(),
+}).strict();
+export type LinkChannelListingProductInput = z.infer<
+  typeof LinkChannelListingProductInputSchema
+>;
+
+export const LinkChannelListingOptionInputSchema = z.object({
+  productVariantId: z.string().uuid().nullable(),
+}).strict();
+export type LinkChannelListingOptionInput = z.infer<
+  typeof LinkChannelListingOptionInputSchema
+>;

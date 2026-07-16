@@ -121,21 +121,21 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/analytics` | Owner Read Model | Dashboard, statistics, traffic, and supplier-stats reporting. |
 | `apps/server/src/auth` | Platform Capability | Guards, decorators, middleware, and `/api/auth/me`. |
 | `apps/server/src/automation` | Platform | Workflows, alerts, action board, marketplace install, and panel projection. |
-| `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped registration/listing, order, return, Wing/Rocket catalog identity, operator-confirmed ChannelSku-to-Sellpia component recipes, inactive-component diagnostics, and sellable-capacity projections. |
+| `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped registration/listing, order, return, Wing/Rocket catalog identity, operator-confirmed product/variant links, linked-recipe diagnostics, and sellable-capacity projections. |
 | `apps/server/src/chat` | Platform Capability | CopilotKit bridge and Claude CLI adapter. |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
 | `apps/server/src/finance` | Owner Domain | P&L, sales analysis, manual ledger, costs, payments, plans, settlements. |
-| `apps/server/src/inventory` | Owner Domain | Sellpia-authoritative freshness state, browser claim lease, full-snapshot validation/publication, physical MasterProduct reads, purchase freshness gate, and record-only transfer/picking/receipt capabilities. |
+| `apps/server/src/inventory` | Owner Domain | Sellpia-authoritative freshness state, browser claim lease, full-snapshot validation/publication, physical SellpiaInventorySku reads, purchase freshness gate, and record-only transfer/picking/receipt capabilities. |
 | `apps/server/src/orders` | Owner Domain | Orders, returns, CS, reviews, and return-transfer operations. |
 | `apps/server/src/organizations` | Platform Capability | Organization listing surface. |
 | `apps/server/src/operation-cancellation` | Platform | Cross-owner durable cancellation endpoint and orchestration. |
 | `apps/server/src/prisma` | Platform Support | `PrismaModule` and `PrismaService` only. |
-| `apps/server/src/products` | Compatibility Lane | `/api/categories` compatibility CRUD only; catalog identities belong to Channels and Inventory. |
+| `apps/server/src/products` | Owner Domain | KidItem MasterProduct operations, reusable ProductVariant units, central ProductVariantComponent recipes, and `/api/categories` compatibility CRUD. |
 | `apps/server/src/readiness` | Platform Capability | Readiness checks and health-style operational surface. |
 | `apps/server/src/rules` | Owner Domain | Business rules HTTP orchestration and Agent OS delegation. |
 | `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery (scraper ingest and SourcingCandidate inbox) plus the account-scoped ProductPreparation registration state machine. |
-| `apps/server/src/supply` | Owner Domain | Supplier registry, master-supplier policy, freshness-fenced purchase submission attempts/reconciliation, and read-only Rocket capacity preview. |
+| `apps/server/src/supply` | Owner Domain | Supplier registry, SellpiaInventorySku supplier policy, freshness-fenced purchase submission attempts/reconciliation, and read-only Rocket capacity preview. |
 | `apps/server/src/test-helpers` | Test Support | Test-only Prisma and seed helpers. |
 | `apps/server/src/types` | Platform Support | Ambient/server TypeScript types. |
 | `apps/server/src/uploads` | Platform Capability | Upload endpoint and storage bridge. |
@@ -210,12 +210,12 @@ Initial domain capability targets:
 | `sourcing` | Duplicate URL/candidate/preparation lookup and read context. | Product URL scrape through browser/runtime, search result scrape. | Duplicate-check → scrape → candidate ingest → preparation → account registration. | Candidate ingest/rejection and preparation lifecycle/finalization. |
 | `ai` | Workspace/generation/detail-page read context. | OCR, image classification, image/text/detail generation, vision analysis. | Media generation jobs and candidate-to-listing content branching. | Generation output, asset usage, current-thumbnail, and workspace archive projections. |
 | `finance` | Margin, commission, cost, settlement, and plan lookups. | Margin/category profitability calculations, pandas-style research adapters when needed. | Reconciliation and profitability analysis runs. | Manual ledger entries, settlement/payment projections. |
-| `products` | Category compatibility reads. | Category normalization helpers. | Category compatibility flows when deterministic. | Category compatibility writes only; never catalog identity, stock, or registration-state writes. |
-| `channels` | Channel account/listing/order/status, Wing/Rocket catalog identity, confirmed recipes, and nullable SKU-availability reads. | Marketplace provider calls, listing validation, Wing/Coupang browser runtime steps, component-capacity calculation. | Product registration/listing sync and operator-confirmed ChannelSku component-matching flows. | Listing registration/update projection, channel order/status ingestion; never stock publication. |
+| `products` | Product operations, variants, central component recipes, and category compatibility reads. | Product/variant validation and recipe-capacity projections. | Product/variant lifecycle and complete confirmed-recipe replacement. | MasterProduct, ProductVariant, and ProductVariantComponent writes; never physical stock publication. |
+| `channels` | Channel account/listing/order/status, Wing/Rocket catalog identity, nullable product/variant links, and nullable SKU-availability reads. | Marketplace provider calls, listing validation, Wing/Coupang browser runtime steps, linked-variant capacity calculation. | Product registration/listing sync and operator-confirmed product/variant matching flows. | Listing registration/update and confirmed-link projection, channel order/status ingestion; never recipes or stock publication. |
 | `rules` | Rule set and evaluation context reads. | Rule evaluation/suggestion tools that may invoke Agent OS from rules entrypoints. | Scheduled policy sweeps when deterministic. | Rule/action recommendation projection. |
 | `advertising` | Ad account/campaign/daily fact reads. | Scrape ingest normalization, strategy metrics calculations. | Daily fact ingest and deterministic alert workflows. | Ad fact/action/strategy projections. |
 | `supply` | Supplier, supplier-product, purchase-order, and submission-attempt reads. | Supplier matching, deterministic Rocket capacity preview, and procurement calculation helpers. | Freshness-fenced purchase submission and explicit provider reconciliation. | Supplier attach, purchase-order creation/update, and attempt terminal state; never freshness or stock. |
-| `inventory` | Sellpia freshness/source binding/current basis/history, physical MasterProduct, warehouse, transfer, receipt, unshipped, and picking reads. | Workbook parsing, bounded quality evaluation, freshness/lease policy, and snapshot normalization. | Browser claim/heartbeat/failure/cancel, atomic full-snapshot publication, and record-only transfer/picking flows. | A completed valid Sellpia publication is the only physical `MasterProduct.currentStock` writer. |
+| `inventory` | Sellpia freshness/source binding/current basis/history, physical SellpiaInventorySku, warehouse, transfer, receipt, unshipped, and picking reads. | Workbook parsing, bounded quality evaluation, freshness/lease policy, and snapshot normalization. | Browser claim/heartbeat/failure/cancel, atomic full-snapshot publication, and record-only transfer/picking flows. | A completed valid Sellpia publication is the only physical `SellpiaInventorySku.currentStock` writer. |
 | `orders` | Order, return, CS, review, and return-transfer reads. | Return/CS classification helpers, channel-agnostic order calculations. | Return and CS operational workflows. | Order/return status projections through order-owned commands. |
 
 Flat owner capabilities use this shape:
@@ -498,16 +498,19 @@ Sellpia is the upstream stock authority. Inventory owns one persisted
 organization-scoped `SellpiaInventoryState`, the fixed source binding, server
 clock freshness derivation, browser claim lease, validation/quality policy, and
 atomic full-snapshot publication. Only that publication adapter may write
-`MasterProduct.currentStock`; orders, Supply, Channels, Rocket, and web code do
+`SellpiaInventorySku.currentStock`; Products, orders, Supply, Channels, Rocket,
+and web code do
 not estimate, reserve, increment, or decrement it.
 
 | Logical contract | Prisma model | Physical table | Identity / authority |
 |---|---|---|---|
 | Sellpia trust state | `SellpiaInventoryState` | `sellpia_inventory_states` | Exactly one per organization; fixed origin/account binding, requested/verified/failed generations, 90-second owner lease, timestamps, last attempt, and opaque UUID fence. |
 | Import/attempt history | `SourceImportRun` | `source_import_runs` | Unified completed workbook and pre-download failure provenance; hash/idempotency, generation, trigger, verification, attestation, bounded quality, and sanitized failure fields. |
-| Physical Sellpia product | `MasterProduct` | `master_products` | Organization + Sellpia product code. Only a completed valid Inventory publication writes active state and `current_stock`. |
-| Channel product/SKU | `ChannelListing` / `ChannelListingOption` | `channel_listings` / `channel_listing_options` | Organization + ChannelAccount + provider identity. Wing and Rocket metadata are account-specific, never inventory truth. |
-| Confirmed recipe | `ChannelSkuComponent` | `channel_sku_components` | Positive quantity of one physical MasterProduct consumed by one sale; inactive components remain diagnosable and require review. |
+| KidItem operating product | `MasterProduct` | `master_products` | Organization-scoped stable code, product metadata, operating settings, variants, and channel product links; never physical stock or source-import data. |
+| Reusable sellable unit | `ProductVariant` | `product_variants` | Organization-scoped stable code beneath one MasterProduct; channel options link here. |
+| Confirmed central recipe | `ProductVariantComponent` | `product_variant_components` | Positive quantity of one SellpiaInventorySku consumed by one variant; every cross-model relation is organization-fenced. |
+| Physical Sellpia SKU | `SellpiaInventorySku` | `sellpia_inventory_skus` | Organization + Sellpia product code. Only a completed valid Inventory publication writes active state and `current_stock`. |
+| Channel product/option | `ChannelListing` / `ChannelListingOption` | `channel_listings` / `channel_listing_options` | Organization + ChannelAccount + provider identity, with nullable links to MasterProduct/ProductVariant. Provider metadata is never inventory truth. |
 | External submission intent | `PurchaseOrderSubmissionAttempt` | `purchase_order_submission_attempts` | Organization + purchase order + idempotency key; records freshness generation, provider terminal/unknown outcome, and authenticated reconciliation. |
 
 Freshness has four public states: `fresh`, `refresh_required`, `syncing`, and

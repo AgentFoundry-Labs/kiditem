@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { ChannelSkuMappingListItemSchema } from './channel-sku-matching.js';
+import {
+  ChannelSkuMappingComponentSchema,
+  ChannelSkuMappingListItemSchema,
+} from './channel-sku-matching.js';
+import { ProductVariantComponentSourceSchema } from './product-operations.js';
 
 export const ChannelSkuAvailabilityStatusSchema = z.enum([
   'all',
@@ -24,7 +28,39 @@ export type ChannelSkuAvailabilityQuery = z.infer<
   typeof ChannelSkuAvailabilityQuerySchema
 >;
 
-export const ChannelSkuAvailabilityItemSchema = ChannelSkuMappingListItemSchema;
+export const ChannelSkuAvailabilityComponentSchema =
+  ChannelSkuMappingComponentSchema.omit({
+    masterProductId: true,
+    mappingSource: true,
+  }).extend({
+    sellpiaInventorySkuId: z.string().uuid(),
+    source: ProductVariantComponentSourceSchema,
+  });
+export type ChannelSkuAvailabilityComponent = z.infer<
+  typeof ChannelSkuAvailabilityComponentSchema
+>;
+
+export const ChannelSkuAvailabilityItemSchema =
+  ChannelSkuMappingListItemSchema.omit({ components: true }).extend({
+    productVariantId: z.string().uuid().nullable(),
+    variantCode: z.string().min(1).nullable(),
+    variantName: z.string().min(1).nullable(),
+    components: z.array(ChannelSkuAvailabilityComponentSchema),
+  }).superRefine((item, ctx) => {
+    const linkFields = [
+      item.productVariantId,
+      item.variantCode,
+      item.variantName,
+    ];
+    const nullCount = linkFields.filter((value) => value === null).length;
+    if (nullCount !== 0 && nullCount !== linkFields.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['productVariantId'],
+        message: 'Variant identity fields must be present or null together',
+      });
+    }
+  });
 export type ChannelSkuAvailabilityItem = z.infer<
   typeof ChannelSkuAvailabilityItemSchema
 >;

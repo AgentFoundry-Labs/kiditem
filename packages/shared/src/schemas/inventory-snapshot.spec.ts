@@ -3,15 +3,16 @@ import {
   InventorySkuSnapshotItemSchema,
   InventorySkuSnapshotListResponseSchema,
   InventorySkuStockStatusSchema,
-  SellpiaMasterActiveStatusSchema,
+  SellpiaInventorySkuActiveStatusSchema,
+  SellpiaInventorySkuLinkStatusSchema,
   SellpiaImportRunListResponseSchema,
 } from './inventory-snapshot';
 
-const masterProductId = '00000000-0000-4000-8000-000000000001';
+const sellpiaInventorySkuId = '00000000-0000-4000-8000-000000000001';
 const runId = '00000000-0000-4000-8000-000000000002';
 
 const snapshotItem = {
-  masterProductId,
+  sellpiaInventorySkuId,
   code: 'SP-001',
   name: '상품',
   optionName: null,
@@ -23,6 +24,9 @@ const snapshotItem = {
   stockValue: 8_000,
   lastImportRunId: runId,
   lastImportedAt: '2026-07-12T00:00:00.000Z',
+  linkedVariantCount: 2,
+  linkedProductCount: 1,
+  linkStatus: 'linked',
 };
 
 describe('InventorySku snapshot contracts', () => {
@@ -72,21 +76,40 @@ describe('InventorySku snapshot contracts', () => {
   });
 
   it('publishes explicit all, active, and inactive membership filters', () => {
-    expect(SellpiaMasterActiveStatusSchema.options).toEqual([
+    expect(SellpiaInventorySkuActiveStatusSchema.options).toEqual([
       'all',
       'active',
       'inactive',
     ]);
   });
 
-  it('rejects the legacy InventorySku response identity', () => {
+  it('publishes linked and unlinked inventory filters', () => {
+    expect(SellpiaInventorySkuLinkStatusSchema.options).toEqual([
+      'linked',
+      'unlinked',
+    ]);
+  });
+
+  it('rejects the former physical MasterProduct response identity', () => {
     expect(() => InventorySkuSnapshotItemSchema.parse({
       ...snapshotItem,
-      masterProductId: undefined,
-      code: undefined,
-      id: masterProductId,
-      sellpiaProductCode: 'SP-001',
+      sellpiaInventorySkuId: undefined,
+      masterProductId: sellpiaInventorySkuId,
     })).toThrow();
+  });
+
+  it('requires link status to agree with derived link counts', () => {
+    expect(() => InventorySkuSnapshotItemSchema.parse({
+      ...snapshotItem,
+      linkedVariantCount: 0,
+      linkedProductCount: 0,
+    })).toThrow();
+    expect(InventorySkuSnapshotItemSchema.parse({
+      ...snapshotItem,
+      linkedVariantCount: 0,
+      linkedProductCount: 0,
+      linkStatus: 'unlinked',
+    }).linkStatus).toBe('unlinked');
   });
 
   it.each([

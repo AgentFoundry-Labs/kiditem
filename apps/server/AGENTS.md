@@ -44,14 +44,14 @@ LLM/media/storage/fetch boundary, or large-file pressure.
 
 | Owner | Scope |
 |---|---|
-| `products` | `/api/categories` compatibility only |
+| `products` | product operations, variants, central Sellpia-SKU recipes, and `/api/categories` compatibility |
 | `sourcing` | Chinese product discovery, candidate inbox, account-scoped registration preparation |
-| `supply` | suppliers, Sellpia MasterProduct supplier policy, purchase orders |
-| `inventory` | Sellpia inventory snapshot, warehouses, transfer/picking records |
+| `supply` | suppliers, SellpiaInventorySku supplier policy, purchase orders |
+| `inventory` | SellpiaInventorySku snapshot, warehouses, transfer/picking records |
 | `orders` | orders, returns, CS/reviews, return-transfer surfaces |
 | `finance` | P&L, settlements, supplier payments, cost/plan analytics |
 | `advertising` | ad operations, scrape ingest, ad actions |
-| `channels` | marketplace accounts, listing/SKU catalog import, matching, and order sync |
+| `channels` | marketplace accounts, listing/option catalog import, product/variant matching, and order sync |
 | `ai` | image/text/detail-page/thumbnail AI boundaries |
 | `rules` | business policy definitions and Agent OS delegation |
 | `agent-os` | agent catalog, queue, runtime, policy, cost, observability |
@@ -61,6 +61,10 @@ LLM/media/storage/fetch boundary, or large-file pressure.
 
 Small table-shaped modules should fold into their owner domain during
 reconstruction. `/api/categories` remains a products compatibility route.
+Products owns `MasterProduct`, `ProductVariant`, and the central
+`ProductVariantComponent` recipe. Inventory alone owns physical
+`SellpiaInventorySku.currentStock`; Channels may link listings/options to
+products/variants but must not persist a second recipe or stock balance.
 
 ## Scoped Guides
 

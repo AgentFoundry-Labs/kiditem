@@ -80,23 +80,23 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
 function currentStockWriteViolations(source) {
   const violations = [];
   const prismaWrite =
-    /\b[\w$.]+\.masterProduct\.(createMany|create|updateMany|update|upsert)\s*\(/g;
+    /\b[\w$.]+\.sellpiaInventorySku\.(createMany|create|updateMany|update|upsert)\s*\(/g;
   for (const match of source.matchAll(prismaWrite)) {
-    violations.push(`Prisma masterProduct.${match[1]} write`);
+    violations.push(`Prisma sellpiaInventorySku.${match[1]} write`);
   }
   if (
-    /\bINSERT\s+INTO\s+master_products\s*\([\s\S]*?\bcurrent_stock\b/i.test(
+    /\bINSERT\s+INTO\s+sellpia_inventory_skus\s*\([\s\S]*?\bcurrent_stock\b/i.test(
       source,
     )
   ) {
-    violations.push("raw INSERT assignment to master_products.current_stock");
+    violations.push("raw INSERT assignment to sellpia_inventory_skus.current_stock");
   }
   if (
-    /\bUPDATE\s+master_products\b[\s\S]*?\bSET\b[\s\S]*?\bcurrent_stock\s*=/i.test(
+    /\bUPDATE\s+sellpia_inventory_skus\b[\s\S]*?\bSET\b[\s\S]*?\bcurrent_stock\s*=/i.test(
       source,
     )
   ) {
-    violations.push("raw UPDATE assignment to master_products.current_stock");
+    violations.push("raw UPDATE assignment to sellpia_inventory_skus.current_stock");
   }
   return violations;
 }
@@ -269,22 +269,22 @@ describe("Sellpia authoritative final-schema contract", () => {
     ]) {
       assert.deepEqual(
         currentStockWriteViolations(
-          `await prisma.masterProduct.${method}({ data: { currentStock: 1 } });`,
+          `await prisma.sellpiaInventorySku.${method}({ data: { currentStock: 1 } });`,
         ),
-        [`Prisma masterProduct.${method} write`],
+        [`Prisma sellpiaInventorySku.${method} write`],
       );
     }
     assert.deepEqual(
       currentStockWriteViolations(
-        "INSERT INTO master_products (id, current_stock) VALUES (1, 2)",
+        "INSERT INTO sellpia_inventory_skus (id, current_stock) VALUES (1, 2)",
       ),
-      ["raw INSERT assignment to master_products.current_stock"],
+      ["raw INSERT assignment to sellpia_inventory_skus.current_stock"],
     );
     assert.deepEqual(
       currentStockWriteViolations(
-        "UPDATE master_products SET current_stock = 2 WHERE id = 1",
+        "UPDATE sellpia_inventory_skus SET current_stock = 2 WHERE id = 1",
       ),
-      ["raw UPDATE assignment to master_products.current_stock"],
+      ["raw UPDATE assignment to sellpia_inventory_skus.current_stock"],
     );
   });
 
@@ -345,14 +345,12 @@ describe("Sellpia authoritative final-schema contract", () => {
     assert.doesNotMatch(runtimeApiSkill, /GET\s+\/api\/dashboard\s/);
   });
 
-  it("defines MasterProduct as the organization-scoped Sellpia stock owner", () => {
+  it("defines MasterProduct as the organization-scoped operating product", () => {
     const master = modelBlock(core, "MasterProduct");
     assert.match(master, /^\s*code\s+String\s*$/m);
     assert.match(master, /^\s*name\s+String\s*$/m);
-    assert.match(
-      master,
-      /^\s*currentStock\s+Int\s+@default\(0\)\s+@map\("current_stock"\)/m,
-    );
+    assert.match(master, /^\s*variants\s+ProductVariant\[\]/m);
+    assert.match(master, /^\s*channelListings\s+ChannelListing\[\]/m);
     assert.match(
       master,
       /^\s*isActive\s+Boolean\s+@default\(true\)\s+@map\("is_active"\)/m,
@@ -361,22 +359,19 @@ describe("Sellpia authoritative final-schema contract", () => {
     assert.match(master, /@@unique\(\[id, organizationId\]/);
     assert.doesNotMatch(
       master,
-      /^\s*(?:legacyCode|sellpiaProductCode|sellpiaName|sellpiaBarcode)\s+/m,
+      /^\s*(?:legacyCode|sellpiaProductCode|sellpiaName|sellpiaBarcode|barcode|currentStock|purchasePrice|salePrice|rawJson|lastImportRunId)\s+/m,
     );
   });
 
-  it("maps each channel SKU directly to MasterProduct with final mapping sources only", () => {
-    const component = modelBlock(channels, "ChannelSkuComponent");
+  it("publishes Sellpia stock only through SellpiaInventorySku", () => {
+    const sku = modelBlock(inventory, "SellpiaInventorySku");
     assert.match(
-      component,
-      /^\s*masterProductId\s+String\s+@map\("master_product_id"\)\s+@db\.Uuid/m,
+      sku,
+      /^\s*currentStock\s+Int\s+@default\(0\)\s+@map\("current_stock"\)/m,
     );
-    assert.match(component, /@@unique\(\[channelSkuId, masterProductId\]\)/);
-    assert.match(
-      component,
-      /mappingSource\s+String[^\n]*product_code \| barcode \| manual/,
-    );
-    assert.doesNotMatch(component, /legacy_migrated/);
+    assert.match(sku, /@@unique\(\[organizationId, code\]\)/);
+    assert.match(sku, /@@map\("sellpia_inventory_skus"\)/);
+    assert.doesNotMatch(channels, /model ChannelSkuComponent\b/);
   });
 
   it("keeps the Wing bulk upsert aligned with final ChannelListing columns", () => {

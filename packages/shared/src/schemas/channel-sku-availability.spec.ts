@@ -8,7 +8,8 @@ import {
 const channelAccountId = '00000000-0000-4000-8000-000000000001';
 const productId = '00000000-0000-4000-8000-000000000002';
 const channelSkuId = '00000000-0000-4000-8000-000000000003';
-const masterProductId = '00000000-0000-4000-8000-000000000004';
+const sellpiaInventorySkuId = '00000000-0000-4000-8000-000000000004';
+const productVariantId = '00000000-0000-4000-8000-000000000005';
 
 describe('channel SKU availability contracts', () => {
   it('freezes the calculated availability filters', () => {
@@ -45,6 +46,9 @@ describe('channel SKU availability contracts', () => {
           sellableStock: null,
           updatedAt: '2026-07-12T00:00:00.000Z',
         },
+        productVariantId: null,
+        variantCode: null,
+        variantName: null,
         components: [],
         warnings: [],
       }],
@@ -87,8 +91,11 @@ describe('channel SKU availability contracts', () => {
           sellableStock: 10,
           updatedAt: '2026-07-12T00:00:00.000Z',
         },
+        productVariantId,
+        variantCode: 'KI-001-8',
+        variantName: '8개입',
         components: [{
-          masterProductId,
+          sellpiaInventorySkuId,
           code: 'SP-001',
           name: '상품',
           optionName: null,
@@ -97,7 +104,7 @@ describe('channel SKU availability contracts', () => {
           purchasePrice: 1_500,
           isActive: true,
           quantity: 8,
-          mappingSource: 'manual',
+          source: 'manual',
           componentCapacity: 10,
           isBottleneck: true,
         }],
@@ -116,6 +123,7 @@ describe('channel SKU availability contracts', () => {
     });
 
     expect(parsed.items[0]?.components[0]).toMatchObject({
+      sellpiaInventorySkuId,
       componentCapacity: 10,
       isBottleneck: true,
       purchasePrice: 1_500,
@@ -146,8 +154,11 @@ describe('channel SKU availability contracts', () => {
           sellableStock: 0,
           updatedAt: '2026-07-12T00:00:00.000Z',
         },
+        productVariantId,
+        variantCode: 'KI-001-DEFAULT',
+        variantName: '기본',
         components: [{
-          masterProductId,
+          sellpiaInventorySkuId,
           code: 'SP-INACTIVE',
           name: 'Inactive item',
           optionName: null,
@@ -156,7 +167,7 @@ describe('channel SKU availability contracts', () => {
           purchasePrice: 1_500,
           isActive: false,
           quantity: 1,
-          mappingSource: 'manual',
+          source: 'manual',
           componentCapacity: 0,
           isBottleneck: true,
         }],
