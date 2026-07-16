@@ -36,8 +36,9 @@ describe('product hub final inventory ownership boundary', () => {
 
     expect(source).not.toContain('AddProductModal');
     expect(source).not.toContain('ExcelUploadModal');
-    expect(source).not.toContain('상품 추가');
-    expect(source).not.toContain('트래픽 업로드');
+    expect(source).not.toContain('/api/traffic/upload');
+    expect(source).not.toContain('setShowModal');
+    expect(source).not.toContain('setShowUploadModal');
     expect(source).not.toContain('dark:');
   });
 
