@@ -249,6 +249,110 @@ test('Rocket collection reports failed details, missing vendor identity, and sta
   assert.equal(first.rows[0].poLineId, second.rows[0].poLineId);
 });
 
+test('Rocket detail collection reports first-page auth responses as a retryable PO session error', async () => {
+  const { context } = loadWorker({
+    fetch: async () => ({
+      ok: true,
+      text: async () => '<html><body>login</body></html>',
+    }),
+  });
+
+  const result = await context.KidItemRocketPoCollection.scrapeRocketPoRows(
+    '2026-07-01',
+    '2026-07-07',
+    'RP',
+    'WAREHOUSING_PLAN_DATE',
+    RUN_ID,
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.pendingLogin, true);
+  assert.equal(result.errorCode, 'coupang_po_session_required');
+  assert.doesNotMatch(result.error, /Failed to fetch/);
+});
+
+test('Rocket page scrapers remain self-contained when Chrome serializes them for injection', async () => {
+  const { context } = loadWorker();
+  const emptyListFetch = async () => ({
+    ok: true,
+    text: async () => JSON.stringify({ body: { body: [], lastPageNumber: 1 } }),
+  });
+  const isolatedContext = vm.createContext({ fetch: emptyListFetch });
+  const isolatedList = vm.runInContext(
+    `(${context.KidItemRocketPoCollection.scrapeRocketPoList.toString()})`,
+    isolatedContext,
+  );
+  const isolatedRows = vm.runInContext(
+    `(${context.KidItemRocketPoCollection.scrapeRocketPoRows.toString()})`,
+    isolatedContext,
+  );
+
+  const listResult = await isolatedList('2026-07-01', '2026-07-07', 'RP');
+  const rowsResult = await isolatedRows(
+    '2026-07-01',
+    '2026-07-07',
+    'RP',
+    'WAREHOUSING_PLAN_DATE',
+    RUN_ID,
+  );
+
+  assert.equal(listResult.success, true);
+  assert.deepEqual([...listResult.pos], []);
+  assert.equal(rowsResult.success, true);
+  assert.deepEqual([...rowsResult.rows], []);
+});
+
+test('isolated Rocket page scrapers keep auth failures structured without module helpers', async () => {
+  const { context } = loadWorker();
+  const htmlFetch = async () => ({
+    ok: true,
+    text: async () => '<html><body>login</body></html>',
+  });
+  const isolatedContext = vm.createContext({ fetch: htmlFetch });
+  const isolatedScrapers = [
+    vm.runInContext(
+      `(${context.KidItemRocketPoCollection.scrapeRocketPoList.toString()})`,
+      isolatedContext,
+    ),
+    vm.runInContext(
+      `(${context.KidItemRocketPoCollection.scrapeRocketPoRows.toString()})`,
+      isolatedContext,
+    ),
+  ];
+
+  const results = await Promise.all([
+    isolatedScrapers[0]('2026-07-01', '2026-07-07', 'RP'),
+    isolatedScrapers[1](
+      '2026-07-01',
+      '2026-07-07',
+      'RP',
+      'WAREHOUSING_PLAN_DATE',
+      RUN_ID,
+    ),
+  ]);
+
+  for (const result of results) {
+    assert.equal(result.success, false);
+    assert.equal(result.pendingLogin, true);
+    assert.equal(result.errorCode, 'coupang_po_session_required');
+  }
+});
+
+test('Coupang direct-order list maps its first auth response to the shared retry signal', async () => {
+  const { context } = loadWorker({
+    fetch: async () => ({
+      ok: true,
+      text: async () => '<html><body>login</body></html>',
+    }),
+  });
+
+  const result = await context.scrapeCoupangPaList();
+
+  assert.equal(result.success, false);
+  assert.equal(result.pendingLogin, true);
+  assert.equal(result.errorCode, 'coupang_po_session_required');
+});
+
 test('Rocket collection marks the 20-list-page and 40-detail limits incomplete', async () => {
   const listRows = Array.from({ length: 3 }, (_, index) => ({
     purchaseOrderSeq: index + 1,

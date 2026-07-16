@@ -30,8 +30,8 @@ const RocketOrdersChart = dynamic(
 );
 
 const STATUS_OPTIONS = [
-  { value: '거래처확인요청', label: '신규 주문 (거래확인서요청)' },
   { value: '', label: '전체 상태' },
+  { value: '거래처확인요청', label: '신규 주문 (거래확인서요청)' },
   { value: '발주확정', label: '발주확정' },
 ];
 
@@ -90,10 +90,10 @@ export function RocketOrdersWorkspace({
 }: {
   decisionWorkspace: ReactNode;
 }) {
-  // 입고예정일 기준 (기본: 다음 7일) — 신규주문(거래처확인요청)을 실시간 조회
+  // 입고예정일 기준 (기본: 다음 7일) — 상태로 숨기지 않고 전체 발주를 조회
   const [from, setFrom] = useState(todayYmd());
   const [to, setTo] = useState(plusDaysYmd(6));
-  const [status, setStatus] = useState('거래처확인요청');
+  const [status, setStatus] = useState('');
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [view, setView] = useState<'week' | 'month' | 'chart'>('week');
   const [openPo, setOpenPo] = useState<number | null>(null);
@@ -254,7 +254,7 @@ export function RocketOrdersWorkspace({
           </div>
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">쿠팡 로켓 발주</h1>
-            <div className="text-sm text-slate-500">신규 주문(거래처확인요청) 실시간 조회 · 입고예정일별 분류</div>
+            <div className="text-sm text-slate-500">전체 발주 실시간 조회 · 입고예정일별 분류</div>
           </div>
         </div>
         <button
@@ -356,7 +356,7 @@ export function RocketOrdersWorkspace({
       {data && !isError && orders.length === 0 && view !== 'month' && (
         <div className="rounded-xl border border-slate-200 bg-white p-12 text-center text-slate-400">
           <Rocket size={32} className="mx-auto mb-3 opacity-20" />
-          <p className="text-sm font-medium">해당 조건의 신규 발주가 없습니다</p>
+          <p className="text-sm font-medium">해당 조건의 발주가 없습니다</p>
           <p className="mt-1 text-xs text-slate-400">입고예정일 범위를 바꾸거나 상태를 전체로 바꿔보세요.</p>
         </div>
       )}

@@ -75,6 +75,13 @@ conversion.
 
 ## Rocket Purchase-Order Collection Contract
 
+- Summary and detail collection share `background/coupang-po-session.js`. A
+  generic Supplier Hub dashboard tab is never a valid PO execution context;
+  create an inactive managed `/scm/purchase/order/list` bootstrap tab and wait
+  for the final `/po-web/purchase/order/*` route before calling PO APIs.
+- A structured `coupang_po_session_required` result may trigger exactly one
+  fresh managed-tab retry. Do not loop, return raw redirects, or surface the
+  browser's generic `Failed to fetch` as the operator error.
 - `collectRocketPoRows` delegates to the extracted
   `background/rocket-po-collection.js` collector. Keep marketplace DOM/API
   knowledge out of the service-worker dispatcher.

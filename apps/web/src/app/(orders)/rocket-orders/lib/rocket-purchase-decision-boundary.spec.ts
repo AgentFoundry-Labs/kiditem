@@ -37,6 +37,9 @@ describe('Rocket purchase decision boundary', () => {
     expect(pageSource).not.toContain('redirect(');
     expect(pageSource).not.toMatch(/useQuery|useState|listRocketPosFromExtension/);
     expect(operationsSource).toContain('쿠팡 로켓 발주');
+    expect(operationsSource).toContain("const [status, setStatus] = useState('');");
+    expect(operationsSource).toContain('전체 발주 실시간 조회 · 입고예정일별 분류');
+    expect(operationsSource).toContain('해당 조건의 발주가 없습니다');
     expect(operationsSource).toContain('신규 주문');
     expect(operationsSource).toContain('납품 판단');
     expect(operationsSource).toContain('쉽먼트 / 밀크런');

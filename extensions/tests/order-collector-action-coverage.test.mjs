@@ -15,6 +15,10 @@ const rocketCollectionPath = path.join(
   repoRoot,
   'extensions/order-collector/background/rocket-po-collection.js',
 );
+const coupangPoSessionPath = path.join(
+  repoRoot,
+  'extensions/order-collector/background/coupang-po-session.js',
+);
 const webAppRoot = path.join(repoRoot, 'apps/web/src/app');
 const automaticCollectors = [
   'collectSellpiaDeliTracking',
@@ -86,16 +90,26 @@ test('order collector manifest grants the exact Kakao seller host', () => {
 
 test('every automatic collector explicitly attaches its inactive tab to its own run', () => {
   const worker = readFileSync(workerPath, 'utf8');
+  const rocketCollection = readFileSync(rocketCollectionPath, 'utf8');
+  const coupangPoSession = readFileSync(coupangPoSessionPath, 'utf8');
   for (const collector of automaticCollectors) {
     const start = worker.indexOf(`async function ${collector}(`);
     assert.notEqual(start, -1, collector);
     const next = worker.indexOf('\nasync function ', start + 1);
     const body = worker.slice(start, next === -1 ? worker.length : next);
     assert.match(body, /\([^)]*collection[^)]*\)/, `${collector} collection argument`);
-    if (collector === 'collectRocketPoRows') {
-      assert.match(body, /rocketPoCollection\.collect/);
+    if (collector === 'collectRocketPoRows' || collector === 'listRocketPos') {
+      const method = collector === 'collectRocketPoRows' ? 'collect' : 'list';
+      assert.match(body, new RegExp(`rocketPoCollection\\.${method}`));
+      assert.match(rocketCollection, /coupangPoSession\.run/);
       assert.match(
-        readFileSync(rocketCollectionPath, 'utf8'),
+        coupangPoSession,
+        /await attachOrderCollectionTab\(collection, tab, created\)/,
+      );
+    } else if (collector === 'collectCoupangDirectOrders') {
+      assert.match(body, /coupangPoSession\.run/);
+      assert.match(
+        coupangPoSession,
         /await attachOrderCollectionTab\(collection, tab, created\)/,
       );
     } else {

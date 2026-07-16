@@ -3,6 +3,7 @@ importScripts(
   "interactive-tabs.js",
   "order-collection-lifecycle.js",
   "sellpia-inventory.js",
+  "coupang-po-session.js",
   "rocket-po-collection.js",
 );
 
@@ -43,11 +44,14 @@ const sellpiaInventoryLifecycle = KidItemOrderCollectionLifecycle.create({
 const sellpiaInventory = KidItemSellpiaInventory.create({ chrome });
 const interactiveTabs = KidItemInteractiveTabs.create({ chrome });
 const INTERACTIVE_TAB_REASONS = KidItemInteractiveTabs.reasons;
-const rocketPoCollection = KidItemRocketPoCollection.create({
+const coupangPoSession = KidItemCoupangPoSession.create({
   chrome,
-  findOrCreateCoupangSupplierTab,
   attachOrderCollectionTab,
   waitForTabReady,
+});
+const rocketPoCollection = KidItemRocketPoCollection.create({
+  chrome,
+  coupangPoSession,
   withTimeout,
 });
 
@@ -80,7 +84,6 @@ const SELLPIA_TAB_MATCHES = ["https://*.sellpia.com/*"];
 const SELLPIA_REPRINT_URL = "https://kiditem.sellpia.com/order_delivery_reprint.html";
 const COUPANG_SHIPMENT_URL = "https://supplier.coupang.com/ibs/asn/active";
 const COUPANG_SUPPLIER_TAB_MATCHES = ["https://supplier.coupang.com/*"];
-const COUPANG_PO_LIST_URL = "https://supplier.coupang.com/po-web/purchase/order/list";
 const KIDSNOTE_ORDER_URL = "https://shop.kidsnote.com/_manage/?body=3010";
 const KIDSNOTE_TAB_MATCHES = ["https://shop.kidsnote.com/*"];
 // 꼬망세(EduPre) 입점관리자 전체주문 (listmaxcount 크게 = 검색결과 전부)
@@ -659,98 +662,7 @@ async function collectRocketPoRows({ from, to, status = "RP", dateType = "WAREHO
 
 // ── 로켓 발주 목록(PO 단위, SKU 상세 없이) — 화면 리스트용 빠른 조회 ──
 async function listRocketPos({ from, to, status }, collection) {
-  const { tab, created } = await findOrCreateCoupangSupplierTab();
-  if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
-  await attachOrderCollectionTab(collection, tab, created);
-  await waitForTabReady(tab.id);
-
-  const injected = await withTimeout(
-    chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: scrapeRocketPoList,
-      args: [from, to, status || ""],
-    }),
-    60000,
-    "로켓 발주 목록 조회 시간이 초과되었습니다.",
-  );
-
-  return (
-    injected[0]?.result ?? {
-      success: false,
-      error: "supplier 화면에 접근하지 못했습니다.",
-    }
-  );
-}
-
-// supplier 페이지 컨텍스트: 입고예정일(WAREHOUSING_PLAN_DATE) 범위의 발주를 PO 단위로만 빠르게.
-async function scrapeRocketPoList(from, to, statusCode) {
-  try {
-    const clean = (s, n) =>
-      (s || "").replace(new RegExp("[\\u0000-\\u001F]", "g"), " ").trim().slice(0, n || 60);
-    // expectedDeliveryDate 는 UTC(예: 06-30T15:00Z = KST 07-01). KST 날짜로 변환해서 입고예정일로 사용.
-    const kstDate = (iso) => {
-      if (!iso) return "";
-      const d = new Date(iso);
-      if (isNaN(d.getTime())) return String(iso).slice(0, 10);
-      d.setUTCHours(d.getUTCHours() + 9);
-      return d.toISOString().slice(0, 10);
-    };
-    const listUrl = (p) =>
-      "/po-web/app/purchase-order/list?page=" + p +
-      "&searchDateType=WAREHOUSING_PLAN_DATE&searchStartDate=" + (from || "") + "&searchEndDate=" + (to || "") +
-      "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=" + (statusCode || "") +
-      "&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
-    const out = [];
-    for (let p = 1; p <= 20; p++) {
-      const res = await fetch(listUrl(p), { credentials: "include", headers: { accept: "application/json" } });
-      const text = await res.text();
-      if (!res.ok || text.trim().charAt(0) === "<") {
-        if (p === 1)
-          return {
-            success: false,
-            error: "쿠팡 supplier 로그인이 필요합니다. supplier.coupang.com 에 로그인한 뒤 다시 시도하세요.",
-          };
-        break;
-      }
-      let j;
-      try {
-        j = JSON.parse(text);
-      } catch (e) {
-        if (p === 1) return { success: false, error: "발주리스트 응답을 해석하지 못했습니다 (supplier 로그인/세션 확인)." };
-        break;
-      }
-      const b = j.body || {};
-      const rows = b.body || [];
-      for (const o of rows) {
-        // 서버가 입고예정일(WAREHOUSING_PLAN_DATE)+상태로 이미 필터함. eta/orderedAt 은 KST 날짜.
-        out.push({
-          poSeq: o.purchaseOrderSeq,
-          orderedAt: kstDate(o.createdAt),
-          eta: kstDate(o.expectedDeliveryDate),
-          status: o.purchaseOrderStatusDescription || "",
-          vendorName: o.vendorName || "",
-          centerName: o.centerName || "",
-          inboundType: o.transportTypeDescription || "",
-          firstSkuName: clean(o.firstSkuName, 60),
-          skuCount: o.skuCount || 0,
-          orderQty: o.sumOfOrderQty || 0,
-          orderAmount: o.sumOfOrderAmount || 0,
-        });
-      }
-      if (p >= (b.lastPageNumber || 1)) break;
-    }
-    return { success: true, pos: out };
-  } catch (e) {
-    return { success: false, error: (e && e.message) || "로켓 발주 목록 조회 실패" };
-  }
-}
-
-async function findOrCreateCoupangSupplierTab() {
-  const tabs = await chrome.tabs.query({ url: COUPANG_SUPPLIER_TAB_MATCHES });
-  const supplierTab = tabs[0];
-  if (supplierTab?.id) return { tab: supplierTab, created: false };
-  const tab = await chrome.tabs.create({ url: COUPANG_PO_LIST_URL, active: false });
-  return { tab, created: true };
+  return rocketPoCollection.list({ from, to, status }, collection);
 }
 
 async function findOrCreateInteractiveCoupangSupplierTab(reason) {
@@ -1866,69 +1778,71 @@ async function scrapeBoriboriOrders(downloadPassword) {
 // ⚠️품목 상세(/scm/purchase/order/get)는 po-web 컨텍스트서 fetch 하면 로그인페이지 → /scm 페이지로
 // 이동한 뒤 그 컨텍스트에서 fetch 해야 인증됨. 목록/센터(po-web API)는 같은 origin이라 /scm 서도 됨.
 async function collectCoupangDirectOrders(collection) {
-  const { tab, created } = await findOrCreateCoupangPoTab();
-  if (!tab?.id) return { success: false, error: "쿠팡 공급사허브(supplier.coupang.com) 탭을 열 수 없습니다." };
-  await attachOrderCollectionTab(collection, tab, created);
-  const keepAlive = setInterval(() => {
-    chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
-  }, 20000);
-  let keepOpen = false;
-  try {
-    await waitForTabReady(tab.id);
-    // 1) 발주확정 목록 (po-web API) → seq/센터/운송유형
-    const listInjected = await withTimeout(
-      chrome.scripting.executeScript({ target: { tabId: tab.id }, func: scrapeCoupangPaList }),
-      60000,
-      "쿠팡 발주 목록 수집 시간이 초과되었습니다.",
-    );
-    const listRes = listInjected[0]?.result;
-    if (!listRes?.success) return listRes ?? { success: false, error: "쿠팡 발주 목록에 접근하지 못했습니다." };
-    if (!listRes.pos.length) return { success: true, pos: [], centers: {}, count: 0 };
-
-    // 2) /scm 컨텍스트로 이동 (품목 fetch 인증 위해). 첫 발주 상세 페이지.
-    await chrome.tabs.update(tab.id, { url: "https://supplier.coupang.com/scm/purchase/order/get/" + listRes.pos[0].seq });
-    await waitForTabReady(tab.id);
-
-    // 3) 품목(/scm) + 센터주소 수집
-    const dataInjected = await withTimeout(
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: scrapeCoupangDirectData,
-        args: [listRes.pos],
-      }),
-      180000,
-      "쿠팡 발주 품목 수집 시간이 초과되었습니다.",
-    );
-    return dataInjected[0]?.result ?? { success: false, error: "쿠팡 발주 상세에 접근하지 못했습니다." };
-  } catch (e) {
-    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("쿠팡직배송"); }
-    return mallGenericErrorResult("쿠팡직배송", e);
-  } finally {
-    clearInterval(keepAlive);
-    if (created && tab.id && !keepOpen) {
-      try {
-        await chrome.tabs.remove(tab.id);
-      } catch {
-        /* 이미 닫힘 — 무시 */
+  return coupangPoSession.run(collection, async (tab) => {
+    const keepAlive = setInterval(() => {
+      chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
+    }, 20000);
+    try {
+      // 1) 발주확정 목록 (po-web API) → seq/센터/운송유형
+      const listInjected = await withTimeout(
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: "MAIN",
+          func: scrapeCoupangPaList,
+        }),
+        60000,
+        "쿠팡 발주 목록 수집 시간이 초과되었습니다.",
+      );
+      const listRes = listInjected[0]?.result;
+      if (!listRes?.success) {
+        return listRes ?? { success: false, error: "쿠팡 발주 목록에 접근하지 못했습니다." };
       }
-    }
-  }
-}
+      if (!listRes.pos.length) return { success: true, pos: [], centers: {}, count: 0 };
 
-async function findOrCreateCoupangPoTab() {
-  const tabs = await chrome.tabs.query({ url: COUPANG_SUPPLIER_TAB_MATCHES });
-  const poTab = tabs.find((tab) => (tab.url || "").includes("/po-web/purchase/order"));
-  if (poTab?.id) return { tab: poTab, created: false };
-  if (tabs[0]?.id) {
-    await chrome.tabs.update(tabs[0].id, { url: COUPANG_PO_LIST_URL });
-    return { tab: await chrome.tabs.get(tabs[0].id), created: false };
-  }
-  const tab = await chrome.tabs.create({ url: COUPANG_PO_LIST_URL, active: false });
-  return { tab, created: true };
+      // 2) /scm 컨텍스트로 이동 (품목 fetch 인증 위해). 첫 발주 상세 페이지.
+      await chrome.tabs.update(tab.id, {
+        url: "https://supplier.coupang.com/scm/purchase/order/get/" + listRes.pos[0].seq,
+      });
+      await waitForTabReady(tab.id);
+
+      // 3) 품목(/scm) + 센터주소 수집
+      const dataInjected = await withTimeout(
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: "MAIN",
+          func: scrapeCoupangDirectData,
+          args: [listRes.pos],
+        }),
+        180000,
+        "쿠팡 발주 품목 수집 시간이 초과되었습니다.",
+      );
+      return dataInjected[0]?.result ?? {
+        success: false,
+        error: "쿠팡 발주 상세에 접근하지 못했습니다.",
+      };
+    } catch (error) {
+      if (isMallAccessError(error)) {
+        return {
+          ...mallAccessErrorResult("쿠팡직배송"),
+          errorCode: "coupang_po_session_required",
+        };
+      }
+      return mallGenericErrorResult("쿠팡직배송", error);
+    } finally {
+      clearInterval(keepAlive);
+    }
+  });
 }
 
 // po-web 페이지 컨텍스트: 발주확정(PA) 목록 fetch → seq/센터/운송유형/입고예정일/발주일.
 async function scrapeCoupangPaList() {
+  const poSessionError = () => ({
+    success: false,
+    pendingLogin: true,
+    errorCode: "coupang_po_session_required",
+    error:
+      "쿠팡 발주 세션이 만료되었습니다. Supplier Hub 로그인 상태를 확인한 뒤 다시 시도하세요.",
+  });
   try {
     const p = (n) => String(n).padStart(2, "0");
     const ymd = (d) => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
@@ -1948,19 +1862,14 @@ async function scrapeCoupangPaList() {
       });
       const text = await res.text();
       if (!res.ok || text.trim().charAt(0) === "<") {
-        if (page === 1) {
-          return {
-            success: false,
-            error: "쿠팡 supplier 로그인이 필요합니다. supplier.coupang.com 에 로그인한 뒤 다시 시도하세요.",
-          };
-        }
+        if (page === 1) return poSessionError();
         break;
       }
       let j;
       try {
         j = JSON.parse(text);
       } catch (e) {
-        if (page === 1) return { success: false, error: "쿠팡 발주 목록 응답을 해석하지 못했습니다." };
+        if (page === 1) return poSessionError();
         break;
       }
       const body = (j && j.body) || {};
@@ -1983,6 +1892,7 @@ async function scrapeCoupangPaList() {
     }
     return { success: true, pos };
   } catch (e) {
+    if (String((e && e.message) || e) === "Failed to fetch") return poSessionError();
     return { success: false, error: "쿠팡 발주 목록 조회 실패(로그인 확인): " + String((e && e.message) || e) };
   }
 }
