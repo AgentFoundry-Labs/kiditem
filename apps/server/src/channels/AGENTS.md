@@ -70,6 +70,13 @@ only for legacy callers that omit an account.
 For Coupang, the frozen submission key is the first item's
 `externalVendorSku`; retries query the provider by that key and never issue a
 second create while the prior outcome is uncertain.
+Each frozen option index receives a deterministic `externalVendorSku`. A
+KidItem-first provisional option keeps that key in `sellerSku`; product-detail
+collection promotes the same row to Coupang's immutable `vendorItemId` under
+the shared listing row lock, preserving its confirmed variant link.
+If registration finalization observes a different non-null product or variant
+link confirmed by the manual path, it fails with a conflict and preserves the
+newer manual confirmation instead of applying stale registration intent.
 - Orders and returns sync into the channel-agnostic orders spine.
 
 ## Sync + Matching Flow

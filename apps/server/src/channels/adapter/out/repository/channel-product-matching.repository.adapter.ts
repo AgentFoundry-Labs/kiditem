@@ -12,6 +12,7 @@ import type {
   ChannelProductMatchingRepositoryPort,
   ChannelAvailabilityRepositoryRow,
 } from '../../../application/port/out/repository/channel-product-matching.repository.port';
+import { lockChannelListingRow } from './channel-listing-row-lock';
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 const COMPLETED_CATALOG_SOURCE_TYPES = [
@@ -181,6 +182,7 @@ implements ChannelProductMatchingRepositoryPort {
       where: {
         id: channelListingOptionId,
         organizationId,
+        isActive: true,
         listing: { is: matchingListingWhere(organizationId) },
       },
       select: {
@@ -307,7 +309,11 @@ implements ChannelProductMatchingRepositoryPort {
   }): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       const option = await tx.channelListingOption.findFirst({
-        where: { id: input.channelListingOptionId, organizationId: input.organizationId },
+        where: {
+          id: input.channelListingOptionId,
+          organizationId: input.organizationId,
+          isActive: true,
+        },
         select: { id: true, listingId: true },
       });
       if (!option) throw new NotFoundException('ChannelListingOption was not found');
@@ -339,7 +345,11 @@ implements ChannelProductMatchingRepositoryPort {
         }
       }
       const updated = await tx.channelListingOption.updateMany({
-        where: { id: option.id, organizationId: input.organizationId },
+        where: {
+          id: option.id,
+          organizationId: input.organizationId,
+          isActive: true,
+        },
         data: { productVariantId: input.productVariantId },
       });
       if (updated.count !== 1) {
@@ -386,6 +396,7 @@ implements ChannelProductMatchingRepositoryPort {
         masterProductId: option.productVariant.masterProductId,
         code: option.productVariant.code,
         name: option.productVariant.name,
+        isActive: option.productVariant.isActive,
         components: option.productVariant.components.map((component) => ({
           sellpiaInventorySkuId: component.sellpiaInventorySkuId,
           code: component.sellpiaInventorySku.code,
@@ -483,25 +494,12 @@ async function lockChannelListing(
   organizationId: string,
   channelListingId: string,
 ): Promise<{ id: string; masterProductId: string | null } | null> {
-  const [listing] = await tx.$queryRaw<Array<{
-    id: string;
-    masterProductId: string | null;
-  }>>`
-    SELECT id, master_product_id AS "masterProductId"
-    FROM channel_listings
-    WHERE id = ${channelListingId}::uuid
-      AND organization_id = ${organizationId}::uuid
-      AND is_active = TRUE
-      AND last_import_run_id IN (
-        SELECT id
-        FROM source_import_runs
-        WHERE organization_id = ${organizationId}::uuid
-          AND status = 'completed'
-          AND source_type IN ('coupang_wing_catalog', 'coupang_rocket_po_catalog')
-      )
-    FOR UPDATE
-  `;
-  return listing ?? null;
+  return lockChannelListingRow(tx, {
+    organizationId,
+    channelListingId,
+    activeOnly: true,
+    completedCatalogOnly: true,
+  });
 }
 
 function toProductQueueRow(listing: ListingRow): ChannelProductMatchingQueueRow {
@@ -549,7 +547,9 @@ function toOptionQueueRow(
       isActive: component.sellpiaInventorySku.isActive,
     })),
   );
-  const recipeStatus = projection.warningState === 'none'
+  const recipeStatus = !option.productVariant.isActive
+    ? 'review_required'
+    : projection.warningState === 'none'
     ? 'matched'
     : projection.warningState;
   return {
@@ -568,7 +568,7 @@ function toOptionQueueRow(
       optionLabel: option.productVariant.optionLabel,
     },
     recipeStatus,
-    capacity: projection.capacity,
+    capacity: recipeStatus === 'matched' ? projection.capacity : null,
   };
 }
 

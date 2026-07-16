@@ -55,6 +55,14 @@ describe('ChannelProductMatchingRepositoryAdapter candidate search', () => {
 
     await repository.getVariantCandidateContext(organizationId, 'option-1', 'large');
 
+    expect((repository as unknown as { prisma: {
+      channelListingOption: { findFirst: ReturnType<typeof vi.fn> };
+    } }).prisma.channelListingOption.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ isActive: true }),
+      }),
+    );
+
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         organizationId,

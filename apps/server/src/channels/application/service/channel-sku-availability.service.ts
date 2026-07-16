@@ -94,6 +94,8 @@ function toAvailabilityItem(
     : null;
   const recipeStatus = !row.variant
     ? 'unmatched' as const
+    : !row.variant.isActive
+      ? 'review_required' as const
     : projection?.warningState === 'none'
       ? 'matched' as const
       : projection!.warningState;
@@ -148,7 +150,9 @@ function toAvailabilityItem(
       componentCapacity: capacity,
       isBottleneck: mappingStatus === 'matched' && capacity === sellableStock,
     })),
-    warnings: recipeStatus === 'configuration_required'
+    warnings: !row.variant?.isActive && row.variant !== null
+      ? ['variant_inactive']
+      : recipeStatus === 'configuration_required'
       ? ['configuration_required']
       : row.variant?.components.some((component) => !component.isActive)
         ? ['component_inactive']

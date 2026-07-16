@@ -7,6 +7,12 @@ import {
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { MarketplaceRegistrationRepositoryPort } from '../../../application/port/out/repository/channel-listing.repository.port';
+import {
+  normalizeKidItemFirstRegistrationLinks,
+  type KidItemFirstOptionLink,
+  type KidItemFirstRegistrationLinks,
+} from '../../../domain/kiditem-first-registration-links';
+import { lockChannelListingRow } from './channel-listing-row-lock';
 
 @Injectable()
 export class MarketplaceRegistrationRepositoryAdapter
@@ -30,12 +36,21 @@ export class MarketplaceRegistrationRepositoryAdapter
     return account;
   }
 
+  async preflightExactProductLinks(input: {
+    organizationId: string;
+    masterProductId?: string;
+    optionLinks: KidItemFirstOptionLink[];
+  }): Promise<void> {
+    await assertExactProductGraph(this.prisma, input);
+  }
+
   async resolveProductRegistration(
     transaction: object,
     input: {
       organizationId: string;
       sourceCandidateId: string;
       channelAccountId: string;
+      submissionKey: string;
       externalListingId: string;
       displayName: string;
       masterProductId?: string;
@@ -48,7 +63,18 @@ export class MarketplaceRegistrationRepositoryAdapter
     const tx = transaction as Prisma.TransactionClient;
     const externalId = input.externalListingId.trim();
     if (!externalId) throw new BadRequestException('Marketplace listing identity is required.');
-    const [account, candidate, masterProduct] = await Promise.all([
+    let exactLinks: KidItemFirstRegistrationLinks;
+    try {
+      exactLinks = normalizeKidItemFirstRegistrationLinks({
+        masterProductId: input.masterProductId,
+        optionLinks: input.optionLinks,
+      }, input.submissionKey);
+    } catch (error) {
+      throw new BadRequestException(
+        error instanceof Error ? error.message : 'Invalid KidItem-first product links.',
+      );
+    }
+    const [account, candidate] = await Promise.all([
       tx.channelAccount.findFirst({
         where: {
           id: input.channelAccountId,
@@ -65,78 +91,60 @@ export class MarketplaceRegistrationRepositoryAdapter
         },
         select: { id: true },
       }),
-      input.masterProductId
-        ? tx.masterProduct.findFirst({
-          where: {
-            id: input.masterProductId,
-            organizationId: input.organizationId,
-            isActive: true,
-          },
-          select: { id: true },
-        })
-        : Promise.resolve(null),
     ]);
     if (!account) throw new NotFoundException('Marketplace account not found.');
     if (!candidate) throw new NotFoundException('Sourcing candidate not found.');
-    if (input.masterProductId && !masterProduct) {
-      throw new BadRequestException(
-        'KidItem-first MasterProduct is inactive, missing, or belongs to another organization.',
-      );
-    }
-    const optionLinks = (input.optionLinks ?? []).map((link) => ({
-      externalOptionId: link.externalOptionId.trim(),
-      productVariantId: link.productVariantId,
-    }));
-    if (optionLinks.length > 0 && !input.masterProductId) {
-      throw new BadRequestException('KidItem-first option links require a MasterProduct identity.');
-    }
-    if (optionLinks.some((link) => !link.externalOptionId)) {
-      throw new BadRequestException('KidItem-first channel option identity is required.');
-    }
-    if (new Set(optionLinks.map((link) => link.externalOptionId)).size !== optionLinks.length) {
-      throw new BadRequestException('KidItem-first option identities must be unique.');
-    }
-    if (optionLinks.length > 0) {
-      const variants = await tx.productVariant.findMany({
-        where: {
-          organizationId: input.organizationId,
-          masterProductId: input.masterProductId,
-          isActive: true,
-          id: { in: optionLinks.map((link) => link.productVariantId) },
-        },
-        select: { id: true },
-      });
-      if (new Set(variants.map((variant) => variant.id)).size
-        !== new Set(optionLinks.map((link) => link.productVariantId)).size) {
-        throw new BadRequestException(
-          'Every KidItem-first ProductVariant must belong to the linked MasterProduct.',
-        );
-      }
-    }
+    await assertExactProductGraph(tx, {
+      organizationId: input.organizationId,
+      ...exactLinks,
+    });
+    const optionLinks = exactLinks.optionLinks;
 
-    const existing = await tx.channelListing.findFirst({
+    const existingIdentity = await tx.channelListing.findFirst({
       where: {
         organizationId: input.organizationId,
         channelAccountId: account.id,
         externalId,
       },
-      select: {
-        id: true,
-        sourceCandidateId: true,
-        channelAccountId: true,
-        channelAccount: { select: { channel: true } },
-        externalId: true,
-        status: true,
-        masterProductId: true,
-      },
+      select: { id: true },
     });
+    if (existingIdentity) {
+      const locked = await lockChannelListingRow(tx, {
+        organizationId: input.organizationId,
+        channelListingId: existingIdentity.id,
+        activeOnly: false,
+        completedCatalogOnly: false,
+      });
+      if (!locked) {
+        throw new ConflictException('Marketplace listing changed concurrently.');
+      }
+    }
+    const existing = existingIdentity
+      ? await tx.channelListing.findFirst({
+        where: {
+          id: existingIdentity.id,
+          organizationId: input.organizationId,
+          channelAccountId: account.id,
+          externalId,
+        },
+        select: {
+          id: true,
+          sourceCandidateId: true,
+          channelAccountId: true,
+          channelAccount: { select: { channel: true } },
+          externalId: true,
+          status: true,
+          masterProductId: true,
+        },
+      })
+      : null;
     if (existing?.sourceCandidateId && existing.sourceCandidateId !== candidate.id) {
       throw new ConflictException('Marketplace listing already belongs to another source candidate.');
     }
     if (
       existing?.masterProductId
-      && input.masterProductId
-      && existing.masterProductId !== input.masterProductId
+      && exactLinks.masterProductId
+      && existing.masterProductId !== exactLinks.masterProductId
     ) {
       throw new ConflictException('Marketplace listing is linked to another MasterProduct.');
     }
@@ -150,7 +158,7 @@ export class MarketplaceRegistrationRepositoryAdapter
           displayName: input.displayName,
           status: 'active',
           isActive: true,
-          masterProductId: input.masterProductId,
+          masterProductId: exactLinks.masterProductId,
         },
         select: {
           id: true,
@@ -184,7 +192,7 @@ export class MarketplaceRegistrationRepositoryAdapter
         displayName: input.displayName,
         status: 'active',
         isActive: true,
-        ...(input.masterProductId ? { masterProductId: input.masterProductId } : {}),
+        ...(exactLinks.masterProductId ? { masterProductId: exactLinks.masterProductId } : {}),
       },
     });
     if (updated.count !== 1) throw new ConflictException('Marketplace listing changed concurrently.');
@@ -215,25 +223,111 @@ async function upsertExactOptionLinks(
   tx: Prisma.TransactionClient,
   organizationId: string,
   listingId: string,
-  links: Array<{ externalOptionId: string; productVariantId: string }>,
+  links: KidItemFirstOptionLink[],
 ): Promise<void> {
   for (const link of links) {
     const externalOptionId = link.externalOptionId;
-    await tx.channelListingOption.upsert({
+    const existing = await tx.channelListingOption.findMany({
       where: {
-        listingId_externalOptionId: { listingId, externalOptionId },
-      },
-      create: {
         organizationId,
         listingId,
-        externalOptionId,
-        productVariantId: link.productVariantId,
         isActive: true,
+        OR: [
+          { externalOptionId },
+          { sellerSku: link.providerOptionKey },
+        ],
       },
-      update: {
+      select: { id: true, externalOptionId: true, productVariantId: true },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+    });
+    if (existing.some((option) =>
+      option.productVariantId !== null
+      && option.productVariantId !== link.productVariantId)) {
+      throw new ConflictException(
+        'Marketplace option already has a different confirmed ProductVariant.',
+      );
+    }
+    const target = existing.find((option) => option.externalOptionId === externalOptionId)
+      ?? existing[0];
+    if (!target) {
+      await tx.channelListingOption.create({
+        data: {
+          organizationId,
+          listingId,
+          externalOptionId,
+          sellerSku: link.providerOptionKey,
+          productVariantId: link.productVariantId,
+          isActive: true,
+        },
+      });
+      continue;
+    }
+    const updated = await tx.channelListingOption.updateMany({
+      where: {
+        id: target.id,
+        organizationId,
+        listingId,
+        isActive: true,
+        OR: [
+          { productVariantId: null },
+          { productVariantId: link.productVariantId },
+        ],
+      },
+      data: {
+        sellerSku: link.providerOptionKey,
         productVariantId: link.productVariantId,
         isActive: true,
       },
     });
+    if (updated.count !== 1) {
+      throw new ConflictException(
+        'Marketplace option changed while confirming its ProductVariant.',
+      );
+    }
+  }
+}
+
+async function assertExactProductGraph(
+  client: Pick<Prisma.TransactionClient, 'masterProduct' | 'productVariant'>,
+  input: {
+    organizationId: string;
+    masterProductId?: string;
+    optionLinks: ReadonlyArray<{ productVariantId: string }>;
+  },
+): Promise<void> {
+  if (!input.masterProductId) {
+    if (input.optionLinks.length > 0) {
+      throw new BadRequestException('KidItem-first option links require a MasterProduct identity.');
+    }
+    return;
+  }
+  const masterProduct = await client.masterProduct.findFirst({
+    where: {
+      id: input.masterProductId,
+      organizationId: input.organizationId,
+      isActive: true,
+    },
+    select: { id: true },
+  });
+  if (!masterProduct) {
+    throw new BadRequestException(
+      'KidItem-first MasterProduct is inactive, missing, or belongs to another organization.',
+    );
+  }
+  if (input.optionLinks.length === 0) return;
+  const variantIds = [...new Set(input.optionLinks.map((link) => link.productVariantId))];
+  const variants = await client.productVariant.findMany({
+    where: {
+      organizationId: input.organizationId,
+      masterProductId: input.masterProductId,
+      isActive: true,
+      id: { in: variantIds },
+    },
+    select: { id: true },
+  });
+  if (new Set(variants.map((variant) => variant.id)).size !== variantIds.length) {
+    throw new BadRequestException(
+      'Every KidItem-first ProductVariant must belong to the linked MasterProduct.',
+    );
   }
 }

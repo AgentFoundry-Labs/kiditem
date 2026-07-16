@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -14,6 +14,7 @@ import { upsertChannelCatalogIdentities } from '../adapter/out/repository/channe
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
 import { MarketplaceRegistrationRepositoryAdapter } from '../adapter/out/repository/marketplace-registration.repository.adapter';
 import { ChannelProductMatchingService } from '../application/service/channel-product-matching.service';
+import { ChannelSkuAvailabilityService } from '../application/service/channel-sku-availability.service';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
@@ -126,6 +127,27 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       .toMatchObject({ masterProductId: null });
     expect(await prisma.channelListingOption.findUniqueOrThrow({ where: { id: option.id } }))
       .toMatchObject({ productVariantId: null });
+  });
+
+  it('does not expose inactive options as variant candidates', async () => {
+    const product = await createProduct('KI-INACTIVE-CANDIDATE', 'Inactive candidate');
+    const listing = await createListing({ masterProductId: product.id });
+    const option = await createOption(listing.id, { isActive: false });
+
+    await expect(service.variantCandidates(TEST_ORGANIZATION_ID, option.id, {}))
+      .rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('does not relink an inactive option', async () => {
+    const product = await createProduct('KI-INACTIVE-LINK', 'Inactive link');
+    const listing = await createListing({ masterProductId: product.id });
+    const option = await createOption(listing.id, { isActive: false });
+
+    await expect(service.linkOption(TEST_ORGANIZATION_ID, option.id, {
+      productVariantId: product.variants[0]!.id,
+    })).rejects.toBeInstanceOf(NotFoundException);
+    expect(await prisma.channelListingOption.findUniqueOrThrow({ where: { id: option.id } }))
+      .toMatchObject({ isActive: false, productVariantId: null });
   });
 
   it('serializes competing parent and option confirmations on the same listing row', async () => {
@@ -255,6 +277,42 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     });
   });
 
+  it('projects an inactive linked ProductVariant as review required with unknown availability', async () => {
+    const sku = await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'SP-INACTIVE-VARIANT',
+        name: 'Inventory',
+        currentStock: 20,
+      },
+    });
+    const product = await createProduct('KI-INACTIVE-VARIANT', 'Inactive variant', sku.id);
+    const listing = await createListing({ masterProductId: product.id });
+    const option = await createOption(listing.id, {
+      externalOptionId: 'O-INACTIVE-VARIANT',
+      productVariantId: product.variants[0]!.id,
+    });
+    await prisma.productVariant.update({
+      where: { id: product.variants[0]!.id },
+      data: { isActive: false },
+    });
+
+    const queue = await service.list(TEST_ORGANIZATION_ID);
+    expect(queue.options.find((row) => row.option.id === option.id)).toMatchObject({
+      recipeStatus: 'review_required',
+      capacity: null,
+    });
+    const availability = await new ChannelSkuAvailabilityService(repository).findByChannelSkuIds(
+      TEST_ORGANIZATION_ID,
+      [option.id],
+    );
+    expect(availability[0]).toMatchObject({
+      recipeStatus: 'review_required',
+      sku: { mappingStatus: 'needs_review', sellableStock: null },
+      warnings: ['variant_inactive'],
+    });
+  });
+
   it('preserves confirmed links during provider recollection', async () => {
     const product = await createProduct('KI-PRESERVE', 'Preserve');
     const listing = await createListing({ masterProductId: product.id });
@@ -349,6 +407,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         sourceCandidateId: candidate.id,
         channelAccountId: ACCOUNT_ID,
+        submissionKey: 'registration-key',
         externalListingId: 'REGISTERED-P',
         displayName: 'Registered',
         masterProductId: product.id,
@@ -366,6 +425,140 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     expect(await repository.listAvailabilityRows(TEST_ORGANIZATION_ID, {
       listingIds: [result.listingId],
     })).toHaveLength(1);
+  });
+
+  it('preserves a manual product confirmation that wins before stale registration finalization', async () => {
+    const exactProduct = await createProduct('KI-STALE-EXACT', 'Exact');
+    const manualProduct = await createProduct('KI-STALE-MANUAL', 'Manual');
+    const candidate = await prisma.sourcingCandidate.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceUrl: 'https://example.com/stale-product',
+        sourcePlatform: 'test',
+        name: 'Stale product',
+      },
+    });
+    const listing = await createListing({ masterProductId: exactProduct.id });
+    const registration = new MarketplaceRegistrationRepositoryAdapter(
+      prisma as unknown as PrismaService,
+    );
+    let releaseLock!: () => void;
+    let signalLocked!: () => void;
+    const locked = new Promise<void>((resolve) => { signalLocked = resolve; });
+    const release = new Promise<void>((resolve) => { releaseLock = resolve; });
+    const manualWinner = prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT id FROM channel_listings
+        WHERE id = ${listing.id}::uuid
+          AND organization_id = ${TEST_ORGANIZATION_ID}::uuid
+        FOR UPDATE
+      `;
+      await tx.channelListing.update({
+        where: { id: listing.id },
+        data: { masterProductId: manualProduct.id },
+      });
+      signalLocked();
+      await release;
+    });
+    await locked;
+
+    let settled = false;
+    const staleRegistration = prisma.$transaction((tx) =>
+      registration.resolveProductRegistration(tx, {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceCandidateId: candidate.id,
+        channelAccountId: ACCOUNT_ID,
+        submissionKey: 'stale-product-key',
+        externalListingId: listing.externalId,
+        displayName: 'Stale exact product',
+        masterProductId: exactProduct.id,
+      })).finally(() => { settled = true; });
+    try {
+      await prisma.$queryRaw`SELECT pg_sleep(0.1)::text AS slept`;
+      expect(settled).toBe(false);
+    } finally {
+      releaseLock();
+      await manualWinner;
+    }
+
+    await expect(staleRegistration).rejects.toBeInstanceOf(ConflictException);
+    expect(await prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }))
+      .toMatchObject({ masterProductId: manualProduct.id });
+  });
+
+  it('preserves a manual option confirmation that wins before stale registration finalization', async () => {
+    const product = await createProduct('KI-STALE-OPTION', 'Option');
+    const manualVariant = await prisma.productVariant.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        masterProductId: product.id,
+        code: 'KI-STALE-OPTION-MANUAL',
+        name: 'Manual',
+      },
+    });
+    const candidate = await prisma.sourcingCandidate.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceUrl: 'https://example.com/stale-option',
+        sourcePlatform: 'test',
+        name: 'Stale option',
+      },
+    });
+    const listing = await createListing({ masterProductId: product.id });
+    const option = await createOption(listing.id, {
+      externalOptionId: 'BLUE-LOGICAL',
+      productVariantId: product.variants[0]!.id,
+      sellerSku: 'stale-option-key',
+    });
+    const registration = new MarketplaceRegistrationRepositoryAdapter(
+      prisma as unknown as PrismaService,
+    );
+    let releaseLock!: () => void;
+    let signalLocked!: () => void;
+    const locked = new Promise<void>((resolve) => { signalLocked = resolve; });
+    const release = new Promise<void>((resolve) => { releaseLock = resolve; });
+    const manualWinner = prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT id FROM channel_listings
+        WHERE id = ${listing.id}::uuid
+          AND organization_id = ${TEST_ORGANIZATION_ID}::uuid
+        FOR UPDATE
+      `;
+      await tx.channelListingOption.update({
+        where: { id: option.id },
+        data: { productVariantId: manualVariant.id },
+      });
+      signalLocked();
+      await release;
+    });
+    await locked;
+
+    let settled = false;
+    const staleRegistration = prisma.$transaction((tx) =>
+      registration.resolveProductRegistration(tx, {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceCandidateId: candidate.id,
+        channelAccountId: ACCOUNT_ID,
+        submissionKey: 'stale-option-key',
+        externalListingId: listing.externalId,
+        displayName: 'Stale exact option',
+        masterProductId: product.id,
+        optionLinks: [{
+          externalOptionId: option.externalOptionId,
+          productVariantId: product.variants[0]!.id,
+        }],
+      })).finally(() => { settled = true; });
+    try {
+      await prisma.$queryRaw`SELECT pg_sleep(0.1)::text AS slept`;
+      expect(settled).toBe(false);
+    } finally {
+      releaseLock();
+      await manualWinner;
+    }
+
+    await expect(staleRegistration).rejects.toBeInstanceOf(ConflictException);
+    expect(await prisma.channelListingOption.findUniqueOrThrow({ where: { id: option.id } }))
+      .toMatchObject({ productVariantId: manualVariant.id });
   });
 
   async function createProduct(
@@ -428,6 +621,8 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     externalOptionId?: string;
     itemName?: string;
     productVariantId?: string;
+    isActive?: boolean;
+    sellerSku?: string;
   }) {
     return prisma.channelListingOption.create({
       data: {
@@ -436,6 +631,8 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         externalOptionId: input.externalOptionId ?? `O-${randomUUID()}`,
         itemName: input.itemName,
         productVariantId: input.productVariantId,
+        isActive: input.isActive ?? true,
+        sellerSku: input.sellerSku,
       },
     });
   }

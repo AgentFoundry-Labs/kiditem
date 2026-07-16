@@ -192,6 +192,52 @@ describe('channel SKU availability contracts', () => {
     expect(parsed.items[0]?.warnings).toEqual(['component_inactive']);
   });
 
+  it('accepts the bounded inactive-variant review warning', () => {
+    const parsed = ChannelSkuAvailabilityListResponseSchema.parse({
+      items: [{
+        channelAccount: { id: channelAccountId, channel: 'coupang', name: 'Wing' },
+        product: {
+          id: productId,
+          externalProductId: 'P-001',
+          registeredName: null,
+          displayName: null,
+          status: null,
+        },
+        sku: {
+          id: channelSkuId,
+          externalSkuId: 'S-001',
+          sellerSku: null,
+          optionName: null,
+          barcode: null,
+          modelNumber: null,
+          salePrice: null,
+          status: 'on_sale',
+          mappingStatus: 'needs_review',
+          sellableStock: null,
+          updatedAt: '2026-07-12T00:00:00.000Z',
+        },
+        productVariantId,
+        variantCode: 'KI-001-DEFAULT',
+        variantName: '기본',
+        recipeStatus: 'review_required',
+        components: [],
+        warnings: ['variant_inactive'],
+      }],
+      total: 1,
+      page: 1,
+      limit: 50,
+      summary: {
+        total: 1,
+        inStock: 0,
+        outOfStock: 0,
+        unmatched: 0,
+        needsReview: 1,
+      },
+    });
+
+    expect(parsed.items[0]?.warnings).toEqual(['variant_inactive']);
+  });
+
   it('strictly validates public list queries', () => {
     expect(ChannelSkuAvailabilityQuerySchema.parse({
       channelAccountId,

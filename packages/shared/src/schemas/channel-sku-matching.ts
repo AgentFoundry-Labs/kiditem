@@ -30,6 +30,7 @@ export type ChannelSkuMappingComponent = z.infer<typeof ChannelSkuMappingCompone
 export const ChannelSkuMappingWarningSchema = z.enum([
   'component_inactive',
   'configuration_required',
+  'variant_inactive',
 ]);
 export type ChannelSkuMappingWarning = z.infer<typeof ChannelSkuMappingWarningSchema>;
 

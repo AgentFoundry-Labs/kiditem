@@ -3,11 +3,42 @@ import { describe, expect, it, vi } from 'vitest';
 import { MarketplaceRegistrationRepositoryAdapter } from './marketplace-registration.repository.adapter';
 
 describe('MarketplaceRegistrationRepositoryAdapter preparation registration', () => {
+  it('preflights tenant-owned active product and variant identities', async () => {
+    const prisma = {
+      masterProduct: {
+        findFirst: vi.fn().mockResolvedValue({ id: '00000000-0000-4000-8000-000000000001' }),
+      },
+      productVariant: { findMany: vi.fn().mockResolvedValue([]) },
+    };
+    const repository = new MarketplaceRegistrationRepositoryAdapter(prisma as never);
+
+    await expect(repository.preflightExactProductLinks({
+      organizationId: '00000000-0000-4000-8000-000000000010',
+      masterProductId: '00000000-0000-4000-8000-000000000001',
+      optionLinks: [{
+        externalOptionId: 'BLUE',
+        productVariantId: '00000000-0000-4000-8000-000000000002',
+        providerOptionKey: 'submission-key',
+      }],
+    })).rejects.toThrow(
+      'Every KidItem-first ProductVariant must belong to the linked MasterProduct.',
+    );
+    expect(prisma.masterProduct.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: '00000000-0000-4000-8000-000000000001',
+        organizationId: '00000000-0000-4000-8000-000000000010',
+        isActive: true,
+      },
+      select: { id: true },
+    });
+  });
+
   it('reactivates the account identity and attaches an immutable source candidate without a Master', async () => {
     const tx = {
       channelAccount: {
         findFirst: vi.fn().mockResolvedValue({ id: 'account-1', channel: 'coupang' }),
       },
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'listing-1' }]),
       sourcingCandidate: {
         findFirst: vi.fn().mockResolvedValue({ id: 'candidate-1' }),
       },
@@ -20,6 +51,15 @@ describe('MarketplaceRegistrationRepositoryAdapter preparation registration', ()
             channelAccount: { channel: 'coupang' },
             externalId: '427011919',
             status: 'inactive',
+          })
+          .mockResolvedValueOnce({
+            id: 'listing-1',
+            sourceCandidateId: null,
+            channelAccountId: 'account-1',
+            channelAccount: { channel: 'coupang' },
+            externalId: '427011919',
+            status: 'inactive',
+            masterProductId: null,
           })
           .mockResolvedValueOnce({
             id: 'listing-1',
@@ -37,6 +77,7 @@ describe('MarketplaceRegistrationRepositoryAdapter preparation registration', ()
       organizationId: 'org-1',
       sourceCandidateId: 'candidate-1',
       channelAccountId: 'account-1',
+      submissionKey: 'submission-key-1',
       externalListingId: '427011919',
       displayName: 'Kids rain boots',
     })).resolves.toEqual({
@@ -72,6 +113,7 @@ describe('MarketplaceRegistrationRepositoryAdapter preparation registration', ()
       sourcingCandidate: {
         findFirst: vi.fn().mockResolvedValue({ id: 'candidate-1' }),
       },
+      $queryRaw: vi.fn().mockResolvedValue([{ id: 'listing-1' }]),
       channelListing: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'listing-1',
@@ -86,6 +128,7 @@ describe('MarketplaceRegistrationRepositoryAdapter preparation registration', ()
       organizationId: 'org-1',
       sourceCandidateId: 'candidate-1',
       channelAccountId: 'account-1',
+      submissionKey: 'submission-key-1',
       externalListingId: '427011919',
       displayName: 'Kids rain boots',
     })).rejects.toBeInstanceOf(ConflictException);
@@ -102,7 +145,7 @@ describe('MarketplaceRegistrationRepositoryAdapter preparation registration', ()
         findFirst: vi.fn().mockResolvedValue({ id: 'candidate-1' }),
       },
       masterProduct: {
-        findFirst: vi.fn().mockResolvedValue({ id: 'product-1' }),
+        findFirst: vi.fn().mockResolvedValue({ id: '00000000-0000-4000-8000-000000000001' }),
       },
       productVariant: { findMany: findVariants },
     };
@@ -112,12 +155,19 @@ describe('MarketplaceRegistrationRepositoryAdapter preparation registration', ()
       organizationId: 'org-1',
       sourceCandidateId: 'candidate-1',
       channelAccountId: 'account-1',
+      submissionKey: 'submission-key-1',
       externalListingId: '427011919',
       displayName: 'Kids rain boots',
-      masterProductId: 'product-1',
+      masterProductId: '00000000-0000-4000-8000-000000000001',
       optionLinks: [
-        { externalOptionId: 'OPTION-1', productVariantId: 'variant-1' },
-        { externalOptionId: ' OPTION-1 ', productVariantId: 'variant-1' },
+        {
+          externalOptionId: 'OPTION-1',
+          productVariantId: '00000000-0000-4000-8000-000000000002',
+        },
+        {
+          externalOptionId: 'ＯＰＴＩＯＮ－１',
+          productVariantId: '00000000-0000-4000-8000-000000000002',
+        },
       ],
     })).rejects.toBeInstanceOf(BadRequestException);
     expect(findVariants).not.toHaveBeenCalled();

@@ -68,6 +68,7 @@ export type ChannelAvailabilityRepositoryRow = Readonly<{
     masterProductId: string;
     code: string;
     name: string;
+    isActive: boolean;
     components: ReadonlyArray<{
       sellpiaInventorySkuId: string;
       code: string;

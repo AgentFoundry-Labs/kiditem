@@ -5,6 +5,84 @@ import { CoupangProviderRequestError } from '../../port/out/provider/coupang-pro
 import { MarketplaceRegistrationService } from '../marketplace-registration.service';
 
 describe('MarketplaceRegistrationService application orchestration', () => {
+  it('preflights exact KidItem identities before dispatching the provider create', async () => {
+    const preflightError = new Error('ProductVariant is inactive or foreign.');
+    const repository = {
+      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
+      preflightExactProductLinks: vi.fn().mockRejectedValue(preflightError),
+    };
+    const coupang = { createSellerProduct: vi.fn() };
+    const service = new MarketplaceRegistrationService(repository as never, coupang as never);
+
+    await expect(service.submitProductRegistration({
+      organizationId: '00000000-0000-4000-8000-000000000010',
+      preparationId: 'preparation-1',
+      sourceCandidateId: 'candidate-1',
+      channelAccountId: 'account-1',
+      submissionKey: 'submission-key-1',
+      submissionPayloadHash: 'hash-1',
+      submissionPayloadJson: {
+        registrationInput: {
+          masterProductId: '00000000-0000-4000-8000-000000000011',
+          optionLinks: [{
+            externalOptionId: ' BLUE ',
+            productVariantId: '00000000-0000-4000-8000-000000000012',
+          }],
+          listingPayload: { items: [{ itemName: 'Blue' }] },
+        },
+      },
+      providerSubmissionId: null,
+      registrationResult: null,
+      isRetry: false,
+      providerOutcome: 'not_attempted',
+      providerCreateAllowed: true,
+    })).rejects.toBe(preflightError);
+
+    expect(repository.preflightExactProductLinks).toHaveBeenCalledWith({
+      organizationId: '00000000-0000-4000-8000-000000000010',
+      masterProductId: '00000000-0000-4000-8000-000000000011',
+      optionLinks: [{
+        externalOptionId: 'BLUE',
+        productVariantId: '00000000-0000-4000-8000-000000000012',
+        providerOptionKey: 'submission-key-1',
+      }],
+    });
+    expect(coupang.createSellerProduct).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed exact UUIDs before dispatching the provider create', async () => {
+    const repository = {
+      assertActiveRegistrationAccount: vi.fn().mockResolvedValue({ channel: 'coupang' }),
+      preflightExactProductLinks: vi.fn(),
+    };
+    const coupang = { createSellerProduct: vi.fn() };
+    const service = new MarketplaceRegistrationService(repository as never, coupang as never);
+
+    await expect(service.submitProductRegistration({
+      organizationId: 'org-1',
+      preparationId: 'preparation-1',
+      sourceCandidateId: 'candidate-1',
+      channelAccountId: 'account-1',
+      submissionKey: 'submission-key-1',
+      submissionPayloadHash: 'hash-1',
+      submissionPayloadJson: {
+        registrationInput: {
+          masterProductId: 'not-a-uuid',
+          optionLinks: [],
+          listingPayload: { items: [{ itemName: 'Blue' }] },
+        },
+      },
+      providerSubmissionId: null,
+      registrationResult: null,
+      isRetry: false,
+      providerOutcome: 'not_attempted',
+      providerCreateAllowed: true,
+    })).rejects.toThrow('masterProductId must be a UUID');
+
+    expect(repository.preflightExactProductLinks).not.toHaveBeenCalled();
+    expect(coupang.createSellerProduct).not.toHaveBeenCalled();
+  });
+
   it('validates the frozen payload before marking the provider outcome uncertain', async () => {
     const beforeProviderCreate = vi.fn();
     const repository = {

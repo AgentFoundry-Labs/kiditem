@@ -90,6 +90,28 @@ describe('ChannelSkuAvailabilityService', () => {
     ]);
   });
 
+  it('downgrades a confirmed link to review required when its ProductVariant is inactive', async () => {
+    const repository = makeRepository([
+      row({
+        variantActive: false,
+        components: [component('00000000-0000-4000-8000-000000000014', 20, 1)],
+      }),
+    ]);
+    const service = new ChannelSkuAvailabilityService(repository);
+
+    const result = await service.list(organizationId, {
+      status: 'all',
+      page: 1,
+      limit: 50,
+    });
+
+    expect(result.items[0]).toMatchObject({
+      recipeStatus: 'review_required',
+      sku: { mappingStatus: 'needs_review', sellableStock: null },
+      warnings: ['variant_inactive'],
+    });
+  });
+
   it('filters and paginates after deriving statuses while keeping full summary counts', async () => {
     const repository = makeRepository([
       row({ variant: null }),
@@ -135,6 +157,7 @@ function makeRepository(rows: ChannelAvailabilityRepositoryRow[]) {
 function row(input: {
   optionId?: string;
   variant?: null;
+  variantActive?: boolean;
   components?: ChannelAvailabilityRepositoryRow['variant'] extends infer V
     ? V extends { components: infer C } ? C : never
     : never;
@@ -144,6 +167,7 @@ function row(input: {
     masterProductId: '00000000-0000-4000-8000-000000000021',
     code: 'VAR-1',
     name: 'Variant',
+    isActive: input.variantActive ?? true,
     components: input.components ?? [],
   };
   return {
