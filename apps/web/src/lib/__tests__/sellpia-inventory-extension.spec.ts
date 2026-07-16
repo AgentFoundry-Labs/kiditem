@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  SellpiaInventoryExtensionError,
+  collectSellpiaInventory,
+} from '../sellpia-inventory-extension';
 
 const bridge = vi.hoisted(() => ({
   collectSellpiaInventory: vi.fn(),
@@ -8,33 +12,32 @@ const bridge = vi.hoisted(() => ({
 
 vi.mock('../extension-bridge', () => bridge);
 
-import {
-  SellpiaInventoryExtensionError,
-  collectSellpiaInventory,
-} from '../sellpia-inventory-extension';
-
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
 
 describe('Sellpia inventory extension adapter', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     bridge.detectOrderCollectionExtensionId.mockResolvedValue('extension-id');
-    bridge.sendToExtension.mockResolvedValue({
-      success: true,
-      capabilities: { collectSellpiaInventory: true },
-    });
   });
 
   it('distinguishes a missing extension from a responding outdated extension', async () => {
-    bridge.detectOrderCollectionExtensionId.mockResolvedValueOnce(null);
+    bridge.detectOrderCollectionExtensionId
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
     await expect(collectSellpiaInventory({ runId: RUN_ID })).rejects.toMatchObject({
       reason: 'extension_missing',
     } satisfies Partial<SellpiaInventoryExtensionError>);
 
-    bridge.sendToExtension.mockResolvedValueOnce({ success: true, capabilities: {} });
+    bridge.detectOrderCollectionExtensionId
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce('legacy-extension-id');
     await expect(collectSellpiaInventory({ runId: RUN_ID })).rejects.toMatchObject({
       reason: 'extension_outdated',
     } satisfies Partial<SellpiaInventoryExtensionError>);
+    expect(bridge.detectOrderCollectionExtensionId).toHaveBeenCalledWith(
+      1_200,
+      'collectSellpiaInventoryV2',
+    );
   });
 
   it('retries one service-worker communication restart with the identical claim-token run ID', async () => {

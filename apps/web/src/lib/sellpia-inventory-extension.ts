@@ -1,11 +1,11 @@
-import type {
-  SellpiaInventoryCollectionFailureCode,
-} from '@kiditem/shared/sellpia-inventory-freshness';
 import {
   collectSellpiaInventory as collectSellpiaInventoryCommand,
   detectOrderCollectionExtensionId,
   sendToExtension,
 } from './extension-bridge';
+import type {
+  SellpiaInventoryCollectionFailureCode,
+} from '@kiditem/shared/sellpia-inventory-freshness';
 
 type BrowserCollectionAttentionReason =
   | 'extension_missing'
@@ -60,30 +60,22 @@ export async function collectSellpiaInventory({
 }: {
   runId: string;
 }): Promise<CollectedSellpiaInventory> {
-  const extensionId = await detectOrderCollectionExtensionId(1_200, null);
+  const extensionId = await detectOrderCollectionExtensionId(
+    1_200,
+    'collectSellpiaInventoryV2',
+  );
   if (!extensionId) {
+    const compatibleExtensionId = await detectOrderCollectionExtensionId(1_200, null);
+    if (compatibleExtensionId) {
+      throw new SellpiaInventoryExtensionError(
+        'Sellpia 재고 수집을 지원하는 최신 확장프로그램이 필요합니다. Chrome 확장 관리에서 extensions/order-collector 를 새로고침해주세요.',
+        'extension_outdated',
+        'sellpia_network_failed',
+      );
+    }
     throw new SellpiaInventoryExtensionError(
       'KidItem 주문수집 확장프로그램을 찾을 수 없습니다.',
       'extension_missing',
-      'sellpia_network_failed',
-    );
-  }
-
-  const ping = await sendToExtension<{
-    success?: boolean;
-    capabilities?: Record<string, unknown>;
-  }>(extensionId, { action: 'ping' }, 1_200).catch(() => null);
-  if (!ping?.success) {
-    throw new SellpiaInventoryExtensionError(
-      'KidItem 주문수집 확장프로그램이 응답하지 않습니다.',
-      'extension_missing',
-      'sellpia_network_failed',
-    );
-  }
-  if (ping.capabilities?.collectSellpiaInventory !== true) {
-    throw new SellpiaInventoryExtensionError(
-      'Sellpia 재고 수집을 지원하는 최신 확장프로그램이 필요합니다.',
-      'extension_outdated',
       'sellpia_network_failed',
     );
   }

@@ -45,6 +45,10 @@ conversion.
 
 ## Sellpia Inventory Contract
 
+- Advertise `collectSellpiaInventoryV2` only for the hardened inactive-tab,
+  managed-lifecycle, selector-validated collector. The web app must reject an
+  older unpacked extension and request a reload instead of falling back to the
+  original unversioned capability.
 - `collectSellpiaInventory` runs only against the inactive
   `https://kiditem.sellpia.com/product_list_total.html` page and posts fixed
   fields `downopt=2` and `downtype=excel` to
@@ -74,6 +78,10 @@ conversion.
 - `collectRocketPoRows` delegates to the extracted
   `background/rocket-po-collection.js` collector. Keep marketplace DOM/API
   knowledge out of the service-worker dispatcher.
+- Advertise `collectRocketPoRowsEvidenceV1` only when the response includes the
+  complete evidence object below. The web app must reject and ask the operator
+  to reload an older unpacked extension instead of treating its legacy rows as
+  preview input.
 - The web app creates the collection `runId`; the extension must echo that exact
   ID with structured evidence for list pages read, detail PO count, failed PO
   numbers, and truncation.

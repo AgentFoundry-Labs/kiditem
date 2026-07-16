@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
-import { collectRocketPoRowsFromExtension } from './rocket-sales-collection';
+import {
+  collectRocketPoRowsFromExtension,
+  detectRocketOrderExtensionId,
+} from './rocket-sales-collection';
 
 vi.mock('@/lib/extension-bridge', () => ({
   detectOrderCollectionExtensionId: vi.fn(),
@@ -8,6 +11,27 @@ vi.mock('@/lib/extension-bridge', () => ({
 }));
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
+
+describe('detectRocketOrderExtensionId', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('rejects a loaded extension that lacks the evidence response capability', async () => {
+    vi.mocked(detectOrderCollectionExtensionId)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce('legacy-extension-id');
+
+    await expect(
+      detectRocketOrderExtensionId('collectRocketPoRowsEvidenceV1'),
+    ).rejects.toThrow(/새로고침/);
+    expect(detectOrderCollectionExtensionId).toHaveBeenNthCalledWith(
+      1,
+      1200,
+      'collectRocketPoRowsEvidenceV1',
+    );
+  });
+});
 
 describe('collectRocketPoRowsFromExtension', () => {
   beforeEach(() => {

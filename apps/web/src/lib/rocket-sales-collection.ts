@@ -1,10 +1,10 @@
-import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import {
   RocketPoCatalogRowSchema,
   RocketPoCollectionEvidenceSchema,
   type RocketPoCatalogRow,
   type RocketPoCollectionEvidence,
 } from '@kiditem/shared/rocket-purchase-preview';
+import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 
 export type RocketPoStatusCode = 'RP' | 'PA' | 'RI' | 'CI' | '';
 
@@ -22,7 +22,11 @@ export async function detectRocketOrderExtensionId(requiredCapability: string): 
   if (exactId) return exactId;
 
   const compatibleId = await detectOrderCollectionExtensionId();
-  if (compatibleId) return compatibleId;
+  if (compatibleId) {
+    throw new Error(
+      '주문수집 확장프로그램이 이전 버전입니다. Chrome 확장 관리에서 extensions/order-collector 를 새로고침한 뒤 다시 시도해주세요.',
+    );
+  }
 
   throw new Error(
     '주문수집 확장프로그램을 찾지 못했습니다. extensions/order-collector 를 Chrome 에 로드/새로고침하고 supplier.coupang.com 로그인 후 다시 시도해주세요.',
@@ -45,7 +49,7 @@ export async function collectRocketPoRowsFromExtension({
   collection: RocketPoCollectionEvidence;
 }> {
   const runId = globalThis.crypto.randomUUID();
-  const extensionId = await detectRocketOrderExtensionId('collectRocketPoRows');
+  const extensionId = await detectRocketOrderExtensionId('collectRocketPoRowsEvidenceV1');
   const res = await sendToExtension<CollectResponse>(
     extensionId,
     { action: 'collectRocketPoRows', from, to, status, dateType, runId },
