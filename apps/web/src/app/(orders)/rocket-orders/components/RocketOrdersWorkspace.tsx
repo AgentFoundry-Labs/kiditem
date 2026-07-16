@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -41,7 +41,7 @@ const EMPTY_ROCKET_POS: RocketPoSummary[] = [];
 // 워크플로 단계 (로켓 물류 발주)
 const STAGES = [
   { icon: Rocket, label: '신규 주문', desc: '거래확인서요청 발주' },
-  { icon: PackageCheck, label: '납품 판단 대기', desc: '재고 매핑 기반 판단은 추후 연동' },
+  { icon: PackageCheck, label: '납품 판단', desc: 'Sellpia 재고·채널 구성 기반 수량 검토' },
   { icon: Truck, label: '쉽먼트 / 밀크런', desc: '9박스 이하 택배 · 초과 밀크런' },
   { icon: FileText, label: '송장 · 출력', desc: '송장 입력 → 부착/동봉 문서 출력' },
 ];
@@ -85,7 +85,11 @@ function shiftMonthBounds(dateStr: string, delta: number) {
   return { start: ymd(new Date(d.getFullYear(), d.getMonth(), 1)), end: ymd(new Date(d.getFullYear(), d.getMonth() + 1, 0)) };
 }
 
-export function RocketOrdersWorkspace() {
+export function RocketOrdersWorkspace({
+  decisionWorkspace,
+}: {
+  decisionWorkspace: ReactNode;
+}) {
   // 입고예정일 기준 (기본: 다음 7일) — 신규주문(거래처확인요청)을 실시간 조회
   const [from, setFrom] = useState(todayYmd());
   const [to, setTo] = useState(plusDaysYmd(6));
@@ -232,7 +236,7 @@ export function RocketOrdersWorkspace() {
         {open && (
           <div className="border-b border-slate-200 bg-slate-50/60 px-4 py-3 pl-9">
             <div className="text-[11px] text-slate-400">
-              품목 {formatNumber(po.skuCount)}종 · 납품 가능 수량 판단은 추후 연동합니다.
+              품목 {formatNumber(po.skuCount)}종 · 아래 납품 판단에서 Sellpia 구성 수량을 검토합니다.
             </div>
           </div>
         )}
@@ -281,10 +285,7 @@ export function RocketOrdersWorkspace() {
         })}
       </div>
 
-      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-        현재는 주문수집 확장에서 가져온 로켓 PO 목록과 기존 생성 파일 이력만 조회합니다.
-        납품 수량 판단은 추후 연동합니다.
-      </div>
+      {decisionWorkspace}
 
       {/* 필터 (입고예정일 기준) */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3">

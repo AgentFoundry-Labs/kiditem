@@ -8,10 +8,6 @@ import {
   isBrowserCollectableMall,
   type ConversionState,
 } from '../lib/order-collection-page-model';
-import {
-  classifyMallAccount,
-  MALL_ACCOUNT_GROUPS,
-} from '../lib/mall-account-grouping';
 import type { MallCollectionStat } from '../lib/order-collection-stats';
 import type { OrderCollectionMallAccount } from '../lib/order-mall-account-api';
 
@@ -51,49 +47,31 @@ export function MallAccountGroups({
   onUploadTracking,
 }: MallAccountGroupsProps) {
   return (
-    <div className="space-y-5 overflow-x-auto pb-1">
-      {MALL_ACCOUNT_GROUPS.map((group) => {
-        const groupedAccounts = accounts.filter((account) =>
-          classifyMallAccount(
-            account,
-            stats.get(account.key),
-            collectingKeys.has(account.key) || cancellingKeys.has(account.key),
-          ) === group.id,
-        );
-
-        return (
-          <section key={group.id} aria-labelledby={`mall-group-${group.id}`}>
-            <h3
-              id={`mall-group-${group.id}`}
-              className="mb-2 text-xs font-semibold text-slate-600"
-            >
-              {group.label}{' '}
-              <span className="text-slate-400">{groupedAccounts.length}</span>
-            </h3>
-            <div className="grid min-w-[720px] grid-cols-5 gap-3">
-              {groupedAccounts.map((account) => (
-                <MallAccountCard
-                  key={account.key}
-                  account={account}
-                  collectionStat={stats.get(account.key)}
-                  isOpen={settingsOpen && selectedMall?.key === account.key}
-                  isCollecting={collectingKeys.has(account.key)}
-                  isCancelling={cancellingKeys.has(account.key)}
-                  browserCollecting={browserCollecting}
-                  conversionState={conversionState}
-                  autoDetect={autoDetect}
-                  autoNextRunAt={autoNextRunAt}
-                  autoRunning={autoRunning}
-                  onOpenSettings={onOpenSettings}
-                  onCollectMall={onCollectMall}
-                  onCancelMall={onCancelMall}
-                  onUploadTracking={onUploadTracking}
-                />
-              ))}
-            </div>
-          </section>
-        );
-      })}
+    <div className="overflow-x-auto pb-1">
+      <div
+        data-testid="mall-account-card-grid"
+        className="grid min-w-[720px] grid-cols-5 gap-3"
+      >
+        {accounts.map((account) => (
+          <MallAccountCard
+            key={account.key}
+            account={account}
+            collectionStat={stats.get(account.key)}
+            isOpen={settingsOpen && selectedMall?.key === account.key}
+            isCollecting={collectingKeys.has(account.key)}
+            isCancelling={cancellingKeys.has(account.key)}
+            browserCollecting={browserCollecting}
+            conversionState={conversionState}
+            autoDetect={autoDetect}
+            autoNextRunAt={autoNextRunAt}
+            autoRunning={autoRunning}
+            onOpenSettings={onOpenSettings}
+            onCollectMall={onCollectMall}
+            onCancelMall={onCancelMall}
+            onUploadTracking={onUploadTracking}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -196,7 +174,7 @@ function MallAccountCard({
         </div>
         <div
           className="px-2 py-3.5 text-center"
-          title="오늘 주문 중 셀피아 전송 대기"
+          title="오늘 주문 중 셀피아 미전송"
         >
           <div
             className={cn(
@@ -208,7 +186,7 @@ function MallAccountCard({
           >
             {formatNumber(collectionStat?.newRows ?? 0)}
           </div>
-          <div className="mt-1 text-[10px] text-slate-400">전송 대기</div>
+          <div className="mt-1 text-[10px] text-slate-400">신규</div>
         </div>
       </div>
 

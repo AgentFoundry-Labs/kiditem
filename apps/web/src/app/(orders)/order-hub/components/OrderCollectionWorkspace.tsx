@@ -6,6 +6,7 @@ import { FileSpreadsheet, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
 import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
+import { SellpiaWorkspaceFreshnessStatus } from '@/components/sellpia-inventory';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
 import { FilePreviewSection } from '../../order-collection/components/FilePreviewSection';
@@ -580,14 +581,17 @@ export function OrderCollectionWorkspace({ headingLevel = 2 }: { headingLevel?: 
             </div>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => setUploadModalOpen(true)}
-          className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-3 py-2 text-sm font-medium text-white hover:bg-purple-700"
-        >
-          <Upload size={16} />
-          업로드
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <SellpiaWorkspaceFreshnessStatus />
+          <button
+            type="button"
+            onClick={() => setUploadModalOpen(true)}
+            className="inline-flex items-center gap-2 rounded-lg bg-purple-600 px-3 py-2 text-sm font-medium text-white hover:bg-purple-700"
+          >
+            <Upload size={16} />
+            업로드
+          </button>
+        </div>
       </div>
 
       <OrderUploadModal
@@ -598,7 +602,18 @@ export function OrderCollectionWorkspace({ headingLevel = 2 }: { headingLevel?: 
         onUpload={handleModalUpload}
       />
 
-      <OrderCollectionRecovery summary={pipelineSummary} />
+      <OrderCollectionPipeline summary={pipelineSummary} />
+
+      <div className="grid gap-3 xl:grid-cols-4">
+        <div className="min-w-0 xl:col-span-3">
+          <OrderCollectionDailyPanel history={history} />
+        </div>
+        <OrderActivityFeed
+          className="min-h-[430px] max-h-[460px] xl:col-span-1"
+          history={history}
+          events={events}
+        />
+      </div>
 
       <MallAccountSection
         autoDetect={autoDetect.enabled}
@@ -655,17 +670,6 @@ export function OrderCollectionWorkspace({ headingLevel = 2 }: { headingLevel?: 
         }
       />
 
-      <div className="grid gap-3 xl:grid-cols-4">
-        <div className="min-w-0 xl:col-span-3">
-          <OrderCollectionDailyPanel history={history} />
-        </div>
-        <OrderActivityFeed
-          className="min-h-[430px] max-h-[460px] xl:col-span-1"
-          history={history}
-          events={events}
-        />
-      </div>
-
       {previewItem ? (
         <FilePreviewSection
           item={previewItem}
@@ -687,19 +691,6 @@ export function OrderCollectionWorkspace({ headingLevel = 2 }: { headingLevel?: 
         onSendSelectedToSellpia={(items) => void handleSendSelectedToSellpia(items)}
       />
     </div>
-  );
-}
-
-function OrderCollectionRecovery({
-  summary,
-}: {
-  summary: Parameters<typeof OrderCollectionPipeline>[0]['summary'];
-}) {
-  return (
-    <section aria-label="Sellpia 주문 전송 및 재고 복구" className="space-y-2">
-      <div className="sr-only">Sellpia 전송 필요 · 전송 요청됨 · 재고 반영 대기</div>
-      <OrderCollectionPipeline summary={summary} />
-    </section>
   );
 }
 

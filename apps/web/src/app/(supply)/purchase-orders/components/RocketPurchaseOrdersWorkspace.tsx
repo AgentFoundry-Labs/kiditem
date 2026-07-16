@@ -5,9 +5,8 @@ import { RocketPurchasePreviewSection } from './RocketPurchasePreviewSection';
 
 export function RocketPurchaseOrdersWorkspace() {
   return (
-    <div className="space-y-6">
-      <RocketOrdersWorkspace />
-      <RocketPurchasePreviewSection />
-    </div>
+    <RocketOrdersWorkspace
+      decisionWorkspace={<RocketPurchasePreviewSection />}
+    />
   );
 }

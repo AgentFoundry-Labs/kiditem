@@ -3,12 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { OrderCollectionPipeline } from './OrderCollectionPipeline';
 
 describe('OrderCollectionPipeline', () => {
-  it('labels extension submission as a request and explains inventory verification', () => {
+  it('preserves the c9 five-stage pipeline labels', () => {
     render(
       <OrderCollectionPipeline
         summary={{
           todayOrders: 4,
           waiting: 2,
+          sent: 0,
           transmissionRequested: 2,
           inventoryPending: 2,
           trackingSent: 0,
@@ -17,13 +18,10 @@ describe('OrderCollectionPipeline', () => {
       />,
     );
 
-    expect(screen.getByText('Sellpia 전송 필요')).toBeInTheDocument();
-    expect(screen.getByText('전송 요청됨')).toBeInTheDocument();
-    expect(screen.getByText('재고 반영 대기')).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        '전송 요청은 셀피아 접수 완료를 의미하지 않습니다. 다음 자동 셀피아 재고 최신화가 실제 재고 반영을 검증합니다.',
-      ),
-    ).toBeInTheDocument();
+    for (const label of ['오늘 주문', '셀피아 전송 대기', '셀피아 전송', '셀피아 송장 전송', '완료']) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+    expect(screen.queryByText('전송 요청됨')).not.toBeInTheDocument();
+    expect(screen.queryByText('재고 반영 대기')).not.toBeInTheDocument();
   });
 });

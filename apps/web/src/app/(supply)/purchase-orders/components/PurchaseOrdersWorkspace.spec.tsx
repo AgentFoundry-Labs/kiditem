@@ -38,7 +38,7 @@ describe('<PurchaseOrdersWorkspace>', () => {
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
     expect(screen.getByRole('heading', { level: 1, name: '발주 관리' })).toBeInTheDocument();
     expect(screen.getByTestId('general-workspace')).toHaveTextContent(
-      'general po-1 supplier-1 preview true',
+      'general po-1 supplier-1 preview undefined',
     );
     expect(screen.queryByText('발주 운영')).not.toBeInTheDocument();
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument();

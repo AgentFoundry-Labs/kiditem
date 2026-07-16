@@ -19,7 +19,6 @@ export function PurchaseOrdersWorkspace() {
       orderId={orderId}
       supplierId={supplierId}
       headingLevel={1}
-      includeRocketPreview
     />
   );
 }

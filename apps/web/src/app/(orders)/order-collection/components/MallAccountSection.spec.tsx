@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -94,7 +94,7 @@ function renderSection(
 }
 
 describe("MallAccountSection", () => {
-  it("renders compact account cards with today and transmission-waiting stats", () => {
+  it("preserves the c9 account cards with today and new-order stats", () => {
     const account = mallAccount("icecream-mall", { name: "아이스크림몰" });
     const stats = new Map<string, MallCollectionStat>([
       [
@@ -119,14 +119,14 @@ describe("MallAccountSection", () => {
     expect(screen.getByText("17")).toBeInTheDocument();
     expect(screen.getByText("12")).toBeInTheDocument();
     expect(screen.getByText("당일")).toBeInTheDocument();
-    expect(screen.getByText("전송 대기")).toBeInTheDocument();
-    expect(screen.getByTitle("오늘 주문 중 셀피아 전송 대기")).toBeInTheDocument();
-    expect(screen.queryByText("신규")).not.toBeInTheDocument();
+    expect(screen.getByText("신규")).toBeInTheDocument();
+    expect(screen.getByTitle("오늘 주문 중 셀피아 미전송")).toBeInTheDocument();
+    expect(screen.queryByText("전송 대기")).not.toBeInTheDocument();
     expect(screen.queryByText("누적 주문")).not.toBeInTheDocument();
     expect(screen.queryByText("operator")).not.toBeInTheDocument();
   });
 
-  it("classifies every account once from configuration and pending collection state", () => {
+  it("renders every account once in the c9 flat five-column card grid", () => {
     const needsAction = mallAccount("kidsnote", { name: "키즈노트" });
     const collectable = mallAccount("domeggook", { name: "도매꾹" });
     const extensionSession = mallAccount("kakao", {
@@ -152,15 +152,8 @@ describe("MallAccountSection", () => {
 
     renderSection([needsAction, collectable, extensionSession, needsSetup], stats);
 
-    const actionGroup = screen.getByRole("heading", { name: /조치 필요/ }).closest("section");
-    const collectableGroup = screen.getByRole("heading", { name: /수집 가능/ }).closest("section");
-    const setupGroup = screen.getByRole("heading", { name: /설정 필요/ }).closest("section");
-    expect(actionGroup).not.toBeNull();
-    expect(collectableGroup).not.toBeNull();
-    expect(setupGroup).not.toBeNull();
-    expect(within(actionGroup!).getByRole("article", { name: "키즈노트 계정 카드" })).toBeInTheDocument();
-    expect(within(collectableGroup!).getByRole("article", { name: "카카오 계정 카드" })).toBeInTheDocument();
-    expect(within(setupGroup!).getByRole("article", { name: "미지원몰 계정 카드" })).toBeInTheDocument();
+    expect(screen.queryAllByRole("heading", { name: /조치 필요|수집 가능|설정 필요/ })).toHaveLength(0);
+    expect(screen.getByTestId("mall-account-card-grid")).toHaveClass("grid-cols-5");
     for (const name of ["키즈노트", "도매꾹", "카카오", "미지원몰"]) {
       expect(screen.getAllByRole("article", { name: `${name} 계정 카드` })).toHaveLength(1);
     }

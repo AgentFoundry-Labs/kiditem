@@ -201,6 +201,7 @@ describe("buildOrderCollectionPipelineSummary", () => {
     expect(summary).toEqual({
       todayOrders: 4,
       waiting: 2,
+      sent: 0,
       transmissionRequested: 2,
       inventoryPending: 2,
       trackingSent: 0,

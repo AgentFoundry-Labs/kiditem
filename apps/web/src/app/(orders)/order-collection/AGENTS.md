@@ -19,14 +19,15 @@ manage local generated-file history.
   Normalize legacy `sentAt` while reading only; new writes use
   `transmissionRequestedAt`.
 - Mall account reads/writes go through route-local API helpers.
-- Every mall account is classified exactly once from connection and collection
-  state under `조치 필요`, `수집 가능`, or `설정 필요`; display text is not a
-  classification input. Enabled extension-session malls remain collectable
-  without stored credentials; only disabled or genuinely unsupported accounts
-  require setup.
-- Recovery states (`Sellpia 전송 필요`, `전송 요청됨`, `재고 반영 대기`) and
-  actions render inside the existing generated-file flow before activity
-  charts. Do not replace the baseline collection layout.
+- Preserve the c9 collection shell in this order: header and upload modal,
+  five-stage pipeline, daily summary plus activity, flat five-column mall-card
+  grid, optional preview, then generated files.
+- Every configured mall remains in the single flat card grid. Enabled
+  extension-session malls remain collectable without stored credentials; only
+  disabled or genuinely unsupported accounts require setup.
+- Sellpia transmission-request state and actions render inside the existing
+  generated-file flow. Inventory freshness may appear as a compact shared
+  header status; do not replace or reorder the baseline collection layout.
 
 ## Boundary Rules
 

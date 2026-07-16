@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { MallAccountGroups } from './MallAccountGroups';
@@ -24,7 +24,7 @@ function account(
 }
 
 describe('MallAccountGroups', () => {
-  it('renders each account once in its state-derived group and keeps extension-session collection enabled', async () => {
+  it('preserves the c9 flat five-column mall card grid and keeps collection enabled', async () => {
     const user = userEvent.setup();
     const action = account('kidsnote', { name: '키즈노트', configured: false });
     const collectable = account('kakao', { name: '카카오', configured: false });
@@ -62,15 +62,12 @@ describe('MallAccountGroups', () => {
       />,
     );
 
-    const actionGroup = screen.getByRole('heading', { name: /조치 필요/ }).closest('section');
-    const collectableGroup = screen.getByRole('heading', { name: /수집 가능/ }).closest('section');
-    const setupGroup = screen.getByRole('heading', { name: /설정 필요/ }).closest('section');
-    expect(within(actionGroup!).getByRole('article', { name: '키즈노트 계정 카드' })).toBeInTheDocument();
-    expect(within(collectableGroup!).getByRole('article', { name: '카카오 계정 카드' })).toBeInTheDocument();
-    expect(within(setupGroup!).getByRole('article', { name: '미지원몰 계정 카드' })).toBeInTheDocument();
+    expect(screen.queryAllByRole('heading', { name: /조치 필요|수집 가능|설정 필요/ })).toHaveLength(0);
+    expect(screen.getByTestId('mall-account-card-grid')).toHaveClass('grid-cols-5');
     for (const name of ['키즈노트', '카카오', '미지원몰']) {
       expect(screen.getAllByRole('article', { name: `${name} 계정 카드` })).toHaveLength(1);
     }
+    expect(screen.getAllByText('신규')).toHaveLength(3);
 
     await user.click(screen.getByRole('button', { name: '카카오 수집' }));
     expect(onCollectMall).toHaveBeenCalledWith(collectable);

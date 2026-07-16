@@ -6,9 +6,9 @@ import {
   getHistoryCollectionBucket,
   getHistoryOrderCount,
 } from "./order-history-count";
+import { hasSellpiaTransmissionRequest } from "./order-collection-page-model";
 import type { StoredOrderCollectionFile } from "./order-generated-file-store";
 import type { OrderCollectionPipelineSummary } from "../components/OrderCollectionPipeline";
-import { hasSellpiaTransmissionRequest } from "./order-collection-page-model";
 
 export interface DailyCollectionStat {
   key: string;
@@ -208,6 +208,7 @@ export function buildOrderCollectionPipelineSummary(
   const summary: OrderCollectionPipelineSummary = {
     todayOrders: 0,
     waiting: 0,
+    sent: 0,
     transmissionRequested: 0,
     inventoryPending: 0,
     trackingSent: 0,
