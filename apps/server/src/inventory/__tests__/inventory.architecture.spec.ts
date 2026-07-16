@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { describe, it, expect } from 'vitest';
 
 // Architecture guard tests freeze the Inventory port/adapter contract:
 //
@@ -47,6 +47,21 @@ describe('Inventory architecture contract', () => {
       expect(block).not.toContain('inventorySkuId');
       expect(block).not.toMatch(/\boptionId\b/);
     }
+  });
+
+  it('persists organization-scoped idempotent Sellpia order transmission intents', () => {
+    const schema = readFileSync(PRISMA_INVENTORY_SCHEMA, 'utf8');
+    const block = schema.match(
+      /model SellpiaOrderTransmissionIntent \{([\s\S]*?)\n\}/,
+    )?.[1] ?? '';
+
+    expect(block).toContain('organizationId');
+    expect(block).toContain('intentKey');
+    expect(block).toContain('status');
+    expect(block).toContain('finalizedGeneration');
+    expect(block).toContain('@@unique([organizationId, intentKey]');
+    expect(block).toContain('@@index([organizationId, status]');
+    expect(schema).not.toMatch(/^enum\s+/m);
   });
 
   it('keeps Unshipped reads behind a dedicated repository adapter', () => {

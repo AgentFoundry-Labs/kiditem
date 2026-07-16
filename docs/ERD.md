@@ -30,7 +30,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Channels](erd/channels.md) | 17 |
 | [Core](erd/core.md) | 10 |
 | [Finance](erd/finance.md) | 5 |
-| [Inventory](erd/inventory.md) | 8 |
+| [Inventory](erd/inventory.md) | 9 |
 | [Orders](erd/orders.md) | 10 |
 | [Sourcing](erd/sourcing.md) | 10 |
 | [Supply](erd/supply.md) | 6 |
@@ -117,6 +117,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | PickingList | Inventory | `picking_lists` | - |
 | ReturnTransfer | Inventory | `return_transfers` | - |
 | SellpiaInventoryState | Inventory | `sellpia_inventory_states` | Organization-scoped Sellpia inventory trust state, source binding, generation fence, and active collection lease. |
+| SellpiaOrderTransmissionIntent | Inventory | `sellpia_order_transmission_intents` | Organization-scoped idempotency fence for browser Sellpia order transmission and its post-submit inventory generation. |
 | SellpiaReceiptUploadBatch | Inventory | `sellpia_receipt_upload_batches` | Record of an operator-confirmed receipt file upload to Sellpia. |
 | StockAudit | Inventory | `stock_audits` | - |
 | StockTransfer | Inventory | `stock_transfers` | Warehouse-to-warehouse movement record. It never mutates MasterProduct.currentStock. |
@@ -1698,6 +1699,19 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SellpiaOrderTransmissionIntent {
+    String id PK
+    String organizationId FK
+    String intentKey
+    String status
+    String createdBy FK
+    DateTime preparedAt
+    DateTime finalizedAt
+    DateTime abortedAt
+    BigInt finalizedGeneration
+    DateTime createdAt
+    DateTime updatedAt
+  }
   SellpiaReceiptUploadBatch {
     String id PK
     String organizationId FK
@@ -2382,6 +2396,7 @@ erDiagram
   Organization ||--o{ SalesPlan : "organization"
   Organization ||--o{ ScrapeTarget : "organization"
   Organization ||--o{ SellpiaInventoryState : "organization"
+  Organization ||--o{ SellpiaOrderTransmissionIntent : "organization"
   Organization ||--o{ SellpiaReceiptUploadBatch : "organization"
   Organization ||--o{ Settlement : "organization"
   Organization ||--o{ Shipment : "organization"
@@ -2461,6 +2476,7 @@ erDiagram
   User o|--o{ ProductPreparation : "createdByUser"
   User o|--o{ PurchaseOrderSubmissionAttempt : "reconciler"
   User o|--o{ SellpiaInventoryState : "activeSyncOwner"
+  User ||--o{ SellpiaOrderTransmissionIntent : "creator"
   User o|--o{ SourceImportRun : "manualFreshExportConfirmer"
   User o|--o{ SourcingCandidate : "rejectedByUser"
   User o|--o{ SourcingCandidate : "triggeredByUser"

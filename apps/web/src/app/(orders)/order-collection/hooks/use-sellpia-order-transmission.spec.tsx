@@ -13,7 +13,9 @@ const store = vi.hoisted(() => ({
   markGeneratedOrderFileTransmissionRequested: vi.fn(),
 }));
 const freshness = vi.hoisted(() => ({
-  requestRefresh: vi.fn(),
+  prepareOrderTransmissionIntent: vi.fn(),
+  finalizeOrderTransmissionIntent: vi.fn(),
+  abortOrderTransmissionIntent: vi.fn(),
 }));
 const toast = vi.hoisted(() => ({
   error: vi.fn(),
@@ -64,7 +66,19 @@ describe('useSellpiaOrderTransmission', () => {
         transmissionRequestedAt,
       }),
     );
-    freshness.requestRefresh.mockResolvedValue({ status: 'pending' });
+    freshness.prepareOrderTransmissionIntent.mockResolvedValue({
+      intentKey: 'orders-1',
+      disposition: 'prepared',
+    });
+    freshness.finalizeOrderTransmissionIntent.mockResolvedValue({
+      intentKey: 'orders-1',
+      status: 'finalized',
+      finalizedGeneration: '5',
+    });
+    freshness.abortOrderTransmissionIntent.mockResolvedValue({
+      intentKey: 'orders-1',
+      status: 'aborted',
+    });
   });
 
   it('invalidates freshness and history after an explicit Sellpia transmission request', async () => {
@@ -90,9 +104,9 @@ describe('useSellpiaOrderTransmission', () => {
     expect(toast.success).toHaveBeenCalledWith('셀피아 전송 요청됨 — 키드키즈');
   });
 
-  it('blocks the extension submit and explains why when freshness intent scheduling fails', async () => {
+  it('blocks the extension submit and explains why when intent preparation fails', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    freshness.requestRefresh.mockRejectedValue(new Error('offline'));
+    freshness.prepareOrderTransmissionIntent.mockRejectedValue(new Error('offline'));
     const onTransmissionRequested = vi.fn();
     const { result } = renderHook(
       () => useSellpiaOrderTransmission({ onTransmissionRequested }),
@@ -108,7 +122,30 @@ describe('useSellpiaOrderTransmission', () => {
     expect(extension.sendOrderFileToSellpiaViaExtension).not.toHaveBeenCalled();
     expect(onTransmissionRequested).not.toHaveBeenCalled();
     expect(toast.error).toHaveBeenCalledWith(
-      '재고 최신화 예약에 실패해 셀피아 전송을 시작하지 않았습니다.',
+      '전송 준비 상태 저장에 실패해 셀피아 전송을 시작하지 않았습니다.',
+    );
+  });
+
+  it('does not resubmit an unresolved prepared intent and asks for verification', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    freshness.prepareOrderTransmissionIntent.mockResolvedValue({
+      intentKey: 'orders-1',
+      disposition: 'already_prepared',
+    });
+    const onTransmissionRequested = vi.fn();
+    const { result } = renderHook(
+      () => useSellpiaOrderTransmission({ onTransmissionRequested }),
+      { wrapper: wrapper(client) },
+    );
+
+    await act(async () => {
+      await expect(result.current.transmit(generatedFile())).resolves.toBe(false);
+    });
+
+    expect(extension.sendOrderFileToSellpiaViaExtension).not.toHaveBeenCalled();
+    expect(onTransmissionRequested).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith(
+      '이전 셀피아 전송 결과 확인 필요 — 셀피아 주문 내역을 확인한 뒤 처리하세요.',
     );
   });
 
@@ -129,8 +166,8 @@ describe('useSellpiaOrderTransmission', () => {
     });
 
     expect(transmitted).toBe(true);
-    expect(freshness.requestRefresh).toHaveBeenCalledWith('order_transmission_requested');
-    expect(freshness.requestRefresh.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(freshness.prepareOrderTransmissionIntent).toHaveBeenCalledWith('orders-1');
+    expect(freshness.prepareOrderTransmissionIntent.mock.invocationCallOrder[0]).toBeLessThan(
       extension.sendOrderFileToSellpiaViaExtension.mock.invocationCallOrder[0],
     );
     expect(toast.error).not.toHaveBeenCalled();
@@ -156,7 +193,26 @@ describe('useSellpiaOrderTransmission', () => {
     });
 
     expect(onTransmissionRequested).not.toHaveBeenCalled();
-    expect(freshness.requestRefresh).toHaveBeenCalledWith('order_transmission_requested');
+    expect(freshness.abortOrderTransmissionIntent).toHaveBeenCalledWith('orders-1');
     expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it('warns not to resend when submitted orders cannot finalize freshness', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    freshness.finalizeOrderTransmissionIntent.mockRejectedValue(new Error('offline'));
+    const onTransmissionRequested = vi.fn();
+    const { result } = renderHook(
+      () => useSellpiaOrderTransmission({ onTransmissionRequested }),
+      { wrapper: wrapper(client) },
+    );
+
+    await act(async () => {
+      await expect(result.current.transmit(generatedFile())).resolves.toBe(true);
+    });
+
+    expect(onTransmissionRequested).toHaveBeenCalledOnce();
+    expect(toast.warning).toHaveBeenCalledWith(
+      '셀피아 전송 요청은 완료됐지만 재고 최신화 확정에 실패했습니다. 재전송하지 말고 이전 전송 결과를 확인하세요.',
+    );
   });
 });

@@ -39,6 +39,30 @@ model SellpiaInventoryState {
 }
 
 /// @namespace Inventory
+/// @describe Organization-scoped idempotency fence for browser Sellpia order transmission and its post-submit inventory generation.
+model SellpiaOrderTransmissionIntent {
+  id                  String    @id @default(uuid()) @db.Uuid
+  organizationId      String    @map("organization_id") @db.Uuid
+  intentKey           String    @map("intent_key") @db.VarChar(500)
+  status              String    @default("prepared")
+  createdBy           String    @map("created_by") @db.Uuid
+  preparedAt          DateTime  @default(now()) @map("prepared_at") @db.Timestamptz
+  finalizedAt         DateTime? @map("finalized_at") @db.Timestamptz
+  abortedAt           DateTime? @map("aborted_at") @db.Timestamptz
+  finalizedGeneration BigInt?   @map("finalized_generation") @db.BigInt
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator      User         @relation("SellpiaOrderTransmissionIntentCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, intentKey], map: "sellpia_order_transmission_intents_org_key")
+  @@index([organizationId, status])
+  @@index([createdBy])
+  @@map("sellpia_order_transmission_intents")
+}
+
+/// @namespace Inventory
 /// @describe Warehouse-to-warehouse movement record. It never mutates MasterProduct.currentStock.
 model StockTransfer {
   id              String    @id @default(uuid()) @db.Uuid

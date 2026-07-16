@@ -7,7 +7,6 @@ import {
   ParseUUIDPipe,
   Post,
 } from '@nestjs/common';
-import type { AuthUser } from '../../../../auth/auth.types';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import { Roles } from '../../../../auth/decorators/roles.decorator';
@@ -22,7 +21,9 @@ import {
   SellpiaInventoryHeartbeatRequestDto,
   SellpiaInventoryRefreshRequestDto,
   SellpiaInventorySourceBindingRequestDto,
+  SellpiaOrderTransmissionIntentRequestDto,
 } from './dto';
+import type { AuthUser } from '../../../../auth/auth.types';
 
 @Controller('inventory/sellpia-freshness')
 export class SellpiaInventoryFreshnessController {
@@ -65,6 +66,45 @@ export class SellpiaInventoryFreshnessController {
       organizationId,
       userId: user.id,
       reason: dto.reason,
+    });
+  }
+
+  @Post('order-transmission-intents/prepare')
+  prepareOrderTransmissionIntent(
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: SellpiaOrderTransmissionIntentRequestDto,
+  ) {
+    return this.freshness.prepareOrderTransmissionIntent({
+      organizationId,
+      userId: user.id,
+      intentKey: dto.intentKey,
+    });
+  }
+
+  @Post('order-transmission-intents/finalize')
+  finalizeOrderTransmissionIntent(
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: SellpiaOrderTransmissionIntentRequestDto,
+  ) {
+    return this.freshness.finalizeOrderTransmissionIntent({
+      organizationId,
+      userId: user.id,
+      intentKey: dto.intentKey,
+    });
+  }
+
+  @Post('order-transmission-intents/abort')
+  abortOrderTransmissionIntent(
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: SellpiaOrderTransmissionIntentRequestDto,
+  ) {
+    return this.freshness.abortOrderTransmissionIntent({
+      organizationId,
+      userId: user.id,
+      intentKey: dto.intentKey,
     });
   }
 

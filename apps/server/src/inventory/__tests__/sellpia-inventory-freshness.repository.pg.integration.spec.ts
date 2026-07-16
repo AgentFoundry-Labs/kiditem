@@ -1,8 +1,6 @@
 import { AppException } from '@kiditem/shared/server-errors';
-import { ConflictException } from '@nestjs/common';
-import type { PrismaClient } from '@prisma/client';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -14,8 +12,11 @@ import {
 } from '../../test-helpers/real-prisma';
 import { SellpiaInventoryFreshnessRepositoryAdapter } from '../adapter/out/repository/sellpia-inventory-freshness.repository.adapter';
 import { SellpiaInventoryFreshnessService } from '../application/service/sellpia-inventory-freshness.service';
+import type { PrismaService } from '../../prisma/prisma.service';
+import type { PrismaClient } from '@prisma/client';
 
 const MASTER_PRODUCT_ID = '10000000-0000-4000-8000-000000000001';
+const INTENT_KEY = '1721000000000-kidkids-browser';
 
 describe('Sellpia inventory freshness repository (PG integration)', () => {
   let prisma: PrismaClient;
@@ -119,6 +120,99 @@ describe('Sellpia inventory freshness repository (PG integration)', () => {
       createdBy: TEST_USER_ID,
       errorMessage: 'sanitized network failure',
     });
+  });
+
+  it('persists one org-scoped intent and finalizes it idempotently after a newer sync', async () => {
+    await prisma.sellpiaInventoryState.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceAccountKey: 'kiditem',
+        lastVerifiedAt: new Date(),
+        requestedGeneration: 3n,
+        verifiedGeneration: 3n,
+        refreshReason: 'legacy_manual_import',
+      },
+    });
+
+    const first = await service.prepareOrderTransmissionIntent({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      intentKey: INTENT_KEY,
+    });
+    const repeated = await service.prepareOrderTransmissionIntent({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      intentKey: INTENT_KEY,
+    });
+    expect(first.disposition).toBe('prepared');
+    expect(repeated.disposition).toBe('already_prepared');
+    expect(await prisma.sellpiaOrderTransmissionIntent.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, status: 'prepared' },
+    })).toBe(1);
+
+    await prisma.sellpiaInventoryState.update({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+      data: { requestedGeneration: 4n, verifiedGeneration: 4n },
+    });
+    const finalized = await service.finalizeOrderTransmissionIntent({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      intentKey: INTENT_KEY,
+    });
+    const finalizeRetry = await service.finalizeOrderTransmissionIntent({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      intentKey: INTENT_KEY,
+    });
+
+    expect(finalized.finalizedGeneration).toBe('5');
+    expect(finalizeRetry.finalizedGeneration).toBe('5');
+    expect(await prisma.sellpiaInventoryState.findUniqueOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).toMatchObject({ requestedGeneration: 5n, verifiedGeneration: 4n });
+    expect(await prisma.sellpiaOrderTransmissionIntent.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, intentKey: INTENT_KEY },
+    })).toMatchObject({ status: 'finalized', finalizedGeneration: 5n });
+  });
+
+  it('keeps a crashed intent stale, unclaimable, and isolated from another organization', async () => {
+    await prisma.sellpiaInventoryState.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceAccountKey: 'kiditem',
+        lastVerifiedAt: new Date(),
+        requestedGeneration: 2n,
+        verifiedGeneration: 2n,
+        refreshReason: 'legacy_manual_import',
+      },
+    });
+    await service.prepareOrderTransmissionIntent({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      intentKey: INTENT_KEY,
+    });
+
+    await expect(service.getState({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+    })).resolves.toMatchObject({ status: 'refresh_required' });
+    await expect(service.claimDue({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+    })).resolves.toMatchObject({ claimed: false });
+    await expect(service.finalizeOrderTransmissionIntent({
+      organizationId: OTHER_ORGANIZATION_ID,
+      userId: OTHER_USER_ID,
+      intentKey: INTENT_KEY,
+    })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.prepareOrderTransmissionIntent({
+      organizationId: OTHER_ORGANIZATION_ID,
+      userId: OTHER_USER_ID,
+      intentKey: INTENT_KEY,
+    })).resolves.toMatchObject({ disposition: 'prepared' });
+    expect(await prisma.sellpiaOrderTransmissionIntent.count({
+      where: { intentKey: INTENT_KEY },
+    })).toBe(2);
   });
 
   it('prevents organization B from viewing, claiming, controlling, binding, or gating organization A state', async () => {

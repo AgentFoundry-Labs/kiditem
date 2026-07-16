@@ -35,8 +35,9 @@ multiple route groups.
   adapter. React code passes the claimed token as the extension `runId` and
   never sends extension messages directly.
 - `sellpia-inventory-freshness-api.ts` owns freshness leases, browser/manual
-  upload, source binding, refresh requests, unified attempt history, and the
-  authoritative latest completed inventory basis read.
+  upload, source binding, refresh requests, order-transmission intent
+  prepare/finalize/abort calls, unified attempt history, and the authoritative
+  latest completed inventory basis read.
 
 ## Boundary Rules
 

@@ -35,6 +35,7 @@ export type SellpiaInventoryFreshnessState = {
   lastErrorCode: SellpiaInventoryCollectionFailureCode | null;
   lastErrorMessage: string | null;
   freshnessFence: string;
+  unresolvedOrderTransmissionIntentCount: number;
 };
 
 export type SellpiaInventoryFreshnessStatePatch = Partial<
@@ -77,6 +78,7 @@ export function createInitialFreshnessState(input: {
     lastErrorCode: null,
     lastErrorMessage: null,
     freshnessFence: input.freshnessFence,
+    unresolvedOrderTransmissionIntentCount: 0,
   };
 }
 
@@ -91,6 +93,8 @@ export function deriveFreshnessStatus(
     verifiedGeneration: state.verifiedGeneration,
     failedGeneration: state.failedGeneration,
     activeSyncLeaseExpiresAt: state.activeSyncLeaseExpiresAt,
+    hasUnresolvedOrderTransmissionIntent:
+      state.unresolvedOrderTransmissionIntentCount > 0,
   });
 }
 
@@ -236,6 +240,43 @@ export function planRefreshRequest(
   };
 }
 
+export function planOrderTransmissionFinalization(
+  state: SellpiaInventoryFreshnessState,
+  now: Date,
+  freshnessFence: string,
+): SellpiaInventoryFreshnessStatePatch {
+  const latestVisibleGeneration = [
+    state.requestedGeneration,
+    state.verifiedGeneration,
+    state.activeGeneration ?? 0n,
+  ].reduce((latest, generation) => generation > latest ? generation : latest, 0n);
+  const isJoiningPendingOrder = state.refreshReason === 'order_transmission_requested'
+    && state.refreshRequestedAt !== null;
+  const firstPendingOrderAt = isJoiningPendingOrder
+    ? state.refreshRequestedAt!
+    : now;
+  const currentNotBefore = isJoiningPendingOrder && state.syncNotBefore
+    ? state.syncNotBefore.getTime()
+    : now.getTime();
+  const settledAt = Math.max(
+    currentNotBefore,
+    now.getTime() + SELLPIA_ORDER_SETTLE_MS,
+  );
+  const cappedAt = Math.min(
+    firstPendingOrderAt.getTime() + SELLPIA_ORDER_SETTLE_CAP_MS,
+    settledAt,
+  );
+
+  return {
+    requestedGeneration: latestVisibleGeneration + 1n,
+    failedGeneration: state.failedGeneration,
+    refreshRequestedAt: firstPendingOrderAt,
+    refreshReason: 'order_transmission_requested',
+    syncNotBefore: new Date(cappedAt),
+    freshnessFence,
+  };
+}
+
 export function planClaim(
   state: SellpiaInventoryFreshnessState,
   input: {
@@ -245,7 +286,11 @@ export function planClaim(
     freshnessFence: string;
   },
 ): SellpiaClaimDecision {
-  if (hasLiveLease(state, input.now) || !isSourceBindingConfirmed(state)) {
+  if (
+    state.unresolvedOrderTransmissionIntentCount > 0
+    || hasLiveLease(state, input.now)
+    || !isSourceBindingConfirmed(state)
+  ) {
     return { kind: 'joined' };
   }
 

@@ -62,9 +62,18 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
   ) {}
 
   async getState(): Promise<SellpiaInventoryFreshnessState> {
-    return mapState(await this.tx.sellpiaInventoryState.findUniqueOrThrow({
-      where: { organizationId: this.organizationId },
-    }));
+    const [state, unresolvedOrderTransmissionIntentCount] = await Promise.all([
+      this.tx.sellpiaInventoryState.findUniqueOrThrow({
+        where: { organizationId: this.organizationId },
+      }),
+      this.tx.sellpiaOrderTransmissionIntent.count({
+        where: {
+          organizationId: this.organizationId,
+          status: 'prepared',
+        },
+      }),
+    ]);
+    return mapState(state, unresolvedOrderTransmissionIntentCount);
   }
 
   async compareAndSetState(input: {
@@ -79,6 +88,125 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
       throw new ConflictException('Sellpia inventory freshness fence was lost');
     }
     return this.getState();
+  }
+
+  async prepareOrderTransmissionIntent(input: {
+    intentKey: string;
+    userId: string;
+    preparedAt: Date;
+  }): Promise<'prepared' | 'already_prepared' | 'already_finalized'> {
+    const existing = await this.tx.sellpiaOrderTransmissionIntent.findFirst({
+      where: {
+        organizationId: this.organizationId,
+        intentKey: input.intentKey,
+      },
+      select: { status: true },
+    });
+    if (existing?.status === 'prepared') return 'already_prepared';
+    if (existing?.status === 'finalized') return 'already_finalized';
+    if (existing?.status === 'aborted') {
+      const reopened = await this.tx.sellpiaOrderTransmissionIntent.updateMany({
+        where: {
+          organizationId: this.organizationId,
+          intentKey: input.intentKey,
+          status: 'aborted',
+        },
+        data: {
+          status: 'prepared',
+          createdBy: input.userId,
+          preparedAt: input.preparedAt,
+          finalizedAt: null,
+          abortedAt: null,
+          finalizedGeneration: null,
+        },
+      });
+      if (reopened.count !== 1) {
+        throw new ConflictException('Sellpia order transmission intent reopen lost its fence');
+      }
+      return 'prepared';
+    }
+    if (existing) {
+      throw new ConflictException('Sellpia order transmission intent has an invalid status');
+    }
+
+    await this.tx.sellpiaOrderTransmissionIntent.create({
+      data: {
+        organizationId: this.organizationId,
+        intentKey: input.intentKey,
+        status: 'prepared',
+        createdBy: input.userId,
+        preparedAt: input.preparedAt,
+      },
+    });
+    return 'prepared';
+  }
+
+  async findOrderTransmissionIntent(intentKey: string): Promise<{
+    status: 'prepared' | 'finalized' | 'aborted';
+    finalizedGeneration: bigint | null;
+  } | null> {
+    const intent = await this.tx.sellpiaOrderTransmissionIntent.findFirst({
+      where: {
+        organizationId: this.organizationId,
+        intentKey,
+      },
+      select: { status: true, finalizedGeneration: true },
+    });
+    if (!intent) return null;
+    if (
+      intent.status !== 'prepared'
+      && intent.status !== 'finalized'
+      && intent.status !== 'aborted'
+    ) {
+      throw new ConflictException('Sellpia order transmission intent has an invalid status');
+    }
+    return {
+      status: intent.status,
+      finalizedGeneration: intent.finalizedGeneration,
+    };
+  }
+
+  async finalizeOrderTransmissionIntent(input: {
+    intentKey: string;
+    finalizedGeneration: bigint;
+    finalizedAt: Date;
+  }): Promise<void> {
+    const finalized = await this.tx.sellpiaOrderTransmissionIntent.updateMany({
+      where: {
+        organizationId: this.organizationId,
+        intentKey: input.intentKey,
+        status: 'prepared',
+      },
+      data: {
+        status: 'finalized',
+        finalizedGeneration: input.finalizedGeneration,
+        finalizedAt: input.finalizedAt,
+        abortedAt: null,
+      },
+    });
+    if (finalized.count !== 1) {
+      throw new ConflictException('Sellpia order transmission intent finalize lost its fence');
+    }
+  }
+
+  async abortOrderTransmissionIntent(input: {
+    intentKey: string;
+    abortedAt: Date;
+  }): Promise<void> {
+    const aborted = await this.tx.sellpiaOrderTransmissionIntent.updateMany({
+      where: {
+        organizationId: this.organizationId,
+        intentKey: input.intentKey,
+        status: 'prepared',
+      },
+      data: {
+        status: 'aborted',
+        abortedAt: input.abortedAt,
+      },
+    });
+    if (aborted.count !== 1) {
+      throw new ConflictException('Sellpia order transmission intent abort lost its fence');
+    }
   }
 
   async hasFailedAttempt(input: {
@@ -206,10 +334,15 @@ function hasOwn(object: object, key: PropertyKey): boolean {
 function toCreateData(
   state: SellpiaInventoryFreshnessState,
 ): Prisma.SellpiaInventoryStateUncheckedCreateInput {
-  return { ...state };
+  const { unresolvedOrderTransmissionIntentCount, ...persisted } = state;
+  void unresolvedOrderTransmissionIntentCount;
+  return persisted;
 }
 
-function mapState(row: SellpiaInventoryState): SellpiaInventoryFreshnessState {
+function mapState(
+  row: SellpiaInventoryState,
+  unresolvedOrderTransmissionIntentCount: number,
+): SellpiaInventoryFreshnessState {
   return {
     organizationId: row.organizationId,
     sourceOrigin: row.sourceOrigin,
@@ -236,6 +369,7 @@ function mapState(row: SellpiaInventoryState): SellpiaInventoryFreshnessState {
       : SellpiaInventoryCollectionFailureCodeSchema.parse(row.lastErrorCode),
     lastErrorMessage: row.lastErrorMessage,
     freshnessFence: row.freshnessFence,
+    unresolvedOrderTransmissionIntentCount,
   };
 }
 

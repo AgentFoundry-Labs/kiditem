@@ -13,6 +13,7 @@
 | PickingList | `picking_lists` | - |
 | ReturnTransfer | `return_transfers` | - |
 | SellpiaInventoryState | `sellpia_inventory_states` | Organization-scoped Sellpia inventory trust state, source binding, generation fence, and active collection lease. |
+| SellpiaOrderTransmissionIntent | `sellpia_order_transmission_intents` | Organization-scoped idempotency fence for browser Sellpia order transmission and its post-submit inventory generation. |
 | SellpiaReceiptUploadBatch | `sellpia_receipt_upload_batches` | Record of an operator-confirmed receipt file upload to Sellpia. |
 | StockAudit | `stock_audits` | - |
 | StockTransfer | `stock_transfers` | Warehouse-to-warehouse movement record. It never mutates MasterProduct.currentStock. |
@@ -94,6 +95,19 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SellpiaOrderTransmissionIntent {
+    String id PK
+    String organizationId FK
+    String intentKey
+    String status
+    String createdBy FK
+    DateTime preparedAt
+    DateTime finalizedAt
+    DateTime abortedAt
+    BigInt finalizedGeneration
+    DateTime createdAt
+    DateTime updatedAt
+  }
   SellpiaReceiptUploadBatch {
     String id PK
     String organizationId FK
@@ -168,6 +182,8 @@ erDiagram
 | SellpiaInventoryState | activeSyncOwner | references external | Core | User |
 | SellpiaInventoryState | lastCompletedImportRun | references external | Core | SourceImportRun |
 | SellpiaInventoryState | organization | references external | Core | Organization |
+| SellpiaOrderTransmissionIntent | creator | references external | Core | User |
+| SellpiaOrderTransmissionIntent | organization | references external | Core | Organization |
 | SellpiaReceiptUploadBatch | organization | references external | Core | Organization |
 | StockAudit | organization | references external | Core | Organization |
 | StockTransfer | masterProduct | references external | Core | MasterProduct |

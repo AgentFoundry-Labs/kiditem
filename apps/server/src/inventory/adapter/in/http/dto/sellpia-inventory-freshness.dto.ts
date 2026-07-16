@@ -2,6 +2,7 @@ import { Equals, IsIn, IsString, MaxLength, MinLength } from 'class-validator';
 import type {
   SellpiaInventoryCollectionFailureCode,
   SellpiaInventoryRefreshRequest,
+  SellpiaOrderTransmissionIntentPrepareRequest,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 
 export class SellpiaInventoryRefreshRequestDto
@@ -13,6 +14,14 @@ implements SellpiaInventoryRefreshRequest {
 export class SellpiaInventoryClaimRequestDto {}
 export class SellpiaInventoryHeartbeatRequestDto {}
 export class SellpiaInventoryCancelRequestDto {}
+
+export class SellpiaOrderTransmissionIntentRequestDto
+implements SellpiaOrderTransmissionIntentPrepareRequest {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(500)
+  intentKey!: string;
+}
 
 export class SellpiaInventoryFailRequestDto {
   @IsIn([

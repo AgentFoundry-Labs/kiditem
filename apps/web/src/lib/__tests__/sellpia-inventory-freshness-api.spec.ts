@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { sellpiaInventoryFreshnessApi } from '../sellpia-inventory-freshness-api';
 
 const apiClient = vi.hoisted(() => ({
   getParsed: vi.fn(),
@@ -7,8 +8,6 @@ const apiClient = vi.hoisted(() => ({
 }));
 
 vi.mock('../api-client', () => ({ apiClient }));
-
-import { sellpiaInventoryFreshnessApi } from '../sellpia-inventory-freshness-api';
 
 describe('sellpiaInventoryFreshnessApi', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -54,6 +53,55 @@ describe('sellpiaInventoryFreshnessApi', () => {
       3,
       '/api/inventory/sellpia-freshness/claims/11111111-1111-4111-8111-111111111111/cancel',
       {},
+    );
+  });
+
+  it('uses strict server-scoped order transmission intent endpoints', async () => {
+    const state = {
+      status: 'refresh_required',
+      sourceBinding: {
+        origin: 'https://kiditem.sellpia.com',
+        accountKey: 'kiditem',
+        confirmed: true,
+      },
+      lastVerifiedAt: '2026-07-16T00:00:00.000Z',
+      expiresAt: '2026-07-16T00:10:00.000Z',
+      requestedGeneration: '5',
+      verifiedGeneration: '4',
+      refreshRequestedAt: '2026-07-16T00:01:00.000Z',
+      refreshReason: 'order_transmission_requested',
+      syncNotBefore: '2026-07-16T00:03:00.000Z',
+      activeSync: null,
+      lastAttempt: null,
+    };
+    apiClient.post
+      .mockResolvedValueOnce({ intentKey: 'orders-1', disposition: 'prepared', state })
+      .mockResolvedValueOnce({
+        intentKey: 'orders-1',
+        status: 'finalized',
+        finalizedGeneration: '5',
+        state,
+      })
+      .mockResolvedValueOnce({ intentKey: 'orders-1', status: 'aborted', state });
+
+    await sellpiaInventoryFreshnessApi.prepareOrderTransmissionIntent('orders-1');
+    await sellpiaInventoryFreshnessApi.finalizeOrderTransmissionIntent('orders-1');
+    await sellpiaInventoryFreshnessApi.abortOrderTransmissionIntent('orders-1');
+
+    expect(apiClient.post).toHaveBeenNthCalledWith(
+      1,
+      '/api/inventory/sellpia-freshness/order-transmission-intents/prepare',
+      { intentKey: 'orders-1' },
+    );
+    expect(apiClient.post).toHaveBeenNthCalledWith(
+      2,
+      '/api/inventory/sellpia-freshness/order-transmission-intents/finalize',
+      { intentKey: 'orders-1' },
+    );
+    expect(apiClient.post).toHaveBeenNthCalledWith(
+      3,
+      '/api/inventory/sellpia-freshness/order-transmission-intents/abort',
+      { intentKey: 'orders-1' },
     );
   });
 

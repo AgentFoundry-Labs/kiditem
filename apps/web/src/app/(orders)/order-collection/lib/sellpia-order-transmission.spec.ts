@@ -21,7 +21,11 @@ function generatedFile(): StoredOrderCollectionFile {
 describe('transmitSellpiaOrder', () => {
   const extension = { sendSellpiaOrders: vi.fn() };
   const store = { markTransmissionRequested: vi.fn() };
-  const freshness = { requestRefresh: vi.fn() };
+  const freshness = {
+    prepareOrderTransmissionIntent: vi.fn(),
+    finalizeOrderTransmissionIntent: vi.fn(),
+    abortOrderTransmissionIntent: vi.fn(),
+  };
   const invalidateFreshnessHistory = vi.fn();
   const now = vi.fn(() => 1_721_000_000_000);
 
@@ -47,28 +51,45 @@ describe('transmitSellpiaOrder', () => {
         transmissionRequestedAt,
       }),
     );
-    freshness.requestRefresh.mockResolvedValue({ status: 'pending' });
+    freshness.prepareOrderTransmissionIntent.mockResolvedValue({
+      intentKey: 'orders-1',
+      disposition: 'prepared',
+    });
+    freshness.finalizeOrderTransmissionIntent.mockResolvedValue({
+      intentKey: 'orders-1',
+      status: 'finalized',
+      finalizedGeneration: '5',
+    });
+    freshness.abortOrderTransmissionIntent.mockResolvedValue({
+      intentKey: 'orders-1',
+      status: 'aborted',
+    });
     invalidateFreshnessHistory.mockResolvedValue(undefined);
   });
 
-  it('durably schedules freshness before invoking the irreversible extension submit', async () => {
+  it('prepares durably, submits once, then finalizes before local history work', async () => {
     const result = await transmitSellpiaOrder(input());
 
     expect(result).toMatchObject({
       status: 'transmission_requested',
       viewRefreshWarning: false,
+      finalizationWarning: false,
       file: { transmissionRequestedAt: 1_721_000_000_000 },
     });
     expect(store.markTransmissionRequested).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'orders-1' }),
       1_721_000_000_000,
     );
-    expect(freshness.requestRefresh).toHaveBeenCalledWith('order_transmission_requested');
+    expect(freshness.prepareOrderTransmissionIntent).toHaveBeenCalledWith('orders-1');
+    expect(freshness.finalizeOrderTransmissionIntent).toHaveBeenCalledWith('orders-1');
     expect(invalidateFreshnessHistory).toHaveBeenCalledOnce();
-    expect(freshness.requestRefresh.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(freshness.prepareOrderTransmissionIntent.mock.invocationCallOrder[0]).toBeLessThan(
       extension.sendSellpiaOrders.mock.invocationCallOrder[0],
     );
     expect(extension.sendSellpiaOrders.mock.invocationCallOrder[0]).toBeLessThan(
+      freshness.finalizeOrderTransmissionIntent.mock.invocationCallOrder[0],
+    );
+    expect(freshness.finalizeOrderTransmissionIntent.mock.invocationCallOrder[0]).toBeLessThan(
       store.markTransmissionRequested.mock.invocationCallOrder[0],
     );
     expect(store.markTransmissionRequested.mock.invocationCallOrder[0]).toBeLessThan(
@@ -76,26 +97,91 @@ describe('transmitSellpiaOrder', () => {
     );
   });
 
-  it('keeps the conservative freshness intent when the extension did not submit', async () => {
+  it('aborts the prepared intent when the extension explicitly did not submit', async () => {
     extension.sendSellpiaOrders.mockResolvedValue({ success: true, submitted: false });
 
     await expect(transmitSellpiaOrder(input())).resolves.toEqual({
       status: 'not_submitted',
+      abortWarning: false,
     });
     expect(store.markTransmissionRequested).not.toHaveBeenCalled();
-    expect(freshness.requestRefresh).toHaveBeenCalledWith('order_transmission_requested');
+    expect(freshness.abortOrderTransmissionIntent).toHaveBeenCalledWith('orders-1');
+    expect(freshness.finalizeOrderTransmissionIntent).not.toHaveBeenCalled();
     expect(invalidateFreshnessHistory).not.toHaveBeenCalled();
   });
 
-  it('does not invoke the extension when the durable freshness intent fails', async () => {
-    freshness.requestRefresh.mockRejectedValue(new Error('offline'));
+  it('does not invoke the extension when durable intent preparation fails', async () => {
+    freshness.prepareOrderTransmissionIntent.mockRejectedValue(new Error('offline'));
 
     await expect(transmitSellpiaOrder(input())).rejects.toThrow(
-      '재고 최신화 예약에 실패해 셀피아 전송을 시작하지 않았습니다.',
+      '전송 준비 상태 저장에 실패해 셀피아 전송을 시작하지 않았습니다.',
     );
     expect(extension.sendSellpiaOrders).not.toHaveBeenCalled();
     expect(store.markTransmissionRequested).not.toHaveBeenCalled();
     expect(invalidateFreshnessHistory).not.toHaveBeenCalled();
+  });
+
+  it('does not resubmit an already prepared intent and asks for operator verification', async () => {
+    freshness.prepareOrderTransmissionIntent.mockResolvedValue({
+      intentKey: 'orders-1',
+      disposition: 'already_prepared',
+    });
+
+    await expect(transmitSellpiaOrder(input())).rejects.toThrow(
+      '이전 셀피아 전송 결과 확인 필요',
+    );
+    expect(extension.sendSellpiaOrders).not.toHaveBeenCalled();
+    expect(freshness.finalizeOrderTransmissionIntent).not.toHaveBeenCalled();
+  });
+
+  it('recovers local history without resubmitting an already finalized intent', async () => {
+    freshness.prepareOrderTransmissionIntent.mockResolvedValue({
+      intentKey: 'orders-1',
+      disposition: 'already_finalized',
+    });
+
+    const result = await transmitSellpiaOrder(input());
+
+    expect(result).toMatchObject({
+      status: 'transmission_requested',
+      finalizationWarning: false,
+      file: { transmissionRequestedAt: 1_721_000_000_000 },
+    });
+    expect(extension.sendSellpiaOrders).not.toHaveBeenCalled();
+    expect(freshness.finalizeOrderTransmissionIntent).not.toHaveBeenCalled();
+    expect(store.markTransmissionRequested).toHaveBeenCalledOnce();
+  });
+
+  it('retries idempotent finalization once before warning', async () => {
+    freshness.finalizeOrderTransmissionIntent
+      .mockRejectedValueOnce(new Error('response lost'))
+      .mockResolvedValueOnce({
+        intentKey: 'orders-1',
+        status: 'finalized',
+        finalizedGeneration: '5',
+      });
+
+    const result = await transmitSellpiaOrder(input());
+
+    expect(result).toMatchObject({
+      status: 'transmission_requested',
+      finalizationWarning: false,
+    });
+    expect(freshness.finalizeOrderTransmissionIntent).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps local submission history and warns when finalization remains unresolved', async () => {
+    freshness.finalizeOrderTransmissionIntent.mockRejectedValue(new Error('offline'));
+
+    const result = await transmitSellpiaOrder(input());
+
+    expect(result).toMatchObject({
+      status: 'transmission_requested',
+      finalizationWarning: true,
+      file: { transmissionRequestedAt: 1_721_000_000_000 },
+    });
+    expect(freshness.finalizeOrderTransmissionIntent).toHaveBeenCalledTimes(2);
+    expect(store.markTransmissionRequested).toHaveBeenCalledOnce();
   });
 
   it('keeps transmission success when the post-submit view refresh fails', async () => {
@@ -111,7 +197,7 @@ describe('transmitSellpiaOrder', () => {
     expect(store.markTransmissionRequested).toHaveBeenCalledOnce();
   });
 
-  it('keeps transmission success and schedules refresh when local persistence fails', async () => {
+  it('keeps transmission success and finalization when local persistence fails', async () => {
     store.markTransmissionRequested.mockRejectedValue(new Error('indexeddb unavailable'));
 
     const result = await transmitSellpiaOrder(input());
@@ -121,17 +207,20 @@ describe('transmitSellpiaOrder', () => {
       persistenceWarning: true,
       file: { transmissionRequestedAt: 1_721_000_000_000 },
     });
-    expect(freshness.requestRefresh).toHaveBeenCalledWith('order_transmission_requested');
+    expect(freshness.finalizeOrderTransmissionIntent).toHaveBeenCalledWith('orders-1');
     expect(invalidateFreshnessHistory).toHaveBeenCalledOnce();
   });
 
-  it('requests one server refresh for every repeated successful transmission', async () => {
+  it('does not submit twice when a repeated call observes the finalized intent', async () => {
+    freshness.prepareOrderTransmissionIntent
+      .mockResolvedValueOnce({ intentKey: 'orders-1', disposition: 'prepared' })
+      .mockResolvedValueOnce({ intentKey: 'orders-1', disposition: 'already_finalized' });
     await transmitSellpiaOrder(input());
     await transmitSellpiaOrder(input());
 
-    expect(extension.sendSellpiaOrders).toHaveBeenCalledTimes(2);
+    expect(extension.sendSellpiaOrders).toHaveBeenCalledTimes(1);
     expect(store.markTransmissionRequested).toHaveBeenCalledTimes(2);
-    expect(freshness.requestRefresh).toHaveBeenCalledTimes(2);
+    expect(freshness.finalizeOrderTransmissionIntent).toHaveBeenCalledTimes(1);
     expect(invalidateFreshnessHistory).toHaveBeenCalledTimes(2);
   });
 });

@@ -1,6 +1,9 @@
 import {
   SellpiaInventoryClaimResponseSchema,
   SellpiaInventoryFreshnessViewSchema,
+  SellpiaOrderTransmissionIntentAbortResponseSchema,
+  SellpiaOrderTransmissionIntentFinalizeResponseSchema,
+  SellpiaOrderTransmissionIntentPrepareResponseSchema,
   type SellpiaInventoryCollectionFailureCode,
   type SellpiaInventoryFreshnessView,
   type SellpiaInventoryRefreshReason,
@@ -21,6 +24,8 @@ const FRESHNESS_PATH = '/api/inventory/sellpia-freshness';
 const IMPORT_PATH = '/api/inventory/sellpia-sync/import';
 const HISTORY_PATH = '/api/inventory/sellpia-sync/import-runs';
 const CURRENT_BASIS_PATH = '/api/inventory/sellpia-skus?page=1&limit=1';
+const ORDER_TRANSMISSION_INTENT_PATH =
+  `${FRESHNESS_PATH}/order-transmission-intents`;
 
 function claimPath(claimToken: string, action: string): string {
   return `${FRESHNESS_PATH}/claims/${encodeURIComponent(claimToken)}/${action}`;
@@ -83,6 +88,30 @@ export const sellpiaInventoryFreshnessApi = {
 
   requestRefresh: (reason: Extract<SellpiaInventoryRefreshReason, 'manual_request' | 'retry' | 'order_transmission_requested'>) =>
     parseFreshness(apiClient.post(`${FRESHNESS_PATH}/requests`, { reason })),
+
+  async prepareOrderTransmissionIntent(intentKey: string) {
+    const response = await apiClient.post<unknown>(
+      `${ORDER_TRANSMISSION_INTENT_PATH}/prepare`,
+      { intentKey },
+    );
+    return SellpiaOrderTransmissionIntentPrepareResponseSchema.parse(response);
+  },
+
+  async finalizeOrderTransmissionIntent(intentKey: string) {
+    const response = await apiClient.post<unknown>(
+      `${ORDER_TRANSMISSION_INTENT_PATH}/finalize`,
+      { intentKey },
+    );
+    return SellpiaOrderTransmissionIntentFinalizeResponseSchema.parse(response);
+  },
+
+  async abortOrderTransmissionIntent(intentKey: string) {
+    const response = await apiClient.post<unknown>(
+      `${ORDER_TRANSMISSION_INTENT_PATH}/abort`,
+      { intentKey },
+    );
+    return SellpiaOrderTransmissionIntentAbortResponseSchema.parse(response);
+  },
 
   confirmSourceBinding: () =>
     parseFreshness(apiClient.post(`${FRESHNESS_PATH}/source-binding`, {

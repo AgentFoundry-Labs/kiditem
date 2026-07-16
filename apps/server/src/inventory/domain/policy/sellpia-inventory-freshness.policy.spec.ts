@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   deriveFreshnessStatus,
   planClaim,
+  planOrderTransmissionFinalization,
   planRefreshRequest,
   type SellpiaInventoryFreshnessState,
 } from './sellpia-inventory-freshness.policy';
@@ -39,6 +40,37 @@ describe('Sellpia inventory freshness policy', () => {
     expect(deriveFreshnessStatus(makeState({
       lastVerifiedAt: new Date('2026-07-14T23:50:00.000Z'),
     }), NOW)).toBe('refresh_required');
+  });
+
+  it('keeps a tab-crashed transmission intent stale after generations catch up', () => {
+    const state = makeState({
+      requestedGeneration: 4n,
+      verifiedGeneration: 4n,
+      unresolvedOrderTransmissionIntentCount: 1,
+    });
+
+    expect(deriveFreshnessStatus(state, NOW)).toBe('refresh_required');
+  });
+
+  it('finalizes into a generation strictly after every generation visible at submit time', () => {
+    const completedWhileTabWasOpen = makeState({
+      requestedGeneration: 4n,
+      verifiedGeneration: 4n,
+      activeGeneration: null,
+      unresolvedOrderTransmissionIntentCount: 1,
+    });
+    const patch = planOrderTransmissionFinalization(
+      completedWhileTabWasOpen,
+      new Date('2026-07-15T00:03:00.000Z'),
+      '00000000-0000-4000-8000-000000000019',
+    );
+
+    expect(patch).toMatchObject({
+      requestedGeneration: 5n,
+      refreshReason: 'order_transmission_requested',
+      refreshRequestedAt: new Date('2026-07-15T00:03:00.000Z'),
+      syncNotBefore: new Date('2026-07-15T00:05:00.000Z'),
+    });
   });
 
   it('coalesces order transmissions and caps syncNotBefore at five minutes', () => {
@@ -183,6 +215,23 @@ describe('Sellpia inventory freshness policy', () => {
     )).toEqual({ kind: 'joined' });
   });
 
+  it('does not claim a generation while an order transmission intent is unresolved', () => {
+    const state = makeState({
+      sourceAccountKey: 'kiditem',
+      requestedGeneration: 2n,
+      verifiedGeneration: 1n,
+      syncNotBefore: NOW,
+      unresolvedOrderTransmissionIntentCount: 1,
+    });
+
+    expect(planClaim(state, {
+      now: NOW,
+      userId: '00000000-0000-4000-8000-000000000064',
+      claimToken: '00000000-0000-4000-8000-000000000065',
+      freshnessFence: '00000000-0000-4000-8000-000000000066',
+    })).toEqual({ kind: 'joined' });
+  });
+
   it('blocks an ownerless future lease and reclaims it at exact expiry', () => {
     const orphanedLease = makeState({
       requestedGeneration: 2n,
@@ -237,6 +286,7 @@ function makeState(
     lastErrorCode: null,
     lastErrorMessage: null,
     freshnessFence: '00000000-0000-4000-8000-000000000002',
+    unresolvedOrderTransmissionIntentCount: 0,
     ...overrides,
   };
 }

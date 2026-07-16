@@ -29,6 +29,11 @@ export type FailedSellpiaInventoryAttempt = {
   createdBy: string;
 };
 
+export type SellpiaOrderTransmissionIntentRecord = {
+  status: 'prepared' | 'finalized' | 'aborted';
+  finalizedGeneration: bigint | null;
+};
+
 export interface SellpiaInventoryFreshnessRepositoryTransaction {
   getState(): Promise<SellpiaInventoryFreshnessState>;
 
@@ -36,6 +41,27 @@ export interface SellpiaInventoryFreshnessRepositoryTransaction {
     expected: SellpiaInventoryStateExpectation;
     patch: SellpiaInventoryStatePatch;
   }): Promise<SellpiaInventoryFreshnessState>;
+
+  prepareOrderTransmissionIntent(input: {
+    intentKey: string;
+    userId: string;
+    preparedAt: Date;
+  }): Promise<'prepared' | 'already_prepared' | 'already_finalized'>;
+
+  findOrderTransmissionIntent(
+    intentKey: string,
+  ): Promise<SellpiaOrderTransmissionIntentRecord | null>;
+
+  finalizeOrderTransmissionIntent(input: {
+    intentKey: string;
+    finalizedGeneration: bigint;
+    finalizedAt: Date;
+  }): Promise<void>;
+
+  abortOrderTransmissionIntent(input: {
+    intentKey: string;
+    abortedAt: Date;
+  }): Promise<void>;
 
   hasFailedAttempt(input: {
     claimToken: string;

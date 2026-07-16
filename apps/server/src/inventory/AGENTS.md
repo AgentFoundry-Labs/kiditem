@@ -39,6 +39,8 @@ inventory/
 - Sellpia import-run history: `GET /api/inventory/sellpia-sync/import-runs`
 - Sellpia freshness state and browser leases:
   `/api/inventory/sellpia-freshness/*`
+- Idempotent browser order-transmission intents and post-submit generation
+  fencing under `/api/inventory/sellpia-freshness/order-transmission-intents/*`
 - Sellpia receipt batches: `/api/inventory/sellpia-receipt-batches/*`
 - Unshipped reads: `/api/unshipped/*`
 - Warehouses: `/api/warehouses/*`
@@ -101,6 +103,12 @@ change stock.
   may claim only after expiry.
 - Order-transmission refresh requests settle for two minutes and coalesce for
   at most five minutes from the first pending transmission.
+- Before the browser invokes irreversible Sellpia order submission, Inventory
+  persists an organization-scoped `prepared` transmission intent. An unresolved
+  intent keeps freshness `refresh_required` and blocks collection claims. Only
+  `submitted: true` finalization advances to a generation strictly newer than
+  every generation visible at finalization; retries return the same finalized
+  generation. Explicit non-submission may abort and reopen the same intent key.
 - Every public view serializes generations as decimal strings and derives
   `activeSync.canControl` from the authenticated user without exposing the
   owner ID.

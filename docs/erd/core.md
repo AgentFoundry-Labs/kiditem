@@ -310,6 +310,7 @@ erDiagram
 | Organization | organization | referenced by external | Inventory | PickingList |
 | Organization | organization | referenced by external | Inventory | ReturnTransfer |
 | Organization | organization | referenced by external | Inventory | SellpiaInventoryState |
+| Organization | organization | referenced by external | Inventory | SellpiaOrderTransmissionIntent |
 | Organization | organization | referenced by external | Inventory | SellpiaReceiptUploadBatch |
 | Organization | organization | referenced by external | Inventory | StockAudit |
 | Organization | organization | referenced by external | Inventory | StockTransfer |
@@ -360,6 +361,7 @@ erDiagram
 | User | createdByUser | referenced by external | AI | DetailPageArtifact |
 | User | createdByUser | referenced by external | AI | DetailPageRevision |
 | User | createdByUser | referenced by external | AI | ProductPreparation |
+| User | creator | referenced by external | Inventory | SellpiaOrderTransmissionIntent |
 | User | decidedBy | referenced by external | AgentOS | AgentApprovalRequest |
 | User | decidedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
 | User | reconciler | referenced by external | Supply | PurchaseOrderSubmissionAttempt |

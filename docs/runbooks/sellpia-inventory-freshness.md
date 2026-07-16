@@ -85,10 +85,15 @@ provider ambiguity. A failed attempt does not publish partial rows.
    pre-download collection failures appear in the same history.
 
 Orders collected from one or many malls do not request a refresh by themselves.
-Only a successful Sellpia transmission request schedules
-`order_transmission_requested`. The server waits two minutes for Sellpia to
-settle and coalesces later successful transmissions, capped at five minutes
-from the first pending request. A successful extension request means only that
+Before the extension submits a generated file, the server persists an
+organization-scoped idempotent transmission intent. An unresolved intent keeps
+freshness stale and blocks collection claims, including when another tab
+finishes the generation that was current when the intent was prepared. Only
+`{ success: true, submitted: true }` finalizes the intent and schedules an
+`order_transmission_requested` generation strictly newer than every generation
+visible at finalization. The server then waits two minutes for Sellpia to settle
+and coalesces later successful transmissions, capped at five minutes from the
+first finalized request. A successful extension request means only that
 transmission was requested; the later Sellpia snapshot is the acceptance and
 stock evidence.
 

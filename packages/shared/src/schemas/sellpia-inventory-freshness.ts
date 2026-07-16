@@ -125,6 +125,47 @@ export const SellpiaInventoryRefreshRequestSchema = z
   })
   .strict();
 
+const SellpiaOrderTransmissionIntentKeySchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(500);
+
+export const SellpiaOrderTransmissionIntentPrepareRequestSchema = z
+  .object({
+    intentKey: SellpiaOrderTransmissionIntentKeySchema,
+  })
+  .strict();
+
+export const SellpiaOrderTransmissionIntentPrepareResponseSchema = z
+  .object({
+    intentKey: SellpiaOrderTransmissionIntentKeySchema,
+    disposition: z.enum([
+      'prepared',
+      'already_prepared',
+      'already_finalized',
+    ]),
+    state: SellpiaInventoryFreshnessViewSchema,
+  })
+  .strict();
+
+export const SellpiaOrderTransmissionIntentFinalizeResponseSchema = z
+  .object({
+    intentKey: SellpiaOrderTransmissionIntentKeySchema,
+    status: z.literal('finalized'),
+    finalizedGeneration: SellpiaInventoryGenerationSchema,
+    state: SellpiaInventoryFreshnessViewSchema,
+  })
+  .strict();
+
+export const SellpiaOrderTransmissionIntentAbortResponseSchema = z
+  .object({
+    intentKey: SellpiaOrderTransmissionIntentKeySchema,
+    status: z.literal('aborted'),
+    state: SellpiaInventoryFreshnessViewSchema,
+  })
+  .strict();
+
 export const SellpiaInventoryClaimRequestSchema = z.object({}).strict();
 export const SellpiaInventoryHeartbeatRequestSchema = z.object({}).strict();
 export const SellpiaInventoryCancelRequestSchema = z.object({}).strict();
@@ -186,6 +227,18 @@ export type SellpiaInventoryFreshnessView = z.infer<
 export type SellpiaInventoryRefreshRequest = z.infer<
   typeof SellpiaInventoryRefreshRequestSchema
 >;
+export type SellpiaOrderTransmissionIntentPrepareRequest = z.infer<
+  typeof SellpiaOrderTransmissionIntentPrepareRequestSchema
+>;
+export type SellpiaOrderTransmissionIntentPrepareResponse = z.infer<
+  typeof SellpiaOrderTransmissionIntentPrepareResponseSchema
+>;
+export type SellpiaOrderTransmissionIntentFinalizeResponse = z.infer<
+  typeof SellpiaOrderTransmissionIntentFinalizeResponseSchema
+>;
+export type SellpiaOrderTransmissionIntentAbortResponse = z.infer<
+  typeof SellpiaOrderTransmissionIntentAbortResponseSchema
+>;
 export type SellpiaInventoryClaimRequest = z.infer<
   typeof SellpiaInventoryClaimRequestSchema
 >;
@@ -212,6 +265,7 @@ export type SellpiaFreshnessDerivationInput = {
   verifiedGeneration: bigint;
   failedGeneration: bigint | null;
   activeSyncLeaseExpiresAt: Date | null;
+  hasUnresolvedOrderTransmissionIntent?: boolean;
 };
 
 export function deriveSellpiaInventoryFreshness(
@@ -225,6 +279,7 @@ export function deriveSellpiaInventoryFreshness(
     input.failedGeneration === input.requestedGeneration &&
     input.failedGeneration > input.verifiedGeneration
   ) return 'failed';
+  if (input.hasUnresolvedOrderTransmissionIntent) return 'refresh_required';
   if (!input.lastVerifiedAt) return 'refresh_required';
   if (input.requestedGeneration > input.verifiedGeneration) {
     return 'refresh_required';

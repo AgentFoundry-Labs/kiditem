@@ -11,6 +11,10 @@ import {
   SellpiaInventoryFailRequestSchema,
   SellpiaInventoryFreshnessViewSchema,
   SellpiaInventoryHeartbeatRequestSchema,
+  SellpiaOrderTransmissionIntentAbortResponseSchema,
+  SellpiaOrderTransmissionIntentFinalizeResponseSchema,
+  SellpiaOrderTransmissionIntentPrepareRequestSchema,
+  SellpiaOrderTransmissionIntentPrepareResponseSchema,
   SellpiaInventoryQualityReportSchema,
   SellpiaInventoryRefreshRequestSchema,
   SellpiaInventorySourceBindingRequestSchema,
@@ -96,6 +100,20 @@ describe('Sellpia inventory freshness vocabulary', () => {
       failedGeneration: null,
       activeSyncLeaseExpiresAt: null,
     })).toBe('refresh_required');
+  });
+
+  it('keeps an unresolved order transmission intent conservatively stale', () => {
+    expect(deriveSellpiaInventoryFreshness({
+      now: new Date('2026-07-15T00:01:00.000Z'),
+      lastVerifiedAt: VERIFIED_AT,
+      requestedGeneration: 4n,
+      verifiedGeneration: 4n,
+      failedGeneration: null,
+      activeSyncLeaseExpiresAt: null,
+      hasUnresolvedOrderTransmissionIntent: true,
+    })).toBe(
+      'refresh_required',
+    );
   });
 
   it('is fresh before ten minutes and stale at exactly ten minutes', () => {
@@ -235,6 +253,36 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
 });
 
 describe('Sellpia freshness mutation contracts', () => {
+  it('defines strict idempotent order-transmission intent contracts', () => {
+    expect(SellpiaOrderTransmissionIntentPrepareRequestSchema.parse({
+      intentKey: '1721000000000-kidkids-browser',
+    })).toEqual({ intentKey: '1721000000000-kidkids-browser' });
+    expect(() => SellpiaOrderTransmissionIntentPrepareRequestSchema.parse({
+      intentKey: 'orders-1',
+      organizationId: RUN_ID,
+    })).toThrow();
+    expect(SellpiaOrderTransmissionIntentPrepareResponseSchema.parse({
+      intentKey: 'orders-1',
+      disposition: 'prepared',
+      state: createFreshnessView(),
+    })).toBeTruthy();
+    expect(SellpiaOrderTransmissionIntentFinalizeResponseSchema.parse({
+      intentKey: 'orders-1',
+      status: 'finalized',
+      finalizedGeneration: '5',
+      state: {
+        ...createFreshnessView(),
+        status: 'refresh_required',
+        requestedGeneration: '5',
+      },
+    })).toBeTruthy();
+    expect(SellpiaOrderTransmissionIntentAbortResponseSchema.parse({
+      intentKey: 'orders-1',
+      status: 'aborted',
+      state: createFreshnessView(),
+    })).toBeTruthy();
+  });
+
   it('accepts only public refresh reasons and no organization or actor identity', () => {
     for (const reason of [
       'order_transmission_requested',

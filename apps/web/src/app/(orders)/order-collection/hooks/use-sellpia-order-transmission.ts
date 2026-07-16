@@ -49,17 +49,32 @@ export function useSellpiaOrderTransmission({
         });
 
         if (result.status === 'not_submitted') {
-          toast.warning('셀피아 전송 요청이 제출되지 않았습니다.');
+          if (result.abortWarning) {
+            toast.error(
+              '셀피아 전송은 제출되지 않았지만 준비 상태 해제에 실패했습니다. 재시도 전에 상태를 확인하세요.',
+            );
+          } else {
+            toast.warning('셀피아 전송 요청이 제출되지 않았습니다.');
+          }
           return false;
         }
 
         onTransmissionRequested(result.file);
+        if (result.finalizationWarning) {
+          toast.warning(
+            '셀피아 전송 요청은 완료됐지만 재고 최신화 확정에 실패했습니다. 재전송하지 말고 이전 전송 결과를 확인하세요.',
+          );
+        }
         if (result.viewRefreshWarning) {
           toast.warning(VIEW_REFRESH_WARNING);
         }
         if (result.persistenceWarning) {
           toast.warning('셀피아 전송 요청은 완료됐지만 전송 상태를 저장하지 못했습니다.');
-        } else if (!result.viewRefreshWarning && options.showSuccessToast !== false) {
+        } else if (
+          !result.viewRefreshWarning
+          && !result.finalizationWarning
+          && options.showSuccessToast !== false
+        ) {
           toast.success(`셀피아 전송 요청됨 — ${result.shopName}`);
         }
         return true;

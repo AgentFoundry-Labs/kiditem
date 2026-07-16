@@ -1,6 +1,7 @@
 import { AppException } from '@kiditem/shared/server-errors';
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SellpiaInventoryFreshnessService } from './sellpia-inventory-freshness.service';
 import type {
   FailedSellpiaInventoryAttempt,
   SellpiaInventoryFreshnessRepositoryPort,
@@ -9,7 +10,6 @@ import type {
   SellpiaInventoryStatePatch,
 } from '../port/out/repository/sellpia-inventory-freshness.repository.port';
 import type { SellpiaInventoryFreshnessState } from '../../domain/policy/sellpia-inventory-freshness.policy';
-import { SellpiaInventoryFreshnessService } from './sellpia-inventory-freshness.service';
 
 const ORG_ID = '00000000-0000-4000-8000-000000000001';
 const OTHER_ORG_ID = '00000000-0000-4000-8000-000000000002';
@@ -17,6 +17,7 @@ const USER_ID = '00000000-0000-4000-8000-000000000003';
 const OTHER_USER_ID = '00000000-0000-4000-8000-000000000004';
 const MASTER_ID = '00000000-0000-4000-8000-000000000005';
 const FOREIGN_MASTER_ID = '00000000-0000-4000-8000-000000000006';
+const INTENT_KEY = '1721000000000-kidkids-browser';
 
 describe('SellpiaInventoryFreshnessService', () => {
   let repository: MemoryFreshnessRepository;
@@ -130,6 +131,144 @@ describe('SellpiaInventoryFreshnessService', () => {
       refreshRequestedAt: '2026-07-15T00:00:30.000Z',
       syncNotBefore: '2026-07-15T00:02:30.000Z',
     });
+  });
+
+  it('prepares one idempotent intent without duplicate unresolved counts', async () => {
+    repository.seedState({
+      requestedGeneration: 4n,
+      verifiedGeneration: 4n,
+      lastVerifiedAt: new Date('2026-07-14T23:59:00.000Z'),
+    });
+    const first = await service.prepareOrderTransmissionIntent({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentKey: INTENT_KEY,
+    });
+    const repeated = await service.prepareOrderTransmissionIntent({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentKey: INTENT_KEY,
+    });
+
+    expect(first).toMatchObject({ disposition: 'prepared', state: { status: 'refresh_required' } });
+    expect(repeated).toMatchObject({
+      disposition: 'already_prepared',
+      state: { status: 'refresh_required' },
+    });
+    expect(repository.unresolvedIntentCount(ORG_ID)).toBe(1);
+  });
+
+  it('keeps a crashed tab stale and prevents a collection claim', async () => {
+    repository.seedState({
+      sourceAccountKey: 'kiditem',
+      requestedGeneration: 4n,
+      verifiedGeneration: 4n,
+      lastVerifiedAt: new Date('2026-07-14T23:59:00.000Z'),
+    });
+    await service.prepareOrderTransmissionIntent({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentKey: INTENT_KEY,
+    });
+
+    await expect(service.getState({ organizationId: ORG_ID, userId: USER_ID }))
+      .resolves.toMatchObject({ status: 'refresh_required' });
+    await expect(service.claimDue({ organizationId: ORG_ID, userId: USER_ID }))
+      .resolves.toMatchObject({ claimed: false });
+  });
+
+  it('finalizes exactly once into a generation after a concurrent sync completion', async () => {
+    repository.seedState({
+      requestedGeneration: 3n,
+      verifiedGeneration: 2n,
+      lastVerifiedAt: new Date('2026-07-14T23:59:00.000Z'),
+    });
+    await service.prepareOrderTransmissionIntent({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentKey: INTENT_KEY,
+    });
+    repository.seedState({
+      requestedGeneration: 3n,
+      verifiedGeneration: 3n,
+      lastVerifiedAt: new Date('2026-07-15T00:00:30.000Z'),
+    });
+
+    const first = await service.finalizeOrderTransmissionIntent({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentKey: INTENT_KEY,
+    });
+    const retried = await service.finalizeOrderTransmissionIntent({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentKey: INTENT_KEY,
+    });
+
+    expect(first).toMatchObject({
+      finalizedGeneration: '4',
+      state: { requestedGeneration: '4', status: 'refresh_required' },
+    });
+    expect(retried.finalizedGeneration).toBe('4');
+    expect(repository.state(ORG_ID).requestedGeneration).toBe(4n);
+    expect(repository.unresolvedIntentCount(ORG_ID)).toBe(0);
+  });
+
+  it('scopes identical intent keys by organization and rejects cross-org finalize', async () => {
+    await service.prepareOrderTransmissionIntent({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentKey: INTENT_KEY,
+    });
+    await expect(service.finalizeOrderTransmissionIntent({
+      organizationId: OTHER_ORG_ID,
+      userId: OTHER_USER_ID,
+      intentKey: INTENT_KEY,
+    })).rejects.toBeInstanceOf(NotFoundException);
+
+    await expect(service.prepareOrderTransmissionIntent({
+      organizationId: OTHER_ORG_ID,
+      userId: OTHER_USER_ID,
+      intentKey: INTENT_KEY,
+    })).resolves.toMatchObject({ disposition: 'prepared' });
+    expect(repository.unresolvedIntentCount(ORG_ID)).toBe(1);
+    expect(repository.unresolvedIntentCount(OTHER_ORG_ID)).toBe(1);
+  });
+
+  it('aborts an explicit non-submit idempotently and reopens it for a safe retry', async () => {
+    repository.seedState({
+      requestedGeneration: 1n,
+      verifiedGeneration: 1n,
+      lastVerifiedAt: new Date('2026-07-14T23:59:00.000Z'),
+    });
+    await service.prepareOrderTransmissionIntent({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentKey: INTENT_KEY,
+    });
+    const aborted = await service.abortOrderTransmissionIntent({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentKey: INTENT_KEY,
+    });
+    const repeatedAbort = await service.abortOrderTransmissionIntent({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentKey: INTENT_KEY,
+    });
+    const reopened = await service.prepareOrderTransmissionIntent({
+      organizationId: ORG_ID,
+      userId: USER_ID,
+      intentKey: INTENT_KEY,
+    });
+
+    expect(aborted).toMatchObject({ status: 'aborted', state: { status: 'fresh' } });
+    expect(repeatedAbort.status).toBe('aborted');
+    expect(reopened).toMatchObject({
+      disposition: 'prepared',
+      state: { status: 'refresh_required' },
+    });
+    expect(repository.unresolvedIntentCount(ORG_ID)).toBe(1);
   });
 
   it('atomically creates only one ttl_expired generation for concurrent claimers', async () => {
@@ -624,6 +763,10 @@ implements SellpiaInventoryFreshnessRepositoryPort {
     Map<string, { isActive: boolean; currentStock: number }>
   >();
   private tail: Promise<void> = Promise.resolve();
+  private readonly intents = new Map<
+    string,
+    Map<string, { status: 'prepared' | 'finalized' | 'aborted'; finalizedGeneration: bigint | null }>
+  >();
   initializeCount = 0;
   lockCount = 0;
   onLockAcquired: (() => void) | null = null;
@@ -687,7 +830,48 @@ implements SellpiaInventoryFreshnessRepositoryPort {
   state(organizationId: string): SellpiaInventoryFreshnessState {
     const state = this.states.get(organizationId);
     if (!state) throw new Error('state not seeded');
-    return state;
+    return {
+      ...state,
+      unresolvedOrderTransmissionIntentCount:
+        this.unresolvedIntentCount(organizationId),
+    };
+  }
+
+  unresolvedIntentCount(organizationId: string): number {
+    return [...(this.intents.get(organizationId)?.values() ?? [])]
+      .filter((intent) => intent.status === 'prepared').length;
+  }
+
+  prepareIntent(organizationId: string, intentKey: string) {
+    const byOrganization = this.intents.get(organizationId) ?? new Map();
+    const existing = byOrganization.get(intentKey);
+    if (existing?.status === 'prepared') return 'already_prepared' as const;
+    if (existing?.status === 'finalized') return 'already_finalized' as const;
+    byOrganization.set(intentKey, { status: 'prepared', finalizedGeneration: null });
+    this.intents.set(organizationId, byOrganization);
+    return 'prepared' as const;
+  }
+
+  findIntent(organizationId: string, intentKey: string) {
+    return this.intents.get(organizationId)?.get(intentKey) ?? null;
+  }
+
+  finalizeIntent(organizationId: string, intentKey: string, generation: bigint) {
+    const intent = this.findIntent(organizationId, intentKey);
+    if (!intent || intent.status !== 'prepared') {
+      throw new ConflictException('intent is not prepared');
+    }
+    intent.status = 'finalized';
+    intent.finalizedGeneration = generation;
+  }
+
+  abortIntent(organizationId: string, intentKey: string) {
+    const intent = this.findIntent(organizationId, intentKey);
+    if (!intent) throw new NotFoundException('intent not found');
+    if (intent.status === 'finalized') {
+      throw new ConflictException('finalized intent cannot be aborted');
+    }
+    intent.status = 'aborted';
   }
 
   compareAndSet(
@@ -760,6 +944,42 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
     );
   }
 
+  async prepareOrderTransmissionIntent(input: {
+    intentKey: string;
+    userId: string;
+    preparedAt: Date;
+  }): Promise<
+    'prepared' | 'already_prepared' | 'already_finalized'
+  > {
+    return this.repository.prepareIntent(this.organizationId, input.intentKey);
+  }
+
+  async findOrderTransmissionIntent(intentKey: string): Promise<{
+    status: 'prepared' | 'finalized' | 'aborted';
+    finalizedGeneration: bigint | null;
+  } | null> {
+    return this.repository.findIntent(this.organizationId, intentKey);
+  }
+
+  async finalizeOrderTransmissionIntent(input: {
+    intentKey: string;
+    finalizedGeneration: bigint;
+    finalizedAt: Date;
+  }): Promise<void> {
+    this.repository.finalizeIntent(
+      this.organizationId,
+      input.intentKey,
+      input.finalizedGeneration,
+    );
+  }
+
+  async abortOrderTransmissionIntent(input: {
+    intentKey: string;
+    abortedAt: Date;
+  }): Promise<void> {
+    this.repository.abortIntent(this.organizationId, input.intentKey);
+  }
+
   async hasFailedAttempt(input: {
     claimToken: string;
     createdBy: string;
@@ -808,6 +1028,7 @@ function makeState(
     lastErrorCode: null,
     lastErrorMessage: null,
     freshnessFence: '00000000-0000-4000-8000-000000000099',
+    unresolvedOrderTransmissionIntentCount: 0,
     ...overrides,
   };
 }

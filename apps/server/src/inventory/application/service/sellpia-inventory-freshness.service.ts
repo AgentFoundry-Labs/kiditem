@@ -1,16 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { AppException } from '@kiditem/shared/server-errors';
 import { ErrorCodes } from '@kiditem/shared/errors';
-import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
-import type {
-  SellpiaInventoryClaimResponse,
-  SellpiaInventoryCollectionFailureCode,
-  SellpiaInventoryFreshnessView,
-  SellpiaInventoryRefreshReason,
-} from '@kiditem/shared/sellpia-inventory-freshness';
-import type { SellpiaInventoryFreshnessGatePort } from '../port/in/stock/sellpia-inventory-freshness-gate.port';
-import type { SellpiaInventoryFreshnessPort } from '../port/in/stock/sellpia-inventory-freshness.port';
-import type { SellpiaInventoryRefreshRequestPort } from '../port/in/stock/sellpia-inventory-refresh-request.port';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   SELLPIA_INVENTORY_FRESHNESS_REPOSITORY_PORT,
   type SellpiaInventoryFreshnessRepositoryPort,
@@ -25,6 +22,7 @@ import {
   planClaim,
   planFailure,
   planHeartbeat,
+  planOrderTransmissionFinalization,
   planRefreshRequest,
   planSourceBindingConfirmation,
   SELLPIA_FRESHNESS_TTL_MS,
@@ -33,6 +31,18 @@ import {
   toFreshnessView,
   type SellpiaInventoryFreshnessState,
 } from '../../domain/policy/sellpia-inventory-freshness.policy';
+import type {
+  SellpiaInventoryClaimResponse,
+  SellpiaInventoryCollectionFailureCode,
+  SellpiaInventoryFreshnessView,
+  SellpiaInventoryRefreshReason,
+  SellpiaOrderTransmissionIntentAbortResponse,
+  SellpiaOrderTransmissionIntentFinalizeResponse,
+  SellpiaOrderTransmissionIntentPrepareResponse,
+} from '@kiditem/shared/sellpia-inventory-freshness';
+import type { SellpiaInventoryFreshnessGatePort } from '../port/in/stock/sellpia-inventory-freshness-gate.port';
+import type { SellpiaInventoryFreshnessPort } from '../port/in/stock/sellpia-inventory-freshness.port';
+import type { SellpiaInventoryRefreshRequestPort } from '../port/in/stock/sellpia-inventory-refresh-request.port';
 
 type ActorScope = { organizationId: string; userId: string };
 type ActorRefreshInput = ActorScope & {
@@ -111,6 +121,102 @@ implements
       },
     );
     if (userId !== null) return view;
+  }
+
+  async prepareOrderTransmissionIntent(input: ActorScope & {
+    intentKey: string;
+  }): Promise<SellpiaOrderTransmissionIntentPrepareResponse> {
+    return this.withLockedState(input.organizationId, async (transaction) => {
+      const now = new Date();
+      const disposition = await transaction.prepareOrderTransmissionIntent({
+        intentKey: input.intentKey,
+        userId: input.userId,
+        preparedAt: now,
+      });
+      const state = await transaction.getState();
+      return {
+        intentKey: input.intentKey,
+        disposition,
+        state: toFreshnessView(state, now, input.userId),
+      };
+    });
+  }
+
+  async finalizeOrderTransmissionIntent(input: ActorScope & {
+    intentKey: string;
+  }): Promise<SellpiaOrderTransmissionIntentFinalizeResponse> {
+    return this.withLockedState(input.organizationId, async (transaction) => {
+      const intent = await transaction.findOrderTransmissionIntent(input.intentKey);
+      if (!intent) throw intentNotFound();
+      const now = new Date();
+      if (intent.status === 'finalized') {
+        if (intent.finalizedGeneration === null) {
+          throw new ConflictException('Finalized Sellpia order intent has no generation');
+        }
+        const state = await transaction.getState();
+        return {
+          intentKey: input.intentKey,
+          status: 'finalized',
+          finalizedGeneration: intent.finalizedGeneration.toString(),
+          state: toFreshnessView(state, now, input.userId),
+        };
+      }
+      if (intent.status !== 'prepared') {
+        throw new ConflictException('Sellpia order transmission intent is not prepared');
+      }
+
+      const state = await transaction.getState();
+      const patch = planOrderTransmissionFinalization(
+        state,
+        now,
+        randomUUID(),
+      );
+      const finalizedGeneration = patch.requestedGeneration;
+      if (finalizedGeneration === undefined) {
+        throw new ConflictException('Sellpia order transmission generation was not planned');
+      }
+      await transaction.compareAndSetState({
+        expected: expectation(state),
+        patch,
+      });
+      await transaction.finalizeOrderTransmissionIntent({
+        intentKey: input.intentKey,
+        finalizedGeneration,
+        finalizedAt: now,
+      });
+      const updated = await transaction.getState();
+      return {
+        intentKey: input.intentKey,
+        status: 'finalized',
+        finalizedGeneration: finalizedGeneration.toString(),
+        state: toFreshnessView(updated, now, input.userId),
+      };
+    });
+  }
+
+  async abortOrderTransmissionIntent(input: ActorScope & {
+    intentKey: string;
+  }): Promise<SellpiaOrderTransmissionIntentAbortResponse> {
+    return this.withLockedState(input.organizationId, async (transaction) => {
+      const intent = await transaction.findOrderTransmissionIntent(input.intentKey);
+      if (!intent) throw intentNotFound();
+      if (intent.status === 'finalized') {
+        throw new ConflictException('Finalized Sellpia order transmission cannot be aborted');
+      }
+      const now = new Date();
+      if (intent.status === 'prepared') {
+        await transaction.abortOrderTransmissionIntent({
+          intentKey: input.intentKey,
+          abortedAt: now,
+        });
+      }
+      const state = await transaction.getState();
+      return {
+        intentKey: input.intentKey,
+        status: 'aborted',
+        state: toFreshnessView(state, now, input.userId),
+      };
+    });
   }
 
   async claimDue(input: ActorScope): Promise<SellpiaInventoryClaimResponse> {
@@ -374,6 +480,10 @@ function sanitizeErrorMessage(message: string): string {
 
 function lostLease(): ConflictException {
   return new ConflictException('Sellpia inventory claim is not controlled by this user');
+}
+
+function intentNotFound(): NotFoundException {
+  return new NotFoundException('Sellpia order transmission intent was not found');
 }
 
 function referenceInvalid(): AppException {

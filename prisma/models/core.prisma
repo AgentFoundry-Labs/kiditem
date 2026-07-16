@@ -74,11 +74,12 @@ model Organization {
   purchaseOrderItems PurchaseOrderItem[]
 
   // Warehouse & record-only inventory operations
-  warehouses                  Warehouse[]
-  stockTransfers              StockTransfer[]
-  stockAudits                 StockAudit[]
-  sellpiaReceiptUploadBatches SellpiaReceiptUploadBatch[]
-  sellpiaInventoryState       SellpiaInventoryState?
+  warehouses                      Warehouse[]
+  stockTransfers                  StockTransfer[]
+  stockAudits                     StockAudit[]
+  sellpiaReceiptUploadBatches     SellpiaReceiptUploadBatch[]
+  sellpiaInventoryState           SellpiaInventoryState?
+  sellpiaOrderTransmissionIntents SellpiaOrderTransmissionIntent[]
 
   // Logistics
   shipments       Shipment[]
@@ -197,6 +198,7 @@ model User {
   actorAlerts                                Alert[]                              @relation("AlertActor")
   assignedActionTasks                        ActionTask[]                         @relation("ActionTaskAssignee")
   activeSellpiaInventoryStates               SellpiaInventoryState[]              @relation("SellpiaInventoryStateActiveSyncOwner")
+  createdSellpiaOrderTransmissionIntents     SellpiaOrderTransmissionIntent[]     @relation("SellpiaOrderTransmissionIntentCreator")
   confirmedSourceImportRuns                  SourceImportRun[]                    @relation("SourceImportRunManualFreshExportConfirmer")
   reconciledPurchaseOrderSubmissionAttempts  PurchaseOrderSubmissionAttempt[]     @relation("PurchaseOrderSubmissionAttemptReconciler")
 

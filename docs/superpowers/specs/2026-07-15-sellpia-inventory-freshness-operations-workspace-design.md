@@ -422,13 +422,16 @@ bytes만으로 다운로드 시점을 증명할 수는 없으므로 이 fallback
 ## 주문수집과 Sellpia 반영
 
 쇼핑몰별 raw 주문 수집만으로는 Sellpia 동기화를 만들지 않는다. Sellpia
-양식 파일이 생성되고 전송 버튼 클릭이 성공한 뒤에만 재고 최신화를
-요청한다.
+양식 파일 전송 직전에 서버에 조직별 멱등 intent를 준비하고, 확장이
+`submitted: true`를 반환한 직후 finalize한 generation만 전송 이후
+재고 최신화 요청으로 인정한다.
 
 ```text
 쇼핑몰별 주문 수집
   -> Sellpia 양식 생성
+  -> 서버 transmission intent 준비
   -> Sellpia 전송 요청
+  -> submitted:true 직후 intent finalize + 이후 generation 생성
   -> currentStock 유지
   -> freshness = 갱신 필요
   -> syncNotBefore = 마지막 전송 시각 + 반영 대기시간
@@ -436,6 +439,11 @@ bytes만으로 다운로드 시점을 증명할 수는 없으므로 이 fallback
   -> 자동 Sellpia 전체파일 수집
   -> 최신 또는 실패
 ```
+
+준비된 intent가 남아 있는 동안은 다른 탭이 기존 generation을 완료해도
+최신으로 보지 않고 새 claim도 허용하지 않는다. 같은 intent key의 재호출은
+확장을 다시 실행하지 않고 운영자에게 이전 전송 결과 확인을 요구한다.
+명시적인 `submitted: false`만 abort하여 안전하게 다시 준비할 수 있다.
 
 현재 확장은 submit button click 직후 성공을 반환하므로 기존 `sentAt`을
 접수 완료로 해석하지 않는다. local history와 view model의 의미를
@@ -908,8 +916,9 @@ data migration은
 2. 모든 관련 화면이 같은 네 가지 최신성 상태와 마지막 검증 시각을
    표시한다.
 3. 주문 전송 후 수량은 유지되고 최신성만 `갱신 필요`가 되며, 여러
-   전송이 하나의 자동 수집으로 합쳐진다. 실행 중 들어온 새 전송은
-   후속 generation으로 남아 이전 파일이 지우지 못한다.
+   전송이 하나의 자동 수집으로 합쳐진다. 준비 중단 intent는 해결 전까지
+   최신/claim을 차단하고, finalize된 전송은 그 시점보다 반드시 새로운
+   generation으로 남아 이전 파일이 지우지 못한다.
 4. 수동과 자동 실행이 한 이력에 보이고 같은 hash는 새 행 없이 최신
    검증을 갱신한다.
 5. 최신하지 않은 상태에서는 모든 실제 발주 경로가 외부 side effect
