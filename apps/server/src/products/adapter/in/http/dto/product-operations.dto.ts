@@ -7,6 +7,7 @@ import {
   IsString,
   Max,
   MaxLength,
+  MinLength,
 } from 'class-validator';
 
 const ACTIVE_STATUSES = ['all', 'active', 'inactive'] as const;
@@ -60,4 +61,17 @@ export class ProductOperationsListQueryDto {
 
   @IsIn(AD_STATUSES)
   adStatus: (typeof AD_STATUSES)[number] = 'all';
+}
+
+export class ProductRecipeComponentCandidateQueryDto {
+  @IsString()
+  @MinLength(2)
+  @MaxLength(200)
+  search!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @IsPositive()
+  @Max(50)
+  limit = 20;
 }

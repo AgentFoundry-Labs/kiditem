@@ -31,6 +31,26 @@ export type SellpiaInventorySkuLinkStatus = z.infer<
   typeof SellpiaInventorySkuLinkStatusSchema
 >;
 
+export const InventorySkuLinkedProductSchema = z.object({
+  id: z.string().uuid(),
+  code: z.string().min(1),
+  name: z.string().min(1),
+}).strict();
+export type InventorySkuLinkedProduct = z.infer<
+  typeof InventorySkuLinkedProductSchema
+>;
+
+export const InventorySkuLinkedVariantSchema = z.object({
+  id: z.string().uuid(),
+  masterProductId: z.string().uuid(),
+  code: z.string().min(1),
+  name: z.string().min(1),
+  optionLabel: z.string().nullable(),
+}).strict();
+export type InventorySkuLinkedVariant = z.infer<
+  typeof InventorySkuLinkedVariantSchema
+>;
+
 export const InventorySkuSnapshotItemSchema = z.object({
   sellpiaInventorySkuId: z.string().uuid(),
   code: z.string().min(1),
@@ -46,6 +66,8 @@ export const InventorySkuSnapshotItemSchema = z.object({
   lastImportedAt: zIsoDate.nullable(),
   linkedVariantCount: z.number().int().nonnegative(),
   linkedProductCount: z.number().int().nonnegative(),
+  linkedProducts: z.array(InventorySkuLinkedProductSchema),
+  linkedVariants: z.array(InventorySkuLinkedVariantSchema),
   linkStatus: SellpiaInventorySkuLinkStatusSchema,
 }).strict().superRefine((value, ctx) => {
   if (value.purchasePrice === null && value.stockValue !== null) {
@@ -81,6 +103,37 @@ export const InventorySkuSnapshotItemSchema = z.object({
       message: 'Linked product count must agree with linked variants',
     });
   }
+  const linkedProductIds = new Set(value.linkedProducts.map(({ id }) => id));
+  const linkedVariantIds = new Set(value.linkedVariants.map(({ id }) => id));
+  if (
+    linkedProductIds.size !== value.linkedProducts.length
+    || value.linkedProductCount !== value.linkedProducts.length
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['linkedProducts'],
+      message: 'Linked product destinations must be distinct and agree with linkedProductCount',
+    });
+  }
+  if (
+    linkedVariantIds.size !== value.linkedVariants.length
+    || value.linkedVariantCount !== value.linkedVariants.length
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['linkedVariants'],
+      message: 'Linked variant destinations must be distinct and agree with linkedVariantCount',
+    });
+  }
+  value.linkedVariants.forEach((variant, index) => {
+    if (!linkedProductIds.has(variant.masterProductId)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['linkedVariants', index, 'masterProductId'],
+        message: 'Linked variant must belong to a published linked product destination',
+      });
+    }
+  });
 });
 export type InventorySkuSnapshotItem = z.infer<typeof InventorySkuSnapshotItemSchema>;
 

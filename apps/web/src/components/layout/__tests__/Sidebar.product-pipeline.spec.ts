@@ -51,12 +51,12 @@ describe('Sidebar product pipeline navigation', () => {
   it('preserves the former operations sections and their child routes', () => {
     const sectionEntries = menuSections
       .filter((section) => [
-        '상품관리',
+        '상품 관리',
         '주문관리',
         '재고관리',
-        '출고/반품',
+        '출고반품',
         '거래처',
-        '재무/분석',
+        '재무분석',
       ].includes(section.label))
       .map((section) => [
         section.label,
@@ -64,11 +64,11 @@ describe('Sidebar product pipeline navigation', () => {
       ]);
 
     expect(sectionEntries).toEqual([
-      ['상품관리', [
+      ['상품 관리', [
         ['/product-hub', '상품 관리'],
         ['/product-hub/matching', '상품 매칭'],
         ['/reviews', '리뷰 관리'],
-        ['/product-hub/options', '상품 옵션 관리'],
+        ['/product-hub/options', '셀피아 재고'],
       ]],
       ['주문관리', [
       ['/order-hub', '주문 처리'],
@@ -83,7 +83,7 @@ describe('Sidebar product pipeline navigation', () => {
         ['/stock-ops', '재고 분석'],
         ['/warehouses', '창고 관리'],
       ]],
-      ['출고/반품', [
+      ['출고반품', [
         ['/outbound', '출고 현황'],
         ['/coupang-shipments', '쿠팡 쉽먼트'],
         ['/returns', '반품 관리'],
@@ -93,7 +93,7 @@ describe('Sidebar product pipeline navigation', () => {
         ['/supplier-hub', '거래처 관리'],
         ['/suppliers', '거래처 목록'],
       ]],
-      ['재무/분석', [
+      ['재무분석', [
         ['/profit-loss', '손익 분석'],
         ['/sales-analysis', '매출 분석'],
         ['/finance-hub', '정산 관리'],

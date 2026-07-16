@@ -30,6 +30,22 @@ export const queryKeys = {
     all: ['products'] as const,
     list: (params: Record<string, string>) => [...queryKeys.products.all, 'list', params] as const,
     detail: (id: string) => [...queryKeys.products.all, 'detail', id] as const,
+    operations: {
+      all: ['products', 'operations'] as const,
+      lists: () => [...queryKeys.products.operations.all, 'list'] as const,
+      list: (params: Record<string, string>) =>
+        [...queryKeys.products.operations.lists(), params] as const,
+      detail: (id: string) =>
+        [...queryKeys.products.operations.all, 'detail', id] as const,
+      mutations: () =>
+        [...queryKeys.products.operations.all, 'mutation'] as const,
+      recipeCandidates: (params: Record<string, string>) =>
+        [
+          ...queryKeys.products.operations.all,
+          'recipe-component-candidates',
+          params,
+        ] as const,
+    },
     images: (masterId: string) => [...queryKeys.products.all, 'images', masterId] as const,
     pipelineStats: (status?: string, period?: number) =>
       [...queryKeys.products.all, 'pipelineStats', status, period] as const,
@@ -191,6 +207,15 @@ export const queryKeys = {
         channelSkuId,
         params,
       ] as const,
+  },
+  channelProductMappings: {
+    all: ['channelProductMappings'] as const,
+    list: (params: Record<string, string>) =>
+      [...queryKeys.channelProductMappings.all, 'list', params] as const,
+    productCandidates: (channelListingId: string, params: Record<string, string>) =>
+      [...queryKeys.channelProductMappings.all, 'product-candidates', channelListingId, params] as const,
+    variantCandidates: (channelListingOptionId: string, params: Record<string, string>) =>
+      [...queryKeys.channelProductMappings.all, 'variant-candidates', channelListingOptionId, params] as const,
   },
   channelSkuAvailability: {
     all: ['channelSkuAvailability'] as const,

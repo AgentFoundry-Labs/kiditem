@@ -1,201 +1,101 @@
 'use client';
 
-import { Loader2, Pencil } from 'lucide-react';
-import { Pagination } from '@/components/ui/Pagination';
-import { cn, formatKRW, formatNumber } from '@/lib/utils';
+import { Loader2 } from 'lucide-react';
+import { VariantRecipeSummary } from './VariantRecipeSummary';
 import type {
-  ChannelSkuMappingListItem,
-  ChannelSkuMappingStatus,
-} from '@kiditem/shared/channel-sku-matching';
+  ChannelOptionMatchingQueueRow,
+  ChannelProductMatchingQueueRow,
+} from '@kiditem/shared/channel-product-matching';
 
-type ChannelSkuMappingTableProps = {
-  items: ChannelSkuMappingListItem[];
-  total: number;
-  page: number;
-  limit: number;
-  loading: boolean;
-  emptyMessage: string;
-  onPageChange: (page: number) => void;
-  onEdit: (item: ChannelSkuMappingListItem) => void;
-};
-
-const STATUS_VIEW: Record<
-  ChannelSkuMappingStatus,
-  { label: string; className: string }
-> = {
-  unmatched: { label: '미매칭', className: 'bg-slate-100 text-slate-700' },
-  needs_review: { label: '확인 필요', className: 'bg-amber-100 text-amber-800' },
-  matched: { label: '매칭 완료', className: 'bg-emerald-100 text-emerald-800' },
+type Props = {
+  level: 'products' | 'options';
+  products: ChannelProductMatchingQueueRow[];
+  options: ChannelOptionMatchingQueueRow[];
+  onEditProduct: (row: ChannelProductMatchingQueueRow) => void;
+  onEditVariant: (row: ChannelOptionMatchingQueueRow) => void;
+  loading?: boolean;
 };
 
 export function ChannelSkuMappingTable({
-  items,
-  total,
-  page,
-  limit,
-  loading,
-  emptyMessage,
-  onPageChange,
-  onEdit,
-}: ChannelSkuMappingTableProps) {
+  level,
+  products,
+  options,
+  onEditProduct,
+  onEditVariant,
+  loading = false,
+}: Props) {
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-14 text-sm text-slate-600">
+        <Loader2 size={16} className="animate-spin" /> 매칭 목록을 불러오는 중입니다.
+      </div>
+    );
+  }
+
+  return level === 'products' ? (
+    <ProductRows rows={products} onEdit={onEditProduct} />
+  ) : (
+    <OptionRows rows={options} onEdit={onEditVariant} />
+  );
+}
+
+function ProductRows({ rows, onEdit }: {
+  rows: ChannelProductMatchingQueueRow[];
+  onEdit: (row: ChannelProductMatchingQueueRow) => void;
+}) {
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
       <div className="overflow-x-auto">
-        <table className="min-w-[1480px] w-full border-collapse text-left text-sm">
-          <thead className="bg-[var(--surface-sunken,#f8fafc)] text-xs font-semibold text-[var(--text-secondary,#475569)]">
-            <tr>
-              <th className="px-4 py-3">채널 계정</th>
-              <th className="px-4 py-3">상품</th>
-              <th className="px-4 py-3">옵션 SKU</th>
-              <th className="px-4 py-3">식별자</th>
-              <th className="px-4 py-3">판매 메타데이터</th>
-              <th className="px-4 py-3">Sellpia 구성</th>
-              <th className="px-4 py-3">상태 / 작업</th>
-            </tr>
+        <table className="w-full min-w-[900px] text-left text-sm">
+          <thead className="bg-slate-50 text-xs font-bold text-slate-600">
+            <tr><th className="px-4 py-3">채널 계정</th><th className="px-4 py-3">채널 상품</th><th className="px-4 py-3">KidItem 상품</th><th className="px-4 py-3">옵션 진행</th><th className="px-4 py-3">작업</th></tr>
           </thead>
-          <tbody className="divide-y divide-[var(--border,#e2e8f0)]">
-            {loading ? (
-              <tr>
-                <td colSpan={7} className="px-4 py-14 text-center text-[var(--text-secondary,#64748b)]">
-                  <span className="inline-flex items-center gap-2">
-                    <Loader2 size={16} className="animate-spin" />
-                    채널 SKU를 불러오는 중입니다.
-                  </span>
-                </td>
+          <tbody className="divide-y divide-slate-200">
+            {rows.length === 0 ? (
+              <tr><td colSpan={5} className="px-4 py-14 text-center text-slate-500">표시할 채널 상품이 없습니다.</td></tr>
+            ) : rows.map((row) => (
+              <tr key={row.listing.id} className="align-top">
+                <td className="px-4 py-4"><p className="font-bold text-slate-900">{row.channelAccount.name}</p><p className="mt-1 font-mono text-xs text-slate-500">{row.channelAccount.channel}</p></td>
+                <td className="max-w-80 px-4 py-4"><p className="font-semibold text-slate-900">{row.listing.displayName ?? '상품명 없음'}</p><p className="mt-1 font-mono text-xs text-slate-500">{row.listing.externalId}</p></td>
+                <td className="px-4 py-4">{row.linkedProduct ? <><p className="font-bold text-slate-900">{row.linkedProduct.code} · {row.linkedProduct.name}</p><p className="mt-1 text-xs font-semibold text-emerald-700">연결 완료</p></> : <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">미매칭</span>}</td>
+                <td className="px-4 py-4 font-semibold text-slate-700">{row.linkedOptionCount} / {row.optionCount} 연결</td>
+                <td className="px-4 py-4"><button type="button" onClick={() => onEdit(row)} className="rounded-xl border border-[var(--primary,#7048e8)] px-3 py-2 text-xs font-bold text-[var(--primary,#7048e8)]">상품 연결</button></td>
               </tr>
-            ) : items.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-4 py-14 text-center text-[var(--text-secondary,#64748b)]">
-                  {emptyMessage}
-                </td>
-              </tr>
-            ) : (
-              items.map((item) => {
-                const hasInactiveComponent = item.warnings.includes('component_inactive');
-                const status = hasInactiveComponent
-                  ? { label: '매칭 확인 필요', className: 'bg-amber-100 text-amber-800' }
-                  : STATUS_VIEW[item.sku.mappingStatus];
-                const productName =
-                  item.product.registeredName ?? item.product.displayName ?? '상품명 없음';
-                return (
-                  <tr
-                    key={item.sku.id}
-                    className="align-top [content-visibility:auto] [contain-intrinsic-size:0_150px]"
-                  >
-                    <td className="px-4 py-4">
-                      <p className="font-semibold text-[var(--text-primary,#0f172a)]">
-                        {item.channelAccount.name}
-                      </p>
-                      <p className="mt-1 font-mono text-xs text-[var(--text-tertiary,#64748b)]">
-                        {item.channelAccount.channel}
-                      </p>
-                    </td>
-                    <td className="max-w-64 px-4 py-4">
-                      <p className="truncate font-medium text-[var(--text-primary,#0f172a)]">
-                        {productName}
-                      </p>
-                      {item.product.displayName && item.product.displayName !== productName ? (
-                        <p className="mt-1 truncate text-xs text-[var(--text-secondary,#475569)]">
-                          {item.product.displayName}
-                        </p>
-                      ) : null}
-                      <p className="mt-1 font-mono text-xs text-[var(--text-tertiary,#64748b)]">
-                        {item.product.externalProductId}
-                      </p>
-                    </td>
-                    <td className="max-w-64 px-4 py-4">
-                      <p className="truncate font-medium text-[var(--text-primary,#0f172a)]">
-                        {item.sku.optionName ?? '옵션명 없음'}
-                      </p>
-                      <p className="mt-1 font-mono text-xs text-[var(--text-tertiary,#64748b)]">
-                        {item.sku.externalSkuId}
-                      </p>
-                      <p className="mt-1 font-mono text-xs text-[var(--text-secondary,#475569)]">
-                        {item.sku.sellerSku ?? 'sellerSku 없음'}
-                      </p>
-                    </td>
-                    <td className="px-4 py-4 text-xs text-[var(--text-secondary,#475569)]">
-                      <p className="font-mono">{item.sku.barcode ?? '바코드 없음'}</p>
-                      <p className="mt-1 font-mono">{item.sku.modelNumber ?? '모델번호 없음'}</p>
-                    </td>
-                    <td className="px-4 py-4 text-xs text-[var(--text-secondary,#475569)]">
-                      <p>{item.sku.status ?? item.product.status ?? '상태 없음'}</p>
-                      <p className="mt-1 font-mono">
-                        {item.sku.salePrice === null
-                          ? '가격 없음'
-                          : `${formatKRW(item.sku.salePrice)}원`}
-                      </p>
-                      <p className="mt-1 font-semibold text-[var(--text-primary,#0f172a)]">
-                        {item.sku.sellableStock === null
-                          ? '판매 가능 계산 전'
-                          : `판매 가능 ${formatNumber(item.sku.sellableStock)}`}
-                      </p>
-                    </td>
-                    <td className="max-w-80 px-4 py-4">
-                      {item.components.length === 0 ? (
-                        <p className="text-xs text-[var(--text-tertiary,#64748b)]">구성 없음</p>
-                      ) : (
-                        <ul className="space-y-2">
-                          {item.components.map((component) => (
-                            <li key={component.masterProductId} className="text-xs">
-                              <p className="font-medium text-[var(--text-primary,#0f172a)]">
-                                <span className="font-mono">{component.code}</span>
-                                {' · '}
-                                {component.name}
-                                {component.optionName ? ` · ${component.optionName}` : ''}
-                                {' × '}
-                                <span className="font-mono">{formatNumber(component.quantity)}</span>
-                              </p>
-                              <p className="mt-0.5 text-[var(--text-tertiary,#64748b)]">
-                                현재 재고 {formatNumber(component.currentStock)}
-                                {' · '}
-                                {component.purchasePrice === null
-                                  ? '매입가 없음'
-                                  : `매입가 ${formatKRW(component.purchasePrice)}원`}
-                                {' · '}구성 가능 {formatNumber(component.componentCapacity)}
-                                {component.isBottleneck ? ' · 병목' : ''}
-                              </p>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </td>
-                    <td className="px-4 py-4">
-                      <span
-                        className={cn(
-                          'inline-flex rounded-full px-2.5 py-1 text-xs font-semibold',
-                          status.className,
-                        )}
-                      >
-                        {status.label}
-                      </span>
-                      {hasInactiveComponent ? (
-                        <p className="mt-2 text-xs font-semibold text-amber-700">
-                          비활성 구성품 포함
-                        </p>
-                      ) : null}
-                      <button
-                        type="button"
-                        aria-label={`${item.sku.externalSkuId} Sellpia 구성 편집`}
-                        onClick={() => onEdit(item)}
-                        className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-[var(--border,#cbd5e1)] px-3 py-2 text-xs font-semibold text-[var(--text-secondary,#475569)] hover:border-[var(--primary,#7048e8)] hover:text-[var(--primary,#7048e8)]"
-                      >
-                        <Pencil size={13} /> 구성 편집
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
+            ))}
           </tbody>
         </table>
       </div>
-      <Pagination
-        page={page}
-        limit={limit}
-        total={total}
-        onPageChange={onPageChange}
-      />
+    </div>
+  );
+}
+
+function OptionRows({ rows, onEdit }: {
+  rows: ChannelOptionMatchingQueueRow[];
+  onEdit: (row: ChannelOptionMatchingQueueRow) => void;
+}) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[1080px] text-left text-sm">
+          <thead className="bg-slate-50 text-xs font-bold text-slate-600">
+            <tr><th className="px-4 py-3">채널 계정</th><th className="px-4 py-3">채널 상품</th><th className="px-4 py-3">채널 옵션</th><th className="px-4 py-3">KidItem 판매 옵션</th><th className="px-4 py-3">레시피 상태</th><th className="px-4 py-3">작업</th></tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200">
+            {rows.length === 0 ? (
+              <tr><td colSpan={6} className="px-4 py-14 text-center text-slate-500">표시할 채널 옵션이 없습니다.</td></tr>
+            ) : rows.map((row) => (
+              <tr key={row.option.id} className="align-top">
+                <td className="px-4 py-4"><p className="font-bold text-slate-900">{row.channelAccount.name}</p><p className="mt-1 font-mono text-xs text-slate-500">{row.channelAccount.channel}</p></td>
+                <td className="px-4 py-4 font-mono text-xs text-slate-600">{row.listing.externalId}</td>
+                <td className="max-w-72 px-4 py-4"><p className="font-semibold text-slate-900">{row.option.itemName ?? '옵션명 없음'}</p><p className="mt-1 font-mono text-xs text-slate-500">{row.option.sellerSku ?? row.option.externalOptionId}</p></td>
+                <td className="px-4 py-4">{row.linkedVariant ? <><p className="font-bold text-slate-900">{row.linkedVariant.code} · {row.linkedVariant.name}</p><p className="mt-1 text-xs text-slate-500">{row.linkedVariant.optionLabel ?? '옵션 설명 없음'}</p></> : <span className="text-xs font-semibold text-slate-500">미연결</span>}</td>
+                <td className="px-4 py-4"><VariantRecipeSummary row={row} /></td>
+                <td className="px-4 py-4"><button type="button" disabled={!row.listing.masterProductId} title={!row.listing.masterProductId ? '상품을 먼저 연결해 주세요.' : undefined} onClick={() => onEdit(row)} className="rounded-xl border border-[var(--primary,#7048e8)] px-3 py-2 text-xs font-bold text-[var(--primary,#7048e8)] disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400">옵션 연결</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

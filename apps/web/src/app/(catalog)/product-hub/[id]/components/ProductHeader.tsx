@@ -1,8 +1,14 @@
 import Link from 'next/link';
-import { ArrowLeft, Package } from 'lucide-react';
-import type { InventorySkuSnapshotItem } from '@kiditem/shared/inventory';
+import { ArrowLeft, Package, Pencil } from 'lucide-react';
+import type { MasterProductOperationsDetail } from '@kiditem/shared/product-operations';
 
-export default function ProductHeader({ product }: { product: InventorySkuSnapshotItem }) {
+export default function ProductHeader({
+  product,
+  onEdit,
+}: {
+  product: MasterProductOperationsDetail;
+  onEdit: () => void;
+}) {
   return (
     <header className="space-y-4">
       <Link
@@ -29,13 +35,19 @@ export default function ProductHeader({ product }: { product: InventorySkuSnapsh
               {product.name}
             </h1>
             <p className="mt-1 text-sm text-[var(--text-tertiary)]">
-              {product.optionName || '단일 상품'}
+              {product.category ?? '미분류'} · {product.brand ?? '브랜드 미등록'}
             </p>
           </div>
         </div>
-        <span className="rounded-full border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 py-1.5 text-xs font-semibold text-[var(--text-tertiary)]">
-          Sellpia 동기화 데이터 · 읽기 전용
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="inline-flex items-center gap-2 rounded-xl bg-[var(--primary)] px-4 py-2 text-sm font-bold text-white"
+          >
+            <Pencil size={14} /> 상품 정보 수정
+          </button>
+        </div>
       </div>
     </header>
   );

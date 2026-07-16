@@ -1,6 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaClient } from '@prisma/client';
-import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -10,6 +8,8 @@ import {
 } from '../../test-helpers/real-prisma';
 import { InventorySkuSnapshotListRepositoryAdapter } from '../adapter/out/repository/inventory-sku-snapshot-list.repository.adapter';
 import { InventorySkuSnapshotListService } from '../application/service/inventory-sku-snapshot-list.service';
+import type { PrismaClient } from '@prisma/client';
+import type { PrismaService } from '../../prisma/prisma.service';
 
 describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
   let prisma: PrismaClient;
@@ -193,6 +193,15 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       lastImportedAt: '2026-07-12T02:00:00.000Z',
       linkedVariantCount: 3,
       linkedProductCount: 2,
+      linkedProducts: [
+        { id: productA.id, code: 'PRODUCT-A', name: '운영 상품 A' },
+        { id: productB.id, code: 'PRODUCT-B', name: '운영 상품 B' },
+      ],
+      linkedVariants: [
+        { id: variants[0].id, masterProductId: productA.id, code: 'VARIANT-A1', name: '옵션 A1', optionLabel: null },
+        { id: variants[1].id, masterProductId: productA.id, code: 'VARIANT-A2', name: '옵션 A2', optionLabel: null },
+        { id: variants[2].id, masterProductId: productB.id, code: 'VARIANT-B1', name: '옵션 B1', optionLabel: null },
+      ],
       linkStatus: 'linked',
     });
 
@@ -216,6 +225,8 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       lastImportedAt: null,
       linkedVariantCount: 0,
       linkedProductCount: 0,
+      linkedProducts: [],
+      linkedVariants: [],
       linkStatus: 'unlinked',
     });
   });
@@ -275,6 +286,8 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
         code: 'SP-SAME',
         linkedVariantCount: 0,
         linkedProductCount: 0,
+        linkedProducts: [],
+        linkedVariants: [],
         linkStatus: 'unlinked',
       }),
     ]);

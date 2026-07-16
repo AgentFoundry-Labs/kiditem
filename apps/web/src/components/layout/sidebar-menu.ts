@@ -97,13 +97,13 @@ export const menuSections: MenuSection[] = [
     ],
   },
   {
-    label: '상품관리',
+    label: '상품 관리',
     collapsible: true,
     items: [
       { href: '/product-hub', label: '상품 관리', icon: Package },
       { href: '/product-hub/matching', label: '상품 매칭', icon: Link2 },
       { href: '/reviews', label: '리뷰 관리', icon: MessageSquare },
-      { href: '/product-hub/options', label: '상품 옵션 관리', icon: Layers },
+      { href: '/product-hub/options', label: '셀피아 재고', icon: Layers },
     ],
   },
   {
@@ -128,7 +128,7 @@ export const menuSections: MenuSection[] = [
     ],
   },
   {
-    label: '출고/반품',
+    label: '출고반품',
     collapsible: true,
     items: [
       { href: '/outbound', label: '출고 현황', icon: Truck },
@@ -146,7 +146,7 @@ export const menuSections: MenuSection[] = [
     ],
   },
   {
-    label: '재무/분석',
+    label: '재무분석',
     collapsible: true,
     items: [
       { href: '/profit-loss', label: '손익 분석', icon: TrendingUp },

@@ -7,42 +7,46 @@ const productHubRoot = resolve(
   'src/app/(catalog)/product-hub',
 );
 
-function productionSource(dir = productHubRoot): string {
+function productionSource(
+  dir = productHubRoot,
+  excludedDirectories = new Set(['matching', 'options']),
+): string {
   return readdirSync(dir)
     .flatMap((entry) => {
       const path = join(dir, entry);
       if (statSync(path).isDirectory()) {
-        if (entry === 'matching') return [];
-        return productionSource(path);
+        if (excludedDirectories.has(entry)) return [];
+        return productionSource(path, excludedDirectories);
       }
-      if (!/\.(ts|tsx)$/.test(entry) || /\.(spec|test)\./.test(entry)) return [];
-      return [readFileSync(path, 'utf8')];
+        if (!/\.(ts|tsx)$/.test(entry) || /\.(spec|test)\./.test(entry)) return [];
+        if (entry === 'ProductOptionsWorkspace.tsx') return [];
+        return [readFileSync(path, 'utf8')];
     })
     .join('\n');
 }
 
 describe('product hub final inventory ownership boundary', () => {
-  it('reads the Sellpia MasterProduct snapshot without any removed product API', () => {
+  it('reads KidItem products without presenting a Sellpia SKU as the product', () => {
     const source = productionSource();
 
-    expect(source).toContain('/api/inventory/sellpia-skus');
-    expect(source).not.toContain('/api/products');
-    expect(source).not.toContain('queryKeys.products');
+    expect(source).toContain('/api/products/masters');
+    expect(source).toContain('queryKeys.products.operations');
+    expect(source).toContain('/api/products/recipe-component-candidates');
+    expect(source).not.toContain('/api/inventory/sellpia-skus');
     expect(source).not.toMatch(/\bProductOption(?:Schema|Create|Update|Delete)\b/);
   });
 
-  it('is read-only and light-only outside the dedicated matching workspace', () => {
+  it('keeps physical stock immutable and light-only outside the dedicated matching workspace', () => {
     const source = productionSource();
 
     expect(source).not.toContain('AddProductModal');
     expect(source).not.toContain('ExcelUploadModal');
     expect(source).not.toContain('/api/traffic/upload');
-    expect(source).not.toContain('setShowModal');
-    expect(source).not.toContain('setShowUploadModal');
+    expect(source).not.toContain('/api/inventory/adjust');
     expect(source).not.toContain('dark:');
   });
 
-  it('renders the option URL with the shared read-only Sellpia option workspace', () => {
+  it('renders the option URL with its own read-only Sellpia inventory query', () => {
     const pageSource = readFileSync(join(productHubRoot, 'options/page.tsx'), 'utf8');
     const workspaceSource = readFileSync(
       join(productHubRoot, 'components/ProductOptionsWorkspace.tsx'),
@@ -51,8 +55,9 @@ describe('product hub final inventory ownership boundary', () => {
 
     expect(pageSource).toContain('ProductOptionsWorkspace');
     expect(pageSource).toContain('headingLevel={1}');
-    expect(workspaceSource).toContain('useProductHubPageState');
+    expect(workspaceSource).toContain('useSellpiaInventorySkuPageState');
     expect(workspaceSource).toContain('SellpiaOptionTable');
+    expect(workspaceSource).toContain('/api/inventory/sellpia-skus');
     expect(workspaceSource).not.toContain("from '../matching/page'");
     expect(workspaceSource).not.toContain('/api/products/options');
   });

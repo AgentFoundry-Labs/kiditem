@@ -1,4 +1,6 @@
 import type {
+  InventorySkuLinkedProduct,
+  InventorySkuLinkedVariant,
   InventorySkuSnapshotSummary,
   InventorySkuStockStatus,
   SellpiaInventorySkuActiveStatus,
@@ -33,6 +35,8 @@ export type InventorySkuSnapshotRepositoryRow = {
   lastImportedAt: Date | null;
   linkedVariantCount: number;
   linkedProductCount: number;
+  linkedProducts: InventorySkuLinkedProduct[];
+  linkedVariants: InventorySkuLinkedVariant[];
 };
 
 export type SellpiaImportRunRepositoryRow = Omit<

@@ -1,11 +1,14 @@
 import { NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import type { InventorySkuSnapshotListRepositoryPort } from '../port/out/repository/inventory-sku-snapshot-list.repository.port';
 import { InventorySkuSnapshotListService } from './inventory-sku-snapshot-list.service';
+import type { InventorySkuSnapshotListRepositoryPort } from '../port/out/repository/inventory-sku-snapshot-list.repository.port';
 
 const organizationId = '00000000-0000-4000-8000-000000000001';
 const sellpiaInventorySkuId = '00000000-0000-4000-8000-000000000002';
 const runId = '00000000-0000-4000-8000-000000000003';
+const productId = '00000000-0000-4000-8000-000000000004';
+const firstVariantId = '00000000-0000-4000-8000-000000000005';
+const secondVariantId = '00000000-0000-4000-8000-000000000006';
 
 describe('InventorySkuSnapshotListService', () => {
   it('normalizes paging/search/filter and maps stock value plus import timestamps', async () => {
@@ -25,6 +28,11 @@ describe('InventorySkuSnapshotListService', () => {
         lastImportedAt: new Date('2026-07-12T00:00:00.000Z'),
         linkedVariantCount: 2,
         linkedProductCount: 1,
+        linkedProducts: [{ id: productId, code: 'KI-001', name: 'KidItem 상품' }],
+        linkedVariants: [
+          { id: firstVariantId, masterProductId: productId, code: 'KI-001-A', name: '파랑', optionLabel: '색상: 파랑' },
+          { id: secondVariantId, masterProductId: productId, code: 'KI-001-B', name: '빨강', optionLabel: '색상: 빨강' },
+        ],
       }],
       total: 1,
       summary: {
@@ -83,6 +91,11 @@ describe('InventorySkuSnapshotListService', () => {
         lastImportedAt: '2026-07-12T00:00:00.000Z',
         linkedVariantCount: 2,
         linkedProductCount: 1,
+        linkedProducts: [{ id: productId, code: 'KI-001', name: 'KidItem 상품' }],
+        linkedVariants: [
+          { id: firstVariantId, masterProductId: productId, code: 'KI-001-A', name: '파랑', optionLabel: '색상: 파랑' },
+          { id: secondVariantId, masterProductId: productId, code: 'KI-001-B', name: '빨강', optionLabel: '색상: 빨강' },
+        ],
         linkStatus: 'linked',
       }],
       total: 1,
@@ -135,6 +148,8 @@ describe('InventorySkuSnapshotListService', () => {
         lastImportedAt: null,
         linkedVariantCount: 0,
         linkedProductCount: 0,
+        linkedProducts: [],
+        linkedVariants: [],
       }],
       total: 1,
       summary: emptySummary(),
@@ -221,6 +236,11 @@ describe('InventorySkuSnapshotListService', () => {
       lastImportedAt: new Date('2026-07-12T00:00:00.000Z'),
       linkedVariantCount: 2,
       linkedProductCount: 1,
+      linkedProducts: [{ id: productId, code: 'KI-001', name: 'KidItem 상품' }],
+      linkedVariants: [
+        { id: firstVariantId, masterProductId: productId, code: 'KI-001-A', name: '파랑', optionLabel: '색상: 파랑' },
+        { id: secondVariantId, masterProductId: productId, code: 'KI-001-B', name: '빨강', optionLabel: '색상: 빨강' },
+      ],
     });
     const service = new InventorySkuSnapshotListService(repository);
 
@@ -239,6 +259,11 @@ describe('InventorySkuSnapshotListService', () => {
       lastImportedAt: '2026-07-12T00:00:00.000Z',
       linkedVariantCount: 2,
       linkedProductCount: 1,
+      linkedProducts: [{ id: productId, code: 'KI-001', name: 'KidItem 상품' }],
+      linkedVariants: [
+        { id: firstVariantId, masterProductId: productId, code: 'KI-001-A', name: '파랑', optionLabel: '색상: 파랑' },
+        { id: secondVariantId, masterProductId: productId, code: 'KI-001-B', name: '빨강', optionLabel: '색상: 빨강' },
+      ],
       linkStatus: 'linked',
     });
     expect(repository.getSnapshot).toHaveBeenCalledWith(

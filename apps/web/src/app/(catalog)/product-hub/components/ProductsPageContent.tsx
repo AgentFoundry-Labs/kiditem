@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { BarChart3, Download, Package, RefreshCw, Search, Upload } from 'lucide-react';
 import PageSkeleton from '@/components/ui/PageSkeleton';
@@ -7,12 +8,14 @@ import { cn, formatNumber } from '@/lib/utils';
 import { PAGE_SIZE, useProductHubPageState } from '../hooks/useProductHubPageState';
 import { PERIOD_OPTIONS } from '../lib/product-page-config';
 import { ProductCategoryTabs } from './ProductCategoryTabs';
+import { ProductEditorDialog } from './ProductEditorDialog';
 import { ProductOperationsCommandCenter } from './ProductOperationsCommandCenter';
 import { ProductRowCard } from './ProductRowCard';
 import { ProductsColumnHeader } from './ProductsColumnHeader';
 
 export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
   const state = useProductHubPageState();
+  const [editorOpen, setEditorOpen] = useState(false);
   const data = state.data;
   const Heading = headingLevel === 1 ? 'h1' : 'h2';
 
@@ -43,18 +46,21 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
         <div className="flex flex-wrap items-center justify-end gap-2">
           <div
             className="flex items-center rounded-xl bg-[var(--surface-sunken)] p-1"
-            title="기간별 트래픽 지표는 현재 Sellpia 스냅샷에서 미수집 중입니다."
+            title="상품별 기간 지표 원본이 아직 연결되지 않아 일부 지표는 미수집으로 표시됩니다."
           >
             {PERIOD_OPTIONS.map((item) => (
               <button
                 key={item.days}
                 type="button"
-                disabled
+                disabled={item.days === 365}
+                onClick={() => item.days !== 365 && state.setPeriodDays(item.days)}
                 className={cn(
-                  'cursor-not-allowed rounded-lg px-3 py-1.5 text-[13px] font-semibold',
-                  item.days === 14
-                    ? 'bg-[var(--primary)] text-white opacity-70 shadow-sm'
-                    : 'text-[var(--text-tertiary)] opacity-55',
+                  'rounded-lg px-3 py-1.5 text-[13px] font-semibold',
+                  item.days === state.periodDays
+                    ? 'bg-[var(--primary)] text-white shadow-sm'
+                    : item.days === 365
+                      ? 'cursor-not-allowed text-[var(--text-tertiary)] opacity-55'
+                      : 'text-[var(--text-tertiary)] hover:bg-[var(--surface)]',
                 )}
               >
                 {item.label}
@@ -88,9 +94,8 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
           </Link>
           <button
             type="button"
-            disabled
-            title="상품 추가와 수정은 Sellpia에서 관리합니다."
-            className="flex h-9 cursor-not-allowed items-center gap-1.5 rounded-xl bg-[var(--primary)] px-4 text-[13px] font-semibold text-white opacity-55"
+            onClick={() => setEditorOpen(true)}
+            className="flex h-9 items-center gap-1.5 rounded-xl bg-[var(--primary)] px-4 text-[13px] font-semibold text-white"
           >
             + 상품 추가
           </button>
@@ -100,19 +105,20 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
       {data ? (
         <ProductOperationsCommandCenter
           data={data}
-          onShowOutOfStock={() => state.setStockStatus('out_of_stock')}
+          onShowOutOfStock={() => state.setInventoryStatus('out_of_stock')}
         />
       ) : null}
 
-      <ProductCategoryTabs />
+      <ProductCategoryTabs category={state.category} onCategoryChange={state.setCategory} />
 
       <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-4 py-3">
         <form onSubmit={state.handleSearch} className="relative min-w-[240px] max-w-sm flex-1">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-quaternary)]" />
           <input
+            aria-label="상품명 · 상품 코드 · 브랜드 검색"
             value={state.search}
             onChange={(event) => state.setSearch(event.target.value)}
-            placeholder="상품명 · Sellpia 코드 · 바코드 검색"
+            placeholder="상품명 · 상품 코드 · 브랜드 검색"
             className="h-10 w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] pl-9 pr-3 text-[14px] text-[var(--text-primary)]"
           />
         </form>
@@ -128,16 +134,21 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
         </select>
         <div
           className="flex items-center rounded-xl bg-[var(--surface-sunken)] p-1"
-          title="광고 여부는 현재 Sellpia 스냅샷에서 미수집 중입니다."
+          aria-label="광고 상태"
         >
-          {['전체', '광고중', '광고없음'].map((label, index) => (
+          {([
+            ['전체', 'all'],
+            ['광고중', 'active'],
+            ['광고없음', 'inactive'],
+          ] as const).map(([label, value]) => (
             <button
               key={label}
               type="button"
-              disabled
+              aria-pressed={state.adStatus === value}
+              onClick={() => state.setAdStatus(value)}
               className={cn(
-                'cursor-not-allowed rounded-lg px-3 py-1.5 text-[13px] font-semibold opacity-55',
-                index === 0 ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-tertiary)]',
+                'rounded-lg px-3 py-1.5 text-[13px] font-semibold',
+                state.adStatus === value ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-tertiary)]',
               )}
             >
               {label}
@@ -146,21 +157,27 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
         </div>
         <select
           aria-label="재고 상태"
-          value={state.stockStatus}
-          onChange={(event) => state.setStockStatus(event.target.value as typeof state.stockStatus)}
+          value={state.inventoryStatus}
+          onChange={(event) => state.setInventoryStatus(event.target.value as typeof state.inventoryStatus)}
           className="h-10 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 text-[14px] font-medium text-[var(--text-secondary)]"
         >
           <option value="all">전체 재고</option>
           <option value="out_of_stock">품절</option>
-          <option value="in_stock">재고 OK</option>
+          <option value="partial_out_of_stock">일부 품절</option>
+          <option value="sellable">판매 가능</option>
+          <option value="configuration_required">구성 필요</option>
+          <option value="review_required">검토 필요</option>
         </select>
         <select
           aria-label="상품 등급"
-          disabled
-          title="상품 등급은 현재 Sellpia 스냅샷에서 미수집 중입니다."
-          className="h-10 cursor-not-allowed rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 text-[14px] font-medium text-[var(--text-muted)] opacity-55"
+          value={state.abcGrade}
+          onChange={(event) => state.setAbcGrade(event.target.value)}
+          className="h-10 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 text-[14px] font-medium text-[var(--text-secondary)]"
         >
-          <option>전체 등급</option>
+          <option value="">전체 등급</option>
+          <option value="A">A등급</option>
+          <option value="B">B등급</option>
+          <option value="C">C등급</option>
         </select>
         <span className="text-[13px] font-semibold tabular-nums text-[var(--text-tertiary)]">
           {formatNumber(data?.total ?? 0)}개 표시
@@ -179,14 +196,14 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
       {data?.items.length ? (
         <div className="space-y-3">
           {data.items.map((product) => (
-            <ProductRowCard key={product.masterProductId} product={product} />
+            <ProductRowCard key={product.id} product={product} />
           ))}
         </div>
-      ) : (
+      ) : !state.errorMessage ? (
         <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] p-12 text-center text-sm text-[var(--text-tertiary)]">
-          조건에 맞는 Sellpia 상품이 없습니다.
+          조건에 맞는 KidItem 상품이 없습니다.
         </div>
-      )}
+      ) : null}
 
       {state.totalPages > 1 ? (
         <div className="flex items-center justify-between pt-2">
@@ -230,6 +247,12 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
           </nav>
         </div>
       ) : null}
+
+      <ProductEditorDialog
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        onSaved={() => undefined}
+      />
     </div>
   );
 }

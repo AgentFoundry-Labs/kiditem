@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { useQuery } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProductHubDetailPage from './page';
@@ -7,60 +7,82 @@ vi.mock('next/navigation', () => ({
   useParams: () => ({ id: '11111111-1111-4111-8111-111111111111' }),
 }));
 
-vi.mock('@tanstack/react-query', () => ({
-  useQuery: vi.fn(),
-}));
+vi.mock('@tanstack/react-query', () => ({ useQuery: vi.fn() }));
 
 vi.mock('../components/ChannelSkuInventorySummary', () => ({
   ChannelSkuInventorySummary: () => <section>채널 SKU 전체 현황</section>,
 }));
 
+vi.mock('../components/ProductEditorDialog', () => ({
+  ProductEditorDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">상품 정보 수정</div> : null,
+}));
+
+vi.mock('./components/ProductVariantPanel', () => ({
+  default: ({ variants }: { variants: Array<{ name: string }> }) => (
+    <section><h2>판매 옵션</h2>{variants.map((variant) => <p key={variant.name}>{variant.name}</p>)}</section>
+  ),
+}));
+
 const product = {
-  masterProductId: '11111111-1111-4111-8111-111111111111',
-  code: 'SP-100',
+  id: '11111111-1111-4111-8111-111111111111',
+  code: 'KI-100',
   name: '동물 친구들 블록',
-  optionName: '분홍',
-  barcode: '8801234567890',
-  currentStock: 12,
-  purchasePrice: 4000,
-  salePrice: 7900,
+  description: '아이들을 위한 블록',
+  category: '완구/놀이',
+  brand: 'KidItem',
+  tags: ['핵심'],
+  imageUrls: [],
+  abcGrade: 'A',
+  profitTag: null,
+  adTier: null,
+  adBudgetLimit: null,
+  healthScore: 90,
+  healthUpdatedAt: null,
   isActive: true,
-  stockValue: 48000,
-  lastImportRunId: '22222222-2222-4222-8222-222222222222',
-  lastImportedAt: '2026-07-16T00:00:00.000Z',
+  createdAt: '2026-07-16T00:00:00.000Z',
+  updatedAt: '2026-07-16T00:00:00.000Z',
+  inventoryStatus: 'sellable' as const,
+  inventoryUnits: 24,
+  channelListings: [],
+  variants: [{
+    id: '22222222-2222-4222-8222-222222222222',
+    code: 'KI-100-DEFAULT',
+    name: '기본 옵션',
+    optionLabel: null,
+    isDefault: true,
+    isActive: true,
+    components: [],
+    capacity: 12,
+    warningState: 'none' as const,
+  }],
 };
 
-describe('/product-hub/[id] c9 Sellpia detail', () => {
+describe('/product-hub/[id] MasterProduct detail', () => {
   beforeEach(() => {
-    vi.mocked(useQuery).mockReturnValue({
-      data: product,
-      isLoading: false,
-      error: null,
-    } as ReturnType<typeof useQuery>);
+    vi.mocked(useQuery).mockReturnValue({ data: product, isLoading: false, error: null } as ReturnType<typeof useQuery>);
   });
 
-  it('renders the compact Sellpia read-only detail structure', () => {
+  it('reads the product owner and preserves a product detail entry', () => {
     render(<ProductHubDetailPage />);
 
-    expect(screen.queryByRole('button', { name: '워크플로우 실행' })).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 1, name: '동물 친구들 블록' })).toBeInTheDocument();
-    for (const heading of [
-      'Sellpia 상품 식별자',
-      '현재 재고',
-      '가격',
-      '동기화 출처',
-    ]) {
-      expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument();
-    }
-    expect(screen.getByText('MasterProduct ID')).toBeInTheDocument();
-    expect(screen.getByText('채널 SKU 전체 현황')).toBeInTheDocument();
+    const options = vi.mocked(useQuery).mock.calls[0]?.[0] as {
+      queryKey: readonly unknown[];
+      queryFn: () => Promise<unknown>;
+    };
+    expect(options.queryKey).toEqual(['products', 'operations', 'detail', product.id]);
+    expect(options.queryFn.toString()).toContain('/api/products/masters/');
+    expect(options.queryFn.toString()).not.toContain('/api/inventory/sellpia-skus/');
+    expect(screen.getByRole('heading', { level: 1, name: product.name })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '상품 운영 정보' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '판매 옵션' })).toBeInTheDocument();
+    expect(screen.getByText('기본 옵션')).toBeInTheDocument();
   });
 
-  it('does not render removed workflow and analytics placeholders', () => {
+  it('opens product metadata editing without exposing stock editing', () => {
     render(<ProductHubDetailPage />);
 
-    expect(screen.queryByText(/워크플로우 실행은/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: '상품 진단' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: '분석 기록' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '상품 정보 수정' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('상품 정보 수정');
+    expect(screen.queryByLabelText('재고 수량')).not.toBeInTheDocument();
   });
 });

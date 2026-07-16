@@ -9,18 +9,23 @@ import {
   Put,
   Query,
 } from '@nestjs/common';
-import type { AuthUser } from '../../../../auth/auth.types';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import { ProductOperationsService } from '../../../application/service/product-operations.service';
+import { ProductRecipeComponentCandidateService } from '../../../application/service/product-recipe-component-candidate.service';
 import { ProductVariantRecipeService } from '../../../application/service/product-variant-recipe.service';
-import { ProductOperationsListQueryDto } from './dto/product-operations.dto';
+import {
+  ProductOperationsListQueryDto,
+  ProductRecipeComponentCandidateQueryDto,
+} from './dto/product-operations.dto';
+import type { AuthUser } from '../../../../auth/auth.types';
 
 @Controller('products')
 export class ProductOperationsController {
   constructor(
     private readonly products: ProductOperationsService,
     private readonly recipes: ProductVariantRecipeService,
+    private readonly recipeCandidates: ProductRecipeComponentCandidateService,
   ) {}
 
   @Get('masters')
@@ -29,6 +34,14 @@ export class ProductOperationsController {
     @Query() query: ProductOperationsListQueryDto,
   ) {
     return this.products.listProducts(organizationId, query);
+  }
+
+  @Get('recipe-component-candidates')
+  listRecipeComponentCandidates(
+    @CurrentOrganization() organizationId: string,
+    @Query() query: ProductRecipeComponentCandidateQueryDto,
+  ) {
+    return this.recipeCandidates.search(organizationId, query);
   }
 
   @Post('masters')

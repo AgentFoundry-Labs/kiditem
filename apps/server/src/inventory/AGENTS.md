@@ -134,3 +134,7 @@ change stock.
 - Product operations reads must enter through Products APIs. The Inventory SKU
   list may expose linked/unlinked projections, but it must not manufacture or
   mutate `MasterProduct` rows.
+- Inventory SKU linked product/variant destinations are distinct read-only
+  projections of actual, active, organization-fenced
+  `ProductVariantComponent` relations; never infer destinations from codes,
+  names, or barcodes.

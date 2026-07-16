@@ -23,11 +23,17 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
           variantComponents: [
             {
               productVariantId: 'variant-1',
-              productVariant: { masterProductId: 'product-1' },
+              productVariant: {
+                id: 'variant-1', code: 'VARIANT-1', name: '옵션 1', optionLabel: null,
+                masterProduct: { id: 'product-1', code: 'PRODUCT-1', name: '상품 1' },
+              },
             },
             {
               productVariantId: 'variant-2',
-              productVariant: { masterProductId: 'product-1' },
+              productVariant: {
+                id: 'variant-2', code: 'VARIANT-2', name: '옵션 2', optionLabel: '색상: 파랑',
+                masterProduct: { id: 'product-1', code: 'PRODUCT-1', name: '상품 1' },
+              },
             },
           ],
         }]),
@@ -91,6 +97,11 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       lastImportedAt: null,
       linkedVariantCount: 2,
       linkedProductCount: 1,
+      linkedProducts: [{ id: 'product-1', code: 'PRODUCT-1', name: '상품 1' }],
+      linkedVariants: [
+        { id: 'variant-1', masterProductId: 'product-1', code: 'VARIANT-1', name: '옵션 1', optionLabel: null },
+        { id: 'variant-2', masterProductId: 'product-1', code: 'VARIANT-2', name: '옵션 2', optionLabel: '색상: 파랑' },
+      ],
     });
   });
 
@@ -130,6 +141,8 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       lastImportedAt: new Date('2026-07-12T00:00:00.000Z'),
       linkedVariantCount: 0,
       linkedProductCount: 0,
+      linkedProducts: [],
+      linkedVariants: [],
     });
   });
 

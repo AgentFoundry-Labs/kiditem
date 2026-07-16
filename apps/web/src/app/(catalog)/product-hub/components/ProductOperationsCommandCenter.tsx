@@ -4,48 +4,54 @@ import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, Bell, ClipboardList, PackageX } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
-import type { InventorySkuSnapshotListResponse } from '@kiditem/shared/inventory';
+import type { MasterProductOperationsListResponse } from '@kiditem/shared/product-operations';
 
 type Props = {
-  data: InventorySkuSnapshotListResponse;
+  data: MasterProductOperationsListResponse;
   onShowOutOfStock: () => void;
 };
 
 export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props) {
-  const { summary, latestImport } = data;
-  const issues = latestImport?.qualityReport?.issues ?? [];
-  const warningCount = issues
-    .filter((issue) => issue.severity === 'warning')
-    .reduce((sum, issue) => sum + issue.count, 0);
-  const errorCount = issues
-    .filter((issue) => issue.severity === 'error')
-    .reduce((sum, issue) => sum + issue.count, 0);
-  const issueCount = warningCount + errorCount;
+  const connectedCount = data.items.filter((item) => item.channelCount > 0).length;
+  const unconnectedCount = data.items.length - connectedCount;
+  const outOfStockCount = data.items.filter((item) => item.inventoryStatus === 'out_of_stock').length;
+  const configurationCount = data.items.filter((item) => item.inventoryStatus === 'configuration_required').length;
+  const reviewCount = data.items.filter((item) => item.inventoryStatus === 'review_required').length;
+  const warningCount = configurationCount + reviewCount;
+  const inventoryUnits = data.items.reduce((sum, item) => sum + item.inventoryUnits, 0);
+  const lowProfitCount = data.items.filter((item) => item.profit !== null && item.profit < 0).length;
+  const aGradeCount = data.items.filter((item) => item.abcGrade === 'A').length;
+  const bGradeCount = data.items.filter((item) => item.abcGrade === 'B').length;
+  const cGradeCount = data.items.filter((item) => item.abcGrade === 'C').length;
 
   return (
-    <section className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-5">
+    <div className="space-y-2">
+      <p className="px-1 text-xs font-semibold text-[var(--text-tertiary)]">
+        카탈로그 전체 수를 제외한 운영 지표는 현재 페이지 {formatNumber(data.items.length)}개 상품 기준입니다.
+      </p>
+      <section className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-5">
       <article className="flex min-h-[270px] flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-5 pb-2.5 pt-5 shadow-sm">
         <div>
           <p className="text-xs font-bold text-[var(--text-tertiary)]">카탈로그 상품 전체</p>
           <p className="mt-2 text-3xl font-extrabold tabular-nums tracking-tight text-[var(--text-primary)]">
-            {formatNumber(summary.totalSkus)}
+            {formatNumber(data.total)}
           </p>
           <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg bg-[var(--surface-sunken)] p-2">
             <div className="min-w-0">
-              <p className="text-[11px] font-bold text-[var(--text-tertiary)]">채널 연결</p>
-              <p className="mt-0.5 text-sm font-extrabold text-[var(--text-muted)]">계산 전</p>
+              <p className="text-[11px] font-bold text-[var(--text-tertiary)]">현재 페이지 채널 연결</p>
+              <p className="mt-0.5 text-sm font-extrabold text-[var(--text-primary)]">{formatNumber(connectedCount)}</p>
             </div>
             <div className="min-w-0">
-              <p className="text-[11px] font-bold text-[var(--text-tertiary)]">채널 미연결</p>
-              <p className="mt-0.5 text-sm font-extrabold text-[var(--text-muted)]">계산 전</p>
+              <p className="text-[11px] font-bold text-[var(--text-tertiary)]">현재 페이지 채널 미연결</p>
+              <p className="mt-0.5 text-sm font-extrabold text-[var(--text-primary)]">{formatNumber(unconnectedCount)}</p>
             </div>
           </div>
         </div>
         <div className="mt-auto">
           <Breakdown label="신상품" value="미수집" tone="text-emerald-600" />
-          <Breakdown label="A등급" value="미수집" tone="text-emerald-700" />
-          <Breakdown label="B등급" value="미수집" tone="text-amber-600" />
-          <Breakdown label="C등급" value="미수집" tone="text-rose-600" />
+          <Breakdown label="현재 페이지 A등급" value={aGradeCount} tone="text-emerald-700" />
+          <Breakdown label="현재 페이지 B등급" value={bGradeCount} tone="text-amber-600" />
+          <Breakdown label="현재 페이지 C등급" value={cGradeCount} tone="text-rose-600" />
         </div>
       </article>
 
@@ -53,8 +59,8 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
         <div className="flex h-full flex-col divide-y divide-[var(--border-subtle)]">
           <QuickButton
             icon={PackageX}
-            label="품절 상품"
-            count={summary.outOfStockSkus}
+            label="현재 페이지 품절 상품"
+            count={outOfStockCount}
             tone="blue"
             onClick={onShowOutOfStock}
           />
@@ -68,24 +74,23 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
           </Link>
           <QuickButton
             icon={AlertTriangle}
-            label="재고위험"
-            count={summary.outOfStockSkus}
+            label="현재 페이지 재고위험"
+            count={warningCount}
             tone="orange"
-            onClick={onShowOutOfStock}
           />
         </div>
       </article>
 
-      <OperationsCard title="재고관리" value={summary.totalUnits} valueTone="text-teal-700">
-        <Breakdown label="재고위험" value={`${formatNumber(summary.outOfStockSkus)}+`} tone="text-teal-700" />
-        <Breakdown label="품절" value={summary.outOfStockSkus} tone="text-rose-600" />
-        <Breakdown label="임박 재고" value="계산 전" tone="text-amber-600" />
-        <Breakdown label="발주 필요" value="계산 전" tone="text-[var(--primary)]" />
+      <OperationsCard title="재고관리 · 현재 페이지" value={inventoryUnits} valueTone="text-teal-700">
+        <Breakdown label="재고위험" value={warningCount} tone="text-teal-700" />
+        <Breakdown label="품절" value={outOfStockCount} tone="text-rose-600" />
+        <Breakdown label="임박 재고" value="미수집" tone="text-amber-600" />
+        <Breakdown label="발주 필요" value="미수집" tone="text-[var(--primary)]" />
       </OperationsCard>
 
-      <OperationsCard title="손익점검" value="계산 전" valueTone="text-amber-600">
-        <Breakdown label="점검 대상" value="계산 전" tone="text-amber-600" />
-        <Breakdown label="적자상품" value="미수집" tone="text-rose-600" />
+      <OperationsCard title="손익점검 · 현재 페이지" value={lowProfitCount} valueTone="text-amber-600">
+        <Breakdown label="점검 대상" value={lowProfitCount} tone="text-amber-600" />
+        <Breakdown label="적자상품" value={lowProfitCount} tone="text-rose-600" />
         <Breakdown label="이익률 3%↓" value="미수집" tone="text-amber-600" />
         <Breakdown label="핵심상품" value="미수집" tone="text-emerald-700" />
       </OperationsCard>
@@ -93,17 +98,17 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
       <article className="flex min-h-[270px] flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-5 pb-2.5 pt-5 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-bold text-[var(--text-tertiary)]">알림</p>
-            <p className={`mt-2 text-3xl font-extrabold tabular-nums tracking-tight ${issueCount > 0 ? 'text-amber-600' : 'text-[var(--text-primary)]'}`}>
-              {formatNumber(issueCount)}
+            <p className="text-xs font-bold text-[var(--text-tertiary)]">알림 · 현재 페이지</p>
+            <p className={`mt-2 text-3xl font-extrabold tabular-nums tracking-tight ${warningCount > 0 ? 'text-amber-600' : 'text-[var(--text-primary)]'}`}>
+              {formatNumber(warningCount)}
             </p>
           </div>
           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--surface-sunken)] text-[var(--text-tertiary)]"><Bell size={17} /></span>
         </div>
         <div className="mt-auto">
-          <Breakdown label="오류" value={errorCount} tone={errorCount > 0 ? 'text-rose-600' : undefined} />
-          <Breakdown label="경고" value={warningCount} tone={warningCount > 0 ? 'text-amber-600' : undefined} />
-          <Breakdown label="최신 가져오기" value={latestImport ? `${formatNumber(latestImport.rowCount)}행` : '없음'} />
+          <Breakdown label="오류" value={reviewCount} tone={reviewCount > 0 ? 'text-rose-600' : undefined} />
+          <Breakdown label="경고" value={configurationCount} tone={configurationCount > 0 ? 'text-amber-600' : undefined} />
+          <Breakdown label="최신 가져오기" value="미수집" />
           <Link
             href="/inventory-hub?tab=sellpia-sync"
             className="flex w-full items-center justify-between gap-2 py-1.5 text-left text-[var(--text-secondary)] transition-colors hover:text-[var(--primary)]"
@@ -113,7 +118,8 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
           </Link>
         </div>
       </article>
-    </section>
+      </section>
+    </div>
   );
 }
 
@@ -163,18 +169,21 @@ function QuickButton({
   label: string;
   count: number;
   tone: 'blue' | 'orange';
-  onClick: () => void;
+  onClick?: () => void;
 }) {
   const styles = tone === 'blue'
     ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
     : 'bg-amber-50 text-amber-700 hover:bg-amber-100';
   const iconStyles = tone === 'blue' ? 'bg-blue-100' : 'bg-amber-100';
-  return (
-    <button type="button" onClick={onClick} className={`flex flex-1 items-center gap-3 px-4 py-3 text-left transition-colors ${styles}`}>
+  const content = (
+    <>
       <span className={`flex h-9 w-9 items-center justify-center rounded-lg ${iconStyles}`}><Icon size={17} /></span>
       <span className="min-w-0 flex-1 truncate text-sm font-extrabold">{label}</span>
       <span className="rounded-lg bg-[var(--surface-sunken)] px-2.5 py-1 text-base font-extrabold tabular-nums text-[var(--text-primary)]">{formatNumber(count)}</span>
-    </button>
+    </>
   );
+  const className = `flex flex-1 items-center gap-3 px-4 py-3 text-left transition-colors ${styles}`;
+  return onClick
+    ? <button type="button" onClick={onClick} className={className}>{content}</button>
+    : <div className={className}>{content}</div>;
 }
-

@@ -50,6 +50,54 @@ describe('channel SKU matching query keys', () => {
   });
 });
 
+describe('channel product matching query keys', () => {
+  it('separates queue, product candidates, and variant candidates', () => {
+    expect(queryKeys.channelProductMappings.list({ channelAccountId: 'account-1' })).toEqual([
+      'channelProductMappings', 'list', { channelAccountId: 'account-1' },
+    ]);
+    expect(queryKeys.channelProductMappings.productCandidates('listing-1', { search: 'KI-1' })).toEqual([
+      'channelProductMappings', 'product-candidates', 'listing-1', { search: 'KI-1' },
+    ]);
+    expect(queryKeys.channelProductMappings.variantCandidates('option-1', { search: '분홍' })).toEqual([
+      'channelProductMappings', 'variant-candidates', 'option-1', { search: '분홍' },
+    ]);
+  });
+});
+
+describe('product operations query keys', () => {
+  it('keeps product operations lists, details, and mutations in one family', () => {
+    expect(queryKeys.products.operations.all).toEqual(['products', 'operations']);
+    expect(queryKeys.products.operations.lists()).toEqual([
+      'products',
+      'operations',
+      'list',
+    ]);
+    expect(queryKeys.products.operations.list({ page: '2', periodDays: '30' })).toEqual([
+      'products',
+      'operations',
+      'list',
+      { page: '2', periodDays: '30' },
+    ]);
+    expect(queryKeys.products.operations.detail('product-1')).toEqual([
+      'products',
+      'operations',
+      'detail',
+      'product-1',
+    ]);
+    expect(queryKeys.products.operations.mutations()).toEqual([
+      'products',
+      'operations',
+      'mutation',
+    ]);
+    expect(queryKeys.products.operations.recipeCandidates({ search: 'SP-1', limit: '20' })).toEqual([
+      'products',
+      'operations',
+      'recipe-component-candidates',
+      { search: 'SP-1', limit: '20' },
+    ]);
+  });
+});
+
 describe('Sellpia authoritative inventory query keys', () => {
   it('does not expose the retired internal product-option key family', () => {
     expect(queryKeys).not.toHaveProperty('productOptions');

@@ -1,37 +1,48 @@
-import { Barcode, Boxes, CircleDollarSign, History } from 'lucide-react';
-import type { InventorySkuSnapshotItem } from '@kiditem/shared/inventory';
+import { Boxes, ChartNoAxesCombined, History, Tags } from 'lucide-react';
 import { formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
+import type { MasterProductOperationsDetail } from '@kiditem/shared/product-operations';
 
-export default function ProductInfoCards({ product }: { product: InventorySkuSnapshotItem }) {
+const INVENTORY_LABELS = {
+  sellable: '판매 가능',
+  partial_out_of_stock: '일부 품절',
+  out_of_stock: '품절',
+  configuration_required: '구성 필요',
+  review_required: '검토 필요',
+} as const;
+
+export default function ProductInfoCards({ product }: { product: MasterProductOperationsDetail }) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <InfoCard title="Sellpia 상품 식별자" icon={<Barcode size={16} />}>
+      <InfoCard title="상품 운영 정보" icon={<Tags size={16} />}>
         <InfoRow label="상품 코드" value={<span className="font-mono">{product.code}</span>} />
-        <InfoRow label="상품명" value={product.name} />
-        <InfoRow label="옵션명" value={product.optionName || '-'} />
-        <InfoRow label="바코드" value={<span className="font-mono">{product.barcode || '-'}</span>} />
-        <InfoRow label="MasterProduct ID" value={<span className="font-mono text-xs">{product.masterProductId}</span>} />
+        <InfoRow label="카테고리" value={product.category ?? '미등록'} />
+        <InfoRow label="브랜드" value={product.brand ?? '미등록'} />
+        <InfoRow label="ABC 등급" value={product.abcGrade ?? '미등록'} />
+        <InfoRow label="태그" value={product.tags.length > 0 ? product.tags.join(', ') : '미등록'} />
       </InfoCard>
 
-      <InfoCard title="현재 재고" icon={<Boxes size={16} />}>
-        <InfoRow
-          label="재고 수량"
-          value={<strong className={product.currentStock > 0 ? 'text-emerald-700' : 'text-rose-700'}>{formatNumber(product.currentStock)}개</strong>}
-        />
-        <InfoRow label="활성 상태" value={product.isActive ? '활성' : '비활성'} />
-        <InfoRow label="재고 자산가" value={product.stockValue === null ? '-' : `${formatKRW(product.stockValue)}원`} />
-      </InfoCard>
-
-      <InfoCard title="가격" icon={<CircleDollarSign size={16} />}>
-        <InfoRow label="매입가" value={product.purchasePrice === null ? '-' : `${formatKRW(product.purchasePrice)}원`} />
-        <InfoRow label="판매가" value={product.salePrice === null ? '-' : `${formatKRW(product.salePrice)}원`} />
-      </InfoCard>
-
-      <InfoCard title="동기화 출처" icon={<History size={16} />}>
-        <InfoRow label="마지막 가져오기" value={formatDateTime(product.lastImportedAt)} />
-        <InfoRow label="Import Run ID" value={<span className="font-mono text-xs">{product.lastImportRunId || '-'}</span>} />
+      <InfoCard title="재고 요약" icon={<Boxes size={16} />}>
+        <InfoRow label="물리 재고 합계" value={`${formatNumber(product.inventoryUnits)}개`} />
+        <InfoRow label="재고 상태" value={INVENTORY_LABELS[product.inventoryStatus]} />
+        <InfoRow label="판매 옵션" value={`${formatNumber(product.variants.length)}개`} />
         <p className="pt-2 text-xs leading-5 text-[var(--text-tertiary)]">
-          이 화면에서는 재고와 상품 정보를 수정하지 않습니다. 다음 Sellpia 엑셀 가져오기 결과가 그대로 반영됩니다.
+          재고 수량은 확인된 옵션 레시피의 Sellpia SKU를 중복 없이 합산합니다.
+        </p>
+      </InfoCard>
+
+      <InfoCard title="광고 · 수익 설정" icon={<ChartNoAxesCombined size={16} />}>
+        <InfoRow label="광고 등급" value={product.adTier ?? '미설정'} />
+        <InfoRow label="광고 예산 한도" value={product.adBudgetLimit === null ? '미설정' : `${formatKRW(product.adBudgetLimit)}원`} />
+        <InfoRow label="손익 태그" value={product.profitTag ?? '미설정'} />
+        <InfoRow label="상품 건강도" value={product.healthScore === null ? '미수집' : `${formatNumber(product.healthScore)}점`} />
+      </InfoCard>
+
+      <InfoCard title="변경 기록" icon={<History size={16} />}>
+        <InfoRow label="생성" value={formatDateTime(product.createdAt)} />
+        <InfoRow label="최근 수정" value={formatDateTime(product.updatedAt)} />
+        <InfoRow label="연결 채널" value={`${formatNumber(product.channelListings.length)}개`} />
+        <p className="pt-2 text-xs leading-5 text-[var(--text-tertiary)]">
+          상품 메타데이터와 옵션 레시피는 여기에서 관리하고, 물리 재고는 Sellpia 동기화가 소유합니다.
         </p>
       </InfoCard>
     </div>

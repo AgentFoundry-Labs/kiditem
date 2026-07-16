@@ -41,7 +41,21 @@ function snapshotSelect(organizationId: string) {
       },
       select: {
         productVariantId: true,
-        productVariant: { select: { masterProductId: true } },
+        productVariant: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            optionLabel: true,
+            masterProduct: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+              },
+            },
+          },
+        },
       },
     },
   } satisfies Prisma.SellpiaInventorySkuSelect;
@@ -176,14 +190,9 @@ implements InventorySkuSnapshotListRepositoryPort {
             && importedAtByRunId.has(row.lastImportRunId)
             ? row.lastImportRunId
             : null;
-          const linkedVariantCount = new Set(
-            row.variantComponents.map(({ productVariantId }) => productVariantId),
-          ).size;
-          const linkedProductCount = new Set(
-            row.variantComponents.map(
-              ({ productVariant }) => productVariant.masterProductId,
-            ),
-          ).size;
+          const { linkedProducts, linkedVariants } = linkedDestinations(
+            row.variantComponents,
+          );
           return {
             sellpiaInventorySkuId: row.id,
             code: row.code,
@@ -198,8 +207,10 @@ implements InventorySkuSnapshotListRepositoryPort {
             lastImportedAt: verifiedImportRunId
               ? importedAtByRunId.get(verifiedImportRunId) ?? null
               : null,
-            linkedVariantCount,
-            linkedProductCount,
+            linkedVariantCount: linkedVariants.length,
+            linkedProductCount: linkedProducts.length,
+            linkedProducts,
+            linkedVariants,
           };
         }),
         total,
@@ -227,6 +238,9 @@ implements InventorySkuSnapshotListRepositoryPort {
       && row.lastImportRun.status === 'completed'
       ? row.lastImportRun
       : null;
+    const { linkedProducts, linkedVariants } = linkedDestinations(
+      row.variantComponents,
+    );
     return {
       sellpiaInventorySkuId: row.id,
       code: row.code,
@@ -239,14 +253,10 @@ implements InventorySkuSnapshotListRepositoryPort {
       isActive: row.isActive,
       lastImportRunId: verifiedImport?.id ?? null,
       lastImportedAt: verifiedImport?.importedAt ?? null,
-      linkedVariantCount: new Set(
-        row.variantComponents.map(({ productVariantId }) => productVariantId),
-      ).size,
-      linkedProductCount: new Set(
-        row.variantComponents.map(
-          ({ productVariant }) => productVariant.masterProductId,
-        ),
-      ).size,
+      linkedVariantCount: linkedVariants.length,
+      linkedProductCount: linkedProducts.length,
+      linkedProducts,
+      linkedVariants,
     } satisfies InventorySkuSnapshotRepositoryRow;
   }
 
@@ -271,6 +281,49 @@ implements InventorySkuSnapshotListRepositoryPort {
     ]);
     return { rows: rows.map(mapImportRun), total };
   }
+}
+
+type VariantComponentDestination = {
+  productVariantId: string;
+  productVariant: {
+    id: string;
+    code: string;
+    name: string;
+    optionLabel: string | null;
+    masterProduct: {
+      id: string;
+      code: string;
+      name: string;
+    };
+  };
+};
+
+function linkedDestinations(components: VariantComponentDestination[]) {
+  const linkedVariantById = new Map(
+    components.map(({ productVariant }) => [
+      productVariant.id,
+      {
+        id: productVariant.id,
+        masterProductId: productVariant.masterProduct.id,
+        code: productVariant.code,
+        name: productVariant.name,
+        optionLabel: productVariant.optionLabel,
+      },
+    ]),
+  );
+  const linkedProductById = new Map(
+    components.map(({ productVariant }) => [
+      productVariant.masterProduct.id,
+      productVariant.masterProduct,
+    ]),
+  );
+  const byCodeThenId = <T extends { code: string; id: string }>(left: T, right: T) =>
+    left.code.localeCompare(right.code) || left.id.localeCompare(right.id);
+
+  return {
+    linkedProducts: [...linkedProductById.values()].sort(byCodeThenId),
+    linkedVariants: [...linkedVariantById.values()].sort(byCodeThenId),
+  };
 }
 
 function snapshotWhere(

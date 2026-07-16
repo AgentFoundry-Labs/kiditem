@@ -77,6 +77,33 @@ export type MasterProductOperationsListQuery = z.infer<
   typeof MasterProductOperationsListQuerySchema
 >;
 
+export const ProductRecipeComponentCandidateQuerySchema = z.object({
+  search: z.string().trim().min(2).max(200),
+  limit: z.number().int().positive().max(50).default(20),
+}).strict();
+export type ProductRecipeComponentCandidateQuery = z.infer<
+  typeof ProductRecipeComponentCandidateQuerySchema
+>;
+
+export const ProductRecipeComponentCandidateSchema = z.object({
+  sellpiaInventorySkuId: z.string().uuid(),
+  code: z.string().min(1),
+  name: z.string().min(1),
+  optionName: z.string().nullable(),
+  barcode: z.string().nullable(),
+  currentStock: z.number().int().nonnegative(),
+}).strict();
+export type ProductRecipeComponentCandidate = z.infer<
+  typeof ProductRecipeComponentCandidateSchema
+>;
+
+export const ProductRecipeComponentCandidateListResponseSchema = z.object({
+  items: z.array(ProductRecipeComponentCandidateSchema).max(50),
+}).strict();
+export type ProductRecipeComponentCandidateListResponse = z.infer<
+  typeof ProductRecipeComponentCandidateListResponseSchema
+>;
+
 const ProductCodeSchema = z.string().trim().min(1).max(100);
 const ProductNameSchema = z.string().trim().min(1).max(200);
 

@@ -6,6 +6,8 @@ import {
   MasterProductOperationsListItemSchema,
   MasterProductOperationsListQuerySchema,
   ProductInventoryStatusSchema,
+  ProductRecipeComponentCandidateListResponseSchema,
+  ProductRecipeComponentCandidateQuerySchema,
   ReplaceProductVariantRecipeInputSchema,
   UpdateMasterProductInputSchema,
   UpdateProductVariantInputSchema,
@@ -42,6 +44,31 @@ describe('product operations contracts', () => {
       'configuration_required',
       'review_required',
     ]);
+  });
+
+  it('strictly parses focused physical recipe component candidates', () => {
+    expect(ProductRecipeComponentCandidateQuerySchema.parse({
+      search: '  SP-001  ',
+      limit: 20,
+    })).toEqual({ search: 'SP-001', limit: 20 });
+    expect(() => ProductRecipeComponentCandidateQuerySchema.parse({
+      search: 'x',
+      organizationId: productId,
+    })).toThrow();
+
+    expect(ProductRecipeComponentCandidateListResponseSchema.parse({
+      items: [{
+        sellpiaInventorySkuId: skuId,
+        code: 'SP-001',
+        name: '식판',
+        optionName: '분홍',
+        barcode: '8800000000001',
+        currentStock: 8,
+      }],
+    }).items[0]).toMatchObject({
+      sellpiaInventorySkuId: skuId,
+      currentStock: 8,
+    });
   });
 
   it('parses nullable product-operation metrics separately from physical inventory units', () => {

@@ -100,6 +100,8 @@ function mapSnapshotRow(row: InventorySkuSnapshotRepositoryRow): InventorySkuSna
     lastImportedAt: row.lastImportedAt?.toISOString() ?? null,
     linkedVariantCount: row.linkedVariantCount,
     linkedProductCount: row.linkedProductCount,
+    linkedProducts: row.linkedProducts,
+    linkedVariants: row.linkedVariants,
     linkStatus: row.linkedVariantCount > 0 ? 'linked' : 'unlinked',
   } satisfies InventorySkuSnapshotItem;
 }
