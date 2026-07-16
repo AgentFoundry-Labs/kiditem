@@ -373,6 +373,32 @@ describe('/product-hub/matching', () => {
     expect(screen.getByText('현재 필터에 맞는 채널 SKU가 없습니다.')).toBeInTheDocument();
   });
 
+  it('distinguishes an empty Rocket PO catalog from an empty Wing catalog', () => {
+    const rocketId = '88888888-8888-4888-8888-888888888888';
+    mockQueries([
+      account(rocketId, '쿠팡 로켓', { channel: 'rocket', isPrimary: true }),
+    ]);
+    vi.mocked(useChannelSkuMappings).mockReturnValue({
+      data: {
+        ...listResponse,
+        items: [],
+        total: 0,
+        counts: { all: 0, unmatched: 0, needsReview: 0, matched: 0 },
+      },
+      isLoading: false,
+      isFetching: false,
+      error: null,
+      refetch: refetchList,
+    } as unknown as ReturnType<typeof useChannelSkuMappings>);
+
+    render(<MatchingPage />);
+
+    expect(screen.getByText('아직 가져온 로켓 PO 상품 카탈로그가 없습니다.'))
+      .toBeInTheDocument();
+    expect(screen.queryByText('아직 가져온 Wing 상품 카탈로그가 없습니다.'))
+      .not.toBeInTheDocument();
+  });
+
   it('prioritizes active status/search filters over zero all-count when showing an empty result', async () => {
     vi.useFakeTimers();
     vi.mocked(useChannelSkuMappings).mockReturnValue({

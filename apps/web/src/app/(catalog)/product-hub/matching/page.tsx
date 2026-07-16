@@ -118,7 +118,9 @@ export default function MatchingPage() {
   const hasActiveFilter = mappingStatus !== 'all' || debouncedSearch.length > 0;
   const emptyMessage =
     !hasActiveFilter && counts.all === 0
-      ? '아직 가져온 Wing 상품 카탈로그가 없습니다.'
+      ? selectedAccount?.channel === 'rocket'
+        ? '아직 가져온 로켓 PO 상품 카탈로그가 없습니다.'
+        : '아직 가져온 Wing 상품 카탈로그가 없습니다.'
       : '현재 필터에 맞는 채널 SKU가 없습니다.';
   const isRefreshing = mappingsQuery.isFetching && !mappingsQuery.isLoading;
 

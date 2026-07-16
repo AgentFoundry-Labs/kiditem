@@ -1,5 +1,10 @@
-import { RocketPurchaseOrdersWorkspace } from '@/app/(supply)/purchase-orders/components/RocketPurchaseOrdersWorkspace';
+import { RocketPurchasePreviewSection } from '@/app/(supply)/purchase-orders/components/RocketPurchasePreviewSection';
+import { RocketOrdersWorkspace } from './components/RocketOrdersWorkspace';
 
 export default function RocketOrdersPage() {
-  return <RocketPurchaseOrdersWorkspace />;
+  return (
+    <RocketOrdersWorkspace
+      decisionWorkspace={<RocketPurchasePreviewSection />}
+    />
+  );
 }
