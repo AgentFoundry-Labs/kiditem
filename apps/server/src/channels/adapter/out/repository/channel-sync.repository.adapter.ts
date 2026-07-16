@@ -1,16 +1,16 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import {
+  normalizeCoupangOrderStatus,
+  normalizeCoupangProductStatus,
+} from '../../../domain/coupang-normalization';
 import type {
   ChannelSyncRepositoryPort,
   CoupangSyncOrderPayload,
   CoupangSyncReturnPayload,
   ProductListingSyncResult,
 } from '../../../application/port/out/repository/channel-sync.repository.port';
-import {
-  normalizeCoupangOrderStatus,
-  normalizeCoupangProductStatus,
-} from '../../../domain/coupang-normalization';
 
 type ListingForProductSync = {
   id: string;
@@ -22,6 +22,7 @@ async function reconcileProductDetailOption(
   input: {
     organizationId: string;
     listingId: string;
+    registrationSourceCandidateId: string | null;
     externalOptionId: string;
     providerOptionKey: string | null;
     itemName: string | null;
@@ -36,17 +37,27 @@ async function reconcileProductDetailOption(
     },
     select: { id: true, productVariantId: true },
   });
-  const provisional = input.providerOptionKey
-    ? await tx.channelListingOption.findFirst({
+  const provisionalCandidates = input.providerOptionKey && input.registrationSourceCandidateId
+    ? await tx.channelListingOption.findMany({
       where: {
         organizationId: input.organizationId,
         listingId: input.listingId,
         sellerSku: input.providerOptionKey,
-        isActive: true,
+        productVariantId: { not: null },
+        rawJson: { equals: Prisma.DbNull },
+        ...(actual ? { id: { not: actual.id } } : {}),
       },
       select: { id: true, productVariantId: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: 2,
     })
-    : null;
+    : [];
+  if (provisionalCandidates.length > 1) {
+    throw new BadRequestException(
+      `Ambiguous KidItem-first provisional options for seller SKU ${input.providerOptionKey}.`,
+    );
+  }
+  const provisional = provisionalCandidates[0] ?? null;
   const commonData = {
     ...(input.providerOptionKey ? { sellerSku: input.providerOptionKey } : {}),
     itemName: input.itemName,
@@ -60,6 +71,9 @@ async function reconcileProductDetailOption(
           id: provisional.id,
           organizationId: input.organizationId,
           listingId: input.listingId,
+          sellerSku: input.providerOptionKey,
+          productVariantId: provisional.productVariantId,
+          rawJson: { equals: Prisma.DbNull },
         },
         data: {
           externalOptionId: input.externalOptionId,
@@ -90,6 +104,9 @@ async function reconcileProductDetailOption(
         id: provisional.id,
         organizationId: input.organizationId,
         listingId: input.listingId,
+        sellerSku: input.providerOptionKey,
+        productVariantId: provisional.productVariantId,
+        rawJson: { equals: Prisma.DbNull },
       },
       data: { isActive: false },
     });
@@ -176,8 +193,11 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
 
     await this.prisma.$transaction(
       async (tx) => {
-        const [lockedListing] = await tx.$queryRaw<Array<{ id: string }>>`
-          SELECT id
+        const [lockedListing] = await tx.$queryRaw<Array<{
+          id: string;
+          sourceCandidateId: string | null;
+        }>>`
+          SELECT id, source_candidate_id AS "sourceCandidateId"
           FROM channel_listings
           WHERE id = ${existing.id}::uuid
             AND organization_id = ${input.organizationId}::uuid
@@ -228,6 +248,7 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
           await reconcileProductDetailOption(tx, {
             organizationId: input.organizationId,
             listingId: existing.id,
+            registrationSourceCandidateId: lockedListing.sourceCandidateId,
             externalOptionId,
             providerOptionKey: item.externalVendorSku?.trim() || null,
             itemName: item.itemName ?? null,

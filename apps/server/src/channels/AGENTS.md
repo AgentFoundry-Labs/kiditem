@@ -73,7 +73,11 @@ second create while the prior outcome is uncertain.
 Each frozen option index receives a deterministic `externalVendorSku`. A
 KidItem-first provisional option keeps that key in `sellerSku`; product-detail
 collection promotes the same row to Coupang's immutable `vendorItemId` under
-the shared listing row lock, preserving its confirmed variant link.
+the shared listing row lock, preserving its confirmed variant link. If a full
+catalog publication created the actual option first and inactivated the
+provisional row, detail sync may transfer the link only from one
+organization/listing/source-fenced provisional with that deterministic key.
+Multiple candidates are an explicit sync error; the system never guesses.
 If registration finalization observes a different non-null product or variant
 link confirmed by the manual path, it fails with a conflict and preserves the
 newer manual confirmation instead of applying stale registration intent.
