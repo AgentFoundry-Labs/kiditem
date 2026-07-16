@@ -28,7 +28,7 @@ function makeTask(taskKey: string) {
 }
 
 describe('ActionBoardService inventory signals', () => {
-  it('seeds only read-only zero-stock and mapping-attention tasks from canonical counts', async () => {
+  it('seeds only read-only zero-stock and mapping-attention tasks on restored screens', async () => {
     const repository = {
       fetchPerListingMetrics: vi.fn().mockResolvedValue([]),
       countOutOfStockMasterProducts: vi.fn().mockResolvedValue(5),
@@ -54,7 +54,7 @@ describe('ActionBoardService inventory signals', () => {
     expect(inventorySeeds).toEqual(expect.arrayContaining([
       expect.objectContaining({
         taskKey: 'h-zero-stock',
-        href: '/inventory-hub?tab=attention&view=sellpia-zero',
+        href: '/stock-ops?tab=sellpia-zero',
         apiCall: null,
       }),
       expect.objectContaining({

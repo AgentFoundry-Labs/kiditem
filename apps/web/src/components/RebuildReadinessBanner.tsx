@@ -28,7 +28,7 @@ export default function RebuildReadinessBanner() {
           </p>
         </div>
         <Link
-          href="/inventory-hub?tab=overview"
+          href="/inventory-hub?tab=sellpia-sync"
           className="rounded-md bg-amber-900 px-3 py-2 font-medium text-white hover:bg-amber-800"
         >
           셀피아 재고 가져오기

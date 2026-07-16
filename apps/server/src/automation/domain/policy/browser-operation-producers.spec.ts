@@ -18,7 +18,7 @@ describe('browser operation producer policy', () => {
     });
   });
 
-  it('registers Sellpia inventory freshness at the canonical inventory drawer route', () => {
+  it('registers Sellpia inventory freshness at the restored Sellpia sync tab', () => {
     const runId = '22222222-2222-4222-8222-222222222222';
 
     expect(
@@ -30,11 +30,11 @@ describe('browser operation producer policy', () => {
       }),
     ).toEqual({
       title: 'Sellpia 재고 갱신',
-      href: '/inventory-hub?tab=overview',
+      href: '/inventory-hub?tab=sellpia-sync',
     });
   });
 
-  it('registers stable Sellpia quality warnings at the exact canonical drawer route', () => {
+  it('registers stable Sellpia quality warnings at the restored import-status tab', () => {
     const fileHash = 'a'.repeat(64);
 
     expect(
@@ -46,11 +46,11 @@ describe('browser operation producer policy', () => {
       }),
     ).toEqual({
       title: 'Sellpia 재고 품질 확인 필요',
-      href: '/inventory-hub?tab=overview',
+      href: '/stock-ops?tab=freshness',
     });
   });
 
-  it('routes mall order collection to the canonical collection workspace', () => {
+  it('routes mall order collection to the restored collection screen', () => {
     const runId = '44444444-4444-4444-8444-444444444444';
 
     expect(
@@ -62,7 +62,7 @@ describe('browser operation producer policy', () => {
       }),
     ).toEqual({
       title: '주문 데이터 수집',
-      href: `/order-hub?tab=collection&collectionRun=${runId}`,
+      href: `/order-collection?collectionRun=${runId}`,
     });
   });
 });

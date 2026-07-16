@@ -47,9 +47,10 @@ provider ambiguity. A failed attempt does not publish partial rows.
 
 ## One-Time Source Binding
 
-1. Open any canonical dense workspace and open the inline Sellpia freshness
-   status. The canonical workspaces are `/inventory-hub`, `/purchase-orders`,
-   `/order-hub`, `/product-hub`, and `/product-hub/matching`.
+1. Open an authenticated KidItem operations screen and use the floating
+   Sellpia freshness status. `/product-hub/matching` displays the same shared
+   status inline. The dedicated sync entry is
+   `/inventory-hub?tab=sellpia-sync`.
 2. Confirm that the drawer shows origin `https://kiditem.sellpia.com` and
    account `kiditem`.
 3. As an owner or admin, choose **출처 연결 확인**.
@@ -90,6 +91,11 @@ settle and coalesces later successful transmissions, capped at five minutes
 from the first pending request. A successful extension request means only that
 transmission was requested; the later Sellpia snapshot is the acceptance and
 stock evidence.
+
+Internal operation links return to the screen that owns the action: mall collection to
+`/order-collection`, channel order results to `/orders`, channel inventory to
+`/inventory`, and inventory warnings to `/stock-ops`. This navigation contract
+does not change the server-owned TTL, lease, fence, or single-writer rules.
 
 An identical workbook is not republished. The first post-order identical hash
 schedules one `same_hash_confirmation` at least three minutes later. The next

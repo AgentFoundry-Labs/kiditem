@@ -54,14 +54,14 @@ describe('ChannelSyncService operation alerts', () => {
         title: '쿠팡 상품 동기화',
         sourceType: 'coupang_sync',
         sourceId: 'products',
-        href: '/inventory-hub?tab=inventory',
+        href: '/inventory',
       }),
     );
     expect(operationAlerts.succeed).toHaveBeenCalledWith(
       ORGANIZATION_ID,
       'coupang-sync:products',
       expect.objectContaining({
-        href: '/inventory-hub?tab=inventory',
+        href: '/inventory',
         severity: 'warning',
         metadata: {
           synced: 3,
@@ -91,7 +91,7 @@ describe('ChannelSyncService operation alerts', () => {
       expect.objectContaining({
         operationKey: 'coupang-sync:orders',
         type: 'coupang_order_sync',
-        href: '/order-hub?tab=processing',
+        href: '/orders',
         metadata: {
           from: '2026-05-01T00:00:00.000Z',
           to: '2026-05-02T00:00:00.000Z',
@@ -102,7 +102,7 @@ describe('ChannelSyncService operation alerts', () => {
       ORGANIZATION_ID,
       'coupang-sync:orders',
       expect.objectContaining({
-        href: '/order-hub?tab=processing',
+        href: '/orders',
         metadata: { error: 'Coupang timeout' },
       }),
     );

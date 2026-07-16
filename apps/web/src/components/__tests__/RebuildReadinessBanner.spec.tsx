@@ -27,7 +27,7 @@ describe('RebuildReadinessBanner', () => {
     expect(await screen.findByText('재고 기준 데이터 가져오기가 필요합니다')).toBeInTheDocument();
     expect(screen.getByText(/셀피아 재고를 먼저 가져온 뒤 Wing 상품을 가져오세요/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '셀피아 재고 가져오기' }))
-      .toHaveAttribute('href', '/inventory-hub?tab=overview');
+      .toHaveAttribute('href', '/inventory-hub?tab=sellpia-sync');
     expect(screen.queryByRole('button', { name: /닫기/ })).not.toBeInTheDocument();
   });
 });

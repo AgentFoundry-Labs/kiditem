@@ -32,6 +32,8 @@ const alerts = vi.hoisted(() => ({
 }));
 const invalidateSellpiaInventory = vi.hoisted(() => vi.fn());
 const sellpiaDrawerPropsMock = vi.hoisted(() => vi.fn());
+const sellpiaStatusMock = vi.hoisted(() => vi.fn());
+const navigation = vi.hoisted(() => ({ pathname: '/inventory-hub' }));
 
 vi.mock('@/lib/sellpia-inventory-freshness-api', () => ({ sellpiaInventoryFreshnessApi: api }));
 vi.mock('@/lib/sellpia-inventory-extension', () => extension);
@@ -40,8 +42,14 @@ vi.mock('@/lib/operation-alerts', () => alerts);
 vi.mock('@/app/(inventory)/_shared/invalidate-sellpia-inventory', () => ({
   invalidateSellpiaInventory,
 }));
+vi.mock('next/navigation', () => ({
+  usePathname: () => navigation.pathname,
+}));
 vi.mock('@/components/sellpia-inventory', () => ({
-  SellpiaFreshnessStatus: () => null,
+  SellpiaFreshnessStatus: (props: unknown) => {
+    sellpiaStatusMock(props);
+    return null;
+  },
   SellpiaFreshnessDrawer: (props: unknown) => {
     sellpiaDrawerPropsMock(props);
     return null;
@@ -151,6 +159,7 @@ function expectNoStaleClaimSideEffects() {
 describe('SellpiaInventorySyncProvider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    navigation.pathname = '/inventory-hub';
     auth.useAuth.mockReturnValue({ status: 'ready', user: { organizationId: 'org-1', role: 'owner' } });
     api.getState.mockResolvedValue(dueState);
     api.getCurrentBasis.mockResolvedValue(null);
@@ -170,6 +179,31 @@ describe('SellpiaInventorySyncProvider', () => {
   });
 
   afterEach(() => vi.useRealTimers());
+
+  it.each([
+    '/inventory-hub',
+    '/order-hub',
+    '/purchase-orders',
+  ])('keeps a floating Sellpia status entry on restored screen %s', async (pathname) => {
+    navigation.pathname = pathname;
+    renderProvider();
+
+    await waitFor(() => expect(sellpiaStatusMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: dueState.status,
+        lastVerifiedAt: dueState.lastVerifiedAt,
+        onOpen: expect.any(Function),
+      }),
+    ));
+  });
+
+  it('suppresses only the floating copy when matching renders the shared status inline', async () => {
+    navigation.pathname = '/product-hub/matching';
+    renderProvider();
+
+    await waitFor(() => expect(sellpiaDrawerPropsMock).toHaveBeenCalled());
+    expect(sellpiaStatusMock).not.toHaveBeenCalled();
+  });
 
   it('does not claim before auth is ready or before syncNotBefore', async () => {
     auth.useAuth.mockReturnValueOnce({ status: 'loading', user: null });
@@ -562,7 +596,7 @@ describe('SellpiaInventorySyncProvider', () => {
       type: 'browser_collection',
       sourceType: 'browser_collection_session',
       sourceId: 'inventory.sellpia',
-      href: '/inventory-hub?tab=overview',
+      href: '/inventory-hub?tab=sellpia-sync',
       metadata: expect.objectContaining({
         browserCollection: true,
         collectionAttempt: 1,
@@ -576,7 +610,7 @@ describe('SellpiaInventorySyncProvider', () => {
       type: 'sellpia_inventory_quality',
       sourceType: 'sellpia_inventory_import',
       sourceId: IMPORT_RUN_ID,
-      href: '/inventory-hub?tab=overview',
+      href: '/stock-ops?tab=freshness',
       metadata: expect.objectContaining({
         browserCollection: true,
         collectionAttempt: 1,

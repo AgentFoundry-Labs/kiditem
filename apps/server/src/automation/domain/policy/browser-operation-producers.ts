@@ -67,12 +67,12 @@ const COLLECTION_PRODUCERS = new Map<
     'sourcing.live_commerce',
     { title: '라이브커머스 수집', href: '/sourcing-ai/market' },
   ],
-  ['orders.mall', { title: '주문 데이터 수집', href: '/order-hub?tab=collection' }],
+  ['orders.mall', { title: '주문 데이터 수집', href: '/order-collection' }],
   [
     'inventory.sellpia',
     {
       title: 'Sellpia 재고 갱신',
-      href: '/inventory-hub?tab=overview',
+      href: '/inventory-hub?tab=sellpia-sync',
       appendCollectionRun: false,
     },
   ],
@@ -83,7 +83,7 @@ const SELLPIA_QUALITY_OPERATION_KEY =
   /^sellpia-inventory-quality:[a-f0-9]{64}:[a-z0-9_.-]{1,100}$/;
 const SELLPIA_QUALITY_PRODUCER: BrowserOperationProducerDefinition = {
   title: 'Sellpia 재고 품질 확인 필요',
-  href: '/inventory-hub?tab=overview',
+  href: '/stock-ops?tab=freshness',
 };
 
 export function isBrowserOperationProducer(

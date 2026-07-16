@@ -297,7 +297,7 @@ export function SellpiaInventorySyncProvider({
         message: 'Sellpia 재고 파일을 수집하고 있습니다.',
         sourceType: 'browser_collection_session',
         sourceId: 'inventory.sellpia',
-        href: '/inventory-hub?tab=overview',
+        href: '/inventory-hub?tab=sellpia-sync',
         progress: 0,
         metadata: nextAlertMetadata(claimToken, {
           claimToken,
@@ -401,7 +401,7 @@ export function SellpiaInventorySyncProvider({
           message: `${warningCode}: ${issue.count}건`,
           sourceType: 'sellpia_inventory_import',
           sourceId: imported.run.id,
-          href: '/inventory-hub?tab=overview',
+          href: '/stock-ops?tab=freshness',
           severity: issue.severity,
           metadata: nextAlertMetadata(claimToken, qualityMetadata),
         }));
@@ -476,12 +476,7 @@ export function SellpiaInventorySyncProvider({
   const contextValue = enabled && freshness.state
     ? { state: freshness.state, openDrawer: () => setDrawerOpen(true) }
     : null;
-  const usesInlineStatus = [
-    '/inventory-hub',
-    '/purchase-orders',
-    '/order-hub',
-    '/product-hub/matching',
-  ].includes(pathname);
+  const usesInlineStatus = pathname === '/product-hub/matching';
 
   return (
     <SellpiaInventorySyncContext.Provider value={contextValue}>

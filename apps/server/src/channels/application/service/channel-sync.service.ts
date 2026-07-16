@@ -40,7 +40,7 @@ const PRODUCT_SYNC_ALERT = {
   title: '쿠팡 상품 동기화',
   sourceType: 'coupang_sync',
   sourceId: 'products',
-  href: '/inventory-hub?tab=inventory',
+  href: '/inventory',
 } as const;
 
 const ORDER_SYNC_ALERT = {
@@ -49,7 +49,7 @@ const ORDER_SYNC_ALERT = {
   title: '쿠팡 주문 동기화',
   sourceType: 'coupang_sync',
   sourceId: 'orders',
-  href: '/order-hub?tab=processing',
+  href: '/orders',
 } as const;
 
 function resultMessage(label: string, result: SyncResult): string {
