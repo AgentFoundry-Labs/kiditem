@@ -25,7 +25,8 @@ manage local generated-file history.
   without stored credentials; only disabled or genuinely unsupported accounts
   require setup.
 - Recovery states (`Sellpia 전송 필요`, `전송 요청됨`, `재고 반영 대기`) and
-  actions render before activity charts in the canonical collection workspace.
+  actions render inside the existing generated-file flow before activity
+  charts. Do not replace the baseline collection layout.
 
 ## Boundary Rules
 

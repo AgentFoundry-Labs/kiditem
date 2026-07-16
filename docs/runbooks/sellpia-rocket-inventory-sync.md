@@ -39,8 +39,9 @@ does not derive freshness or write inventory state.
 
 1. Use an active organization-owned `ChannelAccount` whose stored channel is
    exactly `rocket`. Never infer Rocket from its display name.
-2. In `/purchase-orders?tab=rocket`, choose the account and collect the intended
-   ETA range through the order-collector extension.
+2. In the existing decision area on `/rocket-orders` (or the additive
+   `/purchase-orders?tab=rocket` preview), choose the account and collect the
+   intended ETA range through the order-collector extension.
 3. The extension returns a caller UUID `collectionRunId`, the non-display
    `vendorId`, page/detail counts, truncation, failed PO numbers, and stable PO
    line identities. `vendorName` is never accepted as identity.
@@ -90,17 +91,16 @@ disabled with `0.1.19에서는 검토만 가능`.
 
 | Route | Responsibility |
 |---|---|
-| `/purchase-orders?tab=rocket` | Account selection, authenticated collection, completeness evidence, editable deterministic preview, disabled confirmation. |
-| `/rocket-orders` | Preserved pre-SDD Rocket operations UI. It may link to the preview but is not replaced by it. |
-| `/product-hub/matching` | Preserved default product matching center. |
-| `/product-hub/matching?view=channel-recipes` | Coupang and Rocket SKU queue; operator confirmation of exact Sellpia component recipes. |
+| `/purchase-orders?tab=rocket` | Additive account selection, authenticated collection, completeness evidence, editable deterministic preview, disabled confirmation. |
+| `/rocket-orders` | Preserved `c9e7caf8` calendar/list/file-history UI with the stale capacity-decision placeholder replaced by the same Sellpia preview contract. |
+| `/product-hub/matching` | Baseline Coupang/Rocket SKU queue and exact Sellpia component-recipe confirmation workspace. |
 | `/inventory-hub?tab=sellpia-sync` | Shared Sellpia freshness status, current basis, attempts, warnings, and manual fallback. |
-| `/stock-ops` | Preserved inventory analysis, including additive freshness and mapping-attention entries. |
+| `/stock-ops` | Baseline inventory analysis: Sellpia/channel zero stock, bottlenecks, mapping attention, inventory value, freshness, transfer, and return records. |
 
-The two Rocket routes have different ownership. The preview is available only
-at `/purchase-orders?tab=rocket`; direct `/rocket-orders` keeps its existing
-operator-facing screen and must not redirect to or embed the preview as a
-replacement.
+The two Rocket routes keep their own layouts and do not redirect to each other.
+They may consume the same preview contract. On `/rocket-orders`, integrate it
+only at the existing capacity-decision placeholder; do not replace the
+calendar/list/file-history shell.
 
 ## Record-Only Operations
 
@@ -130,7 +130,7 @@ for a real-world stock change.
 | Rocket account missing/inactive | Select or configure an active organization-owned `channel='rocket'` account. |
 | Vendor mismatch | Sign in to the intended Coupang supplier account or select the matching Rocket ChannelAccount. Recollect; do not override the ID. |
 | Missing/truncated details | Narrow the date range, restore the provider page/session, and recollect until completeness evidence is clean. |
-| SKU is unmapped | Confirm the entire recipe in `/product-hub/matching?view=channel-recipes`; do not infer quantity from a title. |
+| SKU is unmapped | Open `/product-hub/matching` and confirm the entire recipe; do not infer quantity from a title. |
 | Recipe component inactive | Review and replace/confirm the recipe. Persisted mapping remains diagnosable and appears in `needs_review`. |
 | `SELLPIA_SYNC_REQUIRED` | Wait for the automatic Sellpia refresh and recompute from the fresh generation. |
 | Edited quantity rejected | Recompute the preview and keep the edit within the jointly allocated remaining capacity. |

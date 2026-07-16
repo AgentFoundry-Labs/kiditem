@@ -6,17 +6,22 @@
 축소 결정은 철회**되었다. 아래 원 설계는 당시 판단의 기록으로 유지하되,
 UI와 라우트에 대해서는 이 수정 사항이 우선한다.
 
-- SDD 구현 직전 및 staging에 배포되어 있던 화면을 보존 기준으로 삼는다.
+- 정확한 보존 기준은 commit
+  `c9e7caf875ca82574ae566a27fe0afa35c988918`이다.
 - 기존 상품·주문·재고·출고/반품·거래처·재무/분석 화면과 직접 URL을
   유지한다. Sellpia 최신성, 자동 동기화, 매칭 기능은 기존 화면을
   교체하지 않고 compact status/drawer, 탭, 링크 또는 별도 보기로 추가한다.
-- `/product-hub`는 기존 상품 운영 센터와 상세 화면을 유지한다.
-  `/product-hub/matching`은 기존 매칭 센터가 기본이고 Sellpia 구성 레시피는
-  `?view=channel-recipes`에서 연다.
-- `/purchase-orders?tab=rocket`은 신규 preview만 소유한다. 기존
-  `/rocket-orders` 화면은 독립적으로 유지한다.
-- `/product-hub/options`는 예외다. 기존 편집형 상품 옵션 관리 화면을
-  삭제하고 현재 Sellpia 읽기 전용 표를 유지해도 된다.
+- `/product-hub` 목록·상세, `/product-hub/matching`,
+  `/product-hub/options`도 모두 해당 commit의 화면을 그대로 유지한다.
+  이후 Sellpia 기능은 기존 배치를 바꾸지 않는 추가 요소로만 노출한다.
+- `/purchase-orders?tab=rocket`에는 신규 preview를 추가한다. 기존
+  `/rocket-orders` 화면은 독립적으로 유지한다. 단, 기존 화면의
+  `납품 수량 판단 추후 연동` 자리는 동일한 Sellpia 최신성·레시피 기반
+  preview를 연결하며 실제 확정·provider 제출은 계속 비활성이다.
+- `/product-hub/options`의 Sellpia 읽기 전용 표가 기준 화면이다.
+
+주문수집의 전송 상태·최신성 예약은 기존 생성 파일 흐름 안에 연결하고
+별도 화면으로 레이아웃을 교체하지 않는다.
 
 따라서 아래의 "다섯 기준 작업공간", 호환 redirect, 기존 화면 흡수,
 Quick Action 제거에 관한 항목은 구현 요구사항으로 사용하지 않는다.

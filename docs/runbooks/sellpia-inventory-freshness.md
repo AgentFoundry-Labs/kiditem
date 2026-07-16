@@ -97,26 +97,38 @@ Internal operation links return to the screen that owns the action: mall collect
 `/inventory`, and inventory warnings to `/stock-ops`. This navigation contract
 does not change the server-owned TTL, lease, fence, or single-writer rules.
 
+Order transmission and freshness recovery render in the existing generated-file
+flow on `/order-collection`. A successful transmission request updates that
+file's recovery state and schedules freshness without replacing the collection
+layout or creating a separate order-sync page.
+
 ## Operations UI Preservation
 
-The UI immediately before this freshness SDD is the preservation baseline.
-Automatic sync and freshness controls are added to that UI; they do not replace
-existing pages or collapse their URLs:
+Commit `c9e7caf875ca82574ae566a27fe0afa35c988918` is the operations UI
+preservation baseline. Automatic sync and freshness controls are added to that
+UI; they do not replace existing pages or collapse their URLs:
 
-- `/product-hub` keeps the product operations center and its detail hierarchy.
-- `/product-hub/matching` keeps the prior matching center by default;
-  `/product-hub/matching?view=channel-recipes` opens the Sellpia component
-  recipe workflow.
+- `/product-hub` keeps the baseline read-only Sellpia catalog and snapshot
+  detail. `/product-hub/matching` keeps the baseline Coupang ChannelSku
+  component-recipe workspace.
 - Order, inventory, fulfillment, supplier, and finance sidebar routes remain
   independently reachable even when another hub reuses related components.
-- `/purchase-orders?tab=rocket` is the new preview-only workflow;
-  `/rocket-orders` keeps its prior Rocket operations UI.
-- `/product-hub/options` may keep the replacement read-only Sellpia table. This
-  is the approved exception to preserving the former editable options screen.
+- `/rocket-orders` keeps its baseline Rocket operations UI and replaces the
+  existing capacity-decision placeholder with the preview-only Sellpia
+  freshness/recipe calculation. `/purchase-orders?tab=rocket` may expose the
+  same preview contract.
+- `/product-hub/options` keeps the baseline dedicated read-only Sellpia table.
 
-The shared compact status/drawer and synchronization controls are additive.
-Do not remove the standard Quick Action, a page header, tabs, tables, or existing
-actions merely to expose freshness.
+The shared compact status/drawer and synchronization controls are additive and
+must not rearrange baseline layouts. Do not remove the standard Quick Action, a
+page header, tabs, tables, or existing actions merely to expose freshness.
+
+The preserved inventory tab sets are exact. `/inventory-hub` keeps `status`,
+`po`, `io`, `sellpia-sync`, `rocket-events`, `ledger`, `audits`, and `assets`;
+`/stock-ops` keeps `sellpia-zero`, `channel-zero`, `bottlenecks`,
+`mapping-attention`, `inventory-value`, `freshness`, `transfer`, and
+`return-transfer`. Do not restore an older inventory-control or stock-analysis
+tab set.
 
 An identical workbook is not republished. The first post-order identical hash
 schedules one `same_hash_confirmation` at least three minutes later. The next

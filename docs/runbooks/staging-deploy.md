@@ -400,8 +400,8 @@ After the deploy finishes, an authenticated operator must:
 
 1. Open `/inventory-hub?tab=sellpia-sync` and import the approved Sellpia
    workbook. Wait for a completed `sellpia_inventory` run.
-2. Open `/product-hub/matching?view=channel-recipes`, choose the configured
-   Coupang account, and import the approved Wing workbook. Wait for a completed
+2. Open `/product-hub/matching`, choose the configured Coupang account, and
+   import the approved Wing workbook. Wait for a completed
    `coupang_wing_catalog` run. Sellpia must complete first.
 3. Confirm the Environment variables `STAGING_REBUILD_EXPECTED_*` match the
    approved import manifest, not a guessed or copied total.

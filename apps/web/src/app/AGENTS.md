@@ -47,7 +47,7 @@ route groups need it.
 
 ## Preserved Operations Surfaces (`0.1.19`)
 
-The operations UI that existed before the Sellpia freshness SDD is the
+Commit `c9e7caf875ca82574ae566a27fe0afa35c988918` is the operations UI
 preservation baseline. Keep its sidebar sections, independent URLs, page
 hierarchy, and primary interactions. Sellpia freshness, synchronization, and
 channel-component matching are additive capabilities; do not replace an
@@ -55,28 +55,40 @@ existing screen with a consolidated workspace or compatibility redirect.
 
 Important ownership rules:
 
-- `/product-hub` keeps the product operations-center layout. Its existing
-  product detail remains the default detail experience.
-- `/product-hub/matching` keeps the pre-SDD matching center by default;
-  `?view=channel-recipes` opens the additive Sellpia component-recipe view.
+- `/product-hub` keeps the baseline read-only Sellpia product catalog and
+  snapshot detail.
+- `/product-hub/matching` keeps the baseline Coupang ChannelSku-to-Sellpia
+  component-recipe workspace.
 - `/inventory-hub`, `/inventory`, `/stock-ops`, `/order-hub`,
   `/order-collection`, `/orders`, `/unshipped-items`, `/outbound`,
   `/order-status-hub`, and `/rocket-orders` remain independently reachable
   operational surfaces.
-- `/purchase-orders?tab=rocket` owns only the new deterministic Rocket preview.
-  The direct `/rocket-orders` URL keeps its pre-SDD Rocket operations UI.
-- `/product-hub/options` may use the replacement read-only Sellpia option table;
-  this is the approved exception to preserving the former editable option UI.
+- `/rocket-orders` keeps its `c9e7caf8` shell and replaces the existing
+  `납품 수량 판단 추후 연동` placeholder with the deterministic Sellpia
+  freshness/component-capacity preview. `/purchase-orders?tab=rocket` may expose
+  the same preview capability without replacing either route's layout.
+- `/product-hub/options` keeps the baseline dedicated read-only Sellpia option
+  table.
 
 Existing routes may share extracted components, but each route keeps its own
 operator-facing composition. Standard shell affordances such as Quick Action
 are not suppressed solely because a page is dense. Add compact Sellpia status,
-drawer entry points, and synchronization controls without removing the existing
-header, tabs, tables, or actions.
+drawer entry points, and synchronization controls without replacing or
+rearranging the existing header, tabs, tables, or actions.
 
 Sellpia freshness is shared application state, not route-local state. Pages may
 open the shared drawer or render the compact status, but must not derive TTL,
 own claim/heartbeat timers, upload browser bytes outside the coordinator, or
-write stock. Rocket preview under `/purchase-orders?tab=rocket` remains
-preview-only; no actual confirmation/submission/reservation/workbook/stock
-control may be introduced for release `0.1.19`.
+write stock. Rocket capacity UI remains preview-only on every route; no actual
+confirmation/submission/reservation/workbook/stock control may be introduced
+for release `0.1.19`.
+
+The preserved baseline contents include:
+
+- `/inventory-hub`: `status`, `po`, `io`, `sellpia-sync`, `rocket-events`,
+  `ledger`, `audits`, and `assets`;
+- `/stock-ops`: `sellpia-zero`, `channel-zero`, `bottlenecks`,
+  `mapping-attention`, `inventory-value`, `freshness`, `transfer`, and
+  `return-transfer`;
+- `/order-hub`: `orders`, `collection`, `picking`, `outbound`, and `matching`;
+- `/order-status-hub`: `inventory`, `delivery`, `compare`, and `sync`.

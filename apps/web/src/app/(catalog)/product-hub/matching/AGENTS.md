@@ -1,17 +1,19 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# product-hub/matching — Preserved Matching Center + Sellpia Recipes
+# product-hub/matching — Coupang ChannelSku to Sellpia Matching
 
-`app/(catalog)/product-hub/matching/` owns two additive views under
-`/product-hub/matching`:
+`app/(catalog)/product-hub/matching/` owns `/product-hub/matching`, the operator
+workspace for importing Coupang Wing product/SKU metadata and confirming which
+Sellpia `MasterProduct` rows one channel SKU consumes.
 
-- the default pre-SDD matching-center surface with `자동 연결`, `확인 필요`,
-  `충돌`, `처리 완료`, and `제외` tabs;
-- `?view=channel-recipes`, the current ChannelSku-to-Sellpia component recipe
-  workspace.
+## Owned Surfaces
 
-The sidebar opens the preserved default surface. Do not replace it with the
-recipe workspace. Link the two views explicitly instead.
+- Active ChannelAccount selector; only `channel === 'coupang'` accounts can
+  receive a Wing workbook in release `0.1.19`
+- Coupang Wing catalog upload
+- Server-paged all/unmatched/needs-review/matched queue
+- Live Sellpia candidate search and multi-component recipe editor
+- Explicit confirmed unmap flow
 
 ## Data Flow
 
@@ -25,12 +27,6 @@ React Query + apiClient
   -> PUT /api/channels/sku-mappings/:channelSkuId/components
 ```
 
-The removed legacy channel-reconciliation API is not recreated. The default
-surface adapts current `needs_review` and `matched` rows into its preserved
-table. Legacy-only distinctions (`자동 연결`, `충돌`, `제외`) remain visible
-with an explicit unavailable state. The `이미지 동기화 데이터 점검` action
-remains visible but disabled until a supported server contract exists.
-
 ## Recipe State Rules
 
 - React Query owns accounts, server-paged rows, candidates, status refresh,
@@ -42,19 +38,17 @@ remains visible but disabled until a supported server contract exists.
   matching lists, candidates, and channel availability.
 - Component replacement, confirmed unmap, and explicit status refresh also
   invalidate channel availability immediately.
-- The recipe view retains account, search, status, and server paging controls.
-- The shared Sellpia provider owns synchronization; these views only show the
-  compact freshness control.
+- The workspace retains account, search, status, and server paging controls.
+- The shared Sellpia provider owns synchronization; route-local controls must
+  not replace the baseline workspace layout.
 
 ## Boundary Rules
 
 - All API calls go through `apiClient` + React Query.
 - Do not send `organizationId`; backend session scope owns it.
-- Do not revive removed reconciliation, legacy ProductOption, or
-  `/api/products*` endpoints just to make preserved controls interactive.
 - Do not load the complete queue into browser memory.
-- Do not infer or save a component recipe from names, barcodes, candidate
-  rank, or the preserved legacy table.
+- Do not infer or save a component recipe from names, barcodes, or candidate
+  rank.
 - Component quantity is the only editable Sellpia number.
 - Rocket PO collection, preview, and order handling remain outside this route.
 

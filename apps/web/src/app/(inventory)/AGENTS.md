@@ -42,14 +42,17 @@ React Query + inventory API helpers
   one import-run history. Manual upload requires explicit fresh-export
   attestation bound to the currently selected file, and pre-download failures
   render without file provenance.
-- `/inventory-hub` preserves its pre-SDD inventory-management tabs. New Sellpia
-  synchronization controls may be added as a tab or compact status without
-  removing the existing tabs.
+- `/inventory-hub` preserves baseline tabs `status`, `po`, `io`,
+  `sellpia-sync`, `rocket-events`, `ledger`, `audits`, and `assets`.
 - `/inventory` and `/stock-ops` keep their own operator-facing compositions.
   Shared projections may reuse components, but the direct routes do not become
   redirects.
 - Compact freshness status opens the shared drawer; automatic and manual
   attempts remain one import history regardless of which screen opened it.
+- `/stock-ops` preserves baseline tabs `sellpia-zero`, `channel-zero`,
+  `bottlenecks`, `mapping-attention`, `inventory-value`, `freshness`,
+  `transfer`, and `return-transfer`. Do not restore an older tab set in their
+  place.
 
 ## Boundary Rules
 

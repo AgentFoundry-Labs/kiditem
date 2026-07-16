@@ -498,11 +498,10 @@ rtk npm run dev
 | `/inventory-hub?tab=status` | 보존된 재고 현황 목록/필터/검색/상세 진입이 깨지지 않는지 |
 | `/inventory-hub?tab=sellpia-sync` | freshness/current basis/history drawer가 현재 조직 상태로 렌더링되는지 |
 | `/stock-ops` | 보존된 재고 분석 탭과 추가된 freshness/mapping 경고가 함께 렌더링되는지 |
-| `/product-hub` | staging 기준 상품 운영 센터의 카드/필터/상품 행과 상세 진입이 보존되는지 |
-| `/product-hub/options` | 승인된 예외인 Sellpia 읽기 전용 옵션 표가 검색/필터/페이징과 함께 렌더링되는지 |
-| `/product-hub/matching` | 기존 매칭 센터가 기본 화면으로 보존되는지 |
-| `/product-hub/matching?view=channel-recipes` | account 범위 matching queue와 confirmed recipe가 구분되는지 |
-| `/rocket-orders` / `/purchase-orders?tab=rocket` | 기존 Rocket 운영 화면과 신규 preview가 서로 교체되지 않고 각 URL에 렌더링되는지 |
+| `/product-hub` | `c9e7caf8` 기준 읽기 전용 Sellpia 상품 카탈로그와 상세 진입이 보존되는지 |
+| `/product-hub/options` | `c9e7caf8` 기준 Sellpia 읽기 전용 옵션 표가 검색/필터/페이징과 함께 렌더링되는지 |
+| `/product-hub/matching` | `c9e7caf8` 기준 account 범위 matching queue와 confirmed recipe가 렌더링되는지 |
+| `/rocket-orders` / `/purchase-orders?tab=rocket` | 기존 Rocket 화면의 판단 placeholder와 발주 화면에 동일한 Sellpia capacity preview 계약이 배치 변경 없이 연결되고, 확정은 비활성인지 |
 
 확인 기준:
 

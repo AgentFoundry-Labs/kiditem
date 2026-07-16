@@ -2,18 +2,20 @@ Consult this document first instead of relying on memorized knowledge.
 
 # web/stock-ops - Preserved Inventory Analysis
 
-`stock-ops/` owns the independently reachable pre-SDD inventory-analysis
-surface. Sellpia freshness and mapping-attention capabilities are additive to
-its existing tabs; related projections may also appear in `/inventory-hub`.
+`stock-ops/` owns the independently reachable inventory-analysis surface from
+baseline commit `c9e7caf875ca82574ae566a27fe0afa35c988918`. Related
+projections may also appear in `/inventory-hub`.
 
 ## State Rules
 
-- Preserve the existing analysis tabs and their direct query entry points.
+- Preserve `sellpia-zero`, `channel-zero`, `bottlenecks`,
+  `mapping-attention`, `inventory-value`, `freshness`, `transfer`, and
+  `return-transfer` plus their direct query entry points. Do not substitute a
+  different historical tab set.
 - Keep inactive workspaces from running unnecessary timers, requests, or
   toasts.
 - Mapping recipe edits link to
-  `/product-hub/matching?view=channel-recipes`; the analysis page does not save
-  recipes itself.
+  `/product-hub/matching`; the analysis page does not save recipes itself.
 
 ## Boundary Rules
 

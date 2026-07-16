@@ -334,13 +334,13 @@ Kinds:
 | `apps/web/src/app/(advertising)` | Route Group | `ad-ops`, `rank-tracking` |
 | `apps/web/src/app/(analytics)` | Route Group | `dashboard` |
 | `apps/web/src/app/(automation)` | Route Group | `_shared`, `action-board`, `agents`, `marketplace`, `workflows` |
-| `apps/web/src/app/(catalog)` | Route Group | Preserved `/product-hub` operations center and detail; preserved `/product-hub/matching` with additive `?view=channel-recipes`; approved read-only Sellpia option projection at `/product-hub/options` and `?view=options`. |
+| `apps/web/src/app/(catalog)` | Route Group | Baseline read-only Sellpia catalog and detail at `/product-hub`; dedicated read-only `/product-hub/options`; Coupang ChannelSku-to-Sellpia component matching at `/product-hub/matching`. |
 | `apps/web/src/app/(finance)` | Route Group | `_shared`, `finance-hub`, `profit-loss`, `reports`, `sales-analysis`, `supplier-hub` |
 | `apps/web/src/app/(inventory)` | Route Group | Preserved, independently reachable `/inventory-hub`, `/inventory`, `/stock-ops`, `/outbound`, and `/unshipped-items` surfaces plus warehouses and Coupang shipment support; shared Sellpia status/sync controls are additive. |
-| `apps/web/src/app/(orders)` | Route Group | Preserved, independently reachable `/order-hub`, `/order-collection`, `/orders`, `/order-status-hub`, and `/rocket-orders` surfaces plus returns, CS, reviews, picking, and return scanning. |
+| `apps/web/src/app/(orders)` | Route Group | Preserved, independently reachable `/order-hub`, `/order-collection`, `/orders`, `/order-status-hub`, and `/rocket-orders` surfaces plus returns, CS, reviews, picking, and return scanning; the Rocket capacity placeholder consumes the shared preview contract. |
 | `apps/web/src/app/(sourcing-ai)` | Route Group | `sourcing-ai`, `sourcing-ai/category-sourcing`, `sourcing-ai/competitor-analysis`, `sourcing-ai/final-selection`, `sourcing-ai/keywords`, `sourcing-ai/market`, `sourcing-ai/recommendations`, `sourcing-ai/settings`, `sourcing-ai/validation`, `sourcing-ai/wholesale-search`, `sourcing-ai/wing-catalog` |
 | `apps/web/src/app/(product-pipeline)` | Route Group | `product-pipeline/collected-products`, `product-pipeline/collected-products/[id]`, `product-pipeline/collected-products/[id]/editor`, `product-pipeline/collected-products/[id]/templates`, `product-pipeline/detail-pages/[generationId]/editor`, `product-pipeline/detail-template-generation`, `product-pipeline/productgenerate`, `product-pipeline/registered-products`, `product-pipeline/registered-products/[workspaceId]`, `product-pipeline/thumbnail-ai`, `product-pipeline/thumbnail-generation`, `product-pipeline/thumbnail-generation/edit` |
-| `apps/web/src/app/(supply)` | Route Group | `/purchase-orders` general purchasing with additive Rocket preview at `?tab=rocket`, plus `suppliers`; this preview does not replace `/rocket-orders`. |
+| `apps/web/src/app/(supply)` | Route Group | `/purchase-orders` general purchasing with additive Rocket preview at `?tab=rocket`, plus `suppliers`; Supply owns the preview contract also consumed by `/rocket-orders`. |
 | `apps/web/src/app/agent-os` | App Internal | Fullscreen visualization surfaces `/agent-os` and `/agent-os/network`, separate from `/agents`. |
 | `apps/web/src/app/auth` | App Internal | Auth callback subtree. |
 | `apps/web/src/app/fonts` | App Internal | Next font assets. |
@@ -350,7 +350,7 @@ Kinds:
 
 Notable route subtrees:
 
-- The operations UI immediately before the Sellpia freshness SDD is the
+- Commit `c9e7caf875ca82574ae566a27fe0afa35c988918` is the operations UI
   preservation baseline. Existing sidebar sections and direct operations URLs
   remain independently usable; shared components may reduce duplication but do
   not turn those routes into redirects. The normal app shell, including Quick
@@ -359,15 +359,27 @@ Notable route subtrees:
   recipe links are added without replacing existing headers, tabs, tables, or
   actions.
 
-- `/product-hub` preserves the deployed product operations-center hierarchy.
-  `/product-hub/matching` preserves its default matching center, while
-  `?view=channel-recipes` owns the additive Sellpia component-recipe workflow.
-  `/product-hub/options` is the explicit exception: its former editable option
-  UI may be replaced by the current read-only Sellpia table.
+- Product list, detail, matching, and options all use the exact baseline
+  composition. `/product-hub` is the read-only Sellpia catalog,
+  `/product-hub/[id]` is the read-only snapshot detail,
+  `/product-hub/matching` is the Coupang ChannelSku component-recipe workspace,
+  and `/product-hub/options` is the dedicated read-only Sellpia options table.
+  Post-baseline Sellpia features may be added without replacing or rearranging
+  those layouts.
 
-- `/purchase-orders?tab=rocket` owns only the deterministic Rocket preview.
-  `/rocket-orders` remains the preserved Rocket operations screen and is not a
-  compatibility redirect.
+- `/rocket-orders` remains the preserved Rocket operations screen and is not a
+  compatibility redirect. Its existing `납품 수량 판단 추후 연동` placeholder
+  consumes the deterministic Sellpia freshness/component-capacity preview.
+  `/purchase-orders?tab=rocket` may expose the same preview contract without
+  replacing either layout.
+
+- The baseline tab ownership is exact: `/inventory-hub` has `status`, `po`,
+  `io`, `sellpia-sync`, `rocket-events`, `ledger`, `audits`, and `assets`;
+  `/stock-ops` has `sellpia-zero`, `channel-zero`, `bottlenecks`,
+  `mapping-attention`, `inventory-value`, `freshness`, `transfer`, and
+  `return-transfer`; `/order-hub` has `orders`, `collection`, `picking`,
+  `outbound`, and `matching`; `/order-status-hub` has `inventory`, `delivery`,
+  `compare`, and `sync`.
 
 - `apps/web/src/app/(product-pipeline)/product-pipeline/collected-products`
   owns `/product-pipeline/collected-products`, the 1688/imported plus manual
@@ -552,15 +564,16 @@ ETA/PO/line order entirely in memory. Edited quantities are jointly bounded.
 There is no reservation, commitment, confirmation workbook, attempt/provider
 submit, or stock mutation, and the actual-confirm control is disabled.
 
-The frontend preserves the pre-SDD operations sidebar and independently
+The frontend preserves the operations sidebar and route compositions from
+`c9e7caf875ca82574ae566a27fe0afa35c988918` and independently
 reachable product, order, inventory, fulfillment, supplier, and finance
 screens. One shared coordinator/drawer supplies Sellpia freshness, while pages
-may render compact status and sync controls additively. The product operations
-center and default matching center remain intact; channel-component recipes use
-`/product-hub/matching?view=channel-recipes`. The Rocket preview exists only at
-`/purchase-orders?tab=rocket` and does not replace `/rocket-orders`. The former
-editable product-options screen is the one approved preservation exception and
-may be represented by the read-only Sellpia table.
+may expose compact status and sync controls without rearranging baseline
+layouts. Product list, detail, matching, and read-only options keep their exact
+baseline ownership. Rocket preview is wired into the existing decision
+placeholder on `/rocket-orders` and may also appear at
+`/purchase-orders?tab=rocket`; actual confirmation and provider submission stay
+disabled.
 
 Exact operation and recovery steps live in the
 [freshness runbook](runbooks/sellpia-inventory-freshness.md),

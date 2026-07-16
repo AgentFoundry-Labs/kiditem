@@ -2,21 +2,24 @@ Consult this document first instead of relying on memorized knowledge.
 
 # web/rocket-orders - Preserved Rocket Operations
 
-`app/(orders)/rocket-orders/` owns the independently reachable pre-SDD Rocket
-operations UI. The deterministic component-capacity preview is an additive,
-separate surface at `/purchase-orders?tab=rocket` and belongs to Supply.
+`app/(orders)/rocket-orders/` owns the independently reachable Rocket
+operations UI from `c9e7caf8`. Its existing `납품 수량 판단 추후 연동`
+placeholder now hosts the deterministic Sellpia freshness and component-capacity
+preview. Supply owns the preview contract, which may also be exposed at
+`/purchase-orders?tab=rocket`.
 
 ## State Rules
 
 - Preserve the existing Rocket list, collection, and local file-history
   composition supported by the current contracts.
-- Keep Sellpia freshness status and links to the preview additive to the
-  existing page.
+- Wire freshness, account selection, collection completeness, capacity reasons,
+  and editable preview quantities into the existing decision placeholder.
 
 ## Boundary Rules
 
 - Do not call or recreate backend Rocket confirmation/generation endpoints.
-- Do not embed the Supply preview as a replacement for the preserved page.
+- Do not replace or rearrange the preserved shell when integrating the shared
+  preview.
 
 ## Verification
 

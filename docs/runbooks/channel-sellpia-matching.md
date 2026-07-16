@@ -26,9 +26,9 @@ Inventory freshness and publication are owned by
 - For Rocket, select an active account whose stored channel is exactly `rocket`;
   identities arrive only from a complete extension collection with the exact
   vendor ID.
-- Use `/product-hub/matching?view=channel-recipes`. The route without `view`
-  keeps the pre-SDD matching center. Do not identify an account by display name
-  and do not send `organizationId` from the browser.
+- Use the baseline `/product-hub/matching` component-recipe workspace. Do not
+  identify an account by display name and do not send `organizationId` from the
+  browser.
 
 ## Ownership And Safety Rules
 
@@ -51,8 +51,8 @@ Inventory freshness and publication are owned by
 
 ### Coupang Wing
 
-1. Open `/product-hub/matching?view=channel-recipes` and select an active
-   `channel='coupang'` account.
+1. Open `/product-hub/matching` and select an active `channel='coupang'`
+   account.
 2. Use **쿠팡 Wing 상품 가져오기** with the intended detail workbook. The
    endpoint accepts XLS/XLSX up to 20 MiB, requires the `Template` sheet, and
    locates the required header in the first 20 rows.
@@ -93,8 +93,8 @@ labels and `needs_review` are not aliases for a persisted mapping.
 
 ## Confirm Or Replace A Recipe
 
-1. In `/product-hub/matching?view=channel-recipes`, filter **전체 / 미매칭 /
-   확인 필요 / 매칭 완료** and open **Sellpia 구성 매칭** for a SKU.
+1. In `/product-hub/matching`, filter **전체 / 미매칭 / 확인 필요 / 매칭
+   완료** and open **Sellpia 구성 매칭** for a SKU.
 2. Review channel identifiers, registered name, option, all candidate reasons,
    current active state, and existing components.
 3. Add every physical Sellpia component consumed by one sale. Use positive
@@ -139,7 +139,7 @@ sellableStock = minimum component capacity
 | Wing account not found/wrong channel | Select an active organization-owned `channel='coupang'` account. |
 | Wing workbook rejected | Correct the sheet/header/required identity problem and retry. The old metadata and recipes remain. |
 | Duplicate import | Treat `duplicate=true` as successful idempotent reuse; do not edit the source run. |
-| Ambiguous code/barcode/name | Open `/product-hub/matching?view=channel-recipes`, review all candidates, and save the exact full recipe manually. |
+| Ambiguous code/barcode/name | Open `/product-hub/matching`, review all candidates, and save the exact full recipe manually. |
 | Only `이름 제안`/AI candidates exist | Search and verify against Sellpia. Do not mark matched merely because a suggestion looks plausible. |
 | Saved component is inactive | Keep the diagnostic evidence, identify the correct active Sellpia SKU, and atomically replace the recipe. |
 | Save rejects a component | Remove duplicate/invalid quantities and confirm every component is active and owned by the same organization. |

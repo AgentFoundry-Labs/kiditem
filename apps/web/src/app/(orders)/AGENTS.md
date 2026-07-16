@@ -35,14 +35,22 @@ React Query + apiClient
   state.
 - Generated Excel files may use `apiClient.fetchRaw()` because they are blob
   responses.
+- Order-transmission status and Sellpia freshness scheduling are wired into the
+  baseline generated-file flow; do not replace the order-collection layout with
+  a separate synchronization workspace.
 - Existing local Rocket file history may use browser storage for operator
   convenience; it is not server truth or evidence that confirmation is active.
-- Preserve each route's pre-SDD page composition and URL. Shared extracted
+- Preserve each route's `c9e7caf8` page composition and URL. Shared extracted
   components may reduce duplication, but an independent route must not become a
   redirect merely because `/order-hub` also composes related functionality.
-- Channel SKU recipe repair remains exclusively in
-  `/product-hub/matching?view=channel-recipes`; the default matching URL keeps
-  the preserved matching center.
+- `/order-hub` preserves the baseline `orders`, `collection`, `picking`,
+  `outbound`, and `matching` tabs. `/order-status-hub` preserves `inventory`,
+  `delivery`, `compare`, and `sync`.
+- Channel SKU recipe repair remains exclusively in the independently reachable
+  `/product-hub/matching` route.
+- `/rocket-orders` keeps the baseline calendar/list/file-history composition
+  and uses its existing capacity-decision placeholder for the shared Sellpia
+  preview. The preview is read-only with respect to provider and stock actions.
 
 ## Boundary Rules
 
