@@ -64,6 +64,46 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     expect(await prisma.productVariantComponent.count()).toBe(beforeComponents);
   });
 
+  it('reports a single option seller SKU and model number conflict without writing a recipe', async () => {
+    const product = await createProduct(TEST_ORGANIZATION_ID, 'KI-MODEL-CONFLICT');
+    const option = await createOption({
+      productVariantId: product.variantId,
+      externalId: 'MODEL-CONFLICT',
+      sellerSku: 'SP-SELLER',
+      modelNumber: 'SP-MODEL',
+    });
+    const [sellerSku, modelSku] = await Promise.all([
+      prisma.sellpiaInventorySku.create({ data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'SP-SELLER',
+        name: 'Seller candidate',
+        currentStock: 4,
+      } }),
+      prisma.sellpiaInventorySku.create({ data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        code: 'SP-MODEL',
+        name: 'Model candidate',
+        currentStock: 5,
+      } }),
+    ]);
+    const beforeComponents = await prisma.productVariantComponent.count();
+
+    const result = await service.suggest(TEST_ORGANIZATION_ID, option.id);
+
+    expect(result.status).toBe('conflict');
+    expect(result.proposals).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        sellpiaInventorySkuId: sellerSku.id,
+        evidence: [expect.objectContaining({ kind: 'seller_sku_code', channelValue: 'SP-SELLER' })],
+      }),
+      expect.objectContaining({
+        sellpiaInventorySkuId: modelSku.id,
+        evidence: [expect.objectContaining({ kind: 'model_number_code', channelValue: 'SP-MODEL' })],
+      }),
+    ]));
+    expect(await prisma.productVariantComponent.count()).toBe(beforeComponents);
+  });
+
   it('reports shared-variant code conflicts, preserves existing recipes, and keeps names review-only', async () => {
     const product = await createProduct(TEST_ORGANIZATION_ID, 'KI-CONFLICT');
     const first = await createOption({ productVariantId: product.variantId, sellerSku: 'SP-A' });
@@ -106,6 +146,7 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     accountId = ACCOUNT_ID,
     productVariantId,
     sellerSku = null,
+    modelNumber = null,
     externalId = 'OPTION',
     displayName = 'Listing',
   }: {
@@ -113,6 +154,7 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
     accountId?: string;
     productVariantId: string | null;
     sellerSku?: string | null;
+    modelNumber?: string | null;
     externalId?: string;
     displayName?: string;
   }) {
@@ -120,7 +162,7 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
       organizationId, channelAccountId: accountId, externalId: `${externalId}-P`, displayName,
     } });
     return prisma.channelListingOption.create({ data: {
-      organizationId, listingId: listing.id, externalOptionId: `${externalId}-O`, productVariantId, sellerSku,
+      organizationId, listingId: listing.id, externalOptionId: `${externalId}-O`, productVariantId, sellerSku, modelNumber,
     } });
   }
 });
