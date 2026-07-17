@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, RefreshCw, Search, Upload } from 'lucide-react';
 import { toast } from 'sonner';
@@ -43,8 +43,10 @@ export default function MatchingPage() {
   const urlStatus = searchParams.get('status') ?? 'all';
   const [status, setStatus] = useState(urlStatus);
   const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
-  const [searchText, setSearchText] = useState(searchParams.get('search') ?? '');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const initialSearch = searchParams.get('search')?.trim() ?? '';
+  const [searchText, setSearchText] = useState(initialSearch);
+  const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
+  const pendingInternalSearch = useRef<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [productTarget, setProductTarget] = useState<ChannelProductMatchingQueueRow | null>(null);
   const [variantTarget, setVariantTarget] = useState<ChannelOptionMatchingQueueRow | null>(null);
@@ -54,6 +56,7 @@ export default function MatchingPage() {
     const next = new URLSearchParams(searchParams.toString());
     Object.entries(changes).forEach(([key, value]) => value ? next.set(key, value) : next.delete(key));
     if (resetPage) next.set('page', '1');
+    if (Object.hasOwn(changes, 'search')) pendingInternalSearch.current = changes.search ?? '';
     router.replace(`${pathname}?${next.toString()}`);
   };
 
@@ -77,7 +80,17 @@ export default function MatchingPage() {
     const timeout = window.setTimeout(() => setDebouncedSearch(searchText.trim()), SEARCH_DEBOUNCE_MS);
     return () => window.clearTimeout(timeout);
   }, [searchText]);
-  useEffect(() => { setSearchText(searchParams.get('search') ?? ''); setLevel(urlLevel); setStatus(urlStatus); }, [searchParams.toString()]);
+  useEffect(() => {
+    const nextSearch = searchParams.get('search')?.trim() ?? '';
+    if (pendingInternalSearch.current === nextSearch) {
+      pendingInternalSearch.current = null;
+    } else {
+      setSearchText(nextSearch);
+      setDebouncedSearch(nextSearch);
+    }
+    setLevel(urlLevel);
+    setStatus(urlStatus);
+  }, [searchParams.toString()]);
 
   const mappingsQuery = useChannelProductMappings({
     channelAccountId: selectedAccount?.id,

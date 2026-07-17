@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { ConflictException } from '@nestjs/common';
 import { ProductOperationsController } from './product-operations.controller';
 
 describe('ProductOperationsController', () => {
@@ -18,5 +19,20 @@ describe('ProductOperationsController', () => {
       '00000000-0000-4000-8000-000000000001',
       { search: 'SP-001', limit: 20 },
     );
+  });
+
+  it('forwards recipe snapshots and preserves a 409 current projection', async () => {
+    const conflict = new ConflictException({ message: 'changed', currentRecipe: [{ id: 'component-1' }] });
+    const recipes = { replaceRecipe: vi.fn().mockRejectedValue(conflict) };
+    const controller = new ProductOperationsController({} as never, recipes as never, {} as never);
+    const organizationId = '00000000-0000-4000-8000-000000000001';
+    const user = { id: '00000000-0000-4000-8000-000000000002' };
+    const variantId = '00000000-0000-4000-8000-000000000003';
+    const body = { components: [], expectedRecipe: [] };
+
+    await expect(controller.replaceRecipe(organizationId, user as never, variantId, body)).rejects.toBe(conflict);
+    expect(recipes.replaceRecipe).toHaveBeenCalledWith(organizationId, user.id, variantId, body);
+    expect(conflict.getStatus()).toBe(409);
+    expect(conflict.getResponse()).toMatchObject({ currentRecipe: [{ id: 'component-1' }] });
   });
 });

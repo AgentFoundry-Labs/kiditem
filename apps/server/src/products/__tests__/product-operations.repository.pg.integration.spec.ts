@@ -340,6 +340,45 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     expect([[skuA.id], [skuB.id]]).toContainEqual(componentIds);
   });
 
+  it('rejects stale recipe snapshots while allowing an intentional matching replacement', async () => {
+    const skuA = await inventorySku('SP-SNAPSHOT-A', 8);
+    const skuB = await inventorySku('SP-SNAPSHOT-B', 8);
+    const skuC = await inventorySku('SP-SNAPSHOT-C', 8);
+    const created = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+      code: 'KI-SNAPSHOT', name: 'Snapshot recipe',
+    });
+    const variantId = created.variants[0]!.id;
+    const first = await service.replaceRecipe(TEST_ORGANIZATION_ID, TEST_USER_ID, variantId, {
+      components: [{ sellpiaInventorySkuId: skuA.id, quantity: 1 }], expectedRecipe: [],
+    });
+    const staleEmpty = await service.replaceRecipe(TEST_ORGANIZATION_ID, TEST_USER_ID, variantId, {
+      components: [{ sellpiaInventorySkuId: skuB.id, quantity: 1 }], expectedRecipe: [],
+    }).catch((error) => error);
+    expect(staleEmpty).toBeInstanceOf(ConflictException);
+    expect((staleEmpty as ConflictException).getResponse()).toMatchObject({
+      currentRecipe: [{ id: first.components[0]!.id, sellpiaInventorySkuId: skuA.id, quantity: 1 }],
+    });
+    expect((await service.getProduct(TEST_ORGANIZATION_ID, created.id)).variants[0]!.components)
+      .toMatchObject([{ sellpiaInventorySkuId: skuA.id }]);
+
+    const second = await service.replaceRecipe(TEST_ORGANIZATION_ID, TEST_USER_ID, variantId, {
+      components: [{ sellpiaInventorySkuId: skuB.id, quantity: 2 }], expectedRecipe: recipeSnapshot(first),
+    });
+    expect(second.components).toMatchObject([{ sellpiaInventorySkuId: skuB.id, quantity: 2 }]);
+    const third = await service.replaceRecipe(TEST_ORGANIZATION_ID, TEST_USER_ID, variantId, {
+      components: [{ sellpiaInventorySkuId: skuC.id, quantity: 3 }], expectedRecipe: recipeSnapshot(second),
+    });
+    const staleNonEmpty = await service.replaceRecipe(TEST_ORGANIZATION_ID, TEST_USER_ID, variantId, {
+      components: [{ sellpiaInventorySkuId: skuA.id, quantity: 1 }], expectedRecipe: recipeSnapshot(second),
+    }).catch((error) => error);
+    expect(staleNonEmpty).toBeInstanceOf(ConflictException);
+    expect((staleNonEmpty as ConflictException).getResponse()).toMatchObject({
+      currentRecipe: [{ id: third.components[0]!.id, sellpiaInventorySkuId: skuC.id, quantity: 3 }],
+    });
+    expect((await service.getProduct(TEST_ORGANIZATION_ID, created.id)).variants[0]!.components)
+      .toMatchObject([{ sellpiaInventorySkuId: skuC.id, quantity: 3 }]);
+  });
+
   it('keeps product metrics null without facts and aggregates linked listing facts when present', async () => {
     const withoutFacts = await service.createProduct(
       TEST_ORGANIZATION_ID,

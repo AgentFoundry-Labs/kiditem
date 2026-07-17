@@ -219,6 +219,7 @@ export function VariantRecipeDialog({
                         aria-label={`${component.code} 필요 수량`}
                         type="number"
                         min={1}
+                        required
                         value={component.quantity ?? ''}
                         onChange={(event) => updateDraft(setDraft, index, { quantity: event.target.value === '' ? null : Number(event.target.value) })}
                         className="mt-1.5 h-10 w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)] px-3 text-sm text-[var(--text-primary)]"
