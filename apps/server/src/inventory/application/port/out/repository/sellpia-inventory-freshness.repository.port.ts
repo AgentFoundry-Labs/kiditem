@@ -100,7 +100,12 @@ export interface SellpiaInventoryFreshnessRepositoryTransaction {
 
   findInventorySkus(
     sellpiaInventorySkuIds: string[],
-  ): Promise<Array<{ id: string; isActive: boolean; currentStock: number }>>;
+  ): Promise<Array<{
+    id: string;
+    isActive: boolean;
+    currentStock: number;
+    activeCommitmentQuantity: number;
+  }>>;
 }
 
 export interface SellpiaInventoryFreshnessRepositoryPort {

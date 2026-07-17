@@ -857,7 +857,7 @@ describe('SellpiaInventoryFreshnessService', () => {
       verifiedGeneration: 7n,
       freshnessFence: '00000000-0000-4000-8000-000000000207',
     });
-    repository.seedInventorySku(ORG_ID, SKU_ID, true, 7);
+    repository.seedInventorySku(ORG_ID, SKU_ID, true, 100, 80);
     const capacityReader = service as unknown as {
       readFreshCapacity(input: {
         organizationId: string;
@@ -876,7 +876,9 @@ describe('SellpiaInventoryFreshnessService', () => {
       expiresAt: '2026-07-15T00:09:00.000Z',
       inventorySkus: [{
         sellpiaInventorySkuId: SKU_ID,
-        currentStock: 7,
+        currentStock: 100,
+        activeCommitmentQuantity: 80,
+        availableStock: 20,
         isActive: true,
       }],
     });
@@ -898,7 +900,11 @@ implements SellpiaInventoryFreshnessRepositoryPort {
   private readonly states = new Map<string, SellpiaInventoryFreshnessState>();
   private readonly inventorySkus = new Map<
     string,
-    Map<string, { isActive: boolean; currentStock: number }>
+    Map<string, {
+      isActive: boolean;
+      currentStock: number;
+      activeCommitmentQuantity: number;
+    }>
   >();
   private tail: Promise<void> = Promise.resolve();
   private readonly intents = new Map<
@@ -971,9 +977,10 @@ implements SellpiaInventoryFreshnessRepositoryPort {
     id: string,
     isActive: boolean,
     currentStock = 0,
+    activeCommitmentQuantity = 0,
   ) {
     const byOrganization = this.inventorySkus.get(organizationId) ?? new Map();
-    byOrganization.set(id, { isActive, currentStock });
+    byOrganization.set(id, { isActive, currentStock, activeCommitmentQuantity });
     this.inventorySkus.set(organizationId, byOrganization);
   }
 
@@ -1222,7 +1229,12 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
 
   async findInventorySkus(
     sellpiaInventorySkuIds: string[],
-  ): Promise<Array<{ id: string; isActive: boolean }>> {
+  ): Promise<Array<{
+    id: string;
+    isActive: boolean;
+    currentStock: number;
+    activeCommitmentQuantity: number;
+  }>> {
     return this.repository.findInventorySkus(
       this.organizationId,
       sellpiaInventorySkuIds,

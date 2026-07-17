@@ -15,6 +15,7 @@ import { SellpiaImportRunRepositoryAdapter } from './adapter/out/repository/sell
 import { SellpiaSnapshotPublicationRepositoryAdapter } from './adapter/out/repository/sellpia-snapshot-publication.repository.adapter';
 import { SellpiaInventoryFreshnessRepositoryAdapter } from './adapter/out/repository/sellpia-inventory-freshness.repository.adapter';
 import { InventorySkuSnapshotListRepositoryAdapter } from './adapter/out/repository/inventory-sku-snapshot-list.repository.adapter';
+import { InventoryCommitmentRepositoryAdapter } from './adapter/out/repository/inventory-commitment.repository.adapter';
 import { SellpiaInventorySkuReadRepositoryAdapter } from './adapter/out/repository/sellpia-inventory-sku-read.repository.adapter';
 import { PickingRepositoryAdapter } from './adapter/out/repository/picking.repository.adapter';
 import { SellpiaReceiptBatchRepositoryAdapter } from './adapter/out/repository/sellpia-receipt-batch.repository.adapter';
@@ -25,6 +26,8 @@ import { LocalCoupangShipmentFilesAdapter } from './adapter/out/storage/local-co
 import { COUPANG_SHIPMENTS_PORT, PICKING_PORT, UNSHIPPED_PORT } from './application/port/in/fulfillment';
 import {
   INVENTORY_SKU_SNAPSHOT_LIST_PORT,
+  INVENTORY_AVAILABILITY_PORT,
+  INVENTORY_COMMITMENT_PORT,
   SELLPIA_INVENTORY_IMPORT_PORT,
   SELLPIA_INVENTORY_FRESHNESS_GATE_PORT,
   SELLPIA_INVENTORY_FRESHNESS_PORT,
@@ -39,6 +42,7 @@ import { SELLPIA_IMPORT_RUN_REPOSITORY_PORT } from './application/port/out/repos
 import { SELLPIA_SNAPSHOT_PUBLICATION_REPOSITORY_PORT } from './application/port/out/repository/sellpia-snapshot-publication.repository.port';
 import { SELLPIA_INVENTORY_FRESHNESS_REPOSITORY_PORT } from './application/port/out/repository/sellpia-inventory-freshness.repository.port';
 import { INVENTORY_SKU_SNAPSHOT_LIST_REPOSITORY_PORT } from './application/port/out/repository/inventory-sku-snapshot-list.repository.port';
+import { INVENTORY_COMMITMENT_REPOSITORY_PORT } from './application/port/out/repository/inventory-commitment.repository.port';
 import { SELLPIA_INVENTORY_SKU_READ_REPOSITORY_PORT } from './application/port/out/repository/sellpia-inventory-sku-read.repository.port';
 import { PICKING_REPOSITORY_PORT } from './application/port/out/repository/picking.repository.port';
 import { SELLPIA_RECEIPT_BATCH_REPOSITORY_PORT } from './application/port/out/repository/sellpia-receipt-batch.repository.port';
@@ -48,6 +52,7 @@ import { WAREHOUSES_REPOSITORY_PORT } from './application/port/out/repository/wa
 import { COUPANG_SHIPMENT_FILE_STORAGE_PORT } from './application/port/out/storage';
 import { CoupangShipmentsService } from './application/service/coupang-shipments.service';
 import { InventorySkuSnapshotListService } from './application/service/inventory-sku-snapshot-list.service';
+import { InventoryCommitmentService } from './application/service/inventory-commitment.service';
 import { PickingService } from './application/service/picking.service';
 import { SellpiaInventoryImportService } from './application/service/sellpia-inventory-import.service';
 import { SellpiaInventoryFileValidator } from './application/service/sellpia-inventory-file.validator';
@@ -83,6 +88,10 @@ const REPOSITORY_PORT_BINDINGS = [
     provide: INVENTORY_SKU_SNAPSHOT_LIST_REPOSITORY_PORT,
     useExisting: InventorySkuSnapshotListRepositoryAdapter,
   },
+  {
+    provide: INVENTORY_COMMITMENT_REPOSITORY_PORT,
+    useExisting: InventoryCommitmentRepositoryAdapter,
+  },
   { provide: UNSHIPPED_REPOSITORY_PORT, useExisting: UnshippedRepositoryAdapter },
   { provide: SELLPIA_RECEIPT_BATCH_REPOSITORY_PORT, useExisting: SellpiaReceiptBatchRepositoryAdapter },
   { provide: WAREHOUSES_REPOSITORY_PORT, useExisting: WarehousesRepositoryAdapter },
@@ -99,6 +108,8 @@ const APPLICATION_PORT_BINDINGS = [
   { provide: SELLPIA_INVENTORY_FRESHNESS_PORT, useExisting: SellpiaInventoryFreshnessService },
   { provide: SELLPIA_INVENTORY_REFRESH_REQUEST_PORT, useExisting: SellpiaInventoryFreshnessService },
   { provide: SELLPIA_INVENTORY_FRESHNESS_GATE_PORT, useExisting: SellpiaInventoryFreshnessService },
+  { provide: INVENTORY_AVAILABILITY_PORT, useExisting: InventoryCommitmentService },
+  { provide: INVENTORY_COMMITMENT_PORT, useExisting: InventoryCommitmentService },
   { provide: SELLPIA_RECEIPT_BATCH_PORT, useExisting: SellpiaReceiptBatchService },
   { provide: UNSHIPPED_PORT, useExisting: UnshippedService },
   { provide: WAREHOUSES_PORT, useExisting: WarehousesService },
@@ -126,6 +137,7 @@ const APPLICATION_PORT_BINDINGS = [
     ConfirmedChannelComponentReferenceRepositoryAdapter,
     SellpiaInventoryFreshnessRepositoryAdapter,
     InventorySkuSnapshotListRepositoryAdapter,
+    InventoryCommitmentRepositoryAdapter,
     SellpiaInventorySkuReadRepositoryAdapter,
     UnshippedRepositoryAdapter,
     SellpiaReceiptBatchRepositoryAdapter,
@@ -135,6 +147,7 @@ const APPLICATION_PORT_BINDINGS = [
     ConfirmedOrdersRepositoryAdapter,
     LocalCoupangShipmentFilesAdapter,
     InventorySkuSnapshotListService,
+    InventoryCommitmentService,
     SellpiaInventorySkuReadService,
     SellpiaInventoryImportService,
     SellpiaInventoryFileValidator,
@@ -152,6 +165,8 @@ const APPLICATION_PORT_BINDINGS = [
     SELLPIA_INVENTORY_SKU_READ_PORT,
     SELLPIA_INVENTORY_REFRESH_REQUEST_PORT,
     SELLPIA_INVENTORY_FRESHNESS_GATE_PORT,
+    INVENTORY_AVAILABILITY_PORT,
+    INVENTORY_COMMITMENT_PORT,
   ],
 })
 export class InventoryModule {}

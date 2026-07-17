@@ -12,6 +12,7 @@ import type {
   SellpiaFileRunClaim,
   SellpiaImportRunRepositoryPort,
 } from '../../../application/port/out/repository/sellpia-import-run.repository.port';
+import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
 
 const SOURCE_TYPE = 'sellpia_inventory';
 const SOURCE_ORIGIN = 'https://kiditem.sellpia.com';
@@ -29,7 +30,7 @@ implements SellpiaImportRunRepositoryPort {
 
   claimFileRun(input: ClaimInput): Promise<SellpiaFileRunClaim> {
     return this.prisma.$transaction(async (tx) => {
-      await lockSellpiaLane(tx, input.organizationId);
+      await lockSellpiaInventoryTransaction(tx, input.organizationId);
       const state = await lockedState(tx, input.organizationId);
       assertConfirmedBinding(state);
       const now = new Date();
@@ -59,7 +60,7 @@ implements SellpiaImportRunRepositoryPort {
 
   async markRunFailed(input: FailureInput): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
-      await lockSellpiaLane(tx, input.organizationId);
+      await lockSellpiaInventoryTransaction(tx, input.organizationId);
       const now = new Date();
       const updated = await tx.sourceImportRun.updateMany({
         where: {
@@ -282,16 +283,6 @@ async function claimExistingRun(
     attemptToken,
     claimedExecution,
   };
-}
-
-async function lockSellpiaLane(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-): Promise<void> {
-  const lockKey = `inventory-sellpia:${organizationId}:${SOURCE_TYPE}`;
-  await tx.$queryRaw`
-    SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
-  `;
 }
 
 async function lockedState(

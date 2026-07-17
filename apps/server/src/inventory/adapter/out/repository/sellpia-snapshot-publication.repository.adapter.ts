@@ -19,6 +19,7 @@ import type {
 } from '../../../application/port/out/repository/sellpia-snapshot-publication.repository.port';
 import type { ParsedSellpiaInventoryRow } from '../../../application/service/sellpia-inventory-workbook.parser';
 import { evaluateSellpiaInventoryQuality } from '../../../domain/policy/sellpia-inventory-quality.policy';
+import { lockSellpiaInventoryTransaction } from './sellpia-inventory-transaction-lock';
 
 const SOURCE_TYPE = 'sellpia_inventory';
 const SOURCE_ORIGIN = 'https://kiditem.sellpia.com';
@@ -47,7 +48,7 @@ implements SellpiaSnapshotPublicationRepositoryPort {
       throw new BadRequestException('Sellpia inventory snapshot has no valid rows');
     }
     const result = await this.prisma.$transaction(async (tx): Promise<PublicationResult> => {
-      await lockSellpiaLane(tx, input.organizationId);
+      await lockSellpiaInventoryTransaction(tx, input.organizationId);
       const [state, run] = await Promise.all([
         lockedState(tx, input.organizationId),
         lockedRun(tx, input.organizationId, input.runId),
@@ -144,7 +145,7 @@ implements SellpiaSnapshotPublicationRepositoryPort {
 
   async verifySameHash(input: VerifyInput): Promise<SellpiaSnapshotPublicationResult> {
     return this.prisma.$transaction(async (tx) => {
-      await lockSellpiaLane(tx, input.organizationId);
+      await lockSellpiaInventoryTransaction(tx, input.organizationId);
       const [state, run] = await Promise.all([
         lockedState(tx, input.organizationId),
         lockedRun(tx, input.organizationId, input.runId),
@@ -530,16 +531,6 @@ async function lockedRun(
   });
   if (!run) throw new ConflictException('Sellpia inventory run is missing');
   return run;
-}
-
-async function lockSellpiaLane(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-): Promise<void> {
-  const lockKey = `inventory-sellpia:${organizationId}:${SOURCE_TYPE}`;
-  await tx.$queryRaw`
-    SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
-  `;
 }
 
 async function nextPublicationSequence(
