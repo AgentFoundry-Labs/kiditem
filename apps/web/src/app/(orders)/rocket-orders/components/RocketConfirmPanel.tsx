@@ -1,15 +1,20 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Bell,
   CalendarDays,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Download,
+  Info,
   Loader2,
   Package,
   RefreshCw,
+  Trash2,
   Upload,
+  XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
@@ -31,7 +36,19 @@ import { saveRocketConfirmFile } from '@/lib/rocket-confirm-file-store';
 
 type Busy = null | 'collect' | 'preview' | 'download' | 'fill';
 
+interface Activity {
+  id: number;
+  at: number;
+  status: 'info' | 'success' | 'error';
+  message: string;
+}
+
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+
+function clockLabel(at: number): string {
+  const d = new Date(at);
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
 
 function pad(n: number) {
   return String(n).padStart(2, '0');
@@ -67,6 +84,14 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
   const [selectedDate, setSelectedDate] = useState('');
   // 오늘 이후 입고예정일 = 아직 확정·납품해야 할 "앞으로 할 작업" → 배경 강조.
   const [todayKey] = useState(() => ymd(new Date()));
+
+  // 이 페이지 작업 알림(수집/미리보기/다운로드/예약 — 진행·완료·오류).
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const activitySeq = useRef(0);
+  const logActivity = useCallback((status: Activity['status'], message: string) => {
+    activitySeq.current += 1;
+    setActivities((prev) => [{ id: activitySeq.current, at: Date.now(), status, message }, ...prev].slice(0, 40));
+  }, []);
 
   const reloadSaved = useCallback(async (month: string) => {
     setSavedLoading(true);
@@ -122,9 +147,16 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
       const preview = await previewSavedRocketConfirm(date);
       setRows(preview.rows);
       setPoCount(new Set(preview.rows.map((r) => r.poNumber)).size);
-      if (preview.rows.length === 0) toast.info(`${date} 저장된 발주가 없습니다.`);
+      if (preview.rows.length === 0) {
+        toast.info(`${date} 저장된 발주가 없습니다.`);
+        logActivity('info', `${date} 저장된 발주 없음`);
+      } else {
+        logActivity('success', `${date} 미리보기 — ${preview.rows.length}행 (미매칭 ${preview.rows.filter((r) => r.available === null).length})`);
+      }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '미리보기 실패');
+      const message = error instanceof Error ? error.message : '미리보기 실패';
+      toast.error(message);
+      logActivity('error', `${date} 미리보기 실패 — ${message}`);
     } finally {
       setBusy(null);
     }
@@ -133,18 +165,23 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
   // 쿠팡에서 이 달치를 한 번 수집해 DB 에 저장(이후엔 달력에서 클릭만 하면 됨)
   async function collectMonth() {
     setBusy('collect');
+    logActivity('info', `${viewMonth} 쿠팡에서 수집 시작…`);
     try {
       const { from, to } = monthRange(viewMonth);
       const { rows: scraped, poCount: count } = await collectRocketPoRowsFromExtension(from, to);
       if (!scraped.length) {
         toast.error('해당 월 거래처확인요청 발주가 없습니다.');
+        logActivity('info', `${viewMonth} 거래처확인요청 발주 없음`);
         return;
       }
       await previewRocketConfirm(scraped); // 계산 겸 rocket_purchase_orders 에 저장
       await reloadSaved(viewMonth);
       toast.success(`${viewMonth} 수집·저장 완료 — 발주 ${formatNumber(count)}건. 날짜를 클릭하면 미리보기가 나옵니다.`);
+      logActivity('success', `${viewMonth} 수집·저장 완료 — 발주 ${formatNumber(count)}건`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '수집 실패');
+      const message = error instanceof Error ? error.message : '수집 실패';
+      toast.error(message);
+      logActivity('error', `${viewMonth} 수집 실패 — ${message}`);
     } finally {
       setBusy(null);
     }
@@ -171,8 +208,11 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
       });
       onSaved();
       toast.success(`엑셀 다운로드 + 저장 완료 — 전량확정 ${summary.confirmed} · 부족 ${summary.short}`);
+      logActivity('success', `엑셀 다운로드·저장 — ${fileName} (전량 ${summary.confirmed} · 부족 ${summary.short})`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '다운로드 실패');
+      const message = error instanceof Error ? error.message : '다운로드 실패';
+      toast.error(message);
+      logActivity('error', `엑셀 다운로드 실패 — ${message}`);
     } finally {
       setBusy(null);
     }
@@ -187,8 +227,11 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
       const message = `예약 확정 — 신규 ${result.reservedRows} · 중복 ${result.alreadyReservedRows} · 제외 ${result.skippedRows} · 실패 ${result.failedRows}`;
       if (result.failedRows > 0) toast.warning(message);
       else toast.success(message);
+      logActivity(result.failedRows > 0 ? 'error' : 'success', message);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '예약 확정 실패');
+      const message = error instanceof Error ? error.message : '예약 확정 실패';
+      toast.error(message);
+      logActivity('error', `예약 확정 실패 — ${message}`);
     } finally {
       setCommitPending(false);
     }
@@ -217,8 +260,11 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
       });
       onSaved();
       toast.success('쿠팡 양식 채우기 완료 — 다운로드 + 저장');
+      logActivity('success', `쿠팡 양식 채우기·저장 — ${fileName}`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '양식 채우기 실패');
+      const message = error instanceof Error ? error.message : '양식 채우기 실패';
+      toast.error(message);
+      logActivity('error', `양식 채우기 실패 — ${message}`);
     } finally {
       setBusy(null);
     }
@@ -238,8 +284,9 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
 
   return (
     <div className="space-y-3">
-      {/* 월 달력 — 저장된 발주(입고예정일별). 날짜 클릭 → 저장분으로 미리보기. */}
-      <div className="overflow-hidden rounded-xl border border-purple-200 bg-white">
+      {/* 좌: 월 달력(저장 발주, 입고예정일별) · 우: 이 페이지 작업 알림 */}
+      <div className="grid gap-3 lg:grid-cols-3">
+      <div className="overflow-hidden rounded-xl border border-purple-200 bg-white lg:col-span-2">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
           <div className="flex items-center gap-2">
             <CalendarDays size={16} className="text-purple-600" />
@@ -317,7 +364,7 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
                     selected
                       ? 'border-purple-500 bg-purple-50 ring-1 ring-purple-300'
                       : upcoming
-                        ? 'border-amber-300 bg-amber-50 hover:border-amber-400 hover:bg-amber-100/70'
+                        ? 'border-blue-300 bg-blue-50 hover:border-blue-400 hover:bg-blue-100/70'
                         : has
                           ? 'border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50'
                           : 'border-transparent bg-transparent',
@@ -330,7 +377,7 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
                       selected
                         ? 'font-bold text-purple-700'
                         : upcoming
-                          ? 'font-bold text-amber-700'
+                          ? 'font-bold text-blue-700'
                           : has
                             ? 'font-semibold text-slate-700'
                             : 'text-slate-300',
@@ -345,7 +392,7 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
                         selected
                           ? 'bg-purple-600 text-white'
                           : upcoming
-                            ? 'bg-amber-500 text-white'
+                            ? 'bg-blue-500 text-white'
                             : 'bg-purple-100 text-purple-700',
                       )}
                     >
@@ -360,7 +407,7 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs text-slate-500">
             <span className="flex items-center gap-2">
               <span className="inline-flex items-center gap-1">
-                <span className="inline-block h-2.5 w-2.5 rounded-sm border border-amber-300 bg-amber-50" />
+                <span className="inline-block h-2.5 w-2.5 rounded-sm border border-blue-300 bg-blue-50" />
                 오늘 이후(확정·납품 예정)
               </span>
               <span className="text-slate-300">·</span>
@@ -388,6 +435,53 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
             </label>
           </div>
         </div>
+      </div>
+
+      {/* 우: 이 페이지 작업 알림(진행·완료·오류) */}
+      <aside className="flex max-h-[520px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white lg:col-span-1">
+        <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <Bell size={15} className="text-slate-500" />
+            <span className="text-sm font-semibold text-slate-900">작업 알림</span>
+            {activities.length > 0 ? (
+              <span className="text-xs text-slate-400">{formatNumber(activities.length)}</span>
+            ) : null}
+          </div>
+          {activities.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setActivities([])}
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+            >
+              <Trash2 size={13} />
+              지우기
+            </button>
+          ) : null}
+        </div>
+        {activities.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-1 px-4 py-10 text-center">
+            <Bell size={26} className="text-slate-300" />
+            <div className="text-xs text-slate-400">이 페이지의 수집·미리보기·다운로드·예약 작업이 여기 표시됩니다.</div>
+          </div>
+        ) : (
+          <ul className="flex-1 divide-y divide-slate-50 overflow-auto">
+            {activities.map((item) => {
+              const Icon = item.status === 'success' ? CheckCircle2 : item.status === 'error' ? XCircle : Info;
+              const tone =
+                item.status === 'success' ? 'text-emerald-500' : item.status === 'error' ? 'text-red-500' : 'text-slate-400';
+              return (
+                <li key={item.id} className="flex items-start gap-2 px-4 py-2.5">
+                  <Icon size={15} className={cn('mt-0.5 flex-none', tone)} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs leading-snug text-slate-700">{item.message}</div>
+                    <div className="mt-0.5 font-mono text-[10px] text-slate-400">{clockLabel(item.at)}</div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </aside>
       </div>
 
       {/* 편집 미리보기 */}
