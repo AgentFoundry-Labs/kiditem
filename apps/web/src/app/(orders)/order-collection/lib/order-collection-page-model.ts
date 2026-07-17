@@ -45,6 +45,10 @@ export function getOrderCount(result: ConversionHistoryItem | null): number | nu
   return orderCount >= 0 ? orderCount : null;
 }
 
+export function hasSellpiaTransmissionRequest(item: ConversionHistoryItem): boolean {
+  return item.transmissionRequestedAt !== undefined;
+}
+
 export function groupHistoryByDay(items: ConversionHistoryItem[]): Array<{
   key: string;
   label: string;

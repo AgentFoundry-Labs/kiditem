@@ -70,10 +70,16 @@ export async function buildPerListingMetrics(
                 commissionRate: true,
                 shippingCost: true,
                 otherCost: true,
-                components: {
+                productVariant: {
                   select: {
-                    quantity: true,
-                    masterProduct: { select: { purchasePrice: true } },
+                    components: {
+                      select: {
+                        quantity: true,
+                        sellpiaInventorySku: {
+                          select: { purchasePrice: true },
+                        },
+                      },
+                    },
                   },
                 },
                 listing: {
@@ -83,7 +89,15 @@ export async function buildPerListingMetrics(
                     channelName: true,
                     displayName: true,
                     category: true,
-                    abcGrade: true,
+                    masterProduct: {
+                      select: {
+                        id: true,
+                        code: true,
+                        name: true,
+                        category: true,
+                        abcGrade: true,
+                      },
+                    },
                     channelAccount: { select: { channel: true } },
                     thumbnails: {
                       where: { status: 'active' },
@@ -145,11 +159,14 @@ export async function buildPerListingMetrics(
           externalId: listing.externalId,
           channelName: listing.channelName ?? null,
           channel: listing.channelAccount.channel,
-          masterId: listing.id,
-          masterCode: listing.externalId,
-          masterName: listing.displayName ?? listing.channelName ?? listing.externalId,
-          category: listing.category,
-          grade: listing.abcGrade,
+          masterId: listing.masterProduct?.id ?? listing.id,
+          masterCode: listing.masterProduct?.code ?? listing.externalId,
+          masterName: listing.masterProduct?.name
+            ?? listing.displayName
+            ?? listing.channelName
+            ?? listing.externalId,
+          category: listing.masterProduct?.category ?? listing.category,
+          grade: listing.masterProduct?.abcGrade ?? null,
           thumbnailUrl: listing.thumbnails[0]?.imageUrl ?? null,
           revenue: 0,
           costOfGoods: 0,
@@ -163,8 +180,10 @@ export async function buildPerListingMetrics(
       g.orderIds.add(o.id);
 
       const option = li.listingOption;
-      const componentCost = option.components.reduce(
-        (sum, component) => sum + (component.masterProduct.purchasePrice ?? 0) * component.quantity,
+      const componentCost = (option.productVariant?.components ?? []).reduce(
+        (sum, component) => sum
+          + (component.sellpiaInventorySku.purchasePrice ?? 0)
+            * component.quantity,
         0,
       );
       const costPrice = option.costPriceOverride ?? componentCost;

@@ -16,9 +16,11 @@ vi.mock('next/navigation', () => ({
 }));
 
 describe('StockOpsPage', () => {
-  it('offers only explainable Sellpia and channel capacity projections', () => {
+  it('restores the former inventory analysis screen without the replacement inventory shell', () => {
     render(<StockOpsPage />);
 
+    expect(screen.getByRole('heading', { level: 1, name: '재고 분석' })).toBeInTheDocument();
+    expect(screen.queryByText('재고 운영')).not.toBeInTheDocument();
     for (const label of [
       'Sellpia 재고 0',
       '채널 판매 가능 0',
@@ -26,11 +28,10 @@ describe('StockOpsPage', () => {
       '매핑 확인',
       '재고자산',
       '가져오기 상태',
+      '창고 이관 기록',
+      '반품 기록',
     ]) {
-      expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: label })).toBeInTheDocument();
     }
-    expect(screen.queryByRole('button', { name: '악성재고' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '미송수량' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '잔존재고' })).not.toBeInTheDocument();
   });
 });

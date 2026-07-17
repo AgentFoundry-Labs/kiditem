@@ -7,9 +7,17 @@ importScripts(
   "collection-runs.js",
   "interactive-tabs.js",
   "../utils/coupang-seller-detail.js",
-  "../shared/coupang-catalog-collector.js",
+  "../shared/coupang-catalog-collector.js?revision=2",
   "coupang-catalog-import.js",
 );
+
+const COUPANG_CATALOG_CONTRACT_REVISION = 2;
+if (
+  KidItemCoupangCatalog.contractRevision !==
+  COUPANG_CATALOG_CONTRACT_REVISION
+) {
+  throw new Error("쿠팡 카탈로그 수집기 계약 revision이 일치하지 않습니다");
+}
 
 const API_URL = "http://localhost:4000";
 const AUTH_TOKEN_KEY = "kiditem_auth_token";

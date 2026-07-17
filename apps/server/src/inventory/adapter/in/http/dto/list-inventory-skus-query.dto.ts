@@ -2,7 +2,8 @@ import { Transform } from 'class-transformer';
 import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 import type {
   InventorySkuStockStatus,
-  SellpiaMasterActiveStatus,
+  SellpiaInventorySkuActiveStatus,
+  SellpiaInventorySkuLinkStatus,
 } from '@kiditem/shared/inventory';
 import { PaginationQueryDto } from '../../../../../common/dto';
 
@@ -12,7 +13,8 @@ const INVENTORY_SKU_STOCK_STATUSES = [
   'out_of_stock',
 ] as const;
 
-const SELLPIA_MASTER_ACTIVE_STATUSES = ['all', 'active', 'inactive'] as const;
+const SELLPIA_INVENTORY_SKU_ACTIVE_STATUSES = ['all', 'active', 'inactive'] as const;
+const SELLPIA_INVENTORY_SKU_LINK_STATUSES = ['linked', 'unlinked'] as const;
 
 export class ListInventorySkusQueryDto extends PaginationQueryDto {
   @IsOptional()
@@ -26,6 +28,10 @@ export class ListInventorySkusQueryDto extends PaginationQueryDto {
   stockStatus?: InventorySkuStockStatus = 'all';
 
   @IsOptional()
-  @IsIn(SELLPIA_MASTER_ACTIVE_STATUSES)
-  activeStatus?: SellpiaMasterActiveStatus = 'active';
+  @IsIn(SELLPIA_INVENTORY_SKU_ACTIVE_STATUSES)
+  activeStatus?: SellpiaInventorySkuActiveStatus = 'active';
+
+  @IsOptional()
+  @IsIn(SELLPIA_INVENTORY_SKU_LINK_STATUSES)
+  linkStatus?: SellpiaInventorySkuLinkStatus;
 }

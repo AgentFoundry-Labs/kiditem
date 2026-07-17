@@ -168,6 +168,11 @@ npm run test:integration -- src/inventory/__tests__/inventory-flow.pg.integratio
 - `automation/adapter/out/panel-event/__tests__/panel-pr3.pg.integration.spec.ts` — Alert promote race (`alert.updateMany` + `actionTask.create` P2002)
 - `automation/application/service/__tests__/action-board-claim.pg.integration.spec.ts` — ActionTask claim/unclaim race
 - `automation/application/service/__tests__/action-board-mutations.pg.integration.spec.ts` — ActionTask mutation tenant scope
+- `inventory/__tests__/sellpia-inventory-freshness.repository.pg.integration.spec.ts` — organization-scoped generation/lease fencing and server-time freshness transitions
+- `inventory/__tests__/sellpia-inventory-import.repository.pg.integration.spec.ts` — atomic full-snapshot publication, same-hash confirmation, quality hard block, and previous-snapshot preservation
+- `channels/__tests__/channel-sku-mapping.pg.integration.spec.ts` — tenant-safe confirmed recipes and inactive-component diagnostics
+- `channels/__tests__/rocket-po-catalog.repository.pg.integration.spec.ts` — Rocket vendor/account identity and duplicate canonical publication
+- `supply/__tests__/purchase-order-submission.pg.integration.spec.ts` — locked freshness fence, idempotent attempt creation, ambiguous provider classification, and reconciliation
 
 각 파일은 mock 시뮬레이션 대응 파일(`*.spec.ts`) 과 **공존**한다. Mock 은 fast smoke, real 은 동시성 정확성.
 
@@ -202,6 +207,44 @@ npm run test:integration -- src/inventory/__tests__/inventory-flow.pg.integratio
   database pathname 이 모두 정확히 `kiditem_test` 가 아니면 throw. dev/prod DB 에
   TRUNCATE 실수 방지.
 - `vitest.config.integration.ts` — `fileParallelism: false` + `isolate: false` 로 단일 fork serial 실행 (테스트 사이 reset 만 하면 충분).
+
+## Sellpia Inventory `0.1.19` Verification Contract
+
+Sellpia 최신성은 한 종류의 테스트로 증명하지 않는다. 각 위험은 판정 권한이
+있는 가장 낮은 tier에서 고정한다.
+
+| 위험 | 필수 증거 |
+|---|---|
+| 10분 TTL, 2분 settle/5분 cap, 3분 same-hash confirmation, 90초 lease/20초 heartbeat | shared/domain unit boundary tests |
+| generation/fence/owner race, full-file rollback, duplicate/hash publication, Supply lock + attempt uniqueness | real PostgreSQL integration |
+| DTO/auth role/organization context, controller action-body contract | server unit/E2E + IDOR/tenant scanners |
+| Chrome extension login/HTML/workbook/timeout/focus behavior | Node extension contract tests; 실제 Chrome는 safe smoke만 |
+| automatic web claim/join/heartbeat/cancel, one-retry purchase recovery, preserved direct-route UI plus additive freshness controls | React/Vitest behavior tests + production web build and browser comparison against exact UI baseline `c9e7caf8` |
+| `MasterProduct.currentStock` single writer | `sellpia-authoritative-inventory-contract.test.mjs` scanner |
+| Rocket preview has no submit/reserve/workbook/provider/stock lane | `rocket-purchase-decision-boundary.spec.ts` plus server policy tests |
+| schema/data migration/generated docs | `db:push`, Prisma generate, data migration up twice/status, ERD/Graphify sync gate |
+
+Release verification must distinguish three evidence classes in its report:
+
+- **Executed live**: a safe action actually performed in the current local
+  KidItem/Chrome environment.
+- **Recorded real E2E**: a prior task's preserved, identifiable real collection
+  and publication evidence that was not repeated in the current run.
+- **Deterministic test-backed**: unit/integration/contract behavior, especially
+  destructive failure/race/provider cases that must not be induced live.
+
+Do not label a deterministic test as a live provider result. Live Chrome checks
+must not expose cookies, passwords, tokens, workbook contents, base64, or raw
+provider responses. Do not induce actual stock publication, external purchase,
+or Rocket confirmation merely to increase E2E coverage. Use the recorded real
+Sellpia download/publication evidence and deterministic tests when repeating the
+flow would mutate operator data.
+
+Focused release commands are maintained in
+[`docs/runbooks/sellpia-inventory-freshness.md`](runbooks/sellpia-inventory-freshness.md).
+Every backend release check still requires a Nest boot confirmation, but when a
+watch server already owns port 4000 verify that listener instead of starting a
+duplicate persistent server.
 
 ## CI 통합
 

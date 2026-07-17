@@ -19,6 +19,7 @@ import type {
   ResolveProductRegistrationCapabilityInput,
 } from '../port/in/capability/marketplace-registration.port';
 import { DefinitiveMarketplaceRegistrationError } from '../port/in/capability/marketplace-registration.port';
+import { parseKidItemFirstRegistrationLinks } from '../../domain/kiditem-first-registration-links';
 
 function stringField(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -119,6 +120,16 @@ export class MarketplaceRegistrationService {
       input.submissionPayloadJson,
       input.submissionKey,
     );
+    const exactLinks = parseKidItemFirstRegistrationLinks(
+      input.submissionPayloadJson,
+      input.submissionKey,
+    );
+    if (exactLinks.masterProductId || exactLinks.optionLinks.length > 0) {
+      await this.repository.preflightExactProductLinks({
+        organizationId: input.organizationId,
+        ...exactLinks,
+      });
+    }
     let response: CoupangCreateSellerProductResponse;
     try {
       response = await this.coupang.createSellerProduct(

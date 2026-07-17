@@ -45,7 +45,7 @@ export default function ReturnScanPage() {
       );
       return {
         items: result.items.map((item): ProductInfo => ({
-          id: item.masterProductId,
+          id: item.sellpiaInventorySkuId,
           name: item.optionName ? `${item.name} · ${item.optionName}` : item.name,
           sku: item.code,
         })),

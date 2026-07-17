@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const bridge = vi.hoisted(() => ({
   detectOrderCollectionExtensionId: vi.fn(),
@@ -12,6 +12,7 @@ import {
   detectOrderCollectionSessionExtension,
   ensureMallLoggedInViaExtension,
   finalizeOrderCollectionSession,
+  sendOrderFileToSellpiaViaExtension,
 } from './order-collection-extension';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
@@ -21,6 +22,8 @@ describe('order collection extension session bridge', () => {
     vi.clearAllMocks();
     bridge.detectOrderCollectionExtensionId.mockResolvedValue('order-extension');
   });
+
+  afterEach(() => vi.unstubAllGlobals());
 
   it('requires the browser collection session capability', async () => {
     await expect(detectOrderCollectionSessionExtension()).resolves.toBe(
@@ -108,5 +111,85 @@ describe('order collection extension session bridge', () => {
         message: '쿠팡직배송 엑셀 생성 실패',
       },
     );
+  });
+
+  it('classifies a missing extension as definitely not submitted', async () => {
+    bridge.detectOrderCollectionExtensionId.mockResolvedValue(null);
+
+    await expect(sendOrderFileToSellpiaViaExtension({
+      shopName: '키드키즈',
+      fileName: 'orders.xlsx',
+      blob: new Blob(['orders']),
+    })).resolves.toMatchObject({
+      success: false,
+      outcome: 'not_submitted',
+      error: expect.stringContaining('확장프로그램'),
+    });
+    expect(bridge.sendToExtension).not.toHaveBeenCalled();
+  });
+
+  it('classifies a local file encoding failure as definitely not submitted', async () => {
+    class FailingFileReader {
+      result: string | ArrayBuffer | null = null;
+      error = new Error('encoding failed');
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+
+      readAsDataURL() {
+        this.onerror?.();
+      }
+    }
+    vi.stubGlobal('FileReader', FailingFileReader);
+
+    await expect(sendOrderFileToSellpiaViaExtension({
+      shopName: '키드키즈',
+      fileName: 'orders.xlsx',
+      blob: new Blob(['orders']),
+    })).resolves.toMatchObject({
+      success: false,
+      outcome: 'not_submitted',
+      error: expect.stringContaining('encoding failed'),
+    });
+    expect(bridge.sendToExtension).not.toHaveBeenCalled();
+  });
+
+  it('classifies a lost extension response as unknown', async () => {
+    bridge.sendToExtension.mockRejectedValue(new Error('응답 시간이 초과되었습니다.'));
+
+    await expect(sendOrderFileToSellpiaViaExtension({
+      shopName: '키드키즈',
+      fileName: 'orders.xlsx',
+      blob: new Blob(['orders']),
+    })).resolves.toMatchObject({
+      success: false,
+      outcome: 'unknown',
+      error: expect.stringContaining('초과'),
+    });
+  });
+
+  it('preserves explicit worker outcomes without inferring from success', async () => {
+    bridge.sendToExtension
+      .mockResolvedValueOnce({
+        success: false,
+        outcome: 'not_submitted',
+        error: '판매처를 찾지 못했습니다.',
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        outcome: 'submitted',
+        shop: '키드키즈',
+      });
+    const params = {
+      shopName: '키드키즈',
+      fileName: 'orders.xlsx',
+      blob: new Blob(['orders']),
+    };
+
+    await expect(sendOrderFileToSellpiaViaExtension(params)).resolves.toMatchObject({
+      outcome: 'not_submitted',
+    });
+    await expect(sendOrderFileToSellpiaViaExtension(params)).resolves.toMatchObject({
+      outcome: 'submitted',
+    });
   });
 });

@@ -1,21 +1,136 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import {
+  normalizeCoupangOrderStatus,
+  normalizeCoupangProductStatus,
+} from '../../../domain/coupang-normalization';
 import type {
   ChannelSyncRepositoryPort,
   CoupangSyncOrderPayload,
   CoupangSyncReturnPayload,
   ProductListingSyncResult,
 } from '../../../application/port/out/repository/channel-sync.repository.port';
-import {
-  normalizeCoupangOrderStatus,
-  normalizeCoupangProductStatus,
-} from '../../../domain/coupang-normalization';
 
 type ListingForProductSync = {
   id: string;
   channelAccountId: string;
 };
+
+async function reconcileProductDetailOption(
+  tx: Prisma.TransactionClient,
+  input: {
+    organizationId: string;
+    listingId: string;
+    registrationSourceCandidateId: string | null;
+    externalOptionId: string;
+    providerOptionKey: string | null;
+    itemName: string | null;
+    salePrice: number | null;
+  },
+): Promise<void> {
+  const actual = await tx.channelListingOption.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      listingId: input.listingId,
+      externalOptionId: input.externalOptionId,
+    },
+    select: { id: true, productVariantId: true },
+  });
+  const provisionalCandidates = input.providerOptionKey && input.registrationSourceCandidateId
+    ? await tx.channelListingOption.findMany({
+      where: {
+        organizationId: input.organizationId,
+        listingId: input.listingId,
+        sellerSku: input.providerOptionKey,
+        productVariantId: { not: null },
+        rawJson: { equals: Prisma.DbNull },
+        ...(actual ? { id: { not: actual.id } } : {}),
+      },
+      select: { id: true, productVariantId: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: 2,
+    })
+    : [];
+  if (provisionalCandidates.length > 1) {
+    throw new BadRequestException(
+      `Ambiguous KidItem-first provisional options for seller SKU ${input.providerOptionKey}.`,
+    );
+  }
+  const provisional = provisionalCandidates[0] ?? null;
+  const commonData = {
+    ...(input.providerOptionKey ? { sellerSku: input.providerOptionKey } : {}),
+    itemName: input.itemName,
+    salePrice: input.salePrice,
+    isActive: true,
+  };
+  if (provisional && provisional.id !== actual?.id) {
+    if (!actual) {
+      const promoted = await tx.channelListingOption.updateMany({
+        where: {
+          id: provisional.id,
+          organizationId: input.organizationId,
+          listingId: input.listingId,
+          sellerSku: input.providerOptionKey,
+          productVariantId: provisional.productVariantId,
+          rawJson: { equals: Prisma.DbNull },
+        },
+        data: {
+          externalOptionId: input.externalOptionId,
+          ...commonData,
+        },
+      });
+      if (promoted.count !== 1) {
+        throw new BadRequestException('Provisional ChannelListingOption changed concurrently.');
+      }
+      return;
+    }
+    const actualUpdated = await tx.channelListingOption.updateMany({
+      where: {
+        id: actual.id,
+        organizationId: input.organizationId,
+        listingId: input.listingId,
+      },
+      data: {
+        ...commonData,
+        productVariantId: actual.productVariantId ?? provisional.productVariantId,
+      },
+    });
+    if (actualUpdated.count !== 1) {
+      throw new BadRequestException('ChannelListingOption changed concurrently.');
+    }
+    const provisionalRetired = await tx.channelListingOption.updateMany({
+      where: {
+        id: provisional.id,
+        organizationId: input.organizationId,
+        listingId: input.listingId,
+        sellerSku: input.providerOptionKey,
+        productVariantId: provisional.productVariantId,
+        rawJson: { equals: Prisma.DbNull },
+      },
+      data: { isActive: false },
+    });
+    if (provisionalRetired.count !== 1) {
+      throw new BadRequestException('Provisional ChannelListingOption changed concurrently.');
+    }
+    return;
+  }
+  await tx.channelListingOption.upsert({
+    where: {
+      listingId_externalOptionId: {
+        listingId: input.listingId,
+        externalOptionId: input.externalOptionId,
+      },
+    },
+    update: commonData,
+    create: {
+      organizationId: input.organizationId,
+      listingId: input.listingId,
+      externalOptionId: input.externalOptionId,
+      ...commonData,
+    },
+  });
+}
 
 @Injectable()
 export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
@@ -64,6 +179,7 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
       deliveryInfo?: unknown;
       items?: Array<{
         vendorItemId?: string | number | null;
+        externalVendorSku?: string | null;
         itemName?: string | null;
         salePrice?: number | null;
       }> | null;
@@ -77,6 +193,24 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
 
     await this.prisma.$transaction(
       async (tx) => {
+        const [lockedListing] = await tx.$queryRaw<Array<{
+          id: string;
+          sourceCandidateId: string | null;
+        }>>`
+          SELECT id, source_candidate_id AS "sourceCandidateId"
+          FROM channel_listings
+          WHERE id = ${existing.id}::uuid
+            AND organization_id = ${input.organizationId}::uuid
+            AND channel_account_id = ${existing.channelAccountId}::uuid
+            AND external_id = ${input.sellerProductId}
+            AND is_active = TRUE
+          FOR UPDATE
+        `;
+        if (!lockedListing) {
+          throw new BadRequestException(
+            `ChannelListing ${input.sellerProductId} is no longer active for this organization`,
+          );
+        }
         const updated = await tx.channelListing.updateMany({
           where: {
             id: existing.id,
@@ -111,27 +245,14 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
             );
           }
           const externalOptionId = String(item.vendorItemId);
-
-          await tx.channelListingOption.upsert({
-            where: {
-              listingId_externalOptionId: {
-                listingId: existing.id,
-                externalOptionId,
-              },
-            },
-            update: {
-              itemName: item.itemName ?? null,
-              salePrice: item.salePrice ?? null,
-              isActive: true,
-            },
-            create: {
-              organizationId: input.organizationId,
-              listingId: existing.id,
-              externalOptionId,
-              itemName: item.itemName ?? null,
-              salePrice: item.salePrice ?? null,
-              isActive: true,
-            },
+          await reconcileProductDetailOption(tx, {
+            organizationId: input.organizationId,
+            listingId: existing.id,
+            registrationSourceCandidateId: lockedListing.sourceCandidateId,
+            externalOptionId,
+            providerOptionKey: item.externalVendorSku?.trim() || null,
+            itemName: item.itemName ?? null,
+            salePrice: item.salePrice ?? null,
           });
         }
       },

@@ -401,26 +401,24 @@ export default function Dashboard() {
               <span className="text-lg font-semibold text-blue-600/60">원</span>
             </div>
             <div className="text-sm text-slate-500">이전 {formatKRW(kpiPrevRevenue)}원</div>
-            {(wingRevenue > 0 || rocketRevenue > 0) && (
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <Link
-                  href="/sales-analysis?tab=wing-daily"
-                  className="rounded-lg bg-blue-50/70 px-2.5 py-1.5 transition-colors hover:bg-blue-100"
-                >
-                  <div className="text-[11px] font-medium text-blue-500">쿠팡 윙</div>
-                  <div className="text-sm font-bold tabular-nums text-blue-700">{formatKRW(wingRevenue)}원</div>
-                </Link>
-                <Link
-                  href="/sales-analysis?tab=rocket-daily"
-                  className="rounded-lg bg-purple-50 px-2.5 py-1.5 transition-colors hover:bg-purple-100"
-                >
-                  <div className="text-[11px] font-medium text-purple-600">
-                    쿠팡 로켓 <span className="text-[9px] text-purple-400">→ 분석</span>
-                  </div>
-                  <div className="text-sm font-bold tabular-nums text-purple-700">{formatKRW(rocketRevenue)}원</div>
-                </Link>
-              </div>
-            )}
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <Link
+                href="/sales-analysis?tab=wing-daily"
+                className="rounded-lg bg-blue-50/70 px-2.5 py-1.5 transition-colors hover:bg-blue-100"
+              >
+                <div className="text-[11px] font-medium text-blue-500">쿠팡 윙</div>
+                <div className="text-sm font-bold tabular-nums text-blue-700">{formatKRW(wingRevenue)}원</div>
+              </Link>
+              <Link
+                href="/sales-analysis?tab=rocket-daily"
+                className="rounded-lg bg-purple-50 px-2.5 py-1.5 transition-colors hover:bg-purple-100"
+              >
+                <div className="text-[11px] font-medium text-purple-600">
+                  쿠팡 로켓 <span className="text-[9px] text-purple-400">→ 분석</span>
+                </div>
+                <div className="text-sm font-bold tabular-nums text-purple-700">{formatKRW(rocketRevenue)}원</div>
+              </Link>
+            </div>
             <div className="mt-2 pt-2 border-t border-blue-100">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-[12px] font-medium text-blue-400">목표 {formatKRW(revenueGoal)}원</span>
@@ -456,26 +454,21 @@ export default function Dashboard() {
               <span className="text-slate-500">판매량</span>
               <span className="font-bold tabular-nums text-slate-900">{formatNumber(effectiveSales?.trafficKpi?.salesQty ?? 0)}개</span>
             </div>
-            {(effectiveSales?.trafficKpi?.visitors ?? 0) > 0 && (
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-500">방문자</span>
-                <span className="font-bold tabular-nums text-slate-900">{formatNumber(effectiveSales?.trafficKpi?.visitors ?? 0)}명</span>
-              </div>
-            )}
-            {(effectiveSales?.trafficKpi?.views ?? 0) > 0 && (
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-500">조회</span>
-                <span className="font-bold tabular-nums text-slate-900">{formatNumber(effectiveSales?.trafficKpi?.views ?? 0)}회</span>
-              </div>
-            )}
-            {salesBaseline.lastSyncAt && (
-              <div className="text-[11px] text-slate-400 mt-1">
-                Wing 마지막 동기화 · {formatDateTime(salesBaseline.lastSyncAt)}
-                {(Date.now() - new Date(salesBaseline.lastSyncAt).getTime()) > 86400000 && (
-                  <span className="text-amber-500 ml-1">⚠ 24시간 이상 미동기화</span>
-                )}
-              </div>
-            )}
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-500">방문자</span>
+              <span className="font-bold tabular-nums text-slate-900">{formatNumber(effectiveSales?.trafficKpi?.visitors ?? 0)}명</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-500">조회</span>
+              <span className="font-bold tabular-nums text-slate-900">{formatNumber(effectiveSales?.trafficKpi?.views ?? 0)}회</span>
+            </div>
+            <div className="text-[11px] text-slate-400 mt-1">
+              Wing 마지막 동기화 · {salesBaseline.lastSyncAt ? formatDateTime(salesBaseline.lastSyncAt) : '이력 없음'}
+              {salesBaseline.lastSyncAt
+                && (Date.now() - new Date(salesBaseline.lastSyncAt).getTime()) > 86400000 && (
+                <span className="text-amber-500 ml-1">⚠ 24시간 이상 미동기화</span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -719,7 +712,7 @@ export default function Dashboard() {
             </div>
             <div className="text-xs mt-1 text-slate-400">최신 셀피아 스냅샷</div>
           </Link>
-          <Link href="/product-hub/matching" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
+          <Link href="/product-hub/matching?status=needs_review" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
             <div className="text-sm font-bold mb-1 text-slate-900">매칭 확인 필요</div>
             <div className="text-2xl font-extrabold tabular-nums text-slate-900">
               <span data-warning-count="mapping-attention">{inventoryData.warnings.mappingAttentionSkus}</span>

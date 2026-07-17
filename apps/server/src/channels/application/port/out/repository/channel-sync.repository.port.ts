@@ -69,6 +69,7 @@ export interface ChannelSyncRepositoryPort {
       deliveryInfo?: unknown;
       items?: Array<{
         vendorItemId?: string | number | null;
+        externalVendorSku?: string | null;
         itemName?: string | null;
         salePrice?: number | null;
       }> | null;

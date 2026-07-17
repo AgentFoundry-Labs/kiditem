@@ -8,7 +8,7 @@ const UNVERIFIED_RUN_ID = '00000000-0000-4000-8000-000000000003';
 describe('InventorySkuSnapshotListRepositoryAdapter', () => {
   it('reads every snapshot fact in one repeatable-read transaction and nulls unverified provenance', async () => {
     const tx = {
-      masterProduct: {
+      sellpiaInventorySku: {
         findMany: vi.fn().mockResolvedValue([{
           id: SKU_ID,
           code: 'SP-001',
@@ -20,12 +20,31 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
           salePrice: null,
           isActive: true,
           lastImportRunId: UNVERIFIED_RUN_ID,
+          variantComponents: [
+            {
+              productVariantId: 'variant-1',
+              productVariant: {
+                id: 'variant-1', code: 'VARIANT-1', name: '옵션 1', optionLabel: null,
+                masterProduct: { id: 'product-1', code: 'PRODUCT-1', name: '상품 1' },
+              },
+            },
+            {
+              productVariantId: 'variant-2',
+              productVariant: {
+                id: 'variant-2', code: 'VARIANT-2', name: '옵션 2', optionLabel: '색상: 파랑',
+                masterProduct: { id: 'product-1', code: 'PRODUCT-1', name: '상품 1' },
+              },
+            },
+          ],
         }]),
         count: vi.fn().mockResolvedValue(1),
       },
       sourceImportRun: {
         findFirst: vi.fn().mockResolvedValue(null),
         findMany: vi.fn().mockResolvedValue([]),
+      },
+      sellpiaInventoryState: {
+        findUnique: vi.fn().mockResolvedValue(null),
       },
       $queryRaw: vi.fn().mockResolvedValue([{
         totalSkus: 1n,
@@ -40,13 +59,16 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       throw new Error('snapshot read escaped the transaction');
     });
     const prisma = {
-      masterProduct: {
+      sellpiaInventorySku: {
         findMany: outsideTransaction,
         count: outsideTransaction,
       },
       sourceImportRun: {
         findFirst: outsideTransaction,
         findMany: outsideTransaction,
+      },
+      sellpiaInventoryState: {
+        findUnique: outsideTransaction,
       },
       $queryRaw: outsideTransaction,
       $transaction: vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx)),
@@ -64,18 +86,26 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       expect.any(Function),
       { isolationLevel: 'RepeatableRead' },
     );
-    expect(tx.masterProduct.findMany).toHaveBeenCalledOnce();
-    expect(tx.masterProduct.count).toHaveBeenCalledOnce();
+    expect(tx.sellpiaInventorySku.findMany).toHaveBeenCalledOnce();
+    expect(tx.sellpiaInventorySku.count).toHaveBeenCalledOnce();
     expect(tx.$queryRaw).toHaveBeenCalledOnce();
-    expect(tx.sourceImportRun.findFirst).toHaveBeenCalledOnce();
+    expect(tx.sellpiaInventoryState.findUnique).toHaveBeenCalledOnce();
+    expect(tx.sourceImportRun.findFirst).not.toHaveBeenCalled();
     expect(tx.sourceImportRun.findMany).toHaveBeenCalledOnce();
     expect(result.rows[0]).toMatchObject({
       lastImportRunId: null,
       lastImportedAt: null,
+      linkedVariantCount: 2,
+      linkedProductCount: 1,
+      linkedProducts: [{ id: 'product-1', code: 'PRODUCT-1', name: '상품 1' }],
+      linkedVariants: [
+        { id: 'variant-1', masterProductId: 'product-1', code: 'VARIANT-1', name: '옵션 1', optionLabel: null },
+        { id: 'variant-2', masterProductId: 'product-1', code: 'VARIANT-2', name: '옵션 2', optionLabel: '색상: 파랑' },
+      ],
     });
   });
 
-  it('scopes a single snapshot read by both organization and master id', async () => {
+  it('scopes a single snapshot read by both organization and inventory SKU id', async () => {
     const findFirst = vi.fn().mockResolvedValue({
       id: SKU_ID,
       code: 'SP-001',
@@ -87,6 +117,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       salePrice: 2_000,
       isActive: true,
       lastImportRunId: UNVERIFIED_RUN_ID,
+      variantComponents: [],
       lastImportRun: {
         id: UNVERIFIED_RUN_ID,
         sourceType: 'sellpia_inventory',
@@ -96,7 +127,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       },
     });
     const repository = new InventorySkuSnapshotListRepositoryAdapter({
-      masterProduct: { findFirst },
+      sellpiaInventorySku: { findFirst },
     } as never);
 
     const result = await repository.getSnapshot(ORGANIZATION_ID, SKU_ID);
@@ -105,9 +136,60 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       where: { id: SKU_ID, organizationId: ORGANIZATION_ID },
     }));
     expect(result).toMatchObject({
-      masterProductId: SKU_ID,
+      sellpiaInventorySkuId: SKU_ID,
       lastImportRunId: UNVERIFIED_RUN_ID,
       lastImportedAt: new Date('2026-07-12T00:00:00.000Z'),
+      linkedVariantCount: 0,
+      linkedProductCount: 0,
+      linkedProducts: [],
+      linkedVariants: [],
     });
+  });
+
+  it('maps nullable pre-download provenance and expanded history fields', async () => {
+    const row = {
+      id: UNVERIFIED_RUN_ID,
+      fileName: null,
+      fileHash: null,
+      status: 'failed',
+      rowCount: 0,
+      importedAt: null,
+      lastVerifiedAt: null,
+      verificationCount: 0,
+      lastTrigger: 'manual_request',
+      freshnessGeneration: 9_007_199_254_740_993n,
+      manualFreshExportConfirmedAt: null,
+      manualFreshExportConfirmedBy: null,
+      qualityReport: null,
+      errorCode: 'sellpia_network_failed',
+      errorMessage: 'network failed',
+      createdAt: new Date('2026-07-12T00:00:00.000Z'),
+      updatedAt: new Date('2026-07-12T00:01:00.000Z'),
+    };
+    const findMany = vi.fn().mockResolvedValue([row]);
+    const repository = new InventorySkuSnapshotListRepositoryAdapter({
+      sourceImportRun: {
+        findMany,
+        count: vi.fn().mockResolvedValue(1),
+      },
+    } as never);
+
+    const result = await repository.listImportRuns(ORGANIZATION_ID, {
+      skip: 0,
+      take: 50,
+    });
+
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+      select: expect.objectContaining({
+        fileHash: true,
+        lastVerifiedAt: true,
+        freshnessGeneration: true,
+        qualityReport: true,
+        errorCode: true,
+        updatedAt: true,
+      }),
+    }));
+    expect(result.rows).toEqual([row]);
   });
 });

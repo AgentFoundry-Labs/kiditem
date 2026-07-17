@@ -54,10 +54,10 @@ export default function OrderMatching() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="page-title">
+          <h2 className="page-title">
             <Link2 size={24} className="mr-2 inline" />
             주문상품 매칭 확인
-          </h1>
+          </h2>
           <p className="mt-1 text-sm text-slate-500">
             주문상품은 채널 옵션에 저장된 셀피아 상품 구성으로 처리됩니다.
           </p>
@@ -102,10 +102,7 @@ export default function OrderMatching() {
       <div className="rounded-xl border border-slate-200 bg-white">
         <div className="p-4">
           <div className="relative">
-            <Search
-              size={16}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-            />
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
               placeholder="주문상품명, 옵션, SKU 또는 주문번호로 검색..."
@@ -127,9 +124,7 @@ export default function OrderMatching() {
       ) : (
         <div className="rounded-xl border border-slate-200 bg-white">
           <div className="border-b border-slate-100 p-4">
-            <h3 className="font-semibold text-slate-700">
-              주문상품 ({filteredRows.length}건)
-            </h3>
+            <h3 className="font-semibold text-slate-700">주문상품 ({filteredRows.length}건)</h3>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -146,12 +141,8 @@ export default function OrderMatching() {
               <tbody>
                 {filteredRows.map((row) => (
                   <tr key={row.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 text-xs font-mono text-slate-500">
-                      {row.displayOrderNumber}
-                    </td>
-                    <td className="px-4 py-3 text-sm font-medium text-slate-800">
-                      {row.productName}
-                    </td>
+                    <td className="px-4 py-3 text-xs font-mono text-slate-500">{row.displayOrderNumber}</td>
+                    <td className="px-4 py-3 text-sm font-medium text-slate-800">{row.productName}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{row.optionName ?? '-'}</td>
                     <td className="px-4 py-3 text-xs font-mono text-slate-500">{row.sku ?? '-'}</td>
                     <td className="px-4 py-3 text-sm">{row.quantity}개</td>

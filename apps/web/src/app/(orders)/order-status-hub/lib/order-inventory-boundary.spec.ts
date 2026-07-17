@@ -23,6 +23,8 @@ describe('order inventory read-model boundary', () => {
     expect(source).not.toContain('queryKeys.inventory');
     expect(source).not.toContain('safetyStock');
     expect(source).not.toContain('reorderPoint');
+    expect(componentSource).toContain('key={component.sellpiaInventorySkuId}');
+    expect(componentSource).not.toContain('component.masterProductId');
     expect(componentSource).toContain('<Pagination');
   });
 });

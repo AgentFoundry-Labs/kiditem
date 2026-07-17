@@ -1,28 +1,26 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# web/stock-ops - Sellpia And Channel Inventory Projections
+# web/stock-ops - Preserved Inventory Analysis
 
-`stock-ops/` preserves `/stock-ops` as an operational view over physical
-Sellpia `MasterProduct` snapshots, channel availability, and record-only
-transfer/return workflows. It is not a stock ledger or reorder planner.
+`stock-ops/` owns the independently reachable inventory-analysis surface from
+baseline commit `c9e7caf875ca82574ae566a27fe0afa35c988918`. Related
+projections may also appear in `/inventory-hub`.
 
 ## State Rules
 
-- Use React Query for source read models; do not mirror server state in local
-  stores.
-- Render Sellpia zero stock, channel zero capacity, component bottlenecks,
-  mapping attention, asset value, and import freshness from owner APIs.
-- Transfer and return record mutations invalidate their record lists, not the
-  Sellpia snapshot as though stock changed.
+- Preserve `sellpia-zero`, `channel-zero`, `bottlenecks`,
+  `mapping-attention`, `inventory-value`, `freshness`, `transfer`, and
+  `return-transfer` plus their direct query entry points. Do not substitute a
+  different historical tab set.
+- Keep inactive workspaces from running unnecessary timers, requests, or
+  toasts.
+- Mapping recipe edits link to
+  `/product-hub/matching`; the analysis page does not save recipes itself.
 
 ## Boundary Rules
 
-- Do not make order lifecycle decisions in UI projections.
-- Do not duplicate `min(floor(currentStock / quantity))` or infer bundle
-  quantities from names. Render backend availability evidence.
-- Do not expose manual `MasterProduct.currentStock` mutation controls.
-- Record forms use `masterProductId`; do not restore `InventorySku`- or
-  `ProductOption`-based stock selectors.
+- Do not replace this page with `/inventory-hub` or another route.
+- Do not write Sellpia stock or duplicate backend capacity calculations.
 
 ## Verification
 

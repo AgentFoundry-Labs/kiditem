@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
 import {
   BadRequestException,
+  Body,
   Controller,
   Inject,
   Post,
@@ -15,12 +15,13 @@ import {
   SELLPIA_INVENTORY_IMPORT_PORT,
   type SellpiaInventoryImportPort,
 } from '../../../application/port/in/stock/sellpia-inventory-import.port';
-import { parseSellpiaInventoryWorkbook } from '../../../application/service/sellpia-inventory-workbook.parser';
 import type { AuthUser } from '../../../../auth/auth.types';
+import { SellpiaInventoryImportDto } from './dto';
 
 type UploadedWorkbookFile = {
   buffer: Buffer;
   originalname: string;
+  mimetype: string;
 };
 
 @Controller('inventory/sellpia-sync')
@@ -35,6 +36,7 @@ export class SellpiaInventoryImportController {
   importWorkbook(
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
+    @Body() dto: SellpiaInventoryImportDto,
     @UploadedFile() file: UploadedWorkbookFile | undefined,
   ) {
     if (!file?.buffer) {
@@ -42,14 +44,27 @@ export class SellpiaInventoryImportController {
         `Sellpia ${SELLPIA_WORKBOOK_FORMAT_LABEL} file is required`,
       );
     }
-    const parsed = parseSellpiaInventoryWorkbook(file.buffer);
-    const fileHash = createHash('sha256').update(file.buffer).digest('hex');
     return this.importer.importInventory({
       organizationId,
       userId: user.id,
-      fileName: file.originalname,
-      fileHash,
-      ...parsed,
+      file: {
+        buffer: file.buffer,
+        fileName: file.originalname,
+        mimeType: file.mimetype,
+      },
+      execution: dto.kind === 'browser'
+        ? {
+            kind: 'browser',
+            claimToken: dto.claimToken!,
+            activeGeneration: dto.activeGeneration!,
+            trigger: dto.trigger!,
+            sourceOrigin: dto.sourceOrigin!,
+            sourceAccountKey: dto.sourceAccountKey!,
+          }
+        : {
+            kind: 'manual',
+            manualFreshExportConfirmed: dto.manualFreshExportConfirmed!,
+          },
     });
   }
 }

@@ -6,14 +6,18 @@ export const SELLPIA_CUTOVER_PREFLIGHT_MARKER = 'passed';
 
 const ALLOWED_COMPOSITE_KEYS = new Map([
   ['master_products:id,organization_id', 'master_products_id_org_key'],
-  ['master_products:organization_id,sellpia_product_code', 'master_products_org_sellpia_product_code_key'],
+  ['master_products:organization_id,code', 'master_products_organization_id_code_key'],
+  ['product_variants:id,organization_id', 'product_variants_id_org_key'],
+  ['product_variants:organization_id,code', 'product_variants_organization_id_code_key'],
+  ['product_variants:master_product_id', 'product_variants_active_default_master_key'],
+  ['product_variant_components:product_variant_id,sellpia_inventory_sku_id', 'product_variant_components_product_variant_id_sellpia_inventory_sku_id_key'],
+  ['sellpia_inventory_skus:id,organization_id', 'sellpia_inventory_skus_id_org_key'],
+  ['sellpia_inventory_skus:organization_id,code', 'sellpia_inventory_skus_organization_id_code_key'],
   ['channel_accounts:id,organization_id', 'channel_accounts_id_org_key'],
   ['channel_listings:id,organization_id', 'channel_listings_id_org_key'],
   ['channel_listings:organization_id,channel_account_id,external_id', 'channel_listings_org_account_external_all_key'],
   ['channel_listings:organization_id,source_candidate_id,channel_account_id', 'channel_listings_org_source_account_active_key'],
   ['channel_listing_options:id,organization_id', 'channel_listing_options_id_org_key'],
-  ['channel_listing_options:organization_id,channel_account_id,external_option_id', 'channel_listing_options_org_account_external_option_key'],
-  ['channel_sku_components:channel_sku_id,master_product_id', 'channel_sku_components_sku_master_key'],
   ['sourcing_candidates:id,organization_id', 'sourcing_candidates_id_org_key'],
   ['sourcing_candidates:provenance_master_product_id,organization_id', 'sourcing_candidates_org_provenance_master_key'],
   ['thumbnail_generations:id,organization_id', 'thumbnail_generations_id_org_key'],
@@ -36,8 +40,8 @@ const ALLOWED_COMPOSITE_KEYS = new Map([
   ['orders:organization_id,channel_account_id,external_order_id', 'orders_org_account_external_order_key'],
   ['order_returns:organization_id,channel_account_id,external_return_id', 'order_returns_org_account_external_return_key'],
   ['suppliers:id,organization_id', 'suppliers_id_org_key'],
-  ['supplier_products:supplier_id,master_product_id', 'supplier_products_supplier_master_key'],
-  ['supplier_products:master_product_id', 'supplier_products_primary_master_key'],
+  ['supplier_products:supplier_id,sellpia_inventory_sku_id', 'supplier_products_supplier_sellpia_inventory_sku_id_key'],
+  ['supplier_products:sellpia_inventory_sku_id', 'supplier_products_primary_sellpia_inventory_sku_key'],
   ['purchase_orders:id,organization_id', 'purchase_orders_id_org_key'],
   ['channel_scrape_runs:id,organization_id', 'channel_scrape_runs_id_org_key'],
   ['channel_scrape_snapshots:id,organization_id', 'channel_scrape_snapshots_id_org_key'],
@@ -62,7 +66,7 @@ export function assertSafeSellpiaDbPushWarnings(log, preflightMarker) {
     throw new Error('Prisma output is not a warning-only db push refusal.');
   }
   if (/\b(?:drop|rename|recreated?|re-created)\b/i.test(log)) {
-    throw new Error('Destructive drop, rename, or recreate warning is never approved for release 0.1.8.');
+    throw new Error('Destructive drop, rename, or recreate warning is never approved by this warning-only guard for release 0.1.19.');
   }
 
   const lines = log.split(/\r?\n/);
@@ -111,7 +115,7 @@ function main() {
     readFileSync(logPath, 'utf8'),
     process.env.SELLPIA_CUTOVER_PREFLIGHT,
   );
-  console.log(JSON.stringify({ targetRelease: '0.1.8', acceptedWarnings }, null, 2));
+  console.log(JSON.stringify({ targetRelease: '0.1.19', acceptedWarnings }, null, 2));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

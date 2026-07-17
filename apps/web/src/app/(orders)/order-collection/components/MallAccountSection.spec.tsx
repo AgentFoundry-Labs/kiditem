@@ -94,7 +94,7 @@ function renderSection(
 }
 
 describe("MallAccountSection", () => {
-  it("renders compact account cards with today and new-order stats", () => {
+  it("preserves the c9 account cards with today and new-order stats", () => {
     const account = mallAccount("icecream-mall", { name: "아이스크림몰" });
     const stats = new Map<string, MallCollectionStat>([
       [
@@ -120,8 +120,43 @@ describe("MallAccountSection", () => {
     expect(screen.getByText("12")).toBeInTheDocument();
     expect(screen.getByText("당일")).toBeInTheDocument();
     expect(screen.getByText("신규")).toBeInTheDocument();
+    expect(screen.getByTitle("오늘 주문 중 셀피아 미전송")).toBeInTheDocument();
+    expect(screen.queryByText("전송 대기")).not.toBeInTheDocument();
     expect(screen.queryByText("누적 주문")).not.toBeInTheDocument();
     expect(screen.queryByText("operator")).not.toBeInTheDocument();
+  });
+
+  it("renders every account once in the c9 flat five-column card grid", () => {
+    const needsAction = mallAccount("kidsnote", { name: "키즈노트" });
+    const collectable = mallAccount("domeggook", { name: "도매꾹" });
+    const extensionSession = mallAccount("kakao", {
+      name: "카카오",
+      configured: false,
+      loginId: null,
+      hasPassword: false,
+    });
+    const needsSetup = mallAccount("unsupported-mall", {
+      name: "미지원몰",
+    });
+    const stats = new Map<string, MallCollectionStat>([
+      [needsAction.key, {
+        key: needsAction.key,
+        name: needsAction.name,
+        files: 1,
+        orderRows: 3,
+        newRows: 2,
+        productRows: 3,
+        latestAt: Date.now(),
+      }],
+    ]);
+
+    renderSection([needsAction, collectable, extensionSession, needsSetup], stats);
+
+    expect(screen.queryAllByRole("heading", { name: /조치 필요|수집 가능|설정 필요/ })).toHaveLength(0);
+    expect(screen.getByTestId("mall-account-card-grid")).toHaveClass("grid-cols-5");
+    for (const name of ["키즈노트", "도매꾹", "카카오", "미지원몰"]) {
+      expect(screen.getAllByRole("article", { name: `${name} 계정 카드` })).toHaveLength(1);
+    }
   });
 
   it("never enables collection for a disabled extension-session mall", async () => {
@@ -208,7 +243,10 @@ describe("MallAccountSection", () => {
 
   it("wires route collectionRun recovery and same-run restart", () => {
     const routeRoot = path.resolve(import.meta.dirname, "..");
-    const page = readFileSync(path.join(routeRoot, "page.tsx"), "utf8");
+    const workspace = readFileSync(
+      path.resolve(routeRoot, "../order-hub/components/OrderCollectionWorkspace.tsx"),
+      "utf8",
+    );
     const collector = readFileSync(
       path.join(routeRoot, "lib/browser-mall-collection.ts"),
       "utf8",
@@ -218,13 +256,13 @@ describe("MallAccountSection", () => {
       "utf8",
     );
 
-    expect(page).toContain("BrowserCollectionRunControls");
+    expect(workspace).toContain("BrowserCollectionRunControls");
     expect(sessionHook).toContain("useBrowserCollectionSession");
     expect(sessionHook).toContain("collectionRun");
     expect(sessionHook).toContain("globalThis.crypto.randomUUID()");
     expect(sessionHook).toContain("'orders.mall'");
-    expect(page).toMatch(/handleBrowserCollectMall\(account,\s*session\.runId\)/);
-    expect(page).toContain('webRestartUnavailableMessage');
+    expect(workspace).toMatch(/handleBrowserCollectMall\(account,\s*session\.runId\)/);
+    expect(workspace).toContain('webRestartUnavailableMessage');
     expect(sessionHook).toContain("mallAccounts.find((account) => account.key === mallKey)");
     expect(collector).toContain("runId");
     expect(collector).toContain("extensionId");

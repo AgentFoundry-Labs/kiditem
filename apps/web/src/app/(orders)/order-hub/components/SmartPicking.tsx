@@ -110,10 +110,10 @@ export default function SmartPicking() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="page-title">
+        <h2 className="page-title">
           <ClipboardList size={24} className="inline mr-2" />
           스마트 피킹
-        </h1>
+        </h2>
         <div className="flex gap-2">
           <button className="flex items-center gap-1 px-3 py-2 border border-slate-300 rounded-lg text-sm hover:bg-slate-50">
             <RefreshCw size={14} />

@@ -27,6 +27,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'generate-schema-graphify.py',
   'prepare-coupang-extension.mjs',
   'run-data-migrations.ts',
+  'safe-prisma-db-push.mjs',
   'seed-agent-os.ts',
   'staging-db-baseline.ts',
   'storage-cache-control.ts',

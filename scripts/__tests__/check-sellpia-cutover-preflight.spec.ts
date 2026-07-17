@@ -26,11 +26,9 @@ class FakeQueryClient {
 }
 
 const cleanCounts = [{
-  inventorySkus: 11,
   legacyMasterProducts: 12,
   legacyProductOptions: 13,
   legacyBundleComponents: 14,
-  channelSkuComponents: 14,
   supplierRows: 15,
   orderRows: 16,
   orderLineItems: 17,
@@ -87,13 +85,10 @@ describe('Sellpia cutover preflight', () => {
     const crossTenantSql = prisma.sql[6];
     for (const relationName of [
       'source_import_account',
-      'inventory_sku_last_import',
       'channel_listing_source_candidate',
       'channel_listing_last_import',
       'channel_option_account',
       'channel_option_last_import',
-      'channel_sku_inventory',
-      'channel_sku_master',
       'order_account',
       'return_account',
       'shipment_order',
@@ -137,6 +132,9 @@ describe('Sellpia cutover preflight', () => {
     expect(crossTenantSql).toContain('information_schema.columns');
     expect(crossTenantSql).toContain('query_to_xml');
     expect(crossTenantSql).toContain('child.organization_id IS NOT NULL');
+    expect(prisma.sql.join('\n')).not.toMatch(
+      /['"]inventory_skus['"]|public\.inventory_skus|channel_sku_components/,
+    );
     expect(prisma.sql.join('\n')).not.toMatch(/\b(?:UPDATE|INSERT|DELETE|ALTER|DROP|TRUNCATE)\b/i);
   });
 

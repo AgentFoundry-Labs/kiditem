@@ -19,11 +19,11 @@ type SupplierPaymentHistoryRow = {
 
 type PhysicalProductPolicy = {
   id: string;
-  masterProductId: string;
+  sellpiaInventorySkuId: string;
   supplyPrice: number;
   minOrderQty: number;
   isPrimary: boolean;
-  masterProduct: {
+  sellpiaInventorySku: {
     id: string;
     code: string;
     name: string;
@@ -38,7 +38,7 @@ type SupplierProjection = {
 };
 
 type RecipeComponent = {
-  masterProductId: string | null;
+  sellpiaInventorySkuId: string;
   quantity: number;
 };
 
@@ -46,7 +46,9 @@ type OrderLineProjection = {
   id: string;
   quantity: number;
   totalPrice: number;
-  listingOption: { components: RecipeComponent[] } | null;
+  listingOption: {
+    productVariant: { components: RecipeComponent[] } | null;
+  } | null;
 };
 
 type RunningStats = {
@@ -66,8 +68,8 @@ function createRunningStats(): RunningStats {
   return { orderLineIds: new Set(), totalQuantity: 0, totalRevenue: 0 };
 }
 
-function productStatsKey(supplierId: string, masterProductId: string): string {
-  return `${supplierId}:${masterProductId}`;
+function productStatsKey(supplierId: string, sellpiaInventorySkuId: string): string {
+  return `${supplierId}:${sellpiaInventorySkuId}`;
 }
 
 function settledSupplierPaymentAmount(payment: SupplierPaymentHistoryRow): number {
@@ -165,7 +167,7 @@ export class SupplierStatsService {
     };
   }
 
-  /** Physical Sellpia Master breakdown for one supplier. */
+  /** Physical Sellpia inventory-SKU breakdown for one supplier. */
   async getProductSales(
     organizationId: string,
     supplierId: string,
@@ -177,16 +179,15 @@ export class SupplierStatsService {
     }
 
     const items = supplier.supplierProducts.flatMap((policy): SupplierProductSalesRow[] => {
-      const master = policy.masterProduct;
-      if (!master) return [];
+      const sku = policy.sellpiaInventorySku;
       const stats = projection.productStats.get(
-        productStatsKey(supplier.id, policy.masterProductId),
+        productStatsKey(supplier.id, policy.sellpiaInventorySkuId),
       ) ?? createRunningStats();
       return [{
-        masterId: master.id,
-        masterCode: master.code,
-        masterName: master.name,
-        optionName: master.optionName,
+        masterId: sku.id,
+        masterCode: sku.code,
+        masterName: sku.name,
+        optionName: sku.optionName,
         supplyPrice: policy.supplyPrice,
         minOrderQty: policy.minOrderQty,
         totalOrders: stats.orderLineIds.size,
@@ -250,11 +251,11 @@ export class SupplierStatsService {
             where: { organizationId },
             select: {
               id: true,
-              masterProductId: true,
+              sellpiaInventorySkuId: true,
               supplyPrice: true,
               minOrderQty: true,
               isPrimary: true,
-              masterProduct: {
+              sellpiaInventorySku: {
                 select: {
                   id: true,
                   code: true,
@@ -280,8 +281,12 @@ export class SupplierStatsService {
           totalPrice: true,
           listingOption: {
             select: {
-              components: {
-                select: { masterProductId: true, quantity: true },
+              productVariant: {
+                select: {
+                  components: {
+                    select: { sellpiaInventorySkuId: true, quantity: true },
+                  },
+                },
               },
             },
           },
@@ -299,7 +304,7 @@ export class SupplierStatsService {
     suppliers: SupplierProjection[],
     orderLines: OrderLineProjection[],
   ): SalesProjection {
-    const primaryByMasterId = new Map<string, {
+    const primaryBySellpiaSkuId = new Map<string, {
       supplierId: string;
       policy: PhysicalProductPolicy;
     }>();
@@ -309,29 +314,26 @@ export class SupplierStatsService {
     for (const supplier of suppliers) {
       supplierStats.set(supplier.id, createRunningStats());
       for (const policy of supplier.supplierProducts) {
-        if (!policy.masterProductId) continue;
         productStats.set(
-          productStatsKey(supplier.id, policy.masterProductId),
+          productStatsKey(supplier.id, policy.sellpiaInventorySkuId),
           createRunningStats(),
         );
         if (policy.isPrimary) {
-          primaryByMasterId.set(policy.masterProductId, { supplierId: supplier.id, policy });
+          primaryBySellpiaSkuId.set(policy.sellpiaInventorySkuId, { supplierId: supplier.id, policy });
         }
       }
     }
 
     let unallocatedRevenue = 0;
     for (const line of orderLines) {
-      const components = line.listingOption?.components ?? [];
+      const components = line.listingOption?.productVariant?.components ?? [];
       const allocations = components.map((component) => {
-        const primary = component.masterProductId
-          ? primaryByMasterId.get(component.masterProductId)
-          : undefined;
-        if (primary && component.masterProductId && component.quantity > 0) {
+        const primary = primaryBySellpiaSkuId.get(component.sellpiaInventorySkuId);
+        if (primary && component.quantity > 0) {
           const physicalQuantity = line.quantity * component.quantity;
           const supplier = supplierStats.get(primary.supplierId)!;
           const product = productStats.get(
-            productStatsKey(primary.supplierId, component.masterProductId),
+            productStatsKey(primary.supplierId, component.sellpiaInventorySkuId),
           )!;
           supplier.orderLineIds.add(line.id);
           supplier.totalQuantity += physicalQuantity;
@@ -346,8 +348,7 @@ export class SupplierStatsService {
       });
 
       const complete = allocations.length > 0 && allocations.every(({ component, primary, weight }) =>
-        component.masterProductId != null
-        && component.quantity > 0
+        component.quantity > 0
         && primary != null
         && weight > 0,
       );
@@ -357,7 +358,9 @@ export class SupplierStatsService {
       }
 
       const ordered = [...allocations].sort((left, right) =>
-        left.component.masterProductId!.localeCompare(right.component.masterProductId!),
+        left.component.sellpiaInventorySkuId.localeCompare(
+          right.component.sellpiaInventorySkuId,
+        ),
       );
       const totalWeight = ordered.reduce((sum, item) => sum + item.weight, 0);
       let allocatedRevenue = 0;
@@ -368,10 +371,10 @@ export class SupplierStatsService {
           ? line.totalPrice - allocatedRevenue
           : Math.floor((line.totalPrice * allocation.weight) / totalWeight);
         allocatedRevenue += revenue;
-        const masterProductId = allocation.component.masterProductId!;
+        const sellpiaInventorySkuId = allocation.component.sellpiaInventorySkuId;
         const supplierId = allocation.primary!.supplierId;
         supplierStats.get(supplierId)!.totalRevenue += revenue;
-        productStats.get(productStatsKey(supplierId, masterProductId))!.totalRevenue += revenue;
+        productStats.get(productStatsKey(supplierId, sellpiaInventorySkuId))!.totalRevenue += revenue;
       }
     }
 

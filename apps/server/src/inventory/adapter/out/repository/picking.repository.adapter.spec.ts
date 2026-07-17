@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { PickingRepositoryAdapter } from './picking.repository.adapter';
 
 describe('PickingRepositoryAdapter', () => {
-  it('writes the physical Master owner on new picking items', async () => {
+  it('validates and writes the physical Sellpia inventory SKU on new picking items', async () => {
     const tx = {
-      masterProduct: {
+      sellpiaInventorySku: {
         findMany: vi.fn().mockResolvedValue([
-          { id: 'master-1' },
+          { id: 'sku-1' },
         ]),
       },
       pickingList: {
@@ -20,7 +20,7 @@ describe('PickingRepositoryAdapter', () => {
 
     await repository.createPickingList('org-1', 'PK-1', [{
       orderId: 'order-1',
-      masterProductId: 'master-1',
+      sellpiaInventorySkuId: 'sku-1',
       productName: 'Kids rain boots',
       sku: 'SP-001',
       quantity: 2,
@@ -31,8 +31,7 @@ describe('PickingRepositoryAdapter', () => {
         organizationId: 'org-1',
         items: {
           create: [expect.objectContaining({
-            organizationId: 'org-1',
-            masterProductId: 'master-1',
+            sellpiaInventorySkuId: 'sku-1',
           })],
         },
       }),

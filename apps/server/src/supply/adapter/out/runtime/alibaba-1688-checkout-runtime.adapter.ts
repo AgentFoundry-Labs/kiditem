@@ -1,8 +1,12 @@
-import { BadRequestException, Injectable, Optional } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import type {
   PurchaseOrderCheckoutRuntimePort,
   SubmitPurchaseOrderCheckoutInput,
   SubmitPurchaseOrderCheckoutResult,
+} from '../../../application/port/out/runtime/purchase-order-checkout-runtime.port';
+import {
+  PurchaseOrderCheckoutProviderFailedError,
+  PurchaseOrderCheckoutProviderUnknownError,
 } from '../../../application/port/out/runtime/purchase-order-checkout-runtime.port';
 
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -13,6 +17,7 @@ export interface Alibaba1688CheckoutProviderSubmitInput {
   body: {
     organizationId: string;
     purchaseOrderId: string;
+    idempotencyKey: string;
     purchaseOrder: SubmitPurchaseOrderCheckoutInput['purchaseOrder'];
   };
 }
@@ -49,7 +54,8 @@ function providerUrl(): string {
   const runtime = stringField(process.env.AGENT_OS_1688_CHECKOUT_RUNTIME);
   const url = stringField(process.env.AGENT_OS_1688_CHECKOUT_PROVIDER_URL);
   if (runtime !== 'provider' || !url) {
-    throw new BadRequestException(
+    throw new PurchaseOrderCheckoutProviderFailedError(
+      'provider_not_configured',
       '1688 checkout provider runtime is not configured.',
     );
   }
@@ -67,7 +73,8 @@ function parseResult(body: unknown): SubmitPurchaseOrderCheckoutResult {
   const record = asRecord(body);
   const externalOrderId = stringField(record?.externalOrderId);
   if (!externalOrderId) {
-    throw new BadRequestException(
+    throw new PurchaseOrderCheckoutProviderUnknownError(
+      'provider_response_invalid',
       '1688 checkout provider did not return externalOrderId.',
     );
   }
@@ -91,7 +98,10 @@ export class FetchAlibaba1688CheckoutProviderClient
     try {
       const response = await fetch(input.url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': input.body.idempotencyKey,
+        },
         body: JSON.stringify(input.body),
         signal: controller.signal,
       });
@@ -124,18 +134,30 @@ export class Alibaba1688CheckoutRuntimeAdapter
   async submit(
     input: SubmitPurchaseOrderCheckoutInput,
   ): Promise<SubmitPurchaseOrderCheckoutResult> {
-    const response = await this.client.submit({
-      url: providerUrl(),
-      timeoutMs: providerTimeoutMs(),
-      body: {
-        organizationId: input.organizationId,
-        purchaseOrderId: input.purchaseOrderId,
-        purchaseOrder: input.purchaseOrder,
-      },
-    });
+    let response: Alibaba1688CheckoutProviderResult;
+    try {
+      response = await this.client.submit({
+        url: providerUrl(),
+        timeoutMs: providerTimeoutMs(),
+        body: {
+          organizationId: input.organizationId,
+          purchaseOrderId: input.purchaseOrderId,
+          idempotencyKey: input.idempotencyKey,
+          purchaseOrder: input.purchaseOrder,
+        },
+      });
+    } catch (error) {
+      if (error instanceof PurchaseOrderCheckoutProviderFailedError) throw error;
+      if (error instanceof PurchaseOrderCheckoutProviderUnknownError) throw error;
+      throw new PurchaseOrderCheckoutProviderUnknownError(
+        'provider_transport_unknown',
+        error instanceof Error ? error.message : '1688 checkout transport failed.',
+      );
+    }
 
     if (!response.ok) {
-      throw new BadRequestException(
+      throw new PurchaseOrderCheckoutProviderFailedError(
+        'provider_rejected',
         `1688 checkout provider failed with status ${response.status}.`,
       );
     }

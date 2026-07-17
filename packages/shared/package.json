@@ -125,10 +125,30 @@
       "import": "./dist/channel-sku-availability.js",
       "require": "./dist/channel-sku-availability.cjs"
     },
+    "./product-operations": {
+      "types": "./dist/product-operations.d.ts",
+      "import": "./dist/product-operations.js",
+      "require": "./dist/product-operations.cjs"
+    },
+    "./channel-product-matching": {
+      "types": "./dist/channel-product-matching.d.ts",
+      "import": "./dist/channel-product-matching.js",
+      "require": "./dist/channel-product-matching.cjs"
+    },
     "./source-import": {
       "types": "./dist/source-import.d.ts",
       "import": "./dist/source-import.js",
       "require": "./dist/source-import.cjs"
+    },
+    "./sellpia-inventory-freshness": {
+      "types": "./dist/sellpia-inventory-freshness.d.ts",
+      "import": "./dist/sellpia-inventory-freshness.js",
+      "require": "./dist/sellpia-inventory-freshness.cjs"
+    },
+    "./rocket-purchase-preview": {
+      "types": "./dist/rocket-purchase-preview.d.ts",
+      "import": "./dist/rocket-purchase-preview.js",
+      "require": "./dist/rocket-purchase-preview.cjs"
     },
     "./coupang-catalog-snapshot": {
       "types": "./dist/coupang-catalog-snapshot.d.ts",
@@ -233,7 +253,11 @@
       "channel-account": ["dist/channel-account.d.ts"],
       "channel-sku-matching": ["dist/channel-sku-matching.d.ts"],
       "channel-sku-availability": ["dist/channel-sku-availability.d.ts"],
+      "product-operations": ["dist/product-operations.d.ts"],
+      "channel-product-matching": ["dist/channel-product-matching.d.ts"],
       "source-import": ["dist/source-import.d.ts"],
+      "sellpia-inventory-freshness": ["dist/sellpia-inventory-freshness.d.ts"],
+      "rocket-purchase-preview": ["dist/rocket-purchase-preview.d.ts"],
       "coupang-catalog-snapshot": ["dist/coupang-catalog-snapshot.d.ts"],
       "agent-os": ["dist/agent-os.d.ts"],
       "workflow": ["dist/workflow.d.ts"],

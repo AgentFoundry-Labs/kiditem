@@ -1,9 +1,12 @@
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { InventoryHubWorkspace } from './components/InventoryHubWorkspace';
 import InventoryHubPage from './page';
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
+  usePathname: () => '/inventory-hub',
+  useRouter: () => ({ push: vi.fn() }),
 }));
 
 vi.mock('next/dynamic', () => ({
@@ -12,10 +15,32 @@ vi.mock('next/dynamic', () => ({
   },
 }));
 
+vi.mock('./components/InventoryOperationWorkspaces', () => ({
+  InventoryOverviewWorkspace: () => <div>overview</div>,
+  InventoryAttentionWorkspace: () => <div>attention</div>,
+  InventoryHistoryWorkspace: () => <div>history</div>,
+  InventoryAuditWorkspace: () => <div>audits</div>,
+  InventoryIoWorkspace: () => <div>io</div>,
+  InventoryLedgerWorkspace: () => <div>ledger</div>,
+  RocketInventoryWorkspace: () => <div>rocket events</div>,
+}));
+
+vi.mock('./components/InventoryWorkspace', () => ({
+  InventoryWorkspace: () => <div>inventory</div>,
+}));
+
+vi.mock('@/app/(supply)/purchase-orders/components/GeneralPurchaseOrdersWorkspace', () => ({
+  GeneralPurchaseOrdersWorkspace: () => <div>purchase orders</div>,
+}));
+
+vi.mock('@/components/sellpia-inventory', () => ({
+  SellpiaWorkspaceFreshnessStatus: () => <button type="button">Sellpia 최신성</button>,
+}));
+
 describe('InventoryHubPage', () => {
-  it('uses the develop inventory tab order without a direct stock mutation tab', async () => {
+  it('restores the former inventory-management title and tab order', async () => {
     render(<InventoryHubPage />);
-    const tabs = within(screen.getByTestId('tab-layout-tabs')).getAllByRole('button');
+    const tabs = within(screen.getByTestId('tab-layout-tabs')).getAllByRole('tab');
     expect(tabs.map((tab) => tab.textContent)).toEqual([
       '재고 현황',
       '발주 관리',
@@ -26,7 +51,12 @@ describe('InventoryHubPage', () => {
       '재고 실사',
       '재고자산',
     ]);
-    expect(screen.queryByRole('button', { name: '가져오기 이력' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '채널 가용재고' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: '재고 관리' })).toBeInTheDocument();
+    expect(screen.queryByText('재고 운영')).not.toBeInTheDocument();
+  });
+
+  it('keeps the replacement workspace available as an internal reusable component', () => {
+    render(<InventoryHubWorkspace />);
+    expect(screen.getByRole('heading', { level: 1, name: '재고 운영' })).toBeInTheDocument();
   });
 });

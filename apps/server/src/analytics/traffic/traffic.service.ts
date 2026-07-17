@@ -22,7 +22,8 @@ interface DayRevenue {
 }
 
 /**
- * Pricing 원천 — ChannelListingOption. Listing 의 첫 활성 SKU를 대표값으로 사용.
+ * Pricing 원천 — ChannelListingOption + 연결된 ProductVariant 구성표.
+ * Listing 의 첫 활성 SKU를 대표값으로 사용.
  * 멀티 option listing 은 listing 단위 일별 트래픽이 listing 단위 집계라
  * 첫 option 기준으로 충분.
  * option 이 0 개이면 pricing 없음 → row skip (아래 profit 루프에서 처리).
@@ -36,10 +37,14 @@ const LISTING_PRICING_SELECT = {
       commissionRate: true,
       shippingCost: true,
       otherCost: true,
-      components: {
+      productVariant: {
         select: {
-          quantity: true,
-          masterProduct: { select: { purchasePrice: true } },
+          components: {
+            select: {
+              quantity: true,
+              sellpiaInventorySku: { select: { purchasePrice: true } },
+            },
+          },
         },
       },
     },
@@ -335,10 +340,17 @@ function resolveListingOptionPricing(option: {
   commissionRate: { toString(): string } | number | null;
   shippingCost: number | null;
   otherCost: number | null;
-  components: Array<{ quantity: number; masterProduct: { purchasePrice: number | null } }>;
+  productVariant: {
+    components: Array<{
+      quantity: number;
+      sellpiaInventorySku: { purchasePrice: number | null };
+    }>;
+  } | null;
 }) {
-  const componentCost = option.components.reduce(
-    (sum, component) => sum + (component.masterProduct.purchasePrice ?? 0) * component.quantity,
+  const componentCost = (option.productVariant?.components ?? []).reduce(
+    (sum, component) =>
+      sum +
+      (component.sellpiaInventorySku.purchasePrice ?? 0) * component.quantity,
     0,
   );
   const costPrice = option.costPriceOverride ?? componentCost;

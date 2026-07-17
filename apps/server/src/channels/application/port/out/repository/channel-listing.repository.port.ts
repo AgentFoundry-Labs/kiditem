@@ -71,14 +71,29 @@ export interface MarketplaceRegistrationRepositoryPort {
     organizationId: string;
     channelAccountId: string;
   }): Promise<{ channel: string }>;
+  preflightExactProductLinks(input: {
+    organizationId: string;
+    masterProductId?: string;
+    optionLinks: Array<{
+      externalOptionId: string;
+      productVariantId: string;
+      providerOptionKey: string;
+    }>;
+  }): Promise<void>;
   resolveProductRegistration(
     transaction: object,
     input: {
       organizationId: string;
       sourceCandidateId: string;
       channelAccountId: string;
+      submissionKey: string;
       externalListingId: string;
       displayName: string;
+      masterProductId?: string;
+      optionLinks?: Array<{
+        externalOptionId: string;
+        productVariantId: string;
+      }>;
     },
   ): Promise<{
     listingId: string;

@@ -3,7 +3,9 @@ Consult this document first instead of relying on memorized knowledge.
 # web/order-status-hub - Order Status Read Models
 
 `order-status-hub/` owns read-model screens for delivery search, sync checks,
-order comparison, order inventory risk, and order status projections.
+order comparison, order inventory risk, and order status projections. The
+direct `/order-status-hub` route remains the preserved operator-facing screen;
+reuse elsewhere does not replace or redirect it.
 
 ## State Rules
 

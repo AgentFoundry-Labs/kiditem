@@ -26,7 +26,7 @@ export interface OrderActivityEvent {
 }
 
 /**
- * 우측 "최근 활동" 피드 — 수집/변환/자동감지/셀피아 전송 + 주문 없음/오류 이벤트를 시간순으로 보여준다.
+ * 우측 "최근 활동" 피드 — 수집/변환/자동감지/셀피아 전송 요청 + 주문 없음/오류 이벤트를 시간순으로 보여준다.
  * 생성 파일(history)에서 파생 + page 가 넘겨준 events(주문 없음/오류) 를 병합한다.
  */
 export function OrderActivityFeed({
@@ -39,7 +39,11 @@ export function OrderActivityFeed({
   className?: string;
 }) {
   const items = [
-    ...history.map((h) => ({ id: h.id, at: h.sentAt ?? h.convertedAt, meta: activityMeta(h) })),
+    ...history.map((h) => ({
+      id: h.id,
+      at: h.transmissionRequestedAt ?? h.convertedAt,
+      meta: activityMeta(h),
+    })),
     ...(events ?? []).map((e) => ({ id: e.id, at: e.at, meta: eventMeta(e) })),
   ]
     .sort((a, b) => b.at - a.at)
@@ -109,13 +113,13 @@ function activityMeta(item: StoredOrderCollectionFile): ActivityMeta {
   const orders = getHistoryOrderCount(item) ?? 0;
   const mall = item.mallName ?? '주문';
 
-  if (item.sentAt) {
+  if (item.transmissionRequestedAt !== undefined) {
     return {
       icon: <Send size={15} />,
       bg: 'bg-emerald-50',
       fg: 'text-emerald-600',
-      title: `셀피아 전송 · ${mall}`,
-      sub: `${formatNumber(orders)}건 · ${shortTime(item.sentAt)}`,
+      title: `셀피아 전송 요청 · ${mall}`,
+      sub: `${formatNumber(orders)}건 · ${shortTime(item.transmissionRequestedAt)}`,
     };
   }
   if (item.id.includes('-auto')) {

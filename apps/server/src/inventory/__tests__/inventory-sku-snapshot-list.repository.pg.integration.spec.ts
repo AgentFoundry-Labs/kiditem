@@ -1,6 +1,4 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaClient } from '@prisma/client';
-import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -10,6 +8,8 @@ import {
 } from '../../test-helpers/real-prisma';
 import { InventorySkuSnapshotListRepositoryAdapter } from '../adapter/out/repository/inventory-sku-snapshot-list.repository.adapter';
 import { InventorySkuSnapshotListService } from '../application/service/inventory-sku-snapshot-list.service';
+import type { PrismaClient } from '@prisma/client';
+import type { PrismaService } from '../../prisma/prisma.service';
 
 describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
   let prisma: PrismaClient;
@@ -42,6 +42,14 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       importedAt: new Date('2026-07-12T02:00:00.000Z'),
       createdAt: new Date('2026-07-12T02:00:00.000Z'),
     });
+    await prisma.sellpiaInventoryState.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceOrigin: 'https://kiditem.sellpia.com',
+        sourceAccountKey: 'kiditem',
+        lastCompletedImportRunId: run.id,
+      },
+    });
     const crossTenantRun = await createRun({
       organizationId: OTHER_ORGANIZATION_ID,
       fileName: 'other-run.xls',
@@ -51,7 +59,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       importedAt: new Date('2026-07-12T03:00:00.000Z'),
       createdAt: new Date('2026-07-12T03:00:00.000Z'),
     });
-    await expect(prisma.masterProduct.create({
+    await expect(prisma.sellpiaInventorySku.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         code: 'SP-FOREIGN-RUN',
@@ -61,7 +69,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
         lastImportRunId: crossTenantRun.id,
       },
     })).rejects.toThrow();
-    await prisma.masterProduct.createMany({
+    await prisma.sellpiaInventorySku.createMany({
       data: [
         {
           organizationId: TEST_ORGANIZATION_ID,
@@ -106,6 +114,61 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       ],
     });
 
+    const linkedSku = await prisma.sellpiaInventorySku.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, code: 'SP-002' },
+    });
+    const [productA, productB] = await Promise.all([
+      prisma.masterProduct.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          code: 'PRODUCT-A',
+          name: '운영 상품 A',
+        },
+      }),
+      prisma.masterProduct.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          code: 'PRODUCT-B',
+          name: '운영 상품 B',
+        },
+      }),
+    ]);
+    const variants = await Promise.all([
+      prisma.productVariant.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          masterProductId: productA.id,
+          code: 'VARIANT-A1',
+          name: '옵션 A1',
+        },
+      }),
+      prisma.productVariant.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          masterProductId: productA.id,
+          code: 'VARIANT-A2',
+          name: '옵션 A2',
+        },
+      }),
+      prisma.productVariant.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          masterProductId: productB.id,
+          code: 'VARIANT-B1',
+          name: '옵션 B1',
+        },
+      }),
+    ]);
+    await prisma.productVariantComponent.createMany({
+      data: variants.map((variant) => ({
+        organizationId: TEST_ORGANIZATION_ID,
+        productVariantId: variant.id,
+        sellpiaInventorySkuId: linkedSku.id,
+        quantity: 1,
+        source: 'manual',
+      })),
+    });
+
     const filtered = await service.listSnapshot(TEST_ORGANIZATION_ID, {
       page: 1,
       limit: 10,
@@ -128,6 +191,18 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       stockValue: 8_000,
       lastImportRunId: run.id,
       lastImportedAt: '2026-07-12T02:00:00.000Z',
+      linkedVariantCount: 3,
+      linkedProductCount: 2,
+      linkedProducts: [
+        { id: productA.id, code: 'PRODUCT-A', name: '운영 상품 A' },
+        { id: productB.id, code: 'PRODUCT-B', name: '운영 상품 B' },
+      ],
+      linkedVariants: [
+        { id: variants[0].id, masterProductId: productA.id, code: 'VARIANT-A1', name: '옵션 A1', optionLabel: null },
+        { id: variants[1].id, masterProductId: productA.id, code: 'VARIANT-A2', name: '옵션 A2', optionLabel: null },
+        { id: variants[2].id, masterProductId: productB.id, code: 'VARIANT-B1', name: '옵션 B1', optionLabel: null },
+      ],
+      linkStatus: 'linked',
     });
 
     const firstPage = await service.listSnapshot(TEST_ORGANIZATION_ID, {
@@ -148,6 +223,113 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       code: 'SP-001',
       lastImportRunId: null,
       lastImportedAt: null,
+      linkedVariantCount: 0,
+      linkedProductCount: 0,
+      linkedProducts: [],
+      linkedVariants: [],
+      linkStatus: 'unlinked',
+    });
+  });
+
+  it('does not treat another organization recipe with the same code as a link', async () => {
+    await prisma.sellpiaInventorySku.createMany({
+      data: [
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          code: 'SP-SAME',
+          name: '우리 재고',
+          currentStock: 3,
+        },
+        {
+          organizationId: OTHER_ORGANIZATION_ID,
+          code: 'SP-SAME',
+          name: '타 조직 재고',
+          currentStock: 5,
+        },
+      ],
+    });
+    const foreignSku = await prisma.sellpiaInventorySku.findFirstOrThrow({
+      where: { organizationId: OTHER_ORGANIZATION_ID, code: 'SP-SAME' },
+    });
+    const foreignProduct = await prisma.masterProduct.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        code: 'FOREIGN-PRODUCT',
+        name: '타 조직 상품',
+      },
+    });
+    const foreignVariant = await prisma.productVariant.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        masterProductId: foreignProduct.id,
+        code: 'FOREIGN-VARIANT',
+        name: '타 조직 옵션',
+      },
+    });
+    await prisma.productVariantComponent.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        productVariantId: foreignVariant.id,
+        sellpiaInventorySkuId: foreignSku.id,
+        quantity: 1,
+        source: 'manual',
+      },
+    });
+
+    const result = await service.listSnapshot(TEST_ORGANIZATION_ID, {
+      query: 'SP-SAME',
+      linkStatus: 'unlinked',
+    });
+
+    expect(result.items).toEqual([
+      expect.objectContaining({
+        code: 'SP-SAME',
+        linkedVariantCount: 0,
+        linkedProductCount: 0,
+        linkedProducts: [],
+        linkedVariants: [],
+        linkStatus: 'unlinked',
+      }),
+    ]);
+  });
+
+  it('uses the inventory state pointer as the current import basis instead of importedAt order', async () => {
+    const current = await createRun({
+      organizationId: TEST_ORGANIZATION_ID,
+      fileName: 'current-basis.xls',
+      fileHash: 'c'.repeat(64),
+      status: 'completed',
+      rowCount: 1,
+      importedAt: new Date('2026-07-12T01:00:00.000Z'),
+      createdAt: new Date('2026-07-12T01:00:00.000Z'),
+    });
+    await createRun({
+      organizationId: TEST_ORGANIZATION_ID,
+      fileName: 'newer-timestamp-but-not-current.xls',
+      fileHash: 'd'.repeat(64),
+      status: 'completed',
+      rowCount: 1,
+      importedAt: new Date('2026-07-12T02:00:00.000Z'),
+      createdAt: new Date('2026-07-12T02:00:00.000Z'),
+    });
+    await prisma.sellpiaInventoryState.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceOrigin: 'https://kiditem.sellpia.com',
+        sourceAccountKey: 'kiditem',
+        lastCompletedImportRunId: current.id,
+      },
+    });
+
+    const snapshot = await service.listSnapshot(TEST_ORGANIZATION_ID, {
+      page: 1,
+      limit: 10,
+      stockStatus: 'all',
+    });
+
+    expect(snapshot.latestImport).toMatchObject({
+      id: current.id,
+      fileName: 'current-basis.xls',
     });
   });
 
@@ -160,15 +342,25 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       rowCount: 1,
       importedAt: new Date('2026-07-11T00:00:00.000Z'),
       createdAt: new Date('2026-07-11T00:00:00.000Z'),
+      updatedAt: new Date('2026-07-15T00:00:00.000Z'),
     });
-    const failed = await createRun({
-      organizationId: TEST_ORGANIZATION_ID,
-      fileName: 'failed.xls',
-      fileHash: 'c'.repeat(64),
-      status: 'failed',
-      rowCount: 2,
-      importedAt: null,
-      createdAt: new Date('2026-07-12T00:00:00.000Z'),
+    const failed = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'sellpia_inventory',
+        channelAccountId: null,
+        fileName: null,
+        fileHash: null,
+        status: 'failed',
+        rowCount: 0,
+        importedAt: null,
+        lastTrigger: 'manual_request',
+        freshnessGeneration: 2n,
+        errorCode: 'sellpia_network_failed',
+        errorMessage: 'network failed',
+        createdAt: new Date('2026-07-12T00:00:00.000Z'),
+        updatedAt: new Date('2026-07-13T00:00:00.000Z'),
+      },
     });
     await prisma.sourceImportRun.create({
       data: {
@@ -197,8 +389,16 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       limit: 50,
     });
 
-    expect(history.items.map(({ id }) => id)).toEqual([failed.id, older.id]);
-    expect(history.items[0]).toMatchObject({ status: 'failed', importedAt: null });
+    expect(history.items.map(({ id }) => id)).toEqual([older.id, failed.id]);
+    expect(history.items[1]).toMatchObject({
+      status: 'failed',
+      fileName: null,
+      fileHash: null,
+      importedAt: null,
+      lastTrigger: 'manual_request',
+      freshnessGeneration: '2',
+      errorCode: 'sellpia_network_failed',
+    });
   });
 
   function createRun(input: {
@@ -209,6 +409,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
     rowCount: number;
     importedAt: Date | null;
     createdAt: Date;
+    updatedAt?: Date;
   }) {
     return prisma.sourceImportRun.create({
       data: {
@@ -221,6 +422,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
         rowCount: input.rowCount,
         importedAt: input.importedAt,
         createdAt: input.createdAt,
+        updatedAt: input.updatedAt,
       },
     });
   }

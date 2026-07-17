@@ -160,9 +160,9 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           latest.impressions,
           latest.clicks,
           latest.conversions,
-          cl.abc_grade                 AS "abcGrade",
+          mp.abc_grade                 AS "abcGrade",
           clo.commission_rate          AS "optionCommissionRate",
-          COALESCE(cl.display_name, cl.channel_name, cl.external_id)
+          COALESCE(mp.name, cl.display_name, cl.channel_name, cl.external_id)
                                        AS "productName"
         FROM latest
         LEFT JOIN channel_listings cl
@@ -182,6 +182,10 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
               AND clo.organization_id = ${organizationId}::uuid
               AND clo.listing_id = cl.id
               AND clo.is_active = true
+        LEFT JOIN master_products mp
+              ON mp.id = cl.master_product_id
+              AND mp.organization_id = ${organizationId}::uuid
+              AND mp.is_active = true
       `,
     );
   }

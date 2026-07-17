@@ -1,7 +1,10 @@
 import type {
+  InventorySkuLinkedProduct,
+  InventorySkuLinkedVariant,
   InventorySkuSnapshotSummary,
   InventorySkuStockStatus,
-  SellpiaMasterActiveStatus,
+  SellpiaInventorySkuActiveStatus,
+  SellpiaInventorySkuLinkStatus,
   SellpiaImportRunSummary,
 } from '@kiditem/shared/inventory';
 
@@ -14,11 +17,12 @@ export type InventorySkuSnapshotRepositoryQuery = {
   take: number;
   query?: string;
   stockStatus: InventorySkuStockStatus;
-  activeStatus: SellpiaMasterActiveStatus;
+  activeStatus: SellpiaInventorySkuActiveStatus;
+  linkStatus?: SellpiaInventorySkuLinkStatus;
 };
 
 export type InventorySkuSnapshotRepositoryRow = {
-  masterProductId: string;
+  sellpiaInventorySkuId: string;
   code: string;
   name: string;
   optionName: string | null;
@@ -29,13 +33,27 @@ export type InventorySkuSnapshotRepositoryRow = {
   isActive: boolean;
   lastImportRunId: string | null;
   lastImportedAt: Date | null;
+  linkedVariantCount: number;
+  linkedProductCount: number;
+  linkedProducts: InventorySkuLinkedProduct[];
+  linkedVariants: InventorySkuLinkedVariant[];
 };
 
 export type SellpiaImportRunRepositoryRow = Omit<
   SellpiaImportRunSummary,
-  'importedAt'
+  | 'importedAt'
+  | 'lastVerifiedAt'
+  | 'manualFreshExportConfirmedAt'
+  | 'freshnessGeneration'
+  | 'createdAt'
+  | 'updatedAt'
 > & {
   importedAt: Date | null;
+  lastVerifiedAt: Date | null;
+  manualFreshExportConfirmedAt: Date | null;
+  freshnessGeneration: bigint | null;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 export interface InventorySkuSnapshotListRepositoryPort {
@@ -51,7 +69,7 @@ export interface InventorySkuSnapshotListRepositoryPort {
 
   getSnapshot(
     organizationId: string,
-    masterProductId: string,
+    sellpiaInventorySkuId: string,
   ): Promise<InventorySkuSnapshotRepositoryRow | null>;
 
   listImportRuns(

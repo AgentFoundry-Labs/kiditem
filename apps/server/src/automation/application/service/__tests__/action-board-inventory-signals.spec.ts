@@ -28,7 +28,7 @@ function makeTask(taskKey: string) {
 }
 
 describe('ActionBoardService inventory signals', () => {
-  it('seeds only read-only zero-stock and mapping-attention tasks from canonical counts', async () => {
+  it('seeds only read-only zero-stock and mapping-attention tasks on restored screens', async () => {
     const repository = {
       fetchPerListingMetrics: vi.fn().mockResolvedValue([]),
       countOutOfStockMasterProducts: vi.fn().mockResolvedValue(5),
@@ -59,7 +59,7 @@ describe('ActionBoardService inventory signals', () => {
       }),
       expect.objectContaining({
         taskKey: 'h-mapping-attention',
-        href: '/product-hub/matching',
+        href: '/product-hub/matching?status=needs_review',
         apiCall: null,
       }),
     ]));

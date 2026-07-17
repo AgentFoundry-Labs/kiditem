@@ -59,7 +59,7 @@ export function generateActionTaskSeeds(metrics: ActionTaskSeedMetrics): ActionT
       taskKey: 'h-mapping-attention', type: 'human',
       label: `채널 SKU 매칭 확인 ${metrics.mappingAttentionSkus}건`,
       detail: '셀피아 재고 구성품이 연결되지 않은 채널 SKU 확인',
-      where: '상품 매칭', priority: 'high', role: 'inventory', href: '/product-hub/matching',
+      where: '상품 매칭', priority: 'high', role: 'inventory', href: '/product-hub/matching?status=needs_review',
     });
   }
   if (metrics.adRate > 12) {

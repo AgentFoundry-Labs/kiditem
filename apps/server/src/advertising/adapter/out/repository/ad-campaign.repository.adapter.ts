@@ -158,13 +158,16 @@ export class AdCampaignRepositoryAdapter
         organizationId,
         isActive: true,
       },
-      select: { id: true, abcGrade: true },
+      select: {
+        id: true,
+        masterProduct: { select: { abcGrade: true } },
+      },
     });
     const listingMap = new Map(listings.map((listing) => [listing.id, listing]));
 
     for (const row of rows) {
       const listing = row.listingId ? listingMap.get(row.listingId) : null;
-      const grade = listing?.abcGrade;
+      const grade = listing?.masterProduct?.abcGrade;
       if (grade === 'A' || grade === 'B' || grade === 'C') {
         totals[grade] += row.adSpend;
       }

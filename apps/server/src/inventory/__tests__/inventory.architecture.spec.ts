@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { describe, it, expect } from 'vitest';
 
 // Architecture guard tests freeze the Inventory port/adapter contract:
 //
@@ -38,15 +38,54 @@ function inventoryRel(): string {
 }
 
 describe('Inventory architecture contract', () => {
-  it('uses Sellpia MasterProduct as the sole operational inventory identity', () => {
+  it('uses SellpiaInventorySku as the sole operational inventory identity', () => {
     const schema = readFileSync(PRISMA_INVENTORY_SCHEMA, 'utf8');
     for (const modelName of ['StockTransfer', 'PickingItem', 'ReturnTransfer']) {
       const block = schema.match(new RegExp(`model ${modelName} \\{([\\s\\S]*?)\\n\\}`))?.[1] ?? '';
-      expect(block, `${modelName} must carry masterProductId`).toContain('masterProductId');
-      expect(block, `${modelName} must relate to MasterProduct`).toContain('MasterProduct');
-      expect(block).not.toContain('inventorySkuId');
+      expect(block, `${modelName} must carry sellpiaInventorySkuId`)
+        .toContain('sellpiaInventorySkuId');
+      expect(block, `${modelName} must relate to SellpiaInventorySku`)
+        .toContain('SellpiaInventorySku');
+      expect(block).not.toContain('masterProductId');
       expect(block).not.toMatch(/\boptionId\b/);
     }
+  });
+
+  it('removes every legacy Sellpia MasterProduct read symbol and filename', () => {
+    const hits = rg(
+      `-n 'SELLPIA_MASTER_PRODUCT_READ|SellpiaMasterProductRead|sellpia-master-product-read' ${inventoryRel()} --glob '!**/__tests__/**'`,
+    );
+    expect(hits).toEqual([]);
+  });
+
+  it('persists organization-scoped idempotent Sellpia order transmission intents', () => {
+    const schema = readFileSync(PRISMA_INVENTORY_SCHEMA, 'utf8');
+    const block = schema.match(
+      /model SellpiaOrderTransmissionIntent \{([\s\S]*?)\n\}/,
+    )?.[1] ?? '';
+
+    expect(block).toContain('organizationId');
+    expect(block).toContain('intentKey');
+    expect(block).toContain('status');
+    expect(block).toContain('finalizedGeneration');
+    expect(block).toContain('@@unique([organizationId, intentKey]');
+    expect(block).toContain('@@index([organizationId, status]');
+    expect(schema).not.toMatch(/^enum\s+/m);
+  });
+
+  it('persists append-only owner/admin reconciliation audit records', () => {
+    const schema = readFileSync(PRISMA_INVENTORY_SCHEMA, 'utf8');
+    const block = schema.match(
+      /model SellpiaOrderTransmissionIntentReconciliation \{([\s\S]*?)\n\}/,
+    )?.[1] ?? '';
+
+    expect(block).toContain('organizationId');
+    expect(block).toContain('intentId');
+    expect(block).toContain('reconciledBy');
+    expect(block).toContain('reconciledAt');
+    expect(block).toContain('note');
+    expect(block).toContain('outcome');
+    expect(block).toContain('@@index([organizationId, reconciledAt]');
   });
 
   it('keeps Unshipped reads behind a dedicated repository adapter', () => {

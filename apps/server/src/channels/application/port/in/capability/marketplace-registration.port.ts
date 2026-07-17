@@ -29,6 +29,11 @@ export interface ResolveProductRegistrationCapabilityInput
   extends ProductRegistrationSubmissionCapabilityInput {
   externalListingId: string;
   displayName: string;
+  masterProductId?: string;
+  optionLinks?: Array<{
+    externalOptionId: string;
+    productVariantId: string;
+  }>;
 }
 
 export const CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT = Symbol(

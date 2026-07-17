@@ -107,7 +107,7 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
       date: currentMonthIso(5),
       spend: 5_000,
     });
-    await prisma.masterProduct.create({
+    await prisma.sellpiaInventorySku.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         code: 'ACT-OWN-ZERO',
@@ -137,7 +137,7 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
       optionId: foreignOption.id,
       externalOptionId: 'ACT-FGN-VI',
     });
-    await prisma.masterProduct.create({
+    await prisma.sellpiaInventorySku.create({
       data: {
         organizationId: OTHER_ORGANIZATION_ID,
         code: 'ACT-FGN-ZERO',
@@ -184,7 +184,7 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
 
     expect(minusTask?.relatedProducts).toEqual([
       {
-        id: ownListing.listingId,
+        id: ownMaster.id,
         name: 'Own Negative',
         metric: '이익률',
         value: '-30%',
@@ -192,7 +192,7 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
     ]);
     expect(highAdTask?.relatedProducts).toEqual([
       {
-        id: ownListing.listingId,
+        id: ownMaster.id,
         name: 'Own Negative',
         metric: '광고비율',
         value: '50%',
@@ -216,7 +216,7 @@ describe('ActionBoardService.getTasks (PG integration)', () => {
   });
 
   it('keeps the zero-stock review link when the live metrics array is empty', async () => {
-    await prisma.masterProduct.create({
+    await prisma.sellpiaInventorySku.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         code: 'ACT-STOCK-ONLY',

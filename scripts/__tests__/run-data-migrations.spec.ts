@@ -23,25 +23,26 @@ import {
 const repoRoot = join(__dirname, "..", "..");
 
 describe("data migration registry", () => {
-  it("registers baseline metadata only", () => {
+  it("registers baseline metadata and the 0.1.19 freshness backfill", () => {
     expect(DATA_MIGRATION_IDS).toEqual([
       "v0.1.4:001_record_agent_os_operator_backbone_release",
       "v0.1.6:001_record_rocket_read_model_release",
       "v0.1.7:001_record_sellpia_rocket_inventory_sync_release",
       "v0.1.18:001_migrate_representative_keyword_overrides",
+      "v0.1.19:001_sellpia_inventory_freshness",
     ]);
     expect(
-      DATA_MIGRATION_IDS.some((id) =>
+      DATA_MIGRATION_IDS.slice(0, -1).some((id) =>
         /backfill|normalize|rewrite|repoint|verify/.test(id),
       ),
     ).toBe(false);
   });
 
-  it("registers the current 0.1.18 release data migration", () => {
+  it("registers the current 0.1.19 release data migration", () => {
     const rootVersion = normalizeReleaseVersion(
       readFileSync(join(repoRoot, "VERSION"), "utf8"),
     );
-    expect(rootVersion).toBe("0.1.18");
+    expect(rootVersion).toBe("0.1.19");
     expect(
       dataMigrations.map((migration) => migration.releaseVersion),
     ).toContain(rootVersion);

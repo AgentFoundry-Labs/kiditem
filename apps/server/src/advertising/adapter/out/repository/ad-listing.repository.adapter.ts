@@ -1,6 +1,4 @@
-// Listing-owned advertising metadata and the Coupang extension-sync listing
-// map. The outward read model keeps its historical `masterProduct` key, but
-// every value now comes from ChannelListing.
+// Product-owned advertising metadata hydrated through a scoped channel link.
 
 import {
   BadRequestException,
@@ -38,9 +36,16 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
         externalId: true,
         channelName: true,
         displayName: true,
-        abcGrade: true,
-        adTier: true,
-        healthScore: true,
+        masterProduct: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            abcGrade: true,
+            adTier: true,
+            healthScore: true,
+          },
+        },
       },
     });
     const out = new Map<string, ScopedAdListingReadModel>();
@@ -49,16 +54,13 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
         id: listing.id,
         externalId: listing.externalId,
         channelName: listing.channelName,
-        masterProduct: {
+        masterProduct: listing.masterProduct ?? {
           id: listing.id,
           code: listing.externalId,
-          name:
-            listing.displayName ??
-            listing.channelName ??
-            listing.externalId,
-          abcGrade: listing.abcGrade,
-          adTier: listing.adTier,
-          healthScore: listing.healthScore,
+          name: listing.displayName ?? listing.channelName ?? listing.externalId,
+          abcGrade: null,
+          adTier: null,
+          healthScore: null,
         },
       });
     }
@@ -81,8 +83,13 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
     organizationId: string,
     nextTier: string | null,
   ): Promise<boolean> {
-    const updated = await this.prisma.channelListing.updateMany({
-      where: { id: listingId, organizationId, isActive: true },
+    const updated = await this.prisma.masterProduct.updateMany({
+      where: {
+        organizationId,
+        channelListings: {
+          some: { id: listingId, organizationId, isActive: true },
+        },
+      },
       data: { adTier: nextTier },
     });
     return updated.count === 1;

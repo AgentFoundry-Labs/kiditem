@@ -2,7 +2,7 @@ Consult this document first instead of relying on memorized knowledge.
 
 # supply — Suppliers + Procurement
 
-`src/supply/` owns supplier registry, Sellpia physical-product supplier policy
+`src/supply/` owns supplier registry, Sellpia physical-SKU supplier policy
 (`SupplierProduct`), and purchase-order procurement. Suppliers are
 organization-private. Sourcing and supply are separate because sourcing buyer
 work and vendor-manager/procurement work mutate different surfaces.
@@ -14,6 +14,7 @@ supply/
 ├── supply.module.ts
 ├── adapter/in/http/         # suppliers and procurement controllers + DTOs
 ├── adapter/out/repository/  # Prisma-backed supplier/procurement repositories
+├── adapter/out/transaction/ # one locked freshness + purchase submission unit of work
 ├── application/port/out/    # outgoing repository contracts
 ├── application/service/     # supplier and procurement services
 ├── domain/policy/           # purchase-order status state machine
@@ -30,7 +31,7 @@ Route shape is frozen.
 ## Main Data Models
 
 - `Supplier` is organization-private supplier identity.
-- `SupplierProduct` links a Sellpia `MasterProduct` to supplier price, MOQ, and
+- `SupplierProduct` links a `SellpiaInventorySku` to supplier price, MOQ, and
   primary-supplier policy.
 - `PurchaseOrder` is procurement state.
 - `SupplierPayment` is finance-owned and must not be written from supply.
@@ -42,11 +43,46 @@ Route shape is frozen.
   `domain/policy/purchase-order-status.ts`.
 - Status order is `draft -> pending -> ordered -> shipped -> received`.
 - Delete is allowed only from `draft` or `pending`.
-- `/api/purchase-orders` keeps the legacy single POST action body
-  (`create | updateStatus | delete`).
-- Repository adapters own Prisma details and Sellpia `MasterProduct` ownership
+- `/api/purchase-orders` keeps the single POST action body
+  (`create | updateStatus | delete | submit | reconcileSubmission |
+  previewRocket`).
+- `pending -> ordered` is forbidden through generic `updateStatus`; every real
+  purchase uses `PurchaseOrderSubmissionPort` with an authenticated actor and
+  caller-stable idempotency key.
+- External checkout writes a durable `prepared` attempt before provider IO.
+  Only the transaction creator may call the provider; every observer of an
+  unresolved attempt must reconcile and must not call the provider again.
+- Normalize the caller idempotency key and validate the active actor inside the
+  locked submission lane before a draft can mutate to `pending`.
+- A fresh `prepared` attempt is in flight and cannot be reconciled. Only
+  `provider_unknown` or `provider_failed` may be reconciled.
+- Purchase-order deletion uses the same row lock as submission and rejects any
+  unresolved provider attempt so cascade deletion cannot erase its intent.
+- Prepared attempts older than 15 database minutes become `provider_unknown`.
+  Providerless ordering, attempt creation, terminal recording, and
+  reconciliation stay organization-scoped and row-locked.
+- Repository adapters own Prisma details and `SellpiaInventorySku` ownership
   checks; application services depend on `application/port/out/*` contracts
   only.
+- `previewRocket` publishes complete Rocket PO catalog evidence through the
+  Channels-owned port, resolves confirmed component recipes through
+  `CHANNEL_SKU_AVAILABILITY_PORT`, and applies the Inventory freshness gate
+  before calculating quantities.
+- Rocket allocation replaces any earlier projected stock with Inventory's
+  same-generation gated capacity snapshot before calculation. A refresh cannot
+  bless quantities copied from an older generation.
+- Rocket preview allocation is a pure in-memory policy over shared component
+  stock. It may return mapping, inactive-component, insufficient-capacity, or
+  collection/account blocking reasons, but it never reserves, deducts, commits,
+  confirms, persists a workbook, or calls a purchase provider.
+- Edited quantities are bounded before every result, including collection,
+  vendor, mapping, inactive-component, and zero-capacity rows. The pure domain
+  policy throws only framework-neutral outcomes; the application service owns
+  HTTP exception translation.
+- Preview edits are strict by default. The explicit `clampEditedQuantities`
+  request mode jointly clamps retained edits in the same stable ETA/PO/line
+  allocation order, so rows sharing a component cannot each retain an
+  independently valid but collectively impossible quantity.
 
 ## Cross-Domain Ports
 
@@ -62,7 +98,14 @@ Route shape is frozen.
 - Supplier and purchase-order single-resource access is repository-scoped by
   `{ id, organizationId }`.
 - Raw SQL uses Prisma tagged templates only.
+- The purchase-order submission transaction adapter is the sole Supply
+  exception to repository-only Prisma access. It may lock and read Inventory's
+  freshness row for fencing, but it must not derive freshness policy, mutate
+  Inventory state/current stock, or expose that table through a Supply
+  repository.
 - Do not write `SupplierPayment`.
+- Do not turn Rocket preview into an ordering path. Release `0.1.19` exposes
+  review-only quantities and keeps confirmation disabled.
 - Do not reintroduce supplier/procurement controllers, services, DTOs, or
   supply model mutations under `src/sourcing/`.
 

@@ -19,12 +19,20 @@ export const ChannelSkuMappingComponentSchema = z.object({
   barcode: z.string().nullable(),
   currentStock: z.number().int().nonnegative(),
   purchasePrice: z.number().int().nonnegative().nullable(),
+  isActive: z.boolean(),
   quantity: z.number().int().positive().max(MAX_CHANNEL_SKU_COMPONENT_QUANTITY),
   mappingSource: z.string().nullable(),
   componentCapacity: z.number().int().nonnegative(),
   isBottleneck: z.boolean(),
 });
 export type ChannelSkuMappingComponent = z.infer<typeof ChannelSkuMappingComponentSchema>;
+
+export const ChannelSkuMappingWarningSchema = z.enum([
+  'component_inactive',
+  'configuration_required',
+  'variant_inactive',
+]);
+export type ChannelSkuMappingWarning = z.infer<typeof ChannelSkuMappingWarningSchema>;
 
 export const ChannelSkuMappingListItemSchema = z.object({
   channelAccount: z.object({
@@ -53,6 +61,7 @@ export const ChannelSkuMappingListItemSchema = z.object({
     updatedAt: zIsoDate,
   }),
   components: z.array(ChannelSkuMappingComponentSchema),
+  warnings: z.array(ChannelSkuMappingWarningSchema).max(1),
 });
 export type ChannelSkuMappingListItem = z.infer<typeof ChannelSkuMappingListItemSchema>;
 

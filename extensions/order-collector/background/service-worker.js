@@ -2,6 +2,9 @@ importScripts(
   "collection-session.js",
   "interactive-tabs.js",
   "order-collection-lifecycle.js",
+  "sellpia-inventory.js",
+  "coupang-po-session.js",
+  "rocket-po-collection.js",
 );
 
 const KIDITEM_WEB_URL_PATTERNS = ["http://localhost:3000/*"];
@@ -12,10 +15,62 @@ const collectionSessions = KidItemCollectionSession.create({
 });
 const orderCollectionLifecycle = KidItemOrderCollectionLifecycle.create({
   sessions: collectionSessions,
-  isAttentionError: isMallAccessError,
+  producer: "orders.mall",
+  classification: "background_preferred",
+  restartStrategy: "web",
+  classifyFailure(value) {
+    const error = value?.error || value;
+    return value?.pendingLogin === true || isMallAccessError(error)
+      ? "marketplace_login"
+      : null;
+  },
 });
+const sellpiaInventoryLifecycle = KidItemOrderCollectionLifecycle.create({
+  sessions: collectionSessions,
+  producer: "inventory.sellpia",
+  classification: "background_preferred",
+  restartStrategy: "extension",
+  requireRunId: true,
+  forceDeferredTerminal: true,
+  deferredLabel: "Sellpia workbook downloaded · import in progress",
+  failedLabel: "Sellpia inventory import failed",
+  succeededLabel: "Sellpia inventory import completed",
+  classifyFailure(value) {
+    if (value?.errorCode === "sellpia_login_required") return "marketplace_login";
+    if (value?.errorCode === "sellpia_background_timeout") return "background_timeout";
+    return null;
+  },
+});
+const sellpiaInventory = KidItemSellpiaInventory.create({ chrome });
 const interactiveTabs = KidItemInteractiveTabs.create({ chrome });
 const INTERACTIVE_TAB_REASONS = KidItemInteractiveTabs.reasons;
+const coupangPoSession = KidItemCoupangPoSession.create({
+  chrome,
+  attachOrderCollectionTab,
+  waitForTabReady,
+});
+const rocketPoCollection = KidItemRocketPoCollection.create({
+  chrome,
+  coupangPoSession,
+  withTimeout,
+});
+
+async function lifecycleForRun(runId) {
+  const session = await collectionSessions.get(runId);
+  if (session?.producer === "inventory.sellpia") return sellpiaInventoryLifecycle;
+  if (session?.producer === "orders.mall") return orderCollectionLifecycle;
+  return null;
+}
+
+async function cancelCollectionSession(runId) {
+  const lifecycle = await lifecycleForRun(runId);
+  return lifecycle ? lifecycle.cancel(runId) : null;
+}
+
+async function finalizeCollectionSession(runId, status, message) {
+  const lifecycle = await lifecycleForRun(runId);
+  return lifecycle ? lifecycle.finalize(runId, status, message) : null;
+}
 
 const ICECREAM_MALL_URL = "https://po.i-screammall.co.kr/main.do";
 const ICECREAM_MALL_TAB_MATCHES = [
@@ -29,7 +84,6 @@ const SELLPIA_TAB_MATCHES = ["https://*.sellpia.com/*"];
 const SELLPIA_REPRINT_URL = "https://kiditem.sellpia.com/order_delivery_reprint.html";
 const COUPANG_SHIPMENT_URL = "https://supplier.coupang.com/ibs/asn/active";
 const COUPANG_SUPPLIER_TAB_MATCHES = ["https://supplier.coupang.com/*"];
-const COUPANG_PO_LIST_URL = "https://supplier.coupang.com/po-web/purchase/order/list";
 const KIDSNOTE_ORDER_URL = "https://shop.kidsnote.com/_manage/?body=3010";
 const KIDSNOTE_TAB_MATCHES = ["https://shop.kidsnote.com/*"];
 // 꼬망세(EduPre) 입점관리자 전체주문 (listmaxcount 크게 = 검색결과 전부)
@@ -128,7 +182,7 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
     return respond(collectionSessions.get(msg.runId));
   }
   if (msg?.action === "cancelCollectionSession") {
-    return respond(orderCollectionLifecycle.cancel(msg.runId));
+    return respond(cancelCollectionSession(msg.runId));
   }
   if (msg?.action === "openCollectionAttentionTab") {
     return respond(collectionSessions.openAttentionTab(msg.runId));
@@ -141,7 +195,7 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
     if (!status || typeof msg.message !== "string" || msg.message.length < 1 || msg.message.length > 300) {
       return respond(Promise.reject(new Error("Invalid collection finalization")));
     }
-    return respond(orderCollectionLifecycle.finalize(msg.runId, status, msg.message));
+    return respond(finalizeCollectionSession(msg.runId, status, msg.message));
   }
 
   if (msg?.action === "ping") {
@@ -154,15 +208,29 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
         art09Orders: true,
         boriboriOrders: true,
         collectRocketPoRows: true,
+        collectRocketPoRowsEvidenceV1: true,
         listRocketPos: true,
         collectKakaoOrders: true,
         collectSellpiaDeliTracking: true,
+        collectSellpiaInventory: true,
+        collectSellpiaInventoryV2: true,
         browserCollectionSessions: true,
         uploadDomeggookTracking: true,
         uploadOnchTracking: true,
       },
     });
     return false;
+  }
+
+  if (msg?.action === "collectSellpiaInventory") {
+    return respond(sellpiaInventoryLifecycle.run(
+      msg,
+      {
+        sourceOrigin: "https://kiditem.sellpia.com",
+        sourceAccountKey: "kiditem",
+      },
+      (collection) => sellpiaInventory.collect(collection),
+    ));
   }
 
   if (msg?.action === "collectSellpiaDeliTracking") {
@@ -201,6 +269,7 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
       .catch((error) => {
         sendResponse({
           success: false,
+          outcome: "unknown",
           error: error?.message || "셀피아 전송 실패",
         });
       });
@@ -468,28 +537,54 @@ function mallGenericErrorResult(mallName, err) {
 // ── 셀피아 전송 (API 아님 — order_collect 화면에 판매처 선택 + 파일 주입 + 주문접수 클릭) ──
 async function sendOrderFileToSellpia({ shopName, fileName, fileBase64 }) {
   if (!fileBase64 || !fileName) {
-    return { success: false, error: "셀피아로 보낼 파일이 없습니다." };
+    return {
+      success: false,
+      outcome: "not_submitted",
+      error: "셀피아로 보낼 파일이 없습니다.",
+    };
   }
 
-  const tab = await findOrCreateSellpiaTab();
-  if (!tab.id) {
-    return { success: false, error: "셀피아 탭을 열 수 없습니다." };
+  let tab;
+  try {
+    tab = await findOrCreateSellpiaTab();
+    if (!tab.id) {
+      return {
+        success: false,
+        outcome: "not_submitted",
+        error: "셀피아 탭을 열 수 없습니다.",
+      };
+    }
+    await waitForTabReady(tab.id);
+  } catch (error) {
+    return {
+      success: false,
+      outcome: "not_submitted",
+      error: error?.message || "셀피아 주문접수 화면을 준비하지 못했습니다.",
+    };
   }
 
-  await waitForTabReady(tab.id);
-
-  const injected = await withTimeout(
-    chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: injectSellpiaOrderFile,
-      args: [{ shopName: shopName || null, fileName, fileBase64 }],
-    }),
-    45000,
-    "셀피아 주문접수 화면 주입 시간이 초과되었습니다.",
-  );
+  let injected;
+  try {
+    injected = await withTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: injectSellpiaOrderFile,
+        args: [{ shopName: shopName || null, fileName, fileBase64 }],
+      }),
+      45000,
+      "셀피아 주문접수 화면 주입 시간이 초과되었습니다.",
+    );
+  } catch (error) {
+    return {
+      success: false,
+      outcome: "unknown",
+      error: error?.message || "셀피아 주문접수 결과를 확인하지 못했습니다.",
+    };
+  }
 
   const result = injected[0]?.result ?? {
     success: false,
+    outcome: "unknown",
     error: "셀피아 주문접수 화면에 접근하지 못했습니다.",
   };
   const currentTab = await chrome.tabs.get(tab.id).catch(() => tab);
@@ -562,238 +657,12 @@ async function clickCoupangShipmentDownloads(options) {
 
 // ── 로켓 발주확정: 발주리스트(거래처확인요청) + 상세를 풀컬럼 스크래핑 ──
 async function collectRocketPoRows({ from, to, status = "RP", dateType = "WAREHOUSING_PLAN_DATE" }, collection) {
-  const { tab, created } = await findOrCreateCoupangSupplierTab();
-  if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
-  await attachOrderCollectionTab(collection, tab, created);
-  await waitForTabReady(tab.id);
-
-  const injected = await withTimeout(
-    chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: scrapeRocketPoRows,
-      args: [from, to, status, dateType],
-    }),
-    180000,
-    "로켓 발주 수집 시간이 초과되었습니다.",
-  );
-
-  return (
-    injected[0]?.result ?? {
-      success: false,
-      error: "supplier 화면에 접근하지 못했습니다.",
-    }
-  );
+  return rocketPoCollection.collect({ from, to, status, dateType }, collection);
 }
 
 // ── 로켓 발주 목록(PO 단위, SKU 상세 없이) — 화면 리스트용 빠른 조회 ──
 async function listRocketPos({ from, to, status }, collection) {
-  const { tab, created } = await findOrCreateCoupangSupplierTab();
-  if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
-  await attachOrderCollectionTab(collection, tab, created);
-  await waitForTabReady(tab.id);
-
-  const injected = await withTimeout(
-    chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: scrapeRocketPoList,
-      args: [from, to, status || ""],
-    }),
-    60000,
-    "로켓 발주 목록 조회 시간이 초과되었습니다.",
-  );
-
-  return (
-    injected[0]?.result ?? {
-      success: false,
-      error: "supplier 화면에 접근하지 못했습니다.",
-    }
-  );
-}
-
-// supplier 페이지 컨텍스트: 입고예정일(WAREHOUSING_PLAN_DATE) 범위의 발주를 PO 단위로만 빠르게.
-async function scrapeRocketPoList(from, to, statusCode) {
-  try {
-    const clean = (s, n) =>
-      (s || "").replace(new RegExp("[\\u0000-\\u001F]", "g"), " ").trim().slice(0, n || 60);
-    // expectedDeliveryDate 는 UTC(예: 06-30T15:00Z = KST 07-01). KST 날짜로 변환해서 입고예정일로 사용.
-    const kstDate = (iso) => {
-      if (!iso) return "";
-      const d = new Date(iso);
-      if (isNaN(d.getTime())) return String(iso).slice(0, 10);
-      d.setUTCHours(d.getUTCHours() + 9);
-      return d.toISOString().slice(0, 10);
-    };
-    const listUrl = (p) =>
-      "/po-web/app/purchase-order/list?page=" + p +
-      "&searchDateType=WAREHOUSING_PLAN_DATE&searchStartDate=" + (from || "") + "&searchEndDate=" + (to || "") +
-      "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=" + (statusCode || "") +
-      "&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
-    const out = [];
-    for (let p = 1; p <= 20; p++) {
-      const res = await fetch(listUrl(p), { credentials: "include", headers: { accept: "application/json" } });
-      const text = await res.text();
-      if (!res.ok || text.trim().charAt(0) === "<") {
-        if (p === 1)
-          return {
-            success: false,
-            error: "쿠팡 supplier 로그인이 필요합니다. supplier.coupang.com 에 로그인한 뒤 다시 시도하세요.",
-          };
-        break;
-      }
-      let j;
-      try {
-        j = JSON.parse(text);
-      } catch (e) {
-        if (p === 1) return { success: false, error: "발주리스트 응답을 해석하지 못했습니다 (supplier 로그인/세션 확인)." };
-        break;
-      }
-      const b = j.body || {};
-      const rows = b.body || [];
-      for (const o of rows) {
-        // 서버가 입고예정일(WAREHOUSING_PLAN_DATE)+상태로 이미 필터함. eta/orderedAt 은 KST 날짜.
-        out.push({
-          poSeq: o.purchaseOrderSeq,
-          orderedAt: kstDate(o.createdAt),
-          eta: kstDate(o.expectedDeliveryDate),
-          status: o.purchaseOrderStatusDescription || "",
-          vendorName: o.vendorName || "",
-          centerName: o.centerName || "",
-          inboundType: o.transportTypeDescription || "",
-          firstSkuName: clean(o.firstSkuName, 60),
-          skuCount: o.skuCount || 0,
-          orderQty: o.sumOfOrderQty || 0,
-          orderAmount: o.sumOfOrderAmount || 0,
-        });
-      }
-      if (p >= (b.lastPageNumber || 1)) break;
-    }
-    return { success: true, pos: out };
-  } catch (e) {
-    return { success: false, error: (e && e.message) || "로켓 발주 목록 조회 실패" };
-  }
-}
-
-// supplier.coupang.com 페이지 컨텍스트에서 실행 (DOMParser + same-origin fetch + 쿠키).
-async function scrapeRocketPoRows(from, to, statusCode, dateType) {
-  try {
-    const ctrl = new RegExp("[\\u0000-\\u001F]", "g");
-    const clean = (s, n) => (s || "").replace(ctrl, " ").replace(/^\d{8,}\s*/, "").trim().slice(0, n || 80);
-    const num = (s) => Number(String(s == null ? "" : s).replace(/[^0-9.-]/g, "")) || 0;
-    const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
-    // expectedDeliveryDate/createdAt 는 UTC → KST 변환.
-    const kstDate = (iso) => {
-      if (!iso) return "";
-      const d = new Date(iso);
-      if (isNaN(d.getTime())) return String(iso).slice(0, 10);
-      d.setUTCHours(d.getUTCHours() + 9);
-      return d.toISOString().slice(0, 10);
-    };
-    const kstDateTime = (iso) => {
-      if (!iso) return "";
-      const d = new Date(iso);
-      if (isNaN(d.getTime())) return String(iso).replace("T", " ").slice(0, 19);
-      d.setUTCHours(d.getUTCHours() + 9);
-      return d.toISOString().replace("T", " ").slice(0, 19);
-    };
-    const normalizedStatus = ["RP", "PA", "RI", "CI", ""].includes(statusCode) ? statusCode : "RP";
-    const normalizedDateType =
-      dateType === "PURCHASE_ORDER_DATE" ? "PURCHASE_ORDER_DATE" : "WAREHOUSING_PLAN_DATE";
-    const businessDateBasis =
-      normalizedDateType === "PURCHASE_ORDER_DATE" ? "ordered_at" : "expected_inbound";
-    const listUrl = (p) =>
-      "/po-web/app/purchase-order/list?page=" + p +
-      "&searchDateType=" + normalizedDateType + "&searchStartDate=" + (from || "") + "&searchEndDate=" + (to || "") +
-      "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=" + normalizedStatus + "&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
-
-    const pos = [];
-    for (let p = 1; p <= 40; p++) {
-      const res = await fetch(listUrl(p), { credentials: "include", headers: { accept: "application/json" } });
-      const text = await res.text();
-      if (!res.ok || text.trim().charAt(0) === "<") {
-        if (p === 1)
-          return {
-            success: false,
-            error:
-              "쿠팡 supplier 로그인이 필요합니다. supplier.coupang.com 에 로그인한 뒤 다시 시도하세요. (발주리스트가 JSON 대신 로그인 페이지를 반환했습니다)",
-          };
-        break;
-      }
-      let j;
-      try {
-        j = JSON.parse(text);
-      } catch (e) {
-        if (p === 1) return { success: false, error: "발주리스트 응답을 해석하지 못했습니다 (supplier 로그인/세션 확인)." };
-        break;
-      }
-      const b = j.body || {};
-      const rows = b.body || [];
-      for (const o of rows) {
-        // 서버가 요청한 상태 + 날짜 기준으로 이미 필터함.
-        pos.push(o);
-      }
-      if (p >= (b.lastPageNumber || 1)) break;
-    }
-    if (pos.length === 0) return { success: true, rows: [], poCount: 0 };
-
-    const out = [];
-    const parseDetail = async (po) => {
-      try {
-        const html = await (await fetch("/scm/purchase/order/get/" + po.purchaseOrderSeq, { credentials: "include" })).text();
-        const doc = new DOMParser().parseFromString(html, "text/html");
-        const tabs = Array.from(doc.querySelectorAll("table"));
-        const rt = tabs.find((t) => /회송\s*담당자/.test(t.textContent) && /회송지/.test(t.textContent));
-        const rtRow = rt && rt.rows[1] ? Array.from(rt.rows[1].cells).map((c) => norm(c.textContent)) : ["", "", ""];
-        const st = tabs.find((t) => /상품\s*번호/.test(t.textContent) && /발주금액/.test(t.textContent));
-        const skus = st
-          ? Array.from(st.rows)
-              .map((r) => Array.from(r.cells).map((c) => norm(c.textContent)))
-              .filter((r) => /^\d+$/.test(r[0]) && r.length > 9)
-          : [];
-        for (const r of skus) {
-          out.push({
-            poNumber: String(po.purchaseOrderSeq),
-            center: po.centerName || "",
-            inboundType: po.transportTypeDescription || "",
-            poStatus: po.purchaseOrderStatusDescription || "",
-            poStatusCode: String(po.purchaseOrderStatus || po.purchaseOrderStatusCode || normalizedStatus).toUpperCase(),
-            businessDateBasis,
-            vendorName: po.vendorName || "",
-            productNo: r[1] || "",
-            barcode: (String(r[2]).match(/^\d{8,}/) || [""])[0],
-            productName: clean(r[2], 80),
-            orderQty: num(r[4]),
-            returnManager: rtRow[0] || "",
-            returnContact: rtRow[1] || "",
-            returnAddress: rtRow[2] || "",
-            purchasePrice: num(r[6]),
-            supplyPrice: num(r[7]),
-            vat: num(r[8]),
-            totalPurchase: num(r[9]),
-            expectedInboundDate: kstDate(po.expectedDeliveryDate).replace(/-/g, ""),
-            poRegisteredAt: kstDateTime(po.createdAt),
-            xdock: "N",
-          });
-        }
-      } catch (e) {
-        /* skip this PO */
-      }
-    };
-
-    for (let i = 0; i < pos.length; i += 5) {
-      await Promise.all(pos.slice(i, i + 5).map(parseDetail));
-    }
-    return { success: true, rows: out, poCount: pos.length };
-  } catch (e) {
-    return { success: false, error: String((e && e.message) || e) };
-  }
-}
-
-async function findOrCreateCoupangSupplierTab() {
-  const tabs = await chrome.tabs.query({ url: COUPANG_SUPPLIER_TAB_MATCHES });
-  const supplierTab = tabs[0];
-  if (supplierTab?.id) return { tab: supplierTab, created: false };
-  const tab = await chrome.tabs.create({ url: COUPANG_PO_LIST_URL, active: false });
-  return { tab, created: true };
+  return rocketPoCollection.list({ from, to, status }, collection);
 }
 
 async function findOrCreateInteractiveCoupangSupplierTab(reason) {
@@ -1909,69 +1778,71 @@ async function scrapeBoriboriOrders(downloadPassword) {
 // ⚠️품목 상세(/scm/purchase/order/get)는 po-web 컨텍스트서 fetch 하면 로그인페이지 → /scm 페이지로
 // 이동한 뒤 그 컨텍스트에서 fetch 해야 인증됨. 목록/센터(po-web API)는 같은 origin이라 /scm 서도 됨.
 async function collectCoupangDirectOrders(collection) {
-  const { tab, created } = await findOrCreateCoupangPoTab();
-  if (!tab?.id) return { success: false, error: "쿠팡 공급사허브(supplier.coupang.com) 탭을 열 수 없습니다." };
-  await attachOrderCollectionTab(collection, tab, created);
-  const keepAlive = setInterval(() => {
-    chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
-  }, 20000);
-  let keepOpen = false;
-  try {
-    await waitForTabReady(tab.id);
-    // 1) 발주확정 목록 (po-web API) → seq/센터/운송유형
-    const listInjected = await withTimeout(
-      chrome.scripting.executeScript({ target: { tabId: tab.id }, func: scrapeCoupangPaList }),
-      60000,
-      "쿠팡 발주 목록 수집 시간이 초과되었습니다.",
-    );
-    const listRes = listInjected[0]?.result;
-    if (!listRes?.success) return listRes ?? { success: false, error: "쿠팡 발주 목록에 접근하지 못했습니다." };
-    if (!listRes.pos.length) return { success: true, pos: [], centers: {}, count: 0 };
-
-    // 2) /scm 컨텍스트로 이동 (품목 fetch 인증 위해). 첫 발주 상세 페이지.
-    await chrome.tabs.update(tab.id, { url: "https://supplier.coupang.com/scm/purchase/order/get/" + listRes.pos[0].seq });
-    await waitForTabReady(tab.id);
-
-    // 3) 품목(/scm) + 센터주소 수집
-    const dataInjected = await withTimeout(
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: scrapeCoupangDirectData,
-        args: [listRes.pos],
-      }),
-      180000,
-      "쿠팡 발주 품목 수집 시간이 초과되었습니다.",
-    );
-    return dataInjected[0]?.result ?? { success: false, error: "쿠팡 발주 상세에 접근하지 못했습니다." };
-  } catch (e) {
-    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("쿠팡직배송"); }
-    return mallGenericErrorResult("쿠팡직배송", e);
-  } finally {
-    clearInterval(keepAlive);
-    if (created && tab.id && !keepOpen) {
-      try {
-        await chrome.tabs.remove(tab.id);
-      } catch {
-        /* 이미 닫힘 — 무시 */
+  return coupangPoSession.run(collection, async (tab) => {
+    const keepAlive = setInterval(() => {
+      chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
+    }, 20000);
+    try {
+      // 1) 발주확정 목록 (po-web API) → seq/센터/운송유형
+      const listInjected = await withTimeout(
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: "MAIN",
+          func: scrapeCoupangPaList,
+        }),
+        60000,
+        "쿠팡 발주 목록 수집 시간이 초과되었습니다.",
+      );
+      const listRes = listInjected[0]?.result;
+      if (!listRes?.success) {
+        return listRes ?? { success: false, error: "쿠팡 발주 목록에 접근하지 못했습니다." };
       }
-    }
-  }
-}
+      if (!listRes.pos.length) return { success: true, pos: [], centers: {}, count: 0 };
 
-async function findOrCreateCoupangPoTab() {
-  const tabs = await chrome.tabs.query({ url: COUPANG_SUPPLIER_TAB_MATCHES });
-  const poTab = tabs.find((tab) => (tab.url || "").includes("/po-web/purchase/order"));
-  if (poTab?.id) return { tab: poTab, created: false };
-  if (tabs[0]?.id) {
-    await chrome.tabs.update(tabs[0].id, { url: COUPANG_PO_LIST_URL });
-    return { tab: await chrome.tabs.get(tabs[0].id), created: false };
-  }
-  const tab = await chrome.tabs.create({ url: COUPANG_PO_LIST_URL, active: false });
-  return { tab, created: true };
+      // 2) /scm 컨텍스트로 이동 (품목 fetch 인증 위해). 첫 발주 상세 페이지.
+      await chrome.tabs.update(tab.id, {
+        url: "https://supplier.coupang.com/scm/purchase/order/get/" + listRes.pos[0].seq,
+      });
+      await waitForTabReady(tab.id);
+
+      // 3) 품목(/scm) + 센터주소 수집
+      const dataInjected = await withTimeout(
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: "MAIN",
+          func: scrapeCoupangDirectData,
+          args: [listRes.pos],
+        }),
+        180000,
+        "쿠팡 발주 품목 수집 시간이 초과되었습니다.",
+      );
+      return dataInjected[0]?.result ?? {
+        success: false,
+        error: "쿠팡 발주 상세에 접근하지 못했습니다.",
+      };
+    } catch (error) {
+      if (isMallAccessError(error)) {
+        return {
+          ...mallAccessErrorResult("쿠팡직배송"),
+          errorCode: "coupang_po_session_required",
+        };
+      }
+      return mallGenericErrorResult("쿠팡직배송", error);
+    } finally {
+      clearInterval(keepAlive);
+    }
+  });
 }
 
 // po-web 페이지 컨텍스트: 발주확정(PA) 목록 fetch → seq/센터/운송유형/입고예정일/발주일.
 async function scrapeCoupangPaList() {
+  const poSessionError = () => ({
+    success: false,
+    pendingLogin: true,
+    errorCode: "coupang_po_session_required",
+    error:
+      "쿠팡 발주 세션이 만료되었습니다. Supplier Hub 로그인 상태를 확인한 뒤 다시 시도하세요.",
+  });
   try {
     const p = (n) => String(n).padStart(2, "0");
     const ymd = (d) => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
@@ -1991,19 +1862,14 @@ async function scrapeCoupangPaList() {
       });
       const text = await res.text();
       if (!res.ok || text.trim().charAt(0) === "<") {
-        if (page === 1) {
-          return {
-            success: false,
-            error: "쿠팡 supplier 로그인이 필요합니다. supplier.coupang.com 에 로그인한 뒤 다시 시도하세요.",
-          };
-        }
+        if (page === 1) return poSessionError();
         break;
       }
       let j;
       try {
         j = JSON.parse(text);
       } catch (e) {
-        if (page === 1) return { success: false, error: "쿠팡 발주 목록 응답을 해석하지 못했습니다." };
+        if (page === 1) return poSessionError();
         break;
       }
       const body = (j && j.body) || {};
@@ -2026,6 +1892,7 @@ async function scrapeCoupangPaList() {
     }
     return { success: true, pos };
   } catch (e) {
+    if (String((e && e.message) || e) === "Failed to fetch") return poSessionError();
     return { success: false, error: "쿠팡 발주 목록 조회 실패(로그인 확인): " + String((e && e.message) || e) };
   }
 }
@@ -3057,6 +2924,7 @@ async function injectSellpiaOrderFile(payload) {
   if (!shopSelect || !fileInput) {
     return {
       success: false,
+      outcome: "not_submitted",
       pendingPage: true,
       error:
         "셀피아 주문접수(파일 업로드) 화면 요소를 찾지 못했습니다. order_collect 화면이 열렸는지/로그인 상태인지 확인해주세요.",
@@ -3065,6 +2933,7 @@ async function injectSellpiaOrderFile(payload) {
   if (shopName && !matched) {
     return {
       success: false,
+      outcome: "not_submitted",
       error: `셀피아 판매처 목록에서 '${shopName}' 을(를) 찾지 못했습니다. 셀피아 거래처 등록을 확인해주세요.`,
     };
   }
@@ -3083,6 +2952,7 @@ async function injectSellpiaOrderFile(payload) {
     if (!excelSelect.value) {
       return {
         success: false,
+        outcome: "not_submitted",
         shop: matched ? String(matched.textContent || "").trim() : null,
         error:
           "셀피아 엑셀양식이 자동으로 설정되지 않았습니다. 해당 판매처의 엑셀양식을 셀피아에서 먼저 설정해주세요.",
@@ -3095,7 +2965,11 @@ async function injectSellpiaOrderFile(payload) {
   try {
     bytes = base64ToBytes(fileBase64);
   } catch (error) {
-    return { success: false, error: "전송 파일 디코딩에 실패했습니다." };
+    return {
+      success: false,
+      outcome: "not_submitted",
+      error: "전송 파일 디코딩에 실패했습니다.",
+    };
   }
   const file = new File([bytes], fileName, {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -3108,6 +2982,7 @@ async function injectSellpiaOrderFile(payload) {
   if (fileInput.files.length !== 1) {
     return {
       success: false,
+      outcome: "not_submitted",
       shop: matched ? String(matched.textContent || "").trim() : null,
       error: "셀피아 파일 입력칸에 파일을 넣지 못했습니다.",
     };
@@ -3117,16 +2992,27 @@ async function injectSellpiaOrderFile(payload) {
   if (!submitButton) {
     return {
       success: false,
+      outcome: "not_submitted",
       shop: matched ? String(matched.textContent || "").trim() : null,
       fileName,
       error: "파일은 주입했지만 '주문접수' 버튼을 찾지 못했습니다.",
     };
   }
-  submitButton.click();
+  try {
+    submitButton.click();
+  } catch (error) {
+    return {
+      success: false,
+      outcome: "unknown",
+      shop: matched ? String(matched.textContent || "").trim() : null,
+      fileName,
+      error: error?.message || "주문접수 클릭 결과를 확인하지 못했습니다.",
+    };
+  }
 
   return {
     success: true,
-    submitted: true,
+    outcome: "submitted",
     shop: matched ? String(matched.textContent || "").trim() : null,
     excelFormat: excelSelect ? excelSelect.value : null,
     fileName,

@@ -10,7 +10,8 @@ is no server-side Playwriter fallback or separate catalog image-sync API.
 The collection updates account-scoped `ChannelListing` and
 `ChannelListingOption` metadata. Provider media is attached to the listing's
 `ContentWorkspace` as URL-backed `ContentAsset` rows. It does not create or
-change Sellpia `MasterProduct` stock or `ChannelSkuComponent` recipes.
+change physical `SellpiaInventorySku` stock or central
+`ProductVariantComponent` recipes.
 
 ## Prerequisites
 
@@ -88,8 +89,8 @@ Organization scope comes from authentication. Do not send or trust an
 - Provider image bytes stay at their external URL during catalog collection.
   Thumbnail or detail-page generation fetches bytes only when that operation
   needs them and persists only selected or derived managed output.
-- KidItem-authored listing operations and confirmed
-  `ChannelSkuComponent` recipes are never overwritten by collection.
+- KidItem-authored operating-product links and confirmed
+  `ProductVariantComponent` recipes are never overwritten by collection.
 - Do not restore `/api/coupang-image-sync`, `MasterProductImage`, Drive image
   replay, or a server Playwriter fallback.
 

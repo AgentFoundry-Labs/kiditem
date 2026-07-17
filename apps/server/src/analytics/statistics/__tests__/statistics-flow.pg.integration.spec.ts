@@ -104,6 +104,7 @@ describe('Statistics flow (PG integration)', () => {
       data: {
         organizationId,
         listingId: listingL1.listingId,
+        productVariantId: optM1b,
         externalOptionId: `${prefix}-VI-L1B`,
         costPriceOverride: 4_000,
         commissionRate: 0.1,
@@ -113,15 +114,6 @@ describe('Statistics flow (PG integration)', () => {
     await prisma.channelListingOption.update({
       where: { id: listingL1.listingOptionId },
       data: { costPriceOverride: 5_000 },
-    });
-    await prisma.channelSkuComponent.create({
-      data: {
-        organizationId,
-        channelSkuId: listingL1b.id,
-        masterProductId: masterM1,
-        quantity: 1,
-        mappingSource: 'manual',
-      },
     });
     const listingL2 = await setupChannelListing(prisma, {
       organizationId,
@@ -226,7 +218,7 @@ describe('Statistics flow (PG integration)', () => {
   });
 
   it('products hydrates master metadata and keeps ratio-based profitRate semantics', async () => {
-    const { listingL1, listingL2 } = await seedStatisticsFixture();
+    const { masterM1, masterM2, listingL1, listingL2 } = await seedStatisticsFixture();
 
     const result = await service.products(TEST_ORGANIZATION_ID, '2026-04');
 
@@ -235,8 +227,8 @@ describe('Statistics flow (PG integration)', () => {
         listingId: listingL1,
         externalId: 'TEST-EXT-L1',
         channelName: 'TEST L1',
-        masterId: listingL1,
-        masterCode: 'TEST-EXT-L1',
+        masterId: masterM1,
+        masterCode: 'TEST-M-001',
         productName: 'TEST Master M1',
         category: '유아용품',
         grade: 'A',
@@ -251,8 +243,8 @@ describe('Statistics flow (PG integration)', () => {
         listingId: listingL2,
         externalId: 'TEST-EXT-L2',
         channelName: 'TEST L2',
-        masterId: listingL2,
-        masterCode: 'TEST-EXT-L2',
+        masterId: masterM2,
+        masterCode: 'TEST-M-002',
         productName: 'TEST Master M2',
         category: '완구',
         grade: 'B',

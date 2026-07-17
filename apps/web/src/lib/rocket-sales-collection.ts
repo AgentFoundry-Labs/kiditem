@@ -1,19 +1,18 @@
+import {
+  RocketPoCatalogRowSchema,
+  RocketPoCollectionEvidenceSchema,
+  type RocketPoCatalogRow,
+  type RocketPoCollectionEvidence,
+} from '@kiditem/shared/rocket-purchase-preview';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 
 export type RocketPoStatusCode = 'RP' | 'PA' | 'RI' | 'CI' | '';
 
-export interface RocketConfirmSourceRow {
-  poNumber: string;
-  barcode: string;
-  orderQty: number;
-  businessDateBasis?: 'ordered_at' | 'expected_inbound';
-  [key: string]: unknown;
-}
-
 interface CollectResponse {
   success?: boolean;
-  rows?: RocketConfirmSourceRow[];
+  rows?: unknown[];
   poCount?: number;
+  evidence?: unknown;
   error?: string;
   pendingLogin?: boolean;
 }
@@ -23,7 +22,11 @@ export async function detectRocketOrderExtensionId(requiredCapability: string): 
   if (exactId) return exactId;
 
   const compatibleId = await detectOrderCollectionExtensionId();
-  if (compatibleId) return compatibleId;
+  if (compatibleId) {
+    throw new Error(
+      '주문수집 확장프로그램이 이전 버전입니다. Chrome 확장 관리에서 extensions/order-collector 를 새로고침한 뒤 다시 시도해주세요.',
+    );
+  }
 
   throw new Error(
     '주문수집 확장프로그램을 찾지 못했습니다. extensions/order-collector 를 Chrome 에 로드/새로고침하고 supplier.coupang.com 로그인 후 다시 시도해주세요.',
@@ -40,11 +43,16 @@ export async function collectRocketPoRowsFromExtension({
   to: string;
   status?: RocketPoStatusCode;
   dateType?: 'WAREHOUSING_PLAN_DATE' | 'PURCHASE_ORDER_DATE';
-}): Promise<{ rows: RocketConfirmSourceRow[]; poCount: number }> {
-  const extensionId = await detectRocketOrderExtensionId('collectRocketPoRows');
+}): Promise<{
+  rows: RocketPoCatalogRow[];
+  poCount: number;
+  collection: RocketPoCollectionEvidence;
+}> {
+  const runId = globalThis.crypto.randomUUID();
+  const extensionId = await detectRocketOrderExtensionId('collectRocketPoRowsEvidenceV1');
   const res = await sendToExtension<CollectResponse>(
     extensionId,
-    { action: 'collectRocketPoRows', from, to, status, dateType },
+    { action: 'collectRocketPoRows', from, to, status, dateType, runId },
     190000,
   );
   if (!res) {
@@ -52,10 +60,18 @@ export async function collectRocketPoRowsFromExtension({
       '주문수집 확장이 로켓 발주 수집 액션에 응답하지 않았습니다. Chrome 확장 관리에서 extensions/order-collector 를 새로고침해주세요.',
     );
   }
-  if (!res.success || !res.rows) {
+  if (!res.success || !res.rows || !res.evidence) {
     throw Object.assign(new Error(res.error ?? '로켓 발주 수집에 실패했습니다.'), {
       pendingLogin: res.pendingLogin === true,
     });
   }
-  return { rows: res.rows, poCount: res.poCount ?? 0 };
+  const collection = RocketPoCollectionEvidenceSchema.parse(res.evidence);
+  if (collection.collectionRunId !== runId) {
+    throw new Error('Rocket collection run identity does not match the browser request.');
+  }
+  return {
+    rows: res.rows.map((row) => RocketPoCatalogRowSchema.parse(row)),
+    poCount: res.poCount ?? 0,
+    collection,
+  };
 }

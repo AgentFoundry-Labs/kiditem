@@ -10,30 +10,6 @@
 // C3 daily upserts, C4 strategy reads) wire ingestion paths.
 
 /// @namespace Channels
-/// @describe Confirmed channel-SKU recipe. mappingSource: product_code | barcode | manual.
-model ChannelSkuComponent {
-  id              String   @id @default(uuid()) @db.Uuid
-  organizationId  String   @map("organization_id") @db.Uuid
-  channelSkuId    String   @map("channel_sku_id") @db.Uuid
-  masterProductId String   @map("master_product_id") @db.Uuid
-  quantity        Int
-  mappingSource   String   @map("mapping_source") // product_code | barcode | manual
-  createdBy       String?  @map("created_by")
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization  Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelSku    ChannelListingOption @relation(fields: [channelSkuId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  masterProduct MasterProduct        @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
-
-  @@unique([channelSkuId, masterProductId])
-  @@index([organizationId])
-  @@index([channelSkuId])
-  @@index([masterProductId])
-  @@map("channel_sku_components")
-}
-
-/// @namespace Channels
 /// @describe 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장.
 model ChannelScrapeRun {
   id                String  @id @default(uuid()) @db.Uuid

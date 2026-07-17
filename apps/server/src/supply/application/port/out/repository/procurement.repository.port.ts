@@ -22,12 +22,26 @@ export type PurchaseOrderListQuery = {
   status?: string;
   supplier?: string;
   supplierId?: string;
+  orderId?: string;
+};
+
+export type PurchaseOrderSubmissionAttemptSummary = {
+  id: string;
+  idempotencyKey: string;
+  status: string;
+  providerReference: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  reconciliationOutcome: string | null;
+  reconciledAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 export type PurchaseOrderItemCommand = {
   productName: string;
   productId?: string;
-  masterProductId: string;
+  sellpiaInventorySkuId: string;
   quantity: number;
   unitPriceCny: number;
 };
@@ -67,7 +81,7 @@ export type PurchaseOrderRecord = {
 
 export type PurchaseOrderCheckoutSnapshotItem = {
   productName: string;
-  masterProductId: string;
+  sellpiaInventorySkuId: string;
   quantity: number;
   unitPriceCny: string;
 };
@@ -92,7 +106,11 @@ export type PurchaseOrderListResult = {
 export type CreateDraftPurchaseOrderResult =
   | { ok: true; order: unknown }
   | { ok: false; reason: 'supplier_not_found' }
-  | { ok: false; reason: 'master_product_not_found'; missingMasterProductIds: string[] };
+  | {
+      ok: false;
+      reason: 'sellpia_inventory_sku_not_found';
+      missingSellpiaInventorySkuIds: string[];
+    };
 
 export type PurchaseOrderStatusUpdate = {
   status: string;
@@ -122,9 +140,4 @@ export interface ProcurementRepositoryPort {
     expectedStatus: string,
     update: PurchaseOrderStatusUpdate,
   ): Promise<unknown | null>;
-  findScopedForDelete(
-    organizationId: string,
-    id: string,
-  ): Promise<{ id: string; status: string } | null>;
-  deleteScoped(organizationId: string, id: string): Promise<boolean>;
 }

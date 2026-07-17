@@ -3,13 +3,15 @@ import { AdCampaignRepositoryAdapter } from '../ad-campaign.repository.adapter';
 import { AdListingRepositoryAdapter } from '../ad-listing.repository.adapter';
 import { AdStrategyContextRepositoryAdapter } from '../ad-strategy-context.repository.adapter';
 
-describe('advertising ChannelListing ownership compatibility', () => {
-  it('computes grade budgets directly from ChannelListing metadata', async () => {
+describe('advertising MasterProduct ownership compatibility', () => {
+  it('computes grade budgets from the operational product linked to each listing', async () => {
     const prisma = {
       channelListing: {
         findMany: vi
           .fn()
-          .mockResolvedValue([{ id: 'listing-1', abcGrade: 'A' }]),
+          .mockResolvedValue([
+            { id: 'listing-1', masterProduct: { abcGrade: 'A' } },
+          ]),
       },
     };
     const repository = new AdCampaignRepositoryAdapter(prisma as never);
@@ -29,13 +31,16 @@ describe('advertising ChannelListing ownership compatibility', () => {
     expect(prisma.channelListing.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ isActive: true }),
-        select: { id: true, abcGrade: true },
+        select: {
+          id: true,
+          masterProduct: { select: { abcGrade: true } },
+        },
       }),
     );
     expect(totals).toEqual({ A: 1000, B: 0, C: 0 });
   });
 
-  it('hydrates the legacy response key from ChannelListing without MasterProduct', async () => {
+  it('hydrates the legacy response key from the linked MasterProduct', async () => {
     const prisma = {
       channelListing: {
         findMany: vi.fn().mockResolvedValue([
@@ -44,9 +49,14 @@ describe('advertising ChannelListing ownership compatibility', () => {
             externalId: 'seller-product-1',
             channelName: 'Wing product',
             displayName: 'Display product',
-            abcGrade: 'B',
-            adTier: 'growth',
-            healthScore: 73,
+            masterProduct: {
+              id: 'master-1',
+              code: 'MASTER-1',
+              name: '운영 상품',
+              abcGrade: 'B',
+              adTier: 'growth',
+              healthScore: 73,
+            },
           },
         ]),
       },
@@ -62,9 +72,9 @@ describe('advertising ChannelListing ownership compatibility', () => {
       externalId: 'seller-product-1',
       channelName: 'Wing product',
       masterProduct: {
-        id: 'listing-1',
-        code: 'seller-product-1',
-        name: 'Display product',
+        id: 'master-1',
+        code: 'MASTER-1',
+        name: '운영 상품',
         abcGrade: 'B',
         adTier: 'growth',
         healthScore: 73,
@@ -72,9 +82,9 @@ describe('advertising ChannelListing ownership compatibility', () => {
     });
   });
 
-  it('updates ad tier on the scoped active ChannelListing', async () => {
+  it('updates ad tier on the operational product linked to the scoped active listing', async () => {
     const prisma = {
-      channelListing: {
+      masterProduct: {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
     };
@@ -83,13 +93,22 @@ describe('advertising ChannelListing ownership compatibility', () => {
     await expect(
       repository.changeAdTier('listing-1', 'org-1', 'growth'),
     ).resolves.toBe(true);
-    expect(prisma.channelListing.updateMany).toHaveBeenCalledWith({
-      where: { id: 'listing-1', organizationId: 'org-1', isActive: true },
+    expect(prisma.masterProduct.updateMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org-1',
+        channelListings: {
+          some: {
+            id: 'listing-1',
+            organizationId: 'org-1',
+            isActive: true,
+          },
+        },
+      },
       data: { adTier: 'growth' },
     });
   });
 
-  it('hydrates strategy metadata and primary option from ChannelListing', async () => {
+  it('hydrates strategy metadata from MasterProduct and price data from the channel option', async () => {
     const prisma = {
       channelListing: {
         findMany: vi.fn().mockResolvedValue([
@@ -98,9 +117,14 @@ describe('advertising ChannelListing ownership compatibility', () => {
             externalId: 'seller-product-1',
             channelName: 'Wing product',
             displayName: null,
-            abcGrade: 'C',
-            adTier: null,
-            healthScore: 50,
+            masterProduct: {
+              id: 'master-1',
+              code: 'MASTER-1',
+              name: '운영 상품',
+              abcGrade: 'C',
+              adTier: null,
+              healthScore: 50,
+            },
             options: [
               {
                 id: 'listing-option-1',
@@ -124,9 +148,9 @@ describe('advertising ChannelListing ownership compatibility', () => {
         externalId: 'seller-product-1',
         channelName: 'Wing product',
         masterProduct: {
-          id: 'listing-1',
-          code: 'seller-product-1',
-          name: 'Wing product',
+          id: 'master-1',
+          code: 'MASTER-1',
+          name: '운영 상품',
           abcGrade: 'C',
           adTier: null,
           healthScore: 50,

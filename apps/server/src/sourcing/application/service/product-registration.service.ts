@@ -143,6 +143,7 @@ export class ProductRegistrationService {
             ...this.toSubmissionInput(organizationId, submission),
             externalListingId: providerResult.externalListingId,
             displayName: submission.displayName,
+            ...kidItemFirstLinks(submission.submissionPayloadJson),
           });
           await this.contentWorkspaces.branchToListing(tx, {
             organizationId,
@@ -228,4 +229,54 @@ export class ProductRegistrationService {
       ...(providerOutcome ? { providerOutcome } : {}),
     });
   }
+}
+
+function kidItemFirstLinks(value: unknown): {
+  masterProductId?: string;
+  optionLinks?: Array<{ externalOptionId: string; productVariantId: string }>;
+} {
+  const payload = asRecord(value);
+  const registrationInput = asRecord(payload.registrationInput);
+  const result: {
+    masterProductId?: string;
+    optionLinks?: Array<{ externalOptionId: string; productVariantId: string }>;
+  } = {};
+  if (registrationInput.masterProductId !== undefined) {
+    result.masterProductId = requiredString(
+      registrationInput.masterProductId,
+      'KidItem-first masterProductId',
+    );
+  }
+  if (registrationInput.optionLinks !== undefined) {
+    if (!Array.isArray(registrationInput.optionLinks)) {
+      throw new Error('KidItem-first optionLinks must be an array.');
+    }
+    result.optionLinks = registrationInput.optionLinks.map((value, index) => {
+      const link = asRecord(value);
+      return {
+        externalOptionId: requiredString(
+          link.externalOptionId,
+          `KidItem-first optionLinks[${index}].externalOptionId`,
+        ),
+        productVariantId: requiredString(
+          link.productVariantId,
+          `KidItem-first optionLinks[${index}].productVariantId`,
+        ),
+      };
+    });
+  }
+  return result;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function requiredString(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`${field} is required.`);
+  }
+  return value.trim();
 }

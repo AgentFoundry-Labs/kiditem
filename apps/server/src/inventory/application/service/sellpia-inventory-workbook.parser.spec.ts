@@ -135,6 +135,25 @@ describe('parseSellpiaInventoryWorkbook', () => {
         추가정보: 'preserved',
       },
     });
+    expect(parsed.qualityFacts).toEqual([
+      { code: 'missing_name', rowNumber: 2, productCode: 'SP-NAMELESS' },
+      { code: 'missing_barcode', rowNumber: 2, productCode: 'SP-NAMELESS' },
+      { code: 'missing_price', rowNumber: 2, productCode: 'SP-NAMELESS' },
+    ]);
+  });
+
+  it('records duplicate barcode warnings without rejecting otherwise valid rows', () => {
+    const parsed = parseSellpiaInventoryWorkbook(workbookBuffer([
+      ['상품코드', '상품명', '재고', '바코드', '매입가', '판매가'],
+      ['SP-001', '첫 상품', '1', '8801234567890', '100', '200'],
+      ['SP-002', '둘째 상품', '2', '8801234567890', '100', '200'],
+    ]));
+
+    expect(parsed.rows).toHaveLength(2);
+    expect(parsed.qualityFacts).toEqual([
+      { code: 'duplicate_barcode', rowNumber: 2, productCode: 'SP-001' },
+      { code: 'duplicate_barcode', rowNumber: 3, productCode: 'SP-002' },
+    ]);
   });
 
   it('uses formatted identifier text and prioritizes 모델명, 바코드, then 자사상품코드', () => {

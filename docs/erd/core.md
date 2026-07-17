@@ -14,9 +14,11 @@
 | ChannelListing | `channel_listings` | 채널에 올라간 판매 등록상품. 쿠팡 등록상품ID, 네이버 상품번호 등. |
 | ChannelListingOption | `channel_listing_options` | One sellable SKU under a channel listing. |
 | LegalEntity | `legal_entities` | Legal/business entity under an organization. This stores tax, invoice, and settlement identity separately from the SaaS organization boundary. |
-| MasterProduct | `master_products` | One Sellpia product-code row and its latest imported current stock. |
+| MasterProduct | `master_products` | KidItem-operated product identity and product-level operating metadata. |
 | Organization | `organizations` | - |
 | OrganizationMembership | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
+| ProductVariant | `product_variants` | Reusable sellable unit beneath one MasterProduct. Code is stable organization-scoped identity. |
+| ProductVariantComponent | `product_variant_components` | Central confirmed variant recipe. source: manual \| deterministic; quantity is positive and validated by shared/service contracts. |
 | SourceImportRun | `source_import_runs` | Durable provenance and publication fence for Sellpia and channel full-snapshot imports. |
 | User | `users` | human(직원) / agent(AI, agentInstanceId 연결) / system(챗봇). 조직 소속은 OrganizationMembership 이 source of truth. |
 
@@ -54,6 +56,7 @@ erDiagram
     String organizationId FK
     String channelAccountId FK
     String sourceCandidateId FK
+    String masterProductId FK
     String externalId
     String channelName
     String displayName
@@ -68,12 +71,6 @@ erDiagram
     Int freeShipOverAmount
     Int returnCharge
     Json deliveryInfo
-    String abcGrade
-    String profitTag
-    String adTier
-    Int adBudgetLimit
-    Int healthScore
-    DateTime healthUpdatedAt
     Boolean isActive
     DateTime createdAt
     DateTime updatedAt
@@ -82,6 +79,7 @@ erDiagram
     String id PK
     String listingId FK
     String organizationId FK
+    String productVariantId FK
     String externalOptionId
     String itemName
     Int salePrice
@@ -93,7 +91,6 @@ erDiagram
     String barcode
     String modelNumber
     String status
-    String mappingStatus
     Json attributesJson
     Json rawJson
     String lastImportRunId FK
@@ -117,16 +114,21 @@ erDiagram
   MasterProduct {
     String id PK
     String organizationId FK
+    String originChannelListingId FK
     String code
     String name
-    String optionName
-    String barcode
-    Int currentStock
-    Int purchasePrice
-    Int salePrice
+    String description
+    String category
+    String brand
+    StringArray tags
+    StringArray imageUrls
+    String abcGrade
+    String profitTag
+    String adTier
+    Int adBudgetLimit
+    Int healthScore
+    DateTime healthUpdatedAt
     Boolean isActive
-    Json rawJson
-    String lastImportRunId FK
     DateTime createdAt
     DateTime updatedAt
   }
@@ -150,6 +152,30 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  ProductVariant {
+    String id PK
+    String organizationId FK
+    String masterProductId FK,UK
+    String code
+    String name
+    String optionLabel
+    Boolean isDefault
+    Boolean isActive
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ProductVariantComponent {
+    String id PK
+    String organizationId FK
+    String productVariantId FK
+    String sellpiaInventorySkuId FK
+    Int quantity
+    String source
+    String confirmedBy
+    DateTime confirmedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   SourceImportRun {
     String id PK
     String organizationId FK
@@ -160,6 +186,15 @@ erDiagram
     String status
     Int rowCount
     DateTime importedAt
+    DateTime lastVerifiedAt
+    Int verificationCount
+    String lastTrigger
+    BigInt freshnessGeneration
+    DateTime manualFreshExportConfirmedAt
+    String manualFreshExportConfirmedBy FK
+    Json qualityReport
+    String errorCode
+    String errorMessage
     String createdBy
     String attemptToken
     BigInt publicationSequence
@@ -184,6 +219,9 @@ erDiagram
   ChannelAccount ||--o{ ChannelListing : "channelAccount"
   ChannelAccount o|--o{ SourceImportRun : "channelAccount"
   ChannelListing ||--o{ ChannelListingOption : "listing"
+  ChannelListing o|--o| MasterProduct : "originChannelListing"
+  MasterProduct o|--o{ ChannelListing : "masterProduct"
+  MasterProduct ||--o{ ProductVariant : "masterProduct"
   Organization ||--o{ CategoryMapping : "organization"
   Organization ||--o{ ChannelAccount : "organization"
   Organization ||--o{ ChannelListing : "organization"
@@ -191,12 +229,16 @@ erDiagram
   Organization ||--o{ LegalEntity : "organization"
   Organization ||--o{ MasterProduct : "organization"
   Organization ||--o{ OrganizationMembership : "organization"
+  Organization ||--o{ ProductVariant : "organization"
+  Organization ||--o{ ProductVariantComponent : "organization"
   Organization ||--o{ SourceImportRun : "organization"
+  ProductVariant o|--o{ ChannelListingOption : "productVariant"
+  ProductVariant ||--o{ ProductVariantComponent : "productVariant"
   SourceImportRun o|--o{ ChannelListing : "lastImportRun"
   SourceImportRun o|--o{ ChannelListingOption : "lastImportRun"
-  SourceImportRun o|--o{ MasterProduct : "lastImportRun"
   User o|--o{ OrganizationMembership : "invitedBy"
   User ||--o{ OrganizationMembership : "user"
+  User o|--o{ SourceImportRun : "manualFreshExportConfirmer"
 ```
 
 ## External References
@@ -222,7 +264,6 @@ erDiagram
 | ChannelListing | listing | referenced by external | Orders | CSRecord |
 | ChannelListing | listing | referenced by external | Orders | Review |
 | ChannelListing | sourceCandidate | references external | Sourcing | SourcingCandidate |
-| ChannelListingOption | channelSku | referenced by external | Channels | ChannelSkuComponent |
 | ChannelListingOption | listingOption | referenced by external | Advertising | AdAction |
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelListingOptionDailySnapshot |
@@ -230,12 +271,6 @@ erDiagram
 | ChannelListingOption | listingOption | referenced by external | Orders | OrderLineItem |
 | ChannelListingOption | listingOption | referenced by external | Orders | OrderReturnLineItem |
 | MasterProduct | master | referenced by external | Finance | ProcessingCost |
-| MasterProduct | masterProduct | referenced by external | Channels | ChannelSkuComponent |
-| MasterProduct | masterProduct | referenced by external | Inventory | PickingItem |
-| MasterProduct | masterProduct | referenced by external | Inventory | ReturnTransfer |
-| MasterProduct | masterProduct | referenced by external | Inventory | StockTransfer |
-| MasterProduct | masterProduct | referenced by external | Supply | PurchaseOrderItem |
-| MasterProduct | masterProduct | referenced by external | Supply | SupplierProduct |
 | MasterProduct | provenanceMasterProduct | referenced by external | Sourcing | SourcingCandidate |
 | Organization | organization | referenced by external | Advertising | AdAction |
 | Organization | organization | referenced by external | Advertising | ExecutionWorker |
@@ -281,7 +316,6 @@ erDiagram
 | Organization | organization | referenced by external | Channels | ChannelScrapeChunk |
 | Organization | organization | referenced by external | Channels | ChannelScrapeRun |
 | Organization | organization | referenced by external | Channels | ChannelScrapeSnapshot |
-| Organization | organization | referenced by external | Channels | ChannelSkuComponent |
 | Organization | organization | referenced by external | Channels | CoupangKeywordRankDailySnapshot |
 | Organization | organization | referenced by external | Channels | CoupangKeywordSerpDailySnapshot |
 | Organization | organization | referenced by external | Channels | CoupangKeywordTracker |
@@ -299,6 +333,10 @@ erDiagram
 | Organization | organization | referenced by external | Inventory | PickingItem |
 | Organization | organization | referenced by external | Inventory | PickingList |
 | Organization | organization | referenced by external | Inventory | ReturnTransfer |
+| Organization | organization | referenced by external | Inventory | SellpiaInventorySku |
+| Organization | organization | referenced by external | Inventory | SellpiaInventoryState |
+| Organization | organization | referenced by external | Inventory | SellpiaOrderTransmissionIntent |
+| Organization | organization | referenced by external | Inventory | SellpiaOrderTransmissionIntentReconciliation |
 | Organization | organization | referenced by external | Inventory | SellpiaReceiptUploadBatch |
 | Organization | organization | referenced by external | Inventory | StockAudit |
 | Organization | organization | referenced by external | Inventory | StockTransfer |
@@ -325,6 +363,7 @@ erDiagram
 | Organization | organization | referenced by external | Sourcing | TrendSeedKeyword |
 | Organization | organization | referenced by external | Supply | PurchaseOrder |
 | Organization | organization | referenced by external | Supply | PurchaseOrderItem |
+| Organization | organization | referenced by external | Supply | PurchaseOrderSubmissionAttempt |
 | Organization | organization | referenced by external | Supply | Supplier |
 | Organization | organization | referenced by external | Supply | SupplierPayment |
 | Organization | organization | referenced by external | Supply | SupplierProduct |
@@ -333,7 +372,11 @@ erDiagram
 | Organization | organization | referenced by external | System | Alert |
 | Organization | organization | referenced by external | System | BusinessRule |
 | Organization | organization | referenced by external | System | SystemSetting |
+| ProductVariantComponent | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
+| SourceImportRun | lastCompletedImportRun | referenced by external | Inventory | SellpiaInventoryState |
+| SourceImportRun | lastImportRun | referenced by external | Inventory | SellpiaInventorySku |
 | SourceImportRun | sourceImportRun | referenced by external | Channels | ChannelScrapeRun |
+| User | activeSyncOwner | referenced by external | Inventory | SellpiaInventoryState |
 | User | actor | referenced by external | AI | ThumbnailGenerationEvent |
 | User | actorUser | referenced by external | System | Alert |
 | User | agentInstance | references external | AgentOS | AgentInstance |
@@ -346,8 +389,11 @@ erDiagram
 | User | createdByUser | referenced by external | AI | DetailPageArtifact |
 | User | createdByUser | referenced by external | AI | DetailPageRevision |
 | User | createdByUser | referenced by external | AI | ProductPreparation |
+| User | creator | referenced by external | Inventory | SellpiaOrderTransmissionIntent |
 | User | decidedBy | referenced by external | AgentOS | AgentApprovalRequest |
 | User | decidedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
+| User | reconciler | referenced by external | Inventory | SellpiaOrderTransmissionIntentReconciliation |
+| User | reconciler | referenced by external | Supply | PurchaseOrderSubmissionAttempt |
 | User | rejectedByUser | referenced by external | Sourcing | SourcingCandidate |
 | User | requestedBy | referenced by external | AgentOS | AgentApprovalRequest |
 | User | requestedBy | referenced by external | AgentOS | AgentAuthorizationEvent |

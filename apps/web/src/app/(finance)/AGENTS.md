@@ -14,6 +14,8 @@ accounting logic in the browser.
 - Processing cost and payment schedule operations
 - Supplier sales, payment, settlement, and history reports
 - Sales analysis tabs and downloadable report composition
+- Supplier-filtered purchase lists remain in the canonical Supply workspace at
+  `/purchase-orders?supplierId=...`; finance does not duplicate that table.
 
 ## Data Flow
 

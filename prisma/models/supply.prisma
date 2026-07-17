@@ -30,26 +30,26 @@ model Supplier {
 /// @namespace Supply
 /// @describe 공급사별 Sellpia 물리 상품 단위 공급가/주공급처 정책.
 model SupplierProduct {
-  id              String   @id @default(uuid()) @db.Uuid
-  organizationId  String   @map("organization_id") @db.Uuid
-  supplierId      String   @map("supplier_id") @db.Uuid
-  masterProductId String   @map("master_product_id") @db.Uuid
-  supplyPrice     Int      @default(0) @map("supply_price")
-  minOrderQty     Int      @default(1) @map("min_order_qty")
-  isPrimary       Boolean  @default(false) @map("is_primary")
-  memo            String?
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id                    String   @id @default(uuid()) @db.Uuid
+  organizationId        String   @map("organization_id") @db.Uuid
+  supplierId            String   @map("supplier_id") @db.Uuid
+  sellpiaInventorySkuId String   @map("sellpia_inventory_sku_id") @db.Uuid
+  supplyPrice           Int      @default(0) @map("supply_price")
+  minOrderQty           Int      @default(1) @map("min_order_qty")
+  isPrimary             Boolean  @default(false) @map("is_primary")
+  memo                  String?
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  supplier      Supplier      @relation(fields: [supplierId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  masterProduct MasterProduct @relation("SupplierProductMasterProduct", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier            Supplier            @relation(fields: [supplierId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  sellpiaInventorySku SellpiaInventorySku @relation("SupplierProductSellpiaInventorySku", fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
-  @@unique([supplierId, masterProductId])
-  @@unique([masterProductId], map: "supplier_products_primary_master_key", where: raw("is_primary = true"))
+  @@unique([supplierId, sellpiaInventorySkuId])
+  @@unique([sellpiaInventorySkuId], map: "supplier_products_primary_sellpia_inventory_sku_key", where: raw("is_primary = true"))
   @@index([organizationId])
   @@index([supplierId])
-  @@index([masterProductId])
+  @@index([sellpiaInventorySkuId])
   @@map("supplier_products")
 }
 
@@ -113,10 +113,11 @@ model PurchaseOrder {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  supplier         Supplier?           @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  items            PurchaseOrderItem[]
-  supplierPayments SupplierPayment[]
+  organization       Organization                     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplier           Supplier?                        @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  items              PurchaseOrderItem[]
+  supplierPayments   SupplierPayment[]
+  submissionAttempts PurchaseOrderSubmissionAttempt[]
 
   @@unique([id, organizationId], map: "purchase_orders_id_org_key")
   @@index([organizationId])
@@ -127,11 +128,40 @@ model PurchaseOrder {
 }
 
 /// @namespace Supply
+/// @describe Durable idempotency intent and reconciliation record for an external purchase-order submission.
+model PurchaseOrderSubmissionAttempt {
+  id                    String    @id @default(uuid()) @db.Uuid
+  organizationId        String    @map("organization_id") @db.Uuid
+  purchaseOrderId       String    @map("purchase_order_id") @db.Uuid
+  idempotencyKey        String    @map("idempotency_key")
+  freshnessGeneration   BigInt    @map("freshness_generation") @db.BigInt
+  status                String
+  providerReference     String?   @map("provider_reference")
+  errorCode             String?   @map("error_code")
+  errorMessage          String?   @map("error_message")
+  reconciliationOutcome String?   @map("reconciliation_outcome")
+  reconciledAt          DateTime? @map("reconciled_at") @db.Timestamptz
+  reconciledBy          String?   @map("reconciled_by") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  reconciler    User?         @relation("PurchaseOrderSubmissionAttemptReconciler", fields: [reconciledBy], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, purchaseOrderId, idempotencyKey])
+  @@index([organizationId])
+  @@index([purchaseOrderId])
+  @@index([reconciledBy])
+  @@map("purchase_order_submission_attempts")
+}
+
+/// @namespace Supply
 model PurchaseOrderItem {
-  id              String @id @default(uuid()) @db.Uuid
-  organizationId  String @map("organization_id") @db.Uuid
-  orderId         String @map("order_id") @db.Uuid
-  masterProductId String @map("master_product_id") @db.Uuid
+  id                    String @id @default(uuid()) @db.Uuid
+  organizationId        String @map("organization_id") @db.Uuid
+  orderId               String @map("order_id") @db.Uuid
+  sellpiaInventorySkuId String @map("sellpia_inventory_sku_id") @db.Uuid
 
   productName  String  @map("product_name")
   quantity     Int
@@ -139,12 +169,12 @@ model PurchaseOrderItem {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  order         PurchaseOrder @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  masterProduct MasterProduct @relation("PurchaseOrderItemMasterProduct", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  order               PurchaseOrder       @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  sellpiaInventorySku SellpiaInventorySku @relation("PurchaseOrderItemSellpiaInventorySku", fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@index([organizationId])
   @@index([orderId])
-  @@index([masterProductId])
+  @@index([sellpiaInventorySkuId])
   @@map("purchase_order_items")
 }

@@ -2,17 +2,20 @@
 
 import type { FormEvent } from 'react';
 import { Search } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import type {
   InventorySkuStockStatus,
-  SellpiaMasterActiveStatus,
+  SellpiaInventorySkuActiveStatus,
+  SellpiaInventorySkuLinkStatus,
 } from '@kiditem/shared/inventory';
-import { cn } from '@/lib/utils';
 
 interface SellpiaOptionFiltersProps {
-  activeStatus: SellpiaMasterActiveStatus;
+  activeStatus: SellpiaInventorySkuActiveStatus;
+  linkStatus: SellpiaInventorySkuLinkStatus | 'all';
   search: string;
   stockStatus: InventorySkuStockStatus;
-  onActiveStatusChange: (value: SellpiaMasterActiveStatus) => void;
+  onActiveStatusChange: (value: SellpiaInventorySkuActiveStatus) => void;
+  onLinkStatusChange: (value: SellpiaInventorySkuLinkStatus | 'all') => void;
   onSearchChange: (value: string) => void;
   onSearchSubmit: (event: FormEvent) => void;
   onStockStatusChange: (value: InventorySkuStockStatus) => void;
@@ -29,18 +32,29 @@ const STOCK_FILTERS: Array<{
 
 const ACTIVE_FILTERS: Array<{
   label: string;
-  value: SellpiaMasterActiveStatus;
+  value: SellpiaInventorySkuActiveStatus;
 }> = [
   { label: '활성', value: 'active' },
   { label: '비활성', value: 'inactive' },
   { label: '전체 상태', value: 'all' },
 ];
 
+const LINK_FILTERS: Array<{
+  label: string;
+  value: SellpiaInventorySkuLinkStatus | 'all';
+}> = [
+  { label: '전체 연결', value: 'all' },
+  { label: '연결됨', value: 'linked' },
+  { label: '미연결', value: 'unlinked' },
+];
+
 export default function SellpiaOptionFilters({
   activeStatus,
+  linkStatus,
   search,
   stockStatus,
   onActiveStatusChange,
+  onLinkStatusChange,
   onSearchChange,
   onSearchSubmit,
   onStockStatusChange,
@@ -54,6 +68,7 @@ export default function SellpiaOptionFilters({
         />
         <input
           type="search"
+          aria-label="Sellpia 재고 검색"
           value={search}
           onChange={(event) => onSearchChange(event.target.value)}
           placeholder="상품코드 · 상품명 · 옵션명 · 바코드 검색"
@@ -73,6 +88,12 @@ export default function SellpiaOptionFilters({
           options={ACTIVE_FILTERS}
           selected={activeStatus}
           onChange={onActiveStatusChange}
+        />
+        <FilterGroup
+          label="연결 상태"
+          options={LINK_FILTERS}
+          selected={linkStatus}
+          onChange={onLinkStatusChange}
         />
         <span className="text-xs text-slate-500">
           Sellpia 최신 전체 스냅샷 기준

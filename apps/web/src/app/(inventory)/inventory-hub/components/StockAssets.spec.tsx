@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -22,7 +24,7 @@ beforeEach(() => {
   listSellpiaInventorySkus.mockReset();
   listSellpiaInventorySkus.mockResolvedValue({
     items: [{
-      masterProductId: '00000000-0000-4000-8000-000000000001',
+      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000001',
       code: 'SP-1',
       name: '가격 없는 상품',
       optionName: null,
@@ -51,6 +53,16 @@ beforeEach(() => {
 });
 
 describe('StockAssets', () => {
+  it('keys physical inventory rows by Sellpia inventory SKU identity', () => {
+    const source = readFileSync(resolve(
+      process.cwd().endsWith('/apps/web') ? process.cwd() : resolve(process.cwd(), 'apps/web'),
+      'src/app/(inventory)/inventory-hub/components/StockAssets.tsx',
+    ), 'utf8');
+
+    expect(source).toContain('key={item.sellpiaInventorySkuId}');
+    expect(source).not.toContain('item.masterProductId');
+  });
+
   it('uses the backend summary and labels nullable purchase prices as unpriced', async () => {
     renderAssets();
 
@@ -63,7 +75,7 @@ describe('StockAssets', () => {
   it('requests and renders the selected server page with the full result total', async () => {
     listSellpiaInventorySkus.mockImplementation(async ({ page, limit }) => ({
       items: [{
-        masterProductId: page === 1
+        sellpiaInventorySkuId: page === 1
           ? '00000000-0000-4000-8000-000000000001'
           : '00000000-0000-4000-8000-000000000002',
         code: page === 1 ? 'SP-PAGE-1' : 'SP-PAGE-2',

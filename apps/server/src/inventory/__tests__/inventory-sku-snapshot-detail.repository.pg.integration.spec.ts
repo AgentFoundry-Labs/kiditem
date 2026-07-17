@@ -32,9 +32,9 @@ describe('Sellpia snapshot detail tenant boundary (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
-  it('returns only a MasterProduct owned by the current organization', async () => {
+  it('returns only a Sellpia inventory SKU owned by the current organization', async () => {
     const [own, other] = await Promise.all([
-      prisma.masterProduct.create({
+      prisma.sellpiaInventorySku.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           code: 'SP-SAME',
@@ -43,7 +43,7 @@ describe('Sellpia snapshot detail tenant boundary (PG integration)', () => {
           purchasePrice: 1_000,
         },
       }),
-      prisma.masterProduct.create({
+      prisma.sellpiaInventorySku.create({
         data: {
           organizationId: OTHER_ORGANIZATION_ID,
           code: 'SP-SAME',
@@ -54,11 +54,14 @@ describe('Sellpia snapshot detail tenant boundary (PG integration)', () => {
     ]);
 
     await expect(service.getSnapshot(TEST_ORGANIZATION_ID, own.id)).resolves.toMatchObject({
-      masterProductId: own.id,
+      sellpiaInventorySkuId: own.id,
       code: 'SP-SAME',
       name: '우리 상품',
       currentStock: 3,
       stockValue: 3_000,
+      linkedVariantCount: 0,
+      linkedProductCount: 0,
+      linkStatus: 'unlinked',
     });
     await expect(service.getSnapshot(TEST_ORGANIZATION_ID, other.id)).rejects.toMatchObject({
       status: 404,

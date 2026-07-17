@@ -4,10 +4,6 @@ export { UpdateCoupangAccountSettingsDto } from './coupang-account-settings.dto'
 export { ChannelListingQueryDto } from './channel-listing-query.dto';
 export { MarketplaceRegistrationDto } from './marketplace-registration.dto';
 export {
-  ChannelSkuCandidateQueryDto,
-  ChannelSkuMappingQueryDto,
-} from './channel-sku-mapping-query.dto';
-export {
-  parseRefreshChannelSkuMappingStatusDto,
-  parseReplaceChannelSkuComponentsDto,
-} from './replace-channel-sku-components.dto';
+  ChannelMatchCandidateQueryDto,
+  ChannelProductMatchingQueryDto,
+} from './channel-product-matching-query.dto';

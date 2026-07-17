@@ -2,7 +2,8 @@ import type {
   InventorySkuSnapshotListResponse,
   InventorySkuSnapshotItem,
   InventorySkuStockStatus,
-  SellpiaMasterActiveStatus,
+  SellpiaInventorySkuActiveStatus,
+  SellpiaInventorySkuLinkStatus,
   SellpiaImportRunListResponse,
 } from '@kiditem/shared/inventory';
 
@@ -15,7 +16,8 @@ export type InventorySkuSnapshotListQuery = {
   limit?: number;
   query?: string;
   stockStatus?: InventorySkuStockStatus;
-  activeStatus?: SellpiaMasterActiveStatus;
+  activeStatus?: SellpiaInventorySkuActiveStatus;
+  linkStatus?: SellpiaInventorySkuLinkStatus;
 };
 
 export type SellpiaImportRunListQuery = {
@@ -31,7 +33,7 @@ export interface InventorySkuSnapshotListPort {
 
   getSnapshot(
     organizationId: string,
-    masterProductId: string,
+    sellpiaInventorySkuId: string,
   ): Promise<InventorySkuSnapshotItem>;
 
   listImportRuns(

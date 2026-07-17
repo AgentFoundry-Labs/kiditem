@@ -19,7 +19,8 @@ function makePrisma(
   } as any;
 }
 
-// Final-owner lineItem shape — pricing and component cost live on ChannelSku.
+// Final-owner lineItem shape — listing metadata comes from MasterProduct and
+// component cost comes from the ProductVariant recipe's physical Sellpia SKUs.
 const mkLineItem = (listing: {
   id: string; externalId: string; channelName: string | null;
   master: { id: string; code: string; legacyCode: string | null; name: string; category: string | null; abcGrade: string | null; thumbnailUrl: string | null };
@@ -31,14 +32,14 @@ const mkLineItem = (listing: {
     commissionRate: pricing.commissionRate,
     shippingCost: null,
     otherCost: pricing.otherCost,
-    components: [],
+    productVariant: { components: [] },
     listing: {
       id: listing.id,
       externalId: listing.externalId,
       channelName: listing.channelName,
       displayName: listing.master.name,
       category: listing.master.category,
-      abcGrade: listing.master.abcGrade,
+      masterProduct: listing.master,
       channelAccount: { channel: listing.channelName ?? 'coupang' },
       thumbnails: listing.master.thumbnailUrl
         ? [{ imageUrl: listing.master.thumbnailUrl }]
@@ -104,7 +105,7 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
     expect(a.shippingCost + b.shippingCost).toBe(3000);
   });
 
-  it('PLData shape — preserves compatibility field names with listing-owned values', async () => {
+  it('PLData shape — preserves compatibility field names with MasterProduct-owned values', async () => {
     const l = { id: 'l1', externalId: 'ext-1', channelName: 'coupang', master: { id: 'm1', code: 'M1', legacyCode: 'LEG-1', name: 'Product1', category: 'kids', abcGrade: 'A', thumbnailUrl: 'https://x.com/1.jpg' } };
     const orders = [{ id: 'o1', shippingPrice: 3000, lineItems: [mkLineItem(l, { quantity: 1, totalPrice: 10000, costPrice: 5000, commissionRate: 0.108, otherCost: 0 })] }];
     const prisma = makePrisma(orders);
@@ -114,8 +115,8 @@ describe('ProfitLossService.findAll (live aggregation)', () => {
       listingId: 'l1',
       externalId: 'ext-1',
       channelName: 'coupang',
-      masterId: 'l1',
-      masterCode: 'ext-1',
+      masterId: 'm1',
+      masterCode: 'M1',
       masterName: 'Product1',
       category: 'kids',
       grade: 'A',

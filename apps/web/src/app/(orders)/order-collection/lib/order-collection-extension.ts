@@ -136,14 +136,22 @@ export async function ensureMallLoggedInViaExtension(
   }
 }
 
-export interface SellpiaSendResult {
-  success: boolean;
-  submitted?: boolean;
+type SellpiaSendResultMetadata = {
   shop?: string;
   fileName?: string;
   url?: string;
-  error?: string;
-}
+};
+
+export type SellpiaSendResult =
+  | (SellpiaSendResultMetadata & {
+    success: true;
+    outcome: 'submitted';
+  })
+  | (SellpiaSendResultMetadata & {
+    success: false;
+    outcome: 'not_submitted' | 'unknown';
+    error: string;
+  });
 
 /**
  * 셀피아 order_collect 화면에 판매처 선택 + 변환 파일 주입 + 주문접수 클릭까지 자동화.
@@ -156,27 +164,58 @@ export async function sendOrderFileToSellpiaViaExtension(params: {
 }): Promise<SellpiaSendResult> {
   const extensionId = await detectOrderCollectionExtensionId();
   if (!extensionId) {
-    throw new Error(
-      '주문수집 확장프로그램이 필요합니다. extensions/order-collector를 Chrome에서 로드한 뒤 다시 시도해주세요.',
+    return {
+      success: false,
+      outcome: 'not_submitted',
+      error:
+        '주문수집 확장프로그램이 필요합니다. extensions/order-collector를 Chrome에서 로드한 뒤 다시 시도해주세요.',
+    };
+  }
+
+  let fileBase64: string;
+  try {
+    fileBase64 = await blobToBase64(params.blob);
+  } catch (error) {
+    return {
+      success: false,
+      outcome: 'not_submitted',
+      error: error instanceof Error ? error.message : '파일 인코딩에 실패했습니다.',
+    };
+  }
+  try {
+    const response = await sendToExtension<Partial<SellpiaSendResult>>(
+      extensionId,
+      {
+        action: 'sendOrderFileToSellpia',
+        shopName: params.shopName,
+        fileName: params.fileName,
+        fileBase64,
+      },
+      60000,
     );
+    if (response?.outcome === 'submitted' && response.success === true) {
+      return { ...response, success: true, outcome: 'submitted' };
+    }
+    if (response?.outcome === 'not_submitted' || response?.outcome === 'unknown') {
+      return {
+        ...response,
+        success: false,
+        outcome: response.outcome,
+        error: response.error ?? '셀피아 전송에 실패했습니다.',
+      };
+    }
+    return {
+      success: false,
+      outcome: 'unknown',
+      error: '확장프로그램이 명시적인 셀피아 전송 결과를 반환하지 않았습니다.',
+    };
+  } catch (error) {
+    return {
+      success: false,
+      outcome: 'unknown',
+      error: error instanceof Error ? error.message : '셀피아 전송 응답을 확인하지 못했습니다.',
+    };
   }
-
-  const fileBase64 = await blobToBase64(params.blob);
-  const response = await sendToExtension<SellpiaSendResult>(
-    extensionId,
-    {
-      action: 'sendOrderFileToSellpia',
-      shopName: params.shopName,
-      fileName: params.fileName,
-      fileBase64,
-    },
-    60000,
-  );
-
-  if (!response?.success) {
-    throw new Error(response?.error ?? '셀피아 전송에 실패했습니다.');
-  }
-  return response;
 }
 
 async function blobToBase64(blob: Blob): Promise<string> {

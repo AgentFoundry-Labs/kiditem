@@ -3,15 +3,19 @@ import {
   InventorySkuSnapshotItemSchema,
   InventorySkuSnapshotListResponseSchema,
   InventorySkuStockStatusSchema,
-  SellpiaMasterActiveStatusSchema,
+  SellpiaInventorySkuActiveStatusSchema,
+  SellpiaInventorySkuLinkStatusSchema,
   SellpiaImportRunListResponseSchema,
 } from './inventory-snapshot';
 
-const masterProductId = '00000000-0000-4000-8000-000000000001';
+const sellpiaInventorySkuId = '00000000-0000-4000-8000-000000000001';
 const runId = '00000000-0000-4000-8000-000000000002';
+const productId = '00000000-0000-4000-8000-000000000003';
+const firstVariantId = '00000000-0000-4000-8000-000000000004';
+const secondVariantId = '00000000-0000-4000-8000-000000000005';
 
 const snapshotItem = {
-  masterProductId,
+  sellpiaInventorySkuId,
   code: 'SP-001',
   name: '상품',
   optionName: null,
@@ -23,6 +27,14 @@ const snapshotItem = {
   stockValue: 8_000,
   lastImportRunId: runId,
   lastImportedAt: '2026-07-12T00:00:00.000Z',
+  linkedVariantCount: 2,
+  linkedProductCount: 1,
+  linkedProducts: [{ id: productId, code: 'KI-001', name: 'KidItem 상품' }],
+  linkedVariants: [
+    { id: firstVariantId, masterProductId: productId, code: 'KI-001-A', name: '파랑', optionLabel: '색상: 파랑' },
+    { id: secondVariantId, masterProductId: productId, code: 'KI-001-B', name: '빨강', optionLabel: '색상: 빨강' },
+  ],
+  linkStatus: 'linked',
 };
 
 describe('InventorySku snapshot contracts', () => {
@@ -43,9 +55,21 @@ describe('InventorySku snapshot contracts', () => {
       latestImport: {
         id: runId,
         fileName: 'exported-list (3).xls',
+        fileHash: 'a'.repeat(64),
         status: 'completed',
         rowCount: 1_964,
         importedAt: '2026-07-12T00:00:00.000Z',
+        lastVerifiedAt: '2026-07-12T00:00:00.000Z',
+        verificationCount: 1,
+        lastTrigger: 'legacy_manual_import',
+        freshnessGeneration: null,
+        manualFreshExportConfirmedAt: null,
+        manualFreshExportConfirmedBy: null,
+        qualityReport: null,
+        errorCode: null,
+        errorMessage: null,
+        createdAt: '2026-07-12T00:00:00.000Z',
+        updatedAt: '2026-07-12T00:00:00.000Z',
       },
     })).toBeDefined();
   });
@@ -60,20 +84,55 @@ describe('InventorySku snapshot contracts', () => {
   });
 
   it('publishes explicit all, active, and inactive membership filters', () => {
-    expect(SellpiaMasterActiveStatusSchema.options).toEqual([
+    expect(SellpiaInventorySkuActiveStatusSchema.options).toEqual([
       'all',
       'active',
       'inactive',
     ]);
   });
 
-  it('rejects the legacy InventorySku response identity', () => {
+  it('publishes linked and unlinked inventory filters', () => {
+    expect(SellpiaInventorySkuLinkStatusSchema.options).toEqual([
+      'linked',
+      'unlinked',
+    ]);
+  });
+
+  it('rejects the former physical MasterProduct response identity', () => {
     expect(() => InventorySkuSnapshotItemSchema.parse({
       ...snapshotItem,
-      masterProductId: undefined,
-      code: undefined,
-      id: masterProductId,
-      sellpiaProductCode: 'SP-001',
+      sellpiaInventorySkuId: undefined,
+      masterProductId: sellpiaInventorySkuId,
+    })).toThrow();
+  });
+
+  it('requires link status to agree with derived link counts', () => {
+    expect(() => InventorySkuSnapshotItemSchema.parse({
+      ...snapshotItem,
+      linkedVariantCount: 0,
+      linkedProductCount: 0,
+    })).toThrow();
+    expect(InventorySkuSnapshotItemSchema.parse({
+      ...snapshotItem,
+      linkedVariantCount: 0,
+      linkedProductCount: 0,
+      linkedProducts: [],
+      linkedVariants: [],
+      linkStatus: 'unlinked',
+    }).linkStatus).toBe('unlinked');
+  });
+
+  it('requires linked destination identities to agree with confirmed relation counts', () => {
+    expect(() => InventorySkuSnapshotItemSchema.parse({
+      ...snapshotItem,
+      linkedProducts: [],
+    })).toThrow();
+    expect(() => InventorySkuSnapshotItemSchema.parse({
+      ...snapshotItem,
+      linkedVariants: [{
+        ...snapshotItem.linkedVariants[0],
+        masterProductId: '00000000-0000-4000-8000-000000000099',
+      }, snapshotItem.linkedVariants[1]],
     })).toThrow();
   });
 
@@ -108,18 +167,38 @@ describe('InventorySku snapshot contracts', () => {
     })).toThrow();
   });
 
-  it('parses paginated Sellpia import history, including unfinished runs', () => {
-    expect(SellpiaImportRunListResponseSchema.parse({
+  it('parses nullable pre-download failures and expanded verification provenance', () => {
+    const parsed = SellpiaImportRunListResponseSchema.parse({
       items: [{
         id: runId,
-        fileName: 'exported-list (3).xls',
-        status: 'running',
+        fileName: null,
+        fileHash: null,
+        status: 'failed',
         rowCount: 0,
         importedAt: null,
+        lastVerifiedAt: null,
+        verificationCount: 0,
+        lastTrigger: 'manual_request',
+        freshnessGeneration: '9007199254740993',
+        manualFreshExportConfirmedAt: null,
+        manualFreshExportConfirmedBy: null,
+        qualityReport: null,
+        errorCode: 'sellpia_network_failed',
+        errorMessage: 'network failed',
+        createdAt: '2026-07-12T00:00:00.000Z',
+        updatedAt: '2026-07-12T00:01:00.000Z',
       }],
       total: 1,
       page: 1,
       limit: 50,
-    }).items[0]?.status).toBe('running');
+    });
+
+    expect(parsed.items[0]).toMatchObject({
+      fileName: null,
+      fileHash: null,
+      status: 'failed',
+      freshnessGeneration: '9007199254740993',
+      errorCode: 'sellpia_network_failed',
+    });
   });
 });

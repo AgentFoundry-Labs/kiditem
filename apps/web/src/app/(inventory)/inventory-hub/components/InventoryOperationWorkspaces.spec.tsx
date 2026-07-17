@@ -1,59 +1,39 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  InventoryAuditWorkspace,
-  InventoryIoWorkspace,
-  InventoryLedgerWorkspace,
-  RocketInventoryWorkspace,
-} from './InventoryOperationWorkspaces';
+import { InventoryAttentionWorkspace, InventoryOverviewWorkspace } from './InventoryOperationWorkspaces';
 
-vi.mock('../../stock-ops/components/StockTransfers', () => ({
-  default: ({ readOnly = false }: { readOnly?: boolean }) => (
-    <div data-testid="stock-transfers" data-read-only={String(readOnly)} />
-  ),
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/inventory-hub',
+  useRouter: () => ({ push: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
-vi.mock('../../stock-ops/components/ReturnTransfers', () => ({
-  default: ({ readOnly = false }: { readOnly?: boolean }) => (
-    <div data-testid="return-transfers" data-read-only={String(readOnly)} />
-  ),
-}));
-
-vi.mock('./ChannelAvailability', () => ({
-  default: () => <div data-testid="channel-availability" />,
-}));
-
-vi.mock('./SellpiaImportHistory', () => ({
-  default: () => <div data-testid="sellpia-import-history" />,
-}));
+vi.mock('../../stock-ops/components/ImportFreshness', () => ({ default: () => <div>freshness</div> }));
+vi.mock('../../stock-ops/components/StockRetention', () => ({ default: () => <div>summary</div> }));
+vi.mock('../../stock-ops/components/ZeroItems', () => ({ default: () => <div>sellpia zero</div> }));
+vi.mock('../../stock-ops/components/OutOfStock', () => ({ default: () => <div>channel zero</div> }));
+vi.mock('../../stock-ops/components/DeadStock', () => ({ default: () => <div>bottleneck</div> }));
+vi.mock('../../stock-ops/components/MappingAttention', () => ({ default: () => <div>mapping attention</div> }));
+vi.mock('./ChannelAvailability', () => ({ default: () => <div>availability evidence</div> }));
+vi.mock('../../stock-ops/components/StockTransfers', () => ({ default: () => null }));
+vi.mock('../../stock-ops/components/ReturnTransfers', () => ({ default: () => null }));
+vi.mock('./StockAssets', () => ({ default: () => null }));
 
 describe('inventory operation workspaces', () => {
-  it('renders transfer and return record creation in 입출고', () => {
-    render(<InventoryIoWorkspace />);
-
-    expect(screen.getByTestId('stock-transfers')).toHaveAttribute('data-read-only', 'false');
-    expect(screen.getByTestId('return-transfers')).toHaveAttribute('data-read-only', 'false');
+  it('keeps freshness and operational summary in overview', () => {
+    render(<InventoryOverviewWorkspace />);
+    expect(screen.getByText('freshness')).toBeInTheDocument();
+    expect(screen.getByText('summary')).toBeInTheDocument();
   });
 
-  it('renders the ledger with read-only transfer and return records', () => {
-    render(<InventoryLedgerWorkspace />);
-
-    expect(screen.getByText('운영 기록 수불부')).toBeInTheDocument();
-    expect(screen.getByTestId('stock-transfers')).toHaveAttribute('data-read-only', 'true');
-    expect(screen.getByTestId('return-transfers')).toHaveAttribute('data-read-only', 'true');
-  });
-
-  it('keeps Rocket handling on channel availability without changing Sellpia stock', () => {
-    render(<RocketInventoryWorkspace />);
-
-    expect(screen.getByText('Rocket도 채널 계정으로 계산합니다. 이 화면에서는 Sellpia 현재고를 수정하지 않습니다.')).toBeInTheDocument();
-    expect(screen.getByTestId('channel-availability')).toBeInTheDocument();
-  });
-
-  it('uses completed Sellpia import history as the audit record', () => {
-    render(<InventoryAuditWorkspace />);
-
-    expect(screen.getByText('Sellpia 스냅샷 실사 기록')).toBeInTheDocument();
-    expect(screen.getByTestId('sellpia-import-history')).toBeInTheDocument();
+  it('combines zero, bottleneck, mapping and channel evidence in attention', () => {
+    render(<InventoryAttentionWorkspace />);
+    for (const label of ['sellpia zero', 'channel zero', 'bottleneck', 'mapping attention', 'availability evidence']) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+    expect(screen.getByRole('link', { name: '매칭 확인 필요 SKU 검토' })).toHaveAttribute(
+      'href',
+      '/product-hub/matching?status=needs_review',
+    );
   });
 });
