@@ -4,8 +4,8 @@ Consult this document first instead of relying on memorized knowledge.
 
 `app/(orders)/rocket-orders/` owns the independently reachable Rocket
 operations UI from `c9e7caf8`. Its existing `납품 수량 판단 추후 연동`
-placeholder now hosts the deterministic Sellpia freshness and component-capacity
-preview. Supply owns the preview contract, which may also be exposed at
+placeholder now hosts the deterministic Sellpia freshness, component-capacity,
+and confirmation workspace. Supply owns the contract, which may also be exposed at
 `/purchase-orders?tab=rocket`.
 
 ## State Rules
@@ -13,11 +13,15 @@ preview. Supply owns the preview contract, which may also be exposed at
 - Preserve the existing Rocket list, collection, and local file-history
   composition supported by the current contracts.
 - Wire freshness, account selection, collection completeness, capacity reasons,
-  and editable preview quantities into the existing decision placeholder.
+  editable quantities, confirmation/workbook, and allocation release into the
+  existing decision placeholder.
 
 ## Boundary Rules
 
-- Do not call or recreate backend Rocket confirmation/generation endpoints.
+- Use only the Supply `/api/purchase-orders` action contract. Do not call or
+  recreate `/api/orders/rocket/*` confirmation/generation endpoints.
+- Confirmation must not call a marketplace provider or mutate Sellpia physical
+  stock.
 - Do not replace or rearrange the preserved shell when integrating the shared
   preview.
 

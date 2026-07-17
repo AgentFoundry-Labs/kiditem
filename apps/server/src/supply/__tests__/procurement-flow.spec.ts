@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ProcurementService } from '../application/service/procurement.service';
 import { BadRequestException } from '@nestjs/common';
-import type { ProcurementRepositoryPort } from '../application/port/out/repository/procurement.repository.port';
+import { ProcurementService } from '../application/service/procurement.service';
 import { ProcurementController } from '../adapter/in/http/procurement.controller';
+import type { ProcurementRepositoryPort } from '../application/port/out/repository/procurement.repository.port';
 
 function makeRepository(): ProcurementRepositoryPort {
   return {
@@ -236,6 +236,65 @@ describe('ProcurementService — PO status lifecycle', () => {
 });
 
 describe('ProcurementController purchase submission boundary', () => {
+  it('routes Rocket confirmation and release through the Supply-owned action endpoint', async () => {
+    const confirmations = {
+      confirm: vi.fn().mockResolvedValue({ status: 'active' }),
+      release: vi.fn().mockResolvedValue({ status: 'released' }),
+    };
+    const Controller = ProcurementController as unknown as new (
+      procurement: Record<string, unknown>,
+      submissions: Record<string, unknown>,
+      previews: Record<string, unknown>,
+      confirmations: typeof confirmations,
+    ) => ProcurementController;
+    const controller = new Controller({}, {}, {}, confirmations);
+    const request = {
+      idempotencyKey: '11111111-1111-4111-8111-111111111111',
+      channelAccountId: '22222222-2222-4222-8222-222222222222',
+      collection: {
+        collectionRunId: '33333333-3333-4333-8333-333333333333',
+        vendorId: 'VENDOR-1',
+        listPagesRead: 1,
+        totalListPages: 1,
+        truncated: false,
+        detailPoCount: 0,
+        failedPoNumbers: [],
+      },
+      rows: [],
+      editedQuantities: {},
+      shortageReasons: {},
+    };
+
+    await controller.handleAction(
+      'organization-1',
+      { id: 'authenticated-user' } as never,
+      { action: 'confirmRocket', ...request } as never,
+    );
+    await controller.handleAction(
+      'organization-1',
+      { id: 'authenticated-user' } as never,
+      {
+        action: 'releaseRocketConfirmation',
+        confirmationId: '44444444-4444-4444-8444-444444444444',
+        releaseReason: '쿠팡 확정 수량 정정',
+      } as never,
+    );
+
+    expect(confirmations.confirm).toHaveBeenCalledWith({
+      organizationId: 'organization-1',
+      userId: 'authenticated-user',
+      request,
+    });
+    expect(confirmations.release).toHaveBeenCalledWith({
+      organizationId: 'organization-1',
+      userId: 'authenticated-user',
+      request: {
+        confirmationId: '44444444-4444-4444-8444-444444444444',
+        reason: '쿠팡 확정 수량 정정',
+      },
+    });
+  });
+
   it('routes previewRocket through the existing action-body endpoint with server actor scope', async () => {
     const previews = { preview: vi.fn().mockResolvedValue({ rows: [] }) };
     const Controller = ProcurementController as unknown as new (

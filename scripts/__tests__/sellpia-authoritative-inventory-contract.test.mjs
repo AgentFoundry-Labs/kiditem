@@ -79,6 +79,7 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/products/__tests__/product-operations.repository.pg.integration.spec.ts",
   "apps/server/src/test-helpers/finance-seeds.ts",
   "apps/server/src/supply/__tests__/purchase-order-submission.pg.integration.spec.ts",
+  "apps/server/src/supply/__tests__/rocket-purchase-confirmation.pg.integration.spec.ts",
   "scripts/__tests__/sellpia-authoritative-inventory-contract.test.mjs",
 ]);
 
@@ -115,10 +116,10 @@ function modelBlock(source, modelName) {
 }
 
 describe("Sellpia authoritative final-schema contract", () => {
-  it("keeps the 0.1.8 rebuild boundary through release 0.1.19", () => {
+  it("keeps the 0.1.8 rebuild boundary through release 0.1.20", () => {
     assert.equal(
       readFileSync(join(repoRoot, "VERSION"), "utf8").trim(),
-      "0.1.19",
+      "0.1.20",
     );
     assert.match(
       migrationRegistry,
@@ -301,7 +302,8 @@ describe("Sellpia authoritative final-schema contract", () => {
     )
       .trim()
       .split("\n")
-      .filter((file) => /\.(?:[cm]?[jt]sx?)$/.test(file));
+      .filter((file) => /\.(?:[cm]?[jt]sx?)$/.test(file))
+      .filter((file) => existsSync(join(repoRoot, file)));
     const violations = files.flatMap((file) => {
       if (CURRENT_STOCK_WRITE_ALLOWLIST.has(file)) return [];
       return currentStockWriteViolations(

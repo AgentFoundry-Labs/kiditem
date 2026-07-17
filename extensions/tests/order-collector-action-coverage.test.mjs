@@ -143,9 +143,9 @@ test('order worker imports session lifecycle and focused Sellpia inventory produ
   }
 });
 
-test('order collector manifest preserves PR 329 and PR 330 capabilities at version 0.1.76', () => {
+test('order collector manifest publishes Rocket confirmation evidence at version 0.1.77', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  assert.equal(manifest.version, '0.1.76');
+  assert.equal(manifest.version, '0.1.77');
   assert.ok(manifest.permissions.includes('storage'));
   assert.ok(manifest.host_permissions.includes('https://*.sellpia.com/*'));
 });

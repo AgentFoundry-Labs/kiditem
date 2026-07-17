@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  RocketPurchaseConfirmationRequestSchema,
+  RocketPurchaseConfirmationReleaseRequestSchema,
+  RocketPurchaseConfirmationResponseSchema,
   RocketPurchasePreviewRequestSchema,
   RocketPurchasePreviewResponseSchema,
 } from './rocket-purchase-preview';
@@ -9,6 +12,7 @@ const RUN_ID = '22222222-2222-4222-8222-222222222222';
 const MASTER_PRODUCT_ID = '33333333-3333-4333-8333-333333333333';
 const PRODUCT_VARIANT_ID = '44444444-4444-4444-8444-444444444444';
 const SELLPIA_INVENTORY_SKU_ID = '55555555-5555-4555-8555-555555555555';
+const CONFIRMATION_ID = '66666666-6666-4666-8666-666666666666';
 
 function request() {
   return {
@@ -31,6 +35,20 @@ function request() {
       productName: '로켓 상품',
       orderQty: 4,
       plannedDeliveryDate: '2026-07-20',
+      confirmation: {
+        center: '덕평1센터',
+        inboundType: '택배',
+        poStatus: '거래처확인요청',
+        returnManager: '담당자',
+        returnContact: '010-0000-0000',
+        returnAddress: '서울시',
+        purchasePrice: 1_000,
+        supplyPrice: 900,
+        vat: 90,
+        totalPurchase: 3_960,
+        poRegisteredAt: '2026-07-17 09:00:00',
+        xdock: 'N',
+      },
     }],
     editedQuantities: {},
   };
@@ -46,6 +64,38 @@ describe('Rocket purchase preview contract', () => {
     expect(() => RocketPurchasePreviewRequestSchema.parse({
       ...request(),
       userId: ACCOUNT_ID,
+    })).toThrow();
+  });
+
+  it('accepts only the bounded source fields required to render the Coupang confirmation workbook', () => {
+    const row = RocketPurchasePreviewRequestSchema.parse({
+      ...request(),
+      rows: [{
+        ...request().rows[0],
+        confirmation: {
+          center: '덕평1센터',
+          inboundType: '택배',
+          poStatus: '거래처확인요청',
+          returnManager: '담당자',
+          returnContact: '010-0000-0000',
+          returnAddress: '서울시',
+          purchasePrice: 1_000,
+          supplyPrice: 900,
+          vat: 90,
+          totalPurchase: 3_960,
+          poRegisteredAt: '2026-07-17 09:00:00',
+          xdock: 'N',
+        },
+      }],
+    }).rows[0];
+
+    expect(row?.confirmation).toMatchObject({ center: '덕평1센터', purchasePrice: 1_000 });
+    expect(() => RocketPurchasePreviewRequestSchema.parse({
+      ...request(),
+      rows: [{
+        ...request().rows[0],
+        confirmation: { sessionToken: 'secret' },
+      }],
     })).toThrow();
   });
 
@@ -91,6 +141,7 @@ describe('Rocket purchase preview contract', () => {
     const response = RocketPurchasePreviewResponseSchema.parse({
       collectionRunId: RUN_ID,
       catalog: null,
+      inventoryGeneration: null,
       rows: [{
         poLineId: request().rows[0]!.poLineId,
         poNumber: '1001',
@@ -117,6 +168,7 @@ describe('Rocket purchase preview contract', () => {
     const response = RocketPurchasePreviewResponseSchema.parse({
       collectionRunId: RUN_ID,
       catalog: null,
+      inventoryGeneration: '12',
       rows: [{
         poLineId: request().rows[0]!.poLineId,
         poNumber: '1001',
@@ -153,6 +205,7 @@ describe('Rocket purchase preview contract', () => {
       const parsed = RocketPurchasePreviewResponseSchema.parse({
         collectionRunId: RUN_ID,
         catalog: null,
+        inventoryGeneration: null,
         rows: [{
           poLineId: request().rows[0]!.poLineId,
           poNumber: '1001',
@@ -173,4 +226,85 @@ describe('Rocket purchase preview contract', () => {
       expect(parsed.rows[0]?.reason).toBe(reason);
     },
   );
+
+  it('requires an explicit reviewed quantity and shortage reason for every confirmation line', () => {
+    const poLineId = request().rows[0]!.poLineId;
+    expect(RocketPurchaseConfirmationRequestSchema.parse({
+      ...request(),
+      idempotencyKey: CONFIRMATION_ID,
+      editedQuantities: { [poLineId]: 2 },
+      shortageReasons: { [poLineId]: '협력사 재고부족 - 수요예측 오류' },
+    })).toMatchObject({
+      idempotencyKey: CONFIRMATION_ID,
+      editedQuantities: { [poLineId]: 2 },
+    });
+
+    expect(() => RocketPurchaseConfirmationRequestSchema.parse({
+      ...request(),
+      idempotencyKey: CONFIRMATION_ID,
+      editedQuantities: {},
+      shortageReasons: {},
+    })).toThrow(/reviewed quantity/i);
+
+    expect(() => RocketPurchaseConfirmationRequestSchema.parse({
+      ...request(),
+      idempotencyKey: CONFIRMATION_ID,
+      editedQuantities: { [poLineId]: 2 },
+      shortageReasons: {},
+    })).toThrow(/shortage reason/i);
+
+    expect(() => RocketPurchaseConfirmationRequestSchema.parse({
+      ...request(),
+      idempotencyKey: CONFIRMATION_ID,
+      editedQuantities: { [poLineId]: 5 },
+      shortageReasons: {},
+    })).toThrow(/order quantity/i);
+
+    expect(() => RocketPurchaseConfirmationRequestSchema.parse({
+      ...request(),
+      rows: [{ ...request().rows[0], confirmation: undefined }],
+      idempotencyKey: CONFIRMATION_ID,
+      editedQuantities: { [poLineId]: 2 },
+      shortageReasons: { [poLineId]: '협력사 재고부족 - 수요예측 오류' },
+    })).toThrow(/workbook evidence/i);
+  });
+
+  it('publishes a normalized confirmation result without raw workbook rows', () => {
+    const response = RocketPurchaseConfirmationResponseSchema.parse({
+      confirmationId: CONFIRMATION_ID,
+      status: 'active',
+      duplicate: false,
+      inventoryGeneration: '12',
+      confirmedAt: '2026-07-17T00:00:00.000Z',
+      totals: {
+        lineCount: 1,
+        orderQuantity: 4,
+        confirmedQuantity: 2,
+        allocatedQuantity: 2,
+      },
+      rows: [{
+        poLineId: request().rows[0]!.poLineId,
+        confirmedQuantity: 2,
+        shortageReason: '협력사 재고부족 - 수요예측 오류',
+      }],
+    });
+
+    expect(response.status).toBe('active');
+    expect(response).not.toHaveProperty('rawRows');
+    expect(response).not.toHaveProperty('workbook');
+  });
+
+  it('requires an explicit audit reason to release reserved capacity', () => {
+    expect(RocketPurchaseConfirmationReleaseRequestSchema.parse({
+      confirmationId: CONFIRMATION_ID,
+      reason: '쿠팡 확정 수량 정정',
+    })).toEqual({
+      confirmationId: CONFIRMATION_ID,
+      reason: '쿠팡 확정 수량 정정',
+    });
+    expect(() => RocketPurchaseConfirmationReleaseRequestSchema.parse({
+      confirmationId: CONFIRMATION_ID,
+      reason: ' ',
+    })).toThrow();
+  });
 });

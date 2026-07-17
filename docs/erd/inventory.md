@@ -212,6 +212,7 @@ erDiagram
 | SellpiaInventorySku | organization | references external | Core | Organization |
 | SellpiaInventorySku | sellpiaInventorySku | referenced by external | Core | ProductVariantComponent |
 | SellpiaInventorySku | sellpiaInventorySku | referenced by external | Supply | PurchaseOrderItem |
+| SellpiaInventorySku | sellpiaInventorySku | referenced by external | Supply | RocketPurchaseConfirmationAllocation |
 | SellpiaInventorySku | sellpiaInventorySku | referenced by external | Supply | SupplierProduct |
 | SellpiaInventoryState | activeSyncOwner | references external | Core | User |
 | SellpiaInventoryState | lastCompletedImportRun | references external | Core | SourceImportRun |

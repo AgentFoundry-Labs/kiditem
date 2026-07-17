@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ChannelsModule } from '../channels/channels.module';
 import { OrdersController } from './controllers/orders.controller';
 import { OrdersService } from './services/orders.service';
 import { ReturnsController } from './controllers/returns.controller';
@@ -14,7 +15,6 @@ import { OrderCollectionMallAccountService } from './services/order-collection-m
 import { CoupangDirectshipService } from './coupang-directship/coupang-directship.service';
 import { ReturnTransfersController } from './return-transfers/return-transfers.controller';
 import { ReturnTransfersService } from './return-transfers/return-transfers.service';
-import { ChannelsModule } from '../channels/channels.module';
 
 @Module({
   imports: [ChannelsModule],

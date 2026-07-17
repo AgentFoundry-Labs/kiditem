@@ -11,7 +11,8 @@ state, finance settlement state, or catalog product editing.
 - Supplier list/create/delete operations
 - Purchase order list, status update, delete, and create modal
 - Purchase-order counts and status filters
-- Coupang Rocket collection and component-capacity preview workspace
+- Coupang Rocket collection, component-capacity preview, confirmation,
+  workbook, and allocation-release workspace
 - Active Rocket ChannelAccount selector on the real `/purchase-orders` route
 - Canonical `/purchase-orders?tab=general|rocket` workspace with one heading
   and inactive-tab unmounting
@@ -29,8 +30,9 @@ React Query + apiClient
 
 logged-in order-collector extension
   -> collectRocketPoRows with a browser-created runId
-  -> POST /api/purchase-orders { action: 'previewRocket', ... }
-  -> read-only quantity recommendations
+  -> POST /api/purchase-orders { action: 'previewRocket' | 'confirmRocket' |
+     'releaseRocketConfirmation', ... }
+  -> preview, internal capacity allocation, official workbook download, release
 ```
 
 ## State Rules
@@ -63,8 +65,14 @@ logged-in order-collector extension
   the same component stock.
 - Changing the selected Rocket ChannelAccount remounts the workspace so dates,
   errors, preview rows, and edits never cross account boundaries.
-- Release `0.1.19` keeps `로켓 발주 확정` visibly disabled and states that the
-  workspace is review-only.
+- Confirmation stays disabled until the backend has published a complete
+  catalog, all rows include authoritative workbook fields, and the operator has
+  reviewed every quantity/shortage reason.
+- Confirmation uses a browser-created UUID idempotency key and downloads the
+  workbook only after the server persists the allocation. Allocation release
+  requires an explicit operator reason after cancellation or after the real
+  stock movement appears in Sellpia, then requires a fresh preview before
+  reconfirming.
 
 ## Boundary Rules
 
@@ -72,5 +80,6 @@ logged-in order-collector extension
 - Do not update supplier payments or settlements here; finance owns those
   workflows.
 - Do not send `organizationId`; backend session scope owns tenancy.
-- Do not add Rocket provider calls, confirmation routes, reservations,
-  workbooks, or local stock deductions to the preview workspace.
+- Do not add Rocket provider calls, `/api/orders/rocket/*` routes, or local
+  stock deductions. Confirmation/reservation stays on the Supply action API and
+  never represents provider acceptance.

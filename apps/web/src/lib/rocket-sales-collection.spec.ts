@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import {
   collectRocketPoRowsFromExtension,
+  collectRocketPoRowsForConfirmationFromExtension,
   detectRocketOrderExtensionId,
 } from './rocket-sales-collection';
 
@@ -80,6 +81,63 @@ describe('collectRocketPoRowsFromExtension', () => {
     );
     expect(result.collection.collectionRunId).toBe(RUN_ID);
     expect(result.rows[0]?.poLineId).toBe('1001:P-1::1');
+  });
+
+  it('requires the confirmation metadata capability for workbook collection', async () => {
+    vi.mocked(sendToExtension).mockResolvedValueOnce({
+      success: true,
+      rows: [{
+        poLineId: '1001:P-1:8800000000001:1',
+        poNumber: '1001',
+        vendorId: 'VENDOR-1',
+        productNo: 'P-1',
+        barcode: '8800000000001',
+        productName: 'Rocket item',
+        orderQty: 2,
+        plannedDeliveryDate: '2026-07-20',
+        confirmation: {
+          center: '덕평1센터',
+          inboundType: '택배',
+          poStatus: '거래처확인요청',
+          returnManager: '',
+          returnContact: '',
+          returnAddress: '',
+          purchasePrice: 1000,
+          supplyPrice: 900,
+          vat: 90,
+          totalPurchase: 1980,
+          poRegisteredAt: '2026-07-17 09:00:00',
+          xdock: 'N',
+        },
+      }],
+      poCount: 1,
+      evidence: {
+        collectionRunId: RUN_ID,
+        vendorId: 'VENDOR-1',
+        listPagesRead: 1,
+        totalListPages: 1,
+        truncated: false,
+        detailPoCount: 1,
+        failedPoNumbers: [],
+      },
+    });
+
+    await collectRocketPoRowsForConfirmationFromExtension({
+      from: '2026-07-01',
+      to: '2026-07-07',
+    });
+
+    expect(detectOrderCollectionExtensionId).toHaveBeenCalledWith(
+      1200,
+      'collectRocketPoRowsConfirmationV1',
+    );
+  });
+
+  it('rejects confirmation collection rows without official workbook evidence', async () => {
+    await expect(collectRocketPoRowsForConfirmationFromExtension({
+      from: '2026-07-01',
+      to: '2026-07-07',
+    })).rejects.toThrow(/확정 자료/);
   });
 
   it('rejects an extension response attached to another run', async () => {

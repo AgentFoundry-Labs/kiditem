@@ -2,10 +2,10 @@ import { readFileSync } from 'node:fs';
 import { AppException } from '@kiditem/shared/server-errors';
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
+import { RocketPurchasePreviewService } from '../rocket-purchase-preview.service';
 import type { RocketPoCatalogPort } from '../../../../channels/application/port/in/rocket-po-catalog.port';
 import type { ChannelSkuAvailabilityPort } from '../../../../channels/application/port/in/channel-sku-availability.port';
 import type { SellpiaInventoryFreshnessGatePort } from '../../../../inventory/application/port/in/stock/sellpia-inventory-freshness-gate.port';
-import { RocketPurchasePreviewService } from '../rocket-purchase-preview.service';
 
 const organizationId = '11111111-1111-4111-8111-111111111111';
 const userId = '22222222-2222-4222-8222-222222222222';
@@ -78,17 +78,25 @@ function dependencies() {
       inventorySkus: [{ sellpiaInventorySkuId, currentStock: 5, isActive: true }],
     }),
   } as unknown as SellpiaInventoryFreshnessGatePort;
-  return { catalog, availability, freshness };
+  const commitments = {
+    findActiveQuantities: vi.fn().mockResolvedValue({}),
+  };
+  return { catalog, availability, freshness, commitments };
+}
+
+function previewService(deps: ReturnType<typeof dependencies>) {
+  return new RocketPurchasePreviewService(
+    deps.catalog,
+    deps.availability,
+    deps.freshness,
+    deps.commitments as never,
+  );
 }
 
 describe('RocketPurchasePreviewService', () => {
   it('publishes identities, gates active components, and returns a read-time preview', async () => {
     const deps = dependencies();
-    const service = new RocketPurchasePreviewService(
-      deps.catalog,
-      deps.availability,
-      deps.freshness,
-    );
+    const service = previewService(deps);
 
     const result = await service.preview({ organizationId, userId, request: request() });
 
@@ -128,11 +136,7 @@ describe('RocketPurchasePreviewService', () => {
         catalog: null,
         identities: [],
       });
-      const service = new RocketPurchasePreviewService(
-        deps.catalog,
-        deps.availability,
-        deps.freshness,
-      );
+      const service = previewService(deps);
 
       const result = await service.preview({ organizationId, userId, request: request() });
 
@@ -153,11 +157,7 @@ describe('RocketPurchasePreviewService', () => {
         catalog: null,
         identities: [],
       });
-      const service = new RocketPurchasePreviewService(
-        deps.catalog,
-        deps.availability,
-        deps.freshness,
-      );
+      const service = previewService(deps);
       const edited = request();
       edited.editedQuantities = { [poLineId]: 1 };
 
@@ -176,11 +176,7 @@ describe('RocketPurchasePreviewService', () => {
         catalog: null,
         identities: [],
       });
-      const service = new RocketPurchasePreviewService(
-        deps.catalog,
-        deps.availability,
-        deps.freshness,
-      );
+      const service = previewService(deps);
 
       const result = await service.preview({
         organizationId,
@@ -213,11 +209,7 @@ describe('RocketPurchasePreviewService', () => {
     }).readFreshCapacity).mockRejectedValue(
       new AppException(409, code, 'fresh snapshot required'),
     );
-    const service = new RocketPurchasePreviewService(
-      deps.catalog,
-      deps.availability,
-      deps.freshness,
-    );
+    const service = previewService(deps);
 
     await expect(service.preview({ organizationId, userId, request: request() }))
       .rejects.toMatchObject({ code });
@@ -234,11 +226,7 @@ describe('RocketPurchasePreviewService', () => {
       expiresAt: '2026-07-16T00:11:00.000Z',
       inventorySkus: [{ sellpiaInventorySkuId, currentStock: 0, isActive: true }],
     });
-    const service = new RocketPurchasePreviewService(
-      deps.catalog,
-      deps.availability,
-      deps.freshness,
-    );
+    const service = previewService(deps);
 
     const result = await service.preview({ organizationId, userId, request: request() });
 
@@ -267,11 +255,7 @@ describe('RocketPurchasePreviewService', () => {
       sku: { ...item.sku, mappingStatus: 'needs_review', sellableStock: null },
       components: recipeStatus === 'configuration_required' ? [] : item.components,
     }]);
-    const service = new RocketPurchasePreviewService(
-      deps.catalog,
-      deps.availability,
-      deps.freshness,
-    );
+    const service = previewService(deps);
 
     const result = await service.preview({ organizationId, userId, request: request() });
 
@@ -298,11 +282,7 @@ describe('RocketPurchasePreviewService', () => {
       poLineId: secondLineId,
       poNumber: '1002',
     });
-    const service = new RocketPurchasePreviewService(
-      deps.catalog,
-      deps.availability,
-      deps.freshness,
-    );
+    const service = previewService(deps);
 
     await service.preview({ organizationId, userId, request: input });
 
@@ -314,13 +294,32 @@ describe('RocketPurchasePreviewService', () => {
     });
   });
 
-  it('contains no commitment, provider, workbook, attempt, or inventory mutation lane', () => {
+  it('subtracts active confirmation allocations from the fresh inventory generation', async () => {
+    const deps = dependencies();
+    deps.commitments.findActiveQuantities.mockResolvedValue({
+      [sellpiaInventorySkuId]: 3,
+    });
+    const service = previewService(deps);
+
+    const result = await service.preview({ organizationId, userId, request: request() });
+
+    expect(deps.commitments.findActiveQuantities).toHaveBeenCalledWith({
+      organizationId,
+      sellpiaInventorySkuIds: [sellpiaInventorySkuId],
+    });
+    expect(result).toMatchObject({
+      inventoryGeneration: '1',
+      rows: [{ maxQuantity: 2, recommendedQuantity: 2 }],
+    });
+  });
+
+  it('contains no provider, workbook, attempt, or inventory mutation lane', () => {
     const source = readFileSync(
       new URL('../rocket-purchase-preview.service.ts', import.meta.url),
       'utf8',
     );
     expect(source).not.toMatch(
-      /PurchaseOrderSubmissionAttempt|reservation|commitment|confirmationFile|provider|currentStock\s*=/i,
+      /PurchaseOrderSubmissionAttempt|confirmationFile|provider|currentStock\s*=/i,
     );
   });
 });

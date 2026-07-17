@@ -7,7 +7,7 @@ const webRoot = process.cwd().endsWith('/apps/web')
   : resolve(process.cwd(), 'apps/web');
 
 describe('Rocket purchase decision boundary', () => {
-  it('preserves the full Rocket operations UI only at /rocket-orders without enabling confirmation', () => {
+  it('preserves the Rocket operations shell while keeping confirmation in the Supply boundary', () => {
     const routeRoot = resolve(webRoot, 'src/app/(orders)/rocket-orders');
     const pageSource = readFileSync(resolve(routeRoot, 'page.tsx'), 'utf8');
     const operationsSource = readFileSync(resolve(
@@ -25,6 +25,10 @@ describe('Rocket purchase decision boundary', () => {
     const previewSource = readFileSync(resolve(
       webRoot,
       'src/app/(supply)/purchase-orders/components/RocketPurchaseWorkspace.tsx',
+    ), 'utf8');
+    const previewApiSource = readFileSync(resolve(
+      webRoot,
+      'src/app/(supply)/purchase-orders/lib/rocket-purchase-preview-api.ts',
     ), 'utf8');
     const extensionSource = readFileSync(resolve(
       webRoot,
@@ -56,9 +60,14 @@ describe('Rocket purchase decision boundary', () => {
     expect(operationsSource).not.toContain('재고 매핑 기반 판단은 추후 연동');
     expect(previewSectionSource).toContain('<RocketPurchaseWorkspace');
     expect(previewSource).toContain('미리보기 다시 계산');
-    expect(previewSource).toContain('0.1.19에서는 검토만 가능');
-    expect(previewSource).not.toMatch(/confirmationFile|reservation|providerSubmit|currentStock\s*=/);
+    expect(previewSource).toContain('확정 후 엑셀 다운로드');
+    expect(previewSource).toContain('releaseRocketPurchaseConfirmation');
+    expect(previewSource).not.toMatch(/providerSubmit|currentStock\s*=/);
+    expect(previewApiSource).toContain("action: 'confirmRocket'");
+    expect(previewApiSource).toContain("action: 'releaseRocketConfirmation'");
+    expect(previewApiSource).not.toContain('/api/orders/rocket');
     expect(extensionSource).toContain('collectRocketPoRowsEvidenceV1: true');
+    expect(extensionSource).toContain('collectRocketPoRowsConfirmationV1: true');
     expect(extensionSource).toContain('collectSellpiaInventoryV2: true');
   });
 });

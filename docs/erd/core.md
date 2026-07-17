@@ -250,6 +250,7 @@ erDiagram
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelScrapeRun |
 | ChannelAccount | channelAccount | referenced by external | Orders | Order |
 | ChannelAccount | channelAccount | referenced by external | Orders | OrderReturn |
+| ChannelAccount | channelAccount | referenced by external | Supply | RocketPurchaseConfirmation |
 | ChannelListing | channelListing | referenced by external | AI | ContentWorkspace |
 | ChannelListing | channelListing | referenced by external | AI | ProductPreparation |
 | ChannelListing | listing | referenced by external | Advertising | AdAction |
@@ -264,6 +265,7 @@ erDiagram
 | ChannelListing | listing | referenced by external | Orders | CSRecord |
 | ChannelListing | listing | referenced by external | Orders | Review |
 | ChannelListing | sourceCandidate | references external | Sourcing | SourcingCandidate |
+| ChannelListingOption | channelListingOption | referenced by external | Supply | RocketPurchaseConfirmationLine |
 | ChannelListingOption | listingOption | referenced by external | Advertising | AdAction |
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelAdTargetDailySnapshot |
 | ChannelListingOption | listingOption | referenced by external | Channels | ChannelListingOptionDailySnapshot |
@@ -366,6 +368,9 @@ erDiagram
 | Organization | organization | referenced by external | Supply | PurchaseOrder |
 | Organization | organization | referenced by external | Supply | PurchaseOrderItem |
 | Organization | organization | referenced by external | Supply | PurchaseOrderSubmissionAttempt |
+| Organization | organization | referenced by external | Supply | RocketPurchaseConfirmation |
+| Organization | organization | referenced by external | Supply | RocketPurchaseConfirmationAllocation |
+| Organization | organization | referenced by external | Supply | RocketPurchaseConfirmationLine |
 | Organization | organization | referenced by external | Supply | Supplier |
 | Organization | organization | referenced by external | Supply | SupplierPayment |
 | Organization | organization | referenced by external | Supply | SupplierProduct |
@@ -374,16 +379,19 @@ erDiagram
 | Organization | organization | referenced by external | System | Alert |
 | Organization | organization | referenced by external | System | BusinessRule |
 | Organization | organization | referenced by external | System | SystemSetting |
+| ProductVariant | productVariant | referenced by external | Supply | RocketPurchaseConfirmationLine |
 | ProductVariantComponent | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
 | SourceImportRun | lastCompletedImportRun | referenced by external | Inventory | SellpiaInventoryState |
 | SourceImportRun | lastImportRun | referenced by external | Inventory | SellpiaInventorySku |
 | SourceImportRun | sourceImportRun | referenced by external | Channels | ChannelScrapeRun |
+| SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmation |
 | User | activeSyncOwner | referenced by external | Inventory | SellpiaInventoryState |
 | User | actor | referenced by external | AI | ThumbnailGenerationEvent |
 | User | actorUser | referenced by external | System | Alert |
 | User | agentInstance | references external | AgentOS | AgentInstance |
 | User | approver | referenced by external | AgentOS | AgentApprovalRequest |
 | User | assigneeUser | referenced by external | System | ActionTask |
+| User | confirmer | referenced by external | Supply | RocketPurchaseConfirmation |
 | User | createdBy | referenced by external | AgentOS | AgentConversation |
 | User | createdByUser | referenced by external | AI | ContentAsset |
 | User | createdByUser | referenced by external | AI | ContentWorkspace |
@@ -397,6 +405,7 @@ erDiagram
 | User | reconciler | referenced by external | Inventory | SellpiaOrderTransmissionIntentReconciliation |
 | User | reconciler | referenced by external | Supply | PurchaseOrderSubmissionAttempt |
 | User | rejectedByUser | referenced by external | Sourcing | SourcingCandidate |
+| User | releaser | referenced by external | Supply | RocketPurchaseConfirmation |
 | User | requestedBy | referenced by external | AgentOS | AgentApprovalRequest |
 | User | requestedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
 | User | requestedBy | referenced by external | AgentOS | AgentRunRequest |

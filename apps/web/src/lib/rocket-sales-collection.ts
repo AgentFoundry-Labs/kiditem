@@ -48,8 +48,45 @@ export async function collectRocketPoRowsFromExtension({
   poCount: number;
   collection: RocketPoCollectionEvidence;
 }> {
+  return collectRocketPoRows(
+    { from, to, status, dateType },
+    'collectRocketPoRowsEvidenceV1',
+  );
+}
+
+export async function collectRocketPoRowsForConfirmationFromExtension({
+  from,
+  to,
+}: {
+  from: string;
+  to: string;
+}): Promise<{
+  rows: RocketPoCatalogRow[];
+  poCount: number;
+  collection: RocketPoCollectionEvidence;
+}> {
+  return collectRocketPoRows(
+    { from, to, status: 'RP', dateType: 'WAREHOUSING_PLAN_DATE' },
+    'collectRocketPoRowsConfirmationV1',
+  );
+}
+
+async function collectRocketPoRows(
+  input: {
+    from: string;
+    to: string;
+    status: RocketPoStatusCode;
+    dateType: 'WAREHOUSING_PLAN_DATE' | 'PURCHASE_ORDER_DATE';
+  },
+  requiredCapability: string,
+): Promise<{
+  rows: RocketPoCatalogRow[];
+  poCount: number;
+  collection: RocketPoCollectionEvidence;
+}> {
+  const { from, to, status, dateType } = input;
   const runId = globalThis.crypto.randomUUID();
-  const extensionId = await detectRocketOrderExtensionId('collectRocketPoRowsEvidenceV1');
+  const extensionId = await detectRocketOrderExtensionId(requiredCapability);
   const res = await sendToExtension<CollectResponse>(
     extensionId,
     { action: 'collectRocketPoRows', from, to, status, dateType, runId },
@@ -69,8 +106,17 @@ export async function collectRocketPoRowsFromExtension({
   if (collection.collectionRunId !== runId) {
     throw new Error('Rocket collection run identity does not match the browser request.');
   }
+  const rows = res.rows.map((row) => RocketPoCatalogRowSchema.parse(row));
+  if (
+    requiredCapability === 'collectRocketPoRowsConfirmationV1'
+    && rows.some((row) => !row.confirmation || row.barcode.length === 0)
+  ) {
+    throw new Error(
+      '로켓 발주확정 자료가 누락되었습니다. Chrome 확장 관리에서 주문수집 확장을 새로고침한 뒤 다시 수집해 주세요.',
+    );
+  }
   return {
-    rows: res.rows.map((row) => RocketPoCatalogRowSchema.parse(row)),
+    rows,
     poCount: res.poCount ?? 0,
     collection,
   };

@@ -7,8 +7,9 @@ import { formatDateTime, formatNumber } from '@/lib/utils';
 import {
   deleteRocketConfirmFile,
   loadRocketConfirmFiles,
+  ROCKET_CONFIRM_FILES_CHANGED_EVENT,
   type StoredRocketConfirmFile,
-} from '../lib/rocket-confirm-file-store';
+} from '@/lib/rocket-confirm-file-store';
 
 export function RocketConfirmFileList({ refreshKey }: { refreshKey: number }) {
   const [files, setFiles] = useState<StoredRocketConfirmFile[]>([]);
@@ -24,6 +25,8 @@ export function RocketConfirmFileList({ refreshKey }: { refreshKey: number }) {
 
   useEffect(() => {
     load();
+    window.addEventListener(ROCKET_CONFIRM_FILES_CHANGED_EVENT, load);
+    return () => window.removeEventListener(ROCKET_CONFIRM_FILES_CHANGED_EVENT, load);
   }, [load, refreshKey]);
 
   async function handleDelete(id: string) {

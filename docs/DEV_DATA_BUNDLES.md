@@ -126,6 +126,11 @@ source payload가 아니라 runtime/검증 상태다.
   상태다. 테스트는 synthetic key/reference를 사용할 수 있지만 Drive
   bundle에는 실제 idempotency key, provider reference, raw provider error 또는
   재시도 허가로 오해될 수 있는 ambiguous attempt를 넣지 않는다.
+- `0.1.20`의 `RocketPurchaseConfirmation`, line, allocation은 운영자 결정과
+  구성품 용량 예약 감사 상태다. 공유 bundle에는 실제 PO/반품 연락처/주소를
+  넣지 않고 synthetic fixture만 사용한다. Allocation은
+  `SellpiaInventorySku.currentStock`을 바꾸지 않으며, 활성 상태일 때만 파생
+  가용수량에서 차감된다.
 
 Sellpia/Coupang password, cookie, browser storage, access/refresh token,
 workbook data가 든 extension message, raw provider response, claim token, 실제
@@ -512,7 +517,7 @@ rtk npm run dev
 | `/product-hub` | 기존 상품 운영 센터의 명령 카드·카테고리·필터·지표형 상품 행과 상세 진입이 유지되고, 현재 Sellpia 스냅샷 데이터가 표시되는지 |
 | `/product-hub/options` | `c9e7caf8` 기준 Sellpia 읽기 전용 옵션 표가 검색/필터/페이징과 함께 렌더링되는지 |
 | `/product-hub/matching` | `c9e7caf8` 기준 account 범위 matching queue와 confirmed recipe가 렌더링되는지 |
-| `/rocket-orders` / `/purchase-orders?tab=rocket` | 기존 Rocket 화면의 판단 placeholder와 발주 화면에 동일한 Sellpia capacity preview 계약이 배치 변경 없이 연결되고, 확정은 비활성인지 |
+| `/rocket-orders` / `/purchase-orders?tab=rocket` | 기존 Rocket 화면의 판단 placeholder와 발주 화면에 동일한 Supply workspace가 배치 변경 없이 연결되고, 완전한 증거 전에는 확정이 비활성인지, 확정/해제가 물리 재고나 provider 제출로 표현되지 않는지 |
 
 확인 기준:
 

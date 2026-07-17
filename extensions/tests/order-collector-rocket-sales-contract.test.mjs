@@ -191,6 +191,20 @@ test('Rocket page scraper uses the requested filters and labels returned rows', 
   assert.equal(result.rows[0].businessDateBasis, 'ordered_at');
   assert.equal(result.rows[0].poStatusCode, 'PA');
   assert.equal(result.rows[0].vendorId, 'A00123');
+  assert.deepEqual(JSON.parse(JSON.stringify(result.rows[0].confirmation)), {
+    center: '센터',
+    inboundType: '밀크런',
+    poStatus: '발주확정',
+    returnManager: '담당자',
+    returnContact: '010-0000-0000',
+    returnAddress: '서울',
+    purchasePrice: 1000,
+    supplyPrice: 900,
+    vat: 90,
+    totalPurchase: 990,
+    poRegisteredAt: '2026-07-02 00:00:00',
+    xdock: 'N',
+  });
   assert.equal(result.evidence.collectionRunId, RUN_ID);
   assert.equal(result.evidence.vendorId, 'A00123');
   assert.equal(result.evidence.listPagesRead, 1);

@@ -220,6 +220,7 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
         boriboriOrders: true,
         collectRocketPoRows: true,
         collectRocketPoRowsEvidenceV1: true,
+        collectRocketPoRowsConfirmationV1: true,
         listRocketPos: true,
         collectKakaoOrders: true,
         collectSellpiaDeliTracking: true,
