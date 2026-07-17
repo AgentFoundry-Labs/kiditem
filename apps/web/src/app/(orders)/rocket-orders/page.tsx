@@ -4,7 +4,7 @@ import { RocketOrdersWorkspace } from './components/RocketOrdersWorkspace';
 export default function RocketOrdersPage() {
   return (
     <RocketOrdersWorkspace
-      decisionWorkspace={<RocketPurchasePreviewSection />}
+      decisionWorkspace={({ from, to }) => <RocketPurchasePreviewSection from={from} to={to} />}
     />
   );
 }

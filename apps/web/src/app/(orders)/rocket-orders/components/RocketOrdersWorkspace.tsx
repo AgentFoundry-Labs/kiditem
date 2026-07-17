@@ -88,7 +88,11 @@ function shiftMonthBounds(dateStr: string, delta: number) {
 export function RocketOrdersWorkspace({
   decisionWorkspace,
 }: {
-  decisionWorkspace: ReactNode;
+  /**
+   * 납품 판단 워크스페이스. 이 화면의 입고예정일 범위(from/to)를 그대로 받아
+   * 같은 범위로 수집·검토하도록 render prop 으로 넘긴다(날짜 입력 이중화 방지).
+   */
+  decisionWorkspace: (range: { from: string; to: string }) => ReactNode;
 }) {
   // 입고예정일 기준 (기본: 다음 7일) — 상태로 숨기지 않고 전체 발주를 조회
   const [from, setFrom] = useState(todayYmd());
@@ -285,7 +289,7 @@ export function RocketOrdersWorkspace({
         })}
       </div>
 
-      {decisionWorkspace}
+      {decisionWorkspace({ from, to })}
 
       {/* 필터 (입고예정일 기준) */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3">

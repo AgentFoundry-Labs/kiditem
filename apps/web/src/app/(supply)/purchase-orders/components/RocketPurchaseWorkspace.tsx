@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
   ROCKET_SHORTAGE_REASONS,
   ROCKET_PO_DETAIL_LIMIT,
@@ -42,11 +42,6 @@ interface CollectionRunSummary {
   rowsMatchEvidenceVendor: boolean;
 }
 
-function localCalendarDay(date: Date): string {
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
 function normalizeReviewQuantity(value: string, maxQuantity: number): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 0;
@@ -85,12 +80,14 @@ function aggregateCollectionWarning(
 
 export function RocketPurchaseWorkspace({
   channelAccountId,
+  from,
+  to,
 }: {
   channelAccountId: string;
+  /** 입고예정일 조회 범위. 로켓 발주 캘린더(RocketOrdersWorkspace)가 단일 소스다. */
+  from: string;
+  to: string;
 }) {
-  const today = useMemo(() => localCalendarDay(new Date()), []);
-  const [from, setFrom] = useState(today);
-  const [to, setTo] = useState(today);
   const [editedQuantities, setEditedQuantities] = useState<Record<string, number>>({});
   const [preview, setPreview] = useState<RocketPurchasePreviewResponse | null>(null);
   const [sourceRows, setSourceRows] = useState<RocketPoCatalogRow[]>([]);
@@ -276,27 +273,13 @@ export function RocketPurchaseWorkspace({
   return (
     <section aria-label="쿠팡 로켓 발주 미리보기" className="space-y-4">
       <div className="rounded-xl border border-[var(--border,#e2e8f0)] bg-[var(--surface,#fff)] p-4">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="space-y-1 text-sm font-semibold text-[var(--text-secondary,#475569)]">
-            <span>조회 시작일</span>
-            <input
-              aria-label="조회 시작일"
-              type="date"
-              value={from}
-              onChange={(event) => setFrom(event.target.value)}
-              className="block w-full rounded-lg border border-[var(--border,#cbd5e1)] px-3 py-2"
-            />
-          </label>
-          <label className="space-y-1 text-sm font-semibold text-[var(--text-secondary,#475569)]">
-            <span>조회 종료일</span>
-            <input
-              aria-label="조회 종료일"
-              type="date"
-              value={to}
-              onChange={(event) => setTo(event.target.value)}
-              className="block w-full rounded-lg border border-[var(--border,#cbd5e1)] px-3 py-2"
-            />
-          </label>
+        {/* 조회 범위는 위 로켓 발주 캘린더(입고예정일)를 그대로 따른다 — 날짜 입력을 이중으로 두지 않는다. */}
+        <div className="text-sm text-[var(--text-secondary,#475569)]">
+          입고예정일{' '}
+          <span className="font-semibold tabular-nums text-[var(--text,#0f172a)]">
+            {from} ~ {to}
+          </span>{' '}
+          <span className="text-[var(--text-tertiary,#94a3b8)]">(위 캘린더 기준)</span>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <button

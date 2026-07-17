@@ -103,7 +103,9 @@ describe('PurchaseOrdersPage Rocket preview route', () => {
     expect(screen.getByText('미리보기 검토 후 확정할 수 있습니다.')).toBeInTheDocument();
   });
 
-  it('remounts account-scoped workspace state when the Rocket account changes', async () => {
+  // 입고예정일 범위는 계정보다 바깥(이 화면)이 소유하므로 계정을 바꿔도 유지된다.
+  // 계정 범위 상태(미리보기·확정·수정수량)는 RocketPurchaseWorkspace 의 key={account.id} 가 remount 로 격리한다.
+  it('keeps the screen-owned query range when the Rocket account changes', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -121,8 +123,9 @@ describe('PurchaseOrdersPage Rocket preview route', () => {
 
     await user.selectOptions(selector, secondRocketAccountId);
 
-    await waitFor(() => expect(screen.getByLabelText('조회 시작일'))
-      .toHaveValue(new Date().toISOString().slice(0, 10)));
-    expect(selector).toHaveValue(secondRocketAccountId);
+    await waitFor(() => expect(selector).toHaveValue(secondRocketAccountId));
+    expect(screen.getByLabelText('조회 시작일')).toHaveValue('2026-01-01');
+    // 미리보기는 바뀐 계정의 범위를 그대로 물려받는다.
+    expect(screen.getByText('2026-01-01 ~', { exact: false })).toBeInTheDocument();
   });
 });

@@ -11,7 +11,14 @@ import { RocketPurchaseWorkspace } from './RocketPurchaseWorkspace';
 
 const ChannelAccountListSchema = z.array(ChannelAccountListItemSchema);
 
-export function RocketPurchasePreviewSection() {
+export function RocketPurchasePreviewSection({
+  from,
+  to,
+}: {
+  /** 입고예정일 조회 범위 — 로켓 발주 캘린더가 단일 소스다. */
+  from: string;
+  to: string;
+}) {
   const [selectedRocketAccountId, setSelectedRocketAccountId] = useState('');
   const accountsQuery = useQuery({
     queryKey: queryKeys.channelAccounts.active(),
@@ -51,6 +58,8 @@ export function RocketPurchasePreviewSection() {
           <RocketPurchaseWorkspace
             key={selectedAccount.id}
             channelAccountId={selectedAccount.id}
+            from={from}
+            to={to}
           />
         </>
       ) : accountsQuery.isLoading ? (

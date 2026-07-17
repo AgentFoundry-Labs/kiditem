@@ -36,7 +36,8 @@ describe('Rocket purchase decision boundary', () => {
     ), 'utf8');
 
     expect(pageSource).toContain('RocketOrdersWorkspace');
-    expect(pageSource).toContain('decisionWorkspace={<RocketPurchasePreviewSection />');
+    // 캘린더의 입고예정일 범위를 그대로 물려주도록 render prop 으로 주입한다.
+    expect(pageSource).toContain('decisionWorkspace={({ from, to }) => <RocketPurchasePreviewSection');
     expect(pageSource).not.toContain('RocketPurchaseOrdersWorkspace');
     expect(pageSource).not.toContain('redirect(');
     expect(pageSource).not.toMatch(/useQuery|useState|listRocketPosFromExtension/);
@@ -53,9 +54,11 @@ describe('Rocket purchase decision boundary', () => {
     expect(operationsSource).toContain("['chart', '차트']");
     expect(operationsSource).toContain('<RocketConfirmFileList');
     expect(purchaseSource).toContain('로켓 발주 수량 검토');
-    expect(purchaseSource).toContain('<RocketPurchasePreviewSection />');
+    // 단독 화면에는 캘린더가 없으므로 이 화면이 입고예정일 범위를 소유해 미리보기로 내려준다.
+    expect(purchaseSource).toContain('<RocketPurchasePreviewSection from={from} to={to} />');
+    expect(purchaseSource).toContain('조회 시작일');
     expect(purchaseSource).not.toContain('RocketOrdersWorkspace');
-    expect(operationsSource).toContain('{decisionWorkspace}');
+    expect(operationsSource).toContain('{decisionWorkspace({ from, to })}');
     expect(operationsSource).not.toContain('납품 수량 판단은 추후 연동합니다');
     expect(operationsSource).not.toContain('재고 매핑 기반 판단은 추후 연동');
     expect(previewSectionSource).toContain('<RocketPurchaseWorkspace');

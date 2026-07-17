@@ -36,6 +36,9 @@ vi.mock('@/lib/browser-download', () => ({ downloadBlob: vi.fn() }));
 vi.mock('@/lib/rocket-confirm-file-store', () => ({ saveRocketConfirmFile: vi.fn() }));
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
+// 입고예정일 범위는 상위(로켓 발주 캘린더 / 단독 화면)가 소유하고 props 로 내려준다.
+const FROM = '2026-07-16';
+const TO = '2026-07-16';
 const lineA = {
   poLineId: '1001:P-A:8800000000001:1',
   poNumber: '1001',
@@ -165,7 +168,7 @@ describe('RocketPurchaseWorkspace', () => {
   });
 
   it('keeps confirmation disabled until a complete preview has been reviewed', () => {
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     expect(screen.getByRole('button', { name: '미리보기 다시 계산' })).toBeEnabled();
     expect(screen.getByRole('button', { name: '확정 후 엑셀 다운로드' })).toBeDisabled();
@@ -222,7 +225,7 @@ describe('RocketPurchaseWorkspace', () => {
       }],
     });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
     expect(collectRocketPoRowsForConfirmationFromExtension).toHaveBeenCalled();
@@ -311,7 +314,7 @@ describe('RocketPurchaseWorkspace', () => {
       releasedAt: '2026-07-17T01:00:00.000Z',
     });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
     await user.click(await screen.findByRole('button', { name: '확정 후 엑셀 다운로드' }));
@@ -381,7 +384,7 @@ describe('RocketPurchaseWorkspace', () => {
         throw new Error('workbook failed');
       });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
     await user.click(await screen.findByRole('button', { name: '확정 후 엑셀 다운로드' }));
@@ -395,23 +398,18 @@ describe('RocketPurchaseWorkspace', () => {
     expect(downloadBlob).toHaveBeenCalledTimes(1);
   });
 
-  it('initializes the query range from the local calendar day without UTC conversion', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 6, 16, 0, 30));
-    const isoSpy = vi.spyOn(Date.prototype, 'toISOString')
-      .mockReturnValue('1999-01-01T00:00:00.000Z');
+  it('shows the query range given by the parent instead of owning its own date inputs', () => {
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from="2026-07-16" to="2026-07-22" />);
 
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
-
-    expect(screen.getByLabelText('조회 시작일')).toHaveValue('2026-07-16');
-    expect(screen.getByLabelText('조회 종료일')).toHaveValue('2026-07-16');
-    isoSpy.mockRestore();
-    vi.useRealTimers();
+    // 범위는 상위(캘린더/단독 화면)가 소유한다 — 여기서는 날짜 입력을 두지 않는다.
+    expect(screen.queryByLabelText('조회 시작일')).toBeNull();
+    expect(screen.queryByLabelText('조회 종료일')).toBeNull();
+    expect(screen.getByText('2026-07-16 ~ 2026-07-22')).toBeInTheDocument();
   });
 
   it('collects evidence then sends only a preview action', async () => {
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
@@ -425,7 +423,7 @@ describe('RocketPurchaseWorkspace', () => {
 
   it('shows a clear no-PO state and collection evidence for a legitimate zero-row run', async () => {
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
@@ -445,7 +443,7 @@ describe('RocketPurchaseWorkspace', () => {
       rows: [],
     });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
@@ -478,7 +476,7 @@ describe('RocketPurchaseWorkspace', () => {
       rows: [],
     });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
@@ -533,7 +531,7 @@ describe('RocketPurchaseWorkspace', () => {
       rows: [],
     });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
@@ -572,7 +570,7 @@ describe('RocketPurchaseWorkspace', () => {
       rows: [],
     });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
@@ -600,7 +598,7 @@ describe('RocketPurchaseWorkspace', () => {
       rows: [previewRow(lineA, 3)],
     });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
@@ -638,7 +636,7 @@ describe('RocketPurchaseWorkspace', () => {
         rows: [{ ...previewRow(lineA, 0), reason }],
       });
       const user = userEvent.setup();
-      render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+      render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
       await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
@@ -689,7 +687,7 @@ describe('RocketPurchaseWorkspace', () => {
       rows,
     });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
@@ -719,7 +717,7 @@ describe('RocketPurchaseWorkspace', () => {
       rows: [previewRow(lineA, 3)],
     });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
     const quantity = await screen.findByRole('spinbutton', { name: '1001 검토수량' });
 
@@ -784,7 +782,7 @@ describe('RocketPurchaseWorkspace', () => {
         }],
       });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
     const editA = await screen.findByRole('spinbutton', { name: '1001 검토수량' });
@@ -842,7 +840,7 @@ describe('RocketPurchaseWorkspace', () => {
         ],
       });
     const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
+    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} from={FROM} to={TO} />);
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
     const editA = await screen.findByRole('spinbutton', { name: '1001 검토수량' });
