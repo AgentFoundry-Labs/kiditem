@@ -340,9 +340,26 @@ export default function ProductKeywordRankOverview() {
                 {visibleRows.map((row) => (
                   <tr key={row.vendorItemId}>
                     <td className="max-w-[350px] px-5 py-3">
-                      <span className="block truncate font-semibold text-slate-800">
-                        {row.productName ?? "상품명 미확인"}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {row.abcGrade && (
+                          <span
+                            className={cn(
+                              "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-[10px] font-bold ring-1",
+                              row.abcGrade === "A"
+                                ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                                : row.abcGrade === "B"
+                                  ? "bg-sky-50 text-sky-700 ring-sky-200"
+                                  : "bg-slate-100 text-slate-500 ring-slate-200",
+                            )}
+                            title={`재고분석 ABC 등급: ${row.abcGrade}`}
+                          >
+                            {row.abcGrade}
+                          </span>
+                        )}
+                        <span className="truncate font-semibold text-slate-800">
+                          {row.productName ?? "상품명 미확인"}
+                        </span>
+                      </div>
                       <span className="mt-0.5 block text-[11px] text-slate-400 tabular-nums">
                         {row.groupedOptionCount > 1
                           ? `옵션 ${formatNumber(row.groupedOptionCount)}개 · 대표ID ${row.vendorItemId}`

@@ -6,6 +6,7 @@ import type {
   SellpiaProductSalesRow,
   SellpiaProductSalesMonthPoint,
   SellpiaProductSalesIngestResult,
+  SellpiaProductAbcGrade,
 } from '@kiditem/shared/dashboard';
 import type {
   SellpiaProductSalesIngestBodyDto,
@@ -331,6 +332,22 @@ export class SellpiaProductSalesService {
       abcCounts,
       leadTimeMonths: LEAD_TIME_MONTHS,
     } satisfies SellpiaProductSalesSummary;
+  }
+
+  /**
+   * 상품별 소진 ABC 등급을 `{productCode}-{optionCode}` 키(= SellpiaInventorySku.code,
+   * = MasterProduct.code)로 반환한다. getSummary 의 계산을 그대로 재사용하므로
+   * 재고분석 화면과 등급이 100% 동일하다. 순위추적 등 다른 도메인이 소비한다.
+   */
+  async getAbcGradeByCode(
+    organizationId: string,
+  ): Promise<Map<string, SellpiaProductAbcGrade>> {
+    const summary = await this.getSummary(organizationId);
+    const map = new Map<string, SellpiaProductAbcGrade>();
+    for (const product of summary.products) {
+      map.set(`${product.productCode}-${product.optionCode}`, product.abcGrade);
+    }
+    return map;
   }
 }
 

@@ -38,6 +38,8 @@ export interface OwnVendorItem {
   skuId: string;
   productName: string;
   category: string | null;
+  /** 연결된 MasterProduct.code(= Sellpia code). ABC 등급 조인 키. */
+  masterCode: string | null;
 }
 
 export interface RepresentativeKeywordOverrideRow {

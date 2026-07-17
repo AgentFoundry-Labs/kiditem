@@ -8,5 +8,6 @@ import { SellpiaProductSalesService } from './sellpia-product-sales.service';
 @Module({
   controllers: [SellpiaProductSalesController],
   providers: [SellpiaProductSalesService],
+  exports: [SellpiaProductSalesService],
 })
 export class SellpiaProductSalesModule {}
