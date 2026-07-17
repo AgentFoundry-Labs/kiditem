@@ -284,9 +284,9 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
 
   return (
     <div className="space-y-3">
-      {/* 좌: 월 달력(저장 발주, 입고예정일별) · 우: 이 페이지 작업 알림 */}
-      <div className="grid gap-3 lg:grid-cols-3">
-      <div className="overflow-hidden rounded-xl border border-purple-200 bg-white lg:col-span-2">
+      {/* 좌: 월 달력(저장 발주, 입고예정일별) · 우: 이 페이지 작업 알림(STEP 카드 1칸 폭) */}
+      <div className="grid gap-3 lg:grid-cols-4">
+      <div className="overflow-hidden rounded-xl border border-purple-200 bg-white lg:col-span-3">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
           <div className="flex items-center gap-2">
             <CalendarDays size={16} className="text-purple-600" />
