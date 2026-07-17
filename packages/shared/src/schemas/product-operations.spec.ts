@@ -6,6 +6,7 @@ import {
   MasterProductOperationsListItemSchema,
   MasterProductOperationsListQuerySchema,
   MasterProductOperationsListResponseSchema,
+  ProductDepletionProjectionSchema,
   ProductInventoryStatusSchema,
   ProductRecipeComponentCandidateListResponseSchema,
   ProductRecipeComponentCandidateQuerySchema,
@@ -95,6 +96,12 @@ describe('product operations contracts', () => {
       healthUpdatedAt: null,
       isActive: true,
       updatedAt: '2026-07-16T00:00:00.000Z',
+      depletion: {
+        coverage: 'shared',
+        needsReorder: true,
+        reorderSkuCount: 2,
+        minMonthsOfAvailableStockLeft: 0.5,
+      },
       variantSummary: { total: 2, active: 2, configured: 1, warning: 1 },
       inventoryUnits: 80,
       inventoryStatus: 'configuration_required',
@@ -124,12 +131,31 @@ describe('product operations contracts', () => {
           review_required: 5,
         },
         negativeProfitCount: 6,
+        reorderProductCount: 12,
+        depletionCoveredProductCount: 54,
+        sharedDepletionProductCount: 7,
       },
     });
     expect(response.summary.abcGradeCounts.A).toBe(23);
     expect(response.summary.channelConnectionCounts.connected).toBe(71);
     expect(response.summary.inventoryStatusCounts.out_of_stock).toBe(7);
     expect(response.summary.negativeProfitCount).toBe(6);
+    expect(response.items[0]?.abcGrade).toBe('A');
+    expect(response.items[0]?.depletion.coverage).toBe('shared');
+  });
+
+  it('keeps depletion coverage separate from manual operating metadata', () => {
+    expect(ProductDepletionProjectionSchema.parse({
+      coverage: 'no_direct_sales',
+      needsReorder: false,
+      reorderSkuCount: 0,
+      minMonthsOfAvailableStockLeft: null,
+    })).toEqual({
+      coverage: 'no_direct_sales',
+      needsReorder: false,
+      reorderSkuCount: 0,
+      minMonthsOfAvailableStockLeft: null,
+    });
   });
 
   it('parses detail variants with central components, capacity, and warnings', () => {
@@ -190,6 +216,8 @@ describe('product operations contracts', () => {
           optionName: null,
           barcode: null,
           currentStock: 80,
+          activeCommitmentQuantity: 16,
+          availableStock: 64,
           isActive: true,
           quantity: 8,
           source: 'manual',
@@ -201,6 +229,63 @@ describe('product operations contracts', () => {
     expect(detail.variants[0]?.capacity).toBe(10);
     expect(detail.variants[0]?.components[0]?.sellpiaInventorySkuId).toBe(skuId);
     expect(detail.displayReference.value).toBe('13712531060');
+  });
+
+  it('rejects inconsistent component availability in product detail', () => {
+    expect(() => MasterProductOperationsDetailSchema.parse({
+      id: productId,
+      code: 'KI-001',
+      displayReference: { type: 'product_code', label: '상품 코드', value: 'KI-001' },
+      name: '키즈 식판',
+      description: null,
+      category: null,
+      brand: null,
+      tags: [],
+      imageUrls: [],
+      abcGrade: null,
+      profitTag: null,
+      adTier: null,
+      adBudgetLimit: null,
+      healthScore: null,
+      healthUpdatedAt: null,
+      isActive: true,
+      createdAt: '2026-07-16T00:00:00.000Z',
+      updatedAt: '2026-07-16T00:00:00.000Z',
+      inventoryStatus: 'sellable',
+      inventoryUnits: 80,
+      channelListings: [],
+      variants: [{
+        id: variantId,
+        code: 'KI-001-DEFAULT',
+        displayReference: {
+          type: 'product_variant_code',
+          label: '옵션 코드',
+          value: 'KI-001-DEFAULT',
+        },
+        name: '기본',
+        optionLabel: null,
+        isDefault: true,
+        isActive: true,
+        capacity: 10,
+        warningState: 'none',
+        components: [{
+          id: '00000000-0000-4000-8000-000000000006',
+          sellpiaInventorySkuId: skuId,
+          code: 'SP-001',
+          name: '식판',
+          optionName: null,
+          barcode: null,
+          currentStock: 80,
+          activeCommitmentQuantity: 16,
+          availableStock: 80,
+          isActive: true,
+          quantity: 8,
+          source: 'manual',
+          confirmedBy: null,
+          confirmedAt: '2026-07-16T00:00:00.000Z',
+        }],
+      }],
+    })).toThrow(/availableStock/i);
   });
 
   it('enforces product and variant code normalization and mutation strictness', () => {

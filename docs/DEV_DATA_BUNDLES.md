@@ -517,7 +517,7 @@ rtk npm run dev
 | `/product-hub` | 기존 상품 운영 센터의 명령 카드·카테고리·필터·지표형 상품 행과 상세 진입이 유지되고, 현재 Sellpia 스냅샷 데이터가 표시되는지 |
 | `/product-hub/options` | `c9e7caf8` 기준 Sellpia 읽기 전용 옵션 표가 검색/필터/페이징과 함께 렌더링되는지 |
 | `/product-hub/matching` | `c9e7caf8` 기준 account 범위 matching queue와 confirmed recipe가 렌더링되는지 |
-| `/rocket-orders` / `/purchase-orders?tab=rocket` | 기존 Rocket 화면의 판단 placeholder와 발주 화면에 동일한 Supply workspace가 배치 변경 없이 연결되고, 완전한 증거 전에는 확정이 비활성인지, 확정/해제가 물리 재고나 provider 제출로 표현되지 않는지 |
+| `/rocket-orders` | 기존 Rocket 화면의 판단 placeholder에 Supply workspace가 연결되고, 완전한 증거 전에는 확정이 비활성인지, 확정/해제가 물리 재고나 provider 제출로 표현되지 않는지. `/purchase-orders`에는 중복 Rocket 화면이 없어야 한다. |
 
 확인 기준:
 

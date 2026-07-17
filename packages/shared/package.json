@@ -115,6 +115,11 @@
       "import": "./dist/channel-account.js",
       "require": "./dist/channel-account.cjs"
     },
+    "./coupang-direct-order": {
+      "types": "./dist/coupang-direct-order.d.ts",
+      "import": "./dist/coupang-direct-order.js",
+      "require": "./dist/coupang-direct-order.cjs"
+    },
     "./channel-sku-matching": {
       "types": "./dist/channel-sku-matching.d.ts",
       "import": "./dist/channel-sku-matching.js",
@@ -124,6 +129,11 @@
       "types": "./dist/channel-sku-availability.d.ts",
       "import": "./dist/channel-sku-availability.js",
       "require": "./dist/channel-sku-availability.cjs"
+    },
+    "./inventory-commitment": {
+      "types": "./dist/inventory-commitment.d.ts",
+      "import": "./dist/inventory-commitment.js",
+      "require": "./dist/inventory-commitment.cjs"
     },
     "./product-operations": {
       "types": "./dist/product-operations.d.ts",
@@ -251,8 +261,10 @@
       "supplier-stats": ["dist/supplier-stats.d.ts"],
       "channel-dashboard": ["dist/channel-dashboard.d.ts"],
       "channel-account": ["dist/channel-account.d.ts"],
+      "coupang-direct-order": ["dist/coupang-direct-order.d.ts"],
       "channel-sku-matching": ["dist/channel-sku-matching.d.ts"],
       "channel-sku-availability": ["dist/channel-sku-availability.d.ts"],
+      "inventory-commitment": ["dist/inventory-commitment.d.ts"],
       "product-operations": ["dist/product-operations.d.ts"],
       "channel-product-matching": ["dist/channel-product-matching.d.ts"],
       "source-import": ["dist/source-import.d.ts"],

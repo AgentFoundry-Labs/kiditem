@@ -53,9 +53,15 @@ function normalizeReviewQuantity(value: string, maxQuantity: number): number {
   return Math.min(maxQuantity, Math.max(0, Math.trunc(parsed)));
 }
 
+function editFingerprint(quantities: Record<string, number>): string {
+  return JSON.stringify(Object.entries(quantities).sort(([left], [right]) =>
+    left.localeCompare(right)));
+}
+
 function collectionIsIncomplete(summary: CollectionRunSummary): boolean {
   const { collection } = summary;
-  return collection.vendorId.length === 0
+  const requiresVendorEvidence = summary.poCount > 0 || summary.rowCount > 0;
+  return (requiresVendorEvidence && collection.vendorId.length === 0)
     || collection.truncated
     || collection.failedPoNumbers.length > 0
     || collection.listPagesRead >= ROCKET_PO_LIST_PAGE_LIMIT
@@ -77,9 +83,6 @@ function aggregateCollectionWarning(
   if (previewReasons.has('vendor_mismatch')) {
     return '선택한 로켓 채널 계정과 수집한 PO의 공급사가 일치하지 않습니다.';
   }
-  if (preview && preview.rows.length === 0 && preview.catalog === null) {
-    return '서버가 수집 결과를 차단했습니다. 수집 완전성과 선택한 채널 계정의 공급사를 확인해 주세요.';
-  }
   return null;
 }
 
@@ -93,6 +96,8 @@ export function RocketPurchaseWorkspace({
   const [to, setTo] = useState(today);
   const [editedQuantities, setEditedQuantities] = useState<Record<string, number>>({});
   const [preview, setPreview] = useState<RocketPurchasePreviewResponse | null>(null);
+  const [previewDirty, setPreviewDirty] = useState(false);
+  const [validatedEditFingerprint, setValidatedEditFingerprint] = useState('');
   const [sourceRows, setSourceRows] = useState<RocketPoCatalogRow[]>([]);
   const [collectionRun, setCollectionRun] = useState<CollectionRunSummary | null>(null);
   const [shortageReasons, setShortageReasons] = useState<Record<string, RocketShortageReason>>({});
@@ -129,42 +134,54 @@ export function RocketPurchaseWorkspace({
         if (!Object.hasOwn(editedQuantities, row.poLineId)) return [];
         return [[row.poLineId, editedQuantities[row.poLineId]!]];
       }));
-      const currentCapacity = await previewRocketPurchases({
+      const result = await previewRocketPurchases({
         channelAccountId,
         collection: collected.collection,
         rows: collected.rows,
-        editedQuantities: {},
+        editedQuantities: retainedEdits,
+        clampEditedQuantities: true,
       });
-      const currentMaxByLine = new Map(currentCapacity.rows.map((row) =>
-        [row.poLineId, row.maxQuantity]));
-      const clampedEdits = Object.fromEntries(Object.entries(retainedEdits).flatMap(
-        ([poLineId, editedQuantity]) => {
-          const currentMax = currentMaxByLine.get(poLineId);
-          return currentMax === undefined
-            ? []
-            : [[poLineId, Math.min(editedQuantity, currentMax)]];
-        },
-      ));
-      const result = Object.keys(clampedEdits).length === 0
-        ? currentCapacity
-        : await previewRocketPurchases({
-            channelAccountId,
-            collection: collected.collection,
-            rows: collected.rows,
-            editedQuantities: clampedEdits,
-            clampEditedQuantities: true,
-          });
-      setEditedQuantities(Object.fromEntries(result.rows.flatMap((row) =>
-        row.editedQuantity === null
-          ? []
-          : [[row.poLineId, row.editedQuantity]],
-      )));
+      const effectiveEdits = Object.fromEntries(result.rows.map((row) => [
+        row.poLineId,
+        row.editedQuantity ?? row.recommendedQuantity,
+      ]));
+      setEditedQuantities(effectiveEdits);
+      setValidatedEditFingerprint(editFingerprint(effectiveEdits));
+      setPreviewDirty(false);
       setSourceRows(collected.rows);
       setConfirmationKey(globalThis.crypto.randomUUID());
       setShortageReasons({});
       setPreview(result);
     } catch (cause) {
       setError(friendlyError(cause) ?? '로켓 발주 미리보기를 계산하지 못했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const revalidateEditedQuantities = async () => {
+    if (!collectionRun || sourceRows.length === 0) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await previewRocketPurchases({
+        channelAccountId,
+        collection: collectionRun.collection,
+        rows: sourceRows,
+        editedQuantities,
+        clampEditedQuantities: true,
+      });
+      const effectiveEdits = Object.fromEntries(result.rows.map((row) => [
+        row.poLineId,
+        row.editedQuantity ?? row.recommendedQuantity,
+      ]));
+      setPreview(result);
+      setEditedQuantities(effectiveEdits);
+      setValidatedEditFingerprint(editFingerprint(effectiveEdits));
+      setPreviewDirty(false);
+    } catch (cause) {
+      setPreviewDirty(true);
+      setError(friendlyError(cause) ?? '수량을 다시 검증하지 못했습니다.');
     } finally {
       setLoading(false);
     }
@@ -182,6 +199,8 @@ export function RocketPurchaseWorkspace({
     && preview.rows.length > 0
     && sourceRows.length === preview.rows.length
     && sourceRows.every((row) => row.confirmation && row.barcode.length > 0)
+    && !previewDirty
+    && validatedEditFingerprint === editFingerprint(reviewedQuantities)
     && preview.rows.every((row) => (
       (reviewedQuantities[row.poLineId] ?? 0) >= row.orderQuantity
       || Boolean(shortageReasons[row.poLineId])
@@ -307,6 +326,16 @@ export function RocketPurchaseWorkspace({
           >
             {loading ? '계산 중' : '미리보기 다시 계산'}
           </button>
+          {preview?.rows.length ? (
+            <button
+              type="button"
+              disabled={!previewDirty || loading || confirming}
+              onClick={() => void revalidateEditedQuantities()}
+              className="whitespace-nowrap rounded-lg border border-violet-300 px-4 py-2 text-sm font-semibold text-violet-700 disabled:opacity-40"
+            >
+              {loading && previewDirty ? '검증 중' : '수량 다시 검증'}
+            </button>
+          ) : null}
           <button
             type="button"
             disabled={(!canConfirm && !canRedownload) || confirming || loading}
@@ -322,7 +351,9 @@ export function RocketPurchaseWorkspace({
               ? `확정 완료 · 구성품 ${confirmation.totals.allocatedQuantity}개 예약 (실재고 반영 또는 취소 후 예약 종료)`
               : confirmation?.status === 'released'
                 ? '예약 종료됨 · 다시 계산해 주세요.'
-                : canConfirm
+                : previewDirty
+                  ? '수량이 변경되었습니다. 전체 수량을 다시 검증해 주세요.'
+                  : canConfirm
                   ? '확정 시 구성품 재고를 예약하고 엑셀을 생성합니다.'
                   : '미리보기 검토 후 확정할 수 있습니다.'}
           </span>
@@ -389,26 +420,36 @@ export function RocketPurchaseWorkspace({
                 해당 기간에 검토할 로켓 PO가 없습니다.
               </p>
               <p className="mt-1 text-xs text-[var(--text-tertiary,#94a3b8)]">
-                조회 기간과 주문 상태를 바꾼 뒤 다시 계산해 보세요.
+                거래확인서요청 상태만 검토합니다. 조회 기간을 바꾼 뒤 다시 계산해 보세요.
               </p>
             </>
           )}
         </div>
       ) : preview ? (
         <div className="overflow-x-auto rounded-xl border border-[var(--border,#e2e8f0)] bg-[var(--surface,#fff)]">
-          <table className="w-full min-w-[1080px] table-fixed text-sm">
+          <p className="border-b border-[var(--border,#e2e8f0)] bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-800">
+            공유 재고는 빠른 납품예정일 → PO 번호 → 라인 순서로 배분됩니다.
+          </p>
+          <table className="w-full min-w-[1480px] table-fixed text-sm">
             <colgroup>
-              <col className="w-[12%]" />
-              <col className="w-[28%]" />
-              <col className="w-[10%]" />
-              <col className="w-[12%]" />
-              <col className="w-[22%]" />
+              <col className="w-[9%]" />
+              <col className="w-[20%]" />
+              <col className="w-[9%]" />
+              <col className="w-[7%]" />
+              <col className="w-[7%]" />
+              <col className="w-[7%]" />
+              <col className="w-[8%]" />
+              <col className="w-[17%]" />
               <col className="w-[16%]" />
             </colgroup>
             <thead className="bg-[var(--surface-sunken,#f8fafc)] text-left text-[var(--text-secondary,#475569)]">
               <tr>
                 <th className="px-3 py-2">PO</th>
                 <th className="px-3 py-2">상품</th>
+                <th className="px-3 py-2">납품예정일</th>
+                <th className="px-3 py-2 text-right">현재고</th>
+                <th className="px-3 py-2 text-right">약정</th>
+                <th className="px-3 py-2 text-right">가용재고</th>
                 <th className="px-3 py-2">발주수량</th>
                 <th className="px-3 py-2">검토수량</th>
                 <th className="px-3 py-2">납품부족사유</th>
@@ -418,9 +459,13 @@ export function RocketPurchaseWorkspace({
             <tbody>
               {preview.rows.map((row) => (
                 <tr key={row.poLineId} className="border-t border-[var(--border,#e2e8f0)]">
-                  <td className="overflow-hidden break-all px-3 py-2 font-mono text-xs">{row.poNumber}</td>
-                  <td className="overflow-hidden break-words px-3 py-2">{row.productName}</td>
-                  <td className="px-3 py-2">{row.orderQuantity}</td>
+                  <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">{row.poNumber}</td>
+                  <td className="overflow-hidden px-3 py-2"><span className="block truncate" title={row.productName}>{row.productName}</span></td>
+                  <td className="whitespace-nowrap px-3 py-2">{row.plannedDeliveryDate}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{row.components.length ? row.components.map((component) => component.currentStock).join(' / ') : '—'}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{row.components.length ? row.components.map((component) => component.activeCommitmentQuantity).join(' / ') : '—'}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums">{row.components.length ? row.components.map((component) => component.availableStock).join(' / ') : '—'}</td>
+                  <td className="whitespace-nowrap px-3 py-2">{row.orderQuantity}</td>
                   <td className="px-3 py-2">
                     <input
                       aria-label={`${row.poNumber} 검토수량`}
@@ -438,6 +483,7 @@ export function RocketPurchaseWorkspace({
                           ...current,
                           [row.poLineId]: quantity,
                         }));
+                        setPreviewDirty(true);
                         setShortageReasons((current) => {
                           if (quantity >= row.orderQuantity) {
                             const { [row.poLineId]: _removed, ...rest } = current;

@@ -10,6 +10,8 @@ import {
   type CreateProductVariantInput,
   type UpdateMasterProductInput,
   type UpdateProductVariantInput,
+  type ProductDepletionProjection,
+  type ProductOperationsListSummary,
 } from '@kiditem/shared/product-operations';
 import type { ProductOperationsPort } from '../port/in/product-operations.port';
 import {
@@ -17,28 +19,77 @@ import {
   type NormalizedCreateProductVariant,
   type ProductOperationsRepositoryPort,
 } from '../port/out/repository/product-operations.repository.port';
+import {
+  INVENTORY_AVAILABILITY_PORT,
+  type InventoryAvailabilityPort,
+} from '../../../inventory/application/port/in/stock/inventory-availability.port';
+import {
+  SELLPIA_PRODUCT_DEPLETION_READ_PORT,
+  type SellpiaProductDepletionReadPort,
+} from '../../../analytics/sellpia-product-sales/sellpia-product-depletion-read.port';
+import {
+  mapProductOperationsDetail,
+  mapProductOperationsListItem,
+  mapProductOperationsVariant,
+} from '../../mapper/product-operations-inventory.mapper';
 
 @Injectable()
 export class ProductOperationsService implements ProductOperationsPort {
   constructor(
     @Inject(PRODUCT_OPERATIONS_REPOSITORY_PORT)
     private readonly repository: ProductOperationsRepositoryPort,
+    @Inject(INVENTORY_AVAILABILITY_PORT)
+    private readonly inventory: InventoryAvailabilityPort,
+    @Inject(SELLPIA_PRODUCT_DEPLETION_READ_PORT)
+    private readonly depletion: SellpiaProductDepletionReadPort,
   ) {}
 
-  listProducts(organizationId: string, rawQuery: unknown) {
+  async listProducts(organizationId: string, rawQuery: unknown) {
     const query = parseOrBadRequest(
       MasterProductOperationsListQuerySchema,
       rawQuery,
       'Invalid product operations query',
     );
-    return this.repository.listProducts(organizationId, query);
+    const raw = await this.repository.listProducts(organizationId, query);
+    const inventoryBySkuId = await this.loadInventory(
+      organizationId,
+      raw.items.flatMap(({ variants }) => variants),
+    );
+    const placeholder = noDirectSales();
+    const hydrated = raw.items.map((item) =>
+      mapProductOperationsListItem(item, inventoryBySkuId, placeholder));
+    const filtered = query.inventoryStatus
+      ? hydrated.filter(({ inventoryStatus }) =>
+        inventoryStatus === query.inventoryStatus)
+      : hydrated;
+    const summaryMasterProductIds = filtered.map(({ id }) => id);
+    const depletionByMasterProductId = await this.depletion.findByMasterProductIds({
+      organizationId,
+      masterProductIds: summaryMasterProductIds,
+    });
+    const items = filtered.map((item) => ({
+      ...item,
+      depletion: depletionByMasterProductId.get(item.id) ?? placeholder,
+    }));
+    const offset = (query.page - 1) * query.limit;
+    return {
+      items: items.slice(offset, offset + query.limit),
+      total: items.length,
+      page: query.page,
+      limit: query.limit,
+      summary: summarizeProducts(items),
+    };
   }
 
-  getProduct(organizationId: string, masterProductId: string) {
-    return this.repository.getProduct(organizationId, masterProductId);
+  async getProduct(organizationId: string, masterProductId: string) {
+    const product = await this.repository.getProduct(organizationId, masterProductId);
+    return mapProductOperationsDetail(
+      product,
+      await this.loadInventory(organizationId, product.variants),
+    );
   }
 
-  createProduct(
+  async createProduct(
     organizationId: string,
     userId: string,
     rawInput: unknown,
@@ -56,14 +107,18 @@ export class ProductOperationsService implements ProductOperationsPort {
       isActive: true,
       components: [],
     }];
-    return this.repository.createProduct({
+    const product = await this.repository.createProduct({
       organizationId,
       userId,
       product: { ...input, variants },
     });
+    return mapProductOperationsDetail(
+      product,
+      await this.loadInventory(organizationId, product.variants),
+    );
   }
 
-  updateProduct(
+  async updateProduct(
     organizationId: string,
     masterProductId: string,
     rawInput: unknown,
@@ -73,10 +128,18 @@ export class ProductOperationsService implements ProductOperationsPort {
       rawInput,
       'Invalid MasterProduct update',
     );
-    return this.repository.updateProduct(organizationId, masterProductId, input);
+    const product = await this.repository.updateProduct(
+      organizationId,
+      masterProductId,
+      input,
+    );
+    return mapProductOperationsDetail(
+      product,
+      await this.loadInventory(organizationId, product.variants),
+    );
   }
 
-  createVariant(
+  async createVariant(
     organizationId: string,
     userId: string,
     masterProductId: string,
@@ -87,15 +150,19 @@ export class ProductOperationsService implements ProductOperationsPort {
       rawInput,
       'Invalid ProductVariant creation',
     );
-    return this.repository.createVariant({
+    const variant = await this.repository.createVariant({
       organizationId,
       userId,
       masterProductId,
       variant: normalizeVariant(input),
     });
+    return mapProductOperationsVariant(
+      variant,
+      await this.loadInventory(organizationId, [variant]),
+    );
   }
 
-  updateVariant(
+  async updateVariant(
     organizationId: string,
     productVariantId: string,
     rawInput: unknown,
@@ -105,7 +172,15 @@ export class ProductOperationsService implements ProductOperationsPort {
       rawInput,
       'Invalid ProductVariant update',
     );
-    return this.repository.updateVariant(organizationId, productVariantId, input);
+    const variant = await this.repository.updateVariant(
+      organizationId,
+      productVariantId,
+      input,
+    );
+    return mapProductOperationsVariant(
+      variant,
+      await this.loadInventory(organizationId, [variant]),
+    );
   }
 
   async replaceRecipe(
@@ -119,14 +194,88 @@ export class ProductOperationsService implements ProductOperationsPort {
       rawInput,
       'Invalid ProductVariant recipe replacement',
     );
-    return this.repository.replaceRecipe({
+    const variant = await this.repository.replaceRecipe({
       organizationId,
       userId,
       productVariantId,
       components: input.components,
       expectedRecipe: input.expectedRecipe,
     });
+    return mapProductOperationsVariant(
+      variant,
+      await this.loadInventory(organizationId, [variant]),
+    );
   }
+
+  private async loadInventory(
+    organizationId: string,
+    variants: Array<{ components: Array<{ sellpiaInventorySkuId: string }> }>,
+  ) {
+    const sellpiaInventorySkuIds = [...new Set(variants.flatMap(({ components }) =>
+      components.map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId)))].sort(
+        (left, right) => left.localeCompare(right),
+      );
+    const availability = await this.inventory.findBySkuIds({
+      organizationId,
+      sellpiaInventorySkuIds,
+    });
+    return new Map(availability.items.map((item) => [
+      item.sellpiaInventorySkuId,
+      item,
+    ]));
+  }
+}
+
+function noDirectSales(): ProductDepletionProjection {
+  return {
+    coverage: 'no_direct_sales',
+    needsReorder: false,
+    reorderSkuCount: 0,
+    minMonthsOfAvailableStockLeft: null,
+  };
+}
+
+function summarizeProducts(
+  products: Array<ReturnType<typeof mapProductOperationsListItem>>,
+): ProductOperationsListSummary {
+  return products.reduce<ProductOperationsListSummary>((counts, product) => {
+    if (
+      product.abcGrade === 'A'
+      || product.abcGrade === 'B'
+      || product.abcGrade === 'C'
+    ) {
+      counts.abcGradeCounts[product.abcGrade] += 1;
+    }
+    counts.channelConnectionCounts[
+      product.channelCount > 0 ? 'connected' : 'unconnected'
+    ] += 1;
+    counts.inventoryStatusCounts[product.inventoryStatus] += 1;
+    if (product.profit !== null && product.profit < 0) {
+      counts.negativeProfitCount += 1;
+    }
+    if (product.depletion.needsReorder) counts.reorderProductCount += 1;
+    if (product.depletion.coverage !== 'no_direct_sales') {
+      counts.depletionCoveredProductCount += 1;
+    }
+    if (product.depletion.coverage === 'shared') {
+      counts.sharedDepletionProductCount += 1;
+    }
+    return counts;
+  }, {
+    abcGradeCounts: { A: 0, B: 0, C: 0 },
+    channelConnectionCounts: { connected: 0, unconnected: 0 },
+    inventoryStatusCounts: {
+      sellable: 0,
+      partial_out_of_stock: 0,
+      out_of_stock: 0,
+      configuration_required: 0,
+      review_required: 0,
+    },
+    negativeProfitCount: 0,
+    reorderProductCount: 0,
+    depletionCoveredProductCount: 0,
+    sharedDepletionProductCount: 0,
+  });
 }
 
 function normalizeVariant(

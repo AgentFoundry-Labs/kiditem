@@ -4,26 +4,18 @@ import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
 import type { OrderCollectionExtensionRun } from './order-collection-extension';
+import type {
+  CoupangDirectOrderCollectionRequest,
+  CoupangDirectOrderItem,
+  CoupangDirectPurchaseOrder,
+} from '@kiditem/shared/coupang-direct-order';
 
-export interface CoupangDirectItem {
-  skuId?: string;
-  barcode?: string;
-  name?: string;
-  qty?: number;
-  amount?: number;
-}
-export interface CoupangDirectPo {
-  seq?: string | number;
-  center?: string;
-  transport?: string; // SHIPMENT | MILKRUN
-  edd?: string;
-  reg?: string;
-  items?: CoupangDirectItem[];
-}
-export interface CoupangDirectData {
-  pos: CoupangDirectPo[];
-  centers: Record<string, { addr?: string; zip?: string | number; contact?: string }>;
-}
+export type CoupangDirectItem = CoupangDirectOrderItem;
+export type CoupangDirectPo = CoupangDirectPurchaseOrder;
+export type CoupangDirectData = Pick<
+  CoupangDirectOrderCollectionRequest,
+  'pos' | 'centers'
+>;
 
 interface CoupangCollectResponse {
   success?: boolean;
@@ -70,12 +62,21 @@ export async function collectCoupangDirectFromExtension(run?: OrderCollectionExt
 export async function convertCoupangDirectToSellpiaFile(
   data: CoupangDirectData,
   transport: CoupangTransport,
-  options?: { download?: boolean; signal?: AbortSignal },
+  options: {
+    channelAccountId: string;
+    download?: boolean;
+    signal?: AbortSignal;
+  },
 ): Promise<OrderCollectionConversionResult> {
   const res = await apiClient.fetchRaw('/api/orders/collection/coupang-directship/convert', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ pos: data.pos, centers: data.centers, transport }),
+    body: JSON.stringify({
+      channelAccountId: options.channelAccountId,
+      pos: data.pos,
+      centers: data.centers,
+      transport,
+    }),
     signal: options?.signal,
   });
   if (!res.ok) {
@@ -96,6 +97,8 @@ export async function convertCoupangDirectToSellpiaFile(
     productRows: numHeader(res, 'X-Order-Collection-Product-Rows'),
     outputRows: numHeader(res, 'X-Order-Collection-Output-Rows'),
     skippedRows: numHeader(res, 'X-Order-Collection-Skipped-Rows'),
+    importRunId: res.headers.get('X-Order-Collection-Import-Run-Id'),
+    reconciledRows: numHeader(res, 'X-Order-Collection-Reconciled-Rows'),
   };
 }
 

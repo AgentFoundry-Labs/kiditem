@@ -3,6 +3,7 @@ import { recordRocketReadModelRelease } from "./v0.1.6/001_record_rocket_read_mo
 import { recordSellpiaRocketInventorySyncRelease } from "./v0.1.7/001_record_sellpia_rocket_inventory_sync_release";
 import { migrateRepresentativeKeywordOverrides } from "./v0.1.18/001_migrate_representative_keyword_overrides";
 import { sellpiaInventoryFreshnessMigration } from "./v0.1.19/001_sellpia_inventory_freshness";
+import { backfillInventoryCommitments } from "./v0.1.21/001_backfill_inventory_commitments";
 import type { DataMigration } from "./types";
 
 export {
@@ -20,6 +21,7 @@ export const dataMigrations: readonly DataMigration[] = [
   recordSellpiaRocketInventorySyncRelease,
   migrateRepresentativeKeywordOverrides,
   sellpiaInventoryFreshnessMigration,
+  backfillInventoryCommitments,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(

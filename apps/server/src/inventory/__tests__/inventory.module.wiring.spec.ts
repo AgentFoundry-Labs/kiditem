@@ -17,6 +17,7 @@ import { SellpiaImportRunRepositoryAdapter } from '../adapter/out/repository/sel
 import { SellpiaSnapshotPublicationRepositoryAdapter } from '../adapter/out/repository/sellpia-snapshot-publication.repository.adapter';
 import { SellpiaInventoryFreshnessRepositoryAdapter } from '../adapter/out/repository/sellpia-inventory-freshness.repository.adapter';
 import { InventorySkuSnapshotListRepositoryAdapter } from '../adapter/out/repository/inventory-sku-snapshot-list.repository.adapter';
+import { InventoryCommitmentRepositoryAdapter } from '../adapter/out/repository/inventory-commitment.repository.adapter';
 import { SellpiaInventorySkuReadRepositoryAdapter } from '../adapter/out/repository/sellpia-inventory-sku-read.repository.adapter';
 import { PickingRepositoryAdapter } from '../adapter/out/repository/picking.repository.adapter';
 import { SellpiaReceiptBatchRepositoryAdapter } from '../adapter/out/repository/sellpia-receipt-batch.repository.adapter';
@@ -24,6 +25,8 @@ import { TransfersRepositoryAdapter } from '../adapter/out/repository/transfers.
 import { UnshippedRepositoryAdapter } from '../adapter/out/repository/unshipped.repository.adapter';
 import { WarehousesRepositoryAdapter } from '../adapter/out/repository/warehouses.repository.adapter';
 import { INVENTORY_SKU_SNAPSHOT_LIST_PORT } from '../application/port/in/stock/inventory-sku-snapshot-list.port';
+import { INVENTORY_AVAILABILITY_PORT } from '../application/port/in/stock/inventory-availability.port';
+import { INVENTORY_COMMITMENT_PORT } from '../application/port/in/stock/inventory-commitment.port';
 import { SELLPIA_INVENTORY_SKU_READ_PORT } from '../application/port/in/stock/sellpia-inventory-sku-read.port';
 import { SELLPIA_INVENTORY_IMPORT_PORT } from '../application/port/in/stock/sellpia-inventory-import.port';
 import { SELLPIA_RECEIPT_BATCH_PORT } from '../application/port/in/stock/sellpia-receipt-batch.port';
@@ -34,10 +37,12 @@ import { CONFIRMED_CHANNEL_COMPONENT_REFERENCE_PORT } from '../application/port/
 import { SELLPIA_IMPORT_RUN_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-import-run.repository.port';
 import { SELLPIA_SNAPSHOT_PUBLICATION_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-snapshot-publication.repository.port';
 import { INVENTORY_SKU_SNAPSHOT_LIST_REPOSITORY_PORT } from '../application/port/out/repository/inventory-sku-snapshot-list.repository.port';
+import { INVENTORY_COMMITMENT_REPOSITORY_PORT } from '../application/port/out/repository/inventory-commitment.repository.port';
 import { SELLPIA_INVENTORY_SKU_READ_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-inventory-sku-read.repository.port';
 import { SELLPIA_RECEIPT_BATCH_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-receipt-batch.repository.port';
 import { SELLPIA_INVENTORY_FRESHNESS_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-inventory-freshness.repository.port';
 import { InventorySkuSnapshotListService } from '../application/service/inventory-sku-snapshot-list.service';
+import { InventoryCommitmentService } from '../application/service/inventory-commitment.service';
 import { SellpiaInventorySkuReadService } from '../application/service/sellpia-inventory-sku-read.service';
 import { PickingService } from '../application/service/picking.service';
 import { SellpiaInventoryImportService } from '../application/service/sellpia-inventory-import.service';
@@ -100,6 +105,7 @@ describe('InventoryModule authoritative capability wiring', () => {
       ConfirmedChannelComponentReferenceRepositoryAdapter,
       SellpiaInventoryFreshnessRepositoryAdapter,
       InventorySkuSnapshotListRepositoryAdapter,
+      InventoryCommitmentRepositoryAdapter,
       SellpiaInventorySkuReadRepositoryAdapter,
       SellpiaReceiptBatchRepositoryAdapter,
       UnshippedRepositoryAdapter,
@@ -108,6 +114,7 @@ describe('InventoryModule authoritative capability wiring', () => {
       PickingRepositoryAdapter,
       ConfirmedOrdersRepositoryAdapter,
       InventorySkuSnapshotListService,
+      InventoryCommitmentService,
       SellpiaInventorySkuReadService,
       SellpiaInventoryImportService,
       SellpiaInventoryFileValidator,
@@ -140,6 +147,20 @@ describe('InventoryModule authoritative capability wiring', () => {
       provide: SELLPIA_INVENTORY_SKU_READ_REPOSITORY_PORT,
       useExisting: SellpiaInventorySkuReadRepositoryAdapter,
     });
+  });
+
+  it('binds and exports common availability and commitment ownership', () => {
+    const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, InventoryModule) ?? [];
+    expect(providers).toContainEqual({
+      provide: INVENTORY_COMMITMENT_REPOSITORY_PORT,
+      useExisting: InventoryCommitmentRepositoryAdapter,
+    });
+    for (const port of [INVENTORY_AVAILABILITY_PORT, INVENTORY_COMMITMENT_PORT]) {
+      expect(providers).toContainEqual({
+        provide: port,
+        useExisting: InventoryCommitmentService,
+      });
+    }
   });
 
   it('keeps the Sellpia importer and receipt tracker isolated', () => {
@@ -190,6 +211,8 @@ describe('InventoryModule authoritative capability wiring', () => {
       SELLPIA_INVENTORY_SKU_READ_PORT,
       SELLPIA_INVENTORY_REFRESH_REQUEST_PORT,
       SELLPIA_INVENTORY_FRESHNESS_GATE_PORT,
+      INVENTORY_AVAILABILITY_PORT,
+      INVENTORY_COMMITMENT_PORT,
     ]);
   });
 

@@ -31,6 +31,7 @@ import {
   toFreshnessView,
   type SellpiaInventoryFreshnessState,
 } from '../../domain/policy/sellpia-inventory-freshness.policy';
+import { calculateAvailableStock } from '../../domain/policy/inventory-commitment-state';
 import type {
   SellpiaInventoryClaimResponse,
   SellpiaInventoryCollectionFailureCode,
@@ -436,6 +437,8 @@ implements
     inventorySkus: Array<{
       sellpiaInventorySkuId: string;
       currentStock: number;
+      activeCommitmentQuantity: number;
+      availableStock: number;
       isActive: boolean;
     }>;
   }> {
@@ -451,6 +454,11 @@ implements
         return {
           sellpiaInventorySkuId,
           currentStock: sku.currentStock,
+          activeCommitmentQuantity: sku.activeCommitmentQuantity,
+          availableStock: calculateAvailableStock(
+            sku.currentStock,
+            sku.activeCommitmentQuantity,
+          ),
           isActive: sku.isActive,
         };
       }),
@@ -463,7 +471,12 @@ implements
   }): Promise<{
     state: SellpiaInventoryFreshnessState;
     sellpiaInventorySkuIds: string[];
-    inventorySkus: Array<{ id: string; isActive: boolean; currentStock: number }>;
+    inventorySkus: Array<{
+      id: string;
+      isActive: boolean;
+      currentStock: number;
+      activeCommitmentQuantity: number;
+    }>;
   }> {
     if (
       input.sellpiaInventorySkuIds.length === 0

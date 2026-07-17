@@ -37,6 +37,10 @@ Consult this document first instead of relying on memorized knowledge.
 - Command-center counts use the list response summary for the full filtered
   result. Do not label or calculate command-center metrics as current-page
   values; pagination applies only to the product rows.
+- Reorder counts and row badges use the Analytics-owned depletion projection
+  hydrated by Products. Link the evidence to
+  `/stock-ops?tab=product-outflow`; label shared coverage as `공유 SKU 기준`.
+  Do not synthesize an imminent-stock threshold when no policy exists.
 - Search, filters, period, and page on `/product-hub` are URL-authoritative.
 - Product create/edit mutations invalidate only the product operations list and
   affected detail keys.
@@ -63,6 +67,9 @@ Consult this document first instead of relying on memorized knowledge.
 - Product list/detail never read `/api/inventory/sellpia-skus`; options is the
   only product-hub route that owns the Sellpia inventory collection. The detail
   recipe picker uses the Products-owned focused candidate endpoint.
+- Product operations and product-outflow remain separate screens over the same
+  depletion projection. Manual `MasterProduct.abcGrade` is not overwritten by
+  sales-derived ABC.
 - Do not create catalog-owned stock balances or editable Sellpia stock/price
   inputs.
 - Do not infer product, variant, or recipe identity from display text.

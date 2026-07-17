@@ -6,23 +6,17 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
-  MasterProductOperationsDetail,
-  MasterProductOperationsListItem,
   MasterProductOperationsListQuery,
-  ProductOperationsListSummary,
-  ProductVariantDetail,
   ReplaceProductVariantRecipeInput,
 } from '@kiditem/shared/product-operations';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import {
-  projectProductInventory,
-  projectVariantCapacity,
-  type VariantCapacityComponent,
-} from '../../../domain/product-variant-capacity';
 import type {
   NormalizedCreateMasterProduct,
   NormalizedCreateProductVariant,
+  ProductOperationsRepositoryDetail,
+  ProductOperationsRepositoryListItem,
   ProductOperationsRepositoryPort,
+  ProductOperationsRepositoryVariant,
 } from '../../../application/port/out/repository/product-operations.repository.port';
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
@@ -66,8 +60,6 @@ function productInclude(organizationId: string, periodStart?: Date) {
                 name: true,
                 optionName: true,
                 barcode: true,
-                currentStock: true,
-                isActive: true,
               },
             },
           },
@@ -123,48 +115,17 @@ implements ProductOperationsRepositoryPort {
       include: productInclude(organizationId, periodStart),
       orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
     });
-    const projected = rows.map((row) =>
-      toListItem(row, periodStart),
-    );
-    const filtered = query.inventoryStatus
-      ? projected.filter((row) => row.inventoryStatus === query.inventoryStatus)
-      : projected;
-    const offset = (query.page - 1) * query.limit;
-    const summary = filtered.reduce<ProductOperationsListSummary>((counts, row) => {
-      if (row.abcGrade === 'A' || row.abcGrade === 'B' || row.abcGrade === 'C') {
-        counts.abcGradeCounts[row.abcGrade] += 1;
-      }
-      counts.channelConnectionCounts[
-        row.channelCount > 0 ? 'connected' : 'unconnected'
-      ] += 1;
-      counts.inventoryStatusCounts[row.inventoryStatus] += 1;
-      if (row.profit !== null && row.profit < 0) counts.negativeProfitCount += 1;
-      return counts;
-    }, {
-      abcGradeCounts: { A: 0, B: 0, C: 0 },
-      channelConnectionCounts: { connected: 0, unconnected: 0 },
-      inventoryStatusCounts: {
-        sellable: 0,
-        partial_out_of_stock: 0,
-        out_of_stock: 0,
-        configuration_required: 0,
-        review_required: 0,
-      },
-      negativeProfitCount: 0,
-    });
     return {
-      items: filtered.slice(offset, offset + query.limit),
-      total: filtered.length,
+      items: rows.map((row) => toListItem(row, periodStart)),
       page: query.page,
       limit: query.limit,
-      summary,
     };
   }
 
   async getProduct(
     organizationId: string,
     masterProductId: string,
-  ): Promise<MasterProductOperationsDetail> {
+  ): Promise<ProductOperationsRepositoryDetail> {
     const row = await this.prisma.masterProduct.findFirst({
       where: { id: masterProductId, organizationId },
       include: productInclude(organizationId),
@@ -177,7 +138,7 @@ implements ProductOperationsRepositoryPort {
     organizationId: string;
     userId: string;
     product: NormalizedCreateMasterProduct;
-  }): Promise<MasterProductOperationsDetail> {
+  }): Promise<ProductOperationsRepositoryDetail> {
     try {
       const masterProductId = await this.prisma.$transaction(async (tx) => {
         for (const variant of input.product.variants) {
@@ -213,7 +174,7 @@ implements ProductOperationsRepositoryPort {
     organizationId: string,
     masterProductId: string,
     input: Parameters<ProductOperationsRepositoryPort['updateProduct']>[2],
-  ): Promise<MasterProductOperationsDetail> {
+  ): Promise<ProductOperationsRepositoryDetail> {
     try {
       const result = await this.prisma.masterProduct.updateMany({
         where: { id: masterProductId, organizationId },
@@ -234,7 +195,7 @@ implements ProductOperationsRepositoryPort {
     userId: string;
     masterProductId: string;
     variant: NormalizedCreateProductVariant;
-  }): Promise<ProductVariantDetail> {
+  }): Promise<ProductOperationsRepositoryVariant> {
     try {
       const variantId = await this.prisma.$transaction(async (tx) => {
         const product = await tx.masterProduct.findFirst({
@@ -258,7 +219,7 @@ implements ProductOperationsRepositoryPort {
     organizationId: string,
     productVariantId: string,
     input: Parameters<ProductOperationsRepositoryPort['updateVariant']>[2],
-  ): Promise<ProductVariantDetail> {
+  ): Promise<ProductOperationsRepositoryVariant> {
     try {
       await this.prisma.$transaction(async (tx) => {
         const variant = await tx.productVariant.findFirst({
@@ -293,7 +254,7 @@ implements ProductOperationsRepositoryPort {
     productVariantId: string;
     components: Array<{ sellpiaInventorySkuId: string; quantity: number }>;
     expectedRecipe: ReplaceProductVariantRecipeInput['expectedRecipe'];
-  }): Promise<ProductVariantDetail> {
+  }): Promise<ProductOperationsRepositoryVariant> {
     try {
       await this.prisma.$transaction(async (tx) => {
         const variant = await lockProductVariant(
@@ -353,7 +314,7 @@ implements ProductOperationsRepositoryPort {
   private async getVariant(
     organizationId: string,
     productVariantId: string,
-  ): Promise<ProductVariantDetail> {
+  ): Promise<ProductOperationsRepositoryVariant> {
     const row = await this.prisma.productVariant.findFirst({
       where: { id: productVariantId, organizationId },
       include: {
@@ -499,14 +460,11 @@ async function createVariantRow(
   return variant.id;
 }
 
-function toDetail(row: ProductRow): MasterProductOperationsDetail {
-  const inventory = projectProductInventory(row.variants.map(toInventoryVariant));
+function toDetail(row: ProductRow): ProductOperationsRepositoryDetail {
   return {
     ...metadata(row),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
-    inventoryStatus: inventory.inventoryStatus,
-    inventoryUnits: inventory.inventoryUnits,
     channelListings: row.channelListings.map((listing) => ({
       id: listing.id,
       channelAccountId: listing.channelAccountId,
@@ -522,11 +480,12 @@ function toDetail(row: ProductRow): MasterProductOperationsDetail {
   };
 }
 
-function toListItem(row: ProductRow, periodStart: Date): MasterProductOperationsListItem {
-  const inventory = projectProductInventory(row.variants.map(toInventoryVariant));
+function toListItem(
+  row: ProductRow,
+  periodStart: Date,
+): ProductOperationsRepositoryListItem {
   const variants = row.variants.map((variant) =>
     toVariantDetail(variant, row.originChannelListingId));
-  const activeVariants = variants.filter((variant) => variant.isActive);
   const activeListings = row.channelListings.filter((listing) => listing.isActive);
   const dailyFacts = row.channelListings.flatMap(
     (listing) => listing.channelListingDailySnapshots,
@@ -537,14 +496,7 @@ function toListItem(row: ProductRow, periodStart: Date): MasterProductOperations
   return {
     ...metadata(row),
     updatedAt: row.updatedAt,
-    variantSummary: {
-      total: variants.length,
-      active: activeVariants.length,
-      configured: activeVariants.filter((variant) => variant.warningState === 'none').length,
-      warning: activeVariants.filter((variant) => variant.warningState !== 'none').length,
-    },
-    inventoryUnits: inventory.inventoryUnits,
-    inventoryStatus: inventory.inventoryStatus,
+    variants,
     channelCount: activeListings.length,
     channelStatus: activeListings.length === 0
       ? 'unlisted'
@@ -590,29 +542,10 @@ function metadata(row: ProductRow) {
   };
 }
 
-function toInventoryVariant(variant: ProductRow['variants'][number]) {
-  return {
-    isActive: variant.isActive,
-    components: variant.components.map(toCapacityComponent),
-  };
-}
-
-function toCapacityComponent(
-  component: ProductRow['variants'][number]['components'][number],
-): VariantCapacityComponent {
-  return {
-    sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-    currentStock: component.sellpiaInventorySku.currentStock,
-    quantity: component.quantity,
-    isActive: component.sellpiaInventorySku.isActive,
-  };
-}
-
 function toVariantDetail(
   variant: ProductRow['variants'][number],
   originChannelListingId: string | null,
-): ProductVariantDetail {
-  const projection = projectVariantCapacity(variant.components.map(toCapacityComponent));
+): ProductOperationsRepositoryVariant {
   const originOption = originChannelListingId
     ? variant.channelListingOptions.find((option) => option.listingId === originChannelListingId)
     : undefined;
@@ -641,15 +574,11 @@ function toVariantDetail(
       name: component.sellpiaInventorySku.name,
       optionName: component.sellpiaInventorySku.optionName,
       barcode: component.sellpiaInventorySku.barcode,
-      currentStock: component.sellpiaInventorySku.currentStock,
-      isActive: component.sellpiaInventorySku.isActive,
       quantity: component.quantity,
       source: component.source as 'manual' | 'deterministic',
       confirmedBy: component.confirmedBy,
       confirmedAt: component.confirmedAt,
     })),
-    capacity: projection.capacity,
-    warningState: projection.warningState,
   };
 }
 

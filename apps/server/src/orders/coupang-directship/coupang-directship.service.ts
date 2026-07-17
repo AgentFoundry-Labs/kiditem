@@ -5,37 +5,27 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import type {
+  CoupangDirectCenter,
+  CoupangDirectOrderCollectionRequest,
+  CoupangDirectOrderItem,
+  CoupangDirectPurchaseOrder,
+} from '@kiditem/shared/coupang-direct-order';
 
 const execFileAsync = promisify(execFile);
 
 // 쿠팡 발주 상세(품목)와 센터주소를 확장이 수집해 넘긴다. 백엔드는 원본 템플릿 서식(색/볼드/시트5개)을
 // 유지해야 해서 Node(SheetJS) 대신 Python xlutils(generate.py)로 .xls 를 생성한다.
-export interface CoupangDirectItem {
-  skuId?: string;
-  barcode?: string;
-  name?: string;
-  qty?: number;
-  amount?: number; // 총발주매입금 = 결제금액
-}
-export interface CoupangDirectPo {
-  seq?: string | number; // 발주번호
-  center?: string; // 발주센터명(수령자)
-  transport?: string; // SHIPMENT | MILKRUN
-  edd?: string; // 입고예정일
-  reg?: string; // 발주등록일시
-  status?: string; // PA | 발주확정 (없으면 legacy 입력으로 허용)
-  items?: CoupangDirectItem[];
-}
-export interface CoupangDirectCenter {
-  addr?: string;
-  zip?: string | number;
-  contact?: string;
-}
-export interface CoupangDirectInput {
+export type CoupangDirectItem = Partial<CoupangDirectOrderItem>;
+export type CoupangDirectPo = Partial<
+  Omit<CoupangDirectPurchaseOrder, 'items'>
+> & { items?: CoupangDirectItem[] };
+export type CoupangDirectInput = Partial<
+  Omit<CoupangDirectOrderCollectionRequest, 'pos' | 'centers'>
+> & {
   pos?: CoupangDirectPo[];
   centers?: Record<string, CoupangDirectCenter>;
-  transport?: string; // 'SHIPMENT' | 'MILKRUN'
-}
+};
 
 export interface CoupangDirectResult {
   buffer: Buffer;

@@ -14,6 +14,10 @@ import {
   ROCKET_PURCHASE_CONFIRMATION_PORT,
   type RocketPurchaseConfirmationPort,
 } from '../../../application/port/in/procurement/rocket-purchase-confirmation.port';
+import {
+  ROCKET_PURCHASE_COMMITMENT_QUERY_PORT,
+  type RocketPurchaseCommitmentQueryPort,
+} from '../../../application/port/in/procurement/rocket-purchase-commitment-query.port';
 import { ListPurchaseOrdersQueryDto, PurchaseOrderActionBodyDto } from './dto';
 import type { AuthUser } from '../../../../auth/auth.types';
 
@@ -27,6 +31,8 @@ export class ProcurementController {
     private readonly rocketPreview: RocketPurchasePreviewPort,
     @Inject(ROCKET_PURCHASE_CONFIRMATION_PORT)
     private readonly rocketConfirmation: RocketPurchaseConfirmationPort,
+    @Inject(ROCKET_PURCHASE_COMMITMENT_QUERY_PORT)
+    private readonly rocketCommitments: RocketPurchaseCommitmentQueryPort,
   ) {}
 
   @Get()
@@ -119,6 +125,38 @@ export class ProcurementController {
         request: {
           confirmationId: body.confirmationId!,
           reason: body.releaseReason!,
+        },
+      });
+    }
+    if (body.action === 'listRocketCommitments') {
+      return this.rocketCommitments.list({
+        organizationId,
+        request: {
+          ...(body.channelAccountId && {
+            channelAccountId: body.channelAccountId,
+          }),
+          ...(body.cursor && { cursor: body.cursor }),
+          limit: body.limit ?? 50,
+        },
+      });
+    }
+    if (body.action === 'settleRocketFinalOrderCommitments') {
+      return this.rocketCommitments.settleFinalOrders({
+        organizationId,
+        userId: user.id,
+        request: {
+          commitmentIds: body.commitmentIds!,
+          reason: body.reason!,
+        },
+      });
+    }
+    if (body.action === 'releaseRocketFinalOrderCommitments') {
+      return this.rocketCommitments.releaseFinalOrders({
+        organizationId,
+        userId: user.id,
+        request: {
+          commitmentIds: body.commitmentIds!,
+          reason: body.reason!,
         },
       });
     }

@@ -106,11 +106,13 @@ describe('channel SKU availability contracts', () => {
           optionName: null,
           barcode: null,
           currentStock: 80,
+          activeCommitmentQuantity: 16,
+          availableStock: 64,
           purchasePrice: 1_500,
           isActive: true,
           quantity: 8,
           source: 'manual',
-          componentCapacity: 10,
+          componentCapacity: 8,
           isBottleneck: true,
         }],
         warnings: [],
@@ -129,7 +131,7 @@ describe('channel SKU availability contracts', () => {
 
     expect(parsed.items[0]?.components[0]).toMatchObject({
       sellpiaInventorySkuId,
-      componentCapacity: 10,
+      componentCapacity: 8,
       isBottleneck: true,
       purchasePrice: 1_500,
     });
@@ -171,6 +173,8 @@ describe('channel SKU availability contracts', () => {
           optionName: null,
           barcode: null,
           currentStock: 0,
+          activeCommitmentQuantity: 0,
+          availableStock: 0,
           purchasePrice: 1_500,
           isActive: false,
           quantity: 1,

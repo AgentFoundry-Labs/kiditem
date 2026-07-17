@@ -17,6 +17,8 @@ const earlierRow = {
     sellpiaInventorySkuId: 'sellpia-sku-1',
     quantity: 1,
     currentStock: 5,
+    activeCommitmentQuantity: 0,
+    availableStock: 5,
     isActive: true,
   }],
 };
@@ -36,20 +38,56 @@ describe('previewRocketCapacity', () => {
       ['line-later', 1],
     ]);
     expect(rows[1]?.reason).toBe('insufficient_capacity');
+    expect(rows[0]?.plannedDeliveryDate).toBe('2026-07-20');
   });
 
-  it('subtracts active Rocket confirmations before allocating new capacity', () => {
+  it('uses Inventory available stock without subtracting commitments twice', () => {
     const rows = previewRocketCapacity({
-      rows: [earlierRow],
+      rows: [{
+        ...earlierRow,
+        orderQuantity: 100,
+        components: [{
+          ...earlierRow.components[0]!,
+          currentStock: 100,
+          activeCommitmentQuantity: 20,
+          availableStock: 80,
+        }],
+      }],
       editedQuantities: {},
-      committedQuantities: { 'sellpia-sku-1': 3 },
     });
 
     expect(rows[0]).toMatchObject({
-      maxQuantity: 2,
-      recommendedQuantity: 2,
+      maxQuantity: 80,
+      recommendedQuantity: 80,
       reason: 'insufficient_capacity',
     });
+  });
+
+  it('uses numeric PO order and then line ID as same-date tie breakers', () => {
+    const rows = previewRocketCapacity({
+      rows: [
+        { ...earlierRow, poLineId: 'line-10', poNumber: '10', orderQuantity: 1 },
+        { ...earlierRow, poLineId: 'line-2-b', poNumber: '2', orderQuantity: 1 },
+        { ...earlierRow, poLineId: 'line-2-a', poNumber: '2', orderQuantity: 1 },
+      ].map((row) => ({
+        ...row,
+        components: [{
+          ...row.components[0]!,
+          currentStock: 1,
+          availableStock: 1,
+        }],
+      })),
+      editedQuantities: {},
+    });
+
+    expect(rows.map(({ poLineId, recommendedQuantity }) => [
+      poLineId,
+      recommendedQuantity,
+    ])).toEqual([
+      ['line-2-a', 1],
+      ['line-2-b', 0],
+      ['line-10', 0],
+    ]);
   });
 
   it('returns mapping and inactive reasons without allocating capacity', () => {
@@ -88,7 +126,11 @@ describe('previewRocketCapacity', () => {
       name: 'zero capacity',
       row: {
         ...earlierRow,
-        components: [{ ...earlierRow.components[0]!, currentStock: 0 }],
+        components: [{
+          ...earlierRow.components[0]!,
+          currentStock: 0,
+          availableStock: 0,
+        }],
       },
       quantity: 1,
     },
@@ -119,12 +161,20 @@ describe('previewRocketCapacity', () => {
         {
           ...earlierRow,
           orderQuantity: 1,
-          components: [{ ...earlierRow.components[0]!, currentStock: sharedStock }],
+          components: [{
+            ...earlierRow.components[0]!,
+            currentStock: sharedStock,
+            availableStock: sharedStock,
+          }],
         },
         {
           ...laterRow,
           orderQuantity: 1,
-          components: [{ ...laterRow.components[0]!, currentStock: sharedStock }],
+          components: [{
+            ...laterRow.components[0]!,
+            currentStock: sharedStock,
+            availableStock: sharedStock,
+          }],
         },
       ],
       editedQuantities: {
@@ -163,5 +213,6 @@ describe('previewRocketCapacity', () => {
       'utf8',
     );
     expect(source).not.toContain('@nestjs/common');
+    expect(source).not.toContain('committedQuantities');
   });
 });

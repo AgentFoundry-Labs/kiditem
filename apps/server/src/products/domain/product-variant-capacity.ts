@@ -1,6 +1,8 @@
 export type VariantCapacityComponent = Readonly<{
   sellpiaInventorySkuId: string;
   currentStock: number | null;
+  activeCommitmentQuantity: number | null;
+  availableStock: number | null;
   quantity: number;
   isActive: boolean | null;
 }>;
@@ -41,7 +43,7 @@ export function projectVariantCapacity(
     throw new Error('Product variant component quantity must be positive');
   }
   if (components.some(
-    (component) => component.isActive !== true || component.currentStock === null,
+    (component) => component.isActive !== true || component.availableStock === null,
   )) {
     return {
       capacity: null,
@@ -52,7 +54,7 @@ export function projectVariantCapacity(
 
   const capacities = components.map((component) => ({
     sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-    capacity: Math.floor(component.currentStock! / component.quantity),
+    capacity: Math.floor(component.availableStock! / component.quantity),
   }));
   const capacity = Math.min(...capacities.map((component) => component.capacity));
   return {
@@ -74,8 +76,8 @@ export function projectProductInventory(
   const physicalStock = new Map<string, number>();
   for (const variant of activeVariants) {
     for (const component of variant.components) {
-      if (component.isActive === true && component.currentStock !== null) {
-        physicalStock.set(component.sellpiaInventorySkuId, component.currentStock);
+      if (component.isActive === true && component.availableStock !== null) {
+        physicalStock.set(component.sellpiaInventorySkuId, component.availableStock);
       }
     }
   }

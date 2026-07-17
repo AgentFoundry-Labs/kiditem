@@ -54,13 +54,27 @@ export const ChannelSkuAvailabilityComponentSchema = z.object({
   optionName: z.string().nullable(),
   barcode: z.string().nullable(),
   currentStock: z.number().int().nonnegative(),
+  activeCommitmentQuantity: z.number().int().nonnegative(),
+  availableStock: z.number().int().nonnegative(),
   purchasePrice: z.number().int().nonnegative().nullable(),
   isActive: z.boolean(),
   quantity: z.number().int().positive().max(2_147_483_647),
   source: ProductVariantComponentSourceSchema,
   componentCapacity: z.number().int().nonnegative(),
   isBottleneck: z.boolean(),
-}).strict();
+}).strict().superRefine((component, ctx) => {
+  const expectedAvailableStock = Math.max(
+    component.currentStock - component.activeCommitmentQuantity,
+    0,
+  );
+  if (component.availableStock !== expectedAvailableStock) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['availableStock'],
+      message: 'availableStock must equal currentStock minus activeCommitmentQuantity',
+    });
+  }
+});
 export type ChannelSkuAvailabilityComponent = z.infer<
   typeof ChannelSkuAvailabilityComponentSchema
 >;

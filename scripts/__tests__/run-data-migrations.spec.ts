@@ -23,13 +23,14 @@ import {
 const repoRoot = join(__dirname, "..", "..");
 
 describe("data migration registry", () => {
-  it("registers baseline metadata and the 0.1.19 freshness backfill", () => {
+  it("registers baseline metadata, freshness, and inventory commitment backfills", () => {
     expect(DATA_MIGRATION_IDS).toEqual([
       "v0.1.4:001_record_agent_os_operator_backbone_release",
       "v0.1.6:001_record_rocket_read_model_release",
       "v0.1.7:001_record_sellpia_rocket_inventory_sync_release",
       "v0.1.18:001_migrate_representative_keyword_overrides",
       "v0.1.19:001_sellpia_inventory_freshness",
+      "v0.1.21:001_backfill_inventory_commitments",
     ]);
     expect(
       DATA_MIGRATION_IDS.slice(0, -1).some((id) =>
@@ -38,17 +39,17 @@ describe("data migration registry", () => {
     ).toBe(false);
   });
 
-  it("keeps the 0.1.19 freshness migration registered for the 0.1.20 schema-only release", () => {
+  it("registers the root 0.1.21 release migration", () => {
     const rootVersion = normalizeReleaseVersion(
       readFileSync(join(repoRoot, "VERSION"), "utf8"),
     );
-    expect(rootVersion).toBe("0.1.20");
+    expect(rootVersion).toBe("0.1.21");
     expect(
       dataMigrations.map((migration) => migration.releaseVersion),
     ).toContain("0.1.19");
     expect(
       dataMigrations.map((migration) => migration.releaseVersion),
-    ).not.toContain(rootVersion);
+    ).toContain(rootVersion);
     for (const migration of dataMigrations) {
       expect(migration.id.startsWith(`v${migration.releaseVersion}:`)).toBe(
         true,

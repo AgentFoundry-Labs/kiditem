@@ -20,10 +20,6 @@ vi.mock('./GeneralPurchaseOrdersWorkspace', () => ({
   ),
 }));
 
-vi.mock('./RocketPurchaseOrdersWorkspace', () => ({
-  RocketPurchaseOrdersWorkspace: () => <h1>로켓 발주 수량 검토</h1>,
-}));
-
 describe('<PurchaseOrdersWorkspace>', () => {
   beforeEach(() => {
     navigation.params = new URLSearchParams();
@@ -44,13 +40,12 @@ describe('<PurchaseOrdersWorkspace>', () => {
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
   });
 
-  it('mounts the purchase-order-owned Rocket preview without changing the general default', () => {
+  it('does not expose a duplicate Rocket workspace for the obsolete tab query', () => {
     navigation.params = new URLSearchParams('tab=rocket');
     render(<PurchaseOrdersWorkspace />);
 
-    expect(screen.getByRole('heading', { level: 1, name: '로켓 발주 수량 검토' })).toBeInTheDocument();
-    expect(screen.queryByText(/general/)).not.toBeInTheDocument();
-    expect(screen.queryByText('발주 운영')).not.toBeInTheDocument();
-    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: '발주 관리' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '로켓 발주 수량 검토' }))
+      .not.toBeInTheDocument();
   });
 });

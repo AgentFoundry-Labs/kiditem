@@ -7,7 +7,7 @@ import {
 describe('projectVariantCapacity', () => {
   it('projects one unit component stock directly', () => {
     expect(projectVariantCapacity([
-      { sellpiaInventorySkuId: 'sku-1', currentStock: 7, quantity: 1, isActive: true },
+      { sellpiaInventorySkuId: 'sku-1', currentStock: 7, activeCommitmentQuantity: 0, availableStock: 7, quantity: 1, isActive: true },
     ])).toEqual({
       capacity: 7,
       warningState: 'none',
@@ -17,7 +17,7 @@ describe('projectVariantCapacity', () => {
 
   it('floors multipack capacity by the component quantity', () => {
     expect(projectVariantCapacity([
-      { sellpiaInventorySkuId: 'sku-1', currentStock: 8, quantity: 3, isActive: true },
+      { sellpiaInventorySkuId: 'sku-1', currentStock: 8, activeCommitmentQuantity: 0, availableStock: 8, quantity: 3, isActive: true },
     ])).toEqual({
       capacity: 2,
       warningState: 'none',
@@ -27,10 +27,20 @@ describe('projectVariantCapacity', () => {
 
   it('uses the minimum component capacity and identifies the bottleneck', () => {
     expect(projectVariantCapacity([
-      { sellpiaInventorySkuId: 'sku-1', currentStock: 10, quantity: 2, isActive: true },
-      { sellpiaInventorySkuId: 'sku-2', currentStock: 7, quantity: 1, isActive: true },
+      { sellpiaInventorySkuId: 'sku-1', currentStock: 10, activeCommitmentQuantity: 0, availableStock: 10, quantity: 2, isActive: true },
+      { sellpiaInventorySkuId: 'sku-2', currentStock: 7, activeCommitmentQuantity: 0, availableStock: 7, quantity: 1, isActive: true },
     ])).toEqual({
       capacity: 5,
+      warningState: 'none',
+      bottleneckSellpiaInventorySkuIds: ['sku-1'],
+    });
+  });
+
+  it('uses available stock while preserving the physical and commitment facts', () => {
+    expect(projectVariantCapacity([
+      { sellpiaInventorySkuId: 'sku-1', currentStock: 100, activeCommitmentQuantity: 80, availableStock: 20, quantity: 1, isActive: true },
+    ])).toEqual({
+      capacity: 20,
       warningState: 'none',
       bottleneckSellpiaInventorySkuIds: ['sku-1'],
     });
@@ -45,8 +55,8 @@ describe('projectVariantCapacity', () => {
   });
 
   it.each([
-    { sellpiaInventorySkuId: 'sku-1', currentStock: 7, quantity: 1, isActive: false },
-    { sellpiaInventorySkuId: 'sku-1', currentStock: null, quantity: 1, isActive: null },
+    { sellpiaInventorySkuId: 'sku-1', currentStock: 7, activeCommitmentQuantity: 0, availableStock: 7, quantity: 1, isActive: false },
+    { sellpiaInventorySkuId: 'sku-1', currentStock: null, activeCommitmentQuantity: null, availableStock: null, quantity: 1, isActive: null },
   ])('requires review for an inactive or missing component', (component) => {
     expect(projectVariantCapacity([component])).toEqual({
       capacity: null,
@@ -62,36 +72,36 @@ describe('projectProductInventory', () => {
       {
         isActive: true,
         components: [
-          { sellpiaInventorySkuId: 'shared', currentStock: 7, quantity: 1, isActive: true },
+          { sellpiaInventorySkuId: 'shared', currentStock: 7, activeCommitmentQuantity: 2, availableStock: 5, quantity: 1, isActive: true },
         ],
       },
       {
         isActive: true,
         components: [
-          { sellpiaInventorySkuId: 'shared', currentStock: 7, quantity: 2, isActive: true },
-          { sellpiaInventorySkuId: 'other', currentStock: 3, quantity: 1, isActive: true },
+          { sellpiaInventorySkuId: 'shared', currentStock: 7, activeCommitmentQuantity: 2, availableStock: 5, quantity: 2, isActive: true },
+          { sellpiaInventorySkuId: 'other', currentStock: 3, activeCommitmentQuantity: 0, availableStock: 3, quantity: 1, isActive: true },
         ],
       },
-    ])).toMatchObject({ inventoryUnits: 10 });
+    ])).toMatchObject({ inventoryUnits: 8 });
   });
 
   it.each([
     ['review_required', [
-      { isActive: true, components: [{ sellpiaInventorySkuId: 'sku', currentStock: null, quantity: 1, isActive: null }] },
+      { isActive: true, components: [{ sellpiaInventorySkuId: 'sku', currentStock: null, activeCommitmentQuantity: null, availableStock: null, quantity: 1, isActive: null }] },
     ]],
     ['configuration_required', [
       { isActive: true, components: [] },
-      { isActive: true, components: [{ sellpiaInventorySkuId: 'sku', currentStock: 1, quantity: 1, isActive: true }] },
+      { isActive: true, components: [{ sellpiaInventorySkuId: 'sku', currentStock: 1, activeCommitmentQuantity: 0, availableStock: 1, quantity: 1, isActive: true }] },
     ]],
     ['partial_out_of_stock', [
-      { isActive: true, components: [{ sellpiaInventorySkuId: 'zero', currentStock: 0, quantity: 1, isActive: true }] },
-      { isActive: true, components: [{ sellpiaInventorySkuId: 'stocked', currentStock: 1, quantity: 1, isActive: true }] },
+      { isActive: true, components: [{ sellpiaInventorySkuId: 'zero', currentStock: 0, activeCommitmentQuantity: 0, availableStock: 0, quantity: 1, isActive: true }] },
+      { isActive: true, components: [{ sellpiaInventorySkuId: 'stocked', currentStock: 1, activeCommitmentQuantity: 0, availableStock: 1, quantity: 1, isActive: true }] },
     ]],
     ['out_of_stock', [
-      { isActive: true, components: [{ sellpiaInventorySkuId: 'zero', currentStock: 0, quantity: 1, isActive: true }] },
+      { isActive: true, components: [{ sellpiaInventorySkuId: 'zero', currentStock: 0, activeCommitmentQuantity: 0, availableStock: 0, quantity: 1, isActive: true }] },
     ]],
     ['sellable', [
-      { isActive: true, components: [{ sellpiaInventorySkuId: 'stocked', currentStock: 1, quantity: 1, isActive: true }] },
+      { isActive: true, components: [{ sellpiaInventorySkuId: 'stocked', currentStock: 1, activeCommitmentQuantity: 0, availableStock: 1, quantity: 1, isActive: true }] },
     ]],
   ] as const)('applies product status priority for %s', (inventoryStatus, variants) => {
     expect(projectProductInventory(variants).inventoryStatus).toBe(inventoryStatus);

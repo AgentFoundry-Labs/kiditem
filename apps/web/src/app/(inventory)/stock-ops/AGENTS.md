@@ -16,11 +16,21 @@ projections may also appear in `/inventory-hub`.
   toasts.
 - Mapping recipe edits link to
   `/product-hub/matching`; the analysis page does not save recipes itself.
+- `product-outflow` reads the Analytics-owned direct Sellpia SKU depletion
+  projection. Matched rows show physical current stock, active common
+  commitment, and available stock separately; reorder and months-left use
+  available stock.
+- `mapping_required` (`SKU 없음`, `비활성 SKU`, `바코드 중복`) and
+  `not_collected` are not zero stock and must not enter reorder counts.
+  Preserve all linked operating-product destinations and label duplicated
+  sales rows as aggregated demand.
 
 ## Boundary Rules
 
 - Do not replace this page with `/inventory-hub` or another route.
 - Do not write Sellpia stock or duplicate backend capacity calculations.
+- Do not infer a single operating product for a shared SKU or merge this route
+  into `/product-hub`; use links between the two independent screens.
 
 ## Verification
 

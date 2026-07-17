@@ -21,6 +21,7 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
   } = data.summary.inventoryStatusCounts;
   const warningCount = configurationCount + reviewCount;
   const lowProfitCount = data.summary.negativeProfitCount;
+  const reorderProductCount = data.summary.reorderProductCount;
   const { A: aGradeCount, B: bGradeCount, C: cGradeCount } = data.summary.abcGradeCounts;
 
   return (
@@ -61,12 +62,12 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
             onClick={onShowOutOfStock}
           />
           <Link
-            href="/purchase-orders"
+            href="/stock-ops?tab=product-outflow"
             className="flex flex-1 items-center gap-3 bg-violet-50 px-4 py-3 text-left text-violet-700 transition-colors hover:bg-violet-100"
           >
             <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-100"><ClipboardList size={17} /></span>
             <span className="min-w-0 flex-1 truncate text-sm font-extrabold">발주하기</span>
-            <span className="rounded-lg bg-[var(--surface-sunken)] px-2.5 py-1 text-sm font-extrabold text-[var(--text-tertiary)]">계산 전</span>
+            <span className="rounded-lg bg-[var(--surface-sunken)] px-2.5 py-1 text-sm font-extrabold text-[var(--text-tertiary)]">{formatNumber(reorderProductCount)}</span>
           </Link>
           <QuickButton
             icon={AlertTriangle}
@@ -77,11 +78,11 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
         </div>
       </article>
 
-      <OperationsCard title="재고관리" value="미수집" valueTone="text-teal-700">
+      <OperationsCard title="재고관리" value={data.summary.depletionCoveredProductCount} valueTone="text-teal-700">
         <Breakdown label="재고위험" value={warningCount} tone="text-teal-700" />
         <Breakdown label="품절" value={outOfStockCount} tone="text-rose-600" />
-        <Breakdown label="임박 재고" value="미수집" tone="text-amber-600" />
-        <Breakdown label="발주 필요" value="미수집" tone="text-[var(--primary)]" />
+        <Breakdown label="임박 재고" value="기준 미정" tone="text-amber-600" />
+        <Breakdown label="발주 필요" value={reorderProductCount} tone="text-[var(--primary)]" />
       </OperationsCard>
 
       <OperationsCard title="손익점검" value={lowProfitCount} valueTone="text-amber-600">

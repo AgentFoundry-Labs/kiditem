@@ -55,6 +55,10 @@ export function ProductRowCard({ product }: { product: MasterProductOperationsLi
               <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${isWarning ? 'bg-amber-100 text-amber-800' : isOutOfStock ? 'bg-rose-100 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}>
                 {INVENTORY_LABELS[product.inventoryStatus]}
               </span>
+              <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${product.depletion.needsReorder ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>
+                {product.depletion.coverage === 'shared' ? '공유 SKU 기준' : product.depletion.coverage === 'ready' ? '직접 판매 기준' : '직접 판매 없음'}
+                {product.depletion.needsReorder ? ` · 발주 필요 ${product.depletion.reorderSkuCount}` : ''}
+              </span>
             </div>
             <Link
               href={`/product-hub/${product.id}`}
@@ -96,6 +100,7 @@ export function ProductRowCard({ product }: { product: MasterProductOperationsLi
         </span>
         <span>채널 {formatNumber(product.channelCount)}개</span>
         <span>활성 옵션 {formatNumber(product.variantSummary.active)}개</span>
+        <span>{product.depletion.minMonthsOfAvailableStockLeft === null ? '가용재고 소진 미계산' : `가용재고 ${product.depletion.minMonthsOfAvailableStockLeft}개월`}</span>
         <span>광고비 {product.adSpend === null ? '미수집' : `${formatKRW(product.adSpend)}원`}</span>
         <span>이익 {product.profit === null ? '미수집' : `${formatKRW(product.profit)}원`}</span>
         <span>상품 건강도 {product.healthScore === null ? '미수집' : `${formatNumber(product.healthScore)}점`}</span>

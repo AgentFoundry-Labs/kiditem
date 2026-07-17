@@ -19,6 +19,8 @@ export interface SellpiaInventoryFreshnessGatePort {
     inventorySkus: Array<{
       sellpiaInventorySkuId: string;
       currentStock: number;
+      activeCommitmentQuantity: number;
+      availableStock: number;
       isActive: boolean;
     }>;
   }>;

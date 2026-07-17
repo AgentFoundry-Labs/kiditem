@@ -54,12 +54,21 @@ describe('Coupang direct-shipment collection lifecycle', () => {
         centers: {},
       },
       'SHIPMENT',
-      { download: false, signal: abortController.signal },
+      {
+        channelAccountId: '11111111-1111-4111-8111-111111111111',
+        download: false,
+        signal: abortController.signal,
+      },
     )).rejects.toThrow('conversion failed');
 
     expect(api.fetchRaw).toHaveBeenCalledWith(
       '/api/orders/collection/coupang-directship/convert',
       expect.objectContaining({ signal: abortController.signal }),
     );
+    expect(JSON.parse(api.fetchRaw.mock.calls[0]?.[1]?.body as string))
+      .toMatchObject({
+        channelAccountId: '11111111-1111-4111-8111-111111111111',
+        transport: 'SHIPMENT',
+      });
   });
 });

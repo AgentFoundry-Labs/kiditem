@@ -15,6 +15,8 @@ import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/reposito
 import { MarketplaceRegistrationRepositoryAdapter } from '../adapter/out/repository/marketplace-registration.repository.adapter';
 import { ChannelProductMatchingService } from '../application/service/channel-product-matching.service';
 import { ChannelSkuAvailabilityService } from '../application/service/channel-sku-availability.service';
+import { InventoryCommitmentRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-commitment.repository.adapter';
+import { InventoryCommitmentService } from '../../inventory/application/service/inventory-commitment.service';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
@@ -23,15 +25,21 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
   let prisma: PrismaClient;
   let repository: ChannelProductMatchingRepositoryAdapter;
   let service: ChannelProductMatchingService;
+  let availabilityService: ChannelSkuAvailabilityService;
   let completedRunId: string;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    repository = new ChannelProductMatchingRepositoryAdapter(
-      prisma as unknown as PrismaService,
-    );
+    const prismaService = prisma as unknown as PrismaService;
+    repository = new ChannelProductMatchingRepositoryAdapter(prismaService);
     service = new ChannelProductMatchingService(repository);
+    availabilityService = new ChannelSkuAvailabilityService(
+      repository,
+      new InventoryCommitmentService(
+        new InventoryCommitmentRepositoryAdapter(prismaService),
+      ),
+    );
   });
 
   afterAll(async () => {
@@ -41,6 +49,14 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    await prisma.sellpiaInventoryState.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        requestedGeneration: 1n,
+        verifiedGeneration: 1n,
+        lastVerifiedAt: new Date(),
+      },
+    });
     await prisma.channelAccount.createMany({
       data: [
         {
@@ -320,7 +336,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       recipeStatus: 'review_required',
       capacity: null,
     });
-    const availability = await new ChannelSkuAvailabilityService(repository).findByChannelSkuIds(
+    const availability = await availabilityService.findByChannelSkuIds(
       TEST_ORGANIZATION_ID,
       [option.id],
     );
