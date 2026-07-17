@@ -220,7 +220,10 @@ export class KeywordRankService {
         groupedVendorItemIds: [assignment.vendorItemId],
         groupedOptionCount: 1,
         skuId: ownItem?.skuId ?? null,
-        productName: latest?.productName ?? ownItem?.productName ?? null,
+        // 자사 카탈로그의 상품명(channelName=등록/노출상품명)을 우선한다.
+        // Wing 스냅샷 productName 은 SERP 수집 과정에서 옵션값("1개")이 섞여
+        // 들어오는 경우가 있어 후순위로 둔다.
+        productName: ownItem?.productName ?? latest?.productName ?? null,
         currentSalesRank,
         previousSalesRank,
         rankChange,
