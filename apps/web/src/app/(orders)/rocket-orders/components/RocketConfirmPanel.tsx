@@ -65,6 +65,8 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
   const [savedPos, setSavedPos] = useState<RocketSavedPo[]>([]);
   const [savedLoading, setSavedLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState('');
+  // 오늘 이후 입고예정일 = 아직 확정·납품해야 할 "앞으로 할 작업" → 배경 강조.
+  const [todayKey] = useState(() => ymd(new Date()));
 
   const reloadSaved = useCallback(async (month: string) => {
     setSavedLoading(true);
@@ -302,6 +304,8 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
               const info = byDate.get(cell.date);
               const has = Boolean(info);
               const selected = cell.date === selectedDate;
+              // 오늘 이후 입고예정일 + 발주 있음 = 앞으로 확정·납품해야 할 작업 → 강조.
+              const upcoming = has && cell.date >= todayKey;
               return (
                 <button
                   key={cell.date}
@@ -312,16 +316,24 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
                     'flex min-h-[3.75rem] flex-col items-center justify-start gap-1 rounded-lg border px-1 py-1.5 text-center transition-colors',
                     selected
                       ? 'border-purple-500 bg-purple-50 ring-1 ring-purple-300'
-                      : has
-                        ? 'border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50'
-                        : 'border-transparent bg-transparent',
+                      : upcoming
+                        ? 'border-amber-300 bg-amber-50 hover:border-amber-400 hover:bg-amber-100/70'
+                        : has
+                          ? 'border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50'
+                          : 'border-transparent bg-transparent',
                     busy !== null && has && 'pointer-events-none opacity-60',
                   )}
                 >
                   <span
                     className={cn(
                       'text-xs tabular-nums',
-                      selected ? 'font-bold text-purple-700' : has ? 'font-semibold text-slate-700' : 'text-slate-300',
+                      selected
+                        ? 'font-bold text-purple-700'
+                        : upcoming
+                          ? 'font-bold text-amber-700'
+                          : has
+                            ? 'font-semibold text-slate-700'
+                            : 'text-slate-300',
                     )}
                   >
                     {cell.day}
@@ -330,7 +342,11 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
                     <span
                       className={cn(
                         'rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums',
-                        selected ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-700',
+                        selected
+                          ? 'bg-purple-600 text-white'
+                          : upcoming
+                            ? 'bg-amber-500 text-white'
+                            : 'bg-purple-100 text-purple-700',
                       )}
                     >
                       {formatNumber(info.count)}건
@@ -342,8 +358,13 @@ export function RocketConfirmPanel({ onSaved }: { onSaved: () => void }) {
           </div>
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs text-slate-500">
-            <span>
-              날짜를 클릭하면 그 입고예정일의 저장된 발주를 재고와 매칭해 미리보기합니다(재수집 없음).
+            <span className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1">
+                <span className="inline-block h-2.5 w-2.5 rounded-sm border border-amber-300 bg-amber-50" />
+                오늘 이후(확정·납품 예정)
+              </span>
+              <span className="text-slate-300">·</span>
+              날짜 클릭 → 저장된 발주를 재고와 매칭해 미리보기(재수집 없음)
             </span>
             <label
               className={cn(
