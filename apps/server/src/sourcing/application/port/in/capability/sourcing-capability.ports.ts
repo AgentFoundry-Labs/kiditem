@@ -106,7 +106,7 @@ export interface SourcingDiscoveryCapabilityInput {
   organizationId: string;
   keyword: string;
   category?: string | null;
-  mode?: 'stub' | 'replay';
+  mode?: 'replay';
 }
 
 export interface SourcingDiscoveryCapabilityResult {

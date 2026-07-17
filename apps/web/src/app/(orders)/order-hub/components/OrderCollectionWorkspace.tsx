@@ -57,7 +57,10 @@ import {
   type OrderCollectionMallAccount,
   type UpdateOrderCollectionMallAccountInput,
 } from '../../order-collection/lib/order-mall-account-api';
-import { uploadTrackingForMall } from '../../order-collection/lib/order-tracking-actions';
+import {
+  runSellpiaPostProcess,
+  uploadTrackingForMall,
+} from '../../order-collection/lib/order-tracking-actions';
 
 const COLLECT_ALL_CONCURRENCY = 4;
 
@@ -78,6 +81,7 @@ export function OrderCollectionWorkspace({ headingLevel = 2 }: { headingLevel?: 
   const [mallPasswordLoading, setMallPasswordLoading] = useState(false);
   const [mallPasswordVisible, setMallPasswordVisible] = useState(false);
   const [bulkAction, setBulkAction] = useState<GeneratedFilesBulkAction>(null);
+  const [sellpiaPostProcessing, setSellpiaPostProcessing] = useState(false);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
 
   const mallAccountsQuery = useQuery({
@@ -493,6 +497,18 @@ export function OrderCollectionWorkspace({ headingLevel = 2 }: { headingLevel?: 
     }
   };
 
+  const handleSellpiaPostProcess = async () => {
+    if (sellpiaPostProcessing) return;
+    setSellpiaPostProcessing(true);
+    try {
+      await runSellpiaPostProcess({
+        logError: (title, message) => logActivity('error', title, message),
+      });
+    } finally {
+      setSellpiaPostProcessing(false);
+    }
+  };
+
   const handleDownloadSelected = async (items: ConversionHistoryItem[]) => {
     if (items.length === 0) return;
     const releaseAction = generatedFileActionLock.acquire();
@@ -664,7 +680,6 @@ export function OrderCollectionWorkspace({ headingLevel = 2 }: { headingLevel?: 
         onUploadTracking={(account) =>
           void uploadTrackingForMall({
             account,
-            history,
             logError: (title, message) => logActivity('error', title, message),
           })
         }
@@ -682,11 +697,13 @@ export function OrderCollectionWorkspace({ headingLevel = 2 }: { headingLevel?: 
         items={history}
         bulkAction={bulkAction}
         sellpiaSendingId={sellpiaTransmission.sendingId}
+        sellpiaPostProcessing={sellpiaPostProcessing}
         onDelete={(item) => void handleDeleteGeneratedFile(item)}
         onDeleteSelected={(items) => void handleDeleteSelected(items)}
         onDownload={downloadOrderCollectionFile}
         onDownloadSelected={(items) => void handleDownloadSelected(items)}
         onPreview={setPreviewId}
+        onSellpiaPostProcess={() => void handleSellpiaPostProcess()}
         onSendToSellpia={(item) => void handleSendToSellpia(item)}
         onSendSelectedToSellpia={(items) => void handleSendSelectedToSellpia(items)}
       />

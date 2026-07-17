@@ -27,6 +27,13 @@ type AgentDefinitionSeed = Omit<
 
 const SOURCING_DISCOVERY_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [
   {
+    toolKey: 'market.collect_shadow_signals',
+    effect: 'approval_required',
+    approvalMode: 'admin',
+    dryRunMode: 'disabled',
+    constraints: {},
+  },
+  {
     toolKey: 'market.collect_keyword_category_rankings',
     effect: 'allow',
     approvalMode: 'none',

@@ -3,6 +3,8 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { StatisticsModule } from './statistics/statistics.module';
 import { TrafficModule } from './traffic/traffic.module';
 import { SupplierStatsModule } from './supplier-stats/supplier-stats.module';
+import { SellpiaSalesModule } from './sellpia-sales/sellpia-sales.module';
+import { SellpiaProductSalesModule } from './sellpia-product-sales/sellpia-product-sales.module';
 
 /**
  * Analytics owner root.
@@ -15,12 +17,14 @@ import { SupplierStatsModule } from './supplier-stats/supplier-stats.module';
  *
  * Boundary rules for code that lives under analytics:
  *
- *   - No cross-domain mutations. Reads only, with the single exception of
- *     traffic CSV/XLSX upload (`/api/traffic/upload`) which writes
- *     `ChannelListingDailySnapshot.traffic*` columns and the
- *     `ChannelScrapeRun` / `ChannelScrapeSnapshot` audit trail. That
- *     ingest path matches the channel-domain daily-fact contract and is
- *     the only mutation lane in this owner.
+ *   - No cross-domain mutations. Reads only, with two daily-fact ingest
+ *     exceptions: (1) traffic CSV/XLSX upload (`/api/traffic/upload`) which
+ *     writes `ChannelListingDailySnapshot.traffic*` columns and the
+ *     `ChannelScrapeRun` / `ChannelScrapeSnapshot` audit trail; (2) Sellpia
+ *     판매현황 ingest (`POST /api/sellpia-sales/ingest`) which writes
+ *     `SellpiaSalesDailySnapshot` (몰별 일별 매출 fact, 확장 스크랩 소스). Both
+ *     match the channel-domain daily-fact contract; no other mutation lane
+ *     exists in this owner.
  *   - Raw SQL and report hydration code lives under
  *     `dashboard/adapter/out/repository/*.repository.adapter.ts` (the only
  *     sub-domain that needed an out-adapter lane in this wave). Statistics,
@@ -38,6 +42,8 @@ import { SupplierStatsModule } from './supplier-stats/supplier-stats.module';
     StatisticsModule,
     TrafficModule,
     SupplierStatsModule,
+    SellpiaSalesModule,
+    SellpiaProductSalesModule,
   ],
 })
 export class AnalyticsModule {}

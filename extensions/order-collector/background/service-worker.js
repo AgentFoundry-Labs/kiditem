@@ -82,6 +82,16 @@ const SELLPIA_ORDER_UPLOAD_URL = "https://kiditem.sellpia.com/order_collect.html
 const SELLPIA_TAB_MATCHES = ["https://*.sellpia.com/*"];
 // 송장 재출력 = 송장 업로드용 송장번호 소스(송장 채번된 주문).
 const SELLPIA_REPRINT_URL = "https://kiditem.sellpia.com/order_delivery_reprint.html";
+// 셀피아 전송 이후 후처리: 재고매칭 화면(조회/자동합포/자동재고매칭) + 송장채번 화면.
+const SELLPIA_STOCKMATCH_URL = "https://kiditem.sellpia.com/order_stockmatch.html";
+const SELLPIA_INVOICE_URL = "https://kiditem.sellpia.com/order_delivery_link.html";
+// 판매현황(몰별·일별 매출) — 대시보드 '몰별 매출' 섹션 소스. order_search.ajax.html(mode=selldate) 스크랩.
+const SELLPIA_SALE_SUMMARY_URL = "https://kiditem.sellpia.com/sale_summary.html?mode=main_link";
+// 상품별 이익현황 — 재고 분석 '상품별 소진' 소스. stat_action.ajax.html(mode=stat_prd_profit) 스크랩.
+const SELLPIA_PRODUCT_PROFIT_URL = "https://kiditem.sellpia.com/stat_prd_profit.html#none";
+// 매일 자동수집 알람 + 캐시 키(웹앱이 열릴 때 백엔드로 flush).
+const SELLPIA_SALES_CACHE_KEY = "sellpiaSaleSummaryCache";
+const SELLPIA_SALES_ALARM = "sellpiaSaleSummaryDaily";
 const COUPANG_SHIPMENT_URL = "https://supplier.coupang.com/ibs/asn/active";
 const COUPANG_SUPPLIER_TAB_MATCHES = ["https://supplier.coupang.com/*"];
 const KIDSNOTE_ORDER_URL = "https://shop.kidsnote.com/_manage/?body=3010";
@@ -205,6 +215,7 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
       capabilities: {
         orderCollectionIcecreamMall: true,
         coupangShipmentDownloads: true,
+        collectCoupangShipmentFiles: true,
         art09Orders: true,
         boriboriOrders: true,
         collectRocketPoRows: true,
@@ -212,11 +223,15 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
         listRocketPos: true,
         collectKakaoOrders: true,
         collectSellpiaDeliTracking: true,
+        collectSellpiaSaleSummary: true,
+        collectSellpiaProductProfit: true,
         collectSellpiaInventory: true,
         collectSellpiaInventoryV2: true,
         browserCollectionSessions: true,
         uploadDomeggookTracking: true,
         uploadOnchTracking: true,
+        sellpiaPostTransfer: true,
+        sellpiaAutoInvoice: true,
       },
     });
     return false;
@@ -245,6 +260,50 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
         endDate: typeof msg.endDate === "string" ? msg.endDate : null,
       }, collection),
     ));
+  }
+
+  // 판매현황(몰별 매출) 수집 — 읽기 전용(비파괴). 대시보드 '몰별 매출' 섹션 적재용.
+  if (msg?.action === "collectSellpiaSaleSummary") {
+    collectSellpiaSaleSummary({
+      startDate: typeof msg.startDate === "string" ? msg.startDate : null,
+      endDate: typeof msg.endDate === "string" ? msg.endDate : null,
+      keepTabOnLoginError: true, // 대화형: 로그인 유도 위해 탭 유지 (무인 알람은 미지정=닫음)
+    })
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({ success: false, error: error?.message || "셀피아 판매현황 수집 실패" });
+      });
+    return true;
+  }
+
+  // 상품별 이익현황(월별 소진) 수집 — 읽기 전용. 재고 분석 '상품별 소진' 적재용.
+  if (msg?.action === "collectSellpiaProductProfit") {
+    collectSellpiaProductProfit({
+      startDate: typeof msg.startDate === "string" ? msg.startDate : null,
+      endDate: typeof msg.endDate === "string" ? msg.endDate : null,
+    })
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({ success: false, error: error?.message || "셀피아 상품별 소진 수집 실패" });
+      });
+    return true;
+  }
+
+  // 매일 자동수집 알람이 캐시해둔 판매현황 payload 조회(웹앱이 백엔드로 flush).
+  if (msg?.action === "getSellpiaSalesCache") {
+    chrome.storage.local
+      .get(SELLPIA_SALES_CACHE_KEY)
+      .then((o) => sendResponse({ success: true, cache: o?.[SELLPIA_SALES_CACHE_KEY] ?? null }))
+      .catch((error) => sendResponse({ success: false, error: error?.message || String(error) }));
+    return true;
+  }
+
+  if (msg?.action === "clearSellpiaSalesCache") {
+    chrome.storage.local
+      .remove(SELLPIA_SALES_CACHE_KEY)
+      .then(() => sendResponse({ success: true }))
+      .catch((error) => sendResponse({ success: false, error: error?.message || String(error) }));
+    return true;
   }
 
   if (msg?.action === "collectIcecreamMallOrders") {
@@ -276,6 +335,32 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
     return true;
   }
 
+  // 셀피아 전송 이후 후처리(등록→조회→자동합포→자동재고매칭 + 미매칭 리포트). 비파괴 단계.
+  if (msg?.action === "sellpiaPostTransfer") {
+    runSellpiaPostTransfer()
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({
+          success: false,
+          error: error?.message || "셀피아 후처리 실패",
+        });
+      });
+    return true;
+  }
+
+  // 셀피아 송장 자동채번(되돌리기 어려움). 프론트 확인 게이트 이후에만 호출된다.
+  if (msg?.action === "sellpiaAutoInvoice") {
+    runSellpiaAutoInvoice()
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({
+          success: false,
+          error: error?.message || "셀피아 송장채번 실패",
+        });
+      });
+    return true;
+  }
+
   if (msg?.action === "openCoupangShipmentPage") {
     openCoupangShipmentPage()
       .then((result) => sendResponse(result))
@@ -299,6 +384,47 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
         sendResponse({
           success: false,
           error: error?.message || "쿠팡 쉽먼트 다운로드 실행 실패",
+        });
+      });
+    return true;
+  }
+
+  // ── 원클릭 자동 수집: 발송일 기준 쉽먼트 목록(센터순) + Label/내역서 PDF 직접 fetch ──
+  if (msg?.action === "collectCoupangShipmentDateSummary") {
+    collectCoupangShipmentDateSummary({ maxPages: msg.maxPages })
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({
+          success: false,
+          error: error?.message || "쿠팡 쉽먼트 발송일 조회 실패",
+        });
+      });
+    return true;
+  }
+
+  if (msg?.action === "collectCoupangShipmentList") {
+    collectCoupangShipmentList({
+      date: typeof msg.date === "string" ? msg.date : "",
+    })
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({
+          success: false,
+          error: error?.message || "쿠팡 쉽먼트 목록 수집 실패",
+        });
+      });
+    return true;
+  }
+
+  if (msg?.action === "fetchCoupangShipmentPdfBatch") {
+    fetchCoupangShipmentPdfBatch({
+      items: Array.isArray(msg.items) ? msg.items : [],
+    })
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({
+          success: false,
+          error: error?.message || "쿠팡 쉽먼트 PDF 수집 실패",
         });
       });
     return true;
@@ -631,7 +757,7 @@ async function clickCoupangShipmentDownloads(options) {
   const tab = await findOrCreateInteractiveCoupangSupplierTab(
     INTERACTIVE_TAB_REASONS.SHIPMENT_DOWNLOAD,
   );
-  if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
+  if (!tab?.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
   await waitForTabReady(tab.id);
 
   const injected = await withTimeout(
@@ -653,6 +779,286 @@ async function clickCoupangShipmentDownloads(options) {
     ...result,
     url: currentTab.url || tab.url || COUPANG_SHIPMENT_URL,
   };
+}
+
+// 백그라운드 쿠팡 supplier 탭: 기존 supplier 탭이 있으면 그대로 재사용(포커스를 뺏지 않음),
+// 없을 때만 active:false 로 새 탭을 만든다. 목록/라벨/내역서는 same-origin fetch 라
+// supplier.coupang.com 의 어떤 경로(로켓 발주 화면 등)에서도 동작한다 → 사용자 화면 그대로 유지.
+async function findOrCreateBackgroundCoupangSupplierTab() {
+  const tabs = await chrome.tabs.query({ url: COUPANG_SUPPLIER_TAB_MATCHES });
+  if (tabs[0]?.id) return tabs[0];
+  return chrome.tabs.create({ url: COUPANG_SHIPMENT_URL, active: false });
+}
+
+// ── 발송일 조회(달력용): 최근 쉽먼트를 발송일별로 집계 (몇 건 / 박스수) ──
+async function collectCoupangShipmentDateSummary(options) {
+  const tab = await findOrCreateBackgroundCoupangSupplierTab();
+  if (!tab?.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
+  await waitForTabReady(tab.id);
+
+  const injected = await withTimeout(
+    chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: scrapeCoupangShipmentDateSummary,
+      args: [Math.min(Math.max(Number(options?.maxPages) || 40, 1), 60)],
+    }),
+    90000,
+    "쿠팡 쉽먼트 발송일 조회 시간이 초과되었습니다.",
+  );
+  return (
+    injected[0]?.result ?? {
+      success: false,
+      error: "쿠팡 쉽먼트 화면에 접근하지 못했습니다.",
+    }
+  );
+}
+
+// [페이지 주입] 최근 쉽먼트를 페이지네이션하며 발송일별로 집계.
+async function scrapeCoupangShipmentDateSummary(maxPages) {
+  const PAGE_FETCH_CONCURRENCY = 6;
+
+  async function fetchPage(n) {
+    const r = await fetch(
+      `/ibs/shipment/parcel/list?pageNumber=${n}&centerCode=&carrierCode=&estimatedDeliveryDate=&shipmentSeq=&purchaseOrderSeq=`,
+      { credentials: "include", headers: { "X-Requested-With": "XMLHttpRequest" } },
+    );
+    if (!r.ok) throw new Error(`목록 조회 실패 (page ${n}, HTTP ${r.status})`);
+    return await r.text();
+  }
+  function parseRows(html) {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const table = doc.querySelector("table#parcel-tab") || doc.querySelector("table");
+    if (!table) return [];
+    const heads = Array.from(table.querySelectorAll("thead th")).map((h) => (h.textContent || "").trim());
+    const idx = (name) => heads.findIndex((h) => h.includes(name));
+    const iSeq = idx("쉽먼트 번호"), iOut = idx("발송일"), iBox = idx("박스수");
+    return Array.from(table.querySelectorAll("tbody tr"))
+      .map((tr) => {
+        const c = Array.from(tr.querySelectorAll("td")).map((td) => (td.textContent || "").trim());
+        if (c.length < 6) return null;
+        return { seq: c[iSeq], outbound: c[iOut], boxes: c[iBox] };
+      })
+      .filter(Boolean);
+  }
+  try {
+    const seen = new Set();
+    const byDate = new Map();
+    let scannedPages = 0;
+    let totalRows = 0;
+    let reachedLastPage = false;
+    for (
+      let batchStart = 1;
+      batchStart <= maxPages && !reachedLastPage;
+      batchStart += PAGE_FETCH_CONCURRENCY
+    ) {
+      const batchEnd = Math.min(
+        batchStart + PAGE_FETCH_CONCURRENCY - 1,
+        maxPages,
+      );
+      const pages = Array.from(
+        { length: batchEnd - batchStart + 1 },
+        (_, index) => batchStart + index,
+      );
+      const batchRows = await Promise.all(
+        pages.map(async (page) => ({
+          page,
+          rows: parseRows(await fetchPage(page)),
+        })),
+      );
+
+      for (const { page, rows } of batchRows) {
+        scannedPages = page;
+        if (rows.length === 0) {
+          reachedLastPage = true;
+          break;
+        }
+        for (const row of rows) {
+          if (seen.has(row.seq)) continue;
+          seen.add(row.seq);
+          totalRows += 1;
+          const date = (row.outbound || "").slice(0, 10);
+          if (!date) continue;
+          const boxMatch = String(row.boxes || "").match(/(\d+)/);
+          const current = byDate.get(date) || { count: 0, boxes: 0 };
+          current.count += 1;
+          current.boxes += boxMatch ? Number(boxMatch[1]) : 0;
+          byDate.set(date, current);
+        }
+        if (rows.length < 10) {
+          reachedLastPage = true;
+          break;
+        }
+      }
+    }
+    const dates = [...byDate.entries()]
+      .map(([date, v]) => ({ date, count: v.count, boxes: v.boxes }))
+      .sort((a, b) => b.date.localeCompare(a.date));
+    return { success: true, scannedPages, totalRows, dates };
+  } catch (e) {
+    return { success: false, error: String((e && e.message) || e) };
+  }
+}
+
+// ── 원클릭 자동 수집: 발송일 기준 쉽먼트 목록 (직접 목록 API HTML 파싱) ──
+// clickCoupangShipmentDownloads 는 화면 버튼을 눌러 파일명 없는 PDF 를 Downloads 로 흘리지만,
+// 이쪽은 목록/라벨/내역서 엔드포인트를 세션 fetch 로 직접 받아 발송일·센터를 정확히 붙인다.
+async function collectCoupangShipmentList(options) {
+  const tab = await findOrCreateBackgroundCoupangSupplierTab();
+  if (!tab?.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
+  await waitForTabReady(tab.id);
+
+  const injected = await withTimeout(
+    chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: scrapeCoupangShipmentList,
+      args: [options?.date || ""],
+    }),
+    90000,
+    "쿠팡 쉽먼트 목록 수집 시간이 초과되었습니다.",
+  );
+  return (
+    injected[0]?.result ?? {
+      success: false,
+      error: "쿠팡 쉽먼트 화면에 접근하지 못했습니다.",
+    }
+  );
+}
+
+async function fetchCoupangShipmentPdfBatch(options) {
+  const items = (options?.items || [])
+    .filter((it) => it && it.seq && (it.kind === "label" || it.kind === "manifest"))
+    .map((it) => ({ seq: String(it.seq), kind: it.kind }));
+  if (items.length === 0) return { success: false, error: "요청한 PDF 항목이 없습니다." };
+
+  const tab = await findOrCreateBackgroundCoupangSupplierTab();
+  if (!tab?.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
+  await waitForTabReady(tab.id);
+
+  const injected = await withTimeout(
+    chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: fetchCoupangShipmentPdfsInPage,
+      args: [items],
+    }),
+    120000,
+    "쿠팡 쉽먼트 PDF 수집 시간이 초과되었습니다.",
+  );
+  return (
+    injected[0]?.result ?? {
+      success: false,
+      error: "쿠팡 쉽먼트 PDF 화면에 접근하지 못했습니다.",
+    }
+  );
+}
+
+// [페이지 주입] 발송일(YYYY-MM-DD) 로 쉽먼트 목록을 페이지네이션하며 전량 수집.
+// ⚠️ estimatedDeliveryDate(입고예정일) 필터는 발송일과 1:1 이 아니라 누락되므로 무필터로 받고 발송일로 거른다.
+// 목록 응답은 JSON 이 아니라 table#parcel-tab HTML 조각. 날짜 파라미터는 YYYYMMDD.
+async function scrapeCoupangShipmentList(targetDate) {
+  const wanted = (targetDate || "").slice(0, 10);
+  async function fetchPage(n) {
+    const r = await fetch(
+      `/ibs/shipment/parcel/list?pageNumber=${n}&centerCode=&carrierCode=&estimatedDeliveryDate=&shipmentSeq=&purchaseOrderSeq=`,
+      { credentials: "include", headers: { "X-Requested-With": "XMLHttpRequest" } },
+    );
+    if (!r.ok) throw new Error(`목록 조회 실패 (page ${n}, HTTP ${r.status})`);
+    return await r.text();
+  }
+  function parseRows(html) {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const table = doc.querySelector("table#parcel-tab") || doc.querySelector("table");
+    if (!table) return [];
+    const heads = Array.from(table.querySelectorAll("thead th")).map((h) => (h.textContent || "").trim());
+    const idx = (name) => heads.findIndex((h) => h.includes(name));
+    const iSeq = idx("쉽먼트 번호"), iStat = idx("쉽먼트 상태"), iOut = idx("발송일"),
+      iIn = idx("입고예정일"), iCen = idx("센터"), iBox = idx("박스수"), iQty = idx("총 납품"),
+      iPo = idx("발주서"), iInv = idx("송장");
+    return Array.from(table.querySelectorAll("tbody tr"))
+      .map((tr) => {
+        const c = Array.from(tr.querySelectorAll("td")).map((td) => (td.textContent || "").trim());
+        if (c.length < 6) return null;
+        return {
+          seq: c[iSeq], status: c[iStat], outbound: c[iOut], inbound: c[iIn],
+          center: c[iCen], boxes: c[iBox], qty: c[iQty], po: c[iPo], invoice: c[iInv],
+        };
+      })
+      .filter(Boolean);
+  }
+
+  try {
+    const seen = new Set();
+    const matched = [];
+    let scannedPages = 0;
+    let emptyStreak = 0; // 대상 날짜 0건 페이지 연속 카운트(블록 종료 감지)
+    const MAX_PAGES = 60;
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const rows = parseRows(await fetchPage(page));
+      scannedPages = page;
+      if (rows.length === 0) break; // 마지막 페이지 도달
+      let hitThisPage = 0;
+      for (const row of rows) {
+        if ((row.outbound || "").slice(0, 10) !== wanted) continue;
+        if (seen.has(row.seq)) continue;
+        seen.add(row.seq);
+        matched.push(row);
+        hitThisPage += 1;
+      }
+      if (matched.length > 0) {
+        emptyStreak = hitThisPage > 0 ? 0 : emptyStreak + 1;
+        // 대상 날짜 블록을 지난 뒤 2페이지 연속 0건이면 종료(발송일은 목록 상단에 뭉쳐 있음)
+        if (emptyStreak >= 2) break;
+      }
+      if (rows.length < 10) break; // 마지막 페이지
+    }
+    return {
+      success: true,
+      date: wanted,
+      scannedPages,
+      count: matched.length,
+      shipments: matched,
+    };
+  } catch (e) {
+    return { success: false, error: String((e && e.message) || e) };
+  }
+}
+
+// [페이지 주입] 주어진 (seq, kind) 목록의 Label/내역서 PDF 를 세션 fetch → base64.
+// kind: "label" → pdf-label/generate, "manifest" → pdf-manifest/generate. parcelShipmentSeq = 쉽먼트 번호.
+async function fetchCoupangShipmentPdfsInPage(items) {
+  function toBase64(buf) {
+    const bytes = new Uint8Array(buf);
+    let bin = "";
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+    }
+    return btoa(bin);
+  }
+  const files = [];
+  for (const it of items) {
+    const path = it.kind === "label" ? "pdf-label" : "pdf-manifest";
+    try {
+      const r = await fetch(
+        `/ibs/shipment/parcel/${path}/generate?parcelShipmentSeq=${it.seq}`,
+        { credentials: "include" },
+      );
+      if (!r.ok) {
+        files.push({ seq: it.seq, kind: it.kind, ok: false, error: `HTTP ${r.status}` });
+        continue;
+      }
+      const buf = await r.arrayBuffer();
+      const b = new Uint8Array(buf);
+      const isPdf = b[0] === 0x25 && b[1] === 0x50; // %P
+      if (!isPdf) {
+        files.push({ seq: it.seq, kind: it.kind, ok: false, error: "PDF 아님" });
+        continue;
+      }
+      files.push({ seq: it.seq, kind: it.kind, ok: true, bytes: buf.byteLength, b64: toBase64(buf) });
+    } catch (e) {
+      files.push({ seq: it.seq, kind: it.kind, ok: false, error: String((e && e.message) || e) });
+    }
+  }
+  return { success: true, files };
 }
 
 // ── 로켓 발주확정: 발주리스트(거래처확인요청) + 상세를 풀컬럼 스크래핑 ──
@@ -3041,6 +3447,347 @@ async function injectSellpiaOrderFile(payload) {
   }
 }
 
+// ── 셀피아 전송 이후 후처리 오케스트레이션 ───────────────────────────────
+// 전송(order_collect 주문접수) 다음: 등록 → [재고매칭 화면] 조회 → 자동합포 → 자동재고매칭
+// → 미매칭(재고부족) 리포트. 실제 버튼 클릭 + $.prompt 자동응답 방식(셀피아 자체 로직/사용자
+// localStorage 기준값을 그대로 재사용). 송장 자동채번은 되돌리기 어려우므로 별도(runSellpiaAutoInvoice).
+
+async function runSellpiaStepInTab(tabId, step, timeoutMs) {
+  const injected = await withTimeout(
+    chrome.scripting.executeScript({
+      target: { tabId },
+      world: "MAIN", // 페이지 jQuery/전역(dataView, getList, $.prompt) 접근 필요.
+      func: sellpiaDriveStep,
+      args: [step],
+    }),
+    timeoutMs,
+    `셀피아 ${step} 단계 시간이 초과되었습니다.`,
+  );
+  return injected[0]?.result ?? { success: false, error: `셀피아 ${step} 화면에 접근하지 못했습니다.` };
+}
+
+// 등록(order_collect) → 재고매칭 화면 이동 → 조회 → 자동합포 → 자동재고매칭 + 미매칭 리포트.
+async function runSellpiaPostTransfer() {
+  const tab = await findOrCreateSellpiaTab(); // order_collect 탭 포커스/생성
+  if (!tab?.id) return { success: false, error: "셀피아 탭을 열 수 없습니다." };
+  await waitForTabReady(tab.id);
+
+  let cur = await chrome.tabs.get(tab.id).catch(() => tab);
+  if (!(cur.url || "").includes("order_collect.html")) {
+    await chrome.tabs.update(tab.id, { url: SELLPIA_ORDER_UPLOAD_URL });
+    await waitForTabReady(tab.id);
+  }
+
+  // 1) 등록
+  const register = await runSellpiaStepInTab(tab.id, "register", 70000);
+  if (!register?.success) {
+    return { success: false, step: "register", ...register, url: SELLPIA_ORDER_UPLOAD_URL };
+  }
+
+  // 2) 재고매칭 화면 이동
+  await chrome.tabs.update(tab.id, { url: SELLPIA_STOCKMATCH_URL });
+  await waitForTabReady(tab.id);
+
+  // 3) 조회 → 자동합포 → 자동재고매칭 + 미매칭
+  const process = await runSellpiaStepInTab(tab.id, "stockmatch", 200000);
+  const currentTab = await chrome.tabs.get(tab.id).catch(() => tab);
+  return {
+    success: !!process?.success,
+    step: "stockmatch",
+    register,
+    ...process,
+    url: currentTab.url || SELLPIA_STOCKMATCH_URL,
+  };
+}
+
+async function findOrCreateSellpiaInvoiceTab() {
+  const tabs = await chrome.tabs.query({ url: SELLPIA_TAB_MATCHES });
+  const onInvoice = tabs.find((t) => (t.url || "").includes("order_delivery_link"));
+  if (onInvoice?.id) return { tab: onInvoice, created: false };
+  if (tabs[0]?.id) {
+    await chrome.tabs.update(tabs[0].id, { url: SELLPIA_INVOICE_URL });
+    const tab = await chrome.tabs.get(tabs[0].id).catch(() => tabs[0]);
+    return { tab, created: false };
+  }
+  const tab = await interactiveTabs.createTab({
+    url: SELLPIA_INVOICE_URL,
+    reason: INTERACTIVE_TAB_REASONS.TRACKING_MUTATION,
+  });
+  return { tab, created: true };
+}
+
+// ⚠️되돌리기 어려움: 송장채번 화면에서 실제 송장번호를 발급한다. 프론트 확인 이후에만 호출.
+async function runSellpiaAutoInvoice() {
+  const { tab } = await findOrCreateSellpiaInvoiceTab();
+  if (!tab?.id) return { success: false, error: "셀피아 송장채번 탭을 열 수 없습니다." };
+  await interactiveTabs.focusTab(tab.id, INTERACTIVE_TAB_REASONS.TRACKING_MUTATION);
+  await waitForTabReady(tab.id);
+  const result = await runSellpiaStepInTab(tab.id, "invoice", 160000);
+  const currentTab = await chrome.tabs.get(tab.id).catch(() => tab);
+  return { ...result, url: currentTab.url || SELLPIA_INVOICE_URL };
+}
+
+// 페이지 컨텍스트(MAIN world)에서 실행. 자체완결(외부 참조 금지). step: register|stockmatch|invoice.
+async function sellpiaDriveStep(step) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const jq = window.jQuery;
+  if (!jq) {
+    return { success: false, error: "셀피아 페이지(jQuery)를 찾지 못했습니다. 로그인/화면을 확인하세요." };
+  }
+  const norm = (s) => String(s == null ? "" : s).replace(/\s+/g, "");
+  const stripHtml = (h) => {
+    const d = document.createElement("div");
+    d.innerHTML = String(h == null ? "" : h);
+    return (d.textContent || "").trim();
+  };
+  const promptButtons = () => Array.from(document.querySelectorAll(".jqibuttons button"));
+  const promptOpen = () => promptButtons().length > 0;
+  const promptMessage = () => {
+    const els = Array.from(document.querySelectorAll(".jqimessage"));
+    const el = els[els.length - 1];
+    return el ? (el.textContent || "").trim() : "";
+  };
+  // 라벨(정규화 부분일치)로 impromptu 버튼 클릭. labels 는 우선순위 순.
+  function answerPrompt(labels) {
+    const btns = promptButtons();
+    for (const label of labels) {
+      const target = norm(label);
+      const b = btns.find((x) => norm(x.textContent).includes(target));
+      if (b) {
+        b.click();
+        return true;
+      }
+    }
+    return false;
+  }
+  async function waitPrompt(matchRe, timeoutMs) {
+    const until = Date.now() + timeoutMs;
+    while (Date.now() < until) {
+      if (promptOpen()) {
+        const t = promptMessage();
+        if (!matchRe || matchRe.test(t)) return t;
+      }
+      await sleep(150);
+    }
+    return null;
+  }
+  // 모든 jQuery AJAX가 끝날 때까지 대기(완료 신호).
+  async function waitIdle(timeoutMs) {
+    const until = Date.now() + timeoutMs;
+    await sleep(400); // AJAX 가 시작될 여유
+    while (Date.now() < until) {
+      if ((jq.active || 0) === 0) {
+        await sleep(300);
+        if ((jq.active || 0) === 0) return true;
+      }
+      await sleep(200);
+    }
+    return false;
+  }
+  async function waitGrid(timeoutMs) {
+    const until = Date.now() + timeoutMs;
+    while (Date.now() < until) {
+      if (window.dataView && typeof window.dataView.getLength === "function") return true;
+      await sleep(200);
+    }
+    return false;
+  }
+
+  try {
+    if (step === "register") {
+      await waitGrid(12000);
+      await waitIdle(15000); // 로드시 자동 getList(수집 대기 주문) 완료 대기
+      const btn = document.getElementById("save_b");
+      if (!btn) {
+        return {
+          success: false,
+          error: "등록 버튼(#save_b)을 찾지 못했습니다. 셀피아 주문서수집 화면인지/로그인 상태인지 확인하세요.",
+        };
+      }
+      if (window.dataView && window.dataView.getLength() <= 0) {
+        return {
+          success: false,
+          empty: true,
+          error: "등록할 수집 주문이 없습니다. 먼저 셀피아 전송을 진행한 뒤 후처리를 실행하세요.",
+        };
+      }
+      const pending = window.dataView ? window.dataView.getLength() : null;
+      btn.click();
+      const confirmTxt = await waitPrompt(/정리된 내용|등록/, 8000);
+      if (!confirmTxt) return { success: false, error: "등록 확인창이 표시되지 않았습니다." };
+      if (!answerPrompt(["기 등록된 내용 유지", "확인"])) {
+        return { success: false, error: "등록 확인 버튼(기 등록된 내용 유지)을 찾지 못했습니다." };
+      }
+      await waitIdle(50000);
+      const resultTxt = await waitPrompt(/등록되었습니다|등록에 실패|실패/, 4000);
+      answerPrompt(["Ok", "확인", "닫기"]); // 성공 안내창 닫기(재고매칭으로 이동 링크는 누르지 않음)
+      await sleep(300);
+      if (resultTxt && /실패/.test(resultTxt)) return { success: false, error: stripHtml(resultTxt) };
+      return { success: true, registered: pending, message: resultTxt ? stripHtml(resultTxt) : "주문 등록 완료" };
+    }
+
+    if (step === "stockmatch") {
+      if (!(await waitGrid(15000))) {
+        return { success: false, error: "재고매칭 화면(그리드)을 찾지 못했습니다. 로그인/화면을 확인하세요." };
+      }
+      // 1) 조회
+      const searchBtn = document.getElementById("btn_search");
+      if (!searchBtn) return { success: false, error: "조회 버튼(#btn_search)을 찾지 못했습니다." };
+      searchBtn.click();
+      const initP = await waitPrompt(/초기화|계속/, 1500);
+      if (initP) answerPrompt(["예"]);
+      await waitIdle(70000);
+      await sleep(600);
+      const listCount = window.dataView ? window.dataView.getLength() : 0;
+      if (listCount <= 0) {
+        return {
+          success: true,
+          listCount: 0,
+          matched: 0,
+          unmatched: [],
+          unmatchedCount: 0,
+          message: "재고매칭 화면에 조회된 주문이 없습니다.",
+        };
+      }
+
+      // 2) 자동합포
+      const tieBtn = document.getElementById("btn_tie");
+      if (tieBtn) {
+        tieBtn.click();
+        const tieP = await waitPrompt(/합포|일치/, 6000);
+        if (tieP) {
+          answerPrompt(["자동합포 리스트", "확인", "예"]);
+          await waitIdle(70000);
+          const tieDone = await waitPrompt(/합포|완료|없습니다/, 2500);
+          if (tieDone) answerPrompt(["확인", "예", "Ok", "닫기"]);
+          await sleep(400);
+        }
+      }
+
+      // 3) 자동재고매칭
+      const smatchBtn = document.getElementById("btn_smatch");
+      if (!smatchBtn) return { success: false, error: "자동재고매칭 버튼(#btn_smatch)을 찾지 못했습니다." };
+      smatchBtn.click();
+      const smP = await waitPrompt(/재고매칭|계속/, 6000);
+      if (!smP) return { success: false, error: "자동재고매칭 확인창이 표시되지 않았습니다." };
+      answerPrompt(["예"]);
+      await waitIdle(120000);
+      const doneTxt = await waitPrompt(/재고매칭을 완료|없습니다/, 5000);
+      let matchedFromPrompt = null;
+      if (doneTxt) {
+        const m = doneTxt.match(/완료\s*\(?\s*([0-9,]+)/);
+        if (m) matchedFromPrompt = Number(m[1].replace(/,/g, ""));
+        answerPrompt(["확인", "예", "Ok", "닫기"]);
+        await sleep(400);
+      }
+
+      // 4) 미매칭(재고부족) 읽기 — 처리결과(c_result)에 '재고매칭' 없으면 미매칭. 배송비 라인 제외.
+      const items = window.dataView && window.dataView.getItems ? window.dataView.getItems() : [];
+      const isFee = (nm) => /택배비|배송비/.test(String(nm || ""));
+      const unmatched = [];
+      let matched = 0;
+      let productRows = 0;
+      for (const it of items) {
+        const name = it.c_prd_name || it.c_prd_name_sp || "";
+        if (isFee(name)) continue; // 배송비/택배비 라인은 재고매칭 대상 아님
+        productRows += 1;
+        const result = stripHtml(it.c_result);
+        if (/재고매칭/.test(result)) {
+          matched += 1;
+          continue;
+        }
+        unmatched.push({
+          groupNo: String(it.c_group_no || ""),
+          receiver: stripHtml(it.c_receiver),
+          provider: stripHtml(it.c_provider_name),
+          product: stripHtml(name),
+          option: stripHtml(it.c_opt_name),
+          result: result || "미매칭",
+        });
+      }
+      return {
+        success: true,
+        listCount,
+        productRows,
+        matched: matchedFromPrompt != null ? matchedFromPrompt : matched,
+        unmatched,
+        unmatchedCount: unmatched.length,
+        message: `조회 ${listCount}건 · 재고매칭 ${matched}건 · 미매칭 ${unmatched.length}건`,
+      };
+    }
+
+    if (step === "invoice") {
+      if (!(await waitGrid(20000))) {
+        return { success: false, error: "송장채번 화면(그리드)을 찾지 못했습니다. 로그인/자동송장연동 설정을 확인하세요." };
+      }
+      await waitIdle(25000); // 로드시 채번 대기 리스트(getList) 완료 대기
+      await sleep(500);
+      const btn = document.getElementById("btn_get_auto_delinum");
+      if (!btn) {
+        return { success: false, error: "송장번호채번 버튼(#btn_get_auto_delinum)을 찾지 못했습니다." };
+      }
+      if (btn.disabled) {
+        return { success: false, error: "송장번호 채번 불가 상태입니다(자동송장연동/발송지 설정을 확인하세요)." };
+      }
+      const waiting = window.dataView ? window.dataView.getLength() : 0;
+      if (waiting <= 0) {
+        return { success: true, invoiced: 0, message: "송장채번 대기 주문이 없습니다(이미 채번되었거나 재고매칭 대기)." };
+      }
+      // 사용자 플로우: 대기 리스트 행을 선택(노란색)한 뒤 송장번호채번. 전체 대기건을 선택한다.
+      if (window.grid && typeof window.grid.setSelectedRows === "function") {
+        const rows = [];
+        for (let i = 0; i < waiting; i += 1) rows.push(i);
+        try {
+          window.grid.setSelectedRows(rows);
+        } catch (e) {
+          /* 선택 실패 시 페이지 자체 '전체 채번' 경로로 폴백 */
+        }
+        await sleep(300);
+      }
+      btn.click();
+      const confirmTxt = await waitPrompt(/채번|진행/, 6000);
+      if (!confirmTxt) return { success: false, error: "송장채번 확인창이 표시되지 않았습니다." };
+      answerPrompt(["예"]);
+      await waitIdle(120000);
+      const doneTxt = await waitPrompt(/완료|채번|실패|없습니다/, 6000);
+      answerPrompt(["확인", "예", "Ok", "닫기"]);
+      await sleep(700);
+      if (doneTxt && /실패/.test(doneTxt)) return { success: false, error: stripHtml(doneTxt) };
+      // ⭐채번 직후 그리드에서 발급된 송장번호를 바로 캡처(리로드하면 대기 리스트에서 빠지므로 지금 읽는다).
+      const st = (v) => String(v == null ? "" : v).trim();
+      const gItems = window.dataView && window.dataView.getItems ? window.dataView.getItems() : [];
+      const rows = gItems
+        .filter((it) => st(it.delinum))
+        .map((it) => {
+          const gno = st(it.group_no);
+          const ordNo = gno.includes("_") ? gno.split("_").pop() : gno;
+          const addr = st(it.receiver_addr) || [st(it.receiver_addr1), st(it.receiver_addr2)].filter(Boolean).join(" ");
+          return {
+            ordNo,
+            itemNo: "",
+            invNo: st(it.delinum),
+            courier: "1136", // 채번 그리드에 택배사 없음 → 계정 기본(CJ대한통운=1136)
+            provider: st(it.provider_name),
+            receiver: st(it.receiver).replace(/\([^)]*\)\s*$/, "").trim(),
+            post: st(it.receiver_post),
+            addr,
+            groupNo: gno,
+          };
+        });
+      return {
+        success: true,
+        invoiced: rows.length || waiting,
+        rows,
+        message: doneTxt ? stripHtml(doneTxt) : `송장채번 완료(${rows.length || waiting}건)`,
+      };
+    }
+
+    return { success: false, error: "알 수 없는 단계: " + step };
+  } catch (e) {
+    return { success: false, error: String((e && e.message) || e) };
+  }
+}
+
 async function collectIcecreamMallOrders(date, credentials, collection) {
   const { tab, created } = await findOrCreateIcecreamMallTab();
   if (!tab.id) {
@@ -4011,10 +4758,11 @@ async function scrapeSellpiaDeliTracking(startDate, endDate) {
     const end = endDate || `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
     const s0 = new Date(d.getTime() - 30 * 24 * 60 * 60 * 1000); // 기본 최근 30일
     const start = startDate || `${s0.getFullYear()}-${p(s0.getMonth() + 1)}-${p(s0.getDate())}`;
-    const dateType = (document.getElementById("search_date_type") || {}).value || "";
+    // 송장번호채번일자 기준으로 조회 — 채번 직후(출력 전) 주문도 잡힌다(기본값 print_datetime은 출력 전 누락).
+    const dateType = "delinum_date";
     const body = new URLSearchParams({
       domode: "GET_ORDER_DELIVERY_REPRINT_LIST",
-      date_type: dateType, // 송장출력일자/송장번호채번일자/피킹일자 (기본값 사용)
+      date_type: dateType, // delinum_date=송장번호채번일자 / print_datetime=송장출력일자 / pack_datetime=피킹일자
       s_date: start,
       e_date: end,
       delinum: "",
@@ -4058,6 +4806,250 @@ async function scrapeSellpiaDeliTracking(startDate, endDate) {
       })
       .filter((r) => r.ordNo && r.invNo);
     return { success: true, rows, total: list.length, range: { start, end } };
+  } catch (e) {
+    return { success: false, error: String((e && e.message) || e) };
+  }
+}
+
+async function findOrCreateSellpiaSaleSummaryTab() {
+  const tabs = await chrome.tabs.query({ url: SELLPIA_TAB_MATCHES });
+  const onSummary = tabs.find((t) => (t.url || "").includes("sale_summary"));
+  if (onSummary?.id) return { tab: onSummary, created: false };
+  const tab = await chrome.tabs.create({ url: SELLPIA_SALE_SUMMARY_URL, active: false });
+  return { tab, created: true };
+}
+
+// 셀피아 판매현황(sale_summary) 몰별·일별 매출 수집. 읽기 전용(비파괴).
+async function collectSellpiaSaleSummary(options = {}) {
+  const { tab, created } = await findOrCreateSellpiaSaleSummaryTab();
+  if (!tab?.id) return { success: false, error: "셀피아(kiditem.sellpia.com) 탭을 열 수 없습니다." };
+  let keepOpen = false;
+  try {
+    await waitForTabReady(tab.id);
+    const injected = await withTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: "MAIN", // 페이지 컨텍스트 fetch(로그인 세션 쿠키) + provider_list 전역 접근.
+        func: scrapeSellpiaSaleSummary,
+        args: [options.startDate || null, options.endDate || null],
+      }),
+      60000,
+      "셀피아 판매현황 조회 시간이 초과되었습니다.",
+    );
+    return injected[0]?.result ?? { success: false, error: "셀피아 화면에 접근하지 못했습니다." };
+  } catch (e) {
+    // 로그인 에러 시 대화형(웹 버튼) 호출만 탭을 열어둬 사용자가 로그인하도록 유도한다.
+    // 무인 알람(keepTabOnLoginError 미지정)은 탭을 남기면 6시간마다 누적되므로 항상 닫는다.
+    if (isMallAccessError(e)) { keepOpen = created && options.keepTabOnLoginError === true; return mallAccessErrorResult("셀피아"); }
+    return mallGenericErrorResult("셀피아", e);
+  } finally {
+    if (created && tab.id && !keepOpen) {
+      try { await chrome.tabs.remove(tab.id); } catch { /* 이미 닫힘 */ }
+    }
+  }
+}
+
+// sale_summary.html 페이지 컨텍스트에서 실행. order_search.ajax.html(mode=selldate,
+// 주문일자 s_type=1) 로 판매처(seller)별 일별 매출 JSON 을 받아 seller id→명 매핑 후 반환.
+async function scrapeSellpiaSaleSummary(startDate, endDate) {
+  try {
+    const p = (n) => String(n).padStart(2, "0");
+    const d = new Date();
+    const end = endDate || `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    const s0 = new Date(d.getTime() - 92 * 24 * 60 * 60 * 1000); // 기본 최근 92일(약 3개월) — 일/주/월 집계용 이력 누적
+    const start = startDate || `${s0.getFullYear()}-${p(s0.getMonth() + 1)}-${p(s0.getDate())}`;
+    const body = new URLSearchParams({
+      mode: "selldate", // 판매일자별 집계
+      s_date: start,
+      e_date: end,
+      seller: "all",
+      o_type: "",
+      r_type: "",
+      p_str: "",
+      s_type: "1", // 주문일자 기준
+      fs_type: "",
+      nick_type: "",
+      nick_str: "",
+    });
+    const res = await fetch("order_search.ajax.html", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" },
+      body: body.toString(),
+    });
+    if (!res.ok) {
+      return { success: false, error: "셀피아 판매현황 조회 실패 (HTTP " + res.status + "). 셀피아 로그인을 확인하세요." };
+    }
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return { success: false, error: "셀피아 판매현황 응답을 해석하지 못했습니다. 셀피아 로그인을 확인하세요." };
+    }
+    // seller id→판매처명 매핑 소스(provider_list.js.html?mode=more)가 대용량이라 로딩 대기.
+    for (let i = 0; i < 30 && typeof provider_list_all === "undefined"; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    const nameOf = (id) => {
+      try {
+        if (typeof provider_list_all !== "undefined" && provider_list_all[id]) return String(provider_list_all[id]);
+        if (typeof provider_list_s !== "undefined" && provider_list_s[id]) return String(provider_list_s[id]);
+      } catch { /* 전역 미로딩 */ }
+      return "";
+    };
+    const sellers = [];
+    for (const sellerId of Object.keys(data || {})) {
+      const dayMap = data[sellerId] || {};
+      const days = [];
+      for (const date of Object.keys(dayMap)) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+        const v = dayMap[date] || {};
+        days.push({
+          date,
+          price: Number(v.price) || 0,
+          amount: Number(v.amount) || 0,
+          buyPrice: Number(v.buy_price) || 0,
+        });
+      }
+      if (!days.length) continue;
+      sellers.push({
+        sellerId: String(sellerId),
+        sellerName: nameOf(sellerId) || "판매처 " + sellerId,
+        days,
+      });
+    }
+    return {
+      success: true,
+      payload: { range: { from: start, to: end }, sellers },
+      sellerCount: sellers.length,
+      range: { start, end },
+    };
+  } catch (e) {
+    return { success: false, error: String((e && e.message) || e) };
+  }
+}
+
+async function findOrCreateSellpiaProductProfitTab() {
+  const tabs = await chrome.tabs.query({ url: SELLPIA_TAB_MATCHES });
+  const onPage = tabs.find((t) => (t.url || "").includes("stat_prd_profit"));
+  if (onPage?.id) return { tab: onPage, created: false };
+  const tab = await chrome.tabs.create({ url: SELLPIA_PRODUCT_PROFIT_URL, active: false });
+  return { tab, created: true };
+}
+
+// 셀피아 상품별 이익현황(stat_prd_profit) 월별 소진 수집. 읽기 전용(비파괴).
+async function collectSellpiaProductProfit(options = {}) {
+  const { tab, created } = await findOrCreateSellpiaProductProfitTab();
+  if (!tab?.id) return { success: false, error: "셀피아(kiditem.sellpia.com) 탭을 열 수 없습니다." };
+  let keepOpen = false;
+  try {
+    await waitForTabReady(tab.id);
+    const injected = await withTimeout(
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: "MAIN", // 페이지 컨텍스트 fetch(로그인 세션 쿠키).
+        func: scrapeSellpiaProductProfit,
+        args: [options.startDate || null, options.endDate || null],
+      }),
+      90000,
+      "셀피아 상품별 이익현황 조회 시간이 초과되었습니다.",
+    );
+    return injected[0]?.result ?? { success: false, error: "셀피아 화면에 접근하지 못했습니다." };
+  } catch (e) {
+    if (isMallAccessError(e)) { keepOpen = created && options.keepTabOnLoginError === true; return mallAccessErrorResult("셀피아"); }
+    return mallGenericErrorResult("셀피아", e);
+  } finally {
+    if (created && tab.id && !keepOpen) {
+      try { await chrome.tabs.remove(tab.id); } catch { /* 이미 닫힘 */ }
+    }
+  }
+}
+
+// stat_prd_profit.html 페이지 컨텍스트에서 실행. stat_action.ajax.html(mode=stat_prd_profit)로
+// 상품별 이익현황을 받아 graph(월별 매입액,판매액,판매수량)를 상품×월별로 파싱해 반환.
+async function scrapeSellpiaProductProfit(startDate, endDate) {
+  try {
+    const p = (n) => String(n).padStart(2, "0");
+    const d = new Date();
+    // 어제까지의 마감기준(페이지 안내). 기본 최근 약 400일(≈13개월) — 완결 12개월 확보로
+    // 1/2개월 평균·추세·ABC·시즌 분류 근거 마련(재고관리).
+    const y = new Date(d.getTime() - 24 * 60 * 60 * 1000);
+    const end = endDate || `${y.getFullYear()}-${p(y.getMonth() + 1)}-${p(y.getDate())}`;
+    const s0 = new Date(d.getTime() - 400 * 24 * 60 * 60 * 1000);
+    const start = startDate || `${s0.getFullYear()}-${p(s0.getMonth() + 1)}-${p(s0.getDate())}`;
+    const body = new URLSearchParams({
+      mode: "stat_prd_profit",
+      s_date: start,
+      e_date: end,
+      in_s_date: end,
+      in_e_date: end,
+      provider: "",
+      vat_tp: "1",
+      p_str: "",
+      period_free: "false",
+      prd_cate: "",
+      prd_type: "",
+    });
+    const res = await fetch("stat_action.ajax.html", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" },
+      body: body.toString(),
+    });
+    if (!res.ok) {
+      return { success: false, error: "셀피아 상품별 이익현황 조회 실패 (HTTP " + res.status + "). 셀피아 로그인을 확인하세요." };
+    }
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return { success: false, error: "셀피아 상품별 이익현황 응답을 해석하지 못했습니다. 셀피아 로그인을 확인하세요." };
+    }
+    if (!Array.isArray(data)) {
+      return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
+    }
+    const normYm = (k) => {
+      const m = String(k).match(/^(\d{4})-(\d{1,2})$/);
+      if (!m) return null;
+      return m[1] + "-" + String(m[2]).padStart(2, "0");
+    };
+    const products = [];
+    for (const p2 of data) {
+      const graph = p2.graph || {};
+      const months = [];
+      for (const key of Object.keys(graph)) {
+        const ym = normYm(key);
+        if (!ym) continue;
+        const parts = String(graph[key]).split(",");
+        months.push({
+          yearMonth: ym,
+          inAmount: Number(parts[0]) || 0,
+          orderAmount: Number(parts[1]) || 0,
+          orderQty: Number(parts[2]) || 0,
+          inQty: 0, // graph 에는 매입수량이 없어 0 (총계는 total_in_qty)
+        });
+      }
+      if (!months.length) continue;
+      products.push({
+        productCode: String(p2.product_code || ""),
+        optionCode: String(p2.option_code || ""),
+        productName: String(p2.product_name || ""),
+        optionName: p2.option_name ? String(p2.option_name) : undefined,
+        providerName: p2.provider_name ? String(p2.provider_name) : undefined,
+        salePrice: Number(p2.sale_price) || 0,
+        buyPrice: Number(p2.buy_price) || 0,
+        barcode: p2.dp_code ? String(p2.dp_code) : undefined,
+        months,
+      });
+    }
+    return {
+      success: true,
+      payload: { range: { from: start, to: end }, products },
+      productCount: products.length,
+      range: { start, end },
+    };
   } catch (e) {
     return { success: false, error: String((e && e.message) || e) };
   }
@@ -4328,3 +5320,27 @@ async function scrapeDomeggookShipUpload(fileBase64, fileName, tar) {
     return { success: false, error: String((e && e.message) || e) };
   }
 }
+
+// ── 판매현황(몰별 매출) 매일 자동수집 ─────────────────────────────────────────
+// chrome.alarms 로 주기적으로(브라우저가 켜져 있을 때) 셀피아 판매현황을 스크랩해
+// chrome.storage.local 에 캐시한다. 확장은 백엔드로 직접 POST 하지 않으므로(웹앱이
+// 인증/전송 소유), 캐시는 KidItem 웹앱이 열릴 때 getSellpiaSalesCache 로 flush 된다.
+function ensureSellpiaSalesAlarm() {
+  try {
+    chrome.alarms.create(SELLPIA_SALES_ALARM, { delayInMinutes: 1, periodInMinutes: 360 });
+  } catch { /* alarms 권한/생성 실패 무시 */ }
+}
+chrome.runtime.onInstalled.addListener(ensureSellpiaSalesAlarm);
+chrome.runtime.onStartup.addListener(ensureSellpiaSalesAlarm);
+
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm?.name !== SELLPIA_SALES_ALARM) return;
+  try {
+    const result = await collectSellpiaSaleSummary({});
+    if (result?.success && result.payload && Array.isArray(result.payload.sellers) && result.payload.sellers.length) {
+      await chrome.storage.local.set({
+        [SELLPIA_SALES_CACHE_KEY]: { payload: result.payload, capturedAt: Date.now() },
+      });
+    }
+  } catch { /* 셀피아 미로그인 등 실패 시 캐시 미갱신 */ }
+});

@@ -130,7 +130,7 @@ export class SourcingRuntimeHandler implements AgentTypeRuntimeHandler, OnModule
       agentType: context.agentType,
       requestId: context.requestId,
       runId: context.runId,
-      input: { keyword, category, mode: 'stub', ...supplierUrlInput(context.input) },
+      input: { keyword, category, mode: 'replay', ...supplierUrlInput(context.input) },
     };
 
     const market = await this.toolRouter.invoke({
@@ -165,7 +165,7 @@ export class SourcingRuntimeHandler implements AgentTypeRuntimeHandler, OnModule
     assertToolInvocationDidNotFail(recommendation);
 
     return {
-      provider: 'kiditem-sourcing-stub',
+      provider: 'kiditem-sourcing-replay',
       output: {
         action: 'market_opportunity_discovery',
         keyword,

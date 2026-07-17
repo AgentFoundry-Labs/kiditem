@@ -218,6 +218,15 @@ describe('ReadinessService', () => {
         count: vi.fn(async () => 1752),
         findFirst: vi.fn(async () => ({ updatedAt: new Date('2026-05-02T01:00:00.000Z') })),
       },
+      // 일별 매출(wing_sales) readiness 는 셀피아 판매현황 기준. 전 일자 present → ok.
+      sellpiaSalesDailySnapshot: {
+        findMany: vi.fn(async () =>
+          expectedDates.map((businessDate) => ({
+            businessDate: new Date(`${businessDate}T00:00:00.000Z`),
+            capturedAt: new Date('2026-05-02T01:00:00.000Z'),
+          })),
+        ),
+      },
     };
 
     const service = new ReadinessService(prisma as never);

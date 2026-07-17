@@ -34,6 +34,7 @@ function renderSection(items: StoredOrderCollectionFile[]) {
     onDownload: vi.fn(),
     onDownloadSelected: vi.fn(),
     onPreview: vi.fn(),
+    onSellpiaPostProcess: vi.fn(),
     onSendSelectedToSellpia: vi.fn(),
     onSendToSellpia: vi.fn(),
   };
@@ -43,6 +44,7 @@ function renderSection(items: StoredOrderCollectionFile[]) {
       items={items}
       bulkAction={null}
       sellpiaSendingId={null}
+      sellpiaPostProcessing={false}
       {...callbacks}
     />,
   );
@@ -119,11 +121,13 @@ describe('GeneratedFilesSection', () => {
         items={[item]}
         bulkAction={null}
         sellpiaSendingId={item.id}
+        sellpiaPostProcessing={false}
         onDelete={vi.fn()}
         onDeleteSelected={vi.fn()}
         onDownload={vi.fn()}
         onDownloadSelected={vi.fn()}
         onPreview={vi.fn()}
+        onSellpiaPostProcess={vi.fn()}
         onSendSelectedToSellpia={vi.fn()}
         onSendToSellpia={vi.fn()}
       />,

@@ -138,7 +138,7 @@ export function LiveCommerceSection() {
           <div>
             <h3 className="text-sm font-bold text-[var(--text-primary)]">중국 라이브 커머스</h3>
             <p className="mt-0.5 text-xs leading-5 text-[var(--text-tertiary)]">
-              타오바오는 공식 TOP API, 1688·도우인은 로그인된 Chrome 방송 화면에서 노출된 상품을 수집합니다.
+              타오바오는 공식 API로, 1688·도우인은 로그인된 Chrome 방송 화면에서 상품을 수집합니다.
             </p>
           </div>
         </div>
@@ -198,7 +198,7 @@ export function LiveCommerceSection() {
             <p className="text-xs font-bold text-[var(--text-primary)]">1688·도우인 방송 URL 수집</p>
           </div>
           <p className="mt-1 text-[11px] leading-4 text-[var(--text-tertiary)]">
-            실제 방송 URL을 넣으면 새 탭을 열어 로그인·보안문자를 확인한 뒤 노출 상품을 저장합니다.
+            방송 URL을 넣으면 새 탭에서 로그인·보안문자를 확인한 뒤 상품을 저장합니다.
           </p>
           <div className="mt-3 flex gap-2">
             <input

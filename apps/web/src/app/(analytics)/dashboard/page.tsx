@@ -5,6 +5,7 @@ import Link from 'next/link';
 import {
   BarChart3,
   Calendar,
+  ChevronDown,
   Database,
   Megaphone,
   ShoppingCart,
@@ -35,6 +36,8 @@ import { cn, formatKRW, formatNumber, formatDateTime } from '@/lib/utils';
 import { friendlyError } from '@/lib/api-error';
 import ReadinessModal from '@/components/ReadinessModal';
 import { DashboardChartPanel } from './components/DashboardChartPanel';
+import { DashboardChannelSales } from './components/DashboardChannelSales';
+import { useSellpiaChannelSales, sellpiaPeriodRange } from './hooks/useSellpiaChannelSales';
 import { MetricCard, UnavailableMetricCard } from './components/DashboardMetricCard';
 import { DashboardProfitDetailModal } from './components/DashboardProfitDetailModal';
 import { DashboardSectionError } from './components/DashboardSectionError';
@@ -49,6 +52,9 @@ export default function Dashboard() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [showReadiness, setShowReadiness] = useState(false);
+  // 몰별 매출 상세(월 매출 카드 클릭 시 하단 펼침) — 선택 기간(일/주/월)에 맞춰 조회
+  const [showChannelDetail, setShowChannelDetail] = useState(false);
+  const channelSales = useSellpiaChannelSales(sellpiaPeriodRange(kpiRange, dateFrom, dateTo));
 
   // Baseline (month) — always fetched
   const {
@@ -140,6 +146,7 @@ export default function Dashboard() {
     if (!dateFrom || !dateTo) return;
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.salesRange('custom', dateFrom, dateTo) });
     queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.adRange('custom', dateFrom, dateTo) });
+    queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.sellpiaSalesAll() });
   }, [dateFrom, dateTo, queryClient]);
 
   // For "displayed KPIs" — prefer range, fall back to baseline
@@ -299,6 +306,22 @@ export default function Dashboard() {
   const channelLinkedProducts = inventoryData.channelLinkedProducts ?? 0;
   const channelUnlinkedProducts = inventoryData.channelUnlinkedProducts ?? Math.max(inventoryData.totalProducts - channelLinkedProducts, 0);
 
+  // 셀피아 판매현황(몰별 매출) 파생값 — 월 매출/순이익 카드가 이 소스로 표시된다.
+  const sp = channelSales.summary;
+  const sellpiaHasData = sp?.hasData === true;
+  const spTotal = sp?.totalRevenue ?? 0;
+  const spRocket = sp?.rocket.revenue ?? 0;
+  const spOthers = sp?.others.revenue ?? 0;
+  const spCost = (sp?.rocket.cost ?? 0) + (sp?.others.cost ?? 0);
+  const spQty = (sp?.rocket.qty ?? 0) + (sp?.others.qty ?? 0);
+  const spProfit = spTotal - spCost;
+  // 카드 표시값: 셀피아 데이터가 있으면 셀피아 기준으로 통일(로켓/기타몰/합계가 서로 맞음).
+  const displayRevenue = sellpiaHasData ? spTotal : kpiRevenue;
+  const displayRocket = sellpiaHasData ? spRocket : rocketRevenue;
+  const displayOthers = sellpiaHasData ? spOthers : wingRevenue;
+  const displayRevAchieve = revenueGoal > 0 ? Math.min(Math.round((displayRevenue / revenueGoal) * 100), 999) : 0;
+  const displayRevPct = revenueGoal > 0 ? Math.min((displayRevenue / revenueGoal) * 100, 100) : 0;
+
   return (
     <div className="space-y-4 w-full pb-12">
       {/* Header */}
@@ -358,19 +381,38 @@ export default function Dashboard() {
               >{label}</button>
             ))}
             <button
-              onClick={() => setKpiRange('custom')}
+              onClick={() => {
+                setKpiRange('custom');
+                // 기간 진입 시 비어 있으면 이번 달로 기본 채움(빈 입력 방지)
+                const def = sellpiaPeriodRange('month', '', '');
+                if (!dateFrom) setDateFrom(def.from);
+                if (!dateTo) setDateTo(def.to);
+              }}
               className={cn('px-3 py-1.5 rounded-md text-sm font-semibold transition-colors flex items-center gap-1', kpiRange === 'custom' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-400')}
             ><Calendar size={13} /> 기간</button>
           </div>
           {kpiRange === 'custom' ? (
-            <div className="flex items-center gap-2">
-              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-                className="px-2.5 py-1.5 rounded-lg text-sm border border-slate-200 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-200" />
-              <span className="text-xs text-slate-400">~</span>
-              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-                className="px-2.5 py-1.5 rounded-lg text-sm border border-slate-200 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-purple-200" />
-              <button onClick={applyCustomRange} disabled={!dateFrom || !dateTo}
-                className="px-3 py-1.5 rounded-lg text-white text-sm font-semibold bg-purple-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+            <div className="flex items-center gap-1.5 rounded-lg bg-slate-100 p-1">
+              <input
+                type="date"
+                value={dateFrom}
+                max={dateTo || undefined}
+                onChange={e => setDateFrom(e.target.value)}
+                className="h-8 px-2.5 rounded-md text-sm border border-slate-200 bg-white text-slate-700 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-purple-300"
+              />
+              <span className="text-slate-400 px-0.5">~</span>
+              <input
+                type="date"
+                value={dateTo}
+                min={dateFrom || undefined}
+                onChange={e => setDateTo(e.target.value)}
+                className="h-8 px-2.5 rounded-md text-sm border border-slate-200 bg-white text-slate-700 [color-scheme:light] focus:outline-none focus:ring-2 focus:ring-purple-300"
+              />
+              <button
+                onClick={applyCustomRange}
+                disabled={!dateFrom || !dateTo}
+                className="h-8 px-4 rounded-md text-white text-sm font-semibold bg-purple-600 hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
                 조회
               </button>
             </div>
@@ -384,52 +426,66 @@ export default function Dashboard() {
 
       {/* KPI 카드 — 월 매출 + 월 순이익 + 이익률 + 광고비율 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" style={{ alignItems: 'stretch' }}>
-        {/* 월 매출 */}
-        <div className="lg:row-span-2 rounded-2xl px-5 py-3 flex flex-col justify-between bg-white border border-slate-100 shadow-sm">
+        {/* 월 매출 — 클릭 시 하단에 몰별 매출 상세가 펼쳐진다 */}
+        <div
+          className="lg:row-span-2 rounded-2xl px-5 py-3 flex flex-col justify-between bg-white border border-slate-100 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+          onClick={() => setShowChannelDetail((v) => !v)}
+          role="button"
+          aria-expanded={showChannelDetail}
+        >
           <div>
             <div className="flex items-center gap-2 mb-1">
               <Wallet size={18} className="text-blue-600" />
               <span className="text-sm font-bold uppercase tracking-wider text-blue-600">{rangeLabel} 매출</span>
-              <span className={cn('flex items-center gap-0.5 px-2 py-0.5 rounded-full text-sm font-mono', revenueChange >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600')}>
-                {revenueChange >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-                <span>{revenueChange > 0 ? '+' : ''}{revenueChange.toFixed(1)}%</span>
-              </span>
+              {!sellpiaHasData && (
+                <span className={cn('flex items-center gap-0.5 px-2 py-0.5 rounded-full text-sm font-mono', revenueChange >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600')}>
+                  {revenueChange >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+                  <span>{revenueChange > 0 ? '+' : ''}{revenueChange.toFixed(1)}%</span>
+                </span>
+              )}
+              <ChevronDown size={16} className={cn('ml-auto text-blue-400 transition-transform', showChannelDetail && 'rotate-180')} />
             </div>
-            <div className="text-[10px] font-mono text-slate-400 mb-1.5">{revenueSourceLabel}</div>
+            <div className="text-[10px] font-mono text-slate-400 mb-1.5">{sellpiaHasData ? '셀피아 판매현황' : revenueSourceLabel}</div>
             <div className="flex items-baseline gap-1.5 mb-1">
-              <span className="text-xl sm:text-3xl font-extrabold tabular-nums tracking-tight text-blue-600">{formatKRW(kpiRevenue)}</span>
+              <span className="text-xl sm:text-3xl font-extrabold tabular-nums tracking-tight text-blue-600">{formatKRW(displayRevenue)}</span>
               <span className="text-lg font-semibold text-blue-600/60">원</span>
             </div>
-            <div className="text-sm text-slate-500">이전 {formatKRW(kpiPrevRevenue)}원</div>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <Link
-                href="/sales-analysis?tab=wing-daily"
-                className="rounded-lg bg-blue-50/70 px-2.5 py-1.5 transition-colors hover:bg-blue-100"
-              >
-                <div className="text-[11px] font-medium text-blue-500">쿠팡 윙</div>
-                <div className="text-sm font-bold tabular-nums text-blue-700">{formatKRW(wingRevenue)}원</div>
-              </Link>
-              <Link
-                href="/sales-analysis?tab=rocket-daily"
-                className="rounded-lg bg-purple-50 px-2.5 py-1.5 transition-colors hover:bg-purple-100"
-              >
-                <div className="text-[11px] font-medium text-purple-600">
-                  쿠팡 로켓 <span className="text-[9px] text-purple-400">→ 분석</span>
-                </div>
-                <div className="text-sm font-bold tabular-nums text-purple-700">{formatKRW(rocketRevenue)}원</div>
-              </Link>
-            </div>
+            {!sellpiaHasData && <div className="text-sm text-slate-500">이전 {formatKRW(kpiPrevRevenue)}원</div>}
+            {(sellpiaHasData || wingRevenue > 0 || rocketRevenue > 0) && (
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <Link
+                  href="/sales-analysis?tab=wing-daily"
+                  onClick={(e) => {
+                    if (sellpiaHasData) { e.preventDefault(); e.stopPropagation(); setShowChannelDetail((v) => !v); }
+                  }}
+                  className="rounded-lg bg-blue-50/70 px-2.5 py-1.5 transition-colors hover:bg-blue-100"
+                >
+                  <div className="text-[11px] font-medium text-blue-500">{sellpiaHasData ? '쿠팡윙 · 기타몰' : '쿠팡 윙'}</div>
+                  <div className="text-sm font-bold tabular-nums text-blue-700">{formatKRW(displayOthers)}원</div>
+                </Link>
+                <Link
+                  href="/sales-analysis?tab=rocket-daily"
+                  onClick={(e) => e.stopPropagation()}
+                  className="rounded-lg bg-purple-50 px-2.5 py-1.5 transition-colors hover:bg-purple-100"
+                >
+                  <div className="text-[11px] font-medium text-purple-600">
+                    쿠팡 로켓 <span className="text-[9px] text-purple-400">→ 분석</span>
+                  </div>
+                  <div className="text-sm font-bold tabular-nums text-purple-700">{formatKRW(displayRocket)}원</div>
+                </Link>
+              </div>
+            )}
             <div className="mt-2 pt-2 border-t border-blue-100">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-[12px] font-medium text-blue-400">목표 {formatKRW(revenueGoal)}원</span>
-                <span className={cn('text-[13px] font-bold tabular-nums', revenueAchieve >= 100 ? 'text-emerald-600' : 'text-blue-600')}>{revenueAchieve}%</span>
+                <span className={cn('text-[13px] font-bold tabular-nums', displayRevAchieve >= 100 ? 'text-emerald-600' : 'text-blue-600')}>{displayRevAchieve}%</span>
               </div>
               <div className="h-2 rounded-full overflow-hidden bg-blue-50">
-                <div className="h-full rounded-full transition-all duration-500 bg-blue-600" style={{ width: `${revenuePct}%` }} />
+                <div className="h-full rounded-full transition-all duration-500 bg-blue-600" style={{ width: `${displayRevPct}%` }} />
               </div>
-              {revenueAchieve >= 100
+              {displayRevAchieve >= 100
                 ? <div className="text-[11px] mt-1 font-semibold text-blue-600">목표 달성!</div>
-                : <div className="text-[11px] mt-1 text-blue-400">{formatKRW(revenueGoal - kpiRevenue)}원 남음</div>
+                : <div className="text-[11px] mt-1 text-blue-400">{formatKRW(Math.max(revenueGoal - displayRevenue, 0))}원 남음</div>
               }
             </div>
           </div>
@@ -472,8 +528,37 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* 월 순이익 — 정합성 결여(Wing 단독)면 placeholder, 그 외엔 기존 breakdown */}
-        {profitMetricsAvailable ? (
+        {/* 월 순이익 — 셀피아 판매현황(판매금액−매입가)이 있으면 우선, 없으면 기존 로직 */}
+        {sellpiaHasData ? (
+          <div className="lg:row-span-2 rounded-2xl px-5 py-3 flex flex-col justify-between bg-white border border-slate-100 shadow-sm">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <TrendingUp size={18} className="text-emerald-600" />
+                <span className="text-sm font-bold uppercase tracking-wider text-emerald-600">{rangeLabel} 순이익</span>
+              </div>
+              <div className="text-[10px] font-mono text-slate-400 mb-1.5">셀피아 · 판매금액 − 매입가</div>
+              <div className="flex items-baseline gap-1.5 mb-1">
+                <span className="text-xl sm:text-3xl font-extrabold tabular-nums tracking-tight text-emerald-600">{formatKRW(spProfit)}</span>
+                <span className="text-lg font-semibold text-emerald-600/60">원</span>
+              </div>
+              <div className="text-xs text-slate-400 mt-1">셀피아 판매현황의 판매금액에서 매입가를 뺀 수익입니다.</div>
+            </div>
+            <div className="mt-2 pt-2 space-y-1.5 border-t border-emerald-100">
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">판매금액</span>
+                <span className="font-bold tabular-nums text-slate-900">{formatKRW(spTotal)}원</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">매입가</span>
+                <span className="font-bold tabular-nums text-slate-900">{formatKRW(spCost)}원</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">판매수량</span>
+                <span className="font-bold tabular-nums text-slate-900">{formatNumber(spQty)}개</span>
+              </div>
+            </div>
+          </div>
+        ) : profitMetricsAvailable ? (
           <div
             className="lg:row-span-2 rounded-2xl px-5 py-3 flex flex-col justify-between cursor-pointer hover:shadow-md transition-shadow bg-white border border-slate-100 shadow-sm"
             onClick={() => setShowProfitDetail(true)}
@@ -636,6 +721,17 @@ export default function Dashboard() {
         />
       </div>
 
+      {/* 몰별 매출 상세 — 월 매출 카드 클릭 시 펼침 (셀피아 판매현황 소스) */}
+      {showChannelDetail && (
+        <DashboardChannelSales
+          summary={channelSales.summary}
+          isLoading={channelSales.isLoading}
+          isError={channelSales.isError}
+          onRetry={channelSales.refetch}
+          onSync={channelSales.sync}
+          syncing={channelSales.syncing}
+        />
+      )}
 
       {/* 차트 + 사이드패널 */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 overflow-hidden" style={{ height: 620 }}>

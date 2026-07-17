@@ -77,6 +77,10 @@ export const queryKeys = {
     historyList: (params: Record<string, string>) =>
       [...queryKeys.inventory.history(), params] as const,
     receiptBatches: () => [...queryKeys.inventory.all, 'sellpia-receipt-batches'] as const,
+    // Sellpia 상품별 소진(재고 분석)
+    productSalesAll: () => [...queryKeys.inventory.all, 'sellpia-product-sales'] as const,
+    productSales: (months?: number) =>
+      [...queryKeys.inventory.all, 'sellpia-product-sales', months ?? 0] as const,
   },
   dashboard: {
     all: ['dashboard'] as const,
@@ -99,6 +103,10 @@ export const queryKeys = {
     // Health (unchanged)
     health: () =>
       [...queryKeys.dashboard.all, 'health'] as const,
+    // Sellpia 판매현황(몰별 매출)
+    sellpiaSalesAll: () => [...queryKeys.dashboard.all, 'sellpia-sales'] as const,
+    sellpiaSales: (from?: string, to?: string) =>
+      [...queryKeys.dashboard.all, 'sellpia-sales', from ?? '', to ?? ''] as const,
   },
   ads: {
     all: ['ads'] as const,

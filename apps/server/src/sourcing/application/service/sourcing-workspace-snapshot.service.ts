@@ -109,6 +109,11 @@ function validateSourcingWorkspaceSnapshotPayload(
     return payload;
   }
 
+  if (scope === 'market_shadow_signals') {
+    assertMarketShadowSignalsPayload(input, result);
+    return payload;
+  }
+
   assertKeywordAnalysisPayload(input, result);
   return payload;
 }
@@ -234,6 +239,26 @@ function assertSourcing1688NewProductModelPayload(
   assertArray(result.candidates, 'result.candidates', 240);
   requireRecord(result.stats, 'result.stats');
   requireRecord(result.model, 'result.model');
+}
+
+function assertMarketShadowSignalsPayload(
+  input: Record<string, unknown>,
+  result: Record<string, unknown>,
+) {
+  assertIn(input.experiment, 'input.experiment', ['paired-shadow-v1']);
+  assertArray(input.sources, 'input.sources', 5);
+  assertArray(input.seedKeywords, 'input.seedKeywords', 200);
+  assertIntegerInRange(input.windowDays, 'input.windowDays', 1, 30);
+  assertIn(result.status, 'result.status', [
+    'collecting',
+    'complete',
+    'partial',
+    'failed',
+  ]);
+  assertIn(result.decisionImpact, 'result.decisionImpact', ['disabled']);
+  assertArray(result.sources, 'result.sources', 5);
+  requireRecord(result.evaluation, 'result.evaluation');
+  assertArray(result.errors, 'result.errors', 20);
 }
 
 function requireRecord(value: unknown, path: string): Record<string, unknown> {

@@ -17,6 +17,9 @@ conversion.
 - Coupang Rocket purchase-order list/detail collection for read-only purchase
   quantity previews.
 - Sellpia delivery-tracking lookup and order-file upload.
+- Sellpia 판매현황(sale_summary) 몰별·일별 매출 조회(읽기 전용) + `chrome.alarms`
+  매일 자동수집 캐시(웹앱이 백엔드로 flush).
+- Sellpia 상품별 이익현황(stat_prd_profit) 상품×월별 소진(판매수량) 조회(읽기 전용).
 - Sellpia option-product inventory workbook download from the fixed
   `kiditem.sellpia.com` product-list contract.
 - Domeggook and Onchannel tracking registration initiated from the KidItem

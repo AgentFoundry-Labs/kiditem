@@ -3,6 +3,7 @@ import {
   Boxes,
   CircleDollarSign,
   Eye,
+  Info,
   MessageSquareText,
   PackageCheck,
   Radio,
@@ -38,7 +39,7 @@ export function CompetitorSignalsSection() {
   return (
     <div className="space-y-5">
       <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
-        <Radio size={15} className="mt-0.5 shrink-0" />
+        <Info size={15} className="mt-0.5 shrink-0" />
         <p>
           아래 값은 2026-07-12 리서치 스냅샷이며 경쟁사 실시간 수집값이 아닙니다.
           실제 가격·리뷰·광고 변화 수집기가 연결되기 전에는 전략 참고 사례로만 사용하세요.
@@ -55,7 +56,7 @@ export function CompetitorSignalsSection() {
         <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]" aria-labelledby="competitor-feed-title">
           <div className="border-b border-[var(--border)] px-5 py-4">
             <p className="text-xs font-semibold text-[var(--primary)]">2026-07-12 리서치 스냅샷</p>
-            <h2 id="competitor-feed-title" className="mt-1 text-lg font-bold text-[var(--text-primary)]">경쟁사 변화 피드</h2>
+            <h2 id="competitor-feed-title" className="mt-1 text-lg font-bold text-[var(--text-primary)]">경쟁사 변화 목록</h2>
             <p className="mt-1 text-sm text-[var(--text-secondary)]">가격·리뷰·세트·콘텐츠 변화를 영향도 순으로 정렬합니다.</p>
           </div>
           <div className="divide-y divide-[var(--border-subtle)]">
@@ -93,7 +94,7 @@ export function CompetitorSignalsSection() {
 
         <aside className="rounded-xl border border-[var(--border)] bg-[var(--surface)]" aria-labelledby="creative-pattern-title">
           <div className="border-b border-[var(--border)] px-5 py-4">
-            <p className="text-xs font-semibold text-[var(--primary)]">반복되는 성공 패턴</p>
+            <p className="text-xs font-semibold text-[var(--primary)]">상위 상품 공통 패턴</p>
             <h2 id="creative-pattern-title" className="mt-1 text-lg font-bold text-[var(--text-primary)]">콘텐츠·상품 구성</h2>
           </div>
           <div className="space-y-3 p-5">
@@ -128,8 +129,8 @@ export function CompetitorSignalsSection() {
       <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)]" aria-labelledby="channel-signal-title">
         <div className="border-b border-[var(--border)] px-5 py-4">
           <p className="text-xs font-semibold text-[var(--primary)]">리서치 참고 · 실수집 아님</p>
-          <h2 id="channel-signal-title" className="mt-1 text-lg font-bold text-[var(--text-primary)]">중국·SNS 선행 신호</h2>
-          <p className="mt-1 text-sm text-[var(--text-secondary)]">과거 조사 사례를 국내 수요 검증 단계와 함께 표시합니다. 현재 선점 후보 계산에는 포함하지 않습니다.</p>
+          <h2 id="channel-signal-title" className="mt-1 text-lg font-bold text-[var(--text-primary)]">중국·SNS 참고 신호</h2>
+          <p className="mt-1 text-sm text-[var(--text-secondary)]">과거 조사 사례를 국내 수요 검증 단계와 함께 표시합니다. 현재 후보 점수 계산에는 포함하지 않습니다.</p>
         </div>
         <div className="grid gap-px overflow-hidden rounded-b-xl bg-[var(--border)] sm:grid-cols-2 xl:grid-cols-4">
           {channelSignals.map((signal) => (

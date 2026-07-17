@@ -16,6 +16,7 @@ describe('invalidateSellpiaInventory', () => {
       queryKeys.inventory.freshness(),
       ['inventory', 'sellpia-current-basis'],
       queryKeys.inventory.history(),
+      queryKeys.inventory.productSalesAll(),
       queryKeys.channelSkuAvailability.all,
       queryKeys.channelSkuMappings.all,
       queryKeys.dashboard.inventory(),

@@ -29,7 +29,10 @@ import {
   type UpdateTrendSeedInput,
   type UpsertTrendSeedInput,
 } from '../port/out/repository/trend-collection.repository.port';
-import { DEFAULT_STATIONERY_TOY_TREND_SEEDS } from '../../domain/stationery-toy-trend';
+import {
+  DEFAULT_STATIONERY_TOY_TREND_SEEDS,
+  DOUYIN_TREND_TOY_STATIONERY_SEEDS,
+} from '../../domain/stationery-toy-trend';
 
 const TREND_SOURCE_ORDER = ['naver', '1688', 'shorts'] as const;
 export type TrendCollectSource = (typeof TREND_SOURCE_ORDER)[number];
@@ -460,7 +463,11 @@ function collectionSeedsFor(
   const configured = enabledSeeds
     .filter((seed) => seed.sources.includes(source))
     .map((seed) => ({ keyword: seed.keyword, keywordCn: seed.keywordCn }));
-  const baseline = DEFAULT_STATIONERY_TOY_TREND_SEEDS.map((seed) => ({
+  // 도우인 트렌드 큐레이션 키워드는 1688 핫셀링 수집에만 추가로 태운다(naver/shorts 영향 없음).
+  const baseline = [
+    ...DEFAULT_STATIONERY_TOY_TREND_SEEDS,
+    ...(source === '1688' ? DOUYIN_TREND_TOY_STATIONERY_SEEDS : []),
+  ].map((seed) => ({
     keyword: seed.keyword,
     keywordCn: seed.keywordCn,
   }));

@@ -220,7 +220,10 @@ describe('readiness extension collection', () => {
       { wrapper: wrapper() },
     );
 
-    for (const key of Object.keys(READINESS_COLLECTION_PRODUCERS)) {
+    // wing_sales 는 셀피아 판매현황 수집으로 대체돼 브라우저 수집 producer 를 쓰지 않는다.
+    for (const key of Object.keys(READINESS_COLLECTION_PRODUCERS).filter(
+      (k) => k !== 'wing_sales',
+    )) {
       await act(async () => {
         await result.current.handleCollect(check(key));
       });
@@ -237,7 +240,6 @@ describe('readiness extension collection', () => {
           (message as { producer?: string }).producer,
       );
     expect(producers).toEqual([
-      'dashboard.wing_sales',
       'dashboard.rocket_sales',
       'dashboard.coupang_ads',
       'advertising.ad_sync',
@@ -255,13 +257,13 @@ describe('readiness extension collection', () => {
     );
 
     await act(async () => {
-      await result.current.handleCollect(check('wing_sales'));
+      await result.current.handleCollect(check('wing_kpi'));
     });
 
     expect(mocks.detectExtensionId).toHaveBeenCalledTimes(1);
     expect(recordMissingBrowserCollection).toHaveBeenCalledWith(
-      'dashboard.wing_sales',
-      { checkKey: 'wing_sales', trigger: 'readiness' },
+      'dashboard.wing_kpi',
+      { checkKey: 'wing_kpi', trigger: 'readiness' },
       undefined,
     );
     expect(sendToExtension).not.toHaveBeenCalled();
@@ -276,12 +278,12 @@ describe('readiness extension collection', () => {
     );
 
     await act(async () => {
-      await result.current.handleCollect(check('wing_sales'), RUN_ID);
+      await result.current.handleCollect(check('wing_kpi'), RUN_ID);
     });
 
     expect(recordMissingBrowserCollection).toHaveBeenCalledWith(
-      'dashboard.wing_sales',
-      { checkKey: 'wing_sales', trigger: 'readiness' },
+      'dashboard.wing_kpi',
+      { checkKey: 'wing_kpi', trigger: 'readiness' },
       RUN_ID,
     );
   });

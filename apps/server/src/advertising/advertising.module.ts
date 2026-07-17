@@ -56,6 +56,7 @@ import { AdConfigService } from "./application/service/ad-config.service";
 import { KeywordRankService } from "./application/service/keyword-rank.service";
 import { CompetitorTrackingService } from "./application/service/competitor-tracking.service";
 import { WingTrackedProductService } from "./application/service/wing-tracked-product.service";
+import { CoupangMomentumReadService } from "./application/service/coupang-momentum-read.service";
 import { AdCampaignIngestHandler } from "./application/service/ad-campaign-ingest.handler";
 import { CoupangAdsDailyIngestHandler } from "./application/service/coupang-ads-daily-ingest.handler";
 import { KeywordRankIngestHandler } from "./application/service/keyword-rank-ingest.handler";
@@ -85,6 +86,7 @@ import { WING_TRACKED_PRODUCT_REPOSITORY_PORT } from "./application/port/out/rep
 import { OPERATION_ALERT_PORT } from "./application/port/out/cross-domain/operation-alert.port";
 import { KIDITEM_STOREFRONT_PORT } from "./application/port/out/provider/kiditem-storefront.port";
 import { AD_INGEST_TRANSACTION_PORT } from "./application/port/out/transaction/ad-ingest-transaction.port";
+import { COUPANG_MOMENTUM_READ_CAPABILITY_PORT } from "./application/port/in/capability/coupang-momentum-read.port";
 
 // `application/port/out/*` ports bound to their adapters via `useExisting`
 // so application services depend on tokens, not concrete classes. Mirrors
@@ -213,6 +215,7 @@ const REPOSITORY_PORT_BINDINGS = [
     KeywordRankService,
     CompetitorTrackingService,
     WingTrackedProductService,
+    CoupangMomentumReadService,
     // application/service — ingest handlers
     AdCampaignIngestHandler,
     CoupangAdsDailyIngestHandler,
@@ -224,6 +227,12 @@ const REPOSITORY_PORT_BINDINGS = [
     ChannelScrapePersistenceService,
     // port bindings
     ...REPOSITORY_PORT_BINDINGS,
+    {
+      provide: COUPANG_MOMENTUM_READ_CAPABILITY_PORT,
+      useExisting: CoupangMomentumReadService,
+    },
   ],
+  // Published cross-domain read capability (consumed by sourcing).
+  exports: [COUPANG_MOMENTUM_READ_CAPABILITY_PORT],
 })
 export class AdvertisingModule {}

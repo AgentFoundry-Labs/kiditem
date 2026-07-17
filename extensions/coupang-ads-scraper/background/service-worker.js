@@ -424,6 +424,8 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         coupangCatalogSnapshot: true,
         coupangCatalogSnapshotSource: "wing-inventory-v1",
         browserCollectionSessions: true,
+        wingFormRegister: true,
+        wingFormRegisterSource: "wing-formV2-fill",
       },
     });
     return;
@@ -469,6 +471,15 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
           success: false,
           error: e?.message || "Wing 카탈로그 검색 실패",
         }),
+      );
+    return true;
+  }
+
+  if (msg.action === "registerToWingForm") {
+    registerToWingForm(msg)
+      .then((result) => sendResponse(result))
+      .catch((e) =>
+        sendResponse({ ok: false, error: e?.message || "WING 상품등록 페이지 열기 실패" }),
       );
     return true;
   }
@@ -678,6 +689,53 @@ async function loadScheduledScrapeTargets() {
   const targets = collectionRuns.validateScrapeTargets(json?.targets || []);
   if (!targets) throw new Error("현재 수집 대상이 없습니다");
   return targets;
+}
+
+// 단일 상품 직접 등록: formV2 탭을 열고 content script(wing-registration-fill)에 채움 데이터 전송.
+// ⚠️ 제출은 하지 않는다 — content script 가 채우기만 하고 사용자가 확인 후 등록.
+function waitForTabComplete(tabId, timeoutMs = 60000) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const check = () => {
+      chrome.tabs.get(tabId, (tab) => {
+        if (chrome.runtime.lastError || !tab) return resolve(false);
+        if (tab.status === "complete") return resolve(true);
+        if (Date.now() - start > timeoutMs) return resolve(false);
+        setTimeout(check, 400);
+      });
+    };
+    check();
+  });
+}
+
+async function registerToWingForm(message) {
+  const product = message && message.product;
+  if (!product || typeof product !== "object") {
+    return { ok: false, error: "product 데이터가 없습니다." };
+  }
+  const url =
+    "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2";
+  const tab = await interactiveTabs.createTab({
+    url,
+    reason: INTERACTIVE_TAB_REASONS.PRODUCT_EDIT,
+  });
+  await waitForTabComplete(tab.id, 60000);
+  // React formV2 렌더 여유
+  await new Promise((r) => setTimeout(r, 2500));
+  try {
+    const fill = await chrome.tabs.sendMessage(tab.id, {
+      action: "fillWingForm",
+      product,
+    });
+    return { ok: true, tabId: tab.id, fill };
+  } catch (e) {
+    // content script 미준비여도 탭은 열렸으니 수동 입력 가능 → ok 로 보되 사유 전달
+    return {
+      ok: true,
+      tabId: tab.id,
+      fill: { ok: false, error: e?.message || "content script 미응답 (확장 리로드 필요)" },
+    };
+  }
 }
 
 async function searchWingCatalogProducts(message) {

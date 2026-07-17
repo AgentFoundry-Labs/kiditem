@@ -1,0 +1,4 @@
+interface:
+  display_name: "KidItem Market Sourcing Radar"
+  short_description: "실제 근거로 문구·완구 소싱 트렌드를 분석합니다"
+  default_prompt: "Use $kiditem-market-sourcing-radar to analyze the latest persisted market evidence and return test-order, hold, or reject decisions with confidence and data gaps."

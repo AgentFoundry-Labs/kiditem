@@ -13,6 +13,14 @@ import owner-domain services or take mutation authority from them.
 - Statistics: `GET /api/statistics?type=...`
 - Traffic summary/monthly/upload: `/api/traffic/*`
 - Supplier reports: `GET /api/supplier-stats?type=...`
+- Sellpia 판매현황 몰별 매출: `POST /api/sellpia-sales/ingest`,
+  `GET /api/sellpia-sales` (확장이 Sellpia sale_summary 를 몰별로 수집해 적재하는
+  daily-fact ingest 레인 + 대시보드 read)
+- Sellpia 상품별 소진(재고관리): `POST /api/sellpia-product-sales/ingest`,
+  `GET /api/sellpia-product-sales`
+  (확장이 Sellpia stat_prd_profit 을 상품×월별로 수집해 적재하는 monthly-fact
+  ingest 레인 + Inventory가 소유하는 활성 `SellpiaInventorySku` 현재고 read + 상품별
+  1/2개월 평균 소진량·ABC·악성재고·시즌·현재고·발주 read)
 
 ## Main Data Models
 

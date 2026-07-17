@@ -2,19 +2,20 @@
 
 import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { ArrowLeftRight, Ban, Boxes, CircleDollarSign, Clock3, Gauge, Link2Off, PackageX, RotateCcw } from 'lucide-react';
+import { ArrowLeftRight, Ban, Boxes, CircleDollarSign, Clock3, Gauge, Link2Off, PackageX, RotateCcw, TrendingDown } from 'lucide-react';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import TabLayout from '@/components/ui/TabLayout';
 import DeadStock from './components/DeadStock';
 import ImportFreshness from './components/ImportFreshness';
 import MappingAttention from './components/MappingAttention';
 import OutOfStock from './components/OutOfStock';
+import ProductOutflow from './components/ProductOutflow';
 import ReturnTransfers from './components/ReturnTransfers';
 import StockRetention from './components/StockRetention';
 import StockTransfers from './components/StockTransfers';
 import ZeroItems from './components/ZeroItems';
 
-const TAB_IDS = ['sellpia-zero', 'channel-zero', 'bottlenecks', 'mapping-attention', 'inventory-value', 'freshness', 'transfer', 'return-transfer'] as const;
+const TAB_IDS = ['product-outflow', 'sellpia-zero', 'channel-zero', 'bottlenecks', 'mapping-attention', 'inventory-value', 'freshness', 'transfer', 'return-transfer'] as const;
 
 export default function StockOpsPage() {
   return <Suspense fallback={<PageSkeleton variant="table" />}><StockOpsContent /></Suspense>;
@@ -22,10 +23,11 @@ export default function StockOpsPage() {
 
 function StockOpsContent() {
   const requested = useSearchParams().get('tab');
-  const initial = TAB_IDS.find((id) => id === requested) ?? 'sellpia-zero';
+  const initial = TAB_IDS.find((id) => id === requested) ?? 'product-outflow';
   const [activeTab, setActiveTab] = useState(initial);
 
   return <TabLayout title="재고 분석" titleIcon={Boxes} activeTab={activeTab} onTabChange={(tabId) => setActiveTab(tabId as (typeof TAB_IDS)[number])} tabs={[
+    { id: 'product-outflow', label: '상품별 소진', icon: TrendingDown, content: activeTab === 'product-outflow' ? <ProductOutflow /> : null },
     { id: 'sellpia-zero', label: 'Sellpia 재고 0', icon: PackageX, content: activeTab === 'sellpia-zero' ? <ZeroItems /> : null },
     { id: 'channel-zero', label: '채널 판매 가능 0', icon: Ban, content: activeTab === 'channel-zero' ? <OutOfStock /> : null },
     { id: 'bottlenecks', label: '구성품 병목', icon: Gauge, content: activeTab === 'bottlenecks' ? <DeadStock /> : null },

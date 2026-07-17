@@ -296,7 +296,7 @@ export function TrendSeedManager({
               아직 등록된 시드가 없습니다.
             </p>
             <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-              위 제안 칩으로 문구·완구 시드를 빠르게 추가하세요.
+              위 제안 칩으로 문구·완구 시드를 추가하세요.
             </p>
           </div>
         )}

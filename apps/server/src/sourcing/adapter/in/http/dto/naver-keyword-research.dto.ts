@@ -166,6 +166,7 @@ export class SourcingWorkspaceSnapshotParamsDto {
     'sourcing_agent_rag',
     'sourcing_market_model',
     'sourcing_1688_new_product_model',
+    'market_shadow_signals',
   ])
   scope!:
     | 'keyword_analysis'
@@ -174,7 +175,8 @@ export class SourcingWorkspaceSnapshotParamsDto {
     | '1688_new_products'
     | 'sourcing_agent_rag'
     | 'sourcing_market_model'
-    | 'sourcing_1688_new_product_model';
+    | 'sourcing_1688_new_product_model'
+    | 'market_shadow_signals';
 }
 
 export class SourcingWorkspaceSnapshotRecentQueryDto {

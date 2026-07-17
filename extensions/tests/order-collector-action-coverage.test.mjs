@@ -127,6 +127,10 @@ test('order worker imports session lifecycle and focused Sellpia inventory produ
   assert.match(worker, /importScripts\([\s\S]*collection-session\.js[\s\S]*interactive-tabs\.js[\s\S]*order-collection-lifecycle\.js[\s\S]*sellpia-inventory\.js/);
   assert.match(worker, /browserCollectionSessions:\s*true/);
   assert.match(worker, /collectSellpiaInventory:\s*true/);
+  assert.match(worker, /collectSellpiaInventoryV2:\s*true/);
+  assert.match(worker, /collectSellpiaSaleSummary:\s*true/);
+  assert.match(worker, /collectSellpiaProductProfit:\s*true/);
+  assert.doesNotMatch(worker, /collectSellpiaProductStock/);
   assert.match(worker, /msg\?\.action === ["']collectSellpiaInventory["']/);
   for (const action of [
     'listCollectionSessions',
@@ -139,11 +143,25 @@ test('order worker imports session lifecycle and focused Sellpia inventory produ
   }
 });
 
-test('order collector manifest enables Rocket preview collection at version 0.1.67', () => {
+test('order collector manifest preserves PR 329 and PR 330 capabilities at version 0.1.76', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  assert.equal(manifest.version, '0.1.67');
+  assert.equal(manifest.version, '0.1.76');
   assert.ok(manifest.permissions.includes('storage'));
   assert.ok(manifest.host_permissions.includes('https://*.sellpia.com/*'));
+});
+
+test('Coupang shipment date summary scans its bounded range in concurrent batches', () => {
+  const worker = readFileSync(workerPath, 'utf8');
+  const start = worker.indexOf('async function scrapeCoupangShipmentDateSummary(');
+  const end = worker.indexOf('\nasync function collectCoupangShipmentList(', start);
+  const body = worker.slice(start, end);
+
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  assert.match(body, /const PAGE_FETCH_CONCURRENCY = 6;/);
+  assert.match(body, /await Promise\.all\(/);
+  assert.match(body, /batchStart \+= PAGE_FETCH_CONCURRENCY/);
+  assert.doesNotMatch(body, /for \(let page = 1; page <= maxPages; page\+\+\)/);
 });
 
 test('every web automatic order message carries its local runId explicitly', () => {

@@ -1,5 +1,15 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Download, Eye, Loader2, Search, Send, Trash2 } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Eye,
+  Loader2,
+  PackageCheck,
+  Search,
+  Send,
+  Trash2,
+} from 'lucide-react';
 import { formatDateTime, formatNumber } from '@/lib/utils';
 import {
   buildGeneratedFileMallOptions,
@@ -23,8 +33,10 @@ interface GeneratedFilesSectionProps {
   items: ConversionHistoryItem[];
   sellpiaSendingId: string | null;
   bulkAction: GeneratedFilesBulkAction;
+  sellpiaPostProcessing: boolean;
   onSendToSellpia: (item: ConversionHistoryItem) => void;
   onSendSelectedToSellpia: (items: ConversionHistoryItem[]) => void;
+  onSellpiaPostProcess: () => void;
   onPreview: (id: string) => void;
   onDownload: (item: ConversionHistoryItem) => void;
   onDownloadSelected: (items: ConversionHistoryItem[]) => void;
@@ -36,8 +48,10 @@ export function GeneratedFilesSection({
   items,
   sellpiaSendingId,
   bulkAction,
+  sellpiaPostProcessing,
   onSendToSellpia,
   onSendSelectedToSellpia,
+  onSellpiaPostProcess,
   onPreview,
   onDownload,
   onDownloadSelected,
@@ -131,6 +145,20 @@ export function GeneratedFilesSection({
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={onSellpiaPostProcess}
+              disabled={sellpiaPostProcessing}
+              title="셀피아 전송 이후: 등록 → 조회 → 자동합포 → 자동재고매칭 → (확인 후) 송장 자동채번"
+              className="inline-flex items-center gap-1.5 rounded-md border border-purple-200 bg-purple-50 px-2.5 py-1.5 text-xs font-semibold text-purple-700 hover:bg-purple-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {sellpiaPostProcessing ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <PackageCheck size={13} />
+              )}
+              셀피아 후처리
+            </button>
             {pageData.items.length > 0 ? (
               <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">
                 <input

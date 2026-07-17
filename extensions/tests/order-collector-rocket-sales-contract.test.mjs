@@ -34,12 +34,18 @@ function loadWorker(overrides = {}) {
     crypto: { randomUUID: () => RUN_ID },
     chrome: {
       runtime: {
+        onInstalled: { addListener() {} },
+        onStartup: { addListener() {} },
         onMessageExternal: {
           addListener(listener) {
             externalMessageListener = listener;
           },
         },
         getManifest: () => ({ version: 'test' }),
+      },
+      alarms: {
+        create() {},
+        onAlarm: { addListener() {} },
       },
       storage: {
         local: {

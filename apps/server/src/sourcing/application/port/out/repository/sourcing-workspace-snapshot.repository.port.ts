@@ -8,6 +8,8 @@ export const SOURCING_WORKSPACE_SNAPSHOT_SCOPES = [
   'sourcing_agent_rag',
   'sourcing_market_model',
   'sourcing_1688_new_product_model',
+  'coupang_rising_products',
+  'market_shadow_signals',
 ] as const;
 
 export type SourcingWorkspaceSnapshotScope = (typeof SOURCING_WORKSPACE_SNAPSHOT_SCOPES)[number];

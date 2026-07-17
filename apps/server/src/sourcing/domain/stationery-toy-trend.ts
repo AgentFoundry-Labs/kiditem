@@ -20,6 +20,28 @@ export const DEFAULT_STATIONERY_TOY_TREND_SEEDS: readonly StationeryToyTrendSeed
   { keyword: '스퀴시', keywordCn: '捏捏乐解压玩具' },
 ];
 
+/**
+ * 도우인(중국 SNS)에서 유행하는 완구·문구 키워드 큐레이션 세트.
+ * ⚠️ 라이브 도우인 피드가 아니라 수동 유지 목록이다(도우인 원본 데이터는 유료/차단이라
+ * 무료로 붙일 수 있는 현실적 대안 — [[reference_market_trend_research_tools]] 참고).
+ * keywordCn 을 1688 핫셀링 수집에만 추가로 태워 "도우인에서 뜬 → 1688에서 소싱 가능"
+ * 신호를 만든다. 트렌드가 바뀌면 이 목록을 갱신한다.
+ */
+export const DOUYIN_TREND_TOY_STATIONERY_SEEDS: readonly StationeryToyTrendSeed[] = [
+  { keyword: '굿즈', keywordCn: '谷子' },
+  { keyword: '포카꾸미기', keywordCn: '咕卡' },
+  { keyword: '블라인드박스', keywordCn: '盲盒' },
+  { keyword: '숫자유화', keywordCn: '数字油画' },
+  { keyword: '액체괴물', keywordCn: '起泡胶' },
+  { keyword: '자석블록', keywordCn: '磁力片' },
+  { keyword: '하마비즈', keywordCn: '拼豆' },
+  { keyword: '미니어처', keywordCn: '微缩模型' },
+];
+
+/** 1688 핫셀링 스냅샷의 sourceKeyword(=중문 키워드)로 도우인 트렌드 여부를 판별하는 목록. */
+export const DOUYIN_TREND_SOURCE_KEYWORDS: readonly string[] =
+  DOUYIN_TREND_TOY_STATIONERY_SEEDS.map((seed) => seed.keywordCn);
+
 const DEFAULT_KOREAN_SEED_KEYS = new Set(
   DEFAULT_STATIONERY_TOY_TREND_SEEDS.map((seed) => compact(normalizeText(seed.keyword))),
 );

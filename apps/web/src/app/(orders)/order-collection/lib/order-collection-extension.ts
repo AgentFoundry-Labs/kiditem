@@ -218,6 +218,88 @@ export async function sendOrderFileToSellpiaViaExtension(params: {
   }
 }
 
+export interface SellpiaUnmatchedRow {
+  groupNo: string;
+  receiver: string;
+  provider: string;
+  product: string;
+  option: string;
+  result: string;
+}
+
+export interface SellpiaPostTransferResult {
+  success: boolean;
+  step?: string;
+  listCount?: number;
+  productRows?: number;
+  matched?: number;
+  unmatched?: SellpiaUnmatchedRow[];
+  unmatchedCount?: number;
+  register?: { registered?: number | null; message?: string };
+  message?: string;
+  error?: string;
+}
+
+/**
+ * 셀피아 전송 이후 후처리: 등록 → [재고매칭 화면] 조회 → 자동합포 → 자동재고매칭.
+ * 비파괴 단계. 자동재고매칭이 안 된(미매칭/재고부족) 주문 목록을 함께 반환한다.
+ */
+export async function runSellpiaPostTransferViaExtension(): Promise<SellpiaPostTransferResult> {
+  const extensionId = await detectOrderCollectionExtensionId();
+  if (!extensionId) {
+    throw new Error(
+      '주문수집 확장프로그램이 필요합니다. extensions/order-collector를 Chrome에서 로드하고 kiditem.sellpia.com에 로그인한 뒤 다시 시도하세요.',
+    );
+  }
+  const response = await sendToExtension<SellpiaPostTransferResult>(
+    extensionId,
+    { action: 'sellpiaPostTransfer' },
+    240000,
+  );
+  if (!response) throw new Error('셀피아 후처리 응답이 없습니다.');
+  return response;
+}
+
+export interface SellpiaInvoiceRow {
+  ordNo: string;
+  itemNo: string;
+  invNo: string;
+  courier: string;
+  provider: string;
+  receiver: string;
+  post: string;
+  addr: string;
+  groupNo?: string;
+}
+
+export interface SellpiaAutoInvoiceResult {
+  success: boolean;
+  invoiced?: number;
+  /** 채번 직후 그리드에서 바로 캡처한 발급 송장번호 행들. */
+  rows?: SellpiaInvoiceRow[];
+  message?: string;
+  error?: string;
+}
+
+/**
+ * ⚠️되돌리기 어려움: 셀피아 송장 자동채번(실제 송장번호 발급). 프론트 확인 이후에만 호출.
+ */
+export async function runSellpiaAutoInvoiceViaExtension(): Promise<SellpiaAutoInvoiceResult> {
+  const extensionId = await detectOrderCollectionExtensionId();
+  if (!extensionId) {
+    throw new Error(
+      '주문수집 확장프로그램이 필요합니다. kiditem.sellpia.com에 로그인한 뒤 다시 시도하세요.',
+    );
+  }
+  const response = await sendToExtension<SellpiaAutoInvoiceResult>(
+    extensionId,
+    { action: 'sellpiaAutoInvoice' },
+    180000,
+  );
+  if (!response) throw new Error('셀피아 송장채번 응답이 없습니다.');
+  return response;
+}
+
 async function blobToBase64(blob: Blob): Promise<string> {
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
