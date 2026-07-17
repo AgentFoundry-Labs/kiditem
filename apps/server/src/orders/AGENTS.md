@@ -58,6 +58,9 @@ provider HTTP APIs directly.
   identity and a deterministic `(po.seq, item.skuId)` line identity. Any
   reconciliation failure rolls back the import run and all order rows; the
   workbook is generated only after commit.
+- The selected transport is the collection boundary. Replaying the same PA
+  payload reuses its deterministic source import and order/line identities;
+  payload drift or reconciliation failure produces no workbook.
 - `CreateCsBodyDto.productId` is only a backward-compatible alias for
   `listingId`; new callers send `listingId`.
 

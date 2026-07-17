@@ -1708,6 +1708,7 @@ erDiagram
     String poLineId
     String poNumber
     String productNo
+    String barcode
     String productName
     Int orderQuantity
     Int confirmedQuantity

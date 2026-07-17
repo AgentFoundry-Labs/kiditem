@@ -45,7 +45,9 @@ Route shape is frozen.
 - Delete is allowed only from `draft` or `pending`.
 - `/api/purchase-orders` keeps the single POST action body
   (`create | updateStatus | delete | submit | reconcileSubmission |
-  previewRocket | confirmRocket | releaseRocketConfirmation`).
+  previewRocket | confirmRocket | releaseRocketConfirmation |
+  listRocketCommitments | settleRocketFinalOrderCommitments |
+  releaseRocketFinalOrderCommitments`).
 - `pending -> ordered` is forbidden through generic `updateStatus`; every real
   purchase uses `PurchaseOrderSubmissionPort` with an authenticated actor and
   caller-stable idempotency key.
@@ -95,10 +97,11 @@ Route shape is frozen.
   the same normalized request. Reusing it with different input is a conflict.
 - Inventory-owned active commitments reduce later previews and confirmations.
   Supply keeps confirmation line/allocation rows as immutable audit evidence,
-  but does not aggregate them as a second capacity ledger. Release requires
-  an authenticated active member plus an explicit reason after cancellation or
-  after the physical movement is reflected by Sellpia, and restores derived
-  capacity by changing allocation status; neither operation writes
+  but does not aggregate them as a second capacity ledger. A provisional
+  request may be released after cancellation. PA collection replaces it with
+  one final-order commitment; that final commitment is settled only after a
+  newer Sellpia snapshot proves the physical movement, or released with an
+  explicit reason when the order is cancelled. None of these operations writes
   `SellpiaInventorySku.currentStock` or calls Coupang.
 - Coupang PA order collection calls the exported
   `ROCKET_FINAL_ORDER_RECONCILIATION_PORT` with its caller-owned transaction.
@@ -106,6 +109,9 @@ Route shape is frozen.
   and product number, verifies barcode evidence when both sides provide it,
   and asks Inventory to replace the request commitment with the final-order
   commitment. Supply does not write Orders tables.
+- Commitment list actions page Supply confirmation lines first and then use
+  one Inventory bulk read for their request/final lineage and availability.
+  Never issue an Inventory query per line.
 
 ## Cross-Domain Ports
 

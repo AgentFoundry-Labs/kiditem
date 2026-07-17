@@ -1,17 +1,18 @@
 # Sellpia Inventory Freshness Operations
 
 This is the authoritative operator runbook for Sellpia inventory freshness in
-release `0.1.20`. Sellpia is the stock source of truth. KidItem publishes only a
+release `0.1.21`. Sellpia is the stock source of truth. KidItem publishes only a
 validated full option-product export and never guesses, increments, or
 decrements `SellpiaInventorySku.currentStock` from an order or purchase action.
-Supply may reserve derived component capacity separately; that allocation is
-not a physical stock write.
+Inventory may reserve derived component capacity in its common commitment
+ledger; that logical hold is not a physical stock write.
 
 ## Prerequisites
 
-- Repository root `VERSION` is exactly `0.1.20`.
+- Repository root `VERSION` is exactly `0.1.21`.
 - Prisma schema and durable data migration
-  `v0.1.19:001_sellpia_inventory_freshness` are applied.
+  `v0.1.19:001_sellpia_inventory_freshness` and the `v0.1.21` common
+  inventory-commitment migration are applied.
 - NestJS and the web app are running, with exactly one backend listener on port
   4000 during local verification.
 - The operator is signed in to the intended KidItem organization and to
@@ -46,6 +47,19 @@ though persistence uses `BigInt`.
 The previous completed snapshot remains the current stock basis during every
 refresh request, download, validation failure, quality block, lease loss, or
 provider ambiguity. A failed attempt does not publish partial rows.
+
+Availability uses three distinct values:
+
+- `currentStock`: the latest completed physical Sellpia full snapshot;
+- `activeCommitmentQuantity`: all active Inventory-owned logical holds;
+- `availableStock`: `max(currentStock - activeCommitmentQuantity, 0)`.
+
+A Rocket request confirmation creates `rocket_request`; PA order collection
+replaces it with `rocket_final_order` without double-counting. A final-order
+commitment may settle only after a strictly newer verified Sellpia generation
+contains the real movement. Settlement removes the hold while leaving the
+newer physical snapshot unchanged. Cancellation is an audited release. Never
+edit `currentStock` or release a final commitment merely to imitate shipment.
 
 ## One-Time Source Binding
 
@@ -217,7 +231,7 @@ An agent must not:
 - retry an ambiguous provider submission or imply that a request proves
   external acceptance;
 - call a Rocket marketplace provider or mutate Sellpia physical stock from the
-  `0.1.20` internal confirmation/workbook flow.
+  `0.1.21` internal confirmation/PA/workbook flow.
 
 ## Verification Commands
 
@@ -238,8 +252,8 @@ rtk npm run data:migrate -- up --target local --confirm APPLY_DATA_MIGRATIONS
 rtk npm run data:migrate -- status
 rtk npm run check:schema-artifact-sync
 
-rtk npm exec --workspace=apps/server vitest -- run src/inventory src/channels src/supply
-rtk npm run test:integration --workspace=apps/server -- src/inventory/__tests__/sellpia-inventory-freshness.repository.pg.integration.spec.ts src/inventory/__tests__/sellpia-inventory-import.repository.pg.integration.spec.ts src/inventory/__tests__/inventory-sku-snapshot-list.repository.pg.integration.spec.ts src/channels/__tests__/channel-sku-mapping.pg.integration.spec.ts src/channels/__tests__/rocket-po-catalog.repository.pg.integration.spec.ts src/supply/__tests__/purchase-order-submission.pg.integration.spec.ts
+rtk npm exec --workspace=apps/server vitest -- run src/inventory src/channels src/supply src/orders src/products src/analytics/sellpia-product-sales
+rtk npm run test:integration --workspace=apps/server -- src/inventory/__tests__/sellpia-inventory-freshness.repository.pg.integration.spec.ts src/inventory/__tests__/inventory-commitment.pg.integration.spec.ts src/supply/__tests__/rocket-purchase-commitment-query.pg.integration.spec.ts src/orders/__tests__/coupang-direct-order-collection.pg.integration.spec.ts
 rtk npm run check:idor
 rtk npm run check:tenant-scope
 rtk npm run build --workspace=apps/server
@@ -260,7 +274,7 @@ running.
 
 Stop and report the exact blocker when:
 
-- `VERSION` is not `0.1.20`, migration status is dirty, or generated schema
+- `VERSION` is not `0.1.21`, migration status is dirty, or generated schema
   artifacts drift;
 - the source origin/account or active organization cannot be established;
 - extension/login recovery would require exposing credentials or session data;
@@ -269,7 +283,8 @@ Stop and report the exact blocker when:
 - a non-Inventory runtime path writes `SellpiaInventorySku.currentStock`;
 - a purchase path bypasses the freshness fence or retries an ambiguous provider
   side effect;
-- Rocket exposes any actual confirmation/submission/reservation/stock action;
+- a Rocket path writes physical stock, bypasses Inventory commitments, or
+  settles a final order without a newer verified generation;
 - a required test, scanner, build, migration rehearsal, or server boot fails.
 
 ## Final Report Format
@@ -277,7 +292,7 @@ Stop and report the exact blocker when:
 Report only observed identifiers/counts. Never paste raw workbook/provider data.
 
 ```text
-Release: 0.1.20
+Release: 0.1.21
 Source binding: confirmed/unconfirmed (<fixed origin/account only>)
 Freshness: <fresh|refresh_required|syncing|failed>; requested <n>; verified <n>
 Collection: automatic/manual; <published|same_hash_verified|same_hash_confirmation_scheduled|failed>
@@ -286,7 +301,7 @@ Quality: warnings <count>; hard block <yes/no>; previous snapshot preserved <yes
 Lease: owner-only control / heartbeat / expiry-reclaim evidence <executed or test-backed>
 Order settle/coalescing: <executed or test-backed>
 Purchase gate/retry/reconcile: <executed or test-backed>; provider calls <count or not invoked>
-Rocket: confirmation allocation boundary verified <yes/no>; provider submit and physical stock write not invoked
+Rocket: request/final commitment boundary verified <yes/no>; settlement generation verified <yes/no>; provider submit and physical stock write not invoked
 Automated gates: <exact commands and result>
 Live Chrome checks: <safe observations only>
 Blockers: <none or exact blocker>

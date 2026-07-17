@@ -90,6 +90,13 @@ change stock.
 - `InventoryModule` exports organization-fenced availability and commitment
   ports. Other domains pass structured source identity; Inventory canonicalizes
   business keys and owns commitment lifecycle transitions.
+- Availability terms are fixed: `currentStock` is the latest physical Sellpia
+  snapshot, `activeCommitmentQuantity` is the sum of active logical holds, and
+  `availableStock = max(currentStock - activeCommitmentQuantity, 0)`.
+- The commitment port creates `rocket_request`, atomically replaces it with
+  `rocket_final_order`, bulk-reads request/final lineage, releases cancellations,
+  and settles final orders only after a strictly newer verified Sellpia
+  generation. None of these transitions writes `currentStock`.
 - `InventoryModule` exports `SELLPIA_INVENTORY_REFRESH_REQUEST_PORT` for
   deterministic order/purchase refresh requests and
   `SELLPIA_INVENTORY_FRESHNESS_GATE_PORT` for the final fresh-and-active

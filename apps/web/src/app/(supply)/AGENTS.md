@@ -28,8 +28,9 @@ React Query + apiClient
 
 logged-in order-collector extension
   -> collectRocketPoRows with a browser-created runId
-  -> POST /api/purchase-orders { action: 'previewRocket' | 'confirmRocket' |
-     'releaseRocketConfirmation', ... }
+-> POST /api/purchase-orders { action: 'previewRocket' | 'confirmRocket' |
+'releaseRocketConfirmation' | 'listRocketCommitments' |
+'settleRocketFinalOrderCommitments' | 'releaseRocketFinalOrderCommitments', ... }
   -> preview, internal capacity allocation, official workbook download, release
 ```
 
@@ -54,22 +55,25 @@ logged-in order-collector extension
 - Rocket preview quantities are editable only up to the backend-recomputed
   maximum. Recalculation must collect a fresh evidence run instead of reusing
   stale browser rows.
-- Every recollection first sends an unedited preview to learn the current gated
-  backend maxima. Edit keys are intersected with the fresh PO line IDs, clamped
-  to that response, and only then reapplied with the backend's explicit joint
-  clamp mode when retained edits exist. UI state uses the effective edited
-  quantities returned by that second preview because multiple rows may share
-  the same component stock.
+- Recollection intersects retained edit keys with fresh PO lines and sends all
+  retained edits once using the backend's joint clamp mode. UI state uses the
+  returned effective quantities because multiple rows may share component
+  stock. Any later edit marks the preview dirty and confirmation stays disabled
+  until one whole-preview revalidation succeeds.
 - Changing the selected Rocket ChannelAccount remounts the workspace so dates,
   errors, preview rows, and edits never cross account boundaries.
 - Confirmation stays disabled until the backend has published a complete
   catalog, all rows include authoritative workbook fields, and the operator has
   reviewed every quantity/shortage reason.
 - Confirmation uses a browser-created UUID idempotency key and downloads the
-  workbook only after the server persists the allocation. Allocation release
-  requires an explicit operator reason after cancellation or after the real
-  stock movement appears in Sellpia, then requires a fresh preview before
-  reconfirming.
+  workbook only after the server persists the allocation. Persisted request/
+  final commitments remain visible after refresh. Provisional cancellation is
+  a release; final-order settlement requires a newer Sellpia snapshot proving
+  the movement, while final-order cancellation requires an explicit release
+  reason.
+- Commitment and preview tables use scoped horizontal overflow, explicit
+  minimum widths, truncated product names, and non-wrapping identifiers/actions.
+  Do not apply these rules to every table globally.
 
 ## Boundary Rules
 
