@@ -245,6 +245,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       externalId: 'P-EMPTY',
       masterProductId: configuration.id,
     });
+    const unlinkedListing = await createListing({ externalId: 'P-UNLINKED' });
     await createOption(matchedListing.id, {
       externalOptionId: 'O-MATCHED',
       productVariantId: configured.variants[0]!.id,
@@ -257,6 +258,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       externalOptionId: 'O-EMPTY',
       productVariantId: configuration.variants[0]!.id,
     });
+    await createOption(unlinkedListing.id, { externalOptionId: 'O-UNLINKED' });
 
     const queue = await service.list(TEST_ORGANIZATION_ID);
     const byExternalId = new Map(queue.options.map((row) => [
@@ -274,6 +276,22 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     expect(byExternalId.get('O-EMPTY')).toMatchObject({
       recipeStatus: 'configuration_required',
       capacity: null,
+    });
+    expect(byExternalId.get('O-UNLINKED')).toMatchObject({
+      option: { productVariantId: null },
+      recipeStatus: 'unmatched',
+      capacity: null,
+    });
+    expect(queue.counts).toEqual({
+      products: { all: 4, linked: 3, unlinked: 1 },
+      options: {
+        all: 4,
+        linked: 3,
+        unlinked: 1,
+        recipeConfirmed: 1,
+        configurationRequired: 1,
+        reviewRequired: 1,
+      },
     });
   });
 

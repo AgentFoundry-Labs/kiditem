@@ -46,8 +46,15 @@ const response: ChannelProductMatchingQueueResponse = {
     },
   ],
   counts: {
-    products: { all: 1, matched: 0, unmatched: 1 },
-    options: { all: 3, matched: 1, unmatched: 2, configurationRequired: 0, reviewRequired: 0 },
+    products: { all: 1, linked: 0, unlinked: 1 },
+    options: {
+      all: 3,
+      linked: 1,
+      unlinked: 2,
+      recipeConfirmed: 1,
+      configurationRequired: 0,
+      reviewRequired: 0,
+    },
   },
 };
 

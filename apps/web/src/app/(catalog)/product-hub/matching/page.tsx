@@ -19,8 +19,15 @@ import type {
 
 const SEARCH_DEBOUNCE_MS = 300;
 const EMPTY_COUNTS: ChannelProductMatchingCounts = {
-  products: { all: 0, matched: 0, unmatched: 0 },
-  options: { all: 0, matched: 0, unmatched: 0, configurationRequired: 0, reviewRequired: 0 },
+  products: { all: 0, linked: 0, unlinked: 0 },
+  options: {
+    all: 0,
+    linked: 0,
+    unlinked: 0,
+    recipeConfirmed: 0,
+    configurationRequired: 0,
+    reviewRequired: 0,
+  },
 };
 
 export default function MatchingPage() {

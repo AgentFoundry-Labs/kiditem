@@ -21,7 +21,7 @@ describe('channel product matching API', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('reads the two-level queue with canonical account and search filters', async () => {
-    vi.mocked(apiClient.getParsed).mockResolvedValue({ products: [], options: [], counts: { products: { all: 0, matched: 0, unmatched: 0 }, options: { all: 0, matched: 0, unmatched: 0, configurationRequired: 0, reviewRequired: 0 } } });
+    vi.mocked(apiClient.getParsed).mockResolvedValue({ products: [], options: [], counts: { products: { all: 0, linked: 0, unlinked: 0 }, options: { all: 0, linked: 0, unlinked: 0, recipeConfirmed: 0, configurationRequired: 0, reviewRequired: 0 } } });
 
     await listChannelProductMappings({ channelAccountId: 'account/unsafe', search: '  우산  ' });
 

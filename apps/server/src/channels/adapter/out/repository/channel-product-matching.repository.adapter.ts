@@ -84,18 +84,22 @@ implements ChannelProductMatchingRepositoryPort {
       counts: {
         products: {
           all: products.length,
-          matched: products.filter((row) => row.listing.masterProductId !== null).length,
-          unmatched: products.filter((row) => row.listing.masterProductId === null).length,
+          linked: products.filter((row) => row.listing.masterProductId !== null).length,
+          unlinked: products.filter((row) => row.listing.masterProductId === null).length,
         },
         options: {
           all: options.length,
-          matched: options.filter((row) => row.recipeStatus === 'matched').length,
-          unmatched: options.filter((row) => row.recipeStatus === 'unmatched').length,
+          linked: options.filter((row) => row.option.productVariantId !== null).length,
+          unlinked: options.filter((row) => row.option.productVariantId === null).length,
+          recipeConfirmed: options.filter(
+            (row) => row.option.productVariantId !== null && row.recipeStatus === 'matched',
+          ).length,
           configurationRequired: options.filter(
-            (row) => row.recipeStatus === 'configuration_required',
+            (row) => row.option.productVariantId !== null
+              && row.recipeStatus === 'configuration_required',
           ).length,
           reviewRequired: options.filter(
-            (row) => row.recipeStatus === 'review_required',
+            (row) => row.option.productVariantId !== null && row.recipeStatus === 'review_required',
           ).length,
         },
       },

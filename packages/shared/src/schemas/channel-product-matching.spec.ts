@@ -245,8 +245,32 @@ describe('channel product and variant matching contracts', () => {
     }))).toThrow();
   });
 
-  it('publishes derived product and option matching counts', () => {
+  it('publishes explicit direct-link and recipe matching counts', () => {
     expect(ChannelProductMatchingCountsSchema.parse({
+      products: { all: 3, linked: 1, unlinked: 2 },
+      options: {
+        all: 4,
+        linked: 3,
+        unlinked: 1,
+        recipeConfirmed: 1,
+        configurationRequired: 1,
+        reviewRequired: 1,
+      },
+    })).toBeDefined();
+  });
+
+  it('rejects missing, legacy, and internally inconsistent matching counts', () => {
+    expect(() => ChannelProductMatchingCountsSchema.parse({
+      products: { all: 3, linked: 1, unlinked: 2 },
+      options: {
+        all: 4,
+        linked: 3,
+        unlinked: 1,
+        recipeConfirmed: 1,
+        configurationRequired: 1,
+      },
+    })).toThrow();
+    expect(() => ChannelProductMatchingCountsSchema.parse({
       products: { all: 3, matched: 1, unmatched: 2 },
       options: {
         all: 4,
@@ -255,7 +279,18 @@ describe('channel product and variant matching contracts', () => {
         configurationRequired: 1,
         reviewRequired: 1,
       },
-    })).toBeDefined();
+    })).toThrow();
+    expect(() => ChannelProductMatchingCountsSchema.parse({
+      products: { all: 3, linked: 1, unlinked: 1 },
+      options: {
+        all: 4,
+        linked: 3,
+        unlinked: 1,
+        recipeConfirmed: 2,
+        configurationRequired: 1,
+        reviewRequired: 1,
+      },
+    })).toThrow();
   });
 
   it('accepts only explicit nullable link commands', () => {

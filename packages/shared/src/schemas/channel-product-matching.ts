@@ -258,17 +258,45 @@ export type ChannelOptionMatchingQueueRow = z.infer<
 export const ChannelProductMatchingCountsSchema = z.object({
   products: z.object({
     all: z.number().int().nonnegative(),
-    matched: z.number().int().nonnegative(),
-    unmatched: z.number().int().nonnegative(),
+    linked: z.number().int().nonnegative(),
+    unlinked: z.number().int().nonnegative(),
   }).strict(),
   options: z.object({
     all: z.number().int().nonnegative(),
-    matched: z.number().int().nonnegative(),
-    unmatched: z.number().int().nonnegative(),
+    linked: z.number().int().nonnegative(),
+    unlinked: z.number().int().nonnegative(),
+    recipeConfirmed: z.number().int().nonnegative(),
     configurationRequired: z.number().int().nonnegative(),
     reviewRequired: z.number().int().nonnegative(),
   }).strict(),
-}).strict();
+}).strict().superRefine((counts, ctx) => {
+  if (counts.products.linked + counts.products.unlinked !== counts.products.all) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['products'],
+      message: 'linked and unlinked products must equal all products',
+    });
+  }
+  if (counts.options.linked + counts.options.unlinked !== counts.options.all) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['options'],
+      message: 'linked and unlinked options must equal all options',
+    });
+  }
+  if (
+    counts.options.recipeConfirmed
+    + counts.options.configurationRequired
+    + counts.options.reviewRequired
+    !== counts.options.linked
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['options'],
+      message: 'recipe states must equal linked options',
+    });
+  }
+});
 export type ChannelProductMatchingCounts = z.infer<
   typeof ChannelProductMatchingCountsSchema
 >;
