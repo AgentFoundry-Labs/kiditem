@@ -16,6 +16,7 @@ import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { listRocketPosFromExtension, type RocketPoSummary } from '../lib/rocket-confirm-api';
+import { RocketConfirmPanel } from './RocketConfirmPanel';
 import { RocketConfirmFileList } from './RocketConfirmFileList';
 import { RocketWeekCalendar, type RocketCalDay } from './RocketWeekCalendar';
 import { RocketMonthCalendar, type MonthDayData } from './RocketMonthCalendar';
@@ -97,6 +98,7 @@ export function RocketOrdersWorkspace({
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [view, setView] = useState<'week' | 'month' | 'chart'>('week');
   const [openPo, setOpenPo] = useState<number | null>(null);
+  const [fileRefreshKey, setFileRefreshKey] = useState(0);
 
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: queryKeys.orders.rocketPoList({ from, to, status }),
@@ -285,6 +287,9 @@ export function RocketOrdersWorkspace({
         })}
       </div>
 
+      {/* 발주확정 양식 생성 + 편집 미리보기 (입고예정일 다음 7일 기준) */}
+      <RocketConfirmPanel onSaved={() => setFileRefreshKey((k) => k + 1)} />
+
       {decisionWorkspace}
 
       {/* 필터 (입고예정일 기준) */}
@@ -443,7 +448,7 @@ export function RocketOrdersWorkspace({
         })}
 
       {/* 기존 생성 파일 이력 (목록 · 재다운로드 · 삭제) */}
-      <RocketConfirmFileList refreshKey={0} />
+      <RocketConfirmFileList refreshKey={fileRefreshKey} />
     </div>
   );
 }
