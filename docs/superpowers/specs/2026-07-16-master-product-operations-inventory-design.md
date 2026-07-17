@@ -1,7 +1,7 @@
 # MasterProduct Operations and Sellpia Inventory Design
 
-Date: 2026-07-16  
-Status: Approved design  
+Date: 2026-07-16
+Status: Approved design
 Release: `0.1.19` (not yet shipped; this corrects the in-development reconstruction)
 
 ## Context

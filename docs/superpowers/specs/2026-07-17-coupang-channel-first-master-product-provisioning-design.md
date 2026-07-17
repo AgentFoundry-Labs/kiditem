@@ -1,7 +1,7 @@
 # Coupang Channel-First MasterProduct Provisioning Design
 
-Date: 2026-07-17  
-Status: Approved and implemented  
+Date: 2026-07-17
+Status: Approved and implemented
 Release: `0.1.19` (in development; no additional version bump)
 
 ## Context
