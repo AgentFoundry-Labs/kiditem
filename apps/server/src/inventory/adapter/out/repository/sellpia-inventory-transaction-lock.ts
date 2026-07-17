@@ -8,6 +8,7 @@ export async function lockSellpiaInventoryTransaction(
 ): Promise<void> {
   const lockKey = `inventory-sellpia:${organizationId}:${SELLPIA_INVENTORY_SOURCE_TYPE}`;
   await tx.$queryRaw`
+    -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
     SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
   `;
 }
