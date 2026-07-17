@@ -105,6 +105,7 @@ export function VariantRecipeDialog({
 
   const hasInvalidComponent = draft.some((component) => (
     component.sellpiaInventorySkuId.trim().length === 0
+    || component.quantity === null
     || !Number.isInteger(component.quantity)
     || component.quantity <= 0
   ));
@@ -122,7 +123,7 @@ export function VariantRecipeDialog({
       return [...current, {
         clientId: `recipe-${variant.id}-${nextDraftId.current++}`,
         sellpiaInventorySkuId: item.sellpiaInventorySkuId,
-          quantity: null,
+        quantity: null,
         code: item.code,
         name: item.name,
         optionName: item.optionName,

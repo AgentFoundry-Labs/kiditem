@@ -15,17 +15,22 @@ import {
   fetchAllInventoryForExport,
   toInventoryExportRows,
 } from '../../inventory/lib/inventory-export';
-import type { InventorySkuStockStatus } from '@kiditem/shared/inventory';
+import type {
+  InventorySkuSnapshotSummary,
+  InventorySkuStockStatus,
+} from '@kiditem/shared/inventory';
 
 const PAGE_SIZE = 50;
 const EMPTY_SUMMARY = {
   totalSkus: 0,
+  linkedSkus: 0,
+  unlinkedSkus: 0,
   inStockSkus: 0,
   outOfStockSkus: 0,
   totalUnits: 0,
   pricedAssetValue: 0,
   unpricedSkuCount: 0,
-};
+} satisfies InventorySkuSnapshotSummary;
 
 export function InventoryWorkspace({ headingLevel = 1 }: { headingLevel?: 1 | 2 }) {
   const [page, setPage] = useState(1);
