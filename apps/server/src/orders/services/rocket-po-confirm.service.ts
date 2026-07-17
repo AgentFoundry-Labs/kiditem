@@ -110,6 +110,30 @@ export interface ConfirmPreviewResult {
   matchedSkus: number;
 }
 
+/** 저장된 로켓 발주 요약(달력/목록용). RocketPurchaseOrder 테이블 1행 = 1발주. */
+export interface RocketSavedPoSummary {
+  poSeq: number;
+  orderedAt: string;
+  businessDate: string; // YYYY-MM-DD 입고예정일(KST)
+  status: string | null;
+  vendorName: string | null;
+  centerName: string | null;
+  firstSkuName: string | null;
+  skuCount: number;
+  orderQty: number;
+  orderAmount: number;
+}
+
+/** RocketPurchaseOrder.items(JSON) 한 항목. */
+interface RocketPoItem {
+  name?: string;
+  qty?: number;
+  unitPrice?: number;
+  amount?: number;
+  productNo?: string;
+  barcode?: string;
+}
+
 export interface RocketConfirmCommitResult {
   reservedRows: number;
   alreadyReservedRows: number;
@@ -292,6 +316,60 @@ export class RocketPoConfirmService {
     );
     await this.persistRocketPurchaseOrders(rows, organizationId);
 
+    return this.computeConfirmRows(rows, avail);
+  }
+
+  /**
+   * 저장된 로켓 발주(rocket_purchase_orders)를 입고예정일 범위로 조회 — 달력/목록용.
+   * 매번 쿠팡에서 재수집하지 않고 DB 에 쌓인 발주를 그대로 읽는다.
+   */
+  async listSavedRocketPos(
+    input: { from?: string; to?: string },
+    organizationId: string,
+  ): Promise<RocketSavedPoSummary[]> {
+    const where: Prisma.RocketPurchaseOrderWhereInput = { organizationId };
+    const range = businessDateRange(input.from, input.to);
+    if (range) where.businessDate = range;
+
+    const pos = await this.prisma.rocketPurchaseOrder.findMany({
+      where,
+      orderBy: [{ businessDate: 'desc' }, { poSeq: 'desc' }],
+    });
+    return pos.map((po) => ({
+      poSeq: po.poSeq,
+      orderedAt: po.orderedAt.toISOString(),
+      businessDate: toDateKey(po.businessDate),
+      status: po.status,
+      vendorName: po.vendorName,
+      centerName: po.centerName,
+      firstSkuName: po.firstSkuName,
+      skuCount: po.skuCount,
+      orderQty: po.orderQty,
+      orderAmount: po.orderAmount,
+    }));
+  }
+
+  /**
+   * 저장된 발주 중 특정 입고예정일 하루치를 셀피아 재고와 매칭해 미리보기 계산.
+   * items(JSON, 바코드·수량 포함)로 ConfirmSourceRow 를 재구성하므로 재수집이 필요 없다.
+   */
+  async previewSavedByDate(
+    input: { date: string },
+    organizationId: string,
+  ): Promise<ConfirmPreviewResult> {
+    const range = businessDateRange(input.date, input.date);
+    const pos = await this.prisma.rocketPurchaseOrder.findMany({
+      where: { organizationId, ...(range ? { businessDate: range } : {}) },
+      orderBy: [{ poSeq: 'desc' }],
+    });
+    const rows = pos.flatMap((po) => reconstructConfirmRows(po));
+    if (rows.length === 0) {
+      return { rows: [], totalRows: 0, fullyConfirmed: 0, shortRows: 0, matchedSkus: 0 };
+    }
+    const avail = await this.availabilityByBarcode(
+      rows.map((r) => ({ barcode: String(r.barcode ?? '').trim(), name: r.productName })),
+      organizationId,
+    );
     return this.computeConfirmRows(rows, avail);
   }
 
@@ -856,6 +934,57 @@ function parseBusinessDate(value: unknown): Date | null {
     return null;
   }
   return date;
+}
+
+/** 입고예정일 from/to → Prisma businessDate 필터(UTC 자정 기준, businessDate 는 @db.Date). */
+function businessDateRange(from?: string, to?: string): { gte?: Date; lte?: Date } | null {
+  const gte = from ? parseBusinessDate(from) : null;
+  const lte = to ? parseBusinessDate(to) : null;
+  if (!gte && !lte) return null;
+  const range: { gte?: Date; lte?: Date } = {};
+  if (gte) range.gte = gte;
+  if (lte) range.lte = lte;
+  return range;
+}
+
+function toDateKey(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+/** 저장된 발주(items JSON) → 미리보기 계산용 ConfirmSourceRow[] 재구성(재수집 불필요). */
+function reconstructConfirmRows(po: {
+  poSeq: number;
+  businessDate: Date;
+  orderedAt: Date;
+  status: string | null;
+  vendorName: string | null;
+  centerName: string | null;
+  items: unknown;
+}): ConfirmSourceRow[] {
+  const items = Array.isArray(po.items) ? (po.items as RocketPoItem[]) : [];
+  const eta = toDateKey(po.businessDate);
+  const orderedAt = po.orderedAt.toISOString();
+  const rows: ConfirmSourceRow[] = [];
+  for (const item of items) {
+    const barcode = String(item?.barcode ?? '').trim();
+    const productName = typeof item?.name === 'string' ? item.name : '';
+    if (!barcode && !productName) continue; // 바코드·이름 둘 다 없으면 매칭 불가 → 스킵
+    rows.push({
+      poNumber: String(po.poSeq),
+      center: po.centerName ?? undefined,
+      poStatus: po.status ?? undefined,
+      vendorName: po.vendorName ?? undefined,
+      productNo: typeof item?.productNo === 'string' ? item.productNo : undefined,
+      barcode,
+      productName,
+      orderQty: toQuantity(item?.qty),
+      purchasePrice: typeof item?.unitPrice === 'number' ? item.unitPrice : undefined,
+      totalPurchase: typeof item?.amount === 'number' ? item.amount : undefined,
+      expectedInboundDate: eta,
+      poRegisteredAt: orderedAt,
+    });
+  }
+  return rows;
 }
 
 function parseOrderedAt(value: unknown): Date | null {

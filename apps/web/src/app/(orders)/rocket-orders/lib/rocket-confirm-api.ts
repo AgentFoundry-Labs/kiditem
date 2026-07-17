@@ -204,3 +204,27 @@ export async function commitRocketConfirmRows(
 ): Promise<RocketConfirmCommitResult> {
   return apiClient.post<RocketConfirmCommitResult>('/api/orders/rocket/confirm-commit', { rows });
 }
+
+/** 저장된 로켓 발주 요약(달력/목록용). rocket_purchase_orders 1행 = 1발주. */
+export interface RocketSavedPo {
+  poSeq: number;
+  orderedAt: string;
+  businessDate: string; // YYYY-MM-DD 입고예정일
+  status: string | null;
+  vendorName: string | null;
+  centerName: string | null;
+  firstSkuName: string | null;
+  skuCount: number;
+  orderQty: number;
+  orderAmount: number;
+}
+
+/** DB 에 저장된 발주를 입고예정일 범위로 조회(재수집 없음). */
+export async function loadSavedRocketPos(from: string, to: string): Promise<RocketSavedPo[]> {
+  return apiClient.post<RocketSavedPo[]>('/api/orders/rocket/saved-pos', { from, to });
+}
+
+/** 저장된 발주 중 특정 입고예정일 하루치를 재고 매칭해 미리보기(재수집 없음). */
+export async function previewSavedRocketConfirm(date: string): Promise<RocketPreview> {
+  return apiClient.post<RocketPreview>('/api/orders/rocket/confirm-preview-saved', { date });
+}

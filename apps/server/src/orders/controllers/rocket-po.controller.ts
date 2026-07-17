@@ -21,6 +21,7 @@ import {
   type ConfirmPreviewResult,
   type RocketConfirmCommitResult,
   type RocketConfirmFillResult,
+  type RocketSavedPoSummary,
 } from '../services/rocket-po-confirm.service';
 
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
@@ -89,6 +90,31 @@ export class RocketPoController {
       throw new BadRequestException('미리볼 발주 행이 없습니다.');
     }
     return this.rocketPoConfirmService.previewConfirmRows(rows, organizationId);
+  }
+
+  /** 저장된 로켓 발주(rocket_purchase_orders)를 입고예정일 범위로 조회 — 달력/목록용(재수집 없음) */
+  @Post('saved-pos')
+  async savedPos(
+    @CurrentOrganization() organizationId: string,
+    @Body() body: { from?: string; to?: string },
+  ): Promise<RocketSavedPoSummary[]> {
+    return this.rocketPoConfirmService.listSavedRocketPos(
+      { from: body?.from, to: body?.to },
+      organizationId,
+    );
+  }
+
+  /** 저장된 발주 중 특정 입고예정일 하루치 → 셀피아 재고 매칭 미리보기(재수집 없음) */
+  @Post('confirm-preview-saved')
+  async confirmPreviewSaved(
+    @CurrentOrganization() organizationId: string,
+    @Body() body: { date?: string },
+  ): Promise<ConfirmPreviewResult> {
+    const date = String(body?.date ?? '').trim();
+    if (!date) {
+      throw new BadRequestException('입고예정일이 필요합니다.');
+    }
+    return this.rocketPoConfirmService.previewSavedByDate({ date }, organizationId);
   }
 
   /** 미리보기에서 확정한 쿠팡 로켓 수량 → 로켓 예약(RocketPoReservation) 기록 */
