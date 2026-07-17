@@ -11,7 +11,7 @@ const optionId = '00000000-0000-4000-8000-000000000003';
 
 describe('ChannelSkuAvailabilityService', () => {
   it('hydrates linked variant recipe capacity without mutating links or inventory', async () => {
-    const repository = makeRepository([
+    const { repository, inventory, service } = makeSubject([
       row({
         components: [
           component('00000000-0000-4000-8000-000000000010', 12, 1),
@@ -19,8 +19,6 @@ describe('ChannelSkuAvailabilityService', () => {
         ],
       }),
     ]);
-    const service = new ChannelSkuAvailabilityService(repository);
-
     const result = await service.list(organizationId, {
       status: 'all',
       page: 1,
@@ -42,10 +40,52 @@ describe('ChannelSkuAvailabilityService', () => {
     ]);
     expect(repository.linkProduct).not.toHaveBeenCalled();
     expect(repository.linkOption).not.toHaveBeenCalled();
+    expect(inventory.findBySkuIds).toHaveBeenCalledOnce();
+    expect(inventory.findBySkuIds).toHaveBeenCalledWith({
+      organizationId,
+      sellpiaInventorySkuIds: [
+        '00000000-0000-4000-8000-000000000010',
+        '00000000-0000-4000-8000-000000000011',
+      ],
+    });
+  });
+
+  it('calculates capacity from common available stock without changing physical stock', async () => {
+    const rows = [row({
+      components: [component('00000000-0000-4000-8000-000000000010', 100, 1)],
+    })];
+    const { service, inventory } = makeSubject(rows);
+    inventory.findBySkuIds.mockResolvedValue({
+      snapshot: { collected: true, generation: '12', verifiedAt: '2026-07-16T00:00:00.000Z' },
+      items: [{
+        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000010',
+        currentStock: 100,
+        activeCommitmentQuantity: 80,
+        availableStock: 20,
+        isActive: true,
+        generation: '12',
+      }],
+    });
+
+    const result = await service.list(organizationId, {
+      status: 'all',
+      page: 1,
+      limit: 50,
+    });
+
+    expect(result.items[0]).toMatchObject({
+      sku: { sellableStock: 20 },
+      components: [{
+        currentStock: 100,
+        activeCommitmentQuantity: 80,
+        availableStock: 20,
+        componentCapacity: 20,
+      }],
+    });
   });
 
   it('returns null capacity for unmatched, configuration, and inactive-component rows', async () => {
-    const repository = makeRepository([
+    const { service } = makeSubject([
       row({ variant: null }),
       row({ optionId: '00000000-0000-4000-8000-000000000004', components: [] }),
       row({
@@ -55,8 +95,6 @@ describe('ChannelSkuAvailabilityService', () => {
         ],
       }),
     ]);
-    const service = new ChannelSkuAvailabilityService(repository);
-
     const result = await service.list(organizationId, {
       status: 'all',
       page: 1,
@@ -91,14 +129,12 @@ describe('ChannelSkuAvailabilityService', () => {
   });
 
   it('downgrades a confirmed link to review required when its ProductVariant is inactive', async () => {
-    const repository = makeRepository([
+    const { service } = makeSubject([
       row({
         variantActive: false,
         components: [component('00000000-0000-4000-8000-000000000014', 20, 1)],
       }),
     ]);
-    const service = new ChannelSkuAvailabilityService(repository);
-
     const result = await service.list(organizationId, {
       status: 'all',
       page: 1,
@@ -113,7 +149,7 @@ describe('ChannelSkuAvailabilityService', () => {
   });
 
   it('filters and paginates after deriving statuses while keeping full summary counts', async () => {
-    const repository = makeRepository([
+    const { service } = makeSubject([
       row({ variant: null }),
       row({ optionId: '00000000-0000-4000-8000-000000000004', components: [] }),
       row({
@@ -125,8 +161,6 @@ describe('ChannelSkuAvailabilityService', () => {
         components: [component('00000000-0000-4000-8000-000000000013', 3, 1)],
       }),
     ]);
-    const service = new ChannelSkuAvailabilityService(repository);
-
     const result = await service.list(organizationId, {
       status: 'needs_review',
       page: 1,
@@ -151,6 +185,39 @@ function makeRepository(rows: ChannelAvailabilityRepositoryRow[]) {
     listAvailabilityRows: vi.fn().mockResolvedValue(rows),
   } as unknown as {
     [K in keyof ChannelProductMatchingRepositoryPort]: ReturnType<typeof vi.fn>;
+  };
+}
+
+function makeSubject(rows: ChannelAvailabilityRepositoryRow[]) {
+  const repository = makeRepository(rows);
+  const components = new Map(rows.flatMap((entry) => entry.variant?.components ?? [])
+    .map((entry) => [entry.sellpiaInventorySkuId, entry]));
+  const inventory = {
+    findBySkuIds: vi.fn().mockImplementation(async (input: {
+      sellpiaInventorySkuIds: string[];
+    }) => ({
+      snapshot: {
+        collected: true,
+        generation: '1',
+        verifiedAt: '2026-07-16T00:00:00.000Z',
+      },
+      items: input.sellpiaInventorySkuIds.flatMap((id) => {
+        const entry = components.get(id);
+        return entry ? [{
+          sellpiaInventorySkuId: id,
+          currentStock: entry.currentStock,
+          activeCommitmentQuantity: 0,
+          availableStock: entry.currentStock,
+          isActive: entry.isActive,
+          generation: '1',
+        }] : [];
+      }),
+    })),
+  };
+  return {
+    repository,
+    inventory,
+    service: new ChannelSkuAvailabilityService(repository, inventory as never),
   };
 }
 

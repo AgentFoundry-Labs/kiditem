@@ -39,12 +39,15 @@ compatibility CRUD. It never owns physical stock.
   positive quantities and tenant ownership, and never infer confirmation from
   normalized names, barcodes, rank, or AI suggestions.
 - Product-level inventory is a read projection over distinct linked
-  `SellpiaInventorySku` rows. Variant capacity is derived from the central
-  recipe; Products never creates a second ledger.
+  `SellpiaInventorySku` rows hydrated through `InventoryAvailabilityPort`.
+  Variant capacity uses common `availableStock`; physical stock and active
+  commitments remain separately visible. Products never creates a second
+  ledger.
 - Product list pagination returns operating summary counts over the complete
   filtered result before page slicing, including ABC grades, channel
-  connection, inventory status, and negative profit; consumers must not
-  reconstruct those counts from the current page.
+  connection, inventory status, negative profit, and Analytics-owned depletion
+  coverage/reorder signals; consumers must not reconstruct those counts from
+  the current page.
 - Recipe candidate search enters Inventory only through the exported
   `SELLPIA_INVENTORY_SKU_READ_PORT`, passes session-owned `organizationId`, and
   returns physical identity/stock facts without source prices or writers.

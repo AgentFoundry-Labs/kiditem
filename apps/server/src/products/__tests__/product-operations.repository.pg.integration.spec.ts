@@ -18,6 +18,8 @@ import {
 } from '../../test-helpers/real-prisma';
 import { ProductOperationsRepositoryAdapter } from '../adapter/out/repository/product-operations.repository.adapter';
 import { ProductOperationsService } from '../application/service/product-operations.service';
+import { InventoryCommitmentRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-commitment.repository.adapter';
+import { InventoryCommitmentService } from '../../inventory/application/service/inventory-commitment.service';
 
 describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   let prisma: PrismaClient;
@@ -26,8 +28,15 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
+    const prismaService = prisma as unknown as PrismaService;
     service = new ProductOperationsService(
-      new ProductOperationsRepositoryAdapter(prisma as unknown as PrismaService),
+      new ProductOperationsRepositoryAdapter(prismaService),
+      new InventoryCommitmentService(
+        new InventoryCommitmentRepositoryAdapter(prismaService),
+      ),
+      {
+        findByMasterProductIds: async () => new Map(),
+      },
     );
   });
 
@@ -38,6 +47,22 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    await prisma.sellpiaInventoryState.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        requestedGeneration: 1n,
+        verifiedGeneration: 1n,
+        lastVerifiedAt: new Date(),
+      },
+    });
+    await prisma.sellpiaInventoryState.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        requestedGeneration: 1n,
+        verifiedGeneration: 1n,
+        lastVerifiedAt: new Date(),
+      },
+    });
   });
 
   it('atomically creates a default variant and fences product reads by organization', async () => {
@@ -235,6 +260,55 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       sellpiaInventorySkuId: sku.id,
       source: 'manual',
       confirmedBy: TEST_USER_ID,
+    });
+  });
+
+  it('preserves physical stock while common commitments reduce operational capacity', async () => {
+    const sku = await inventorySku('SP-COMMITTED', 100);
+    const created = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+      code: 'KI-COMMITTED',
+      name: 'Committed stock product',
+      variants: [{
+        code: 'KI-COMMITTED-1',
+        name: 'Single',
+        components: [{ sellpiaInventorySkuId: sku.id, quantity: 1 }],
+      }],
+    });
+    const commitment = await prisma.inventoryCommitment.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        kind: 'rocket_request',
+        sourceId: randomUUID(),
+        businessKey: `coupang-rocket:test:${randomUUID()}`,
+        unitQuantity: 80,
+        status: 'active',
+        inventoryGeneration: 1n,
+        createdBy: TEST_USER_ID,
+      },
+    });
+    await prisma.inventoryCommitmentAllocation.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        commitmentId: commitment.id,
+        sellpiaInventorySkuId: sku.id,
+        unitsPerItem: 1,
+        quantity: 80,
+      },
+    });
+
+    const detail = await service.getProduct(TEST_ORGANIZATION_ID, created.id);
+
+    expect(detail).toMatchObject({
+      inventoryUnits: 20,
+      inventoryStatus: 'sellable',
+      variants: [{
+        capacity: 20,
+        components: [{
+          currentStock: 100,
+          activeCommitmentQuantity: 80,
+          availableStock: 20,
+        }],
+      }],
     });
   });
 

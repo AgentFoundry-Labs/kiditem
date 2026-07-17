@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { InventoryModule } from '../inventory/inventory.module';
+import { AnalyticsModule } from '../analytics/analytics.module';
 import { ProductOperationsController } from './adapter/in/http/product-operations.controller';
 import { ChannelCatalogProductProvisioningRepositoryAdapter } from './adapter/out/repository/channel-catalog-product-provisioning.repository.adapter';
 import { ProductOperationsRepositoryAdapter } from './adapter/out/repository/product-operations.repository.adapter';
@@ -13,7 +14,7 @@ import { ProductVariantRecipeService } from './application/service/product-varia
 import { CategoriesModule } from './categories/categories.module';
 
 @Module({
-  imports: [CategoriesModule, InventoryModule],
+  imports: [CategoriesModule, InventoryModule, AnalyticsModule],
   controllers: [ProductOperationsController],
   providers: [
     ProductOperationsService,

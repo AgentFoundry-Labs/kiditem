@@ -10,6 +10,7 @@ import { ChannelCatalogProductProvisioningService } from '../application/service
 import { CategoriesModule } from '../categories/categories.module';
 import { ProductsModule } from '../products.module';
 import { InventoryModule } from '../../inventory/inventory.module';
+import { AnalyticsModule } from '../../analytics/analytics.module';
 
 describe('Products architecture', () => {
   it('publishes the eight product-operation routes', () => {
@@ -36,6 +37,7 @@ describe('Products architecture', () => {
     const imports = Reflect.getMetadata('imports', ProductsModule) ?? [];
     expect(imports).toContain(CategoriesModule);
     expect(imports).toContain(InventoryModule);
+    expect(imports).toContain(AnalyticsModule);
     const providers = Reflect.getMetadata('providers', ProductsModule) ?? [];
     expect(providers).toContain(ProductRecipeComponentCandidateService);
   });
