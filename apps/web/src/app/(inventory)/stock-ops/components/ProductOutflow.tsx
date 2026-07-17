@@ -311,7 +311,7 @@ function ProductOutflowTable({
       <div className="flex items-center justify-between text-xs text-slate-400">
         <span>{formatNumber(rows.length)}개 상품 · 왼쪽=최신, 오른쪽으로 갈수록 과거(월 헤더 클릭 시 그 달 기준 정렬)</span>
         {!hasStock && (
-          <span className="text-[11px] text-amber-600">현재고·발주 알림은 셀피아 재고 수집 후 표시됩니다</span>
+          <span className="text-[11px] text-amber-600">현재고 값·발주 알림은 셀피아 재고 수집 후 표시됩니다</span>
         )}
       </div>
 
@@ -321,11 +321,9 @@ function ProductOutflowTable({
             <tr className="text-slate-500 text-xs bg-slate-50">
               <th className="sticky left-0 z-30 bg-slate-50 text-left font-semibold px-3 py-2 border-b border-slate-200 min-w-[260px]">상품</th>
               <th className="bg-slate-50 text-left font-semibold px-3 py-2 border-b border-slate-200 whitespace-nowrap">매입처</th>
-              {hasStock && (
-                <th className="bg-slate-50 px-3 py-2 text-right border-b border-slate-200 whitespace-nowrap">
-                  <HeaderSort k="currentStock">현재고</HeaderSort>
-                </th>
-              )}
+              <th className="bg-slate-50 px-3 py-2 text-right border-b border-slate-200 whitespace-nowrap">
+                <HeaderSort k="currentStock">현재고</HeaderSort>
+              </th>
               {hasStock && <th className="bg-slate-50 px-3 py-2 text-right font-semibold border-b border-slate-200 whitespace-nowrap">발주</th>}
               <th className="bg-slate-50 px-3 py-2 text-right border-b border-slate-200 whitespace-nowrap">
                 <HeaderSort k="avg2m">월평균</HeaderSort>
@@ -396,11 +394,9 @@ function ProductRow({ vm, monthsDesc, hasStock, sortKey }: { vm: RowVM; monthsDe
         </div>
       </td>
       <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap border-b border-slate-50">{p.providerName ?? '-'}</td>
-      {hasStock && (
-        <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-800 border-b border-slate-50">
-          {p.currentStock === null ? '—' : formatNumber(p.currentStock)}
-        </td>
-      )}
+      <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-800 border-b border-slate-50">
+        {p.currentStock === null ? '—' : formatNumber(p.currentStock)}
+      </td>
       {hasStock && (
         <td className="px-3 py-2 text-right whitespace-nowrap border-b border-slate-50">
           {p.needsReorder ? (

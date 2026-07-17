@@ -22,7 +22,6 @@ import {
   ShoppingCart,
   Sparkles,
   TrendingUp,
-  Wallet,
   Wand2,
   Warehouse,
   Zap,
@@ -130,7 +129,6 @@ export const menuSections: MenuSection[] = [
     items: [
       { href: '/profit-loss', label: '손익 분석', icon: TrendingUp },
       { href: '/sales-analysis', label: '매출 분석', icon: LineChart },
-      { href: '/finance-hub', label: '정산 관리', icon: Wallet },
     ],
   },
   {

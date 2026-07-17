@@ -84,7 +84,6 @@ describe('Sidebar product pipeline navigation', () => {
       ['재무분석', [
         ['/profit-loss', '손익 분석'],
         ['/sales-analysis', '매출 분석'],
-        ['/finance-hub', '정산 관리'],
       ]],
     ]);
 
