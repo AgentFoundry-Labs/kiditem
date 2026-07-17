@@ -3,8 +3,14 @@ import { useQuery } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProductHubDetailPage from './page';
 
+const navigation = vi.hoisted(() => ({ params: new URLSearchParams(), replace: vi.fn() }));
+const variantPanel = vi.hoisted(() => vi.fn());
+
 vi.mock('next/navigation', () => ({
   useParams: () => ({ id: '11111111-1111-4111-8111-111111111111' }),
+  useRouter: () => ({ replace: navigation.replace }),
+  usePathname: () => '/product-hub/11111111-1111-4111-8111-111111111111',
+  useSearchParams: () => navigation.params,
 }));
 
 vi.mock('@tanstack/react-query', () => ({ useQuery: vi.fn() }));
@@ -14,9 +20,10 @@ vi.mock('../components/ProductEditorDialog', () => ({
 }));
 
 vi.mock('./components/ProductVariantPanel', () => ({
-  default: ({ variants }: { variants: Array<{ name: string }> }) => (
-    <section><h2>판매 옵션</h2>{variants.map((variant) => <p key={variant.name}>{variant.name}</p>)}</section>
-  ),
+  default: (props: { variants: Array<{ name: string }> }) => {
+    variantPanel(props);
+    return <section><h2>판매 옵션</h2>{props.variants.map((variant) => <p key={variant.name}>{variant.name}</p>)}</section>;
+  },
 }));
 
 const product = {
@@ -65,7 +72,27 @@ const product = {
 
 describe('/product-hub/[id] MasterProduct detail', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
+    navigation.params = new URLSearchParams();
+    variantPanel.mockClear();
+    navigation.replace.mockClear();
     vi.mocked(useQuery).mockReturnValue({ data: product, isLoading: false, error: null } as ReturnType<typeof useQuery>);
+  });
+
+  it('opens only an exact recipe variant deep link and preserves unrelated params when it closes', () => {
+    navigation.params = new URLSearchParams(`recipeVariant=${product.variants[0]!.id}&recipeSearch=SP-77&tab=history`);
+    render(<ProductHubDetailPage />);
+    const props = variantPanel.mock.lastCall?.[0] as { recipeVariantId?: string; initialInventorySearch?: string; onRecipeDialogClose: () => void };
+    expect(props.recipeVariantId).toBe(product.variants[0]!.id);
+    expect(props.initialInventorySearch).toBe('SP-77');
+    props.onRecipeDialogClose();
+    expect(navigation.replace).toHaveBeenCalledWith('/product-hub/11111111-1111-4111-8111-111111111111?tab=history');
+  });
+
+  it('does not open a recipe dialog for an unknown variant id', () => {
+    navigation.params = new URLSearchParams('recipeVariant=99999999-9999-4999-8999-999999999999&recipeSearch=SP-77');
+    render(<ProductHubDetailPage />);
+    expect((variantPanel.mock.lastCall?.[0] as { recipeVariantId?: string }).recipeVariantId).toBeUndefined();
   });
 
   it('reads the product owner and preserves a product detail entry', () => {

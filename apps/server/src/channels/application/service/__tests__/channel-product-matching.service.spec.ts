@@ -115,11 +115,12 @@ function makeRepository() {
       products: [],
       options: [],
       counts: {
-        products: { all: 0, matched: 0, unmatched: 0 },
+        products: { all: 0, linked: 0, unlinked: 0 },
         options: {
           all: 0,
-          matched: 0,
-          unmatched: 0,
+          linked: 0,
+          unlinked: 0,
+          recipeConfirmed: 0,
           configurationRequired: 0,
           reviewRequired: 0,
         },

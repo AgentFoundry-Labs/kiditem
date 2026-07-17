@@ -29,6 +29,67 @@ describe('<ChannelSkuMappingTable>', () => {
     expect(screen.getByRole('link', { name: '중앙 레시피 보기' })).toBeInTheDocument();
     expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
   });
+
+  it('does not expose deterministic channel-origin product or option codes', () => {
+    const masterProductId = '33333333-3333-4333-8333-333333333333';
+    const linkedProduct = {
+      ...productRow(),
+      listing: { ...productRow().listing, masterProductId },
+      linkedProduct: {
+        id: masterProductId,
+        code: `CP-${masterProductId}`,
+        name: '채널 원본 우산',
+      },
+    } as const;
+    const baseOption = optionRow(masterProductId);
+    const linkedOption = {
+      ...baseOption,
+      option: {
+        ...baseOption.option,
+        productVariantId: '44444444-4444-4444-8444-444444444444',
+      },
+      linkedVariant: {
+        id: '44444444-4444-4444-8444-444444444444',
+        masterProductId,
+        code: 'CP-SKU-44444444-4444-4444-8444-444444444444',
+        name: '분홍 옵션',
+        optionLabel: '색상: 분홍',
+      },
+      recipeStatus: 'configuration_required',
+      capacity: null,
+    } as const;
+
+    const { rerender } = render(
+      <ChannelSkuMappingTable level="products" products={[linkedProduct]} options={[linkedOption]} onEditProduct={vi.fn()} onEditVariant={vi.fn()} />,
+    );
+    expect(screen.getByText('채널 원본 우산')).toBeInTheDocument();
+    expect(screen.queryByText(/CP-33333333/)).not.toBeInTheDocument();
+
+    rerender(<ChannelSkuMappingTable level="options" products={[linkedProduct]} options={[linkedOption]} onEditProduct={vi.fn()} onEditVariant={vi.fn()} />);
+    expect(screen.getByText('분홍 옵션')).toBeInTheDocument();
+    expect(screen.queryByText(/CP-SKU-/)).not.toBeInTheDocument();
+  });
+
+  it('constrains long provider text inside fixed table cells', () => {
+    const longDisplayName = '공백없는아주긴채널상품명'.repeat(20);
+    const longExternalId = 'external-id-without-breaks-'.repeat(20);
+    const row = {
+      ...productRow(),
+      listing: {
+        ...productRow().listing,
+        displayName: longDisplayName,
+        externalId: longExternalId,
+      },
+    };
+
+    render(
+      <ChannelSkuMappingTable level="products" products={[row]} options={[]} onEditProduct={vi.fn()} onEditVariant={vi.fn()} />,
+    );
+
+    expect(screen.getByRole('table')).toHaveClass('table-fixed');
+    expect(screen.getByText(longDisplayName)).toHaveClass('break-words');
+    expect(screen.getByText(longExternalId)).toHaveClass('break-all');
+  });
 });
 
 function productRow() {

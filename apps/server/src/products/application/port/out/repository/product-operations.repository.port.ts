@@ -5,6 +5,7 @@ import type {
   MasterProductOperationsListQuery,
   MasterProductOperationsListResponse,
   ProductVariantDetail,
+  ReplaceProductVariantRecipeInput,
   ProductVariantRecipeComponentInput,
   UpdateMasterProductInput,
   UpdateProductVariantInput,
@@ -66,5 +67,6 @@ export interface ProductOperationsRepositoryPort {
     userId: string;
     productVariantId: string;
     components: ProductVariantRecipeComponentInput[];
+    expectedRecipe: ReplaceProductVariantRecipeInput['expectedRecipe'];
   }): Promise<ProductVariantDetail>;
 }

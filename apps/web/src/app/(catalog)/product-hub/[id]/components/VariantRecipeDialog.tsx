@@ -24,7 +24,7 @@ import { queryKeys } from '@/lib/query-keys';
 type DraftComponent = {
   clientId: string;
   sellpiaInventorySkuId: string;
-  quantity: number;
+  quantity: number | null;
   code: string;
   name: string;
   optionName: string | null;
@@ -35,22 +35,24 @@ export function VariantRecipeDialog({
   open,
   onOpenChange,
   variant,
+  initialInventorySearch,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   variant: ProductVariantDetail;
+  initialInventorySearch?: string;
 }) {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<DraftComponent[]>(() => toDraft(variant));
-  const [inventorySearch, setInventorySearch] = useState('');
+  const [inventorySearch, setInventorySearch] = useState(initialInventorySearch ?? '');
   const nextDraftId = useRef(0);
 
   useEffect(() => {
     if (open) {
       setDraft(toDraft(variant));
-      setInventorySearch('');
+      setInventorySearch(initialInventorySearch ?? '');
     }
-  }, [open, variant]);
+  }, [initialInventorySearch, open, variant]);
 
   const candidateParams = useMemo(() => {
     const params = new URLSearchParams({
@@ -80,6 +82,14 @@ export function VariantRecipeDialog({
           sellpiaInventorySkuId: component.sellpiaInventorySkuId.trim(),
           quantity: component.quantity,
         })),
+        expectedRecipe: variant.components.map((component) => ({
+          id: component.id,
+          sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+          quantity: component.quantity,
+          source: component.source,
+          confirmedBy: component.confirmedBy,
+          confirmedAt: component.confirmedAt,
+        })),
       },
     ),
     onSuccess: async () => {
@@ -87,6 +97,7 @@ export function VariantRecipeDialog({
         queryClient.invalidateQueries({ queryKey: queryKeys.products.operations.all }),
         queryClient.invalidateQueries({ queryKey: queryKeys.channelProductMappings.all }),
         queryClient.invalidateQueries({ queryKey: queryKeys.channelSkuAvailability.all }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all }),
       ]);
       onOpenChange(false);
     },
@@ -94,6 +105,7 @@ export function VariantRecipeDialog({
 
   const hasInvalidComponent = draft.some((component) => (
     component.sellpiaInventorySkuId.trim().length === 0
+    || component.quantity === null
     || !Number.isInteger(component.quantity)
     || component.quantity <= 0
   ));
@@ -111,7 +123,7 @@ export function VariantRecipeDialog({
       return [...current, {
         clientId: `recipe-${variant.id}-${nextDraftId.current++}`,
         sellpiaInventorySkuId: item.sellpiaInventorySkuId,
-        quantity: 1,
+        quantity: null,
         code: item.code,
         name: item.name,
         optionName: item.optionName,
@@ -120,7 +132,9 @@ export function VariantRecipeDialog({
     });
   };
   const errorMessage = mutation.error
-    ? (isApiError(mutation.error) ? mutation.error.detail : '옵션 레시피를 저장하지 못했습니다.')
+    ? (isApiError(mutation.error) && mutation.error.status === 409
+      ? '다른 운영자가 레시피를 변경했습니다. 상세를 새로고침한 뒤 다시 확인해 주세요.'
+      : isApiError(mutation.error) ? mutation.error.detail : '옵션 레시피를 저장하지 못했습니다.')
     : null;
 
   return (
@@ -206,8 +220,9 @@ export function VariantRecipeDialog({
                         aria-label={`${component.code} 필요 수량`}
                         type="number"
                         min={1}
-                        value={component.quantity}
-                        onChange={(event) => updateDraft(setDraft, index, { quantity: Number(event.target.value) })}
+                        required
+                        value={component.quantity ?? ''}
+                        onChange={(event) => updateDraft(setDraft, index, { quantity: event.target.value === '' ? null : Number(event.target.value) })}
                         className="mt-1.5 h-10 w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface)] px-3 text-sm text-[var(--text-primary)]"
                       />
                     </label>

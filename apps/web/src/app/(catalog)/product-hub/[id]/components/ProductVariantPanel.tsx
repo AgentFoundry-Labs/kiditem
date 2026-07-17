@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertTriangle, Boxes, PackageCheck } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import { VariantRecipeDialog } from './VariantRecipeDialog';
@@ -12,8 +12,17 @@ const WARNING_LABELS = {
   review_required: '검토 필요',
 } as const;
 
-export default function ProductVariantPanel({ variants }: { variants: ProductVariantDetail[] }) {
+export default function ProductVariantPanel({ variants, recipeVariantId, initialInventorySearch, onRecipeDialogClose }: {
+  variants: ProductVariantDetail[];
+  recipeVariantId?: string;
+  initialInventorySearch?: string;
+  onRecipeDialogClose?: () => void;
+}) {
   const [editingVariant, setEditingVariant] = useState<ProductVariantDetail | null>(null);
+  useEffect(() => {
+    if (!recipeVariantId) return;
+    setEditingVariant(variants.find((variant) => variant.id === recipeVariantId) ?? null);
+  }, [recipeVariantId, variants]);
 
   return (
     <section id="variants" className="scroll-mt-24 space-y-3">
@@ -104,7 +113,8 @@ export default function ProductVariantPanel({ variants }: { variants: ProductVar
         <VariantRecipeDialog
           open
           variant={editingVariant}
-          onOpenChange={(open) => !open && setEditingVariant(null)}
+          initialInventorySearch={initialInventorySearch}
+          onOpenChange={(open) => { if (!open) { setEditingVariant(null); onRecipeDialogClose?.(); } }}
         />
       ) : null}
     </section>

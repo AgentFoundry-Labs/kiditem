@@ -75,13 +75,14 @@ describe('ProductOperationsService', () => {
           { sellpiaInventorySkuId: skuId, quantity: 1 },
           { sellpiaInventorySkuId: skuId, quantity: 2 },
         ],
+        expectedRecipe: [],
       },
     )).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.replaceRecipe(
       organizationId,
       userId,
       variantId,
-      { components: [{ sellpiaInventorySkuId: skuId, quantity: 0 }] },
+      { components: [{ sellpiaInventorySkuId: skuId, quantity: 0 }], expectedRecipe: [] },
     )).rejects.toBeInstanceOf(BadRequestException);
     expect(repository.replaceRecipe).not.toHaveBeenCalled();
   });
@@ -99,6 +100,7 @@ describe('ProductOperationsService', () => {
     await service.updateVariant(organizationId, variantId, { name: 'Large+' });
     await service.replaceRecipe(organizationId, userId, variantId, {
       components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
+      expectedRecipe: [],
     });
 
     expect(repository.getProduct).toHaveBeenCalledWith(organizationId, productId);
@@ -123,6 +125,7 @@ describe('ProductOperationsService', () => {
       userId,
       productVariantId: variantId,
       components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
+      expectedRecipe: [],
     });
   });
 });

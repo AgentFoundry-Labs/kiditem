@@ -9,6 +9,7 @@ import {
   useChannelVariantCandidates,
   useLinkChannelListingOption,
 } from '../hooks/useChannelSkuMappings';
+import { operatorProductReference } from '../../lib/operator-product-reference';
 import type {
   ChannelMatchCandidateReason,
   ChannelOptionMatchingQueueRow,
@@ -95,7 +96,9 @@ export function VariantLinkDialog({ open, onOpenChange, row }: Props) {
                 {candidates.data?.items.map((candidate) => (
                   <li key={candidate.productVariantId} className="flex items-start justify-between gap-4 rounded-xl border border-slate-200 p-4">
                     <div className="min-w-0">
-                      <p className="font-bold text-slate-900">{candidate.code} · {candidate.name}</p>
+                      <p className="font-bold text-slate-900">
+                        {operatorProductReference(candidate.code, candidate.name)}
+                      </p>
                       <p className="mt-1 text-xs text-slate-500">
                         {candidate.optionLabel ?? '옵션 설명 없음'} · {REASON_LABEL[candidate.reason]}
                       </p>

@@ -258,19 +258,102 @@ export type ChannelOptionMatchingQueueRow = z.infer<
 export const ChannelProductMatchingCountsSchema = z.object({
   products: z.object({
     all: z.number().int().nonnegative(),
-    matched: z.number().int().nonnegative(),
-    unmatched: z.number().int().nonnegative(),
+    linked: z.number().int().nonnegative(),
+    unlinked: z.number().int().nonnegative(),
   }).strict(),
   options: z.object({
     all: z.number().int().nonnegative(),
-    matched: z.number().int().nonnegative(),
-    unmatched: z.number().int().nonnegative(),
+    linked: z.number().int().nonnegative(),
+    unlinked: z.number().int().nonnegative(),
+    recipeConfirmed: z.number().int().nonnegative(),
     configurationRequired: z.number().int().nonnegative(),
     reviewRequired: z.number().int().nonnegative(),
   }).strict(),
-}).strict();
+}).strict().superRefine((counts, ctx) => {
+  if (counts.products.linked + counts.products.unlinked !== counts.products.all) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['products'],
+      message: 'linked and unlinked products must equal all products',
+    });
+  }
+  if (counts.options.linked + counts.options.unlinked !== counts.options.all) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['options'],
+      message: 'linked and unlinked options must equal all options',
+    });
+  }
+  if (
+    counts.options.recipeConfirmed
+    + counts.options.configurationRequired
+    + counts.options.reviewRequired
+    !== counts.options.linked
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['options'],
+      message: 'recipe states must equal linked options',
+    });
+  }
+});
 export type ChannelProductMatchingCounts = z.infer<
   typeof ChannelProductMatchingCountsSchema
+>;
+
+export const ChannelRecipeSuggestionStatusSchema = z.enum([
+  'already_configured',
+  'unique_code',
+  'quantity_review',
+  'conflict',
+  'ambiguous',
+  'name_review_only',
+  'no_match',
+]);
+export type ChannelRecipeSuggestionStatus = z.infer<
+  typeof ChannelRecipeSuggestionStatusSchema
+>;
+
+export const ChannelRecipeSuggestionEvidenceSchema = z.object({
+  kind: z.enum(['seller_sku_code', 'model_number_code', 'normalized_name']),
+  channelValue: z.string().min(1),
+  normalizedValue: z.string().min(1),
+}).strict();
+export type ChannelRecipeSuggestionEvidence = z.infer<
+  typeof ChannelRecipeSuggestionEvidenceSchema
+>;
+
+export const ChannelRecipeSuggestionResponseSchema = z.object({
+  channelListingOptionId: z.string().uuid(),
+  productVariantId: z.string().uuid().nullable(),
+  masterProductId: z.string().uuid().nullable(),
+  status: ChannelRecipeSuggestionStatusSchema,
+  reason: z.string().min(1),
+  existingComponents: z.array(z.object({
+    sellpiaInventorySkuId: z.string().uuid(),
+    code: z.string().min(1),
+    quantity: z.number().int().positive(),
+  }).strict()),
+  proposals: z.array(z.object({
+    sellpiaInventorySkuId: z.string().uuid(),
+    code: z.string().min(1),
+    name: z.string().min(1),
+    optionName: z.string().min(1).nullable(),
+    currentStock: z.number().int(),
+    evidence: z.array(ChannelRecipeSuggestionEvidenceSchema),
+    requiresQuantityConfirmation: z.literal(true),
+  }).strict()),
+}).strict().superRefine((response, ctx) => {
+  if (response.status === 'already_configured' && response.proposals.length !== 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['proposals'],
+      message: 'already configured recipes cannot include proposals',
+    });
+  }
+});
+export type ChannelRecipeSuggestionResponse = z.infer<
+  typeof ChannelRecipeSuggestionResponseSchema
 >;
 
 export const ChannelProductMatchingQueueResponseSchema = z.object({

@@ -96,6 +96,16 @@ describe('channels architecture contract', () => {
     ).toEqual([]);
   });
 
+  it('reaches Inventory only through the local Sellpia recipe evidence adapter', () => {
+    const channels = channelsRel();
+    const hits = rg(
+      `--type ts --files-with-matches 'inventory/application/port/in/stock/sellpia-inventory-sku-read' ${channels} --glob '!**/__tests__/**'`,
+    );
+    expect(hits).toEqual([
+      path.join(channels, 'adapter/out/inventory/sellpia-recipe-evidence.adapter.ts'),
+    ]);
+  });
+
   it('incoming HTTP adapters do not import outgoing ports or repository adapters', () => {
     const channels = channelsRel();
     const httpGlob = path.join(channels, 'adapter/in/http') + '/**';

@@ -230,21 +230,39 @@ describe('product operations contracts', () => {
   it('accepts only complete bounded recipes with positive integer quantities', () => {
     expect(ReplaceProductVariantRecipeInputSchema.parse({
       components: [{ sellpiaInventorySkuId: skuId, quantity: 2 }],
+      expectedRecipe: [],
     }).components).toHaveLength(1);
     expect(() => ReplaceProductVariantRecipeInputSchema.parse({
+      components: [],
+    })).toThrow();
+    expect(() => ReplaceProductVariantRecipeInputSchema.parse({
       components: [{ sellpiaInventorySkuId: skuId, quantity: 0 }],
+      expectedRecipe: [],
     })).toThrow();
     expect(() => ReplaceProductVariantRecipeInputSchema.parse({
       components: Array.from({ length: 51 }, (_, index) => ({
         sellpiaInventorySkuId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
         quantity: 1,
       })),
+      expectedRecipe: [],
     })).toThrow();
     expect(() => ReplaceProductVariantRecipeInputSchema.parse({
       components: [
         { sellpiaInventorySkuId: skuId, quantity: 1 },
         { sellpiaInventorySkuId: skuId, quantity: 2 },
       ],
+      expectedRecipe: [],
+    })).toThrow();
+    expect(() => ReplaceProductVariantRecipeInputSchema.parse({
+      components: [{ sellpiaInventorySkuId: skuId, quantity: 1 }],
+      expectedRecipe: [{
+        id: '00000000-0000-4000-8000-000000000006',
+        sellpiaInventorySkuId: skuId,
+        quantity: 1,
+        source: 'manual',
+        confirmedBy: null,
+        confirmedAt: 'not-a-date',
+      }],
     })).toThrow();
   });
 });

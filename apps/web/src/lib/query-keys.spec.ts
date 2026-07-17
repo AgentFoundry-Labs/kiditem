@@ -61,6 +61,9 @@ describe('channel product matching query keys', () => {
     expect(queryKeys.channelProductMappings.variantCandidates('option-1', { search: '분홍' })).toEqual([
       'channelProductMappings', 'variant-candidates', 'option-1', { search: '분홍' },
     ]);
+    expect(queryKeys.channelProductMappings.recipeSuggestion('option-1')).toEqual([
+      'channelProductMappings', 'recipe-suggestion', 'option-1',
+    ]);
   });
 });
 
