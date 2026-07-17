@@ -5,6 +5,9 @@ import ProductHubDetailPage from './page';
 
 vi.mock('next/navigation', () => ({
   useParams: () => ({ id: '11111111-1111-4111-8111-111111111111' }),
+  useRouter: () => ({ replace: vi.fn() }),
+  usePathname: () => '/product-hub/11111111-1111-4111-8111-111111111111',
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock('@tanstack/react-query', () => ({ useQuery: vi.fn() }));

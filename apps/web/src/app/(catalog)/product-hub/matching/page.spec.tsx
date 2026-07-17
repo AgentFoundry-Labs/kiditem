@@ -6,6 +6,12 @@ import MatchingPage from './page';
 import type { ChannelAccountListItem } from '@kiditem/shared/channel-account';
 import type { ChannelProductMatchingQueueResponse } from '@kiditem/shared/channel-product-matching';
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  usePathname: () => '/product-hub/matching',
+  useSearchParams: () => new URLSearchParams(),
+}));
+
 vi.mock('./hooks/useChannelSkuMappings', () => ({
   useChannelAccounts: vi.fn(),
   useChannelProductMappings: vi.fn(),

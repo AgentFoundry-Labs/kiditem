@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ChannelAccountListItemSchema, type ChannelAccountListItem } from '@kiditem/shared/channel-account';
 import {
   ChannelOptionMatchingQueueRowSchema,
+  ChannelRecipeSuggestionResponseSchema,
   ChannelProductCandidateListResponseSchema,
   ChannelProductMatchingQueueResponseSchema,
   ChannelProductMatchingQueueRowSchema,
@@ -9,6 +10,7 @@ import {
   LinkChannelListingOptionInputSchema,
   LinkChannelListingProductInputSchema,
   type ChannelOptionMatchingQueueRow,
+  type ChannelRecipeSuggestionResponse,
   type ChannelProductCandidateListResponse,
   type ChannelProductMatchingQueueResponse,
   type ChannelProductMatchingQueueRow,
@@ -56,6 +58,15 @@ export function listChannelVariantCandidates(
   return apiClient.getParsed(
     candidateUrl(`/api/channels/product-mappings/options/${encodeURIComponent(channelListingOptionId)}/candidates`, search),
     ChannelVariantCandidateListResponseSchema,
+  );
+}
+
+export function getChannelRecipeSuggestion(
+  channelListingOptionId: string,
+): Promise<ChannelRecipeSuggestionResponse> {
+  return apiClient.getParsed(
+    `/api/channels/product-mappings/options/${encodeURIComponent(channelListingOptionId)}/recipe-suggestions`,
+    ChannelRecipeSuggestionResponseSchema,
   );
 }
 

@@ -368,6 +368,14 @@ export type UpdateProductVariantInput = z.infer<
 
 export const ReplaceProductVariantRecipeInputSchema = z.object({
   components: z.array(ProductVariantRecipeComponentInputSchema).max(50),
+  expectedRecipe: z.array(ProductVariantComponentDetailSchema.pick({
+    id: true,
+    sellpiaInventorySkuId: true,
+    quantity: true,
+    source: true,
+    confirmedBy: true,
+    confirmedAt: true,
+  })).max(50),
 }).strict().superRefine(rejectDuplicateRecipeComponents);
 export type ReplaceProductVariantRecipeInput = z.infer<
   typeof ReplaceProductVariantRecipeInputSchema

@@ -3,6 +3,7 @@ import { apiClient } from '@/lib/api-client';
 import {
   linkChannelListingOption,
   linkChannelListingProduct,
+  getChannelRecipeSuggestion,
   listChannelProductCandidates,
   listChannelProductMappings,
   listChannelVariantCandidates,
@@ -43,6 +44,27 @@ describe('channel product matching API', () => {
     );
     expect(apiClient.getParsed).toHaveBeenNthCalledWith(2,
       `/api/channels/product-mappings/options/${encodeURIComponent(`${OPTION_ID}/unsafe`)}/candidates?search=${encodeURIComponent('분홍')}`,
+      expect.any(Object),
+    );
+    expect(apiClient.put).not.toHaveBeenCalled();
+  });
+
+  it('reads a recipe suggestion without issuing a mutation', async () => {
+    vi.mocked(apiClient.getParsed).mockResolvedValue({
+      channelListingOptionId: OPTION_ID,
+      productVariantId: VARIANT_ID,
+      masterProductId: PRODUCT_ID,
+      status: 'no_match',
+      reason: 'No evidence matched an active Sellpia SKU.',
+      channelEvidence: [],
+      existingComponents: [],
+      proposals: [],
+    });
+
+    await getChannelRecipeSuggestion(`${OPTION_ID}/unsafe`);
+
+    expect(apiClient.getParsed).toHaveBeenCalledWith(
+      `/api/channels/product-mappings/options/${encodeURIComponent(`${OPTION_ID}/unsafe`)}/recipe-suggestions`,
       expect.any(Object),
     );
     expect(apiClient.put).not.toHaveBeenCalled();

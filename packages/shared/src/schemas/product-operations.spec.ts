@@ -230,7 +230,11 @@ describe('product operations contracts', () => {
   it('accepts only complete bounded recipes with positive integer quantities', () => {
     expect(ReplaceProductVariantRecipeInputSchema.parse({
       components: [{ sellpiaInventorySkuId: skuId, quantity: 2 }],
+      expectedRecipe: [],
     }).components).toHaveLength(1);
+    expect(() => ReplaceProductVariantRecipeInputSchema.parse({
+      components: [],
+    })).toThrow();
     expect(() => ReplaceProductVariantRecipeInputSchema.parse({
       components: [{ sellpiaInventorySkuId: skuId, quantity: 0 }],
     })).toThrow();

@@ -107,11 +107,22 @@ describe('<VariantRecipeDialog>', () => {
 
     await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith(
       '/api/products/variants/22222222-2222-4222-8222-222222222222/components',
-      { components: [{ sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444', quantity: 3 }] },
+      {
+        components: [{ sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444', quantity: 3 }],
+        expectedRecipe: [{
+          id: '33333333-3333-4333-8333-333333333333',
+          sellpiaInventorySkuId: '44444444-4444-4444-8444-444444444444',
+          quantity: 2,
+          source: 'manual',
+          confirmedBy: null,
+          confirmedAt: '2026-07-16T00:00:00.000Z',
+        }],
+      },
     ));
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['products', 'operations'] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['channelProductMappings'] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['channelSkuAvailability'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['inventory'] });
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

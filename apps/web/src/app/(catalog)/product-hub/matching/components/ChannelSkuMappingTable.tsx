@@ -14,6 +14,7 @@ type Props = {
   options: ChannelOptionMatchingQueueRow[];
   onEditProduct: (row: ChannelProductMatchingQueueRow) => void;
   onEditVariant: (row: ChannelOptionMatchingQueueRow) => void;
+  onShowRecipeSuggestion?: (row: ChannelOptionMatchingQueueRow) => void;
   loading?: boolean;
 };
 
@@ -23,6 +24,7 @@ export function ChannelSkuMappingTable({
   options,
   onEditProduct,
   onEditVariant,
+  onShowRecipeSuggestion,
   loading = false,
 }: Props) {
   if (loading) {
@@ -36,7 +38,7 @@ export function ChannelSkuMappingTable({
   return level === 'products' ? (
     <ProductRows rows={products} onEdit={onEditProduct} />
   ) : (
-    <OptionRows rows={options} onEdit={onEditVariant} />
+    <OptionRows rows={options} onEdit={onEditVariant} onShowRecipeSuggestion={onShowRecipeSuggestion} />
   );
 }
 
@@ -70,9 +72,10 @@ function ProductRows({ rows, onEdit }: {
   );
 }
 
-function OptionRows({ rows, onEdit }: {
+function OptionRows({ rows, onEdit, onShowRecipeSuggestion }: {
   rows: ChannelOptionMatchingQueueRow[];
   onEdit: (row: ChannelOptionMatchingQueueRow) => void;
+  onShowRecipeSuggestion?: (row: ChannelOptionMatchingQueueRow) => void;
 }) {
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -91,7 +94,7 @@ function OptionRows({ rows, onEdit }: {
                 <td className="max-w-72 px-4 py-4"><p className="font-semibold text-slate-900">{row.option.itemName ?? '옵션명 없음'}</p><p className="mt-1 font-mono text-xs text-slate-500">{row.option.sellerSku ?? row.option.externalOptionId}</p></td>
                 <td className="px-4 py-4">{row.linkedVariant ? <><p className="font-bold text-slate-900">{operatorProductReference(row.linkedVariant.code, row.linkedVariant.name)}</p><p className="mt-1 text-xs text-slate-500">{row.linkedVariant.optionLabel ?? '옵션 설명 없음'}</p></> : <span className="text-xs font-semibold text-slate-500">미연결</span>}</td>
                 <td className="px-4 py-4"><VariantRecipeSummary row={row} /></td>
-                <td className="px-4 py-4"><button type="button" disabled={!row.listing.masterProductId} title={!row.listing.masterProductId ? '상품을 먼저 연결해 주세요.' : undefined} onClick={() => onEdit(row)} className="rounded-xl border border-[var(--primary,#7048e8)] px-3 py-2 text-xs font-bold text-[var(--primary,#7048e8)] disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400">옵션 연결</button></td>
+                <td className="px-4 py-4"><div className="flex flex-wrap gap-2"><button type="button" aria-label="옵션 연결" disabled={!row.listing.masterProductId} title={!row.listing.masterProductId ? '상품을 먼저 연결해 주세요.' : undefined} onClick={() => onEdit(row)} className="rounded-xl border border-[var(--primary,#7048e8)] px-3 py-2 text-xs font-bold text-[var(--primary,#7048e8)] disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400">운영 옵션 연결</button>{row.option.productVariantId && row.listing.masterProductId && onShowRecipeSuggestion ? <button type="button" onClick={() => onShowRecipeSuggestion(row)} className="rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700">Sellpia 후보</button> : null}</div></td>
               </tr>
             ))}
           </tbody>

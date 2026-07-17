@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Loader2, RefreshCw, Search, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { SellpiaWorkspaceFreshnessStatus } from '@/components/sellpia-inventory';
@@ -10,6 +11,8 @@ import { CoupangWingCatalogImportDialog } from './components/CoupangWingCatalogI
 import { MappingSummaryCards } from './components/MappingSummaryCards';
 import { ProductLinkDialog } from './components/ProductLinkDialog';
 import { VariantLinkDialog } from './components/VariantLinkDialog';
+import { RecipeSuggestionDialog } from './components/RecipeSuggestionDialog';
+import { Pagination } from '@/components/ui/Pagination';
 import { useChannelAccounts, useChannelProductMappings } from './hooks/useChannelSkuMappings';
 import type {
   ChannelOptionMatchingQueueRow,
@@ -31,13 +34,28 @@ const EMPTY_COUNTS: ChannelProductMatchingCounts = {
 };
 
 export default function MatchingPage() {
-  const [selectedAccountId, setSelectedAccountId] = useState('');
-  const [level, setLevel] = useState<'products' | 'options'>('products');
-  const [searchText, setSearchText] = useState('');
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const selectedAccountId = searchParams.get('channelAccountId') ?? '';
+  const urlLevel = searchParams.get('level') === 'options' ? 'options' : 'products';
+  const [level, setLevel] = useState<'products' | 'options'>(urlLevel);
+  const urlStatus = searchParams.get('status') ?? 'all';
+  const [status, setStatus] = useState(urlStatus);
+  const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
+  const [searchText, setSearchText] = useState(searchParams.get('search') ?? '');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [importOpen, setImportOpen] = useState(false);
   const [productTarget, setProductTarget] = useState<ChannelProductMatchingQueueRow | null>(null);
   const [variantTarget, setVariantTarget] = useState<ChannelOptionMatchingQueueRow | null>(null);
+  const [suggestionTarget, setSuggestionTarget] = useState<ChannelOptionMatchingQueueRow | null>(null);
+
+  const updateUrl = (changes: Record<string, string | null>, resetPage = true) => {
+    const next = new URLSearchParams(searchParams.toString());
+    Object.entries(changes).forEach(([key, value]) => value ? next.set(key, value) : next.delete(key));
+    if (resetPage) next.set('page', '1');
+    router.replace(`${pathname}?${next.toString()}`);
+  };
 
   const accountsQuery = useChannelAccounts();
   const channelAccounts = useMemo(
@@ -59,6 +77,7 @@ export default function MatchingPage() {
     const timeout = window.setTimeout(() => setDebouncedSearch(searchText.trim()), SEARCH_DEBOUNCE_MS);
     return () => window.clearTimeout(timeout);
   }, [searchText]);
+  useEffect(() => { setSearchText(searchParams.get('search') ?? ''); setLevel(urlLevel); setStatus(urlStatus); }, [searchParams.toString()]);
 
   const mappingsQuery = useChannelProductMappings({
     channelAccountId: selectedAccount?.id,
@@ -67,6 +86,19 @@ export default function MatchingPage() {
   const data = mappingsQuery.data;
   const counts = data?.counts ?? EMPTY_COUNTS;
   const isRefreshing = mappingsQuery.isFetching && !mappingsQuery.isLoading;
+  const filteredProducts = useMemo(() => (data?.products ?? []).filter((row) => (
+    status === 'linked' ? Boolean(row.listing.masterProductId) : status === 'unlinked' ? !row.listing.masterProductId : true
+  )), [data?.products, status]);
+  const filteredOptions = useMemo(() => (data?.options ?? []).filter((row) => {
+    if (status === 'unlinked') return !row.option.productVariantId;
+    if (status === 'configuration_required') return row.recipeStatus === 'configuration_required';
+    if (status === 'review_required') return row.recipeStatus === 'review_required';
+    if (status === 'recipe_confirmed') return row.recipeStatus === 'matched';
+    if (status === 'needs_review') return row.recipeStatus === 'configuration_required' || row.recipeStatus === 'review_required';
+    return true;
+  }), [data?.options, status]);
+  const filteredRows = level === 'products' ? filteredProducts : filteredOptions;
+  const pageRows = filteredRows.slice((page - 1) * 50, page * 50);
 
   const refresh = async () => {
     try {
@@ -108,7 +140,7 @@ export default function MatchingPage() {
         <div className="grid gap-3 lg:grid-cols-[minmax(240px,360px)_minmax(280px,1fr)]">
           <label className="space-y-1.5 text-xs font-semibold text-slate-600">
             <span>채널 계정</span>
-            <select aria-label="채널 계정" value={selectedAccount?.id ?? ''} onChange={(event) => setSelectedAccountId(event.target.value)} disabled={accountsQuery.isLoading || channelAccounts.length === 0} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-900 outline-none focus:border-purple-600 disabled:opacity-50">
+            <select aria-label="채널 계정" value={selectedAccount?.id ?? ''} onChange={(event) => updateUrl({ channelAccountId: event.target.value })} disabled={accountsQuery.isLoading || channelAccounts.length === 0} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-900 outline-none focus:border-purple-600 disabled:opacity-50">
               {channelAccounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
             </select>
           </label>
@@ -116,14 +148,15 @@ export default function MatchingPage() {
             <span>채널 상품·옵션 검색</span>
             <span className="relative block">
               <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input aria-label="채널 상품·옵션 검색" value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="상품명, 외부 상품 ID, SKU, 바코드" className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm font-normal text-slate-900 outline-none focus:border-purple-600" />
+              <input aria-label="채널 상품·옵션 검색" value={searchText} onChange={(event) => { setSearchText(event.target.value); updateUrl({ search: event.target.value.trim() || null }); }} placeholder="상품명, 외부 상품 ID, SKU, 바코드" className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm font-normal text-slate-900 outline-none focus:border-purple-600" />
             </span>
           </label>
         </div>
         <div role="group" aria-label="매칭 단계" className="inline-flex rounded-xl bg-slate-100 p-1">
-          <button type="button" aria-pressed={level === 'products'} onClick={() => setLevel('products')} className={`rounded-lg px-4 py-2 text-sm font-bold ${level === 'products' ? 'bg-white text-purple-700 shadow-sm' : 'text-slate-600'}`}>1 상품 연결</button>
-          <button type="button" aria-pressed={level === 'options'} onClick={() => setLevel('options')} className={`rounded-lg px-4 py-2 text-sm font-bold ${level === 'options' ? 'bg-white text-purple-700 shadow-sm' : 'text-slate-600'}`}>2 옵션 연결</button>
+          <button type="button" aria-pressed={level === 'products'} onClick={() => { setLevel('products'); setStatus('all'); updateUrl({ level: 'products', status: 'all' }); }} className={`rounded-lg px-4 py-2 text-sm font-bold ${level === 'products' ? 'bg-white text-purple-700 shadow-sm' : 'text-slate-600'}`}>1 상품 연결</button>
+          <button type="button" aria-pressed={level === 'options'} onClick={() => { setLevel('options'); setStatus('all'); updateUrl({ level: 'options', status: 'all' }); }} className={`rounded-lg px-4 py-2 text-sm font-bold ${level === 'options' ? 'bg-white text-purple-700 shadow-sm' : 'text-slate-600'}`}>2 옵션 연결</button>
         </div>
+        <label className="block max-w-xs space-y-1.5 text-xs font-semibold text-slate-600"><span>큐 상태</span><select aria-label="큐 상태" value={status} onChange={(event) => { setStatus(event.target.value); updateUrl({ status: event.target.value }); }} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900">{(level === 'products' ? [['all', '전체'], ['linked', '연결됨'], ['unlinked', '미연결']] : [['all', '전체'], ['unlinked', '미연결'], ['configuration_required', '재고 연결 필요'], ['review_required', '검토 필요'], ['recipe_confirmed', '레시피 완료'], ['needs_review', '검토 대기']]).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
       </section>
 
       {accountsQuery.error ? <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{friendlyError(accountsQuery.error)}</p> : null}
@@ -134,17 +167,20 @@ export default function MatchingPage() {
       {!accountsQuery.error && selectedAccount && !mappingsQuery.error ? (
         <ChannelSkuMappingTable
           level={level}
-          products={data?.products ?? []}
-          options={data?.options ?? []}
+          products={level === 'products' ? pageRows as ChannelProductMatchingQueueRow[] : []}
+          options={level === 'options' ? pageRows as ChannelOptionMatchingQueueRow[] : []}
           loading={mappingsQuery.isLoading && !data}
           onEditProduct={setProductTarget}
           onEditVariant={setVariantTarget}
+          onShowRecipeSuggestion={setSuggestionTarget}
         />
       ) : null}
+      {selectedAccount && !mappingsQuery.error && filteredRows.length > 50 ? <Pagination page={page} limit={50} total={filteredRows.length} onPageChange={(nextPage) => updateUrl({ page: String(nextPage) }, false)} /> : null}
 
       <CoupangWingCatalogImportDialog open={importOpen} account={selectedAccount?.channel === 'coupang' ? selectedAccount : null} onOpenChange={setImportOpen} onSuccess={() => void mappingsQuery.refetch()} />
       {productTarget ? <ProductLinkDialog open row={productTarget} onOpenChange={(next) => { if (!next) setProductTarget(null); }} /> : null}
       {variantTarget ? <VariantLinkDialog open row={variantTarget} onOpenChange={(next) => { if (!next) setVariantTarget(null); }} /> : null}
+      {suggestionTarget ? <RecipeSuggestionDialog open row={suggestionTarget} onOpenChange={(next) => { if (!next) setSuggestionTarget(null); }} /> : null}
     </div>
   );
 }
