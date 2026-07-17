@@ -23,6 +23,10 @@ import { PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT } from '../application/port/
 import { ChannelsModule } from '../../channels/channels.module';
 import { RocketPurchasePreviewService } from '../application/service/rocket-purchase-preview.service';
 import { ROCKET_PURCHASE_PREVIEW_PORT } from '../application/port/in/procurement/rocket-purchase-preview.port';
+import { RocketPurchaseConfirmationService } from '../application/service/rocket-purchase-confirmation.service';
+import { RocketPurchaseConfirmationTransactionAdapter } from '../adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter';
+import { ROCKET_PURCHASE_CONFIRMATION_PORT } from '../application/port/in/procurement/rocket-purchase-confirmation.port';
+import { ROCKET_PURCHASE_CONFIRMATION_TRANSACTION_PORT } from '../application/port/out/transaction/rocket-purchase-confirmation.transaction.port';
 
 // NestJS @Module / @Controller metadata keys (stable across Nest 10/11).
 const CONTROLLERS_KEY = 'controllers';
@@ -58,6 +62,7 @@ describe('SupplyModule owner wiring', () => {
       PurchaseOrderDraftService,
       PurchaseOrderSubmissionService,
       RocketPurchasePreviewService,
+      RocketPurchaseConfirmationService,
     ]) {
       expect(providers).toContain(cls);
     }
@@ -78,6 +83,7 @@ describe('SupplyModule owner wiring', () => {
     expect(providers).toContain(Alibaba1688CheckoutRuntimeAdapter);
     expect(providers).toContain(OrderAgentRuntimeHandler);
     expect(providers).toContain(PurchaseOrderSubmissionTransactionAdapter);
+    expect(providers).toContain(RocketPurchaseConfirmationTransactionAdapter);
     expectBinding(providers, PURCHASE_ORDER_DRAFT_PORT, PurchaseOrderDraftService);
     expectBinding(providers, PURCHASE_ORDER_SUBMISSION_PORT, PurchaseOrderSubmissionService);
     expectBinding(providers, SUPPLIER_REPOSITORY_PORT, SupplierRepositoryAdapter);
@@ -96,6 +102,16 @@ describe('SupplyModule owner wiring', () => {
       providers,
       ROCKET_PURCHASE_PREVIEW_PORT,
       RocketPurchasePreviewService,
+    );
+    expectBinding(
+      providers,
+      ROCKET_PURCHASE_CONFIRMATION_PORT,
+      RocketPurchaseConfirmationService,
+    );
+    expectBinding(
+      providers,
+      ROCKET_PURCHASE_CONFIRMATION_TRANSACTION_PORT,
+      RocketPurchaseConfirmationTransactionAdapter,
     );
   });
 

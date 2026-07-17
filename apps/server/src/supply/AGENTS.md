@@ -71,8 +71,8 @@ Route shape is frozen.
 - Rocket allocation replaces any earlier projected stock with Inventory's
   same-generation gated capacity snapshot before calculation. A refresh cannot
   bless quantities copied from an older generation.
-- Rocket preview allocation is a pure in-memory policy over shared component
-  stock. It subtracts active Rocket confirmation allocations and may return
+- Rocket preview allocation is a pure in-memory policy over Inventory-owned
+  `availableStock`, which already subtracts every active common commitment. It may return
   mapping, inactive-component, insufficient-capacity, or collection/account
   blocking reasons, but the preview itself never commits, writes a workbook,
   mutates physical stock, or calls a purchase provider.
@@ -93,7 +93,9 @@ Route shape is frozen.
   before persisting an active capacity allocation.
 - A caller-stable UUID idempotency key returns the same confirmation only for
   the same normalized request. Reusing it with different input is a conflict.
-- Active allocations reduce later previews and confirmations. Release requires
+- Inventory-owned active commitments reduce later previews and confirmations.
+  Supply keeps confirmation line/allocation rows as immutable audit evidence,
+  but does not aggregate them as a second capacity ledger. Release requires
   an authenticated active member plus an explicit reason after cancellation or
   after the physical movement is reflected by Sellpia, and restores derived
   capacity by changing allocation status; neither operation writes
@@ -114,9 +116,10 @@ Route shape is frozen.
   `{ id, organizationId }`.
 - Raw SQL uses Prisma tagged templates only.
 - Purchase-order submission and Rocket confirmation transaction adapters are
-  the Supply exceptions to repository-only Prisma access. They may lock and
-  read Inventory freshness/SKU rows for fencing and allocation, but they must
-  not derive freshness policy, mutate Inventory state/current stock, or expose
+  the Supply exceptions to repository-only Prisma access. Rocket confirmation
+  delegates generation fencing, capacity checks, and logical reserve/release
+  to `InventoryCommitmentPort` in the same Prisma transaction; it must not
+  derive Inventory policy, mutate Inventory state/current stock, or expose
   those tables through a Supply repository.
 - Do not write `SupplierPayment`.
 - Rocket confirmation is an internal capacity commitment and workbook input,

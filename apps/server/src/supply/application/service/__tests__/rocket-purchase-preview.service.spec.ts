@@ -60,7 +60,7 @@ function dependencies() {
       variantCode: 'VAR-1',
       variantName: 'Default',
       recipeStatus: 'matched',
-      components: [{ sellpiaInventorySkuId, code: 'SP-1', name: 'Sellpia', optionName: null, barcode: '8801234567890', currentStock: 5, purchasePrice: null, isActive: true, quantity: 1, source: 'manual', componentCapacity: 5, isBottleneck: true }],
+      components: [{ sellpiaInventorySkuId, code: 'SP-1', name: 'Sellpia', optionName: null, barcode: '8801234567890', currentStock: 5, activeCommitmentQuantity: 0, availableStock: 5, purchasePrice: null, isActive: true, quantity: 1, source: 'manual', componentCapacity: 5, isBottleneck: true }],
       warnings: [],
     }]),
   } as unknown as ChannelSkuAvailabilityPort;
@@ -75,13 +75,10 @@ function dependencies() {
       generation: '1',
       lastVerifiedAt: '2026-07-16T00:00:00.000Z',
       expiresAt: '2026-07-16T00:10:00.000Z',
-      inventorySkus: [{ sellpiaInventorySkuId, currentStock: 5, isActive: true }],
+      inventorySkus: [{ sellpiaInventorySkuId, currentStock: 5, activeCommitmentQuantity: 0, availableStock: 5, isActive: true }],
     }),
   } as unknown as SellpiaInventoryFreshnessGatePort;
-  const commitments = {
-    findActiveQuantities: vi.fn().mockResolvedValue({}),
-  };
-  return { catalog, availability, freshness, commitments };
+  return { catalog, availability, freshness };
 }
 
 function previewService(deps: ReturnType<typeof dependencies>) {
@@ -89,7 +86,6 @@ function previewService(deps: ReturnType<typeof dependencies>) {
     deps.catalog,
     deps.availability,
     deps.freshness,
-    deps.commitments as never,
   );
 }
 
@@ -117,6 +113,7 @@ describe('RocketPurchasePreviewService', () => {
     });
     expect(result.rows[0]).toMatchObject({
       poLineId,
+      plannedDeliveryDate: '2026-07-20',
       recommendedQuantity: 4,
       reason: null,
       masterProductId,
@@ -141,6 +138,7 @@ describe('RocketPurchasePreviewService', () => {
       const result = await service.preview({ organizationId, userId, request: request() });
 
       expect(result.rows[0]?.reason).toBe(blockingReason);
+      expect(result.rows[0]?.plannedDeliveryDate).toBe('2026-07-20');
       expect(deps.availability.findByChannelSkuIds).not.toHaveBeenCalled();
       expect((deps.freshness as unknown as {
         readFreshCapacity: ReturnType<typeof vi.fn>;
@@ -224,7 +222,7 @@ describe('RocketPurchasePreviewService', () => {
       generation: '2',
       lastVerifiedAt: '2026-07-16T00:01:00.000Z',
       expiresAt: '2026-07-16T00:11:00.000Z',
-      inventorySkus: [{ sellpiaInventorySkuId, currentStock: 0, isActive: true }],
+      inventorySkus: [{ sellpiaInventorySkuId, currentStock: 0, activeCommitmentQuantity: 0, availableStock: 0, isActive: true }],
     });
     const service = previewService(deps);
 
@@ -294,22 +292,32 @@ describe('RocketPurchasePreviewService', () => {
     });
   });
 
-  it('subtracts active confirmation allocations from the fresh inventory generation', async () => {
+  it('uses the common gated availability without subtracting a Supply aggregate again', async () => {
     const deps = dependencies();
-    deps.commitments.findActiveQuantities.mockResolvedValue({
-      [sellpiaInventorySkuId]: 3,
+    vi.mocked((deps.freshness as unknown as {
+      readFreshCapacity: ReturnType<typeof vi.fn>;
+    }).readFreshCapacity).mockResolvedValue({
+      fence: '77777777-7777-4777-8777-777777777777',
+      generation: '1',
+      lastVerifiedAt: '2026-07-16T00:00:00.000Z',
+      expiresAt: '2026-07-16T00:10:00.000Z',
+      inventorySkus: [{
+        sellpiaInventorySkuId,
+        currentStock: 100,
+        activeCommitmentQuantity: 20,
+        availableStock: 80,
+        isActive: true,
+      }],
     });
     const service = previewService(deps);
+    const input = request();
+    input.rows[0]!.orderQty = 100;
 
-    const result = await service.preview({ organizationId, userId, request: request() });
+    const result = await service.preview({ organizationId, userId, request: input });
 
-    expect(deps.commitments.findActiveQuantities).toHaveBeenCalledWith({
-      organizationId,
-      sellpiaInventorySkuIds: [sellpiaInventorySkuId],
-    });
     expect(result).toMatchObject({
       inventoryGeneration: '1',
-      rows: [{ maxQuantity: 2, recommendedQuantity: 2 }],
+      rows: [{ maxQuantity: 80, recommendedQuantity: 80 }],
     });
   });
 
@@ -319,7 +327,7 @@ describe('RocketPurchasePreviewService', () => {
       'utf8',
     );
     expect(source).not.toMatch(
-      /PurchaseOrderSubmissionAttempt|confirmationFile|provider|currentStock\s*=/i,
+      /PurchaseOrderSubmissionAttempt|confirmationFile|provider|currentStock\s*=|ROCKET_PURCHASE_COMMITMENT_READ_PORT|findActiveQuantities|committedQuantities/i,
     );
   });
 });

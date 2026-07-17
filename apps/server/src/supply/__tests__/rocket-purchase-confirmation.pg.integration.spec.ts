@@ -9,6 +9,8 @@ import {
 import { RocketPurchaseConfirmationTransactionAdapter } from '../adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { PrismaClient } from '@prisma/client';
+import { InventoryCommitmentRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-commitment.repository.adapter';
+import { InventoryCommitmentService } from '../../inventory/application/service/inventory-commitment.service';
 
 const CHANNEL_ACCOUNT_ID = '21000000-0000-4000-8000-000000000001';
 const SOURCE_IMPORT_RUN_ID = '21000000-0000-4000-8000-000000000002';
@@ -29,6 +31,11 @@ describe('Rocket purchase confirmation transaction (PG integration)', () => {
     await prisma.$connect();
     adapter = new RocketPurchaseConfirmationTransactionAdapter(
       prisma as unknown as PrismaService,
+      new InventoryCommitmentService(
+        new InventoryCommitmentRepositoryAdapter(
+          prisma as unknown as PrismaService,
+        ),
+      ),
     );
   });
 
@@ -141,6 +148,19 @@ describe('Rocket purchase confirmation transaction (PG integration)', () => {
     expect(await prisma.rocketPurchaseConfirmationAllocation.aggregate({
       _sum: { quantity: true },
     })).toEqual({ _sum: { quantity: 2 } });
+    expect(await prisma.inventoryCommitment.count()).toBe(1);
+    expect(await prisma.inventoryCommitment.findFirstOrThrow({
+      include: { allocations: true },
+    })).toMatchObject({
+      kind: 'rocket_request',
+      status: 'active',
+      unitQuantity: 2,
+      allocations: [{
+        sellpiaInventorySkuId: SELLPIA_SKU_ID,
+        unitsPerItem: 1,
+        quantity: 2,
+      }],
+    });
   });
 
   it('rejects reusing an idempotency key for a different decision', async () => {
@@ -170,6 +190,9 @@ describe('Rocket purchase confirmation transaction (PG integration)', () => {
     expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
     expect(results.filter(({ status }) => status === 'rejected')).toHaveLength(1);
     expect(await prisma.rocketPurchaseConfirmationAllocation.aggregate({
+      _sum: { quantity: true },
+    })).toEqual({ _sum: { quantity: 4 } });
+    expect(await prisma.inventoryCommitmentAllocation.aggregate({
       _sum: { quantity: true },
     })).toEqual({ _sum: { quantity: 4 } });
   });
@@ -217,10 +240,13 @@ describe('Rocket purchase confirmation transaction (PG integration)', () => {
       confirmationId: created.confirmationId,
       status: 'released',
     });
-    expect(await adapter.findActiveQuantities({
-      organizationId: TEST_ORGANIZATION_ID,
-      sellpiaInventorySkuIds: [SELLPIA_SKU_ID],
-    })).toEqual({});
+    expect(await prisma.inventoryCommitment.findFirstOrThrow()).toMatchObject({
+      kind: 'rocket_request',
+      status: 'released',
+      releasedBy: TEST_USER_ID,
+      releaseReason: '쿠팡 확정 수량 정정',
+      releasedAt: expect.any(Date),
+    });
     expect(await prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
       where: { id: created.confirmationId },
     })).toMatchObject({
@@ -296,6 +322,7 @@ function confirmationInput(
         poNumber: '1001',
         productNo: 'P-1',
         productName: 'Rocket item',
+        plannedDeliveryDate: '2026-07-20',
         orderQuantity: 4,
         recommendedQuantity: quantity,
         maxQuantity: 4,
@@ -308,6 +335,8 @@ function confirmationInput(
           sellpiaInventorySkuId: SELLPIA_SKU_ID,
           quantity: 1,
           currentStock: 5,
+          activeCommitmentQuantity: 0,
+          availableStock: 5,
           isActive: true,
         }],
       }],

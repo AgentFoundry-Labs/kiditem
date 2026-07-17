@@ -38,6 +38,7 @@ export type RocketCapacityPreviewRow = {
   poNumber: string;
   productNo: string;
   productName: string;
+  plannedDeliveryDate: string;
   orderQuantity: number;
   recommendedQuantity: number;
   maxQuantity: number;
@@ -52,7 +53,6 @@ export type RocketCapacityPreviewRow = {
 export function previewRocketCapacity(input: {
   rows: RocketCapacityPreviewInputRow[];
   editedQuantities: Record<string, number>;
-  committedQuantities?: Record<string, number>;
   clampEditedQuantities?: boolean;
 }): RocketCapacityPreviewRow[] {
   const remainingStock = new Map<string, number>();
@@ -61,12 +61,8 @@ export function previewRocketCapacity(input: {
     remainingStock.set(
       component.sellpiaInventorySkuId,
       current === undefined
-        ? Math.max(
-            0,
-            component.currentStock
-              - (input.committedQuantities?.[component.sellpiaInventorySkuId] ?? 0),
-          )
-        : Math.min(current, component.currentStock),
+        ? component.availableStock
+        : Math.min(current, component.availableStock),
     );
   }
 
@@ -190,6 +186,7 @@ function result(
     poNumber: row.poNumber,
     productNo: row.productNo,
     productName: row.productName,
+    plannedDeliveryDate: row.plannedDeliveryDate,
     orderQuantity: row.orderQuantity,
     recommendedQuantity,
     maxQuantity,

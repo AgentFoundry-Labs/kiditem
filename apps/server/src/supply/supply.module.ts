@@ -27,7 +27,6 @@ import { PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT } from './application/port/o
 import { ROCKET_PURCHASE_PREVIEW_PORT } from './application/port/in/procurement/rocket-purchase-preview.port';
 import { ROCKET_PURCHASE_CONFIRMATION_PORT } from './application/port/in/procurement/rocket-purchase-confirmation.port';
 import { ROCKET_PURCHASE_CONFIRMATION_TRANSACTION_PORT } from './application/port/out/transaction/rocket-purchase-confirmation.transaction.port';
-import { ROCKET_PURCHASE_COMMITMENT_READ_PORT } from './application/port/out/repository/rocket-purchase-commitment-read.port';
 
 /**
  * Supply owns supplier registry, master-supplier policy, and purchase-order
@@ -77,10 +76,6 @@ import { ROCKET_PURCHASE_COMMITMENT_READ_PORT } from './application/port/out/rep
     },
     {
       provide: ROCKET_PURCHASE_CONFIRMATION_TRANSACTION_PORT,
-      useExisting: RocketPurchaseConfirmationTransactionAdapter,
-    },
-    {
-      provide: ROCKET_PURCHASE_COMMITMENT_READ_PORT,
       useExisting: RocketPurchaseConfirmationTransactionAdapter,
     },
   ],
