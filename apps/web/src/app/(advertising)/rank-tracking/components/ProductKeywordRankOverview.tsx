@@ -395,8 +395,8 @@ export default function ProductKeywordRankOverview() {
               </tbody>
             </table>
           </div>
-          <div className="flex items-center justify-between border-t border-slate-200 px-5 py-3 text-xs text-slate-500">
-            <span>
+          <div className="relative flex items-center justify-center border-t border-slate-200 px-5 py-3 text-xs text-slate-500">
+            <span className="absolute left-5 top-1/2 hidden -translate-y-1/2 sm:block">
               총 {formatNumber(filteredRows.length)}개 중{" "}
               {formatNumber((page - 1) * PAGE_SIZE + 1)}–
               {formatNumber(Math.min(page * PAGE_SIZE, filteredRows.length))}개
