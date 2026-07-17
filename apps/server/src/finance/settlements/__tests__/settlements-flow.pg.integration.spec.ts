@@ -114,7 +114,7 @@ describe('Settlements flow (PG integration)', () => {
         listingId: fixture.listing.listingId,
         externalId: 'SET-LIVE-EXT',
         channelName: 'SET LIVE',
-          masterCode: 'SET-LIVE-EXT',
+        masterCode: 'SET-LIVE',
         masterName: 'Settlement LIVE',
         plRevenue: 20_000,
         plCommission: 2_000,
