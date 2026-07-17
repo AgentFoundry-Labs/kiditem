@@ -56,10 +56,10 @@ export default function OrderCompare() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="page-title">
+        <h2 className="page-title">
           <GitCompareArrows size={24} className="inline mr-2" />
           기간별 DB 주문 요약
-        </h1>
+        </h2>
       </div>
 
       <div className="flex items-start gap-2 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800">

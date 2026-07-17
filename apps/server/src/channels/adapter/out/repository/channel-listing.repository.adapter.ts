@@ -14,7 +14,17 @@ const listingInclude = {
   },
   options: {
     where: { isActive: true },
-    select: { mappingStatus: true, salePrice: true },
+    select: {
+      productVariantId: true,
+      salePrice: true,
+      productVariant: {
+        select: {
+          components: {
+            select: { sellpiaInventorySku: { select: { isActive: true } } },
+          },
+        },
+      },
+    },
   },
   contentWorkspaces: {
     where: { status: 'active', isDeleted: false },
@@ -161,7 +171,7 @@ function toSummary(row: ListingRow): ChannelListingSummary {
     status: row.status,
     exposureStatus: row.exposureStatus,
     optionCount: row.options.length,
-    mappingStatus: aggregateMappingStatus(row.options),
+    mappingStatus: aggregateMappingStatus(row.masterProductId, row.options),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -180,10 +190,25 @@ function firstPrice(options: Array<{ salePrice: number | null }>): number | null
 }
 
 function aggregateMappingStatus(
-  options: Array<{ mappingStatus: string }>,
+  masterProductId: string | null,
+  options: Array<{
+    productVariantId: string | null;
+    productVariant: null | {
+      components: Array<{ sellpiaInventorySku: { isActive: boolean } }>;
+    };
+  }>,
 ): 'matched' | 'unmatched' | 'needs_review' {
-  if (options.length === 0) return 'unmatched';
-  if (options.some((option) => option.mappingStatus === 'needs_review')) return 'needs_review';
-  if (options.every((option) => option.mappingStatus === 'matched')) return 'matched';
-  return 'unmatched';
+  if (!masterProductId) return 'unmatched';
+  if (options.length === 0) return 'needs_review';
+  if (options.some((option) => !option.productVariantId || !option.productVariant)) {
+    return 'needs_review';
+  }
+  if (options.some((option) =>
+    option.productVariant!.components.length === 0
+    || option.productVariant!.components.some(
+      (component) => !component.sellpiaInventorySku.isActive,
+    ))) {
+    return 'needs_review';
+  }
+  return 'matched';
 }

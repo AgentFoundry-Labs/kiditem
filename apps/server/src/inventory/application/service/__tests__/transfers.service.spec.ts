@@ -3,10 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { TransfersService } from '../transfers.service';
 
 describe('TransfersService', () => {
-  it('creates a record-only transfer for an organization-owned physical Master', async () => {
-    const created = { id: 'transfer-1', masterProductId: 'master-1' };
+  it('creates a record-only transfer for an organization-owned Sellpia inventory SKU', async () => {
+    const created = { id: 'transfer-1', sellpiaInventorySkuId: 'sku-1' };
     const repository = {
-      findMasterProductForTransfer: vi.fn().mockResolvedValue({
+      findInventorySkuForTransfer: vi.fn().mockResolvedValue({
         optionName: '파랑',
       }),
       findWarehouseIdsForTransfer: vi
@@ -17,15 +17,15 @@ describe('TransfersService', () => {
     const service = new TransfersService(repository as never);
 
     await expect(service.create('org-1', {
-      masterProductId: 'master-1',
+      sellpiaInventorySkuId: 'sku-1',
       fromWarehouseId: 'warehouse-a',
       toWarehouseId: 'warehouse-b',
       quantity: 3,
       notes: 'record only',
     })).resolves.toBe(created);
 
-    expect(repository.findMasterProductForTransfer).toHaveBeenCalledWith(
-      'master-1',
+    expect(repository.findInventorySkuForTransfer).toHaveBeenCalledWith(
+      'sku-1',
       'org-1',
     );
     expect(repository.findWarehouseIdsForTransfer).toHaveBeenCalledWith(
@@ -33,7 +33,7 @@ describe('TransfersService', () => {
       'org-1',
     );
     expect(repository.createStockTransfer).toHaveBeenCalledWith('org-1', {
-      masterProductId: 'master-1',
+      sellpiaInventorySkuId: 'sku-1',
       optionName: '파랑',
       fromWarehouseId: 'warehouse-a',
       toWarehouseId: 'warehouse-b',
@@ -42,16 +42,16 @@ describe('TransfersService', () => {
     });
   });
 
-  it('rejects a MasterProduct outside the organization', async () => {
+  it('rejects a Sellpia inventory SKU outside the organization', async () => {
     const repository = {
-      findMasterProductForTransfer: vi.fn().mockResolvedValue(null),
+      findInventorySkuForTransfer: vi.fn().mockResolvedValue(null),
       findWarehouseIdsForTransfer: vi.fn(),
       createStockTransfer: vi.fn(),
     };
     const service = new TransfersService(repository as never);
 
     await expect(service.create('org-1', {
-      masterProductId: 'foreign-master',
+      sellpiaInventorySkuId: 'foreign-sku',
       fromWarehouseId: 'warehouse-a',
       toWarehouseId: 'warehouse-b',
       quantity: 1,
@@ -61,7 +61,7 @@ describe('TransfersService', () => {
 
   it('rejects a transfer when either warehouse is outside the organization', async () => {
     const repository = {
-      findMasterProductForTransfer: vi.fn().mockResolvedValue({
+      findInventorySkuForTransfer: vi.fn().mockResolvedValue({
         optionName: null,
       }),
       findWarehouseIdsForTransfer: vi.fn().mockResolvedValue(['warehouse-a']),
@@ -70,7 +70,7 @@ describe('TransfersService', () => {
     const service = new TransfersService(repository as never);
 
     await expect(service.create('org-1', {
-      masterProductId: 'master-1',
+      sellpiaInventorySkuId: 'sku-1',
       fromWarehouseId: 'warehouse-a',
       toWarehouseId: 'foreign-warehouse',
       quantity: 1,

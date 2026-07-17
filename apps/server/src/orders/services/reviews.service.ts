@@ -165,7 +165,9 @@ export class ReviewsService {
         id: true,
         channelName: true,
         displayName: true,
-        abcGrade: true,
+        masterProduct: {
+          select: { id: true, name: true, abcGrade: true },
+        },
         options: {
           select: { sellerSku: true },
           where: { isActive: true },
@@ -178,11 +180,14 @@ export class ReviewsService {
     const map = new Map<string, ListingDisplay>();
     for (const row of rows) {
       map.set(row.id, {
-        masterId: null,
-        productName: row.displayName ?? row.channelName ?? null,
+        masterId: row.masterProduct?.id ?? null,
+        productName: row.masterProduct?.name
+          ?? row.displayName
+          ?? row.channelName
+          ?? null,
         sku: row.options[0]?.sellerSku ?? null,
         companyName: row.organization?.name ?? null,
-        grade: row.abcGrade,
+        grade: row.masterProduct?.abcGrade ?? null,
       });
     }
     return map;

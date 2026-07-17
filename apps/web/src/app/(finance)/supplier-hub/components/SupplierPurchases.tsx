@@ -108,7 +108,7 @@ export default function SupplierPurchases() {
         <div className="flex items-center gap-3">
           <ShoppingCart size={18} className="text-purple-600" />
           <div>
-            <h1 className="page-title">구매 관리</h1>
+            <h2 className="page-title">구매 관리</h2>
           </div>
         </div>
         <div className="relative">

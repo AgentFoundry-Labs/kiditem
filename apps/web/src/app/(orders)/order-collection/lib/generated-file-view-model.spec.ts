@@ -28,7 +28,7 @@ function generatedFile(
     mallKey: overrides.mallKey,
     mallName: overrides.mallName,
     orderNumbers: overrides.orderNumbers,
-    sentAt: overrides.sentAt,
+    transmissionRequestedAt: overrides.transmissionRequestedAt,
   };
 }
 
@@ -55,12 +55,12 @@ describe('generated file view model', () => {
     ]);
   });
 
-  it('filters by inferred mall and Sellpia send status', () => {
+  it('filters by inferred mall and Sellpia transmission request status', () => {
     const items = [
       generatedFile('sent', {
         mallKey: 'icecream-mall',
         mallName: '아이스크림몰',
-        sentAt: 200,
+        transmissionRequestedAt: 200,
       }),
       generatedFile('unsent', {
         sourceName: '키드키즈_주문.xlsx',
@@ -70,13 +70,13 @@ describe('generated file view model', () => {
     ];
 
     expect(
-      filterAndSortGeneratedFiles(items, { mallKey: 'kidkids', sendFilter: 'unsent' }).map(
+      filterAndSortGeneratedFiles(items, { mallKey: 'kidkids', sendFilter: 'waiting' }).map(
         (item) => item.id,
       ),
     ).toEqual(['unsent']);
-    expect(filterAndSortGeneratedFiles(items, { sendFilter: 'sent' }).map((item) => item.id)).toEqual([
-      'sent',
-    ]);
+    expect(
+      filterAndSortGeneratedFiles(items, { sendFilter: 'requested' }).map((item) => item.id),
+    ).toEqual(['sent']);
   });
 
   it('sorts immutably and preserves input order for ties', () => {

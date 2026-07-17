@@ -53,7 +53,7 @@ export default function StockAssets() {
               {isLoading ? (
                 <tr><td colSpan={5} className="py-12 text-center text-[var(--text-secondary)]">불러오는 중...</td></tr>
               ) : data?.items.length ? data.items.map((item) => (
-                <tr key={item.masterProductId}>
+                <tr key={item.sellpiaInventorySkuId}>
                   <td className="font-mono text-xs">{item.code}</td>
                   <td className="font-medium">{item.name}</td>
                   <td className="text-right">{formatNumber(item.currentStock)}</td>

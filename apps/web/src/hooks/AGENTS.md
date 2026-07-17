@@ -11,6 +11,11 @@ needs them.
 - `useAuth()` reads `/api/auth/me` through React Query.
 - Period selector state shared by operational screens.
 - Legacy/shared product-image hooks that are genuinely cross-route.
+- Sellpia freshness/history server state, including authenticated
+  `refetchInterval` polling, the authoritative latest completed inventory
+  basis, and full derived-projection invalidation after manual import.
+- `useUrlControlledTab()` for allow-listed canonical workspace selection while
+  preserving query parameters owned by nested views and filters.
 
 ## State Rules
 
@@ -20,6 +25,9 @@ needs them.
   `apiClient` refresh handling.
 - Prefer returning structured state/actions over exposing internal query client
   details.
+- URL-controlled route selection is derived directly from `useSearchParams`;
+  do not mirror it into local React state. Invalid values normalize to the
+  declared default, and setters change only the hook's owned query key.
 
 ## Boundary Rules
 

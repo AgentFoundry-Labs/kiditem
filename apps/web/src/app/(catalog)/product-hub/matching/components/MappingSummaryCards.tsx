@@ -1,48 +1,30 @@
 'use client';
 
-import {
-  AlertTriangle,
-  CheckCircle2,
-  CircleDashed,
-  Sparkles,
-} from 'lucide-react';
+import { AlertTriangle, Boxes, CheckCircle2, CircleDashed, PackageSearch } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
-import type { ChannelSkuMappingCounts } from '@kiditem/shared/channel-sku-matching';
+import type { ChannelProductMatchingCounts } from '@kiditem/shared/channel-product-matching';
 
-type MappingSummaryCardsProps = {
-  counts: ChannelSkuMappingCounts;
-  loading: boolean;
-};
+type Props = { counts: ChannelProductMatchingCounts; loading: boolean };
 
-const CARDS: ReadonlyArray<{
-  label: string;
-  countKey: keyof ChannelSkuMappingCounts;
-  icon: typeof Sparkles;
-  color: string;
-}> = [
-  { label: '전체 채널 SKU', countKey: 'all', icon: Sparkles, color: 'text-purple-600' },
-  { label: '미매칭', countKey: 'unmatched', icon: CircleDashed, color: 'text-slate-600' },
-  { label: '확인 필요', countKey: 'needsReview', icon: AlertTriangle, color: 'text-amber-600' },
-  { label: '매칭 완료', countKey: 'matched', icon: CheckCircle2, color: 'text-emerald-600' },
-];
+export function MappingSummaryCards({ counts, loading }: Props) {
+  const cards = [
+    { label: '전체 채널 상품', value: counts.products.all, icon: PackageSearch, color: 'text-purple-600' },
+    { label: '미매칭 상품', value: counts.products.unmatched, icon: CircleDashed, color: 'text-slate-600' },
+    { label: '전체 채널 옵션', value: counts.options.all, icon: Boxes, color: 'text-blue-600' },
+    { label: '연결 완료 옵션', value: counts.options.matched, icon: CheckCircle2, color: 'text-emerald-600' },
+    { label: '레시피 확인 필요', value: counts.options.configurationRequired + counts.options.reviewRequired, icon: AlertTriangle, color: 'text-amber-600' },
+  ] as const;
 
-export function MappingSummaryCards({
-  counts,
-  loading,
-}: MappingSummaryCardsProps) {
   return (
-    <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-      {CARDS.map((card) => (
-        <div
-          key={card.label}
-          className="bg-white rounded-xl border border-slate-200 p-4"
-        >
+    <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
+      {cards.map((card) => (
+        <div key={card.label} className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="flex items-center justify-between">
             <span className="text-sm text-slate-500">{card.label}</span>
             <card.icon size={16} className={card.color} />
           </div>
           <div className={`mt-1 text-2xl font-bold tabular-nums ${card.color}`}>
-            {loading ? '—' : formatNumber(counts[card.countKey])}
+            {loading ? '—' : formatNumber(card.value)}
           </div>
         </div>
       ))}

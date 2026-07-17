@@ -13,6 +13,12 @@ confirm dialogs, and skeletons. These components should be domain-neutral.
 - Keep dimensions stable for controls, badges, headers, and pagination so
   hover/loading states do not shift dense tables.
 - Use semantic CSS variables and `cn()` for class composition.
+- `TabLayout` keeps panels mounted by default for compatibility. Canonical
+  operations workspaces pass `unmountInactive` so inactive queries, timers, and
+  toasts do not remain alive.
+- Tabs expose the tablist/tab/tabpanel relationship, stable IDs, roving focus,
+  and ArrowLeft/ArrowRight/Home/End keyboard selection.
+- Pagination controls keep explicit first/previous/next/last accessible names.
 
 ## Boundary Rules
 

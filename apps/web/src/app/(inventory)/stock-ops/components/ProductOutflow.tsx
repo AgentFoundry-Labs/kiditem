@@ -16,12 +16,11 @@ import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 import {
   fetchSellpiaProductSales,
   ingestSellpiaProductSales,
-  ingestSellpiaProductStock,
 } from '@/lib/sellpia-product-sales-api';
 import {
   collectSellpiaProductProfitFromExtension,
-  collectSellpiaProductStockFromExtension,
 } from '@/lib/sellpia-product-sales-collection';
+import { useSellpiaInventoryFreshness } from '@/hooks/useSellpiaInventoryFreshness';
 
 const AUTO_SYNC_KEY = 'kiditem-sellpia-product-sales-autosync';
 const MONTHS_WINDOW = 13; // 1년(완결 12개월 + 진행 월)
@@ -38,6 +37,7 @@ function todayKst(): string {
 
 export default function ProductOutflow() {
   const queryClient = useQueryClient();
+  const { requestRefresh } = useSellpiaInventoryFreshness({ enabled: true });
   const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('avg2m');
@@ -54,16 +54,15 @@ export default function ProductOutflow() {
     queryClient.invalidateQueries({ queryKey: queryKeys.inventory.productSalesAll() });
   }, [queryClient]);
 
-  // 현재고 수집(비필수) — 실패해도 판매 수집은 유지. 성공 여부를 반환.
+  // 현재고 갱신 요청(비필수) — 실제 Excel 수집/적재는 PR 330 공용 조정자가 수행한다.
   const syncStock = useCallback(async (): Promise<boolean> => {
     try {
-      const stock = await collectSellpiaProductStockFromExtension();
-      await ingestSellpiaProductStock(stock);
+      await requestRefresh('manual_request');
       return true;
     } catch {
-      return false; // 확장 구버전/재고 조회 실패 — 판매 데이터는 그대로 표시
+      return false; // 갱신 요청 실패여도 판매 데이터 수집은 유지
     }
-  }, []);
+  }, [requestRefresh]);
 
   const runSync = useCallback(async () => {
     setSyncing(true);
@@ -75,7 +74,7 @@ export default function ProductOutflow() {
       invalidate();
       toast.success(
         `상품별 소진 수집 완료 (${result.productCount}개 상품, ${result.months.length}개월)` +
-          (stockOk ? ' · 현재고 반영' : ' · 현재고는 확장 최신화 후 반영'),
+          (stockOk ? ' · 현재고 갱신 요청' : ' · 현재고 갱신 요청 실패'),
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '상품별 소진 수집에 실패했습니다.');

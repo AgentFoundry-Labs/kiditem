@@ -17,18 +17,18 @@ describe('picking-rules — extractPickableItems', () => {
             listingOption: {
               components: [
                 {
-                  masterProductId: 'master-a',
+                  sellpiaInventorySkuId: 'sku-a',
                   quantity: 2,
-                  masterProduct: {
+                  sellpiaInventorySku: {
                     code: 'SELLPIA-A',
                     name: '구성품 A',
                     optionName: '빨강',
                   },
                 },
                 {
-                  masterProductId: 'master-b',
+                  sellpiaInventorySkuId: 'sku-b',
                   quantity: 1,
-                  masterProduct: {
+                  sellpiaInventorySku: {
                     code: 'SELLPIA-B',
                     name: '구성품 B',
                     optionName: null,
@@ -44,14 +44,14 @@ describe('picking-rules — extractPickableItems', () => {
     expect(result.items).toEqual([
       {
         orderId: 'order-1',
-        masterProductId: 'master-a',
+        sellpiaInventorySkuId: 'sku-a',
         productName: '구성품 A',
         sku: 'SELLPIA-A',
         quantity: 6,
       },
       {
         orderId: 'order-1',
-        masterProductId: 'master-b',
+        sellpiaInventorySkuId: 'sku-b',
         productName: '구성품 B',
         sku: 'SELLPIA-B',
         quantity: 3,

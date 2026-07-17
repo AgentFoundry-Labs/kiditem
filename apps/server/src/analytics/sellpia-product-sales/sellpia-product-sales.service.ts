@@ -6,11 +6,9 @@ import type {
   SellpiaProductSalesRow,
   SellpiaProductSalesMonthPoint,
   SellpiaProductSalesIngestResult,
-  SellpiaProductStockIngestResult,
 } from '@kiditem/shared/dashboard';
 import type {
   SellpiaProductSalesIngestBodyDto,
-  SellpiaProductStockIngestBodyDto,
 } from './dto/sellpia-product-sales.dto';
 import {
   LEAD_TIME_MONTHS,
@@ -101,39 +99,6 @@ export class SellpiaProductSalesService {
     } satisfies SellpiaProductSalesIngestResult;
   }
 
-  // Sellpia 통합 재고현황 현재고 스냅샷 ingest(전체 교체). 조직 범위 원자적 replace.
-  async ingestStock(
-    organizationId: string,
-    body: SellpiaProductStockIngestBodyDto,
-  ): Promise<SellpiaProductStockIngestResult> {
-    const capturedAt = new Date(`${body.capturedDate}T00:00:00+09:00`);
-    const byKey = new Map<string, {
-      organizationId: string; productCode: string; optionCode: string;
-      currentStock: number; offStock: number; safeStock: number; barcode: string | null; capturedAt: Date;
-    }>();
-    for (const it of body.items) {
-      byKey.set(`${it.productCode} ${it.optionCode}`, {
-        organizationId,
-        productCode: it.productCode,
-        optionCode: it.optionCode,
-        currentStock: clampInt(it.currentStock),
-        offStock: clampInt(it.offStock ?? 0),
-        safeStock: clampInt(it.safeStock ?? 0),
-        barcode: it.barcode ?? null,
-        capturedAt,
-      });
-    }
-    const rows = [...byKey.values()];
-    const ops: Prisma.PrismaPromise<unknown>[] = [
-      this.prisma.sellpiaProductStock.deleteMany({ where: { organizationId } }),
-    ];
-    for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
-      ops.push(this.prisma.sellpiaProductStock.createMany({ data: rows.slice(i, i + INSERT_CHUNK) }));
-    }
-    await this.prisma.$transaction(ops);
-    return { upserted: rows.length, itemCount: body.items.length } satisfies SellpiaProductStockIngestResult;
-  }
-
   async getSummary(
     organizationId: string,
     monthsWindow = DEFAULT_MONTHS,
@@ -158,16 +123,35 @@ export class SellpiaProductSalesService {
       },
     });
 
-    // 현재고 스냅샷 조인용. (productCode, optionCode) 키.
-    const stockRows = await this.prisma.sellpiaProductStock.findMany({
-      where: { organizationId },
-      select: { productCode: true, optionCode: true, currentStock: true, safeStock: true, capturedAt: true },
+    // PR 330의 활성 Sellpia 상품코드 스냅샷을 재고 단일 원본으로 사용한다.
+    const stockRows = await this.prisma.sellpiaInventorySku.findMany({
+      where: { organizationId, isActive: true },
+      select: {
+        code: true,
+        barcode: true,
+        currentStock: true,
+        lastImportRun: { select: { lastVerifiedAt: true } },
+      },
     });
-    const stockMap = new Map<string, number>();
+    const stockByCode = new Map<string, number>();
+    const stockByBarcode = new Map<string, number | null>();
     let stockCapturedAt: Date | null = null;
     for (const s of stockRows) {
-      stockMap.set(`${s.productCode} ${s.optionCode}`, s.currentStock);
-      if (!stockCapturedAt || s.capturedAt > stockCapturedAt) stockCapturedAt = s.capturedAt;
+      const code = s.code.trim();
+      if (code) stockByCode.set(code, s.currentStock);
+
+      const barcode = s.barcode?.trim();
+      if (barcode) {
+        stockByBarcode.set(
+          barcode,
+          stockByBarcode.has(barcode) ? null : s.currentStock,
+        );
+      }
+
+      const verifiedAt = s.lastImportRun?.lastVerifiedAt ?? null;
+      if (verifiedAt && (!stockCapturedAt || verifiedAt > stockCapturedAt)) {
+        stockCapturedAt = verifiedAt;
+      }
     }
     const hasStock = stockRows.length > 0;
 
@@ -287,7 +271,7 @@ export class SellpiaProductSalesService {
       const trend = computeTrend(b.completeQtys);
       // 재고 미수집이면 null(계산 보류), 수집됐으면 매칭 없으면 0(품절).
       const currentStock: number | null = hasStock
-        ? (stockMap.get(`${a.productCode} ${a.optionCode}`) ?? 0)
+        ? (resolveCurrentStock(a, stockByCode, stockByBarcode) ?? 0)
         : null;
       const { deadStock, deadStockReason } = computeDeadStock(b.completeQtys, currentStock);
       const seasonTag = computeSeasonTag(b.completeMonthly, completeMonthCount);
@@ -348,6 +332,27 @@ export class SellpiaProductSalesService {
       leadTimeMonths: LEAD_TIME_MONTHS,
     } satisfies SellpiaProductSalesSummary;
   }
+}
+
+function resolveCurrentStock(
+  product: { productCode: string; optionCode: string; barcode: string | null },
+  stockByCode: ReadonlyMap<string, number>,
+  stockByBarcode: ReadonlyMap<string, number | null>,
+): number | undefined {
+  const productCode = product.productCode.trim();
+  if (productCode && stockByCode.has(productCode)) {
+    return stockByCode.get(productCode);
+  }
+
+  const optionCode = product.optionCode.trim();
+  if (optionCode && stockByCode.has(optionCode)) {
+    return stockByCode.get(optionCode);
+  }
+
+  const barcode = product.barcode?.trim();
+  if (!barcode) return undefined;
+  const byBarcode = stockByBarcode.get(barcode);
+  return byBarcode === null ? undefined : byBarcode;
 }
 
 function clampInt(n: number): number {

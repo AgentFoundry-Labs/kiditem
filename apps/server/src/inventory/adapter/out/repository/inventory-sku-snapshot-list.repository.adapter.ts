@@ -1,5 +1,9 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import {
+  SellpiaInventoryQualityReportSchema,
+  SellpiaInventoryRefreshReasonSchema,
+} from '@kiditem/shared/sellpia-inventory-freshness';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   InventorySkuSnapshotListRepositoryPort,
@@ -10,7 +14,7 @@ import type {
 
 const SOURCE_TYPE = 'sellpia_inventory';
 
-const SNAPSHOT_SELECT = {
+const SNAPSHOT_BASE_SELECT = {
   id: true,
   code: true,
   name: true,
@@ -23,26 +27,78 @@ const SNAPSHOT_SELECT = {
   lastImportRunId: true,
 } as const;
 
-const SNAPSHOT_DETAIL_SELECT = {
-  ...SNAPSHOT_SELECT,
-  lastImportRun: {
-    select: {
-      id: true,
-      sourceType: true,
-      channelAccountId: true,
-      status: true,
-      importedAt: true,
+function snapshotSelect(organizationId: string) {
+  return {
+    ...SNAPSHOT_BASE_SELECT,
+    variantComponents: {
+      where: {
+        organizationId,
+        productVariant: {
+          organizationId,
+          isActive: true,
+          masterProduct: { organizationId },
+        },
+      },
+      select: {
+        productVariantId: true,
+        productVariant: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            optionLabel: true,
+            masterProduct: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
     },
-  },
-} as const;
+  } satisfies Prisma.SellpiaInventorySkuSelect;
+}
+
+function snapshotDetailSelect(organizationId: string) {
+  return {
+    ...snapshotSelect(organizationId),
+    lastImportRun: {
+      select: {
+        id: true,
+        sourceType: true,
+        channelAccountId: true,
+        status: true,
+        importedAt: true,
+      },
+    },
+  } satisfies Prisma.SellpiaInventorySkuSelect;
+}
 
 const IMPORT_RUN_SELECT = {
   id: true,
   fileName: true,
+  fileHash: true,
   status: true,
   rowCount: true,
   importedAt: true,
+  lastVerifiedAt: true,
+  verificationCount: true,
+  lastTrigger: true,
+  freshnessGeneration: true,
+  manualFreshExportConfirmedAt: true,
+  manualFreshExportConfirmedBy: true,
+  qualityReport: true,
+  errorCode: true,
+  errorMessage: true,
+  createdAt: true,
+  updatedAt: true,
 } as const;
+
+type ImportRunRow = Prisma.SourceImportRunGetPayload<{
+  select: typeof IMPORT_RUN_SELECT;
+}>;
 
 type SummaryRow = {
   totalSkus: bigint;
@@ -64,15 +120,15 @@ implements InventorySkuSnapshotListRepositoryPort {
   ) {
     return this.prisma.$transaction(async (transaction) => {
       const where = snapshotWhere(organizationId, query);
-      const [rows, total, summaryRows, latestImport] = await Promise.all([
-        transaction.masterProduct.findMany({
+      const [rows, total, summaryRows, state] = await Promise.all([
+        transaction.sellpiaInventorySku.findMany({
           where,
-          select: SNAPSHOT_SELECT,
+          select: snapshotSelect(organizationId),
           orderBy: [{ code: 'asc' }, { id: 'asc' }],
           skip: query.skip,
           take: query.take,
         }),
-        transaction.masterProduct.count({ where }),
+        transaction.sellpiaInventorySku.count({ where }),
         transaction.$queryRaw<SummaryRow[]>`
           SELECT
             COUNT(*)::bigint AS "totalSkus",
@@ -85,22 +141,30 @@ implements InventorySkuSnapshotListRepositoryPort {
               0
             )::bigint AS "pricedAssetValue",
             COUNT(*) FILTER (WHERE purchase_price IS NULL)::bigint AS "unpricedSkuCount"
-          FROM master_products
+          FROM sellpia_inventory_skus
           WHERE organization_id = ${organizationId}::uuid
             ${activeStatusSql(query.activeStatus)}
         `,
-        transaction.sourceImportRun.findFirst({
-          where: {
-            organizationId,
-            sourceType: SOURCE_TYPE,
-            channelAccountId: null,
-            status: 'completed',
-          },
-          select: IMPORT_RUN_SELECT,
-          orderBy: [{ importedAt: 'desc' }, { createdAt: 'desc' }, { id: 'asc' }],
+        transaction.sellpiaInventoryState.findUnique({
+          where: { organizationId },
+          select: { lastCompletedImportRunId: true },
         }),
       ]);
       const summary = summaryRows[0] ?? emptySummaryRow();
+      // Publication can make an older hash run current again, so chronology is
+      // not an authoritative snapshot basis.
+      const latestImport = state?.lastCompletedImportRunId
+        ? await transaction.sourceImportRun.findFirst({
+            where: {
+              id: state.lastCompletedImportRunId,
+              organizationId,
+              sourceType: SOURCE_TYPE,
+              channelAccountId: null,
+              status: 'completed',
+            },
+            select: IMPORT_RUN_SELECT,
+          })
+        : null;
       const importRunIds = [...new Set(rows
         .map(({ lastImportRunId }) => lastImportRunId)
         .filter((id): id is string => id !== null))];
@@ -126,11 +190,11 @@ implements InventorySkuSnapshotListRepositoryPort {
             && importedAtByRunId.has(row.lastImportRunId)
             ? row.lastImportRunId
             : null;
-          if (
-            !row.code || !row.name
-          ) throw new InternalServerErrorException(`Physical Sellpia Master ${row.id} is invalid`);
+          const { linkedProducts, linkedVariants } = linkedDestinations(
+            row.variantComponents,
+          );
           return {
-            masterProductId: row.id,
+            sellpiaInventorySkuId: row.id,
             code: row.code,
             name: row.name,
             optionName: row.optionName,
@@ -143,6 +207,10 @@ implements InventorySkuSnapshotListRepositoryPort {
             lastImportedAt: verifiedImportRunId
               ? importedAtByRunId.get(verifiedImportRunId) ?? null
               : null,
+            linkedVariantCount: linkedVariants.length,
+            linkedProductCount: linkedProducts.length,
+            linkedProducts,
+            linkedVariants,
           };
         }),
         total,
@@ -159,22 +227,22 @@ implements InventorySkuSnapshotListRepositoryPort {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
-  async getSnapshot(organizationId: string, masterProductId: string) {
-    const row = await this.prisma.masterProduct.findFirst({
-      where: { id: masterProductId, organizationId },
-      select: SNAPSHOT_DETAIL_SELECT,
+  async getSnapshot(organizationId: string, sellpiaInventorySkuId: string) {
+    const row = await this.prisma.sellpiaInventorySku.findFirst({
+      where: { id: sellpiaInventorySkuId, organizationId },
+      select: snapshotDetailSelect(organizationId),
     });
     if (!row) return null;
-    if (!row.code || !row.name) {
-      throw new InternalServerErrorException(`Physical Sellpia Master ${row.id} is invalid`);
-    }
     const verifiedImport = row.lastImportRun?.sourceType === SOURCE_TYPE
       && row.lastImportRun.channelAccountId === null
       && row.lastImportRun.status === 'completed'
       ? row.lastImportRun
       : null;
+    const { linkedProducts, linkedVariants } = linkedDestinations(
+      row.variantComponents,
+    );
     return {
-      masterProductId: row.id,
+      sellpiaInventorySkuId: row.id,
       code: row.code,
       name: row.name,
       optionName: row.optionName,
@@ -185,6 +253,10 @@ implements InventorySkuSnapshotListRepositoryPort {
       isActive: row.isActive,
       lastImportRunId: verifiedImport?.id ?? null,
       lastImportedAt: verifiedImport?.importedAt ?? null,
+      linkedVariantCount: linkedVariants.length,
+      linkedProductCount: linkedProducts.length,
+      linkedProducts,
+      linkedVariants,
     } satisfies InventorySkuSnapshotRepositoryRow;
   }
 
@@ -201,7 +273,7 @@ implements InventorySkuSnapshotListRepositoryPort {
       this.prisma.sourceImportRun.findMany({
         where,
         select: IMPORT_RUN_SELECT,
-        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+        orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
         skip: query.skip,
         take: query.take,
       }),
@@ -211,10 +283,53 @@ implements InventorySkuSnapshotListRepositoryPort {
   }
 }
 
+type VariantComponentDestination = {
+  productVariantId: string;
+  productVariant: {
+    id: string;
+    code: string;
+    name: string;
+    optionLabel: string | null;
+    masterProduct: {
+      id: string;
+      code: string;
+      name: string;
+    };
+  };
+};
+
+function linkedDestinations(components: VariantComponentDestination[]) {
+  const linkedVariantById = new Map(
+    components.map(({ productVariant }) => [
+      productVariant.id,
+      {
+        id: productVariant.id,
+        masterProductId: productVariant.masterProduct.id,
+        code: productVariant.code,
+        name: productVariant.name,
+        optionLabel: productVariant.optionLabel,
+      },
+    ]),
+  );
+  const linkedProductById = new Map(
+    components.map(({ productVariant }) => [
+      productVariant.masterProduct.id,
+      productVariant.masterProduct,
+    ]),
+  );
+  const byCodeThenId = <T extends { code: string; id: string }>(left: T, right: T) =>
+    left.code.localeCompare(right.code) || left.id.localeCompare(right.id);
+
+  return {
+    linkedProducts: [...linkedProductById.values()].sort(byCodeThenId),
+    linkedVariants: [...linkedVariantById.values()].sort(byCodeThenId),
+  };
+}
+
 function snapshotWhere(
   organizationId: string,
   query: InventorySkuSnapshotRepositoryQuery,
-): Prisma.MasterProductWhereInput {
+): Prisma.SellpiaInventorySkuWhereInput {
   const search = query.query?.trim();
   return {
     organizationId,
@@ -228,6 +343,13 @@ function snapshotWhere(
       : query.stockStatus === 'out_of_stock'
         ? { currentStock: 0 }
         : {}),
+    ...(query.linkStatus
+      ? {
+          variantComponents: query.linkStatus === 'linked'
+            ? { some: activeComponentWhere(organizationId) }
+            : { none: activeComponentWhere(organizationId) },
+        }
+      : {}),
     ...(search
       ? {
           OR: [
@@ -241,6 +363,17 @@ function snapshotWhere(
   };
 }
 
+function activeComponentWhere(organizationId: string) {
+  return {
+    organizationId,
+    productVariant: {
+      organizationId,
+      isActive: true,
+      masterProduct: { organizationId },
+    },
+  } satisfies Prisma.ProductVariantComponentWhereInput;
+}
+
 function activeStatusSql(
   status: InventorySkuSnapshotRepositoryQuery['activeStatus'],
 ): Prisma.Sql {
@@ -249,17 +382,21 @@ function activeStatusSql(
   return Prisma.empty;
 }
 
-function mapImportRun(row: {
-  id: string;
-  fileName: string;
-  status: string;
-  rowCount: number;
-  importedAt: Date | null;
-}): SellpiaImportRunRepositoryRow {
+function mapImportRun(row: ImportRunRow): SellpiaImportRunRepositoryRow {
   if (row.status !== 'running' && row.status !== 'completed' && row.status !== 'failed') {
     throw new InternalServerErrorException(`Unknown source import status: ${row.status}`);
   }
-  return { ...row, status: row.status };
+  return {
+    ...row,
+    status: row.status,
+    lastTrigger: row.lastTrigger === null
+      ? null
+      : SellpiaInventoryRefreshReasonSchema.parse(row.lastTrigger),
+    freshnessGeneration: row.freshnessGeneration,
+    qualityReport: SellpiaInventoryQualityReportSchema.nullable().parse(
+      row.qualityReport,
+    ),
+  };
 }
 
 function safeInteger(value: bigint, field: string): number {

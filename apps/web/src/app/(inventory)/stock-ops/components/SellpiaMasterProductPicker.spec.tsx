@@ -15,7 +15,7 @@ beforeEach(() => {
   listSellpiaInventorySkus.mockReset();
   listSellpiaInventorySkus.mockResolvedValue({
     items: [{
-      masterProductId: '00000000-0000-4000-8000-000000000001',
+      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000001',
       code: 'SP-1',
       name: '말랑이',
       optionName: '파랑',
@@ -27,6 +27,11 @@ beforeEach(() => {
       stockValue: null,
       lastImportRunId: null,
       lastImportedAt: null,
+      linkedVariantCount: 0,
+      linkedProductCount: 0,
+      linkedProducts: [],
+      linkedVariants: [],
+      linkStatus: 'unlinked',
     }],
     total: 1,
     page: 1,
@@ -37,7 +42,7 @@ beforeEach(() => {
 });
 
 describe('SellpiaMasterProductPicker', () => {
-  it('returns the selected physical Sellpia MasterProduct id', async () => {
+  it('returns the selected physical Sellpia inventory SKU id', async () => {
     const onChange = vi.fn();
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(

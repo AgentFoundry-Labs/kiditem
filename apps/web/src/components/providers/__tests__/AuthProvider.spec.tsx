@@ -14,6 +14,7 @@ const replaceMock = vi.hoisted(() => vi.fn());
 const consumeSignOutReasonMock = vi.hoisted(() => vi.fn());
 const syncExtensionAuthMock = vi.hoisted(() => vi.fn());
 const browserCollectionEnabledMock = vi.hoisted(() => vi.fn());
+const sellpiaSyncMountedMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/supabase/client', () => ({
   createSupabaseBrowserClient: () => ({
@@ -51,6 +52,13 @@ vi.mock('../BrowserCollectionProvider', () => ({
   },
 }));
 
+vi.mock('../SellpiaInventorySyncProvider', () => ({
+  SellpiaInventorySyncProvider: ({ children }: { children: React.ReactNode }) => {
+    sellpiaSyncMountedMock();
+    return children;
+  },
+}));
+
 function renderWithProvider(ui: React.ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -79,6 +87,7 @@ describe('AuthProvider', () => {
     consumeSignOutReasonMock.mockReset();
     syncExtensionAuthMock.mockReset();
     browserCollectionEnabledMock.mockReset();
+    sellpiaSyncMountedMock.mockReset();
 
     getSessionMock.mockResolvedValue({ data: { session: null } });
     refreshSessionMock.mockResolvedValue({ data: { session: null }, error: null });
@@ -315,5 +324,10 @@ describe('AuthProvider', () => {
       lastHandler?.('SIGNED_OUT', null);
     });
     expect(browserCollectionEnabledMock).toHaveBeenLastCalledWith(false);
+  });
+
+  it('mounts the Sellpia coordinator inside the authenticated context tree', async () => {
+    renderWithProvider(<div />);
+    await waitFor(() => expect(sellpiaSyncMountedMock).toHaveBeenCalled());
   });
 });

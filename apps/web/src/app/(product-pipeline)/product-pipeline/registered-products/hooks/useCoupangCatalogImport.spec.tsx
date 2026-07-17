@@ -157,7 +157,7 @@ describe('useCoupangCatalogImport', () => {
     expect(mocks.sendToExtension).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps the visible listing stable during chunk publication and refreshes it on completion', async () => {
+  it('refreshes listings and product operations once per higher publication count', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -184,9 +184,42 @@ describe('useCoupangCatalogImport', () => {
         },
       );
     });
-    await act(async () => Promise.resolve());
-    expect(invalidate).not.toHaveBeenCalledWith({
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({
       queryKey: queryKeys.channelListings.all,
+    }));
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: queryKeys.products.operations.all,
+    });
+    const progressInvalidationCount = invalidate.mock.calls.length;
+
+    act(() => {
+      queryClient.setQueryData(
+        queryKeys.coupangCatalogImports.run(ACCOUNT_ID, RUN_ID),
+        {
+          id: RUN_ID,
+          channelAccountId: ACCOUNT_ID,
+          status: 'running',
+          progress: { publishedProducts: 20 },
+          updatedAt: 'same-count',
+        },
+      );
+    });
+    await act(async () => Promise.resolve());
+    expect(invalidate).toHaveBeenCalledTimes(progressInvalidationCount);
+
+    act(() => {
+      queryClient.setQueryData(
+        queryKeys.coupangCatalogImports.run(ACCOUNT_ID, RUN_ID),
+        {
+          id: RUN_ID,
+          channelAccountId: ACCOUNT_ID,
+          status: 'running',
+          progress: { publishedProducts: 40 },
+        },
+      );
+    });
+    await waitFor(() => {
+      expect(invalidate.mock.calls.length).toBe(progressInvalidationCount + 2);
     });
 
     act(() => {
@@ -200,9 +233,18 @@ describe('useCoupangCatalogImport', () => {
         },
       );
     });
-    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({
-      queryKey: queryKeys.channelListings.all,
-    }));
+    await waitFor(() => {
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.channelListings.all });
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: queryKeys.products.operations.all,
+      });
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: queryKeys.channelProductMappings.all,
+      });
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: queryKeys.channelSkuAvailability.all,
+      });
+    });
   });
 
   it('synchronizes a polled cancellation into the personal alert once', async () => {

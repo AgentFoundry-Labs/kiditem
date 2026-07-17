@@ -54,6 +54,7 @@
     "@vitejs/plugin-react": "^6.0.1",
     "eslint": "^8",
     "eslint-plugin-import": "^2.32.0",
+    "fake-indexeddb": "^6.2.5",
     "jsdom": "^29.0.1",
     "postcss": "^8.5.14",
     "postcss-load-config": "^6.0.1",

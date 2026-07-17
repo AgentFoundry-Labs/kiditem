@@ -43,6 +43,7 @@ npm run test:scripts
 | `scripts/generate-schema-graphify.py` | Graphify schema export generator | `npm run graphify:schema` |
 | `scripts/prepare-coupang-extension.mjs` | staging browser-extension setup helper | `docs/runbooks/staging-deploy.md` |
 | `scripts/run-data-migrations.ts` | durable data migration runner; migration units live under root `VERSION` release folders such as `scripts/data-migrations/v0.1.0/` and record `data_migration_runs` ledger rows | `npm run data:migrate`, `docs/runbooks/staging-deploy.md` |
+| `scripts/safe-prisma-db-push.mjs` | local `db:push` wrapper that blocks whole-schema `--force-reset`; guarded staging/production rebuild workflows keep their direct Prisma entrypoint | `npm run db:push` |
 | `scripts/seed-agent-os.ts` | local/dev Agent OS runtime seed wrapper | `npm run seed:agent-os` |
 | `scripts/staging-db-baseline.ts` | staging DB baseline export/verify/restore CLI | `npm run staging:db` |
 | `scripts/storage-cache-control.ts` | Supabase/S3 Storage cache-control inspection and staging backfill helper for public immutable image assets | `npm run storage:cache-control`, `docs/runbooks/storage-cache-control.md` |

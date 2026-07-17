@@ -57,8 +57,8 @@ export class DashboardSalesRepositoryAdapter
   /**
    * Top-N (10) listing revenue ranking for the calendar month. Revenue is
    * grouped by ChannelListing so a bundle line is counted once regardless of
-   * how many Sellpia components its option consumes. A lateral lookup chooses
-   * one deterministic master-product label for the legacy widget shape.
+   * how many Sellpia components its option consumes. Product labels and grade
+   * come from the listing's direct operational-product link.
    *
    * Returns the raw shape; the application service applies the documented
    * 30%-margin approximation for `netProfit`/`profitRate`.
@@ -71,27 +71,17 @@ export class DashboardSalesRepositoryAdapter
     const rows = await this.prisma.$queryRaw<TopProductRawRow[]>`
       SELECT
         cl.id::text AS id,
-        COALESCE(cl.display_name, representative.name, cl.channel_name, cl.external_id) AS name,
+        COALESCE(mp.name, cl.display_name, cl.channel_name, cl.external_id) AS name,
         cl.channel_name AS organization,
-        cl.abc_grade AS grade,
+        mp.abc_grade AS grade,
         SUM(oli.total_price)::int AS revenue,
         SUM(oli.quantity)::int AS quantity
       FROM orders o
       JOIN order_line_items oli ON oli.order_id = o.id
       JOIN channel_listing_options clo ON clo.id = oli.listing_option_id
       JOIN channel_listings cl ON cl.id = clo.listing_id
-      LEFT JOIN LATERAL (
-        SELECT mp.name
-        FROM channel_listing_options label_clo
-        JOIN channel_sku_components csc ON csc.channel_sku_id = label_clo.id
-        JOIN master_products mp ON mp.id = csc.master_product_id
-        WHERE label_clo.listing_id = cl.id
-          AND label_clo.organization_id = ${organizationId}::uuid
-          AND csc.organization_id = ${organizationId}::uuid
-          AND mp.organization_id = ${organizationId}::uuid
-        ORDER BY label_clo.external_option_id, csc.created_at, csc.id
-        LIMIT 1
-      ) representative ON TRUE
+      LEFT JOIN master_products mp ON mp.id = cl.master_product_id
+        AND mp.organization_id = ${organizationId}::uuid
       WHERE o.organization_id = ${organizationId}::uuid
         AND oli.organization_id = ${organizationId}::uuid
         AND clo.organization_id = ${organizationId}::uuid
@@ -99,7 +89,7 @@ export class DashboardSalesRepositoryAdapter
         AND o.ordered_at >= ${monthStart}
         AND o.ordered_at < ${monthEnd}
         AND o.status NOT IN ('cancelled', 'returned', 'refunded')
-      GROUP BY cl.id, cl.display_name, representative.name, cl.channel_name, cl.external_id, cl.abc_grade
+      GROUP BY cl.id, mp.name, mp.abc_grade
       ORDER BY revenue DESC
       LIMIT 10
     `;

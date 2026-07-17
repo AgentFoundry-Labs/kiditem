@@ -187,9 +187,76 @@
         tab.closeOnRestart !== false &&
         Number.isInteger(tab.tabId)
       ) {
-        await chromeApi.tabs.remove(tab.tabId).catch(() => undefined);
+        await removeManagedTab(tab.tabId);
       }
       return view;
+    }
+
+    async function removeManagedTab(tabId) {
+      try {
+        await chromeApi.tabs.remove(tabId);
+        return;
+      } catch {
+        let tabStillExists = true;
+        if (typeof chromeApi.tabs.get === 'function') {
+          try {
+            await chromeApi.tabs.get(tabId);
+          } catch {
+            try {
+              const tabs = await chromeApi.tabs.query({});
+              tabStillExists = tabs.some((tab) => tab.id === tabId);
+            } catch {
+              tabStillExists = true;
+            }
+          }
+        } else {
+          try {
+            const tabs = await chromeApi.tabs.query({});
+            tabStillExists = tabs.some((tab) => tab.id === tabId);
+          } catch {
+            tabStillExists = true;
+          }
+        }
+        if (tabStillExists) {
+          throw new Error('Managed collection tab could not be removed');
+        }
+      }
+    }
+
+    function detachTab(runId, detachOptions = {}) {
+      return enqueueStorageMutation(storageKey, async () => {
+        const sessions = await readSessions();
+        const current = sessions[runId];
+        const tabId = detachOptions.tabId;
+        if (!Number.isInteger(tabId)) {
+          throw new Error('Managed collection tab ID is required');
+        }
+
+        const matchesCurrent = current?._managedTabId === tabId;
+        const canClose = !matchesCurrent
+          || current._managedTabCloseOnRestart !== false;
+        if (detachOptions.closeManagedTab === true && canClose) {
+          // Close before clearing persistence. A worker stop between these steps leaves
+          // retryable stale ownership; clearing first could orphan a live managed tab.
+          await removeManagedTab(tabId);
+        }
+
+        if (!current || !matchesCurrent) {
+          return current ? toPublicView(current) : null;
+        }
+        const next = {
+          ...current,
+          updatedAt: Math.max(now(), current.updatedAt + 1),
+        };
+        delete next._managedTabId;
+        delete next._managedWindowId;
+        delete next._managedTabCloseOnRestart;
+        sessions[runId] = next;
+        await writeSessions(prune(sessions));
+        const publicView = toPublicView(next);
+        await publish(publicView);
+        return publicView;
+      });
     }
 
     function progress(runId, nextProgress) {
@@ -242,7 +309,7 @@
           Number.isInteger(current._managedTabId) &&
           current._managedTabCloseOnRestart !== false
         ) {
-          await chromeApi.tabs.remove(current._managedTabId).catch(() => undefined);
+          await removeManagedTab(current._managedTabId);
         }
 
         const next = {
@@ -276,7 +343,7 @@
           Number.isInteger(current._managedTabId) &&
           current._managedTabCloseOnRestart !== false
         ) {
-          await chromeApi.tabs.remove(current._managedTabId).catch(() => undefined);
+          await removeManagedTab(current._managedTabId);
         }
 
         const next = {
@@ -339,6 +406,7 @@
     return {
       start,
       attachTab,
+      detachTab,
       progress,
       requireAttention,
       succeed,

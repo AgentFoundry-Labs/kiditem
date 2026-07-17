@@ -29,7 +29,13 @@
   }
 
   function sameIdentity(left, right) {
-    return left?.mallKey === right.mallKey && left?.date === right.date;
+    const leftEntries = Object.entries(left || {}).sort(([leftKey], [rightKey]) =>
+      leftKey.localeCompare(rightKey));
+    const rightEntries = Object.entries(right || {}).sort(([leftKey], [rightKey]) =>
+      leftKey.localeCompare(rightKey));
+    return leftEntries.length === rightEntries.length
+      && leftEntries.every(([key, value], index) =>
+        rightEntries[index]?.[0] === key && rightEntries[index]?.[1] === value);
   }
 
   function errorMessage(error) {
@@ -48,26 +54,48 @@
 
   function create(options) {
     const sessions = options.sessions;
+    const producer = options.producer;
+    const classification = options.classification || "background_preferred";
+    const restartStrategy = options.restartStrategy || "web";
+    const requireRunId = options.requireRunId === true;
+    const forceDeferredTerminal = options.forceDeferredTerminal === true;
     const createRunId = options.createRunId || (() => root.crypto.randomUUID());
-    const isAttentionError = options.isAttentionError || (() => false);
+    const classifyFailure = options.classifyFailure || (() => null);
+    const deferredLabel = options.deferredLabel || "브라우저 수집 완료 · 파일 생성 중";
+    const failedLabel = options.failedLabel || "주문 파일 생성 실패";
+    const succeededLabel = options.succeededLabel || "주문 파일 생성 완료";
+    if (typeof producer !== "string" || producer.length < 1) {
+      throw new Error("Collection producer is required");
+    }
+
+    function attentionReason(value) {
+      const classified = classifyFailure(value);
+      if (typeof classified === "string" && classified.length > 0) {
+        return classified;
+      }
+      return null;
+    }
 
     async function begin(message, inputIdentity) {
+      if (requireRunId && !validRunId(message?.runId)) {
+        throw new Error("Collection run ID is required");
+      }
       const runId = validRunId(message?.runId) ? message.runId : createRunId();
       const current = await sessions.get(runId);
       if (current) {
         if (
-          current.producer !== "orders.mall" ||
+          current.producer !== producer ||
           !sameIdentity(current.inputIdentity, inputIdentity)
         ) {
-          throw new Error("Collection run does not belong to this mall input");
+          throw new Error("Collection run does not belong to this producer input");
         }
         await sessions.restart(runId, { closeManagedTab: true });
       } else {
         await sessions.start({
           runId,
-          producer: "orders.mall",
-          classification: "background_preferred",
-          restartStrategy: "web",
+          producer,
+          classification,
+          restartStrategy,
           inputIdentity,
         });
       }
@@ -94,6 +122,15 @@
             closeOnRestart: attachment.owned !== false,
           });
         },
+        async detachTab(tab, attachment = {}) {
+          if (!Number.isInteger(tab?.id)) {
+            throw new Error("Order collection tab is unavailable");
+          }
+          return sessions.detachTab(runId, {
+            tabId: tab.id,
+            closeManagedTab: attachment.owned !== false,
+          });
+        },
         progress(nextProgress) {
           return sessions.progress(runId, nextProgress);
         },
@@ -105,20 +142,24 @@
         if (current?.status === "cancelled") {
           return cancelledResult(runId, current);
         }
-        if (result.pendingLogin) {
+        const resultAttention = attentionReason(result);
+        if (resultAttention) {
           const collectionSession = await sessions.requireAttention(runId, {
-            reason: "marketplace_login",
+            reason: resultAttention,
             message: result.error || "마켓 로그인이 필요합니다.",
           });
           return { ...result, runId, collectionSession };
         }
-        if (message?.deferTerminal === true && result.success !== false) {
+        if (
+          (forceDeferredTerminal || message?.deferTerminal === true)
+          && result.success !== false
+        ) {
           const collectionSession = await sessions.progress(runId, {
             current: 1,
             total: 2,
             completed: 1,
             failed: 0,
-            label: "브라우저 수집 완료 · 파일 생성 중",
+            label: deferredLabel,
           });
           return { ...result, runId, collectionSession };
         }
@@ -131,10 +172,11 @@
         if (current?.status === "cancelled") {
           return cancelledResult(runId, current);
         }
-        if (isAttentionError(error)) {
+        const errorAttention = attentionReason(error);
+        if (errorAttention) {
           const message = errorMessage(error);
           const collectionSession = await sessions.requireAttention(runId, {
-            reason: "marketplace_login",
+            reason: errorAttention,
             message,
           });
           return {
@@ -157,19 +199,19 @@
 
     async function cancel(runId) {
       const current = await sessions.get(runId);
-      if (!current || current.producer !== "orders.mall") return null;
+      if (!current || current.producer !== producer) return null;
       return sessions.cancel(runId, { closeManagedTab: true });
     }
 
     async function finalize(runId, status, message) {
       const current = await sessions.get(runId);
-      if (!current || current.producer !== "orders.mall") return null;
+      if (!current || current.producer !== producer) return null;
       if (current.status === "cancelled") return current;
       if (current.status !== "running") return current;
       const label = typeof message === "string" ? message.trim().slice(0, 300) : "";
       const progress = status === "failed"
-        ? { current: 2, total: 2, completed: 1, failed: 1, label: label || "주문 파일 생성 실패" }
-        : { current: 2, total: 2, completed: 2, failed: 0, label: label || "주문 파일 생성 완료" };
+        ? { current: 2, total: 2, completed: 1, failed: 1, label: label || failedLabel }
+        : { current: 2, total: 2, completed: 2, failed: 0, label: label || succeededLabel };
       await sessions.progress(runId, progress);
       return status === "failed" ? sessions.fail(runId) : sessions.succeed(runId);
     }

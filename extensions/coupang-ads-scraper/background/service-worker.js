@@ -7,9 +7,17 @@ importScripts(
   "collection-runs.js",
   "interactive-tabs.js",
   "../utils/coupang-seller-detail.js",
-  "../shared/coupang-catalog-collector.js",
+  "../shared/coupang-catalog-collector.js?revision=2",
   "coupang-catalog-import.js",
 );
+
+const COUPANG_CATALOG_CONTRACT_REVISION = 2;
+if (
+  KidItemCoupangCatalog.contractRevision !==
+  COUPANG_CATALOG_CONTRACT_REVISION
+) {
+  throw new Error("쿠팡 카탈로그 수집기 계약 revision이 일치하지 않습니다");
+}
 
 const API_URL = "http://localhost:4000";
 const AUTH_TOKEN_KEY = "kiditem_auth_token";
@@ -707,7 +715,10 @@ async function registerToWingForm(message) {
   }
   const url =
     "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2";
-  const tab = await chrome.tabs.create({ url, active: true });
+  const tab = await interactiveTabs.createTab({
+    url,
+    reason: INTERACTIVE_TAB_REASONS.PRODUCT_EDIT,
+  });
   await waitForTabComplete(tab.id, 60000);
   // React formV2 렌더 여유
   await new Promise((r) => setTimeout(r, 2500));

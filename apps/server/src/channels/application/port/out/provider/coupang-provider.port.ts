@@ -53,6 +53,7 @@ export interface SellerProductDetailResponse {
     deliveryInfo?: Record<string, unknown>;
     items?: Array<{
       vendorItemId: number;
+      externalVendorSku?: string | null;
       itemName: string;
       originalPrice: number;
       salePrice: number;

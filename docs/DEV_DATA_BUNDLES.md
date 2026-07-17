@@ -99,9 +99,40 @@ Profile 은 어떤 bundle 을 어떤 mode 로 replay 할지 정의하는 recipe 
 - `wing-inventory-matched.xlsx`: 과거 Coupang Wing 매칭 결과 비교 snapshot.
 
 이 두 파일은 `data:dev:replay` 또는 DB import 대상이 아니다. 오늘의
-재고 권한은 Sellpia 스냅샷으로 가져온 `MasterProduct.currentStock`이고,
+재고 권한은 Sellpia 스냅샷으로 가져온 `SellpiaInventorySku.currentStock`이고,
 Wing 상품/옵션은 계정 범위 catalog import로 재구성한다. Reference Excel은
 과거 결과를 비교하는 증거일 뿐 재고나 매칭을 자동 수정하지 않는다.
+
+## `0.1.19` Sellpia 최신성과 발주 시도 데이터
+
+표준 Drive profile은 계속 쿠팡 scraper payload만 replay한다. 인증된 Sellpia
+세션을 package하거나 fresh claim을 재현하지 않는다. 아래 persisted row는
+source payload가 아니라 runtime/검증 상태다.
+
+- `SellpiaInventoryState`는 organization당 하나인 신뢰 상태다. 로컬 schema
+  migration이 생성/backfill할 수 있지만, 같은 DB에 연결된 completed Sellpia
+  snapshot 없이 bundle이 상태를 fresh로 만들면 안 된다. 고정 origin/account
+  외 generation, lease owner/token, timestamp, opaque fence는 개발자 사이에서
+  이식하지 않는다.
+- completed `SourceImportRun`은 internally consistent한 synthetic test
+  fixture에서만 non-null artifact metadata, import/verification timestamp,
+  verification count, generation, quality report와 대응 SellpiaInventorySku
+  publication을 함께 표현할 수 있다. 공유 runtime bundle에는 raw workbook
+  byte나 workbook base64를 넣지 않는다.
+- 다운로드 전 failed `SourceImportRun`은 file name/hash가 null이고 row가 0이며
+  typed Sellpia collection failure code와 sanitize된 제한 길이 message만 가진다.
+  실패를 없애기 위해 가짜 completed artifact를 삽입하지 않는다.
+- `PurchaseOrderSubmissionAttempt`는 Supply가 소유하는 idempotency/reconcile
+  상태다. 테스트는 synthetic key/reference를 사용할 수 있지만 Drive
+  bundle에는 실제 idempotency key, provider reference, raw provider error 또는
+  재시도 허가로 오해될 수 있는 ambiguous attempt를 넣지 않는다.
+
+Sellpia/Coupang password, cookie, browser storage, access/refresh token,
+workbook data가 든 extension message, raw provider response, claim token, 실제
+workbook 내용은 `.data/`, Drive bundle, Git, PR, issue, screenshot, log에 넣지
+않는다. 인증된 Chrome session은 운영자 로컬에만 남긴다. 공유하는 것은
+sanitize된 count/status와 provider에 replay할 수 없는 deterministic test
+fixture로 제한한다.
 
 ## 공유/검증 한 사이클
 
@@ -389,9 +420,11 @@ select 'account_kpi', count(*) from channel_account_daily_kpi_snapshots where ch
 
 현재 재고 권한과 채널 매칭은 다음 두 층으로 검증한다.
 
-- Sellpia 권한 재고: `master_products.current_stock`
-- 채널 SKU 매칭: `channel_sku_components` 의
-  `channel_sku_id` → `master_product_id` + `quantity`
+- Sellpia 권한 재고: `sellpia_inventory_skus.current_stock`
+- 상품/옵션 연결: `channel_listings.master_product_id`와
+  `channel_listing_options.product_variant_id`
+- 중앙 레시피: `product_variant_components`의
+  `product_variant_id` → `sellpia_inventory_sku_id` + `quantity`
 - Drive reference Excel: 과거 비교 증거일 뿐 DB 재고나 매칭 권한이
   아니다.
 
@@ -404,17 +437,26 @@ select
   cl.external_id as seller_product_id,
   clo.external_option_id as vendor_item_id,
   clo.item_name,
-  clo.mapping_status,
-  mp.code as sellpia_code,
-  mp.name as master_name,
-  mp.option_name,
-  mp.current_stock,
-  csc.quantity as units_per_sale
+  case
+    when cl.master_product_id is null or clo.product_variant_id is null then 'unmatched'
+    when pvc.id is null or sisku.is_active = false then 'needs_review'
+    else 'matched'
+  end as mapping_status,
+  mp.code as operating_product_code,
+  mp.name as operating_product_name,
+  pv.code as variant_code,
+  sisku.code as sellpia_code,
+  sisku.name as sellpia_name,
+  sisku.option_name,
+  sisku.current_stock,
+  pvc.quantity as units_per_sale
 from channel_listing_options clo
 join channel_listings cl on cl.id = clo.listing_id
 join channel_accounts ca on ca.id = cl.channel_account_id
-left join channel_sku_components csc on csc.channel_sku_id = clo.id
-left join master_products mp on mp.id = csc.master_product_id
+left join master_products mp on mp.id = cl.master_product_id
+left join product_variants pv on pv.id = clo.product_variant_id
+left join product_variant_components pvc on pvc.product_variant_id = pv.id
+left join sellpia_inventory_skus sisku on sisku.id = pvc.sellpia_inventory_sku_id
 where ca.channel = 'coupang'
 order by cl.external_id, clo.external_option_id
 limit 100;
@@ -455,8 +497,8 @@ Inventory mismatch check
 서버와 웹을 띄운다.
 
 ```bash
-npm run dev:server
-npm run dev
+rtk npm run dev:server
+rtk npm run dev
 ```
 
 다음 화면을 확인한다.
@@ -464,10 +506,13 @@ npm run dev
 | 화면 | 확인 내용 |
 |---|---|
 | `/ad-ops` | 광고/스크래퍼 데이터가 비어 있지 않고, 캠페인/전략/추천 영역이 에러 없이 렌더링되는지 |
-| `/inventory` | 재고 목록이 뜨고 필터/검색/상세 진입이 깨지지 않는지 |
-| `/inventory-hub` | 재고 요약/자산/입출고 관련 카드가 에러 없이 뜨는지 |
-| `/stock-ops` | 품절/제로/보류/이동 등 재고 운영 탭이 렌더링되는지 |
-| `/product-hub` 또는 `/product-hub/options` | 쿠팡 listing/option 과 연결된 상품/옵션 데이터가 깨지지 않는지 |
+| `/inventory-hub?tab=status` | 보존된 재고 현황 목록/필터/검색/상세 진입이 깨지지 않는지 |
+| `/inventory-hub?tab=sellpia-sync` | freshness/current basis/history drawer가 현재 조직 상태로 렌더링되는지 |
+| `/stock-ops` | 보존된 재고 분석 탭과 추가된 freshness/mapping 경고가 함께 렌더링되는지 |
+| `/product-hub` | 기존 상품 운영 센터의 명령 카드·카테고리·필터·지표형 상품 행과 상세 진입이 유지되고, 현재 Sellpia 스냅샷 데이터가 표시되는지 |
+| `/product-hub/options` | `c9e7caf8` 기준 Sellpia 읽기 전용 옵션 표가 검색/필터/페이징과 함께 렌더링되는지 |
+| `/product-hub/matching` | `c9e7caf8` 기준 account 범위 matching queue와 confirmed recipe가 렌더링되는지 |
+| `/rocket-orders` / `/purchase-orders?tab=rocket` | 기존 Rocket 화면의 판단 placeholder와 발주 화면에 동일한 Sellpia capacity preview 계약이 배치 변경 없이 연결되고, 확정은 비활성인지 |
 
 확인 기준:
 
@@ -480,20 +525,20 @@ npm run dev
 최소 API smoke:
 
 ```bash
-curl -s "http://localhost:4000/api/ads/extension/status" | jq
-curl -s "http://localhost:4000/api/inventory/sellpia-skus?limit=5" | jq
+rtk curl -s "http://localhost:4000/api/ads/extension/status" | jq
+rtk curl -s "http://localhost:4000/api/inventory/sellpia-skus?limit=5" | jq
 ```
 
 테스트를 돌릴 수 있는 환경이면 최소한 script 계약 테스트를 실행한다.
 
 ```bash
-npx vitest run --config scripts/vitest.config.ts
+rtk npx vitest run --config scripts/vitest.config.ts
 ```
 
 스키마/ingest 변경을 같이 작업했다면 관련 서버 테스트도 실행한다.
 
 ```bash
-npm exec --workspace=apps/server -- vitest run src/advertising src/channels src/inventory
+rtk npm exec --workspace=apps/server -- vitest run src/advertising src/channels src/inventory
 ```
 
 ### 5. 검증 결과 공유
@@ -507,7 +552,7 @@ Coupang replay verification
 - DB: runs N, raw N, listing_daily N, option_daily N, ad_target_daily N, account_kpi N
 - unmatched: N
 - inventory mismatch: N checked, N missing matches, N stock mismatches
-- UI smoke: /ad-ops pass, /inventory pass, /inventory-hub pass, /stock-ops pass
+- UI smoke: /ad-ops pass, /inventory-hub inventory/overview/attention pass, /product-hub list/options pass, /product-hub/matching pass
 - failures:
   - ...
 - suspected owner: payload / ingest / schema / UI / local setup
@@ -536,11 +581,19 @@ Coupang replay verification
 - 마스킹/샘플 데이터는 기본 개발 검증용으로 쓰지 않는다.
 - 실제 payload 는 내부 개발자만 접근하며 Git, PR, 이슈, 로그에 첨부하지 않는다.
 
-## `0.1.8` Local Inventory Reconstruction
+## `0.1.19` Local Inventory Migration And Reconstruction
 
-`develop`을 pull한 뒤 스키마만 당겨서는 Sellpia/Wing 데이터가 생기지
-않는다. 폐기 가능한 로컬 DB는
-[Sellpia Inventory And Rocket Read-Only Boundary](runbooks/sellpia-rocket-inventory-sync.md)
-의 가드 → reset → bootstrap → 멤버십 복원 순서를 따른다. 그 다음 Sellpia
-재고를 먼저 import하고 Wing catalog을 재구성한다. Staging/
-production 재구성은 보호된 GitHub Actions 워크플로우만 사용한다.
+`develop`을 pull하거나 Prisma schema를 generate하는 것만으로 durable data
+migration이 적용되지는 않는다. 폐기 가능한 로컬 DB인지 확인한 뒤
+`npm run data:migrate -- status`, guarded local `up`, 같은 `up` 재실행, final
+`status` 순서로 `v0.1.19:001_sellpia_inventory_freshness`의 적용과 멱등성을
+확인한다. Migration은 기존 completed Sellpia run의 verification provenance와
+organization freshness row를 backfill하지만 raw workbook이나 credential을
+만들지 않는다.
+
+실제 재고 기준이 필요하면
+[Sellpia Inventory Freshness Operations](runbooks/sellpia-inventory-freshness.md)
+에 따라 인증된 Chrome 자동 수집 또는 최신-export 수동 attestation으로 full
+snapshot을 publish한다. 그 다음 Wing/Rocket channel identity와 confirmed
+recipe를 재구성한다. Staging/production 변경은 보호된 GitHub Actions 경로만
+사용한다.

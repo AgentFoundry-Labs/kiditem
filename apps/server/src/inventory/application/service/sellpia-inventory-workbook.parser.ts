@@ -3,6 +3,9 @@ import { BadRequestException } from '@nestjs/common';
 import { SELLPIA_WORKBOOK_FORMAT_LABEL } from '@kiditem/shared/inventory';
 import * as XLSX from 'xlsx';
 import * as cpexcel from 'xlsx/dist/cpexcel';
+import type {
+  SellpiaInventoryQualityFact,
+} from '../../domain/policy/sellpia-inventory-quality.policy';
 
 export type ParsedSellpiaInventoryRow = {
   rowNumber: number;
@@ -19,6 +22,7 @@ export type ParsedSellpiaInventoryRow = {
 export type ParsedSellpiaInventoryWorkbook = {
   rows: ParsedSellpiaInventoryRow[];
   headers: string[];
+  qualityFacts: SellpiaInventoryQualityFact[];
 };
 
 export const MAX_SELLPIA_INVENTORY_IMPORT_ROWS = 20_000;
@@ -78,7 +82,49 @@ export function parseSellpiaInventoryWorkbook(
     );
   }
 
-  return { headers: candidate.headers, rows };
+  return {
+    headers: candidate.headers,
+    rows,
+    qualityFacts: collectQualityFacts(rows),
+  };
+}
+
+function collectQualityFacts(
+  rows: ParsedSellpiaInventoryRow[],
+): SellpiaInventoryQualityFact[] {
+  const facts: SellpiaInventoryQualityFact[] = [];
+  const rowsByBarcode = new Map<string, ParsedSellpiaInventoryRow[]>();
+  for (const row of rows) {
+    if (!nullableCellText(row.rawJson['상품명'])) {
+      facts.push(fact('missing_name', row));
+    }
+    if (!row.barcode) {
+      facts.push(fact('missing_barcode', row));
+    } else {
+      const matching = rowsByBarcode.get(row.barcode) ?? [];
+      matching.push(row);
+      rowsByBarcode.set(row.barcode, matching);
+    }
+    if (row.purchasePrice === null || row.salePrice === null) {
+      facts.push(fact('missing_price', row));
+    }
+  }
+  for (const matching of rowsByBarcode.values()) {
+    if (matching.length < 2) continue;
+    facts.push(...matching.map((row) => fact('duplicate_barcode', row)));
+  }
+  return facts;
+}
+
+function fact(
+  code: SellpiaInventoryQualityFact['code'],
+  row: ParsedSellpiaInventoryRow,
+): SellpiaInventoryQualityFact {
+  return {
+    code,
+    rowNumber: row.rowNumber,
+    productCode: row.sellpiaProductCode,
+  };
 }
 
 function readWorkbookCandidate(buffer: Buffer): WorkbookCandidate {

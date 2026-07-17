@@ -175,14 +175,14 @@ describe("AdvertisingModule capability wiring", () => {
       Reflect.getMetadata(PROVIDERS_KEY, AdvertisingModule) ?? [];
     // Token-shaped providers are objects with a `provide` field; everything
     // else is a class provider. Repository/provider ports, the ingest transaction
-    // port, and OPERATION_ALERT_PORT
+    // port, OPERATION_ALERT_PORT, and the published Coupang momentum capability
     // are bound via useExisting so application services depend on tokens
     // rather than concrete adapter classes.
     const tokenProviders = providers.filter(
       (p): p is { provide: unknown; useExisting?: unknown } =>
         typeof p === "object" && p !== null && "provide" in p,
     );
-    expect(tokenProviders).toHaveLength(18);
+    expect(tokenProviders).toHaveLength(19);
     for (const provider of tokenProviders) {
       expect(provider.useExisting).toBeDefined();
     }

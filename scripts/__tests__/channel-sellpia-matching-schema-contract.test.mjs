@@ -21,16 +21,17 @@ describe('channel Sellpia final schema contract', () => {
     }
   });
 
-  it('requires account-owned parent listings without duplicated channel or master identity', () => {
+  it('requires account-owned parent listings with a nullable operating-product link', () => {
     const listing = modelBlock(core, 'ChannelListing');
     assert.match(listing, /^\s*channelAccountId\s+String\s+/m);
+    assert.match(listing, /^\s*masterProductId\s+String\?/m);
     assert.match(listing, /^\s*rawJson\s+Json\?/m);
     assert.match(listing, /^\s*lastImportRunId\s+String\?/m);
-    assert.doesNotMatch(listing, /^\s*(?:masterId|channel|channelPrice)\s+/m);
+    assert.doesNotMatch(listing, /^\s*(?:masterId|channel|channelPrice|currentStock|barcode|purchasePrice|salePrice)\s+/m);
     assert.match(listing, /@@unique\(\[organizationId, channelAccountId, externalId\]\)/);
   });
 
-  it('keeps marketplace SKU metadata independent from physical stock', () => {
+  it('keeps marketplace SKU metadata independent from physical stock with a nullable variant link', () => {
     const option = modelBlock(core, 'ChannelListingOption');
     for (const field of [
       'externalOptionId',
@@ -38,22 +39,18 @@ describe('channel Sellpia final schema contract', () => {
       'salePrice',
       'sellerSku',
       'barcode',
-      'mappingStatus',
+      'productVariantId',
       'attributesJson',
       'rawJson',
     ]) {
       assert.match(option, new RegExp(`^\\s*${field}\\s+`, 'm'));
     }
-    assert.doesNotMatch(option, /^\s*(?:optionId|channelAccountId|isUnmatched)\s+/m);
+    assert.doesNotMatch(option, /^\s*(?:optionId|channelAccountId|isUnmatched|mappingStatus|currentStock)\s+/m);
   });
 
-  it('stores bundle recipes only as direct MasterProduct component quantities', () => {
-    const component = modelBlock(channels, 'ChannelSkuComponent');
-    assert.match(component, /^\s*masterProductId\s+String\s+/m);
-    assert.match(component, /^\s*quantity\s+Int\s*$/m);
-    assert.match(component, /^\s*mappingSource\s+String\s+/m);
-    assert.doesNotMatch(component, /InventorySku|ProductOption|legacy_migrated/);
-    assert.match(component, /@@unique\(\[channelSkuId, masterProductId\]\)/);
+  it('removes channel-owned recipes in favor of the linked variant recipe', () => {
+    assert.doesNotMatch(channels, /model ChannelSkuComponent\b/);
+    assert.doesNotMatch(channels, /channel_sku_components/);
   });
 
   it('retains raw channel scrape evidence for selective reset replay', () => {

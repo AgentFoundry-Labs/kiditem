@@ -63,10 +63,10 @@ export default function OrderInventory() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="page-title">
+        <h2 className="page-title">
           <PackageCheck size={24} className="mr-2 inline" />
           주문-채널 재고 현황
-        </h1>
+        </h2>
         <button
           type="button"
           onClick={handleRefresh}
@@ -186,7 +186,7 @@ export default function OrderInventory() {
                         ) : (
                           <ul className="space-y-1">
                             {item.components.map((component) => (
-                              <li key={component.masterProductId}>
+                              <li key={component.sellpiaInventorySkuId}>
                                 <span className="font-mono">{component.code}</span>
                                 {' × '}{formatNumber(component.quantity)} · 현재 {formatNumber(component.currentStock)}
                                 {component.isBottleneck ? <span className="ml-1 font-semibold text-amber-700">병목</span> : null}

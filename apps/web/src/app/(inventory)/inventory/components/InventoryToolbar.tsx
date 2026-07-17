@@ -11,6 +11,8 @@ interface InventoryToolbarProps {
   onSearch: () => void;
   onBarcodePrint: () => void;
   onExcel: () => void;
+  headingLevel?: 1 | 2;
+  showHeading?: boolean;
 }
 
 export function InventoryToolbar({
@@ -21,11 +23,14 @@ export function InventoryToolbar({
   onSearch,
   onBarcodePrint,
   onExcel,
+  headingLevel = 1,
+  showHeading = true,
 }: InventoryToolbarProps) {
+  const Heading = headingLevel === 1 ? 'h1' : 'h2';
   return (
     <div className="space-y-3">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <h1 className="page-title">재고/발주 관리</h1>
+        {showHeading ? <Heading className="page-title">재고/발주 관리</Heading> : null}
         <div className="flex flex-wrap gap-2">
           <button
             type="button"

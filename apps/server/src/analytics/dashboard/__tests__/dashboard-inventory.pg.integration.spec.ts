@@ -54,20 +54,16 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
   }
 
   /**
-   * Seed a basic 2-Sellpia-master + 1-alert layout for TEST,
-   * and 5-Sellpia-master + 3-alert for OTHER (no order data).
+   * Seed a basic 2-operating-product + 1-alert layout for TEST,
+   * and 5-operating-product + 3-alert for OTHER (no order data).
    * Used by T1/T2/T3 (IDOR cases that don't touch warnings).
    */
   async function seedBaseStructure() {
     const masterT1 = await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID, code: 'M-T-1', name: 'Master T1', abcGrade: 'A',
     });
-    const masterT2 = await setupMaster(prisma, {
+    await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID, code: 'M-T-2', name: 'Master T2', abcGrade: 'B',
-    });
-    await prisma.masterProduct.update({
-      where: { id: masterT1.id },
-      data: { currentStock: 10 },
     });
     await prisma.alert.create({
       data: {
@@ -78,13 +74,9 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     });
 
     for (let i = 1; i <= 5; i++) {
-      const masterO = await setupMaster(prisma, {
+      await setupMaster(prisma, {
         organizationId: OTHER_ORGANIZATION_ID, code: `M-O-${i}`, name: `Master O${i}`,
         abcGrade: i <= 3 ? 'A' : 'B',
-      });
-      await prisma.masterProduct.update({
-        where: { id: masterO.id },
-        data: { currentStock: 1 },
       });
     }
     for (let i = 1; i <= 3; i++) {
@@ -103,11 +95,11 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     const ctx = buildDashboardContext();
     const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
 
-    expect(result.totalProducts).toBe(0);
+    expect(result.totalProducts).toBe(2);
     expect(result.channelLinkedProducts).toBe(0);
-    expect(result.channelUnlinkedProducts).toBe(0);
-    expect(result.gradeCount.A ?? 0).toBe(0);
-    expect(result.gradeCount.B ?? 0).toBe(0);
+    expect(result.channelUnlinkedProducts).toBe(2);
+    expect(result.gradeCount.A).toBe(1);
+    expect(result.gradeCount.B).toBe(1);
     expect(result.alerts.length).toBe(1);
     expect(result.alerts[0].title).toBe('Test alert');
   });
@@ -147,11 +139,11 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
 
     const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
 
-    expect(result.totalProducts).toBe(1);
+    expect(result.totalProducts).toBe(2);
     expect(result.channelLinkedProducts).toBe(1);
-    expect(result.channelUnlinkedProducts).toBe(0);
+    expect(result.channelUnlinkedProducts).toBe(1);
     expect(result.gradeCount.A).toBe(1);
-    expect(result.gradeCount.B ?? 0).toBe(0);
+    expect(result.gradeCount.B).toBe(1);
   });
 
   it('T2: OTHER sees only OTHER — TEST does not leak', async () => {
@@ -159,9 +151,11 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     const ctx = buildDashboardContext();
     const result = await service.getSummary(ctx, OTHER_ORGANIZATION_ID);
 
-    expect(result.totalProducts).toBe(0);
-    expect(result.gradeCount.A ?? 0).toBe(0);
-    expect(result.gradeCount.B ?? 0).toBe(0);
+    expect(result.totalProducts).toBe(5);
+    expect(result.channelLinkedProducts).toBe(0);
+    expect(result.channelUnlinkedProducts).toBe(5);
+    expect(result.gradeCount.A).toBe(3);
+    expect(result.gradeCount.B).toBe(2);
     expect(result.alerts.length).toBe(3);
   });
 

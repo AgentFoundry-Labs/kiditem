@@ -103,4 +103,25 @@ describe('extension collection-session public contract', () => {
     const cancelled = await manager.cancel(RUN_ID);
     expect(BrowserCollectionSessionViewSchema.parse(cancelled)).toEqual(cancelled);
   });
+
+  it.each(adapterPaths)('%s emits the registered Sellpia inventory producer', async (adapterPath) => {
+    const manager = loadManager(adapterPath);
+    const started = await manager.start({
+      runId: RUN_ID,
+      producer: 'inventory.sellpia',
+      classification: 'background_preferred',
+      restartStrategy: 'extension',
+      inputIdentity: {
+        sourceOrigin: 'https://kiditem.sellpia.com',
+        sourceAccountKey: 'kiditem',
+      },
+    });
+
+    expect(BrowserCollectionSessionViewSchema.parse(started)).toEqual(started);
+    expect(started).toMatchObject({
+      runId: RUN_ID,
+      producer: 'inventory.sellpia',
+      restartStrategy: 'extension',
+    });
+  });
 });

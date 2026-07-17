@@ -146,6 +146,7 @@ for (const relativePath of generatedPaths) {
       [
         'attachTab',
         'cancel',
+        'detachTab',
         'fail',
         'get',
         'list',
@@ -295,6 +296,98 @@ test('managed tab IDs stay private while transitions are stored and published', 
     runtime.calls.executeScript.map((call) => call.args[0].updatedAt),
     [100, 100, 110, 110, 120, 120],
   );
+});
+
+test('detach closes the expected managed tab before clearing persisted ownership', async () => {
+  const runtime = loadAdapter(generatedPaths[2]);
+  const manager = runtime.create({
+    chrome: runtime.chrome,
+    storageKey: 'sessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+    now: () => 100,
+  });
+  await manager.start(startInput());
+  await manager.attachTab(RUN_ID, { tabId: 7, windowId: 2 });
+
+  const detached = await manager.detachTab(RUN_ID, {
+    tabId: 7,
+    closeManagedTab: true,
+  });
+
+  assert.equal(detached.status, 'running');
+  assert.deepEqual(runtime.calls.tabsRemove, [7]);
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabId, undefined);
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedWindowId, undefined);
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabCloseOnRestart, undefined);
+});
+
+test('late duplicate detach cannot clear a newer managed-tab attachment', async () => {
+  const runtime = loadAdapter(generatedPaths[2]);
+  const manager = runtime.create({
+    chrome: runtime.chrome,
+    storageKey: 'sessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+    now: () => 100,
+  });
+  await manager.start(startInput());
+  await manager.attachTab(RUN_ID, { tabId: 8, windowId: 3 });
+
+  await manager.detachTab(RUN_ID, { tabId: 7, closeManagedTab: true });
+
+  assert.deepEqual(runtime.calls.tabsRemove, [7]);
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabId, 8);
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedWindowId, 3);
+});
+
+test('detach preserves retryable ownership when a live managed tab cannot be removed', async () => {
+  const fake = createFakeChrome();
+  fake.chrome.tabs.remove = async (tabId) => {
+    fake.calls.tabsRemove.push(tabId);
+    throw new Error('temporary browser failure');
+  };
+  fake.chrome.tabs.get = async (tabId) => ({ id: tabId });
+  const runtime = loadAdapter(generatedPaths[2], fake);
+  const manager = runtime.create({
+    chrome: runtime.chrome,
+    storageKey: 'sessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+    now: () => 100,
+  });
+  await manager.start(startInput());
+  await manager.attachTab(RUN_ID, { tabId: 7, windowId: 2 });
+
+  await assert.rejects(
+    manager.detachTab(RUN_ID, { tabId: 7, closeManagedTab: true }),
+    /could not be removed/,
+  );
+
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabId, 7);
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedWindowId, 2);
+});
+
+test('duplicate detach heals stale ownership when the managed tab is already absent', async () => {
+  const fake = createFakeChrome();
+  fake.chrome.tabs.remove = async (tabId) => {
+    fake.calls.tabsRemove.push(tabId);
+    throw new Error('No tab with id');
+  };
+  fake.chrome.tabs.get = async () => {
+    throw new Error('No tab with id');
+  };
+  const runtime = loadAdapter(generatedPaths[2], fake);
+  const manager = runtime.create({
+    chrome: runtime.chrome,
+    storageKey: 'sessions',
+    webUrlPatterns: ['http://localhost:3000/*'],
+    now: () => 100,
+  });
+  await manager.start(startInput());
+  await manager.attachTab(RUN_ID, { tabId: 7, windowId: 2 });
+
+  await manager.detachTab(RUN_ID, { tabId: 7, closeManagedTab: true });
+
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedTabId, undefined);
+  assert.equal(runtime.storage.sessions[RUN_ID]._managedWindowId, undefined);
 });
 
 test('restart begins a new attempt from progress zero with sanitized restart input', async () => {

@@ -11,6 +11,14 @@ const workerPath = path.join(
   'extensions/order-collector/background/service-worker.js',
 );
 const manifestPath = path.join(repoRoot, 'extensions/order-collector/manifest.json');
+const rocketCollectionPath = path.join(
+  repoRoot,
+  'extensions/order-collector/background/rocket-po-collection.js',
+);
+const coupangPoSessionPath = path.join(
+  repoRoot,
+  'extensions/order-collector/background/coupang-po-session.js',
+);
 const webAppRoot = path.join(repoRoot, 'apps/web/src/app');
 const automaticCollectors = [
   'collectSellpiaDeliTracking',
@@ -82,24 +90,48 @@ test('order collector manifest grants the exact Kakao seller host', () => {
 
 test('every automatic collector explicitly attaches its inactive tab to its own run', () => {
   const worker = readFileSync(workerPath, 'utf8');
+  const rocketCollection = readFileSync(rocketCollectionPath, 'utf8');
+  const coupangPoSession = readFileSync(coupangPoSessionPath, 'utf8');
   for (const collector of automaticCollectors) {
     const start = worker.indexOf(`async function ${collector}(`);
     assert.notEqual(start, -1, collector);
     const next = worker.indexOf('\nasync function ', start + 1);
     const body = worker.slice(start, next === -1 ? worker.length : next);
     assert.match(body, /\([^)]*collection[^)]*\)/, `${collector} collection argument`);
-    assert.match(
-      body,
-      /await attachOrderCollectionTab\(collection, tab, created\)/,
-      `${collector} managed tab attachment`,
-    );
+    if (collector === 'collectRocketPoRows' || collector === 'listRocketPos') {
+      const method = collector === 'collectRocketPoRows' ? 'collect' : 'list';
+      assert.match(body, new RegExp(`rocketPoCollection\\.${method}`));
+      assert.match(rocketCollection, /coupangPoSession\.run/);
+      assert.match(
+        coupangPoSession,
+        /await attachOrderCollectionTab\(collection, tab, created\)/,
+      );
+    } else if (collector === 'collectCoupangDirectOrders') {
+      assert.match(body, /coupangPoSession\.run/);
+      assert.match(
+        coupangPoSession,
+        /await attachOrderCollectionTab\(collection, tab, created\)/,
+      );
+    } else {
+      assert.match(
+        body,
+        /await attachOrderCollectionTab\(collection, tab, created\)/,
+        `${collector} managed tab attachment`,
+      );
+    }
   }
 });
 
-test('order worker imports session lifecycle and exposes all generic controls', () => {
+test('order worker imports session lifecycle and focused Sellpia inventory producer before dispatch', () => {
   const worker = readFileSync(workerPath, 'utf8');
-  assert.match(worker, /importScripts\([\s\S]*collection-session\.js[\s\S]*interactive-tabs\.js[\s\S]*order-collection-lifecycle\.js/);
+  assert.match(worker, /importScripts\([\s\S]*collection-session\.js[\s\S]*interactive-tabs\.js[\s\S]*order-collection-lifecycle\.js[\s\S]*sellpia-inventory\.js/);
   assert.match(worker, /browserCollectionSessions:\s*true/);
+  assert.match(worker, /collectSellpiaInventory:\s*true/);
+  assert.match(worker, /collectSellpiaInventoryV2:\s*true/);
+  assert.match(worker, /collectSellpiaSaleSummary:\s*true/);
+  assert.match(worker, /collectSellpiaProductProfit:\s*true/);
+  assert.doesNotMatch(worker, /collectSellpiaProductStock/);
+  assert.match(worker, /msg\?\.action === ["']collectSellpiaInventory["']/);
   for (const action of [
     'listCollectionSessions',
     'getCollectionSession',
@@ -111,10 +143,11 @@ test('order worker imports session lifecycle and exposes all generic controls', 
   }
 });
 
-test('order collector manifest enables persisted sessions at version 0.1.65', () => {
+test('order collector manifest preserves PR 329 and PR 330 capabilities at version 0.1.76', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  assert.equal(manifest.version, '0.1.65');
+  assert.equal(manifest.version, '0.1.76');
   assert.ok(manifest.permissions.includes('storage'));
+  assert.ok(manifest.host_permissions.includes('https://*.sellpia.com/*'));
 });
 
 test('every web automatic order message carries its local runId explicitly', () => {

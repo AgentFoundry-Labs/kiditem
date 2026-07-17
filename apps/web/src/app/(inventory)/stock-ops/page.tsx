@@ -25,6 +25,7 @@ function StockOpsContent() {
   const requested = useSearchParams().get('tab');
   const initial = TAB_IDS.find((id) => id === requested) ?? 'product-outflow';
   const [activeTab, setActiveTab] = useState(initial);
+
   return <TabLayout title="재고 분석" titleIcon={Boxes} activeTab={activeTab} onTabChange={(tabId) => setActiveTab(tabId as (typeof TAB_IDS)[number])} tabs={[
     { id: 'product-outflow', label: '상품별 소진', icon: TrendingDown, content: activeTab === 'product-outflow' ? <ProductOutflow /> : null },
     { id: 'sellpia-zero', label: 'Sellpia 재고 0', icon: PackageX, content: activeTab === 'sellpia-zero' ? <ZeroItems /> : null },

@@ -1,50 +1,58 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# web/catalog - Sellpia Product Hub and Channel SKU Matching
+# web/catalog — Product Operations and Channel Matching
 
-`app/(catalog)/` owns the read-only Sellpia product catalog and the operator
-workspace that maps marketplace channel SKUs to the Sellpia products they
-consume. Public URLs remain under `/product-hub`.
+`app/(catalog)/` owns KidItem product metadata, product variants and their
+central Sellpia component recipes, plus explicit channel-to-product identity
+confirmation. Public URLs remain under `/product-hub`.
 
 ## Owned Surfaces
 
-- Sellpia `MasterProduct` snapshot list/detail under `/product-hub`
-- Coupang Wing catalog upload and account-scoped channel SKU component matching
-  under `/product-hub/matching`
-- A dedicated read-only Sellpia option table under `/product-hub/options`
+- Product operations list, create/edit, and variant detail under `/product-hub`
+- Coupang/Rocket account-scoped product-first, option-second matching under
+  `/product-hub/matching`
+- Dedicated read-only Sellpia option table under `/product-hub/options`
 
 ## Data Flow
 
 ```text
 React Query + apiClient
-  -> GET /api/inventory/sellpia-skus
-  -> GET /api/inventory/sellpia-skus/:masterProductId
+  -> GET/POST/PATCH /api/products/masters
+  -> GET /api/products/masters/:masterProductId
+  -> PUT /api/products/variants/:productVariantId/components
+  -> GET /api/products/recipe-component-candidates (focused recipe picker)
+  -> GET /api/inventory/sellpia-skus (options table only)
   -> GET /api/channels/accounts
   -> POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing
-  -> GET /api/channels/sku-mappings
-  -> GET /api/channels/sku-mappings/:channelSkuId/candidates
-  -> PUT /api/channels/sku-mappings/:channelSkuId/components
-  -> GET /api/channels/sku-availability
-  -> queryKeys.inventory, channelAccounts, channelSkuMappings, channelSkuAvailability
+  -> GET /api/channels/product-mappings
+  -> GET/PUT product and option candidate/confirmation endpoints
+  -> queryKeys.products.operations, inventory, channelProductMappings
 ```
 
 ## State Rules
 
-- `/product-hub` is a read-only projection of the latest Sellpia full-snapshot
-  import. It never creates, edits, deletes, or adjusts physical products.
-- `/product-hub/options` presents the same authoritative snapshot in the legacy
-  option-management table shape without restoring removed option mutations.
-- One physical `MasterProduct` is one Sellpia product-code row, including its
-  option name when Sellpia distinguishes the option at that code.
-- Channel matching uses focused account, source-import, and channel SKU
-  matching contracts and never sends `organizationId`.
-- Candidate rows are suggestions. Only a saved `ChannelSkuComponent` recipe is
-  matching truth.
+- `MasterProduct` is KidItem product metadata; `ProductVariant` is a sellable
+  KidItem option. Neither is a physical Sellpia inventory row.
+- `/product-hub` preserves the staged operations composition. Metrics without
+  a product-level fact source render `미수집`; page-derived metrics say
+  `현재 페이지` explicitly.
+- Variant recipes are complete atomic replacements of confirmed
+  `SellpiaInventorySku` components and positive integer quantities.
+- `/product-hub/options` owns the complete read-only Sellpia inventory
+  collection and publishes product/variant destinations only from confirmed,
+  organization-fenced component relations.
+- Matching confirms channel listing -> `MasterProduct` before channel option ->
+  `ProductVariant`. Candidate evidence never confirms identity.
 
 ## Boundary Rules
 
-- Do not call removed `/api/products*` routes or recreate `ProductOption` CRUD.
-- Do not infer a channel SKU link from names, barcodes, or candidate rank.
+- Product list/detail and its recipe picker use Products APIs. They never call
+  the Inventory SKU collection route directly.
+- Do not infer product, variant, recipe, or channel identity from display text,
+  barcode, normalized name, or candidate rank.
 - Do not edit Sellpia stock, source prices, or channel prices in catalog routes.
+- Do not recreate channel-owned component quantities; central recipe edits live
+  only on product detail.
+- Never send `organizationId`; backend session scope owns it.
 - Sourcing candidates, generated content workspaces, marketplace ingest,
   Rocket operations, and purchase orders remain in their owner domains.

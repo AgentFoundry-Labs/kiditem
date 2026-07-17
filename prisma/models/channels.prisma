@@ -10,30 +10,6 @@
 // C3 daily upserts, C4 strategy reads) wire ingestion paths.
 
 /// @namespace Channels
-/// @describe Confirmed channel-SKU recipe. mappingSource: product_code | barcode | manual.
-model ChannelSkuComponent {
-  id              String   @id @default(uuid()) @db.Uuid
-  organizationId  String   @map("organization_id") @db.Uuid
-  channelSkuId    String   @map("channel_sku_id") @db.Uuid
-  masterProductId String   @map("master_product_id") @db.Uuid
-  quantity        Int
-  mappingSource   String   @map("mapping_source") // product_code | barcode | manual
-  createdBy       String?  @map("created_by")
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization  Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelSku    ChannelListingOption @relation(fields: [channelSkuId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  masterProduct MasterProduct        @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
-
-  @@unique([channelSkuId, masterProductId])
-  @@index([organizationId])
-  @@index([channelSkuId])
-  @@index([masterProductId])
-  @@map("channel_sku_components")
-}
-
-/// @namespace Channels
 /// @describe 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장.
 model ChannelScrapeRun {
   id                String  @id @default(uuid()) @db.Uuid
@@ -643,28 +619,6 @@ model RocketPurchaseOrder {
 }
 
 /// @namespace Channels
-/// @describe 쿠팡 로켓 발주확정 시 확정수량을 예약(reserve)한 기록. 가용재고 = SellpiaProductStock.currentStock − Σ(RocketPoReservation.qty). sourceActionId(rocket-confirm:poNumber:productNo:barcode)로 재예약 멱등 보장 — 재커밋 시 alreadyReserved. #325 에서 삭제된 Inventory/RocketInventoryLedger 원장을 부활시키지 않고 셀피아-단일소유 재고 위에 얹은 가산 저장소.
-model RocketPoReservation {
-  id             String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-
-  sourceActionId String @map("source_action_id") // rocket-confirm:poNumber:productNo:barcode (멱등키)
-  poNumber       String @map("po_number")
-  productNo      String @default("") @map("product_no")
-  barcode        String
-  qty            Int    @default(0) // 예약(확정) 수량
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@unique([organizationId, sourceActionId])
-  @@index([organizationId, barcode])
-  @@map("rocket_po_reservations")
-}
-
-/// @namespace Channels
 /// @describe Sellpia 판매현황(sale_summary) 몰별·일별 매출 fact. order_search.ajax.html(mode=selldate, 주문일자 기준)에서 판매처(seller)별로 수집. channelGroup 으로 rocket(쿠팡-직배송) / others(쿠팡윙+기타 전체몰) 버킷을 구분해 대시보드 '몰별 매출' 섹션에 표시한다. price=판매금액, buy_price=매입금액, amount=판매수량.
 model SellpiaSalesDailySnapshot {
   id             String   @id @default(uuid()) @db.Uuid
@@ -724,32 +678,4 @@ model SellpiaProductMonthlySales {
   @@index([organizationId, yearMonth])
   @@index([organizationId, productCode, optionCode])
   @@map("sellpia_product_monthly_sales")
-}
-
-/// @namespace channels
-/// @describe Sellpia 통합 재고현황(stock_list_total) 상품별 현재고 스냅샷.
-/// 확장이 stock_list_total.html(modekey=list, 본사창고 전체)에서 c_stosum(현재고)을
-/// 상품×옵션으로 수집해 최신 스냅샷으로 교체(replace)한다. 재고 분석 '상품별 소진'의
-/// 현재고/발주 알림 read 에서 SellpiaProductMonthlySales 와 (productCode, optionCode)로 조인.
-model SellpiaProductStock {
-  id             String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-
-  productCode String @map("product_code") // Sellpia 상품코드
-  optionCode  String @map("option_code") // 옵션코드
-
-  currentStock Int     @default(0) @map("current_stock") // 본사창고 현재고 합계(c_stosum)
-  offStock     Int     @default(0) @map("off_stock") // 매장 재고 합계(c_offsum)
-  safeStock    Int     @default(0) @map("safe_stock") // 안전재고
-  barcode      String? @map("barcode") // dp_code
-
-  capturedAt DateTime @default(now()) @map("captured_at") @db.Timestamptz
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@unique([organizationId, productCode, optionCode])
-  @@index([organizationId, productCode, optionCode])
-  @@map("sellpia_product_stock")
 }

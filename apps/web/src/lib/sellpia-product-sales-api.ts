@@ -2,12 +2,9 @@ import { apiClient } from '@/lib/api-client';
 import {
   SellpiaProductSalesSummarySchema,
   SellpiaProductSalesIngestResultSchema,
-  SellpiaProductStockIngestResultSchema,
   type SellpiaProductSalesSummary,
   type SellpiaProductSalesIngestPayload,
   type SellpiaProductSalesIngestResult,
-  type SellpiaProductStockIngestPayload,
-  type SellpiaProductStockIngestResult,
 } from '@kiditem/shared/dashboard';
 
 // Sellpia 상품별 소진(재고관리) 백엔드 read/ingest 래퍼.
@@ -40,11 +37,4 @@ export async function ingestSellpiaProductSales(
 ): Promise<SellpiaProductSalesIngestResult> {
   const raw = await apiClient.post<unknown>('/api/sellpia-product-sales/ingest', payload);
   return SellpiaProductSalesIngestResultSchema.parse(raw);
-}
-
-export async function ingestSellpiaProductStock(
-  payload: SellpiaProductStockIngestPayload,
-): Promise<SellpiaProductStockIngestResult> {
-  const raw = await apiClient.post<unknown>('/api/sellpia-product-sales/stock', payload);
-  return SellpiaProductStockIngestResultSchema.parse(raw);
 }

@@ -102,45 +102,6 @@ export class SellpiaProductSalesIngestBodyDto {
   products!: SellpiaProductSalesIngestItemDto[];
 }
 
-export class SellpiaProductStockIngestItemDto {
-  @IsString()
-  @MinLength(1)
-  @MaxLength(64)
-  productCode!: string;
-
-  @IsString()
-  @MaxLength(64)
-  optionCode!: string;
-
-  @IsNumber({ allowInfinity: false, allowNaN: false })
-  currentStock!: number;
-
-  @IsOptional()
-  @IsNumber({ allowInfinity: false, allowNaN: false })
-  offStock?: number;
-
-  @IsOptional()
-  @IsNumber({ allowInfinity: false, allowNaN: false })
-  safeStock?: number;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(64)
-  barcode?: string | null;
-}
-
-export class SellpiaProductStockIngestBodyDto {
-  @IsString()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'capturedDate must be YYYY-MM-DD' })
-  capturedDate!: string;
-
-  @IsArray()
-  @ArrayMaxSize(20000)
-  @ValidateNested({ each: true })
-  @Type(() => SellpiaProductStockIngestItemDto)
-  items!: SellpiaProductStockIngestItemDto[];
-}
-
 export class SellpiaProductSalesQueryDto {
   // 최근 N개월 조회(기본 13=1년). 평균/추세/시즌은 완결 월(현재 월 제외)에서 산정.
   @IsOptional()

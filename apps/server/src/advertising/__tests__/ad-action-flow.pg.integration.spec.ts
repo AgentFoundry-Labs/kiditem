@@ -61,43 +61,65 @@ describe('AdAction flow (PG integration)', () => {
         organizationId: params.organizationId,
         code: `M-${unique}`,
         name: `Master ${unique}`,
-        currentStock: params.sellableStock ?? 0,
-        purchasePrice: params.costPrice ?? null,
+        abcGrade: params.abcGrade ?? null,
       },
     });
+    const matched = params.sellableStock != null;
+    const inventorySku = matched
+      ? await prisma.sellpiaInventorySku.create({
+          data: {
+            organizationId: params.organizationId,
+            code: `SP-${unique}`,
+            name: `Sellpia ${unique}`,
+            currentStock: params.sellableStock!,
+            purchasePrice: params.costPrice ?? null,
+          },
+        })
+      : null;
+    const variant = matched
+      ? await prisma.productVariant.create({
+          data: {
+            organizationId: params.organizationId,
+            masterProductId: master.id,
+            code: `VAR-${unique}`,
+            name: `Variant ${unique}`,
+            isDefault: true,
+          },
+        })
+      : null;
+    if (variant && inventorySku) {
+      await prisma.productVariantComponent.create({
+        data: {
+          organizationId: params.organizationId,
+          productVariantId: variant.id,
+          sellpiaInventorySkuId: inventorySku.id,
+          quantity: 1,
+          source: 'manual',
+        },
+      });
+    }
     const listing = await prisma.channelListing.create({
       data: {
         organizationId: params.organizationId,
         channelAccountId: channelAccount.id,
+        masterProductId: master.id,
         externalId: `EXT-${unique}${params.externalIdSuffix ?? ''}`,
         lastImportRunId: importRun.id,
-        abcGrade: params.abcGrade ?? null,
       },
     });
     const listingOption = await prisma.channelListingOption.create({
       data: {
         organizationId: params.organizationId,
         listingId: listing.id,
+        productVariantId: variant?.id ?? null,
         externalOptionId: `VID-${unique}`,
         salePrice: params.sellPrice ?? null,
         costPriceOverride: params.costPrice ?? null,
         commissionRate: params.commissionRate ?? null,
-        mappingStatus: params.sellableStock == null ? 'unmatched' : 'matched',
         lastImportRunId: importRun.id,
         isActive: true,
       },
     });
-    if (params.sellableStock != null) {
-      await prisma.channelSkuComponent.create({
-        data: {
-          organizationId: params.organizationId,
-          channelSkuId: listingOption.id,
-          masterProductId: master.id,
-          quantity: 1,
-          mappingSource: 'test',
-        },
-      });
-    }
     const option = listingOption;
     return { master, option, listing, listingOption };
   }

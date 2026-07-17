@@ -6,6 +6,7 @@ import {
   type InventorySkuSnapshotItem,
   type InventorySkuSnapshotListResponse,
   type SellpiaImportRunListResponse,
+  type SellpiaImportRunSummary,
 } from '@kiditem/shared/inventory';
 import {
   type InventorySkuSnapshotListPort,
@@ -37,6 +38,7 @@ export class InventorySkuSnapshotListService implements InventorySkuSnapshotList
       query: query.query?.trim() || undefined,
       stockStatus: query.stockStatus ?? 'all',
       activeStatus: query.activeStatus ?? 'active',
+      linkStatus: query.linkStatus,
     });
 
     return InventorySkuSnapshotListResponseSchema.parse({
@@ -51,10 +53,13 @@ export class InventorySkuSnapshotListService implements InventorySkuSnapshotList
 
   async getSnapshot(
     organizationId: string,
-    masterProductId: string,
+    sellpiaInventorySkuId: string,
   ): Promise<InventorySkuSnapshotItem> {
-    const row = await this.repository.getSnapshot(organizationId, masterProductId);
-    if (!row) throw new NotFoundException('Sellpia MasterProduct not found');
+    const row = await this.repository.getSnapshot(
+      organizationId,
+      sellpiaInventorySkuId,
+    );
+    if (!row) throw new NotFoundException('Sellpia inventory SKU not found');
     return InventorySkuSnapshotItemSchema.parse(mapSnapshotRow(row));
   }
 
@@ -79,7 +84,7 @@ export class InventorySkuSnapshotListService implements InventorySkuSnapshotList
 
 function mapSnapshotRow(row: InventorySkuSnapshotRepositoryRow): InventorySkuSnapshotItem {
   return {
-    masterProductId: row.masterProductId,
+    sellpiaInventorySkuId: row.sellpiaInventorySkuId,
     code: row.code,
     name: row.name,
     optionName: row.optionName,
@@ -93,6 +98,11 @@ function mapSnapshotRow(row: InventorySkuSnapshotRepositoryRow): InventorySkuSna
       : row.currentStock * row.purchasePrice,
     lastImportRunId: row.lastImportRunId,
     lastImportedAt: row.lastImportedAt?.toISOString() ?? null,
+    linkedVariantCount: row.linkedVariantCount,
+    linkedProductCount: row.linkedProductCount,
+    linkedProducts: row.linkedProducts,
+    linkedVariants: row.linkedVariants,
+    linkStatus: row.linkedVariantCount > 0 ? 'linked' : 'unlinked',
   } satisfies InventorySkuSnapshotItem;
 }
 
@@ -109,12 +119,25 @@ function normalizePage(
   return { page, limit };
 }
 
-function mapImportRun(row: SellpiaImportRunRepositoryRow) {
+function mapImportRun(row: SellpiaImportRunRepositoryRow): SellpiaImportRunSummary {
   return {
     id: row.id,
     fileName: row.fileName,
+    fileHash: row.fileHash,
     status: row.status,
     rowCount: row.rowCount,
     importedAt: row.importedAt?.toISOString() ?? null,
-  };
+    lastVerifiedAt: row.lastVerifiedAt?.toISOString() ?? null,
+    verificationCount: row.verificationCount,
+    lastTrigger: row.lastTrigger,
+    freshnessGeneration: row.freshnessGeneration?.toString() ?? null,
+    manualFreshExportConfirmedAt:
+      row.manualFreshExportConfirmedAt?.toISOString() ?? null,
+    manualFreshExportConfirmedBy: row.manualFreshExportConfirmedBy,
+    qualityReport: row.qualityReport,
+    errorCode: row.errorCode,
+    errorMessage: row.errorMessage,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  } satisfies SellpiaImportRunSummary;
 }

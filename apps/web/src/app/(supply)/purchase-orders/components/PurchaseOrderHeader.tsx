@@ -8,15 +8,25 @@ interface PurchaseOrderHeaderProps {
   totalAmountCny: number;
   onRefresh: () => void;
   onCreateOrder: () => void;
+  headingLevel?: 1 | 2;
+  showHeading?: boolean;
 }
 
-export function PurchaseOrderHeader({ total, totalAmountCny, onRefresh, onCreateOrder }: PurchaseOrderHeaderProps) {
+export function PurchaseOrderHeader({
+  total,
+  totalAmountCny,
+  onRefresh,
+  onCreateOrder,
+  headingLevel = 1,
+  showHeading = true,
+}: PurchaseOrderHeaderProps) {
+  const Heading = headingLevel === 1 ? 'h1' : 'h2';
   return (
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-3">
         <Package size={20} className="text-purple-500" />
         <div>
-          <h1 className="page-title">발주 관리</h1>
+          {showHeading ? <Heading className="page-title">발주 관리</Heading> : null}
           <p className="text-sm text-slate-500">
             {total}건 · 총 {formatKRW(totalAmountCny)} CNY
           </p>

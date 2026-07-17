@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import Link from 'next/link';
 import { Store, Package, DollarSign, Loader2 } from 'lucide-react';
 import { cn, formatKRW } from '@/lib/utils';
 import {
@@ -84,7 +85,7 @@ export default function SupplierSales() {
                 <th className="text-right">이익</th>
                 <th className="text-right">이익률</th>
                 <th className="text-right">주문수</th>
-                <th className="text-center">상세</th>
+                <th className="text-center">작업</th>
               </tr>
             </thead>
             <tbody >
@@ -98,7 +99,17 @@ export default function SupplierSales() {
                   <td className="px-4 py-3 text-right tabular-nums text-slate-400">-</td>
                   <td className="px-4 py-3 text-right tabular-nums">{sup.totalOrders}</td>
                   <td className="px-4 py-3 text-center">
-                    <button className="text-xs text-purple-600 hover:underline">상품별</button>
+                    <div className="flex items-center justify-center gap-2">
+                      <button type="button" className="text-xs text-purple-600 hover:underline">상품별</button>
+                      <Link
+                        href={`/purchase-orders?supplierId=${encodeURIComponent(sup.supplierId)}`}
+                        aria-label={`${sup.supplierName} 발주 보기`}
+                        onClick={(event) => event.stopPropagation()}
+                        className="text-xs font-medium text-blue-600 hover:underline"
+                      >
+                        발주
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               ))}

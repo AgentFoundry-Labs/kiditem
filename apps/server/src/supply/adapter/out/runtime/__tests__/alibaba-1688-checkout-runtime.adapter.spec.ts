@@ -1,9 +1,12 @@
-import { BadRequestException } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   Alibaba1688CheckoutRuntimeAdapter,
   type Alibaba1688CheckoutProviderClient,
 } from '../alibaba-1688-checkout-runtime.adapter';
+import {
+  PurchaseOrderCheckoutProviderFailedError,
+  PurchaseOrderCheckoutProviderUnknownError,
+} from '../../../../application/port/out/runtime/purchase-order-checkout-runtime.port';
 
 const originalEnv = { ...process.env };
 
@@ -33,6 +36,7 @@ describe('Alibaba1688CheckoutRuntimeAdapter', () => {
     const result = await adapter.submit({
       organizationId: 'org-1',
       purchaseOrderId: '0187e942-9098-7382-9a22-c5b821f2f5d1',
+      idempotencyKey: 'submit-1',
       purchaseOrder: {
         id: '0187e942-9098-7382-9a22-c5b821f2f5d1',
         supplierName: '1688 Supplier',
@@ -41,7 +45,7 @@ describe('Alibaba1688CheckoutRuntimeAdapter', () => {
         items: [
           {
             productName: 'Silicone plate',
-            optionId: 'option-1',
+            sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000001',
             quantity: 2,
             unitPriceCny: '22.80',
           },
@@ -55,6 +59,7 @@ describe('Alibaba1688CheckoutRuntimeAdapter', () => {
       body: {
         organizationId: 'org-1',
         purchaseOrderId: '0187e942-9098-7382-9a22-c5b821f2f5d1',
+        idempotencyKey: 'submit-1',
         purchaseOrder: {
           id: '0187e942-9098-7382-9a22-c5b821f2f5d1',
           supplierName: '1688 Supplier',
@@ -63,7 +68,7 @@ describe('Alibaba1688CheckoutRuntimeAdapter', () => {
           items: [
             {
               productName: 'Silicone plate',
-              optionId: 'option-1',
+              sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000001',
               quantity: 2,
               unitPriceCny: '22.80',
             },
@@ -88,6 +93,7 @@ describe('Alibaba1688CheckoutRuntimeAdapter', () => {
       adapter.submit({
         organizationId: 'org-1',
         purchaseOrderId: '0187e942-9098-7382-9a22-c5b821f2f5d1',
+        idempotencyKey: 'submit-1',
         purchaseOrder: {
           id: '0187e942-9098-7382-9a22-c5b821f2f5d1',
           supplierName: '1688 Supplier',
@@ -96,7 +102,61 @@ describe('Alibaba1688CheckoutRuntimeAdapter', () => {
           items: [],
         },
       }),
-    ).rejects.toThrow(BadRequestException);
+    ).rejects.toBeInstanceOf(PurchaseOrderCheckoutProviderFailedError);
     expect(client.submit).not.toHaveBeenCalled();
+  });
+
+  it('classifies a clear non-success response as provider failed', async () => {
+    process.env.AGENT_OS_1688_CHECKOUT_RUNTIME = 'provider';
+    process.env.AGENT_OS_1688_CHECKOUT_PROVIDER_URL =
+      'https://checkout.example.test/1688/orders';
+    const client: Alibaba1688CheckoutProviderClient = {
+      submit: vi.fn().mockResolvedValue({ ok: false, status: 422, body: {} }),
+    };
+    const adapter = new Alibaba1688CheckoutRuntimeAdapter(client);
+
+    await expect(adapter.submit({
+      organizationId: 'org-1',
+      purchaseOrderId: '0187e942-9098-7382-9a22-c5b821f2f5d1',
+      idempotencyKey: 'submit-1',
+      purchaseOrder: {
+        id: '0187e942-9098-7382-9a22-c5b821f2f5d1',
+        supplierName: 'Supplier',
+        supplierId: null,
+        totalAmountCny: '1.00',
+        items: [],
+      },
+    })).rejects.toBeInstanceOf(PurchaseOrderCheckoutProviderFailedError);
+  });
+
+  it('classifies transport errors and malformed success responses as provider unknown', async () => {
+    process.env.AGENT_OS_1688_CHECKOUT_RUNTIME = 'provider';
+    process.env.AGENT_OS_1688_CHECKOUT_PROVIDER_URL =
+      'https://checkout.example.test/1688/orders';
+    const client: Alibaba1688CheckoutProviderClient = {
+      submit: vi.fn()
+        .mockRejectedValueOnce(new Error('timeout'))
+        .mockResolvedValueOnce({ ok: true, status: 200, body: {} }),
+    };
+    const adapter = new Alibaba1688CheckoutRuntimeAdapter(client);
+    const input = {
+      organizationId: 'org-1',
+      purchaseOrderId: '0187e942-9098-7382-9a22-c5b821f2f5d1',
+      idempotencyKey: 'submit-1',
+      purchaseOrder: {
+        id: '0187e942-9098-7382-9a22-c5b821f2f5d1',
+        supplierName: 'Supplier',
+        supplierId: null,
+        totalAmountCny: '1.00',
+        items: [],
+      },
+    };
+
+    await expect(adapter.submit(input)).rejects.toBeInstanceOf(
+      PurchaseOrderCheckoutProviderUnknownError,
+    );
+    await expect(adapter.submit(input)).rejects.toBeInstanceOf(
+      PurchaseOrderCheckoutProviderUnknownError,
+    );
   });
 });

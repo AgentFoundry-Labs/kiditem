@@ -41,6 +41,7 @@ export function useCoupangCatalogImport(
     activeRun?.runId ?? linkedRunId,
   );
   const completedRunRef = useRef<string | null>(null);
+  const publicationProgressRef = useRef<{ runId: string; count: number } | null>(null);
   const cancelledAlertSyncRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -146,10 +147,23 @@ export function useCoupangCatalogImport(
 
   useEffect(() => {
     const server = serverStatusQuery.data;
-    if (!server || server.status !== 'completed') return;
+    if (!server) return;
+    if (publicationProgressRef.current?.runId !== server.id) {
+      publicationProgressRef.current = { runId: server.id, count: 0 };
+    }
+    const publishedProducts = server.progress?.publishedProducts ?? 0;
+    if (publishedProducts > publicationProgressRef.current.count) {
+      publicationProgressRef.current = { runId: server.id, count: publishedProducts };
+      void queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.products.operations.all });
+    }
+    if (server.status !== 'completed') return;
     if (completedRunRef.current === server.id) return;
     completedRunRef.current = server.id;
     void queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.products.operations.all });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.channelProductMappings.all });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.channelSkuAvailability.all });
   }, [queryClient, serverStatusQuery.data]);
 
   useEffect(() => {
@@ -170,6 +184,7 @@ export function useCoupangCatalogImport(
     setActiveRun(null);
     setExtensionId(null);
     completedRunRef.current = null;
+    publicationProgressRef.current = null;
     cancelledAlertSyncRef.current = null;
     safeStorageRemove('local', STORAGE_KEY);
     startMutation.reset();

@@ -305,6 +305,13 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       code: 'M-T-BUNDLE-SECONDARY',
       name: 'Bundle component',
     });
+    const secondaryOption = await setupProductOption(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId: secondary.id,
+      sku: 'SKU-T-BUNDLE-SECONDARY',
+      costPrice: 0,
+      commissionRate: 0,
+    });
     const option = await setupProductOption(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       masterId: primary.id,
@@ -321,13 +328,20 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       optionId: option.id,
       externalOptionId: 'VI-T-BUNDLE',
     });
-    await prisma.channelSkuComponent.create({
+    const secondaryComponent = await prisma.productVariantComponent.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        productVariantId: secondaryOption.id,
+      },
+      select: { sellpiaInventorySkuId: true },
+    });
+    await prisma.productVariantComponent.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        channelSkuId: listing.listingOptionId,
-        masterProductId: secondary.id,
+        productVariantId: option.id,
+        sellpiaInventorySkuId: secondaryComponent.sellpiaInventorySkuId,
         quantity: 2,
-        mappingSource: 'manual',
+        source: 'manual',
       },
     });
     await seedOrderWithLineItems(prisma, {

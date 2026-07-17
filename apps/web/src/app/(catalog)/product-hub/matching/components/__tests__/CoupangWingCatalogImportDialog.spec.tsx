@@ -41,6 +41,15 @@ function response(
       status: 'completed',
       rowCount: 3,
       importedAt: now,
+      lastVerifiedAt: null,
+      verificationCount: 0,
+      lastTrigger: null,
+      freshnessGeneration: null,
+      manualFreshExportConfirmedAt: null,
+      manualFreshExportConfirmedBy: null,
+      qualityReport: null,
+      errorCode: null,
+      errorMessage: null,
       createdAt: now,
       updatedAt: now,
     },
@@ -83,7 +92,7 @@ describe('CoupangWingCatalogImportDialog', () => {
     vi.mocked(useImportCoupangWingCatalog).mockReturnValue({
       mutateAsync,
       isPending: false,
-    } as ReturnType<typeof useImportCoupangWingCatalog>);
+    } as unknown as ReturnType<typeof useImportCoupangWingCatalog>);
   });
 
   it('requires a selected account', () => {

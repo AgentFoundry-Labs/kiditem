@@ -1,6 +1,5 @@
 import {
   InventorySkuSnapshotListResponseSchema,
-  SellpiaImportRunListResponseSchema,
   SellpiaReceiptBatchCreateInputSchema,
   SellpiaReceiptBatchMarkUploadedInputSchema,
   SellpiaReceiptUploadBatchSchema,
@@ -19,6 +18,7 @@ import {
 } from '@kiditem/shared/channel-sku-availability';
 import { z } from 'zod';
 import { apiClient } from '@/lib/api-client';
+import { sellpiaInventoryFreshnessApi } from '@/lib/sellpia-inventory-freshness-api';
 
 export interface SellpiaInventorySkuListParams {
   page?: number;
@@ -116,10 +116,7 @@ export async function fetchAllSellpiaInventorySkus(
 export async function listSellpiaImportRuns(
   params: SellpiaImportRunListParams = {},
 ): Promise<SellpiaImportRunListResponse> {
-  return apiClient.getParsed(
-    withSearchParams('/api/inventory/sellpia-sync/import-runs', params),
-    SellpiaImportRunListResponseSchema,
-  );
+  return sellpiaInventoryFreshnessApi.listHistory(params);
 }
 
 export async function listChannelSkuAvailability(

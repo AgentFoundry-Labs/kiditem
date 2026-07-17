@@ -5,7 +5,7 @@ export const TRANSFERS_REPOSITORY_PORT = Symbol('TransfersRepositoryPort');
 export type StockTransferBareRow = {
   id: string;
   organizationId: string;
-  masterProductId: string | null;
+  sellpiaInventorySkuId: string;
   optionName: string | null;
   fromWarehouseId: string;
   toWarehouseId: string;
@@ -19,19 +19,19 @@ export type StockTransferBareRow = {
 };
 
 export type StockTransferRow = StockTransferBareRow & {
-  masterProduct: {
+  sellpiaInventorySku: {
     id: string;
     code: string;
     name: string;
     optionName: string | null;
     barcode: string | null;
-  } | null;
+  };
   fromWarehouse: WarehouseRow;
   toWarehouse: WarehouseRow;
 };
 
 export type CreateStockTransferData = {
-  masterProductId: string;
+  sellpiaInventorySkuId: string;
   optionName: string | null;
   fromWarehouseId: string;
   toWarehouseId: string;
@@ -42,8 +42,8 @@ export type CreateStockTransferData = {
 export interface TransfersRepositoryPort {
   listStockTransfers(organizationId: string, status?: string): Promise<StockTransferRow[]>;
 
-  findMasterProductForTransfer(
-    masterProductId: string,
+  findInventorySkuForTransfer(
+    sellpiaInventorySkuId: string,
     organizationId: string,
   ): Promise<{ optionName: string | null } | null>;
 

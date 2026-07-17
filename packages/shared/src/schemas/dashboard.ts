@@ -378,24 +378,6 @@ export const SellpiaProductSalesIngestResultSchema = z.object({
   months: z.array(z.string()),
 });
 
-// Stock ingest 요청(확장 크롤 결과) — 상품별 현재고. POST /api/sellpia-product-sales/stock
-export const SellpiaProductStockIngestItemSchema = z.object({
-  productCode: z.string().min(1),
-  optionCode: z.string(),
-  currentStock: z.number(),
-  offStock: z.number().optional(),
-  safeStock: z.number().optional(),
-  barcode: z.string().nullable().optional(),
-});
-export const SellpiaProductStockIngestPayloadSchema = z.object({
-  capturedDate: z.string(), // "YYYY-MM-DD" (재고 기준일)
-  items: z.array(SellpiaProductStockIngestItemSchema),
-});
-export const SellpiaProductStockIngestResultSchema = z.object({
-  upserted: z.number().int().nonnegative(),
-  itemCount: z.number().int().nonnegative(),
-});
-
 // Read 응답: GET /api/sellpia-product-sales
 export const SellpiaProductSalesMonthPointSchema = z.object({
   yearMonth: z.string(),
@@ -488,9 +470,6 @@ export type SellpiaProductSalesIngestMonth = z.infer<typeof SellpiaProductSalesI
 export type SellpiaProductSalesIngestItem = z.infer<typeof SellpiaProductSalesIngestItemSchema>;
 export type SellpiaProductSalesIngestPayload = z.infer<typeof SellpiaProductSalesIngestPayloadSchema>;
 export type SellpiaProductSalesIngestResult = z.infer<typeof SellpiaProductSalesIngestResultSchema>;
-export type SellpiaProductStockIngestItem = z.infer<typeof SellpiaProductStockIngestItemSchema>;
-export type SellpiaProductStockIngestPayload = z.infer<typeof SellpiaProductStockIngestPayloadSchema>;
-export type SellpiaProductStockIngestResult = z.infer<typeof SellpiaProductStockIngestResultSchema>;
 export type SellpiaProductSalesMonthPoint = z.infer<typeof SellpiaProductSalesMonthPointSchema>;
 export type SellpiaProductAbcGrade = z.infer<typeof SellpiaProductAbcGradeSchema>;
 export type SellpiaProductTrend = z.infer<typeof SellpiaProductTrendSchema>;

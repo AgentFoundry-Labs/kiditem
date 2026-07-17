@@ -94,11 +94,13 @@ function channelItem(
       barcode: null,
       currentStock: 0,
       purchasePrice: 100,
+      isActive: true,
       quantity: 1,
       mappingSource: 'manual',
       componentCapacity: 0,
       isBottleneck: true,
     }] : [],
+    warnings: [],
   };
 }
 

@@ -6,6 +6,7 @@ import {
   getHistoryCollectionBucket,
   getHistoryOrderCount,
 } from "./order-history-count";
+import { hasSellpiaTransmissionRequest } from "./order-collection-page-model";
 import type { StoredOrderCollectionFile } from "./order-generated-file-store";
 import type { OrderCollectionPipelineSummary } from "../components/OrderCollectionPipeline";
 
@@ -48,9 +49,9 @@ interface MallCollectionAccumulator {
   name: string;
   files: number;
   orderNumbers: Set<string>;
-  sentOrderNumbers: Set<string>;
+  transmissionRequestedOrderNumbers: Set<string>;
   fallbackByBucket: Map<string, number>;
-  fallbackUnsentByBucket: Map<string, number>;
+  fallbackWaitingByBucket: Map<string, number>;
   productRows: number;
   latestAt: number;
 }
@@ -119,9 +120,9 @@ export function buildOrderCollectionSummary(
         name: mallName,
         files: 0,
         orderNumbers: new Set<string>(),
-        sentOrderNumbers: new Set<string>(),
+        transmissionRequestedOrderNumbers: new Set<string>(),
         fallbackByBucket: new Map<string, number>(),
-        fallbackUnsentByBucket: new Map<string, number>(),
+        fallbackWaitingByBucket: new Map<string, number>(),
         productRows: 0,
         latestAt: item.convertedAt,
       };
@@ -135,7 +136,9 @@ export function buildOrderCollectionSummary(
     if (orderNumbers.length > 0) {
       for (const orderNumber of orderNumbers) {
         mallStat.orderNumbers.add(orderNumber);
-        if (item.sentAt) mallStat.sentOrderNumbers.add(orderNumber);
+        if (hasSellpiaTransmissionRequest(item)) {
+          mallStat.transmissionRequestedOrderNumbers.add(orderNumber);
+        }
       }
     } else {
       const bucket = getHistoryCollectionBucket(item);
@@ -144,11 +147,11 @@ export function buildOrderCollectionSummary(
         bucket,
         Math.max(mallStat.fallbackByBucket.get(bucket) ?? 0, fallbackCount),
       );
-      if (!item.sentAt) {
-        mallStat.fallbackUnsentByBucket.set(
+      if (!hasSellpiaTransmissionRequest(item)) {
+        mallStat.fallbackWaitingByBucket.set(
           bucket,
           Math.max(
-            mallStat.fallbackUnsentByBucket.get(bucket) ?? 0,
+            mallStat.fallbackWaitingByBucket.get(bucket) ?? 0,
             fallbackCount,
           ),
         );
@@ -173,9 +176,9 @@ export function buildOrderCollectionSummary(
           : sumMapValues(stat.fallbackByBucket),
         newRows: hasOrderNumbers
           ? [...stat.orderNumbers].filter(
-              (orderNumber) => !stat.sentOrderNumbers.has(orderNumber),
+              (orderNumber) => !stat.transmissionRequestedOrderNumbers.has(orderNumber),
             ).length
-          : sumMapValues(stat.fallbackUnsentByBucket),
+          : sumMapValues(stat.fallbackWaitingByBucket),
         productRows: stat.productRows,
         latestAt: stat.latestAt,
       };
@@ -205,7 +208,8 @@ export function buildOrderCollectionPipelineSummary(
   const summary: OrderCollectionPipelineSummary = {
     todayOrders: 0,
     waiting: 0,
-    sent: 0,
+    transmissionRequested: 0,
+    inventoryPending: 0,
     trackingSent: 0,
     done: 0,
   };
@@ -214,8 +218,12 @@ export function buildOrderCollectionPipelineSummary(
     if ((item.collectionDate ?? dayKey(item.convertedAt)) !== date) continue;
     const orderCount = getHistoryOrderCount(item) ?? 0;
     summary.todayOrders += orderCount;
-    if (item.sentAt) summary.sent += orderCount;
-    else summary.waiting += orderCount;
+    if (hasSellpiaTransmissionRequest(item)) {
+      summary.transmissionRequested += orderCount;
+      summary.inventoryPending += orderCount;
+    } else {
+      summary.waiting += orderCount;
+    }
   }
 
   return summary;

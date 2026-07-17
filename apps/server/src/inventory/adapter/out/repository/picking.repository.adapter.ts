@@ -9,9 +9,9 @@ import type {
   PickingRepositoryPort,
 } from '../../../application/port/out/repository/picking.repository.port';
 
-const MASTER_PRODUCT_INCLUDE = { masterProduct: true } as const;
+const INVENTORY_SKU_INCLUDE = { sellpiaInventorySku: true } as const;
 const LIST_WITH_ITEMS_INCLUDE = {
-  items: { include: MASTER_PRODUCT_INCLUDE },
+  items: { include: INVENTORY_SKU_INCLUDE },
 } as const;
 
 @Injectable()
@@ -32,27 +32,28 @@ export class PickingRepositoryAdapter implements PickingRepositoryPort {
     items: PickableItem[],
   ): Promise<PickingListRow> {
     return this.prisma.$transaction(async (tx) => {
-      const masterProductIds = [...new Set(items.map((item) => item.masterProductId))];
-      const masterProducts = await tx.masterProduct.findMany({
+      const sellpiaInventorySkuIds = [...new Set(
+        items.map((item) => item.sellpiaInventorySkuId),
+      )];
+      const inventorySkus = await tx.sellpiaInventorySku.findMany({
         where: {
-          id: { in: masterProductIds },
+          id: { in: sellpiaInventorySkuIds },
           organizationId,
           isActive: true,
         },
         select: { id: true },
       });
-      if (masterProducts.length !== masterProductIds.length) {
-        throw new NotFoundException('MasterProduct not found');
+      if (inventorySkus.length !== sellpiaInventorySkuIds.length) {
+        throw new NotFoundException('Sellpia inventory SKU not found');
       }
       const rows = items.map((item) => ({
-          organizationId,
-          orderId: item.orderId,
-          masterProductId: item.masterProductId,
-          productName: item.productName,
-          sku: item.sku ?? undefined,
-          quantity: item.quantity,
-          location: undefined,
-        }));
+        orderId: item.orderId,
+        sellpiaInventorySkuId: item.sellpiaInventorySkuId,
+        productName: item.productName,
+        sku: item.sku ?? undefined,
+        quantity: item.quantity,
+        location: undefined,
+      }));
       return tx.pickingList.create({
         data: {
           organizationId,
@@ -78,7 +79,7 @@ export class PickingRepositoryAdapter implements PickingRepositoryPort {
   ): Promise<PickingItemRow | null> {
     return this.prisma.pickingItem.findFirst({
       where: { id: itemId, pickingListId: listId },
-      include: MASTER_PRODUCT_INCLUDE,
+      include: INVENTORY_SKU_INCLUDE,
     });
   }
 
@@ -90,7 +91,7 @@ export class PickingRepositoryAdapter implements PickingRepositoryPort {
     return this.prisma.pickingItem.update({
       where: { id: itemId },
       data: prismaData,
-      include: MASTER_PRODUCT_INCLUDE,
+      include: INVENTORY_SKU_INCLUDE,
     });
   }
 

@@ -1,11 +1,15 @@
-import { getOrderCount, type ConversionHistoryItem } from './order-collection-page-model';
+import {
+  getOrderCount,
+  hasSellpiaTransmissionRequest,
+  type ConversionHistoryItem,
+} from './order-collection-page-model';
 import {
   ORDER_COLLECTION_MALL_LABELS,
   resolveOrderCollectionMallKey,
   resolveOrderCollectionMallName,
 } from './order-collection-malls';
 
-export type GeneratedFileSendFilter = 'all' | 'sent' | 'unsent';
+export type GeneratedFileSendFilter = 'all' | 'requested' | 'waiting';
 export type GeneratedFileSortKey = 'newest' | 'oldest' | 'orders-desc' | 'products-desc';
 
 export interface GeneratedFileFilters {
@@ -39,8 +43,8 @@ export function filterAndSortGeneratedFiles(
 
   items.forEach((item, index) => {
     if (filters.mallKey && resolveOrderCollectionMallKey(item) !== filters.mallKey) return;
-    if (sendFilter === 'sent' && !item.sentAt) return;
-    if (sendFilter === 'unsent' && item.sentAt) return;
+    if (sendFilter === 'requested' && !hasSellpiaTransmissionRequest(item)) return;
+    if (sendFilter === 'waiting' && hasSellpiaTransmissionRequest(item)) return;
 
     if (searchTokens.length > 0) {
       const searchable = generatedFileSearchText(item);

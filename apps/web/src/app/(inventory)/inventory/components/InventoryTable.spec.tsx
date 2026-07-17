@@ -1,11 +1,11 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { InventorySkuSnapshotItem } from '@kiditem/shared/inventory';
 import { InventoryTable } from './InventoryTable';
+import type { InventorySkuSnapshotItem } from '@kiditem/shared/inventory';
 
 describe('InventoryTable', () => {
   const item: InventorySkuSnapshotItem = {
-    masterProductId: '00000000-0000-4000-8000-000000000001',
+    sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000001',
     code: 'SP-1',
     name: '말랑이',
     optionName: null,
@@ -17,6 +17,11 @@ describe('InventoryTable', () => {
     stockValue: null,
     lastImportRunId: null,
     lastImportedAt: null,
+    linkedVariantCount: 0,
+    linkedProductCount: 0,
+    linkedProducts: [],
+    linkedVariants: [],
+    linkStatus: 'unlinked',
   };
 
   function renderInventoryTable(items: InventorySkuSnapshotItem[] = [item]) {

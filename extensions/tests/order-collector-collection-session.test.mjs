@@ -46,11 +46,17 @@ function createFakeChrome() {
     runtime: {
       lastError: null,
       getManifest: () => ({ version: 'test' }),
+      onInstalled: { addListener() {} },
+      onStartup: { addListener() {} },
       onMessageExternal: {
         addListener(listener) {
           externalMessageListener = listener;
         },
       },
+    },
+    alarms: {
+      create() {},
+      onAlarm: { addListener() {} },
     },
     storage: {
       local: {

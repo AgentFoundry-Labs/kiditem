@@ -41,11 +41,13 @@ const base: ChannelSkuAvailabilityItem = {
     barcode: null,
     currentStock: 12,
     purchasePrice: 1_000,
+    isActive: true,
     quantity: 1,
     mappingSource: 'manual',
     componentCapacity: 12,
     isBottleneck: true,
   }],
+  warnings: [],
 };
 
 describe('order-status channel SKU availability projection', () => {

@@ -16,7 +16,6 @@
 | ChannelScrapeChunk | `channel_scrape_chunks` | Browser catalog collection payloads kept in JSONB until an atomic publication succeeds. |
 | ChannelScrapeRun | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
 | ChannelScrapeSnapshot | `channel_scrape_snapshots` | 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존. |
-| ChannelSkuComponent | `channel_sku_components` | Confirmed channel-SKU recipe. mappingSource: product_code \| barcode \| manual. |
 | CoupangKeywordRankDailySnapshot | `coupang_keyword_rank_daily_snapshots` | 쿠팡 검색 키워드×상품(vendorItemId) 일별 순위 fact. 순위 null = 스캔한 페이지 내 미노출(순위권 밖). overallRank 는 광고 포함 전체 순위, organicRank 는 오가닉만, adRank 는 광고만 센 순위. |
 | CoupangKeywordSerpDailySnapshot | `coupang_keyword_serp_daily_snapshots` | 쿠팡 검색 키워드별 SERP 전체 캡처(키워드-일자당 최신본 upsert). items 는 DOM 순서 그대로의 결과 리스트 JSON — 경쟁사 노출 확인·순위 재계산용. |
 | CoupangKeywordTracker | `coupang_keyword_trackers` | 쿠팡 검색 키워드별 자사 상품 순위 추적 대상. 확장이 www.coupang.com 검색결과(SERP)를 수집할 키워드 정의. vendorItemIds 는 명시 추적 타깃(빈 배열 = 자사 카탈로그 자동매칭만). |
@@ -230,17 +229,6 @@ erDiagram
     Json normalizedJson
     DateTime createdAt
   }
-  ChannelSkuComponent {
-    String id PK
-    String organizationId FK
-    String channelSkuId FK
-    String masterProductId FK
-    Int quantity
-    String mappingSource
-    String createdBy
-    DateTime createdAt
-    DateTime updatedAt
-  }
   CoupangKeywordRankDailySnapshot {
     String id PK
     String organizationId FK
@@ -447,9 +435,6 @@ erDiagram
 | ChannelScrapeSnapshot | listing | references external | Core | ChannelListing |
 | ChannelScrapeSnapshot | listingOption | references external | Core | ChannelListingOption |
 | ChannelScrapeSnapshot | organization | references external | Core | Organization |
-| ChannelSkuComponent | channelSku | references external | Core | ChannelListingOption |
-| ChannelSkuComponent | masterProduct | references external | Core | MasterProduct |
-| ChannelSkuComponent | organization | references external | Core | Organization |
 | CoupangKeywordRankDailySnapshot | organization | references external | Core | Organization |
 | CoupangKeywordSerpDailySnapshot | organization | references external | Core | Organization |
 | CoupangKeywordTracker | organization | references external | Core | Organization |

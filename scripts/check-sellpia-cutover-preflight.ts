@@ -10,11 +10,9 @@ export const MAX_SELLPIA_CUTOVER_EXAMPLES = 20;
 
 type ReadonlyQueryClient = Pick<PrismaClient, '$queryRaw'>;
 type PreservationRowCounts = {
-  inventorySkus: number;
   legacyMasterProducts: number;
   legacyProductOptions: number;
   legacyBundleComponents: number;
-  channelSkuComponents: number;
   supplierRows: number;
   orderRows: number;
   orderLineItems: number;
@@ -81,9 +79,6 @@ export async function checkSellpiaCutoverPreflight(
   // where additive 0.1.8 tables do not exist yet, while still returning exact counts.
   const countRows = await prisma.$queryRaw<PreservationRowCounts[]>`
     SELECT
-      CASE WHEN to_regclass('public.inventory_skus') IS NULL THEN 0 ELSE
-        COALESCE(((xpath('/row/count/text()', query_to_xml('SELECT COUNT(*) AS count FROM public.inventory_skus', false, true, '')))[1]::text)::int, 0)
-      END AS "inventorySkus",
       CASE WHEN to_regclass('public.master_products') IS NULL THEN 0 ELSE
         COALESCE(((xpath('/row/count/text()', query_to_xml('SELECT COUNT(*) AS count FROM public.master_products', false, true, '')))[1]::text)::int, 0)
       END AS "legacyMasterProducts",
@@ -93,9 +88,6 @@ export async function checkSellpiaCutoverPreflight(
       CASE WHEN to_regclass('public.bundle_components') IS NULL THEN 0 ELSE
         COALESCE(((xpath('/row/count/text()', query_to_xml('SELECT COUNT(*) AS count FROM public.bundle_components', false, true, '')))[1]::text)::int, 0)
       END AS "legacyBundleComponents",
-      CASE WHEN to_regclass('public.channel_sku_components') IS NULL THEN 0 ELSE
-        COALESCE(((xpath('/row/count/text()', query_to_xml('SELECT COUNT(*) AS count FROM public.channel_sku_components', false, true, '')))[1]::text)::int, 0)
-      END AS "channelSkuComponents",
       COALESCE(((xpath('/row/count/text()', query_to_xml('SELECT (SELECT COUNT(*) FROM public.supplier_products) + (SELECT COUNT(*) FROM public.master_supplier_products) AS count', false, true, '')))[1]::text)::int, 0) AS "supplierRows",
       COALESCE(((xpath('/row/count/text()', query_to_xml('SELECT COUNT(*) AS count FROM public.orders', false, true, '')))[1]::text)::int, 0) AS "orderRows",
       COALESCE(((xpath('/row/count/text()', query_to_xml('SELECT COUNT(*) AS count FROM public.order_line_items', false, true, '')))[1]::text)::int, 0) AS "orderLineItems",
@@ -303,9 +295,7 @@ export async function checkSellpiaCutoverPreflight(
     WITH relation_specs(relation_name, child_table, child_fk, parent_table) AS (
       VALUES
         ('source_import_account', 'source_import_runs', 'channel_account_id', 'channel_accounts'),
-        ('inventory_sku_last_import', 'inventory_skus', 'last_import_run_id', 'source_import_runs'),
         ('master_product_last_import', 'master_products', 'last_import_run_id', 'source_import_runs'),
-        ('inventory_map_inventory_sku', 'inventory_sku_master_product_maps', 'inventory_sku_id', 'inventory_skus'),
         ('inventory_map_master', 'inventory_sku_master_product_maps', 'master_product_id', 'master_products'),
         ('channel_listing_account', 'channel_listings', 'channel_account_id', 'channel_accounts'),
         ('channel_listing_source_candidate', 'channel_listings', 'source_candidate_id', 'sourcing_candidates'),
@@ -314,9 +304,6 @@ export async function checkSellpiaCutoverPreflight(
         ('channel_option_account', 'channel_listing_options', 'channel_account_id', 'channel_accounts'),
         ('channel_option_last_import', 'channel_listing_options', 'last_import_run_id', 'source_import_runs'),
         ('channel_option_product_option', 'channel_listing_options', 'option_id', 'product_options'),
-        ('channel_sku_option', 'channel_sku_components', 'channel_sku_id', 'channel_listing_options'),
-        ('channel_sku_inventory', 'channel_sku_components', 'inventory_sku_id', 'inventory_skus'),
-        ('channel_sku_master', 'channel_sku_components', 'master_product_id', 'master_products'),
         ('sourcing_candidate_promoted_master', 'sourcing_candidates', 'promoted_master_id', 'master_products'),
         ('sourcing_candidate_provenance_master', 'sourcing_candidates', 'provenance_master_product_id', 'master_products'),
         ('order_account', 'orders', 'channel_account_id', 'channel_accounts'),
@@ -375,16 +362,13 @@ export async function checkSellpiaCutoverPreflight(
         ('purchase_order_item_product_option', 'purchase_order_items', 'option_id', 'product_options'),
         ('purchase_order_item_master', 'purchase_order_items', 'master_product_id', 'master_products'),
         ('stock_transfer_product_option', 'stock_transfers', 'option_id', 'product_options'),
-        ('stock_transfer_inventory', 'stock_transfers', 'inventory_sku_id', 'inventory_skus'),
         ('stock_transfer_master', 'stock_transfers', 'master_product_id', 'master_products'),
         ('stock_transfer_from_warehouse', 'stock_transfers', 'from_warehouse_id', 'warehouses'),
         ('stock_transfer_to_warehouse', 'stock_transfers', 'to_warehouse_id', 'warehouses'),
         ('picking_item_list', 'picking_items', 'picking_list_id', 'picking_lists'),
         ('picking_item_product_option', 'picking_items', 'option_id', 'product_options'),
-        ('picking_item_inventory', 'picking_items', 'inventory_sku_id', 'inventory_skus'),
         ('picking_item_master', 'picking_items', 'master_product_id', 'master_products'),
         ('return_transfer_product_option', 'return_transfers', 'option_id', 'product_options'),
-        ('return_transfer_inventory', 'return_transfers', 'inventory_sku_id', 'inventory_skus'),
         ('return_transfer_master', 'return_transfers', 'master_product_id', 'master_products'),
         ('sellpia_snapshot_item_snapshot', 'sellpia_stock_snapshot_items', 'snapshot_id', 'sellpia_stock_snapshots'),
         ('sellpia_snapshot_item_product_option', 'sellpia_stock_snapshot_items', 'product_option_id', 'product_options'),

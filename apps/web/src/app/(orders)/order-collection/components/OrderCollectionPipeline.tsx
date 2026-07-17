@@ -4,7 +4,8 @@ import { cn, formatNumber } from '@/lib/utils';
 export interface OrderCollectionPipelineSummary {
   todayOrders: number;
   waiting: number;
-  sent: number;
+  transmissionRequested: number;
+  inventoryPending: number;
   trackingSent: number;
   done: number;
 }
@@ -16,7 +17,7 @@ const STAGES: Array<{
 }> = [
   { key: 'todayOrders', label: '오늘 주문', tone: 'slate' },
   { key: 'waiting', label: '셀피아 전송 대기', tone: 'amber' },
-  { key: 'sent', label: '셀피아 전송', tone: 'purple' },
+  { key: 'transmissionRequested', label: '셀피아 전송 요청', tone: 'purple' },
   { key: 'trackingSent', label: '셀피아 송장 전송', tone: 'sky' },
   { key: 'done', label: '완료', tone: 'emerald' },
 ];

@@ -24,7 +24,7 @@ function renderStockTransfers({ readOnly = false }: { readOnly?: boolean } = {})
 }
 
 describe('StockTransfers', () => {
-  it('creates a record with masterProductId and explains that Sellpia stock is unchanged', async () => {
+  it('creates a record with sellpiaInventorySkuId and explains that Sellpia stock is unchanged', async () => {
     vi.spyOn(apiClient, 'get').mockImplementation(async (path) => {
       if (path === '/api/warehouses') return [
         { id: '00000000-0000-4000-8000-000000000010', name: 'A', code: 'A' },
@@ -44,7 +44,10 @@ describe('StockTransfers', () => {
     await userEvent.click(screen.getByRole('button', { name: '기록 저장' }));
 
     expect(post).toHaveBeenCalledWith('/api/stock-transfers', expect.objectContaining({
-      masterProductId: '00000000-0000-4000-8000-000000000001',
+      sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000001',
+    }));
+    expect(post).not.toHaveBeenCalledWith('/api/stock-transfers', expect.objectContaining({
+      masterProductId: expect.anything(),
     }));
     expect(screen.getByText(/Sellpia 현재고는 변경하지 않습니다/)).toBeInTheDocument();
   });
@@ -55,16 +58,16 @@ describe('StockTransfers', () => {
     expect(screen.queryByRole('button', { name: '이관 기록 추가' })).not.toBeInTheDocument();
   });
 
-  it('renders a placeholder when the linked MasterProduct is missing', async () => {
+  it('renders a placeholder when the linked Sellpia inventory SKU is missing', async () => {
     vi.spyOn(apiClient, 'get').mockImplementation(async (path) => {
       if (path === '/api/stock-transfers') return [{
         id: 'transfer-1',
-        masterProductId: 'missing-master-product-1',
+        sellpiaInventorySkuId: 'missing-sellpia-sku-1',
         quantity: 3,
         status: 'pending',
         notes: null,
         createdAt: '2026-07-13T00:00:00.000Z',
-        masterProduct: null,
+        sellpiaInventorySku: null,
         fromWarehouse: { id: 'warehouse-1', name: 'A 창고' },
         toWarehouse: { id: 'warehouse-2', name: 'B 창고' },
       }] as never;
@@ -75,20 +78,20 @@ describe('StockTransfers', () => {
     render(<QueryClientProvider client={client}><StockTransfers /></QueryClientProvider>);
 
     expect(await screen.findByText('상품 연결 없음')).toBeInTheDocument();
-    expect(screen.getByText('MasterProduct ID: missing-master-product-1')).toBeInTheDocument();
+    expect(screen.getByText('Sellpia SKU ID: missing-sellpia-sku-1')).toBeInTheDocument();
   });
 
-  it('renders the final MasterProduct code returned by the transfer API', async () => {
+  it('renders the physical Sellpia inventory SKU returned by the transfer API', async () => {
     vi.spyOn(apiClient, 'get').mockImplementation(async (path) => {
       if (path === '/api/stock-transfers') return [{
         id: 'transfer-1',
-        masterProductId: 'master-product-1',
+        sellpiaInventorySkuId: 'sellpia-sku-1',
         quantity: 3,
         status: 'pending',
         notes: null,
         createdAt: '2026-07-13T00:00:00.000Z',
-        masterProduct: {
-          id: 'master-product-1',
+        sellpiaInventorySku: {
+          id: 'sellpia-sku-1',
           code: 'SP-FINAL-1',
           name: '최종 Sellpia 상품',
           optionName: '파랑',

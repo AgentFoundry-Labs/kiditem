@@ -17,6 +17,8 @@ const PREPARATION_ID = 'preparation-1';
 const WORKSPACE_ID = 'workspace-1';
 const ACCOUNT_ID = 'account-1';
 const LISTING_ID = 'listing-1';
+const MASTER_PRODUCT_ID = '00000000-0000-4000-8000-000000000010';
+const PRODUCT_VARIANT_ID = '00000000-0000-4000-8000-000000000011';
 const TX = { opaque: true } as never;
 
 const DRAFT_INPUT = {
@@ -346,6 +348,38 @@ describe('ProductRegistrationService', () => {
         createdByUserId: USER_ID,
       }),
     );
+  });
+
+  it('carries frozen KidItem-first product and option identities to the channel finalizer', async () => {
+    const exactSubmission = frozenSubmission({
+      submissionPayloadJson: {
+        channelAccountId: ACCOUNT_ID,
+        displayName: 'Kids rain boots',
+        registrationInput: {
+          ...DRAFT_INPUT.registrationInput,
+          masterProductId: MASTER_PRODUCT_ID,
+          optionLinks: [{
+            externalOptionId: ' RAIN-BOOT-PINK ',
+            productVariantId: PRODUCT_VARIANT_ID,
+          }],
+        },
+      },
+    });
+    const { service, channel } = setup({
+      repository: {
+        claimForSubmission: vi.fn().mockResolvedValue(exactSubmission),
+      },
+    });
+
+    await service.submit(ORG_ID, PREPARATION_ID, USER_ID);
+
+    expect(channel.resolveListing).toHaveBeenCalledWith(TX, expect.objectContaining({
+      masterProductId: MASTER_PRODUCT_ID,
+      optionLinks: [{
+        externalOptionId: 'RAIN-BOOT-PINK',
+        productVariantId: PRODUCT_VARIANT_ID,
+      }],
+    }));
   });
 
   it('never blind-creates when an uncertain attempt cannot be reconciled', async () => {

@@ -23,8 +23,16 @@ const allowed = [
     text: 'A unique constraint covering the columns `[id,organization_id]` on the table `channel_listing_options` will be added. If there are existing duplicate values, this will fail.',
   },
   {
-    name: 'channel_listing_options_org_account_external_option_key',
-    text: 'A unique constraint covering the columns `[organization_id,channel_account_id,external_option_id]` on the table `channel_listing_options` will be added. If there are existing duplicate values, this will fail.',
+    name: 'product_variants_id_org_key',
+    text: 'A unique constraint covering the columns `[id,organization_id]` on the table `product_variants` will be added. If there are existing duplicate values, this will fail.',
+  },
+  {
+    name: 'product_variant_components_product_variant_id_sellpia_inventory_sku_id_key',
+    text: 'A unique constraint covering the columns `[product_variant_id,sellpia_inventory_sku_id]` on the table `product_variant_components` will be added. If there are existing duplicate values, this will fail.',
+  },
+  {
+    name: 'sellpia_inventory_skus_id_org_key',
+    text: 'A unique constraint covering the columns `[id,organization_id]` on the table `sellpia_inventory_skus` will be added. If there are existing duplicate values, this will fail.',
   },
   {
     name: 'content_workspaces_candidate_active_key',
@@ -55,7 +63,7 @@ function warningLog(warnings) {
   ].join('\n');
 }
 
-describe('Sellpia 0.1.8 Prisma db-push warning guard', () => {
+describe('Sellpia 0.1.19 Prisma db-push warning guard', () => {
   it('accepts only the reviewed additive composite-key warning set', () => {
     assert.deepEqual(
       assertSafeSellpiaDbPushWarnings(warningLog(allowed), SELLPIA_CUTOVER_PREFLIGHT_MARKER),

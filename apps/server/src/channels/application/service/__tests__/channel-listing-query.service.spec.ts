@@ -10,6 +10,7 @@ function listingRow(overrides: Record<string, unknown> = {}) {
     channelName: '쿠팡 등록명',
     displayName: 'KidItem 등록명',
     sourceCandidateId: 'candidate-1',
+    masterProductId: 'master-1',
     status: 'active',
     exposureStatus: 'visible',
     createdAt: new Date('2026-05-16T00:00:00.000Z'),
@@ -20,8 +21,16 @@ function listingRow(overrides: Record<string, unknown> = {}) {
       name: '쿠팡 본계정',
     },
     options: [
-      { mappingStatus: 'matched', salePrice: 12_900 },
-      { mappingStatus: 'matched', salePrice: null },
+      {
+        productVariantId: 'variant-1',
+        salePrice: 12_900,
+        productVariant: { components: [{ sellpiaInventorySku: { isActive: true } }] },
+      },
+      {
+        productVariantId: 'variant-2',
+        salePrice: null,
+        productVariant: { components: [{ sellpiaInventorySku: { isActive: true } }] },
+      },
     ],
     contentWorkspaces: [{
       id: 'workspace-1',
@@ -89,7 +98,10 @@ describe('ChannelListingRepositoryAdapter', () => {
         channelAccount: expect.any(Object),
         options: expect.objectContaining({
           where: { isActive: true },
-          select: { mappingStatus: true, salePrice: true },
+          select: expect.objectContaining({
+            productVariantId: true,
+            salePrice: true,
+          }),
         }),
         contentWorkspaces: expect.any(Object),
         thumbnails: expect.any(Object),
@@ -131,8 +143,9 @@ describe('ChannelListingRepositoryAdapter', () => {
       channelName: 'Wing import only',
       displayName: null,
       sourceCandidateId: null,
+      masterProductId: null,
       channelAccount: { id: 'account-1', channel: 'coupang', name: 'Active Wing account' },
-      options: [{ mappingStatus: 'unmatched', salePrice: 9_900 }],
+      options: [{ productVariantId: null, productVariant: null, salePrice: 9_900 }],
       contentWorkspaces: [],
       thumbnails: [],
       createdAt: new Date('2026-07-11T00:00:00.000Z'),

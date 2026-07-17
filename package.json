@@ -33,7 +33,7 @@
     "db:erd": "node scripts/generate-prisma-erd.mjs",
     "graphify:schema": "npm run db:erd && uv run --with graphifyy --python 3.11 python scripts/generate-schema-graphify.py",
     "db:generate": "prisma generate",
-    "db:push": "prisma db push",
+    "db:push": "node scripts/safe-prisma-db-push.mjs",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "data:dev:status": "tsx scripts/dev-data.ts status",

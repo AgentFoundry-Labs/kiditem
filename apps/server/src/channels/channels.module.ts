@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AutomationModule } from '../automation/automation.module';
 import { AiModule } from '../ai/ai.module';
-import { InventoryModule } from '../inventory/inventory.module';
+import { ProductsModule } from '../products/products.module';
 import { ChannelRegistrationCapabilityAdapter } from './adapter/in/agent/channel-registration-capability.adapter';
 import { ChannelSyncController } from './adapter/in/http/channel-sync.controller';
 import { ChannelDashboardController } from './adapter/in/http/channel-dashboard.controller';
@@ -10,7 +10,7 @@ import { ChannelAccountListController } from './adapter/in/http/channel-account-
 import { ChannelListingController } from './adapter/in/http/channel-listing.controller';
 import { ChannelCatalogImportController } from './adapter/in/http/channel-catalog-import.controller';
 import { ChannelCatalogCollectionController } from './adapter/in/http/channel-catalog-collection.controller';
-import { ChannelSkuMappingController } from './adapter/in/http/channel-sku-mapping.controller';
+import { ChannelProductMatchingController } from './adapter/in/http/channel-product-matching.controller';
 import { ChannelSkuAvailabilityController } from './adapter/in/http/channel-sku-availability.controller';
 import { CoupangProviderAdapter } from './adapter/out/coupang/coupang-provider.adapter';
 import { ChannelAccountRepositoryAdapter } from './adapter/out/repository/channel-account.repository.adapter';
@@ -21,8 +21,7 @@ import { ChannelSyncRepositoryAdapter } from './adapter/out/repository/channel-s
 import { ChannelCatalogImportRepositoryAdapter } from './adapter/out/repository/channel-catalog-import.repository.adapter';
 import { ChannelCatalogCollectionRepositoryAdapter } from './adapter/out/repository/channel-catalog-collection.repository.adapter';
 import { ChannelCatalogPublicationRepositoryAdapter } from './adapter/out/repository/channel-catalog-publication.repository.adapter';
-import { ChannelSkuMappingRepositoryAdapter } from './adapter/out/repository/channel-sku-mapping.repository.adapter';
-import { ChannelsSellpiaMasterProductReadAdapter } from './adapter/out/inventory/sellpia-master-product-read.adapter';
+import { ChannelProductMatchingRepositoryAdapter } from './adapter/out/repository/channel-product-matching.repository.adapter';
 import { ChannelSyncService } from './application/service/channel-sync.service';
 import { ChannelDashboardService } from './application/service/channel-dashboard.service';
 import { ChannelListingQueryService } from './application/service/channel-listing-query.service';
@@ -31,8 +30,12 @@ import { MarketplaceRegistrationService } from './application/service/marketplac
 import { ChannelAccountService } from './application/service/channel-account.service';
 import { ChannelCatalogImportService } from './application/service/channel-catalog-import.service';
 import { ChannelCatalogCollectionService } from './application/service/channel-catalog-collection.service';
-import { ChannelSkuMappingService } from './application/service/channel-sku-mapping.service';
+import { ChannelProductMatchingService } from './application/service/channel-product-matching.service';
 import { ChannelSkuAvailabilityService } from './application/service/channel-sku-availability.service';
+import { RocketPoCatalogService } from './application/service/rocket-po-catalog.service';
+import { RocketPoCatalogRepositoryAdapter } from './adapter/out/repository/rocket-po-catalog.repository.adapter';
+import { ROCKET_PO_CATALOG_PORT } from './application/port/in/rocket-po-catalog.port';
+import { ROCKET_PO_CATALOG_REPOSITORY_PORT } from './application/port/out/repository/rocket-po-catalog.repository.port';
 import { COUPANG_PROVIDER_PORT } from './application/port/out/provider/coupang-provider.port';
 import { ChannelsOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { CHANNELS_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
@@ -52,12 +55,11 @@ import { CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT } from './application/port/out/r
 import { CHANNEL_CATALOG_COLLECTION_REPOSITORY_PORT } from './application/port/out/repository/channel-catalog-collection.repository.port';
 import { CHANNEL_CATALOG_PUBLICATION_PORT } from './application/port/out/repository/channel-catalog-publication.port';
 import { CHANNEL_CATALOG_COLLECTION_PORT } from './application/port/in/channel-catalog-collection.port';
-import { CHANNEL_SKU_MAPPING_REPOSITORY_PORT } from './application/port/out/repository/channel-sku-mapping.repository.port';
-import { CHANNELS_SELLPIA_MASTER_PRODUCT_READ_PORT } from './application/port/out/cross-domain/sellpia-master-product-read.port';
+import { CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT } from './application/port/out/repository/channel-product-matching.repository.port';
 import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku-availability.port';
 
 @Module({
-  imports: [AutomationModule, InventoryModule, AiModule],
+  imports: [AutomationModule, AiModule, ProductsModule],
   controllers: [
     ChannelSyncController,
     ChannelDashboardController,
@@ -66,7 +68,7 @@ import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku
     ChannelListingController,
     ChannelCatalogImportController,
     ChannelCatalogCollectionController,
-    ChannelSkuMappingController,
+    ChannelProductMatchingController,
     ChannelSkuAvailabilityController,
   ],
   providers: [
@@ -78,8 +80,9 @@ import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku
     ChannelAccountService,
     ChannelCatalogImportService,
     ChannelCatalogCollectionService,
-    ChannelSkuMappingService,
+    ChannelProductMatchingService,
     ChannelSkuAvailabilityService,
+    RocketPoCatalogService,
     ChannelRegistrationCapabilityAdapter,
     CoupangProviderAdapter,
     ChannelsOperationAlertAdapter,
@@ -91,8 +94,8 @@ import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku
     ChannelCatalogImportRepositoryAdapter,
     ChannelCatalogCollectionRepositoryAdapter,
     ChannelCatalogPublicationRepositoryAdapter,
-    ChannelSkuMappingRepositoryAdapter,
-    ChannelsSellpiaMasterProductReadAdapter,
+    ChannelProductMatchingRepositoryAdapter,
+    RocketPoCatalogRepositoryAdapter,
     { provide: COUPANG_PROVIDER_PORT, useExisting: CoupangProviderAdapter },
     { provide: CHANNELS_OPERATION_ALERT_PORT, useExisting: ChannelsOperationAlertAdapter },
     { provide: CHANNEL_ACCOUNT_REPOSITORY_PORT, useExisting: ChannelAccountRepositoryAdapter },
@@ -129,22 +132,24 @@ import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku
       useExisting: ChannelCatalogCollectionService,
     },
     {
-      provide: CHANNEL_SKU_MAPPING_REPOSITORY_PORT,
-      useExisting: ChannelSkuMappingRepositoryAdapter,
-    },
-    {
-      provide: CHANNELS_SELLPIA_MASTER_PRODUCT_READ_PORT,
-      useExisting: ChannelsSellpiaMasterProductReadAdapter,
+      provide: CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT,
+      useExisting: ChannelProductMatchingRepositoryAdapter,
     },
     {
       provide: CHANNEL_SKU_AVAILABILITY_PORT,
       useExisting: ChannelSkuAvailabilityService,
     },
+    {
+      provide: ROCKET_PO_CATALOG_REPOSITORY_PORT,
+      useExisting: RocketPoCatalogRepositoryAdapter,
+    },
+    { provide: ROCKET_PO_CATALOG_PORT, useExisting: RocketPoCatalogService },
   ],
   exports: [
     COUPANG_PROVIDER_PORT,
     CHANNEL_SKU_AVAILABILITY_PORT,
     CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT,
+    ROCKET_PO_CATALOG_PORT,
   ],
 })
 export class ChannelsModule {}

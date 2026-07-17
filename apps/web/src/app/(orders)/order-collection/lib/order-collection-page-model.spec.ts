@@ -3,6 +3,7 @@ import {
   draftFromMallAccount,
   getOrderCount,
   groupHistoryByDay,
+  hasSellpiaTransmissionRequest,
   isBrowserCollectableMall,
   todayYmd,
 } from './order-collection-page-model';
@@ -26,6 +27,7 @@ function generatedFile(overrides: Partial<StoredOrderCollectionFile>): StoredOrd
     collectedRows: overrides.collectedRows,
     mallKey: overrides.mallKey,
     mallName: overrides.mallName,
+    transmissionRequestedAt: overrides.transmissionRequestedAt,
   };
 }
 
@@ -55,6 +57,15 @@ describe('order collection page model', () => {
       ['2026-06-28', '2026. 06. 28.', ['a', 'b']],
       ['2026-06-27', '2026. 06. 27.', ['c']],
     ]);
+  });
+
+  it('distinguishes raw mall collection from a Sellpia transmission request', () => {
+    expect(hasSellpiaTransmissionRequest(generatedFile({ collectionMode: 'browser' }))).toBe(false);
+    expect(
+      hasSellpiaTransmissionRequest(
+        generatedFile({ transmissionRequestedAt: Date.UTC(2026, 6, 29, 11, 0) }),
+      ),
+    ).toBe(true);
   });
 
   it('derives order count only when output rows are greater than product rows', () => {

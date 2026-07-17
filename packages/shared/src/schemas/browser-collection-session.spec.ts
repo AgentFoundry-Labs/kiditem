@@ -6,6 +6,10 @@ import {
   BrowserCollectionSessionViewSchema,
   BrowserCollectionStateSchema,
 } from './browser-collection-session';
+import {
+  SELLPIA_INVENTORY_COLLECTION_FAILURE_CODES,
+  SellpiaInventoryCollectionFailureCodeSchema,
+} from './sellpia-inventory-freshness';
 
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -25,6 +29,7 @@ const PRODUCERS = [
   'sourcing.1688_trend',
   'sourcing.live_commerce',
   'orders.mall',
+  'inventory.sellpia',
 ] as const;
 
 const STATES = [
@@ -38,6 +43,7 @@ const STATES = [
 
 const ATTENTION_REASONS = [
   'extension_missing',
+  'extension_outdated',
   'kiditem_auth',
   'marketplace_login',
   'captcha',
@@ -273,5 +279,16 @@ describe('BrowserCollectionCommandSchema', () => {
       action: 'getCollectionSession',
       runId: 'not-a-uuid',
     })).toThrow();
+  });
+});
+
+describe('Sellpia browser collection failures', () => {
+  it('accepts only stable machine-readable failure codes', () => {
+    for (const errorCode of SELLPIA_INVENTORY_COLLECTION_FAILURE_CODES) {
+      expect(SellpiaInventoryCollectionFailureCodeSchema.parse(errorCode)).toBe(errorCode);
+    }
+    expect(() => SellpiaInventoryCollectionFailureCodeSchema.parse(
+      'Sellpia login is required',
+    )).toThrow();
   });
 });

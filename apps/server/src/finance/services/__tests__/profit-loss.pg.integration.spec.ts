@@ -44,7 +44,35 @@ async function setupListing(
       organizationId,
       code: `M-${suffix}`,
       name: `Master ${suffix}`,
+      category: '유아용품',
+      abcGrade: 'A',
+    },
+  });
+  const inventorySku = await prisma.sellpiaInventorySku.create({
+    data: {
+      organizationId,
+      code: `SP-${suffix}`,
+      name: `Sellpia ${suffix}`,
       purchasePrice: 1000,
+      currentStock: 100,
+    },
+  });
+  const option = await prisma.productVariant.create({
+    data: {
+      organizationId,
+      masterProductId: master.id,
+      code: `VAR-${suffix}`,
+      name: `Variant ${suffix}`,
+      isDefault: true,
+    },
+  });
+  await prisma.productVariantComponent.create({
+    data: {
+      organizationId,
+      productVariantId: option.id,
+      sellpiaInventorySkuId: inventorySku.id,
+      quantity: 1,
+      source: 'manual',
     },
   });
   const channelAccount = await prisma.channelAccount.upsert({
@@ -68,17 +96,18 @@ async function setupListing(
     data: {
       organizationId,
       channelAccountId: channelAccount.id,
+      masterProductId: master.id,
       externalId: `EXT-${suffix}`,
       channelName: `Listing ${suffix}`,
       displayName: `Master ${suffix}`,
       category: '유아용품',
-      abcGrade: 'A',
     },
   });
   const listingOption = await prisma.channelListingOption.create({
     data: {
       organizationId,
       listingId: listing.id,
+      productVariantId: option.id,
       externalOptionId: `VI-${suffix}`,
       itemName: `OPT-${suffix}`,
       sellerSku: `SKU-${suffix}`,
@@ -87,16 +116,6 @@ async function setupListing(
       otherCost: 50,
     },
   });
-  await prisma.channelSkuComponent.create({
-    data: {
-      organizationId,
-      channelSkuId: listingOption.id,
-      masterProductId: master.id,
-      quantity: 1,
-      mappingSource: 'manual',
-    },
-  });
-  const option = { id: master.id };
   return { master, listing, option, listingOption };
 }
 

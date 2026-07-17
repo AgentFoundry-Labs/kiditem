@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildOrderCollectionSummary } from "./order-collection-stats";
+import {
+  buildOrderCollectionPipelineSummary,
+  buildOrderCollectionSummary,
+} from "./order-collection-stats";
 import type { StoredOrderCollectionFile } from "./order-generated-file-store";
 
 function historyItem(
@@ -24,7 +27,7 @@ function historyItem(
     mallKey: overrides.mallKey,
     mallName: overrides.mallName,
     orderNumbers: overrides.orderNumbers,
-    sentAt: overrides.sentAt,
+    transmissionRequestedAt: overrides.transmissionRequestedAt,
   };
 }
 
@@ -79,7 +82,7 @@ describe("buildOrderCollectionSummary", () => {
     });
   });
 
-  it("deduplicates today orders by order number and excludes sent orders from 신규", () => {
+  it("deduplicates today orders by order number and excludes transmission requests from 신규", () => {
     const summary = buildOrderCollectionSummary(
       [
         historyItem({
@@ -100,7 +103,7 @@ describe("buildOrderCollectionSummary", () => {
           orderNumbers: ["ORDER-2", "ORDER-3"],
           outputRows: 4,
           productRows: 2,
-          sentAt: Date.UTC(2026, 6, 14, 2, 0),
+          transmissionRequestedAt: Date.UTC(2026, 6, 14, 2, 0),
           convertedAt: Date.UTC(2026, 6, 14, 2, 0),
         }),
         historyItem({
@@ -172,6 +175,37 @@ describe("buildOrderCollectionSummary", () => {
 
     expect(summary.totals.orders).toBe(0);
     expect(summary.mallStatsByKey.get("kidkids")?.orderRows).toBe(0);
+  });
+});
+
+describe("buildOrderCollectionPipelineSummary", () => {
+  it("counts extension submissions as transmission requests rather than completed orders", () => {
+    const summary = buildOrderCollectionPipelineSummary(
+      [
+        historyItem({
+          collectionDate: "2026-07-14",
+          outputRows: 4,
+          productRows: 2,
+          transmissionRequestedAt: Date.UTC(2026, 6, 14, 2, 0),
+        }),
+        historyItem({
+          id: "waiting",
+          collectionDate: "2026-07-14",
+          outputRows: 3,
+          productRows: 1,
+        }),
+      ],
+      "2026-07-14",
+    );
+
+    expect(summary).toEqual({
+      todayOrders: 4,
+      waiting: 2,
+      transmissionRequested: 2,
+      inventoryPending: 2,
+      trackingSent: 0,
+      done: 0,
+    });
   });
 });
 

@@ -1,19 +1,13 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# product-hub/matching — Coupang ChannelSku to Sellpia Matching
+# product-hub/matching — Channel Product Matching
 
 `app/(catalog)/product-hub/matching/` owns `/product-hub/matching`, the operator
-workspace for importing Coupang Wing product/SKU metadata and confirming which
-Sellpia `MasterProduct` rows one channel SKU consumes.
+workspace for importing Coupang Wing catalog metadata and explicitly confirming
+two levels of identity:
 
-## Owned Surfaces
-
-- Active ChannelAccount selector; only `channel === 'coupang'` accounts can
-  receive a Wing workbook in release `0.1.8`
-- Coupang Wing catalog upload
-- Server-paged all/unmatched/needs-review/matched queue
-- Live Sellpia candidate search and multi-component recipe editor
-- Explicit confirmed unmap flow
+1. channel listing -> `MasterProduct`;
+2. channel listing option -> `ProductVariant` within that confirmed product.
 
 ## Data Flow
 
@@ -21,47 +15,45 @@ Sellpia `MasterProduct` rows one channel SKU consumes.
 React Query + apiClient
   -> GET /api/channels/accounts
   -> POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing
-  -> GET /api/channels/sku-mappings
-  -> POST /api/channels/sku-mappings/status-refresh
-  -> GET /api/channels/sku-mappings/:channelSkuId/candidates
-  -> PUT /api/channels/sku-mappings/:channelSkuId/components
+  -> GET /api/channels/product-mappings
+  -> GET /api/channels/product-mappings/:channelListingId/candidates
+  -> PUT /api/channels/product-mappings/:channelListingId/master-product
+  -> GET /api/channels/product-mappings/options/:channelListingOptionId/candidates
+  -> PUT /api/channels/product-mappings/options/:channelListingOptionId/product-variant
 ```
 
 ## State Rules
 
-- React Query owns accounts, server-paged rows, candidates, status refresh,
-  catalog import, and component replacement. Do not mirror server state in
-  Zustand.
-- Candidate rows are live computed suggestions and are never auto-saved.
-- The dialog owns a local complete-recipe draft. Adding a candidate defaults
-  its quantity to `1`; saving requires one or more unique MasterProduct rows
-  with positive integer quantities.
-- `PUT .../components` replaces the whole recipe atomically. Normal save sends
-  a nonempty recipe; the separate confirmed `매칭 해제` action sends
-  `{ components: [] }`.
-- A successful Wing import refreshes the imported account's advisory statuses,
-  then invalidates server-paged matching lists and channel availability.
-- Component replacement, confirmed unmap, and explicit status refresh also
-  invalidate channel availability immediately.
-
-## Cross-Domain Dependencies
-
-- `@kiditem/shared/channel-account` provides account selector metadata.
-- `@kiditem/shared/source-import` provides Wing import results.
-- `@kiditem/shared/channel-sku-matching` provides mapping rows, candidate
-  reasons, status counts, replacement input, and the 50-component limit.
+- React Query owns accounts, queue rows, candidates, import, and confirmations.
+- Candidate queries are read-only suggestions with evidence. Opening, ranking,
+  or searching candidates never changes confirmed identity.
+- A product must be explicitly confirmed before any of its channel options can
+  be linked.
+- Variant candidates are limited to the listing's confirmed `MasterProduct`.
+- Link and unlink mutations are separate explicit operator actions and
+  invalidate product-mapping and channel-availability query families.
+- Recipe status and capacity are inherited read-only summaries. Recipe changes
+  link to `/product-hub/[masterProductId]#variants`.
+- Coupang and Rocket catalog rows share the matching queue. Only Coupang
+  accounts receive a Wing workbook, and the initial account selection prefers
+  Coupang Wing before Rocket so a populated Wing queue is not hidden by an empty
+  Rocket account.
+- Browser catalog publication may arrive already linked through Products-owned
+  channel-origin provisioning or unique typed seller-SKU/safe-barcode reuse.
+  Matching remains the operator correction surface and the read-only
+  recipe-attention workspace for `재고 연결 필요` rows.
+- Product-detail chunks already published by a running browser collection appear
+  immediately; full-snapshot completion is required only for absence and
+  deactivation reconciliation.
 
 ## Boundary Rules
 
-- All API calls go through `apiClient` + React Query.
+- Do not recreate channel-owned component recipes or quantity inputs.
+- Matching candidates never auto-confirm identity from rank, normalized name,
+  or AI evidence. The only automatic identity decision is the backend catalog
+  publication boundary's unique, non-conflicting typed seller SKU or safely
+  normalized barcode policy; raw aliases and names are never confirming.
 - Do not send `organizationId`; backend session scope owns it.
-- Do not load the complete queue into browser memory; use server page, search,
-  status, and account parameters.
-- Do not expose raw JSON or inputs for Sellpia current stock, Sellpia prices,
-  or channel prices. Component quantity is the only editable number.
-- Do not infer component quantity from option or bundle text.
-- Wing catalog collection may attach provider media to registered products but
-  must not create, refresh, or confirm ChannelSku component recipes here.
-- Rocket catalog, purchase-order, and order handling is outside this route.
-- See the [operator runbook](../../../../../../../docs/runbooks/channel-sellpia-matching.md)
-  for import order, accepted local files, recovery, and baseline counts.
+- Wing and Rocket collection must preserve already confirmed links.
+- Rocket order collection, purchase preview, and order handling remain outside
+  this route.
