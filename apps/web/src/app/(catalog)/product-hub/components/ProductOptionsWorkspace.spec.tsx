@@ -34,21 +34,21 @@ const data = {
       linkedProductCount: 1,
       linkedProducts: [{
         id: '10000000-0000-4000-8000-000000000001',
-        code: 'KI-1001',
+        code: 'CP-10000000-0000-4000-8000-000000000001',
         name: '키즈 반팔 티셔츠',
       }],
       linkedVariants: [
         {
           id: '20000000-0000-4000-8000-000000000001',
           masterProductId: '10000000-0000-4000-8000-000000000001',
-          code: 'KI-1001-PURPLE-120',
+          code: 'CP-SKU-20000000-0000-4000-8000-000000000001',
           name: '보라 / 120',
           optionLabel: '색상: 보라 / 사이즈: 120',
         },
         {
           id: '20000000-0000-4000-8000-000000000002',
           masterProductId: '10000000-0000-4000-8000-000000000001',
-          code: 'KI-1001-PURPLE-130',
+          code: 'CP-SKU-20000000-0000-4000-8000-000000000002',
           name: '보라 / 130',
           optionLabel: '색상: 보라 / 사이즈: 130',
         },
@@ -107,15 +107,16 @@ describe('<ProductOptionsWorkspace>', () => {
     expect(screen.getByText('00000000-0000-4000-8000-000000000001')).toBeInTheDocument();
     expect(screen.getByText('SP-1001')).toBeInTheDocument();
     expect(screen.getByText('SP-1002')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'KI-1001 · 키즈 반팔 티셔츠' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: '키즈 반팔 티셔츠' })).toHaveAttribute(
       'href',
       '/product-hub/10000000-0000-4000-8000-000000000001',
     );
-    expect(screen.getByRole('link', { name: 'KI-1001-PURPLE-120 · 보라 / 120' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: '보라 / 120' })).toHaveAttribute(
       'href',
       '/product-hub/10000000-0000-4000-8000-000000000001#variant-20000000-0000-4000-8000-000000000001',
     );
     expect(within(screen.getByRole('table')).getByText('상품 1 · 옵션 2')).toBeInTheDocument();
+    expect(screen.queryByText(/CP-(?:SKU-)?/)).not.toBeInTheDocument();
     expect(screen.getAllByText('미연결').length).toBeGreaterThan(0);
     expect(screen.queryAllByRole('spinbutton')).toHaveLength(0);
     expect(screen.queryByRole('button', { name: /수정|삭제|복원/ })).not.toBeInTheDocument();

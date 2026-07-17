@@ -2,6 +2,7 @@
 
 import { Loader2 } from 'lucide-react';
 import { VariantRecipeSummary } from './VariantRecipeSummary';
+import { operatorProductReference } from '../../lib/operator-product-reference';
 import type {
   ChannelOptionMatchingQueueRow,
   ChannelProductMatchingQueueRow,
@@ -57,7 +58,7 @@ function ProductRows({ rows, onEdit }: {
               <tr key={row.listing.id} className="align-top">
                 <td className="px-4 py-4"><p className="font-bold text-slate-900">{row.channelAccount.name}</p><p className="mt-1 font-mono text-xs text-slate-500">{row.channelAccount.channel}</p></td>
                 <td className="max-w-80 px-4 py-4"><p className="font-semibold text-slate-900">{row.listing.displayName ?? '상품명 없음'}</p><p className="mt-1 font-mono text-xs text-slate-500">{row.listing.externalId}</p></td>
-                <td className="px-4 py-4">{row.linkedProduct ? <><p className="font-bold text-slate-900">{row.linkedProduct.code} · {row.linkedProduct.name}</p><p className="mt-1 text-xs font-semibold text-emerald-700">연결 완료</p></> : <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">미매칭</span>}</td>
+                <td className="px-4 py-4">{row.linkedProduct ? <><p className="font-bold text-slate-900">{operatorProductReference(row.linkedProduct.code, row.linkedProduct.name)}</p><p className="mt-1 text-xs font-semibold text-emerald-700">연결 완료</p></> : <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">미매칭</span>}</td>
                 <td className="px-4 py-4 font-semibold text-slate-700">{row.linkedOptionCount} / {row.optionCount} 연결</td>
                 <td className="px-4 py-4"><button type="button" onClick={() => onEdit(row)} className="rounded-xl border border-[var(--primary,#7048e8)] px-3 py-2 text-xs font-bold text-[var(--primary,#7048e8)]">상품 연결</button></td>
               </tr>
@@ -88,7 +89,7 @@ function OptionRows({ rows, onEdit }: {
                 <td className="px-4 py-4"><p className="font-bold text-slate-900">{row.channelAccount.name}</p><p className="mt-1 font-mono text-xs text-slate-500">{row.channelAccount.channel}</p></td>
                 <td className="px-4 py-4 font-mono text-xs text-slate-600">{row.listing.externalId}</td>
                 <td className="max-w-72 px-4 py-4"><p className="font-semibold text-slate-900">{row.option.itemName ?? '옵션명 없음'}</p><p className="mt-1 font-mono text-xs text-slate-500">{row.option.sellerSku ?? row.option.externalOptionId}</p></td>
-                <td className="px-4 py-4">{row.linkedVariant ? <><p className="font-bold text-slate-900">{row.linkedVariant.code} · {row.linkedVariant.name}</p><p className="mt-1 text-xs text-slate-500">{row.linkedVariant.optionLabel ?? '옵션 설명 없음'}</p></> : <span className="text-xs font-semibold text-slate-500">미연결</span>}</td>
+                <td className="px-4 py-4">{row.linkedVariant ? <><p className="font-bold text-slate-900">{operatorProductReference(row.linkedVariant.code, row.linkedVariant.name)}</p><p className="mt-1 text-xs text-slate-500">{row.linkedVariant.optionLabel ?? '옵션 설명 없음'}</p></> : <span className="text-xs font-semibold text-slate-500">미연결</span>}</td>
                 <td className="px-4 py-4"><VariantRecipeSummary row={row} /></td>
                 <td className="px-4 py-4"><button type="button" disabled={!row.listing.masterProductId} title={!row.listing.masterProductId ? '상품을 먼저 연결해 주세요.' : undefined} onClick={() => onEdit(row)} className="rounded-xl border border-[var(--primary,#7048e8)] px-3 py-2 text-xs font-bold text-[var(--primary,#7048e8)] disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400">옵션 연결</button></td>
               </tr>

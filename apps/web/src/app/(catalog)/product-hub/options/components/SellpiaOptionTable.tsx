@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { formatKRW, formatNumber } from '@/lib/utils';
+import { operatorProductReference } from '../../lib/operator-product-reference';
 import type { InventorySkuSnapshotItem } from '@kiditem/shared/inventory';
 
 interface SellpiaOptionTableProps {
@@ -108,7 +109,7 @@ export default function SellpiaOptionTable({
                               href={`/product-hub/${product.id}`}
                               className="block truncate text-xs font-semibold text-purple-700 hover:underline"
                             >
-                              {product.code} · {product.name}
+                              {operatorProductReference(product.code, product.name)}
                             </Link>
                           ))}
                         </div>
@@ -119,7 +120,7 @@ export default function SellpiaOptionTable({
                               href={`/product-hub/${variant.masterProductId}#variant-${variant.id}`}
                               className="block truncate text-[11px] text-slate-600 hover:text-purple-700 hover:underline"
                             >
-                              {variant.code} · {variant.name}
+                              {operatorProductReference(variant.code, variant.name)}
                             </Link>
                           ))}
                         </div>
