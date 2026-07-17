@@ -266,4 +266,20 @@ describe('SellpiaProductSalesService.getSummary', () => {
     expect(byCode['P-BARCODE'].currentStock).toBe(33);
     expect(byCode['P-DUP-BARCODE'].currentStock).toBe(0);
   });
+
+  it('재고 상품코드가 `{상품코드}-{옵션번호}` 결합형이면 결합 키로 현재고를 조인한다', async () => {
+    const { prisma, findMany, inventoryFindMany } = makePrisma();
+    findMany.mockResolvedValueOnce([
+      { ...row({ productCode: '9734', optionCode: '1', yearMonth: '2026-06', orderQty: 10 }), barcode: 'NO-MATCH' },
+    ]);
+    // Sellpia 재고 엑셀 상품코드 = 9734-1 (product_code-option_code 결합). 단독 9734/1 은 없음.
+    inventoryFindMany.mockResolvedValueOnce([
+      { code: '9734-1', barcode: null, currentStock: 42, lastImportRun: { lastVerifiedAt: new Date('2026-07-16T00:00:00Z') } },
+    ]);
+
+    const out = await new SellpiaProductSalesService(prisma as never).getSummary(ORGANIZATION_ID);
+
+    // 결합 키 매칭 전에는 product_code 단독 매칭 실패 → 0(품절)이었다.
+    expect(out.products[0].currentStock).toBe(42);
+  });
 });

@@ -340,11 +340,20 @@ function resolveCurrentStock(
   stockByBarcode: ReadonlyMap<string, number | null>,
 ): number | undefined {
   const productCode = product.productCode.trim();
+  const optionCode = product.optionCode.trim();
+
+  // Sellpia 재고 엑셀의 `상품코드`는 `{상품코드}-{옵션번호}`(예: 92-1) 결합 형식이지만
+  // 상품별 소진(stat_prd_profit)은 product_code/option_code 로 분리돼 온다. 결합 키를
+  // 최우선으로 맞춘다 — 라이브 1408개 중 단독 매칭 0개, 결합 매칭 1334개(95%).
+  if (productCode && optionCode) {
+    const combined = `${productCode}-${optionCode}`;
+    if (stockByCode.has(combined)) return stockByCode.get(combined);
+  }
+
   if (productCode && stockByCode.has(productCode)) {
     return stockByCode.get(productCode);
   }
 
-  const optionCode = product.optionCode.trim();
   if (optionCode && stockByCode.has(optionCode)) {
     return stockByCode.get(optionCode);
   }
