@@ -46,6 +46,8 @@ describe('InventorySku snapshot contracts', () => {
       limit: 50,
       summary: {
         totalSkus: 1,
+        linkedSkus: 1,
+        unlinkedSkus: 0,
         inStockSkus: 1,
         outOfStockSkus: 0,
         totalUnits: 8,
@@ -72,6 +74,26 @@ describe('InventorySku snapshot contracts', () => {
         updatedAt: '2026-07-12T00:00:00.000Z',
       },
     })).toBeDefined();
+  });
+
+  it('requires exhaustive linked and unlinked SKU coverage in the summary', () => {
+    expect(() => InventorySkuSnapshotListResponseSchema.parse({
+      items: [snapshotItem],
+      total: 1,
+      page: 1,
+      limit: 50,
+      summary: {
+        totalSkus: 2,
+        linkedSkus: 1,
+        unlinkedSkus: 0,
+        inStockSkus: 1,
+        outOfStockSkus: 1,
+        totalUnits: 8,
+        pricedAssetValue: 8_000,
+        unpricedSkuCount: 0,
+      },
+      latestImport: null,
+    })).toThrow(/Linked and unlinked SKU counts/);
   });
 
   it('publishes only the supported stock filters', () => {

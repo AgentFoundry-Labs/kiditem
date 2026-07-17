@@ -78,8 +78,35 @@ const data = {
   total: 2,
   page: 1,
   limit: 50,
-  summary: { totalSkus: 2, inStockSkus: 1, outOfStockSkus: 1, totalUnits: 12, pricedAssetValue: 60000, unpricedSkuCount: 1 },
-  latestImport: null,
+  summary: {
+    totalSkus: 8,
+    linkedSkus: 3,
+    unlinkedSkus: 5,
+    inStockSkus: 1,
+    outOfStockSkus: 1,
+    totalUnits: 12,
+    pricedAssetValue: 60000,
+    unpricedSkuCount: 1,
+  },
+  latestImport: {
+    id: '00000000-0000-4000-8000-000000000099',
+    fileName: 'sellpia.xls',
+    fileHash: 'a'.repeat(64),
+    status: 'completed' as const,
+    rowCount: 8,
+    importedAt: '2026-07-14T01:00:00.000Z',
+    lastVerifiedAt: null,
+    verificationCount: 0,
+    lastTrigger: null,
+    freshnessGeneration: null,
+    manualFreshExportConfirmedAt: null,
+    manualFreshExportConfirmedBy: null,
+    qualityReport: null,
+    errorCode: null,
+    errorMessage: null,
+    createdAt: '2026-07-14T01:00:00.000Z',
+    updatedAt: '2026-07-14T01:00:00.000Z',
+  },
 };
 
 describe('<ProductOptionsWorkspace>', () => {
@@ -118,6 +145,15 @@ describe('<ProductOptionsWorkspace>', () => {
     expect(within(screen.getByRole('table')).getByText('상품 1 · 옵션 2')).toBeInTheDocument();
     expect(screen.queryByText(/CP-(?:SKU-)?/)).not.toBeInTheDocument();
     expect(screen.getAllByText('미연결').length).toBeGreaterThan(0);
+    expect(screen.getByText('읽기 전용')).toBeInTheDocument();
+    expect(screen.getByText('현재 상태 범위 Sellpia SKU 8개')).toBeInTheDocument();
+    expect(screen.getByText('레시피 연결 3개')).toBeInTheDocument();
+    expect(screen.getByText('연결 필요 5개')).toBeInTheDocument();
+    expect(screen.getByText('최근 성공 가져오기: 2026. 7. 14. 오전 10:00 · 완료')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '레시피 구성 안내' })).toHaveAttribute(
+      'href',
+      '/product-hub/matching?level=options',
+    );
     expect(screen.queryAllByRole('spinbutton')).toHaveLength(0);
     expect(screen.queryByRole('button', { name: /수정|삭제|복원/ })).not.toBeInTheDocument();
     expect(vi.mocked(useQuery).mock.calls[0]?.[0].queryKey).toEqual([

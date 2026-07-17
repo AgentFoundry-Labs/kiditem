@@ -139,11 +139,21 @@ export type InventorySkuSnapshotItem = z.infer<typeof InventorySkuSnapshotItemSc
 
 export const InventorySkuSnapshotSummarySchema = z.object({
   totalSkus: z.number().int().nonnegative(),
+  linkedSkus: z.number().int().nonnegative(),
+  unlinkedSkus: z.number().int().nonnegative(),
   inStockSkus: z.number().int().nonnegative(),
   outOfStockSkus: z.number().int().nonnegative(),
   totalUnits: z.number().int().nonnegative(),
   pricedAssetValue: z.number().int().nonnegative(),
   unpricedSkuCount: z.number().int().nonnegative(),
+}).superRefine((summary, ctx) => {
+  if (summary.linkedSkus + summary.unlinkedSkus !== summary.totalSkus) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['linkedSkus'],
+      message: 'Linked and unlinked SKU counts must equal the total SKU count',
+    });
+  }
 });
 export type InventorySkuSnapshotSummary = z.infer<
   typeof InventorySkuSnapshotSummarySchema

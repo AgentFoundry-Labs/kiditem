@@ -102,6 +102,8 @@ type ImportRunRow = Prisma.SourceImportRunGetPayload<{
 
 type SummaryRow = {
   totalSkus: bigint;
+  linkedSkus: bigint;
+  unlinkedSkus: bigint;
   inStockSkus: bigint;
   outOfStockSkus: bigint;
   totalUnits: bigint;
@@ -140,9 +142,35 @@ implements InventorySkuSnapshotListRepositoryPort {
                 FILTER (WHERE purchase_price IS NOT NULL),
               0
             )::bigint AS "pricedAssetValue",
-            COUNT(*) FILTER (WHERE purchase_price IS NULL)::bigint AS "unpricedSkuCount"
-          FROM sellpia_inventory_skus
-          WHERE organization_id = ${organizationId}::uuid
+            COUNT(*) FILTER (WHERE purchase_price IS NULL)::bigint AS "unpricedSkuCount",
+            COUNT(*) FILTER (WHERE EXISTS (
+              SELECT 1
+              FROM product_variant_components pvc
+              INNER JOIN product_variants pv
+                ON pv.id = pvc.product_variant_id
+                AND pv.organization_id = ${organizationId}::uuid
+                AND pv.is_active = TRUE
+              INNER JOIN master_products mp
+                ON mp.id = pv.master_product_id
+                AND mp.organization_id = ${organizationId}::uuid
+              WHERE pvc.organization_id = ${organizationId}::uuid
+                AND pvc.sellpia_inventory_sku_id = sku.id
+            ))::bigint AS "linkedSkus",
+            COUNT(*) FILTER (WHERE NOT EXISTS (
+              SELECT 1
+              FROM product_variant_components pvc
+              INNER JOIN product_variants pv
+                ON pv.id = pvc.product_variant_id
+                AND pv.organization_id = ${organizationId}::uuid
+                AND pv.is_active = TRUE
+              INNER JOIN master_products mp
+                ON mp.id = pv.master_product_id
+                AND mp.organization_id = ${organizationId}::uuid
+              WHERE pvc.organization_id = ${organizationId}::uuid
+                AND pvc.sellpia_inventory_sku_id = sku.id
+            ))::bigint AS "unlinkedSkus"
+          FROM sellpia_inventory_skus sku
+          WHERE sku.organization_id = ${organizationId}::uuid
             ${activeStatusSql(query.activeStatus)}
         `,
         transaction.sellpiaInventoryState.findUnique({
@@ -216,6 +244,8 @@ implements InventorySkuSnapshotListRepositoryPort {
         total,
         summary: {
           totalSkus: safeInteger(summary.totalSkus, 'totalSkus'),
+          linkedSkus: safeInteger(summary.linkedSkus, 'linkedSkus'),
+          unlinkedSkus: safeInteger(summary.unlinkedSkus, 'unlinkedSkus'),
           inStockSkus: safeInteger(summary.inStockSkus, 'inStockSkus'),
           outOfStockSkus: safeInteger(summary.outOfStockSkus, 'outOfStockSkus'),
           totalUnits: safeInteger(summary.totalUnits, 'totalUnits'),
@@ -377,8 +407,8 @@ function activeComponentWhere(organizationId: string) {
 function activeStatusSql(
   status: InventorySkuSnapshotRepositoryQuery['activeStatus'],
 ): Prisma.Sql {
-  if (status === 'active') return Prisma.sql`AND is_active = TRUE`;
-  if (status === 'inactive') return Prisma.sql`AND is_active = FALSE`;
+  if (status === 'active') return Prisma.sql`AND sku.is_active = TRUE`;
+  if (status === 'inactive') return Prisma.sql`AND sku.is_active = FALSE`;
   return Prisma.empty;
 }
 
@@ -410,6 +440,8 @@ function safeInteger(value: bigint, field: string): number {
 function emptySummaryRow(): SummaryRow {
   return {
     totalSkus: 0n,
+    linkedSkus: 0n,
+    unlinkedSkus: 0n,
     inStockSkus: 0n,
     outOfStockSkus: 0n,
     totalUnits: 0n,

@@ -48,6 +48,8 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       },
       $queryRaw: vi.fn().mockResolvedValue([{
         totalSkus: 1n,
+        linkedSkus: 1n,
+        unlinkedSkus: 0n,
         inStockSkus: 1n,
         outOfStockSkus: 0n,
         totalUnits: 3n,
@@ -103,6 +105,20 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
         { id: 'variant-2', masterProductId: 'product-1', code: 'VARIANT-2', name: '옵션 2', optionLabel: '색상: 파랑' },
       ],
     });
+    expect(result.summary).toEqual({
+      totalSkus: 1,
+      linkedSkus: 1,
+      unlinkedSkus: 0,
+      inStockSkus: 1,
+      outOfStockSkus: 0,
+      totalUnits: 3,
+      pricedAssetValue: 3_000,
+      unpricedSkuCount: 0,
+    });
+    const summarySql = String(tx.$queryRaw.mock.calls[0]?.[0]);
+    expect(summarySql).toContain('EXISTS');
+    expect(summarySql).toContain('product_variant_components');
+    expect(summarySql).toContain('pvc.organization_id =');
   });
 
   it('scopes a single snapshot read by both organization and inventory SKU id', async () => {
