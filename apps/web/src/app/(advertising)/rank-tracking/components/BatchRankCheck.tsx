@@ -215,7 +215,7 @@ export default function BatchRankCheck({
         <BrowserCollectionRunControls
           session={collectionSession}
           onWebRestart={(session) => start(session.runId)}
-          className="basis-full"
+          className="fixed bottom-4 right-4 z-40 w-[min(92vw,26rem)] shadow-xl"
         />
       )}
     </div>
