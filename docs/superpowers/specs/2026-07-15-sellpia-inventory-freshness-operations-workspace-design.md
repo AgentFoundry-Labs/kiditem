@@ -14,10 +14,10 @@ UI와 라우트에 대해서는 이 수정 사항이 우선한다.
 - `/product-hub` 목록·상세, `/product-hub/matching`,
   `/product-hub/options`도 모두 해당 commit의 화면을 그대로 유지한다.
   이후 Sellpia 기능은 기존 배치를 바꾸지 않는 추가 요소로만 노출한다.
-- `/purchase-orders?tab=rocket`에는 신규 preview를 추가한다. 기존
-  `/rocket-orders` 화면은 독립적으로 유지한다. 단, 기존 화면의
-  `납품 수량 판단 추후 연동` 자리는 동일한 Sellpia 최신성·레시피 기반
-  preview를 연결하며 실제 확정·provider 제출은 계속 비활성이다.
+- `/rocket-orders`의 `납품 수량 판단 추후 연동` 자리에 Sellpia
+  최신성·레시피 기반 preview를 연결한다. `/purchase-orders`는 일반
+  공급사 발주 화면으로 유지하고 중복 Rocket preview를 노출하지 않는다.
+  실제 provider 제출은 계속 비활성이다.
 - `/product-hub/options`의 Sellpia 읽기 전용 표가 기준 화면이다.
 
 주문수집의 전송 상태·최신성 예약은 기존 생성 파일 흐름 안에 연결하고

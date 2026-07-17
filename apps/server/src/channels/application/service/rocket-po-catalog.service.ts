@@ -38,18 +38,25 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
       channelAccountId: request.channelAccountId,
     });
     if (!account) throw new NotFoundException('Active Rocket channel account not found');
-    if (account.vendorId?.trim() !== request.collection.vendorId) {
+    if (request.rows.length === 0) {
+      return { blockingReason: null, catalog: null, identities: [] };
+    }
+    const accountVendorId = account.vendorId?.trim() ?? '';
+    const evidenceVendorId = request.collection.vendorId.trim();
+    if (accountVendorId.length === 0
+      || (evidenceVendorId.length > 0 && accountVendorId !== evidenceVendorId)) {
       return { blockingReason: 'vendor_mismatch', catalog: null, identities: [] };
     }
+    const vendorId = evidenceVendorId || accountVendorId;
 
     const rows = [...request.rows].sort((left, right) =>
       left.poLineId.localeCompare(right.poLineId));
-    const artifactHash = canonicalArtifactHash(request, rows);
+    const artifactHash = canonicalArtifactHash(request, vendorId, rows);
     const published = await this.repository.publish({
       organizationId: input.organizationId,
       userId: input.userId,
       channelAccountId: request.channelAccountId,
-      vendorId: request.collection.vendorId,
+      vendorId,
       fileName: ARTIFACT_FILE_NAME,
       artifactHash,
       rows,
@@ -62,23 +69,26 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
 function isCompleteCollection(request: RocketPurchasePreviewRequest): boolean {
   const evidence = request.collection;
   const rowPoNumbers = new Set(request.rows.map(({ poNumber }) => poNumber));
-  return evidence.vendorId.length > 0
+  const requiresVendorEvidence = request.rows.length > 0;
+  return (!requiresVendorEvidence || evidence.vendorId.length > 0)
     && !evidence.truncated
     && evidence.failedPoNumbers.length === 0
     && evidence.listPagesRead < 20
     && evidence.detailPoCount < 40
     && evidence.totalListPages <= evidence.listPagesRead
     && evidence.detailPoCount === rowPoNumbers.size
-    && request.rows.every(({ vendorId }) => vendorId === evidence.vendorId);
+    && (!requiresVendorEvidence
+      || request.rows.every(({ vendorId }) => vendorId === evidence.vendorId));
 }
 
 function canonicalArtifactHash(
   request: RocketPurchasePreviewRequest,
+  vendorId: string,
   rows: RocketPoCatalogRow[],
 ): string {
   const canonical = JSON.stringify({
     collection: {
-      vendorId: request.collection.vendorId,
+      vendorId,
       listPagesRead: request.collection.listPagesRead,
       totalListPages: request.collection.totalListPages,
       truncated: request.collection.truncated,

@@ -43,15 +43,16 @@ Inventory's opaque fence but does not derive freshness or write inventory state.
 
 1. Use an active organization-owned `ChannelAccount` whose stored channel is
    exactly `rocket`. Never infer Rocket from its display name.
-2. In the existing decision area on `/rocket-orders` (or the additive
-   `/purchase-orders?tab=rocket` preview), choose the account and collect the
-   intended ETA range through the order-collector extension.
+2. In the existing decision area on `/rocket-orders`, choose the account and
+   collect the intended ETA range through the order-collector extension.
 3. The extension returns a caller UUID `collectionRunId`, the non-display
    `vendorId`, page/detail counts, truncation, failed PO numbers, and stable PO
    line identities. `vendorName` is never accepted as identity.
-4. Collection is incomplete when vendor IDs are missing/mixed, any requested PO
-   detail failed, or the 20-list-page/40-detail-page safety limits truncate the
-   result.
+4. Collection is incomplete when non-empty results have missing/mixed vendor
+   IDs, any requested PO detail failed, or the 20-list-page/40-detail-page
+   safety limits truncate the result. A complete zero-PO result legitimately
+   has no collected vendor ID; after validating the selected active account,
+   the server returns an empty result without publishing a catalog artifact.
 5. Channels validates organization, account, active status, channel, and vendor
    identity, canonicalizes the artifact, and calculates its SHA-256 on the
    server. A duplicate completed artifact is reused.
@@ -120,16 +121,15 @@ not proof of Coupang acceptance and does not call a marketplace provider.
 
 | Route | Responsibility |
 |---|---|
-| `/purchase-orders?tab=rocket` | Additive account selection, authenticated collection, completeness evidence, editable deterministic preview, confirmation/workbook, and release. |
-| `/rocket-orders` | Preserved `c9e7caf8` calendar/list/file-history UI with the stale capacity-decision placeholder replaced by the same Sellpia preview contract. |
+| `/rocket-orders` | Preserved `c9e7caf8` calendar/list/file-history UI with the stale capacity-decision placeholder replaced by authenticated collection, completeness evidence, editable deterministic preview, confirmation/workbook, and release. |
+| `/purchase-orders` | General supplier purchase-order operations only. |
 | `/product-hub/matching` | Baseline Coupang/Rocket SKU queue and exact Sellpia component-recipe confirmation workspace. |
 | `/inventory-hub?tab=sellpia-sync` | Shared Sellpia freshness status, current basis, attempts, warnings, and manual fallback. |
 | `/stock-ops` | Baseline inventory analysis: Sellpia/channel zero stock, bottlenecks, mapping attention, inventory value, freshness, transfer, and return records. |
 
-The two Rocket routes keep their own layouts and do not redirect to each other.
-They may consume the same Supply contract. On `/rocket-orders`, integrate it
-only at the existing capacity-decision placeholder; do not replace the
-calendar/list/file-history shell.
+On `/rocket-orders`, integrate the Supply-owned contract only at the existing
+capacity-decision placeholder; do not replace the calendar/list/file-history
+shell or expose a duplicate Rocket review workspace under `/purchase-orders`.
 
 ## Record-Only Operations
 

@@ -14,9 +14,9 @@ describe('Rocket purchase decision boundary', () => {
       routeRoot,
       'components/RocketOrdersWorkspace.tsx',
     ), 'utf8');
-    const purchaseSource = readFileSync(resolve(
+    const purchaseWorkspaceSource = readFileSync(resolve(
       webRoot,
-      'src/app/(supply)/purchase-orders/components/RocketPurchaseOrdersWorkspace.tsx',
+      'src/app/(supply)/purchase-orders/components/PurchaseOrdersWorkspace.tsx',
     ), 'utf8');
     const previewSectionSource = readFileSync(resolve(
       webRoot,
@@ -52,9 +52,8 @@ describe('Rocket purchase decision boundary', () => {
     expect(operationsSource).toContain("['month', '월 달력']");
     expect(operationsSource).toContain("['chart', '차트']");
     expect(operationsSource).toContain('<RocketConfirmFileList');
-    expect(purchaseSource).toContain('로켓 발주 수량 검토');
-    expect(purchaseSource).toContain('<RocketPurchasePreviewSection />');
-    expect(purchaseSource).not.toContain('RocketOrdersWorkspace');
+    expect(purchaseWorkspaceSource).not.toContain('RocketPurchaseOrdersWorkspace');
+    expect(purchaseWorkspaceSource).not.toContain("activeTab === 'rocket'");
     expect(operationsSource).toContain('{decisionWorkspace}');
     expect(operationsSource).not.toContain('납품 수량 판단은 추후 연동합니다');
     expect(operationsSource).not.toContain('재고 매핑 기반 판단은 추후 연동');

@@ -55,7 +55,8 @@ function normalizeReviewQuantity(value: string, maxQuantity: number): number {
 
 function collectionIsIncomplete(summary: CollectionRunSummary): boolean {
   const { collection } = summary;
-  return collection.vendorId.length === 0
+  const requiresVendorEvidence = summary.poCount > 0 || summary.rowCount > 0;
+  return (requiresVendorEvidence && collection.vendorId.length === 0)
     || collection.truncated
     || collection.failedPoNumbers.length > 0
     || collection.listPagesRead >= ROCKET_PO_LIST_PAGE_LIMIT
@@ -76,9 +77,6 @@ function aggregateCollectionWarning(
   }
   if (previewReasons.has('vendor_mismatch')) {
     return '선택한 로켓 채널 계정과 수집한 PO의 공급사가 일치하지 않습니다.';
-  }
-  if (preview && preview.rows.length === 0 && preview.catalog === null) {
-    return '서버가 수집 결과를 차단했습니다. 수집 완전성과 선택한 채널 계정의 공급사를 확인해 주세요.';
   }
   return null;
 }
@@ -389,7 +387,7 @@ export function RocketPurchaseWorkspace({
                 해당 기간에 검토할 로켓 PO가 없습니다.
               </p>
               <p className="mt-1 text-xs text-[var(--text-tertiary,#94a3b8)]">
-                조회 기간과 주문 상태를 바꾼 뒤 다시 계산해 보세요.
+                거래확인서요청 상태만 검토합니다. 조회 기간을 바꾼 뒤 다시 계산해 보세요.
               </p>
             </>
           )}

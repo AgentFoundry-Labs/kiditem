@@ -369,9 +369,9 @@ Notable route subtrees:
 
 - `/rocket-orders` remains the preserved Rocket operations screen and is not a
   compatibility redirect. Its existing `납품 수량 판단 추후 연동` placeholder
-  consumes the deterministic Sellpia freshness/component-capacity preview.
-  `/purchase-orders?tab=rocket` may expose the same preview contract without
-  replacing either layout.
+  consumes the deterministic Sellpia freshness/component-capacity preview and
+  is the only operator-facing Rocket review route. `/purchase-orders` remains
+  the general supplier purchase-order screen.
 
 - The baseline tab ownership is exact: `/inventory-hub` has `status`, `po`,
   `io`, `sellpia-sync`, `rocket-events`, `ledger`, `audits`, and `assets`;
@@ -585,11 +585,10 @@ reachable product, order, inventory, fulfillment, supplier, and finance
 screens. One shared coordinator/drawer supplies Sellpia freshness, while pages
 may expose compact status and sync controls without rearranging baseline
 layouts. Product list, detail, matching, and read-only options keep their exact
-baseline ownership. Rocket preview is wired into the existing decision
-placeholder on `/rocket-orders` and may also appear at
-`/purchase-orders?tab=rocket`; the same Supply-owned confirmation workspace is
-available in both compositions. Marketplace provider submission remains
-disabled.
+baseline ownership. The Supply-owned Rocket preview and confirmation workspace
+is wired only into the existing decision placeholder on `/rocket-orders`;
+`/purchase-orders` remains the general supplier purchase-order screen.
+Marketplace provider submission remains disabled.
 
 Exact operation and recovery steps live in the
 [freshness runbook](runbooks/sellpia-inventory-freshness.md),

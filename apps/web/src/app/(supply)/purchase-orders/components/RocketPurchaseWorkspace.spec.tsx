@@ -424,40 +424,6 @@ describe('RocketPurchaseWorkspace', () => {
   });
 
   it('shows a clear no-PO state and collection evidence for a legitimate zero-row run', async () => {
-    const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
-
-    await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
-
-    expect(await screen.findByText('해당 기간에 검토할 로켓 PO가 없습니다.'))
-      .toBeInTheDocument();
-    expect(screen.getByText(/목록 1\/1페이지/)).toBeInTheDocument();
-    expect(screen.getByText(/PO 0건/)).toBeInTheDocument();
-    expect(screen.queryByRole('table')).not.toBeInTheDocument();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-  });
-
-  it('warns when the backend blocks an otherwise locally complete zero-row collection', async () => {
-    vi.mocked(previewRocketPurchases).mockResolvedValue({
-      collectionRunId: '22222222-2222-4222-8222-222222222222',
-      catalog: null,
-      inventoryGeneration: null,
-      rows: [],
-    });
-    const user = userEvent.setup();
-    render(<RocketPurchaseWorkspace channelAccountId={ACCOUNT_ID} />);
-
-    await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      '서버가 수집 결과를 차단했습니다.',
-    );
-    expect(screen.getByText('수집 결과가 차단되어 검토할 수 없습니다.')).toBeInTheDocument();
-    expect(screen.queryByText('해당 기간에 검토할 로켓 PO가 없습니다.'))
-      .not.toBeInTheDocument();
-  });
-
-  it('does not present a backend-blocked zero-row collection as a normal no-PO result', async () => {
     vi.mocked(collectRocketPoRowsFromExtension).mockResolvedValue({
       collection: {
         collectionRunId: '22222222-2222-4222-8222-222222222222',
@@ -482,10 +448,15 @@ describe('RocketPurchaseWorkspace', () => {
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('수집 범위가 불완전합니다.');
-    expect(screen.getByText('수집 결과가 차단되어 검토할 수 없습니다.')).toBeInTheDocument();
-    expect(screen.queryByText('해당 기간에 검토할 로켓 PO가 없습니다.'))
-      .not.toBeInTheDocument();
+    expect(await screen.findByText('해당 기간에 검토할 로켓 PO가 없습니다.'))
+      .toBeInTheDocument();
+    expect(screen.getByText(
+      '거래확인서요청 상태만 검토합니다. 조회 기간을 바꾼 뒤 다시 계산해 보세요.',
+    )).toBeInTheDocument();
+    expect(screen.getByText(/목록 1\/1페이지/)).toBeInTheDocument();
+    expect(screen.getByText(/PO 0건/)).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it.each([

@@ -128,8 +128,9 @@ UI; they do not replace existing pages or collapse their URLs:
   independently reachable even when another hub reuses related components.
 - `/rocket-orders` keeps its baseline Rocket operations UI and replaces the
   existing capacity-decision placeholder with the Supply-owned Sellpia
-  freshness/recipe preview and confirmation workspace.
-  `/purchase-orders?tab=rocket` exposes the same contract.
+  freshness/recipe preview and confirmation workspace. It is the only
+  operator-facing Rocket review route; `/purchase-orders` remains general
+  supplier purchasing.
 - `/product-hub/options` keeps the baseline dedicated read-only Sellpia table.
 
 The shared compact status/drawer and synchronization controls are additive and

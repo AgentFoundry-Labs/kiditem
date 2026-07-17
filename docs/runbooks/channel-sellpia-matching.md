@@ -62,7 +62,7 @@ Inventory freshness and publication are owned by
 ### Rocket
 
 Rocket identities are published through the complete preview collection in
-`/purchase-orders?tab=rocket`. Confirm the selected active Rocket account,
+`/rocket-orders`. Confirm the selected active Rocket account,
 exact vendor identity, collection completeness, and canonical artifact hash
 before moving to evidence review. A partial collection does not inactivate
 older identities.

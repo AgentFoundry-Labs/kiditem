@@ -5,8 +5,8 @@ Consult this document first instead of relying on memorized knowledge.
 `app/(orders)/rocket-orders/` owns the independently reachable Rocket
 operations UI from `c9e7caf8`. Its existing `납품 수량 판단 추후 연동`
 placeholder now hosts the deterministic Sellpia freshness, component-capacity,
-and confirmation workspace. Supply owns the contract, which may also be exposed at
-`/purchase-orders?tab=rocket`.
+and confirmation workspace. Supply owns the action contract and shared preview
+components; `/rocket-orders` is the only operator-facing Rocket review route.
 
 ## State Rules
 

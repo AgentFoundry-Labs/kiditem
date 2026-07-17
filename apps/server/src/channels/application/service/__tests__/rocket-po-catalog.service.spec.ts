@@ -91,6 +91,30 @@ describe('RocketPoCatalogService', () => {
     expect(repo.publish).not.toHaveBeenCalled();
   });
 
+  it('accepts a complete empty collection without vendor identity or publication', async () => {
+    const repo = repository();
+    repo.findActiveRocketAccount.mockResolvedValue({ vendorId: null });
+    const service = new RocketPoCatalogService(repo);
+
+    const result = await service.publishAndResolve({
+      organizationId,
+      userId,
+      request: request({
+        collection: {
+          ...request().collection,
+          vendorId: '',
+          detailPoCount: 0,
+        },
+        rows: [],
+      }),
+    });
+
+    expect(result.blockingReason).toBeNull();
+    expect(result.catalog).toBeNull();
+    expect(result.identities).toEqual([]);
+    expect(repo.publish).not.toHaveBeenCalled();
+  });
+
   it('blocks an exact Rocket vendor mismatch before catalog publication', async () => {
     const repo = repository();
     repo.findActiveRocketAccount.mockResolvedValue({ vendorId: 'OTHER-VENDOR' });
