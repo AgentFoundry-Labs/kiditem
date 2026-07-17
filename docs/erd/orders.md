@@ -43,6 +43,7 @@ erDiagram
     String id PK
     String organizationId FK
     String channelAccountId FK
+    String sourceImportRunId FK
     String externalOrderId
     String externalNumber
     String customerName
@@ -76,6 +77,7 @@ erDiagram
     Int totalPrice
     String status
     String externalLineId
+    String externalBarcode
     Json metadata
     DateTime createdAt
     DateTime updatedAt
@@ -201,6 +203,7 @@ erDiagram
 | CSRecord | organization | references external | Core | Organization |
 | Order | channelAccount | references external | Core | ChannelAccount |
 | Order | organization | references external | Core | Organization |
+| Order | sourceImportRun | references external | Core | SourceImportRun |
 | OrderLineItem | listingOption | references external | Core | ChannelListingOption |
 | OrderLineItem | organization | references external | Core | Organization |
 | OrderReturn | channelAccount | references external | Core | ChannelAccount |

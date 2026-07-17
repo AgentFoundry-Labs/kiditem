@@ -30,7 +30,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Channels](erd/channels.md) | 18 |
 | [Core](erd/core.md) | 12 |
 | [Finance](erd/finance.md) | 5 |
-| [Inventory](erd/inventory.md) | 11 |
+| [Inventory](erd/inventory.md) | 13 |
 | [Orders](erd/orders.md) | 10 |
 | [Sourcing](erd/sourcing.md) | 10 |
 | [Supply](erd/supply.md) | 9 |
@@ -116,6 +116,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ProcessingCost | Finance | `processing_costs` | - |
 | ProfitLoss | Finance | `profit_loss` | 월간 손익. organizationId+listingId+year+month unique. |
 | SalesPlan | Finance | `sales_plans` | - |
+| InventoryCommitment | Inventory | `inventory_commitments` | Physical-stock-independent commitment that reduces common available Sellpia capacity. |
+| InventoryCommitmentAllocation | Inventory | `inventory_commitment_allocations` | Component-level Sellpia SKU quantity held by one inventory commitment. |
 | PickingItem | Inventory | `picking_items` | - |
 | PickingList | Inventory | `picking_lists` | - |
 | ReturnTransfer | Inventory | `return_transfers` | - |
@@ -1201,6 +1203,35 @@ erDiagram
     String reason
     DateTime calculatedAt
   }
+  InventoryCommitment {
+    String id PK
+    String organizationId FK
+    String kind
+    String sourceId
+    String businessKey
+    Int unitQuantity
+    String status
+    BigInt inventoryGeneration
+    String predecessorCommitmentId FK
+    String createdBy FK
+    String releasedBy FK
+    DateTime releasedAt
+    String releaseReason
+    String settledBy FK
+    DateTime settledAt
+    String settlementReason
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  InventoryCommitmentAllocation {
+    String id PK
+    String organizationId FK
+    String commitmentId FK
+    String sellpiaInventorySkuId FK
+    Int unitsPerItem
+    Int quantity
+    DateTime createdAt
+  }
   LegalEntity {
     String id PK
     String organizationId FK
@@ -1354,6 +1385,7 @@ erDiagram
     String id PK
     String organizationId FK
     String channelAccountId FK
+    String sourceImportRunId FK
     String externalOrderId
     String externalNumber
     String customerName
@@ -1387,6 +1419,7 @@ erDiagram
     Int totalPrice
     String status
     String externalLineId
+    String externalBarcode
     Json metadata
     DateTime createdAt
     DateTime updatedAt
@@ -2423,6 +2456,8 @@ erDiagram
   DetailPageRevision o|--o{ ProductPreparation : "selectedDetailPageRevision"
   ExecutionTask ||--o{ ExecutionLog : "task"
   ExecutionWorker o|--o{ ExecutionTask : "worker"
+  InventoryCommitment o|--o{ InventoryCommitment : "predecessor"
+  InventoryCommitment ||--o{ InventoryCommitmentAllocation : "commitment"
   Marketplace o|--o{ WorkflowTemplate : "marketplace"
   MasterProduct o|--o{ ChannelListing : "masterProduct"
   MasterProduct ||--o{ ProcessingCost : "master"
@@ -2487,6 +2522,8 @@ erDiagram
   Organization ||--o{ DetailPageRevision : "organization"
   Organization ||--o{ ExecutionWorker : "organization"
   Organization ||--o{ GradeHistory : "organization"
+  Organization ||--o{ InventoryCommitment : "organization"
+  Organization ||--o{ InventoryCommitmentAllocation : "organization"
   Organization ||--o{ LegalEntity : "organization"
   Organization ||--o{ LiveCommerceBroadcastDailySnapshot : "organization"
   Organization ||--o{ LiveCommerceProductDailySnapshot : "organization"
@@ -2561,6 +2598,7 @@ erDiagram
   PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"
   RocketPurchaseConfirmation ||--o{ RocketPurchaseConfirmationLine : "confirmation"
   RocketPurchaseConfirmationLine ||--o{ RocketPurchaseConfirmationAllocation : "confirmationLine"
+  SellpiaInventorySku ||--o{ InventoryCommitmentAllocation : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ PickingItem : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ ProductVariantComponent : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ PurchaseOrderItem : "sellpiaInventorySku"
@@ -2573,6 +2611,7 @@ erDiagram
   SourceImportRun o|--o{ ChannelListing : "lastImportRun"
   SourceImportRun o|--o{ ChannelListingOption : "lastImportRun"
   SourceImportRun o|--o{ ChannelScrapeRun : "sourceImportRun"
+  SourceImportRun o|--o{ Order : "sourceImportRun"
   SourceImportRun ||--o{ RocketPurchaseConfirmation : "sourceImportRun"
   SourceImportRun o|--o{ SellpiaInventorySku : "lastImportRun"
   SourceImportRun o|--o{ SellpiaInventoryState : "lastCompletedImportRun"
@@ -2612,6 +2651,9 @@ erDiagram
   User o|--o{ ContentWorkspaceThumbnailSelection : "createdByUser"
   User o|--o{ DetailPageArtifact : "createdByUser"
   User o|--o{ DetailPageRevision : "createdByUser"
+  User ||--o{ InventoryCommitment : "creator"
+  User o|--o{ InventoryCommitment : "releaser"
+  User o|--o{ InventoryCommitment : "settler"
   User o|--o{ OrganizationMembership : "invitedBy"
   User ||--o{ OrganizationMembership : "user"
   User o|--o{ ProductPreparation : "createdByUser"

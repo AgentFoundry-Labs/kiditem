@@ -3,9 +3,10 @@
 /// @namespace Orders
 /// @describe 채널-agnostic 주문 aggregate. Coupang 등 채널별 raw payload 는 metadata Json. 라인 아이템은 OrderLineItem.
 model Order {
-  id               String @id @default(uuid()) @db.Uuid
-  organizationId   String @map("organization_id") @db.Uuid
-  channelAccountId String @map("channel_account_id") @db.Uuid
+  id                String  @id @default(uuid()) @db.Uuid
+  organizationId    String  @map("organization_id") @db.Uuid
+  channelAccountId  String  @map("channel_account_id") @db.Uuid
+  sourceImportRunId String? @map("source_import_run_id") @db.Uuid
 
   externalOrderId String  @map("external_order_id") @db.VarChar(60)
   externalNumber  String? @map("external_number") @db.VarChar(60)
@@ -33,13 +34,14 @@ model Order {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelAccount ChannelAccount  @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  lineItems      OrderLineItem[]
-  shipments      Shipment[]
-  returns        OrderReturn[]
-  unshippedItems UnshippedItem[]
-  csRecords      CSRecord[]
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount  ChannelAccount   @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceImportRun SourceImportRun? @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  lineItems       OrderLineItem[]
+  shipments       Shipment[]
+  returns         OrderReturn[]
+  unshippedItems  UnshippedItem[]
+  csRecords       CSRecord[]
 
   @@unique([id, organizationId])
   @@unique([organizationId, channelAccountId, externalOrderId])
@@ -47,6 +49,7 @@ model Order {
   @@index([organizationId, status])
   @@index([organizationId, orderedAt])
   @@index([channelAccountId])
+  @@index([sourceImportRunId])
   @@map("orders")
 }
 
@@ -69,7 +72,8 @@ model OrderLineItem {
 
   status String @default("pending")
 
-  externalLineId String? @map("external_line_id") @db.VarChar(60)
+  externalLineId  String? @map("external_line_id") @db.VarChar(60)
+  externalBarcode String? @map("external_barcode") @db.VarChar(80)
 
   metadata Json?
 

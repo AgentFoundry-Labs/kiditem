@@ -30,6 +30,7 @@ model SellpiaInventorySku {
   pickingItems                          PickingItem[]                          @relation("PickingItemSellpiaInventorySku")
   returnTransfers                       ReturnTransfer[]                       @relation("ReturnTransferSellpiaInventorySku")
   rocketPurchaseConfirmationAllocations RocketPurchaseConfirmationAllocation[]
+  inventoryCommitmentAllocations        InventoryCommitmentAllocation[]
 
   @@unique([organizationId, code])
   @@unique([id, organizationId], map: "sellpia_inventory_skus_id_org_key")
@@ -38,6 +39,68 @@ model SellpiaInventorySku {
   @@index([lastImportRunId])
   @@index([organizationId, isActive])
   @@map("sellpia_inventory_skus")
+}
+
+/// @namespace Inventory
+/// @describe Physical-stock-independent commitment that reduces common available Sellpia capacity.
+model InventoryCommitment {
+  id                      String    @id @default(uuid()) @db.Uuid
+  organizationId          String    @map("organization_id") @db.Uuid
+  kind                    String
+  sourceId                String    @map("source_id") @db.Uuid
+  businessKey             String    @map("business_key") @db.VarChar(300)
+  unitQuantity            Int       @map("unit_quantity")
+  status                  String    @default("active")
+  inventoryGeneration     BigInt?   @map("inventory_generation") @db.BigInt
+  predecessorCommitmentId String?   @map("predecessor_commitment_id") @db.Uuid
+  createdBy               String    @map("created_by") @db.Uuid
+  releasedBy              String?   @map("released_by") @db.Uuid
+  releasedAt              DateTime? @map("released_at") @db.Timestamptz
+  releaseReason           String?   @map("release_reason") @db.VarChar(500)
+  settledBy               String?   @map("settled_by") @db.Uuid
+  settledAt               DateTime? @map("settled_at") @db.Timestamptz
+  settlementReason        String?   @map("settlement_reason") @db.VarChar(500)
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt               DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization                    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  creator      User                            @relation("InventoryCommitmentCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  releaser     User?                           @relation("InventoryCommitmentReleaser", fields: [releasedBy], references: [id], onDelete: Restrict)
+  settler      User?                           @relation("InventoryCommitmentSettler", fields: [settledBy], references: [id], onDelete: Restrict)
+  predecessor  InventoryCommitment?            @relation("InventoryCommitmentReplacement", fields: [predecessorCommitmentId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  successors   InventoryCommitment[]           @relation("InventoryCommitmentReplacement")
+  allocations  InventoryCommitmentAllocation[]
+
+  @@unique([id, organizationId], map: "inventory_commitments_id_org_key")
+  @@unique([organizationId, kind, sourceId], map: "inventory_commitments_org_kind_source_key")
+  @@unique([organizationId, businessKey], map: "inventory_commitments_active_business_key", where: raw("status = 'active'"))
+  @@index([organizationId, status, createdAt])
+  @@index([predecessorCommitmentId])
+  @@index([createdBy])
+  @@index([releasedBy])
+  @@index([settledBy])
+  @@map("inventory_commitments")
+}
+
+/// @namespace Inventory
+/// @describe Component-level Sellpia SKU quantity held by one inventory commitment.
+model InventoryCommitmentAllocation {
+  id                    String   @id @default(uuid()) @db.Uuid
+  organizationId        String   @map("organization_id") @db.Uuid
+  commitmentId          String   @map("commitment_id") @db.Uuid
+  sellpiaInventorySkuId String   @map("sellpia_inventory_sku_id") @db.Uuid
+  unitsPerItem          Int      @map("units_per_item")
+  quantity              Int
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  commitment          InventoryCommitment @relation(fields: [commitmentId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  sellpiaInventorySku SellpiaInventorySku @relation(fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([commitmentId, sellpiaInventorySkuId], map: "inventory_commitment_allocations_commitment_sku_key")
+  @@index([organizationId, sellpiaInventorySkuId])
+  @@index([sellpiaInventorySkuId])
+  @@map("inventory_commitment_allocations")
 }
 
 /// @namespace Inventory

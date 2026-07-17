@@ -75,6 +75,8 @@ model Organization {
   rocketPurchaseConfirmations           RocketPurchaseConfirmation[]
   rocketPurchaseConfirmationLines       RocketPurchaseConfirmationLine[]
   rocketPurchaseConfirmationAllocations RocketPurchaseConfirmationAllocation[]
+  inventoryCommitments                  InventoryCommitment[]
+  inventoryCommitmentAllocations        InventoryCommitmentAllocation[]
 
   // Warehouse & record-only inventory operations
   warehouses                                    Warehouse[]
@@ -212,6 +214,9 @@ model User {
   reconciledPurchaseOrderSubmissionAttempts  PurchaseOrderSubmissionAttempt[]               @relation("PurchaseOrderSubmissionAttemptReconciler")
   confirmedRocketPurchaseConfirmations       RocketPurchaseConfirmation[]                   @relation("RocketPurchaseConfirmationConfirmer")
   releasedRocketPurchaseConfirmations        RocketPurchaseConfirmation[]                   @relation("RocketPurchaseConfirmationReleaser")
+  createdInventoryCommitments                InventoryCommitment[]                          @relation("InventoryCommitmentCreator")
+  releasedInventoryCommitments               InventoryCommitment[]                          @relation("InventoryCommitmentReleaser")
+  settledInventoryCommitments                InventoryCommitment[]                          @relation("InventoryCommitmentSettler")
 
   // Agent OS — actor relations
   requestedAgentRunRequests         AgentRunRequest[]         @relation("AgentRunRequestRequestedBy")
@@ -346,6 +351,7 @@ model SourceImportRun {
   channelScrapeRuns                   ChannelScrapeRun[]
   lastCompletedSellpiaInventoryStates SellpiaInventoryState[]      @relation("SellpiaInventoryStateLastCompletedRun")
   rocketPurchaseConfirmations         RocketPurchaseConfirmation[]
+  orders                              Order[]
 
   @@unique([organizationId, sourceType, channelAccountId, fileHash], map: "source_import_runs_org_source_account_hash_key", where: raw("channel_account_id IS NOT NULL AND file_hash IS NOT NULL"))
   @@unique([organizationId, sourceType, fileHash], map: "source_import_runs_org_source_hash_null_account_key", where: raw("channel_account_id IS NULL AND file_hash IS NOT NULL"))

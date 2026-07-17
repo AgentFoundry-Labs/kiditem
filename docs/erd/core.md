@@ -334,6 +334,8 @@ erDiagram
 | Organization | organization | referenced by external | Finance | ProcessingCost |
 | Organization | organization | referenced by external | Finance | ProfitLoss |
 | Organization | organization | referenced by external | Finance | SalesPlan |
+| Organization | organization | referenced by external | Inventory | InventoryCommitment |
+| Organization | organization | referenced by external | Inventory | InventoryCommitmentAllocation |
 | Organization | organization | referenced by external | Inventory | PickingItem |
 | Organization | organization | referenced by external | Inventory | PickingList |
 | Organization | organization | referenced by external | Inventory | ReturnTransfer |
@@ -384,6 +386,7 @@ erDiagram
 | SourceImportRun | lastCompletedImportRun | referenced by external | Inventory | SellpiaInventoryState |
 | SourceImportRun | lastImportRun | referenced by external | Inventory | SellpiaInventorySku |
 | SourceImportRun | sourceImportRun | referenced by external | Channels | ChannelScrapeRun |
+| SourceImportRun | sourceImportRun | referenced by external | Orders | Order |
 | SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmation |
 | User | activeSyncOwner | referenced by external | Inventory | SellpiaInventoryState |
 | User | actor | referenced by external | AI | ThumbnailGenerationEvent |
@@ -399,16 +402,19 @@ erDiagram
 | User | createdByUser | referenced by external | AI | DetailPageArtifact |
 | User | createdByUser | referenced by external | AI | DetailPageRevision |
 | User | createdByUser | referenced by external | AI | ProductPreparation |
+| User | creator | referenced by external | Inventory | InventoryCommitment |
 | User | creator | referenced by external | Inventory | SellpiaOrderTransmissionIntent |
 | User | decidedBy | referenced by external | AgentOS | AgentApprovalRequest |
 | User | decidedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
 | User | reconciler | referenced by external | Inventory | SellpiaOrderTransmissionIntentReconciliation |
 | User | reconciler | referenced by external | Supply | PurchaseOrderSubmissionAttempt |
 | User | rejectedByUser | referenced by external | Sourcing | SourcingCandidate |
+| User | releaser | referenced by external | Inventory | InventoryCommitment |
 | User | releaser | referenced by external | Supply | RocketPurchaseConfirmation |
 | User | requestedBy | referenced by external | AgentOS | AgentApprovalRequest |
 | User | requestedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
 | User | requestedBy | referenced by external | AgentOS | AgentRunRequest |
+| User | settler | referenced by external | Inventory | InventoryCommitment |
 | User | triggeredByUser | referenced by external | AgentOS | WorkflowRun |
 | User | triggeredByUser | referenced by external | AI | ContentGeneration |
 | User | triggeredByUser | referenced by external | AI | ThumbnailGeneration |
