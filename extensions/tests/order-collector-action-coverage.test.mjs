@@ -150,6 +150,20 @@ test('order collector manifest preserves PR 329 and PR 330 capabilities at versi
   assert.ok(manifest.host_permissions.includes('https://*.sellpia.com/*'));
 });
 
+test('Coupang shipment date summary scans its bounded range in concurrent batches', () => {
+  const worker = readFileSync(workerPath, 'utf8');
+  const start = worker.indexOf('async function scrapeCoupangShipmentDateSummary(');
+  const end = worker.indexOf('\nasync function collectCoupangShipmentList(', start);
+  const body = worker.slice(start, end);
+
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  assert.match(body, /const PAGE_FETCH_CONCURRENCY = 6;/);
+  assert.match(body, /await Promise\.all\(/);
+  assert.match(body, /batchStart \+= PAGE_FETCH_CONCURRENCY/);
+  assert.doesNotMatch(body, /for \(let page = 1; page <= maxPages; page\+\+\)/);
+});
+
 test('every web automatic order message carries its local runId explicitly', () => {
   const automaticActionSet = new Set(automaticCollectors);
   const messages = [];

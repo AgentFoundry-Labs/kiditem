@@ -815,6 +815,8 @@ async function collectCoupangShipmentDateSummary(options) {
 
 // [페이지 주입] 최근 쉽먼트를 페이지네이션하며 발송일별로 집계.
 async function scrapeCoupangShipmentDateSummary(maxPages) {
+  const PAGE_FETCH_CONCURRENCY = 6;
+
   async function fetchPage(n) {
     const r = await fetch(
       `/ibs/shipment/parcel/list?pageNumber=${n}&centerCode=&carrierCode=&estimatedDeliveryDate=&shipmentSeq=&purchaseOrderSeq=`,
@@ -843,23 +845,50 @@ async function scrapeCoupangShipmentDateSummary(maxPages) {
     const byDate = new Map();
     let scannedPages = 0;
     let totalRows = 0;
-    for (let page = 1; page <= maxPages; page++) {
-      const rows = parseRows(await fetchPage(page));
-      scannedPages = page;
-      if (rows.length === 0) break;
-      for (const row of rows) {
-        if (seen.has(row.seq)) continue;
-        seen.add(row.seq);
-        totalRows += 1;
-        const date = (row.outbound || "").slice(0, 10);
-        if (!date) continue;
-        const boxMatch = String(row.boxes || "").match(/(\d+)/);
-        const current = byDate.get(date) || { count: 0, boxes: 0 };
-        current.count += 1;
-        current.boxes += boxMatch ? Number(boxMatch[1]) : 0;
-        byDate.set(date, current);
+    let reachedLastPage = false;
+    for (
+      let batchStart = 1;
+      batchStart <= maxPages && !reachedLastPage;
+      batchStart += PAGE_FETCH_CONCURRENCY
+    ) {
+      const batchEnd = Math.min(
+        batchStart + PAGE_FETCH_CONCURRENCY - 1,
+        maxPages,
+      );
+      const pages = Array.from(
+        { length: batchEnd - batchStart + 1 },
+        (_, index) => batchStart + index,
+      );
+      const batchRows = await Promise.all(
+        pages.map(async (page) => ({
+          page,
+          rows: parseRows(await fetchPage(page)),
+        })),
+      );
+
+      for (const { page, rows } of batchRows) {
+        scannedPages = page;
+        if (rows.length === 0) {
+          reachedLastPage = true;
+          break;
+        }
+        for (const row of rows) {
+          if (seen.has(row.seq)) continue;
+          seen.add(row.seq);
+          totalRows += 1;
+          const date = (row.outbound || "").slice(0, 10);
+          if (!date) continue;
+          const boxMatch = String(row.boxes || "").match(/(\d+)/);
+          const current = byDate.get(date) || { count: 0, boxes: 0 };
+          current.count += 1;
+          current.boxes += boxMatch ? Number(boxMatch[1]) : 0;
+          byDate.set(date, current);
+        }
+        if (rows.length < 10) {
+          reachedLastPage = true;
+          break;
+        }
       }
-      if (rows.length < 10) break; // 마지막 페이지
     }
     const dates = [...byDate.entries()]
       .map(([date, v]) => ({ date, count: v.count, boxes: v.boxes }))
