@@ -1,5 +1,4 @@
 import {
-  AlertTriangle,
   Bot,
   Boxes,
   Building2,
@@ -7,8 +6,6 @@ import {
   Compass,
   FileSpreadsheet,
   Flame,
-  Handshake,
-  Headphones,
   ImageIcon,
   Layers,
   LayoutDashboard,
@@ -20,15 +17,11 @@ import {
   PackageSearch,
   Plus,
   Rocket,
-  RotateCcw,
-  ScanLine,
   Search,
   Settings,
   ShoppingCart,
   Sparkles,
   TrendingUp,
-  Truck,
-  Users,
   Wallet,
   Wand2,
   Warehouse,
@@ -112,12 +105,8 @@ export const menuSections: MenuSection[] = [
     label: '주문관리',
     collapsible: true,
     items: [
-      { href: '/order-hub', label: '주문 처리', icon: ShoppingCart },
       { href: '/order-collection', label: '주문수집', icon: FileSpreadsheet },
       { href: '/rocket-orders', label: '쿠팡 로켓', icon: Rocket },
-      { href: '/cs-management', label: 'CS 관리', icon: Headphones },
-      { href: '/order-status-hub', label: '주문 현황', icon: ClipboardList },
-      { href: '/unshipped-items', label: '미배송 조회', icon: AlertTriangle },
     ],
   },
   {
@@ -126,25 +115,13 @@ export const menuSections: MenuSection[] = [
     items: [
       { href: '/inventory-hub', label: '재고 관리', icon: Warehouse },
       { href: '/stock-ops', label: '재고 분석', icon: Boxes },
-      { href: '/warehouses', label: '창고 관리', icon: Building2 },
     ],
   },
   {
     label: '출고반품',
     collapsible: true,
     items: [
-      { href: '/outbound', label: '출고 현황', icon: Truck },
       { href: '/coupang-shipments', label: '쿠팡 쉽먼트', icon: PackageCheck },
-      { href: '/returns', label: '반품 관리', icon: RotateCcw },
-      { href: '/return-scan', label: '반품 스캔', icon: ScanLine },
-    ],
-  },
-  {
-    label: '거래처',
-    collapsible: true,
-    items: [
-      { href: '/supplier-hub', label: '거래처 관리', icon: Handshake },
-      { href: '/suppliers', label: '거래처 목록', icon: Users },
     ],
   },
   {
