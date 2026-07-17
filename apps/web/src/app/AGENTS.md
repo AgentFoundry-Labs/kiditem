@@ -45,7 +45,7 @@ route groups need it.
 - When adding a route group or moving a route, update `apps/web/AGENTS.md` and
   `docs/ARCHITECTURE.md`.
 
-## Preserved Operations Surfaces (`0.1.19`)
+## Preserved Operations Surfaces (`0.1.19` baseline, `0.1.20` confirmation)
 
 Commit `c9e7caf875ca82574ae566a27fe0afa35c988918` is the operations UI
 preservation baseline. Keep its sidebar sections, independent URLs, page
@@ -84,9 +84,10 @@ rearranging the existing header, tabs, tables, or actions.
 Sellpia freshness is shared application state, not route-local state. Pages may
 open the shared drawer or render the compact status, but must not derive TTL,
 own claim/heartbeat timers, upload browser bytes outside the coordinator, or
-write stock. Rocket capacity UI remains preview-only on every route; no actual
-confirmation/submission/reservation/workbook/stock control may be introduced
-for release `0.1.19`.
+write stock. Rocket confirmation is exposed through the shared Supply workspace
+in `0.1.20`: it reruns the preview, creates an internal component-capacity
+allocation, and downloads the official workbook. It must not call a marketplace
+provider or write Sellpia physical stock.
 
 The preserved baseline contents include:
 

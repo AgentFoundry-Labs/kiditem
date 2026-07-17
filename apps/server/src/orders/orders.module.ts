@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ChannelsModule } from '../channels/channels.module';
 import { OrdersController } from './controllers/orders.controller';
 import { OrdersService } from './services/orders.service';
 import { ReturnsController } from './controllers/returns.controller';
@@ -14,9 +15,6 @@ import { OrderCollectionMallAccountService } from './services/order-collection-m
 import { CoupangDirectshipService } from './coupang-directship/coupang-directship.service';
 import { ReturnTransfersController } from './return-transfers/return-transfers.controller';
 import { ReturnTransfersService } from './return-transfers/return-transfers.service';
-import { RocketPoController } from './controllers/rocket-po.controller';
-import { RocketPoConfirmService } from './services/rocket-po-confirm.service';
-import { ChannelsModule } from '../channels/channels.module';
 
 @Module({
   imports: [ChannelsModule],
@@ -28,7 +26,6 @@ import { ChannelsModule } from '../channels/channels.module';
     CsController,
     ReviewsController,
     ReturnTransfersController,
-    RocketPoController,
   ],
   providers: [
     OrdersService,
@@ -39,7 +36,6 @@ import { ChannelsModule } from '../channels/channels.module';
     CsService,
     ReviewsService,
     ReturnTransfersService,
-    RocketPoConfirmService,
   ],
 })
 export class OrdersModule {}

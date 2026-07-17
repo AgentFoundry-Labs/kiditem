@@ -33,7 +33,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Inventory](erd/inventory.md) | 11 |
 | [Orders](erd/orders.md) | 10 |
 | [Sourcing](erd/sourcing.md) | 10 |
-| [Supply](erd/supply.md) | 6 |
+| [Supply](erd/supply.md) | 9 |
 | [System](erd/system.md) | 9 |
 
 ## Model Index
@@ -150,6 +150,9 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | PurchaseOrder | Supply | `purchase_orders` | 발주 state machine (draft→pending→ordered→shipped→received). 입고 검수 필드 포함 (receivedQty, defectQty). 단위는 CNY(Decimal 12,2). |
 | PurchaseOrderItem | Supply | `purchase_order_items` | - |
 | PurchaseOrderSubmissionAttempt | Supply | `purchase_order_submission_attempts` | Durable idempotency intent and reconciliation record for an external purchase-order submission. |
+| RocketPurchaseConfirmation | Supply | `rocket_purchase_confirmations` | One operator-confirmed Rocket PO decision. It reserves component capacity without mutating Sellpia physical stock. |
+| RocketPurchaseConfirmationAllocation | Supply | `rocket_purchase_confirmation_allocations` | Immutable component-capacity allocation captured from the confirmed ProductVariant recipe. |
+| RocketPurchaseConfirmationLine | Supply | `rocket_purchase_confirmation_lines` | Audited Rocket PO line decision. Positive quantities require a confirmed channel variant recipe. |
 | Supplier | Supply | `suppliers` | - |
 | SupplierPayment | Supply | `supplier_payments` | - |
 | SupplierProduct | Supply | `supplier_products` | 공급사별 Sellpia 물리 상품 단위 공급가/주공급처 정책. |
@@ -1639,6 +1642,47 @@ erDiagram
     DateTime reviewedAt
     DateTime createdAt
   }
+  RocketPurchaseConfirmation {
+    String id PK
+    String organizationId FK
+    String channelAccountId FK
+    String sourceImportRunId FK
+    String idempotencyKey
+    String requestHash
+    BigInt freshnessGeneration
+    String status
+    String confirmedBy FK
+    DateTime confirmedAt
+    String releasedBy FK
+    DateTime releasedAt
+    String releaseReason
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  RocketPurchaseConfirmationAllocation {
+    String id PK
+    String organizationId FK
+    String confirmationLineId FK
+    String sellpiaInventorySkuId FK
+    Int unitsPerVariant
+    Int quantity
+    DateTime createdAt
+  }
+  RocketPurchaseConfirmationLine {
+    String id PK
+    String organizationId FK
+    String confirmationId FK
+    String poLineId
+    String poNumber
+    String productNo
+    String productName
+    Int orderQuantity
+    Int confirmedQuantity
+    String shortageReason
+    String channelListingOptionId FK
+    String productVariantId FK
+    DateTime createdAt
+  }
   RocketPurchaseOrder {
     String id PK
     String organizationId FK
@@ -2317,6 +2361,7 @@ erDiagram
   ChannelAccount ||--o{ Order : "channelAccount"
   ChannelAccount ||--o{ OrderReturn : "channelAccount"
   ChannelAccount ||--o{ ProductPreparation : "channelAccount"
+  ChannelAccount ||--o{ RocketPurchaseConfirmation : "channelAccount"
   ChannelAccount o|--o{ SourceImportRun : "channelAccount"
   ChannelAdTargetDailySnapshot o|--o{ AdAction : "adTargetDaily"
   ChannelListing o|--o{ AdAction : "listing"
@@ -2340,6 +2385,7 @@ erDiagram
   ChannelListingOption o|--o{ ChannelScrapeSnapshot : "listingOption"
   ChannelListingOption o|--o{ OrderLineItem : "listingOption"
   ChannelListingOption o|--o{ OrderReturnLineItem : "listingOption"
+  ChannelListingOption o|--o{ RocketPurchaseConfirmationLine : "channelListingOption"
   ChannelScrapeRun ||--o{ ChannelScrapeChunk : "scrapeRun"
   ChannelScrapeRun o|--o{ ChannelScrapeSnapshot : "scrapeRun"
   ChannelScrapeSnapshot o|--o{ ChannelAccountDailyKpiSnapshot : "rawSnapshot"
@@ -2465,6 +2511,9 @@ erDiagram
   Organization ||--o{ PurchaseOrderSubmissionAttempt : "organization"
   Organization ||--o{ ReturnTransfer : "organization"
   Organization ||--o{ Review : "organization"
+  Organization ||--o{ RocketPurchaseConfirmation : "organization"
+  Organization ||--o{ RocketPurchaseConfirmationAllocation : "organization"
+  Organization ||--o{ RocketPurchaseConfirmationLine : "organization"
   Organization ||--o{ RocketPurchaseOrder : "organization"
   Organization ||--o{ RocketSupplyDailySnapshot : "organization"
   Organization ||--o{ SalesPlan : "organization"
@@ -2506,13 +2555,17 @@ erDiagram
   PickingList ||--o{ PickingItem : "pickingList"
   ProductVariant o|--o{ ChannelListingOption : "productVariant"
   ProductVariant ||--o{ ProductVariantComponent : "productVariant"
+  ProductVariant o|--o{ RocketPurchaseConfirmationLine : "productVariant"
   PurchaseOrder ||--o{ PurchaseOrderItem : "order"
   PurchaseOrder ||--o{ PurchaseOrderSubmissionAttempt : "purchaseOrder"
   PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"
+  RocketPurchaseConfirmation ||--o{ RocketPurchaseConfirmationLine : "confirmation"
+  RocketPurchaseConfirmationLine ||--o{ RocketPurchaseConfirmationAllocation : "confirmationLine"
   SellpiaInventorySku ||--o{ PickingItem : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ ProductVariantComponent : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ PurchaseOrderItem : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ ReturnTransfer : "sellpiaInventorySku"
+  SellpiaInventorySku ||--o{ RocketPurchaseConfirmationAllocation : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ StockTransfer : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ SupplierProduct : "sellpiaInventorySku"
   SellpiaOrderTransmissionIntent ||--o{ SellpiaOrderTransmissionIntentReconciliation : "intent"
@@ -2520,6 +2573,7 @@ erDiagram
   SourceImportRun o|--o{ ChannelListing : "lastImportRun"
   SourceImportRun o|--o{ ChannelListingOption : "lastImportRun"
   SourceImportRun o|--o{ ChannelScrapeRun : "sourceImportRun"
+  SourceImportRun ||--o{ RocketPurchaseConfirmation : "sourceImportRun"
   SourceImportRun o|--o{ SellpiaInventorySku : "lastImportRun"
   SourceImportRun o|--o{ SellpiaInventoryState : "lastCompletedImportRun"
   SourcingCandidate ||--o{ CandidateImage : "candidate"
@@ -2562,6 +2616,8 @@ erDiagram
   User ||--o{ OrganizationMembership : "user"
   User o|--o{ ProductPreparation : "createdByUser"
   User o|--o{ PurchaseOrderSubmissionAttempt : "reconciler"
+  User ||--o{ RocketPurchaseConfirmation : "confirmer"
+  User o|--o{ RocketPurchaseConfirmation : "releaser"
   User o|--o{ SellpiaInventoryState : "activeSyncOwner"
   User ||--o{ SellpiaOrderTransmissionIntent : "creator"
   User ||--o{ SellpiaOrderTransmissionIntentReconciliation : "reconciler"

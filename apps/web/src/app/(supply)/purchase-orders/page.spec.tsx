@@ -86,7 +86,7 @@ describe('PurchaseOrdersPage Rocket preview route', () => {
     });
   });
 
-  it('mounts the review-only workspace behind an active Rocket account selector', async () => {
+  it('mounts the confirmation workspace behind an active Rocket account selector', async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -99,8 +99,8 @@ describe('PurchaseOrdersPage Rocket preview route', () => {
     expect(await screen.findByRole('combobox', { name: '로켓 채널 계정' }))
       .toHaveValue(rocketAccountId);
     expect(screen.getByRole('button', { name: '미리보기 다시 계산' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: '로켓 발주 확정' })).toBeDisabled();
-    expect(screen.getByText('0.1.19에서는 검토만 가능')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '확정 후 엑셀 다운로드' })).toBeDisabled();
+    expect(screen.getByText('미리보기 검토 후 확정할 수 있습니다.')).toBeInTheDocument();
   });
 
   it('remounts account-scoped workspace state when the Rocket account changes', async () => {

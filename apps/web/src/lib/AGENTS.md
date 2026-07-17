@@ -38,6 +38,9 @@ multiple route groups.
   upload, source binding, refresh requests, order-transmission intent
   prepare/finalize/abort calls, unified attempt history, and the authoritative
   latest completed inventory basis read.
+- `rocket-confirm-file-store.ts` owns the browser-local Rocket workbook history
+  shared by the Supply confirmation workspace and the preserved Orders file
+  list. It is operator convenience only, never server truth or provider proof.
 
 ## Boundary Rules
 

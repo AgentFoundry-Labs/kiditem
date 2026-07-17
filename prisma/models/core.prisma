@@ -68,10 +68,13 @@ model Organization {
   orderReturnLineItems OrderReturnLineItem[]
 
   // Supplier & Procurement
-  suppliers          Supplier[]
-  supplierPayments   SupplierPayment[]
-  supplierProducts   SupplierProduct[]
-  purchaseOrderItems PurchaseOrderItem[]
+  suppliers                             Supplier[]
+  supplierPayments                      SupplierPayment[]
+  supplierProducts                      SupplierProduct[]
+  purchaseOrderItems                    PurchaseOrderItem[]
+  rocketPurchaseConfirmations           RocketPurchaseConfirmation[]
+  rocketPurchaseConfirmationLines       RocketPurchaseConfirmationLine[]
+  rocketPurchaseConfirmationAllocations RocketPurchaseConfirmationAllocation[]
 
   // Warehouse & record-only inventory operations
   warehouses                                    Warehouse[]
@@ -166,7 +169,6 @@ model Organization {
   shortsTrendDailySnapshots            ShortsTrendDailySnapshot[]
   liveCommerceBroadcastDailySnapshots  LiveCommerceBroadcastDailySnapshot[]
   liveCommerceProductDailySnapshots    LiveCommerceProductDailySnapshot[]
-  rocketPoReservations                 RocketPoReservation[]
 
   @@map("organizations")
 }
@@ -208,6 +210,8 @@ model User {
   reconciledSellpiaOrderTransmissionIntents  SellpiaOrderTransmissionIntentReconciliation[] @relation("SellpiaOrderTransmissionIntentReconciler")
   confirmedSourceImportRuns                  SourceImportRun[]                              @relation("SourceImportRunManualFreshExportConfirmer")
   reconciledPurchaseOrderSubmissionAttempts  PurchaseOrderSubmissionAttempt[]               @relation("PurchaseOrderSubmissionAttemptReconciler")
+  confirmedRocketPurchaseConfirmations       RocketPurchaseConfirmation[]                   @relation("RocketPurchaseConfirmationConfirmer")
+  releasedRocketPurchaseConfirmations        RocketPurchaseConfirmation[]                   @relation("RocketPurchaseConfirmationReleaser")
 
   // Agent OS — actor relations
   requestedAgentRunRequests         AgentRunRequest[]         @relation("AgentRunRequestRequestedBy")
@@ -297,6 +301,7 @@ model ChannelAccount {
   orderReturns                    OrderReturn[]
   channelScrapeRuns               ChannelScrapeRun[]
   channelAccountDailyKpiSnapshots ChannelAccountDailyKpiSnapshot[]
+  rocketPurchaseConfirmations     RocketPurchaseConfirmation[]
 
   @@unique([organizationId, channel, externalAccountId])
   @@unique([id, organizationId], map: "channel_accounts_id_org_key")
@@ -332,14 +337,15 @@ model SourceImportRun {
   createdAt                    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt                    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization                        Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelAccount                      ChannelAccount?         @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  manualFreshExportConfirmer          User?                   @relation("SourceImportRunManualFreshExportConfirmer", fields: [manualFreshExportConfirmedBy], references: [id], onDelete: SetNull)
-  sellpiaInventorySkus                SellpiaInventorySku[]   @relation("SellpiaInventorySkuLastImport")
-  channelProducts                     ChannelListing[]        @relation("ChannelProductLastImport")
-  channelSkus                         ChannelListingOption[]  @relation("ChannelSkuLastImport")
+  organization                        Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount                      ChannelAccount?              @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  manualFreshExportConfirmer          User?                        @relation("SourceImportRunManualFreshExportConfirmer", fields: [manualFreshExportConfirmedBy], references: [id], onDelete: SetNull)
+  sellpiaInventorySkus                SellpiaInventorySku[]        @relation("SellpiaInventorySkuLastImport")
+  channelProducts                     ChannelListing[]             @relation("ChannelProductLastImport")
+  channelSkus                         ChannelListingOption[]       @relation("ChannelSkuLastImport")
   channelScrapeRuns                   ChannelScrapeRun[]
-  lastCompletedSellpiaInventoryStates SellpiaInventoryState[] @relation("SellpiaInventoryStateLastCompletedRun")
+  lastCompletedSellpiaInventoryStates SellpiaInventoryState[]      @relation("SellpiaInventoryStateLastCompletedRun")
+  rocketPurchaseConfirmations         RocketPurchaseConfirmation[]
 
   @@unique([organizationId, sourceType, channelAccountId, fileHash], map: "source_import_runs_org_source_account_hash_key", where: raw("channel_account_id IS NOT NULL AND file_hash IS NOT NULL"))
   @@unique([organizationId, sourceType, fileHash], map: "source_import_runs_org_source_hash_null_account_key", where: raw("channel_account_id IS NULL AND file_hash IS NOT NULL"))
@@ -424,10 +430,11 @@ model ProductVariant {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization          Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  masterProduct         MasterProduct             @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  components            ProductVariantComponent[]
-  channelListingOptions ChannelListingOption[]
+  organization                    Organization                     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  masterProduct                   MasterProduct                    @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  components                      ProductVariantComponent[]
+  channelListingOptions           ChannelListingOption[]
+  rocketPurchaseConfirmationLines RocketPurchaseConfirmationLine[]
 
   @@unique([organizationId, code])
   @@unique([id, organizationId], map: "product_variants_id_org_key")
@@ -497,15 +504,15 @@ model ChannelListing {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization        Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelAccount      ChannelAccount         @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  sourceCandidate     SourcingCandidate?     @relation(fields: [sourceCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  masterProduct       MasterProduct?         @relation("ChannelListingOperationalProduct", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  originatedMasterProduct MasterProduct?     @relation("ChannelListingOriginProduct")
-  lastImportRun       SourceImportRun?       @relation("ChannelProductLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  options             ChannelListingOption[]
-  contentWorkspaces   ContentWorkspace[]
-  productPreparations ProductPreparation[]
+  organization            Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelAccount          ChannelAccount         @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceCandidate         SourcingCandidate?     @relation(fields: [sourceCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  masterProduct           MasterProduct?         @relation("ChannelListingOperationalProduct", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  originatedMasterProduct MasterProduct?         @relation("ChannelListingOriginProduct")
+  lastImportRun           SourceImportRun?       @relation("ChannelProductLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  options                 ChannelListingOption[]
+  contentWorkspaces       ContentWorkspace[]
+  productPreparations     ProductPreparation[]
 
   reviews            Review[]
   thumbnails         Thumbnail[]
@@ -565,13 +572,14 @@ model ChannelListingOption {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  listing              ChannelListing        @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  productVariant       ProductVariant?       @relation(fields: [productVariantId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  lastImportRun        SourceImportRun?      @relation("ChannelSkuLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  orderLineItems       OrderLineItem[]
-  orderReturnLineItems OrderReturnLineItem[]
-  adActions            AdAction[]
+  listing                         ChannelListing                   @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  organization                    Organization                     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  productVariant                  ProductVariant?                  @relation(fields: [productVariantId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  lastImportRun                   SourceImportRun?                 @relation("ChannelSkuLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  orderLineItems                  OrderLineItem[]
+  orderReturnLineItems            OrderReturnLineItem[]
+  rocketPurchaseConfirmationLines RocketPurchaseConfirmationLine[]
+  adActions                       AdAction[]
 
   // Channels — market-data snapshots (Wave C0)
   channelScrapeSnapshots             ChannelScrapeSnapshot[]

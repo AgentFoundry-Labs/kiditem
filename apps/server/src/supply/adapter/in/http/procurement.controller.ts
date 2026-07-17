@@ -1,9 +1,7 @@
 import { Controller, Get, Post, Query, Body, BadRequestException, Inject } from '@nestjs/common';
 import { ProcurementService } from '../../../application/service/procurement.service';
-import { ListPurchaseOrdersQueryDto, PurchaseOrderActionBodyDto } from './dto';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
-import type { AuthUser } from '../../../../auth/auth.types';
 import {
   PURCHASE_ORDER_SUBMISSION_PORT,
   type PurchaseOrderSubmissionPort,
@@ -12,6 +10,12 @@ import {
   ROCKET_PURCHASE_PREVIEW_PORT,
   type RocketPurchasePreviewPort,
 } from '../../../application/port/in/procurement/rocket-purchase-preview.port';
+import {
+  ROCKET_PURCHASE_CONFIRMATION_PORT,
+  type RocketPurchaseConfirmationPort,
+} from '../../../application/port/in/procurement/rocket-purchase-confirmation.port';
+import { ListPurchaseOrdersQueryDto, PurchaseOrderActionBodyDto } from './dto';
+import type { AuthUser } from '../../../../auth/auth.types';
 
 @Controller('purchase-orders')
 export class ProcurementController {
@@ -21,6 +25,8 @@ export class ProcurementController {
     private readonly submissions: PurchaseOrderSubmissionPort,
     @Inject(ROCKET_PURCHASE_PREVIEW_PORT)
     private readonly rocketPreview: RocketPurchasePreviewPort,
+    @Inject(ROCKET_PURCHASE_CONFIRMATION_PORT)
+    private readonly rocketConfirmation: RocketPurchaseConfirmationPort,
   ) {}
 
   @Get()
@@ -89,6 +95,30 @@ export class ProcurementController {
           ...(body.clampEditedQuantities !== undefined && {
             clampEditedQuantities: body.clampEditedQuantities,
           }),
+        },
+      });
+    }
+    if (body.action === 'confirmRocket') {
+      return this.rocketConfirmation.confirm({
+        organizationId,
+        userId: user.id,
+        request: {
+          idempotencyKey: body.idempotencyKey!,
+          channelAccountId: body.channelAccountId!,
+          collection: body.collection!,
+          rows: body.rows!,
+          editedQuantities: body.editedQuantities!,
+          shortageReasons: body.shortageReasons!,
+        },
+      });
+    }
+    if (body.action === 'releaseRocketConfirmation') {
+      return this.rocketConfirmation.release({
+        organizationId,
+        userId: user.id,
+        request: {
+          confirmationId: body.confirmationId!,
+          reason: body.releaseReason!,
         },
       });
     }

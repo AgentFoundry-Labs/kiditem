@@ -38,14 +38,17 @@ describe("data migration registry", () => {
     ).toBe(false);
   });
 
-  it("registers the current 0.1.19 release data migration", () => {
+  it("keeps the 0.1.19 freshness migration registered for the 0.1.20 schema-only release", () => {
     const rootVersion = normalizeReleaseVersion(
       readFileSync(join(repoRoot, "VERSION"), "utf8"),
     );
-    expect(rootVersion).toBe("0.1.19");
+    expect(rootVersion).toBe("0.1.20");
     expect(
       dataMigrations.map((migration) => migration.releaseVersion),
-    ).toContain(rootVersion);
+    ).toContain("0.1.19");
+    expect(
+      dataMigrations.map((migration) => migration.releaseVersion),
+    ).not.toContain(rootVersion);
     for (const migration of dataMigrations) {
       expect(migration.id.startsWith(`v${migration.releaseVersion}:`)).toBe(
         true,

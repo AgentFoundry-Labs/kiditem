@@ -16,12 +16,16 @@ import {
   SELLPIA_INVENTORY_FRESHNESS_GATE_PORT,
   type SellpiaInventoryFreshnessGatePort,
 } from '../../../inventory/application/port/in/stock/sellpia-inventory-freshness-gate.port';
-import type { RocketPurchasePreviewPort } from '../port/in/procurement/rocket-purchase-preview.port';
+import {
+  ROCKET_PURCHASE_COMMITMENT_READ_PORT,
+  type RocketPurchaseCommitmentReadPort,
+} from '../port/out/repository/rocket-purchase-commitment-read.port';
 import {
   RocketPreviewQuantityExceededError,
   previewRocketCapacity,
   resolveRocketPreviewEditedQuantity,
 } from '../../domain/policy/rocket-capacity-preview';
+import type { RocketPurchasePreviewPort } from '../port/in/procurement/rocket-purchase-preview.port';
 
 @Injectable()
 export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
@@ -32,6 +36,8 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
     private readonly availability: ChannelSkuAvailabilityPort,
     @Inject(SELLPIA_INVENTORY_FRESHNESS_GATE_PORT)
     private readonly freshness: SellpiaInventoryFreshnessGatePort,
+    @Inject(ROCKET_PURCHASE_COMMITMENT_READ_PORT)
+    private readonly commitments: RocketPurchaseCommitmentReadPort,
   ) {}
 
   async preview(input: {
@@ -49,6 +55,7 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
       return translatePreviewPolicy(() => ({
         collectionRunId: request.collection.collectionRunId,
         catalog: null,
+        inventoryGeneration: null,
         rows: request.rows.map((row) => {
           const editedQuantity = resolveRocketPreviewEditedQuantity(
             row.poLineId,
@@ -109,8 +116,15 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
       .filter(({ recipeStatus }) => recipeStatus === 'matched')
       .flatMap(({ components }) => components
         .map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId)))];
+    let inventoryGeneration: string | null = null;
+    let committedQuantities: Record<string, number> = {};
     if (sellpiaInventorySkuIds.length > 0) {
       const gated = await this.freshness.readFreshCapacity({
+        organizationId: input.organizationId,
+        sellpiaInventorySkuIds,
+      });
+      inventoryGeneration = gated.generation;
+      committedQuantities = await this.commitments.findActiveQuantities({
         organizationId: input.organizationId,
         sellpiaInventorySkuIds,
       });
@@ -133,9 +147,11 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
     return {
       collectionRunId: request.collection.collectionRunId,
       catalog: catalog.catalog,
+      inventoryGeneration,
       rows: translatePreviewPolicy(() => previewRocketCapacity({
         rows: previewRows,
         editedQuantities: request.editedQuantities,
+        committedQuantities,
         clampEditedQuantities: request.clampEditedQuantities,
       })),
     };

@@ -21,14 +21,15 @@ model SellpiaInventorySku {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization       Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  lastImportRun      SourceImportRun?          @relation("SellpiaInventorySkuLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  variantComponents  ProductVariantComponent[]
-  supplierProducts   SupplierProduct[]         @relation("SupplierProductSellpiaInventorySku")
-  purchaseOrderItems PurchaseOrderItem[]       @relation("PurchaseOrderItemSellpiaInventorySku")
-  stockTransfers     StockTransfer[]           @relation("StockTransferSellpiaInventorySku")
-  pickingItems       PickingItem[]             @relation("PickingItemSellpiaInventorySku")
-  returnTransfers    ReturnTransfer[]          @relation("ReturnTransferSellpiaInventorySku")
+  organization                          Organization                           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lastImportRun                         SourceImportRun?                       @relation("SellpiaInventorySkuLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  variantComponents                     ProductVariantComponent[]
+  supplierProducts                      SupplierProduct[]                      @relation("SupplierProductSellpiaInventorySku")
+  purchaseOrderItems                    PurchaseOrderItem[]                    @relation("PurchaseOrderItemSellpiaInventorySku")
+  stockTransfers                        StockTransfer[]                        @relation("StockTransferSellpiaInventorySku")
+  pickingItems                          PickingItem[]                          @relation("PickingItemSellpiaInventorySku")
+  returnTransfers                       ReturnTransfer[]                       @relation("ReturnTransferSellpiaInventorySku")
+  rocketPurchaseConfirmationAllocations RocketPurchaseConfirmationAllocation[]
 
   @@unique([organizationId, code])
   @@unique([id, organizationId], map: "sellpia_inventory_skus_id_org_key")

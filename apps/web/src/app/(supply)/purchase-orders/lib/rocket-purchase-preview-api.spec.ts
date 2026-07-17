@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
-import { previewRocketPurchases } from './rocket-purchase-preview-api';
+import {
+  confirmRocketPurchase,
+  previewRocketPurchases,
+  releaseRocketPurchaseConfirmation,
+} from './rocket-purchase-preview-api';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: { post: vi.fn() },
@@ -41,6 +45,7 @@ describe('previewRocketPurchases', () => {
     vi.mocked(apiClient.post).mockResolvedValue({
       collectionRunId: RUN_ID,
       catalog: null,
+      inventoryGeneration: null,
       rows: [{
         poLineId: '1001:P-1::1',
         poNumber: '1001',
@@ -71,7 +76,86 @@ describe('previewRocketPurchases', () => {
     expect(body).not.toHaveProperty('userId');
   });
 
-  it('does not expose a submit, workbook, provider, or reservation API', () => {
-    expect(previewRocketPurchases.name).toBe('previewRocketPurchases');
+  it('uses explicit Supply actions for confirmation and release', async () => {
+    const confirmationRequest = {
+      ...input(),
+      rows: [{
+        ...input().rows[0]!,
+        poLineId: '1001:P-1:8800000000001:1',
+        barcode: '8800000000001',
+        confirmation: {
+          center: '덕평1센터',
+          inboundType: '택배',
+          poStatus: '거래처확인요청',
+          returnManager: '',
+          returnContact: '',
+          returnAddress: '',
+          purchasePrice: 1_000,
+          supplyPrice: 900,
+          vat: 90,
+          totalPurchase: 1_980,
+          poRegisteredAt: '2026-07-17 09:00:00',
+          xdock: 'N',
+        },
+      }],
+      idempotencyKey: '33333333-3333-4333-8333-333333333333',
+      editedQuantities: { '1001:P-1:8800000000001:1': 1 },
+      shortageReasons: {
+        '1001:P-1:8800000000001:1': '협력사 재고부족 - 수요예측 오류' as const,
+      },
+    };
+    const confirmationPoLineId = confirmationRequest.rows[0]!.poLineId;
+    vi.mocked(apiClient.post).mockResolvedValueOnce({
+      confirmationId: '44444444-4444-4444-8444-444444444444',
+      status: 'active',
+      duplicate: false,
+      inventoryGeneration: '12',
+      confirmedAt: '2026-07-17T00:00:00.000Z',
+      totals: {
+        lineCount: 1,
+        orderQuantity: 2,
+        confirmedQuantity: 1,
+        allocatedQuantity: 1,
+      },
+      rows: [{
+        poLineId: confirmationPoLineId,
+        confirmedQuantity: 1,
+        shortageReason: '협력사 재고부족 - 수요예측 오류',
+      }],
+    });
+
+    await confirmRocketPurchase(confirmationRequest);
+    expect(apiClient.post).toHaveBeenLastCalledWith('/api/purchase-orders', {
+      action: 'confirmRocket',
+      ...confirmationRequest,
+    });
+
+    vi.mocked(apiClient.post).mockResolvedValueOnce({
+      confirmationId: '44444444-4444-4444-8444-444444444444',
+      status: 'released',
+      duplicate: false,
+      inventoryGeneration: '12',
+      confirmedAt: '2026-07-17T00:00:00.000Z',
+      totals: {
+        lineCount: 1,
+        orderQuantity: 2,
+        confirmedQuantity: 1,
+        allocatedQuantity: 1,
+      },
+      rows: [{
+        poLineId: confirmationPoLineId,
+        confirmedQuantity: 1,
+        shortageReason: '협력사 재고부족 - 수요예측 오류',
+      }],
+    });
+    await releaseRocketPurchaseConfirmation({
+      confirmationId: '44444444-4444-4444-8444-444444444444',
+      reason: '쿠팡 확정 수량 정정',
+    });
+    expect(apiClient.post).toHaveBeenLastCalledWith('/api/purchase-orders', {
+      action: 'releaseRocketConfirmation',
+      confirmationId: '44444444-4444-4444-8444-444444444444',
+      releaseReason: '쿠팡 확정 수량 정정',
+    });
   });
 });

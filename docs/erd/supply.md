@@ -12,6 +12,9 @@
 | PurchaseOrder | `purchase_orders` | 발주 state machine (draft→pending→ordered→shipped→received). 입고 검수 필드 포함 (receivedQty, defectQty). 단위는 CNY(Decimal 12,2). |
 | PurchaseOrderItem | `purchase_order_items` | - |
 | PurchaseOrderSubmissionAttempt | `purchase_order_submission_attempts` | Durable idempotency intent and reconciliation record for an external purchase-order submission. |
+| RocketPurchaseConfirmation | `rocket_purchase_confirmations` | One operator-confirmed Rocket PO decision. It reserves component capacity without mutating Sellpia physical stock. |
+| RocketPurchaseConfirmationAllocation | `rocket_purchase_confirmation_allocations` | Immutable component-capacity allocation captured from the confirmed ProductVariant recipe. |
+| RocketPurchaseConfirmationLine | `rocket_purchase_confirmation_lines` | Audited Rocket PO line decision. Positive quantities require a confirmed channel variant recipe. |
 | Supplier | `suppliers` | - |
 | SupplierPayment | `supplier_payments` | - |
 | SupplierProduct | `supplier_products` | 공급사별 Sellpia 물리 상품 단위 공급가/주공급처 정책. |
@@ -71,6 +74,47 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  RocketPurchaseConfirmation {
+    String id PK
+    String organizationId FK
+    String channelAccountId FK
+    String sourceImportRunId FK
+    String idempotencyKey
+    String requestHash
+    BigInt freshnessGeneration
+    String status
+    String confirmedBy FK
+    DateTime confirmedAt
+    String releasedBy FK
+    DateTime releasedAt
+    String releaseReason
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  RocketPurchaseConfirmationAllocation {
+    String id PK
+    String organizationId FK
+    String confirmationLineId FK
+    String sellpiaInventorySkuId FK
+    Int unitsPerVariant
+    Int quantity
+    DateTime createdAt
+  }
+  RocketPurchaseConfirmationLine {
+    String id PK
+    String organizationId FK
+    String confirmationId FK
+    String poLineId
+    String poNumber
+    String productNo
+    String productName
+    Int orderQuantity
+    Int confirmedQuantity
+    String shortageReason
+    String channelListingOptionId FK
+    String productVariantId FK
+    DateTime createdAt
+  }
   Supplier {
     String id PK
     String organizationId FK
@@ -116,6 +160,8 @@ erDiagram
   PurchaseOrder ||--o{ PurchaseOrderItem : "order"
   PurchaseOrder ||--o{ PurchaseOrderSubmissionAttempt : "purchaseOrder"
   PurchaseOrder o|--o{ SupplierPayment : "purchaseOrder"
+  RocketPurchaseConfirmation ||--o{ RocketPurchaseConfirmationLine : "confirmation"
+  RocketPurchaseConfirmationLine ||--o{ RocketPurchaseConfirmationAllocation : "confirmationLine"
   Supplier o|--o{ PurchaseOrder : "supplier"
   Supplier ||--o{ SupplierPayment : "supplier"
   Supplier ||--o{ SupplierProduct : "supplier"
@@ -130,6 +176,16 @@ erDiagram
 | PurchaseOrderItem | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
 | PurchaseOrderSubmissionAttempt | organization | references external | Core | Organization |
 | PurchaseOrderSubmissionAttempt | reconciler | references external | Core | User |
+| RocketPurchaseConfirmation | channelAccount | references external | Core | ChannelAccount |
+| RocketPurchaseConfirmation | confirmer | references external | Core | User |
+| RocketPurchaseConfirmation | organization | references external | Core | Organization |
+| RocketPurchaseConfirmation | releaser | references external | Core | User |
+| RocketPurchaseConfirmation | sourceImportRun | references external | Core | SourceImportRun |
+| RocketPurchaseConfirmationAllocation | organization | references external | Core | Organization |
+| RocketPurchaseConfirmationAllocation | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
+| RocketPurchaseConfirmationLine | channelListingOption | references external | Core | ChannelListingOption |
+| RocketPurchaseConfirmationLine | organization | references external | Core | Organization |
+| RocketPurchaseConfirmationLine | productVariant | references external | Core | ProductVariant |
 | Supplier | organization | references external | Core | Organization |
 | SupplierPayment | organization | references external | Core | Organization |
 | SupplierProduct | organization | references external | Core | Organization |

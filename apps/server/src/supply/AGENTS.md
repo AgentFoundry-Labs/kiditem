@@ -45,7 +45,7 @@ Route shape is frozen.
 - Delete is allowed only from `draft` or `pending`.
 - `/api/purchase-orders` keeps the single POST action body
   (`create | updateStatus | delete | submit | reconcileSubmission |
-  previewRocket`).
+  previewRocket | confirmRocket | releaseRocketConfirmation`).
 - `pending -> ordered` is forbidden through generic `updateStatus`; every real
   purchase uses `PurchaseOrderSubmissionPort` with an authenticated actor and
   caller-stable idempotency key.
@@ -72,9 +72,10 @@ Route shape is frozen.
   same-generation gated capacity snapshot before calculation. A refresh cannot
   bless quantities copied from an older generation.
 - Rocket preview allocation is a pure in-memory policy over shared component
-  stock. It may return mapping, inactive-component, insufficient-capacity, or
-  collection/account blocking reasons, but it never reserves, deducts, commits,
-  confirms, persists a workbook, or calls a purchase provider.
+  stock. It subtracts active Rocket confirmation allocations and may return
+  mapping, inactive-component, insufficient-capacity, or collection/account
+  blocking reasons, but the preview itself never commits, writes a workbook,
+  mutates physical stock, or calls a purchase provider.
 - Edited quantities are bounded before every result, including collection,
   vendor, mapping, inactive-component, and zero-capacity rows. The pure domain
   policy throws only framework-neutral outcomes; the application service owns
@@ -83,6 +84,20 @@ Route shape is frozen.
   request mode jointly clamps retained edits in the same stable ETA/PO/line
   allocation order, so rows sharing a component cannot each retain an
   independently valid but collectively impossible quantity.
+- `confirmRocket` reruns the canonical preview from the submitted collection,
+  requires an explicit reviewed quantity for every line, and requires a
+  controlled shortage reason for every short line.
+- Rocket confirmation uses one organization advisory lock, the current
+  Inventory generation, the completed Rocket source artifact, and unchanged
+  `ChannelListingOption -> ProductVariant -> ProductVariantComponent` identity
+  before persisting an active capacity allocation.
+- A caller-stable UUID idempotency key returns the same confirmation only for
+  the same normalized request. Reusing it with different input is a conflict.
+- Active allocations reduce later previews and confirmations. Release requires
+  an authenticated active member plus an explicit reason after cancellation or
+  after the physical movement is reflected by Sellpia, and restores derived
+  capacity by changing allocation status; neither operation writes
+  `SellpiaInventorySku.currentStock` or calls Coupang.
 
 ## Cross-Domain Ports
 
@@ -98,14 +113,14 @@ Route shape is frozen.
 - Supplier and purchase-order single-resource access is repository-scoped by
   `{ id, organizationId }`.
 - Raw SQL uses Prisma tagged templates only.
-- The purchase-order submission transaction adapter is the sole Supply
-  exception to repository-only Prisma access. It may lock and read Inventory's
-  freshness row for fencing, but it must not derive freshness policy, mutate
-  Inventory state/current stock, or expose that table through a Supply
-  repository.
+- Purchase-order submission and Rocket confirmation transaction adapters are
+  the Supply exceptions to repository-only Prisma access. They may lock and
+  read Inventory freshness/SKU rows for fencing and allocation, but they must
+  not derive freshness policy, mutate Inventory state/current stock, or expose
+  those tables through a Supply repository.
 - Do not write `SupplierPayment`.
-- Do not turn Rocket preview into an ordering path. Release `0.1.19` exposes
-  review-only quantities and keeps confirmation disabled.
+- Rocket confirmation is an internal capacity commitment and workbook input,
+  not a purchase-provider submission or proof that Coupang accepted anything.
 - Do not reintroduce supplier/procurement controllers, services, DTOs, or
   supply model mutations under `src/sourcing/`.
 

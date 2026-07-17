@@ -38,6 +38,20 @@ describe('previewRocketCapacity', () => {
     expect(rows[1]?.reason).toBe('insufficient_capacity');
   });
 
+  it('subtracts active Rocket confirmations before allocating new capacity', () => {
+    const rows = previewRocketCapacity({
+      rows: [earlierRow],
+      editedQuantities: {},
+      committedQuantities: { 'sellpia-sku-1': 3 },
+    });
+
+    expect(rows[0]).toMatchObject({
+      maxQuantity: 2,
+      recommendedQuantity: 2,
+      reason: 'insufficient_capacity',
+    });
+  });
+
   it('returns mapping and inactive reasons without allocating capacity', () => {
     const rows = previewRocketCapacity({
       editedQuantities: {},
@@ -88,13 +102,13 @@ describe('previewRocketCapacity', () => {
     }));
   });
 
-  it('rejects an edited quantity above recomputed remaining component capacity', () => {
+  it('rejects an edited quantity above the PO order quantity even when stock is higher', () => {
     expect(() => previewRocketCapacity({
       rows: [earlierRow],
-      editedQuantities: { 'line-earlier': 6 },
+      editedQuantities: { 'line-earlier': 5 },
     })).toThrowError(expect.objectContaining({
       name: 'RocketPreviewQuantityExceededError',
-      maxQuantity: 5,
+      maxQuantity: 4,
     }));
   });
 
@@ -130,15 +144,15 @@ describe('previewRocketCapacity', () => {
     }))).toEqual([
       {
         poLineId: 'line-earlier',
-        maxQuantity: 10,
-        editedQuantity: 10,
-        recommendedQuantity: 10,
+        maxQuantity: 1,
+        editedQuantity: 1,
+        recommendedQuantity: 1,
       },
       {
         poLineId: 'line-later',
-        maxQuantity: 0,
-        editedQuantity: 0,
-        recommendedQuantity: 0,
+        maxQuantity: 1,
+        editedQuantity: 1,
+        recommendedQuantity: 1,
       },
     ]);
   });

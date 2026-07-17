@@ -492,7 +492,7 @@ existing content asset, a succeeded generation candidate, or an external URL
 that first passes the guarded fetch/storage boundary. Asset deletion and GC
 must reject active generation usage or any thumbnail selection.
 
-## Sellpia Freshness, Purchase Fence, And Channel Capacity (`0.1.19`)
+## Sellpia Freshness, Purchase Fence, And Channel Capacity (`0.1.19`–`0.1.20`)
 
 Sellpia is the upstream stock authority. Inventory owns one persisted
 organization-scoped `SellpiaInventoryState`, the fixed source binding, server
@@ -512,6 +512,8 @@ not estimate, reserve, increment, or decrement it.
 | Physical Sellpia SKU | `SellpiaInventorySku` | `sellpia_inventory_skus` | Organization + Sellpia product code. Only a completed valid Inventory publication writes active state and `current_stock`. |
 | Channel product/option | `ChannelListing` / `ChannelListingOption` | `channel_listings` / `channel_listing_options` | Organization + ChannelAccount + provider identity, with nullable links to MasterProduct/ProductVariant. Provider metadata is never inventory truth. |
 | External submission intent | `PurchaseOrderSubmissionAttempt` | `purchase_order_submission_attempts` | Organization + purchase order + idempotency key; records freshness generation, provider terminal/unknown outcome, and authenticated reconciliation. |
+| Rocket confirmation | `RocketPurchaseConfirmation` / `RocketPurchaseConfirmationLine` | `rocket_purchase_confirmations` / `rocket_purchase_confirmation_lines` | Organization + Rocket account + completed source run + UUID idempotency key; records every explicit line decision and confirmation/release actor. |
+| Rocket component allocation | `RocketPurchaseConfirmationAllocation` | `rocket_purchase_confirmation_allocations` | Immutable component recipe snapshot for one confirmed line. Active parent confirmations reduce available capacity without writing physical stock. |
 
 Freshness has four public states: `fresh`, `refresh_required`, `syncing`, and
 `failed`. A verified snapshot is fresh for strictly less than 10 minutes;
@@ -565,12 +567,17 @@ Capacity is
 `min(floor(currentStock / quantity))`; inactive components keep their stored
 recipe visible in `needs_review` instead of being silently removed.
 
-Rocket `0.1.19` is preview-only. A complete extension collection carries exact
-vendor/run/page/detail evidence; Channels non-destructively upserts observed
-identities, and Supply allocates a fresh shared-component snapshot in stable
-ETA/PO/line order entirely in memory. Edited quantities are jointly bounded.
-There is no reservation, commitment, confirmation workbook, attempt/provider
-submit, or stock mutation, and the actual-confirm control is disabled.
+Rocket `0.1.19` introduced preview-only allocation. In `0.1.20`, a complete
+extension collection also carries allowlisted official-workbook fields. Supply
+reruns the canonical preview under an organization lock, fences the Inventory
+generation and completed source artifact, verifies that channel/variant recipe
+identity has not changed, and persists explicit line decisions plus immutable
+component allocations. Active allocations are subtracted from later previews.
+Idempotent replay returns the existing record; input drift conflicts. An
+authenticated release with an explicit reason restores capacity by status only.
+Confirmation creates the official workbook in the browser after the server
+commit. It never submits to a marketplace provider or writes
+`SellpiaInventorySku.currentStock`.
 
 The frontend preserves the operations sidebar and route compositions from
 `c9e7caf875ca82574ae566a27fe0afa35c988918` and independently
@@ -580,13 +587,14 @@ may expose compact status and sync controls without rearranging baseline
 layouts. Product list, detail, matching, and read-only options keep their exact
 baseline ownership. Rocket preview is wired into the existing decision
 placeholder on `/rocket-orders` and may also appear at
-`/purchase-orders?tab=rocket`; actual confirmation and provider submission stay
+`/purchase-orders?tab=rocket`; the same Supply-owned confirmation workspace is
+available in both compositions. Marketplace provider submission remains
 disabled.
 
 Exact operation and recovery steps live in the
 [freshness runbook](runbooks/sellpia-inventory-freshness.md),
 [channel matching runbook](runbooks/channel-sellpia-matching.md), and
-[Rocket preview boundary](runbooks/sellpia-rocket-inventory-sync.md).
+[Rocket confirmation boundary](runbooks/sellpia-rocket-inventory-sync.md).
 
 ## Data And Tenant Rules
 

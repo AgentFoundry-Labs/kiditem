@@ -14,8 +14,8 @@ conversion.
 - Icecream Mall PO delivery inquiry grid capture.
 - Coupang supplier ASN visible-row Label/statement download triggers.
 - Supported marketplace order export capture, including Kakao Shopping Seller.
-- Coupang Rocket purchase-order list/detail collection for read-only purchase
-  quantity previews.
+- Coupang Rocket purchase-order list/detail collection for purchase quantity
+  previews and confirmation-workbook evidence.
 - Sellpia delivery-tracking lookup and order-file upload.
 - Sellpia 판매현황(sale_summary) 몰별·일별 매출 조회(읽기 전용) + `chrome.alarms`
   매일 자동수집 캐시(웹앱이 백엔드로 flush).
@@ -98,6 +98,10 @@ conversion.
 - Collect at most 20 list pages and 40 PO details per run. Limit exhaustion,
   detail failure, or an empty detail response is incomplete evidence and must
   block preview publication in the backend.
+- Advertise `collectRocketPoRowsConfirmationV1` only when every publishable row
+  also carries the allowlisted official-workbook fields collected from the
+  authenticated Rocket list/detail response. Do not synthesize missing fields
+  from display text or let the web app confirm without them.
 - Use the non-display Rocket `vendorId` as identity. Missing or mixed vendor IDs
   return no publishable rows; never fall back to vendor names or display text.
 - Every detail line carries a deterministic `poLineId` so collection retries

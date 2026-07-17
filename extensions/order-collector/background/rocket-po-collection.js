@@ -244,6 +244,11 @@
           }
           const document_ = new DOMParser().parseFromString(html, "text/html");
           const tables = Array.from(document_.querySelectorAll("table"));
+          const returnTable = tables.find((table) =>
+            /회송\s*담당자/.test(table.textContent) && /회송지/.test(table.textContent));
+          const returnRow = returnTable && returnTable.rows[1]
+            ? Array.from(returnTable.rows[1].cells).map((cell) => norm(cell.textContent))
+            : ["", "", ""];
           const skuTable = tables.find((table) =>
             /상품\s*번호/.test(table.textContent) && /발주금액/.test(table.textContent));
           const skuRows = skuTable
@@ -271,6 +276,22 @@
                 || normalizedStatus,
               ).toUpperCase(),
               businessDateBasis,
+              confirmation: {
+                center: clean(purchaseOrder.centerName, 120),
+                inboundType: clean(purchaseOrder.transportTypeDescription, 80),
+                poStatus: clean(purchaseOrder.purchaseOrderStatusDescription, 80),
+                returnManager: clean(returnRow[0], 120),
+                returnContact: clean(returnRow[1], 80),
+                returnAddress: clean(returnRow[2], 300),
+                purchasePrice: num(row[6]),
+                supplyPrice: num(row[7]),
+                vat: num(row[8]),
+                totalPurchase: num(row[9]),
+                poRegisteredAt: String(purchaseOrder.createdAt || "")
+                  .replace("T", " ")
+                  .slice(0, 19),
+                xdock: "N",
+              },
             });
           });
           detailPoCount += 1;

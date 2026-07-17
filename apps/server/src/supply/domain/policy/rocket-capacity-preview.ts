@@ -52,6 +52,7 @@ export type RocketCapacityPreviewRow = {
 export function previewRocketCapacity(input: {
   rows: RocketCapacityPreviewInputRow[];
   editedQuantities: Record<string, number>;
+  committedQuantities?: Record<string, number>;
   clampEditedQuantities?: boolean;
 }): RocketCapacityPreviewRow[] {
   const remainingStock = new Map<string, number>();
@@ -59,7 +60,13 @@ export function previewRocketCapacity(input: {
     const current = remainingStock.get(component.sellpiaInventorySkuId);
     remainingStock.set(
       component.sellpiaInventorySkuId,
-      current === undefined ? component.currentStock : Math.min(current, component.currentStock),
+      current === undefined
+        ? Math.max(
+            0,
+            component.currentStock
+              - (input.committedQuantities?.[component.sellpiaInventorySkuId] ?? 0),
+          )
+        : Math.min(current, component.currentStock),
     );
   }
 
@@ -111,10 +118,13 @@ function allocateRow(
     return result(row, editedQuantity, 0, 0, 'review_required');
   }
 
-  const maxQuantity = Math.min(...row.components.map((component) => Math.floor(
-    (remainingStock.get(component.sellpiaInventorySkuId) ?? 0)
-      / component.quantity,
-  )));
+  const maxQuantity = Math.min(
+    row.orderQuantity,
+    ...row.components.map((component) => Math.floor(
+      (remainingStock.get(component.sellpiaInventorySkuId) ?? 0)
+        / component.quantity,
+    )),
+  );
   const editedQuantity = resolveRocketPreviewEditedQuantity(
     row.poLineId,
     requestedEditedQuantity,
