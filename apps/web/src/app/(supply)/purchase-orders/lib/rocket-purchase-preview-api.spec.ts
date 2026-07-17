@@ -51,6 +51,7 @@ describe('previewRocketPurchases', () => {
         poNumber: '1001',
         productNo: 'P-1',
         productName: 'Rocket item',
+        plannedDeliveryDate: '2026-07-20',
         orderQuantity: 2,
         recommendedQuantity: 0,
         maxQuantity: 0,

@@ -81,6 +81,7 @@ function previewRow(
     poNumber: row.poNumber,
     productNo: row.productNo,
     productName: row.productName,
+    plannedDeliveryDate: row.plannedDeliveryDate,
     orderQuantity: row.orderQty,
     recommendedQuantity: Math.min(row.orderQty, maxQuantity),
     maxQuantity,
@@ -186,7 +187,7 @@ describe('RocketPurchaseWorkspace', () => {
       rows: [confirmationLineA],
       poCount: 1,
     });
-    vi.mocked(previewRocketPurchases).mockResolvedValue({
+    const initialPreview = {
       collectionRunId: '22222222-2222-4222-8222-222222222222',
       catalog: catalogPublication(1),
       inventoryGeneration: '12',
@@ -199,10 +200,22 @@ describe('RocketPurchaseWorkspace', () => {
           sellpiaInventorySkuId: '99999999-9999-4999-8999-999999999999',
           quantity: 1,
           currentStock: 3,
+          activeCommitmentQuantity: 0,
+          availableStock: 3,
           isActive: true,
         }],
       }],
-    });
+    };
+    vi.mocked(previewRocketPurchases)
+      .mockResolvedValueOnce(initialPreview)
+      .mockResolvedValueOnce({
+        ...initialPreview,
+        rows: [{
+          ...initialPreview.rows[0]!,
+          editedQuantity: 2,
+          recommendedQuantity: 2,
+        }],
+      });
     vi.mocked(confirmRocketPurchase).mockResolvedValue({
       confirmationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       status: 'active',
@@ -230,6 +243,9 @@ describe('RocketPurchaseWorkspace', () => {
     await user.clear(quantity);
     await user.type(quantity, '2');
     expect(screen.getByRole('button', { name: '확정 후 엑셀 다운로드' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '수량 다시 검증' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: '수량 다시 검증' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '확정 후 엑셀 다운로드' })).toBeDisabled());
     await user.selectOptions(
       screen.getByRole('combobox', { name: '1001 납품부족사유' }),
       '협력사 재고부족 - 수요예측 오류',
@@ -282,6 +298,8 @@ describe('RocketPurchaseWorkspace', () => {
           sellpiaInventorySkuId: '99999999-9999-4999-8999-999999999999',
           quantity: 1,
           currentStock: 3,
+          activeCommitmentQuantity: 0,
+          availableStock: 3,
           isActive: true,
         }],
       }],
@@ -354,6 +372,8 @@ describe('RocketPurchaseWorkspace', () => {
           sellpiaInventorySkuId: '99999999-9999-4999-8999-999999999999',
           quantity: 1,
           currentStock: 3,
+          activeCommitmentQuantity: 0,
+          availableStock: 3,
           isActive: true,
         }],
       }],
@@ -703,7 +723,7 @@ describe('RocketPurchaseWorkspace', () => {
     expect(quantity).toHaveValue(0);
   });
 
-  it('gets an unedited fresh max before dropping and clamping retained edits', async () => {
+  it('sends retained edits once and lets the server clamp them against fresh capacity', async () => {
     vi.mocked(collectRocketPoRowsFromExtension)
       .mockResolvedValueOnce({
         collection: {
@@ -742,12 +762,6 @@ describe('RocketPurchaseWorkspace', () => {
         collectionRunId: '33333333-3333-4333-8333-333333333333',
         catalog: null,
         inventoryGeneration: null,
-        rows: [previewRow(lineB, 2)],
-      })
-      .mockResolvedValueOnce({
-        collectionRunId: '33333333-3333-4333-8333-333333333333',
-        catalog: null,
-        inventoryGeneration: null,
         rows: [{
           ...previewRow(lineB, 2),
           editedQuantity: 2,
@@ -766,15 +780,15 @@ describe('RocketPurchaseWorkspace', () => {
     await user.type(editB, '4');
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
-    await waitFor(() => expect(previewRocketPurchases).toHaveBeenCalledTimes(3));
-    expect(vi.mocked(previewRocketPurchases).mock.calls[1]?.[0].editedQuantities)
-      .toEqual({});
-    expect(vi.mocked(previewRocketPurchases).mock.calls[2]?.[0].editedQuantities)
-      .toEqual({ [lineB.poLineId]: 2 });
+    await waitFor(() => expect(previewRocketPurchases).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(previewRocketPurchases).mock.calls[1]?.[0]).toMatchObject({
+      editedQuantities: { [lineB.poLineId]: 3 },
+      clampEditedQuantities: true,
+    });
     expect(screen.getByRole('spinbutton', { name: '1002 검토수량' })).toHaveValue(2);
   });
 
-  it('asks the server to jointly clamp retained edits that share component stock', async () => {
+  it('blocks confirmation until the server jointly revalidates edits that share component stock', async () => {
     vi.mocked(collectRocketPoRowsFromExtension).mockResolvedValue({
       collection: {
         collectionRunId: '22222222-2222-4222-8222-222222222222',
@@ -795,7 +809,6 @@ describe('RocketPurchaseWorkspace', () => {
       rows: [previewRow(lineA, 3), previewRow(lineB, 3)],
     };
     vi.mocked(previewRocketPurchases)
-      .mockResolvedValueOnce(baseline)
       .mockResolvedValueOnce(baseline)
       .mockResolvedValueOnce({
         ...baseline,
@@ -822,10 +835,11 @@ describe('RocketPurchaseWorkspace', () => {
     await user.type(editA, '10');
     await user.clear(editB);
     await user.type(editB, '9');
-    await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
+    expect(screen.getByRole('button', { name: '확정 후 엑셀 다운로드' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: '수량 다시 검증' }));
 
-    await waitFor(() => expect(previewRocketPurchases).toHaveBeenCalledTimes(3));
-    expect(vi.mocked(previewRocketPurchases).mock.calls[2]?.[0]).toMatchObject({
+    await waitFor(() => expect(previewRocketPurchases).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(previewRocketPurchases).mock.calls[1]?.[0]).toMatchObject({
       editedQuantities: {
         [lineA.poLineId]: 3,
         [lineB.poLineId]: 3,
@@ -834,6 +848,7 @@ describe('RocketPurchaseWorkspace', () => {
     });
     expect(screen.getByRole('spinbutton', { name: '1001 검토수량' })).toHaveValue(3);
     expect(screen.getByRole('spinbutton', { name: '1002 검토수량' })).toHaveValue(0);
+    expect(collectRocketPoRowsForConfirmationFromExtension).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
