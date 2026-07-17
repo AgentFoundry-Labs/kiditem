@@ -56,7 +56,6 @@ describe('Sidebar product pipeline navigation', () => {
         '주문관리',
         '재고관리',
         '출고반품',
-        '거래처',
         '재무분석',
       ].includes(section.label))
       .map((section) => [
@@ -72,27 +71,15 @@ describe('Sidebar product pipeline navigation', () => {
         ['/product-hub/options', '셀피아 재고'],
       ]],
       ['주문관리', [
-      ['/order-hub', '주문 처리'],
         ['/order-collection', '주문수집'],
         ['/rocket-orders', '쿠팡 로켓'],
-        ['/cs-management', 'CS 관리'],
-        ['/order-status-hub', '주문 현황'],
-        ['/unshipped-items', '미배송 조회'],
       ]],
       ['재고관리', [
-      ['/inventory-hub', '재고 관리'],
+        ['/inventory-hub', '재고 관리'],
         ['/stock-ops', '재고 분석'],
-        ['/warehouses', '창고 관리'],
       ]],
       ['출고반품', [
-        ['/outbound', '출고 현황'],
         ['/coupang-shipments', '쿠팡 쉽먼트'],
-        ['/returns', '반품 관리'],
-        ['/return-scan', '반품 스캔'],
-      ]],
-      ['거래처', [
-        ['/supplier-hub', '거래처 관리'],
-        ['/suppliers', '거래처 목록'],
       ]],
       ['재무분석', [
         ['/profit-loss', '손익 분석'],
@@ -102,5 +89,6 @@ describe('Sidebar product pipeline navigation', () => {
     ]);
 
     expect(menuSections.some((section) => section.label === '운영')).toBe(false);
+    expect(menuSections.some((section) => section.label === '거래처')).toBe(false);
   });
 });
