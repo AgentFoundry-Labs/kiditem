@@ -163,6 +163,7 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
       capabilities: {
         orderCollectionIcecreamMall: true,
         coupangShipmentDownloads: true,
+        collectCoupangShipmentFiles: true,
         art09Orders: true,
         boriboriOrders: true,
         collectRocketPoRows: true,
@@ -327,6 +328,47 @@ chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
         sendResponse({
           success: false,
           error: error?.message || "쿠팡 쉽먼트 다운로드 실행 실패",
+        });
+      });
+    return true;
+  }
+
+  // ── 원클릭 자동 수집: 발송일 기준 쉽먼트 목록(센터순) + Label/내역서 PDF 직접 fetch ──
+  if (msg?.action === "collectCoupangShipmentDateSummary") {
+    collectCoupangShipmentDateSummary({ maxPages: msg.maxPages })
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({
+          success: false,
+          error: error?.message || "쿠팡 쉽먼트 발송일 조회 실패",
+        });
+      });
+    return true;
+  }
+
+  if (msg?.action === "collectCoupangShipmentList") {
+    collectCoupangShipmentList({
+      date: typeof msg.date === "string" ? msg.date : "",
+    })
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({
+          success: false,
+          error: error?.message || "쿠팡 쉽먼트 목록 수집 실패",
+        });
+      });
+    return true;
+  }
+
+  if (msg?.action === "fetchCoupangShipmentPdfBatch") {
+    fetchCoupangShipmentPdfBatch({
+      items: Array.isArray(msg.items) ? msg.items : [],
+    })
+      .then((result) => sendResponse(result))
+      .catch((error) => {
+        sendResponse({
+          success: false,
+          error: error?.message || "쿠팡 쉽먼트 PDF 수집 실패",
         });
       });
     return true;
@@ -630,10 +672,8 @@ async function openCoupangShipmentPage() {
 }
 
 async function clickCoupangShipmentDownloads(options) {
-  const tab = await findOrCreateInteractiveCoupangSupplierTab(
-    INTERACTIVE_TAB_REASONS.SHIPMENT_DOWNLOAD,
-  );
-  if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
+  const tab = await findOrCreateBackgroundCoupangSupplierTab();
+  if (!tab?.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
   await waitForTabReady(tab.id);
 
   const injected = await withTimeout(
@@ -655,6 +695,257 @@ async function clickCoupangShipmentDownloads(options) {
     ...result,
     url: currentTab.url || tab.url || COUPANG_SHIPMENT_URL,
   };
+}
+
+// 백그라운드 쿠팡 supplier 탭: 기존 supplier 탭이 있으면 그대로 재사용(포커스를 뺏지 않음),
+// 없을 때만 active:false 로 새 탭을 만든다. 목록/라벨/내역서는 same-origin fetch 라
+// supplier.coupang.com 의 어떤 경로(로켓 발주 화면 등)에서도 동작한다 → 사용자 화면 그대로 유지.
+async function findOrCreateBackgroundCoupangSupplierTab() {
+  const tabs = await chrome.tabs.query({ url: COUPANG_SUPPLIER_TAB_MATCHES });
+  if (tabs[0]?.id) return tabs[0];
+  return chrome.tabs.create({ url: COUPANG_SHIPMENT_URL, active: false });
+}
+
+// ── 발송일 조회(달력용): 최근 쉽먼트를 발송일별로 집계 (몇 건 / 박스수) ──
+async function collectCoupangShipmentDateSummary(options) {
+  const tab = await findOrCreateBackgroundCoupangSupplierTab();
+  if (!tab?.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
+  await waitForTabReady(tab.id);
+
+  const injected = await withTimeout(
+    chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: scrapeCoupangShipmentDateSummary,
+      args: [Math.min(Math.max(Number(options?.maxPages) || 40, 1), 60)],
+    }),
+    90000,
+    "쿠팡 쉽먼트 발송일 조회 시간이 초과되었습니다.",
+  );
+  return (
+    injected[0]?.result ?? {
+      success: false,
+      error: "쿠팡 쉽먼트 화면에 접근하지 못했습니다.",
+    }
+  );
+}
+
+// [페이지 주입] 최근 쉽먼트를 페이지네이션하며 발송일별로 집계.
+async function scrapeCoupangShipmentDateSummary(maxPages) {
+  async function fetchPage(n) {
+    const r = await fetch(
+      `/ibs/shipment/parcel/list?pageNumber=${n}&centerCode=&carrierCode=&estimatedDeliveryDate=&shipmentSeq=&purchaseOrderSeq=`,
+      { credentials: "include", headers: { "X-Requested-With": "XMLHttpRequest" } },
+    );
+    if (!r.ok) throw new Error(`목록 조회 실패 (page ${n}, HTTP ${r.status})`);
+    return await r.text();
+  }
+  function parseRows(html) {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const table = doc.querySelector("table#parcel-tab") || doc.querySelector("table");
+    if (!table) return [];
+    const heads = Array.from(table.querySelectorAll("thead th")).map((h) => (h.textContent || "").trim());
+    const idx = (name) => heads.findIndex((h) => h.includes(name));
+    const iSeq = idx("쉽먼트 번호"), iOut = idx("발송일"), iBox = idx("박스수");
+    return Array.from(table.querySelectorAll("tbody tr"))
+      .map((tr) => {
+        const c = Array.from(tr.querySelectorAll("td")).map((td) => (td.textContent || "").trim());
+        if (c.length < 6) return null;
+        return { seq: c[iSeq], outbound: c[iOut], boxes: c[iBox] };
+      })
+      .filter(Boolean);
+  }
+  try {
+    const seen = new Set();
+    const byDate = new Map();
+    let scannedPages = 0;
+    let totalRows = 0;
+    for (let page = 1; page <= maxPages; page++) {
+      const rows = parseRows(await fetchPage(page));
+      scannedPages = page;
+      if (rows.length === 0) break;
+      for (const row of rows) {
+        if (seen.has(row.seq)) continue;
+        seen.add(row.seq);
+        totalRows += 1;
+        const date = (row.outbound || "").slice(0, 10);
+        if (!date) continue;
+        const boxMatch = String(row.boxes || "").match(/(\d+)/);
+        const current = byDate.get(date) || { count: 0, boxes: 0 };
+        current.count += 1;
+        current.boxes += boxMatch ? Number(boxMatch[1]) : 0;
+        byDate.set(date, current);
+      }
+      if (rows.length < 10) break; // 마지막 페이지
+    }
+    const dates = [...byDate.entries()]
+      .map(([date, v]) => ({ date, count: v.count, boxes: v.boxes }))
+      .sort((a, b) => b.date.localeCompare(a.date));
+    return { success: true, scannedPages, totalRows, dates };
+  } catch (e) {
+    return { success: false, error: String((e && e.message) || e) };
+  }
+}
+
+// ── 원클릭 자동 수집: 발송일 기준 쉽먼트 목록 (직접 목록 API HTML 파싱) ──
+// clickCoupangShipmentDownloads 는 화면 버튼을 눌러 파일명 없는 PDF 를 Downloads 로 흘리지만,
+// 이쪽은 목록/라벨/내역서 엔드포인트를 세션 fetch 로 직접 받아 발송일·센터를 정확히 붙인다.
+async function collectCoupangShipmentList(options) {
+  const tab = await findOrCreateBackgroundCoupangSupplierTab();
+  if (!tab?.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
+  await waitForTabReady(tab.id);
+
+  const injected = await withTimeout(
+    chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: scrapeCoupangShipmentList,
+      args: [options?.date || ""],
+    }),
+    90000,
+    "쿠팡 쉽먼트 목록 수집 시간이 초과되었습니다.",
+  );
+  return (
+    injected[0]?.result ?? {
+      success: false,
+      error: "쿠팡 쉽먼트 화면에 접근하지 못했습니다.",
+    }
+  );
+}
+
+async function fetchCoupangShipmentPdfBatch(options) {
+  const items = (options?.items || [])
+    .filter((it) => it && it.seq && (it.kind === "label" || it.kind === "manifest"))
+    .map((it) => ({ seq: String(it.seq), kind: it.kind }));
+  if (items.length === 0) return { success: false, error: "요청한 PDF 항목이 없습니다." };
+
+  const tab = await findOrCreateBackgroundCoupangSupplierTab();
+  if (!tab?.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
+  await waitForTabReady(tab.id);
+
+  const injected = await withTimeout(
+    chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: fetchCoupangShipmentPdfsInPage,
+      args: [items],
+    }),
+    120000,
+    "쿠팡 쉽먼트 PDF 수집 시간이 초과되었습니다.",
+  );
+  return (
+    injected[0]?.result ?? {
+      success: false,
+      error: "쿠팡 쉽먼트 PDF 화면에 접근하지 못했습니다.",
+    }
+  );
+}
+
+// [페이지 주입] 발송일(YYYY-MM-DD) 로 쉽먼트 목록을 페이지네이션하며 전량 수집.
+// ⚠️ estimatedDeliveryDate(입고예정일) 필터는 발송일과 1:1 이 아니라 누락되므로 무필터로 받고 발송일로 거른다.
+// 목록 응답은 JSON 이 아니라 table#parcel-tab HTML 조각. 날짜 파라미터는 YYYYMMDD.
+async function scrapeCoupangShipmentList(targetDate) {
+  const wanted = (targetDate || "").slice(0, 10);
+  async function fetchPage(n) {
+    const r = await fetch(
+      `/ibs/shipment/parcel/list?pageNumber=${n}&centerCode=&carrierCode=&estimatedDeliveryDate=&shipmentSeq=&purchaseOrderSeq=`,
+      { credentials: "include", headers: { "X-Requested-With": "XMLHttpRequest" } },
+    );
+    if (!r.ok) throw new Error(`목록 조회 실패 (page ${n}, HTTP ${r.status})`);
+    return await r.text();
+  }
+  function parseRows(html) {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const table = doc.querySelector("table#parcel-tab") || doc.querySelector("table");
+    if (!table) return [];
+    const heads = Array.from(table.querySelectorAll("thead th")).map((h) => (h.textContent || "").trim());
+    const idx = (name) => heads.findIndex((h) => h.includes(name));
+    const iSeq = idx("쉽먼트 번호"), iStat = idx("쉽먼트 상태"), iOut = idx("발송일"),
+      iIn = idx("입고예정일"), iCen = idx("센터"), iBox = idx("박스수"), iQty = idx("총 납품"),
+      iPo = idx("발주서"), iInv = idx("송장");
+    return Array.from(table.querySelectorAll("tbody tr"))
+      .map((tr) => {
+        const c = Array.from(tr.querySelectorAll("td")).map((td) => (td.textContent || "").trim());
+        if (c.length < 6) return null;
+        return {
+          seq: c[iSeq], status: c[iStat], outbound: c[iOut], inbound: c[iIn],
+          center: c[iCen], boxes: c[iBox], qty: c[iQty], po: c[iPo], invoice: c[iInv],
+        };
+      })
+      .filter(Boolean);
+  }
+
+  try {
+    const seen = new Set();
+    const matched = [];
+    let scannedPages = 0;
+    let emptyStreak = 0; // 대상 날짜 0건 페이지 연속 카운트(블록 종료 감지)
+    const MAX_PAGES = 60;
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const rows = parseRows(await fetchPage(page));
+      scannedPages = page;
+      if (rows.length === 0) break; // 마지막 페이지 도달
+      let hitThisPage = 0;
+      for (const row of rows) {
+        if ((row.outbound || "").slice(0, 10) !== wanted) continue;
+        if (seen.has(row.seq)) continue;
+        seen.add(row.seq);
+        matched.push(row);
+        hitThisPage += 1;
+      }
+      if (matched.length > 0) {
+        emptyStreak = hitThisPage > 0 ? 0 : emptyStreak + 1;
+        // 대상 날짜 블록을 지난 뒤 2페이지 연속 0건이면 종료(발송일은 목록 상단에 뭉쳐 있음)
+        if (emptyStreak >= 2) break;
+      }
+      if (rows.length < 10) break; // 마지막 페이지
+    }
+    return {
+      success: true,
+      date: wanted,
+      scannedPages,
+      count: matched.length,
+      shipments: matched,
+    };
+  } catch (e) {
+    return { success: false, error: String((e && e.message) || e) };
+  }
+}
+
+// [페이지 주입] 주어진 (seq, kind) 목록의 Label/내역서 PDF 를 세션 fetch → base64.
+// kind: "label" → pdf-label/generate, "manifest" → pdf-manifest/generate. parcelShipmentSeq = 쉽먼트 번호.
+async function fetchCoupangShipmentPdfsInPage(items) {
+  function toBase64(buf) {
+    const bytes = new Uint8Array(buf);
+    let bin = "";
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+    }
+    return btoa(bin);
+  }
+  const files = [];
+  for (const it of items) {
+    const path = it.kind === "label" ? "pdf-label" : "pdf-manifest";
+    try {
+      const r = await fetch(
+        `/ibs/shipment/parcel/${path}/generate?parcelShipmentSeq=${it.seq}`,
+        { credentials: "include" },
+      );
+      if (!r.ok) {
+        files.push({ seq: it.seq, kind: it.kind, ok: false, error: `HTTP ${r.status}` });
+        continue;
+      }
+      const buf = await r.arrayBuffer();
+      const b = new Uint8Array(buf);
+      const isPdf = b[0] === 0x25 && b[1] === 0x50; // %P
+      if (!isPdf) {
+        files.push({ seq: it.seq, kind: it.kind, ok: false, error: "PDF 아님" });
+        continue;
+      }
+      files.push({ seq: it.seq, kind: it.kind, ok: true, bytes: buf.byteLength, b64: toBase64(buf) });
+    } catch (e) {
+      files.push({ seq: it.seq, kind: it.kind, ok: false, error: String((e && e.message) || e) });
+    }
+  }
+  return { success: true, files };
 }
 
 // ── 로켓 발주확정: 발주리스트(거래처확인요청) + 상세를 풀컬럼 스크래핑 ──
