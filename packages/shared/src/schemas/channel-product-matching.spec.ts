@@ -293,6 +293,124 @@ describe('channel product and variant matching contracts', () => {
     })).toThrow();
   });
 
+  it('reports legacy count aliases as unrecognized keys on an otherwise valid fixture', () => {
+    const result = ChannelProductMatchingCountsSchema.safeParse({
+      products: { all: 3, linked: 1, unlinked: 2, matched: 1, unmatched: 2 },
+      options: {
+        all: 4,
+        linked: 3,
+        unlinked: 1,
+        recipeConfirmed: 1,
+        configurationRequired: 1,
+        reviewRequired: 1,
+        matched: 1,
+        unmatched: 1,
+      },
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('legacy aliases must be rejected');
+    expect(result.error.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'unrecognized_keys',
+        path: ['products'],
+        keys: ['matched', 'unmatched'],
+      }),
+      expect.objectContaining({
+        code: 'unrecognized_keys',
+        path: ['options'],
+        keys: ['matched', 'unmatched'],
+      }),
+    ]));
+  });
+
+  it.each([
+    ['products.linked', {
+      products: { all: 0, unlinked: 0 },
+      options: {
+        all: 0,
+        linked: 0,
+        unlinked: 0,
+        recipeConfirmed: 0,
+        configurationRequired: 0,
+        reviewRequired: 0,
+      },
+    }, ['products', 'linked']],
+    ['products.unlinked', {
+      products: { all: 0, linked: 0 },
+      options: {
+        all: 0,
+        linked: 0,
+        unlinked: 0,
+        recipeConfirmed: 0,
+        configurationRequired: 0,
+        reviewRequired: 0,
+      },
+    }, ['products', 'unlinked']],
+    ['options.linked', {
+      products: { all: 0, linked: 0, unlinked: 0 },
+      options: {
+        all: 0,
+        unlinked: 0,
+        recipeConfirmed: 0,
+        configurationRequired: 0,
+        reviewRequired: 0,
+      },
+    }, ['options', 'linked']],
+    ['options.unlinked', {
+      products: { all: 0, linked: 0, unlinked: 0 },
+      options: {
+        all: 0,
+        linked: 0,
+        recipeConfirmed: 0,
+        configurationRequired: 0,
+        reviewRequired: 0,
+      },
+    }, ['options', 'unlinked']],
+    ['options.recipeConfirmed', {
+      products: { all: 0, linked: 0, unlinked: 0 },
+      options: {
+        all: 0,
+        linked: 0,
+        unlinked: 0,
+        configurationRequired: 0,
+        reviewRequired: 0,
+      },
+    }, ['options', 'recipeConfirmed']],
+    ['options.configurationRequired', {
+      products: { all: 0, linked: 0, unlinked: 0 },
+      options: {
+        all: 0,
+        linked: 0,
+        unlinked: 0,
+        recipeConfirmed: 0,
+        reviewRequired: 0,
+      },
+    }, ['options', 'configurationRequired']],
+    ['options.reviewRequired', {
+      products: { all: 0, linked: 0, unlinked: 0 },
+      options: {
+        all: 0,
+        linked: 0,
+        unlinked: 0,
+        recipeConfirmed: 0,
+        configurationRequired: 0,
+      },
+    }, ['options', 'reviewRequired']],
+  ] as const)('reports a missing required canonical count at %s', (_field, fixture, path) => {
+    const result = ChannelProductMatchingCountsSchema.safeParse(fixture);
+
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('missing canonical count must be rejected');
+    expect(result.error.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'invalid_type',
+        path,
+        message: 'Required',
+      }),
+    ]));
+  });
+
   it('accepts only explicit nullable link commands', () => {
     expect(LinkChannelListingProductInputSchema.parse({ masterProductId: null }))
       .toEqual({ masterProductId: null });
