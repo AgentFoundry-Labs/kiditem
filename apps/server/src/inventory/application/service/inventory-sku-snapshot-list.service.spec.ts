@@ -37,6 +37,8 @@ describe('InventorySkuSnapshotListService', () => {
       total: 1,
       summary: {
         totalSkus: 3,
+        linkedSkus: 1,
+        unlinkedSkus: 2,
         inStockSkus: 2,
         outOfStockSkus: 1,
         totalUnits: 10,
@@ -103,6 +105,8 @@ describe('InventorySkuSnapshotListService', () => {
       limit: 25,
       summary: {
         totalSkus: 3,
+        linkedSkus: 1,
+        unlinkedSkus: 2,
         inStockSkus: 2,
         outOfStockSkus: 1,
         totalUnits: 10,
@@ -285,6 +289,8 @@ describe('InventorySkuSnapshotListService', () => {
 function emptySummary() {
   return {
     totalSkus: 0,
+    linkedSkus: 0,
+    unlinkedSkus: 0,
     inStockSkus: 0,
     outOfStockSkus: 0,
     totalUnits: 0,

@@ -13,15 +13,16 @@ describe('<ProductLinkDialog>', () => {
     const mutateAsync = vi.fn().mockResolvedValue({});
     vi.mocked(useChannelProductCandidates).mockReturnValue({
       data: { items: [{
-        masterProductId: '33333333-3333-4333-8333-333333333333', code: 'KI-1', name: '우산', category: null, brand: null,
-        reason: 'exact_code', evidence: { providerIdentity: null, code: 'KI-1', barcode: null, normalizedName: null, aiExplanation: null, score: 1 }, rank: 1,
+        masterProductId: '33333333-3333-4333-8333-333333333333', code: 'CP-33333333-3333-4333-8333-333333333333', name: '우산', category: null, brand: null,
+        reason: 'exact_code', evidence: { providerIdentity: null, code: 'CP-33333333-3333-4333-8333-333333333333', barcode: null, normalizedName: null, aiExplanation: null, score: 1 }, rank: 1,
       }] }, isLoading: false, error: null,
     } as ReturnType<typeof useChannelProductCandidates>);
     vi.mocked(useLinkChannelListingProduct).mockReturnValue({ mutateAsync, isPending: false, error: null } as unknown as ReturnType<typeof useLinkChannelListingProduct>);
 
     render(<ProductLinkDialog open onOpenChange={vi.fn()} row={productRow()} />);
 
-    expect(screen.getByText('KI-1 · 우산')).toBeInTheDocument();
+    expect(screen.getByText('우산')).toBeInTheDocument();
+    expect(screen.queryByText(/CP-33333333/)).not.toBeInTheDocument();
     expect(mutateAsync).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '이 상품으로 확인' }));
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({

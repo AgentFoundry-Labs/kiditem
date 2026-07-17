@@ -11,6 +11,7 @@ import type {
   MasterProductOperationsListQuery,
   ProductOperationsListSummary,
   ProductVariantDetail,
+  ReplaceProductVariantRecipeInput,
 } from '@kiditem/shared/product-operations';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
@@ -291,6 +292,7 @@ implements ProductOperationsRepositoryPort {
     userId: string;
     productVariantId: string;
     components: Array<{ sellpiaInventorySkuId: string; quantity: number }>;
+    expectedRecipe: ReplaceProductVariantRecipeInput['expectedRecipe'];
   }): Promise<ProductVariantDetail> {
     try {
       await this.prisma.$transaction(async (tx) => {
@@ -300,6 +302,26 @@ implements ProductOperationsRepositoryPort {
           input.productVariantId,
         );
         if (!variant) throw new NotFoundException('ProductVariant was not found');
+        const currentRecipe = await tx.productVariantComponent.findMany({
+          where: {
+            organizationId: input.organizationId,
+            productVariantId: input.productVariantId,
+          },
+          select: {
+            id: true,
+            sellpiaInventorySkuId: true,
+            quantity: true,
+            source: true,
+            confirmedBy: true,
+            confirmedAt: true,
+          },
+        });
+        if (!sameRecipeExpectation(currentRecipe, input.expectedRecipe)) {
+          throw new ConflictException({
+            message: 'ProductVariant recipe was changed by another operator',
+            currentRecipe: canonicalRecipe(currentRecipe),
+          });
+        }
         await validateRecipeSkus(tx, input.organizationId, input.components);
         await tx.productVariantComponent.deleteMany({
           where: {
@@ -344,6 +366,35 @@ implements ProductOperationsRepositoryPort {
     if (!row) throw new NotFoundException('ProductVariant was not found');
     return toVariantDetail(row, row.masterProduct.originChannelListingId);
   }
+}
+
+type RecipeSnapshot = {
+  id: string;
+  sellpiaInventorySkuId: string;
+  quantity: number;
+  source: string;
+  confirmedBy: string | null;
+  confirmedAt: Date | string;
+};
+
+function canonicalRecipe(recipe: readonly RecipeSnapshot[]) {
+  return [...recipe]
+    .map((component) => ({
+      id: component.id,
+      sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+      quantity: component.quantity,
+      source: component.source,
+      confirmedBy: component.confirmedBy,
+      confirmedAt: new Date(component.confirmedAt).toISOString(),
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function sameRecipeExpectation(
+  current: readonly RecipeSnapshot[],
+  expected: readonly RecipeSnapshot[],
+) {
+  return JSON.stringify(canonicalRecipe(current)) === JSON.stringify(canonicalRecipe(expected));
 }
 
 function productListWhere(

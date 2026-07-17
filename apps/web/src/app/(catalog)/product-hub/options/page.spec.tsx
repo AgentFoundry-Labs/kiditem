@@ -8,5 +8,6 @@ describe('/product-hub/options compatibility page', () => {
     expect(source).toContain('ProductOptionsWorkspace');
     expect(source).toContain('headingLevel={1}');
     expect(source).not.toContain('redirect(');
+    expect(source).not.toMatch(/apiClient\.(post|patch|delete)/);
   });
 });

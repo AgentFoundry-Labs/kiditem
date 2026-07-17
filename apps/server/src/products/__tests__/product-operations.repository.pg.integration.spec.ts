@@ -252,7 +252,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       TEST_USER_ID,
       variantId,
-      { components: [{ sellpiaInventorySkuId: active.id, quantity: 3 }] },
+      { components: [{ sellpiaInventorySkuId: active.id, quantity: 3 }], expectedRecipe: [] },
     );
     expect(replaced).toMatchObject({ capacity: 2, warningState: 'none' });
     expect(replaced.components[0]?.confirmedAt).toEqual(expect.any(Date));
@@ -261,13 +261,13 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       TEST_USER_ID,
       variantId,
-      { components: [{ sellpiaInventorySkuId: inactive.id, quantity: 1 }] },
+      { components: [{ sellpiaInventorySkuId: inactive.id, quantity: 1 }], expectedRecipe: recipeSnapshot(replaced) },
     )).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.replaceRecipe(
       TEST_ORGANIZATION_ID,
       TEST_USER_ID,
       variantId,
-      { components: [{ sellpiaInventorySkuId: foreign.id, quantity: 1 }] },
+      { components: [{ sellpiaInventorySkuId: foreign.id, quantity: 1 }], expectedRecipe: recipeSnapshot(replaced) },
     )).rejects.toBeInstanceOf(BadRequestException);
     await prisma.sellpiaInventorySku.update({
       where: { id: active.id },
@@ -315,9 +315,11 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const replacements = [
       service.replaceRecipe(TEST_ORGANIZATION_ID, TEST_USER_ID, variantId, {
         components: [{ sellpiaInventorySkuId: skuA.id, quantity: 1 }],
+        expectedRecipe: [],
       }),
       service.replaceRecipe(TEST_ORGANIZATION_ID, TEST_USER_ID, variantId, {
         components: [{ sellpiaInventorySkuId: skuB.id, quantity: 2 }],
+        expectedRecipe: [],
       }),
     ].map((promise) => promise.finally(() => { settled += 1; }));
 
@@ -329,10 +331,52 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       await blocker;
     }
     const results = await Promise.allSettled(replacements);
-    expect(results.every((result) => result.status === 'fulfilled')).toBe(true);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')[0]).toMatchObject({
+      reason: expect.any(ConflictException),
+    });
     const componentIds = (await service.getProduct(TEST_ORGANIZATION_ID, created.id))
       .variants[0]!.components.map((component) => component.sellpiaInventorySkuId);
     expect([[skuA.id], [skuB.id]]).toContainEqual(componentIds);
+  });
+
+  it('rejects stale recipe snapshots while allowing an intentional matching replacement', async () => {
+    const skuA = await inventorySku('SP-SNAPSHOT-A', 8);
+    const skuB = await inventorySku('SP-SNAPSHOT-B', 8);
+    const skuC = await inventorySku('SP-SNAPSHOT-C', 8);
+    const created = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, {
+      code: 'KI-SNAPSHOT', name: 'Snapshot recipe',
+    });
+    const variantId = created.variants[0]!.id;
+    const first = await service.replaceRecipe(TEST_ORGANIZATION_ID, TEST_USER_ID, variantId, {
+      components: [{ sellpiaInventorySkuId: skuA.id, quantity: 1 }], expectedRecipe: [],
+    });
+    const staleEmpty = await service.replaceRecipe(TEST_ORGANIZATION_ID, TEST_USER_ID, variantId, {
+      components: [{ sellpiaInventorySkuId: skuB.id, quantity: 1 }], expectedRecipe: [],
+    }).catch((error) => error);
+    expect(staleEmpty).toBeInstanceOf(ConflictException);
+    expect((staleEmpty as ConflictException).getResponse()).toMatchObject({
+      currentRecipe: [{ id: first.components[0]!.id, sellpiaInventorySkuId: skuA.id, quantity: 1 }],
+    });
+    expect((await service.getProduct(TEST_ORGANIZATION_ID, created.id)).variants[0]!.components)
+      .toMatchObject([{ sellpiaInventorySkuId: skuA.id }]);
+
+    const second = await service.replaceRecipe(TEST_ORGANIZATION_ID, TEST_USER_ID, variantId, {
+      components: [{ sellpiaInventorySkuId: skuB.id, quantity: 2 }], expectedRecipe: recipeSnapshot(first),
+    });
+    expect(second.components).toMatchObject([{ sellpiaInventorySkuId: skuB.id, quantity: 2 }]);
+    const third = await service.replaceRecipe(TEST_ORGANIZATION_ID, TEST_USER_ID, variantId, {
+      components: [{ sellpiaInventorySkuId: skuC.id, quantity: 3 }], expectedRecipe: recipeSnapshot(second),
+    });
+    const staleNonEmpty = await service.replaceRecipe(TEST_ORGANIZATION_ID, TEST_USER_ID, variantId, {
+      components: [{ sellpiaInventorySkuId: skuA.id, quantity: 1 }], expectedRecipe: recipeSnapshot(second),
+    }).catch((error) => error);
+    expect(staleNonEmpty).toBeInstanceOf(ConflictException);
+    expect((staleNonEmpty as ConflictException).getResponse()).toMatchObject({
+      currentRecipe: [{ id: third.components[0]!.id, sellpiaInventorySkuId: skuC.id, quantity: 3 }],
+    });
+    expect((await service.getProduct(TEST_ORGANIZATION_ID, created.id)).variants[0]!.components)
+      .toMatchObject([{ sellpiaInventorySkuId: skuC.id, quantity: 3 }]);
   });
 
   it('keeps product metrics null without facts and aggregates linked listing facts when present', async () => {
@@ -419,5 +463,23 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     return prisma.sellpiaInventorySku.create({
       data: { organizationId, code, name: code, currentStock, isActive },
     });
+  }
+
+  function recipeSnapshot(variant: { components: Array<{
+    id: string;
+    sellpiaInventorySkuId: string;
+    quantity: number;
+    source: 'manual' | 'deterministic';
+    confirmedBy: string | null;
+    confirmedAt: Date | string;
+  }> }) {
+    return variant.components.map((component) => ({
+      id: component.id,
+      sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+      quantity: component.quantity,
+      source: component.source,
+      confirmedBy: component.confirmedBy,
+      confirmedAt: component.confirmedAt,
+    }));
   }
 });

@@ -124,6 +124,7 @@ export class ProductOperationsService implements ProductOperationsPort {
       userId,
       productVariantId,
       components: input.components,
+      expectedRecipe: input.expectedRecipe,
     });
   }
 }

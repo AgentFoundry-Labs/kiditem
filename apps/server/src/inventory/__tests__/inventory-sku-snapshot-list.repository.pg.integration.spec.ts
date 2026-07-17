@@ -179,6 +179,8 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
     expect(filtered.items.map(({ code }) => code)).toEqual(['SP-002']);
     expect(filtered.summary).toEqual({
       totalSkus: 3,
+      linkedSkus: 1,
+      unlinkedSkus: 2,
       inStockSkus: 2,
       outOfStockSkus: 1,
       totalUnits: 10,
@@ -291,6 +293,11 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
         linkStatus: 'unlinked',
       }),
     ]);
+    expect(result.summary).toMatchObject({
+      totalSkus: 1,
+      linkedSkus: 0,
+      unlinkedSkus: 1,
+    });
   });
 
   it('uses the inventory state pointer as the current import basis instead of importedAt order', async () => {

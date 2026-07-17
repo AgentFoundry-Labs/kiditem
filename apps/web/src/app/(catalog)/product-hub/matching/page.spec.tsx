@@ -6,6 +6,13 @@ import MatchingPage from './page';
 import type { ChannelAccountListItem } from '@kiditem/shared/channel-account';
 import type { ChannelProductMatchingQueueResponse } from '@kiditem/shared/channel-product-matching';
 
+const navigation = vi.hoisted(() => ({ params: new URLSearchParams(), replace: vi.fn() }));
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: navigation.replace, push: vi.fn() }),
+  usePathname: () => '/product-hub/matching',
+  useSearchParams: () => navigation.params,
+}));
+
 vi.mock('./hooks/useChannelSkuMappings', () => ({
   useChannelAccounts: vi.fn(),
   useChannelProductMappings: vi.fn(),
@@ -46,8 +53,15 @@ const response: ChannelProductMatchingQueueResponse = {
     },
   ],
   counts: {
-    products: { all: 1, matched: 0, unmatched: 1 },
-    options: { all: 3, matched: 1, unmatched: 2, configurationRequired: 0, reviewRequired: 0 },
+    products: { all: 1, linked: 0, unlinked: 1 },
+    options: {
+      all: 3,
+      linked: 1,
+      unlinked: 2,
+      recipeConfirmed: 1,
+      configurationRequired: 0,
+      reviewRequired: 0,
+    },
   },
 };
 
@@ -74,8 +88,48 @@ function mockQueries(accounts: ChannelAccountListItem[] = [account()]) {
 describe('/product-hub/matching', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    navigation.params = new URLSearchParams();
     refetch.mockResolvedValue({});
     mockQueries();
+  });
+
+  it('uses a directly loaded URL search as the initial queue query without an unfiltered flash', () => {
+    navigation.params = new URLSearchParams('channelAccountId=55555555-5555-4555-8555-555555555555&search=%20KI-1%20');
+    render(<MatchingPage />);
+    expect(vi.mocked(useChannelProductMappings).mock.lastCall?.[0]).toEqual(expect.objectContaining({ search: 'KI-1' }));
+  });
+
+  it('restores a needs-review option queue from the URL and excludes confirmed recipes', () => {
+    const reviewOptions = Array.from({ length: 51 }, (_, index) => ({
+      ...response.options[2],
+      option: { ...response.options[2]!.option, id: `66666666-6666-4666-8666-${String(index + 1).padStart(12, '0')}` },
+      recipeStatus: 'configuration_required' as const,
+      capacity: null,
+    }));
+    navigation.params = new URLSearchParams('channelAccountId=55555555-5555-4555-8555-555555555555&level=options&status=needs_review&search=SP-1&page=2');
+    vi.mocked(useChannelProductMappings).mockReturnValue({ data: { ...response, options: [...reviewOptions, response.options[2]!] }, isLoading: false, isFetching: false, error: null, refetch } as unknown as ReturnType<typeof useChannelProductMappings>);
+    render(<MatchingPage />);
+    expect(vi.mocked(useChannelProductMappings).mock.lastCall?.[0]).toEqual(expect.objectContaining({ search: 'SP-1' }));
+    expect(screen.getByRole('button', { name: '2 옵션 연결' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getAllByText('재고 연결 필요')).not.toHaveLength(0);
+    expect(screen.queryByText('판매 가능 12')).not.toBeInTheDocument();
+  });
+
+  it('resets URL page state when account, level, status, or search changes', async () => {
+    const user = userEvent.setup();
+    navigation.params = new URLSearchParams('channelAccountId=55555555-5555-4555-8555-555555555555&level=products&status=all&search=old&page=4');
+    render(<MatchingPage />);
+    await user.selectOptions(screen.getByRole('combobox', { name: '채널 계정' }), '55555555-5555-4555-8555-555555555555');
+    expect(navigation.replace).toHaveBeenLastCalledWith(expect.stringContaining('page=1'));
+    navigation.replace.mockClear();
+    await user.click(screen.getByRole('button', { name: '2 옵션 연결' }));
+    expect(navigation.replace).toHaveBeenLastCalledWith(expect.stringContaining('page=1'));
+    navigation.replace.mockClear();
+    await user.selectOptions(screen.getByRole('combobox', { name: '큐 상태' }), 'review_required');
+    expect(navigation.replace).toHaveBeenLastCalledWith(expect.stringContaining('page=1'));
+    navigation.replace.mockClear();
+    await user.type(screen.getByLabelText('채널 상품·옵션 검색'), ' next');
+    expect(navigation.replace).toHaveBeenLastCalledWith(expect.stringContaining('page=1'));
   });
   afterEach(() => vi.useRealTimers());
 

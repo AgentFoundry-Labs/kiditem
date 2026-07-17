@@ -3,6 +3,7 @@ import { apiClient } from '@/lib/api-client';
 import {
   linkChannelListingOption,
   linkChannelListingProduct,
+  getChannelRecipeSuggestion,
   listChannelProductCandidates,
   listChannelProductMappings,
   listChannelVariantCandidates,
@@ -21,7 +22,7 @@ describe('channel product matching API', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('reads the two-level queue with canonical account and search filters', async () => {
-    vi.mocked(apiClient.getParsed).mockResolvedValue({ products: [], options: [], counts: { products: { all: 0, matched: 0, unmatched: 0 }, options: { all: 0, matched: 0, unmatched: 0, configurationRequired: 0, reviewRequired: 0 } } });
+    vi.mocked(apiClient.getParsed).mockResolvedValue({ products: [], options: [], counts: { products: { all: 0, linked: 0, unlinked: 0 }, options: { all: 0, linked: 0, unlinked: 0, recipeConfirmed: 0, configurationRequired: 0, reviewRequired: 0 } } });
 
     await listChannelProductMappings({ channelAccountId: 'account/unsafe', search: '  우산  ' });
 
@@ -43,6 +44,27 @@ describe('channel product matching API', () => {
     );
     expect(apiClient.getParsed).toHaveBeenNthCalledWith(2,
       `/api/channels/product-mappings/options/${encodeURIComponent(`${OPTION_ID}/unsafe`)}/candidates?search=${encodeURIComponent('분홍')}`,
+      expect.any(Object),
+    );
+    expect(apiClient.put).not.toHaveBeenCalled();
+  });
+
+  it('reads a recipe suggestion without issuing a mutation', async () => {
+    vi.mocked(apiClient.getParsed).mockResolvedValue({
+      channelListingOptionId: OPTION_ID,
+      productVariantId: VARIANT_ID,
+      masterProductId: PRODUCT_ID,
+      status: 'no_match',
+      reason: 'No evidence matched an active Sellpia SKU.',
+      channelEvidence: [],
+      existingComponents: [],
+      proposals: [],
+    });
+
+    await getChannelRecipeSuggestion(`${OPTION_ID}/unsafe`);
+
+    expect(apiClient.getParsed).toHaveBeenCalledWith(
+      `/api/channels/product-mappings/options/${encodeURIComponent(`${OPTION_ID}/unsafe`)}/recipe-suggestions`,
       expect.any(Object),
     );
     expect(apiClient.put).not.toHaveBeenCalled();
