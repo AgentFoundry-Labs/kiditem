@@ -12,12 +12,14 @@ import { PurchaseOrderDraftService } from './application/service/purchase-order-
 import { PurchaseOrderSubmissionService } from './application/service/purchase-order-submission.service';
 import { RocketPurchasePreviewService } from './application/service/rocket-purchase-preview.service';
 import { RocketPurchaseConfirmationService } from './application/service/rocket-purchase-confirmation.service';
+import { RocketFinalOrderReconciliationService } from './application/service/rocket-final-order-reconciliation.service';
 import { Alibaba1688CheckoutRuntimeAdapter } from './adapter/out/runtime/alibaba-1688-checkout-runtime.adapter';
 import { OrderAgentRuntimeHandler } from './adapter/out/runtime/order-agent-runtime.handler';
 import { SupplierRepositoryAdapter } from './adapter/out/repository/supplier.repository.adapter';
 import { ProcurementRepositoryAdapter } from './adapter/out/repository/procurement.repository.adapter';
 import { PurchaseOrderSubmissionTransactionAdapter } from './adapter/out/transaction/purchase-order-submission.transaction.adapter';
 import { RocketPurchaseConfirmationTransactionAdapter } from './adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter';
+import { RocketFinalOrderReconciliationTransactionAdapter } from './adapter/out/transaction/rocket-final-order-reconciliation.transaction.adapter';
 import { PURCHASE_ORDER_DRAFT_PORT } from './application/port/in/procurement/purchase-order-draft.port';
 import { PURCHASE_ORDER_SUBMISSION_PORT } from './application/port/in/procurement/purchase-order-submission.port';
 import { SUPPLIER_REPOSITORY_PORT } from './application/port/out/repository/supplier.repository.port';
@@ -27,6 +29,8 @@ import { PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT } from './application/port/o
 import { ROCKET_PURCHASE_PREVIEW_PORT } from './application/port/in/procurement/rocket-purchase-preview.port';
 import { ROCKET_PURCHASE_CONFIRMATION_PORT } from './application/port/in/procurement/rocket-purchase-confirmation.port';
 import { ROCKET_PURCHASE_CONFIRMATION_TRANSACTION_PORT } from './application/port/out/transaction/rocket-purchase-confirmation.transaction.port';
+import { ROCKET_FINAL_ORDER_RECONCILIATION_PORT } from './application/port/in/procurement/rocket-final-order-reconciliation.port';
+import { ROCKET_FINAL_ORDER_RECONCILIATION_TRANSACTION_PORT } from './application/port/out/transaction/rocket-final-order-reconciliation.transaction.port';
 
 /**
  * Supply owns supplier registry, master-supplier policy, and purchase-order
@@ -44,6 +48,7 @@ import { ROCKET_PURCHASE_CONFIRMATION_TRANSACTION_PORT } from './application/por
     PurchaseOrderSubmissionService,
     RocketPurchasePreviewService,
     RocketPurchaseConfirmationService,
+    RocketFinalOrderReconciliationService,
     SupplyAgentCapabilityAdapter,
     Alibaba1688CheckoutRuntimeAdapter,
     OrderAgentRuntimeHandler,
@@ -51,6 +56,7 @@ import { ROCKET_PURCHASE_CONFIRMATION_TRANSACTION_PORT } from './application/por
     ProcurementRepositoryAdapter,
     PurchaseOrderSubmissionTransactionAdapter,
     RocketPurchaseConfirmationTransactionAdapter,
+    RocketFinalOrderReconciliationTransactionAdapter,
     { provide: PURCHASE_ORDER_DRAFT_PORT, useExisting: PurchaseOrderDraftService },
     {
       provide: PURCHASE_ORDER_SUBMISSION_PORT,
@@ -78,6 +84,15 @@ import { ROCKET_PURCHASE_CONFIRMATION_TRANSACTION_PORT } from './application/por
       provide: ROCKET_PURCHASE_CONFIRMATION_TRANSACTION_PORT,
       useExisting: RocketPurchaseConfirmationTransactionAdapter,
     },
+    {
+      provide: ROCKET_FINAL_ORDER_RECONCILIATION_TRANSACTION_PORT,
+      useExisting: RocketFinalOrderReconciliationTransactionAdapter,
+    },
+    {
+      provide: ROCKET_FINAL_ORDER_RECONCILIATION_PORT,
+      useExisting: RocketFinalOrderReconciliationService,
+    },
   ],
+  exports: [ROCKET_FINAL_ORDER_RECONCILIATION_PORT],
 })
 export class SupplyModule {}

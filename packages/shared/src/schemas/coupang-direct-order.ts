@@ -14,7 +14,7 @@ export const CoupangDirectOrderItemSchema = z.object({
   skuId: z.string().trim().min(1),
   barcode: z.string().trim(),
   name: z.string().trim().min(1),
-  qty: z.number().int().nonnegative(),
+  qty: z.number().int().positive(),
   amount: z.number().nonnegative(),
 }).strict();
 export type CoupangDirectOrderItem = z.infer<

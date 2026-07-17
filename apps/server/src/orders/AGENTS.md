@@ -13,6 +13,8 @@ are record-only; stock movement stays with inventory.
 - CS tickets under `/api/cs/*`
 - Reviews under orders-adjacent routes
 - Return transfer list/create/update under `/api/return-transfers/*`
+- Coupang Rocket PA collection and Sellpia workbook conversion at
+  `/api/orders/collection/coupang-directship/convert`
 
 ## Main Data Models
 
@@ -36,6 +38,11 @@ provider HTTP APIs directly.
   provider ports/adapters.
 - Inventory owns actual stock movement; return transfers in orders are
   record-only.
+- Coupang Rocket PA collection persists `SourceImportRun`, `Order`, and
+  `OrderLineItem` before workbook generation, then calls Supply's
+  transaction-aware final-order reconciliation port. Supply delegates the
+  request-to-final commitment replacement to Inventory in the same Prisma
+  transaction.
 
 ## Boundary Rules
 
@@ -47,6 +54,10 @@ provider HTTP APIs directly.
   status. Keep them independent.
 - New channels add `platform` values and channel adapters, not
   channel-specific order tables.
+- PA collection uses `(organizationId, channelAccountId, po.seq)` as Order
+  identity and a deterministic `(po.seq, item.skuId)` line identity. Any
+  reconciliation failure rolls back the import run and all order rows; the
+  workbook is generated only after commit.
 - `CreateCsBodyDto.productId` is only a backward-compatible alias for
   `listingId`; new callers send `listingId`.
 

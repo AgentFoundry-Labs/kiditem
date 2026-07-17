@@ -27,6 +27,10 @@ import { RocketPurchaseConfirmationService } from '../application/service/rocket
 import { RocketPurchaseConfirmationTransactionAdapter } from '../adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter';
 import { ROCKET_PURCHASE_CONFIRMATION_PORT } from '../application/port/in/procurement/rocket-purchase-confirmation.port';
 import { ROCKET_PURCHASE_CONFIRMATION_TRANSACTION_PORT } from '../application/port/out/transaction/rocket-purchase-confirmation.transaction.port';
+import { RocketFinalOrderReconciliationService } from '../application/service/rocket-final-order-reconciliation.service';
+import { RocketFinalOrderReconciliationTransactionAdapter } from '../adapter/out/transaction/rocket-final-order-reconciliation.transaction.adapter';
+import { ROCKET_FINAL_ORDER_RECONCILIATION_PORT } from '../application/port/in/procurement/rocket-final-order-reconciliation.port';
+import { ROCKET_FINAL_ORDER_RECONCILIATION_TRANSACTION_PORT } from '../application/port/out/transaction/rocket-final-order-reconciliation.transaction.port';
 
 // NestJS @Module / @Controller metadata keys (stable across Nest 10/11).
 const CONTROLLERS_KEY = 'controllers';
@@ -63,6 +67,7 @@ describe('SupplyModule owner wiring', () => {
       PurchaseOrderSubmissionService,
       RocketPurchasePreviewService,
       RocketPurchaseConfirmationService,
+      RocketFinalOrderReconciliationService,
     ]) {
       expect(providers).toContain(cls);
     }
@@ -84,6 +89,7 @@ describe('SupplyModule owner wiring', () => {
     expect(providers).toContain(OrderAgentRuntimeHandler);
     expect(providers).toContain(PurchaseOrderSubmissionTransactionAdapter);
     expect(providers).toContain(RocketPurchaseConfirmationTransactionAdapter);
+    expect(providers).toContain(RocketFinalOrderReconciliationTransactionAdapter);
     expectBinding(providers, PURCHASE_ORDER_DRAFT_PORT, PurchaseOrderDraftService);
     expectBinding(providers, PURCHASE_ORDER_SUBMISSION_PORT, PurchaseOrderSubmissionService);
     expectBinding(providers, SUPPLIER_REPOSITORY_PORT, SupplierRepositoryAdapter);
@@ -113,6 +119,18 @@ describe('SupplyModule owner wiring', () => {
       ROCKET_PURCHASE_CONFIRMATION_TRANSACTION_PORT,
       RocketPurchaseConfirmationTransactionAdapter,
     );
+    expectBinding(
+      providers,
+      ROCKET_FINAL_ORDER_RECONCILIATION_TRANSACTION_PORT,
+      RocketFinalOrderReconciliationTransactionAdapter,
+    );
+    expectBinding(
+      providers,
+      ROCKET_FINAL_ORDER_RECONCILIATION_PORT,
+      RocketFinalOrderReconciliationService,
+    );
+    const exports: unknown[] = Reflect.getMetadata('exports', SupplyModule) ?? [];
+    expect(exports).toContain(ROCKET_FINAL_ORDER_RECONCILIATION_PORT);
   });
 
   it('keeps public /api route prefixes', () => {

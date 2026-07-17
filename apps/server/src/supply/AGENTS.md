@@ -100,6 +100,12 @@ Route shape is frozen.
   after the physical movement is reflected by Sellpia, and restores derived
   capacity by changing allocation status; neither operation writes
   `SellpiaInventorySku.currentStock` or calls Coupang.
+- Coupang PA order collection calls the exported
+  `ROCKET_FINAL_ORDER_RECONCILIATION_PORT` with its caller-owned transaction.
+  Supply resolves exactly one active confirmation line by account, PO number,
+  and product number, verifies barcode evidence when both sides provide it,
+  and asks Inventory to replace the request commitment with the final-order
+  commitment. Supply does not write Orders tables.
 
 ## Cross-Domain Ports
 

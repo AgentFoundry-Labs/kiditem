@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ChannelsModule } from '../channels/channels.module';
+import { PrismaModule } from '../prisma/prisma.module';
+import { SupplyModule } from '../supply/supply.module';
 import { OrdersController } from './controllers/orders.controller';
 import { OrdersService } from './services/orders.service';
 import { ReturnsController } from './controllers/returns.controller';
@@ -15,9 +17,13 @@ import { OrderCollectionMallAccountService } from './services/order-collection-m
 import { CoupangDirectshipService } from './coupang-directship/coupang-directship.service';
 import { ReturnTransfersController } from './return-transfers/return-transfers.controller';
 import { ReturnTransfersService } from './return-transfers/return-transfers.service';
+import { CoupangDirectOrderCollectionService } from './application/service/coupang-direct-order-collection.service';
+import { CoupangDirectOrderCollectionTransactionAdapter } from './adapter/out/transaction/coupang-direct-order-collection.transaction.adapter';
+import { COUPANG_DIRECT_ORDER_COLLECTION_PORT } from './application/port/in/coupang-direct-order-collection.port';
+import { COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT } from './application/port/out/transaction/coupang-direct-order-collection.transaction.port';
 
 @Module({
-  imports: [ChannelsModule],
+  imports: [ChannelsModule, PrismaModule, SupplyModule],
   controllers: [
     OrdersController,
     OrderCollectionController,
@@ -36,6 +42,16 @@ import { ReturnTransfersService } from './return-transfers/return-transfers.serv
     CsService,
     ReviewsService,
     ReturnTransfersService,
+    CoupangDirectOrderCollectionService,
+    CoupangDirectOrderCollectionTransactionAdapter,
+    {
+      provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
+      useExisting: CoupangDirectOrderCollectionService,
+    },
+    {
+      provide: COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT,
+      useExisting: CoupangDirectOrderCollectionTransactionAdapter,
+    },
   ],
 })
 export class OrdersModule {}

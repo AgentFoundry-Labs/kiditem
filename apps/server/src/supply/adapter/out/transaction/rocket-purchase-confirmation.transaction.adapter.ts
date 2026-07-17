@@ -32,6 +32,7 @@ type ConfirmationRecord = Prisma.RocketPurchaseConfirmationGetPayload<{
 
 type ConfirmationDecision = {
   source: RocketPurchasePreviewRow;
+  barcode: string | null;
   confirmedQuantity: number;
   shortageReason: string | null;
   allocations: Array<{
@@ -130,6 +131,7 @@ implements RocketPurchaseConfirmationTransactionPort {
               poLineId: decision.source.poLineId,
               poNumber: decision.source.poNumber,
               productNo: decision.source.productNo,
+              barcode: decision.barcode,
               productName: decision.source.productName,
               orderQuantity: decision.source.orderQuantity,
               confirmedQuantity: decision.confirmedQuantity,
@@ -312,6 +314,7 @@ function buildDecisions(
     }
     return {
       source,
+      barcode: requestRow.barcode.trim() || null,
       confirmedQuantity,
       shortageReason: request.shortageReasons[requestRow.poLineId] ?? null,
       allocations: source.components.map((component) => ({
