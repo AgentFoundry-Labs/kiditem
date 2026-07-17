@@ -147,6 +147,7 @@ describe('Rocket purchase preview contract', () => {
         poNumber: '1001',
         productNo: 'P-1',
         productName: '로켓 상품',
+        plannedDeliveryDate: '2026-07-20',
         orderQuantity: 4,
         recommendedQuantity: 0,
         maxQuantity: 0,
@@ -174,6 +175,7 @@ describe('Rocket purchase preview contract', () => {
         poNumber: '1001',
         productNo: 'P-1',
         productName: '로켓 상품',
+        plannedDeliveryDate: '2026-07-20',
         orderQuantity: 4,
         recommendedQuantity: 4,
         maxQuantity: 5,
@@ -186,6 +188,8 @@ describe('Rocket purchase preview contract', () => {
           sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
           quantity: 1,
           currentStock: 5,
+          activeCommitmentQuantity: 1,
+          availableStock: 4,
           isActive: true,
         }],
       }],
@@ -211,6 +215,7 @@ describe('Rocket purchase preview contract', () => {
           poNumber: '1001',
           productNo: 'P-1',
           productName: '로켓 상품',
+          plannedDeliveryDate: '2026-07-20',
           orderQuantity: 4,
           recommendedQuantity: 0,
           maxQuantity: 0,
@@ -226,6 +231,60 @@ describe('Rocket purchase preview contract', () => {
       expect(parsed.rows[0]?.reason).toBe(reason);
     },
   );
+
+  it('requires the planned delivery date in preview responses', () => {
+    expect(() => RocketPurchasePreviewResponseSchema.parse({
+      collectionRunId: RUN_ID,
+      catalog: null,
+      inventoryGeneration: null,
+      rows: [{
+        poLineId: request().rows[0]!.poLineId,
+        poNumber: '1001',
+        productNo: 'P-1',
+        productName: '로켓 상품',
+        orderQuantity: 4,
+        recommendedQuantity: 0,
+        maxQuantity: 0,
+        editedQuantity: null,
+        reason: 'collection_incomplete',
+        channelSkuId: null,
+        masterProductId: null,
+        productVariantId: null,
+        components: [],
+      }],
+    })).toThrow(/plannedDeliveryDate/i);
+  });
+
+  it('rejects component availability that is inconsistent with active commitments', () => {
+    expect(() => RocketPurchasePreviewResponseSchema.parse({
+      collectionRunId: RUN_ID,
+      catalog: null,
+      inventoryGeneration: '12',
+      rows: [{
+        poLineId: request().rows[0]!.poLineId,
+        poNumber: '1001',
+        productNo: 'P-1',
+        productName: '로켓 상품',
+        plannedDeliveryDate: '2026-07-20',
+        orderQuantity: 4,
+        recommendedQuantity: 4,
+        maxQuantity: 5,
+        editedQuantity: null,
+        reason: null,
+        channelSkuId: ACCOUNT_ID,
+        masterProductId: MASTER_PRODUCT_ID,
+        productVariantId: PRODUCT_VARIANT_ID,
+        components: [{
+          sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+          quantity: 1,
+          currentStock: 5,
+          activeCommitmentQuantity: 1,
+          availableStock: 5,
+          isActive: true,
+        }],
+      }],
+    })).toThrow(/availableStock/i);
+  });
 
   it('requires an explicit reviewed quantity and shortage reason for every confirmation line', () => {
     const poLineId = request().rows[0]!.poLineId;

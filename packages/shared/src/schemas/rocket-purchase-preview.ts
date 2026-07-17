@@ -237,8 +237,22 @@ export const RocketPurchasePreviewComponentSchema = z.object({
   sellpiaInventorySkuId: z.string().uuid(),
   quantity: z.number().int().positive(),
   currentStock: z.number().int().nonnegative(),
+  activeCommitmentQuantity: z.number().int().nonnegative(),
+  availableStock: z.number().int().nonnegative(),
   isActive: z.boolean(),
-}).strict();
+}).strict().superRefine((component, ctx) => {
+  const expectedAvailableStock = Math.max(
+    component.currentStock - component.activeCommitmentQuantity,
+    0,
+  );
+  if (component.availableStock !== expectedAvailableStock) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['availableStock'],
+      message: 'availableStock must equal currentStock minus activeCommitmentQuantity',
+    });
+  }
+});
 export type RocketPurchasePreviewComponent = z.infer<
   typeof RocketPurchasePreviewComponentSchema
 >;
@@ -248,6 +262,7 @@ export const RocketPurchasePreviewRowSchema = z.object({
   poNumber: requiredText(80),
   productNo: requiredText(60),
   productName: requiredText(240),
+  plannedDeliveryDate: isoDay,
   orderQuantity: z.number().int().nonnegative(),
   recommendedQuantity: z.number().int().nonnegative(),
   maxQuantity: z.number().int().nonnegative(),
