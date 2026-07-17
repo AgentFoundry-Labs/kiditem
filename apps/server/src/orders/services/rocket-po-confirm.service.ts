@@ -167,9 +167,10 @@ export class RocketPoConfirmService {
    *      달라도(예: 카피바라 …4409 vs …4393) 이름이 같으면 재고를 잇는다.
    *   ③ 그래도 실패 시 퍼지(LCS/Dice + 가격가드) — matchKind='name-fuzzy'로 표시(확인 필요).
    *
-   * #325 에서 Inventory/ProductOption/이름매칭 카탈로그가 제거되어:
-   *  - 바코드 정확일치 재고는 셀피아 크롤 스냅샷 SellpiaProductStock(색상/옵션별 세분)에서,
-   *  - 이름 매칭 폴백 재고·이름은 셀피아-단일소유 MasterProduct(name·currentStock)에서 읽는다.
+   * 재고 소스는 셀피아-단일소유 SellpiaInventorySku 하나다(#330 이 MasterProduct.currentStock 과
+   * SellpiaProductStock 을 이 모델로 통합):
+   *  - 바코드 정확일치 재고는 barcode 로,
+   *  - 이름 매칭 폴백 재고·이름은 같은 테이블의 name·currentStock 으로 읽는다.
    * 예약은 RocketPoReservation(쿠팡 바코드 키)에서 뺀다.
    * (이름매칭 로직은 commit 6c4324d5 coupang-catalog.service 의 이식.)
    */
@@ -190,11 +191,11 @@ export class RocketPoConfirmService {
     if (!barcodes.length) return new Map();
 
     const [sellpiaStocks, masters, reservations] = await Promise.all([
-      this.prisma.sellpiaProductStock.findMany({
+      this.prisma.sellpiaInventorySku.findMany({
         where: { organizationId, barcode: { in: barcodes } },
         select: { barcode: true, currentStock: true },
       }),
-      this.prisma.masterProduct.findMany({
+      this.prisma.sellpiaInventorySku.findMany({
         where: { organizationId, isActive: true },
         select: { name: true, currentStock: true },
       }),
@@ -205,13 +206,13 @@ export class RocketPoConfirmService {
       }),
     ]);
 
-    // ① 바코드 정확일치 재고 = SellpiaProductStock(같은 바코드 여러 옵션 row 면 합산).
+    // ① 바코드 정확일치 재고 = SellpiaInventorySku(같은 바코드 여러 옵션 row 면 합산).
     const stockByBarcode = new Map<string, number>();
     for (const s of sellpiaStocks) {
       const barcode = s.barcode?.trim();
       if (barcode) stockByBarcode.set(barcode, (stockByBarcode.get(barcode) ?? 0) + s.currentStock);
     }
-    // ②③ 이름 매칭 인덱스 = MasterProduct(name·currentStock). 바코드가 안 맞을 때만 사용.
+    // ②③ 이름 매칭 인덱스 = SellpiaInventorySku(name·currentStock). 바코드가 안 맞을 때만 사용.
     const nameIndex: MasterNameEntry[] = [];
     for (const m of masters) {
       const core = normalizeCoupangName(m.name);
