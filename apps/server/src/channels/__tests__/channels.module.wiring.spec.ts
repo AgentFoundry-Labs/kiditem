@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { AutomationModule } from '../../automation/automation.module';
 import { ProductsModule } from '../../products/products.module';
+import { InventoryModule } from '../../inventory/inventory.module';
 import { CHANNEL_CATALOG_PRODUCT_PROVISIONING_PORT } from '../../products/application/port/in/channel-catalog-product-provisioning.port';
 import { ChannelsModule } from '../channels.module';
 import { ChannelRegistrationCapabilityAdapter } from '../adapter/in/agent/channel-registration-capability.adapter';
@@ -34,8 +35,13 @@ import { CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT } from '../application/port/out/
 import { ChannelCatalogImportService } from '../application/service/channel-catalog-import.service';
 import { ChannelProductMatchingController } from '../adapter/in/http/channel-product-matching.controller';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
+import { ChannelRecipeSuggestionContextRepositoryAdapter } from '../adapter/out/repository/channel-recipe-suggestion-context.repository.adapter';
+import { SellpiaRecipeEvidenceAdapter } from '../adapter/out/inventory/sellpia-recipe-evidence.adapter';
 import { ChannelProductMatchingService } from '../application/service/channel-product-matching.service';
+import { ChannelRecipeSuggestionService } from '../application/service/channel-recipe-suggestion.service';
 import { CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT } from '../application/port/out/repository/channel-product-matching.repository.port';
+import { CHANNEL_RECIPE_SUGGESTION_CONTEXT_REPOSITORY_PORT } from '../application/port/out/repository/channel-recipe-suggestion-context.repository.port';
+import { SELLPIA_RECIPE_EVIDENCE_PORT } from '../application/port/out/cross-domain/sellpia-recipe-evidence.port';
 import { ChannelSkuAvailabilityController } from '../adapter/in/http/channel-sku-availability.controller';
 import {
   CHANNEL_SKU_AVAILABILITY_PORT,
@@ -102,6 +108,7 @@ describe('ChannelsModule canonical owner wiring', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, ChannelsModule) ?? [];
     expect(imports).toContain(AutomationModule);
     expect(imports).toContain(ProductsModule);
+    expect(imports).toContain(InventoryModule);
     const exports_: unknown[] = Reflect.getMetadata('exports', ChannelsModule) ?? [];
     expect(exports_).not.toContain(CHANNEL_CATALOG_PRODUCT_PROVISIONING_PORT);
   });
@@ -120,8 +127,11 @@ describe('ChannelsModule canonical owner wiring', () => {
     expect(providers).toContain(ChannelCatalogImportService);
     expect(providers).toContain(ChannelCatalogImportRepositoryAdapter);
     expect(providers).toContain(ChannelProductMatchingService);
+    expect(providers).toContain(ChannelRecipeSuggestionService);
     expect(providers).toContain(ChannelSkuAvailabilityService);
     expect(providers).toContain(ChannelProductMatchingRepositoryAdapter);
+    expect(providers).toContain(ChannelRecipeSuggestionContextRepositoryAdapter);
+    expect(providers).toContain(SellpiaRecipeEvidenceAdapter);
     expect(providers).toContain(RocketPoCatalogService);
     expect(providers).toContain(RocketPoCatalogRepositoryAdapter);
 
@@ -157,6 +167,12 @@ describe('ChannelsModule canonical owner wiring', () => {
       CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT,
       ChannelProductMatchingRepositoryAdapter,
     );
+    expectBinding(
+      providers,
+      CHANNEL_RECIPE_SUGGESTION_CONTEXT_REPOSITORY_PORT,
+      ChannelRecipeSuggestionContextRepositoryAdapter,
+    );
+    expectBinding(providers, SELLPIA_RECIPE_EVIDENCE_PORT, SellpiaRecipeEvidenceAdapter);
     expectBinding(
       providers,
       CHANNEL_SKU_AVAILABILITY_PORT,

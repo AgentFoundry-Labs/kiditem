@@ -5,6 +5,7 @@ import {
   ChannelProductMatchCandidateSchema,
   ChannelProductMatchingCountsSchema,
   ChannelProductMatchingQueueRowSchema,
+  ChannelRecipeSuggestionResponseSchema,
   ChannelVariantMatchCandidateSchema,
   LinkChannelListingOptionInputSchema,
   LinkChannelListingProductInputSchema,
@@ -58,6 +59,31 @@ const createOptionQueueRow = ({
 });
 
 describe('channel product and variant matching contracts', () => {
+  it('requires every recipe proposal to retain quantity confirmation', () => {
+    const response = {
+      channelListingOptionId: optionId,
+      productVariantId: variantId,
+      masterProductId: productId,
+      status: 'unique_code',
+      reason: 'One exact Sellpia code candidate was found',
+      existingComponents: [],
+      proposals: [{
+        sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000005',
+        code: 'SP-001', name: '키즈 식판', optionName: null, currentStock: 7,
+        evidence: [{
+          kind: 'seller_sku_code', channelValue: 'SP-001', normalizedValue: 'SP-001',
+          sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000005',
+          sellpiaCode: 'SP-001', sellpiaName: '키즈 식판', sellpiaOptionName: null, currentStock: 7,
+        }],
+        requiresQuantityConfirmation: true,
+      }],
+    };
+    expect(ChannelRecipeSuggestionResponseSchema.parse(response)).toEqual(response);
+    expect(() => ChannelRecipeSuggestionResponseSchema.parse({
+      ...response,
+      proposals: [{ ...response.proposals[0], requiresQuantityConfirmation: false }],
+    })).toThrow();
+  });
   it('freezes candidate reasons without treating suggestions as confirmation', () => {
     expect(ChannelMatchCandidateReasonSchema.options).toEqual([
       'existing_identity',
