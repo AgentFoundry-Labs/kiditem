@@ -9,6 +9,7 @@ const SKU_B = '55555555-5555-4555-8555-555555555555';
 
 function repository() {
   return {
+    findBySourceIds: vi.fn().mockResolvedValue([]),
     findAvailability: vi.fn().mockResolvedValue({
       snapshot: { collected: true, generation: '12', verifiedAt: '2026-07-18T00:00:00.000Z' },
       items: [],
@@ -17,10 +18,25 @@ function repository() {
     replaceRocketRequestWithFinalOrder: vi.fn(),
     releaseBySourceIds: vi.fn().mockResolvedValue(undefined),
     settleFinalOrders: vi.fn().mockResolvedValue(undefined),
+    releaseFinalOrders: vi.fn().mockResolvedValue(undefined),
   };
 }
 
 describe('InventoryCommitmentService', () => {
+  it('deduplicates source IDs for one commitment lineage read', async () => {
+    const repo = repository();
+    const service = new InventoryCommitmentService(repo as never);
+
+    await service.findBySourceIds({
+      organizationId: ORGANIZATION_ID,
+      sourceIds: [SKU_B, SKU_A, SKU_B],
+    });
+
+    expect(repo.findBySourceIds).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      sourceIds: [SKU_A, SKU_B],
+    });
+  });
   it('deduplicates and UUID-sorts availability requests while preserving empty snapshot reads', async () => {
     const repo = repository();
     const service = new InventoryCommitmentService(repo as never);
@@ -128,5 +144,24 @@ describe('InventoryCommitmentService', () => {
       sourceIds: [SKU_A],
       reason: ' ',
     })).rejects.toThrow(/reason/i);
+  });
+
+  it('normalizes final-order release IDs and audit reason', async () => {
+    const repo = repository();
+    const service = new InventoryCommitmentService(repo as never);
+
+    await service.releaseFinalOrders({
+      organizationId: ORGANIZATION_ID,
+      userId: USER_ID,
+      commitmentIds: [SKU_B, SKU_A, SKU_B],
+      reason: '  주문 취소  ',
+    });
+
+    expect(repo.releaseFinalOrders).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      userId: USER_ID,
+      commitmentIds: [SKU_A, SKU_B],
+      reason: '주문 취소',
+    });
   });
 });

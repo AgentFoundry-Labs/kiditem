@@ -1,6 +1,10 @@
-import type { InventoryAvailabilityBatch } from '@kiditem/shared/inventory-commitment';
+import type {
+  InventoryAvailabilityBatch,
+  InventoryCommitmentRead,
+} from '@kiditem/shared/inventory-commitment';
 import type {
   CreateRocketRequestCommitmentInput,
+  ReleaseFinalOrderCommitmentsInput,
   ReleaseInventoryCommitmentsBySourceIdsInput,
   ReplaceRocketRequestWithFinalOrderInput,
   SettleFinalOrderCommitmentsInput,
@@ -13,6 +17,11 @@ type CanonicalRocketIdentity = {
 };
 
 export interface InventoryCommitmentRepositoryPort {
+  findBySourceIds(input: {
+    organizationId: string;
+    sourceIds: string[];
+  }): Promise<InventoryCommitmentRead[]>;
+
   findAvailability(input: {
     organizationId: string;
     sellpiaInventorySkuIds: string[];
@@ -31,6 +40,8 @@ export interface InventoryCommitmentRepositoryPort {
   ): Promise<void>;
 
   settleFinalOrders(input: SettleFinalOrderCommitmentsInput): Promise<void>;
+
+  releaseFinalOrders(input: ReleaseFinalOrderCommitmentsInput): Promise<void>;
 }
 
 export const INVENTORY_COMMITMENT_REPOSITORY_PORT = Symbol(

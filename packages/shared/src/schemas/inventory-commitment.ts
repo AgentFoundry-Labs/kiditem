@@ -91,3 +91,115 @@ export const InventoryAvailabilityBatchSchema = z.object({
 export type InventoryAvailabilityBatch = z.infer<
   typeof InventoryAvailabilityBatchSchema
 >;
+
+const InventoryCommitmentActorSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1),
+}).strict();
+
+export const InventoryCommitmentAllocationReadSchema = z.object({
+  sellpiaInventorySkuId: z.string().uuid(),
+  code: z.string().min(1),
+  name: z.string().min(1),
+  optionName: z.string().nullable(),
+  unitsPerItem: z.number().int().positive(),
+  quantity: z.number().int().positive(),
+  currentStock: InventoryStockLevelsSchema.shape.currentStock,
+  activeCommitmentQuantity:
+    InventoryStockLevelsSchema.shape.activeCommitmentQuantity,
+  availableStock: InventoryStockLevelsSchema.shape.availableStock,
+  isActive: z.boolean(),
+}).strict().superRefine((allocation, ctx) => {
+  const expectedAvailableStock = Math.max(
+    allocation.currentStock - allocation.activeCommitmentQuantity,
+    0,
+  );
+  if (allocation.availableStock !== expectedAvailableStock) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['availableStock'],
+      message: 'availableStock must equal currentStock minus activeCommitmentQuantity',
+    });
+  }
+});
+export type InventoryCommitmentAllocationRead = z.infer<
+  typeof InventoryCommitmentAllocationReadSchema
+>;
+
+export const InventoryCommitmentReadSchema = z.object({
+  id: z.string().uuid(),
+  sourceId: z.string().uuid(),
+  predecessorCommitmentId: z.string().uuid().nullable(),
+  kind: InventoryCommitmentKindSchema,
+  status: InventoryCommitmentStatusSchema,
+  unitQuantity: z.number().int().positive(),
+  inventoryGeneration: z.string().regex(/^\d+$/).nullable(),
+  createdBy: InventoryCommitmentActorSchema,
+  createdAt: zIsoDate,
+  releasedBy: InventoryCommitmentActorSchema.nullable(),
+  releasedAt: zIsoDate.nullable(),
+  releaseReason: z.string().nullable(),
+  settledBy: InventoryCommitmentActorSchema.nullable(),
+  settledAt: zIsoDate.nullable(),
+  settlementReason: z.string().nullable(),
+  canRelease: z.boolean(),
+  canSettle: z.boolean(),
+  allocations: z.array(InventoryCommitmentAllocationReadSchema).min(1),
+}).strict();
+export type InventoryCommitmentRead = z.infer<
+  typeof InventoryCommitmentReadSchema
+>;
+
+export const RocketPurchaseCommitmentListRequestSchema = z.object({
+  channelAccountId: z.string().uuid().optional(),
+  cursor: z.string().uuid().optional(),
+  limit: z.number().int().min(1).max(100).default(50),
+}).strict();
+export type RocketPurchaseCommitmentListRequest = z.infer<
+  typeof RocketPurchaseCommitmentListRequestSchema
+>;
+
+export const RocketPurchaseCommitmentListItemSchema = z.object({
+  confirmationId: z.string().uuid(),
+  confirmationLineId: z.string().uuid(),
+  channelAccountId: z.string().uuid(),
+  poNumber: z.string().min(1),
+  productNo: z.string().min(1),
+  barcode: z.string().nullable(),
+  productName: z.string().min(1),
+  orderQuantity: z.number().int().nonnegative(),
+  confirmedQuantity: z.number().int().nonnegative(),
+  confirmedBy: InventoryCommitmentActorSchema,
+  confirmedAt: zIsoDate,
+  requestCommitment: InventoryCommitmentReadSchema.nullable(),
+  finalOrderCommitment: InventoryCommitmentReadSchema.nullable(),
+  orderLineItemId: z.string().uuid().nullable(),
+  canRelease: z.boolean(),
+  canSettle: z.boolean(),
+}).strict();
+export type RocketPurchaseCommitmentListItem = z.infer<
+  typeof RocketPurchaseCommitmentListItemSchema
+>;
+
+export const RocketPurchaseCommitmentListResponseSchema = z.object({
+  items: z.array(RocketPurchaseCommitmentListItemSchema),
+  nextCursor: z.string().uuid().nullable(),
+}).strict();
+export type RocketPurchaseCommitmentListResponse = z.infer<
+  typeof RocketPurchaseCommitmentListResponseSchema
+>;
+
+export const RocketPurchaseCommitmentActionRequestSchema = z.object({
+  commitmentIds: z.array(z.string().uuid()).min(1).max(100),
+  reason: z.string().trim().min(1).max(500),
+}).strict();
+export type RocketPurchaseCommitmentActionRequest = z.infer<
+  typeof RocketPurchaseCommitmentActionRequestSchema
+>;
+
+export const RocketPurchaseCommitmentActionResponseSchema = z.object({
+  affectedCommitmentIds: z.array(z.string().uuid()).min(1),
+}).strict();
+export type RocketPurchaseCommitmentActionResponse = z.infer<
+  typeof RocketPurchaseCommitmentActionResponseSchema
+>;

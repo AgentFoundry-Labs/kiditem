@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNumber, IsUUID, IsInt, IsPositive, IsIn, IsArray, ArrayMinSize, ArrayMaxSize, ValidateIf, ValidateNested, MinLength, MaxLength, IsUrl, IsObject, IsBoolean } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsUUID, IsInt, IsPositive, IsIn, IsArray, ArrayMinSize, ArrayMaxSize, ValidateIf, ValidateNested, MinLength, MaxLength, IsUrl, IsObject, IsBoolean, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 import type {
   RocketPoCatalogRow,
@@ -18,7 +18,7 @@ class PurchaseOrderItemDto {
  * organizationId 는 `req.authUser.organizationId` 에서 주입 — DTO 에는 포함하지 않는다.
  */
 export class PurchaseOrderActionBodyDto {
-  @IsIn(['create', 'updateStatus', 'delete', 'submit', 'reconcileSubmission', 'previewRocket', 'confirmRocket', 'releaseRocketConfirmation'])
+  @IsIn(['create', 'updateStatus', 'delete', 'submit', 'reconcileSubmission', 'previewRocket', 'confirmRocket', 'releaseRocketConfirmation', 'listRocketCommitments', 'settleRocketFinalOrderCommitments', 'releaseRocketFinalOrderCommitments'])
   action: string;
 
   @ValidateIf(o => o.action === 'create')
@@ -67,7 +67,9 @@ export class PurchaseOrderActionBodyDto {
   @IsString() @MaxLength(120) @IsOptional()
   providerReference?: string | null;
 
-  @ValidateIf(o => ['previewRocket', 'confirmRocket'].includes(o.action))
+  @ValidateIf(o =>
+    ['previewRocket', 'confirmRocket'].includes(o.action)
+    || (o.action === 'listRocketCommitments' && o.channelAccountId !== undefined))
   @IsUUID()
   channelAccountId?: string;
 
@@ -98,4 +100,20 @@ export class PurchaseOrderActionBodyDto {
   @ValidateIf(o => o.action === 'releaseRocketConfirmation')
   @IsString() @MinLength(1) @MaxLength(500)
   releaseReason?: string;
+
+  @ValidateIf(o => o.action === 'listRocketCommitments' && o.cursor !== undefined)
+  @IsUUID()
+  cursor?: string;
+
+  @ValidateIf(o => o.action === 'listRocketCommitments' && o.limit !== undefined)
+  @IsInt() @Min(1) @Max(100)
+  limit?: number;
+
+  @ValidateIf(o => ['settleRocketFinalOrderCommitments', 'releaseRocketFinalOrderCommitments'].includes(o.action))
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(100) @IsUUID('4', { each: true })
+  commitmentIds?: string[];
+
+  @ValidateIf(o => ['settleRocketFinalOrderCommitments', 'releaseRocketFinalOrderCommitments'].includes(o.action))
+  @IsString() @MinLength(1) @MaxLength(500)
+  reason?: string;
 }

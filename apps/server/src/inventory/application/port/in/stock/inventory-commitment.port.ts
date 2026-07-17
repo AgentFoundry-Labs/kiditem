@@ -1,4 +1,5 @@
 import type {
+  InventoryCommitmentRead,
   InventoryCommitmentKind,
 } from '@kiditem/shared/inventory-commitment';
 
@@ -49,7 +50,19 @@ export type SettleFinalOrderCommitmentsInput = {
   reason: string;
 };
 
+export type ReleaseFinalOrderCommitmentsInput = {
+  organizationId: string;
+  userId: string;
+  commitmentIds: string[];
+  reason: string;
+};
+
 export interface InventoryCommitmentPort {
+  findBySourceIds(input: {
+    organizationId: string;
+    sourceIds: string[];
+  }): Promise<InventoryCommitmentRead[]>;
+
   createRocketRequest(
     input: CreateRocketRequestCommitmentInput,
   ): Promise<{ commitmentId: string }>;
@@ -63,6 +76,8 @@ export interface InventoryCommitmentPort {
   ): Promise<void>;
 
   settleFinalOrders(input: SettleFinalOrderCommitmentsInput): Promise<void>;
+
+  releaseFinalOrders(input: ReleaseFinalOrderCommitmentsInput): Promise<void>;
 }
 
 export const INVENTORY_COMMITMENT_PORT = Symbol('INVENTORY_COMMITMENT_PORT');

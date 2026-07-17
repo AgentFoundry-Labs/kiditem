@@ -1,9 +1,13 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import type { InventoryAvailabilityBatch } from '@kiditem/shared/inventory-commitment';
+import type {
+  InventoryAvailabilityBatch,
+  InventoryCommitmentRead,
+} from '@kiditem/shared/inventory-commitment';
 import type { InventoryAvailabilityPort } from '../port/in/stock/inventory-availability.port';
 import type {
   CreateRocketRequestCommitmentInput,
   InventoryCommitmentPort,
+  ReleaseFinalOrderCommitmentsInput,
   ReleaseInventoryCommitmentsBySourceIdsInput,
   ReplaceRocketRequestWithFinalOrderInput,
   SettleFinalOrderCommitmentsInput,
@@ -20,6 +24,19 @@ implements InventoryAvailabilityPort, InventoryCommitmentPort {
     @Inject(INVENTORY_COMMITMENT_REPOSITORY_PORT)
     private readonly repository: InventoryCommitmentRepositoryPort,
   ) {}
+
+  findBySourceIds(input: {
+    organizationId: string;
+    sourceIds: string[];
+  }): Promise<InventoryCommitmentRead[]> {
+    assertUuid(input.organizationId, 'organizationId');
+    const sourceIds = normalizeUuidList(input.sourceIds, 'sourceIds');
+    if (sourceIds.length === 0) return Promise.resolve([]);
+    return this.repository.findBySourceIds({
+      organizationId: input.organizationId,
+      sourceIds,
+    });
+  }
 
   findBySkuIds(input: {
     organizationId: string;
@@ -113,6 +130,22 @@ implements InventoryAvailabilityPort, InventoryCommitmentPort {
       throw new BadRequestException('commitmentIds must not be empty');
     }
     return this.repository.settleFinalOrders({
+      ...input,
+      commitmentIds,
+      reason: requiredText(input.reason, 'reason'),
+    });
+  }
+
+  async releaseFinalOrders(
+    input: ReleaseFinalOrderCommitmentsInput,
+  ): Promise<void> {
+    assertUuid(input.organizationId, 'organizationId');
+    assertUuid(input.userId, 'userId');
+    const commitmentIds = normalizeUuidList(input.commitmentIds, 'commitmentIds');
+    if (commitmentIds.length === 0) {
+      throw new BadRequestException('commitmentIds must not be empty');
+    }
+    return this.repository.releaseFinalOrders({
       ...input,
       commitmentIds,
       reason: requiredText(input.reason, 'reason'),

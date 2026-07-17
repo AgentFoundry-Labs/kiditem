@@ -7,6 +7,8 @@ import { Prisma } from '@prisma/client';
 import {
   InventoryAvailabilityBatchSchema,
   type InventoryAvailabilityBatch,
+  InventoryCommitmentReadSchema,
+  type InventoryCommitmentRead,
 } from '@kiditem/shared/inventory-commitment';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { InventoryCommitmentRepositoryPort } from '../../../application/port/out/repository/inventory-commitment.repository.port';
@@ -34,6 +36,9 @@ type ReleaseInput = Parameters<
 type SettleInput = Parameters<
   InventoryCommitmentRepositoryPort['settleFinalOrders']
 >[0];
+type ReleaseFinalInput = Parameters<
+  InventoryCommitmentRepositoryPort['releaseFinalOrders']
+>[0];
 
 type InventorySkuRow = {
   id: string;
@@ -49,6 +54,109 @@ type CommitmentWithAllocations = Prisma.InventoryCommitmentGetPayload<{
 export class InventoryCommitmentRepositoryAdapter
 implements InventoryCommitmentRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
+
+  findBySourceIds(input: {
+    organizationId: string;
+    sourceIds: string[];
+  }): Promise<InventoryCommitmentRead[]> {
+    return this.prisma.$transaction(async (tx) => {
+      await lockSellpiaInventoryTransaction(tx, input.organizationId);
+      const commitments = await tx.inventoryCommitment.findMany({
+        where: {
+          organizationId: input.organizationId,
+          OR: [
+            { sourceId: { in: input.sourceIds } },
+            {
+              predecessor: {
+                is: {
+                  organizationId: input.organizationId,
+                  sourceId: { in: input.sourceIds },
+                },
+              },
+            },
+          ],
+        },
+        include: {
+          creator: { select: { id: true, name: true } },
+          releaser: { select: { id: true, name: true } },
+          settler: { select: { id: true, name: true } },
+          allocations: {
+            include: {
+              sellpiaInventorySku: {
+                select: {
+                  id: true,
+                  code: true,
+                  name: true,
+                  optionName: true,
+                  currentStock: true,
+                  isActive: true,
+                },
+              },
+            },
+            orderBy: { sellpiaInventorySkuId: 'asc' },
+          },
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      });
+      if (commitments.length === 0) return [];
+
+      const skuIds = [...new Set(commitments.flatMap((commitment) =>
+        commitment.allocations.map(({ sellpiaInventorySkuId }) =>
+          sellpiaInventorySkuId)))];
+      const activeBySkuId = await activeCommitmentQuantities(
+        tx,
+        input.organizationId,
+        skuIds,
+      );
+      const state = await tx.sellpiaInventoryState.findUnique({
+        where: { organizationId: input.organizationId },
+        select: { verifiedGeneration: true, lastVerifiedAt: true },
+      });
+      const verifiedGeneration = state?.lastVerifiedAt
+        ? state.verifiedGeneration
+        : 0n;
+
+      return commitments.map((commitment) =>
+        InventoryCommitmentReadSchema.parse({
+          id: commitment.id,
+          sourceId: commitment.sourceId,
+          predecessorCommitmentId: commitment.predecessorCommitmentId,
+          kind: commitment.kind,
+          status: commitment.status,
+          unitQuantity: commitment.unitQuantity,
+          inventoryGeneration: commitment.inventoryGeneration?.toString() ?? null,
+          createdBy: commitment.creator,
+          createdAt: commitment.createdAt.toISOString(),
+          releasedBy: commitment.releaser,
+          releasedAt: commitment.releasedAt?.toISOString() ?? null,
+          releaseReason: commitment.releaseReason,
+          settledBy: commitment.settler,
+          settledAt: commitment.settledAt?.toISOString() ?? null,
+          settlementReason: commitment.settlementReason,
+          canRelease: commitment.status === 'active',
+          canSettle: canSettleCommitment(commitment, verifiedGeneration),
+          allocations: commitment.allocations.map((allocation) => {
+            const sku = allocation.sellpiaInventorySku;
+            const activeCommitmentQuantity = activeBySkuId.get(sku.id) ?? 0;
+            return {
+              sellpiaInventorySkuId: sku.id,
+              code: sku.code,
+              name: sku.name,
+              optionName: sku.optionName,
+              unitsPerItem: allocation.unitsPerItem,
+              quantity: allocation.quantity,
+              currentStock: sku.currentStock,
+              activeCommitmentQuantity,
+              availableStock: calculateAvailableStock(
+                sku.currentStock,
+                activeCommitmentQuantity,
+              ),
+              isActive: sku.isActive,
+            };
+          }),
+        }));
+    }, TRANSACTION_OPTIONS);
+  }
 
   findAvailability(input: {
     organizationId: string;
@@ -412,6 +520,52 @@ implements InventoryCommitmentRepositoryPort {
       }
     }, TRANSACTION_OPTIONS);
   }
+
+  releaseFinalOrders(input: ReleaseFinalInput): Promise<void> {
+    return this.prisma.$transaction(async (tx) => {
+      await lockSellpiaInventoryTransaction(tx, input.organizationId);
+      const commitments = await tx.inventoryCommitment.findMany({
+        where: {
+          organizationId: input.organizationId,
+          id: { in: input.commitmentIds },
+        },
+        include: { allocations: true },
+      });
+      if (commitments.length !== input.commitmentIds.length) {
+        throw new NotFoundException('One or more inventory commitments were not found');
+      }
+      await lockCommitmentSkus(tx, input.organizationId, commitments);
+      const activeIds: string[] = [];
+      for (const commitment of commitments) {
+        if (commitment.kind !== 'rocket_final_order') {
+          throw new ConflictException(
+            'Only Rocket final-order commitments can be released by this action',
+          );
+        }
+        if (commitment.status === 'released') continue;
+        assertReleaseAllowed(commitment.status);
+        activeIds.push(commitment.id);
+      }
+      if (activeIds.length === 0) return;
+      const released = await tx.inventoryCommitment.updateMany({
+        where: {
+          organizationId: input.organizationId,
+          id: { in: activeIds },
+          kind: 'rocket_final_order',
+          status: 'active',
+        },
+        data: {
+          status: 'released',
+          releasedBy: input.userId,
+          releasedAt: new Date(),
+          releaseReason: input.reason,
+        },
+      });
+      if (released.count !== activeIds.length) {
+        throw new ConflictException('Inventory commitments changed during release');
+      }
+    }, TRANSACTION_OPTIONS);
+  }
 }
 
 async function loadInventorySkus(
@@ -583,6 +737,27 @@ function throwStateConflict(error: unknown): never {
     throw new ConflictException(error.message);
   }
   throw error;
+}
+
+function canSettleCommitment(
+  commitment: {
+    kind: string;
+    status: string;
+    inventoryGeneration: bigint | null;
+  },
+  verifiedGeneration: bigint,
+): boolean {
+  try {
+    assertInventoryCommitmentCanBeSettled({
+      ...commitment,
+      verifiedGeneration,
+      reason: 'read-policy-check',
+    });
+    return true;
+  } catch (error) {
+    if (error instanceof InventoryCommitmentStateError) return false;
+    throw error;
+  }
 }
 
 function transactionClient(value: unknown): Prisma.TransactionClient {
