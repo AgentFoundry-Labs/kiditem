@@ -318,11 +318,6 @@ export const ChannelRecipeSuggestionEvidenceSchema = z.object({
   kind: z.enum(['seller_sku_code', 'model_number_code', 'normalized_name']),
   channelValue: z.string().min(1),
   normalizedValue: z.string().min(1),
-  sellpiaInventorySkuId: z.string().uuid(),
-  sellpiaCode: z.string().min(1),
-  sellpiaName: z.string().min(1),
-  sellpiaOptionName: z.string().min(1).nullable(),
-  currentStock: z.number().int(),
 }).strict();
 export type ChannelRecipeSuggestionEvidence = z.infer<
   typeof ChannelRecipeSuggestionEvidenceSchema

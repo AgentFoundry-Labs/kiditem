@@ -50,7 +50,11 @@ describe('classifyChannelRecipeSuggestion', () => {
     expect(result.proposals).toEqual([expect.objectContaining({
       sellpiaInventorySkuId: sku().sellpiaInventorySkuId,
       requiresQuantityConfirmation: true,
-      evidence: [expect.objectContaining({ kind: 'seller_sku_code' })],
+      evidence: [{
+        kind: 'seller_sku_code',
+        channelValue: 'SP-001',
+        normalizedValue: 'SP-001',
+      }],
     })]);
   });
 

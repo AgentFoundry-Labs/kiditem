@@ -366,16 +366,30 @@ export type UpdateProductVariantInput = z.infer<
   typeof UpdateProductVariantInputSchema
 >;
 
+const RecipeExpectationConfirmedAtSchema = zIsoDate.superRefine((value, ctx) => {
+  if (value instanceof Date) return;
+  if (!z.string().datetime({ offset: true }).safeParse(value).success) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Expected an ISO 8601 date-time',
+    });
+  }
+});
+
+const ProductVariantRecipeExpectationSchema = ProductVariantComponentDetailSchema.pick({
+  id: true,
+  sellpiaInventorySkuId: true,
+  quantity: true,
+  source: true,
+  confirmedBy: true,
+  confirmedAt: true,
+}).extend({
+  confirmedAt: RecipeExpectationConfirmedAtSchema,
+});
+
 export const ReplaceProductVariantRecipeInputSchema = z.object({
   components: z.array(ProductVariantRecipeComponentInputSchema).max(50),
-  expectedRecipe: z.array(ProductVariantComponentDetailSchema.pick({
-    id: true,
-    sellpiaInventorySkuId: true,
-    quantity: true,
-    source: true,
-    confirmedBy: true,
-    confirmedAt: true,
-  })).max(50),
+  expectedRecipe: z.array(ProductVariantRecipeExpectationSchema).max(50),
 }).strict().superRefine(rejectDuplicateRecipeComponents);
 export type ReplaceProductVariantRecipeInput = z.infer<
   typeof ReplaceProductVariantRecipeInputSchema

@@ -69,11 +69,6 @@ export type ChannelRecipeSuggestionResponse = {
       kind: ChannelRecipeSuggestionEvidenceKind;
       channelValue: string;
       normalizedValue: string;
-      sellpiaInventorySkuId: string;
-      sellpiaCode: string;
-      sellpiaName: string;
-      sellpiaOptionName: string | null;
-      currentStock: number;
     }>;
     requiresQuantityConfirmation: true;
   }>;
@@ -159,7 +154,6 @@ function proposalsFromCodeEvidence(
       kind: item.kind,
       channelValue: item.channelValue,
       normalizedValue: item.channelValue,
-      sku: item.sku,
     })));
   }).sort((left, right) => left.code.localeCompare(right.code));
 }
@@ -175,7 +169,11 @@ function proposalsFromNameEvidence(
   }
   return [...bySku.values()].map((evidence) => proposal(
     evidence[0]!.sku,
-    evidence.map((item) => ({ kind: 'normalized_name' as const, ...item })),
+    evidence.map((item) => ({
+      kind: 'normalized_name' as const,
+      channelValue: item.channelValue,
+      normalizedValue: item.normalizedValue,
+    })),
   )).sort((left, right) => left.code.localeCompare(right.code));
 }
 
@@ -185,7 +183,6 @@ function proposal(
     kind: ChannelRecipeSuggestionEvidenceKind;
     channelValue: string;
     normalizedValue: string;
-    sku: ChannelRecipeSuggestionSku;
   }>,
 ): ChannelRecipeSuggestionResponse['proposals'][number] {
   return {
@@ -198,11 +195,6 @@ function proposal(
       kind: item.kind,
       channelValue: item.channelValue,
       normalizedValue: item.normalizedValue,
-      sellpiaInventorySkuId: item.sku.sellpiaInventorySkuId,
-      sellpiaCode: item.sku.code,
-      sellpiaName: item.sku.name,
-      sellpiaOptionName: item.sku.optionName,
-      currentStock: item.sku.currentStock,
     })),
     requiresQuantityConfirmation: true,
   };

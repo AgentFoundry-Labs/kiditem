@@ -72,8 +72,6 @@ describe('channel product and variant matching contracts', () => {
         code: 'SP-001', name: '키즈 식판', optionName: null, currentStock: 7,
         evidence: [{
           kind: 'seller_sku_code', channelValue: 'SP-001', normalizedValue: 'SP-001',
-          sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000005',
-          sellpiaCode: 'SP-001', sellpiaName: '키즈 식판', sellpiaOptionName: null, currentStock: 7,
         }],
         requiresQuantityConfirmation: true,
       }],
@@ -82,6 +80,16 @@ describe('channel product and variant matching contracts', () => {
     expect(() => ChannelRecipeSuggestionResponseSchema.parse({
       ...response,
       proposals: [{ ...response.proposals[0], requiresQuantityConfirmation: false }],
+    })).toThrow();
+    expect(() => ChannelRecipeSuggestionResponseSchema.parse({
+      ...response,
+      proposals: [{
+        ...response.proposals[0],
+        evidence: [{
+          ...response.proposals[0].evidence[0],
+          sellpiaInventorySkuId: response.proposals[0].sellpiaInventorySkuId,
+        }],
+      }],
     })).toThrow();
   });
   it('freezes candidate reasons without treating suggestions as confirmation', () => {

@@ -69,6 +69,27 @@ describe('<ChannelSkuMappingTable>', () => {
     expect(screen.getByText('분홍 옵션')).toBeInTheDocument();
     expect(screen.queryByText(/CP-SKU-/)).not.toBeInTheDocument();
   });
+
+  it('constrains long provider text inside fixed table cells', () => {
+    const longDisplayName = '공백없는아주긴채널상품명'.repeat(20);
+    const longExternalId = 'external-id-without-breaks-'.repeat(20);
+    const row = {
+      ...productRow(),
+      listing: {
+        ...productRow().listing,
+        displayName: longDisplayName,
+        externalId: longExternalId,
+      },
+    };
+
+    render(
+      <ChannelSkuMappingTable level="products" products={[row]} options={[]} onEditProduct={vi.fn()} onEditVariant={vi.fn()} />,
+    );
+
+    expect(screen.getByRole('table')).toHaveClass('table-fixed');
+    expect(screen.getByText(longDisplayName)).toHaveClass('break-words');
+    expect(screen.getByText(longExternalId)).toHaveClass('break-all');
+  });
 });
 
 function productRow() {

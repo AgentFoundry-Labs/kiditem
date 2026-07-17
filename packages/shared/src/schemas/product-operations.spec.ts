@@ -253,5 +253,16 @@ describe('product operations contracts', () => {
       ],
       expectedRecipe: [],
     })).toThrow();
+    expect(() => ReplaceProductVariantRecipeInputSchema.parse({
+      components: [{ sellpiaInventorySkuId: skuId, quantity: 1 }],
+      expectedRecipe: [{
+        id: '00000000-0000-4000-8000-000000000006',
+        sellpiaInventorySkuId: skuId,
+        quantity: 1,
+        source: 'manual',
+        confirmedBy: null,
+        confirmedAt: 'not-a-date',
+      }],
+    })).toThrow();
   });
 });
