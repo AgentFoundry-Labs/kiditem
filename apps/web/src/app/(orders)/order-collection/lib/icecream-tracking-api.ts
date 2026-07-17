@@ -206,7 +206,11 @@ interface SellpiaTrackingResponse {
   error?: string;
 }
 
-/** 확장이 셀피아 배송완료 목록(order_search.ajax.html?mode=deli_list)에서 송장 발급된 행을 가져온다. */
+/**
+ * 확장이 셀피아 **송장 재출력(order_delivery_reprint)** 에서 채번된 송장번호를 가져온다.
+ * 채번 화면(대기 리스트)은 리로드하면 채번된 주문이 빠지므로, 지속 소스인 재출력을
+ * '송장번호채번일자' 기준으로 조회한다(채번 직후 출력 전 주문도 포함).
+ */
 export async function collectSellpiaDeliTrackingFromExtension(options?: {
   startDate?: string;
   endDate?: string;

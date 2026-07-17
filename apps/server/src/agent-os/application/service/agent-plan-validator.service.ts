@@ -9,6 +9,7 @@ const ALLOWED_AGENT_TYPES = new Set([
   'channel_registration',
 ]);
 const ALLOWED_CAPABILITIES = new Set([
+  'market.collect_shadow_signals',
   'market.collect_keyword_category_rankings',
   'coupang.match_products',
   'coupang.collect_tracking_snapshot',

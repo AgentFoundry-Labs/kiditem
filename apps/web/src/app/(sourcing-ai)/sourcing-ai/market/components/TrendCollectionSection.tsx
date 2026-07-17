@@ -89,17 +89,13 @@ export function TrendCollectionSection() {
       <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 py-5 lg:px-6">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="max-w-2xl">
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-[var(--primary-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--primary)]">
-              <RefreshCw size={13} />
-              실데이터 수집
-            </span>
-            <h2 className="mt-3 text-xl font-bold tracking-tight text-[var(--text-primary)]">
+            <h2 className="text-xl font-bold tracking-tight text-[var(--text-primary)]">
               트렌드 수집
             </h2>
             <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-              문구·완구 기본 시드와 저장한 사용자 시드로 네이버 검색량·인기키워드, 1688
-              검색 결과의 거래 표시값, 쇼츠 급상승을 수집해 일별 스냅샷으로 쌓습니다.
-              1688은 로그인된 Chrome 확장 세션을 우선 사용합니다.
+              네이버 검색량·인기키워드, 1688 거래 표시값, 쇼츠 급상승을 매일 스냅샷으로
+              저장합니다. 기본 시드와 저장한 사용자 시드를 함께 쓰고, 1688은 로그인된 Chrome
+              확장을 우선 사용합니다.
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--text-tertiary)]">
               <span>
@@ -158,7 +154,7 @@ export function TrendCollectionSection() {
               ) : (
                 <>
                   <RefreshCw size={17} />
-                  지금 트렌드 수집
+                  트렌드 수집
                 </>
               )}
             </button>

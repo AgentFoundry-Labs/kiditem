@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   AlertCircle,
@@ -23,6 +23,7 @@ import {
   type NaverKeywordTrendView,
   type PopularKeywordBoardView,
 } from '../lib/trend-collection-api';
+import { isDouyinTrendSourceKeyword } from '../lib/douyin-trend';
 import { LiveCommerceSection } from './LiveCommerceSection';
 
 const POPULAR_DAYS = 7;
@@ -126,7 +127,7 @@ function NaverKeywordTableView() {
 
   return (
     <ViewCard
-      icon={Sparkles}
+      icon={TrendingUp}
       title="네이버 월검색량 상위 키워드"
       subtitle={`시드별 월간 검색량과 최근 ${NAVER_KEYWORD_DAYS}일 검색지수 추이`}
       state={query}
@@ -233,11 +234,18 @@ function Hot1688GridView() {
     staleTime: 5 * 60 * 1000,
   });
 
+  const [douyinOnly, setDouyinOnly] = useState(false);
+  const allOffers = query.data?.offers ?? [];
+  const douyinCount = allOffers.filter((offer) => isDouyinTrendSourceKeyword(offer.sourceKeyword)).length;
+  const offers = douyinOnly
+    ? allOffers.filter((offer) => isDouyinTrendSourceKeyword(offer.sourceKeyword))
+    : allOffers;
+
   return (
     <ViewCard
       icon={Flame}
       title="1688 검색 반응 상위"
-      subtitle="중국어 기본 시드·사용자 시드의 검색 결과를 거래 표시값순으로 정렬 · 공식 랭킹 아님"
+      subtitle="1688 검색 결과를 거래 표시값순으로 정렬 · 공식 랭킹 아님"
       state={query}
       isEmpty={(query.data?.offers.length ?? 0) === 0}
       emptyHint="1688 데이터가 없습니다. 최근 수집 결과에서 로그인·슬라이더 검증 오류를 확인해주세요."
@@ -245,8 +253,33 @@ function Hot1688GridView() {
         ? `저장 ${formatDateTime(query.data.capturedAt, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`
         : undefined}
     >
+      {allOffers.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] px-5 py-2.5">
+          <button
+            type="button"
+            onClick={() => setDouyinOnly((value) => !value)}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset transition',
+              douyinOnly
+                ? 'bg-rose-500 text-white ring-rose-500'
+                : 'bg-[var(--surface)] text-[var(--text-secondary)] ring-[var(--border)] hover:text-[var(--text-primary)]',
+            )}
+          >
+            도우인 트렌드만
+            <span className="tabular-nums">{douyinCount}</span>
+          </button>
+          <span className="text-[11px] leading-4 text-[var(--text-tertiary)]">
+            도우인 인기 키워드로 1688 검색 · 라이브 도우인 아님
+          </span>
+        </div>
+      )}
+      {douyinOnly && offers.length === 0 ? (
+        <p className="px-5 py-10 text-center text-sm text-[var(--text-tertiary)]">
+          아직 도우인 트렌드 키워드의 1688 수집 결과가 없습니다. 트렌드 수집을 한 번 실행해보세요.
+        </p>
+      ) : (
       <div className="grid gap-3 px-5 py-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-        {query.data?.offers.map((offer) => (
+        {offers.map((offer) => (
           <article
             key={offer.offerId}
             className="flex flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)]"
@@ -267,6 +300,11 @@ function Hot1688GridView() {
               {offer.newlyRanked && (
                 <span className="absolute left-2 top-2 rounded bg-purple-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
                   신규
+                </span>
+              )}
+              {isDouyinTrendSourceKeyword(offer.sourceKeyword) && (
+                <span className="absolute right-2 top-2 rounded bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  도우인
                 </span>
               )}
             </div>
@@ -301,6 +339,7 @@ function Hot1688GridView() {
           </article>
         ))}
       </div>
+      )}
     </ViewCard>
   );
 }

@@ -4,6 +4,7 @@ import type { AgentCapabilityHandler } from '../port/out/capability/agent-capabi
 import { AgentCapabilityRegistry } from './agent-capability-registry.service';
 
 export const DEFAULT_KIDITEM_MCP_CAPABILITY_ALLOWLIST = [
+  'market.collect_shadow_signals',
   'market.collect_keyword_category_rankings',
   'coupang.match_products',
   'coupang.collect_tracking_snapshot',
@@ -47,6 +48,7 @@ export const OPERATOR_AGENT_OS_MCP_TOOLS = [
 ] as const;
 
 const FIRST_CLASS_CAPABILITY_TOOL_NAMES: Record<string, string> = {
+  'market.collect_shadow_signals': 'market_collect_shadow_signals',
   'market.collect_keyword_category_rankings':
     'market_collect_keyword_category_rankings',
   'coupang.match_products': 'coupang_match_products',

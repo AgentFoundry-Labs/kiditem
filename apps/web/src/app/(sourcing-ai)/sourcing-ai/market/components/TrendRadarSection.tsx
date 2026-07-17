@@ -16,7 +16,6 @@ import {
   Search,
   ShieldAlert,
   ShoppingBag,
-  Sparkles,
   Youtube,
 } from 'lucide-react';
 import {
@@ -65,7 +64,7 @@ const channelViewMeta: Record<TrendChannelView, {
     label: '종합',
     shortLabel: '종합',
     title: '종합 급상승 키워드 TOP 20',
-    description: '국내 검색·커머스, SNS, 중국 소싱 신호를 함께 보는 전체 기회 순위입니다.',
+    description: '국내 검색·커머스, SNS, 중국 소싱을 합친 종합 순위입니다.',
     basis: '검색·커머스·SNS 종합 모멘텀',
     sourceLabel: 'Naver · Coupang · Wing · Instagram · YouTube · Douyin · 1688',
     sourceCount: 7,
@@ -85,7 +84,7 @@ const channelViewMeta: Record<TrendChannelView, {
     label: 'SNS',
     shortLabel: 'SNS',
     title: 'SNS 급상승 키워드',
-    description: 'Instagram·YouTube에서 영상과 게시물 반응이 먼저 움직이는 키워드를 분리합니다.',
+    description: 'Instagram·YouTube에서 반응이 큰 키워드를 따로 봅니다.',
     basis: 'SNS지수 80% · 소스커버리지 20%',
     sourceLabel: 'Instagram · YouTube',
     sourceCount: 2,
@@ -94,7 +93,7 @@ const channelViewMeta: Record<TrendChannelView, {
   china: {
     label: '중국 소싱',
     shortLabel: '중국',
-    title: '중국 소싱 선행 키워드',
+    title: '중국 소싱 키워드',
     description: 'Douyin의 콘텐츠 반응과 1688 공급 신호가 있는 키워드만 따로 비교합니다.',
     basis: '중국 SNS 50% · 공급반응 25% · 소스커버리지 25%',
     sourceLabel: 'Douyin · 1688',
@@ -212,7 +211,6 @@ export function TrendRadarSection() {
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 rounded-md bg-[var(--primary-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--primary)]">
-                  <Sparkles size={13} />
                   {isLive
                     ? liveGeneratedAt
                       ? `${liveDomestic ? 'Naver' : '유튜브 쇼츠'} 최신 · ${formatDateTime(liveGeneratedAt)}`
@@ -319,9 +317,9 @@ export function TrendRadarSection() {
             })}
           </div>
 
-          <div className="mt-2 flex flex-col gap-1 rounded-lg border border-purple-100 bg-purple-50 px-3.5 py-2.5 text-[11px] sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-5">
-            <span className="text-purple-900"><strong className="font-semibold">순위 기준</strong> · {liveSns ? '유튜브 쇼츠 조회량 70% · 조회 속도 30% · 모멘텀=주간 성장' : activeViewMeta.basis}</span>
-            <span className="text-purple-800"><strong className="font-semibold">포함 소스</strong> · {liveSns ? 'YouTube 쇼츠 (shortstrend)' : activeViewMeta.sourceLabel}</span>
+          <div className="mt-2 flex flex-col gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] px-3.5 py-2.5 text-[11px] sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-5">
+            <span className="text-[var(--text-secondary)]"><strong className="font-semibold">순위 기준</strong> · {liveSns ? '유튜브 쇼츠 조회량 70% · 조회 속도 30% · 모멘텀=주간 성장' : activeViewMeta.basis}</span>
+            <span className="text-[var(--text-secondary)]"><strong className="font-semibold">포함 소스</strong> · {liveSns ? 'YouTube 쇼츠 (shortstrend)' : activeViewMeta.sourceLabel}</span>
             <span className={cn('font-semibold sm:ml-auto', isLive ? 'text-emerald-700' : 'text-rose-700')}>
               {isLive ? '실연동 · 화면 10분 갱신' : '실시간 플랫폼 공식 순위 아님'}
             </span>

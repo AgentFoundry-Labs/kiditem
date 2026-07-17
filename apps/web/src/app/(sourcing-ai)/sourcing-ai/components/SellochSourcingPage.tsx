@@ -21,7 +21,7 @@ import { resolveCoupangCatalogImageUrl } from '../wing-catalog/lib/wing-catalog-
 import { HomeRankingBoard } from './SellochSourcingHomeRankings';
 import { SellochMarketAnalysisPage } from './SellochMarketAnalysisPage';
 import { CompetitorTrackingPage } from '../competitor-analysis/components/CompetitorTrackingPage';
-import { RealtimeSourcingTerminal } from './SellochRealtimeTerminal';
+import { SourcingHomeHero } from './SourcingHomeHero';
 import { SellochFinalSelectionPage } from './SellochFinalSelectionPage';
 import { SellochWholesaleCoupangMatches } from './SellochWholesaleCoupangMatches';
 import { SellochWholesaleKeywordSearch } from './SellochWholesaleKeywordSearch';
@@ -105,7 +105,7 @@ function PageTitle({ title }: { title: string }) {
 function HomePage() {
   return (
     <div className="space-y-8">
-      <RealtimeSourcingTerminal />
+      <SourcingHomeHero />
       <TodayRecommendationImageRail />
       <HomeRankingBoard />
 

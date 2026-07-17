@@ -13,6 +13,7 @@ describe('Sidebar product pipeline navigation', () => {
       ['/sourcing-ai/competitor-analysis', '경쟁업체 분석'],
       ['/sourcing-ai/wing-catalog', '쿠팡 상품 분석'],
       ['/sourcing-ai/product-tracking', '상품 추적'],
+      ['/sourcing-ai/rising-products', '급상승 탐지'],
       ['/sourcing-ai/recommendations', '오늘의 추천'],
       ['/sourcing-ai/wholesale-search', '도매 상품 검색'],
       ['/sourcing-ai/validation', '상품 검증'],

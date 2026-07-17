@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import {
   AlertCircle,
-  ArrowRight,
   ArrowUpRight,
   Clock3,
   Database,
@@ -17,7 +16,6 @@ import {
   RefreshCw,
   Search,
   ShoppingBag,
-  Sparkles,
 } from 'lucide-react';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime, formatNumber } from '@/lib/utils';
@@ -105,20 +103,16 @@ export function GlobalSourcingOverview({ onOpenCollection }: GlobalSourcingOverv
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-[var(--primary-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--primary)]">
-                <Sparkles size={13} />
-                시장 선점 워크플로
-              </span>
               <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold tabular-nums text-slate-600">
                 현재 데이터 {stageWithDataCount}/3단계
               </span>
             </div>
             <h2 className="mt-3 text-xl font-bold tracking-tight text-[var(--text-primary)]">
-              중국에서 발견하고, 세계 반응을 확인한 뒤, 한국에서 검증합니다
+              중국 공급 → 글로벌 반응 → 한국 수요 순으로 확인합니다
             </h2>
             <p className="mt-2 max-w-4xl text-sm leading-6 text-[var(--text-secondary)]">
-              서로 다른 플랫폼의 상품 ID를 같은 상품으로 단정하지 않고 문구·완구의 키워드·주제
-              기준으로 연결합니다. 확인된 원천 수치만 표시하며 미연동 소스는 점수에 넣지 않습니다.
+              플랫폼별 상품 ID를 동일 상품으로 묶지 않고 키워드·주제로 연결합니다. 확인된 수치만
+              표시하고 미연동 소스는 제외합니다.
             </p>
           </div>
           <button
@@ -150,11 +144,6 @@ export function GlobalSourcingOverview({ onOpenCollection }: GlobalSourcingOverv
                   판단: {stage.decision}
                 </p>
               </article>
-              {index < GLOBAL_SOURCING_STAGES.length - 1 && (
-                <span className="absolute -right-4 top-1/2 z-10 hidden h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-[var(--border)] bg-white text-purple-600 lg:flex">
-                  <ArrowRight size={14} />
-                </span>
-              )}
             </div>
           ))}
         </div>
@@ -210,7 +199,7 @@ function CrossMarketTable({
     <section className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
       <div className="flex flex-col gap-2 border-b border-[var(--border)] px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h3 className="text-sm font-bold text-[var(--text-primary)]">교차시장 선점 후보</h3>
+          <h3 className="text-sm font-bold text-[var(--text-primary)]">시장별 후보</h3>
           <p className="mt-1 text-xs text-[var(--text-tertiary)]">
             동일 SKU가 아닌 키워드·주제 기준 연결 · 확인된 단계가 많은 순
           </p>
@@ -220,7 +209,7 @@ function CrossMarketTable({
         </span>
       </div>
       {loading && topics.length === 0 ? (
-        <PanelState icon={<Loader2 size={18} className="animate-spin" />} text="실수집 데이터를 연결하고 있습니다." />
+        <PanelState icon={<Loader2 size={18} className="animate-spin" />} text="수집한 데이터를 연결하는 중입니다." />
       ) : topics.length === 0 ? (
         <PanelState icon={<Database size={18} />} text="아직 연결할 수집 데이터가 없습니다. 먼저 데이터를 수집해 주세요." />
       ) : (
@@ -280,7 +269,7 @@ function EvidenceCell({ count, detail, unit }: { count: number; detail: string |
 
 function ChinaSignals({ offers, capturedAt }: { offers: Hot1688OfferView[]; capturedAt: string | null }) {
   return (
-    <SignalCard icon={Factory} title="중국 발굴" subtitle="1688 시드 검색 스냅샷" badge={capturedAt ? `저장 ${formatDateTime(capturedAt, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}` : '수집 대기'}>
+    <SignalCard icon={Factory} title="중국 공급" subtitle="1688 검색 스냅샷" badge={capturedAt ? `저장 ${formatDateTime(capturedAt, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}` : '수집 대기'}>
       {offers.length === 0 ? (
         <CompactEmpty text="저장된 결과가 없습니다. 트렌드 수집에서 로그인·슬라이더 인증 또는 검색 결과를 확인하세요." />
       ) : (
@@ -409,9 +398,9 @@ function NextConnectorQueue() {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h3 className="text-sm font-bold text-[var(--text-primary)]">다음 실데이터 연동 순서</h3>
-          <p className="mt-1 text-xs text-[var(--text-tertiary)]">공식성·자동화 가능성·문구·완구 선행성을 기준으로 정렬했습니다.</p>
+          <p className="mt-1 text-xs text-[var(--text-tertiary)]">공식성·자동화 가능성·문구·완구 관련성을 기준으로 정렬했습니다.</p>
         </div>
-        <span className="self-start rounded-md bg-purple-50 px-2 py-1 text-[11px] font-semibold text-purple-700">연동 로드맵</span>
+        <span className="self-start rounded-md bg-purple-50 px-2 py-1 text-[11px] font-semibold text-purple-700">연동 예정</span>
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {GLOBAL_SOURCING_NEXT_CONNECTORS.map((connector) => (

@@ -190,6 +190,16 @@ same-origin `/api/*` routing.
 | `TAOBAO_TOP_APP_SECRET` | Taobao Live official collection is enabled | Sourcing Taobao Live adapter | Server-only TOP signing secret. Never expose it to the web app, extension, logs, or Agent OS prompts. |
 | `TAOBAO_TOP_BASE_URL` | A non-production TOP gateway is needed | Sourcing Taobao Live adapter | Optional; defaults to `https://eco.taobao.com/router/rest`. |
 | `TAOBAO_TOP_TIMEOUT_MS` | Custom Taobao TOP timeout is needed | Sourcing Taobao Live adapter | Optional positive integer; defaults to 15000ms. |
+| `SOURCING_LINKFOX_SHADOW_ENABLED` | A paid EchoTik shadow pilot is approved | Market shadow signal service | Must be exactly `1` to arm the treatment. The service still requires an explicit pilot organization allowlist and region. Leave unset or `0` in production. |
+| `SOURCING_LINKFOX_ECHOTIK_REGION` | LinkFox shadow is armed | Market shadow signal service | Required EchoTik region. Supported values: `US`, `GB`, `ID`, `TH`, `PH`, `MY`, `VN`, `MX`, `SG`, `SA`, `BR`, `ES`, `JP`, `DE`, `IT`, `FR`. There is no `KR` fallback. |
+| `SOURCING_LINKFOX_PILOT_ORGANIZATION_IDS` | LinkFox shadow is armed | Market shadow signal service | Comma-separated organization UUID allowlist. An empty list disables all paid calls even when the feature flag is `1`. |
+| `LINKFOX_AGENT_API_KEY` | An allowlisted organization runs the LinkFox treatment | LinkFox EchoTik adapter | Server-only paid API key sent as the raw `Authorization` header. Never expose it to the web, logs, snapshot payloads, or Agent OS prompts. |
+
+Google Trends shadow collection uses the fixed official KR RSS feed and needs
+no credential. Both Google and LinkFox results are stored under
+`market_shadow_signals` with `decisionImpact=disabled`; promotion into sourcing
+scores requires a separate reviewed code change after at least 30 observation
+days.
 
 ## Staging DB Baseline Operations
 
@@ -252,10 +262,9 @@ keyword research is intentionally enabled.
 
 | Variable | Required when | Consumed by | Notes |
 |---|---|---|---|
-| `NAVER_DATALAB_CLIENT_ID` | Naver DataLab trend verification is enabled | Sourcing Naver DataLab adapter | Developer Center application client id. Server-side only. |
-| `NAVER_DATALAB_CLIENT_SECRET` | Naver DataLab trend verification is enabled | Sourcing Naver DataLab adapter | Developer Center application secret. Never expose to web or agents. |
-| `NAVER_DATALAB_BASE_URL` | Non-production DataLab endpoint override is needed | Sourcing Naver DataLab adapter | Optional. Defaults to `https://openapi.naver.com`. |
-| `NAVER_DATALAB_WEB_BASE_URL` | Non-production DataLab web endpoint override is needed | Sourcing DataLab popular keyword adapter | Optional. Defaults to `https://datalab.naver.com`. Used for Shopping Insight popular keyword boards. |
+| `NAVER_API_HUB_CLIENT_ID` | NAVER Search Trend or Shopping Insight is enabled | Sourcing NAVER API HUB adapters | NAVER Cloud Platform API HUB client id. Server-side only. |
+| `NAVER_API_HUB_CLIENT_SECRET` | NAVER Search Trend or Shopping Insight is enabled | Sourcing NAVER API HUB adapters | Client secret paired with the API HUB client id. Never expose to web or agents. |
+| `NAVER_API_HUB_BASE_URL` | Non-production API HUB endpoint override is needed | Sourcing NAVER API HUB adapters | Optional. Defaults to `https://naverapihub.apigw.ntruss.com`. |
 | `NAVER_SEARCHAD_API_KEY` | Naver SearchAd keyword research is enabled | Sourcing Naver keyword adapter | Access license from Naver SearchAd API manager. Server-side only. |
 | `NAVER_SEARCHAD_SECRET_KEY` | Naver SearchAd keyword research is enabled | Sourcing Naver keyword adapter | HMAC signing secret. Never expose to web or agents. |
 | `NAVER_SEARCHAD_CUSTOMER_ID` | Naver SearchAd keyword research is enabled | Sourcing Naver keyword adapter | SearchAd advertiser customer id used in `X-Customer`. |
@@ -370,8 +379,7 @@ STAGING_DB_BASELINE_S3_ENDPOINT
 STAGING_DB_BASELINE_S3_REGION
 STAGING_DIRECT_1688_MTOP_BASE_URL
 STAGING_HOST
-STAGING_NAVER_DATALAB_BASE_URL
-STAGING_NAVER_DATALAB_WEB_BASE_URL
+STAGING_NAVER_API_HUB_BASE_URL
 STAGING_NAVER_SEARCHAD_BASE_URL
 STAGING_REMOTE_DIR
 STAGING_REBUILD_ORGANIZATION_ID
@@ -412,8 +420,8 @@ STAGING_DB_BASELINE_S3_ACCESS_KEY
 STAGING_DB_BASELINE_S3_SECRET_KEY
 STAGING_DIRECT_URL
 STAGING_GEMINI_API_KEY
-STAGING_NAVER_DATALAB_CLIENT_ID
-STAGING_NAVER_DATALAB_CLIENT_SECRET
+STAGING_NAVER_API_HUB_CLIENT_ID
+STAGING_NAVER_API_HUB_CLIENT_SECRET
 STAGING_NAVER_SEARCHAD_API_KEY
 STAGING_NAVER_SEARCHAD_CUSTOMER_ID
 STAGING_NAVER_SEARCHAD_SECRET_KEY
@@ -502,7 +510,7 @@ ssh -i "$STAGING_SSH_KEY" "$STAGING_USER@$STAGING_HOST" '
   docker exec kiditem-staging-api sh -lc '"'"'
     for k in OPENAI_API_KEY GEMINI_API_KEY AI_TEXT_MODEL AI_IMAGE_MODEL \
       AI_IMAGE_ANALYSIS_MODEL AI_IMAGE_ANALYSIS_VERIFY_MODEL \
-      NAVER_DATALAB_CLIENT_ID NAVER_DATALAB_CLIENT_SECRET NAVER_DATALAB_WEB_BASE_URL \
+      NAVER_API_HUB_CLIENT_ID NAVER_API_HUB_CLIENT_SECRET NAVER_API_HUB_BASE_URL \
       NAVER_SEARCHAD_API_KEY NAVER_SEARCHAD_SECRET_KEY NAVER_SEARCHAD_CUSTOMER_ID \
       CHANNEL_CREDENTIALS_ENCRYPTION_KEY \
       AGENT_RUNTIME_WORKER_ENABLED AGENT_DEFAULT_MODEL \

@@ -8,9 +8,9 @@ import type {
   NaverDatalabTrendStatus,
 } from '../../../application/port/out/provider/naver-keyword-research.port';
 
-const REQUIRED_ENV = ['NAVER_DATALAB_CLIENT_ID', 'NAVER_DATALAB_CLIENT_SECRET'];
-const DEFAULT_BASE_URL = 'https://openapi.naver.com';
-const SEARCH_TREND_URI = '/v1/datalab/search';
+const REQUIRED_ENV = ['NAVER_API_HUB_CLIENT_ID', 'NAVER_API_HUB_CLIENT_SECRET'];
+const DEFAULT_BASE_URL = 'https://naverapihub.apigw.ntruss.com';
+const SEARCH_TREND_URI = '/search-trend/v1/search';
 const MAX_KEYWORDS_PER_DATALAB_REQUEST = 5;
 const MAX_KEYWORDS_PER_RANKING = 50;
 
@@ -49,7 +49,7 @@ export class NaverDatalabTrendAdapter implements NaverDatalabTrendPort {
     const config = this.readConfig();
     if (!config) {
       throw new ServiceUnavailableException(
-        '네이버 DataLab API 키가 설정되지 않았습니다. apps/server/.env에 NAVER_DATALAB_CLIENT_ID, NAVER_DATALAB_CLIENT_SECRET를 설정해주세요.',
+        'NAVER API HUB 키가 설정되지 않았습니다. apps/server/.env에 NAVER_API_HUB_CLIENT_ID, NAVER_API_HUB_CLIENT_SECRET를 설정해주세요.',
       );
     }
 
@@ -122,8 +122,8 @@ export class NaverDatalabTrendAdapter implements NaverDatalabTrendPort {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Naver-Client-Id': config.clientId,
-        'X-Naver-Client-Secret': config.clientSecret,
+        'X-NCP-APIGW-API-KEY-ID': config.clientId,
+        'X-NCP-APIGW-API-KEY': config.clientSecret,
       },
       body: JSON.stringify(body),
     });
@@ -141,13 +141,13 @@ export class NaverDatalabTrendAdapter implements NaverDatalabTrendPort {
   }
 
   private readConfig(): NaverDatalabConfig | null {
-    const clientId = process.env.NAVER_DATALAB_CLIENT_ID?.trim();
-    const clientSecret = process.env.NAVER_DATALAB_CLIENT_SECRET?.trim();
+    const clientId = process.env.NAVER_API_HUB_CLIENT_ID?.trim();
+    const clientSecret = process.env.NAVER_API_HUB_CLIENT_SECRET?.trim();
     if (!clientId || !clientSecret) return null;
     return {
       clientId,
       clientSecret,
-      baseUrl: process.env.NAVER_DATALAB_BASE_URL?.trim() || DEFAULT_BASE_URL,
+      baseUrl: process.env.NAVER_API_HUB_BASE_URL?.trim() || DEFAULT_BASE_URL,
     };
   }
 }

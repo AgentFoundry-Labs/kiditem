@@ -101,6 +101,7 @@ model Organization {
   salesPlans                 SalesPlan[]
   rocketSupplyDailySnapshots RocketSupplyDailySnapshot[]
   rocketPurchaseOrders       RocketPurchaseOrder[]
+  rocketPoReservations       RocketPoReservation[]
   sellpiaSalesDailySnapshots SellpiaSalesDailySnapshot[]
   sellpiaProductMonthlySales SellpiaProductMonthlySales[]
   sellpiaProductStock        SellpiaProductStock[]

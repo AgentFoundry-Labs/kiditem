@@ -8,9 +8,9 @@ const ORIGINAL_FETCH = globalThis.fetch;
 describe('NaverDatalabTrendAdapter', () => {
   beforeEach(() => {
     process.env = { ...ORIGINAL_ENV };
-    process.env.NAVER_DATALAB_CLIENT_ID = 'client-id';
-    process.env.NAVER_DATALAB_CLIENT_SECRET = 'client-secret';
-    process.env.NAVER_DATALAB_BASE_URL = 'https://openapi.test';
+    process.env.NAVER_API_HUB_CLIENT_ID = 'client-id';
+    process.env.NAVER_API_HUB_CLIENT_SECRET = 'client-secret';
+    process.env.NAVER_API_HUB_BASE_URL = 'https://api-hub.test';
   });
 
   afterEach(() => {
@@ -56,9 +56,11 @@ describe('NaverDatalabTrendAdapter', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
-    expect(String(url)).toBe('https://openapi.test/v1/datalab/search');
-    expect((init?.headers as Record<string, string>)['X-Naver-Client-Id']).toBe('client-id');
-    expect((init?.headers as Record<string, string>)['X-Naver-Client-Secret']).toBe('client-secret');
+    expect(String(url)).toBe('https://api-hub.test/search-trend/v1/search');
+    expect((init?.headers as Record<string, string>)['X-NCP-APIGW-API-KEY-ID']).toBe('client-id');
+    expect((init?.headers as Record<string, string>)['X-NCP-APIGW-API-KEY']).toBe('client-secret');
+    expect((init?.headers as Record<string, string>)['X-Naver-Client-Id']).toBeUndefined();
+    expect((init?.headers as Record<string, string>)['X-Naver-Client-Secret']).toBeUndefined();
     expect(JSON.parse(String(init?.body))).toMatchObject({
       startDate: '2026-04-20',
       endDate: '2026-05-20',
@@ -111,9 +113,25 @@ describe('NaverDatalabTrendAdapter', () => {
   });
 
   it('fails clearly when DataLab credentials are missing', async () => {
-    delete process.env.NAVER_DATALAB_CLIENT_ID;
+    delete process.env.NAVER_API_HUB_CLIENT_ID;
     const adapter = new NaverDatalabTrendAdapter();
 
+    await expect(adapter.compareSearchTrends({ keywords: ['슬라임'] })).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+  });
+
+  it('does not silently fall back to legacy Developer Center credentials', async () => {
+    delete process.env.NAVER_API_HUB_CLIENT_ID;
+    delete process.env.NAVER_API_HUB_CLIENT_SECRET;
+    process.env.NAVER_DATALAB_CLIENT_ID = 'legacy-client-id';
+    process.env.NAVER_DATALAB_CLIENT_SECRET = 'legacy-client-secret';
+    const adapter = new NaverDatalabTrendAdapter();
+
+    expect(adapter.getStatus()).toEqual({
+      configured: false,
+      requiredEnv: ['NAVER_API_HUB_CLIENT_ID', 'NAVER_API_HUB_CLIENT_SECRET'],
+    });
     await expect(adapter.compareSearchTrends({ keywords: ['슬라임'] })).rejects.toBeInstanceOf(
       ServiceUnavailableException,
     );

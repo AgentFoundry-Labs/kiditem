@@ -368,19 +368,28 @@ describe('TrendCollectService', () => {
 
     const result = await ports.service.collect(ORGANIZATION_ID, ['1688', 'shorts']);
 
+    // 기본 완구·문구 시드 10 + 도우인 트렌드 큐레이션 시드 8 = 1688 은 18개 키워드 수집.
     expect(result.results).toEqual([
-      { source: '1688', ok: true, collected: 10 },
+      { source: '1688', ok: true, collected: 18 },
       { source: 'shorts', ok: true, collected: 0 },
     ]);
     expect(ports.keywordSearch1688.searchByKeyword).toHaveBeenCalledWith(
       expect.objectContaining({ keyword: '文具' }),
     );
+    // 도우인 트렌드 키워드(谷子=굿즈)는 1688 수집에만 추가로 태워진다.
+    expect(ports.keywordSearch1688.searchByKeyword).toHaveBeenCalledWith(
+      expect.objectContaining({ keyword: '谷子' }),
+    );
+    // shorts 는 도우인 시드의 영향을 받지 않는다(1688 전용 baseline).
     expect(ports.shortstrend.fetchTrending).toHaveBeenCalledWith(
       expect.objectContaining({
         keywords: expect.arrayContaining(['문구', '완구', '슬라임']),
         limit: 50,
         publishedWithinDays: 30,
       }),
+    );
+    expect(ports.shortstrend.fetchTrending).not.toHaveBeenCalledWith(
+      expect.objectContaining({ keywords: expect.arrayContaining(['굿즈']) }),
     );
   });
 

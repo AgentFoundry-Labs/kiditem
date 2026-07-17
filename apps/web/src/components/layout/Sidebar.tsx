@@ -41,6 +41,7 @@ import {
   Link2,
   FileSpreadsheet,
   Rocket,
+  Flame,
   LogOut,
   type LucideIcon,
 } from "lucide-react";
@@ -104,6 +105,11 @@ export const menuSections: MenuSection[] = [
         href: "/sourcing-ai/product-tracking",
         label: "상품 추적",
         icon: LineChart,
+      },
+      {
+        href: "/sourcing-ai/rising-products",
+        label: "급상승 탐지",
+        icon: Flame,
       },
       {
         href: "/sourcing-ai/recommendations",

@@ -14,12 +14,15 @@ import { SourcingService } from "../application/service/sourcing.service";
 import { SourcingPromotionService } from "../application/service/sourcing-promotion.service";
 import { SourcingWorkspaceArchiveService } from "../application/service/sourcing-workspace-archive.service";
 import { SourcingWorkspaceSnapshotService } from "../application/service/sourcing-workspace-snapshot.service";
+import { SourcingShadowSignalService } from "../application/service/sourcing-shadow-signal.service";
 import { SourcingMarketDiscoveryService } from "../application/service/sourcing-market-discovery.service";
+import { MarketShadowSignalCapabilityAdapter } from "../adapter/in/agent/market-shadow-signal-capability.adapter";
 import { SourcingDiscoveryCapabilityAdapter } from "../adapter/in/agent/sourcing-discovery-capability.adapter";
 import { SourcingListingPrepCapabilityAdapter } from "../adapter/in/agent/sourcing-listing-prep-capability.adapter";
 import { SourcingScrapeUrlCapabilityAdapter } from "../adapter/in/agent/sourcing-scrape-url-capability.adapter";
 import { Sourcing1688TrendExtensionController } from "../adapter/in/http/sourcing-1688-trend-extension.controller";
 import { SourcingLiveCommerceExtensionController } from "../adapter/in/http/sourcing-live-commerce-extension.controller";
+import { MarketShadowSignalController } from "../adapter/in/http/market-shadow-signal.controller";
 import { NaverDatalabPopularKeywordAdapter } from "../adapter/out/naver/naver-datalab-popular-keyword.adapter";
 import { NaverDatalabTrendAdapter } from "../adapter/out/naver/naver-datalab-trend.adapter";
 import { NaverAutocompleteKeywordAdapter } from "../adapter/out/naver/naver-autocomplete-keyword.adapter";
@@ -29,6 +32,9 @@ import { SourcingAiWorkspaceArchiveAdapter } from "../adapter/out/ai/workspace-a
 import { SourcingOperationAlertAdapter } from "../adapter/out/automation/operation-alert.adapter";
 import { SourcingCandidateRepositoryAdapter } from "../adapter/out/repository/sourcing-candidate.repository.adapter";
 import { SourcingWorkspaceSnapshotRepositoryAdapter } from "../adapter/out/repository/sourcing-workspace-snapshot.repository.adapter";
+import { MarketShadowSnapshotRepositoryAdapter } from "../adapter/out/repository/market-shadow-snapshot.repository.adapter";
+import { GoogleTrendsRssAdapter } from "../adapter/out/google-trends/google-trends-rss.adapter";
+import { LinkfoxEchotikShadowAdapter } from "../adapter/out/linkfox/linkfox-echotik-shadow.adapter";
 import { SourcingPlaywrightRuntimeHandler } from "../adapter/out/runtime/sourcing-playwright-runtime.handler";
 import { Direct1688ImageSearchAdapter } from "../adapter/out/1688/direct-1688-image-search.adapter";
 import { Direct1688KeywordSearchAdapter } from "../adapter/out/1688/direct-1688-keyword-search.adapter";
@@ -37,6 +43,7 @@ import { TrendCollectionRepositoryAdapter } from "../adapter/out/repository/tren
 import { LiveCommerceRepositoryAdapter } from "../adapter/out/repository/live-commerce.repository.adapter";
 import { TaobaoLiveAdapter } from "../adapter/out/taobao/taobao-live.adapter";
 import { SourcingRuntimeHandler } from "../adapter/out/runtime/sourcing-runtime.handler";
+import { MARKET_SHADOW_COLLECTION_CAPABILITY_PORT } from "../application/port/in/capability/market-shadow-capability.port";
 import {
   SOURCING_DISCOVERY_CAPABILITY_PORT,
   SOURCING_LISTING_PREP_CAPABILITY_PORT,
@@ -56,6 +63,7 @@ import { SOURCING_AGENT_GATEWAY_PORT } from "../application/port/out/runtime/sou
 import { SOURCING_AI_WORKSPACE_ARCHIVE_PORT } from "../application/port/out/cross-domain/ai-workspace-archive.port";
 import { SOURCING_OPERATION_ALERT_PORT } from "../application/port/out/cross-domain/operation-alert.port";
 import { SOURCING_CANDIDATE_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-candidate.repository.port";
+import { MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT } from "../application/port/out/repository/market-shadow-snapshot.repository.port";
 import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-workspace-snapshot.repository.port";
 import { TREND_COLLECTION_REPOSITORY_PORT } from "../application/port/out/repository/trend-collection.repository.port";
 import { LIVE_COMMERCE_REPOSITORY_PORT } from "../application/port/out/repository/live-commerce.repository.port";
@@ -68,12 +76,17 @@ import { RegistrationContentWorkspaceAdapter } from "../adapter/out/ai/registrat
 import { PRODUCT_PREPARATION_REPOSITORY_PORT } from "../application/port/out/repository/product-preparation.repository.port";
 import { CHANNEL_PRODUCT_REGISTRATION_PORT } from "../application/port/out/cross-domain/channel-product-registration.port";
 import { REGISTRATION_CONTENT_WORKSPACE_PORT } from "../application/port/out/cross-domain/registration-content-workspace.port";
+import {
+  LINKFOX_ECHOTIK_SHADOW_PORT,
+  MARKET_SHADOW_SIGNAL_PORT,
+} from "../application/port/out/provider/market-shadow-signal.port";
 
 // NestJS @Module / @Controller metadata keys (stable across Nest 10/11).
 const IMPORTS_KEY = "imports";
 const CONTROLLERS_KEY = "controllers";
 const PROVIDERS_KEY = "providers";
 const PATH_KEY = "path";
+const SELF_DECLARED_DEPS_KEY = "self:paramtypes";
 
 // Sourcing owner module — Chinese new-product discovery. Suppliers and
 // procurement were extracted to SupplyModule during issue #192 follow-up
@@ -96,13 +109,16 @@ describe("SourcingModule canonical owner wiring", () => {
       "SourcingAgentRagController",
       "SourcingMarketModelController",
       "Sourcing1688NewProductModelController",
+      "SourcingRisingProductController",
       "SourcingCandidateWorkspaceController",
+      "MarketShadowSignalController",
       "SourcingWorkspaceSnapshotController",
       "TrendCollectionController",
       "LiveCommerceController",
     ]);
     expect(controllers).toContain(Sourcing1688TrendExtensionController);
     expect(controllers).toContain(SourcingLiveCommerceExtensionController);
+    expect(controllers).toContain(MarketShadowSignalController);
   });
 
   it("declares every application service as a provider", () => {
@@ -118,11 +134,21 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(SourcingPromotionService);
     expect(providers).toContain(SourcingWorkspaceArchiveService);
     expect(providers).toContain(SourcingWorkspaceSnapshotService);
+    expect(providers).toContain(SourcingShadowSignalService);
     expect(providers).toContain(SourcingMarketDiscoveryService);
     expect(providers).toContain(TrendCollectService);
     expect(providers).toContain(TrendQueryService);
     expect(providers).toContain(LiveCommerceService);
     expect(providers).toContain(ProductRegistrationService);
+  });
+
+  it("injects both persisted evidence repositories into market discovery", () => {
+    expect(
+      Reflect.getMetadata(SELF_DECLARED_DEPS_KEY, SourcingMarketDiscoveryService),
+    ).toEqual(expect.arrayContaining([
+      { index: 0, param: TREND_COLLECTION_REPOSITORY_PORT },
+      { index: 1, param: SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT },
+    ]));
   });
 
   it("binds outgoing ports to their adapters", () => {
@@ -137,6 +163,10 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(SourcingOperationAlertAdapter);
     expect(providers).toContain(SourcingCandidateRepositoryAdapter);
     expect(providers).toContain(SourcingWorkspaceSnapshotRepositoryAdapter);
+    expect(providers).toContain(MarketShadowSnapshotRepositoryAdapter);
+    expect(providers).toContain(GoogleTrendsRssAdapter);
+    expect(providers).toContain(LinkfoxEchotikShadowAdapter);
+    expect(providers).toContain(MarketShadowSignalCapabilityAdapter);
     expect(providers).toContain(SourcingDiscoveryCapabilityAdapter);
     expect(providers).toContain(SourcingListingPrepCapabilityAdapter);
     expect(providers).toContain(SourcingScrapeUrlCapabilityAdapter);
@@ -175,6 +205,15 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(discoveryBinding).toBeDefined();
     expect(discoveryBinding!.useExisting).toBe(
       SourcingDiscoveryCapabilityAdapter,
+    );
+    const shadowCapabilityBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === "object" &&
+        p !== null &&
+        (p as any).provide === MARKET_SHADOW_COLLECTION_CAPABILITY_PORT,
+    );
+    expect(shadowCapabilityBinding?.useExisting).toBe(
+      MarketShadowSignalCapabilityAdapter,
     );
     const listingPrepBinding = providers.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
@@ -234,6 +273,15 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(workspaceSnapshotRepositoryBinding!.useExisting).toBe(
       SourcingWorkspaceSnapshotRepositoryAdapter,
     );
+    const shadowSnapshotRepositoryBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === "object" &&
+        p !== null &&
+        (p as any).provide === MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT,
+    );
+    expect(shadowSnapshotRepositoryBinding?.useExisting).toBe(
+      MarketShadowSnapshotRepositoryAdapter,
+    );
     const imageSearchBinding = providers.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
         typeof p === "object" &&
@@ -288,6 +336,20 @@ describe("SourcingModule canonical owner wiring", () => {
     );
     expect(taobaoLiveBinding).toBeDefined();
     expect(taobaoLiveBinding!.useExisting).toBe(TaobaoLiveAdapter);
+    const marketShadowSignalBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === "object" &&
+        p !== null &&
+        (p as any).provide === MARKET_SHADOW_SIGNAL_PORT,
+    );
+    expect(marketShadowSignalBinding?.useExisting).toBe(GoogleTrendsRssAdapter);
+    const linkfoxShadowBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === "object" &&
+        p !== null &&
+        (p as any).provide === LINKFOX_ECHOTIK_SHADOW_PORT,
+    );
+    expect(linkfoxShadowBinding?.useExisting).toBe(LinkfoxEchotikShadowAdapter);
     const naverKeywordBinding = providers.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
         typeof p === "object" &&
@@ -385,7 +447,9 @@ describe("SourcingModule canonical owner wiring", () => {
       "sourcing/agent-rag",
       "sourcing/market-model",
       "sourcing/1688-new-product-model",
+      "sourcing/rising-products",
       "sourcing",
+      "sourcing/trend/shadow",
       "sourcing/workspace-snapshots",
       "sourcing/trend",
       "sourcing/live-commerce",

@@ -25,10 +25,10 @@ import { TrendRadarSection } from './TrendRadarSection';
 type MarketTab = 'overview' | 'radar' | 'collect' | 'competitors' | 'wing';
 
 const tabs: Array<{ id: MarketTab; label: string; icon: LucideIcon }> = [
-  { id: 'overview', label: '선점 레이더', icon: Compass },
-  { id: 'radar', label: '키워드 레이더', icon: Radar },
+  { id: 'overview', label: '개요', icon: Compass },
+  { id: 'radar', label: '키워드', icon: Radar },
   { id: 'collect', label: '트렌드 수집', icon: RefreshCw },
-  { id: 'competitors', label: '경쟁사 신호', icon: Building2 },
+  { id: 'competitors', label: '경쟁사', icon: Building2 },
   { id: 'wing', label: 'Wing 검증', icon: BarChart3 },
 ];
 
@@ -59,22 +59,17 @@ export function MarketIntelligencePage() {
       <header className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-5 py-4 lg:px-6 lg:py-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--primary)]">
-              시장 인텔리전스
-            </p>
-            <h1 className="mt-1.5 text-2xl font-bold tracking-tight text-[var(--text-primary)]">
-              글로벌 상품 선점 레이더
+            <h1 className="text-2xl font-bold tracking-tight text-[var(--text-primary)]">
+              시장 분석
             </h1>
             <p className="mt-1.5 max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">
-              중국에서 먼저 뜨는 문구·완구를 글로벌 반응과 한국 검색 수요로 검증해 국내 유행 전에
-              소싱합니다.
+              중국·글로벌·한국 데이터로 문구·완구 수요를 확인합니다.
             </p>
           </div>
 
           <div className="flex shrink-0 items-center gap-2.5">
             <span className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] px-3 py-2">
               <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-60" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-green-600" />
               </span>
               <span className="text-xs text-[var(--text-secondary)]">
@@ -114,7 +109,7 @@ export function MarketIntelligencePage() {
 
       <nav
         role="tablist"
-        aria-label="시장 인텔리전스 보기"
+        aria-label="시장 분석 보기"
         className="flex flex-wrap gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-1.5"
       >
         {tabs.map((tab, index) => {
@@ -166,11 +161,10 @@ export function MarketIntelligencePage() {
               <Database size={17} className="mt-0.5 shrink-0 text-[var(--primary)]" />
               <div>
                 <p className="text-sm font-semibold text-[var(--text-primary)]">
-                  Wing 시장검증 — 실제 판매 반응으로 후보를 확인
+                  Wing 시장검증 — 실제 판매 데이터로 후보 확인
                 </p>
                 <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">
-                  검색한 상품의 28일 판매·조회·가격·리뷰를 확인해 트렌드 레이더의 후보를 시장
-                  반응으로 검증하세요.
+                  검색한 상품의 28일 판매·조회·가격·리뷰로 후보를 검증하세요.
                 </p>
               </div>
             </div>

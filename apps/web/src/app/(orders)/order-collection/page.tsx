@@ -58,7 +58,7 @@ import {
   type OrderCollectionMallAccount,
   type UpdateOrderCollectionMallAccountInput,
 } from './lib/order-mall-account-api';
-import { uploadTrackingForMall } from './lib/order-tracking-actions';
+import { runSellpiaPostProcess, uploadTrackingForMall } from './lib/order-tracking-actions';
 
 const COLLECT_ALL_CONCURRENCY = 4;
 
@@ -79,6 +79,7 @@ export default function OrderCollectionPage() {
   const [mallPasswordVisible, setMallPasswordVisible] = useState(false);
   const [sellpiaSendingId, setSellpiaSendingId] = useState<string | null>(null);
   const [bulkAction, setBulkAction] = useState<GeneratedFilesBulkAction>(null);
+  const [sellpiaPostProcessing, setSellpiaPostProcessing] = useState(false);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
 
   const mallAccountsQuery = useQuery({
@@ -504,6 +505,18 @@ export default function OrderCollectionPage() {
     }
   };
 
+  const handleSellpiaPostProcess = async () => {
+    if (sellpiaPostProcessing) return;
+    setSellpiaPostProcessing(true);
+    try {
+      await runSellpiaPostProcess({
+        logError: (title, message) => logActivity('error', title, message),
+      });
+    } finally {
+      setSellpiaPostProcessing(false);
+    }
+  };
+
   const handleDownloadSelected = async (items: ConversionHistoryItem[]) => {
     if (items.length === 0) return;
     const releaseAction = generatedFileActionLock.acquire();
@@ -672,7 +685,6 @@ export default function OrderCollectionPage() {
         onUploadTracking={(account) =>
           void uploadTrackingForMall({
             account,
-            history,
             logError: (title, message) => logActivity('error', title, message),
           })
         }
@@ -690,11 +702,13 @@ export default function OrderCollectionPage() {
         items={history}
         bulkAction={bulkAction}
         sellpiaSendingId={sellpiaSendingId}
+        sellpiaPostProcessing={sellpiaPostProcessing}
         onDelete={(item) => void handleDeleteGeneratedFile(item)}
         onDeleteSelected={(items) => void handleDeleteSelected(items)}
         onDownload={downloadOrderCollectionFile}
         onDownloadSelected={(items) => void handleDownloadSelected(items)}
         onPreview={setPreviewId}
+        onSellpiaPostProcess={() => void handleSellpiaPostProcess()}
         onSendToSellpia={(item) => void handleSendToSellpia(item)}
         onSendSelectedToSellpia={(items) => void handleSendSelectedToSellpia(items)}
       />

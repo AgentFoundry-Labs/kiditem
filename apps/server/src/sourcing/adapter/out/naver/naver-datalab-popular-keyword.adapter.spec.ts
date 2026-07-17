@@ -1,10 +1,38 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ServiceUnavailableException } from '@nestjs/common';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NaverDatalabPopularKeywordAdapter } from './naver-datalab-popular-keyword.adapter';
 
 const ORIGINAL_FETCH = globalThis.fetch;
 const ORIGINAL_ENV = { ...process.env };
 
+function shoppingInsightResponse(
+  entries: Array<{ keyword: string; ratios: number[] }>,
+  startDate = '2026-04-20',
+  endDate = '2026-05-20',
+): Response {
+  return new Response(JSON.stringify({
+    startDate,
+    endDate,
+    timeUnit: 'date',
+    results: entries.map(({ keyword, ratios }) => ({
+      title: keyword,
+      keyword: [keyword],
+      data: ratios.map((ratio, index) => ({
+        period: `2026-05-${String(index + 18).padStart(2, '0')}`,
+        ratio,
+      })),
+    })),
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+}
+
 describe('NaverDatalabPopularKeywordAdapter', () => {
+  beforeEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+    process.env.NAVER_API_HUB_CLIENT_ID = 'client-id';
+    process.env.NAVER_API_HUB_CLIENT_SECRET = 'client-secret';
+    process.env.NAVER_API_HUB_BASE_URL = 'https://api-hub.test';
+  });
+
   afterEach(() => {
     globalThis.fetch = ORIGINAL_FETCH;
     process.env = { ...ORIGINAL_ENV };
@@ -12,168 +40,169 @@ describe('NaverDatalabPopularKeywordAdapter', () => {
     vi.restoreAllMocks();
   });
 
-  it('calls DataLab shopping keyword rank with demographic filters', async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      message: null,
-      statusCode: 200,
-      returnCode: 0,
-      date: '',
-      datetime: '',
-      range: '2026.04.20. ~ 2026.05.20.',
-      ranks: [
-        { rank: 1, keyword: '포켓몬카드', linkId: '포켓몬카드' },
-        { rank: 2, keyword: '레고', linkId: '레고' },
-      ],
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+  it('ranks supplied candidates by summed official Shopping Insight click ratios', async () => {
+    const fetchMock = vi.fn(async () => shoppingInsightResponse([
+      { keyword: '포켓몬카드', ratios: [50, 100] },
+      { keyword: '레고', ratios: [20, 30] },
+    ]));
     globalThis.fetch = fetchMock as typeof fetch;
-    process.env.NAVER_DATALAB_WEB_BASE_URL = 'https://datalab.test';
 
     const adapter = new NaverDatalabPopularKeywordAdapter();
     const result = await adapter.searchPopularKeywords({
       boardKeys: ['toys_dolls'],
+      keywords: [' 포켓몬카드 ', '레고', '레고'],
       timeUnit: 'date',
       startDate: '2026-04-20',
       endDate: '2026-05-20',
       gender: 'f',
       ages: ['30'],
       device: 'mo',
-      limit: 20,
+      limit: 5,
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
-    expect(String(url)).toBe('https://datalab.test/shoppingInsight/getCategoryKeywordRank.naver');
-    expect(String(init?.body)).toContain('cid=50000142');
-    expect(String(init?.body)).toContain('gender=f');
-    expect(String(init?.body)).toContain('age=30');
-    expect(String(init?.body)).toContain('device=mo');
+    expect(String(url)).toBe('https://api-hub.test/shopping/v1/category/keywords');
+    expect(init?.method).toBe('POST');
+    expect(init?.headers).toMatchObject({
+      'Content-Type': 'application/json',
+      'X-NCP-APIGW-API-KEY-ID': 'client-id',
+      'X-NCP-APIGW-API-KEY': 'client-secret',
+    });
+    expect(JSON.parse(String(init?.body))).toEqual({
+      startDate: '2026-04-20',
+      endDate: '2026-05-20',
+      timeUnit: 'date',
+      category: '50000142',
+      keyword: [
+        { name: '포켓몬카드', param: ['포켓몬카드'] },
+        { name: '레고', param: ['레고'] },
+      ],
+      device: 'mo',
+      gender: 'f',
+      ages: ['30'],
+    });
     expect(result.boards[0]).toMatchObject({
       key: 'toys_dolls',
       label: '완구/인형',
       cid: 50000142,
+      date: '2026-05-20',
       range: '2026.04.20. ~ 2026.05.20.',
       ranks: [
-        { rank: 1, keyword: '포켓몬카드', categories: ['완구/인형'] },
-        { rank: 2, keyword: '레고', categories: ['완구/인형'] },
+        { rank: 1, keyword: '포켓몬카드', linkId: null, categories: ['완구/인형'] },
+        { rank: 2, keyword: '레고', linkId: null, categories: ['완구/인형'] },
       ],
     });
   });
 
-  it('uses the lightweight unfiltered DataLab keyword rank endpoint for the default board', async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify([{
-      message: null,
-      statusCode: 200,
-      returnCode: 0,
-      date: '2026/05/09',
-      datetime: '2026.05.09.(토)',
-      range: '',
-      ranks: [
-        { rank: 1, keyword: '포켓몬카드', linkId: '포켓몬카드' },
-        { rank: 2, keyword: '레고', linkId: '레고' },
-      ],
-    }]), { status: 200, headers: { 'Content-Type': 'application/json' } }));
-    globalThis.fetch = fetchMock as typeof fetch;
-
-    const adapter = new NaverDatalabPopularKeywordAdapter();
-    const result = await adapter.searchPopularKeywords({
-      boardKeys: ['all_categories'],
-      timeUnit: 'date',
-      limit: 10,
+  it('uses a deterministic board candidate set capped at the official five-keyword limit', async () => {
+    const fetchMock = vi.fn(async (_url, init) => {
+      const request = JSON.parse(String(init?.body));
+      return shoppingInsightResponse(
+        request.keyword.map((entry: { name: string }, index: number) => ({
+          keyword: entry.name,
+          ratios: [index + 1],
+        })),
+      );
     });
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url] = fetchMock.mock.calls[0];
-    expect(String(url)).toContain('/shoppingInsight/getKeywordRank.naver?');
-    expect(String(url)).toContain('cid=50000005');
-    expect(result.boards[0]).toMatchObject({
-      key: 'all_categories',
-      label: '필터 없음 TOP',
-      cid: 50000005,
-      ranks: [
-        { rank: 1, keyword: '포켓몬카드', categories: ['필터 없음 TOP'] },
-        { rank: 2, keyword: '레고', categories: ['필터 없음 TOP'] },
-      ],
-    });
-  });
-
-  it.each([
-    // 'date'(일간)는 최근 단일일이 네이버 집계 지연으로 비어, 최근 7일 범위로 조회한다.
-    ['date', 'startDate=2026-05-15', 'endDate=2026-05-21', '2026.05.15. ~ 2026.05.21.'],
-    ['week', 'startDate=2026-05-15', 'endDate=2026-05-21', '2026.05.15. ~ 2026.05.21.'],
-    ['month', 'startDate=2026-04-21', 'endDate=2026-05-21', '2026.04.21. ~ 2026.05.21.'],
-  ] as const)('uses the expected default %s range for category keyword ranks', async (timeUnit, startParam, endParam, displayRange) => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-05-22T03:00:00.000Z'));
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      message: null,
-      statusCode: 200,
-      returnCode: 0,
-      ranks: [
-        { rank: 1, keyword: '포켓몬카드', linkId: '포켓몬카드' },
-      ],
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     globalThis.fetch = fetchMock as typeof fetch;
 
     const adapter = new NaverDatalabPopularKeywordAdapter();
     const result = await adapter.searchPopularKeywords({
       boardKeys: ['toys_dolls'],
-      timeUnit,
-      limit: 10,
+      startDate: '2026-04-20',
+      endDate: '2026-05-20',
     });
 
-    const [, init] = fetchMock.mock.calls[0];
-    expect(String(init?.body)).toContain(startParam);
-    expect(String(init?.body)).toContain(endParam);
-    expect(result.startDate).toBe(startParam.replace('startDate=', ''));
-    expect(result.endDate).toBe(endParam.replace('endDate=', ''));
+    const request = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(request.keyword).toEqual([
+      { name: '레고', param: ['레고'] },
+      { name: '포켓몬카드', param: ['포켓몬카드'] },
+      { name: '캐릭터인형', param: ['캐릭터인형'] },
+      { name: '역할놀이', param: ['역할놀이'] },
+      { name: '유아블록', param: ['유아블록'] },
+    ]);
+    expect(result.boards[0].ranks).toHaveLength(5);
+    expect(result.boards[0].ranks[0].keyword).toBe('유아블록');
+  });
+
+  it.each([
+    ['date', '2026-05-15', '2026-05-21', '2026.05.15. ~ 2026.05.21.'],
+    ['week', '2026-05-15', '2026-05-21', '2026.05.15. ~ 2026.05.21.'],
+    ['month', '2026-04-21', '2026-05-21', '2026.04.21. ~ 2026.05.21.'],
+  ] as const)('uses the expected default %s range for Shopping Insight', async (
+    timeUnit,
+    startDate,
+    endDate,
+    displayRange,
+  ) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-22T03:00:00.000Z'));
+    const fetchMock = vi.fn(async () => shoppingInsightResponse([{ keyword: '레고', ratios: [100] }]));
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const adapter = new NaverDatalabPopularKeywordAdapter();
+    const result = await adapter.searchPopularKeywords({
+      boardKeys: ['toys_dolls'],
+      keywords: ['레고'],
+      timeUnit,
+    });
+
+    const request = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(request).toMatchObject({ startDate, endDate, timeUnit });
+    expect(result.startDate).toBe(startDate);
+    expect(result.endDate).toBe(endDate);
     expect(result.boards[0].range).toBe(displayRange);
   });
 
-  it('returns partial boards when a DataLab board is rate limited', async () => {
+  it('returns partial boards when an official Shopping Insight request is rate limited', async () => {
     const fetchMock = vi.fn(async (_url, init) => {
-      if (init?.method === 'POST') {
-        return new Response('too many requests', { status: 429 });
+      const request = JSON.parse(String(init?.body));
+      if (request.category === '50000142') {
+        return new Response(JSON.stringify({ errMsg: 'Too Many Requests' }), { status: 429 });
       }
-      return new Response(JSON.stringify([{
-        message: null,
-        statusCode: 200,
-        returnCode: 0,
-        ranks: [{ rank: 1, keyword: '포켓몬카드', linkId: '포켓몬카드' }],
-      }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      return shoppingInsightResponse([{ keyword: '레고', ratios: [100] }]);
     });
     globalThis.fetch = fetchMock as typeof fetch;
 
     const adapter = new NaverDatalabPopularKeywordAdapter();
     const result = await adapter.searchPopularKeywords({
       boardKeys: ['all_categories', 'toys_dolls'],
+      keywords: ['레고'],
       startDate: '2026-04-20',
       endDate: '2026-05-20',
-      limit: 10,
     });
 
     expect(result.boards).toHaveLength(2);
     expect(result.boards[0].ranks).toHaveLength(1);
-    expect(result.boards[1]).toMatchObject({
-      key: 'toys_dolls',
-      ranks: [],
-    });
+    expect(result.boards[1]).toMatchObject({ key: 'toys_dolls', ranks: [] });
     expect(result.boards[1].error).toContain('429');
   });
 
-  it('keeps non-json DataLab responses isolated to the failed board', async () => {
+  it('keeps non-json Shopping Insight responses isolated to the failed board', async () => {
     globalThis.fetch = vi.fn(async () => new Response('<html>blocked</html>', { status: 200 })) as typeof fetch;
     const adapter = new NaverDatalabPopularKeywordAdapter();
 
     const result = await adapter.searchPopularKeywords({
       boardKeys: ['toys_dolls'],
+      keywords: ['레고'],
       startDate: '2026-04-20',
       endDate: '2026-05-20',
     });
 
-    expect(result.boards[0]).toMatchObject({
-      key: 'toys_dolls',
-      ranks: [],
-    });
+    expect(result.boards[0]).toMatchObject({ key: 'toys_dolls', ranks: [] });
     expect(result.boards[0].error).toContain('JSON이 아닌 응답');
+  });
+
+  it('requires API HUB credentials and never falls back to legacy DataLab env', async () => {
+    delete process.env.NAVER_API_HUB_CLIENT_ID;
+    delete process.env.NAVER_API_HUB_CLIENT_SECRET;
+    process.env.NAVER_DATALAB_CLIENT_ID = 'legacy-client-id';
+    process.env.NAVER_DATALAB_CLIENT_SECRET = 'legacy-client-secret';
+    const adapter = new NaverDatalabPopularKeywordAdapter();
+
+    await expect(adapter.searchPopularKeywords({ boardKeys: ['toys_dolls'] })).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
   });
 });

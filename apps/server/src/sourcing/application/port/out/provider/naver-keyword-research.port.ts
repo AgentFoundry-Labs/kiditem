@@ -110,6 +110,8 @@ export interface NaverDatalabTrendPort {
 
 export interface SearchNaverDatalabPopularKeywordsInput {
   boardKeys?: NaverDatalabPopularKeywordBoardKey[];
+  /** API HUB Shopping Insight에서 보드별로 비교할 후보. 미지정 시 보드의 결정론적 후보를 사용한다. */
+  keywords?: string[];
   timeUnit?: NaverDatalabTimeUnit;
   startDate?: string;
   endDate?: string;

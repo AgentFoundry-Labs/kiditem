@@ -14,6 +14,7 @@ import {
 } from 'recharts';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { fetchWingTrackedHistory, type WingTrackedSnapshot } from '../../lib/wing-tracking-api';
+import { filterWindow } from '../lib/wing-tracking-score';
 
 type MetricKey =
   | 'salesLast28d'
@@ -32,7 +33,13 @@ const METRICS: Array<{ key: MetricKey; label: string; format: (value: number) =>
   { key: 'ratingCount', label: '리뷰수', format: (v) => `${formatNumber(v)}개` },
 ];
 
-export function WingTrackedHistoryChart({ trackedProductId }: { trackedProductId: string }) {
+export function WingTrackedHistoryChart({
+  trackedProductId,
+  windowDays,
+}: {
+  trackedProductId: string;
+  windowDays?: number;
+}) {
   const [metric, setMetric] = useState<MetricKey>('salesLast28d');
   const { data, isLoading } = useQuery({
     queryKey: ['wing-tracked-history', trackedProductId],
@@ -40,7 +47,10 @@ export function WingTrackedHistoryChart({ trackedProductId }: { trackedProductId
   });
 
   const config = METRICS.find((option) => option.key === metric) ?? METRICS[0];
-  const points = useMemo(() => buildPoints(data?.points ?? [], metric), [data, metric]);
+  const points = useMemo(() => {
+    const source = windowDays ? filterWindow(data?.points ?? [], windowDays) : data?.points ?? [];
+    return buildPoints(source, metric);
+  }, [data, metric, windowDays]);
 
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-sunken)] p-4">
@@ -97,6 +107,43 @@ export function WingTrackedHistoryChart({ trackedProductId }: { trackedProductId
         </ResponsiveContainer>
       )}
     </div>
+  );
+}
+
+/** 카드에 상시 노출하는 작은 추이 스파크라인(축·툴팁 없음). 이미 받아온 points 를 그대로 그린다. */
+export function TrendSparkline({
+  points,
+  windowDays,
+  metric = 'estimatedRevenue28d',
+}: {
+  points: WingTrackedSnapshot[];
+  windowDays: number;
+  metric?: MetricKey;
+}) {
+  const data = useMemo(
+    () =>
+      filterWindow(points, windowDays)
+        .map((snapshot) => ({ v: snapshot[metric] }))
+        .filter((point): point is { v: number } => point.v != null),
+    [points, windowDays, metric],
+  );
+
+  if (data.length < 2) {
+    return (
+      <div className="flex h-full min-h-[56px] w-full items-center justify-center text-[11px] font-bold text-[var(--text-quaternary)]">
+        추이 데이터 부족
+      </div>
+    );
+  }
+
+  const rising = data[data.length - 1].v >= data[0].v;
+  const color = rising ? '#10b981' : '#f43f5e';
+  return (
+    <ResponsiveContainer width="100%" height={56}>
+      <LineChart data={data} margin={{ top: 6, right: 6, left: 6, bottom: 6 }}>
+        <Line type="monotone" dataKey="v" stroke={color} strokeWidth={2} dot={false} />
+      </LineChart>
+    </ResponsiveContainer>
   );
 }
 
