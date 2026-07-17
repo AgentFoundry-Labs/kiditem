@@ -19,6 +19,6 @@ import { SELLPIA_PRODUCT_DEPLETION_READ_PORT } from './sellpia-product-depletion
       useExisting: SellpiaProductSalesService,
     },
   ],
-  exports: [SELLPIA_PRODUCT_DEPLETION_READ_PORT],
+  exports: [SELLPIA_PRODUCT_DEPLETION_READ_PORT, SellpiaProductSalesService],
 })
 export class SellpiaProductSalesModule {}
