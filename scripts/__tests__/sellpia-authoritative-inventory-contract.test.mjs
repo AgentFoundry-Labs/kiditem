@@ -66,6 +66,7 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/channels/__tests__/channel-catalog-import.repository.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-catalog-publication.repository.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-product-matching.pg.integration.spec.ts",
+  "apps/server/src/channels/__tests__/channel-recipe-suggestion.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/rocket-po-catalog.repository.pg.integration.spec.ts",
   "apps/server/src/channels/__tests__/channel-sku-mapping.pg.integration.spec.ts",
   "apps/server/src/finance/services/__tests__/profit-loss.pg.integration.spec.ts",
