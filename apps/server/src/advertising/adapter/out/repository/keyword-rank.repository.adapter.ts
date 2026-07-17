@@ -140,6 +140,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
         listing: {
           select: {
             externalId: true,
+            channelName: true,
             displayName: true,
             category: true,
           },
@@ -154,8 +155,12 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
         byVendorItemId.set(vendorItemId, {
           vendorItemId,
           skuId: row.sellerSku ?? vendorItemId,
+          // 내 상품 표시명은 리스팅의 상품명(등록/노출상품명)을 우선한다.
+          // itemName 은 옵션값("1개","단품")이라 상품명으로 쓰면 안 된다.
           productName:
-            row.itemName ?? row.listing.displayName ?? row.listing.externalId,
+            row.listing.channelName ??
+            row.listing.displayName ??
+            row.listing.externalId,
           category: row.listing.category,
         });
       } else if (!previous.category && row.listing.category) {
