@@ -1,10 +1,12 @@
-import { RocketPurchasePreviewSection } from '@/app/(supply)/purchase-orders/components/RocketPurchasePreviewSection';
+'use client';
+
 import { RocketOrdersWorkspace } from './components/RocketOrdersWorkspace';
+import { RocketConfirmPanel } from './components/RocketConfirmPanel';
 
 export default function RocketOrdersPage() {
   return (
     <RocketOrdersWorkspace
-      decisionWorkspace={<RocketPurchasePreviewSection />}
+      decisionWorkspace={<RocketConfirmPanel onSaved={() => {}} />}
     />
   );
 }

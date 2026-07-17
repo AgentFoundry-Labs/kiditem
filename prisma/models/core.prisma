@@ -169,6 +169,7 @@ model Organization {
   shortsTrendDailySnapshots            ShortsTrendDailySnapshot[]
   liveCommerceBroadcastDailySnapshots  LiveCommerceBroadcastDailySnapshot[]
   liveCommerceProductDailySnapshots    LiveCommerceProductDailySnapshot[]
+  rocketPoReservations                 RocketPoReservation[]
 
   @@map("organizations")
 }

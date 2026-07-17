@@ -36,7 +36,9 @@ describe('Rocket purchase decision boundary', () => {
     ), 'utf8');
 
     expect(pageSource).toContain('RocketOrdersWorkspace');
-    expect(pageSource).toContain('decisionWorkspace={<RocketPurchasePreviewSection />');
+    // /rocket-orders 의 판단 슬롯은 orders 도메인 발주확정 패널(재고매칭·품절판정·엑셀생성)을 쓴다.
+    // supply 도메인 미리보기(RocketPurchasePreviewSection)는 /purchase-orders?tab=rocket 에 그대로 남는다.
+    expect(pageSource).toContain('decisionWorkspace={<RocketConfirmPanel');
     expect(pageSource).not.toContain('RocketPurchaseOrdersWorkspace');
     expect(pageSource).not.toContain('redirect(');
     expect(pageSource).not.toMatch(/useQuery|useState|listRocketPosFromExtension/);
