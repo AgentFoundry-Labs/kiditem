@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { KeywordRankRepositoryPort } from "../../port/out/repository/keyword-rank.repository.port";
+import type { SellpiaAbcGradePort } from "../../port/out/cross-domain/sellpia-abc-grade.port";
 import {
   buildMockKeywordRankRepo,
   type MockKeywordRankRepo,
@@ -36,12 +37,17 @@ const snapshot = (
 
 describe("KeywordRankService Wing sales rank overview", () => {
   let repo: MockKeywordRankRepo;
+  let sellpiaAbcGrade: SellpiaAbcGradePort;
   let service: KeywordRankService;
 
   beforeEach(() => {
     repo = buildMockKeywordRankRepo();
+    sellpiaAbcGrade = {
+      getAbcGradeByCode: vi.fn().mockResolvedValue(new Map()),
+    };
     service = new KeywordRankService(
       repo as unknown as KeywordRankRepositoryPort,
+      sellpiaAbcGrade,
     );
     repo.listTrackers.mockResolvedValue([]);
     repo.listRepresentativeKeywordOverrides.mockResolvedValue([]);

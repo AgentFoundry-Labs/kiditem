@@ -22,6 +22,19 @@ describe('buildAdTargetKey', () => {
       ).toBe('campaign:Brand Camp');
     });
 
+    it('uses canonical campaignIdentity before a non-unique display name', () => {
+      expect(
+        buildAdTargetKey({
+          targetType: 'campaign',
+          campaignIdentity:
+            'href:https://advertising.coupang.com/campaign/identity-a',
+          campaignName: '같은 이름',
+        }),
+      ).toBe(
+        'campaign:href:https://advertising.coupang.com/campaign/identity-a',
+      );
+    });
+
     it('throws when both campaignId and campaignName are missing', () => {
       expect(() =>
         buildAdTargetKey({ targetType: 'campaign' }),
@@ -84,7 +97,7 @@ describe('buildAdTargetKey', () => {
   });
 
   describe('product', () => {
-    it('uses vendorItemId/externalOptionId when present', () => {
+    it('qualifies vendorItemId/externalOptionId with campaignId when present', () => {
       expect(
         buildAdTargetKey({
           targetType: 'product',
@@ -92,24 +105,62 @@ describe('buildAdTargetKey', () => {
           externalId: 'EXT-1',
           campaignId: 'CAMP-1',
         }),
-      ).toBe('product:VENDOR-1');
+      ).toBe('product:CAMP-1:VENDOR-1');
     });
 
-    it('falls back to externalId, then listingId', () => {
+    it('qualifies product fallbacks with campaignName when campaignId is missing', () => {
       expect(
         buildAdTargetKey({
           targetType: 'product',
           externalId: 'EXT-1',
           campaignName: 'Brand Camp',
         }),
-      ).toBe('product:EXT-1');
+      ).toBe('product:Brand Camp:EXT-1');
       expect(
         buildAdTargetKey({
           targetType: 'product',
           listingId: 'LISTING-1',
           campaignName: 'Brand Camp',
         }),
+      ).toBe('product:Brand Camp:LISTING-1');
+    });
+
+    it('retains the stable product-only fallback without campaign identity', () => {
+      expect(
+        buildAdTargetKey({
+          targetType: 'product',
+          externalOptionId: 'VENDOR-1',
+          externalId: 'EXT-1',
+        }),
+      ).toBe('product:VENDOR-1');
+      expect(
+        buildAdTargetKey({
+          targetType: 'product',
+          externalId: 'EXT-1',
+        }),
+      ).toBe('product:EXT-1');
+      expect(
+        buildAdTargetKey({
+          targetType: 'product',
+          listingId: 'LISTING-1',
+        }),
       ).toBe('product:LISTING-1');
+    });
+
+    it('keeps same-name products distinct by canonical campaignIdentity', () => {
+      const first = buildAdTargetKey({
+        targetType: 'product',
+        campaignIdentity: 'href:https://example.test/campaign/a',
+        campaignName: '같은 이름',
+        externalOptionId: 'VENDOR-1',
+      });
+      const second = buildAdTargetKey({
+        targetType: 'product',
+        campaignIdentity: 'href:https://example.test/campaign/b',
+        campaignName: '같은 이름',
+        externalOptionId: 'VENDOR-1',
+      });
+      expect(first).not.toBe(second);
     });
 
     it('throws when both product anchors missing', () => {
@@ -144,6 +195,22 @@ describe('buildAdTargetKey', () => {
         targetType: 'campaign',
         campaignId: 'CAMP-B',
       });
+      expect(a).not.toBe(b);
+    });
+
+    it('keeps the same product distinct across campaigns', () => {
+      const a = buildAdTargetKey({
+        targetType: 'product',
+        campaignId: 'CAMP-A',
+        externalOptionId: 'VENDOR-1',
+      });
+      const b = buildAdTargetKey({
+        targetType: 'product',
+        campaignId: 'CAMP-B',
+        externalOptionId: 'VENDOR-1',
+      });
+      expect(a).toBe('product:CAMP-A:VENDOR-1');
+      expect(b).toBe('product:CAMP-B:VENDOR-1');
       expect(a).not.toBe(b);
     });
 

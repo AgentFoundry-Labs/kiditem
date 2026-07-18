@@ -49,6 +49,27 @@ export interface UpsertAdTargetDailyInput extends AdTargetDailyMetrics {
   metaJson?: MetaJsonInput;
 }
 
+/**
+ * One complete, single-day campaign report. The repository treats `targets`
+ * as the authoritative set for this campaign/date and removes prior targets
+ * that are absent from the replacement set in the same transaction.
+ */
+export interface ReplaceAdCampaignDayInput {
+  organizationId: string;
+  channel: string;
+  businessDate: Date;
+  campaignId?: string | null;
+  /** Stable provider identity (for example canonical `href:...`) when the
+   * provider does not expose a campaign id. It scopes replacement without
+   * overloading the persisted `campaignId` column. */
+  campaignIdentity?: string | null;
+  campaignName: string;
+  targets: UpsertAdTargetDailyInput[];
+}
+
 export interface ChannelTargetDailyRepositoryPort {
   upsert(input: UpsertAdTargetDailyInput): Promise<{ id: string }>;
+  replaceCampaignDay(
+    input: ReplaceAdCampaignDayInput,
+  ): Promise<{ upsertedCount: number; deletedCount: number }>;
 }

@@ -175,6 +175,7 @@ export type MockChannelTargetDailyRepo = {
 export function buildMockChannelTargetDailyRepo(): MockChannelTargetDailyRepo {
   return {
     upsert: vi.fn(),
+    replaceCampaignDay: vi.fn(),
   };
 }
 

@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsIn,
   IsNumber,
   IsObject,
   IsOptional,
@@ -30,6 +31,28 @@ export class ExtensionSyncDto {
   @IsOptional()
   @IsString()
   campaignName?: string;
+
+  /**
+   * `ad_campaign` projection contract.
+   *
+   * Dashboard date collection contains rows from many campaigns and is raw
+   * audit evidence only; the exact account/day total is written separately by
+   * `coupang_ads_daily`. Only the per-campaign sweep may replace campaign/day
+   * target facts.
+   */
+  @IsOptional()
+  @IsIn(['single_campaign_authoritative', 'multi_campaign_raw'])
+  campaignReportScope?:
+    | 'single_campaign_authoritative'
+    | 'multi_campaign_raw';
+
+  @IsOptional()
+  @IsString()
+  dashboardOnOff?: string;
+
+  @IsOptional()
+  @IsString()
+  dashboardStatus?: string;
 
   // Wing 익스텐션은 숫자(일수), 광고센터 익스텐션은 "7d"/"14d" 문자열을 보냄
   @IsOptional()
