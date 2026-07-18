@@ -3,6 +3,11 @@ import { recordRocketReadModelRelease } from "./v0.1.6/001_record_rocket_read_mo
 import { recordSellpiaRocketInventorySyncRelease } from "./v0.1.7/001_record_sellpia_rocket_inventory_sync_release";
 import { migrateRepresentativeKeywordOverrides } from "./v0.1.18/001_migrate_representative_keyword_overrides";
 import { sellpiaInventoryFreshnessMigration } from "./v0.1.19/001_sellpia_inventory_freshness";
+import { repairAdCampaignDailyBusinessDates } from "./v0.1.21/001_repair_ad_campaign_daily_business_dates";
+import { repairCoupangAdsDailyConversions } from "./v0.1.21/002_repair_coupang_ads_daily_conversions";
+import { repairAdCampaignTargetConversions } from "./v0.1.21/003_repair_ad_campaign_target_conversions";
+import { rekeyAdCampaignProductTargets } from "./v0.1.21/004_rekey_ad_campaign_product_targets";
+import { removeAmbiguousAdCampaignAccountKpis } from "./v0.1.21/005_remove_ambiguous_ad_campaign_account_kpis";
 import type { DataMigration } from "./types";
 
 export {
@@ -20,6 +25,11 @@ export const dataMigrations: readonly DataMigration[] = [
   recordSellpiaRocketInventorySyncRelease,
   migrateRepresentativeKeywordOverrides,
   sellpiaInventoryFreshnessMigration,
+  repairAdCampaignDailyBusinessDates,
+  repairCoupangAdsDailyConversions,
+  repairAdCampaignTargetConversions,
+  rekeyAdCampaignProductTargets,
+  removeAmbiguousAdCampaignAccountKpis,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(

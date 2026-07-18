@@ -30,6 +30,11 @@ describe("data migration registry", () => {
       "v0.1.7:001_record_sellpia_rocket_inventory_sync_release",
       "v0.1.18:001_migrate_representative_keyword_overrides",
       "v0.1.19:001_sellpia_inventory_freshness",
+      "v0.1.21:001_repair_ad_campaign_daily_business_dates",
+      "v0.1.21:002_repair_coupang_ads_daily_conversions",
+      "v0.1.21:003_repair_ad_campaign_target_conversions",
+      "v0.1.21:004_rekey_ad_campaign_product_targets",
+      "v0.1.21:005_remove_ambiguous_ad_campaign_account_kpis",
     ]);
     expect(
       DATA_MIGRATION_IDS.slice(0, -1).some((id) =>
@@ -38,17 +43,17 @@ describe("data migration registry", () => {
     ).toBe(false);
   });
 
-  it("keeps the 0.1.19 freshness migration registered for the 0.1.20 schema-only release", () => {
+  it("registers the ad campaign repair for the current 0.1.21 release", () => {
     const rootVersion = normalizeReleaseVersion(
       readFileSync(join(repoRoot, "VERSION"), "utf8"),
     );
-    expect(rootVersion).toBe("0.1.20");
+    expect(rootVersion).toBe("0.1.21");
     expect(
       dataMigrations.map((migration) => migration.releaseVersion),
     ).toContain("0.1.19");
-    expect(
-      dataMigrations.map((migration) => migration.releaseVersion),
-    ).not.toContain(rootVersion);
+    expect(dataMigrations.map((migration) => migration.releaseVersion)).toContain(
+      rootVersion,
+    );
     for (const migration of dataMigrations) {
       expect(migration.id.startsWith(`v${migration.releaseVersion}:`)).toBe(
         true,
