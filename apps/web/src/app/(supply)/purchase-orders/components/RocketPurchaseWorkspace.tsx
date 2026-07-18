@@ -222,7 +222,6 @@ export function RocketPurchaseWorkspace({
       {preview?.catalog ? (
         <RocketDeterministicMatchingPanel
           channelAccountId={channelAccountId}
-          onApplied={revalidateEditedQuantities}
         />
       ) : null}
 
