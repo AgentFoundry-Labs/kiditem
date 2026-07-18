@@ -9,6 +9,7 @@ import {
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
+  TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 import { upsertChannelCatalogIdentities } from '../adapter/out/repository/channel-catalog-identity-upsert';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
@@ -33,13 +34,13 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     await prisma.$connect();
     const prismaService = prisma as unknown as PrismaService;
     repository = new ChannelProductMatchingRepositoryAdapter(prismaService);
-    service = new ChannelProductMatchingService(repository);
     availabilityService = new ChannelSkuAvailabilityService(
       repository,
       new InventoryCommitmentService(
         new InventoryCommitmentRepositoryAdapter(prismaService),
       ),
     );
+    service = new ChannelProductMatchingService(repository, availabilityService);
   });
 
   afterAll(async () => {
@@ -228,7 +229,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         code: 'SP-ACTIVE',
         name: 'Active',
-        currentStock: 8,
+        currentStock: 10,
       },
     });
     const inactiveSku = await prisma.sellpiaInventorySku.create({
@@ -240,7 +241,25 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         isActive: false,
       },
     });
-    const configured = await createProduct('KI-CONFIGURED', 'Configured', activeSku.id, 3);
+    const configured = await createProduct('KI-CONFIGURED', 'Configured', activeSku.id, 2);
+    await prisma.inventoryCommitment.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        kind: 'rocket_request',
+        sourceId: randomUUID(),
+        businessKey: `matching-capacity:${randomUUID()}`,
+        unitQuantity: 4,
+        status: 'active',
+        createdBy: TEST_USER_ID,
+        allocations: {
+          create: {
+            sellpiaInventorySkuId: activeSku.id,
+            unitsPerItem: 1,
+            quantity: 4,
+          },
+        },
+      },
+    });
     const review = await createProduct('KI-REVIEW', 'Review');
     await prisma.productVariantComponent.create({
       data: {
@@ -283,7 +302,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     ]));
     expect(byExternalId.get('O-MATCHED')).toMatchObject({
       recipeStatus: 'matched',
-      capacity: 2,
+      capacity: 3,
     });
     expect(byExternalId.get('O-REVIEW')).toMatchObject({
       recipeStatus: 'review_required',

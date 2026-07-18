@@ -17,19 +17,63 @@ import {
   type ChannelProductMatchingQuery,
   type ChannelProductMatchingRepositoryPort,
 } from '../port/out/repository/channel-product-matching.repository.port';
+import {
+  CHANNEL_SKU_AVAILABILITY_PORT,
+  type ChannelSkuAvailabilityPort,
+} from '../port/in/channel-sku-availability.port';
 
 @Injectable()
 export class ChannelProductMatchingService {
   constructor(
     @Inject(CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT)
     private readonly repository: ChannelProductMatchingRepositoryPort,
+    @Inject(CHANNEL_SKU_AVAILABILITY_PORT)
+    private readonly channelAvailability: ChannelSkuAvailabilityPort,
   ) {}
 
-  list(organizationId: string, query: ChannelProductMatchingQuery = {}) {
-    return this.repository.listQueue(organizationId, {
+  async list(organizationId: string, query: ChannelProductMatchingQuery = {}) {
+    const queue = await this.repository.listQueue(organizationId, {
       channelAccountId: query.channelAccountId,
       search: query.search?.trim() || undefined,
     });
+    const linkedOptionIds = queue.options
+      .filter((row) => row.option.productVariantId !== null)
+      .map((row) => row.option.id);
+    const availability = await this.channelAvailability.findByChannelSkuIds(
+      organizationId,
+      linkedOptionIds,
+    );
+    const byOptionId = new Map(availability.map((item) => [item.sku.id, item]));
+    const options = queue.options.map((row) => {
+      const item = byOptionId.get(row.option.id);
+      if (!item) return row;
+      return {
+        ...row,
+        recipeStatus: item.recipeStatus,
+        capacity: item.recipeStatus === 'matched' ? item.sku.sellableStock : null,
+      };
+    });
+    return {
+      products: queue.products,
+      options,
+      counts: {
+        products: {
+          all: queue.products.length,
+          linked: queue.products.filter((row) => row.listing.masterProductId !== null).length,
+          unlinked: queue.products.filter((row) => row.listing.masterProductId === null).length,
+        },
+        options: {
+          all: options.length,
+          linked: options.filter((row) => row.option.productVariantId !== null).length,
+          unlinked: options.filter((row) => row.option.productVariantId === null).length,
+          recipeConfirmed: options.filter((row) => row.recipeStatus === 'matched').length,
+          configurationRequired: options.filter(
+            (row) => row.recipeStatus === 'configuration_required',
+          ).length,
+          reviewRequired: options.filter((row) => row.recipeStatus === 'review_required').length,
+        },
+      },
+    };
   }
 
   async productCandidates(
