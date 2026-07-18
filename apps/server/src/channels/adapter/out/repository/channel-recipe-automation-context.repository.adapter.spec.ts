@@ -8,9 +8,9 @@ describe('ChannelRecipeAutomationContextRepositoryAdapter', () => {
   it('loads selected account options and all shared-variant evidence in two batched reads', async () => {
     const findMany = vi.fn()
       .mockResolvedValueOnce([
-        { id: 'selected-b', productVariantId: 'variant-1' },
-        { id: 'selected-a', productVariantId: 'variant-1' },
-        { id: 'selected-c', productVariantId: 'variant-2' },
+        selectedOptionRow({ id: 'selected-b', listingId: 'listing-1', masterProductId: 'product-1', productVariantId: null }),
+        selectedOptionRow({ id: 'selected-a', listingId: 'listing-1', masterProductId: 'product-1', productVariantId: 'variant-1' }),
+        selectedOptionRow({ id: 'selected-c', listingId: 'listing-2', masterProductId: 'product-2', productVariantId: 'variant-2' }),
       ])
       .mockResolvedValueOnce([
         optionRow({ id: 'selected-a', productVariantId: 'variant-1', masterProductId: 'product-1' }),
@@ -21,14 +21,13 @@ describe('ChannelRecipeAutomationContextRepositoryAdapter', () => {
       channelListingOption: { findMany },
     } as never);
 
-    const contexts = await repository.listContexts(organizationId, channelAccountId);
+    const accountContext = await repository.listContexts(organizationId, channelAccountId);
 
     expect(findMany).toHaveBeenCalledTimes(2);
     expect(findMany.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
       where: expect.objectContaining({
         organizationId,
         isActive: true,
-        productVariantId: { not: null },
         listing: { is: expect.objectContaining({ channelAccountId, organizationId, isActive: true }) },
       }),
     }));
@@ -39,33 +38,77 @@ describe('ChannelRecipeAutomationContextRepositoryAdapter', () => {
         productVariantId: { in: ['variant-1', 'variant-2'] },
       },
     }));
-    expect(contexts).toEqual([
-      expect.objectContaining({
-        productVariantId: 'variant-1',
-        selectedChannelListingOptionIds: ['selected-a', 'selected-b'],
-        allLinkedOptions: [
-          expect.objectContaining({ channelListingOptionId: 'selected-a', barcode: '001234567890' }),
-          expect.objectContaining({ channelListingOptionId: 'shared-foreign-account' }),
-        ],
-        existingComponents: [expect.objectContaining({ source: 'deterministic' })],
-      }),
-      expect.objectContaining({
-        productVariantId: 'variant-2',
-        selectedChannelListingOptionIds: ['selected-c'],
-      }),
-    ]);
+    expect(accountContext).toEqual({
+      products: [
+        {
+          channelListingId: 'listing-1',
+          masterProductId: 'product-1',
+          options: [
+            { channelListingOptionId: 'selected-a', productVariantId: 'variant-1' },
+            { channelListingOptionId: 'selected-b', productVariantId: null },
+          ],
+        },
+        {
+          channelListingId: 'listing-2',
+          masterProductId: 'product-2',
+          options: [
+            { channelListingOptionId: 'selected-c', productVariantId: 'variant-2' },
+          ],
+        },
+      ],
+      variants: [
+        expect.objectContaining({
+          productVariantId: 'variant-1',
+          selectedChannelListingOptionIds: ['selected-a'],
+          allLinkedOptions: [
+            expect.objectContaining({ channelListingOptionId: 'selected-a', barcode: '001234567890' }),
+            expect.objectContaining({ channelListingOptionId: 'shared-foreign-account' }),
+          ],
+          existingComponents: [expect.objectContaining({ source: 'deterministic' })],
+        }),
+        expect.objectContaining({
+          productVariantId: 'variant-2',
+          selectedChannelListingOptionIds: ['selected-c'],
+        }),
+      ],
+    });
   });
 
-  it('short-circuits when the scoped account has no linked variants', async () => {
-    const findMany = vi.fn().mockResolvedValue([]);
+  it('returns complete topology when the scoped account has no linked variants', async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      selectedOptionRow({ id: 'selected-a', listingId: 'listing-1', masterProductId: null, productVariantId: null }),
+    ]);
     const repository = new ChannelRecipeAutomationContextRepositoryAdapter({
       channelListingOption: { findMany },
     } as never);
 
-    await expect(repository.listContexts(organizationId, channelAccountId)).resolves.toEqual([]);
+    await expect(repository.listContexts(organizationId, channelAccountId)).resolves.toEqual({
+      products: [{
+        channelListingId: 'listing-1',
+        masterProductId: null,
+        options: [{ channelListingOptionId: 'selected-a', productVariantId: null }],
+      }],
+      variants: [],
+    });
     expect(findMany).toHaveBeenCalledOnce();
   });
 });
+
+function selectedOptionRow(input: {
+  id: string;
+  listingId: string;
+  masterProductId: string | null;
+  productVariantId: string | null;
+}) {
+  return {
+    id: input.id,
+    productVariantId: input.productVariantId,
+    listing: {
+      id: input.listingId,
+      masterProductId: input.masterProductId,
+    },
+  };
+}
 
 function optionRow(input: {
   id: string;
