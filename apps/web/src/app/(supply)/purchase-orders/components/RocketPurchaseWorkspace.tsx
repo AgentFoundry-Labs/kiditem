@@ -34,6 +34,16 @@ const PREVIEW_REASON_LABELS: Record<RocketPurchasePreviewReason, string> = {
   vendor_mismatch: '채널 계정 불일치',
 };
 
+function previewReasonLabel(
+  reason: RocketPurchasePreviewReason,
+  hasConfiguredVendorId: boolean,
+): string {
+  if (reason === 'vendor_mismatch' && !hasConfiguredVendorId) {
+    return '공급사 ID 설정 필요';
+  }
+  return PREVIEW_REASON_LABELS[reason];
+}
+
 interface CollectionRunSummary {
   collection: RocketPoCollectionEvidence;
   poCount: number;
@@ -69,6 +79,7 @@ function collectionIsIncomplete(summary: CollectionRunSummary): boolean {
 function aggregateCollectionWarning(
   summary: CollectionRunSummary | null,
   preview: RocketPurchasePreviewResponse | null,
+  hasConfiguredVendorId: boolean,
 ): string | null {
   if (!summary) return null;
   const previewReasons = new Set(preview?.rows.map(({ reason }) => reason) ?? []);
@@ -76,6 +87,9 @@ function aggregateCollectionWarning(
     return '수집 범위가 불완전합니다. 누락된 PO를 확인한 뒤 다시 계산해 주세요. 공급사 식별 정보도 확인해 주세요.';
   }
   if (previewReasons.has('vendor_mismatch')) {
+    if (!hasConfiguredVendorId) {
+      return '선택한 로켓 채널 계정에 공급사 ID가 설정되지 않았습니다. 로켓 계정 설정을 확인해 주세요.';
+    }
     return '선택한 로켓 채널 계정과 수집한 PO의 공급사가 일치하지 않습니다.';
   }
   return null;
@@ -83,10 +97,12 @@ function aggregateCollectionWarning(
 
 export function RocketPurchaseWorkspace({
   channelAccountId,
+  hasConfiguredVendorId = true,
   from,
   to,
 }: {
   channelAccountId: string;
+  hasConfiguredVendorId?: boolean;
   /** 입고예정일 조회 범위. 로켓 발주 캘린더(RocketOrdersWorkspace)가 단일 소스다. */
   from: string;
   to: string;
@@ -184,7 +200,11 @@ export function RocketPurchaseWorkspace({
     }
   };
 
-  const collectionWarning = aggregateCollectionWarning(collectionRun, preview);
+  const collectionWarning = aggregateCollectionWarning(
+    collectionRun,
+    preview,
+    hasConfiguredVendorId,
+  );
   const reviewedQuantities = preview
     ? Object.fromEntries(preview.rows.map((row) => [
         row.poLineId,
@@ -416,14 +436,15 @@ export function RocketPurchaseWorkspace({
           <table className="w-full min-w-[1480px] table-fixed text-sm">
             <colgroup>
               <col className="w-[9%]" />
-              <col className="w-[20%]" />
+              <col className="w-[18%]" />
               <col className="w-[9%]" />
               <col className="w-[7%]" />
               <col className="w-[7%]" />
               <col className="w-[7%]" />
               <col className="w-[8%]" />
-              <col className="w-[17%]" />
-              <col className="w-[16%]" />
+              <col className="w-[10%]" />
+              <col className="w-[14%]" />
+              <col className="w-[11%]" />
             </colgroup>
             <thead className="bg-[var(--surface-sunken,#f8fafc)] text-left text-[var(--text-secondary,#475569)]">
               <tr>
@@ -505,7 +526,9 @@ export function RocketPurchaseWorkspace({
                     </select>
                   </td>
                   <td className="px-3 py-2">
-                    {row.reason ? PREVIEW_REASON_LABELS[row.reason] : '검토 가능'}
+                    {row.reason
+                      ? previewReasonLabel(row.reason, hasConfiguredVendorId)
+                      : '검토 가능'}
                   </td>
                 </tr>
               ))}

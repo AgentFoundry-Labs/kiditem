@@ -59,6 +59,7 @@ export function RocketPurchasePreviewSection({
           <RocketPurchaseWorkspace
             key={selectedAccount.id}
             channelAccountId={selectedAccount.id}
+            hasConfiguredVendorId={Boolean(selectedAccount.vendorId?.trim())}
             from={from}
             to={to}
           />

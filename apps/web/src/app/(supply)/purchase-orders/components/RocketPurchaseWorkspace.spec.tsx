@@ -635,6 +635,45 @@ describe('RocketPurchaseWorkspace', () => {
     },
   );
 
+  it('distinguishes a missing Rocket account vendor ID from an actual vendor mismatch', async () => {
+    vi.mocked(collectRocketPoRowsFromExtension).mockResolvedValue({
+      collection: {
+        collectionRunId: '22222222-2222-4222-8222-222222222222',
+        vendorId: 'VENDOR-1',
+        listPagesRead: 1,
+        totalListPages: 1,
+        truncated: false,
+        detailPoCount: 1,
+        failedPoNumbers: [],
+      },
+      rows: [lineA],
+      poCount: 1,
+    });
+    vi.mocked(previewRocketPurchases).mockResolvedValue({
+      collectionRunId: '22222222-2222-4222-8222-222222222222',
+      catalog: null,
+      inventoryGeneration: null,
+      rows: [{ ...previewRow(lineA, 0), reason: 'vendor_mismatch' }],
+    });
+    const user = userEvent.setup();
+    render(
+      <RocketPurchaseWorkspace
+        channelAccountId={ACCOUNT_ID}
+        hasConfiguredVendorId={false}
+        from={FROM}
+        to={TO}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '선택한 로켓 채널 계정에 공급사 ID가 설정되지 않았습니다.',
+    );
+    expect(screen.getByText('공급사 ID 설정 필요')).toBeInTheDocument();
+    expect(screen.queryByText('채널 계정 불일치')).not.toBeInTheDocument();
+  });
+
   it('renders every preview reason as Korean operator guidance', async () => {
     const reasonRows = [
       ['mapping_required', '상품 매칭 필요'],
@@ -682,6 +721,8 @@ describe('RocketPurchaseWorkspace', () => {
 
     await user.click(screen.getByRole('button', { name: '미리보기 다시 계산' }));
 
+    expect(screen.getAllByRole('columnheader')).toHaveLength(10);
+    expect(screen.getByRole('table').querySelectorAll('col')).toHaveLength(10);
     for (const [, message] of reasonRows) {
       expect(await screen.findByText(message)).toBeInTheDocument();
     }

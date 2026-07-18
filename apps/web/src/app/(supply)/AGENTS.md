@@ -68,9 +68,11 @@ logged-in order-collector extension
   reviewed every quantity/shortage reason.
 - Confirmation uses a browser-created UUID idempotency key and downloads the
   workbook only after the server persists the allocation. Persisted request/
-  final commitments remain visible after refresh. Provisional cancellation is
-  a release; final-order settlement requires a newer Sellpia snapshot proving
-  the movement, while final-order cancellation requires an explicit release
+  final commitments remain durable after refresh. The operator page hides
+  empty and completed history and renders only active commitments that still
+  need settlement or release. Provisional cancellation is a release;
+  final-order settlement requires a newer Sellpia snapshot proving the
+  movement, while final-order cancellation requires an explicit release
   reason.
 - Commitment and preview tables use scoped horizontal overflow, explicit
   minimum widths, truncated product names, and non-wrapping identifiers/actions.
