@@ -248,6 +248,7 @@ erDiagram
 | ChannelAccount | channelAccount | referenced by external | AI | ProductPreparation |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelAccountDailyKpiSnapshot |
 | ChannelAccount | channelAccount | referenced by external | Channels | ChannelScrapeRun |
+| ChannelAccount | channelAccount | referenced by external | Channels | RocketPoCatalogSnapshot |
 | ChannelAccount | channelAccount | referenced by external | Orders | Order |
 | ChannelAccount | channelAccount | referenced by external | Orders | OrderReturn |
 | ChannelAccount | channelAccount | referenced by external | Supply | RocketPurchaseConfirmation |
@@ -325,6 +326,8 @@ erDiagram
 | Organization | organization | referenced by external | Channels | CoupangWingSalesRankDailySnapshot |
 | Organization | organization | referenced by external | Channels | CoupangWingTrackedProduct |
 | Organization | organization | referenced by external | Channels | CoupangWingTrackedProductDailySnapshot |
+| Organization | organization | referenced by external | Channels | RocketPoCatalogLine |
+| Organization | organization | referenced by external | Channels | RocketPoCatalogSnapshot |
 | Organization | organization | referenced by external | Channels | RocketPurchaseOrder |
 | Organization | organization | referenced by external | Channels | RocketSupplyDailySnapshot |
 | Organization | organization | referenced by external | Channels | SellpiaProductMonthlySales |
@@ -386,6 +389,7 @@ erDiagram
 | SourceImportRun | lastCompletedImportRun | referenced by external | Inventory | SellpiaInventoryState |
 | SourceImportRun | lastImportRun | referenced by external | Inventory | SellpiaInventorySku |
 | SourceImportRun | sourceImportRun | referenced by external | Channels | ChannelScrapeRun |
+| SourceImportRun | sourceImportRun | referenced by external | Channels | RocketPoCatalogSnapshot |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | Order |
 | SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmation |
 | User | activeSyncOwner | referenced by external | Inventory | SellpiaInventoryState |
