@@ -10,6 +10,7 @@ import { ContentArchiveController } from './adapter/in/http/content-archive.cont
 import { ContentArchiveLinkageController } from './adapter/in/http/content-archive-linkage.controller';
 import { ContentAssetController } from './adapter/in/http/content-asset.controller';
 import { ContentGenerationRerunController } from './adapter/in/http/content-generation-rerun.controller';
+import { DetailPageCandidateImageController } from './adapter/in/http/detail-page-candidate-image.controller';
 import { DetailPageEditorController } from './adapter/in/http/detail-page-editor.controller';
 import { DetailPageGenerationController } from './adapter/in/http/detail-page-generation.controller';
 import { RenderImageController } from './adapter/in/http/render-image.controller';
@@ -39,6 +40,7 @@ import { ImageEditGeminiMediaAdapter } from './adapter/out/gemini/image-edit-gem
 import { ThumbnailImageGenerationAdapter } from './adapter/out/gemini/thumbnail-image-generation.adapter';
 import { ThumbnailReferenceImagesService } from './adapter/out/gemini/thumbnail-reference-images.adapter';
 import { ThumbnailImageFetcherService } from './adapter/out/image-fetch/thumbnail-image-fetcher.adapter';
+import { DetailPageTemplateStylesAdapter } from './adapter/out/runtime/detail-page-template-styles.adapter';
 import { ThumbnailGenerationEventAdapter } from './adapter/out/repository/thumbnail-generation-event.adapter';
 import { ContentArchiveRepositoryAdapter } from './adapter/out/repository/content-archive.repository.adapter';
 import { ContentAssetLibraryRepositoryAdapter } from './adapter/out/repository/content-asset-library.repository.adapter';
@@ -73,6 +75,7 @@ import { DetailPageDirectGenerationJobService } from './application/service/deta
 import { ContentAssetService } from './application/service/content-asset.service';
 import { DetailPageAiService } from './application/service/detail-page-ai.service';
 import { DetailPageGenerationService } from './application/service/detail-page-generation.service';
+import { DetailPageCandidateImageService } from './application/service/detail-page-candidate-image.service';
 import { DetailPageRasterizationService } from './application/service/detail-page-rasterization.service';
 import { DetailPagePrefillService } from './application/service/detail-page-prefill.service';
 import { DetailPageQueryService } from './application/service/detail-page-query.service';
@@ -109,6 +112,7 @@ import {
 } from './application/port/in/generation';
 import {
   AI_WORKSPACE_ARCHIVE_PORT,
+  CANDIDATE_CONTENT_ASSET_PORT,
   REGISTRATION_CONTENT_WORKSPACE_PORT,
 } from './application/port/in/workspace';
 
@@ -142,7 +146,10 @@ import {
   THUMBNAIL_TRACKING_REPOSITORY_PORT,
   THUMBNAIL_WING_REPOSITORY_PORT,
 } from './application/port/out/repository';
-import { WING_AUTOMATION_PORT } from './application/port/out/runtime';
+import {
+  DETAIL_PAGE_TEMPLATE_STYLES_PORT,
+  WING_AUTOMATION_PORT,
+} from './application/port/out/runtime';
 import {
   DETAIL_PAGE_DIRECT_OUTPUT_SINK_PORT,
   THUMBNAIL_DIRECT_OUTPUT_SINK_PORT,
@@ -156,6 +163,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     ContentArchiveLinkageController,
     ContentAssetController,
     ContentGenerationRerunController,
+    DetailPageCandidateImageController,
     DetailPageEditorController,
     DetailPageGenerationController,
     ImageAiController,
@@ -178,6 +186,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     AiGenerationCancellationService,
     ImageAssetOperationService,
     DetailPageAiService,
+    DetailPageCandidateImageService,
     DetailPageGenerationService,
     DetailPageRasterizationService,
     ContentArchiveService,
@@ -244,10 +253,15 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     ThumbnailGenerationEventAdapter,
     ThumbnailImageFetcherService,
     ThumbnailReferenceImagesService,
+    DetailPageTemplateStylesAdapter,
     WingAutomationRunner,
     AiOperationAlertAdapter,
 
     // port bindings
+    {
+      provide: DETAIL_PAGE_TEMPLATE_STYLES_PORT,
+      useExisting: DetailPageTemplateStylesAdapter,
+    },
     { provide: WING_AUTOMATION_PORT, useExisting: WingAutomationRunner },
     { provide: COUPANG_PRODUCT_SALES_SCRAPE_PORT, useExisting: CoupangProductSalesScrapeAdapter },
     {
@@ -346,12 +360,14 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
       provide: REGISTRATION_CONTENT_WORKSPACE_PORT,
       useExisting: RegistrationContentWorkspaceService,
     },
+    { provide: CANDIDATE_CONTENT_ASSET_PORT, useExisting: ContentAssetService },
   ],
   exports: [
     PRODUCT_GENERATION_AI_TRIGGER_PORT,
     AI_WORKSPACE_ARCHIVE_PORT,
     AI_GENERATION_CANCELLATION_PORT,
     REGISTRATION_CONTENT_WORKSPACE_PORT,
+    CANDIDATE_CONTENT_ASSET_PORT,
     CATALOG_MEDIA_PUBLICATION_PORT,
   ],
 })

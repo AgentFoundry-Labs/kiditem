@@ -49,6 +49,7 @@ const completeBasicInfo: ProductBasics = {
   rocketBundleQuantity: 0,
   rocketUnitCost: 0,
   thumbnailUrls: ['https://cdn.example.com/source.jpg'],
+  registrationImages: { primary: [], thumbnail: [], detail: [] },
   selectedThumbnailUrl: 'https://cdn.example.com/selected.jpg',
   selectedThumbnailGenerationId: null,
   selectedThumbnailGenerationCandidateId: null,

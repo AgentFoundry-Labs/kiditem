@@ -7,6 +7,7 @@ import {
   type ImageStoragePort,
 } from '../../../application/port/out/storage/image-storage.port';
 import type {
+  CandidateContentAssetRow,
   ContentAssetLibraryRepositoryPort,
   ContentAssetLibraryWriteScope,
   ContentAssetListRepositoryInput,
@@ -198,6 +199,28 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
       }),
     ]);
     return { total, rows };
+  }
+
+  async listCandidateAssets(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+  }): Promise<CandidateContentAssetRow[]> {
+    return this.prisma.contentAsset.findMany({
+      where: {
+        organizationId: input.organizationId,
+        isDeleted: false,
+        assetType: 'image',
+        originGenerationGroup: {
+          contentWorkspace: {
+            organizationId: input.organizationId,
+            sourceCandidateId: input.sourceCandidateId,
+            isDeleted: false,
+          },
+        },
+      },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      select: { role: true, url: true, sortOrder: true },
+    });
   }
 
   private async upsertGroupImageAssetsTx(

@@ -40,7 +40,9 @@ describe('SourcingService — candidate ingest', () => {
     repo = makeCandidateRepo();
     gateway = makeGateway();
     alerts = makeAlerts();
-    service = new SourcingService(repo as any, gateway as any, alerts as any);
+    service = new SourcingService(repo as any, gateway as any, alerts as any, {
+      listRegistrationImages: vi.fn().mockResolvedValue({ primary: [], thumbnail: [], detail: [] }),
+    } as any);
   });
 
   it('detail page ingest → upsertSourced (new sourceUrl)', async () => {

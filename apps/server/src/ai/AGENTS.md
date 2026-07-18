@@ -45,6 +45,10 @@ ai/
 - Image edit: `POST /api/image-ai/edit`, `GET /api/image-ai/tasks/:taskId`
 - Text transform: `POST /api/text-ai/transform`
 - Detail-page generation and editor APIs: `/api/ai/detail-page/*`
+- Saved detail page → marketplace description image:
+  `POST /api/ai/detail-page-image/candidate/:candidateId`. Returns
+  `{ status: 'missing' }` rather than 404 when no detail page is saved, so
+  callers cannot silently substitute another image.
 - Generated content archive: `/api/ai/content-archive/*`
 - Content asset library: `/api/ai/content-assets`
 - Content workspace thumbnail selection:

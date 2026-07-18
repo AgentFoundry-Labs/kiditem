@@ -119,4 +119,53 @@ describe('DetailPageQueryRepositoryAdapter', () => {
       },
     });
   });
+
+  it('prefers the current artifact revision before the newest artifact fallback', async () => {
+    const selectedCreatedAt = new Date('2026-07-19T01:00:00.000Z');
+    const fallbackCreatedAt = new Date('2026-07-19T02:00:00.000Z');
+    const prisma = {
+      contentWorkspace: {
+        findFirst: vi.fn().mockResolvedValue({
+          currentDetailPageRevision: null,
+          currentDetailPageArtifact: {
+            currentRevision: {
+              id: 'revision-selected',
+              artifactId: 'artifact-selected',
+              html: '<section>selected</section>',
+              createdAt: selectedCreatedAt,
+            },
+          },
+          detailPageArtifacts: [{
+            currentRevision: {
+              id: 'revision-newest',
+              artifactId: 'artifact-newest',
+              html: '<section>newest</section>',
+              createdAt: fallbackCreatedAt,
+            },
+          }],
+        }),
+      },
+    };
+    const repository = new DetailPageQueryRepositoryAdapter(prisma as never, {} as never);
+
+    await expect(repository.findCandidateCurrentDetailPageHtml({
+      sourceCandidateId: CANDIDATE_ID,
+      organizationId: ORG,
+    })).resolves.toEqual({
+      revisionId: 'revision-selected',
+      artifactId: 'artifact-selected',
+      html: '<section>selected</section>',
+      createdAt: selectedCreatedAt,
+    });
+
+    expect(prisma.contentWorkspace.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          currentDetailPageRevision: expect.any(Object),
+          currentDetailPageArtifact: expect.any(Object),
+          detailPageArtifacts: expect.any(Object),
+        }),
+      }),
+    );
+  });
 });

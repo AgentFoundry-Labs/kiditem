@@ -106,4 +106,46 @@ describe('buildProductBasics', () => {
     expect(result.thumbnailUrls).toEqual(['https://cdn.example.com/source.jpg']);
     expect(result.thumbnailPreviewUrls).toEqual([]);
   });
+
+  describe('registrationImages', () => {
+    const candidate = {
+      id: 'candidate-1',
+      name: '수집 상품명',
+      description: null,
+      category: null,
+      tags: [],
+      rawData: {},
+      thumbnailUrl: 'https://cbu01.alicdn.com/source.jpg',
+      imageUrl: 'https://cbu01.alicdn.com/source.jpg',
+      images: [
+        { url: 'https://cbu01.alicdn.com/source.jpg', sortOrder: 0, role: 'product', isPrimary: true },
+      ],
+    };
+
+    it('carries role-split content assets through untouched', () => {
+      const result = buildProductBasics({
+        candidate,
+        preparation: null,
+        registrationImages: {
+          primary: ['http://localhost:9000/a/primary.png'],
+          thumbnail: ['http://localhost:9000/a/thumb.png'],
+          detail: ['http://localhost:9000/a/detail.png'],
+        },
+      });
+
+      expect(result.registrationImages).toEqual({
+        primary: ['http://localhost:9000/a/primary.png'],
+        thumbnail: ['http://localhost:9000/a/thumb.png'],
+        detail: ['http://localhost:9000/a/detail.png'],
+      });
+    });
+
+    it('returns empty role buckets rather than substituting the scrape original', () => {
+      const result = buildProductBasics({ candidate, preparation: null });
+
+      expect(result.registrationImages).toEqual({ primary: [], thumbnail: [], detail: [] });
+      // 폴백은 호출자 몫이다. 프리젠터가 원본 이미지를 role 자산인 척 넣으면 안 된다.
+      expect(result.registrationImages.primary).not.toContain('https://cbu01.alicdn.com/source.jpg');
+    });
+  });
 });

@@ -5,7 +5,18 @@ import {
   type ContentAssetLibraryWriteScope,
   type PersistedContentAssetRef,
 } from '../port/out/repository/content-asset-library.repository.port';
+import type {
+  CandidateContentAssetPort,
+  CandidateRegistrationImages,
+} from '../port/in/workspace/candidate-content-asset.port';
 export { groupUrlAssetKey } from '../../domain/content-asset-key';
+
+/** Roles that may be pushed into a channel registration form, in form order. */
+const REGISTRATION_ROLES = ['primary', 'thumbnail', 'detail'] as const;
+type RegistrationRole = (typeof REGISTRATION_ROLES)[number];
+
+const isRegistrationRole = (role: string | null): role is RegistrationRole =>
+  role !== null && (REGISTRATION_ROLES as readonly string[]).includes(role);
 
 export interface ContentAssetListQuery {
   page?: number;
@@ -17,11 +28,34 @@ export interface ContentAssetListQuery {
 export type { PersistedContentAssetRef };
 
 @Injectable()
-export class ContentAssetService {
+export class ContentAssetService implements CandidateContentAssetPort {
   constructor(
     @Inject(CONTENT_ASSET_LIBRARY_REPOSITORY_PORT)
     private readonly repository: ContentAssetLibraryRepositoryPort,
   ) {}
+
+  /**
+   * Role-split registration images for one candidate.
+   *
+   * Anything that is not `primary`/`thumbnail`/`detail` is dropped — notably
+   * `source` (raw scrape originals, wrong spec) and `option` (per-SKU images,
+   * not wired into any registration form yet).
+   */
+  async listRegistrationImages(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+  }): Promise<CandidateRegistrationImages> {
+    const rows = await this.repository.listCandidateAssets(input);
+    const grouped: CandidateRegistrationImages = { primary: [], thumbnail: [], detail: [] };
+    for (const row of rows) {
+      if (!isRegistrationRole(row.role)) continue;
+      const url = typeof row.url === 'string' ? row.url.trim() : '';
+      if (!url) continue;
+      if (grouped[row.role].includes(url)) continue;
+      grouped[row.role].push(url);
+    }
+    return grouped;
+  }
 
   async deleteAsset(
     organizationId: string,

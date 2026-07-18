@@ -58,6 +58,7 @@ import { ProductPreparationRepositoryAdapter } from "./adapter/out/repository/pr
 import { ChannelProductRegistrationAdapter } from "./adapter/out/channels/channel-product-registration.adapter";
 import { CoupangMomentumAdapter } from "./adapter/out/advertising/coupang-momentum.adapter";
 import { RegistrationContentWorkspaceAdapter } from "./adapter/out/ai/registration-content-workspace.adapter";
+import { CandidateContentAssetAdapter } from "./adapter/out/ai/candidate-content-asset.adapter";
 import { SourcingPlaywrightRuntimeHandler } from "./adapter/out/runtime/sourcing-playwright-runtime.handler";
 import { Direct1688ImageSearchAdapter } from "./adapter/out/1688/direct-1688-image-search.adapter";
 import { Direct1688KeywordSearchAdapter } from "./adapter/out/1688/direct-1688-keyword-search.adapter";
@@ -94,6 +95,7 @@ import { PRODUCT_PREPARATION_REPOSITORY_PORT } from "./application/port/out/repo
 import { CHANNEL_PRODUCT_REGISTRATION_PORT } from "./application/port/out/cross-domain/channel-product-registration.port";
 import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupang-momentum.port";
 import { REGISTRATION_CONTENT_WORKSPACE_PORT } from "./application/port/out/cross-domain/registration-content-workspace.port";
+import { SOURCING_CANDIDATE_CONTENT_ASSET_PORT } from "./application/port/out/cross-domain/candidate-content-asset.port";
 import {
   LINKFOX_ECHOTIK_SHADOW_PORT,
   MARKET_SHADOW_SIGNAL_PORT,
@@ -184,6 +186,7 @@ import {
     ChannelProductRegistrationAdapter,
     CoupangMomentumAdapter,
     RegistrationContentWorkspaceAdapter,
+    CandidateContentAssetAdapter,
     SourcingPlaywrightRuntimeHandler,
     Direct1688ImageSearchAdapter,
     Direct1688KeywordSearchAdapter,
@@ -287,6 +290,10 @@ import {
     {
       provide: REGISTRATION_CONTENT_WORKSPACE_PORT,
       useExisting: RegistrationContentWorkspaceAdapter,
+    },
+    {
+      provide: SOURCING_CANDIDATE_CONTENT_ASSET_PORT,
+      useExisting: CandidateContentAssetAdapter,
     },
     {
       provide: MARKET_SHADOW_SIGNAL_PORT,

@@ -19,6 +19,7 @@ type AnyComponent = React.ComponentType<any>;
 
 const API_BASE_ROOT = API_BASE.replace(/\/$/, '');
 const FONT_READY_GATE_ATTR = 'data-kiditem-font-ready-gate';
+export const DETAIL_TEMPLATE_STYLES_ATTR = 'data-kiditem-template-styles';
 
 function getWebOrigin(): string {
   if (typeof window === 'undefined') return '';
@@ -182,7 +183,9 @@ export function renderTemplateToHtml(
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${data.title ?? '상세페이지'}</title>
-  <style>${prepareTemplateCss(templateCss)}</style>
+  <style${templateCss.trim() ? ` ${DETAIL_TEMPLATE_STYLES_ATTR}` : ''}>
+    ${prepareTemplateCss(templateCss)}
+  </style>
   ${fontLinks}
   ${buildDetailFontReadyGateHead()}
   <style>
@@ -969,6 +972,15 @@ export function repairBoldVerticalEditedHtml(html: string): string {
   return serializeEditedHtmlDocument(doc, html);
 }
 
+export function isLegacyEditedHtmlFallbackCss(css: string): boolean {
+  return (
+    css.includes(
+      '.relative > img.h-\\[500px\\] + .absolute.inset-0.bg-gradient-to-t.from-white.via-transparent.to-transparent',
+    ) &&
+    css.includes('section[class*="from-[#1a1a1a]"]')
+  );
+}
+
 function stripLegacyTemplateStyleMixing(html: string): string {
   if (!/<html[\s>]/i.test(html) && !/<head[\s>]/i.test(html)) return html;
   const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -982,11 +994,13 @@ function stripLegacyTemplateStyleMixing(html: string): string {
   });
   doc.head.querySelectorAll('style').forEach((style) => {
     const text = style.textContent ?? '';
-    const isLegacyFallback =
-      text.includes('section[class*="from-[#1a1a1a]"]') ||
-      text.includes('relative > img.h-\\[500px\\]') ||
-      text.includes('.brightness-\\[0\\.7\\]');
-    if (/Black\s*Han\s*Sans/i.test(text) || isLegacyFallback) style.remove();
+    if (/Black\s*Han\s*Sans/i.test(text) || isLegacyEditedHtmlFallbackCss(text)) {
+      style.remove();
+      return;
+    }
+    if (/tailwindcss v/i.test(text)) {
+      style.setAttribute(DETAIL_TEMPLATE_STYLES_ATTR, '');
+    }
   });
   return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
 }
@@ -1008,16 +1022,19 @@ export function ensureStyledDetailHtml(html: string, templateCss = ''): string {
   const source = hasTemplateCss ? stripLegacyTemplateStyleMixing(baseSource) : baseSource;
   const profile = inferEditedHtmlStyleProfile(source);
   const hasTailwindRuntime = /cdn\.tailwindcss\.com/i.test(source);
+  const sourceHasCompiledTailwind =
+    new RegExp(DETAIL_TEMPLATE_STYLES_ATTR, 'i').test(source) || /tailwindcss v/i.test(source);
   const hasCompiledTailwind =
-    /tailwindcss v/i.test(source) || /tailwindcss v/i.test(compiledTemplateCss);
+    sourceHasCompiledTailwind || /tailwindcss v/i.test(compiledTemplateCss);
+  const hasTailwindMarkup = looksLikeTailwindMarkup(source);
   const sourceAlreadyHasStyledHead =
     /<head[\s>]/i.test(source) &&
     /data-kiditem-font-ready-gate/i.test(source) &&
-    (!hasTemplateCss || /tailwindcss v/i.test(source));
+    (!hasTailwindMarkup || hasTailwindRuntime || sourceHasCompiledTailwind);
   if (sourceAlreadyHasStyledHead) return source;
 
   const needsTailwindRuntime =
-    looksLikeTailwindMarkup(source) &&
+    hasTailwindMarkup &&
     !hasTailwindRuntime &&
     !hasCompiledTailwind &&
     !hasTemplateCss;
@@ -1031,7 +1048,7 @@ export function ensureStyledDetailHtml(html: string, templateCss = ''): string {
   <meta name="viewport" content="width=${profile.viewportWidth}, initial-scale=1" />
   ${needsTailwindRuntime ? '<script src="https://cdn.tailwindcss.com"></script>' : ''}
   ${fontLinks}
-  ${hasTemplateCss ? `<style>${compiledTemplateCss}</style>` : ''}
+  ${hasTemplateCss ? `<style ${DETAIL_TEMPLATE_STYLES_ATTR}>${compiledTemplateCss}</style>` : ''}
   ${hasTemplateCss ? '' : `<style>${EDITED_HTML_FALLBACK_CSS}</style>`}
   ${buildDetailFontReadyGateHead()}
   <style>

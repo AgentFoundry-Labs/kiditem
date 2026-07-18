@@ -13,6 +13,7 @@ import { AiOperationAlertAdapter } from '../adapter/out/automation/operation-ale
 import { GeminiThumbnailVisionAdapter } from '../adapter/out/gemini/gemini-thumbnail-vision.adapter';
 import { ThumbnailImageGenerationAdapter } from '../adapter/out/gemini/thumbnail-image-generation.adapter';
 import { ThumbnailReferenceImagesService } from '../adapter/out/gemini/thumbnail-reference-images.adapter';
+import { DetailPageTemplateStylesAdapter } from '../adapter/out/runtime/detail-page-template-styles.adapter';
 import { ContentArchiveRepositoryAdapter } from '../adapter/out/repository/content-archive.repository.adapter';
 import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
 import { ContentWorkspaceLifecycleRepositoryAdapter } from '../adapter/out/repository/content-workspace-lifecycle.repository.adapter';
@@ -28,6 +29,7 @@ import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repos
 import { ThumbnailTrackingRepositoryAdapter } from '../adapter/out/repository/thumbnail-tracking.repository.adapter';
 import { ThumbnailWingRepositoryAdapter } from '../adapter/out/repository/thumbnail-wing.repository.adapter';
 import { AiGenerationCancellationService } from '../application/service/ai-generation-cancellation.service';
+import { ContentAssetService } from '../application/service/content-asset.service';
 import { ContentWorkspaceThumbnailSelectionService } from '../application/service/content-workspace-thumbnail-selection.service';
 import { RegistrationContentWorkspaceService } from '../application/service/registration-content-workspace.service';
 import { ProductGenerationAiService } from '../application/service/product-generation-ai.service';
@@ -41,6 +43,7 @@ import {
 } from '../application/port/in/generation';
 import { AI_WORKSPACE_ARCHIVE_PORT } from '../application/port/in/workspace';
 import { REGISTRATION_CONTENT_WORKSPACE_PORT } from '../application/port/in/workspace/registration-content-workspace.port';
+import { CANDIDATE_CONTENT_ASSET_PORT } from '../application/port/in/workspace/candidate-content-asset.port';
 import { AI_OPERATION_ALERT_PORT } from '../application/port/out/cross-domain';
 import {
   THUMBNAIL_IMAGE_GENERATION_PORT,
@@ -67,6 +70,7 @@ import {
   DETAIL_PAGE_DIRECT_OUTPUT_SINK_PORT,
   THUMBNAIL_DIRECT_OUTPUT_SINK_PORT,
 } from '../application/port/out/sink';
+import { DETAIL_PAGE_TEMPLATE_STYLES_PORT } from '../application/port/out/runtime';
 
 const IMPORTS_KEY = 'imports';
 const PROVIDERS_KEY = 'providers';
@@ -105,6 +109,7 @@ describe('AiModule hexagonal wiring contract', () => {
       [CONTENT_WORKSPACE_THUMBNAIL_SELECTION_REPOSITORY_PORT, ContentWorkspaceThumbnailSelectionRepositoryAdapter],
       [DETAIL_PAGE_GENERATION_REPOSITORY_PORT, DetailPageGenerationRepositoryAdapter],
       [DETAIL_PAGE_QUERY_REPOSITORY_PORT, DetailPageQueryRepositoryAdapter],
+      [DETAIL_PAGE_TEMPLATE_STYLES_PORT, DetailPageTemplateStylesAdapter],
       [PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT, ProductGenerationChildLedgerRepositoryAdapter],
       [PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT, ProductGenerationContextRepositoryAdapter],
       [REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT, RegistrationContentWorkspaceRepositoryAdapter],
@@ -132,6 +137,7 @@ describe('AiModule hexagonal wiring contract', () => {
       [AI_WORKSPACE_ARCHIVE_PORT, SourcingWorkspaceArchiveService],
       [AI_GENERATION_CANCELLATION_PORT, AiGenerationCancellationService],
       [REGISTRATION_CONTENT_WORKSPACE_PORT, RegistrationContentWorkspaceService],
+      [CANDIDATE_CONTENT_ASSET_PORT, ContentAssetService],
       [CATALOG_MEDIA_PUBLICATION_PORT, AiCatalogMediaPublicationRepositoryAdapter],
     ].forEach(([token, adapter]) => {
       expectExistingBinding(providers, token as symbol, adapter);
@@ -142,6 +148,7 @@ describe('AiModule hexagonal wiring contract', () => {
       AI_WORKSPACE_ARCHIVE_PORT,
       AI_GENERATION_CANCELLATION_PORT,
       REGISTRATION_CONTENT_WORKSPACE_PORT,
+      CANDIDATE_CONTENT_ASSET_PORT,
       CATALOG_MEDIA_PUBLICATION_PORT,
     ]);
   });

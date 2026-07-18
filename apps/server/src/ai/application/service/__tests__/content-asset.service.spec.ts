@@ -17,10 +17,73 @@ function repository(
     syncGenerationImageUsages: vi.fn(),
     syncGenerationImageUsagesInScope: vi.fn(),
     listAssets: vi.fn(),
+    listCandidateAssets: vi.fn().mockResolvedValue([]),
     deleteAsset: vi.fn(),
     ...overrides,
   } as ContentAssetLibraryRepositoryPort;
 }
+
+describe('ContentAssetService.listRegistrationImages', () => {
+  const CANDIDATE = '44444444-4444-4444-8444-444444444444';
+
+  it('splits assets by role and drops roles that must never reach a registration form', async () => {
+    const repo = repository({
+      listCandidateAssets: vi.fn().mockResolvedValue([
+        { role: 'primary', url: 'http://localhost:9000/a/primary.png', sortOrder: 0 },
+        { role: 'thumbnail', url: 'http://localhost:9000/a/thumb-1.png', sortOrder: 1 },
+        { role: 'thumbnail', url: 'http://localhost:9000/a/thumb-2.png', sortOrder: 2 },
+        { role: 'detail', url: 'http://localhost:9000/a/detail.png', sortOrder: 3 },
+        // 원본 스크랩본 — 쿠팡 1,000x1,000 규격이 아니라 등록에 쓰면 안 된다.
+        { role: 'source', url: 'https://cbu01.alicdn.com/original.jpg', sortOrder: 4 },
+        // 옵션별 이미지는 아직 어떤 등록 폼에도 배선돼 있지 않다.
+        { role: 'option', url: 'https://image1.coupangcdn.com/option.jpg', sortOrder: 5 },
+        { role: null, url: 'https://image1.coupangcdn.com/untagged.jpg', sortOrder: 6 },
+      ]),
+    });
+    const service = new ContentAssetService(repo);
+
+    const result = await service.listRegistrationImages({
+      organizationId: ORG,
+      sourceCandidateId: CANDIDATE,
+    });
+
+    expect(result).toEqual({
+      primary: ['http://localhost:9000/a/primary.png'],
+      thumbnail: ['http://localhost:9000/a/thumb-1.png', 'http://localhost:9000/a/thumb-2.png'],
+      detail: ['http://localhost:9000/a/detail.png'],
+    });
+    const flattened = [...result.primary, ...result.thumbnail, ...result.detail];
+    expect(flattened).not.toContain('https://cbu01.alicdn.com/original.jpg');
+    expect(flattened).not.toContain('https://image1.coupangcdn.com/option.jpg');
+  });
+
+  it('drops blank urls and de-duplicates within a role', async () => {
+    const repo = repository({
+      listCandidateAssets: vi.fn().mockResolvedValue([
+        { role: 'primary', url: '  ', sortOrder: 0 },
+        { role: 'thumbnail', url: 'http://localhost:9000/a/dup.png', sortOrder: 1 },
+        { role: 'thumbnail', url: 'http://localhost:9000/a/dup.png', sortOrder: 2 },
+      ]),
+    });
+    const service = new ContentAssetService(repo);
+
+    await expect(
+      service.listRegistrationImages({ organizationId: ORG, sourceCandidateId: CANDIDATE }),
+    ).resolves.toEqual({
+      primary: [],
+      thumbnail: ['http://localhost:9000/a/dup.png'],
+      detail: [],
+    });
+  });
+
+  it('returns empty buckets when the candidate owns no content assets', async () => {
+    const service = new ContentAssetService(repository());
+
+    await expect(
+      service.listRegistrationImages({ organizationId: ORG, sourceCandidateId: CANDIDATE }),
+    ).resolves.toEqual({ primary: [], thumbnail: [], detail: [] });
+  });
+});
 
 describe('ContentAssetService', () => {
   it('blocks deletion while an active generation usage or thumbnail selection references the asset', async () => {

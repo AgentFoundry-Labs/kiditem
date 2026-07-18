@@ -68,6 +68,21 @@ export interface SyncGenerationImageUsagesInput {
   imageUrls: string[];
 }
 
+/**
+ * A role-tagged asset reachable from a sourcing candidate.
+ *
+ * Reachability is `ContentAsset.originGenerationGroupId -> ContentGenerationGroup
+ * -> ContentWorkspace.sourceCandidateId`. The `ContentGeneration.sourceCandidateId`
+ * route does NOT work for `workspace_assets` groups: those groups hold no
+ * generations at all, so joining through `ContentGeneration` drops every
+ * `primary`/`thumbnail`/`detail`/`option` asset.
+ */
+export interface CandidateContentAssetRow {
+  role: string | null;
+  url: string;
+  sortOrder: number;
+}
+
 export interface ContentAssetLibraryRepositoryPort {
   deleteAsset(input: {
     organizationId: string;
@@ -89,4 +104,8 @@ export interface ContentAssetLibraryRepositoryPort {
     total: number;
     rows: ContentAssetListRow[];
   }>;
+  listCandidateAssets(input: {
+    organizationId: string;
+    sourceCandidateId: string;
+  }): Promise<CandidateContentAssetRow[]>;
 }

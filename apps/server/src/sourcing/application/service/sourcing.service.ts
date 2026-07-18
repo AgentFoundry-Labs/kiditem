@@ -13,6 +13,10 @@ import {
   SOURCING_CANDIDATE_REPOSITORY_PORT,
   type SourcingCandidateRepositoryPort,
 } from '../port/out/repository/sourcing-candidate.repository.port';
+import {
+  SOURCING_CANDIDATE_CONTENT_ASSET_PORT,
+  type CandidateContentAssetPort,
+} from '../port/out/cross-domain/candidate-content-asset.port';
 import type {
   CreateProductGenerationCommand,
   ReceiveExtensionDataInput,
@@ -60,6 +64,8 @@ export class SourcingService {
     private readonly agentGateway: SourcingAgentGatewayPort,
     @Inject(SOURCING_OPERATION_ALERT_PORT)
     private readonly operationAlerts: OperationAlertPort,
+    @Inject(SOURCING_CANDIDATE_CONTENT_ASSET_PORT)
+    private readonly candidateContentAssets: CandidateContentAssetPort,
   ) {}
 
   async receiveExtensionData(
@@ -430,11 +436,19 @@ export class SourcingService {
   async getProduct(productId: string, organizationId: string) {
     const row = await this.candidates.findById(productId, organizationId);
     if (!row) throw new NotFoundException('Sourcing candidate not found');
+    // Registration images come from ContentAsset.role, not from the scrape
+    // originals on the candidate row. Missing assets stay empty so the caller
+    // can fall back explicitly instead of shipping an off-spec source image.
+    const registrationImages = await this.candidateContentAssets.listRegistrationImages({
+      organizationId,
+      sourceCandidateId: productId,
+    });
     return {
       ...row,
       basicInfo: buildProductBasics({
         candidate: row,
         preparation: row.productPreparation,
+        registrationImages,
       }),
     };
   }

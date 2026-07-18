@@ -22,11 +22,24 @@ export interface ProductBasics {
   rocketUnitCost: number;
   thumbnailUrls: string[];
   thumbnailPreviewUrls: string[];
+  /**
+   * Channel-registration images resolved from `ContentAsset.role`, NOT from the
+   * scrape originals. Empty arrays mean the candidate has no role-tagged assets
+   * yet; callers must fall back rather than substitute `role = 'source'` rows,
+   * which are raw originals that fail the Coupang 1,000x1,000 spec.
+   */
+  registrationImages: RegistrationImages;
   selectedThumbnailUrl: string | null;
   selectedThumbnailGenerationCandidateId: string | null;
   selectedDetailPageGenerationId: string | null;
   selectedDetailPageArtifactId: string | null;
   selectedDetailPageRevisionId: string | null;
+}
+
+export interface RegistrationImages {
+  primary: string[];
+  thumbnail: string[];
+  detail: string[];
 }
 
 type CandidateLike = {
@@ -72,9 +85,11 @@ const num = (value: unknown): number =>
 export function buildProductBasics({
   candidate,
   preparation,
+  registrationImages,
 }: {
   candidate: CandidateLike;
   preparation: PreparationLike;
+  registrationImages?: RegistrationImages | null;
 }): ProductBasics {
   const raw = toRecord(candidate.rawData);
   const input = toRecord(preparation?.registrationInput);
@@ -114,6 +129,11 @@ export function buildProductBasics({
     rocketUnitCost: num(input.rocketUnitCost),
     thumbnailUrls: [...new Set(thumbnailUrls)],
     thumbnailPreviewUrls: [...new Set(thumbnailPreviewUrls)],
+    registrationImages: {
+      primary: strings(registrationImages?.primary),
+      thumbnail: strings(registrationImages?.thumbnail),
+      detail: strings(registrationImages?.detail),
+    },
     selectedThumbnailUrl: preparation?.selectedThumbnailUrl ?? null,
     selectedThumbnailGenerationCandidateId: preparation?.selectedThumbnailGenerationCandidateId ?? null,
     selectedDetailPageGenerationId: preparation?.selectedDetailPageGenerationId ?? null,
