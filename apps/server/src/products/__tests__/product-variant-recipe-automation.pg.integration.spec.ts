@@ -78,6 +78,39 @@ describe('ProductVariantRecipeAutomationService (PG integration)', () => {
     });
   });
 
+  it('allows different variants to consume the same active Sellpia SKU', async () => {
+    const first = await createVariant(TEST_ORGANIZATION_ID, 'SHARED-FIRST');
+    const second = await createVariant(TEST_ORGANIZATION_ID, 'SHARED-SECOND');
+    const sharedSku = await createSku(TEST_ORGANIZATION_ID, 'SP-SHARED');
+
+    await expect(service.applyIfEmpty({
+      organizationId: TEST_ORGANIZATION_ID,
+      recipes: [first, second].map((productVariantId) => ({
+        productVariantId,
+        sellpiaInventorySkuId: sharedSku,
+        quantity: 1 as const,
+      })),
+    })).resolves.toEqual({
+      appliedProductVariantIds: [first, second].sort(),
+      skippedExistingProductVariantIds: [],
+    });
+    await expect(prisma.productVariantComponent.findMany({
+      where: { productVariantId: { in: [first, second] } },
+      orderBy: { productVariantId: 'asc' },
+      select: {
+        productVariantId: true,
+        sellpiaInventorySkuId: true,
+        quantity: true,
+        source: true,
+      },
+    })).resolves.toEqual([first, second].sort().map((productVariantId) => ({
+      productVariantId,
+      sellpiaInventorySkuId: sharedSku,
+      quantity: 1,
+      source: 'deterministic',
+    })));
+  });
+
   it('rejects foreign variants, foreign SKUs, and inactive SKUs atomically', async () => {
     const ownVariant = await createVariant(TEST_ORGANIZATION_ID, 'OWN');
     const foreignVariant = await createVariant(OTHER_ORGANIZATION_ID, 'FOREIGN');

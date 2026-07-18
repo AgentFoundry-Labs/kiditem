@@ -278,7 +278,11 @@ implements ProductOperationsRepositoryPort {
         const existingVariantIds = new Set(existing.map((row) => row.productVariantId));
         const pending = recipes.filter((recipe) =>
           !existingVariantIds.has(recipe.productVariantId));
-        await validateRecipeSkus(tx, input.organizationId, pending);
+        await validateActiveRecipeSkuIds(
+          tx,
+          input.organizationId,
+          [...new Set(pending.map((recipe) => recipe.sellpiaInventorySkuId))],
+        );
 
         if (pending.length > 0) {
           const confirmedAt = new Date();
@@ -451,6 +455,14 @@ async function validateRecipeSkus(
   if (ids.length !== components.length) {
     throw new BadRequestException('ProductVariant component SKUs must be unique');
   }
+  await validateActiveRecipeSkuIds(tx, organizationId, ids);
+}
+
+async function validateActiveRecipeSkuIds(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  ids: string[],
+): Promise<void> {
   if (ids.length === 0) return;
   const rows = await tx.sellpiaInventorySku.findMany({
     where: { organizationId, id: { in: ids } },
