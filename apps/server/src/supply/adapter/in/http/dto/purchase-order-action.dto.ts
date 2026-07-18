@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNumber, IsUUID, IsInt, IsPositive, IsIn, IsArray, ArrayMinSize, ArrayMaxSize, ValidateIf, ValidateNested, MinLength, MaxLength, IsUrl, IsObject, IsBoolean, Min, Max } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsUUID, IsInt, IsPositive, IsIn, IsArray, ArrayMinSize, ArrayMaxSize, ValidateIf, ValidateNested, MinLength, MaxLength, IsUrl, IsObject, IsBoolean, Min, Max, Matches } from 'class-validator';
 import { Type } from 'class-transformer';
 import type {
   RocketPoCatalogRow,
@@ -18,7 +18,7 @@ class PurchaseOrderItemDto {
  * organizationId 는 `req.authUser.organizationId` 에서 주입 — DTO 에는 포함하지 않는다.
  */
 export class PurchaseOrderActionBodyDto {
-  @IsIn(['create', 'updateStatus', 'delete', 'submit', 'reconcileSubmission', 'previewRocket', 'confirmRocket', 'releaseRocketConfirmation', 'listRocketCommitments', 'settleRocketFinalOrderCommitments', 'releaseRocketFinalOrderCommitments'])
+  @IsIn(['create', 'updateStatus', 'delete', 'submit', 'reconcileSubmission', 'previewRocket', 'confirmRocket', 'releaseRocketConfirmation', 'listRocketCommitments', 'settleRocketFinalOrderCommitments', 'releaseRocketFinalOrderCommitments', 'listSavedRocketPos', 'loadSavedRocketCollection'])
   action: string;
 
   @ValidateIf(o => o.action === 'create')
@@ -68,10 +68,26 @@ export class PurchaseOrderActionBodyDto {
   providerReference?: string | null;
 
   @ValidateIf(o =>
-    ['previewRocket', 'confirmRocket'].includes(o.action)
+    ['previewRocket', 'confirmRocket', 'listSavedRocketPos', 'loadSavedRocketCollection'].includes(o.action)
     || (o.action === 'listRocketCommitments' && o.channelAccountId !== undefined))
   @IsUUID()
   channelAccountId?: string;
+
+  @ValidateIf(o => o.action === 'listSavedRocketPos')
+  @IsString() @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  from?: string;
+
+  @ValidateIf(o => o.action === 'listSavedRocketPos')
+  @IsString() @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  to?: string;
+
+  @ValidateIf(o => o.action === 'listSavedRocketPos' && o.rocketStatus !== undefined)
+  @IsString() @MaxLength(80)
+  rocketStatus?: string;
+
+  @ValidateIf(o => o.action === 'loadSavedRocketCollection')
+  @IsUUID()
+  sourceImportRunId?: string;
 
   @ValidateIf(o => ['previewRocket', 'confirmRocket'].includes(o.action))
   @IsObject()

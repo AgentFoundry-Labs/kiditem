@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import {
   confirmRocketPurchase,
+  listSavedRocketPos,
+  loadSavedRocketCollection,
   previewRocketPurchases,
   releaseRocketPurchaseConfirmation,
 } from './rocket-purchase-preview-api';
@@ -157,6 +159,53 @@ describe('previewRocketPurchases', () => {
       action: 'releaseRocketConfirmation',
       confirmationId: '44444444-4444-4444-8444-444444444444',
       releaseReason: '쿠팡 확정 수량 정정',
+    });
+  });
+
+  it('lists and loads server-saved Rocket evidence through account-scoped actions', async () => {
+    vi.mocked(apiClient.post).mockResolvedValueOnce([{
+      sourceImportRunId: RUN_ID,
+      poNumber: '1001',
+      orderedAt: '2026-07-17 09:00:00',
+      plannedDeliveryDate: '2026-07-20',
+      status: '거래처확인요청',
+      vendorId: 'VENDOR-1',
+      centerName: '덕평1센터',
+      inboundType: '택배',
+      firstProductName: 'Rocket item',
+      skuCount: 1,
+      orderQuantity: 2,
+      orderAmount: 1_980,
+      collectedAt: '2026-07-18T01:00:00.000Z',
+    }]);
+    await listSavedRocketPos({
+      channelAccountId: ACCOUNT_ID,
+      from: '2026-07-01',
+      to: '2026-07-31',
+      status: '거래처확인요청',
+    });
+    expect(apiClient.post).toHaveBeenLastCalledWith('/api/purchase-orders', {
+      action: 'listSavedRocketPos',
+      channelAccountId: ACCOUNT_ID,
+      from: '2026-07-01',
+      to: '2026-07-31',
+      rocketStatus: '거래처확인요청',
+    });
+
+    vi.mocked(apiClient.post).mockResolvedValueOnce({
+      sourceImportRunId: RUN_ID,
+      channelAccountId: ACCOUNT_ID,
+      collection: input().collection,
+      rows: input().rows,
+    });
+    await loadSavedRocketCollection({
+      channelAccountId: ACCOUNT_ID,
+      sourceImportRunId: RUN_ID,
+    });
+    expect(apiClient.post).toHaveBeenLastCalledWith('/api/purchase-orders', {
+      action: 'loadSavedRocketCollection',
+      channelAccountId: ACCOUNT_ID,
+      sourceImportRunId: RUN_ID,
     });
   });
 });
