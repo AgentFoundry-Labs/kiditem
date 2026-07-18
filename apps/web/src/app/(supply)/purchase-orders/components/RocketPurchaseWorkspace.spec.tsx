@@ -9,6 +9,7 @@ import { downloadBlob } from '@/lib/browser-download';
 import { saveRocketConfirmFile } from '@/lib/rocket-confirm-file-store';
 import {
   confirmRocketPurchase,
+  loadSavedRocketCollection,
   previewRocketPurchases,
   releaseRocketPurchaseConfirmation,
 } from '../lib/rocket-purchase-preview-api';
@@ -28,6 +29,10 @@ vi.mock('../lib/rocket-purchase-preview-api', () => ({
   previewRocketPurchases: vi.fn(),
   confirmRocketPurchase: vi.fn(),
   releaseRocketPurchaseConfirmation: vi.fn(),
+  loadSavedRocketCollection: vi.fn(),
+}));
+vi.mock('./RocketDeterministicMatchingPanel', () => ({
+  RocketDeterministicMatchingPanel: () => <div>결정적 매칭 패널</div>,
 }));
 vi.mock('../lib/rocket-confirmation-workbook', () => ({
   buildRocketConfirmationWorkbook: vi.fn(),
@@ -425,6 +430,43 @@ describe('RocketPurchaseWorkspace', () => {
     expect(screen.queryByLabelText('조회 시작일')).toBeNull();
     expect(screen.queryByLabelText('조회 종료일')).toBeNull();
     expect(screen.getByText('2026-07-16 ~ 2026-07-22')).toBeInTheDocument();
+  });
+
+  it('loads a selected saved snapshot and re-previews inventory without extension recollection', async () => {
+    const savedRunId = '77777777-7777-4777-8777-777777777777';
+    vi.mocked(loadSavedRocketCollection).mockResolvedValue({
+      sourceImportRunId: savedRunId,
+      channelAccountId: ACCOUNT_ID,
+      collection: {
+        collectionRunId: '22222222-2222-4222-8222-222222222222',
+        vendorId: 'VENDOR-1',
+        listPagesRead: 1,
+        totalListPages: 1,
+        truncated: false,
+        detailPoCount: 1,
+        failedPoNumbers: [],
+      },
+      rows: [confirmationLineA],
+    });
+
+    render(
+      <RocketPurchaseWorkspace
+        channelAccountId={ACCOUNT_ID}
+        from={FROM}
+        to={TO}
+        savedSourceImportRunId={savedRunId}
+      />,
+    );
+
+    await waitFor(() => expect(loadSavedRocketCollection).toHaveBeenCalledWith({
+      channelAccountId: ACCOUNT_ID,
+      sourceImportRunId: savedRunId,
+    }));
+    expect(collectRocketPoRowsForConfirmationFromExtension).not.toHaveBeenCalled();
+    expect(previewRocketPurchases).toHaveBeenCalledWith(expect.objectContaining({
+      channelAccountId: ACCOUNT_ID,
+      rows: [confirmationLineA],
+    }));
   });
 
   it('collects evidence then sends only a preview action', async () => {

@@ -29,9 +29,11 @@ React Query + apiClient
 logged-in order-collector extension
   -> collectRocketPoRows with a browser-created runId
 -> POST /api/purchase-orders { action: 'previewRocket' | 'confirmRocket' |
-'releaseRocketConfirmation' | 'listRocketCommitments' |
+'releaseRocketConfirmation' | 'listSavedRocketPos' |
+'loadSavedRocketCollection' | 'listRocketCommitments' |
 'settleRocketFinalOrderCommitments' | 'releaseRocketFinalOrderCommitments', ... }
-  -> preview, internal capacity allocation, official workbook download, release
+  -> immutable PO catalog evidence, current-inventory preview, internal capacity
+     allocation, official workbook download, release
 ```
 
 ## State Rules
@@ -53,8 +55,9 @@ logged-in order-collector extension
   `orderId`/`supplierId`; backend owns status transitions and totals.
 - Keep purchase-order creation payloads aligned with backend DTO semantics.
 - Rocket preview quantities are editable only up to the backend-recomputed
-  maximum. Recalculation must collect a fresh evidence run instead of reusing
-  stale browser rows.
+  maximum. Explicit new collection creates fresh provider evidence. A completed
+  persisted catalog snapshot may be reopened, but every reopen reruns Inventory
+  freshness and capacity; persisted inventory quantities are never reused.
 - Recollection intersects retained edit keys with fresh PO lines and sends all
   retained edits once using the backend's joint clamp mode. UI state uses the
   returned effective quantities because multiple rows may share component
@@ -68,9 +71,8 @@ logged-in order-collector extension
   reviewed every quantity/shortage reason.
 - Confirmation uses a browser-created UUID idempotency key and downloads the
   workbook only after the server persists the allocation. Persisted request/
-  final commitments remain durable after refresh. The operator page hides
-  empty and completed history and renders only active commitments that still
-  need settlement or release. Provisional cancellation is a release;
+  final commitments remain durable after refresh but are not rendered as a
+  separate operator list on the Rocket review page. Provisional cancellation is a release;
   final-order settlement requires a newer Sellpia snapshot proving the
   movement, while final-order cancellation requires an explicit release
   reason.
